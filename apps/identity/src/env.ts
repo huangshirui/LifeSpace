@@ -9,4 +9,5 @@ export type Variables = {
   requestId: string;
   currentApplicationId: string;
   currentApplicationScopes: string[];
+  currentApplicationTokenTtlSeconds: number;
 };
