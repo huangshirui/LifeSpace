@@ -2,7 +2,7 @@
 
 ## Purpose
 
-LifeSpace is a shared platform for ALOHA, HomeMew, and future vertical applications. Applications present different product experiences over one identity and authorization model and one set of shared life-domain records.
+LifeSpace is a shared platform for ALOHA, HomeMew, and future vertical applications. Applications present different product experiences over one LifeSpace user identity and authorization model and one set of shared life-domain records.
 
 ## Runtime boundaries
 
@@ -16,14 +16,57 @@ Mini Program / Device / Agent / Automation
   -> scoped bearer credential
   -> LifeSpace Core
 
-Applications / BFFs
-  -> LifeSpace Identity for login, OAuth/SSO and token issuance
+Application-specific external login
+  -> application adapter/BFF resolves external identity
+  -> LifeSpace user_id
+  -> authenticated backend token exchange with LifeSpace Identity
 ```
 
 Initial platform services:
 
 - `apps/core`: modular-monolith business API. Owns Spaces, Data Grants, shared domain models, business authorization, aggregate `/me` views, business migrations and webhooks/notifications that belong to domains.
-- `apps/identity`: global authentication and credential service. Owns external identity mapping, application registration, login/SSO, sessions, authorization-code flows, token issuance and revocation.
+- `apps/identity`: global LifeSpace user registry and credential issuer. Owns `usr_*` users, trusted application registration/credentials, short-lived token issuance/revocation and signing-key lifecycle. Platform SSO/session flows may be added later as explicit platform capabilities.
+
+## Identity boundary
+
+LifeSpace Identity is authoritative for the LifeSpace `user_id`, not for every external provider account used by every application.
+
+Application-owned mappings stay in the application boundary:
+
+```text
+HomeMew WeChat Cloud Function
+  openid -> LifeSpace user_id
+
+School Mini Program adapter
+  its WeChat/provider identity -> LifeSpace user_id
+
+Other vertical app adapter
+  provider-specific identity -> LifeSpace user_id
+```
+
+Core never stores or authenticates WeChat `openid`, WeCom `userid`, or equivalent external application IDs.
+
+A trusted application backend authenticates to Identity with its own revocable application credential and may then:
+
+- create a LifeSpace user when its own external mapping has no user yet;
+- assert an existing LifeSpace `user_id` after resolving its own mapping;
+- exchange that assertion for a short-lived Core token whose `azp` is derived from the authenticated application and whose scopes cannot exceed that application's registered scope ceiling.
+
+Browser or Mini Program clients must never be allowed to submit an arbitrary `user_id` directly to token issuance endpoints.
+
+Example HomeMew flow:
+
+```text
+Mini Program
+  -> HomeMew login Cloud Function obtains trusted openid
+  -> HomeMew mapping DB resolves openid -> usr_xxx
+     or trusted HomeMew backend creates usr_xxx through Identity and stores the mapping
+  -> HomeMew backend authenticates with its application credential
+  -> Identity issues short-lived token: sub=usr_xxx, azp=homemew-miniprogram
+  -> Mini Program calls LifeSpace Core with the token
+```
+
+This preserves the proven HomeMew boundary while removing the old shared-HS256-secret model.
 
 ## Data ownership
 
@@ -33,7 +76,7 @@ Cross-Space sharing uses Data Grants or approved derived views. Sharing does not
 
 ## Applications
 
-ALOHA, HomeMew and vertical applications are clients, not data owners. App repositories own UI, app-specific navigation, local presentation state and optional BFF aggregation. They must not become parallel sources of truth for platform business data.
+ALOHA, HomeMew and vertical applications are clients, not data owners. App repositories own UI, app-specific navigation, local presentation state, external-provider identity mapping, provider secrets and optional BFF aggregation. They must not become parallel sources of truth for platform business data.
 
 ## Cloudflare deployment
 
@@ -48,3 +91,5 @@ Production and staging use separate Workers and separate D1/R2/Queue resources.
 ## Core evolution from HomeMew
 
 HomeMew Core is the reference implementation for proven patterns such as Hono on Workers, D1 migrations, standard response envelopes, request IDs, optimistic concurrency, soft deletion, OpenAPI checks, Queue usage and build/test discipline. Migration into LifeSpace must generalize `family` ownership into Space/Grant semantics rather than copying family-specific authorization mechanically.
+
+HomeMew's existing identity implementation is also the reference for the external-identity boundary: WeChat Cloud Functions own `openid -> internal user ID` mapping, while Core accepts only the internal user ID carried by a verified token. LifeSpace keeps that boundary and centralizes only the LifeSpace user registry and token issuer.
