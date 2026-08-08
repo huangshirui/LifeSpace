@@ -4,6 +4,7 @@ import type { Bindings, Principal, Variables } from "./env";
 import { ApiError } from "./http";
 
 type AppEnv = { Bindings: Bindings; Variables: Variables };
+const MAX_ACCESS_TOKEN_TTL_SECONDS = 3600;
 
 function unauthorized(): ApiError {
   return new ApiError("UNAUTHORIZED", "Authentication is required", 401);
@@ -17,7 +18,7 @@ export async function verifyAccessToken(rawToken: string, publicKey: string): Pr
     if (typeof payload.sub !== "string" || !payload.sub) throw unauthorized();
     if (typeof payload.azp !== "string" || !payload.azp) throw unauthorized();
     if (typeof payload.jti !== "string" || !payload.jti) throw unauthorized();
-    if (typeof payload.iat !== "number" || typeof payload.exp !== "number" || payload.iat > now || payload.exp <= now || payload.exp <= payload.iat || payload.exp - payload.iat > 900) throw unauthorized();
+    if (typeof payload.iat !== "number" || typeof payload.exp !== "number" || payload.iat > now || payload.exp <= now || payload.exp <= payload.iat || payload.exp - payload.iat > MAX_ACCESS_TOKEN_TTL_SECONDS) throw unauthorized();
     if (payload.principal_type !== "user" && payload.principal_type !== "service" && payload.principal_type !== "device") throw unauthorized();
     const scopes = typeof payload.scope === "string" ? payload.scope.split(/\s+/).filter(Boolean) : [];
     return { type: payload.principal_type, id: payload.sub, clientId: payload.azp, scopes, tokenId: payload.jti };
