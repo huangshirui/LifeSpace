@@ -1,0 +1,21 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "lifespace-core-local",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-08",
+  "observability": { "enabled": true },
+  "vars": { "ENVIRONMENT": "local" },
+  "d1_databases": [{ "binding": "DB", "database_name": "lifespace-core-local", "database_id": "00000000-0000-0000-0000-000000000001", "migrations_dir": "migrations" }],
+  "env": {
+    "staging": {
+      "name": "lifespace-core-staging",
+      "vars": { "ENVIRONMENT": "staging" },
+      "d1_databases": [{ "binding": "DB", "database_name": "lifespace-core-staging", "database_id": "00000000-0000-0000-0000-000000000002", "migrations_dir": "migrations" }]
+    },
+    "production": {
+      "name": "lifespace-core",
+      "vars": { "ENVIRONMENT": "production" },
+      "d1_databases": [{ "binding": "DB", "database_name": "lifespace-core", "database_id": "00000000-0000-0000-0000-000000000003", "migrations_dir": "migrations" }]
+    }
+  }
+}
