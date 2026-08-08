@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: LifeSpace Identity API
-  version: 0.1.1
+  version: 0.1.2
 paths:
   /health:
     get:
@@ -13,10 +13,11 @@ paths:
         '200': { description: Identity status }
   /bootstrap/v1/applications:
     post:
-      description: Platform-admin bootstrap endpoint. Registers an application and returns a backend credential once when trustedBackend is true.
+      description: Platform-admin bootstrap endpoint. Registers an application, configures its access-token TTL (300-3600 seconds), and returns a backend credential once when trustedBackend is true.
       responses:
         '201': { description: Application registered }
         '401': { description: Bootstrap authentication required }
+        '422': { description: Invalid application or token TTL policy }
   /internal/v1/users:
     post:
       description: Trusted application backend creates a global LifeSpace user after resolving its own external identity mapping.
@@ -25,8 +26,8 @@ paths:
         '401': { description: Trusted application authentication required }
   /internal/v1/tokens:
     post:
-      description: Trusted application backend exchanges an already-resolved LifeSpace user ID for a short-lived Core token. Calling application is derived from its credential.
+      description: Trusted application backend exchanges an already-resolved LifeSpace user ID for a Core token. Calling application and token lifetime are derived from its registered application policy; the caller cannot choose either.
       responses:
-        '200': { description: Short-lived Core access token }
+        '200': { description: App-scoped short-lived Core access token }
         '401': { description: Trusted application authentication required }
         '403': { description: User/application/scope is not allowed }

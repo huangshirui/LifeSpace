@@ -10,12 +10,16 @@ type ApplicationBody = {
   clientType?: string;
   allowedScopes?: string[];
   trustedBackend?: boolean;
+  accessTokenTtlSeconds?: number;
 };
 type TokenBody = { subjectId?: string; scopes?: string[] };
 
 const ok = <T>(data: T) => ({ data });
 const fail = (code: string, message: string, requestId: string) => ({ error: { code, message, requestId } });
 const id = (prefix: string) => `${prefix}_${crypto.randomUUID().replaceAll("-", "")}`;
+const DEFAULT_ACCESS_TOKEN_TTL_SECONDS = 900;
+const MIN_ACCESS_TOKEN_TTL_SECONDS = 300;
+const MAX_ACCESS_TOKEN_TTL_SECONDS = 3600;
 
 async function sha256(value: string): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
@@ -24,6 +28,10 @@ async function sha256(value: string): Promise<string> {
 
 function newApplicationSecret(): string {
   return `lsa_${crypto.randomUUID().replaceAll("-", "")}${crypto.randomUUID().replaceAll("-", "")}`;
+}
+
+function validTokenTtl(value: number): boolean {
+  return Number.isInteger(value) && value >= MIN_ACCESS_TOKEN_TTL_SECONDS && value <= MAX_ACCESS_TOKEN_TTL_SECONDS;
 }
 
 export function createApp() {
@@ -54,7 +62,9 @@ export function createApp() {
     }
     const secretHash = await sha256(secret);
     const credential = await c.env.DB.prepare(`
-      SELECT c.application_id applicationId, a.allowed_scopes allowedScopes
+      SELECT c.application_id applicationId,
+             a.allowed_scopes allowedScopes,
+             a.access_token_ttl_seconds accessTokenTtlSeconds
       FROM application_credentials c
       JOIN applications a ON a.id = c.application_id
       WHERE c.secret_hash = ?
@@ -62,12 +72,13 @@ export function createApp() {
         AND c.revoked_at IS NULL
         AND a.status = 'active'
         AND a.trusted_backend = 1
-    `).bind(secretHash).first<{ applicationId: string; allowedScopes: string }>();
+    `).bind(secretHash).first<{ applicationId: string; allowedScopes: string; accessTokenTtlSeconds: number }>();
     if (!credential) {
       return c.json(fail("UNAUTHORIZED", "Trusted application authentication is required", c.get("requestId")), 401);
     }
     c.set("currentApplicationId", credential.applicationId);
     c.set("currentApplicationScopes", JSON.parse(credential.allowedScopes) as string[]);
+    c.set("currentApplicationTokenTtlSeconds", credential.accessTokenTtlSeconds);
     await next();
   });
 
@@ -82,7 +93,7 @@ export function createApp() {
       environment: c.env.ENVIRONMENT ?? "local",
       database: "available",
       schemaVersion: row.value,
-      contractVersion: "0.1.1",
+      contractVersion: "0.1.2",
     }));
   });
 
@@ -90,6 +101,10 @@ export function createApp() {
     const body = (await c.req.json<ApplicationBody>().catch(() => ({}))) as ApplicationBody;
     if (!body.id || !body.name || !body.clientType || !["web", "mini_program", "service", "device"].includes(body.clientType)) {
       return c.json(fail("VALIDATION_ERROR", "id, name and valid clientType are required", c.get("requestId")), 422);
+    }
+    const tokenTtlSeconds = body.accessTokenTtlSeconds ?? DEFAULT_ACCESS_TOKEN_TTL_SECONDS;
+    if (!validTokenTtl(tokenTtlSeconds)) {
+      return c.json(fail("VALIDATION_ERROR", "accessTokenTtlSeconds must be an integer between 300 and 3600", c.get("requestId")), 422);
     }
     const ts = new Date().toISOString();
     const trustedBackend = body.trustedBackend === true;
@@ -99,9 +114,9 @@ export function createApp() {
     try {
       await c.env.DB.batch([
         c.env.DB.prepare(`
-          INSERT INTO applications(id,name,client_type,allowed_scopes,trusted_backend,created_at,updated_at)
-          VALUES(?,?,?,?,?,?,?)
-        `).bind(body.id, body.name, body.clientType, JSON.stringify(allowedScopes), trustedBackend ? 1 : 0, ts, ts),
+          INSERT INTO applications(id,name,client_type,allowed_scopes,trusted_backend,access_token_ttl_seconds,created_at,updated_at)
+          VALUES(?,?,?,?,?,?,?,?)
+        `).bind(body.id, body.name, body.clientType, JSON.stringify(allowedScopes), trustedBackend ? 1 : 0, tokenTtlSeconds, ts, ts),
         ...(secret ? [c.env.DB.prepare(`
           INSERT INTO application_credentials(id,application_id,secret_hash,secret_suffix,created_at)
           VALUES(?,?,?,?,?)
@@ -117,6 +132,7 @@ export function createApp() {
       name: body.name,
       trustedBackend,
       allowedScopes,
+      accessTokenTtlSeconds: tokenTtlSeconds,
       ...(secret ? { clientSecret: secret } : {}),
     }), 201);
   });
@@ -154,8 +170,9 @@ export function createApp() {
       return c.json(fail("IDENTITY_NOT_CONFIGURED", "Token signing key is not configured", c.get("requestId")), 500);
     }
 
+    const tokenTtlSeconds = c.get("currentApplicationTokenTtlSeconds");
     const iat = Math.floor(Date.now() / 1000);
-    const exp = iat + 900;
+    const exp = iat + tokenTtlSeconds;
     const jti = id("tok");
     const applicationId = c.get("currentApplicationId");
     const token = await sign({
@@ -170,7 +187,7 @@ export function createApp() {
       jti,
     }, c.env.TOKEN_PRIVATE_KEY, "RS256");
 
-    return c.json(ok({ accessToken: token, tokenType: "Bearer", expiresIn: 900, scope: requested.join(" ") }));
+    return c.json(ok({ accessToken: token, tokenType: "Bearer", expiresIn: tokenTtlSeconds, scope: requested.join(" ") }));
   });
 
   app.notFound((c) => c.json(fail("NOT_FOUND", "Route not found", c.get("requestId")), 404));
