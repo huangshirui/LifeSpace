@@ -1,0 +1,43 @@
+openapi: 3.1.0
+info:
+  title: LifeSpace Core API
+  version: 0.1.0
+paths:
+  /health:
+    get: { responses: { '200': { description: Healthy } } }
+  /api/v1/status:
+    get: { responses: { '200': { description: Core status } } }
+  /api/v1/me:
+    get:
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { description: Current principal } }
+  /api/v1/me/spaces:
+    get:
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { description: Accessible member Spaces } }
+  /api/v1/spaces:
+    post:
+      security: [{ bearerAuth: [] }]
+      responses: { '201': { description: Space created } }
+  /api/v1/spaces/{spaceId}:
+    get:
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: spaceId, in: path, required: true, schema: { type: string } }]
+      responses: { '200': { description: Space } }
+  /api/v1/spaces/{spaceId}/members:
+    get:
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: spaceId, in: path, required: true, schema: { type: string } }]
+      responses: { '200': { description: Members } }
+    post:
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: spaceId, in: path, required: true, schema: { type: string } }]
+      responses: { '201': { description: Member added } }
+  /api/v1/spaces/{spaceId}/grants:
+    post:
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: spaceId, in: path, required: true, schema: { type: string } }]
+      responses: { '201': { description: Data Grant created } }
+components:
+  securitySchemes:
+    bearerAuth: { type: http, scheme: bearer, bearerFormat: JWT }

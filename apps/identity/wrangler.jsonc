@@ -1,0 +1,21 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "lifespace-identity-local",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-08",
+  "observability": { "enabled": true },
+  "vars": { "ENVIRONMENT": "local" },
+  "d1_databases": [{ "binding": "DB", "database_name": "lifespace-identity-local", "database_id": "00000000-0000-0000-0000-000000000011", "migrations_dir": "migrations" }],
+  "env": {
+    "staging": {
+      "name": "lifespace-identity-staging",
+      "vars": { "ENVIRONMENT": "staging" },
+      "d1_databases": [{ "binding": "DB", "database_name": "lifespace-identity-staging", "database_id": "00000000-0000-0000-0000-000000000012", "migrations_dir": "migrations" }]
+    },
+    "production": {
+      "name": "lifespace-identity",
+      "vars": { "ENVIRONMENT": "production" },
+      "d1_databases": [{ "binding": "DB", "database_name": "lifespace-identity", "database_id": "00000000-0000-0000-0000-000000000013", "migrations_dir": "migrations" }]
+    }
+  }
+}

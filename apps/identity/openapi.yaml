@@ -1,0 +1,15 @@
+openapi: 3.1.0
+info:
+  title: LifeSpace Identity API
+  version: 0.1.0
+paths:
+  /health:
+    get: { responses: { '200': { description: Healthy } } }
+  /api/v1/status:
+    get: { responses: { '200': { description: Identity status } } }
+  /internal/v1/users:
+    post: { responses: { '201': { description: Bootstrap user created } } }
+  /internal/v1/applications:
+    post: { responses: { '201': { description: Bootstrap application created } } }
+  /internal/v1/tokens:
+    post: { responses: { '200': { description: Short-lived Core access token } } }
