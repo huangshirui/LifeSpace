@@ -1,6 +1,6 @@
 # LifeSpace Agent Instructions
 
-LifeSpace is the shared life-data platform behind ALOHA, HomeMew, and future vertical applications. It is the sole source of truth for global identity integration, Space/Grant authorization, shared business-domain models, migrations, API contracts, and platform deployment configuration.
+LifeSpace is the shared life-data platform behind ALOHA, HomeMew, and future vertical applications. It is the sole source of truth for global LifeSpace user identities, Space/Grant authorization, shared business-domain models, migrations, API contracts, and platform deployment configuration.
 
 ## Read before making changes
 
@@ -20,8 +20,8 @@ If a referenced file has not been created yet during the initial scaffold, creat
 - Platform boundaries and runtime topology: `docs/architecture.md`
 - Space ownership, Data Grant semantics, roles, principals, and effective authorization: `docs/permissions.md`
 - Contract ownership, versioning, publication, and downstream consumption: `docs/contracts.md`
-- Core API syntax: `apps/core/openapi.yaml` once introduced
-- Identity API syntax: `apps/identity/openapi.yaml` once introduced
+- Core API syntax: `apps/core/openapi.yaml`
+- Identity API syntax: `apps/identity/openapi.yaml`
 - Database history: migrations owned by the service that owns the database
 - Verified runtime behavior: automated tests
 - Implementation details: source code
@@ -30,13 +30,16 @@ Do not silently reconcile disagreements between these sources. Preserve deployed
 
 ## Mandatory platform rules
 
-- Identity is global. A human user has one platform user identity regardless of which applications or Spaces they use.
+- LifeSpace user identity is global. A human user has one platform `user_id` regardless of which applications or Spaces they use.
+- Application-specific external identities are not LifeSpace identities. WeChat `openid`, WeCom `userid`, school-platform IDs, and similar provider identifiers are resolved and mapped by the owning application adapter/BFF, not by Core and not by the generic LifeSpace Identity service.
+- A trusted application backend may assert an already-resolved LifeSpace `user_id` to Identity only with its own revocable application credential. Identity must derive the calling application from that credential and constrain issued scopes to the application's registered maximum scopes.
+- Never trust a browser, Mini Program, or other untrusted client to submit an arbitrary `user_id` for token issuance. External-provider credentials and mapping data stay in the owning application boundary.
 - A Space is the ownership and default authorization boundary for business data. Every business record belongs to exactly one source Space.
 - Sharing never changes data ownership and must not create a second source-of-truth copy. Cross-user and cross-Space visibility is expressed through Data Grants or approved derived views.
 - Data authorization and application authorization are independent. Effective permission is the intersection of the principal's current data authorization and the calling application's granted scopes.
 - The authenticated actor comes from verified credentials. Never trust a client-provided `userId` as the current actor.
 - Core owns Space/Grant authorization and business-domain authorization. Clients and BFFs may hide controls for usability but are never the security authority.
-- Identity owns authentication, external identity mapping, SSO/OAuth flows, application registration, identity sessions, and token issuance. Identity must not become the owner of life-domain records or Space business permissions.
+- Identity owns LifeSpace users, trusted application/client registration and credentials, platform SSO/session capabilities when explicitly implemented, short-lived token issuance/revocation, and signing-key lifecycle. Identity must not become an integration hub for every application's external login provider.
 - Keep `Data Grant` terminology distinct from OAuth authorization grants or consent records.
 - ALOHA, HomeMew, and vertical applications are clients of the platform. Do not add application-specific business rules to Core merely because one current client needs a particular UI flow.
 - Keep Core a modular monolith unless a separately approved architecture decision justifies splitting a runtime service.
@@ -47,7 +50,7 @@ Do not silently reconcile disagreements between these sources. Preserve deployed
 
 - Unified Identity does not mean a shared parent-domain browser cookie.
 - Do not use `Domain=aisr.online` or another parent-domain session cookie to share sessions between applications.
-- Identity browser sessions should use host-only secure HttpOnly cookies on the Identity host. Individual Web applications may maintain their own host-only App Session through a same-origin BFF.
+- If platform SSO is implemented, Identity browser sessions use host-only Secure HttpOnly cookies on the Identity host. Individual Web applications may maintain their own host-only App Session through a same-origin BFF.
 - Web applications should prefer browser -> same-origin BFF -> service binding -> Core. BFFs must not become a second business-data store.
 - Core must not rely on a browser-wide ambient session cookie as its primary authentication mechanism. Non-browser clients and service-to-service calls use appropriately scoped short-lived bearer credentials.
 - Mini Programs, devices, Agents, and automation services use explicit app/device/service identities and scopes appropriate to their execution mode.
@@ -84,13 +87,13 @@ A domain is not complete when only its table and CRUD routes exist.
 
 ## Repository discipline
 
-- Keep platform code, contracts, migrations, and deployment configuration in this repository; keep application UI and app-specific BFF behavior in the application repositories.
+- Keep platform code, contracts, migrations, and deployment configuration in this repository; keep application UI, external-provider identity mapping, and app-specific BFF behavior in the application repositories.
 - Do not copy HomeMew code mechanically. Preserve proven behavior where appropriate, but remove HomeMew/family-specific assumptions unless they are deliberate Space policies.
 - Do not introduce packages that have no concrete consumer or clearly documented near-term role.
 - Generated artifacts must be reproducible and clearly marked; never hand-edit them.
 - Preserve standard API success/error envelopes and request tracing once the canonical contract defines them.
 - Production and staging resources must be isolated. Never point staging at production D1/R2/Queue resources.
-- Do not commit credentials, JWT keys, OAuth secrets, Cloudflare tokens, application secrets, or user data.
+- Do not commit credentials, JWT keys, OAuth secrets, Cloudflare tokens, application secrets, external-provider IDs, or user data.
 
 ## Change completion
 

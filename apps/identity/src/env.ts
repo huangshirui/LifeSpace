@@ -4,4 +4,9 @@ export type Bindings = {
   BOOTSTRAP_SECRET: string;
   ENVIRONMENT?: string;
 };
-export type Variables = { requestId: string };
+
+export type Variables = {
+  requestId: string;
+  currentApplicationId: string;
+  currentApplicationScopes: string[];
+};

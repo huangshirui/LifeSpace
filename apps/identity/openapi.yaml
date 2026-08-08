@@ -1,15 +1,32 @@
 openapi: 3.1.0
 info:
   title: LifeSpace Identity API
-  version: 0.1.0
+  version: 0.1.1
 paths:
   /health:
-    get: { responses: { '200': { description: Healthy } } }
+    get:
+      responses:
+        '200': { description: Healthy }
   /api/v1/status:
-    get: { responses: { '200': { description: Identity status } } }
+    get:
+      responses:
+        '200': { description: Identity status }
+  /bootstrap/v1/applications:
+    post:
+      description: Platform-admin bootstrap endpoint. Registers an application and returns a backend credential once when trustedBackend is true.
+      responses:
+        '201': { description: Application registered }
+        '401': { description: Bootstrap authentication required }
   /internal/v1/users:
-    post: { responses: { '201': { description: Bootstrap user created } } }
-  /internal/v1/applications:
-    post: { responses: { '201': { description: Bootstrap application created } } }
+    post:
+      description: Trusted application backend creates a global LifeSpace user after resolving its own external identity mapping.
+      responses:
+        '201': { description: LifeSpace user created }
+        '401': { description: Trusted application authentication required }
   /internal/v1/tokens:
-    post: { responses: { '200': { description: Short-lived Core access token } } }
+    post:
+      description: Trusted application backend exchanges an already-resolved LifeSpace user ID for a short-lived Core token. Calling application is derived from its credential.
+      responses:
+        '200': { description: Short-lived Core access token }
+        '401': { description: Trusted application authentication required }
+        '403': { description: User/application/scope is not allowed }
