@@ -1,0 +1,13 @@
+export function success<T>(data: T): { data: T } {
+  return { data };
+}
+
+export function failure(code: string, message: string, requestId: string) {
+  return { error: { code, message, requestId } };
+}
+
+export class ApiError extends Error {
+  constructor(public code: string, message: string, public status: 400 | 401 | 403 | 404 | 409 | 422 | 500) {
+    super(message);
+  }
+}
