@@ -13,7 +13,7 @@ Phase 1 code is safe to build locally before remote resources exist. The zero-li
 Staging Identity secrets:
 
 - `TOKEN_PRIVATE_KEY`: RS256 PKCS#8 private key. Never commit it.
-- `BOOTSTRAP_SECRET`: temporary high-entropy secret protecting Phase 1 bootstrap APIs. Remove the bootstrap API when real login/admin provisioning replaces it.
+- `BOOTSTRAP_SECRET`: temporary high-entropy secret protecting platform bootstrap APIs. Do not reuse it as an application credential.
 
 Staging Core secrets:
 
@@ -22,6 +22,24 @@ Staging Core secrets:
 Optional Core variable:
 
 - `CORS_ORIGINS`: comma-separated exact browser origins when direct browser-to-Core access is needed. Same-origin BFF access remains preferred.
+
+## Application bootstrap policy
+
+Each trusted backend receives its own one-time application credential from Identity bootstrap. Configure an application-specific access-token TTL between 300 and 3600 seconds.
+
+For the HomeMew Mini Program staging application, use:
+
+```json
+{
+  "id": "homemew-miniprogram",
+  "name": "HomeMew Mini Program",
+  "clientType": "mini_program",
+  "trustedBackend": true,
+  "accessTokenTtlSeconds": 3600
+}
+```
+
+The returned application secret belongs only in the HomeMew login Cloud Function backend configuration. It must never be returned to Mini Program code.
 
 ## Production isolation
 
@@ -36,6 +54,7 @@ Do not create or bind production resources until staging passes the Phase 1 exit
 5. Apply Identity and Core staging migrations.
 6. Deploy Identity and Core staging Workers.
 7. Verify `/health` and `/api/v1/status` before adding custom domains.
-8. Create a bootstrap test user and application, issue a 15-minute token, and exercise Space authorization in Core.
-9. Bind staging custom domains.
-10. Complete Phase 1 authorization/integration tests before creating production resources.
+8. Bootstrap a test trusted application and save its one-time application credential in the corresponding backend only.
+9. Create a test LifeSpace user through the trusted application, issue an app-scoped token using the application's configured TTL, and exercise Space authorization in Core.
+10. Bind staging custom domains.
+11. Complete D1-backed authorization/integration tests before creating production resources.
