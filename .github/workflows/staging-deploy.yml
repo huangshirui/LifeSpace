@@ -64,18 +64,21 @@ jobs:
       - name: Ensure staging custom domains
         run: node infra/scripts/ensure-staging-domains.mjs
 
+      - name: Diagnose Cloudflare edge
+        run: node infra/scripts/diagnose-staging-edge.mjs
+
       - name: Verify Identity health and status
         run: |
-          curl --fail --silent --show-error --retry 24 --retry-delay 5 --retry-all-errors https://auth-staging.aisr.online/health
+          curl --fail --silent --show-error --retry 12 --retry-delay 5 --retry-all-errors https://auth-staging.aisr.online/health
           echo
-          curl --fail --silent --show-error --retry 12 --retry-delay 5 --retry-all-errors https://auth-staging.aisr.online/api/v1/status
+          curl --fail --silent --show-error --retry 6 --retry-delay 5 --retry-all-errors https://auth-staging.aisr.online/api/v1/status
           echo
 
       - name: Verify Core health and status
         run: |
-          curl --fail --silent --show-error --retry 24 --retry-delay 5 --retry-all-errors https://core-staging.aisr.online/health
+          curl --fail --silent --show-error --retry 12 --retry-delay 5 --retry-all-errors https://core-staging.aisr.online/health
           echo
-          curl --fail --silent --show-error --retry 12 --retry-delay 5 --retry-all-errors https://core-staging.aisr.online/api/v1/status
+          curl --fail --silent --show-error --retry 6 --retry-delay 5 --retry-all-errors https://core-staging.aisr.online/api/v1/status
           echo
 
       - name: Initialize runtime secrets and run Phase 1 smoke test
