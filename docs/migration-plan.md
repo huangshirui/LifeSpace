@@ -93,7 +93,7 @@ Preferred rule:
 - Otherwise create a LifeSpace user ID and record an explicit `legacy HomeMew user -> LifeSpace user` mapping.
 - ID preservation is a migration optimization, not a permanent platform guarantee.
 
-External identity mappings such as WeChat `openid` must ultimately be owned by LifeSpace Identity, not by Core domain tables.
+External identity mappings such as WeChat `openid` remain owned by the application adapter/BFF that authenticates that provider. LifeSpace Identity only owns the resulting global LifeSpace user and trusted application credential/token issuance boundary; Core never stores provider IDs.
 
 ### 5.2 Families -> Spaces
 
@@ -232,45 +232,47 @@ Credential hashes stored as durable product data are different from deployment s
 
 Build the platform pieces that every migrated domain depends on before porting event/task business routes.
 
+**Status: complete — staging foundation deployed and end-to-end verified on 2026-08-10. Phase 2 may begin.**
+
 ### 8.1 Engineering/runtime foundation
 
-- [ ] Configure Hono + Cloudflare Worker runtime for `apps/core`.
-- [ ] Configure the Identity Worker runtime for `apps/identity`.
-- [ ] Add Wrangler configs with explicit staging and production separation.
-- [ ] Add Vitest/Cloudflare Workers test setup.
-- [ ] Add TypeScript configuration and Node.js 24/pnpm checks.
-- [ ] Add canonical success/error envelopes and `x-request-id` handling.
-- [ ] Add `/health` and `/api/v1/status` including schema/contract version diagnostics.
-- [ ] Add OpenAPI contract checks.
-- [ ] Add CI for `contract -> test -> typecheck -> build` before any deploy workflow.
+- [x] Configure Hono + Cloudflare Worker runtime for `apps/core`.
+- [x] Configure the Identity Worker runtime for `apps/identity`.
+- [x] Add Wrangler configs with explicit staging and production separation.
+- [x] Add Vitest/Cloudflare Workers test setup.
+- [x] Add TypeScript configuration and Node.js 24/pnpm checks.
+- [x] Add canonical success/error envelopes and `x-request-id` handling.
+- [x] Add `/health` and `/api/v1/status` including schema/contract version diagnostics.
+- [x] Add OpenAPI contract checks.
+- [x] Add CI for `contract -> test -> typecheck -> build` before any deploy workflow.
 
 ### 8.2 Identity foundation
 
 Define and implement the minimum global Identity model needed for HomeMew and future applications:
 
-- [ ] Global users.
-- [ ] External identity mapping.
-- [ ] Registered applications/clients.
-- [ ] User/app/service/device principal vocabulary.
-- [ ] Short-lived Core access token issuance and verification contract.
-- [ ] Token `sub`, `iss`, `aud`, `client_id/azp`, scope, expiry and revocation rules.
-- [ ] Identity and Core signing/verification mechanism appropriate for separate services.
-- [ ] Web SSO/session model without shared parent-domain cookies.
-- [ ] Mini Program login exchange path.
+- [x] Global users.
+- [x] Application-owned external identity mapping boundary and trusted backend exchange contract; provider IDs stay outside LifeSpace Core/Identity storage.
+- [x] Registered applications/clients.
+- [x] User/app/service/device principal vocabulary.
+- [x] Short-lived Core access token issuance and verification contract.
+- [x] Token `sub`, `iss`, `aud`, `client_id/azp`, scope, expiry and revocation rules.
+- [x] Identity and Core signing/verification mechanism appropriate for separate services.
+- [x] Web SSO/session model documented without shared parent-domain cookies; runtime browser SSO remains demand-driven.
+- [x] Trusted backend token exchange primitive for Mini Program/application adapters; provider login and mapping remain application-owned.
 
 Do not require ALOHA/HomeMew browser sessions to share a `.aisr.online` parent cookie.
 
 ### 8.3 Core ownership/authorization foundation
 
-- [ ] `spaces`.
-- [ ] `space_memberships`.
-- [ ] `space_people`.
-- [ ] Data Grant representation and evaluation.
-- [ ] Roles and default Space permission policy.
-- [ ] Application scopes independent from Data Grants.
-- [ ] Effective permission evaluation: current data authorization intersected with app scope.
-- [ ] `/api/v1/me` and `/api/v1/me/spaces` foundation.
-- [ ] Audit fields, ID generation, standard authorization errors and test helpers.
+- [x] `spaces`.
+- [x] `space_memberships`.
+- [x] `space_people`.
+- [x] Data Grant representation and evaluation.
+- [x] Roles and default Space permission policy.
+- [x] Application scopes independent from Data Grants.
+- [x] Effective permission evaluation: current data authorization intersected with app scope.
+- [x] `/api/v1/me` and `/api/v1/me/spaces` foundation.
+- [x] Audit fields, ID generation, standard authorization errors and test helpers.
 
 ### 8.4 Staging infrastructure
 
@@ -291,6 +293,8 @@ Never point staging Worker bindings at HomeMew production D1/R2/Queue resources.
 ### Phase 1 exit gate
 
 The foundation is complete only when:
+
+The Phase 1 gate was verified by the staging deployment smoke test: Identity and Core deployed independently, the runtime/schema status endpoints succeeded, a trusted staging application created a user, Identity issued an RS256 app-scoped token, Core accepted it to create/read a Space, and an unauthenticated request was denied. `pnpm check` passed before deployment.
 
 - Identity and Core can deploy independently to staging.
 - A test user can authenticate and obtain a valid app-scoped Core credential.

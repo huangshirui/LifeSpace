@@ -32,6 +32,6 @@ Service-owned D1 migrations remain inside the service that owns the database, fo
 
 ## Current phase
 
-This repository is in the platform-foundation phase. The first implementation migration will extract and generalize proven HomeMew Core behavior without mechanically copying family-specific assumptions.
+Phase 1 platform foundation is complete and verified in isolated Cloudflare staging. Work now moves to Phase 2: migrate HomeMew capabilities to functional parity as complete vertical slices, while keeping HomeMew production Core as the baseline until cutover.
 
 Read `AGENTS.md` and `docs/` before making changes.

@@ -1,5 +1,11 @@
 # LifeSpace staging provisioning
 
+## Verified status
+
+Phase 1 staging deployment and the Identity -> token -> Core -> Space smoke test passed on 2026-08-10. The staging foundation is accepted as the baseline for Phase 2 migration work.
+
+`aisr.online` Bot Fight Mode was disabled because the generic Bot Fight Mode issues browser challenges to legitimate API/CI machine traffic and cannot be selectively skipped by hostname on the current plan. Keep API protection at the application/WAF/rate-limit layers; if a future bot product supports selective hostname bypass, re-evaluate this zone-level setting.
+
 ## Purpose
 
 Create isolated Cloudflare staging resources for LifeSpace. Production resources must never be reused.
