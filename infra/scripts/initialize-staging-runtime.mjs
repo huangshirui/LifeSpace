@@ -4,6 +4,8 @@ const token = process.env.CLOUDFLARE_API_TOKEN;
 const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
 const bootstrapSecret = process.env.LIFESPACE_STAGING_BOOTSTRAP_SECRET;
 const runId = process.env.GITHUB_RUN_ID ?? `${Date.now()}`;
+const runAttempt = process.env.GITHUB_RUN_ATTEMPT ?? "1";
+const smokeId = `${runId}_${runAttempt}`;
 
 if (!token) throw new Error("CLOUDFLARE_API_TOKEN is required");
 if (!accountId) throw new Error("CLOUDFLARE_ACCOUNT_ID is required");
@@ -108,8 +110,8 @@ if (!hasPrivateKey) {
   console.log("Existing staging RS256 signing key pair preserved");
 }
 
-const appId = `app_staging_smoke_${runId}`;
-const displayName = `Staging Smoke ${runId}`;
+const appId = `app_staging_smoke_${smokeId}`;
+const displayName = `Staging Smoke ${smokeId}`;
 const scopes = ["profile:read", "spaces:read", "spaces:write"];
 
 const application = await requestJson(`${identityBase}/bootstrap/v1/applications`, {
@@ -163,7 +165,7 @@ const space = await requestJson(`${coreBase}/api/v1/spaces`, {
   },
   body: JSON.stringify({
     kind: "personal",
-    name: `Staging Smoke ${runId}`,
+    name: `Staging Smoke ${smokeId}`,
     ownerDisplayName: displayName,
   }),
 }, 201);
