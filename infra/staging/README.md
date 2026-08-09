@@ -10,6 +10,8 @@ Create isolated Cloudflare staging resources for LifeSpace. Production resources
 - Core D1: `lifespace-core-staging`
 - R2: `lifespace-staging-assets`
 - Queue: `lifespace-staging-creation-drafts`
+- Identity Worker custom domain: `auth-staging.aisr.online`
+- Core Worker custom domain: `core-staging.aisr.online`
 
 The desired resource names live in `resources.json`. The Cloudflare account is supplied by GitHub Actions through `CLOUDFLARE_ACCOUNT_ID`; account-specific IDs are not part of the resource manifest.
 
@@ -52,6 +54,14 @@ The first successful staging deploy initializes the RS256 signing relationship a
 
 If both signing-key secrets already exist, deploy preserves them so normal deployments do not invalidate already-issued tokens. If only one side exists, initialization fails rather than silently rotating into a mismatched key state.
 
+## Custom domains
+
+The Wrangler staging configs declare both Worker Custom Domains. After deploying the Workers, `infra/scripts/ensure-staging-domains.mjs` also verifies the account-level Custom Domain state through the Cloudflare Workers Domains API and attaches a missing domain explicitly.
+
+The script is conservative: if a target hostname is already attached to a different Worker, deployment fails instead of silently moving that hostname. It never creates a manual A/CNAME record; Cloudflare Custom Domains create the DNS record and certificate on behalf of the Worker.
+
+Health checks allow extra time for DNS and certificate propagation after a first attachment.
+
 ## Deployment flow
 
 Run the **Deploy staging** workflow manually after provisioning succeeds and the staging bootstrap secret is configured.
@@ -60,8 +70,9 @@ Run the **Deploy staging** workflow manually after provisioning succeeds and the
 2. Run contract/tests/typecheck/build.
 3. Apply Identity and Core D1 migrations.
 4. Deploy Identity and Core Workers with `--env staging`.
-5. Verify `/health` and `/api/v1/status` on both custom domains.
-6. Initialize/preserve the RS256 runtime signing keys and synchronize the bootstrap secret.
-7. Run the Phase 1 Identity -> token -> Core -> Space end-to-end smoke test, including an unauthenticated deny check.
+5. Explicitly verify/attach both staging Worker Custom Domains.
+6. Verify `/health` and `/api/v1/status` on both custom domains, allowing first-deploy DNS/TLS propagation time.
+7. Initialize/preserve the RS256 runtime signing keys and synchronize the bootstrap secret.
+8. Run the Phase 1 Identity -> token -> Core -> Space end-to-end smoke test, including an unauthenticated deny check.
 
-The smoke test intentionally creates staging-only application/user/Space records identified by the GitHub Actions run ID. Credentials and runtime secret values are never printed or committed.
+The smoke test intentionally creates staging-only application/user/Space records identified by the GitHub Actions run ID and attempt. Credentials and runtime secret values are never printed or committed.
