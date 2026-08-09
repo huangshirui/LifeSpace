@@ -46,7 +46,7 @@ jobs:
           end = text.index("## 9. Phase 2 — HomeMew capability migration to functional parity")
           phase = text[start:end]
           intro = "Build the platform pieces that every migrated domain depends on before porting event/task business routes."
-          status = "**Status: complete — staging foundation deployed and end-to-end verified on 2026-08-09. Phase 2 may begin.**"
+          status = "**Status: complete — staging foundation deployed and end-to-end verified on 2026-08-10. Phase 2 may begin.**"
           if status not in phase:
               phase = phase.replace(intro, intro + "\n\n" + status, 1)
 
@@ -81,7 +81,7 @@ jobs:
           staging = Path("infra/staging/README.md")
           staging_text = staging.read_text()
           marker = "# LifeSpace staging provisioning\n"
-          status_block = "\n## Verified status\n\nPhase 1 staging deployment and the Identity -> token -> Core -> Space smoke test passed on 2026-08-09. The staging foundation is accepted as the baseline for Phase 2 migration work.\n\n`aisr.online` Bot Fight Mode was disabled because the generic Bot Fight Mode issues browser challenges to legitimate API/CI machine traffic and cannot be selectively skipped by hostname on the current plan. Keep API protection at the application/WAF/rate-limit layers; if a future bot product supports selective hostname bypass, re-evaluate this zone-level setting.\n"
+          status_block = "\n## Verified status\n\nPhase 1 staging deployment and the Identity -> token -> Core -> Space smoke test passed on 2026-08-10. The staging foundation is accepted as the baseline for Phase 2 migration work.\n\n`aisr.online` Bot Fight Mode was disabled because the generic Bot Fight Mode issues browser challenges to legitimate API/CI machine traffic and cannot be selectively skipped by hostname on the current plan. Keep API protection at the application/WAF/rate-limit layers; if a future bot product supports selective hostname bypass, re-evaluate this zone-level setting.\n"
           if "## Verified status" not in staging_text:
               staging_text = staging_text.replace(marker, marker + status_block, 1)
           staging.write_text(staging_text)
