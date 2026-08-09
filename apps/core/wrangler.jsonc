@@ -10,6 +10,7 @@
     "staging": {
       "name": "lifespace-core-staging",
       "vars": { "ENVIRONMENT": "staging" },
+      "routes": [{ "pattern": "core-staging.aisr.online", "custom_domain": true }],
       "d1_databases": [{ "binding": "DB", "database_name": "lifespace-core-staging", "database_id": "00000000-0000-0000-0000-000000000002", "migrations_dir": "migrations" }]
     },
     "production": {
