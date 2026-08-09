@@ -46,13 +46,14 @@ Before migration/deployment, `infra/scripts/resolve-staging-d1.mjs` looks up the
 
 ## Runtime secrets
 
-The first successful staging deploy initializes the RS256 signing relationship automatically:
+The staging deploy initializes and validates the RS256 signing relationship automatically.
 
-- Identity Worker secret `TOKEN_PRIVATE_KEY` is generated once.
-- Core Worker secret `IDENTITY_PUBLIC_KEY` is generated from the matching key pair.
-- Identity Worker secret `BOOTSTRAP_SECRET` is synchronized from `LIFESPACE_STAGING_BOOTSTRAP_SECRET` on every deploy.
+- `BOOTSTRAP_SECRET` is synchronized on every deploy with `wrangler secret bulk`, which activates the resulting Worker version immediately.
+- The smoke test then asks Identity to issue a token and asks Core to verify it.
+- If Identity reports that its signing key is missing, or Core rejects an otherwise valid Identity token because its verification key is missing/mismatched, staging automatically generates a new RSA key pair and activates `TOKEN_PRIVATE_KEY` on Identity and `IDENTITY_PUBLIC_KEY` on Core using Wrangler.
+- If the existing active signing pair works, it is preserved and is not rotated.
 
-If both signing-key secrets already exist, deploy preserves them so normal deployments do not invalidate already-issued tokens. If only one side exists, initialization fails rather than silently rotating into a mismatched key state.
+This intentionally avoids relying on the raw Workers `secrets-bulk` API alone for runtime activation. Secret values are never committed or printed.
 
 ## Custom domains
 
@@ -71,8 +72,9 @@ Run the **Deploy staging** workflow manually after provisioning succeeds and the
 3. Apply Identity and Core D1 migrations.
 4. Deploy Identity and Core Workers with `--env staging`.
 5. Explicitly verify/attach both staging Worker Custom Domains.
-6. Verify `/health` and `/api/v1/status` on both custom domains, allowing first-deploy DNS/TLS propagation time.
-7. Initialize/preserve the RS256 runtime signing keys and synchronize the bootstrap secret.
-8. Run the Phase 1 Identity -> token -> Core -> Space end-to-end smoke test, including an unauthenticated deny check.
+6. Verify `/health` and `/api/v1/status` on both custom domains.
+7. Synchronize and activate the bootstrap secret.
+8. Validate the active Identity/Core signing relationship, repairing the staging RSA pair only when required.
+9. Run the Phase 1 Identity -> token -> Core -> Space end-to-end smoke test, including an unauthenticated deny check.
 
 The smoke test intentionally creates staging-only application/user/Space records identified by the GitHub Actions run ID and attempt. Credentials and runtime secret values are never printed or committed.
