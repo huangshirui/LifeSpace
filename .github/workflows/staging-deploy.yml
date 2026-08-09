@@ -1,0 +1,70 @@
+name: Deploy staging
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lifespace-staging-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Migrate and deploy staging
+    runs-on: ubuntu-latest
+    environment: staging
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID || secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.13.1
+          run_install: false
+
+      - name: Setup Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate repository
+        run: pnpm check
+
+      - name: Resolve staging D1 IDs
+        run: node infra/scripts/resolve-staging-d1.mjs
+
+      - name: Apply Identity migrations
+        run: pnpm --filter @lifespace/identity db:migrate:staging
+
+      - name: Apply Core migrations
+        run: pnpm --filter @lifespace/core db:migrate:staging
+
+      - name: Deploy Identity
+        run: pnpm --dir apps/identity exec wrangler deploy --env staging
+
+      - name: Deploy Core
+        run: pnpm --dir apps/core exec wrangler deploy --env staging
+
+      - name: Verify Identity health and status
+        run: |
+          curl --fail --silent --show-error --retry 8 --retry-delay 3 --retry-all-errors https://auth-staging.aisr.online/health
+          echo
+          curl --fail --silent --show-error --retry 8 --retry-delay 3 --retry-all-errors https://auth-staging.aisr.online/api/v1/status
+          echo
+
+      - name: Verify Core health and status
+        run: |
+          curl --fail --silent --show-error --retry 8 --retry-delay 3 --retry-all-errors https://core-staging.aisr.online/health
+          echo
+          curl --fail --silent --show-error --retry 8 --retry-delay 3 --retry-all-errors https://core-staging.aisr.online/api/v1/status
+          echo
