@@ -1,67 +1,55 @@
 import { generateKeyPairSync } from "node:crypto";
+import { spawn } from "node:child_process";
 
-const token = process.env.CLOUDFLARE_API_TOKEN;
-const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
 const bootstrapSecret = process.env.LIFESPACE_STAGING_BOOTSTRAP_SECRET;
 const runId = process.env.GITHUB_RUN_ID ?? `${Date.now()}`;
 const runAttempt = process.env.GITHUB_RUN_ATTEMPT ?? "1";
 const smokeId = `${runId}_${runAttempt}`;
 
-if (!token) throw new Error("CLOUDFLARE_API_TOKEN is required");
-if (!accountId) throw new Error("CLOUDFLARE_ACCOUNT_ID is required");
+if (!process.env.CLOUDFLARE_API_TOKEN) throw new Error("CLOUDFLARE_API_TOKEN is required");
+if (!process.env.CLOUDFLARE_ACCOUNT_ID) throw new Error("CLOUDFLARE_ACCOUNT_ID is required");
 if (!bootstrapSecret || bootstrapSecret.length < 32) {
   throw new Error("LIFESPACE_STAGING_BOOTSTRAP_SECRET must be configured and at least 32 characters long");
 }
 
-const identityWorker = "lifespace-identity-staging";
-const coreWorker = "lifespace-core-staging";
 const identityBase = "https://auth-staging.aisr.online";
 const coreBase = "https://core-staging.aisr.online";
 
-async function cf(path, init = {}) {
-  const response = await fetch(`https://api.cloudflare.com/client/v4${path}`, {
-    ...init,
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-      ...(init.headers ?? {}),
-    },
+async function wranglerSecretBulk(cwd, secrets) {
+  await new Promise((resolve, reject) => {
+    const child = spawn("pnpm", ["exec", "wrangler", "secret", "bulk", "--env", "staging"], {
+      cwd,
+      env: process.env,
+      stdio: ["pipe", "inherit", "inherit"],
+    });
+
+    child.on("error", reject);
+    child.on("exit", (code) => {
+      if (code === 0) resolve();
+      else reject(new Error(`wrangler secret bulk failed in ${cwd} with exit code ${code}`));
+    });
+
+    child.stdin.end(JSON.stringify(secrets));
   });
-  const payload = await response.json();
-  if (!response.ok || payload.success === false) {
-    throw new Error(`${init.method ?? "GET"} ${path} failed (${response.status}): ${JSON.stringify(payload.errors ?? payload)}`);
+}
+
+async function fetchJson(url, init = {}) {
+  const response = await fetch(url, init);
+  const text = await response.text();
+  let payload;
+  try {
+    payload = text ? JSON.parse(text) : null;
+  } catch {
+    payload = text;
   }
-  return payload.result;
-}
-
-async function listSecretNames(workerName) {
-  const result = await cf(`/accounts/${accountId}/workers/scripts/${workerName}/secrets`);
-  return new Set((result ?? []).map((item) => item.name));
-}
-
-function secretText(name, text) {
-  return { name, type: "secret_text", text };
-}
-
-async function patchSecrets(workerName, secrets) {
-  await cf(`/accounts/${accountId}/workers/scripts/${workerName}/secrets-bulk`, {
-    method: "PATCH",
-    body: JSON.stringify({ secrets }),
-  });
+  return { response, payload };
 }
 
 async function requestJson(url, init, expectedStatus) {
   let lastError;
   for (let attempt = 1; attempt <= 8; attempt += 1) {
     try {
-      const response = await fetch(url, init);
-      const text = await response.text();
-      let payload;
-      try {
-        payload = text ? JSON.parse(text) : null;
-      } catch {
-        payload = text;
-      }
+      const { response, payload } = await fetchJson(url, init);
       if (response.status === expectedStatus) return payload;
       lastError = new Error(`${init?.method ?? "GET"} ${url} returned ${response.status}: ${JSON.stringify(payload)}`);
     } catch (error) {
@@ -72,43 +60,47 @@ async function requestJson(url, init, expectedStatus) {
   throw lastError;
 }
 
-const identitySecrets = await listSecretNames(identityWorker);
-const coreSecrets = await listSecretNames(coreWorker);
-const hasPrivateKey = identitySecrets.has("TOKEN_PRIVATE_KEY");
-const hasPublicKey = coreSecrets.has("IDENTITY_PUBLIC_KEY");
-
-if (hasPrivateKey !== hasPublicKey) {
-  throw new Error(
-    "Staging signing-key state is partial: TOKEN_PRIVATE_KEY and IDENTITY_PUBLIC_KEY must either both exist or both be absent. Refusing automatic rotation.",
-  );
+async function issueToken(clientSecret, userId, scopes) {
+  return fetchJson(`${identityBase}/internal/v1/tokens`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${clientSecret}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ subjectId: userId, scopes }),
+  });
 }
 
-let generatedSigningKeys = false;
+async function probeCore(accessToken) {
+  return fetchJson(`${coreBase}/api/v1/me`, {
+    headers: { authorization: `Bearer ${accessToken}` },
+  });
+}
 
-if (!hasPrivateKey) {
+async function rotateSigningKeys() {
   const { privateKey, publicKey } = generateKeyPairSync("rsa", {
     modulusLength: 2048,
     publicKeyEncoding: { type: "spki", format: "pem" },
     privateKeyEncoding: { type: "pkcs8", format: "pem" },
   });
 
-  await patchSecrets(identityWorker, {
-    TOKEN_PRIVATE_KEY: secretText("TOKEN_PRIVATE_KEY", privateKey),
-    BOOTSTRAP_SECRET: secretText("BOOTSTRAP_SECRET", bootstrapSecret),
+  await wranglerSecretBulk("apps/identity", {
+    TOKEN_PRIVATE_KEY: privateKey,
+    BOOTSTRAP_SECRET: bootstrapSecret,
   });
-  await patchSecrets(coreWorker, {
-    IDENTITY_PUBLIC_KEY: secretText("IDENTITY_PUBLIC_KEY", publicKey),
+  await wranglerSecretBulk("apps/core", {
+    IDENTITY_PUBLIC_KEY: publicKey,
   });
-  generatedSigningKeys = true;
-  console.log("Generated and installed a new staging RS256 signing key pair");
-} else {
-  // Keep the bootstrap credential synchronized with the GitHub staging secret
-  // without rotating the signing key pair used by already-issued access tokens.
-  await patchSecrets(identityWorker, {
-    BOOTSTRAP_SECRET: secretText("BOOTSTRAP_SECRET", bootstrapSecret),
-  });
-  console.log("Existing staging RS256 signing key pair preserved");
+  console.log("Generated, installed, and activated a new staging RS256 signing key pair");
 }
+
+// Always synchronize the persistent bootstrap credential using Wrangler's
+// non-versioned secret command so the resulting Worker version is deployed
+// immediately. This repairs any earlier secret-only version that was not active.
+await wranglerSecretBulk("apps/identity", {
+  BOOTSTRAP_SECRET: bootstrapSecret,
+});
+console.log("Staging bootstrap secret synchronized and activated");
 
 const appId = `app_staging_smoke_${smokeId}`;
 const displayName = `Staging Smoke ${smokeId}`;
@@ -145,17 +137,39 @@ const user = await requestJson(`${identityBase}/internal/v1/users`, {
 const userId = user?.data?.id;
 if (!userId) throw new Error("Smoke user creation did not return a user id");
 
-const tokenResponse = await requestJson(`${identityBase}/internal/v1/tokens`, {
-  method: "POST",
-  headers: {
-    authorization: `Bearer ${clientSecret}`,
-    "content-type": "application/json",
-  },
-  body: JSON.stringify({ subjectId: userId, scopes }),
-}, 200);
+let rotatedSigningKeys = false;
+let tokenProbe = await issueToken(clientSecret, userId, scopes);
+let accessToken = tokenProbe.payload?.data?.accessToken;
+let coreProbe = accessToken ? await probeCore(accessToken) : null;
 
-const accessToken = tokenResponse?.data?.accessToken;
-if (!accessToken) throw new Error("Identity did not return a Core access token");
+const identityKeyMissing =
+  tokenProbe.response.status === 500 && tokenProbe.payload?.error?.code === "IDENTITY_NOT_CONFIGURED";
+const coreKeyMissingOrMismatched = accessToken && coreProbe?.response.status === 401;
+
+if (identityKeyMissing || coreKeyMissingOrMismatched) {
+  console.log(
+    identityKeyMissing
+      ? "Active Identity signing key is missing; repairing staging signing keys"
+      : "Active Core verification key is missing or mismatched; repairing staging signing keys",
+  );
+  await rotateSigningKeys();
+  rotatedSigningKeys = true;
+
+  tokenProbe = await issueToken(clientSecret, userId, scopes);
+  accessToken = tokenProbe.payload?.data?.accessToken;
+  if (tokenProbe.response.status !== 200 || !accessToken) {
+    throw new Error(`Identity token issuance failed after signing-key repair: ${tokenProbe.response.status} ${JSON.stringify(tokenProbe.payload)}`);
+  }
+
+  coreProbe = await probeCore(accessToken);
+}
+
+if (tokenProbe.response.status !== 200 || !accessToken) {
+  throw new Error(`Identity token issuance failed: ${tokenProbe.response.status} ${JSON.stringify(tokenProbe.payload)}`);
+}
+if (coreProbe?.response.status !== 200) {
+  throw new Error(`Core token verification failed: ${coreProbe?.response.status} ${JSON.stringify(coreProbe?.payload)}`);
+}
 
 const space = await requestJson(`${coreBase}/api/v1/spaces`, {
   method: "POST",
@@ -185,6 +199,6 @@ if (process.env.GITHUB_STEP_SUMMARY) {
   const { appendFile } = await import("node:fs/promises");
   await appendFile(
     process.env.GITHUB_STEP_SUMMARY,
-    `## LifeSpace staging runtime\n\n- RS256 signing keys: ${generatedSigningKeys ? "generated" : "preserved"}\n- Bootstrap secret: synchronized from GitHub staging secret\n- Identity -> token -> Core -> Space smoke test: passed\n- Authentication deny check: passed\n- Smoke Space: \`${spaceId}\`\n`,
+    `## LifeSpace staging runtime\n\n- Bootstrap secret: synchronized and activated from GitHub staging secret\n- RS256 signing keys: ${rotatedSigningKeys ? "repaired and activated" : "existing active pair preserved"}\n- Identity -> token -> Core -> Space smoke test: passed\n- Authentication deny check: passed\n- Smoke Space: \`${spaceId}\`\n`,
   );
 }
