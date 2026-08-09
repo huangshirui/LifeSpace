@@ -19,6 +19,10 @@ async function listD1() {
   return payload.result ?? [];
 }
 
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 const databases = await listD1();
 
 for (const resource of manifest.d1 ?? []) {
@@ -27,18 +31,13 @@ for (const resource of manifest.d1 ?? []) {
 
   const configUrl = new URL(`../../${resource.config}`, import.meta.url);
   const source = await readFile(configUrl, "utf8");
-  const escapedName = resource.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const pattern = new RegExp(`("database_name"\\s*:\\s*"${escapedName}"\\s*,\\s*"database_id"\\s*:\\s*")[^"]+(" )`.replace('(" )', '(" )'));
+  const pattern = new RegExp(
+    `("database_name"\\s*:\\s*"${escapeRegExp(resource.name)}"\\s*,\\s*"database_id"\\s*:\\s*")[^"]+(")`,
+  );
 
-  // Keep the source repository free of account-specific UUID churn. This edit is
-  // made only in the ephemeral CI checkout before Wrangler migration/deploy.
-  const simplerPattern = new RegExp(`("database_name"\\s*:\\s*"${escapedName}"\\s*,\\s*"database_id"\\s*:\\s*")[^"]+(" )`.replace('(" )', '(" )'));
-  let updated = source.replace(simplerPattern, `$1${database.uuid}$2`);
-
-  if (updated === source) {
-    const exactPattern = new RegExp(`("database_name"\\s*:\\s*"${escapedName}"\\s*,\\s*"database_id"\\s*:\\s*")[^"]+(")`);
-    updated = source.replace(exactPattern, `$1${database.uuid}$2`);
-  }
+  // This modifies only the ephemeral CI checkout. Real Cloudflare UUIDs do not
+  // need to be copied by hand or committed to the repository.
+  const updated = source.replace(pattern, `$1${database.uuid}$2`);
   if (updated === source) throw new Error(`Could not resolve D1 binding for ${resource.name} in ${resource.config}`);
 
   await writeFile(configUrl, updated);
