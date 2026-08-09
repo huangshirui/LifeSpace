@@ -20,5 +20,17 @@
     {
       "name": "lifespace-staging-creation-drafts"
     }
+  ],
+  "domains": [
+    {
+      "hostname": "auth-staging.aisr.online",
+      "service": "lifespace-identity-staging",
+      "zoneName": "aisr.online"
+    },
+    {
+      "hostname": "core-staging.aisr.online",
+      "service": "lifespace-core-staging",
+      "zoneName": "aisr.online"
+    }
   ]
 }
