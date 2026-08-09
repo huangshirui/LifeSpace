@@ -1,8 +1,8 @@
 # Phase 1 Status — LifeSpace platform foundation
 
-Updated: 2026-08-08
+Updated: 2026-08-09
 
-Phase 1 is **in progress**. The repository foundation and first working Core/Identity implementation exist, but the Phase 1 exit gate has not been satisfied because staging has not been provisioned/deployed and D1-backed authorization integration coverage is still incomplete.
+Phase 1 is **in progress**. The repository foundation, first working Core/Identity implementation, and D1-backed authorization integration coverage are complete. The remaining P0 work is to provision/deploy isolated Cloudflare staging resources and pass the real staging end-to-end gate.
 
 ## Completed
 
@@ -16,6 +16,7 @@ Phase 1 is **in progress**. The repository foundation and first working Core/Ide
 - [x] CI runs repository `contract -> test -> typecheck -> build` checks.
 - [x] Standard JSON success/error envelopes and `x-request-id` foundation.
 - [x] `/health` and `/api/v1/status` foundation with schema/contract diagnostics.
+- [x] Cloudflare Workers Vitest integration runs tests in `workerd` with real D1 bindings and repository migrations.
 
 ### Identity foundation
 
@@ -28,6 +29,7 @@ Phase 1 is **in progress**. The repository foundation and first working Core/Ide
 - [x] Token claims include `iss`, `aud`, `sub`, `azp`, `principal_type`, scopes, `iat`, `exp`, and `jti`.
 - [x] Requested scopes cannot exceed the authenticated application's registered maximum scopes.
 - [x] Access-token TTL is an application policy in the 300-3600 second range; HomeMew Mini Program target is 3600 seconds.
+- [x] D1-backed tests cover application credential authentication, hash-only credential persistence, app scope ceiling, disabled users, and per-application TTL.
 
 ### Core ownership/authorization foundation
 
@@ -40,20 +42,16 @@ Phase 1 is **in progress**. The repository foundation and first working Core/Ide
 - [x] App scopes are checked independently from Space membership/Data Grant permission.
 - [x] `/api/v1/me` and `/api/v1/me/spaces` foundation.
 - [x] Space create/read, member listing/addition and Data Grant creation foundation.
+- [x] D1-backed tests cover membership allow/deny, Data Grant permission rank/expiry/revocation, app-scope × data-permission intersection, and cross-Space isolation.
 
 ## Remaining before Phase 1 exit gate
 
 ### P0 — required before starting Phase 2 domain migration
 
 - [ ] Provision isolated staging D1 databases and replace staging placeholder IDs.
-- [ ] Generate/configure staging RS256 key pair, Identity bootstrap secret, and trusted application credential.
+- [ ] Generate/configure staging RS256 key pair, Identity bootstrap secret, and trusted test application credential.
 - [ ] Deploy Identity and Core to staging and verify `/health` and `/api/v1/status` against real D1 bindings.
 - [ ] Run an end-to-end staging path: trusted application -> create/resolve user -> Identity token -> Core -> create/read Space.
-- [ ] Add D1-backed Core tests for membership role allow/deny behavior.
-- [ ] Add D1-backed Data Grant tests including expiry/revocation and permission ranking.
-- [ ] Add tests proving effective authorization is the intersection of app scope and current membership/Data Grant permission.
-- [ ] Add cross-Space isolation tests proving one Space cannot read another without a valid grant.
-- [ ] Add Identity D1-backed tests for application credential authentication, one-time bootstrap credential behavior, app scope ceiling, user status, and per-application TTL.
 
 ### P1 — should be completed in Phase 1, but not a blocker for writing the first Phase 2 PR if the P0 exit gate is already green
 
