@@ -1,0 +1,25 @@
+{
+  "accountId": "26e8cab32fcdae9b706954005034a798",
+  "location": "apac",
+  "d1": [
+    {
+      "name": "lifespace-identity-staging",
+      "config": "apps/identity/wrangler.jsonc"
+    },
+    {
+      "name": "lifespace-core-staging",
+      "config": "apps/core/wrangler.jsonc"
+    }
+  ],
+  "r2": [
+    {
+      "name": "lifespace-staging-assets",
+      "locationHint": "apac"
+    }
+  ],
+  "queues": [
+    {
+      "name": "lifespace-staging-creation-drafts"
+    }
+  ]
+}
