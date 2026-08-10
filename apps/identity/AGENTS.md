@@ -1,6 +1,6 @@
 # Identity Agent Instructions
 
-LifeSpace Identity provides global LifeSpace user identity, trusted application credentials, platform SSO/session capabilities when explicitly implemented, and short-lived credential issuance for LifeSpace applications.
+LifeSpace Identity provides global LifeSpace user identity, trusted application credentials, service principals and opaque Service API Tokens, platform SSO/session capabilities when explicitly implemented, and short-lived credential issuance for LifeSpace applications.
 
 ## Responsibilities
 
@@ -9,7 +9,9 @@ Identity owns:
 - Global LifeSpace users (`usr_*`).
 - Trusted application/client registration.
 - Revocable application credentials for trusted backends/BFFs.
+- Service principals and opaque, individually scoped, optionally expiring, revocable Service API Tokens for owner-controlled trusted services.
 - Short-lived Core token issuance for a LifeSpace user already resolved by a trusted application backend.
+- Optional OAuth `client_credentials` issuance of short-lived service tokens for third-party or policy-controlled integrations.
 - Application/client identity claims such as `client_id` / `azp` and maximum allowed scopes.
 - Token revocation and signing-key lifecycle.
 - Platform-owned browser login/SSO/session flows only when they are explicitly introduced as LifeSpace platform capabilities.
@@ -39,12 +41,14 @@ A trusted application may assert a LifeSpace `user_id` only after authenticating
 - Unified LifeSpace users do not imply centralized ownership of every application's external login identity.
 - Never accept arbitrary user assertions from browser or Mini Program code. User assertion/token exchange endpoints are backend-to-backend interfaces.
 - Bootstrap credentials are platform-administration credentials only. Do not reuse the global bootstrap secret as a permanent application credential.
-- Store only hashes of application credentials and return a newly generated secret only once.
+- Store only hashes of application credentials and Service API Tokens, and return a newly generated secret only once.
 - Unified Identity does not mean a parent-domain shared session cookie.
 - If browser Identity sessions are introduced, use host-only Secure HttpOnly cookies; do not set `Domain=aisr.online`.
 - Do not expose refresh tokens, signing keys, application credentials or provider secrets to browser JavaScript or Mini Program code.
 - Tokens must identify the subject and authorized client/application; Core remains responsible for current Space/Data Grant authorization.
-- Design revocation and signing-key rotation deliberately; do not make long-lived bearer tokens the only revocation boundary.
+- Opaque Service API Tokens may use `expires_at = null` only for trusted server-side workloads. They must remain individually identifiable, immediately revocable, scope-limited, and prohibited in browsers, Mini Programs, distributable clients, and personal-user identities.
+- A Service API Token must not be a long-lived JWT. Current token/principal state is verified by Identity introspection as defined in `docs/service-authentication.md`.
+- Design revocation, rotation, redaction, and signing-key lifecycle deliberately.
 
 ## Persistence
 
@@ -54,4 +58,4 @@ Do not add a generic `external_identities` table for application-owned provider 
 
 ## Contract
 
-Identity's API contract lives in `apps/identity/openapi.yaml`. Backend-only bootstrap and trusted-application exchange endpoints must be visibly distinguished from user-facing browser protocols.
+Identity's API contract lives in `apps/identity/openapi.yaml`. Backend-only bootstrap, trusted-application exchange, service-token management/introspection, and OAuth endpoints must be visibly distinguished from user-facing browser protocols. Planned service-token endpoints must not be described as deployed until contract, persistence, implementation, and tests land together.
