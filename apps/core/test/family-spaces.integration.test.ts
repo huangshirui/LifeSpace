@@ -156,6 +156,67 @@ describe("Phase 2 family Space management", () => {
     expect(ninth.status).toBe(409);
   });
 
+  it("updates membership roles with optimistic concurrency", async () => {
+    const { privateKey, publicKey } = await keys();
+    const ownerId = `usr_${crypto.randomUUID()}`;
+    const memberId = `usr_${crypto.randomUUID()}`;
+    const family = await createFamily(privateKey, publicKey, ownerId);
+    const added = await request(`/api/v1/spaces/${family.spaceId}/members`, family.accessToken, publicKey, {
+      method: "POST",
+      body: JSON.stringify({ userId: memberId, role: "editor", displayName: "Member" }),
+    });
+    const member = await added.json<{ data: { version: number } }>();
+    const promoted = await request(`/api/v1/spaces/${family.spaceId}/members/${memberId}`, family.accessToken, publicKey, {
+      method: "PATCH",
+      body: JSON.stringify({ role: "admin", version: member.data.version }),
+    });
+    expect(promoted.status).toBe(200);
+    expect((await promoted.json<{ data: { userId: string; role: string; version: number } }>()).data)
+      .toMatchObject({ userId: memberId, role: "admin", version: member.data.version + 1 });
+    const stale = await request(`/api/v1/spaces/${family.spaceId}/members/${memberId}`, family.accessToken, publicKey, {
+      method: "PATCH",
+      body: JSON.stringify({ role: "viewer", version: member.data.version }),
+    });
+    expect(stale.status).toBe(409);
+  });
+
+  it("reactivates the same membership and Space Person after removal", async () => {
+    const { privateKey, publicKey } = await keys();
+    const ownerId = `usr_${crypto.randomUUID()}`;
+    const joiningId = `usr_${crypto.randomUUID()}`;
+    const family = await createFamily(privateKey, publicKey, ownerId);
+    const created = await request(`/api/v1/spaces/${family.spaceId}/invites`, family.accessToken, publicKey, {
+      method: "POST",
+      body: JSON.stringify({ maxUses: 1, expiresInMinutes: 60 }),
+    });
+    const invitation = await created.json<{ data: { token: string } }>();
+    const joiningToken = await token(privateKey, joiningId, ["spaces:read", "spaces:write"]);
+    const first = await request(`/api/v1/space-invites/${invitation.data.token}/join`, joiningToken, publicKey, {
+      method: "POST",
+      body: JSON.stringify({ displayName: "First name" }),
+    });
+    const firstJoin = await first.json<{ data: { personId: string } }>();
+    const db = (env as unknown as TestEnv).DB;
+    const firstMembership = await db.prepare("SELECT id FROM space_memberships WHERE space_id=? AND user_id=? AND deleted_at IS NULL")
+      .bind(family.spaceId, joiningId).first<{ id: string }>();
+    expect((await request(`/api/v1/spaces/${family.spaceId}/members/${joiningId}`, family.accessToken, publicKey, { method: "DELETE" })).status).toBe(204);
+    const secondCreated = await request(`/api/v1/spaces/${family.spaceId}/invites`, family.accessToken, publicKey, {
+      method: "POST",
+      body: JSON.stringify({ maxUses: 1, expiresInMinutes: 60 }),
+    });
+    const secondInvitation = await secondCreated.json<{ data: { token: string } }>();
+    const second = await request(`/api/v1/space-invites/${secondInvitation.data.token}/join`, joiningToken, publicKey, {
+      method: "POST",
+      body: JSON.stringify({ displayName: "Updated name" }),
+    });
+    expect(second.status).toBe(201);
+    expect((await second.json<{ data: { personId: string } }>()).data.personId).toBe(firstJoin.data.personId);
+    const secondMembership = await db.prepare("SELECT id FROM space_memberships WHERE space_id=? AND user_id=? AND deleted_at IS NULL")
+      .bind(family.spaceId, joiningId).first<{ id: string }>();
+    expect(secondMembership?.id).toBe(firstMembership?.id);
+    expect((await db.prepare("SELECT display_name FROM space_people WHERE id=?").bind(firstJoin.data.personId).first<{ display_name: string }>())?.display_name).toBe("Updated name");
+  });
+
   it("allows only one redemption when two users race for a one-use invite", async () => {
     const { privateKey, publicKey } = await keys();
     const ownerId = `usr_${crypto.randomUUID()}`;
