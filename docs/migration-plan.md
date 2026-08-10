@@ -211,17 +211,17 @@ Credential hashes stored as durable product data are different from deployment s
 
 ## 7. Phase 0 — Baseline and migration controls
 
-**Status: repository scaffold complete; migration execution not started.**
+**Status: complete — the HomeMew production baseline is frozen in `docs/homemew-parity-matrix.md` on 2026-08-10.**
 
 ### Work
 
 - [x] Establish LifeSpace repository and nested `AGENTS.md` hierarchy.
 - [x] Record platform architecture, permission and contract principles.
-- [ ] Inventory all current HomeMew Core routes, OpenAPI operations, D1 migrations, R2 usage, Queues, crons, external integrations and Mini Program/Web callers.
-- [ ] Build the parity matrix with `HomeMew capability -> LifeSpace replacement -> compatibility requirement -> status`.
-- [ ] Identify all external systems and credentials that must survive cutover.
-- [ ] Record current production resource names and current schema version.
-- [ ] Define migration freeze rules: once parity implementation begins, any new HomeMew Core capability must also be reflected in this migration plan and LifeSpace parity matrix.
+- [x] Inventory all current HomeMew Core routes, OpenAPI operations, D1 migrations, R2 usage, Queues, crons, external integrations and Mini Program/Web callers.
+- [x] Build the parity matrix with `HomeMew capability -> LifeSpace replacement -> compatibility requirement -> status`.
+- [x] Identify all external systems and credentials that must survive cutover.
+- [x] Record current production resource names and current schema version.
+- [x] Define migration freeze rules: once parity implementation begins, any new HomeMew Core capability must also be reflected in this migration plan and LifeSpace parity matrix.
 
 ### Exit gate
 
@@ -306,6 +306,8 @@ The Phase 1 gate was verified by the staging deployment smoke test: Identity and
 Do not start bulk domain migration before this gate is satisfied.
 
 ## 9. Phase 2 — HomeMew capability migration to functional parity
+
+**Status: in progress — baseline inventory frozen on 2026-08-10. Track execution in `docs/phase2-status.md` and capability coverage in `docs/homemew-parity-matrix.md`.**
 
 Migrate shared domains incrementally. Each domain is one complete vertical slice: contract, schema, authorization, implementation, tests, migration transform and compatibility considerations.
 

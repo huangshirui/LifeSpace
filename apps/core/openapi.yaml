@@ -1,43 +1,402 @@
 openapi: 3.1.0
 info:
   title: LifeSpace Core API
-  version: 0.1.0
+  version: 0.2.0
+  description: Space ownership, membership, invitations, Data Grants, and shared life-domain APIs.
+security:
+  - bearerAuth: []
+tags:
+  - name: System
+  - name: Me
+  - name: Spaces
+  - name: Members
+  - name: Invitations
+  - name: Data Grants
 paths:
   /health:
-    get: { responses: { '200': { description: Healthy } } }
+    get:
+      tags: [System]
+      operationId: getHealth
+      security: []
+      responses:
+        '200': { description: Healthy, content: { application/json: { schema: { $ref: '#/components/schemas/HealthResponse' } } } }
   /api/v1/status:
-    get: { responses: { '200': { description: Core status } } }
+    get:
+      tags: [System]
+      operationId: getStatus
+      security: []
+      responses:
+        '200': { description: Core and D1 status, content: { application/json: { schema: { $ref: '#/components/schemas/StatusResponse' } } } }
   /api/v1/me:
     get:
-      security: [{ bearerAuth: [] }]
-      responses: { '200': { description: Current principal } }
+      tags: [Me]
+      operationId: getCurrentPrincipal
+      responses:
+        '200': { description: Current verified principal, content: { application/json: { schema: { $ref: '#/components/schemas/PrincipalResponse' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
   /api/v1/me/spaces:
     get:
-      security: [{ bearerAuth: [] }]
-      responses: { '200': { description: Accessible member Spaces } }
+      tags: [Me, Spaces]
+      operationId: listMySpaces
+      responses:
+        '200': { description: Active membership Spaces, content: { application/json: { schema: { $ref: '#/components/schemas/SpaceSummaryListResponse' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
   /api/v1/spaces:
     post:
-      security: [{ bearerAuth: [] }]
-      responses: { '201': { description: Space created } }
+      tags: [Spaces]
+      operationId: createSpace
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/CreateSpaceRequest' } } }
+      responses:
+        '201': { description: Space created with owner membership and linked Space Person, content: { application/json: { schema: { $ref: '#/components/schemas/CreateSpaceResponse' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
   /api/v1/spaces/{spaceId}:
+    parameters: [{ $ref: '#/components/parameters/SpaceId' }]
     get:
-      security: [{ bearerAuth: [] }]
-      parameters: [{ name: spaceId, in: path, required: true, schema: { type: string } }]
-      responses: { '200': { description: Space } }
+      tags: [Spaces]
+      operationId: getSpace
+      responses:
+        '200': { description: Space and caller access, content: { application/json: { schema: { $ref: '#/components/schemas/SpaceResponse' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Spaces]
+      operationId: updateSpace
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/UpdateSpaceRequest' } } }
+      responses:
+        '200': { description: Updated Space, content: { application/json: { schema: { $ref: '#/components/schemas/SpaceResponse' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
   /api/v1/spaces/{spaceId}/members:
+    parameters: [{ $ref: '#/components/parameters/SpaceId' }]
     get:
-      security: [{ bearerAuth: [] }]
-      parameters: [{ name: spaceId, in: path, required: true, schema: { type: string } }]
-      responses: { '200': { description: Members } }
+      tags: [Members]
+      operationId: listSpaceMembers
+      responses:
+        '200': { description: Active memberships and linked Space People, content: { application/json: { schema: { $ref: '#/components/schemas/MemberListResponse' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
     post:
-      security: [{ bearerAuth: [] }]
-      parameters: [{ name: spaceId, in: path, required: true, schema: { type: string } }]
-      responses: { '201': { description: Member added } }
+      tags: [Members]
+      operationId: addSpaceMember
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/AddMemberRequest' } } }
+      responses:
+        '201': { description: Membership and linked Space Person created or reactivated, content: { application/json: { schema: { $ref: '#/components/schemas/MemberResponse' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/spaces/{spaceId}/members/{userId}:
+    parameters:
+      - { $ref: '#/components/parameters/SpaceId' }
+      - { $ref: '#/components/parameters/UserId' }
+    patch:
+      tags: [Members]
+      operationId: updateSpaceMemberRole
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/UpdateMemberRequest' } } }
+      responses:
+        '200': { description: Membership role updated, content: { application/json: { schema: { $ref: '#/components/schemas/MemberResponse' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+    delete:
+      tags: [Members]
+      operationId: removeSpaceMember
+      responses:
+        '204': { description: Membership and linked Space Person deactivated }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/spaces/{spaceId}/leave:
+    parameters: [{ $ref: '#/components/parameters/SpaceId' }]
+    post:
+      tags: [Members]
+      operationId: leaveSpace
+      responses:
+        '204': { description: Current user membership and linked Space Person deactivated }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/spaces/{spaceId}/invites:
+    parameters: [{ $ref: '#/components/parameters/SpaceId' }]
+    get:
+      tags: [Invitations]
+      operationId: listSpaceInvites
+      responses:
+        '200': { description: Space invitations without plaintext tokens, content: { application/json: { schema: { $ref: '#/components/schemas/InviteListResponse' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Invitations]
+      operationId: createSpaceInvite
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/CreateInviteRequest' } } }
+      responses:
+        '201': { description: Invitation created; plaintext token is returned once, content: { application/json: { schema: { $ref: '#/components/schemas/CreateInviteResponse' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/spaces/{spaceId}/invites/{inviteId}/revoke:
+    parameters:
+      - { $ref: '#/components/parameters/SpaceId' }
+      - { $ref: '#/components/parameters/InviteId' }
+    post:
+      tags: [Invitations]
+      operationId: revokeSpaceInvite
+      responses:
+        '204': { description: Invitation revoked }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/space-invites/{token}:
+    parameters: [{ $ref: '#/components/parameters/InviteToken' }]
+    get:
+      tags: [Invitations]
+      operationId: previewSpaceInvite
+      responses:
+        '200': { description: Limited authenticated invitation preview, content: { application/json: { schema: { $ref: '#/components/schemas/InvitePreviewResponse' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/space-invites/{token}/join:
+    parameters: [{ $ref: '#/components/parameters/InviteToken' }]
+    post:
+      tags: [Invitations]
+      operationId: joinSpaceByInvite
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/JoinInviteRequest' } } }
+      responses:
+        '201': { description: Membership and linked Space Person atomically activated, content: { application/json: { schema: { $ref: '#/components/schemas/JoinInviteResponse' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
   /api/v1/spaces/{spaceId}/grants:
+    parameters: [{ $ref: '#/components/parameters/SpaceId' }]
     post:
-      security: [{ bearerAuth: [] }]
-      parameters: [{ name: spaceId, in: path, required: true, schema: { type: string } }]
-      responses: { '201': { description: Data Grant created } }
+      tags: [Data Grants]
+      operationId: createDataGrant
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/CreateGrantRequest' } } }
+      responses:
+        '201': { description: Data Grant created }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
 components:
   securitySchemes:
     bearerAuth: { type: http, scheme: bearer, bearerFormat: JWT }
+  parameters:
+    SpaceId: { name: spaceId, in: path, required: true, schema: { type: string, pattern: '^spc_' } }
+    UserId: { name: userId, in: path, required: true, schema: { type: string, pattern: '^usr_' } }
+    InviteId: { name: inviteId, in: path, required: true, schema: { type: string, pattern: '^inv_' } }
+    InviteToken: { name: token, in: path, required: true, schema: { type: string, minLength: 10, maxLength: 100 } }
+  responses:
+    Unauthorized: { description: Authentication failed, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } } } }
+    Forbidden: { description: App scope or current data authorization is insufficient, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } } } }
+    NotFound: { description: Resource not found, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } } } }
+    Conflict: { description: Version, lifecycle, membership, invite, or invariant conflict, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } } } }
+    ValidationError: { description: Input validation failed, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } } } }
+  schemas:
+    SpaceKind: { type: string, enum: [personal, family, team] }
+    SpaceRole: { type: string, enum: [owner, admin, editor, viewer] }
+    AssignableSpaceRole: { type: string, enum: [admin, editor, viewer] }
+    Permission: { type: string, enum: [free_busy, read, write, manage] }
+    IanaTimezone: { type: string, minLength: 1, maxLength: 100, examples: [Asia/Shanghai] }
+    Principal:
+      type: object
+      additionalProperties: false
+      required: [type, id, clientId, scopes, tokenId]
+      properties:
+        type: { type: string, enum: [user, service, device] }
+        id: { type: string }
+        clientId: { type: string }
+        scopes: { type: array, items: { type: string }, uniqueItems: true }
+        tokenId: { type: string }
+    Space:
+      type: object
+      required: [id, kind, name, timezone, version]
+      properties:
+        id: { type: string, pattern: '^spc_' }
+        kind: { $ref: '#/components/schemas/SpaceKind' }
+        name: { type: string, minLength: 1, maxLength: 100 }
+        timezone: { $ref: '#/components/schemas/IanaTimezone' }
+        version: { type: integer, minimum: 1 }
+        access: { oneOf: [{ $ref: '#/components/schemas/SpaceRole' }, { type: string, const: grant }] }
+    SpaceSummary:
+      allOf:
+        - { $ref: '#/components/schemas/Space' }
+        - type: object
+          required: [role]
+          properties: { role: { $ref: '#/components/schemas/SpaceRole' } }
+    CreateSpaceRequest:
+      type: object
+      additionalProperties: false
+      required: [kind, name, ownerDisplayName]
+      properties:
+        kind: { $ref: '#/components/schemas/SpaceKind' }
+        name: { type: string, minLength: 1, maxLength: 100 }
+        ownerDisplayName: { type: string, minLength: 1, maxLength: 100 }
+        timezone: { $ref: '#/components/schemas/IanaTimezone', default: UTC }
+    UpdateSpaceRequest:
+      type: object
+      additionalProperties: false
+      required: [version]
+      minProperties: 2
+      properties:
+        name: { type: string, minLength: 1, maxLength: 100 }
+        timezone: { $ref: '#/components/schemas/IanaTimezone' }
+        version: { type: integer, minimum: 1 }
+    Member:
+      type: object
+      required: [id, userId, role, version]
+      properties:
+        id: { type: string, pattern: '^mem_' }
+        userId: { type: string, pattern: '^usr_' }
+        role: { $ref: '#/components/schemas/SpaceRole' }
+        version: { type: integer, minimum: 1 }
+        personId: { type: string, pattern: '^per_' }
+        displayName: { type: string, minLength: 1, maxLength: 100 }
+        createdAt: { type: string, format: date-time }
+    AddMemberRequest:
+      type: object
+      additionalProperties: false
+      required: [userId, role, displayName]
+      properties:
+        userId: { type: string, pattern: '^usr_' }
+        role: { $ref: '#/components/schemas/AssignableSpaceRole' }
+        displayName: { type: string, minLength: 1, maxLength: 100 }
+    UpdateMemberRequest:
+      type: object
+      additionalProperties: false
+      required: [role, version]
+      properties:
+        role: { $ref: '#/components/schemas/AssignableSpaceRole' }
+        version: { type: integer, minimum: 1 }
+    Invite:
+      type: object
+      required: [id, role, status, expiresAt, maxUses, usedCount]
+      properties:
+        id: { type: string, pattern: '^inv_' }
+        tokenPrefix: { type: string }
+        role: { $ref: '#/components/schemas/AssignableSpaceRole' }
+        status: { type: string, enum: [active, expired, exhausted, revoked] }
+        expiresAt: { type: string, format: date-time }
+        maxUses: { type: integer, minimum: 1, maximum: 100 }
+        usedCount: { type: integer, minimum: 0 }
+        createdByUserId: { type: string, pattern: '^usr_' }
+        createdAt: { type: string, format: date-time }
+    CreateInviteRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        role: { $ref: '#/components/schemas/AssignableSpaceRole', default: editor }
+        expiresInMinutes: { type: integer, minimum: 1, maximum: 43200, default: 1440 }
+        maxUses: { type: integer, minimum: 1, maximum: 100, default: 1 }
+    JoinInviteRequest:
+      type: object
+      additionalProperties: false
+      required: [displayName]
+      properties: { displayName: { type: string, minLength: 1, maxLength: 100 } }
+    CreateGrantRequest:
+      type: object
+      additionalProperties: false
+      required: [granteeType, granteeId, permission]
+      properties:
+        granteeType: { type: string, enum: [user, space, service, device] }
+        granteeId: { type: string }
+        permission: { $ref: '#/components/schemas/Permission' }
+        expiresAt: { type: [string, 'null'], format: date-time }
+    ErrorResponse:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          type: object
+          additionalProperties: false
+          required: [code, message, requestId]
+          properties:
+            code: { type: string }
+            message: { type: string }
+            requestId: { type: string }
+    HealthResponse: { type: object, required: [data], properties: { data: { type: object, required: [status], properties: { status: { const: ok } } } } }
+    StatusResponse: { type: object, required: [data], properties: { data: { type: object, required: [status, service, database, schemaVersion, contractVersion], properties: { status: { const: ok }, service: { const: core }, environment: { type: string }, database: { const: available }, schemaVersion: { type: string }, contractVersion: { const: 0.2.0 } } } } }
+    PrincipalResponse: { type: object, required: [data], properties: { data: { type: object, required: [principal], properties: { principal: { $ref: '#/components/schemas/Principal' } } } } }
+    SpaceResponse: { type: object, required: [data], properties: { data: { $ref: '#/components/schemas/Space' } } }
+    SpaceSummaryListResponse: { type: object, required: [data], properties: { data: { type: array, items: { $ref: '#/components/schemas/SpaceSummary' } } } }
+    CreateSpaceResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          allOf:
+            - { $ref: '#/components/schemas/Space' }
+            - type: object
+              required: [role, ownerPersonId]
+              properties: { role: { const: owner }, ownerPersonId: { type: string, pattern: '^per_' } }
+    MemberResponse: { type: object, required: [data], properties: { data: { $ref: '#/components/schemas/Member' } } }
+    MemberListResponse: { type: object, required: [data], properties: { data: { type: array, items: { $ref: '#/components/schemas/Member' } } } }
+    InviteListResponse: { type: object, required: [data], properties: { data: { type: array, items: { $ref: '#/components/schemas/Invite' } } } }
+    CreateInviteResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          allOf:
+            - { $ref: '#/components/schemas/Invite' }
+            - type: object
+              required: [token]
+              properties: { token: { type: string, writeOnly: true } }
+    InvitePreviewResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          required: [space, role, expiresAt, canJoin]
+          properties:
+            space:
+              type: object
+              required: [id, name, kind, timezone, memberCount]
+              properties:
+                id: { type: string, pattern: '^spc_' }
+                name: { type: string }
+                kind: { $ref: '#/components/schemas/SpaceKind' }
+                timezone: { $ref: '#/components/schemas/IanaTimezone' }
+                memberCount: { type: integer, minimum: 0 }
+            role: { $ref: '#/components/schemas/AssignableSpaceRole' }
+            expiresAt: { type: string, format: date-time }
+            canJoin: { type: boolean }
+    JoinInviteResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          required: [spaceId, role, personId, joinedAt]
+          properties:
+            spaceId: { type: string, pattern: '^spc_' }
+            role: { $ref: '#/components/schemas/AssignableSpaceRole' }
+            personId: { type: string, pattern: '^per_' }
+            joinedAt: { type: string, format: date-time }

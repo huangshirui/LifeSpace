@@ -2,27 +2,30 @@
 
 Shared Cloudflare Worker business API for Space-owned life data.
 
-## Planned stack
+## Implemented platform foundation
 
-The initial implementation should reuse proven HomeMew patterns where still appropriate:
+- Verified RS256 principal authentication and application scopes.
+- Space ownership with roles `owner`, `admin`, `editor`, and `viewer`.
+- Current Space membership and Data Grant authorization intersection.
+- Linked Space People for person-subject domain relationships.
+- Health/status diagnostics and standard success/error envelopes.
 
-- Cloudflare Workers
-- Hono
-- D1
-- Wrangler
-- Vitest
-- OpenAPI contract checks
-- Node.js 24 / pnpm workspace
+## Phase 2 family Space management
 
-## Planned initial scope
+Core API contract version 0.2.0 adds the native family Space policy used by the HomeMew migration:
 
-The first implementation milestone is platform foundation rather than all future domains:
+- Every Space stores an IANA `timezone`; native creation defaults to `UTC` when omitted.
+- Space profile updates require optimistic-concurrency `version`.
+- Family Spaces allow at most eight active memberships.
+- A Space always retains at least one active owner or administrator.
+- Membership activation/deactivation keeps its linked Space Person consistent.
+- Core owns hashed, expiring, revocable Space invitations. Plaintext invitation tokens are returned only once at creation.
+- Invitation redemption atomically validates lifecycle/use/member limits and creates or reactivates both membership and Space Person.
 
-1. health/status conventions
-2. authenticated principal plumbing
-3. Space and membership
-4. Data Grants
-5. `/me` aggregate access conventions
-6. event/task migration after the foundation is stable
+HomeMew's maximum-three-created-families rule is not a generic Space rule. It belongs to the later HomeMew compatibility/application policy. HomeMew family avatar parity is also deferred to the R2 object migration slice.
 
-Canonical API paths and schemas will live in `openapi.yaml` when implementation begins. Until then this README is planning context, not an implemented API contract.
+Canonical request and response syntax lives in `openapi.yaml`. D1 migrations live in `migrations/` and are applied before deploying the compatible Worker.
+
+## Verification
+
+`pnpm --filter @lifespace/core check` runs the OpenAPI contract check, Workers-runtime D1 tests, TypeScript checking, and Wrangler dry-run build.
