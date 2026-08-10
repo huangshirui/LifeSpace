@@ -56,19 +56,19 @@ function snapshot() {
     ],
     dayRecordOccurrences: [
       {
-        id: "dyo_elapsed_initial", dayRecordId: "day_elapsed", occurredOn: "2026-07-01", note: null, source: "initial",
+        id: "dyo_elapsedinitial", dayRecordId: "day_elapsed", occurredOn: "2026-07-01", note: null, source: "initial",
         recordedByType: "user", recordedById: "usr_owner", createdAt: "2026-07-01T00:00:00.000Z",
       },
       {
-        id: "dyo_elapsed_manual", dayRecordId: "day_elapsed", occurredOn: "2026-08-10", note: "Done", source: "manual",
+        id: "dyo_elapsedmanual", dayRecordId: "day_elapsed", occurredOn: "2026-08-10", note: "Done", source: "manual",
         recordedByType: "system", recordedById: "sys_home", createdAt: "2026-08-10T00:00:00.000Z",
       },
       {
-        id: "dyo_cycle_initial", dayRecordId: "day_cycle", occurredOn: "2026-07-11", note: null, source: "initial",
+        id: "dyo_cycleinitial", dayRecordId: "day_cycle", occurredOn: "2026-07-11", note: null, source: "initial",
         recordedByType: "system", recordedById: "sys_home", createdAt: "2026-07-11T00:00:00.000Z",
       },
       {
-        id: "dyo_cycle_manual", dayRecordId: "day_cycle", occurredOn: "2026-08-10", note: null, source: "manual",
+        id: "dyo_cyclemanual", dayRecordId: "day_cycle", occurredOn: "2026-08-10", note: null, source: "manual",
         recordedByType: "user", recordedById: "usr_owner", createdAt: "2026-08-10T00:00:00.000Z",
       },
     ],
@@ -90,7 +90,7 @@ test("transforms Day records deterministically with Space Person subjects and ac
   assert.match(first.coreSql, /'day_elapsed','spc_home'/);
   assert.match(first.coreSql, /'per_removed'/);
   assert.match(first.coreSql, /'service','sys_home','HomeMew system'/);
-  assert.match(first.coreSql, /'dyo_cycle_manual','day_cycle','2026-08-10'/);
+  assert.match(first.coreSql, /'dyo_cyclemanual','day_cycle','2026-08-10'/);
 });
 
 test("rejects a transform built from a different family export", () => {
@@ -108,7 +108,7 @@ test("rejects inconsistent cycle nextDueDate", () => {
 
 test("rejects occurrence history whose latest date is not the current anchor", () => {
   const value = snapshot();
-  value.dayRecordOccurrences.find((occurrence) => occurrence.id === "dyo_elapsed_manual").occurredOn = "2026-08-09";
+  value.dayRecordOccurrences.find((occurrence) => occurrence.id === "dyo_elapsedmanual").occurredOn = "2026-08-09";
   assert.throws(() => transformDayRecordSnapshot(value, familyManifest), /anchorDate must equal its latest occurrence date/);
 });
 
