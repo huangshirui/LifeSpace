@@ -12,8 +12,17 @@ Web App browser
   -> Cloudflare Service Binding
   -> LifeSpace Core
 
-Mini Program / Device / Agent / Automation
-  -> scoped bearer credential
+Mini Program / untrusted client
+  -> short-lived app-scoped bearer token
+  -> LifeSpace Core
+
+Owner-controlled n8n / script / MCP / backend
+  -> opaque Service API Token
+  -> LifeSpace Core
+
+Third-party or policy-controlled service
+  -> OAuth client_credentials
+  -> short-lived bearer token
   -> LifeSpace Core
 
 Application-specific external login
@@ -25,7 +34,7 @@ Application-specific external login
 Initial platform services:
 
 - `apps/core`: modular-monolith business API. Owns Spaces, Data Grants, shared domain models, business authorization, aggregate `/me` views, business migrations and webhooks/notifications that belong to domains.
-- `apps/identity`: global LifeSpace user registry and credential issuer. Owns `usr_*` users, trusted application registration/credentials, short-lived token issuance/revocation and signing-key lifecycle. Platform SSO/session flows may be added later as explicit platform capabilities.
+- `apps/identity`: global LifeSpace user registry and credential issuer. Owns `usr_*` users, trusted application registration/credentials, service principals, opaque Service API Token lifecycle, short-lived token issuance/revocation and signing-key lifecycle. Platform SSO/session flows may be added later as explicit platform capabilities.
 
 ## Identity boundary
 
@@ -67,6 +76,19 @@ Mini Program
 ```
 
 This preserves the proven HomeMew boundary while removing the old shared-HS256-secret model.
+
+## Service and automation authentication
+
+**Planned runtime; accepted architecture decision.** The normative implementation basis is `docs/service-authentication.md`.
+
+LifeSpace supports two service modes:
+
+- owner-controlled trusted backends such as self-hosted n8n, private scripts, cron jobs, and MCP servers may call Core directly with an opaque, revocable `lsp_pat_*` Service API Token;
+- third-party or policy-controlled services may use OAuth `client_credentials` to obtain short-lived access tokens.
+
+Both modes authenticate a service principal and pass through the same application-scope, current Data Grant, and domain authorization checks. Browser and Mini Program clients must not receive Service API Tokens.
+
+Identity owns service principals and token hashes. Core recognizes an opaque token and uses an internal Identity Service Binding introspection call, then evaluates current Core authorization. The client still makes one Core HTTP request; it does not need a token-acquisition request. Core must not read Identity D1 directly or duplicate credential hashes.
 
 ## Data ownership
 
