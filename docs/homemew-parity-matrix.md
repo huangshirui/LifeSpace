@@ -46,11 +46,11 @@ The HomeMew OpenAPI currently exposes 60 implemented operations. The table group
 | Members | list, change role, remove, leave | Durable | Space membership + linked Space Person | Deployed and verified in staging |
 | Invitations | create/list/revoke/preview/join | Durable | Core-owned Space invitations | Deployed and verified in staging |
 | Family avatar | upload/read derived URL | Object | Space asset behavior | Deferred to R2 slice |
-| Events | list/search/filter/create/read/update/delete; attendees | Durable | Space-owned events; attendee Space People | Implemented in Phase 2.3; staging verification pending |
+| Events | list/search/filter/create/read/update/delete; attendees | Durable | Space-owned events; attendee Space People | Deployed and verified in staging |
 | Tasks | list/search/filter/create/read/update/delete/complete/reopen; assignees | Durable | Space-owned tasks; assignee Space People | Not started |
 | Day records | CRUD, occurrence history, archive/restore | Durable | Space-owned day records and occurrences | Not started |
 | Wishes | CRUD, claim/unclaim/fulfill/reopen/archive/restore | Durable | Space-owned wishes and lifecycle | Not started |
-| External integrations | integration CRUD, credential issue/list/revoke, OAuth client credentials | Durable credentials + secret material | Platform application/service identity and Space grants/scopes | Not started |
+| External integrations | integration CRUD, credential issue/list/revoke, OAuth client credentials | Durable credentials + secret material | Service principal + new opaque `lsp_pat_*` token for owner-controlled n8n/curl/scripts/MCP, optional OAuth `client_credentials` for third parties, and explicit Space Data Grants/scopes; never copy `hmw_pat_*` plaintext | Not started |
 | Creation drafts | asynchronous interpret/job polling and cleanup | Ephemeral | Space-aware queue workflow if retained at freeze | Not started |
 | Internal user creation | trusted backend user creation | Durable identity | LifeSpace Identity trusted application user creation | Foundation replacement exists |
 
