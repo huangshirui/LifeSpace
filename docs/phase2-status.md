@@ -25,15 +25,17 @@ The first implementation slice is deliberately divided into independently verifi
 
 ### 2.1 Native family Space policy
 
-- [ ] Add an IANA `timezone` to the Space contract and persistence model.
-- [ ] Add Space update with optimistic concurrency.
-- [ ] Add member role update, member removal, and self-leave.
-- [ ] Enforce a family Space maximum of eight active members.
-- [ ] Enforce at least one active owner/admin.
-- [ ] Keep membership and the linked Space Person consistent.
-- [ ] Add Core-owned Space invitations with hashed tokens, one-time plaintext return, expiry, use count, revocation, preview, and atomic join/reactivation.
-- [ ] Add cross-Space, role, app-scope, stale-version, invite-race, last-admin, removal, and reactivation tests.
-- [ ] Update canonical OpenAPI and contract checks.
+**Status: implemented on `agent/phase2-baseline`; pending repository CI and staging deployment.**
+
+- [x] Add an IANA `timezone` to the Space contract and persistence model.
+- [x] Add Space update with optimistic concurrency.
+- [x] Add member role update, member removal, and self-leave.
+- [x] Enforce a family Space maximum of eight active members.
+- [x] Enforce at least one active owner/admin.
+- [x] Keep membership and the linked Space Person consistent.
+- [x] Add Core-owned Space invitations with hashed tokens, one-time plaintext return, expiry, use count, revocation, preview, and atomic join/reactivation.
+- [x] Add cross-Space, role, app-scope, stale-version, invite-race, last-admin, removal, and reactivation tests.
+- [x] Update canonical OpenAPI and contract checks.
 
 ### 2.2 HomeMew compatibility
 
