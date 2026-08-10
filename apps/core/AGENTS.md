@@ -9,9 +9,10 @@ Read:
 1. Root `AGENTS.md`
 2. `docs/architecture.md`
 3. `docs/permissions.md`
-4. `docs/contracts.md`
-5. `docs/migration-plan.md` when porting HomeMew behavior
-6. Core contract, migrations, tests and relevant implementation once present
+4. `docs/service-authentication.md` when changing service or machine authentication
+5. `docs/contracts.md`
+6. `docs/migration-plan.md` when porting HomeMew behavior
+7. Core contract, migrations, tests and relevant implementation once present
 
 ## Core responsibilities
 
@@ -39,6 +40,8 @@ Core does not own:
 - Never trust request `userId` as actor identity.
 - Cross-Space aggregate endpoints must preserve source Space and effective capability in returned records where the client needs to distinguish writable from shared/read-only data.
 - Revoking membership or a Data Grant must take effect from current authorization state; do not rely only on long-lived token claims.
+- Core must normalize verified RS256 JWTs and Identity-introspected opaque `lsp_pat_*` tokens into the same principal context; it must not read Identity D1 or persist credential hashes.
+- A Service API Token authenticates a service principal only. It must still pass current application scope, Space/Data Grant, and domain authorization.
 
 ## HomeMew migration rules
 
