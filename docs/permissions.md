@@ -8,6 +8,7 @@
 - **Space membership**: role-based relationship between a user and a Space.
 - **Data Grant**: permission that exposes a Space, resource collection, approved view, or individual resource to another principal or Space without changing ownership.
 - **Application scope**: permission granted to the calling application/client.
+- **Service API Token**: long-lived opaque bearer credential for one trusted service principal and client context; it is individually scoped, optionally expiring, and revocable.
 
 Do not use `Data Grant` to mean OAuth authorization code/grant flow.
 
@@ -17,10 +18,20 @@ Effective permission is the intersection of:
 
 1. verified principal identity,
 2. current Space membership / Data Grant authorization,
-3. calling application's allowed scope,
+3. the credential's scope constrained by the calling application's/client's allowed scope,
 4. domain-specific restrictions.
 
 No application is trusted merely because of its hostname or product name.
+
+## Service credentials
+
+**Planned runtime; accepted authorization policy.** See `docs/service-authentication.md` for the normative credential lifecycle and implementation plan.
+
+A service may authenticate either with an opaque `lsp_pat_*` Service API Token or with a short-lived service JWT obtained through OAuth `client_credentials`. OAuth is optional for owner-controlled trusted services.
+
+The credential authenticates a service principal; it does not itself confer Space membership or broad data access. Core must intersect current token/client scopes with current Grants and domain rules on every request. Revoking a Token, disabling its principal, reducing its scopes, or revoking a Data Grant must remove the corresponding authority.
+
+Service API Tokens may have `expires_at = null`, but they must remain individually revocable and must never be issued to browsers, Mini Programs, downloadable clients, or permanent personal-user identities.
 
 ## Space roles
 
@@ -46,4 +57,5 @@ Authenticated aggregate endpoints such as `/api/v1/me/events` may return records
 - Current actor is derived from verified credentials, never request `userId`.
 - User-initiated Agent operations preserve delegated user context.
 - Service and device identities receive only explicit scopes and Grants.
+- A Service API Token authenticates a service principal and never becomes an implicit Space membership or administrator role.
 - A system identity does not become a Space member merely to gain API access.
