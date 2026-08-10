@@ -89,6 +89,17 @@ if (schemas?.LegacyDayRecordPersonRef?.properties?.avatarUrl?.type !== "null") t
 if (schemas?.UpdateDayRecordRequest?.required?.[0] !== "version" || schemas?.UpdateDayRecordRequest?.minProperties !== 2) throw new Error("Native day-record updates must use optimistic concurrency");
 if (schemas?.LegacyUpdateDayRecordRequest?.required?.[0] !== "version" || schemas?.LegacyUpdateDayRecordRequest?.minProperties !== 2) throw new Error("HomeMew day-record updates must preserve optimistic concurrency");
 if (!schemas?.CreateDayRecordOccurrenceRequest?.required?.includes("occurredOn") || !schemas?.CreateDayRecordOccurrenceRequest?.required?.includes("version")) throw new Error("Day-record occurrences must advance by date under optimistic concurrency");
+if (schemas?.DayRecordComputedBase?.additionalProperties === false) throw new Error("Day record computed base must allow allOf-derived computed fields");
+for (const schemaName of [
+  "CreateElapsedDayRecordRequest",
+  "CreateCountdownDayRecordRequest",
+  "CreateCycleDayRecordRequest",
+  "LegacyCreateElapsedDayRecordRequest",
+  "LegacyCreateCountdownDayRecordRequest",
+  "LegacyCreateCycleDayRecordRequest",
+]) {
+  if (schemas?.[schemaName]?.allOf?.[1]?.additionalProperties === false) throw new Error(`${schemaName} must allow fields evaluated by its allOf common schema`);
+}
 if (document.paths?.["/api/v1/spaces/{spaceId}/day-records/{dayRecordId}/occurrences"]?.post?.responses?.["201"] === undefined) throw new Error("Native occurrence creation must preserve 201 semantics");
 if (document.paths?.["/api/v1/families/{familyId}/day-records/{dayRecordId}/occurrences"]?.post?.responses?.["201"] === undefined) throw new Error("HomeMew occurrence creation must preserve 201 semantics");
 if (schemas?.StatusResponse?.properties?.data?.properties?.contractVersion?.const !== "0.6.0") throw new Error("Core status contract version drifted");
