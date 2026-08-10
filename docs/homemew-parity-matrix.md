@@ -36,7 +36,7 @@ The HomeMew D1 history is:
 
 ### Contract inventory
 
-The HomeMew OpenAPI currently exposes 60 implemented operations. The table groups them by migration slice; the OpenAPI remains authoritative for request/response details.
+The HomeMew OpenAPI currently exposes 60 implemented operations. The table groups them by migration slice; the OpenAPI remains authoritative for request/response details, except where an observed runtime drift is explicitly recorded below.
 
 | Capability | Implemented HomeMew surface | Data class | LifeSpace replacement | Phase 2 status |
 | --- | --- | --- | --- | --- |
@@ -47,7 +47,7 @@ The HomeMew OpenAPI currently exposes 60 implemented operations. The table group
 | Invitations | create/list/revoke/preview/join | Durable | Core-owned Space invitations | Deployed and verified in staging |
 | Family avatar | upload/read derived URL | Object | Space asset behavior | Deferred to R2 slice |
 | Events | list/search/filter/create/read/update/delete; attendees | Durable | Space-owned events; attendee Space People | Deployed and verified in staging |
-| Tasks | list/search/filter/create/read/update/delete/complete/reopen; assignees | Durable | Space-owned tasks; assignee Space People | Not started |
+| Tasks | list/search/filter/create/read/update/delete/complete/reopen; assignees | Durable | Space-owned tasks; assignee Space People | Implemented in PR #10; staging pending |
 | Day records | CRUD, occurrence history, archive/restore | Durable | Space-owned day records and occurrences | Not started |
 | Wishes | CRUD, claim/unclaim/fulfill/reopen/archive/restore | Durable | Space-owned wishes and lifecycle | Not started |
 | External integrations | integration CRUD, credential issue/list/revoke, OAuth client credentials | Durable credentials + secret material | Service principal + new opaque `lsp_pat_*` token for owner-controlled n8n/curl/scripts/MCP, optional OAuth `client_credentials` for third parties, and explicit Space Data Grants/scopes; never copy `hmw_pat_*` plaintext | Not started |
@@ -86,6 +86,29 @@ Compatibility tables persist `legacy_user -> LifeSpace user`, `fam -> Space`, me
 Invitations belong in Core because membership activation, invite redemption, active-member limits, and Space Person creation/reactivation must be one authoritative transaction. External-provider identities and WeChat `openid` mappings remain in the HomeMew application boundary.
 
 Family avatar parity is intentionally not claimed by the first membership/invitation slice. It remains unavailable on LifeSpace compatibility endpoints until the R2 object migration slice is complete.
+
+## Task transformation and compatibility policy
+
+Phase 2.4 keeps one native task record per task and translates only the application-facing identity shape.
+
+| HomeMew concept | LifeSpace concept | Rule |
+| --- | --- | --- |
+| `tsk_*` task | Space-owned `tasks` row | Preserve the stable task ID while ownership changes from `family_id` to `space_id` |
+| `task_assignees.user_id` | `task_assignees.person_id` | Resolve through the exact family membership mapping to the authoritative same-Space `space_person` |
+| `assigneeIds` | `assigneePersonIds` | Legacy IDs exist only on the HomeMew compatibility surface; native APIs use Space Person IDs |
+| `pending/completed/cancelled` | same lifecycle values | Preserve source status and completion invariants; complete/reopen remain action endpoints |
+| `completedBy/createdBy/updatedBy` | principal actor snapshot | HomeMew `system` actors become LifeSpace `service`; user actors map through the frozen user mapping |
+| `dueDate` | date-only `YYYY-MM-DD` | Preserve date-only semantics; timestamps and the retired `due` field remain invalid |
+| optimistic `version` | optimistic `version` | PATCH, DELETE, complete and reopen reject stale versions |
+| delete | soft delete | Preserve history and hide deleted tasks from normal reads/lists |
+
+The D1 schema additionally enforces same-Space task assignees, so a valid foreign-key reference alone cannot attach a Person from another Space.
+
+### Known HomeMew `includeNoDue` contract/runtime drift
+
+The frozen HomeMew OpenAPI declares `includeNoDue` with a default of `true`, but the deployed HomeMew task-list runtime evaluates an omitted query parameter as `false` (`includeNoDue === "true"`). Existing tests cover the explicit `includeNoDue=true` behavior but do not establish the documented default.
+
+LifeSpace Phase 2.4 therefore preserves the observed HomeMew runtime behavior on the compatibility route: omitted means `false`; callers that want undated tasks alongside a due-date range must send `includeNoDue=true`. The native LifeSpace contract also states its behavior explicitly instead of inheriting the contradictory HomeMew documentation. This drift must not be silently changed during migration; a future HomeMew contract correction can be made separately if desired.
 
 ## Compatibility and migration rules
 
