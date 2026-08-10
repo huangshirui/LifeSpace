@@ -25,7 +25,7 @@ The first implementation slice is deliberately divided into independently verifi
 
 ### 2.1 Native family Space policy
 
-**Status: implemented on `agent/phase2-baseline`; pending repository CI and staging deployment.**
+**Status: deployed and verified in staging on 2026-08-10.**
 
 - [x] Add an IANA `timezone` to the Space contract and persistence model.
 - [x] Add Space update with optimistic concurrency.
@@ -39,13 +39,17 @@ The first implementation slice is deliberately divided into independently verifi
 
 ### 2.2 HomeMew compatibility
 
-- [ ] Define explicit `fam_* -> spc_*` and member/person migration maps.
-- [ ] Implement temporary family-route compatibility over the same LifeSpace records.
-- [ ] Map `owner/admin -> admin` and `editor -> member` for legacy clients.
-- [ ] Preserve HomeMew error and response behavior required by released clients.
-- [ ] Keep HomeMew's maximum-three-created-families rule in the compatibility/application policy, not generic LifeSpace Space creation.
-- [ ] Add transform and validation tooling for users, families, memberships, and invitations.
+**Status: implemented on `agent/phase2-homemew-family-compat`; pending repository CI and staging verification.**
+
+- [x] Define explicit `fam_* -> spc_*` and member/person migration maps.
+- [x] Implement temporary family-route compatibility over the same LifeSpace records.
+- [x] Map `owner/admin -> admin` and `editor -> member` for legacy clients.
+- [x] Preserve HomeMew family/member/invitation response fields, error classes, and the invitation-join `200` behavior required by released clients.
+- [x] Keep HomeMew's maximum-three-created-families rule in the compatibility/application policy, not generic LifeSpace Space creation.
+- [x] Add deterministic transform and validation tooling for users, families, memberships, Space People, invitations, and redemption history.
 - [ ] Verify the slice in staging without switching production traffic.
+
+The compatibility mapping tables are transitional ID/audit metadata, not a second household store. Family records remain exclusively in native LifeSpace tables. The source creator becomes Space owner when still an active HomeMew administrator; otherwise the earliest active administrator is selected deterministically. The native owner role cannot be demoted through the legacy role endpoint. Historic duplicate invite-redemption pairs are collapsed into the native replay-safe relation and reported explicitly while the source invite `usedCount` is preserved.
 
 Family avatar upload/copy remains in the later R2 object slice and is not included in the first membership/invitation acceptance claim.
 

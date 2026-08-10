@@ -8,11 +8,9 @@ export type Principal = {
   tokenId: string;
 };
 
-export type Bindings = {
-  DB: D1Database;
+export type Bindings = CloudflareBindings & {
   IDENTITY_PUBLIC_KEY: string;
   CORS_ORIGINS?: string;
-  ENVIRONMENT?: string;
 };
 
 export type Variables = {
