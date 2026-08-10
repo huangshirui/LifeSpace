@@ -320,7 +320,7 @@ Recommended order:
 5. Wishes and lifecycle rules.
 6. Anniversaries if part of the released HomeMew contract by the parity freeze.
 7. R2 avatar/object behavior.
-8. External integrations, credentials and system scopes.
+8. External integrations, service principals, opaque Service API Tokens, optional OAuth `client_credentials`, Data Grants, and system scopes.
 9. Webhooks/notifications that exist in the released Core.
 10. AI creation drafts, Queue handling and related privacy/rate-limit behavior.
 11. Remaining production-used HomeMew Core capability discovered in Phase 0.
@@ -646,7 +646,9 @@ ALOHA should integrate directly with native LifeSpace Identity/Core contracts an
 
 ### External systems
 
-Migrate n8n/Agents/other integrations to platform service/app identity and Data Grant semantics. A user-initiated Agent action should continue to preserve the acting user's authority rather than becoming a permanent family administrator.
+Migrate n8n/Agents/other integrations to platform service/app identity and Data Grant semantics. Per `docs/service-authentication.md`, owner-controlled n8n, curl/scripts, scheduled jobs, and MCP servers should normally receive a new opaque `lsp_pat_*` Service API Token and continue making one direct Bearer-authenticated Core request. OAuth `client_credentials` remains available for third-party or policy-controlled integrations; it is not mandatory for self-hosted services.
+
+Do not copy `hmw_pat_*` plaintext into LifeSpace. Create a new service principal/credential, translate HomeMew permissions into LifeSpace scopes and the family binding into Grants on the mapped Space, verify it in staging, update the caller, and revoke the legacy credential after the rollback window. A user-initiated Agent action should continue to preserve the acting user's authority rather than becoming a permanent family administrator.
 
 ### Compatibility retirement gate
 
