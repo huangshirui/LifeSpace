@@ -104,7 +104,7 @@ console.log("Staging bootstrap secret synchronized and activated");
 
 const appId = `app_staging_smoke_${smokeId}`;
 const displayName = `Staging Smoke ${smokeId}`;
-const scopes = ["profile:read", "spaces:read", "spaces:write"];
+const scopes = ["profile:read", "spaces:read", "spaces:write", "tasks:read", "tasks:write"];
 
 const application = await requestJson(`${identityBase}/bootstrap/v1/applications`, {
   method: "POST",
@@ -171,6 +171,15 @@ if (coreProbe?.response.status !== 200) {
   throw new Error(`Core token verification failed: ${coreProbe?.response.status} ${JSON.stringify(coreProbe?.payload)}`);
 }
 
+const coreStatus = await requestJson(`${coreBase}/api/v1/status`, {}, 200);
+if (
+  coreStatus?.data?.environment !== "staging"
+  || coreStatus?.data?.schemaVersion !== "5"
+  || coreStatus?.data?.contractVersion !== "0.5.0"
+) {
+  throw new Error(`Unexpected Core staging status: ${JSON.stringify(coreStatus)}`);
+}
+
 const space = await requestJson(`${coreBase}/api/v1/spaces`, {
   method: "POST",
   headers: {
@@ -185,7 +194,9 @@ const space = await requestJson(`${coreBase}/api/v1/spaces`, {
 }, 201);
 
 const spaceId = space?.data?.id;
+const ownerPersonId = space?.data?.ownerPersonId;
 if (!spaceId) throw new Error("Core did not return a Space id");
+if (!ownerPersonId) throw new Error("Core did not return the owner Space Person id");
 
 await requestJson(`${coreBase}/api/v1/spaces/${spaceId}`, {
   headers: { authorization: `Bearer ${accessToken}` },
@@ -193,12 +204,155 @@ await requestJson(`${coreBase}/api/v1/spaces/${spaceId}`, {
 
 await requestJson(`${coreBase}/api/v1/spaces/${spaceId}`, {}, 401);
 
-console.log(`Phase 1 staging smoke test passed for ${spaceId}`);
+const taskName = `Staging Smoke Task ${smokeId}`;
+const task = await requestJson(`${coreBase}/api/v1/spaces/${spaceId}/tasks`, {
+  method: "POST",
+  headers: {
+    authorization: `Bearer ${accessToken}`,
+    "content-type": "application/json",
+  },
+  body: JSON.stringify({
+    name: taskName,
+    description: "Phase 2.4 staging E2E",
+    dueDate: "2099-12-31",
+    assigneePersonIds: [ownerPersonId],
+  }),
+}, 201);
+
+const taskId = task?.data?.id;
+if (!taskId) throw new Error("Core did not return a Task id");
+if (
+  task.data?.spaceId !== spaceId
+  || task.data?.status !== "pending"
+  || task.data?.dueDate !== "2099-12-31"
+  || task.data?.version !== 1
+  || task.data?.assignees?.length !== 1
+  || task.data?.assignees?.[0]?.personId !== ownerPersonId
+) {
+  throw new Error(`Unexpected created Task shape: ${JSON.stringify(task)}`);
+}
+
+const taskList = await requestJson(
+  `${coreBase}/api/v1/spaces/${spaceId}/tasks?assigneePersonId=me&q=${encodeURIComponent(taskName)}`,
+  { headers: { authorization: `Bearer ${accessToken}` } },
+  200,
+);
+if (taskList?.data?.items?.length !== 1 || taskList.data.items[0]?.id !== taskId) {
+  throw new Error(`Task list/filter E2E failed: ${JSON.stringify(taskList)}`);
+}
+
+const taskRead = await requestJson(`${coreBase}/api/v1/spaces/${spaceId}/tasks/${taskId}`, {
+  headers: { authorization: `Bearer ${accessToken}` },
+}, 200);
+if (taskRead?.data?.id !== taskId || taskRead?.data?.assignees?.[0]?.personId !== ownerPersonId) {
+  throw new Error(`Task read/assignee E2E failed: ${JSON.stringify(taskRead)}`);
+}
+
+await requestJson(`${coreBase}/api/v1/spaces/${spaceId}/tasks`, {}, 401);
+
+const staleUpdate = await fetchJson(`${coreBase}/api/v1/spaces/${spaceId}/tasks/${taskId}`, {
+  method: "PATCH",
+  headers: {
+    authorization: `Bearer ${accessToken}`,
+    "content-type": "application/json",
+  },
+  body: JSON.stringify({ version: 999, description: "stale update must fail" }),
+});
+if (staleUpdate.response.status !== 409 || staleUpdate.payload?.error?.code !== "TASK_VERSION_CONFLICT") {
+  throw new Error(`Task optimistic-concurrency E2E failed: ${staleUpdate.response.status} ${JSON.stringify(staleUpdate.payload)}`);
+}
+
+const completedTask = await requestJson(`${coreBase}/api/v1/spaces/${spaceId}/tasks/${taskId}/complete`, {
+  method: "POST",
+  headers: {
+    authorization: `Bearer ${accessToken}`,
+    "content-type": "application/json",
+  },
+  body: JSON.stringify({ version: 1 }),
+}, 200);
+if (
+  completedTask?.data?.status !== "completed"
+  || completedTask?.data?.version !== 2
+  || completedTask?.data?.completedBy?.id !== userId
+) {
+  throw new Error(`Task complete E2E failed: ${JSON.stringify(completedTask)}`);
+}
+
+const reopenedTask = await requestJson(`${coreBase}/api/v1/spaces/${spaceId}/tasks/${taskId}/reopen`, {
+  method: "POST",
+  headers: {
+    authorization: `Bearer ${accessToken}`,
+    "content-type": "application/json",
+  },
+  body: JSON.stringify({ version: 2 }),
+}, 200);
+if (
+  reopenedTask?.data?.status !== "pending"
+  || reopenedTask?.data?.version !== 3
+  || reopenedTask?.data?.completedAt !== null
+  || reopenedTask?.data?.completedBy !== null
+) {
+  throw new Error(`Task reopen E2E failed: ${JSON.stringify(reopenedTask)}`);
+}
+
+const updatedTask = await requestJson(`${coreBase}/api/v1/spaces/${spaceId}/tasks/${taskId}`, {
+  method: "PATCH",
+  headers: {
+    authorization: `Bearer ${accessToken}`,
+    "content-type": "application/json",
+  },
+  body: JSON.stringify({
+    version: 3,
+    description: "Phase 2.4 staging E2E updated",
+    dueDate: null,
+    assigneePersonIds: [ownerPersonId],
+  }),
+}, 200);
+if (
+  updatedTask?.data?.version !== 4
+  || updatedTask?.data?.description !== "Phase 2.4 staging E2E updated"
+  || updatedTask?.data?.dueDate !== null
+  || updatedTask?.data?.assignees?.[0]?.personId !== ownerPersonId
+) {
+  throw new Error(`Task update E2E failed: ${JSON.stringify(updatedTask)}`);
+}
+
+const withoutNoDue = await requestJson(
+  `${coreBase}/api/v1/spaces/${spaceId}/tasks?assigneePersonId=me&dueDateFrom=2099-01-01&q=${encodeURIComponent(taskName)}`,
+  { headers: { authorization: `Bearer ${accessToken}` } },
+  200,
+);
+if (withoutNoDue?.data?.items?.length !== 0) {
+  throw new Error(`Task includeNoDue omission E2E failed: ${JSON.stringify(withoutNoDue)}`);
+}
+
+const withNoDue = await requestJson(
+  `${coreBase}/api/v1/spaces/${spaceId}/tasks?assigneePersonId=me&dueDateFrom=2099-01-01&includeNoDue=true&q=${encodeURIComponent(taskName)}`,
+  { headers: { authorization: `Bearer ${accessToken}` } },
+  200,
+);
+if (withNoDue?.data?.items?.length !== 1 || withNoDue.data.items[0]?.id !== taskId) {
+  throw new Error(`Task includeNoDue=true E2E failed: ${JSON.stringify(withNoDue)}`);
+}
+
+await requestJson(`${coreBase}/api/v1/spaces/${spaceId}/tasks/${taskId}?version=4`, {
+  method: "DELETE",
+  headers: { authorization: `Bearer ${accessToken}` },
+}, 204);
+
+const deletedTask = await fetchJson(`${coreBase}/api/v1/spaces/${spaceId}/tasks/${taskId}`, {
+  headers: { authorization: `Bearer ${accessToken}` },
+});
+if (deletedTask.response.status !== 404 || deletedTask.payload?.error?.code !== "TASK_NOT_FOUND") {
+  throw new Error(`Task soft-delete E2E failed: ${deletedTask.response.status} ${JSON.stringify(deletedTask.payload)}`);
+}
+
+console.log(`Phase 2.4 staging Task E2E passed for ${spaceId} / ${taskId}`);
 
 if (process.env.GITHUB_STEP_SUMMARY) {
   const { appendFile } = await import("node:fs/promises");
   await appendFile(
     process.env.GITHUB_STEP_SUMMARY,
-    `## LifeSpace staging runtime\n\n- Bootstrap secret: synchronized and activated from GitHub staging secret\n- RS256 signing keys: ${rotatedSigningKeys ? "repaired and activated" : "existing active pair preserved"}\n- Identity -> token -> Core -> Space smoke test: passed\n- Authentication deny check: passed\n- Smoke Space: \`${spaceId}\`\n`,
+    `## LifeSpace staging runtime\n\n- Bootstrap secret: synchronized and activated from GitHub staging secret\n- RS256 signing keys: ${rotatedSigningKeys ? "repaired and activated" : "existing active pair preserved"}\n- Identity -> token -> Core -> Space smoke test: passed\n- Core schema/contract: v5 / 0.5.0\n- Task create/read/list/filter/assignee E2E: passed\n- Task optimistic concurrency + complete/reopen/update E2E: passed\n- Task includeNoDue compatibility semantics: passed\n- Task soft deletion: passed\n- Authentication deny checks: passed\n- Smoke Space: \`${spaceId}\`\n- Smoke Task: \`${taskId}\`\n`,
   );
 }
