@@ -94,7 +94,7 @@ The task compatibility route preserves the observed HomeMew runtime behavior whe
 
 ### 2.5 Space-owned day records and HomeMew compatibility
 
-**Status: implementation started; staging not yet changed for this slice.**
+**Status: implemented in draft PR #12; final CI and staging deployment/E2E pending.**
 
 - [x] Freeze the released HomeMew day-record behavior from runtime code, D1 schema and integration tests.
 - [x] Confirm the three discriminated kinds: `elapsed`, `countdown`, `cycle`.
@@ -102,14 +102,22 @@ The task compatibility route preserves the observed HomeMew runtime behavior whe
 - [x] Confirm non-countdown records maintain occurrence history; manual occurrences move the anchor forward atomically and recompute cycle due dates.
 - [x] Confirm archived records are read-only for edits/occurrences but remain readable and restorable.
 - [x] Confirm subject history must remain displayable after the represented member/Space Person is removed.
-- [ ] Add schema v6 Space-owned day records and occurrence history with same-Space subject enforcement.
-- [ ] Add native `/api/v1/spaces/{spaceId}/day-records` routes using Space Person subject IDs.
-- [ ] Add temporary HomeMew family compatibility routes using legacy user subject IDs.
-- [ ] Preserve computed attention/state, list/filter/sort/cursor, archive/restore, occurrence and optimistic-concurrency semantics.
-- [ ] Add deterministic schema-v11 transform and validation.
-- [ ] Update canonical OpenAPI/contract version and contract checks.
-- [ ] Add Workers/D1 integration and transform tests.
-- [ ] Pass repository CI and then deploy/verify staging after explicit authorization.
+- [x] Add schema v6 Space-owned `day_records` and `day_record_occurrences` with same-Space subject enforcement.
+- [x] Add native `/api/v1/spaces/{spaceId}/day-records` list/create/read/update/delete/archive/restore/occurrence routes using Space Person subject IDs.
+- [x] Add temporary HomeMew family compatibility routes using legacy user subject IDs over the same records.
+- [x] Preserve computed attention/state, date-only/timezone semantics, list/filter/sort/cursor, archive/restore, occurrence and optimistic-concurrency behavior.
+- [x] Preserve historical subject display after membership/Space Person deactivation while requiring an active Person for new assignments/explicit subject filters.
+- [x] Add deterministic schema-v11 day-record/occurrence transform and validation using the exact family mapping manifest from the same export.
+- [x] Validate non-countdown occurrence history, current-anchor/latest-occurrence consistency, countdown no-history invariants, actor conversion, removed-member historical subjects and cycle `nextDueDate` consistency.
+- [x] Update canonical Core OpenAPI to 0.6.0, package/status version and contract sanity checks, including composed-schema guards.
+- [x] Add Workers/D1 integration and migration-transform tests for native/compatibility shapes, lifecycle, history, filters, scopes and cross-Space isolation.
+- [x] Extend the repeatable staging smoke to require schema v6 / contract 0.6.0 and exercise Day-record creation, subject/list, occurrence advancement/history, stale-version rejection, archive/restore/update, authentication denial and soft deletion.
+- [ ] Pass the final repository CI for the completed PR #12 head.
+- [ ] Apply D1 schema v6 to staging, deploy Core and pass the real Day-record staging E2E after merge/authorization.
+
+The Day-record persistence layer stores the subject as `subject_person_id` and enforces same-Space ownership. Unlike new assignment validation, historical reads intentionally do not require the referenced Person to remain active. This preserves the released HomeMew behavior where a record referring to a former family member still displays that historical subject after member removal.
+
+Non-countdown migration history is treated as semantic data rather than optional audit decoration: the transform requires exactly one initial occurrence and requires the latest occurrence date to equal the record's current anchor. Countdown records reject occurrence history. This prevents a row-only migration from silently changing the meaning of elapsed/cycle records.
 
 ## Next slices
 
