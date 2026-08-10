@@ -4,6 +4,7 @@ import type { Bindings, Variables } from "./env";
 import { authenticate } from "./auth";
 import { ApiError, failure, success } from "./http";
 import { registerEventRoutes } from "./events";
+import { registerTaskRoutes } from "./tasks";
 import { registerHomeMewCompatibilityRoutes, requireHomeMewCompatibilityClient } from "./homemew-compat";
 import { registerSpaceRoutes } from "./spaces";
 
@@ -40,7 +41,7 @@ export function createApp() {
     environment: context.env.ENVIRONMENT ?? "local",
     database: "available",
     schemaVersion: await schemaVersion(context.env),
-    contractVersion: "0.4.0",
+    contractVersion: "0.5.0",
   })));
   app.use("/api/v1/me", authenticate());
   app.use("/api/v1/me/*", authenticate());
@@ -57,6 +58,7 @@ export function createApp() {
   registerSpaceRoutes(app);
   registerHomeMewCompatibilityRoutes(app);
   registerEventRoutes(app);
+  registerTaskRoutes(app);
   app.notFound((context) => context.json(failure("NOT_FOUND", "Route not found", context.get("requestId")), 404));
   app.onError((error, context) => {
     const requestId = context.get("requestId");

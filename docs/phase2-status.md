@@ -19,9 +19,7 @@ Migrate current HomeMew shared backend capabilities into LifeSpace as complete S
 - [x] Establish the Phase 2 freeze rule.
 - [x] Define family -> family Space role, person, timezone, invitation, member-limit, and compatibility mappings.
 
-## Active slice — family Space management
-
-The first implementation slice is deliberately divided into independently verifiable steps.
+## Family Space management
 
 ### 2.1 Native family Space policy
 
@@ -53,7 +51,7 @@ The compatibility mapping tables are transitional ID/audit metadata, not a secon
 
 Family avatar upload/copy remains in the later R2 object slice and is not included in the first membership/invitation acceptance claim.
 
-## Active slice — Events and attendees
+## Events and attendees
 
 ### 2.3 Space-owned events and HomeMew compatibility
 
@@ -70,15 +68,34 @@ Family avatar upload/copy remains in the later R2 object slice and is not includ
 
 Cross-Space `/api/v1/me/events` aggregation and calendar `free_busy` grants remain Phase 3 platform capabilities. They are not required to claim HomeMew event parity and are not exposed as planned-only endpoints in this slice.
 
+## Active slice — Tasks and assignees
+
+### 2.4 Space-owned tasks and HomeMew compatibility
+
+**Status: implemented in draft PR #10; staging migration/deployment/E2E not yet performed.**
+
+- [x] Add schema v5 `tasks` owned by `space_id` and `task_assignees` referencing same-Space `space_person` records.
+- [x] Preserve `pending`, `completed` and `cancelled` lifecycle values, date-only `dueDate`, stable `tsk_*` IDs, optimistic versions, actor snapshots and soft deletion.
+- [x] Add native list/search/filter/create/read/update/delete/complete/reopen routes with `tasks:read` / `tasks:write` app scopes intersected with current Space authorization.
+- [x] Add temporary HomeMew family task paths over the same records, translating legacy assignee user IDs to Space Person IDs.
+- [x] Preserve HomeMew search, assignee, due-date range, sorting, cursor and complete/reopen behavior; record the existing `includeNoDue` OpenAPI/runtime drift explicitly rather than silently changing it.
+- [x] Add deterministic schema-v11 task transform using the exact family mapping manifest from the same export.
+- [x] Add transform validation for lifecycle actors, same-family assignees and completion invariants.
+- [x] Add Workers/D1 coverage for native/compatibility shapes, cross-Space assignee rejection, optimistic concurrency, completion/reopen, filtering/pagination, scopes, compatibility allowlist and soft deletion.
+- [ ] Update canonical Core OpenAPI to 0.5.0 and strengthen contract sanity checks.
+- [ ] Pass the complete repository CI after the 0.5.0 contract lands.
+- [ ] Apply D1 schema v5 to staging, deploy Core and run real staging E2E after explicit authorization.
+
+The task compatibility route preserves the observed HomeMew runtime behavior where omitted `includeNoDue` evaluates to false even though the frozen HomeMew OpenAPI declared a default of true. Details are recorded in `docs/homemew-parity-matrix.md`.
+
 ## Next slices
 
-1. Tasks and assignees.
-2. Day records and occurrence history.
-3. Wishes and lifecycle rules.
-4. R2 avatars.
-5. External integrations: service principals, direct opaque `lsp_pat_*` tokens for owner-controlled n8n/curl/scripts/MCP, optional OAuth `client_credentials`, scopes, Data Grants, and HomeMew credential migration.
-6. Creation drafts/Queue if still required at parity freeze.
-7. Any newly released HomeMew capability added under the freeze rule.
+1. Day records and occurrence history.
+2. Wishes and lifecycle rules.
+3. R2 avatars.
+4. External integrations: service principals, direct opaque `lsp_pat_*` tokens for owner-controlled n8n/curl/scripts/MCP, optional OAuth `client_credentials`, scopes, Data Grants, and HomeMew credential migration.
+5. Creation drafts/Queue if still required at parity freeze.
+6. Any newly released HomeMew capability added under the freeze rule.
 
 ## Exit gate for Phase 2
 

@@ -1,8 +1,8 @@
 openapi: 3.1.0
 info:
   title: LifeSpace Core API
-  version: 0.4.0
-  description: Space ownership, membership, invitations, Data Grants, Space-owned events and attendees, and temporary HomeMew compatibility facades.
+  version: 0.5.0
+  description: Space ownership, membership, invitations, Data Grants, Space-owned events/tasks and their people relations, and temporary HomeMew compatibility facades.
 security:
   - bearerAuth: []
 tags:
@@ -12,6 +12,7 @@ tags:
   - name: Members
   - name: Invitations
   - name: Events
+  - name: Tasks
   - name: Data Grants
   - name: HomeMew compatibility
 paths:
@@ -441,6 +442,180 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/spaces/{spaceId}/tasks:
+    parameters: [{ $ref: '#/components/parameters/SpaceId' }]
+    get:
+      tags: [Tasks]
+      operationId: listSpaceTasks
+      description: Lists active Space-owned tasks. When a due-date range is supplied, undated tasks are included only when includeNoDue=true.
+      parameters:
+        - { name: status, in: query, schema: { type: string, default: pending, description: Comma-separated pending, completed, or cancelled values. } }
+        - { name: assigneePersonId, in: query, schema: { type: string, description: Space Person ID or me } }
+        - { name: dueDateFrom, in: query, schema: { type: string, format: date } }
+        - { name: dueDateTo, in: query, schema: { type: string, format: date } }
+        - { name: includeNoDue, in: query, schema: { type: boolean, default: false } }
+        - { name: sort, in: query, schema: { type: string, enum: [due_asc, due_desc, created_desc, updated_desc], default: due_asc } }
+        - { name: q, in: query, schema: { type: string, minLength: 1, maxLength: 100 } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 200, default: 100 } }
+        - { name: cursor, in: query, schema: { type: string } }
+      responses:
+        '200': { description: Task page, content: { application/json: { schema: { $ref: '#/components/schemas/TaskListResponse' } } } }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Tasks]
+      operationId: createSpaceTask
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/CreateTaskRequest' } } } }
+      responses:
+        '201': { description: Task created, content: { application/json: { schema: { $ref: '#/components/schemas/TaskResponse' } } } }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /api/v1/spaces/{spaceId}/tasks/{taskId}:
+    parameters: [{ $ref: '#/components/parameters/SpaceId' }, { $ref: '#/components/parameters/TaskId' }]
+    get:
+      tags: [Tasks]
+      operationId: getSpaceTask
+      responses:
+        '200': { description: Task detail, content: { application/json: { schema: { $ref: '#/components/schemas/TaskResponse' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Tasks]
+      operationId: updateSpaceTask
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/UpdateTaskRequest' } } } }
+      responses:
+        '200': { description: Task updated, content: { application/json: { schema: { $ref: '#/components/schemas/TaskResponse' } } } }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+    delete:
+      tags: [Tasks]
+      operationId: deleteSpaceTask
+      parameters: [{ name: version, in: query, required: true, schema: { type: integer, minimum: 1 } }]
+      responses:
+        '204': { description: Task soft-deleted }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/spaces/{spaceId}/tasks/{taskId}/complete:
+    parameters: [{ $ref: '#/components/parameters/SpaceId' }, { $ref: '#/components/parameters/TaskId' }]
+    post:
+      tags: [Tasks]
+      operationId: completeSpaceTask
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/TaskActionRequest' } } } }
+      responses:
+        '200': { description: Task completed, content: { application/json: { schema: { $ref: '#/components/schemas/TaskResponse' } } } }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/spaces/{spaceId}/tasks/{taskId}/reopen:
+    parameters: [{ $ref: '#/components/parameters/SpaceId' }, { $ref: '#/components/parameters/TaskId' }]
+    post:
+      tags: [Tasks]
+      operationId: reopenSpaceTask
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/TaskActionRequest' } } } }
+      responses:
+        '200': { description: Task reopened to pending, content: { application/json: { schema: { $ref: '#/components/schemas/TaskResponse' } } } }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/families/{familyId}/tasks:
+    parameters: [{ $ref: '#/components/parameters/LegacyFamilyId' }]
+    get:
+      tags: [Tasks, HomeMew compatibility]
+      operationId: listFamilyTasksCompat
+      description: Temporary HomeMew response over native Space tasks. The frozen HomeMew OpenAPI declared includeNoDue default true, but its deployed runtime treats omission as false; compatibility preserves the observed runtime behavior.
+      parameters:
+        - { name: status, in: query, schema: { type: string, default: pending, description: Comma-separated pending, completed, or cancelled values. } }
+        - { name: assigneeId, in: query, schema: { type: string, description: Legacy HomeMew user ID or me } }
+        - { name: dueDateFrom, in: query, schema: { type: string, format: date } }
+        - { name: dueDateTo, in: query, schema: { type: string, format: date } }
+        - { name: includeNoDue, in: query, schema: { type: boolean, default: false } }
+        - { name: sort, in: query, schema: { type: string, enum: [due_asc, due_desc, created_desc, updated_desc], default: due_asc } }
+        - { name: q, in: query, schema: { type: string, minLength: 1, maxLength: 100 } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 200, default: 100 } }
+        - { name: cursor, in: query, schema: { type: string } }
+      responses:
+        '200': { description: Legacy task page, content: { application/json: { schema: { $ref: '#/components/schemas/LegacyTaskListResponse' } } } }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Tasks, HomeMew compatibility]
+      operationId: createFamilyTaskCompat
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/LegacyCreateTaskRequest' } } } }
+      responses:
+        '201': { description: Legacy task created, content: { application/json: { schema: { $ref: '#/components/schemas/LegacyTaskResponse' } } } }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /api/v1/families/{familyId}/tasks/{taskId}:
+    parameters: [{ $ref: '#/components/parameters/LegacyFamilyId' }, { $ref: '#/components/parameters/TaskId' }]
+    get:
+      tags: [Tasks, HomeMew compatibility]
+      operationId: getFamilyTaskCompat
+      responses:
+        '200': { description: Legacy task detail, content: { application/json: { schema: { $ref: '#/components/schemas/LegacyTaskResponse' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Tasks, HomeMew compatibility]
+      operationId: updateFamilyTaskCompat
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/LegacyUpdateTaskRequest' } } } }
+      responses:
+        '200': { description: Legacy task updated, content: { application/json: { schema: { $ref: '#/components/schemas/LegacyTaskResponse' } } } }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+    delete:
+      tags: [Tasks, HomeMew compatibility]
+      operationId: deleteFamilyTaskCompat
+      parameters: [{ name: version, in: query, required: true, schema: { type: integer, minimum: 1 } }]
+      responses:
+        '204': { description: Task soft-deleted }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/families/{familyId}/tasks/{taskId}/complete:
+    parameters: [{ $ref: '#/components/parameters/LegacyFamilyId' }, { $ref: '#/components/parameters/TaskId' }]
+    post:
+      tags: [Tasks, HomeMew compatibility]
+      operationId: completeFamilyTaskCompat
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/TaskActionRequest' } } } }
+      responses:
+        '200': { description: Legacy task completed, content: { application/json: { schema: { $ref: '#/components/schemas/LegacyTaskResponse' } } } }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/families/{familyId}/tasks/{taskId}/reopen:
+    parameters: [{ $ref: '#/components/parameters/LegacyFamilyId' }, { $ref: '#/components/parameters/TaskId' }]
+    post:
+      tags: [Tasks, HomeMew compatibility]
+      operationId: reopenFamilyTaskCompat
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/TaskActionRequest' } } } }
+      responses:
+        '200': { description: Legacy task reopened to pending, content: { application/json: { schema: { $ref: '#/components/schemas/LegacyTaskResponse' } } } }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
   /api/v1/spaces/{spaceId}/grants:
     parameters: [{ $ref: '#/components/parameters/SpaceId' }]
     post:
@@ -463,6 +638,7 @@ components:
     InviteId: { name: inviteId, in: path, required: true, schema: { type: string, pattern: '^inv_' } }
     InviteToken: { name: token, in: path, required: true, schema: { type: string, minLength: 10, maxLength: 100 } }
     EventId: { name: eventId, in: path, required: true, schema: { type: string, pattern: '^evt_' } }
+    TaskId: { name: taskId, in: path, required: true, schema: { type: string, pattern: '^tsk_' } }
     LegacyFamilyId: { name: familyId, in: path, required: true, schema: { type: string, pattern: '^fam_' } }
     LegacyUserId: { name: userId, in: path, required: true, schema: { type: string, pattern: '^usr_' } }
     LegacyInviteCode: { name: code, in: path, required: true, schema: { type: string, minLength: 10, maxLength: 100 } }
@@ -482,6 +658,7 @@ components:
     LegacyFamilyRole: { type: string, enum: [admin, member] }
     LegacyInviteStatus: { type: string, enum: [active, expired, exhausted, revoked] }
     EventStatus: { type: string, enum: [active, cancelled] }
+    TaskStatus: { type: string, enum: [pending, completed, cancelled] }
     Principal:
       type: object
       additionalProperties: false
@@ -710,6 +887,68 @@ components:
           properties:
             items: { type: array, items: { $ref: '#/components/schemas/Event' } }
             nextCursor: { type: [string, 'null'] }
+    TaskPersonRef:
+      type: object
+      additionalProperties: false
+      required: [personId, displayName]
+      properties:
+        personId: { type: string, pattern: '^per_' }
+        displayName: { type: string }
+    Task:
+      type: object
+      additionalProperties: false
+      required: [id, spaceId, name, description, dueDate, status, assignees, completedAt, completedBy, createdBy, updatedBy, version, createdAt, updatedAt]
+      properties:
+        id: { type: string, pattern: '^tsk_' }
+        spaceId: { type: string, pattern: '^spc_' }
+        name: { type: string, minLength: 1, maxLength: 100 }
+        description: { type: [string, 'null'], maxLength: 5000 }
+        dueDate: { type: [string, 'null'], format: date }
+        status: { $ref: '#/components/schemas/TaskStatus' }
+        assignees: { type: array, items: { $ref: '#/components/schemas/TaskPersonRef' } }
+        completedAt: { type: [string, 'null'], format: date-time }
+        completedBy: { oneOf: [{ $ref: '#/components/schemas/ActorRef' }, { type: 'null' }] }
+        createdBy: { $ref: '#/components/schemas/ActorRef' }
+        updatedBy: { $ref: '#/components/schemas/ActorRef' }
+        version: { type: integer, minimum: 1 }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    CreateTaskRequest:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 100 }
+        description: { type: [string, 'null'], maxLength: 5000 }
+        dueDate: { type: [string, 'null'], format: date }
+        assigneePersonIds: { type: array, uniqueItems: true, maxItems: 100, items: { type: string, pattern: '^per_' } }
+    UpdateTaskRequest:
+      type: object
+      additionalProperties: false
+      required: [version]
+      minProperties: 2
+      properties:
+        version: { type: integer, minimum: 1 }
+        name: { type: string, minLength: 1, maxLength: 100 }
+        description: { type: [string, 'null'], maxLength: 5000 }
+        dueDate: { type: [string, 'null'], format: date }
+        assigneePersonIds: { type: array, uniqueItems: true, maxItems: 100, items: { type: string, pattern: '^per_' } }
+    TaskActionRequest:
+      type: object
+      additionalProperties: false
+      required: [version]
+      properties: { version: { type: integer, minimum: 1 } }
+    TaskResponse: { type: object, required: [data], properties: { data: { $ref: '#/components/schemas/Task' } } }
+    TaskListResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          required: [items, nextCursor]
+          properties:
+            items: { type: array, items: { $ref: '#/components/schemas/Task' } }
+            nextCursor: { type: [string, 'null'] }
     LegacyActorRef:
       type: object
       additionalProperties: false
@@ -822,6 +1061,64 @@ components:
           required: [items, nextCursor]
           properties:
             items: { type: array, items: { $ref: '#/components/schemas/LegacyEvent' } }
+            nextCursor: { type: [string, 'null'] }
+    LegacyTaskPersonRef:
+      type: object
+      additionalProperties: false
+      required: [userId, displayName, avatarUrl]
+      properties:
+        userId: { type: string, pattern: '^usr_' }
+        displayName: { type: string }
+        avatarUrl: { type: 'null', description: Deferred until the R2 slice. }
+    LegacyTask:
+      type: object
+      additionalProperties: false
+      required: [id, familyId, name, description, dueDate, status, assignees, completedAt, completedBy, createdBy, updatedBy, version, createdAt, updatedAt]
+      properties:
+        id: { type: string, pattern: '^tsk_' }
+        familyId: { type: string, pattern: '^fam_' }
+        name: { type: string, minLength: 1, maxLength: 100 }
+        description: { type: [string, 'null'], maxLength: 5000 }
+        dueDate: { type: [string, 'null'], format: date }
+        status: { $ref: '#/components/schemas/TaskStatus' }
+        assignees: { type: array, items: { $ref: '#/components/schemas/LegacyTaskPersonRef' } }
+        completedAt: { type: [string, 'null'], format: date-time }
+        completedBy: { oneOf: [{ $ref: '#/components/schemas/LegacyActorRef' }, { type: 'null' }] }
+        createdBy: { $ref: '#/components/schemas/LegacyActorRef' }
+        updatedBy: { $ref: '#/components/schemas/LegacyActorRef' }
+        version: { type: integer, minimum: 1 }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    LegacyCreateTaskRequest:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 100 }
+        description: { type: [string, 'null'], maxLength: 5000 }
+        dueDate: { type: [string, 'null'], format: date }
+        assigneeIds: { type: array, uniqueItems: true, maxItems: 8, items: { type: string, pattern: '^usr_' } }
+    LegacyUpdateTaskRequest:
+      type: object
+      additionalProperties: false
+      required: [version]
+      minProperties: 2
+      properties:
+        version: { type: integer, minimum: 1 }
+        name: { type: string, minLength: 1, maxLength: 100 }
+        description: { type: [string, 'null'], maxLength: 5000 }
+        dueDate: { type: [string, 'null'], format: date }
+        assigneeIds: { type: array, uniqueItems: true, maxItems: 8, items: { type: string, pattern: '^usr_' } }
+    LegacyTaskResponse: { type: object, required: [data], properties: { data: { $ref: '#/components/schemas/LegacyTask' } } }
+    LegacyTaskListResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          required: [items, nextCursor]
+          properties:
+            items: { type: array, items: { $ref: '#/components/schemas/LegacyTask' } }
             nextCursor: { type: [string, 'null'] }
     LegacyFamilyListItem:
       type: object
@@ -976,7 +1273,7 @@ components:
             role: { const: member }
             joinedAt: { type: string, format: date-time }
     HealthResponse: { type: object, required: [data], properties: { data: { type: object, required: [status], properties: { status: { const: ok } } } } }
-    StatusResponse: { type: object, required: [data], properties: { data: { type: object, required: [status, service, database, schemaVersion, contractVersion], properties: { status: { const: ok }, service: { const: core }, environment: { type: string }, database: { const: available }, schemaVersion: { type: string }, contractVersion: { const: 0.4.0 } } } } }
+    StatusResponse: { type: object, required: [data], properties: { data: { type: object, required: [status, service, database, schemaVersion, contractVersion], properties: { status: { const: ok }, service: { const: core }, environment: { type: string }, database: { const: available }, schemaVersion: { type: string }, contractVersion: { const: 0.5.0 } } } } }
     PrincipalResponse: { type: object, required: [data], properties: { data: { type: object, required: [principal], properties: { principal: { $ref: '#/components/schemas/Principal' } } } } }
     SpaceResponse: { type: object, required: [data], properties: { data: { $ref: '#/components/schemas/Space' } } }
     SpaceSummaryListResponse: { type: object, required: [data], properties: { data: { type: array, items: { $ref: '#/components/schemas/SpaceSummary' } } } }

@@ -2,7 +2,7 @@ import fs from "node:fs";
 import YAML from "yaml";
 
 const document = YAML.parse(fs.readFileSync(new URL("../openapi.yaml", import.meta.url), "utf8"));
-if (document.openapi !== "3.1.0" || document.info?.version !== "0.4.0") throw new Error("Core OpenAPI version metadata is invalid");
+if (document.openapi !== "3.1.0" || document.info?.version !== "0.5.0") throw new Error("Core OpenAPI version metadata is invalid");
 
 for (const path of [
   "/health",
@@ -32,6 +32,14 @@ for (const path of [
   "/api/v1/spaces/{spaceId}/events/{eventId}",
   "/api/v1/families/{familyId}/events",
   "/api/v1/families/{familyId}/events/{eventId}",
+  "/api/v1/spaces/{spaceId}/tasks",
+  "/api/v1/spaces/{spaceId}/tasks/{taskId}",
+  "/api/v1/spaces/{spaceId}/tasks/{taskId}/complete",
+  "/api/v1/spaces/{spaceId}/tasks/{taskId}/reopen",
+  "/api/v1/families/{familyId}/tasks",
+  "/api/v1/families/{familyId}/tasks/{taskId}",
+  "/api/v1/families/{familyId}/tasks/{taskId}/complete",
+  "/api/v1/families/{familyId}/tasks/{taskId}/reopen",
   "/api/v1/spaces/{spaceId}/grants",
 ]) if (!document.paths?.[path]) throw new Error(`Core OpenAPI missing ${path}`);
 
@@ -51,5 +59,16 @@ if (!schemas?.LegacyEventCommon?.required?.includes("familyId") || schemas?.Lega
 if (!schemas?.CreateEventCommon?.properties?.attendeePersonIds || schemas?.CreateEventCommon?.properties?.attendeeIds) throw new Error("Native attendees must reference Space People");
 if (!schemas?.LegacyCreateEventCommon?.properties?.attendeeIds) throw new Error("HomeMew event attendee IDs must remain compatible");
 if (schemas?.LegacyEventPersonRef?.properties?.avatarUrl?.type !== "null") throw new Error("Event attendee avatars must stay unavailable before the R2 slice");
+if (JSON.stringify(schemas?.TaskStatus?.enum) !== JSON.stringify(["pending", "completed", "cancelled"])) throw new Error("Task statuses drifted");
+if (!schemas?.Task?.required?.includes("spaceId") || schemas?.Task?.properties?.familyId) throw new Error("Native tasks must be Space-owned");
+if (!schemas?.LegacyTask?.required?.includes("familyId") || schemas?.LegacyTask?.properties?.spaceId) throw new Error("HomeMew task responses must preserve familyId");
+if (!schemas?.CreateTaskRequest?.properties?.assigneePersonIds || schemas?.CreateTaskRequest?.properties?.assigneeIds) throw new Error("Native task assignees must reference Space People");
+if (!schemas?.LegacyCreateTaskRequest?.properties?.assigneeIds || schemas?.LegacyCreateTaskRequest?.properties?.assigneePersonIds) throw new Error("HomeMew task assignee IDs must remain compatible");
+if (schemas?.LegacyTaskPersonRef?.properties?.avatarUrl?.type !== "null") throw new Error("Task assignee avatars must stay unavailable before the R2 slice");
+if (schemas?.UpdateTaskRequest?.required?.[0] !== "version" || schemas?.UpdateTaskRequest?.minProperties !== 2) throw new Error("Native task updates must use optimistic concurrency");
+if (schemas?.LegacyUpdateTaskRequest?.required?.[0] !== "version" || schemas?.LegacyUpdateTaskRequest?.minProperties !== 2) throw new Error("HomeMew task updates must preserve optimistic concurrency");
+const legacyIncludeNoDue = document.paths?.["/api/v1/families/{familyId}/tasks"]?.get?.parameters?.find((parameter) => parameter?.name === "includeNoDue");
+if (legacyIncludeNoDue?.schema?.default !== false) throw new Error("HomeMew task compatibility must document observed includeNoDue=false omission behavior");
+if (schemas?.StatusResponse?.properties?.data?.properties?.contractVersion?.const !== "0.5.0") throw new Error("Core status contract version drifted");
 
 console.log("Core OpenAPI contract sanity check passed");
