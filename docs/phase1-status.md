@@ -1,8 +1,8 @@
 # Phase 1 Status — LifeSpace platform foundation
 
-Updated: 2026-08-09
+Updated: 2026-08-10
 
-Phase 1 is **in progress**. The repository foundation, first working Core/Identity implementation, and D1-backed authorization integration coverage are complete. The remaining P0 work is to provision/deploy isolated Cloudflare staging resources and pass the real staging end-to-end gate.
+Phase 1 is **complete**. Identity and Core are deployed to isolated staging resources, the D1-backed authorization suite passes, and the trusted application -> Identity token -> Core -> Space staging smoke test succeeded on 2026-08-10. Phase 2 is now in progress.
 
 ## Completed
 
@@ -44,14 +44,14 @@ Phase 1 is **in progress**. The repository foundation, first working Core/Identi
 - [x] Space create/read, member listing/addition and Data Grant creation foundation.
 - [x] D1-backed tests cover membership allow/deny, Data Grant permission rank/expiry/revocation, app-scope × data-permission intersection, and cross-Space isolation.
 
-## Remaining before Phase 1 exit gate
+## Closeout and non-blocking follow-ups
 
 ### P0 — required before starting Phase 2 domain migration
 
-- [ ] Provision isolated staging D1 databases and replace staging placeholder IDs.
-- [ ] Generate/configure staging RS256 key pair, Identity bootstrap secret, and trusted test application credential.
-- [ ] Deploy Identity and Core to staging and verify `/health` and `/api/v1/status` against real D1 bindings.
-- [ ] Run an end-to-end staging path: trusted application -> create/resolve user -> Identity token -> Core -> create/read Space.
+- [x] Provision isolated staging D1 databases and replace staging placeholder IDs.
+- [x] Generate/configure staging RS256 key pair, Identity bootstrap secret, and trusted test application credential.
+- [x] Deploy Identity and Core to staging and verify `/health` and `/api/v1/status` against real D1 bindings.
+- [x] Run an end-to-end staging path: trusted application -> create/resolve user -> Identity token -> Core -> create/read Space.
 
 ### P1 — should be completed in Phase 1, but not a blocker for writing the first Phase 2 PR if the P0 exit gate is already green
 
@@ -75,6 +75,9 @@ These are not blockers for the HomeMew migration foundation:
 Those belong to later migration/application phases unless a concrete dependency moves them earlier.
 
 ## Exit gate
+
+Phase 1 passed this gate on 2026-08-10. The staging deployment verified both services, schema/status probes, RS256 token issuance and verification, authenticated Space create/read, and unauthenticated denial; repository checks passed before deployment.
+
 
 Phase 1 is complete only when all of the following are true:
 
