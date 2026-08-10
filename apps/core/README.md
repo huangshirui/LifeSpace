@@ -12,7 +12,7 @@ Shared Cloudflare Worker business API for Space-owned life data.
 
 ## Phase 2 family Space management
 
-Core API contract version 0.4.0 contains the native family Space policy, Space-owned events/attendees, and temporary HomeMew compatibility facades:
+Core API contract version 0.5.0 contains the native family Space policy, Space-owned events/attendees and tasks/assignees, and temporary HomeMew compatibility facades:
 
 - Every Space stores an IANA `timezone`; native creation defaults to `UTC` when omitted.
 - Space profile updates require optimistic-concurrency `version`.
@@ -22,9 +22,11 @@ Core API contract version 0.4.0 contains the native family Space policy, Space-o
 - Core owns hashed, expiring, revocable Space invitations. Plaintext invitation tokens are returned only once at creation.
 - Invitation redemption atomically validates lifecycle/use/member limits and creates or reactivates both membership and Space Person.
 
-The compatibility routes translate `fam_*`, HomeMew roles, legacy field names, and response codes over the same native records. They do not create a second family data model. The HomeMew maximum-three-created-families rule is enforced only when a family is created through `/api/v1/families`; native Space creation has no such platform-wide limit. HomeMew family avatar values remain `null` until the R2 object migration slice.
+The compatibility routes translate `fam_*`, HomeMew roles, legacy field names, and response codes over the same native records. They do not create a second family data model. The HomeMew maximum-three-created-families rule is enforced only when a family is created through `/api/v1/families`; native Space creation has no such platform-wide limit. HomeMew avatar values remain `null` until the R2 object migration slice.
 
 Events are stored once against `space_id`. Native attendee relationships reference active `space_person` records; the HomeMew facade translates legacy attendee user IDs through the family membership/person map. Timed event instants are canonical UTC with optional display timezones, all-day ranges are half-open dates, and update/delete use optimistic versions plus soft deletion.
+
+Tasks are also stored once against `space_id`. Native assignee relationships reference active same-Space `space_person` records while the HomeMew facade accepts and returns legacy user IDs. Task status remains `pending`, `completed`, or `cancelled`; `dueDate` stays date-only; PATCH, DELETE, complete, and reopen preserve optimistic versions and task deletion remains soft. The compatibility list route intentionally preserves the deployed HomeMew behavior where omitted `includeNoDue` is false, despite the frozen HomeMew OpenAPI having documented true.
 
 ## HomeMew family snapshot transform
 
@@ -58,6 +60,19 @@ node scripts/homemew-event-transform.mjs \
 ```
 
 The event snapshot contains `users`, optional `systemIdentities`, `familyMembers`, `events`, and `eventAttendees` from the same `exportedAt` as the family snapshot. The transform preserves `evt_*`, versions, audit timestamps, soft deletion, UTC/all-day semantics and system actor IDs; attendee user relations become Space Person relations. It emits `core-events.sql`, `event-mapping-manifest.json`, and `event-migration-report.json`.
+
+## HomeMew task snapshot transform
+
+Use the same family mapping manifest and matching `exportedAt` for tasks:
+
+```sh
+node scripts/homemew-task-transform.mjs \
+  --input homemew-task-snapshot.json \
+  --family-manifest migration-output/mapping-manifest.json \
+  --out-dir migration-output
+```
+
+The task snapshot contains `users`, optional `systemIdentities`, `familyMembers`, `tasks`, and optional `taskAssignees`. The transform preserves `tsk_*` IDs, statuses, date-only due dates, versions, audit/completion actors, timestamps and soft deletion; assignee user relations become exact Space Person relations from the family mapping. It emits `core-tasks.sql`, `task-mapping-manifest.json`, and `task-migration-report.json`.
 
 Canonical request and response syntax lives in `openapi.yaml`. D1 migrations live in `migrations/` and are applied before deploying the compatible Worker.
 
