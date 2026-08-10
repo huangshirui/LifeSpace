@@ -325,6 +325,14 @@ Recommended order:
 10. AI creation drafts, Queue handling and related privacy/rate-limit behavior.
 11. Remaining production-used HomeMew Core capability discovered in Phase 0.
 
+### Family compatibility decision
+
+The family slice uses persisted transitional maps for legacy users, families, memberships/Space People, and invitations. These maps translate released HomeMew paths and fields but do not hold an independent mutable family model. Native `spaces`, `space_memberships`, `space_people`, and `space_invites` remain authoritative.
+
+The schema-v11 family transform preserves valid `usr_*` IDs, derives deterministic new `spc_*`, membership, and person IDs, and emits separate Identity/Core SQL plus a mapping manifest and verification report. An active creator/admin becomes owner; if the creator is no longer an active administrator, the earliest active administrator becomes owner. Removed memberships and people retain their deletion history. Duplicate historical redemptions of the same invite by the same user are collapsed into the native replay-safe relation and named in the report, while the source invite use count remains preserved.
+
+Temporary HomeMew family routes require LifeSpace-issued, HomeMew-app-scoped credentials and current native authorization. They map `owner/admin -> admin` and `editor -> member`, reject `viewer`, keep invitation join at HTTP 200, and enforce the HomeMew three-created-family rule only for compatibility-created/migrated families. Family avatar values remain unavailable until the later R2 slice.
+
 ### Per-domain checklist
 
 For every migrated domain:

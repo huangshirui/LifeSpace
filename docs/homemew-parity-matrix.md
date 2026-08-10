@@ -42,9 +42,9 @@ The HomeMew OpenAPI currently exposes 60 implemented operations. The table group
 | --- | --- | --- | --- | --- |
 | System probes | health and schema/status | Runtime | Native Core probes | Foundation complete |
 | User profile | read/update profile; user avatar | Durable + object | Identity user profile plus platform object behavior | Not started |
-| Family listing/profile | list/create/read/update family | Durable | family-kind Space plus HomeMew compatibility mapping | Slice 1 baseline defined |
-| Members | list, change role, remove, leave | Durable | Space membership + linked Space Person | Slice 1 baseline defined |
-| Invitations | create/list/revoke/preview/join | Durable | Core-owned Space invitations | Slice 1 baseline defined |
+| Family listing/profile | list/create/read/update family | Durable | family-kind Space plus HomeMew compatibility mapping | Implemented; staging verification pending |
+| Members | list, change role, remove, leave | Durable | Space membership + linked Space Person | Implemented; staging verification pending |
+| Invitations | create/list/revoke/preview/join | Durable | Core-owned Space invitations | Implemented; staging verification pending |
 | Family avatar | upload/read derived URL | Object | Space asset behavior | Deferred to R2 slice |
 | Events | list/search/filter/create/read/update/delete; attendees | Durable | Space-owned events; attendee Space People | Not started |
 | Tasks | list/search/filter/create/read/update/delete/complete/reopen; assignees | Durable | Space-owned tasks; assignee Space People | Not started |
@@ -78,6 +78,10 @@ The first Phase 2 vertical slice maps HomeMew household semantics onto the exist
 | remove/leave | soft-deleted membership/person link lifecycle | Preserve history and run domain cleanup in the same Core-owned operation |
 
 Generic Space APIs use LifeSpace roles. The temporary HomeMew compatibility facade maps `owner/admin -> admin` and `editor -> member`; `viewer` has no legacy HomeMew equivalent and must not be exposed through the old family-member mutation contract.
+
+The source family creator is mapped to `owner` only when still an active administrator. If the creator is no longer active, the earliest active administrator becomes owner so both the HomeMew last-admin invariant and the LifeSpace manager invariant remain true. Because `owner` is immutable in the native contract, the legacy role endpoint returns a conflict instead of demoting it. This is an intentional platform difference recorded for compatibility testing.
+
+Compatibility tables persist `legacy_user -> LifeSpace user`, `fam -> Space`, member -> membership/Space Person, and invite mappings. They are transitional translation/audit metadata only; all mutable family state remains in native LifeSpace tables. HomeMew user display names are retained as migration snapshots only to support member presentation and invite joins until the user-profile slice owns the final compatibility behavior.
 
 Invitations belong in Core because membership activation, invite redemption, active-member limits, and Space Person creation/reactivation must be one authoritative transaction. External-provider identities and WeChat `openid` mappings remain in the HomeMew application boundary.
 

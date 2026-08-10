@@ -1,8 +1,8 @@
 openapi: 3.1.0
 info:
   title: LifeSpace Core API
-  version: 0.2.0
-  description: Space ownership, membership, invitations, Data Grants, and shared life-domain APIs.
+  version: 0.3.0
+  description: Space ownership, membership, invitations, Data Grants, shared life-domain APIs, and a temporary HomeMew family compatibility facade.
 security:
   - bearerAuth: []
 tags:
@@ -12,6 +12,7 @@ tags:
   - name: Members
   - name: Invitations
   - name: Data Grants
+  - name: HomeMew compatibility
 paths:
   /health:
     get:
@@ -190,6 +191,135 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
         '422': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/me/families:
+    get:
+      tags: [HomeMew compatibility]
+      operationId: listMyFamiliesCompat
+      description: Temporary HomeMew-app-only response over mapped family Spaces. Avatar values remain null until the R2 slice.
+      responses:
+        '200': { description: Legacy family list, content: { application/json: { schema: { $ref: '#/components/schemas/LegacyFamilyListResponse' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /api/v1/families:
+    post:
+      tags: [HomeMew compatibility]
+      operationId: createFamilyCompat
+      description: Creates one family Space and its legacy fam_* mapping atomically. The HomeMew three-created-family limit applies only here.
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/LegacyCreateFamilyRequest' } } } }
+      responses:
+        '201': { description: Legacy family response, content: { application/json: { schema: { $ref: '#/components/schemas/LegacyCreateFamilyResponse' } } } }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/families/{familyId}:
+    parameters: [{ $ref: '#/components/parameters/LegacyFamilyId' }]
+    get:
+      tags: [HomeMew compatibility]
+      operationId: getFamilyCompat
+      responses:
+        '200': { description: Legacy family detail, content: { application/json: { schema: { $ref: '#/components/schemas/LegacyFamilyDetailResponse' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [HomeMew compatibility]
+      operationId: updateFamilyCompat
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/LegacyUpdateFamilyRequest' } } } }
+      responses:
+        '200': { description: Legacy family summary, content: { application/json: { schema: { $ref: '#/components/schemas/LegacyFamilySummaryResponse' } } } }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/families/{familyId}/members:
+    parameters: [{ $ref: '#/components/parameters/LegacyFamilyId' }]
+    get:
+      tags: [HomeMew compatibility]
+      operationId: listFamilyMembersCompat
+      responses:
+        '200': { description: Legacy member list, content: { application/json: { schema: { $ref: '#/components/schemas/LegacyMemberListResponse' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /api/v1/families/{familyId}/members/{userId}:
+    parameters: [{ $ref: '#/components/parameters/LegacyFamilyId' }, { $ref: '#/components/parameters/LegacyUserId' }]
+    patch:
+      tags: [HomeMew compatibility]
+      operationId: updateFamilyMemberRoleCompat
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/LegacyUpdateMemberRoleRequest' } } } }
+      responses:
+        '200': { description: Legacy role response, content: { application/json: { schema: { $ref: '#/components/schemas/LegacyUpdateMemberRoleResponse' } } } }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+    delete:
+      tags: [HomeMew compatibility]
+      operationId: removeFamilyMemberCompat
+      responses:
+        '204': { description: Member and linked Space Person deactivated }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/families/{familyId}/leave:
+    parameters: [{ $ref: '#/components/parameters/LegacyFamilyId' }]
+    post:
+      tags: [HomeMew compatibility]
+      operationId: leaveFamilyCompat
+      responses:
+        '204': { description: Current member and linked Space Person deactivated }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/families/{familyId}/invites:
+    parameters: [{ $ref: '#/components/parameters/LegacyFamilyId' }]
+    get:
+      tags: [HomeMew compatibility]
+      operationId: listFamilyInvitesCompat
+      responses:
+        '200': { description: Legacy invite list without plaintext codes, content: { application/json: { schema: { $ref: '#/components/schemas/LegacyInviteListResponse' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [HomeMew compatibility]
+      operationId: createFamilyInviteCompat
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/LegacyCreateInviteRequest' } } } }
+      responses:
+        '201': { description: Plaintext code returned once, content: { application/json: { schema: { $ref: '#/components/schemas/LegacyCreateInviteResponse' } } } }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /api/v1/families/{familyId}/invites/{inviteId}/revoke:
+    parameters: [{ $ref: '#/components/parameters/LegacyFamilyId' }, { $ref: '#/components/parameters/InviteId' }]
+    post:
+      tags: [HomeMew compatibility]
+      operationId: revokeFamilyInviteCompat
+      responses:
+        '204': { description: Invitation revoked }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/family-invites/{code}:
+    parameters: [{ $ref: '#/components/parameters/LegacyInviteCode' }]
+    get:
+      tags: [HomeMew compatibility]
+      operationId: previewFamilyInviteCompat
+      responses:
+        '200': { description: Legacy invite preview, content: { application/json: { schema: { $ref: '#/components/schemas/LegacyInvitePreviewResponse' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/family-invites/{code}/join:
+    parameters: [{ $ref: '#/components/parameters/LegacyInviteCode' }]
+    post:
+      tags: [HomeMew compatibility]
+      operationId: joinFamilyByInviteCompat
+      responses:
+        '200': { description: Membership and linked Space Person created or reactivated, content: { application/json: { schema: { $ref: '#/components/schemas/LegacyJoinFamilyResponse' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
   /api/v1/spaces/{spaceId}/grants:
     parameters: [{ $ref: '#/components/parameters/SpaceId' }]
     post:
@@ -211,18 +341,24 @@ components:
     UserId: { name: userId, in: path, required: true, schema: { type: string, pattern: '^usr_' } }
     InviteId: { name: inviteId, in: path, required: true, schema: { type: string, pattern: '^inv_' } }
     InviteToken: { name: token, in: path, required: true, schema: { type: string, minLength: 10, maxLength: 100 } }
+    LegacyFamilyId: { name: familyId, in: path, required: true, schema: { type: string, pattern: '^fam_' } }
+    LegacyUserId: { name: userId, in: path, required: true, schema: { type: string, pattern: '^usr_' } }
+    LegacyInviteCode: { name: code, in: path, required: true, schema: { type: string, minLength: 10, maxLength: 100 } }
   responses:
     Unauthorized: { description: Authentication failed, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } } } }
     Forbidden: { description: App scope or current data authorization is insufficient, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } } } }
     NotFound: { description: Resource not found, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } } } }
     Conflict: { description: Version, lifecycle, membership, invite, or invariant conflict, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } } } }
     ValidationError: { description: Input validation failed, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } } } }
+    InvalidRequest: { description: HomeMew-compatible invalid request, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } } } }
   schemas:
     SpaceKind: { type: string, enum: [personal, family, team] }
     SpaceRole: { type: string, enum: [owner, admin, editor, viewer] }
     AssignableSpaceRole: { type: string, enum: [admin, editor, viewer] }
     Permission: { type: string, enum: [free_busy, read, write, manage] }
     IanaTimezone: { type: string, minLength: 1, maxLength: 100, examples: [Asia/Shanghai] }
+    LegacyFamilyRole: { type: string, enum: [admin, member] }
+    LegacyInviteStatus: { type: string, enum: [active, expired, exhausted, revoked] }
     Principal:
       type: object
       additionalProperties: false
@@ -340,8 +476,160 @@ components:
             code: { type: string }
             message: { type: string }
             requestId: { type: string }
+    LegacyFamilyListItem:
+      type: object
+      additionalProperties: false
+      required: [id, name, avatarUrl, timezone, role, memberCount]
+      properties:
+        id: { type: string, pattern: '^fam_' }
+        name: { type: string }
+        avatarUrl: { type: 'null', description: Deferred until the R2 object migration slice. }
+        timezone: { $ref: '#/components/schemas/IanaTimezone' }
+        role: { $ref: '#/components/schemas/LegacyFamilyRole' }
+        memberCount: { type: integer, minimum: 1, maximum: 8 }
+    LegacyCreateFamilyRequest:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 100 }
+        timezone: { $ref: '#/components/schemas/IanaTimezone', default: Asia/Shanghai }
+    LegacyUpdateFamilyRequest:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        name: { type: string, minLength: 1, maxLength: 100 }
+        timezone: { $ref: '#/components/schemas/IanaTimezone' }
+    LegacyFamilyDetail:
+      type: object
+      additionalProperties: false
+      required: [id, name, avatarUrl, timezone, status, createdBy, currentUserRole, memberCount, createdAt]
+      properties:
+        id: { type: string, pattern: '^fam_' }
+        name: { type: string }
+        avatarUrl: { type: 'null' }
+        timezone: { $ref: '#/components/schemas/IanaTimezone' }
+        status: { const: active }
+        createdBy: { type: string, pattern: '^usr_' }
+        currentUserRole: { $ref: '#/components/schemas/LegacyFamilyRole' }
+        memberCount: { type: integer, minimum: 1, maximum: 8 }
+        createdAt: { type: string, format: date-time }
+    LegacyMember:
+      type: object
+      additionalProperties: false
+      required: [userId, displayName, avatarUrl, role, joinedAt]
+      properties:
+        userId: { type: string, pattern: '^usr_' }
+        displayName: { type: string }
+        avatarUrl: { type: 'null' }
+        role: { $ref: '#/components/schemas/LegacyFamilyRole' }
+        joinedAt: { type: string, format: date-time }
+    LegacyUpdateMemberRoleRequest:
+      type: object
+      additionalProperties: false
+      required: [role]
+      properties: { role: { $ref: '#/components/schemas/LegacyFamilyRole' } }
+    LegacyCreateInviteRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        expiresInMinutes: { type: integer, minimum: 1, maximum: 43200, default: 1440 }
+        maxUses: { type: integer, minimum: 1, maximum: 8, default: 8 }
+    LegacyInviteListItem:
+      type: object
+      additionalProperties: false
+      required: [id, status, expiresAt, maxUses, usedCount, createdBy, createdAt]
+      properties:
+        id: { type: string, pattern: '^inv_' }
+        status: { $ref: '#/components/schemas/LegacyInviteStatus' }
+        expiresAt: { type: string, format: date-time }
+        maxUses: { type: integer, minimum: 1, maximum: 8 }
+        usedCount: { type: integer, minimum: 0, maximum: 8 }
+        createdBy: { type: string, pattern: '^usr_' }
+        createdAt: { type: string, format: date-time }
+    LegacyFamilyListResponse: { type: object, required: [data], properties: { data: { type: object, required: [items], properties: { items: { type: array, items: { $ref: '#/components/schemas/LegacyFamilyListItem' } } } } } }
+    LegacyCreateFamilyResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          allOf:
+            - { $ref: '#/components/schemas/LegacyFamilyListItem' }
+            - type: object
+              required: [createdAt]
+              properties: { createdAt: { type: string, format: date-time } }
+    LegacyFamilyDetailResponse: { type: object, required: [data], properties: { data: { $ref: '#/components/schemas/LegacyFamilyDetail' } } }
+    LegacyFamilySummaryResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          additionalProperties: false
+          required: [id, name, avatarUrl, timezone, status]
+          properties:
+            id: { type: string, pattern: '^fam_' }
+            name: { type: string }
+            avatarUrl: { type: 'null' }
+            timezone: { $ref: '#/components/schemas/IanaTimezone' }
+            status: { const: active }
+    LegacyMemberListResponse: { type: object, required: [data], properties: { data: { type: object, required: [items], properties: { items: { type: array, items: { $ref: '#/components/schemas/LegacyMember' } } } } } }
+    LegacyUpdateMemberRoleResponse:
+      type: object
+      required: [data]
+      properties: { data: { type: object, required: [userId, role], properties: { userId: { type: string, pattern: '^usr_' }, role: { $ref: '#/components/schemas/LegacyFamilyRole' } } } }
+    LegacyInviteListResponse: { type: object, required: [data], properties: { data: { type: object, required: [items], properties: { items: { type: array, items: { $ref: '#/components/schemas/LegacyInviteListItem' } } } } } }
+    LegacyCreateInviteResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          additionalProperties: false
+          required: [id, code, joinPath, expiresAt, maxUses, usedCount]
+          properties:
+            id: { type: string, pattern: '^inv_' }
+            code: { type: string, writeOnly: true }
+            joinPath: { type: string }
+            expiresAt: { type: string, format: date-time }
+            maxUses: { type: integer, minimum: 1, maximum: 8 }
+            usedCount: { const: 0 }
+    LegacyInvitePreviewResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          additionalProperties: false
+          required: [family, expiresAt, canJoin]
+          properties:
+            family:
+              type: object
+              additionalProperties: false
+              required: [id, name, avatarUrl, memberCount]
+              properties:
+                id: { type: string, pattern: '^fam_' }
+                name: { type: string }
+                avatarUrl: { type: 'null' }
+                memberCount: { type: integer, minimum: 1, maximum: 8 }
+            expiresAt: { type: string, format: date-time }
+            canJoin: { type: boolean }
+    LegacyJoinFamilyResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          additionalProperties: false
+          required: [familyId, familyName, role, joinedAt]
+          properties:
+            familyId: { type: string, pattern: '^fam_' }
+            familyName: { type: string }
+            role: { const: member }
+            joinedAt: { type: string, format: date-time }
     HealthResponse: { type: object, required: [data], properties: { data: { type: object, required: [status], properties: { status: { const: ok } } } } }
-    StatusResponse: { type: object, required: [data], properties: { data: { type: object, required: [status, service, database, schemaVersion, contractVersion], properties: { status: { const: ok }, service: { const: core }, environment: { type: string }, database: { const: available }, schemaVersion: { type: string }, contractVersion: { const: 0.2.0 } } } } }
+    StatusResponse: { type: object, required: [data], properties: { data: { type: object, required: [status, service, database, schemaVersion, contractVersion], properties: { status: { const: ok }, service: { const: core }, environment: { type: string }, database: { const: available }, schemaVersion: { type: string }, contractVersion: { const: 0.3.0 } } } } }
     PrincipalResponse: { type: object, required: [data], properties: { data: { type: object, required: [principal], properties: { principal: { $ref: '#/components/schemas/Principal' } } } } }
     SpaceResponse: { type: object, required: [data], properties: { data: { $ref: '#/components/schemas/Space' } } }
     SpaceSummaryListResponse: { type: object, required: [data], properties: { data: { type: array, items: { $ref: '#/components/schemas/SpaceSummary' } } } }

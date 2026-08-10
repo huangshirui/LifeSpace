@@ -259,9 +259,6 @@ export function registerSpaceRoutes(app: App): void {
     const role = input.role as Exclude<SpaceRole, "owner">;
     const displayName = text(input.displayName, "displayName");
     if (await findMembership(c.env, spaceId, userId)) throw new ApiError("MEMBER_ALREADY_ACTIVE", "User is already an active Space member", 409);
-    if (space.kind === "family" && await memberCount(c.env, spaceId) >= FAMILY_MEMBER_LIMIT) {
-      throw new ApiError("FAMILY_MEMBER_LIMIT_REACHED", "Family Space member limit reached", 409);
-    }
     const previousMembership = await findMembership(c.env, spaceId, userId, false);
     const previousPerson = await c.env.DB.prepare(`SELECT id,deleted_at FROM space_people WHERE space_id=? AND linked_user_id=? ORDER BY created_at DESC LIMIT 1`)
       .bind(spaceId, userId).first<PersonRow>();
@@ -269,25 +266,39 @@ export function registerSpaceRoutes(app: App): void {
     const membershipId = previousMembership?.id ?? createId("mem");
     const personId = previousPerson?.id ?? createId("per");
     const statements = previousMembership
-      ? [c.env.DB.prepare(`UPDATE space_memberships SET role=?,deleted_at=NULL,updated_at=?,version=version+1 WHERE id=? AND deleted_at IS NOT NULL`)
-        .bind(role, addedAt, membershipId)]
-      : [c.env.DB.prepare(`INSERT INTO space_memberships(id,space_id,user_id,role,created_at,updated_at) VALUES(?,?,?,?,?,?)`)
-        .bind(membershipId, spaceId, userId, role, addedAt, addedAt)];
+      ? [c.env.DB.prepare(`UPDATE space_memberships SET role=?,deleted_at=NULL,updated_at=?,version=version+1
+          WHERE id=? AND deleted_at IS NOT NULL
+          AND (?!='family' OR (SELECT COUNT(*) FROM space_memberships WHERE space_id=? AND deleted_at IS NULL)<${FAMILY_MEMBER_LIMIT})`)
+        .bind(role, addedAt, membershipId, space.kind, spaceId)]
+      : [c.env.DB.prepare(`INSERT INTO space_memberships(id,space_id,user_id,role,created_at,updated_at)
+          SELECT ?,?,?,?,?,? WHERE (?!='family' OR (SELECT COUNT(*) FROM space_memberships WHERE space_id=? AND deleted_at IS NULL)<${FAMILY_MEMBER_LIMIT})
+          AND NOT EXISTS (SELECT 1 FROM space_memberships WHERE space_id=? AND user_id=? AND deleted_at IS NULL)`)
+        .bind(membershipId, spaceId, userId, role, addedAt, addedAt, space.kind, spaceId, spaceId, userId)];
     statements.push(previousPerson
-      ? c.env.DB.prepare(`UPDATE space_people SET display_name=?,deleted_at=NULL,updated_at=? WHERE id=? AND deleted_at IS NOT NULL`)
-        .bind(displayName, addedAt, personId)
-      : c.env.DB.prepare(`INSERT INTO space_people(id,space_id,linked_user_id,display_name,created_at,updated_at) VALUES(?,?,?,?,?,?)`)
-        .bind(personId, spaceId, userId, displayName, addedAt, addedAt));
+      ? c.env.DB.prepare(`UPDATE space_people SET display_name=?,deleted_at=NULL,updated_at=? WHERE id=? AND deleted_at IS NOT NULL
+          AND EXISTS (SELECT 1 FROM space_memberships WHERE id=? AND deleted_at IS NULL AND updated_at=?)`)
+        .bind(displayName, addedAt, personId, membershipId, addedAt)
+      : c.env.DB.prepare(`INSERT INTO space_people(id,space_id,linked_user_id,display_name,created_at,updated_at)
+          SELECT ?,?,?,?,?,? WHERE EXISTS (SELECT 1 FROM space_memberships WHERE id=? AND deleted_at IS NULL AND updated_at=?)`)
+        .bind(personId, spaceId, userId, displayName, addedAt, addedAt, membershipId, addedAt));
     try {
       await c.env.DB.batch(statements);
     } catch (error) {
       if (await findMembership(c.env, spaceId, userId)) {
         throw new ApiError("MEMBER_ALREADY_ACTIVE", "User is already an active Space member", 409);
       }
+      if (space.kind === "family" && await memberCount(c.env, spaceId) >= FAMILY_MEMBER_LIMIT) {
+        throw new ApiError("FAMILY_MEMBER_LIMIT_REACHED", "Family Space member limit reached", 409);
+      }
       throw error;
     }
     const current = await findMembership(c.env, spaceId, userId);
-    if (!current) throw new Error("Active membership is missing after creation");
+    if (!current) {
+      if (space.kind === "family" && await memberCount(c.env, spaceId) >= FAMILY_MEMBER_LIMIT) {
+        throw new ApiError("FAMILY_MEMBER_LIMIT_REACHED", "Family Space member limit reached", 409);
+      }
+      throw new ApiError("MEMBER_ALREADY_ACTIVE", "User is already an active Space member", 409);
+    }
     return c.json(success(membershipDto(current, personId, displayName)), 201);
   });
 
@@ -413,8 +424,9 @@ export function registerSpaceRoutes(app: App): void {
       SELECT ?,i.id,i.space_id,?,? FROM space_invites i JOIN spaces s ON s.id=i.space_id
       WHERE i.id=? AND i.status='active' AND julianday(i.expires_at)>julianday('now') AND i.used_count<i.max_uses AND s.deleted_at IS NULL
       AND (s.kind!='family' OR (SELECT COUNT(*) FROM space_memberships WHERE space_id=i.space_id AND deleted_at IS NULL)<${FAMILY_MEMBER_LIMIT})
-      AND NOT EXISTS (SELECT 1 FROM space_memberships WHERE space_id=i.space_id AND user_id=? AND deleted_at IS NULL)`)
-      .bind(redemptionId, principal.id, redeemedAt, invite.id, principal.id);
+      AND NOT EXISTS (SELECT 1 FROM space_memberships WHERE space_id=i.space_id AND user_id=? AND deleted_at IS NULL)
+      AND NOT EXISTS (SELECT 1 FROM space_invite_redemptions WHERE invite_id=i.id AND user_id=?)`)
+      .bind(redemptionId, principal.id, redeemedAt, invite.id, principal.id, principal.id);
     const membership = previousMembership
       ? c.env.DB.prepare(`UPDATE space_memberships SET role=?,deleted_at=NULL,updated_at=?,version=version+1
           WHERE id=? AND deleted_at IS NOT NULL AND EXISTS (SELECT 1 FROM space_invite_redemptions WHERE id=?)`)
@@ -436,6 +448,9 @@ export function registerSpaceRoutes(app: App): void {
       if (current.space_kind === "family" && await memberCount(c.env, current.space_id) >= FAMILY_MEMBER_LIMIT) {
         throw new ApiError("FAMILY_MEMBER_LIMIT_REACHED", "Family Space member limit reached", 409);
       }
+      const priorRedemption = await c.env.DB.prepare(`SELECT 1 redeemed FROM space_invite_redemptions WHERE invite_id=? AND user_id=?`)
+        .bind(current.id, principal.id).first<{ redeemed: number }>();
+      if (priorRedemption) throw new ApiError("INVITE_ALREADY_REDEEMED", "Invite was already redeemed by this user", 409);
       throw new ApiError("ALREADY_SPACE_MEMBER", "User is already a Space member", 409);
     }
     return c.json(success({ spaceId: invite.space_id, role: invite.role, personId, joinedAt: redeemedAt }), 201);

@@ -156,6 +156,26 @@ describe("Phase 2 family Space management", () => {
     expect(ninth.status).toBe(409);
   });
 
+  it("atomically admits only one direct member when two administrators race for the eighth slot", async () => {
+    const { privateKey, publicKey } = await keys();
+    const ownerId = `usr_${crypto.randomUUID()}`;
+    const family = await createFamily(privateKey, publicKey, ownerId);
+    for (let index = 0; index < 6; index += 1) {
+      expect((await request(`/api/v1/spaces/${family.spaceId}/members`, family.accessToken, publicKey, {
+        method: "POST",
+        body: JSON.stringify({ userId: `usr_${crypto.randomUUID()}`, role: "editor", displayName: `Member ${index}` }),
+      })).status).toBe(201);
+    }
+    const candidates = await Promise.all([0, 1].map((index) => request(`/api/v1/spaces/${family.spaceId}/members`, family.accessToken, publicKey, {
+      method: "POST",
+      body: JSON.stringify({ userId: `usr_${crypto.randomUUID()}`, role: "editor", displayName: `Candidate ${index}` }),
+    })));
+    expect(candidates.map((response) => response.status).sort()).toEqual([201, 409]);
+    const db = (env as unknown as TestEnv).DB;
+    expect((await db.prepare(`SELECT COUNT(*) count FROM space_memberships WHERE space_id=? AND deleted_at IS NULL`)
+      .bind(family.spaceId).first<{ count: number }>())?.count).toBe(8);
+  });
+
   it("updates membership roles with optimistic concurrency", async () => {
     const { privateKey, publicKey } = await keys();
     const ownerId = `usr_${crypto.randomUUID()}`;
@@ -215,6 +235,30 @@ describe("Phase 2 family Space management", () => {
       .bind(family.spaceId, joiningId).first<{ id: string }>();
     expect(secondMembership?.id).toBe(firstMembership?.id);
     expect((await db.prepare("SELECT display_name FROM space_people WHERE id=?").bind(firstJoin.data.personId).first<{ display_name: string }>())?.display_name).toBe("Updated name");
+  });
+
+  it("returns a lifecycle conflict when a user leaves then replays the same live invite", async () => {
+    const { privateKey, publicKey } = await keys();
+    const ownerId = `usr_${crypto.randomUUID()}`;
+    const joiningId = `usr_${crypto.randomUUID()}`;
+    const family = await createFamily(privateKey, publicKey, ownerId);
+    const created = await request(`/api/v1/spaces/${family.spaceId}/invites`, family.accessToken, publicKey, {
+      method: "POST",
+      body: JSON.stringify({ maxUses: 2, expiresInMinutes: 60 }),
+    });
+    const invitation = await created.json<{ data: { token: string } }>();
+    const joiningToken = await token(privateKey, joiningId, ["spaces:read", "spaces:write"]);
+    expect((await request(`/api/v1/space-invites/${invitation.data.token}/join`, joiningToken, publicKey, {
+      method: "POST",
+      body: JSON.stringify({ displayName: "Member" }),
+    })).status).toBe(201);
+    expect((await request(`/api/v1/spaces/${family.spaceId}/leave`, joiningToken, publicKey, { method: "POST" })).status).toBe(204);
+    const replay = await request(`/api/v1/space-invites/${invitation.data.token}/join`, joiningToken, publicKey, {
+      method: "POST",
+      body: JSON.stringify({ displayName: "Member again" }),
+    });
+    expect(replay.status).toBe(409);
+    expect((await replay.json<{ error: { code: string } }>()).error.code).toBe("INVITE_ALREADY_REDEEMED");
   });
 
   it("allows only one redemption when two users race for a one-use invite", async () => {
