@@ -233,7 +233,7 @@ async function createTask(context: Context<AppEnv>, space: SpaceRow, legacyFamil
 async function updateTask(context: Context<AppEnv>, space: SpaceRow, legacyFamilyId?: string): Promise<Response> {
   const principal = context.get("principal");
   await requireSpacePermission(context.env, principal, space.id, "write");
-  const taskId = context.req.param("taskId");
+  const taskId = context.req.param("taskId")!;
   const previous = await findTask(context.env, space.id, taskId);
   const input = await body(context);
   const assigneeField = legacyFamilyId ? "assigneeIds" : "assigneePersonIds";
@@ -267,7 +267,7 @@ async function updateTask(context: Context<AppEnv>, space: SpaceRow, legacyFamil
 async function deleteTask(context: Context<AppEnv>, space: SpaceRow): Promise<Response> {
   const principal = context.get("principal");
   await requireSpacePermission(context.env, principal, space.id, "write");
-  const taskId = context.req.param("taskId");
+  const taskId = context.req.param("taskId")!;
   await findTask(context.env, space.id, taskId);
   const expected = positiveInteger(Number(context.req.query("version")), "version");
   const timestamp = now();
@@ -282,7 +282,7 @@ async function deleteTask(context: Context<AppEnv>, space: SpaceRow): Promise<Re
 async function actionTask(context: Context<AppEnv>, space: SpaceRow, kind: "complete" | "reopen", legacyFamilyId?: string): Promise<Response> {
   const principal = context.get("principal");
   await requireSpacePermission(context.env, principal, space.id, "write");
-  const taskId = context.req.param("taskId");
+  const taskId = context.req.param("taskId")!;
   const row = await findTask(context.env, space.id, taskId);
   const input = await body(context);
   fields(input, ["version"]);
