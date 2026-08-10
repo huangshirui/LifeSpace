@@ -2,7 +2,7 @@ import fs from "node:fs";
 import YAML from "yaml";
 
 const document = YAML.parse(fs.readFileSync(new URL("../openapi.yaml", import.meta.url), "utf8"));
-if (document.openapi !== "3.1.0" || document.info?.version !== "0.5.0") throw new Error("Core OpenAPI version metadata is invalid");
+if (document.openapi !== "3.1.0" || document.info?.version !== "0.6.0") throw new Error("Core OpenAPI version metadata is invalid");
 
 for (const path of [
   "/health",
@@ -40,6 +40,16 @@ for (const path of [
   "/api/v1/families/{familyId}/tasks/{taskId}",
   "/api/v1/families/{familyId}/tasks/{taskId}/complete",
   "/api/v1/families/{familyId}/tasks/{taskId}/reopen",
+  "/api/v1/spaces/{spaceId}/day-records",
+  "/api/v1/spaces/{spaceId}/day-records/{dayRecordId}",
+  "/api/v1/spaces/{spaceId}/day-records/{dayRecordId}/archive",
+  "/api/v1/spaces/{spaceId}/day-records/{dayRecordId}/restore",
+  "/api/v1/spaces/{spaceId}/day-records/{dayRecordId}/occurrences",
+  "/api/v1/families/{familyId}/day-records",
+  "/api/v1/families/{familyId}/day-records/{dayRecordId}",
+  "/api/v1/families/{familyId}/day-records/{dayRecordId}/archive",
+  "/api/v1/families/{familyId}/day-records/{dayRecordId}/restore",
+  "/api/v1/families/{familyId}/day-records/{dayRecordId}/occurrences",
   "/api/v1/spaces/{spaceId}/grants",
 ]) if (!document.paths?.[path]) throw new Error(`Core OpenAPI missing ${path}`);
 
@@ -69,6 +79,18 @@ if (schemas?.UpdateTaskRequest?.required?.[0] !== "version" || schemas?.UpdateTa
 if (schemas?.LegacyUpdateTaskRequest?.required?.[0] !== "version" || schemas?.LegacyUpdateTaskRequest?.minProperties !== 2) throw new Error("HomeMew task updates must preserve optimistic concurrency");
 const legacyIncludeNoDue = document.paths?.["/api/v1/families/{familyId}/tasks"]?.get?.parameters?.find((parameter) => parameter?.name === "includeNoDue");
 if (legacyIncludeNoDue?.schema?.default !== false) throw new Error("HomeMew task compatibility must document observed includeNoDue=false omission behavior");
-if (schemas?.StatusResponse?.properties?.data?.properties?.contractVersion?.const !== "0.5.0") throw new Error("Core status contract version drifted");
+if (JSON.stringify(schemas?.DayRecordKind?.enum) !== JSON.stringify(["elapsed", "countdown", "cycle"])) throw new Error("Day record kinds drifted");
+if (JSON.stringify(schemas?.DayRecordStatus?.enum) !== JSON.stringify(["active", "archived"])) throw new Error("Day record statuses drifted");
+if (!schemas?.DayRecordCommon?.required?.includes("spaceId") || schemas?.DayRecordCommon?.properties?.familyId) throw new Error("Native day records must be Space-owned");
+if (!schemas?.LegacyDayRecordCommon?.required?.includes("familyId") || schemas?.LegacyDayRecordCommon?.properties?.spaceId) throw new Error("HomeMew day records must preserve familyId");
+if (!schemas?.CreateDayRecordCommon?.properties?.subjectPersonId || schemas?.CreateDayRecordCommon?.properties?.subjectUserId) throw new Error("Native day-record subjects must reference Space People");
+if (!schemas?.LegacyCreateDayRecordCommon?.properties?.subjectUserId || schemas?.LegacyCreateDayRecordCommon?.properties?.subjectPersonId) throw new Error("HomeMew day-record subjects must preserve user IDs");
+if (schemas?.LegacyDayRecordPersonRef?.properties?.avatarUrl?.type !== "null") throw new Error("Day-record subject avatars must stay unavailable before the R2 slice");
+if (schemas?.UpdateDayRecordRequest?.required?.[0] !== "version" || schemas?.UpdateDayRecordRequest?.minProperties !== 2) throw new Error("Native day-record updates must use optimistic concurrency");
+if (schemas?.LegacyUpdateDayRecordRequest?.required?.[0] !== "version" || schemas?.LegacyUpdateDayRecordRequest?.minProperties !== 2) throw new Error("HomeMew day-record updates must preserve optimistic concurrency");
+if (!schemas?.CreateDayRecordOccurrenceRequest?.required?.includes("occurredOn") || !schemas?.CreateDayRecordOccurrenceRequest?.required?.includes("version")) throw new Error("Day-record occurrences must advance by date under optimistic concurrency");
+if (document.paths?.["/api/v1/spaces/{spaceId}/day-records/{dayRecordId}/occurrences"]?.post?.responses?.["201"] === undefined) throw new Error("Native occurrence creation must preserve 201 semantics");
+if (document.paths?.["/api/v1/families/{familyId}/day-records/{dayRecordId}/occurrences"]?.post?.responses?.["201"] === undefined) throw new Error("HomeMew occurrence creation must preserve 201 semantics");
+if (schemas?.StatusResponse?.properties?.data?.properties?.contractVersion?.const !== "0.6.0") throw new Error("Core status contract version drifted");
 
 console.log("Core OpenAPI contract sanity check passed");
