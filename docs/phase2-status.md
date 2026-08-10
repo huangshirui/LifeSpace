@@ -94,7 +94,7 @@ The task compatibility route preserves the observed HomeMew runtime behavior whe
 
 ### 2.5 Space-owned day records and HomeMew compatibility
 
-**Status: implemented in draft PR #12; final CI and staging deployment/E2E pending.**
+**Status: implemented in draft PR #12 with repository CI passing; staging deployment/E2E pending.**
 
 - [x] Freeze the released HomeMew day-record behavior from runtime code, D1 schema and integration tests.
 - [x] Confirm the three discriminated kinds: `elapsed`, `countdown`, `cycle`.
@@ -112,7 +112,7 @@ The task compatibility route preserves the observed HomeMew runtime behavior whe
 - [x] Update canonical Core OpenAPI to 0.6.0, package/status version and contract sanity checks, including composed-schema guards.
 - [x] Add Workers/D1 integration and migration-transform tests for native/compatibility shapes, lifecycle, history, filters, scopes and cross-Space isolation.
 - [x] Extend the repeatable staging smoke to require schema v6 / contract 0.6.0 and exercise Day-record creation, subject/list, occurrence advancement/history, stale-version rejection, archive/restore/update, authentication denial and soft deletion.
-- [ ] Pass the final repository CI for the completed PR #12 head.
+- [x] Pass the final repository CI for the completed PR #12 implementation head.
 - [ ] Apply D1 schema v6 to staging, deploy Core and pass the real Day-record staging E2E after merge/authorization.
 
 The Day-record persistence layer stores the subject as `subject_person_id` and enforces same-Space ownership. Unlike new assignment validation, historical reads intentionally do not require the referenced Person to remain active. This preserves the released HomeMew behavior where a record referring to a former family member still displays that historical subject after member removal.
