@@ -2,7 +2,7 @@ import fs from "node:fs";
 import YAML from "yaml";
 
 const document = YAML.parse(fs.readFileSync(new URL("../openapi.yaml", import.meta.url), "utf8"));
-if (document.openapi !== "3.1.0" || document.info?.version !== "0.3.0") throw new Error("Core OpenAPI version metadata is invalid");
+if (document.openapi !== "3.1.0" || document.info?.version !== "0.4.0") throw new Error("Core OpenAPI version metadata is invalid");
 
 for (const path of [
   "/health",
@@ -28,6 +28,10 @@ for (const path of [
   "/api/v1/families/{familyId}/invites/{inviteId}/revoke",
   "/api/v1/family-invites/{code}",
   "/api/v1/family-invites/{code}/join",
+  "/api/v1/spaces/{spaceId}/events",
+  "/api/v1/spaces/{spaceId}/events/{eventId}",
+  "/api/v1/families/{familyId}/events",
+  "/api/v1/families/{familyId}/events/{eventId}",
   "/api/v1/spaces/{spaceId}/grants",
 ]) if (!document.paths?.[path]) throw new Error(`Core OpenAPI missing ${path}`);
 
@@ -42,5 +46,10 @@ if (JSON.stringify(schemas?.LegacyFamilyRole?.enum) !== JSON.stringify(["admin",
 if (schemas?.LegacyFamilyListItem?.properties?.avatarUrl?.type !== "null") throw new Error("Family avatar parity must stay unavailable before the R2 slice");
 if (schemas?.LegacyCreateInviteResponse?.properties?.data?.properties?.code?.writeOnly !== true) throw new Error("HomeMew invitation code must be one-time/write-only");
 if (document.paths?.["/api/v1/family-invites/{code}/join"]?.post?.responses?.["200"] === undefined) throw new Error("HomeMew invitation join must preserve the legacy 200 response");
+if (!schemas?.EventCommon?.required?.includes("spaceId") || schemas?.EventCommon?.properties?.familyId) throw new Error("Native events must be Space-owned");
+if (!schemas?.LegacyEventCommon?.required?.includes("familyId") || schemas?.LegacyEventCommon?.properties?.spaceId) throw new Error("HomeMew event responses must preserve familyId");
+if (!schemas?.CreateEventCommon?.properties?.attendeePersonIds || schemas?.CreateEventCommon?.properties?.attendeeIds) throw new Error("Native attendees must reference Space People");
+if (!schemas?.LegacyCreateEventCommon?.properties?.attendeeIds) throw new Error("HomeMew event attendee IDs must remain compatible");
+if (schemas?.LegacyEventPersonRef?.properties?.avatarUrl?.type !== "null") throw new Error("Event attendee avatars must stay unavailable before the R2 slice");
 
 console.log("Core OpenAPI contract sanity check passed");

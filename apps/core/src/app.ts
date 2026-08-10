@@ -3,6 +3,7 @@ import { cors } from "hono/cors";
 import type { Bindings, Variables } from "./env";
 import { authenticate } from "./auth";
 import { ApiError, failure, success } from "./http";
+import { registerEventRoutes } from "./events";
 import { registerHomeMewCompatibilityRoutes, requireHomeMewCompatibilityClient } from "./homemew-compat";
 import { registerSpaceRoutes } from "./spaces";
 
@@ -39,7 +40,7 @@ export function createApp() {
     environment: context.env.ENVIRONMENT ?? "local",
     database: "available",
     schemaVersion: await schemaVersion(context.env),
-    contractVersion: "0.3.0",
+    contractVersion: "0.4.0",
   })));
   app.use("/api/v1/me", authenticate());
   app.use("/api/v1/me/*", authenticate());
@@ -55,6 +56,7 @@ export function createApp() {
   app.use("/api/v1/family-invites/*", requireHomeMewCompatibilityClient());
   registerSpaceRoutes(app);
   registerHomeMewCompatibilityRoutes(app);
+  registerEventRoutes(app);
   app.notFound((context) => context.json(failure("NOT_FOUND", "Route not found", context.get("requestId")), 404));
   app.onError((error, context) => {
     const requestId = context.get("requestId");
