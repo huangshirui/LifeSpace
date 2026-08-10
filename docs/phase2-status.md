@@ -57,7 +57,7 @@ Family avatar upload/copy remains in the later R2 object slice and is not includ
 
 ### 2.3 Space-owned events and HomeMew compatibility
 
-**Status: implemented on `agent/phase2-events-attendees`; pending repository CI and staging verification.**
+**Status: deployed and verified in staging on 2026-08-10.**
 
 - [x] Add one native `events` table owned by `space_id` and attendee relations to same-Space `space_person` records.
 - [x] Preserve timed UTC instants with display timezones and half-open all-day date ranges.
@@ -66,7 +66,7 @@ Family avatar upload/copy remains in the later R2 object slice and is not includ
 - [x] Preserve optimistic concurrency, soft deletion, actor audit snapshots and stable `evt_*` IDs.
 - [x] Add a deterministic schema-v11 event transform using the exact family mapping manifest from the same export.
 - [x] Add D1, authorization, cross-Space, compatibility, pagination, time-semantic and transform tests.
-- [ ] Verify the slice in staging without switching production traffic.
+- [x] Verify the slice in staging without switching production traffic.
 
 Cross-Space `/api/v1/me/events` aggregation and calendar `free_busy` grants remain Phase 3 platform capabilities. They are not required to claim HomeMew event parity and are not exposed as planned-only endpoints in this slice.
 
@@ -76,7 +76,7 @@ Cross-Space `/api/v1/me/events` aggregation and calendar `free_busy` grants rema
 2. Day records and occurrence history.
 3. Wishes and lifecycle rules.
 4. R2 avatars.
-5. External integrations, credentials and scopes.
+5. External integrations: service principals, direct opaque `lsp_pat_*` tokens for owner-controlled n8n/curl/scripts/MCP, optional OAuth `client_credentials`, scopes, Data Grants, and HomeMew credential migration.
 6. Creation drafts/Queue if still required at parity freeze.
 7. Any newly released HomeMew capability added under the freeze rule.
 
