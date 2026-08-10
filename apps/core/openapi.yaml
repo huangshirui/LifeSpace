@@ -1,8 +1,8 @@
 openapi: 3.1.0
 info:
   title: LifeSpace Core API
-  version: 0.3.0
-  description: Space ownership, membership, invitations, Data Grants, shared life-domain APIs, and a temporary HomeMew family compatibility facade.
+  version: 0.4.0
+  description: Space ownership, membership, invitations, Data Grants, Space-owned events and attendees, and temporary HomeMew compatibility facades.
 security:
   - bearerAuth: []
 tags:
@@ -11,6 +11,7 @@ tags:
   - name: Spaces
   - name: Members
   - name: Invitations
+  - name: Events
   - name: Data Grants
   - name: HomeMew compatibility
 paths:
@@ -320,6 +321,126 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/spaces/{spaceId}/events:
+    parameters: [{ $ref: '#/components/parameters/SpaceId' }]
+    get:
+      tags: [Events]
+      operationId: listSpaceEvents
+      summary: List Space events overlapping a date window
+      parameters:
+        - { name: startDate, in: query, required: true, schema: { type: string, format: date } }
+        - { name: endDateExclusive, in: query, required: true, schema: { type: string, format: date } }
+        - { name: timezone, in: query, schema: { $ref: '#/components/schemas/IanaTimezone' } }
+        - { name: attendeePersonId, in: query, schema: { type: string, description: Space Person ID or me } }
+        - { name: status, in: query, schema: { $ref: '#/components/schemas/EventStatus', default: active } }
+        - { name: q, in: query, schema: { type: string, minLength: 1, maxLength: 100 } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 200, default: 100 } }
+        - { name: cursor, in: query, schema: { type: string } }
+      responses:
+        '200': { description: Event page, content: { application/json: { schema: { $ref: '#/components/schemas/EventListResponse' } } } }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Events]
+      operationId: createSpaceEvent
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/CreateEventRequest' } } } }
+      responses:
+        '201': { description: Event created, content: { application/json: { schema: { $ref: '#/components/schemas/EventResponse' } } } }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /api/v1/spaces/{spaceId}/events/{eventId}:
+    parameters: [{ $ref: '#/components/parameters/SpaceId' }, { $ref: '#/components/parameters/EventId' }]
+    get:
+      tags: [Events]
+      operationId: getSpaceEvent
+      responses:
+        '200': { description: Event detail, content: { application/json: { schema: { $ref: '#/components/schemas/EventResponse' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Events]
+      operationId: updateSpaceEvent
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/UpdateEventRequest' } } } }
+      responses:
+        '200': { description: Event updated, content: { application/json: { schema: { $ref: '#/components/schemas/EventResponse' } } } }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+    delete:
+      tags: [Events]
+      operationId: deleteSpaceEvent
+      parameters: [{ name: version, in: query, required: true, schema: { type: integer, minimum: 1 } }]
+      responses:
+        '204': { description: Event soft-deleted }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/families/{familyId}/events:
+    parameters: [{ $ref: '#/components/parameters/LegacyFamilyId' }]
+    get:
+      tags: [Events, HomeMew compatibility]
+      operationId: listFamilyEventsCompat
+      description: Temporary HomeMew response over native Space events and attendee Space People.
+      parameters:
+        - { name: startDate, in: query, required: true, schema: { type: string, format: date } }
+        - { name: endDateExclusive, in: query, required: true, schema: { type: string, format: date } }
+        - { name: timezone, in: query, schema: { $ref: '#/components/schemas/IanaTimezone' } }
+        - { name: attendeeId, in: query, schema: { type: string, description: Legacy HomeMew user ID or me } }
+        - { name: status, in: query, schema: { $ref: '#/components/schemas/EventStatus', default: active } }
+        - { name: q, in: query, schema: { type: string, minLength: 1, maxLength: 100 } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 200, default: 100 } }
+        - { name: cursor, in: query, schema: { type: string } }
+      responses:
+        '200': { description: Legacy event page, content: { application/json: { schema: { $ref: '#/components/schemas/LegacyEventListResponse' } } } }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Events, HomeMew compatibility]
+      operationId: createFamilyEventCompat
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/LegacyCreateEventRequest' } } } }
+      responses:
+        '201': { description: Legacy event created, content: { application/json: { schema: { $ref: '#/components/schemas/LegacyEventResponse' } } } }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /api/v1/families/{familyId}/events/{eventId}:
+    parameters: [{ $ref: '#/components/parameters/LegacyFamilyId' }, { $ref: '#/components/parameters/EventId' }]
+    get:
+      tags: [Events, HomeMew compatibility]
+      operationId: getFamilyEventCompat
+      responses:
+        '200': { description: Legacy event detail, content: { application/json: { schema: { $ref: '#/components/schemas/LegacyEventResponse' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Events, HomeMew compatibility]
+      operationId: updateFamilyEventCompat
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/LegacyUpdateEventRequest' } } } }
+      responses:
+        '200': { description: Legacy event updated, content: { application/json: { schema: { $ref: '#/components/schemas/LegacyEventResponse' } } } }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+    delete:
+      tags: [Events, HomeMew compatibility]
+      operationId: deleteFamilyEventCompat
+      parameters: [{ name: version, in: query, required: true, schema: { type: integer, minimum: 1 } }]
+      responses:
+        '204': { description: Event soft-deleted }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
   /api/v1/spaces/{spaceId}/grants:
     parameters: [{ $ref: '#/components/parameters/SpaceId' }]
     post:
@@ -341,6 +462,7 @@ components:
     UserId: { name: userId, in: path, required: true, schema: { type: string, pattern: '^usr_' } }
     InviteId: { name: inviteId, in: path, required: true, schema: { type: string, pattern: '^inv_' } }
     InviteToken: { name: token, in: path, required: true, schema: { type: string, minLength: 10, maxLength: 100 } }
+    EventId: { name: eventId, in: path, required: true, schema: { type: string, pattern: '^evt_' } }
     LegacyFamilyId: { name: familyId, in: path, required: true, schema: { type: string, pattern: '^fam_' } }
     LegacyUserId: { name: userId, in: path, required: true, schema: { type: string, pattern: '^usr_' } }
     LegacyInviteCode: { name: code, in: path, required: true, schema: { type: string, minLength: 10, maxLength: 100 } }
@@ -359,6 +481,7 @@ components:
     IanaTimezone: { type: string, minLength: 1, maxLength: 100, examples: [Asia/Shanghai] }
     LegacyFamilyRole: { type: string, enum: [admin, member] }
     LegacyInviteStatus: { type: string, enum: [active, expired, exhausted, revoked] }
+    EventStatus: { type: string, enum: [active, cancelled] }
     Principal:
       type: object
       additionalProperties: false
@@ -476,6 +599,230 @@ components:
             code: { type: string }
             message: { type: string }
             requestId: { type: string }
+    ActorRef:
+      type: object
+      additionalProperties: false
+      required: [type, id, displayName]
+      properties:
+        type: { type: string, enum: [user, service, device] }
+        id: { type: string }
+        displayName: { type: string }
+    EventPersonRef:
+      type: object
+      additionalProperties: false
+      required: [personId, displayName]
+      properties:
+        personId: { type: string, pattern: '^per_' }
+        displayName: { type: string }
+    EventCommon:
+      type: object
+      required: [id, spaceId, summary, description, isAllDay, location, status, attendees, createdBy, updatedBy, version, createdAt, updatedAt]
+      properties:
+        id: { type: string, pattern: '^evt_' }
+        spaceId: { type: string, pattern: '^spc_' }
+        summary: { type: string, minLength: 1, maxLength: 100 }
+        description: { type: [string, 'null'], maxLength: 5000 }
+        isAllDay: { type: boolean }
+        location: { type: [string, 'null'], maxLength: 500 }
+        status: { $ref: '#/components/schemas/EventStatus' }
+        attendees: { type: array, items: { $ref: '#/components/schemas/EventPersonRef' } }
+        createdBy: { $ref: '#/components/schemas/ActorRef' }
+        updatedBy: { $ref: '#/components/schemas/ActorRef' }
+        version: { type: integer, minimum: 1 }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    TimedEvent:
+      allOf:
+        - { $ref: '#/components/schemas/EventCommon' }
+        - type: object
+          required: [startAt, endAt, startTimezone, endTimezone]
+          properties:
+            isAllDay: { const: false }
+            startAt: { type: string, format: date-time, pattern: 'Z$' }
+            endAt: { type: string, format: date-time, pattern: 'Z$' }
+            startTimezone: { oneOf: [{ $ref: '#/components/schemas/IanaTimezone' }, { type: 'null' }] }
+            endTimezone: { oneOf: [{ $ref: '#/components/schemas/IanaTimezone' }, { type: 'null' }] }
+    AllDayEvent:
+      allOf:
+        - { $ref: '#/components/schemas/EventCommon' }
+        - type: object
+          required: [startDate, endDateExclusive]
+          properties:
+            isAllDay: { const: true }
+            startDate: { type: string, format: date }
+            endDateExclusive: { type: string, format: date }
+    Event: { oneOf: [{ $ref: '#/components/schemas/TimedEvent' }, { $ref: '#/components/schemas/AllDayEvent' }] }
+    CreateEventCommon:
+      type: object
+      required: [summary, isAllDay]
+      properties:
+        summary: { type: string, minLength: 1, maxLength: 100 }
+        description: { type: [string, 'null'], maxLength: 5000 }
+        location: { type: [string, 'null'], maxLength: 500 }
+        attendeePersonIds: { type: array, uniqueItems: true, maxItems: 100, items: { type: string, pattern: '^per_' } }
+    CreateTimedEventRequest:
+      allOf:
+        - { $ref: '#/components/schemas/CreateEventCommon' }
+        - type: object
+          required: [startAt, endAt]
+          properties:
+            isAllDay: { const: false }
+            startAt: { type: string, format: date-time, pattern: 'Z$' }
+            endAt: { type: string, format: date-time, pattern: 'Z$' }
+            startTimezone: { oneOf: [{ $ref: '#/components/schemas/IanaTimezone' }, { type: 'null' }] }
+            endTimezone: { oneOf: [{ $ref: '#/components/schemas/IanaTimezone' }, { type: 'null' }] }
+    CreateAllDayEventRequest:
+      allOf:
+        - { $ref: '#/components/schemas/CreateEventCommon' }
+        - type: object
+          required: [startDate, endDateExclusive]
+          properties:
+            isAllDay: { const: true }
+            startDate: { type: string, format: date }
+            endDateExclusive: { type: string, format: date }
+    CreateEventRequest: { oneOf: [{ $ref: '#/components/schemas/CreateTimedEventRequest' }, { $ref: '#/components/schemas/CreateAllDayEventRequest' }] }
+    UpdateEventRequest:
+      type: object
+      additionalProperties: false
+      required: [version]
+      minProperties: 2
+      properties:
+        version: { type: integer, minimum: 1 }
+        summary: { type: string, minLength: 1, maxLength: 100 }
+        description: { type: [string, 'null'], maxLength: 5000 }
+        location: { type: [string, 'null'], maxLength: 500 }
+        attendeePersonIds: { type: array, uniqueItems: true, maxItems: 100, items: { type: string, pattern: '^per_' } }
+        isAllDay: { type: boolean }
+        startAt: { type: string, format: date-time, pattern: 'Z$' }
+        endAt: { type: string, format: date-time, pattern: 'Z$' }
+        startTimezone: { oneOf: [{ $ref: '#/components/schemas/IanaTimezone' }, { type: 'null' }] }
+        endTimezone: { oneOf: [{ $ref: '#/components/schemas/IanaTimezone' }, { type: 'null' }] }
+        startDate: { type: string, format: date }
+        endDateExclusive: { type: string, format: date }
+    EventResponse: { type: object, required: [data], properties: { data: { $ref: '#/components/schemas/Event' } } }
+    EventListResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          required: [items, nextCursor]
+          properties:
+            items: { type: array, items: { $ref: '#/components/schemas/Event' } }
+            nextCursor: { type: [string, 'null'] }
+    LegacyActorRef:
+      type: object
+      additionalProperties: false
+      required: [type, id, name, avatarUrl]
+      properties:
+        type: { type: string, enum: [user, system] }
+        id: { type: string }
+        name: { type: string }
+        avatarUrl: { type: 'null', description: Deferred until the R2 slice. }
+    LegacyEventPersonRef:
+      type: object
+      additionalProperties: false
+      required: [userId, displayName, avatarUrl]
+      properties:
+        userId: { type: string, pattern: '^usr_' }
+        displayName: { type: string }
+        avatarUrl: { type: 'null', description: Deferred until the R2 slice. }
+    LegacyEventCommon:
+      type: object
+      required: [id, familyId, summary, description, isAllDay, location, status, attendees, createdBy, updatedBy, version, createdAt, updatedAt]
+      properties:
+        id: { type: string, pattern: '^evt_' }
+        familyId: { type: string, pattern: '^fam_' }
+        summary: { type: string, minLength: 1, maxLength: 100 }
+        description: { type: [string, 'null'] }
+        isAllDay: { type: boolean }
+        location: { type: [string, 'null'] }
+        status: { $ref: '#/components/schemas/EventStatus' }
+        attendees: { type: array, items: { $ref: '#/components/schemas/LegacyEventPersonRef' } }
+        createdBy: { $ref: '#/components/schemas/LegacyActorRef' }
+        updatedBy: { $ref: '#/components/schemas/LegacyActorRef' }
+        version: { type: integer, minimum: 1 }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    LegacyTimedEvent:
+      allOf:
+        - { $ref: '#/components/schemas/LegacyEventCommon' }
+        - type: object
+          required: [startAt, endAt, startTimezone, endTimezone]
+          properties:
+            isAllDay: { const: false }
+            startAt: { type: string, format: date-time, pattern: 'Z$' }
+            endAt: { type: string, format: date-time, pattern: 'Z$' }
+            startTimezone: { oneOf: [{ $ref: '#/components/schemas/IanaTimezone' }, { type: 'null' }] }
+            endTimezone: { oneOf: [{ $ref: '#/components/schemas/IanaTimezone' }, { type: 'null' }] }
+    LegacyAllDayEvent:
+      allOf:
+        - { $ref: '#/components/schemas/LegacyEventCommon' }
+        - type: object
+          required: [startDate, endDateExclusive]
+          properties:
+            isAllDay: { const: true }
+            startDate: { type: string, format: date }
+            endDateExclusive: { type: string, format: date }
+    LegacyEvent: { oneOf: [{ $ref: '#/components/schemas/LegacyTimedEvent' }, { $ref: '#/components/schemas/LegacyAllDayEvent' }] }
+    LegacyCreateEventCommon:
+      type: object
+      required: [summary, isAllDay]
+      properties:
+        summary: { type: string, minLength: 1, maxLength: 100 }
+        description: { type: [string, 'null'], maxLength: 5000 }
+        location: { type: [string, 'null'], maxLength: 500 }
+        attendeeIds: { type: array, uniqueItems: true, maxItems: 8, items: { type: string, pattern: '^usr_' } }
+    LegacyCreateTimedEventRequest:
+      allOf:
+        - { $ref: '#/components/schemas/LegacyCreateEventCommon' }
+        - type: object
+          required: [startAt, endAt]
+          properties:
+            isAllDay: { const: false }
+            startAt: { type: string, format: date-time, pattern: 'Z$' }
+            endAt: { type: string, format: date-time, pattern: 'Z$' }
+            startTimezone: { oneOf: [{ $ref: '#/components/schemas/IanaTimezone' }, { type: 'null' }] }
+            endTimezone: { oneOf: [{ $ref: '#/components/schemas/IanaTimezone' }, { type: 'null' }] }
+    LegacyCreateAllDayEventRequest:
+      allOf:
+        - { $ref: '#/components/schemas/LegacyCreateEventCommon' }
+        - type: object
+          required: [startDate, endDateExclusive]
+          properties:
+            isAllDay: { const: true }
+            startDate: { type: string, format: date }
+            endDateExclusive: { type: string, format: date }
+    LegacyCreateEventRequest: { oneOf: [{ $ref: '#/components/schemas/LegacyCreateTimedEventRequest' }, { $ref: '#/components/schemas/LegacyCreateAllDayEventRequest' }] }
+    LegacyUpdateEventRequest:
+      type: object
+      additionalProperties: false
+      required: [version]
+      minProperties: 2
+      properties:
+        version: { type: integer, minimum: 1 }
+        summary: { type: string, minLength: 1, maxLength: 100 }
+        description: { type: [string, 'null'], maxLength: 5000 }
+        location: { type: [string, 'null'], maxLength: 500 }
+        attendeeIds: { type: array, uniqueItems: true, maxItems: 8, items: { type: string, pattern: '^usr_' } }
+        isAllDay: { type: boolean }
+        startAt: { type: string, format: date-time, pattern: 'Z$' }
+        endAt: { type: string, format: date-time, pattern: 'Z$' }
+        startTimezone: { oneOf: [{ $ref: '#/components/schemas/IanaTimezone' }, { type: 'null' }] }
+        endTimezone: { oneOf: [{ $ref: '#/components/schemas/IanaTimezone' }, { type: 'null' }] }
+        startDate: { type: string, format: date }
+        endDateExclusive: { type: string, format: date }
+    LegacyEventResponse: { type: object, required: [data], properties: { data: { $ref: '#/components/schemas/LegacyEvent' } } }
+    LegacyEventListResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          required: [items, nextCursor]
+          properties:
+            items: { type: array, items: { $ref: '#/components/schemas/LegacyEvent' } }
+            nextCursor: { type: [string, 'null'] }
     LegacyFamilyListItem:
       type: object
       additionalProperties: false
@@ -629,7 +976,7 @@ components:
             role: { const: member }
             joinedAt: { type: string, format: date-time }
     HealthResponse: { type: object, required: [data], properties: { data: { type: object, required: [status], properties: { status: { const: ok } } } } }
-    StatusResponse: { type: object, required: [data], properties: { data: { type: object, required: [status, service, database, schemaVersion, contractVersion], properties: { status: { const: ok }, service: { const: core }, environment: { type: string }, database: { const: available }, schemaVersion: { type: string }, contractVersion: { const: 0.3.0 } } } } }
+    StatusResponse: { type: object, required: [data], properties: { data: { type: object, required: [status, service, database, schemaVersion, contractVersion], properties: { status: { const: ok }, service: { const: core }, environment: { type: string }, database: { const: available }, schemaVersion: { type: string }, contractVersion: { const: 0.4.0 } } } } }
     PrincipalResponse: { type: object, required: [data], properties: { data: { type: object, required: [principal], properties: { principal: { $ref: '#/components/schemas/Principal' } } } } }
     SpaceResponse: { type: object, required: [data], properties: { data: { $ref: '#/components/schemas/Space' } } }
     SpaceSummaryListResponse: { type: object, required: [data], properties: { data: { type: array, items: { $ref: '#/components/schemas/SpaceSummary' } } } }

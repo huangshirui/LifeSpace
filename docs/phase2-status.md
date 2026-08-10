@@ -39,7 +39,7 @@ The first implementation slice is deliberately divided into independently verifi
 
 ### 2.2 HomeMew compatibility
 
-**Status: implemented on `agent/phase2-homemew-family-compat`; pending repository CI and staging verification.**
+**Status: deployed and verified in staging on 2026-08-10.**
 
 - [x] Define explicit `fam_* -> spc_*` and member/person migration maps.
 - [x] Implement temporary family-route compatibility over the same LifeSpace records.
@@ -47,22 +47,38 @@ The first implementation slice is deliberately divided into independently verifi
 - [x] Preserve HomeMew family/member/invitation response fields, error classes, and the invitation-join `200` behavior required by released clients.
 - [x] Keep HomeMew's maximum-three-created-families rule in the compatibility/application policy, not generic LifeSpace Space creation.
 - [x] Add deterministic transform and validation tooling for users, families, memberships, Space People, invitations, and redemption history.
-- [ ] Verify the slice in staging without switching production traffic.
+- [x] Verify the slice in staging without switching production traffic.
 
 The compatibility mapping tables are transitional ID/audit metadata, not a second household store. Family records remain exclusively in native LifeSpace tables. The source creator becomes Space owner when still an active HomeMew administrator; otherwise the earliest active administrator is selected deterministically. The native owner role cannot be demoted through the legacy role endpoint. Historic duplicate invite-redemption pairs are collapsed into the native replay-safe relation and reported explicitly while the source invite `usedCount` is preserved.
 
 Family avatar upload/copy remains in the later R2 object slice and is not included in the first membership/invitation acceptance claim.
 
+## Active slice — Events and attendees
+
+### 2.3 Space-owned events and HomeMew compatibility
+
+**Status: implemented on `agent/phase2-events-attendees`; pending repository CI and staging verification.**
+
+- [x] Add one native `events` table owned by `space_id` and attendee relations to same-Space `space_person` records.
+- [x] Preserve timed UTC instants with display timezones and half-open all-day date ranges.
+- [x] Add native list/search/filter/create/read/update/delete routes with app scope × current Space permission enforcement.
+- [x] Preserve HomeMew family event paths, `familyId`, attendee user IDs, response shapes, cursor filters and status codes through the compatibility facade.
+- [x] Preserve optimistic concurrency, soft deletion, actor audit snapshots and stable `evt_*` IDs.
+- [x] Add a deterministic schema-v11 event transform using the exact family mapping manifest from the same export.
+- [x] Add D1, authorization, cross-Space, compatibility, pagination, time-semantic and transform tests.
+- [ ] Verify the slice in staging without switching production traffic.
+
+Cross-Space `/api/v1/me/events` aggregation and calendar `free_busy` grants remain Phase 3 platform capabilities. They are not required to claim HomeMew event parity and are not exposed as planned-only endpoints in this slice.
+
 ## Next slices
 
-1. Events and attendees.
-2. Tasks and assignees.
-3. Day records and occurrence history.
-4. Wishes and lifecycle rules.
-5. R2 avatars.
-6. External integrations, credentials and scopes.
-7. Creation drafts/Queue if still required at parity freeze.
-8. Any newly released HomeMew capability added under the freeze rule.
+1. Tasks and assignees.
+2. Day records and occurrence history.
+3. Wishes and lifecycle rules.
+4. R2 avatars.
+5. External integrations, credentials and scopes.
+6. Creation drafts/Queue if still required at parity freeze.
+7. Any newly released HomeMew capability added under the freeze rule.
 
 ## Exit gate for Phase 2
 

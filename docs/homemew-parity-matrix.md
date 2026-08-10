@@ -42,11 +42,11 @@ The HomeMew OpenAPI currently exposes 60 implemented operations. The table group
 | --- | --- | --- | --- | --- |
 | System probes | health and schema/status | Runtime | Native Core probes | Foundation complete |
 | User profile | read/update profile; user avatar | Durable + object | Identity user profile plus platform object behavior | Not started |
-| Family listing/profile | list/create/read/update family | Durable | family-kind Space plus HomeMew compatibility mapping | Implemented; staging verification pending |
-| Members | list, change role, remove, leave | Durable | Space membership + linked Space Person | Implemented; staging verification pending |
-| Invitations | create/list/revoke/preview/join | Durable | Core-owned Space invitations | Implemented; staging verification pending |
+| Family listing/profile | list/create/read/update family | Durable | family-kind Space plus HomeMew compatibility mapping | Deployed and verified in staging |
+| Members | list, change role, remove, leave | Durable | Space membership + linked Space Person | Deployed and verified in staging |
+| Invitations | create/list/revoke/preview/join | Durable | Core-owned Space invitations | Deployed and verified in staging |
 | Family avatar | upload/read derived URL | Object | Space asset behavior | Deferred to R2 slice |
-| Events | list/search/filter/create/read/update/delete; attendees | Durable | Space-owned events; attendee Space People | Not started |
+| Events | list/search/filter/create/read/update/delete; attendees | Durable | Space-owned events; attendee Space People | Implemented in Phase 2.3; staging verification pending |
 | Tasks | list/search/filter/create/read/update/delete/complete/reopen; assignees | Durable | Space-owned tasks; assignee Space People | Not started |
 | Day records | CRUD, occurrence history, archive/restore | Durable | Space-owned day records and occurrences | Not started |
 | Wishes | CRUD, claim/unclaim/fulfill/reopen/archive/restore | Durable | Space-owned wishes and lifecycle | Not started |
