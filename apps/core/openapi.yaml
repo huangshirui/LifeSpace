@@ -1,8 +1,8 @@
 openapi: 3.1.0
 info:
   title: LifeSpace Core API
-  version: 0.5.0
-  description: Space ownership, membership, invitations, Data Grants, Space-owned events/tasks and their people relations, and temporary HomeMew compatibility facades.
+  version: 0.6.0
+  description: Space ownership, membership, invitations, Data Grants, Space-owned events/tasks/day records and their people relations, and temporary HomeMew compatibility facades.
 security:
   - bearerAuth: []
 tags:
@@ -13,6 +13,7 @@ tags:
   - name: Invitations
   - name: Events
   - name: Tasks
+  - name: Day records
   - name: Data Grants
   - name: HomeMew compatibility
 paths:
@@ -616,6 +617,226 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/spaces/{spaceId}/day-records:
+    parameters: [{ $ref: '#/components/parameters/SpaceId' }]
+    get:
+      tags: [Day records]
+      operationId: listSpaceDayRecords
+      parameters:
+        - { name: kind, in: query, schema: { type: string, description: Comma-separated elapsed, countdown, or cycle values. } }
+        - { name: status, in: query, schema: { type: string, default: active, description: Comma-separated active or archived values. } }
+        - { name: subjectPersonId, in: query, schema: { type: string, description: Active Space Person ID or me } }
+        - { name: attentionOnly, in: query, schema: { type: boolean, default: false } }
+        - { name: sort, in: query, schema: { $ref: '#/components/schemas/DayRecordSort' } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 200, default: 100 } }
+        - { name: cursor, in: query, schema: { type: string } }
+      responses:
+        '200': { description: Day record page computed using the Space timezone, content: { application/json: { schema: { $ref: '#/components/schemas/DayRecordListResponse' } } } }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Day records]
+      operationId: createSpaceDayRecord
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/CreateDayRecordRequest' } } } }
+      responses:
+        '201': { description: Day record created; non-countdown records also receive an initial occurrence, content: { application/json: { schema: { $ref: '#/components/schemas/DayRecordResponse' } } } }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /api/v1/spaces/{spaceId}/day-records/{dayRecordId}:
+    parameters: [{ $ref: '#/components/parameters/SpaceId' }, { $ref: '#/components/parameters/DayRecordId' }]
+    get:
+      tags: [Day records]
+      operationId: getSpaceDayRecord
+      responses:
+        '200': { description: Day record detail, content: { application/json: { schema: { $ref: '#/components/schemas/DayRecordResponse' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Day records]
+      operationId: updateSpaceDayRecord
+      description: Allowed mutable fields are constrained by the persisted day-record kind; kind itself is immutable.
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/UpdateDayRecordRequest' } } } }
+      responses:
+        '200': { description: Day record updated, content: { application/json: { schema: { $ref: '#/components/schemas/DayRecordResponse' } } } }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+    delete:
+      tags: [Day records]
+      operationId: deleteSpaceDayRecord
+      parameters: [{ name: version, in: query, required: true, schema: { type: integer, minimum: 1 } }]
+      responses:
+        '204': { description: Day record soft-deleted }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/spaces/{spaceId}/day-records/{dayRecordId}/archive:
+    parameters: [{ $ref: '#/components/parameters/SpaceId' }, { $ref: '#/components/parameters/DayRecordId' }]
+    post:
+      tags: [Day records]
+      operationId: archiveSpaceDayRecord
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/DayRecordActionRequest' } } } }
+      responses:
+        '200': { description: Day record archived and made read-only, content: { application/json: { schema: { $ref: '#/components/schemas/DayRecordResponse' } } } }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/spaces/{spaceId}/day-records/{dayRecordId}/restore:
+    parameters: [{ $ref: '#/components/parameters/SpaceId' }, { $ref: '#/components/parameters/DayRecordId' }]
+    post:
+      tags: [Day records]
+      operationId: restoreSpaceDayRecord
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/DayRecordActionRequest' } } } }
+      responses:
+        '200': { description: Day record restored to active, content: { application/json: { schema: { $ref: '#/components/schemas/DayRecordResponse' } } } }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/spaces/{spaceId}/day-records/{dayRecordId}/occurrences:
+    parameters: [{ $ref: '#/components/parameters/SpaceId' }, { $ref: '#/components/parameters/DayRecordId' }]
+    get:
+      tags: [Day records]
+      operationId: listSpaceDayRecordOccurrences
+      parameters:
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 200, default: 100 } }
+        - { name: cursor, in: query, schema: { type: string } }
+      responses:
+        '200': { description: Occurrence history newest first, content: { application/json: { schema: { $ref: '#/components/schemas/DayRecordOccurrenceListResponse' } } } }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      tags: [Day records]
+      operationId: addSpaceDayRecordOccurrence
+      description: Available only for active elapsed/cycle records. The date must advance the current anchor and be no later than the current date in the Space timezone.
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/CreateDayRecordOccurrenceRequest' } } } }
+      responses:
+        '201': { description: Occurrence added and current anchor advanced atomically, content: { application/json: { schema: { $ref: '#/components/schemas/CreateDayRecordOccurrenceResponse' } } } }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/families/{familyId}/day-records:
+    parameters: [{ $ref: '#/components/parameters/LegacyFamilyId' }]
+    get:
+      tags: [Day records, HomeMew compatibility]
+      operationId: listFamilyDayRecordsCompat
+      parameters:
+        - { name: kind, in: query, schema: { type: string, description: Comma-separated elapsed, countdown, or cycle values. } }
+        - { name: status, in: query, schema: { type: string, default: active, description: Comma-separated active or archived values. } }
+        - { name: subjectUserId, in: query, schema: { type: string, description: Active legacy HomeMew member user ID or me } }
+        - { name: attentionOnly, in: query, schema: { type: boolean, default: false } }
+        - { name: sort, in: query, schema: { $ref: '#/components/schemas/DayRecordSort' } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 200, default: 100 } }
+        - { name: cursor, in: query, schema: { type: string } }
+      responses:
+        '200': { description: Legacy day-record page, content: { application/json: { schema: { $ref: '#/components/schemas/LegacyDayRecordListResponse' } } } }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Day records, HomeMew compatibility]
+      operationId: createFamilyDayRecordCompat
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/LegacyCreateDayRecordRequest' } } } }
+      responses:
+        '201': { description: Legacy day record created, content: { application/json: { schema: { $ref: '#/components/schemas/LegacyDayRecordResponse' } } } }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /api/v1/families/{familyId}/day-records/{dayRecordId}:
+    parameters: [{ $ref: '#/components/parameters/LegacyFamilyId' }, { $ref: '#/components/parameters/DayRecordId' }]
+    get:
+      tags: [Day records, HomeMew compatibility]
+      operationId: getFamilyDayRecordCompat
+      responses:
+        '200': { description: Legacy day-record detail, content: { application/json: { schema: { $ref: '#/components/schemas/LegacyDayRecordResponse' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Day records, HomeMew compatibility]
+      operationId: updateFamilyDayRecordCompat
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/LegacyUpdateDayRecordRequest' } } } }
+      responses:
+        '200': { description: Legacy day record updated, content: { application/json: { schema: { $ref: '#/components/schemas/LegacyDayRecordResponse' } } } }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+    delete:
+      tags: [Day records, HomeMew compatibility]
+      operationId: deleteFamilyDayRecordCompat
+      parameters: [{ name: version, in: query, required: true, schema: { type: integer, minimum: 1 } }]
+      responses:
+        '204': { description: Day record soft-deleted }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/families/{familyId}/day-records/{dayRecordId}/archive:
+    parameters: [{ $ref: '#/components/parameters/LegacyFamilyId' }, { $ref: '#/components/parameters/DayRecordId' }]
+    post:
+      tags: [Day records, HomeMew compatibility]
+      operationId: archiveFamilyDayRecordCompat
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/DayRecordActionRequest' } } } }
+      responses:
+        '200': { description: Legacy day record archived, content: { application/json: { schema: { $ref: '#/components/schemas/LegacyDayRecordResponse' } } } }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/families/{familyId}/day-records/{dayRecordId}/restore:
+    parameters: [{ $ref: '#/components/parameters/LegacyFamilyId' }, { $ref: '#/components/parameters/DayRecordId' }]
+    post:
+      tags: [Day records, HomeMew compatibility]
+      operationId: restoreFamilyDayRecordCompat
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/DayRecordActionRequest' } } } }
+      responses:
+        '200': { description: Legacy day record restored, content: { application/json: { schema: { $ref: '#/components/schemas/LegacyDayRecordResponse' } } } }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/families/{familyId}/day-records/{dayRecordId}/occurrences:
+    parameters: [{ $ref: '#/components/parameters/LegacyFamilyId' }, { $ref: '#/components/parameters/DayRecordId' }]
+    get:
+      tags: [Day records, HomeMew compatibility]
+      operationId: listFamilyDayRecordOccurrencesCompat
+      parameters:
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 200, default: 100 } }
+        - { name: cursor, in: query, schema: { type: string } }
+      responses:
+        '200': { description: Legacy occurrence history, content: { application/json: { schema: { $ref: '#/components/schemas/LegacyDayRecordOccurrenceListResponse' } } } }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      tags: [Day records, HomeMew compatibility]
+      operationId: addFamilyDayRecordOccurrenceCompat
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/CreateDayRecordOccurrenceRequest' } } } }
+      responses:
+        '201': { description: Legacy occurrence added and anchor advanced, content: { application/json: { schema: { $ref: '#/components/schemas/LegacyCreateDayRecordOccurrenceResponse' } } } }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
   /api/v1/spaces/{spaceId}/grants:
     parameters: [{ $ref: '#/components/parameters/SpaceId' }]
     post:
@@ -639,6 +860,7 @@ components:
     InviteToken: { name: token, in: path, required: true, schema: { type: string, minLength: 10, maxLength: 100 } }
     EventId: { name: eventId, in: path, required: true, schema: { type: string, pattern: '^evt_' } }
     TaskId: { name: taskId, in: path, required: true, schema: { type: string, pattern: '^tsk_' } }
+    DayRecordId: { name: dayRecordId, in: path, required: true, schema: { type: string, pattern: '^day_' } }
     LegacyFamilyId: { name: familyId, in: path, required: true, schema: { type: string, pattern: '^fam_' } }
     LegacyUserId: { name: userId, in: path, required: true, schema: { type: string, pattern: '^usr_' } }
     LegacyInviteCode: { name: code, in: path, required: true, schema: { type: string, minLength: 10, maxLength: 100 } }
@@ -659,6 +881,11 @@ components:
     LegacyInviteStatus: { type: string, enum: [active, expired, exhausted, revoked] }
     EventStatus: { type: string, enum: [active, cancelled] }
     TaskStatus: { type: string, enum: [pending, completed, cancelled] }
+    DayRecordKind: { type: string, enum: [elapsed, countdown, cycle] }
+    DayRecordStatus: { type: string, enum: [active, archived] }
+    DayRecordSort: { type: string, enum: [attention, date_asc, date_desc, created_desc, updated_desc], default: attention }
+    DayRecordAttentionLevel: { type: string, enum: [none, info, warning, critical] }
+    DayRecordState: { type: string, enum: [normal, threshold_reached, future, upcoming, today, past, due, overdue] }
     Principal:
       type: object
       additionalProperties: false
@@ -949,6 +1176,206 @@ components:
           properties:
             items: { type: array, items: { $ref: '#/components/schemas/Task' } }
             nextCursor: { type: [string, 'null'] }
+    DayRecordPersonRef:
+      type: object
+      additionalProperties: false
+      required: [personId, displayName]
+      description: Historical subjects remain renderable even after the referenced Space Person is deactivated.
+      properties:
+        personId: { type: string, pattern: '^per_' }
+        displayName: { type: string }
+    DayRecordComputedBase:
+      type: object
+      additionalProperties: false
+      required: [today, state, attentionLevel, isAttentionRequired]
+      properties:
+        today: { type: string, format: date }
+        state: { $ref: '#/components/schemas/DayRecordState' }
+        attentionLevel: { $ref: '#/components/schemas/DayRecordAttentionLevel' }
+        isAttentionRequired: { type: boolean }
+    ElapsedDayRecordComputed:
+      allOf:
+        - { $ref: '#/components/schemas/DayRecordComputedBase' }
+        - type: object
+          required: [elapsedDays, remainingDays]
+          properties:
+            elapsedDays: { type: integer }
+            remainingDays: { type: [integer, 'null'] }
+    CountdownDayRecordComputed:
+      allOf:
+        - { $ref: '#/components/schemas/DayRecordComputedBase' }
+        - type: object
+          required: [remainingDays]
+          properties: { remainingDays: { type: integer } }
+    CycleDayRecordComputed:
+      allOf:
+        - { $ref: '#/components/schemas/DayRecordComputedBase' }
+        - type: object
+          required: [elapsedDays, remainingDays, progressRatio]
+          properties:
+            elapsedDays: { type: integer }
+            remainingDays: { type: integer }
+            progressRatio: { type: number }
+    DayRecordCommon:
+      type: object
+      required: [id, spaceId, name, description, kind, subject, icon, status, version, createdBy, updatedBy, createdAt, updatedAt]
+      properties:
+        id: { type: string, pattern: '^day_' }
+        spaceId: { type: string, pattern: '^spc_' }
+        name: { type: string, minLength: 1, maxLength: 100 }
+        description: { type: [string, 'null'], maxLength: 5000 }
+        kind: { $ref: '#/components/schemas/DayRecordKind' }
+        subject: { oneOf: [{ $ref: '#/components/schemas/DayRecordPersonRef' }, { type: 'null' }] }
+        icon: { type: [string, 'null'], maxLength: 50 }
+        status: { $ref: '#/components/schemas/DayRecordStatus' }
+        version: { type: integer, minimum: 1 }
+        createdBy: { $ref: '#/components/schemas/ActorRef' }
+        updatedBy: { $ref: '#/components/schemas/ActorRef' }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    ElapsedDayRecord:
+      allOf:
+        - { $ref: '#/components/schemas/DayRecordCommon' }
+        - type: object
+          required: [anchorDate, attentionAfterDays, computed]
+          properties:
+            kind: { const: elapsed }
+            anchorDate: { type: string, format: date }
+            attentionAfterDays: { type: [integer, 'null'], minimum: 1, maximum: 3650 }
+            computed: { $ref: '#/components/schemas/ElapsedDayRecordComputed' }
+    CountdownDayRecord:
+      allOf:
+        - { $ref: '#/components/schemas/DayRecordCommon' }
+        - type: object
+          required: [anchorDate, attentionBeforeDays, computed]
+          properties:
+            kind: { const: countdown }
+            anchorDate: { type: string, format: date }
+            attentionBeforeDays: { type: [integer, 'null'], minimum: 0, maximum: 3650 }
+            computed: { $ref: '#/components/schemas/CountdownDayRecordComputed' }
+    CycleDayRecord:
+      allOf:
+        - { $ref: '#/components/schemas/DayRecordCommon' }
+        - type: object
+          required: [anchorDate, cycleDays, nextDueDate, attentionBeforeDays, computed]
+          properties:
+            kind: { const: cycle }
+            anchorDate: { type: string, format: date }
+            cycleDays: { type: integer, minimum: 1, maximum: 3650 }
+            nextDueDate: { type: string, format: date }
+            attentionBeforeDays: { type: [integer, 'null'], minimum: 0, maximum: 3650 }
+            computed: { $ref: '#/components/schemas/CycleDayRecordComputed' }
+    DayRecord: { oneOf: [{ $ref: '#/components/schemas/ElapsedDayRecord' }, { $ref: '#/components/schemas/CountdownDayRecord' }, { $ref: '#/components/schemas/CycleDayRecord' }] }
+    CreateDayRecordCommon:
+      type: object
+      required: [name, kind, anchorDate]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 100 }
+        description: { type: [string, 'null'], maxLength: 5000 }
+        anchorDate: { type: string, format: date }
+        subjectPersonId: { type: [string, 'null'], pattern: '^per_' }
+        icon: { type: [string, 'null'], maxLength: 50 }
+    CreateElapsedDayRecordRequest:
+      allOf:
+        - { $ref: '#/components/schemas/CreateDayRecordCommon' }
+        - type: object
+          additionalProperties: false
+          properties:
+            kind: { const: elapsed }
+            attentionAfterDays: { type: [integer, 'null'], minimum: 1, maximum: 3650 }
+    CreateCountdownDayRecordRequest:
+      allOf:
+        - { $ref: '#/components/schemas/CreateDayRecordCommon' }
+        - type: object
+          additionalProperties: false
+          properties:
+            kind: { const: countdown }
+            attentionBeforeDays: { type: [integer, 'null'], minimum: 0, maximum: 3650, default: 30 }
+    CreateCycleDayRecordRequest:
+      allOf:
+        - { $ref: '#/components/schemas/CreateDayRecordCommon' }
+        - type: object
+          additionalProperties: false
+          required: [cycleDays]
+          properties:
+            kind: { const: cycle }
+            cycleDays: { type: integer, minimum: 1, maximum: 3650 }
+            attentionBeforeDays: { type: [integer, 'null'], minimum: 0, maximum: 3650, default: 7 }
+    CreateDayRecordRequest: { oneOf: [{ $ref: '#/components/schemas/CreateElapsedDayRecordRequest' }, { $ref: '#/components/schemas/CreateCountdownDayRecordRequest' }, { $ref: '#/components/schemas/CreateCycleDayRecordRequest' }] }
+    UpdateDayRecordRequest:
+      type: object
+      additionalProperties: false
+      required: [version]
+      minProperties: 2
+      description: Core additionally rejects fields that are not valid for the persisted kind.
+      properties:
+        version: { type: integer, minimum: 1 }
+        name: { type: string, minLength: 1, maxLength: 100 }
+        description: { type: [string, 'null'], maxLength: 5000 }
+        icon: { type: [string, 'null'], maxLength: 50 }
+        subjectPersonId: { type: [string, 'null'], pattern: '^per_' }
+        anchorDate: { type: string, format: date, description: Mutable only for countdown records; elapsed/cycle anchors advance via occurrences. }
+        cycleDays: { type: integer, minimum: 1, maximum: 3650 }
+        attentionBeforeDays: { type: [integer, 'null'], minimum: 0, maximum: 3650 }
+        attentionAfterDays: { type: [integer, 'null'], minimum: 1, maximum: 3650 }
+    DayRecordActionRequest:
+      type: object
+      additionalProperties: false
+      required: [version]
+      properties: { version: { type: integer, minimum: 1 } }
+    DayRecordOccurrence:
+      type: object
+      additionalProperties: false
+      required: [id, dayRecordId, occurredOn, note, source, intervalDays, recordedBy, createdAt]
+      properties:
+        id: { type: string, pattern: '^dyo_' }
+        dayRecordId: { type: string, pattern: '^day_' }
+        occurredOn: { type: string, format: date }
+        note: { type: [string, 'null'], maxLength: 1000 }
+        source: { type: string, enum: [initial, manual] }
+        intervalDays: { type: [integer, 'null'] }
+        recordedBy: { $ref: '#/components/schemas/ActorRef' }
+        createdAt: { type: string, format: date-time }
+    CreateDayRecordOccurrenceRequest:
+      type: object
+      additionalProperties: false
+      required: [occurredOn, version]
+      properties:
+        occurredOn: { type: string, format: date }
+        note: { type: [string, 'null'], maxLength: 1000 }
+        version: { type: integer, minimum: 1 }
+    DayRecordResponse: { type: object, required: [data], properties: { data: { $ref: '#/components/schemas/DayRecord' } } }
+    DayRecordListResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          required: [items, nextCursor]
+          properties:
+            items: { type: array, items: { $ref: '#/components/schemas/DayRecord' } }
+            nextCursor: { type: [string, 'null'] }
+    DayRecordOccurrenceListResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          required: [items, nextCursor]
+          properties:
+            items: { type: array, items: { $ref: '#/components/schemas/DayRecordOccurrence' } }
+            nextCursor: { type: [string, 'null'] }
+    CreateDayRecordOccurrenceResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          required: [previousAnchorDate, intervalDays, record]
+          properties:
+            previousAnchorDate: { type: string, format: date }
+            intervalDays: { type: integer, minimum: 1 }
+            record: { $ref: '#/components/schemas/DayRecord' }
     LegacyActorRef:
       type: object
       additionalProperties: false
@@ -1120,6 +1547,162 @@ components:
           properties:
             items: { type: array, items: { $ref: '#/components/schemas/LegacyTask' } }
             nextCursor: { type: [string, 'null'] }
+    LegacyDayRecordPersonRef:
+      type: object
+      additionalProperties: false
+      required: [userId, displayName, avatarUrl]
+      description: Historical HomeMew subjects remain visible after membership removal.
+      properties:
+        userId: { type: string, pattern: '^usr_' }
+        displayName: { type: string }
+        avatarUrl: { type: 'null', description: Deferred until the R2 slice. }
+    LegacyDayRecordCommon:
+      type: object
+      required: [id, familyId, name, description, kind, subject, icon, status, version, createdBy, updatedBy, createdAt, updatedAt]
+      properties:
+        id: { type: string, pattern: '^day_' }
+        familyId: { type: string, pattern: '^fam_' }
+        name: { type: string, minLength: 1, maxLength: 100 }
+        description: { type: [string, 'null'], maxLength: 5000 }
+        kind: { $ref: '#/components/schemas/DayRecordKind' }
+        subject: { oneOf: [{ $ref: '#/components/schemas/LegacyDayRecordPersonRef' }, { type: 'null' }] }
+        icon: { type: [string, 'null'], maxLength: 50 }
+        status: { $ref: '#/components/schemas/DayRecordStatus' }
+        version: { type: integer, minimum: 1 }
+        createdBy: { $ref: '#/components/schemas/LegacyActorRef' }
+        updatedBy: { $ref: '#/components/schemas/LegacyActorRef' }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    LegacyElapsedDayRecord:
+      allOf:
+        - { $ref: '#/components/schemas/LegacyDayRecordCommon' }
+        - type: object
+          required: [anchorDate, attentionAfterDays, computed]
+          properties:
+            kind: { const: elapsed }
+            anchorDate: { type: string, format: date }
+            attentionAfterDays: { type: [integer, 'null'], minimum: 1, maximum: 3650 }
+            computed: { $ref: '#/components/schemas/ElapsedDayRecordComputed' }
+    LegacyCountdownDayRecord:
+      allOf:
+        - { $ref: '#/components/schemas/LegacyDayRecordCommon' }
+        - type: object
+          required: [anchorDate, attentionBeforeDays, computed]
+          properties:
+            kind: { const: countdown }
+            anchorDate: { type: string, format: date }
+            attentionBeforeDays: { type: [integer, 'null'], minimum: 0, maximum: 3650 }
+            computed: { $ref: '#/components/schemas/CountdownDayRecordComputed' }
+    LegacyCycleDayRecord:
+      allOf:
+        - { $ref: '#/components/schemas/LegacyDayRecordCommon' }
+        - type: object
+          required: [anchorDate, cycleDays, nextDueDate, attentionBeforeDays, computed]
+          properties:
+            kind: { const: cycle }
+            anchorDate: { type: string, format: date }
+            cycleDays: { type: integer, minimum: 1, maximum: 3650 }
+            nextDueDate: { type: string, format: date }
+            attentionBeforeDays: { type: [integer, 'null'], minimum: 0, maximum: 3650 }
+            computed: { $ref: '#/components/schemas/CycleDayRecordComputed' }
+    LegacyDayRecord: { oneOf: [{ $ref: '#/components/schemas/LegacyElapsedDayRecord' }, { $ref: '#/components/schemas/LegacyCountdownDayRecord' }, { $ref: '#/components/schemas/LegacyCycleDayRecord' }] }
+    LegacyCreateDayRecordCommon:
+      type: object
+      required: [name, kind, anchorDate]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 100 }
+        description: { type: [string, 'null'], maxLength: 5000 }
+        anchorDate: { type: string, format: date }
+        subjectUserId: { type: [string, 'null'], pattern: '^usr_' }
+        icon: { type: [string, 'null'], maxLength: 50 }
+    LegacyCreateElapsedDayRecordRequest:
+      allOf:
+        - { $ref: '#/components/schemas/LegacyCreateDayRecordCommon' }
+        - type: object
+          additionalProperties: false
+          properties:
+            kind: { const: elapsed }
+            attentionAfterDays: { type: [integer, 'null'], minimum: 1, maximum: 3650 }
+    LegacyCreateCountdownDayRecordRequest:
+      allOf:
+        - { $ref: '#/components/schemas/LegacyCreateDayRecordCommon' }
+        - type: object
+          additionalProperties: false
+          properties:
+            kind: { const: countdown }
+            attentionBeforeDays: { type: [integer, 'null'], minimum: 0, maximum: 3650, default: 30 }
+    LegacyCreateCycleDayRecordRequest:
+      allOf:
+        - { $ref: '#/components/schemas/LegacyCreateDayRecordCommon' }
+        - type: object
+          additionalProperties: false
+          required: [cycleDays]
+          properties:
+            kind: { const: cycle }
+            cycleDays: { type: integer, minimum: 1, maximum: 3650 }
+            attentionBeforeDays: { type: [integer, 'null'], minimum: 0, maximum: 3650, default: 7 }
+    LegacyCreateDayRecordRequest: { oneOf: [{ $ref: '#/components/schemas/LegacyCreateElapsedDayRecordRequest' }, { $ref: '#/components/schemas/LegacyCreateCountdownDayRecordRequest' }, { $ref: '#/components/schemas/LegacyCreateCycleDayRecordRequest' }] }
+    LegacyUpdateDayRecordRequest:
+      type: object
+      additionalProperties: false
+      required: [version]
+      minProperties: 2
+      description: Fields are further constrained by the persisted kind, matching HomeMew behavior.
+      properties:
+        version: { type: integer, minimum: 1 }
+        name: { type: string, minLength: 1, maxLength: 100 }
+        description: { type: [string, 'null'], maxLength: 5000 }
+        icon: { type: [string, 'null'], maxLength: 50 }
+        subjectUserId: { type: [string, 'null'], pattern: '^usr_' }
+        anchorDate: { type: string, format: date }
+        cycleDays: { type: integer, minimum: 1, maximum: 3650 }
+        attentionBeforeDays: { type: [integer, 'null'], minimum: 0, maximum: 3650 }
+        attentionAfterDays: { type: [integer, 'null'], minimum: 1, maximum: 3650 }
+    LegacyDayRecordOccurrence:
+      type: object
+      additionalProperties: false
+      required: [id, dayRecordId, occurredOn, note, source, intervalDays, recordedBy, createdAt]
+      properties:
+        id: { type: string, pattern: '^dyo_' }
+        dayRecordId: { type: string, pattern: '^day_' }
+        occurredOn: { type: string, format: date }
+        note: { type: [string, 'null'], maxLength: 1000 }
+        source: { type: string, enum: [initial, manual] }
+        intervalDays: { type: [integer, 'null'] }
+        recordedBy: { $ref: '#/components/schemas/LegacyActorRef' }
+        createdAt: { type: string, format: date-time }
+    LegacyDayRecordResponse: { type: object, required: [data], properties: { data: { $ref: '#/components/schemas/LegacyDayRecord' } } }
+    LegacyDayRecordListResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          required: [items, nextCursor]
+          properties:
+            items: { type: array, items: { $ref: '#/components/schemas/LegacyDayRecord' } }
+            nextCursor: { type: [string, 'null'] }
+    LegacyDayRecordOccurrenceListResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          required: [items, nextCursor]
+          properties:
+            items: { type: array, items: { $ref: '#/components/schemas/LegacyDayRecordOccurrence' } }
+            nextCursor: { type: [string, 'null'] }
+    LegacyCreateDayRecordOccurrenceResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          required: [previousAnchorDate, intervalDays, record]
+          properties:
+            previousAnchorDate: { type: string, format: date }
+            intervalDays: { type: integer, minimum: 1 }
+            record: { $ref: '#/components/schemas/LegacyDayRecord' }
     LegacyFamilyListItem:
       type: object
       additionalProperties: false
@@ -1273,7 +1856,7 @@ components:
             role: { const: member }
             joinedAt: { type: string, format: date-time }
     HealthResponse: { type: object, required: [data], properties: { data: { type: object, required: [status], properties: { status: { const: ok } } } } }
-    StatusResponse: { type: object, required: [data], properties: { data: { type: object, required: [status, service, database, schemaVersion, contractVersion], properties: { status: { const: ok }, service: { const: core }, environment: { type: string }, database: { const: available }, schemaVersion: { type: string }, contractVersion: { const: 0.5.0 } } } } }
+    StatusResponse: { type: object, required: [data], properties: { data: { type: object, required: [status, service, database, schemaVersion, contractVersion], properties: { status: { const: ok }, service: { const: core }, environment: { type: string }, database: { const: available }, schemaVersion: { type: string }, contractVersion: { const: 0.6.0 } } } } }
     PrincipalResponse: { type: object, required: [data], properties: { data: { type: object, required: [principal], properties: { principal: { $ref: '#/components/schemas/Principal' } } } } }
     SpaceResponse: { type: object, required: [data], properties: { data: { $ref: '#/components/schemas/Space' } } }
     SpaceSummaryListResponse: { type: object, required: [data], properties: { data: { type: array, items: { $ref: '#/components/schemas/SpaceSummary' } } } }
