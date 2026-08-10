@@ -8,10 +8,11 @@ Read these files in order:
 
 1. `docs/architecture.md`
 2. `docs/permissions.md`
-3. `docs/contracts.md`
-4. `docs/migration-plan.md` when changing or moving behavior from HomeMew
-5. The nearest nested `AGENTS.md` for every directory being changed
-6. Relevant OpenAPI, tests, migrations, implementation, and generated artifacts
+3. `docs/service-authentication.md` when changing service, Agent, automation, device, or machine credentials
+4. `docs/contracts.md`
+5. `docs/migration-plan.md` when changing or moving behavior from HomeMew
+6. The nearest nested `AGENTS.md` for every directory being changed
+7. Relevant OpenAPI, tests, migrations, implementation, and generated artifacts
 
 If a referenced file has not been created yet during the initial scaffold, create or update it before implementing behavior that depends on it.
 
@@ -19,6 +20,7 @@ If a referenced file has not been created yet during the initial scaffold, creat
 
 - Platform boundaries and runtime topology: `docs/architecture.md`
 - Space ownership, Data Grant semantics, roles, principals, and effective authorization: `docs/permissions.md`
+- Service, Agent, automation, and machine credential policy: `docs/service-authentication.md`
 - Contract ownership, versioning, publication, and downstream consumption: `docs/contracts.md`
 - Core API syntax: `apps/core/openapi.yaml`
 - Identity API syntax: `apps/identity/openapi.yaml`
@@ -39,7 +41,7 @@ Do not silently reconcile disagreements between these sources. Preserve deployed
 - Data authorization and application authorization are independent. Effective permission is the intersection of the principal's current data authorization and the calling application's granted scopes.
 - The authenticated actor comes from verified credentials. Never trust a client-provided `userId` as the current actor.
 - Core owns Space/Grant authorization and business-domain authorization. Clients and BFFs may hide controls for usability but are never the security authority.
-- Identity owns LifeSpace users, trusted application/client registration and credentials, platform SSO/session capabilities when explicitly implemented, short-lived token issuance/revocation, and signing-key lifecycle. Identity must not become an integration hub for every application's external login provider.
+- Identity owns LifeSpace users, trusted application/client registration and credentials, platform SSO/session capabilities when explicitly implemented, short-lived token issuance/revocation, service principal and opaque Service API Token lifecycle, and signing-key lifecycle. Identity must not become an integration hub for every application's external login provider.
 - Keep `Data Grant` terminology distinct from OAuth authorization grants or consent records.
 - ALOHA, HomeMew, and vertical applications are clients of the platform. Do not add application-specific business rules to Core merely because one current client needs a particular UI flow.
 - Keep Core a modular monolith unless a separately approved architecture decision justifies splitting a runtime service.
@@ -52,7 +54,7 @@ Do not silently reconcile disagreements between these sources. Preserve deployed
 - Do not use `Domain=aisr.online` or another parent-domain session cookie to share sessions between applications.
 - If platform SSO is implemented, Identity browser sessions use host-only Secure HttpOnly cookies on the Identity host. Individual Web applications may maintain their own host-only App Session through a same-origin BFF.
 - Web applications should prefer browser -> same-origin BFF -> service binding -> Core. BFFs must not become a second business-data store.
-- Core must not rely on a browser-wide ambient session cookie as its primary authentication mechanism. Non-browser clients and service-to-service calls use appropriately scoped short-lived bearer credentials.
+- Core must not rely on a browser-wide ambient session cookie as its primary authentication mechanism. Untrusted clients use appropriately scoped short-lived bearer credentials. Owner-controlled trusted services may instead use individually scoped, opaque, revocable Service API Tokens according to `docs/service-authentication.md`; OAuth `client_credentials` remains an optional service mode, not the only one.
 - Mini Programs, devices, Agents, and automation services use explicit app/device/service identities and scopes appropriate to their execution mode.
 - CORS is not authorization. If direct browser-to-Core access is supported, use an exact Origin allowlist and still enforce token, app-scope, and data permissions in Core.
 
