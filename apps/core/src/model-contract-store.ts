@@ -75,7 +75,7 @@ export function modelContractMutationStatements(
   const revision = env.DB.prepare(`INSERT OR IGNORE INTO model_contract_revisions(
       id,contract_hash,manifest_json,openapi_json,json_schema_json,
       created_by_type,created_by_id,created_by_name_snapshot,created_at
-    ) SELECT ?,?,?,?,?,?,?,?,?,? WHERE ${guarded.sql}`)
+    ) SELECT ?,?,?,?,?,?,?,?,? WHERE ${guarded.sql}`)
     .bind(
       snapshot.id,
       snapshot.hash,
