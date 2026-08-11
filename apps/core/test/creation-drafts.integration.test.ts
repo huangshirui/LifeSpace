@@ -98,7 +98,7 @@ describe("Registry-driven creation drafts", () => {
 
     const poll = await call(`/api/v1/spaces/${home.spaceId}/creation-drafts/${created.data.draftId}`, home.bearer, publicKey, queued);
     expect(await poll.json()).toMatchObject({ data: { status: "ready", modelKey: model.key, modelVersion: 1, draft: { title: "今天很开心", ownerPersonId: home.ownerPersonId }, missingFields: [] } });
-    const row = await db.prepare("SELECT input_text FROM creation_draft_jobs WHERE id=?").bind(created.data.draftId).first<{ input_text: string | null }>();
+    const row = await (env as unknown as TestEnv).DB.prepare("SELECT input_text FROM creation_draft_jobs WHERE id=?").bind(created.data.draftId).first<{ input_text: string | null }>();
     expect(row?.input_text).toBeNull();
   });
 
