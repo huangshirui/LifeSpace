@@ -172,6 +172,7 @@ Completed scope:
 - [x] Never copy legacy `hmw_pat_*`, OAuth plaintext, or credential hashes into LifeSpace.
 - [x] Preserve the n8n/curl direct-call model: one client-visible Core HTTP request when using `lsp_pat_*`; the Core-to-Identity introspection is internal.
 - [x] Pass Identity/Core Workers+D1 tests, OpenAPI checks, Service Binding type generation, migration-transform tests, TypeScript/build validation and full staging E2E.
+- [x] Staging E2E explicitly exercised PAT and OAuth access through a current service Data Grant, immediate Grant revocation for both modes, and opaque-token revocation.
 
 ## Next slices
 
