@@ -46,6 +46,27 @@ CREATE TABLE model_definition_drafts (
 CREATE INDEX idx_model_definition_drafts_key
   ON model_definition_drafts(model_key, updated_at DESC);
 
+-- Task is the first bootstrap model used to prove that an ordinary domain can be
+-- represented by registry metadata instead of a handwritten runtime. This is a
+-- platform seed, not a permanent special-case Task implementation.
+INSERT INTO model_definitions(
+  id,model_key,route_segment,version,state,definition_version,definition_json,schema_hash,compatibility,
+  published_by_type,published_by_id,published_by_name_snapshot
+) VALUES(
+  'mdl_bootstrap_task_v1',
+  'task',
+  'tasks',
+  1,
+  'published',
+  1,
+  '{"access":["read","write"],"definitionVersion":1,"display":{"plural":"Tasks","singular":"Task"},"fields":{"assigneePersonIds":{"type":"person_list"},"completedAt":{"nullable":true,"readOnly":true,"type":"datetime"},"completedByPersonId":{"nullable":true,"readOnly":true,"type":"person"},"description":{"maxLength":5000,"nullable":true,"type":"text"},"dueDate":{"nullable":true,"type":"date"},"name":{"maxLength":100,"minLength":1,"required":true,"type":"string"},"status":{"required":true,"type":"enum","values":["pending","completed","cancelled"]}},"key":"task","lifecycle":{"optimisticConcurrency":true,"softDelete":true},"query":{"filterable":["status","dueDate","assigneePersonIds"],"searchable":["name","description"],"sortable":["dueDate","name"]},"route":"tasks"}',
+  '76bb34b10f141c5458cd9c66a3409cdbfd9be1756e09000599c709ce867e1341',
+  'initial',
+  'service',
+  'svc_lifespace_bootstrap',
+  'LifeSpace bootstrap'
+);
+
 UPDATE schema_metadata
 SET value='10'
 WHERE key='schema_version';
