@@ -1,3 +1,5 @@
+import { validateWorkflowActions, type WorkflowActionsDefinition } from "./workflow-definition";
+
 export const MODEL_DEFINITION_VERSION = 1 as const;
 
 export const FIELD_TYPES = [
@@ -55,6 +57,7 @@ export type ModelDefinition = {
     softDelete?: boolean;
   };
   capabilities?: string[];
+  actions?: WorkflowActionsDefinition;
 };
 
 export type ModelValidationIssue = {
@@ -151,7 +154,7 @@ export function validateModelDefinition(input: unknown): ModelValidationResult {
     return { valid: false, issues: [{ path: "$", code: "INVALID_DEFINITION", message: "Model definition must be an object" }] };
   }
 
-  const allowedTopLevel = new Set(["definitionVersion", "key", "route", "display", "fields", "query", "access", "lifecycle", "capabilities"]);
+  const allowedTopLevel = new Set(["definitionVersion", "key", "route", "display", "fields", "query", "access", "lifecycle", "capabilities", "actions"]);
   for (const key of Object.keys(input)) {
     if (!allowedTopLevel.has(key)) issue(issues, key, "UNKNOWN_PROPERTY", `Unsupported model property ${key}`);
   }
@@ -275,6 +278,14 @@ export function validateModelDefinition(input: unknown): ModelValidationResult {
   const capabilities = stringArray(issues, input.capabilities, "capabilities") ?? [];
   for (const capability of capabilities) if (!SUPPORTED_CAPABILITIES.has(capability)) issue(issues, "capabilities", "UNSUPPORTED_CAPABILITY", `Capability ${capability} is not registered in Model Definition v1`);
 
+  const workflow = validateWorkflowActions(input.actions, fields);
+  issues.push(...workflow.issues);
+  if (workflow.actions) {
+    for (const [actionKey, action] of Object.entries(workflow.actions)) {
+      if (!accessInput.includes(action.access)) issue(issues, `actions.${actionKey}.access`, "ACTION_ACCESS_NOT_EXPOSED", `Action access ${action.access} is not exposed by model ${key}`);
+    }
+  }
+
   if (issues.length) return { valid: false, issues };
 
   const definition: ModelDefinition = {
@@ -287,6 +298,7 @@ export function validateModelDefinition(input: unknown): ModelValidationResult {
     access: accessInput as ModelAccess[],
     ...(lifecycle ? { lifecycle } : {}),
     ...(capabilities.length ? { capabilities } : {}),
+    ...(workflow.actions ? { actions: workflow.actions } : {}),
   };
   return { valid: true, definition, hashInput: canonicalModelDefinition(definition) };
 }
