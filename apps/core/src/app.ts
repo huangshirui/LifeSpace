@@ -4,6 +4,7 @@ import type { Bindings, Variables } from "./env";
 import { authenticate } from "./auth";
 import { registerCreationDraftRoutes } from "./creation-draft-jobs";
 import { registerDayRecordRoutes } from "./day-records";
+import { registerGenericResourceRoutes } from "./generic-resource-routes";
 import { ApiError, failure, success } from "./http";
 import { registerEventRoutes } from "./events";
 import { registerTaskRoutes } from "./tasks";
@@ -60,6 +61,11 @@ export function createApp() {
   registerDayRecordRoutes(app);
   registerWishRoutes(app);
   registerCreationDraftRoutes(app);
+  // Generic model routes are deliberately registered after explicit Kernel and
+  // Phase-2 proving routes. New model routes resolve through the Registry now;
+  // the four proving domains move over only when their required Engines and
+  // Capabilities are complete.
+  registerGenericResourceRoutes(app);
   app.notFound((context) => context.json(failure("NOT_FOUND", "Route not found", context.get("requestId")), 404));
   app.onError((error, context) => {
     const requestId = context.get("requestId");
