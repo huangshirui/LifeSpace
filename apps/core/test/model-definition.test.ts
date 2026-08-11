@@ -1,0 +1,62 @@
+import { describe, expect, it } from "vitest";
+import { TASK_MODEL_DEFINITION } from "../src/builtin-models";
+import { canonicalModelDefinition, validateModelDefinition } from "../src/model-definition";
+
+function issueCodes(result: ReturnType<typeof validateModelDefinition>) {
+  return result.valid ? [] : result.issues.map((issue) => issue.code);
+}
+
+describe("Model Definition v1", () => {
+  it("accepts the first metadata-driven Task definition", () => {
+    const result = validateModelDefinition(TASK_MODEL_DEFINITION);
+    expect(result.valid).toBe(true);
+    if (!result.valid) return;
+    expect(result.definition.key).toBe("task");
+    expect(result.definition.route).toBe("tasks");
+    expect(result.definition.fields.assigneePersonIds.type).toBe("person_list");
+    expect(result.hashInput).toBe(canonicalModelDefinition(result.definition));
+  });
+
+  it("canonicalizes definitions independently of object insertion order", () => {
+    const first = canonicalModelDefinition(TASK_MODEL_DEFINITION);
+    const reordered = {
+      ...TASK_MODEL_DEFINITION,
+      fields: Object.fromEntries(Object.entries(TASK_MODEL_DEFINITION.fields).reverse()),
+    };
+    expect(canonicalModelDefinition(reordered)).toBe(first);
+  });
+
+  it("rejects Kernel route collisions", () => {
+    const result = validateModelDefinition({ ...TASK_MODEL_DEFINITION, key: "custom_space", route: "spaces" });
+    expect(issueCodes(result)).toContain("RESERVED_ROUTE");
+  });
+
+  it("rejects undeclared query fields", () => {
+    const result = validateModelDefinition({
+      ...TASK_MODEL_DEFINITION,
+      query: { ...TASK_MODEL_DEFINITION.query, filterable: ["status", "notAField"] },
+    });
+    expect(issueCodes(result)).toContain("UNKNOWN_QUERY_FIELD");
+  });
+
+  it("rejects arbitrary capability names", () => {
+    const result = validateModelDefinition({ ...TASK_MODEL_DEFINITION, capabilities: ["execute_sql"] });
+    expect(issueCodes(result)).toContain("UNSUPPORTED_CAPABILITY");
+  });
+
+  it("rejects unknown properties rather than treating metadata as executable escape hatches", () => {
+    const result = validateModelDefinition({ ...TASK_MODEL_DEFINITION, sql: "DROP TABLE spaces" });
+    expect(issueCodes(result)).toContain("UNKNOWN_PROPERTY");
+  });
+
+  it("requires record relations to identify a typed target model", () => {
+    const result = validateModelDefinition({
+      ...TASK_MODEL_DEFINITION,
+      fields: {
+        ...TASK_MODEL_DEFINITION.fields,
+        parent: { type: "record" },
+      },
+    });
+    expect(issueCodes(result)).toContain("TARGET_MODEL_REQUIRED");
+  });
+});
