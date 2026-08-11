@@ -60,6 +60,7 @@ test("requires write permission dependencies and mapped family/user references",
 
   const missingFamily = snapshot();
   missingFamily.systemIdentities[0].familyId = "fam_missing";
+  missingFamily.familySystemAccess[0].familyId = "fam_missing";
   assert.throws(() => transformIntegrationSnapshot(missingFamily, mapping), /unmapped family/);
 });
 
