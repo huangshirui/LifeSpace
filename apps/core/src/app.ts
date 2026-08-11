@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import type { Bindings, Variables } from "./env";
 import { authenticate } from "./auth";
+import { registerCreationDraftRoutes } from "./creation-draft-jobs";
 import { registerDayRecordRoutes } from "./day-records";
 import { ApiError, failure, success } from "./http";
 import { registerEventRoutes } from "./events";
@@ -44,7 +45,7 @@ export function createApp() {
     environment: context.env.ENVIRONMENT ?? "local",
     database: "available",
     schemaVersion: await schemaVersion(context.env),
-    contractVersion: "0.10.0",
+    contractVersion: "0.11.0",
   })));
   app.use("/api/v1/me", authenticate());
   app.use("/api/v1/me/*", authenticate());
@@ -58,6 +59,7 @@ export function createApp() {
   registerTaskRoutes(app);
   registerDayRecordRoutes(app);
   registerWishRoutes(app);
+  registerCreationDraftRoutes(app);
   app.notFound((context) => context.json(failure("NOT_FOUND", "Route not found", context.get("requestId")), 404));
   app.onError((error, context) => {
     const requestId = context.get("requestId");
