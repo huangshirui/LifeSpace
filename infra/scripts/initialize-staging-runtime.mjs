@@ -100,9 +100,6 @@ async function rotateSigningKeys() {
   console.log("Generated, installed, and activated a new staging RS256 signing key pair");
 }
 
-// Always synchronize the persistent bootstrap credential using Wrangler's
-// non-versioned secret command so the resulting Worker version is deployed
-// immediately. This repairs any earlier secret-only version that was not active.
 await wranglerSecretBulk("apps/identity", {
   BOOTSTRAP_SECRET: bootstrapSecret,
 });
@@ -118,6 +115,8 @@ const scopes = [
   "tasks:write",
   "day-records:read",
   "day-records:write",
+  "wishes:read",
+  "wishes:write",
 ];
 
 const application = await requestJson(`${identityBase}/bootstrap/v1/applications`, {
@@ -188,8 +187,8 @@ if (coreProbe?.response.status !== 200) {
 const coreStatus = await requestJson(`${coreBase}/api/v1/status`, {}, 200);
 if (
   coreStatus?.data?.environment !== "staging"
-  || coreStatus?.data?.schemaVersion !== "6"
-  || coreStatus?.data?.contractVersion !== "0.6.0"
+  || coreStatus?.data?.schemaVersion !== "7"
+  || coreStatus?.data?.contractVersion !== "0.7.0"
 ) {
   throw new Error(`Unexpected Core staging status: ${JSON.stringify(coreStatus)}`);
 }
@@ -216,16 +215,12 @@ if (!ownerPersonId) throw new Error("Core did not return the owner Space Person 
 await requestJson(`${coreBase}/api/v1/spaces/${spaceId}`, {
   headers: { authorization: `Bearer ${accessToken}` },
 }, 200);
-
 await requestJson(`${coreBase}/api/v1/spaces/${spaceId}`, {}, 401);
 
 const taskName = `Staging Smoke Task ${smokeId}`;
 const task = await requestJson(`${coreBase}/api/v1/spaces/${spaceId}/tasks`, {
   method: "POST",
-  headers: {
-    authorization: `Bearer ${accessToken}`,
-    "content-type": "application/json",
-  },
+  headers: { authorization: `Bearer ${accessToken}`, "content-type": "application/json" },
   body: JSON.stringify({
     name: taskName,
     description: "Phase 2.4 staging E2E",
@@ -233,135 +228,48 @@ const task = await requestJson(`${coreBase}/api/v1/spaces/${spaceId}/tasks`, {
     assigneePersonIds: [ownerPersonId],
   }),
 }, 201);
-
 const taskId = task?.data?.id;
 if (!taskId) throw new Error("Core did not return a Task id");
 if (
-  task.data?.spaceId !== spaceId
-  || task.data?.status !== "pending"
-  || task.data?.dueDate !== "2099-12-31"
-  || task.data?.version !== 1
-  || task.data?.assignees?.length !== 1
-  || task.data?.assignees?.[0]?.personId !== ownerPersonId
-) {
-  throw new Error(`Unexpected created Task shape: ${JSON.stringify(task)}`);
-}
+  task.data?.spaceId !== spaceId || task.data?.status !== "pending" || task.data?.dueDate !== "2099-12-31"
+  || task.data?.version !== 1 || task.data?.assignees?.length !== 1 || task.data?.assignees?.[0]?.personId !== ownerPersonId
+) throw new Error(`Unexpected created Task shape: ${JSON.stringify(task)}`);
 
 const taskList = await requestJson(
   `${coreBase}/api/v1/spaces/${spaceId}/tasks?assigneePersonId=me&q=${encodeURIComponent(taskName)}`,
-  { headers: { authorization: `Bearer ${accessToken}` } },
-  200,
+  { headers: { authorization: `Bearer ${accessToken}` } }, 200,
 );
-if (taskList?.data?.items?.length !== 1 || taskList.data.items[0]?.id !== taskId) {
-  throw new Error(`Task list/filter E2E failed: ${JSON.stringify(taskList)}`);
-}
-
-const taskRead = await requestJson(`${coreBase}/api/v1/spaces/${spaceId}/tasks/${taskId}`, {
-  headers: { authorization: `Bearer ${accessToken}` },
-}, 200);
-if (taskRead?.data?.id !== taskId || taskRead?.data?.assignees?.[0]?.personId !== ownerPersonId) {
-  throw new Error(`Task read/assignee E2E failed: ${JSON.stringify(taskRead)}`);
-}
-
+if (taskList?.data?.items?.length !== 1 || taskList.data.items[0]?.id !== taskId) throw new Error(`Task list/filter E2E failed: ${JSON.stringify(taskList)}`);
+const taskRead = await requestJson(`${coreBase}/api/v1/spaces/${spaceId}/tasks/${taskId}`, { headers: { authorization: `Bearer ${accessToken}` } }, 200);
+if (taskRead?.data?.id !== taskId || taskRead?.data?.assignees?.[0]?.personId !== ownerPersonId) throw new Error(`Task read/assignee E2E failed: ${JSON.stringify(taskRead)}`);
 await requestJson(`${coreBase}/api/v1/spaces/${spaceId}/tasks`, {}, 401);
 
 const staleUpdate = await fetchJson(`${coreBase}/api/v1/spaces/${spaceId}/tasks/${taskId}`, {
-  method: "PATCH",
-  headers: {
-    authorization: `Bearer ${accessToken}`,
-    "content-type": "application/json",
-  },
+  method: "PATCH", headers: { authorization: `Bearer ${accessToken}`, "content-type": "application/json" },
   body: JSON.stringify({ version: 999, description: "stale update must fail" }),
 });
-if (staleUpdate.response.status !== 409 || staleUpdate.payload?.error?.code !== "TASK_VERSION_CONFLICT") {
-  throw new Error(`Task optimistic-concurrency E2E failed: ${staleUpdate.response.status} ${JSON.stringify(staleUpdate.payload)}`);
-}
+if (staleUpdate.response.status !== 409 || staleUpdate.payload?.error?.code !== "TASK_VERSION_CONFLICT") throw new Error(`Task optimistic-concurrency E2E failed: ${staleUpdate.response.status} ${JSON.stringify(staleUpdate.payload)}`);
 
 const completedTask = await requestJson(`${coreBase}/api/v1/spaces/${spaceId}/tasks/${taskId}/complete`, {
-  method: "POST",
-  headers: {
-    authorization: `Bearer ${accessToken}`,
-    "content-type": "application/json",
-  },
-  body: JSON.stringify({ version: 1 }),
+  method: "POST", headers: { authorization: `Bearer ${accessToken}`, "content-type": "application/json" }, body: JSON.stringify({ version: 1 }),
 }, 200);
-if (
-  completedTask?.data?.status !== "completed"
-  || completedTask?.data?.version !== 2
-  || completedTask?.data?.completedBy?.id !== userId
-) {
-  throw new Error(`Task complete E2E failed: ${JSON.stringify(completedTask)}`);
-}
-
+if (completedTask?.data?.status !== "completed" || completedTask?.data?.version !== 2 || completedTask?.data?.completedBy?.id !== userId) throw new Error(`Task complete E2E failed: ${JSON.stringify(completedTask)}`);
 const reopenedTask = await requestJson(`${coreBase}/api/v1/spaces/${spaceId}/tasks/${taskId}/reopen`, {
-  method: "POST",
-  headers: {
-    authorization: `Bearer ${accessToken}`,
-    "content-type": "application/json",
-  },
-  body: JSON.stringify({ version: 2 }),
+  method: "POST", headers: { authorization: `Bearer ${accessToken}`, "content-type": "application/json" }, body: JSON.stringify({ version: 2 }),
 }, 200);
-if (
-  reopenedTask?.data?.status !== "pending"
-  || reopenedTask?.data?.version !== 3
-  || reopenedTask?.data?.completedAt !== null
-  || reopenedTask?.data?.completedBy !== null
-) {
-  throw new Error(`Task reopen E2E failed: ${JSON.stringify(reopenedTask)}`);
-}
-
+if (reopenedTask?.data?.status !== "pending" || reopenedTask?.data?.version !== 3 || reopenedTask?.data?.completedAt !== null || reopenedTask?.data?.completedBy !== null) throw new Error(`Task reopen E2E failed: ${JSON.stringify(reopenedTask)}`);
 const updatedTask = await requestJson(`${coreBase}/api/v1/spaces/${spaceId}/tasks/${taskId}`, {
-  method: "PATCH",
-  headers: {
-    authorization: `Bearer ${accessToken}`,
-    "content-type": "application/json",
-  },
-  body: JSON.stringify({
-    version: 3,
-    description: "Phase 2.4 staging E2E updated",
-    dueDate: null,
-    assigneePersonIds: [ownerPersonId],
-  }),
+  method: "PATCH", headers: { authorization: `Bearer ${accessToken}`, "content-type": "application/json" },
+  body: JSON.stringify({ version: 3, description: "Phase 2.4 staging E2E updated", dueDate: null, assigneePersonIds: [ownerPersonId] }),
 }, 200);
-if (
-  updatedTask?.data?.version !== 4
-  || updatedTask?.data?.description !== "Phase 2.4 staging E2E updated"
-  || updatedTask?.data?.dueDate !== null
-  || updatedTask?.data?.assignees?.[0]?.personId !== ownerPersonId
-) {
-  throw new Error(`Task update E2E failed: ${JSON.stringify(updatedTask)}`);
-}
-
-const withoutNoDue = await requestJson(
-  `${coreBase}/api/v1/spaces/${spaceId}/tasks?assigneePersonId=me&dueDateFrom=2099-01-01&q=${encodeURIComponent(taskName)}`,
-  { headers: { authorization: `Bearer ${accessToken}` } },
-  200,
-);
-if (withoutNoDue?.data?.items?.length !== 0) {
-  throw new Error(`Task includeNoDue omission E2E failed: ${JSON.stringify(withoutNoDue)}`);
-}
-
-const withNoDue = await requestJson(
-  `${coreBase}/api/v1/spaces/${spaceId}/tasks?assigneePersonId=me&dueDateFrom=2099-01-01&includeNoDue=true&q=${encodeURIComponent(taskName)}`,
-  { headers: { authorization: `Bearer ${accessToken}` } },
-  200,
-);
-if (withNoDue?.data?.items?.length !== 1 || withNoDue.data.items[0]?.id !== taskId) {
-  throw new Error(`Task includeNoDue=true E2E failed: ${JSON.stringify(withNoDue)}`);
-}
-
-await requestJson(`${coreBase}/api/v1/spaces/${spaceId}/tasks/${taskId}?version=4`, {
-  method: "DELETE",
-  headers: { authorization: `Bearer ${accessToken}` },
-}, 204);
-
-const deletedTask = await fetchJson(`${coreBase}/api/v1/spaces/${spaceId}/tasks/${taskId}`, {
-  headers: { authorization: `Bearer ${accessToken}` },
-});
-if (deletedTask.response.status !== 404 || deletedTask.payload?.error?.code !== "TASK_NOT_FOUND") {
-  throw new Error(`Task soft-delete E2E failed: ${deletedTask.response.status} ${JSON.stringify(deletedTask.payload)}`);
-}
-
+if (updatedTask?.data?.version !== 4 || updatedTask?.data?.description !== "Phase 2.4 staging E2E updated" || updatedTask?.data?.dueDate !== null || updatedTask?.data?.assignees?.[0]?.personId !== ownerPersonId) throw new Error(`Task update E2E failed: ${JSON.stringify(updatedTask)}`);
+const withoutNoDue = await requestJson(`${coreBase}/api/v1/spaces/${spaceId}/tasks?assigneePersonId=me&dueDateFrom=2099-01-01&q=${encodeURIComponent(taskName)}`, { headers: { authorization: `Bearer ${accessToken}` } }, 200);
+if (withoutNoDue?.data?.items?.length !== 0) throw new Error(`Task includeNoDue omission E2E failed: ${JSON.stringify(withoutNoDue)}`);
+const withNoDue = await requestJson(`${coreBase}/api/v1/spaces/${spaceId}/tasks?assigneePersonId=me&dueDateFrom=2099-01-01&includeNoDue=true&q=${encodeURIComponent(taskName)}`, { headers: { authorization: `Bearer ${accessToken}` } }, 200);
+if (withNoDue?.data?.items?.length !== 1 || withNoDue.data.items[0]?.id !== taskId) throw new Error(`Task includeNoDue=true E2E failed: ${JSON.stringify(withNoDue)}`);
+await requestJson(`${coreBase}/api/v1/spaces/${spaceId}/tasks/${taskId}?version=4`, { method: "DELETE", headers: { authorization: `Bearer ${accessToken}` } }, 204);
+const deletedTask = await fetchJson(`${coreBase}/api/v1/spaces/${spaceId}/tasks/${taskId}`, { headers: { authorization: `Bearer ${accessToken}` } });
+if (deletedTask.response.status !== 404 || deletedTask.payload?.error?.code !== "TASK_NOT_FOUND") throw new Error(`Task soft-delete E2E failed: ${deletedTask.response.status} ${JSON.stringify(deletedTask.payload)}`);
 console.log(`Phase 2.4 staging Task E2E passed for ${spaceId} / ${taskId}`);
 
 const smokeToday = new Date().toISOString().slice(0, 10);
@@ -369,176 +277,100 @@ const dayAnchor = addUtcDays(smokeToday, -1);
 const expectedNextDue = addUtcDays(smokeToday, 30);
 const dayName = `Staging Smoke Day ${smokeId}`;
 const dayRecord = await requestJson(`${coreBase}/api/v1/spaces/${spaceId}/day-records`, {
-  method: "POST",
-  headers: {
-    authorization: `Bearer ${accessToken}`,
-    "content-type": "application/json",
-  },
-  body: JSON.stringify({
-    name: dayName,
-    description: "Phase 2.5 staging E2E",
-    kind: "cycle",
-    anchorDate: dayAnchor,
-    cycleDays: 30,
-    subjectPersonId: ownerPersonId,
-  }),
+  method: "POST", headers: { authorization: `Bearer ${accessToken}`, "content-type": "application/json" },
+  body: JSON.stringify({ name: dayName, description: "Phase 2.5 staging E2E", kind: "cycle", anchorDate: dayAnchor, cycleDays: 30, subjectPersonId: ownerPersonId }),
 }, 201);
-
 const dayRecordId = dayRecord?.data?.id;
 if (!dayRecordId) throw new Error("Core did not return a Day record id");
-if (
-  dayRecord.data?.spaceId !== spaceId
-  || dayRecord.data?.kind !== "cycle"
-  || dayRecord.data?.anchorDate !== dayAnchor
-  || dayRecord.data?.nextDueDate !== addUtcDays(dayAnchor, 30)
-  || dayRecord.data?.attentionBeforeDays !== 7
-  || dayRecord.data?.status !== "active"
-  || dayRecord.data?.version !== 1
-  || dayRecord.data?.subject?.personId !== ownerPersonId
-) {
-  throw new Error(`Unexpected created Day record shape: ${JSON.stringify(dayRecord)}`);
-}
-
-const dayList = await requestJson(
-  `${coreBase}/api/v1/spaces/${spaceId}/day-records?kind=cycle&subjectPersonId=me&sort=created_desc`,
-  { headers: { authorization: `Bearer ${accessToken}` } },
-  200,
-);
-if (dayList?.data?.items?.length !== 1 || dayList.data.items[0]?.id !== dayRecordId) {
-  throw new Error(`Day record list/subject E2E failed: ${JSON.stringify(dayList)}`);
-}
-
-const initialOccurrences = await requestJson(
-  `${coreBase}/api/v1/spaces/${spaceId}/day-records/${dayRecordId}/occurrences`,
-  { headers: { authorization: `Bearer ${accessToken}` } },
-  200,
-);
-if (
-  initialOccurrences?.data?.items?.length !== 1
-  || initialOccurrences.data.items[0]?.occurredOn !== dayAnchor
-  || initialOccurrences.data.items[0]?.source !== "initial"
-  || initialOccurrences.data.items[0]?.intervalDays !== null
-) {
-  throw new Error(`Day initial occurrence E2E failed: ${JSON.stringify(initialOccurrences)}`);
-}
-
+if (dayRecord.data?.spaceId !== spaceId || dayRecord.data?.kind !== "cycle" || dayRecord.data?.anchorDate !== dayAnchor || dayRecord.data?.nextDueDate !== addUtcDays(dayAnchor, 30) || dayRecord.data?.attentionBeforeDays !== 7 || dayRecord.data?.status !== "active" || dayRecord.data?.version !== 1 || dayRecord.data?.subject?.personId !== ownerPersonId) throw new Error(`Unexpected created Day record shape: ${JSON.stringify(dayRecord)}`);
+const dayList = await requestJson(`${coreBase}/api/v1/spaces/${spaceId}/day-records?kind=cycle&subjectPersonId=me&sort=created_desc`, { headers: { authorization: `Bearer ${accessToken}` } }, 200);
+if (dayList?.data?.items?.length !== 1 || dayList.data.items[0]?.id !== dayRecordId) throw new Error(`Day record list/subject E2E failed: ${JSON.stringify(dayList)}`);
+const initialOccurrences = await requestJson(`${coreBase}/api/v1/spaces/${spaceId}/day-records/${dayRecordId}/occurrences`, { headers: { authorization: `Bearer ${accessToken}` } }, 200);
+if (initialOccurrences?.data?.items?.length !== 1 || initialOccurrences.data.items[0]?.occurredOn !== dayAnchor || initialOccurrences.data.items[0]?.source !== "initial" || initialOccurrences.data.items[0]?.intervalDays !== null) throw new Error(`Day initial occurrence E2E failed: ${JSON.stringify(initialOccurrences)}`);
 await requestJson(`${coreBase}/api/v1/spaces/${spaceId}/day-records`, {}, 401);
-
 const staleDayUpdate = await fetchJson(`${coreBase}/api/v1/spaces/${spaceId}/day-records/${dayRecordId}`, {
-  method: "PATCH",
-  headers: {
-    authorization: `Bearer ${accessToken}`,
-    "content-type": "application/json",
-  },
-  body: JSON.stringify({ version: 999, description: "stale update must fail" }),
+  method: "PATCH", headers: { authorization: `Bearer ${accessToken}`, "content-type": "application/json" }, body: JSON.stringify({ version: 999, description: "stale update must fail" }),
 });
-if (staleDayUpdate.response.status !== 409 || staleDayUpdate.payload?.error?.code !== "DAY_RECORD_VERSION_CONFLICT") {
-  throw new Error(`Day optimistic-concurrency E2E failed: ${staleDayUpdate.response.status} ${JSON.stringify(staleDayUpdate.payload)}`);
-}
-
+if (staleDayUpdate.response.status !== 409 || staleDayUpdate.payload?.error?.code !== "DAY_RECORD_VERSION_CONFLICT") throw new Error(`Day optimistic-concurrency E2E failed: ${staleDayUpdate.response.status} ${JSON.stringify(staleDayUpdate.payload)}`);
 const occurrence = await requestJson(`${coreBase}/api/v1/spaces/${spaceId}/day-records/${dayRecordId}/occurrences`, {
-  method: "POST",
-  headers: {
-    authorization: `Bearer ${accessToken}`,
-    "content-type": "application/json",
-  },
-  body: JSON.stringify({ occurredOn: smokeToday, note: "Phase 2.5 staging occurrence", version: 1 }),
+  method: "POST", headers: { authorization: `Bearer ${accessToken}`, "content-type": "application/json" }, body: JSON.stringify({ occurredOn: smokeToday, note: "Phase 2.5 staging occurrence", version: 1 }),
 }, 201);
-if (
-  occurrence?.data?.previousAnchorDate !== dayAnchor
-  || occurrence?.data?.intervalDays !== 1
-  || occurrence?.data?.record?.anchorDate !== smokeToday
-  || occurrence?.data?.record?.nextDueDate !== expectedNextDue
-  || occurrence?.data?.record?.version !== 2
-) {
-  throw new Error(`Day occurrence/anchor E2E failed: ${JSON.stringify(occurrence)}`);
-}
-
-const occurrenceHistory = await requestJson(
-  `${coreBase}/api/v1/spaces/${spaceId}/day-records/${dayRecordId}/occurrences`,
-  { headers: { authorization: `Bearer ${accessToken}` } },
-  200,
-);
-if (
-  occurrenceHistory?.data?.items?.length !== 2
-  || occurrenceHistory.data.items[0]?.occurredOn !== smokeToday
-  || occurrenceHistory.data.items[0]?.source !== "manual"
-  || occurrenceHistory.data.items[0]?.intervalDays !== 1
-) {
-  throw new Error(`Day occurrence history E2E failed: ${JSON.stringify(occurrenceHistory)}`);
-}
-
+if (occurrence?.data?.previousAnchorDate !== dayAnchor || occurrence?.data?.intervalDays !== 1 || occurrence?.data?.record?.anchorDate !== smokeToday || occurrence?.data?.record?.nextDueDate !== expectedNextDue || occurrence?.data?.record?.version !== 2) throw new Error(`Day occurrence/anchor E2E failed: ${JSON.stringify(occurrence)}`);
+const occurrenceHistory = await requestJson(`${coreBase}/api/v1/spaces/${spaceId}/day-records/${dayRecordId}/occurrences`, { headers: { authorization: `Bearer ${accessToken}` } }, 200);
+if (occurrenceHistory?.data?.items?.length !== 2 || occurrenceHistory.data.items[0]?.occurredOn !== smokeToday || occurrenceHistory.data.items[0]?.source !== "manual" || occurrenceHistory.data.items[0]?.intervalDays !== 1) throw new Error(`Day occurrence history E2E failed: ${JSON.stringify(occurrenceHistory)}`);
 const archivedDay = await requestJson(`${coreBase}/api/v1/spaces/${spaceId}/day-records/${dayRecordId}/archive`, {
-  method: "POST",
-  headers: {
-    authorization: `Bearer ${accessToken}`,
-    "content-type": "application/json",
-  },
-  body: JSON.stringify({ version: 2 }),
+  method: "POST", headers: { authorization: `Bearer ${accessToken}`, "content-type": "application/json" }, body: JSON.stringify({ version: 2 }),
 }, 200);
-if (archivedDay?.data?.status !== "archived" || archivedDay?.data?.version !== 3) {
-  throw new Error(`Day archive E2E failed: ${JSON.stringify(archivedDay)}`);
-}
-
+if (archivedDay?.data?.status !== "archived" || archivedDay?.data?.version !== 3) throw new Error(`Day archive E2E failed: ${JSON.stringify(archivedDay)}`);
 const archivedOccurrence = await fetchJson(`${coreBase}/api/v1/spaces/${spaceId}/day-records/${dayRecordId}/occurrences`, {
-  method: "POST",
-  headers: {
-    authorization: `Bearer ${accessToken}`,
-    "content-type": "application/json",
-  },
-  body: JSON.stringify({ occurredOn: smokeToday, version: 3 }),
+  method: "POST", headers: { authorization: `Bearer ${accessToken}`, "content-type": "application/json" }, body: JSON.stringify({ occurredOn: smokeToday, version: 3 }),
 });
-if (archivedOccurrence.response.status !== 409 || archivedOccurrence.payload?.error?.code !== "DAY_RECORD_ARCHIVED") {
-  throw new Error(`Day archived read-only E2E failed: ${archivedOccurrence.response.status} ${JSON.stringify(archivedOccurrence.payload)}`);
-}
-
+if (archivedOccurrence.response.status !== 409 || archivedOccurrence.payload?.error?.code !== "DAY_RECORD_ARCHIVED") throw new Error(`Day archived read-only E2E failed: ${archivedOccurrence.response.status} ${JSON.stringify(archivedOccurrence.payload)}`);
 const restoredDay = await requestJson(`${coreBase}/api/v1/spaces/${spaceId}/day-records/${dayRecordId}/restore`, {
-  method: "POST",
-  headers: {
-    authorization: `Bearer ${accessToken}`,
-    "content-type": "application/json",
-  },
-  body: JSON.stringify({ version: 3 }),
+  method: "POST", headers: { authorization: `Bearer ${accessToken}`, "content-type": "application/json" }, body: JSON.stringify({ version: 3 }),
 }, 200);
-if (restoredDay?.data?.status !== "active" || restoredDay?.data?.version !== 4) {
-  throw new Error(`Day restore E2E failed: ${JSON.stringify(restoredDay)}`);
-}
-
+if (restoredDay?.data?.status !== "active" || restoredDay?.data?.version !== 4) throw new Error(`Day restore E2E failed: ${JSON.stringify(restoredDay)}`);
 const updatedDay = await requestJson(`${coreBase}/api/v1/spaces/${spaceId}/day-records/${dayRecordId}`, {
-  method: "PATCH",
-  headers: {
-    authorization: `Bearer ${accessToken}`,
-    "content-type": "application/json",
-  },
-  body: JSON.stringify({ version: 4, cycleDays: 31, attentionBeforeDays: 5 }),
+  method: "PATCH", headers: { authorization: `Bearer ${accessToken}`, "content-type": "application/json" }, body: JSON.stringify({ version: 4, cycleDays: 31, attentionBeforeDays: 5 }),
 }, 200);
-if (
-  updatedDay?.data?.version !== 5
-  || updatedDay?.data?.cycleDays !== 31
-  || updatedDay?.data?.nextDueDate !== addUtcDays(smokeToday, 31)
-  || updatedDay?.data?.attentionBeforeDays !== 5
-) {
-  throw new Error(`Day update E2E failed: ${JSON.stringify(updatedDay)}`);
-}
-
-await requestJson(`${coreBase}/api/v1/spaces/${spaceId}/day-records/${dayRecordId}?version=5`, {
-  method: "DELETE",
-  headers: { authorization: `Bearer ${accessToken}` },
-}, 204);
-
-const deletedDay = await fetchJson(`${coreBase}/api/v1/spaces/${spaceId}/day-records/${dayRecordId}`, {
-  headers: { authorization: `Bearer ${accessToken}` },
-});
-if (deletedDay.response.status !== 404 || deletedDay.payload?.error?.code !== "DAY_RECORD_NOT_FOUND") {
-  throw new Error(`Day soft-delete E2E failed: ${deletedDay.response.status} ${JSON.stringify(deletedDay.payload)}`);
-}
-
+if (updatedDay?.data?.version !== 5 || updatedDay?.data?.cycleDays !== 31 || updatedDay?.data?.nextDueDate !== addUtcDays(smokeToday, 31) || updatedDay?.data?.attentionBeforeDays !== 5) throw new Error(`Day update E2E failed: ${JSON.stringify(updatedDay)}`);
+await requestJson(`${coreBase}/api/v1/spaces/${spaceId}/day-records/${dayRecordId}?version=5`, { method: "DELETE", headers: { authorization: `Bearer ${accessToken}` } }, 204);
+const deletedDay = await fetchJson(`${coreBase}/api/v1/spaces/${spaceId}/day-records/${dayRecordId}`, { headers: { authorization: `Bearer ${accessToken}` } });
+if (deletedDay.response.status !== 404 || deletedDay.payload?.error?.code !== "DAY_RECORD_NOT_FOUND") throw new Error(`Day soft-delete E2E failed: ${deletedDay.response.status} ${JSON.stringify(deletedDay.payload)}`);
 console.log(`Phase 2.5 staging Day record E2E passed for ${spaceId} / ${dayRecordId}`);
+
+const wishTitle = `Staging Smoke Wish ${smokeId}`;
+const wish = await requestJson(`${coreBase}/api/v1/spaces/${spaceId}/wishes`, {
+  method: "POST", headers: { authorization: `Bearer ${accessToken}`, "content-type": "application/json" },
+  body: JSON.stringify({ title: wishTitle, description: "Phase 2.6 staging E2E", desiredDate: "2099-07-01" }),
+}, 201);
+const wishId = wish?.data?.id;
+if (!wishId) throw new Error("Core did not return a Wish id");
+if (wish.data?.spaceId !== spaceId || wish.data?.status !== "open" || wish.data?.owner?.personId !== ownerPersonId || wish.data?.claimant !== null || wish.data?.fulfilledBy !== null || wish.data?.version !== 1) throw new Error(`Unexpected created Wish shape: ${JSON.stringify(wish)}`);
+const wishList = await requestJson(`${coreBase}/api/v1/spaces/${spaceId}/wishes?ownerPersonId=me&desiredFrom=2099-01-01&desiredTo=2099-12-31&sort=desired_asc`, { headers: { authorization: `Bearer ${accessToken}` } }, 200);
+if (wishList?.data?.items?.length !== 1 || wishList.data.items[0]?.id !== wishId) throw new Error(`Wish list/owner/date E2E failed: ${JSON.stringify(wishList)}`);
+await requestJson(`${coreBase}/api/v1/spaces/${spaceId}/wishes`, {}, 401);
+const ownClaim = await fetchJson(`${coreBase}/api/v1/spaces/${spaceId}/wishes/${wishId}/claim`, {
+  method: "POST", headers: { authorization: `Bearer ${accessToken}`, "content-type": "application/json" }, body: JSON.stringify({ version: 1 }),
+});
+if (ownClaim.response.status !== 409 || ownClaim.payload?.error?.code !== "WISH_CANNOT_CLAIM_OWN") throw new Error(`Wish own-claim E2E failed: ${ownClaim.response.status} ${JSON.stringify(ownClaim.payload)}`);
+const staleWish = await fetchJson(`${coreBase}/api/v1/spaces/${spaceId}/wishes/${wishId}`, {
+  method: "PATCH", headers: { authorization: `Bearer ${accessToken}`, "content-type": "application/json" }, body: JSON.stringify({ version: 999, title: "stale update" }),
+});
+if (staleWish.response.status !== 409 || staleWish.payload?.error?.code !== "VERSION_CONFLICT") throw new Error(`Wish optimistic-concurrency E2E failed: ${staleWish.response.status} ${JSON.stringify(staleWish.payload)}`);
+const fulfilledWish = await requestJson(`${coreBase}/api/v1/spaces/${spaceId}/wishes/${wishId}/fulfill`, {
+  method: "POST", headers: { authorization: `Bearer ${accessToken}`, "content-type": "application/json" }, body: JSON.stringify({ version: 1 }),
+}, 200);
+if (fulfilledWish?.data?.status !== "fulfilled" || fulfilledWish?.data?.fulfilledBy?.personId !== ownerPersonId || fulfilledWish?.data?.version !== 2) throw new Error(`Wish fulfill E2E failed: ${JSON.stringify(fulfilledWish)}`);
+const reopenedWish = await requestJson(`${coreBase}/api/v1/spaces/${spaceId}/wishes/${wishId}/reopen`, {
+  method: "POST", headers: { authorization: `Bearer ${accessToken}`, "content-type": "application/json" }, body: JSON.stringify({ version: 2 }),
+}, 200);
+if (reopenedWish?.data?.status !== "open" || reopenedWish?.data?.claimant !== null || reopenedWish?.data?.fulfilledBy !== null || reopenedWish?.data?.fulfilledAt !== null || reopenedWish?.data?.version !== 3) throw new Error(`Wish reopen E2E failed: ${JSON.stringify(reopenedWish)}`);
+const archivedWish = await requestJson(`${coreBase}/api/v1/spaces/${spaceId}/wishes/${wishId}/archive`, {
+  method: "POST", headers: { authorization: `Bearer ${accessToken}`, "content-type": "application/json" }, body: JSON.stringify({ version: 3 }),
+}, 200);
+if (archivedWish?.data?.status !== "archived" || archivedWish?.data?.version !== 4) throw new Error(`Wish archive E2E failed: ${JSON.stringify(archivedWish)}`);
+const archivedWishEdit = await fetchJson(`${coreBase}/api/v1/spaces/${spaceId}/wishes/${wishId}`, {
+  method: "PATCH", headers: { authorization: `Bearer ${accessToken}`, "content-type": "application/json" }, body: JSON.stringify({ version: 4, title: "must not edit" }),
+});
+if (archivedWishEdit.response.status !== 409 || archivedWishEdit.payload?.error?.code !== "WISH_ARCHIVED") throw new Error(`Wish archived read-only E2E failed: ${archivedWishEdit.response.status} ${JSON.stringify(archivedWishEdit.payload)}`);
+const restoredWish = await requestJson(`${coreBase}/api/v1/spaces/${spaceId}/wishes/${wishId}/restore`, {
+  method: "POST", headers: { authorization: `Bearer ${accessToken}`, "content-type": "application/json" }, body: JSON.stringify({ version: 4 }),
+}, 200);
+if (restoredWish?.data?.status !== "open" || restoredWish?.data?.version !== 5) throw new Error(`Wish restore E2E failed: ${JSON.stringify(restoredWish)}`);
+const updatedWish = await requestJson(`${coreBase}/api/v1/spaces/${spaceId}/wishes/${wishId}`, {
+  method: "PATCH", headers: { authorization: `Bearer ${accessToken}`, "content-type": "application/json" }, body: JSON.stringify({ version: 5, title: `${wishTitle} updated`, desiredDate: null }),
+}, 200);
+if (updatedWish?.data?.title !== `${wishTitle} updated` || updatedWish?.data?.desiredDate !== null || updatedWish?.data?.version !== 6) throw new Error(`Wish update E2E failed: ${JSON.stringify(updatedWish)}`);
+await requestJson(`${coreBase}/api/v1/spaces/${spaceId}/wishes/${wishId}?version=6`, { method: "DELETE", headers: { authorization: `Bearer ${accessToken}` } }, 204);
+const deletedWish = await fetchJson(`${coreBase}/api/v1/spaces/${spaceId}/wishes/${wishId}`, { headers: { authorization: `Bearer ${accessToken}` } });
+if (deletedWish.response.status !== 404 || deletedWish.payload?.error?.code !== "WISH_NOT_FOUND") throw new Error(`Wish soft-delete E2E failed: ${deletedWish.response.status} ${JSON.stringify(deletedWish.payload)}`);
+console.log(`Phase 2.6 staging Wish E2E passed for ${spaceId} / ${wishId}`);
 
 if (process.env.GITHUB_STEP_SUMMARY) {
   const { appendFile } = await import("node:fs/promises");
   await appendFile(
     process.env.GITHUB_STEP_SUMMARY,
-    `## LifeSpace staging runtime\n\n- Bootstrap secret: synchronized and activated from GitHub staging secret\n- RS256 signing keys: ${rotatedSigningKeys ? "repaired and activated" : "existing active pair preserved"}\n- Identity -> token -> Core -> Space smoke test: passed\n- Core schema/contract: v6 / 0.6.0\n- Task create/read/list/filter/assignee E2E: passed\n- Task optimistic concurrency + complete/reopen/update E2E: passed\n- Task includeNoDue compatibility semantics: passed\n- Task soft deletion: passed\n- Day record create/read/list/subject E2E: passed\n- Day occurrence history + anchor advancement E2E: passed\n- Day optimistic concurrency + archive/restore/update E2E: passed\n- Day soft deletion: passed\n- Authentication deny checks: passed\n- Smoke Space: \`${spaceId}\`\n- Smoke Task: \`${taskId}\`\n- Smoke Day record: \`${dayRecordId}\`\n`,
+    `## LifeSpace staging runtime\n\n- Bootstrap secret: synchronized and activated from GitHub staging secret\n- RS256 signing keys: ${rotatedSigningKeys ? "repaired and activated" : "existing active pair preserved"}\n- Identity -> token -> Core -> Space smoke test: passed\n- Core schema/contract: v7 / 0.7.0\n- Task create/read/list/filter/assignee E2E: passed\n- Task optimistic concurrency + complete/reopen/update E2E: passed\n- Task includeNoDue compatibility semantics: passed\n- Task soft deletion: passed\n- Day record create/read/list/subject E2E: passed\n- Day occurrence history + anchor advancement E2E: passed\n- Day optimistic concurrency + archive/restore/update E2E: passed\n- Day soft deletion: passed\n- Wish create/read/list/owner/date E2E: passed\n- Wish optimistic concurrency + fulfill/reopen/archive/restore/update E2E: passed\n- Wish own-claim protection + soft deletion: passed\n- Authentication deny checks: passed\n- Smoke Space: \`${spaceId}\`\n- Smoke Task: \`${taskId}\`\n- Smoke Day record: \`${dayRecordId}\`\n- Smoke Wish: \`${wishId}\`\n`,
   );
 }

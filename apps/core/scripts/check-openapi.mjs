@@ -2,7 +2,7 @@ import fs from "node:fs";
 import YAML from "yaml";
 
 const document = YAML.parse(fs.readFileSync(new URL("../openapi.yaml", import.meta.url), "utf8"));
-if (document.openapi !== "3.1.0" || document.info?.version !== "0.6.0") throw new Error("Core OpenAPI version metadata is invalid");
+if (document.openapi !== "3.1.0" || document.info?.version !== "0.7.0") throw new Error("Core OpenAPI version metadata is invalid");
 
 for (const path of [
   "/health",
@@ -50,6 +50,22 @@ for (const path of [
   "/api/v1/families/{familyId}/day-records/{dayRecordId}/archive",
   "/api/v1/families/{familyId}/day-records/{dayRecordId}/restore",
   "/api/v1/families/{familyId}/day-records/{dayRecordId}/occurrences",
+  "/api/v1/spaces/{spaceId}/wishes",
+  "/api/v1/spaces/{spaceId}/wishes/{wishId}",
+  "/api/v1/spaces/{spaceId}/wishes/{wishId}/claim",
+  "/api/v1/spaces/{spaceId}/wishes/{wishId}/unclaim",
+  "/api/v1/spaces/{spaceId}/wishes/{wishId}/fulfill",
+  "/api/v1/spaces/{spaceId}/wishes/{wishId}/reopen",
+  "/api/v1/spaces/{spaceId}/wishes/{wishId}/archive",
+  "/api/v1/spaces/{spaceId}/wishes/{wishId}/restore",
+  "/api/v1/families/{familyId}/wishes",
+  "/api/v1/families/{familyId}/wishes/{wishId}",
+  "/api/v1/families/{familyId}/wishes/{wishId}/claim",
+  "/api/v1/families/{familyId}/wishes/{wishId}/unclaim",
+  "/api/v1/families/{familyId}/wishes/{wishId}/fulfill",
+  "/api/v1/families/{familyId}/wishes/{wishId}/reopen",
+  "/api/v1/families/{familyId}/wishes/{wishId}/archive",
+  "/api/v1/families/{familyId}/wishes/{wishId}/restore",
   "/api/v1/spaces/{spaceId}/grants",
 ]) if (!document.paths?.[path]) throw new Error(`Core OpenAPI missing ${path}`);
 
@@ -102,6 +118,19 @@ for (const schemaName of [
 }
 if (document.paths?.["/api/v1/spaces/{spaceId}/day-records/{dayRecordId}/occurrences"]?.post?.responses?.["201"] === undefined) throw new Error("Native occurrence creation must preserve 201 semantics");
 if (document.paths?.["/api/v1/families/{familyId}/day-records/{dayRecordId}/occurrences"]?.post?.responses?.["201"] === undefined) throw new Error("HomeMew occurrence creation must preserve 201 semantics");
-if (schemas?.StatusResponse?.properties?.data?.properties?.contractVersion?.const !== "0.6.0") throw new Error("Core status contract version drifted");
+if (JSON.stringify(schemas?.WishStatus?.enum) !== JSON.stringify(["open", "claimed", "fulfilled", "archived"])) throw new Error("Wish statuses drifted");
+if (!schemas?.Wish?.required?.includes("spaceId") || schemas?.Wish?.properties?.familyId) throw new Error("Native wishes must be Space-owned");
+if (!schemas?.LegacyWish?.required?.includes("familyId") || schemas?.LegacyWish?.properties?.spaceId) throw new Error("HomeMew wishes must preserve familyId");
+if (!schemas?.Wish?.properties?.owner || !schemas?.Wish?.properties?.claimant || !schemas?.Wish?.properties?.fulfilledBy) throw new Error("Native wish lifecycle people are missing");
+if (schemas?.WishPersonRef?.properties?.userId || !schemas?.WishPersonRef?.properties?.personId) throw new Error("Native wish people must use Space Person IDs");
+if (!schemas?.LegacyWishPersonRef?.properties?.userId || schemas?.LegacyWishPersonRef?.properties?.personId) throw new Error("HomeMew wish people must preserve user IDs");
+if (schemas?.LegacyWishPersonRef?.properties?.avatarUrl?.type !== "null") throw new Error("Wish person avatars must stay unavailable before the R2 slice");
+if (schemas?.UpdateWishRequest?.required?.[0] !== "version" || schemas?.UpdateWishRequest?.minProperties !== 2) throw new Error("Native wish updates must use optimistic concurrency");
+if (schemas?.LegacyUpdateWishRequest?.required?.[0] !== "version" || schemas?.LegacyUpdateWishRequest?.minProperties !== 2) throw new Error("HomeMew wish updates must preserve optimistic concurrency");
+for (const action of ["claim", "unclaim", "fulfill", "reopen", "archive", "restore"]) {
+  if (document.paths?.[`/api/v1/spaces/{spaceId}/wishes/{wishId}/${action}`]?.post?.responses?.["200"] === undefined) throw new Error(`Native wish ${action} must return 200`);
+  if (document.paths?.[`/api/v1/families/{familyId}/wishes/{wishId}/${action}`]?.post?.responses?.["200"] === undefined) throw new Error(`HomeMew wish ${action} must preserve 200`);
+}
+if (schemas?.StatusResponse?.properties?.data?.properties?.contractVersion?.const !== "0.7.0") throw new Error("Core status contract version drifted");
 
 console.log("Core OpenAPI contract sanity check passed");
