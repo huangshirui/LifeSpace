@@ -26,7 +26,7 @@ describe("Workflow Model Definition", () => {
   it("rejects arbitrary workflow references", () => {
     const input = structuredClone(TASK_MODEL_DEFINITION) as typeof TASK_MODEL_DEFINITION;
     input.actions!.complete.set.completedAt = { $ref: "execute.sql" } as never;
-    expect(codes(input)).toContain("INVALID_ACTION_VALUE");
+    expect(codes(input)).toContain("INVALID_ACTION_REFERENCE");
   });
 
   it("rejects action access not exposed by the model", () => {
