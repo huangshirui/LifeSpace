@@ -21,6 +21,7 @@ jobs:
         run: |
           if [ -f infra/scripts/phase2-service-auth-finalize.mjs ]; then
             node infra/scripts/phase2-service-auth-finalize.mjs
+            node infra/scripts/phase2-service-auth-staging-patch.mjs
             pnpm --dir apps/core exec wrangler types src/worker-configuration.d.ts --env-interface CloudflareBindings --include-runtime false
           fi
       - run: pnpm check
