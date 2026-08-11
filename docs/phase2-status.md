@@ -2,7 +2,7 @@
 
 Updated: 2026-08-11
 
-Phase 2 is **in progress**. Phase 1 staging is the accepted platform baseline. Phase 2.1-2.6 are deployed and verified in staging. After Phase 2.6, the migration direction was reset: LifeSpace will no longer continue building a HomeMew runtime compatibility layer; remaining work targets the final native LifeSpace architecture and HomeMew will adapt its clients to that contract.
+Phase 2 is **in progress**. Phase 1 staging is the accepted platform baseline. Phase 2.1-2.6 are deployed and verified in staging. After Phase 2.6, the migration direction was reset: LifeSpace no longer targets a HomeMew runtime compatibility layer; remaining work targets the final native LifeSpace architecture and HomeMew will adapt its clients to that contract.
 
 ## Phase 2 objective
 
@@ -59,11 +59,11 @@ Completed durable work that remains required:
 - [x] Deterministic transforms and validation for users, families, memberships, Space People, invitations and redemption history.
 - [x] Native Space records remain authoritative with no second family store.
 
-Transitional work now scheduled for retirement:
+Transitional work now being retired:
 
-- [x] Temporary family-route compatibility.
-- [x] Legacy role/field/status translation.
-- [x] HomeMew compatibility-only three-created-family enforcement in Core-facing migration code.
+- [x] Temporary family-route compatibility was implemented under the previous plan.
+- [x] Legacy role/field/status translation was implemented under the previous plan.
+- [x] HomeMew compatibility-only three-created-family enforcement was implemented under the previous plan.
 
 ### 2.3 Space-owned events
 
@@ -75,7 +75,7 @@ Transitional work now scheduled for retirement:
 - [x] Stable `evt_*` IDs, optimistic concurrency, audit snapshots and soft deletion.
 - [x] Deterministic schema-v11 event transform.
 - [x] Native D1/authorization/time/pagination/transform tests and staging E2E.
-- [x] Temporary HomeMew event compatibility facade was implemented under the previous plan and is now scheduled for retirement.
+- [x] Temporary HomeMew event compatibility facade was implemented under the previous plan and is now being retired.
 
 ### 2.4 Space-owned tasks
 
@@ -87,7 +87,7 @@ Transitional work now scheduled for retirement:
 - [x] Stable `tsk_*` IDs, optimistic versions, actor snapshots and soft deletion.
 - [x] Deterministic schema-v11 task transform and validation.
 - [x] Native Workers/D1 tests and repeatable staging E2E.
-- [x] Temporary HomeMew task compatibility facade and legacy `includeNoDue` behavior were implemented under the previous plan and are now scheduled for retirement; the native LifeSpace contract remains authoritative.
+- [x] Temporary HomeMew task compatibility facade was implemented under the previous plan and is now being retired; native `includeNoDue` omission remains explicitly `false`.
 
 ### 2.5 Space-owned day records
 
@@ -100,7 +100,7 @@ Transitional work now scheduled for retirement:
 - [x] Archive/restore, occurrence advancement, optimistic concurrency and soft deletion.
 - [x] Deterministic schema-v11 day-record/occurrence transform and semantic validation.
 - [x] Native Workers/D1 tests and repeatable staging E2E.
-- [x] Temporary HomeMew day-record compatibility facade was implemented under the previous plan and is now scheduled for retirement.
+- [x] Temporary HomeMew day-record compatibility facade was implemented under the previous plan and is now being retired.
 
 ### 2.6 Space-owned wishes
 
@@ -112,28 +112,42 @@ Transitional work now scheduled for retirement:
 - [x] Preserve historical owner/claimant/fulfiller meaning after membership removal.
 - [x] Deterministic schema-v11 Wish transform and lifecycle validation.
 - [x] Native Workers/D1 tests and repeatable staging E2E on Core schema v7 / contract 0.7.0.
-- [x] Temporary HomeMew Wish compatibility facade was implemented under the previous plan and is now scheduled for retirement.
+- [x] Temporary HomeMew Wish compatibility facade was implemented under the previous plan and is now being retired.
 
-## Next slices
+## Current slice — Native-only convergence / compatibility retirement
 
-1. **Native-only convergence / compatibility retirement**
-   - Remove the Phase 2.2-2.6 `/api/v1/families/...` runtime façade and compatibility-only OpenAPI/tests/translation code.
-   - Preserve migration maps, transform tooling, audit metadata and native domain tests.
-   - Re-home HomeMew-only product policy out of generic platform behavior where necessary.
+**Status: implementation in progress on branch `phase2-native-only-convergence`.**
 
-2. **User profile + R2 avatars/objects**
+Target contract version: **Core 0.8.0**. No D1 schema migration is required for this slice because the native tables and migration/audit mapping tables remain unchanged.
+
+Implementation scope:
+
+- [x] Stop registering/authenticating `/api/v1/families...`, `/api/v1/family-invites...` and `/api/v1/me/families` in Core.
+- [x] Delete the standalone HomeMew compatibility runtime router.
+- [x] Remove legacy family/user mapping branches from Event, Task, Day Record and Wish request/response handling.
+- [x] Make native person-reference fields (`attendeePersonIds`, `assigneePersonIds`, `subjectPersonId`, Wish Space Person refs) the only runtime model.
+- [x] Publish canonical Core OpenAPI 0.8.0 with native paths/schemas only and contract checks rejecting retired paths or `Legacy*` schemas.
+- [x] Replace legacy-first domain integration tests with native Space-domain lifecycle coverage and explicit retired-route `404` assertions.
+- [x] Preserve `legacy_homemew_*` migration mapping tables and all HomeMew transform/validation scripts/tests as migration/audit artifacts.
+- [ ] Pass complete repository CI (`contract -> tests -> typecheck -> build`).
+- [ ] Deploy Core 0.8.0 to staging and pass the repeatable native staging smoke without switching production/HomeMew traffic.
+- [ ] Confirm no runtime code path reads legacy mapping tables after deployment.
+
+## Next slices after convergence
+
+1. **User profile + R2 avatars/objects**
    - Implement final Identity/Core ownership and object behavior required by HomeMew.
    - Add deterministic object/data migration and verification without adding HomeMew legacy routes.
 
-3. **External integrations / service authentication**
+2. **External integrations / service authentication**
    - Implement service principals, opaque `lsp_pat_*` Service API Tokens, optional OAuth `client_credentials`, scopes and Data Grants according to `docs/service-authentication.md`.
    - Add HomeMew integration migration/report tooling, but do not reproduce `hmw_pat_*` as a LifeSpace credential format.
 
-4. **Creation drafts / Queue**
+3. **Creation drafts / Queue**
    - Implement a native Space-aware workflow only if still required by the frozen HomeMew production capability set.
    - Queue messages and other ephemeral state are not migrated.
 
-5. **Final native parity sweep**
+4. **Final native parity sweep**
    - Verify every production-used HomeMew capability has a deployed native replacement and deterministic migration/retirement decision.
    - Produce the exact native contract version HomeMew Phase 3 client migration will consume.
 

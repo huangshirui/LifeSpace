@@ -111,6 +111,8 @@ const scopes = [
   "profile:read",
   "spaces:read",
   "spaces:write",
+  "events:read",
+  "events:write",
   "tasks:read",
   "tasks:write",
   "day-records:read",
@@ -188,7 +190,7 @@ const coreStatus = await requestJson(`${coreBase}/api/v1/status`, {}, 200);
 if (
   coreStatus?.data?.environment !== "staging"
   || coreStatus?.data?.schemaVersion !== "7"
-  || coreStatus?.data?.contractVersion !== "0.7.0"
+  || coreStatus?.data?.contractVersion !== "0.8.0"
 ) {
   throw new Error(`Unexpected Core staging status: ${JSON.stringify(coreStatus)}`);
 }
@@ -216,6 +218,49 @@ await requestJson(`${coreBase}/api/v1/spaces/${spaceId}`, {
   headers: { authorization: `Bearer ${accessToken}` },
 }, 200);
 await requestJson(`${coreBase}/api/v1/spaces/${spaceId}`, {}, 401);
+
+const retiredFamily = await fetchJson(`${coreBase}/api/v1/families`, {
+  headers: { authorization: `Bearer ${accessToken}` },
+});
+if (retiredFamily.response.status !== 404 || retiredFamily.payload?.error?.code !== "NOT_FOUND") {
+  throw new Error(`Retired HomeMew family route is still reachable: ${retiredFamily.response.status} ${JSON.stringify(retiredFamily.payload)}`);
+}
+
+const eventSummary = `Staging Smoke Event ${smokeId}`;
+const event = await requestJson(`${coreBase}/api/v1/spaces/${spaceId}/events`, {
+  method: "POST",
+  headers: { authorization: `Bearer ${accessToken}`, "content-type": "application/json" },
+  body: JSON.stringify({
+    summary: eventSummary,
+    description: "Core 0.8 native-only staging E2E",
+    isAllDay: true,
+    startDate: "2099-06-01",
+    endDateExclusive: "2099-06-02",
+    attendeePersonIds: [ownerPersonId],
+  }),
+}, 201);
+const eventId = event?.data?.id;
+if (!eventId) throw new Error("Core did not return an Event id");
+if (event.data?.spaceId !== spaceId || event.data?.isAllDay !== true || event.data?.attendees?.[0]?.personId !== ownerPersonId || event.data?.version !== 1) {
+  throw new Error(`Unexpected created Event shape: ${JSON.stringify(event)}`);
+}
+const eventList = await requestJson(`${coreBase}/api/v1/spaces/${spaceId}/events?startDate=2099-06-01&endDateExclusive=2099-06-02&attendeePersonId=me&q=${encodeURIComponent(eventSummary)}`, {
+  headers: { authorization: `Bearer ${accessToken}` },
+}, 200);
+if (eventList?.data?.items?.length !== 1 || eventList.data.items[0]?.id !== eventId) throw new Error(`Event list/filter E2E failed: ${JSON.stringify(eventList)}`);
+const updatedEvent = await requestJson(`${coreBase}/api/v1/spaces/${spaceId}/events/${eventId}`, {
+  method: "PATCH",
+  headers: { authorization: `Bearer ${accessToken}`, "content-type": "application/json" },
+  body: JSON.stringify({ version: 1, description: "Core 0.8 native-only staging E2E updated" }),
+}, 200);
+if (updatedEvent?.data?.version !== 2 || updatedEvent?.data?.description !== "Core 0.8 native-only staging E2E updated") throw new Error(`Event update E2E failed: ${JSON.stringify(updatedEvent)}`);
+await requestJson(`${coreBase}/api/v1/spaces/${spaceId}/events/${eventId}?version=2`, {
+  method: "DELETE",
+  headers: { authorization: `Bearer ${accessToken}` },
+}, 204);
+const deletedEvent = await fetchJson(`${coreBase}/api/v1/spaces/${spaceId}/events/${eventId}`, { headers: { authorization: `Bearer ${accessToken}` } });
+if (deletedEvent.response.status !== 404 || deletedEvent.payload?.error?.code !== "EVENT_NOT_FOUND") throw new Error(`Event soft-delete E2E failed: ${deletedEvent.response.status} ${JSON.stringify(deletedEvent.payload)}`);
+console.log(`Core 0.8 staging Event E2E passed for ${spaceId} / ${eventId}`);
 
 const taskName = `Staging Smoke Task ${smokeId}`;
 const task = await requestJson(`${coreBase}/api/v1/spaces/${spaceId}/tasks`, {
@@ -371,6 +416,6 @@ if (process.env.GITHUB_STEP_SUMMARY) {
   const { appendFile } = await import("node:fs/promises");
   await appendFile(
     process.env.GITHUB_STEP_SUMMARY,
-    `## LifeSpace staging runtime\n\n- Bootstrap secret: synchronized and activated from GitHub staging secret\n- RS256 signing keys: ${rotatedSigningKeys ? "repaired and activated" : "existing active pair preserved"}\n- Identity -> token -> Core -> Space smoke test: passed\n- Core schema/contract: v7 / 0.7.0\n- Task create/read/list/filter/assignee E2E: passed\n- Task optimistic concurrency + complete/reopen/update E2E: passed\n- Task includeNoDue compatibility semantics: passed\n- Task soft deletion: passed\n- Day record create/read/list/subject E2E: passed\n- Day occurrence history + anchor advancement E2E: passed\n- Day optimistic concurrency + archive/restore/update E2E: passed\n- Day soft deletion: passed\n- Wish create/read/list/owner/date E2E: passed\n- Wish optimistic concurrency + fulfill/reopen/archive/restore/update E2E: passed\n- Wish own-claim protection + soft deletion: passed\n- Authentication deny checks: passed\n- Smoke Space: \`${spaceId}\`\n- Smoke Task: \`${taskId}\`\n- Smoke Day record: \`${dayRecordId}\`\n- Smoke Wish: \`${wishId}\`\n`,
+    `## LifeSpace staging runtime\n\n- Bootstrap secret: synchronized and activated from GitHub staging secret\n- RS256 signing keys: ${rotatedSigningKeys ? "repaired and activated" : "existing active pair preserved"}\n- Identity -> token -> Core -> Space smoke test: passed\n- Core schema/contract: v7 / 0.8.0\n- Retired HomeMew runtime route 404 check: passed\n- Event create/list/filter/update/soft-delete E2E: passed\n- Task create/read/list/filter/assignee E2E: passed\n- Task optimistic concurrency + complete/reopen/update E2E: passed\n- Task includeNoDue native semantics: passed\n- Task soft deletion: passed\n- Day record create/read/list/subject E2E: passed\n- Day occurrence history + anchor advancement E2E: passed\n- Day optimistic concurrency + archive/restore/update E2E: passed\n- Day soft deletion: passed\n- Wish create/read/list/owner/date E2E: passed\n- Wish optimistic concurrency + fulfill/reopen/archive/restore/update E2E: passed\n- Wish own-claim protection + soft deletion: passed\n- Authentication deny checks: passed\n- Smoke Space: \`${spaceId}\`\n- Smoke Event: \`${eventId}\`\n- Smoke Task: \`${taskId}\`\n- Smoke Day record: \`${dayRecordId}\`\n- Smoke Wish: \`${wishId}\`\n`,
   );
 }

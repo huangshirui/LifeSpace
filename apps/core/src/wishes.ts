@@ -10,7 +10,6 @@ type Body = Record<string, unknown>;
 type WishStatus = "open" | "claimed" | "fulfilled" | "archived";
 type WishSort = "default" | "desired_asc" | "created_desc" | "updated_desc";
 type SpaceRow = { id: string };
-type LegacyFamilyRow = { legacy_family_id: string; space_id: string };
 type PersonRow = { id: string; display_name: string };
 type WishRow = {
   id: string;
@@ -50,7 +49,6 @@ type Cursor = {
 
 const now = () => new Date().toISOString();
 const createId = (prefix: string) => `${prefix}_${crypto.randomUUID().replaceAll("-", "")}`;
-const NO_MATCH_PERSON = "__wish_filter_no_match__";
 
 async function body(context: Context<AppEnv>): Promise<Body> {
   let value: unknown;
@@ -157,15 +155,6 @@ async function findSpace(env: Bindings, spaceId: string): Promise<SpaceRow> {
   return row;
 }
 
-async function findFamily(env: Bindings, familyId: string): Promise<LegacyFamilyRow> {
-  const row = await env.DB.prepare(`SELECT fm.legacy_family_id,fm.space_id
-    FROM legacy_homemew_family_maps fm JOIN spaces s ON s.id=fm.space_id
-    WHERE fm.legacy_family_id=? AND s.kind='family' AND s.deleted_at IS NULL`)
-    .bind(familyId).first<LegacyFamilyRow>();
-  if (!row) throw new ApiError("FAMILY_NOT_FOUND", "Family not found", 404);
-  return row;
-}
-
 async function findWish(env: Bindings, spaceId: string, wishId: string): Promise<WishRow> {
   const row = await env.DB.prepare("SELECT * FROM wishes WHERE id=? AND space_id=? AND deleted_at IS NULL")
     .bind(wishId, spaceId).first<WishRow>();
@@ -187,50 +176,35 @@ async function actorName(env: Bindings, spaceId: string, principal: Principal): 
   const person = await env.DB.prepare(`SELECT display_name FROM space_people
     WHERE space_id=? AND linked_user_id=? ORDER BY deleted_at IS NULL DESC,created_at DESC LIMIT 1`)
     .bind(spaceId, principal.id).first<{ display_name: string }>();
-  if (person) return person.display_name;
-  const legacy = await env.DB.prepare("SELECT display_name_snapshot FROM legacy_homemew_user_maps WHERE lifespace_user_id=?")
-    .bind(principal.id).first<{ display_name_snapshot: string }>();
-  return legacy?.display_name_snapshot ?? principal.id;
+  return person?.display_name ?? principal.id;
 }
 
-async function actorDto(env: Bindings, type: Principal["type"], id: string, name: string, legacy: boolean) {
-  if (!legacy) return { type, id, displayName: name };
-  if (type === "user") {
-    const mapping = await env.DB.prepare("SELECT legacy_user_id FROM legacy_homemew_user_maps WHERE lifespace_user_id=?")
-      .bind(id).first<{ legacy_user_id: string }>();
-    return { type: "user", id: mapping?.legacy_user_id ?? id, name, avatarUrl: null };
-  }
-  return { type: "system", id, name, avatarUrl: null };
+function actorDto(type: Principal["type"], id: string, name: string) {
+  return { type, id, displayName: name };
 }
 
-async function personDto(env: Bindings, spaceId: string, personId: string | null, legacyFamilyId?: string) {
+async function personDto(env: Bindings, spaceId: string, personId: string | null) {
   if (!personId) return null;
   const person = await env.DB.prepare("SELECT id,display_name FROM space_people WHERE id=? AND space_id=?")
     .bind(personId, spaceId).first<PersonRow>();
-  if (!person) return null;
-  if (!legacyFamilyId) return { personId: person.id, displayName: person.display_name };
-  const mapping = await env.DB.prepare(`SELECT legacy_user_id FROM legacy_homemew_membership_maps
-    WHERE legacy_family_id=? AND person_id=?`).bind(legacyFamilyId, personId).first<{ legacy_user_id: string }>();
-  if (!mapping) return null;
-  return { userId: mapping.legacy_user_id, displayName: person.display_name, avatarUrl: null };
+  return person ? { personId: person.id, displayName: person.display_name } : null;
 }
 
-async function wishDto(env: Bindings, row: WishRow, legacyFamilyId?: string) {
-  const legacy = Boolean(legacyFamilyId);
+async function wishDto(env: Bindings, row: WishRow) {
   return {
     id: row.id,
-    ...(legacy ? { familyId: legacyFamilyId } : { spaceId: row.space_id }),
+    spaceId: row.space_id,
     title: row.title,
     description: row.description,
     desiredDate: row.desired_date,
     status: row.status,
-    owner: await personDto(env, row.space_id, row.owner_person_id, legacyFamilyId),
-    claimant: await personDto(env, row.space_id, row.claimant_person_id, legacyFamilyId),
+    owner: await personDto(env, row.space_id, row.owner_person_id),
+    claimant: await personDto(env, row.space_id, row.claimant_person_id),
     claimedAt: row.claimed_at,
-    fulfilledBy: await personDto(env, row.space_id, row.fulfilled_by_person_id, legacyFamilyId),
+    fulfilledBy: await personDto(env, row.space_id, row.fulfilled_by_person_id),
     fulfilledAt: row.fulfilled_at,
-    createdBy: await actorDto(env, row.created_by_type, row.created_by_id, row.created_by_name_snapshot, legacy),
-    updatedBy: await actorDto(env, row.updated_by_type, row.updated_by_id, row.updated_by_name_snapshot, legacy),
+    createdBy: actorDto(row.created_by_type, row.created_by_id, row.created_by_name_snapshot),
+    updatedBy: actorDto(row.updated_by_type, row.updated_by_id, row.updated_by_name_snapshot),
     version: row.version,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -245,16 +219,7 @@ function assertVersion(row: WishRow, expected: number): void {
   if (row.version !== expected) throw new ApiError("VERSION_CONFLICT", "Wish version conflict", 409);
 }
 
-async function legacyFilterPerson(env: Bindings, familyId: string, value: string | undefined, currentPersonId: string, field: string): Promise<string | undefined> {
-  if (value === undefined) return undefined;
-  if (value === "me") return currentPersonId;
-  if (!/^usr_/.test(value)) throw new ApiError("INVALID_REQUEST", `${field} must be a user ID or me`, 400);
-  const mapping = await env.DB.prepare(`SELECT person_id FROM legacy_homemew_membership_maps
-    WHERE legacy_family_id=? AND legacy_user_id=?`).bind(familyId, value).first<{ person_id: string }>();
-  return mapping?.person_id ?? NO_MATCH_PERSON;
-}
-
-function nativeFilterPerson(value: string | undefined, currentPersonId: string, field: string): string | undefined {
+function filterPerson(value: string | undefined, currentPersonId: string, field: string): string | undefined {
   if (value === undefined) return undefined;
   if (value === "me") return currentPersonId;
   if (!/^per_/.test(value)) throw new ApiError("INVALID_REQUEST", `${field} must be a Space Person ID or me`, 400);
@@ -267,7 +232,7 @@ async function requireWishAccess(context: Context<AppEnv>, space: SpaceRow, perm
   return currentPerson(context.env, principal, space.id);
 }
 
-async function createWish(context: Context<AppEnv>, space: SpaceRow, legacyFamilyId?: string): Promise<Response> {
+async function createWish(context: Context<AppEnv>, space: SpaceRow): Promise<Response> {
   const principal = context.get("principal");
   const person = await requireWishAccess(context, space, "write");
   const input = await body(context);
@@ -284,15 +249,15 @@ async function createWish(context: Context<AppEnv>, space: SpaceRow, legacyFamil
   ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
     .bind(wishId, space.id, person.id, title, description, desiredDate,
       principal.type, principal.id, actor, principal.type, principal.id, actor, timestamp, timestamp).run();
-  return context.json(success(await wishDto(context.env, await findWish(context.env, space.id, wishId), legacyFamilyId)), 201);
+  return context.json(success(await wishDto(context.env, await findWish(context.env, space.id, wishId))), 201);
 }
 
-async function readWish(context: Context<AppEnv>, space: SpaceRow, legacyFamilyId?: string): Promise<Response> {
+async function readWish(context: Context<AppEnv>, space: SpaceRow): Promise<Response> {
   await requireWishAccess(context, space, "read");
-  return context.json(success(await wishDto(context.env, await findWish(context.env, space.id, context.req.param("wishId")!), legacyFamilyId)));
+  return context.json(success(await wishDto(context.env, await findWish(context.env, space.id, context.req.param("wishId")!))));
 }
 
-async function updateWish(context: Context<AppEnv>, space: SpaceRow, legacyFamilyId?: string): Promise<Response> {
+async function updateWish(context: Context<AppEnv>, space: SpaceRow): Promise<Response> {
   const principal = context.get("principal");
   const person = await requireWishAccess(context, space, "write");
   const wishId = context.req.param("wishId")!;
@@ -313,7 +278,7 @@ async function updateWish(context: Context<AppEnv>, space: SpaceRow, legacyFamil
     WHERE id=? AND space_id=? AND deleted_at IS NULL AND status!='archived' AND version=?`)
     .bind(title, description, desiredDate, principal.type, principal.id, actor, timestamp, wishId, space.id, expected).run();
   if (!result.meta.changes) throw new ApiError("VERSION_CONFLICT", "Wish version conflict", 409);
-  return context.json(success(await wishDto(context.env, await findWish(context.env, space.id, wishId), legacyFamilyId)));
+  return context.json(success(await wishDto(context.env, await findWish(context.env, space.id, wishId))));
 }
 
 async function deleteWish(context: Context<AppEnv>, space: SpaceRow): Promise<Response> {
@@ -337,7 +302,6 @@ async function actionWish(
   context: Context<AppEnv>,
   space: SpaceRow,
   kind: "claim" | "unclaim" | "fulfill" | "reopen" | "archive" | "restore",
-  legacyFamilyId?: string,
 ): Promise<Response> {
   const principal = context.get("principal");
   const person = await requireWishAccess(context, space, "write");
@@ -404,20 +368,14 @@ async function actionWish(
 
   const result = await context.env.DB.prepare(sql).bind(...args).run();
   if (!result.meta.changes) throw new ApiError("VERSION_CONFLICT", "Wish version conflict", 409);
-  return context.json(success(await wishDto(context.env, await findWish(context.env, space.id, wishId), legacyFamilyId)));
+  return context.json(success(await wishDto(context.env, await findWish(context.env, space.id, wishId))));
 }
 
-async function listWishes(context: Context<AppEnv>, space: SpaceRow, legacyFamilyId?: string): Promise<Response> {
+async function listWishes(context: Context<AppEnv>, space: SpaceRow): Promise<Response> {
   const current = await requireWishAccess(context, space, "read");
   const selectedStatuses = statuses(context.req.query("status"));
-  const ownerField = legacyFamilyId ? "ownerUserId" : "ownerPersonId";
-  const claimantField = legacyFamilyId ? "claimantUserId" : "claimantPersonId";
-  const owner = legacyFamilyId
-    ? await legacyFilterPerson(context.env, legacyFamilyId, context.req.query(ownerField), current.id, ownerField)
-    : nativeFilterPerson(context.req.query(ownerField), current.id, ownerField);
-  const claimant = legacyFamilyId
-    ? await legacyFilterPerson(context.env, legacyFamilyId, context.req.query(claimantField), current.id, claimantField)
-    : nativeFilterPerson(context.req.query(claimantField), current.id, claimantField);
+  const owner = filterPerson(context.req.query("ownerPersonId"), current.id, "ownerPersonId");
+  const claimant = filterPerson(context.req.query("claimantPersonId"), current.id, "claimantPersonId");
   const desiredFrom = context.req.query("desiredFrom") === undefined ? undefined : exactDate(context.req.query("desiredFrom"), "desiredFrom");
   const desiredTo = context.req.query("desiredTo") === undefined ? undefined : exactDate(context.req.query("desiredTo"), "desiredTo");
   if (desiredFrom && desiredTo && desiredFrom > desiredTo) throw new ApiError("INVALID_REQUEST", "desiredFrom must not be after desiredTo", 400);
@@ -443,7 +401,7 @@ async function listWishes(context: Context<AppEnv>, space: SpaceRow, legacyFamil
   const hasMore = rows.length > limit;
   const last = page.at(-1);
   return context.json(success({
-    items: await Promise.all(page.map((row) => wishDto(context.env, row, legacyFamilyId))),
+    items: await Promise.all(page.map((row) => wishDto(context.env, row))),
     nextCursor: hasMore && last ? encodeCursor({ v: 1, resource: "wishes", sort, key: sortKey(last, sort), id: last.id, filter }) : null,
   }));
 }
@@ -462,32 +420,5 @@ export function registerWishRoutes(app: App): void {
   for (const kind of ["claim", "unclaim", "fulfill", "reopen", "archive", "restore"] as const) {
     app.post(`/api/v1/spaces/:spaceId/wishes/:wishId/${kind}`, requireScope("wishes:write"), async (context) =>
       actionWish(context, await findSpace(context.env, context.req.param("spaceId")), kind));
-  }
-
-  app.get("/api/v1/families/:familyId/wishes", requireScope("wishes:read"), async (context) => {
-    const family = await findFamily(context.env, context.req.param("familyId"));
-    return listWishes(context, { id: family.space_id }, family.legacy_family_id);
-  });
-  app.post("/api/v1/families/:familyId/wishes", requireScope("wishes:write"), async (context) => {
-    const family = await findFamily(context.env, context.req.param("familyId"));
-    return createWish(context, { id: family.space_id }, family.legacy_family_id);
-  });
-  app.get("/api/v1/families/:familyId/wishes/:wishId", requireScope("wishes:read"), async (context) => {
-    const family = await findFamily(context.env, context.req.param("familyId"));
-    return readWish(context, { id: family.space_id }, family.legacy_family_id);
-  });
-  app.patch("/api/v1/families/:familyId/wishes/:wishId", requireScope("wishes:write"), async (context) => {
-    const family = await findFamily(context.env, context.req.param("familyId"));
-    return updateWish(context, { id: family.space_id }, family.legacy_family_id);
-  });
-  app.delete("/api/v1/families/:familyId/wishes/:wishId", requireScope("wishes:write"), async (context) => {
-    const family = await findFamily(context.env, context.req.param("familyId"));
-    return deleteWish(context, { id: family.space_id });
-  });
-  for (const kind of ["claim", "unclaim", "fulfill", "reopen", "archive", "restore"] as const) {
-    app.post(`/api/v1/families/:familyId/wishes/:wishId/${kind}`, requireScope("wishes:write"), async (context) => {
-      const family = await findFamily(context.env, context.req.param("familyId"));
-      return actionWish(context, { id: family.space_id }, kind, family.legacy_family_id);
-    });
   }
 }
