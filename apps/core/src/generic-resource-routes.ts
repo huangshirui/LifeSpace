@@ -38,7 +38,9 @@ function limit(value: string | undefined): number {
 }
 
 async function model(context: Context<AppEnv>): Promise<PublishedModel> {
-  const model = await getPublishedModelByRoute(context.env, context.req.param("modelRoute"));
+  const route = context.req.param("modelRoute");
+  if (!route) throw new ApiError("MODEL_NOT_FOUND", "Published model not found", 404);
+  const model = await getPublishedModelByRoute(context.env, route);
   if (!model) throw new ApiError("MODEL_NOT_FOUND", "Published model not found", 404);
   return model;
 }
