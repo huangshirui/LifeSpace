@@ -55,9 +55,12 @@ jobs:
       - name: Finalize service-auth source and generated bindings
         run: |
           test -f infra/scripts/phase2-service-auth-finalize.mjs
+          test -f infra/scripts/phase2-service-auth-staging-fix.mjs
           test -f infra/scripts/phase2-service-auth-staging-patch.mjs
           node infra/scripts/phase2-service-auth-finalize.mjs
+          node infra/scripts/phase2-service-auth-staging-fix.mjs
           node infra/scripts/phase2-service-auth-staging-patch.mjs
+          node --check infra/scripts/initialize-staging-runtime.mjs
           pnpm --dir apps/core exec wrangler types src/worker-configuration.d.ts --env-interface CloudflareBindings --include-runtime false
 
       - name: Validate repository
@@ -66,6 +69,7 @@ jobs:
       - name: Persist validated service-auth finalization
         run: |
           rm infra/scripts/phase2-service-auth-finalize.mjs
+          rm infra/scripts/phase2-service-auth-staging-fix.mjs
           rm infra/scripts/phase2-service-auth-staging-patch.mjs
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
