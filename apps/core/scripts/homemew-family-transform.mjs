@@ -35,6 +35,15 @@ function deterministicId(prefix, namespace, legacyId) {
   return `${prefix}_${createHash("sha256").update(`${namespace}\0${legacyId}`).digest("hex").slice(0, 32)}`;
 }
 
+function avatarTargetKey(legacyKey, expectedPrefix, targetPrefix, field) {
+  if (legacyKey === null || legacyKey === undefined || legacyKey === "") return null;
+  const key = string(legacyKey, field);
+  if (!key.startsWith(expectedPrefix)) fail(`${field} must start with ${expectedPrefix}`);
+  const filename = path.posix.basename(key);
+  if (!/^[A-Za-z0-9._-]+\.(jpg|png|webp)$/i.test(filename)) fail(`${field} has unsupported avatar filename`);
+  return `${targetPrefix}/${filename}`;
+}
+
 function uniqueById(items, label) {
   const map = new Map();
   for (const item of items) {
@@ -154,10 +163,14 @@ export function transformSnapshot(snapshot) {
     }
   }
 
+  const objectCopies = [];
   const identity = ["PRAGMA foreign_keys = ON;", "BEGIN TRANSACTION;"];
   for (const user of users) {
-    identity.push(`INSERT INTO users(id,display_name,status,created_at,updated_at) VALUES(${[
-      userMaps.get(user.id), user.displayName.trim(), user.status, user.createdAt, user.updatedAt,
+    const targetUserId = userMaps.get(user.id);
+    const avatarKey = avatarTargetKey(user.avatarKey, `avatars/${user.id}/`, `avatars/users/${targetUserId}`, `user ${user.id}.avatarKey`);
+    if (avatarKey) objectCopies.push({ sourceKey: user.avatarKey, targetKey: avatarKey, ownerType: "user", legacyOwnerId: user.id, targetOwnerId: targetUserId });
+    identity.push(`INSERT INTO users(id,display_name,avatar_key,status,created_at,updated_at) VALUES(${[
+      targetUserId, user.displayName.trim(), avatarKey, user.status, user.createdAt, user.updatedAt,
     ].map(sql).join(",")});`);
   }
   identity.push("COMMIT;");
@@ -171,8 +184,10 @@ export function transformSnapshot(snapshot) {
   for (const family of families) {
     const spaceId = familyMaps.get(family.id);
     const deletedAt = family.status === "archived" ? family.updatedAt : null;
-    core.push(`INSERT INTO spaces(id,kind,name,timezone,created_by_user_id,created_at,updated_at,version,deleted_at) VALUES(${[
-      spaceId, "family", family.name.trim(), family.timezone, userMaps.get(family.createdBy), family.createdAt, family.updatedAt, 1, deletedAt,
+    const avatarKey = avatarTargetKey(family.avatarKey, `avatars/families/${family.id}/`, `avatars/spaces/${spaceId}`, `family ${family.id}.avatarKey`);
+    if (avatarKey) objectCopies.push({ sourceKey: family.avatarKey, targetKey: avatarKey, ownerType: "space", legacyOwnerId: family.id, targetOwnerId: spaceId });
+    core.push(`INSERT INTO spaces(id,kind,name,timezone,avatar_key,created_by_user_id,created_at,updated_at,version,deleted_at) VALUES(${[
+      spaceId, "family", family.name.trim(), family.timezone, avatarKey, userMaps.get(family.createdBy), family.createdAt, family.updatedAt, 1, deletedAt,
     ].map(sql).join(",")});`);
     core.push(`INSERT INTO legacy_homemew_family_maps(legacy_family_id,space_id,legacy_created_by_user_id,migrated_at) VALUES(${[
       family.id, spaceId, family.createdBy, migratedAt,
@@ -224,23 +239,25 @@ export function transformSnapshot(snapshot) {
   core.push("COMMIT;");
 
   const manifest = {
-    version: 1,
+    version: 2,
     source: { schemaVersion: String(source.schemaVersion), exportedAt: migratedAt, commit: source.commit ?? null },
     users: users.map((user) => ({ legacyUserId: user.id, lifespaceUserId: userMaps.get(user.id) })),
     families: families.map((family) => ({ legacyFamilyId: family.id, spaceId: familyMaps.get(family.id) })),
     memberships: membershipManifest,
+    objects: objectCopies,
   };
   const report = {
     status: "ready",
     sourceCounts: { users: users.length, families: families.length, memberships: members.length, invites: invites.length, inviteRedemptions: redemptions.length },
     targetCounts: { identityUsers: users.length, familySpaces: families.length, memberships: members.length, spacePeople: members.length, invites: invites.length, inviteRedemptions: migratedRedemptions.length },
     collapsedHistoricalInviteRedemptions: collapsedRedemptions,
-    deferredObjects: {
-      userAvatars: users.filter((user) => user.avatarKey).length,
-      familyAvatars: families.filter((family) => family.avatarKey).length,
+    objects: {
+      total: objectCopies.length,
+      userAvatars: objectCopies.filter((item) => item.ownerType === "user").length,
+      spaceAvatars: objectCopies.filter((item) => item.ownerType === "space").length,
     },
   };
-  return { identitySql: `${identity.join("\n")}\n`, coreSql: `${core.join("\n")}\n`, manifest, report };
+  return { identitySql: `${identity.join("\n")}\n`, coreSql: `${core.join("\n")}\n`, manifest, objectManifest: objectCopies, report };
 }
 
 async function main(argv) {
@@ -258,6 +275,7 @@ async function main(argv) {
     writeFile(path.join(outputDir, "identity.sql"), result.identitySql),
     writeFile(path.join(outputDir, "core.sql"), result.coreSql),
     writeFile(path.join(outputDir, "mapping-manifest.json"), `${JSON.stringify(result.manifest, null, 2)}\n`),
+    writeFile(path.join(outputDir, "object-copy-manifest.json"), `${JSON.stringify(result.objectManifest, null, 2)}\n`),
     writeFile(path.join(outputDir, "migration-report.json"), `${JSON.stringify(result.report, null, 2)}\n`),
   ]);
 }

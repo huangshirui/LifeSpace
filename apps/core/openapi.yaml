@@ -1,8 +1,8 @@
 openapi: 3.1.0
 info:
   title: LifeSpace Core API
-  version: 0.8.0
-  description: Native LifeSpace Space, authorization, event, task, day-record and wish APIs. HomeMew runtime compatibility facades were retired after Phase 2.6; applications consume this native contract.
+  version: 0.9.0
+  description: Native LifeSpace Space, authorization, avatar, event, task, day-record and wish APIs. HomeMew runtime compatibility facades were retired after Phase 2.6; applications consume this native contract.
 security:
   - bearerAuth: []
 tags:
@@ -41,6 +41,21 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/StatusResponse"
+  /assets/spaces/{spaceId}/avatar:
+    parameters:
+      - $ref: "#/components/parameters/SpaceId"
+    get:
+      tags: [Spaces]
+      operationId: getPublicSpaceAvatar
+      security: []
+      responses:
+        "200":
+          description: Current Space avatar bytes
+          content:
+            image/jpeg: { schema: { type: string, contentEncoding: binary } }
+            image/png: { schema: { type: string, contentEncoding: binary } }
+            image/webp: { schema: { type: string, contentEncoding: binary } }
+        "404": { $ref: "#/components/responses/NotFound" }
   /api/v1/me:
     get:
       tags: [Me]
@@ -117,6 +132,37 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
+  /api/v1/spaces/{spaceId}/avatar:
+    parameters:
+      - $ref: "#/components/parameters/SpaceId"
+    put:
+      tags: [Spaces]
+      operationId: replaceSpaceAvatar
+      description: Replace the Space avatar under optimistic concurrency. Requires spaces:manage. JPEG, PNG or WebP up to 5 MB.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [file, version]
+              properties:
+                file: { type: string, contentEncoding: binary }
+                version: { type: integer, minimum: 1 }
+      responses:
+        "200":
+          description: Space avatar replaced
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SpaceAvatarResponse" }
+        "400": { $ref: "#/components/responses/InvalidRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "413": { description: Avatar is larger than 5 MB }
+        "415": { description: Avatar content type is not JPEG, PNG or WebP }
   /api/v1/spaces/{spaceId}/members:
     parameters:
       - $ref: "#/components/parameters/SpaceId"
@@ -980,12 +1026,13 @@ components:
         displayName: { type: string }
     Space:
       type: object
-      required: [id, kind, name, timezone, version]
+      required: [id, kind, name, timezone, avatarUrl, version]
       properties:
         id: { type: string, pattern: ^spc_ }
         kind: { $ref: "#/components/schemas/SpaceKind" }
         name: { type: string, minLength: 1, maxLength: 100 }
         timezone: { $ref: "#/components/schemas/IanaTimezone" }
+        avatarUrl: { type: [string, "null"], format: uri }
         version: { type: integer, minimum: 1 }
         access:
           oneOf:
@@ -1465,7 +1512,7 @@ components:
             environment: { type: string }
             database: { type: string, const: available }
             schemaVersion: { type: string }
-            contractVersion: { type: string, const: 0.8.0 }
+            contractVersion: { type: string, const: 0.9.0 }
     PrincipalResponse:
       type: object
       required: [data]
@@ -1474,6 +1521,17 @@ components:
       type: object
       required: [data]
       properties: { data: { $ref: "#/components/schemas/Space" } }
+    SpaceAvatarResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          additionalProperties: false
+          required: [avatarUrl, version]
+          properties:
+            avatarUrl: { type: string, format: uri }
+            version: { type: integer, minimum: 2 }
     CreateSpaceResponse:
       type: object
       required: [data]
