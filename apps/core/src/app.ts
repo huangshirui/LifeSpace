@@ -7,7 +7,6 @@ import { ApiError, failure, success } from "./http";
 import { registerEventRoutes } from "./events";
 import { registerTaskRoutes } from "./tasks";
 import { registerWishRoutes } from "./wishes";
-import { registerHomeMewCompatibilityRoutes, requireHomeMewCompatibilityClient } from "./homemew-compat";
 import { registerSpaceRoutes } from "./spaces";
 
 type AppEnv = { Bindings: Bindings; Variables: Variables };
@@ -43,22 +42,14 @@ export function createApp() {
     environment: context.env.ENVIRONMENT ?? "local",
     database: "available",
     schemaVersion: await schemaVersion(context.env),
-    contractVersion: "0.7.0",
+    contractVersion: "0.8.0",
   })));
   app.use("/api/v1/me", authenticate());
   app.use("/api/v1/me/*", authenticate());
   app.use("/api/v1/spaces", authenticate());
   app.use("/api/v1/spaces/*", authenticate());
   app.use("/api/v1/space-invites/*", authenticate());
-  app.use("/api/v1/families", authenticate());
-  app.use("/api/v1/families/*", authenticate());
-  app.use("/api/v1/family-invites/*", authenticate());
-  app.use("/api/v1/me/families", requireHomeMewCompatibilityClient());
-  app.use("/api/v1/families", requireHomeMewCompatibilityClient());
-  app.use("/api/v1/families/*", requireHomeMewCompatibilityClient());
-  app.use("/api/v1/family-invites/*", requireHomeMewCompatibilityClient());
   registerSpaceRoutes(app);
-  registerHomeMewCompatibilityRoutes(app);
   registerEventRoutes(app);
   registerTaskRoutes(app);
   registerDayRecordRoutes(app);
