@@ -23,6 +23,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Report deployment source
+        run: |
+          echo "ref=$GITHUB_REF"
+          echo "sha=$GITHUB_SHA"
+          echo "checkout=$(git rev-parse HEAD)"
+
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
@@ -72,12 +78,37 @@ jobs:
           curl --fail --silent --show-error --retry 6 --retry-delay 5 --retry-all-errors https://auth-staging.aisr.online/api/v1/status
           echo
 
-      - name: Verify Core health and status
+      - name: Wait for Core staging contract convergence
         run: |
           curl --fail --silent --show-error --retry 12 --retry-delay 5 --retry-all-errors https://core-staging.aisr.online/health
           echo
-          curl --fail --silent --show-error --retry 6 --retry-delay 5 --retry-all-errors https://core-staging.aisr.online/api/v1/status
-          echo
 
-      - name: Initialize runtime secrets and run Phase 1 smoke test
+          for attempt in $(seq 1 12); do
+            STATUS="$(curl --fail --silent --show-error https://core-staging.aisr.online/api/v1/status || true)"
+            if [ -n "$STATUS" ] && printf '%s' "$STATUS" | node --input-type=module -e '
+              import fs from "node:fs";
+              const payload = JSON.parse(fs.readFileSync(0, "utf8"));
+              const data = payload?.data ?? {};
+              process.exit(
+                data.environment === "staging"
+                && data.schemaVersion === "7"
+                && data.contractVersion === "0.8.0"
+                  ? 0
+                  : 1,
+              );
+            '; then
+              echo "$STATUS"
+              echo "Core staging is serving schema v7 / contract 0.8.0"
+              break
+            fi
+
+            echo "Core staging has not converged to schema v7 / contract 0.8.0 yet (attempt ${attempt}/12): ${STATUS:-<no response>}"
+            if [ "$attempt" -eq 12 ]; then
+              echo "Core staging deployment did not converge to the expected contract"
+              exit 1
+            fi
+            sleep 5
+          done
+
+      - name: Initialize runtime secrets and run native staging smoke test
         run: node infra/scripts/initialize-staging-runtime.mjs
