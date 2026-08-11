@@ -121,13 +121,37 @@ Non-countdown migration history is treated as semantic data rather than optional
 
 The 2026-08-11 staging acceptance ran through the normal `Deploy staging` workflow. Its smoke required Core schema v6 / contract 0.6.0 and passed Day-record creation, Space Person subject/list filtering, initial/manual occurrence history, atomic anchor and cycle due-date advancement, stale-version rejection, archive read-only enforcement, restore/update, unauthenticated denial and soft deletion.
 
+## Wishes and lifecycle
+
+### 2.6 Space-owned wishes and HomeMew compatibility
+
+**Status: implemented in PR #14; staging deployment and verification pending.**
+
+- [x] Freeze the released HomeMew Wish lifecycle and permissions from runtime, schema v11, OpenAPI and tests.
+- [x] Add schema v7 `wishes` owned by `space_id`, with owner, claimant and fulfiller represented by same-Space `space_person` references.
+- [x] Preserve stable `wsh_*` IDs, date-only optional `desiredDate`, optimistic versions, actor snapshots and soft deletion.
+- [x] Add native `/api/v1/spaces/{spaceId}/wishes` CRUD plus claim/unclaim/fulfill/reopen/archive/restore actions using `wishes:read` / `wishes:write` scopes intersected with current Space authorization.
+- [x] Add temporary HomeMew family compatibility routes over the same records, translating legacy user references to Space People.
+- [x] Preserve owner/claimant lifecycle rules: an owner cannot claim their own wish; the current claimant can unclaim; owner or claimant can fulfill; owner controls edit/delete/reopen/archive/restore.
+- [x] Preserve archive lifecycle state. Restoring a wish archived while claimed returns to `claimed` only when that claimant is still active; otherwise it safely falls back to `open` and clears the claimant.
+- [x] Preserve historical owner/claimant/fulfiller display after membership removal rather than deleting semantic history.
+- [x] Keep Phase 2.6 lifecycle actions user-principal based: the current user must have an active linked Space Person. Service/Agent lifecycle semantics are intentionally deferred to the external-integrations slice rather than invented during parity migration.
+- [x] Add deterministic schema-v11 Wish transform using the exact family mapping manifest/export timestamp and validate lifecycle, timestamps, versions, actors and removed-member historical references.
+- [x] Add Workers/D1 integration and migration-transform tests for native/compatibility shapes, permissions, lifecycle, optimistic concurrency, filtering/sorting/cursors, scopes, removed-claimant restore fallback and soft deletion.
+- [x] Extend the repeatable staging smoke to require schema v7 / contract 0.7.0, provision Wish scopes and exercise create/list, own-claim rejection, optimistic-concurrency failure, fulfill/reopen/archive/restore/update and soft deletion.
+- [x] Update Core runtime/package target to 0.7.0 and canonical OpenAPI/contract checks.
+- [ ] Merge and deploy schema v7 / Core 0.7.0 to staging, then pass the real Wish staging E2E without switching production/HomeMew traffic.
+
+Phase 2.6 intentionally stores Wish people as durable Space Person references rather than user IDs. Membership removal deactivates the Person but does not rewrite historical Wish ownership, claim or fulfillment. This matches HomeMew's historical rendering behavior while retaining Space as the authoritative ownership boundary.
+
+The staging Wish E2E is prepared in the normal `Deploy staging` smoke but is not evidence of staging acceptance until PR #14 is merged and the deployment workflow has actually applied schema v7 and executed the smoke. Production/HomeMew remains unchanged.
+
 ## Next slices
 
-1. Wishes and lifecycle rules.
-2. R2 avatars.
-3. External integrations: service principals, direct opaque `lsp_pat_*` tokens for owner-controlled n8n/curl/scripts/MCP, optional OAuth `client_credentials`, scopes, Data Grants, and HomeMew credential migration.
-4. Creation drafts/Queue if still required at parity freeze.
-5. Any newly released HomeMew capability added under the freeze rule.
+1. User profile + R2 avatars/objects.
+2. External integrations: service principals, direct opaque `lsp_pat_*` tokens for owner-controlled n8n/curl/scripts/MCP, optional OAuth `client_credentials`, scopes, Data Grants, and HomeMew credential migration.
+3. Creation drafts/Queue if still required at parity freeze.
+4. Final parity sweep and migration rehearsal, including any newly released HomeMew capability added under the freeze rule.
 
 ## Exit gate for Phase 2
 
