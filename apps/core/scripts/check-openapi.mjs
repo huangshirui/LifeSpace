@@ -2,15 +2,17 @@ import fs from "node:fs";
 import YAML from "yaml";
 
 const document = YAML.parse(fs.readFileSync(new URL("../openapi.yaml", import.meta.url), "utf8"));
-if (document.openapi !== "3.1.0" || document.info?.version !== "0.8.0") throw new Error("Core OpenAPI version metadata is invalid");
+if (document.openapi !== "3.1.0" || document.info?.version !== "0.9.0") throw new Error("Core OpenAPI version metadata is invalid");
 
 const requiredPaths = [
   "/health",
   "/api/v1/status",
+  "/assets/spaces/{spaceId}/avatar",
   "/api/v1/me",
   "/api/v1/me/spaces",
   "/api/v1/spaces",
   "/api/v1/spaces/{spaceId}",
+  "/api/v1/spaces/{spaceId}/avatar",
   "/api/v1/spaces/{spaceId}/members",
   "/api/v1/spaces/{spaceId}/members/{userId}",
   "/api/v1/spaces/{spaceId}/leave",
@@ -53,8 +55,12 @@ for (const name of Object.keys(schemas)) {
 }
 
 if (JSON.stringify(schemas.SpaceRole?.enum) !== JSON.stringify(["owner", "admin", "editor", "viewer"])) throw new Error("Space roles drifted");
-if (!schemas.Space?.required?.includes("timezone") || !schemas.Space?.required?.includes("version")) throw new Error("Space must expose timezone and version");
+if (!schemas.Space?.required?.includes("timezone") || !schemas.Space?.required?.includes("version") || !schemas.Space?.required?.includes("avatarUrl")) throw new Error("Space must expose timezone, avatarUrl and version");
+if (schemas.Space?.properties?.avatarKey) throw new Error("R2 avatar keys must not become a public Space contract");
 if (schemas.UpdateSpaceRequest?.required?.[0] !== "version" || schemas.UpdateSpaceRequest?.minProperties !== 2) throw new Error("Space updates must use optimistic concurrency");
+const avatarPut = document.paths?.["/api/v1/spaces/{spaceId}/avatar"]?.put;
+if (!avatarPut?.requestBody?.content?.["multipart/form-data"]?.schema?.required?.includes("version")) throw new Error("Space avatar replacement must use optimistic concurrency");
+if (document.paths?.["/assets/spaces/{spaceId}/avatar"]?.get?.security?.length !== 0) throw new Error("Stable Space avatar URL must be publicly readable without exposing the R2 key");
 if (schemas.CreateInviteResponse?.properties?.data?.allOf?.[1]?.properties?.token?.writeOnly !== true) throw new Error("Invitation plaintext token must be one-time/write-only");
 if (schemas.Invite?.properties?.token) throw new Error("Stored/listed invites must not expose plaintext tokens");
 if (schemas.JoinInviteRequest?.additionalProperties !== false || !schemas.JoinInviteRequest?.required?.includes("displayName")) throw new Error("Invitation join must create/reactivate a Space Person");
@@ -94,6 +100,6 @@ for (const action of ["claim", "unclaim", "fulfill", "reopen", "archive", "resto
   if (resolved?.post?.responses?.["200"] === undefined) throw new Error(`Native wish ${action} must return 200`);
 }
 
-if (schemas.StatusResponse?.properties?.data?.properties?.contractVersion?.const !== "0.8.0") throw new Error("Core status contract version drifted");
+if (schemas.StatusResponse?.properties?.data?.properties?.contractVersion?.const !== "0.9.0") throw new Error("Core status contract version drifted");
 
-console.log("Core OpenAPI native-only contract sanity check passed");
+console.log("Core OpenAPI native contract sanity check passed");
