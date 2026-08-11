@@ -111,10 +111,10 @@ await wranglerSecretBulk("apps/core", {
 });
 console.log("Staging bootstrap and Core↔Identity introspection secrets synchronized and activated");
 
-// Identity 0.2 adds user-token verification at the Identity resource server.
-// Rotate the staging-only pair once per staging deployment so Identity and Core
-// are guaranteed to share the same active public key before profile smoke tests.
-await rotateSigningKeys();
+// Preserve the active staging signing pair across normal deployments. Wrangler secret
+// updates create and immediately deploy a new Worker version, so rotating signing keys
+// during every smoke run introduces an avoidable verification convergence window. The
+// repair path below still creates a pair when staging is fresh or the pair is mismatched.
 
 const appId = `app_staging_smoke_${smokeId}`;
 const displayName = `Staging Smoke ${smokeId}`;
@@ -149,7 +149,7 @@ const application = await requestJson(`${identityBase}/bootstrap/v1/applications
     clientType: "service",
     allowedScopes: scopes,
     trustedBackend: true,
-    accessTokenTtlSeconds: 300,
+    accessTokenTtlSeconds: 3600,
   }),
 }, 201);
 
@@ -168,7 +168,7 @@ const user = await requestJson(`${identityBase}/internal/v1/users`, {
 const userId = user?.data?.id;
 if (!userId) throw new Error("Smoke user creation did not return a user id");
 
-let rotatedSigningKeys = true;
+let rotatedSigningKeys = false;
 let tokenProbe = await issueToken(clientSecret, userId, scopes);
 let accessToken = tokenProbe.payload?.data?.accessToken;
 let coreProbe = accessToken ? await probeCore(accessToken) : null;
@@ -186,13 +186,25 @@ if (identityKeyMissing || coreKeyMissingOrMismatched) {
   await rotateSigningKeys();
   rotatedSigningKeys = true;
 
-  tokenProbe = await issueToken(clientSecret, userId, scopes);
-  accessToken = tokenProbe.payload?.data?.accessToken;
-  if (tokenProbe.response.status !== 200 || !accessToken) {
-    throw new Error(`Identity token issuance failed after signing-key repair: ${tokenProbe.response.status} ${JSON.stringify(tokenProbe.payload)}`);
+  let repaired = false;
+  for (let attempt = 1; attempt <= 12; attempt += 1) {
+    tokenProbe = await issueToken(clientSecret, userId, scopes);
+    accessToken = tokenProbe.payload?.data?.accessToken;
+    coreProbe = accessToken ? await probeCore(accessToken) : null;
+    const identityProbe = accessToken
+      ? await fetchJson(`${identityBase}/api/v1/me`, { headers: { authorization: `Bearer ${accessToken}` } })
+      : null;
+    if (tokenProbe.response.status === 200 && accessToken && coreProbe?.response.status === 200 && identityProbe?.response.status === 200) {
+      repaired = true;
+      console.log(`Staging signing-key repair converged after ${attempt} probe(s)`);
+      break;
+    }
+    console.log(`Waiting for repaired signing keys to converge (attempt ${attempt}/12): identity token=${tokenProbe.response.status}, identity verify=${identityProbe?.response.status ?? "n/a"}, core verify=${coreProbe?.response.status ?? "n/a"}`);
+    await new Promise((resolve) => setTimeout(resolve, 5000));
   }
-
-  coreProbe = await probeCore(accessToken);
+  if (!repaired) {
+    throw new Error(`Staging signing-key repair did not converge: token=${tokenProbe.response.status} ${JSON.stringify(tokenProbe.payload)}, core=${coreProbe?.response.status ?? "n/a"} ${JSON.stringify(coreProbe?.payload)}`);
+  }
 }
 
 if (tokenProbe.response.status !== 200 || !accessToken) {
