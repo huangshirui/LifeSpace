@@ -1,6 +1,6 @@
 # Phase 2 Status — HomeMew functional parity
 
-Updated: 2026-08-10
+Updated: 2026-08-11
 
 Phase 2 is **in progress**. Phase 1 staging is the accepted platform baseline. The HomeMew production capability inventory is frozen in `docs/homemew-parity-matrix.md`.
 
@@ -90,11 +90,11 @@ The Task staging E2E verifies deployed Core schema/contract versions, `tasks:rea
 
 The task compatibility route preserves the observed HomeMew runtime behavior where omitted `includeNoDue` evaluates to false even though the frozen HomeMew OpenAPI declared a default of true. Details are recorded in `docs/homemew-parity-matrix.md`.
 
-## Active slice — Day records and occurrence history
+## Day records and occurrence history
 
 ### 2.5 Space-owned day records and HomeMew compatibility
 
-**Status: implemented in draft PR #12 with repository CI passing; staging deployment/E2E pending.**
+**Status: deployed and verified in staging on 2026-08-11.**
 
 - [x] Freeze the released HomeMew day-record behavior from runtime code, D1 schema and integration tests.
 - [x] Confirm the three discriminated kinds: `elapsed`, `countdown`, `cycle`.
@@ -113,11 +113,13 @@ The task compatibility route preserves the observed HomeMew runtime behavior whe
 - [x] Add Workers/D1 integration and migration-transform tests for native/compatibility shapes, lifecycle, history, filters, scopes and cross-Space isolation.
 - [x] Extend the repeatable staging smoke to require schema v6 / contract 0.6.0 and exercise Day-record creation, subject/list, occurrence advancement/history, stale-version rejection, archive/restore/update, authentication denial and soft deletion.
 - [x] Pass the final repository CI for the completed PR #12 implementation head.
-- [ ] Apply D1 schema v6 to staging, deploy Core and pass the real Day-record staging E2E after merge/authorization.
+- [x] Apply D1 schema v6 to staging, deploy Core 0.6.0 and pass the real Day-record staging E2E without switching production/HomeMew traffic.
 
 The Day-record persistence layer stores the subject as `subject_person_id` and enforces same-Space ownership. Unlike new assignment validation, historical reads intentionally do not require the referenced Person to remain active. This preserves the released HomeMew behavior where a record referring to a former family member still displays that historical subject after member removal.
 
 Non-countdown migration history is treated as semantic data rather than optional audit decoration: the transform requires exactly one initial occurrence and requires the latest occurrence date to equal the record's current anchor. Countdown records reject occurrence history. This prevents a row-only migration from silently changing the meaning of elapsed/cycle records.
+
+The 2026-08-11 staging acceptance ran through the normal `Deploy staging` workflow. Its smoke required Core schema v6 / contract 0.6.0 and passed Day-record creation, Space Person subject/list filtering, initial/manual occurrence history, atomic anchor and cycle due-date advancement, stale-version rejection, archive read-only enforcement, restore/update, unauthenticated denial and soft deletion.
 
 ## Next slices
 
