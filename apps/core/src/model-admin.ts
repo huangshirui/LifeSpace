@@ -2,6 +2,7 @@ import type { Context, Hono } from "hono";
 import { requireScope } from "./auth";
 import type { Bindings, Principal, Variables } from "./env";
 import { ApiError, success } from "./http";
+import { getOrCreateActiveModelContract, readModelContract } from "./model-contract-service";
 import {
   getPublishedModel,
   listPublishedModels,
@@ -91,5 +92,17 @@ export function registerModelAdminRoutes(app: App): void {
     requireService(principal);
     await retireModel(context.env, principal, context.req.param("modelKey"));
     return context.body(null, 204);
+  });
+
+  app.get("/api/v1/model-admin/contracts/active", requireScope("models:manage"), async (context) => {
+    requireService(context.get("principal"));
+    return context.json(success(await getOrCreateActiveModelContract(context.env)));
+  });
+
+  app.get("/api/v1/model-admin/contracts/:contractId", requireScope("models:manage"), async (context) => {
+    requireService(context.get("principal"));
+    const contractId = context.req.param("contractId");
+    if (!/^mct_[a-f0-9]{64}$/u.test(contractId)) throw new ApiError("MODEL_CONTRACT_NOT_FOUND", "Model contract revision not found", 404);
+    return context.json(success(await readModelContract(context.env, contractId)));
   });
 }
