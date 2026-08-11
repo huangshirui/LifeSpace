@@ -11,7 +11,6 @@ type Body = Record<string, unknown>;
 type DayRecordStatus = "active" | "archived";
 type DayRecordSort = "attention" | "date_asc" | "date_desc" | "created_desc" | "updated_desc";
 type SpaceRow = { id: string; timezone: string };
-type LegacyFamilyRow = { legacy_family_id: string; space_id: string; timezone: string };
 type DayRecordRow = {
   id: string;
   space_id: string;
@@ -165,15 +164,6 @@ async function findSpace(env: Bindings, spaceId: string): Promise<SpaceRow> {
   return row;
 }
 
-async function findFamily(env: Bindings, familyId: string): Promise<LegacyFamilyRow> {
-  const row = await env.DB.prepare(`SELECT fm.legacy_family_id,fm.space_id,s.timezone
-    FROM legacy_homemew_family_maps fm JOIN spaces s ON s.id=fm.space_id
-    WHERE fm.legacy_family_id=? AND s.kind='family' AND s.deleted_at IS NULL`)
-    .bind(familyId).first<LegacyFamilyRow>();
-  if (!row) throw new ApiError("FAMILY_NOT_FOUND", "Family not found", 404);
-  return row;
-}
-
 async function findDayRecord(env: Bindings, spaceId: string, id: string): Promise<DayRecordRow> {
   const row = await env.DB.prepare("SELECT * FROM day_records WHERE id=? AND space_id=? AND deleted_at IS NULL")
     .bind(id, spaceId).first<DayRecordRow>();
@@ -186,20 +176,11 @@ async function actorName(env: Bindings, spaceId: string, principal: Principal): 
   const person = await env.DB.prepare(`SELECT display_name FROM space_people
     WHERE space_id=? AND linked_user_id=? ORDER BY deleted_at IS NULL DESC,created_at DESC LIMIT 1`)
     .bind(spaceId, principal.id).first<{ display_name: string }>();
-  if (person) return person.display_name;
-  const legacy = await env.DB.prepare("SELECT display_name_snapshot FROM legacy_homemew_user_maps WHERE lifespace_user_id=?")
-    .bind(principal.id).first<{ display_name_snapshot: string }>();
-  return legacy?.display_name_snapshot ?? principal.id;
+  return person?.display_name ?? principal.id;
 }
 
-async function actorDto(env: Bindings, type: Principal["type"], id: string, name: string, legacy: boolean) {
-  if (!legacy) return { type, id, displayName: name };
-  if (type === "user") {
-    const mapping = await env.DB.prepare("SELECT legacy_user_id FROM legacy_homemew_user_maps WHERE lifespace_user_id=?")
-      .bind(id).first<{ legacy_user_id: string }>();
-    return { type: "user", id: mapping?.legacy_user_id ?? id, name, avatarUrl: null };
-  }
-  return { type: "system", id, name, avatarUrl: null };
+function actorDto(type: Principal["type"], id: string, name: string) {
+  return { type, id, displayName: name };
 }
 
 async function requireSubjectPerson(env: Bindings, spaceId: string, value: unknown, field = "subjectPersonId"): Promise<string | null> {
@@ -211,43 +192,26 @@ async function requireSubjectPerson(env: Bindings, spaceId: string, value: unkno
   return person.id;
 }
 
-async function legacySubjectPerson(env: Bindings, familyId: string, value: unknown): Promise<string | null> {
-  if (value === undefined || value === null) return null;
-  if (typeof value !== "string" || !value.trim()) throw new ApiError("INVALID_DAY_RECORD_RULE", "subjectUserId must be a user ID or null", 400);
-  const row = await env.DB.prepare(`SELECT map.person_id FROM legacy_homemew_membership_maps map
-    JOIN space_people p ON p.id=map.person_id AND p.deleted_at IS NULL
-    WHERE map.legacy_family_id=? AND map.legacy_user_id=?`)
-    .bind(familyId, value).first<{ person_id: string }>();
-  if (!row) throw new ApiError("SUBJECT_NOT_FAMILY_MEMBER", "subjectUserId must be an active family member", 400);
-  return row.person_id;
-}
-
-async function subjectDto(env: Bindings, spaceId: string, personId: string | null, legacyFamilyId?: string) {
+async function subjectDto(env: Bindings, spaceId: string, personId: string | null) {
   if (!personId) return null;
   const person = await env.DB.prepare("SELECT id,display_name FROM space_people WHERE id=? AND space_id=?")
     .bind(personId, spaceId).first<{ id: string; display_name: string }>();
-  if (!person) return null;
-  if (!legacyFamilyId) return { personId: person.id, displayName: person.display_name };
-  const mapping = await env.DB.prepare(`SELECT legacy_user_id FROM legacy_homemew_membership_maps
-    WHERE legacy_family_id=? AND person_id=?`).bind(legacyFamilyId, personId).first<{ legacy_user_id: string }>();
-  if (!mapping) return null;
-  return { userId: mapping.legacy_user_id, displayName: person.display_name, avatarUrl: null };
+  return person ? { personId: person.id, displayName: person.display_name } : null;
 }
 
-async function dayRecordDto(env: Bindings, row: DayRecordRow, today: string, legacyFamilyId?: string): Promise<Record<string, unknown>> {
-  const legacy = Boolean(legacyFamilyId);
+async function dayRecordDto(env: Bindings, row: DayRecordRow, today: string): Promise<Record<string, unknown>> {
   const common = {
     id: row.id,
-    ...(legacy ? { familyId: legacyFamilyId } : { spaceId: row.space_id }),
+    spaceId: row.space_id,
     name: row.name,
     description: row.description,
     kind: row.kind,
-    subject: await subjectDto(env, row.space_id, row.subject_person_id, legacyFamilyId),
+    subject: await subjectDto(env, row.space_id, row.subject_person_id),
     icon: row.icon,
     status: row.status,
     version: row.version,
-    createdBy: await actorDto(env, row.created_by_type, row.created_by_id, row.created_by_name_snapshot, legacy),
-    updatedBy: await actorDto(env, row.updated_by_type, row.updated_by_id, row.updated_by_name_snapshot, legacy),
+    createdBy: actorDto(row.created_by_type, row.created_by_id, row.created_by_name_snapshot),
+    updatedBy: actorDto(row.updated_by_type, row.updated_by_id, row.updated_by_name_snapshot),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -283,7 +247,7 @@ async function dayRecordDto(env: Bindings, row: DayRecordRow, today: string, leg
   };
 }
 
-async function occurrenceDto(env: Bindings, row: OccurrenceRow, legacy: boolean) {
+function occurrenceDto(row: OccurrenceRow) {
   return {
     id: row.id,
     dayRecordId: row.day_record_id,
@@ -291,7 +255,7 @@ async function occurrenceDto(env: Bindings, row: OccurrenceRow, legacy: boolean)
     note: row.note,
     source: row.source,
     intervalDays: row.interval_days,
-    recordedBy: await actorDto(env, row.recorded_by_type, row.recorded_by_id, row.recorded_by_name_snapshot, legacy),
+    recordedBy: actorDto(row.recorded_by_type, row.recorded_by_id, row.recorded_by_name_snapshot),
     createdAt: row.created_at,
   };
 }
@@ -319,7 +283,7 @@ function compareTuple(aKey: string, aId: string, bKey: string, bId: string, desc
   return descending ? -(key || id) : key || id;
 }
 
-async function createDayRecord(context: Context<AppEnv>, space: SpaceRow, legacyFamilyId?: string): Promise<Response> {
+async function createDayRecord(context: Context<AppEnv>, space: SpaceRow): Promise<Response> {
   const principal = context.get("principal");
   await requireSpacePermission(context.env, principal, space.id, "write");
   const input = await body(context);
@@ -327,8 +291,7 @@ async function createDayRecord(context: Context<AppEnv>, space: SpaceRow, legacy
     throw new ApiError("INVALID_DAY_RECORD_KIND", "kind must be elapsed, countdown, or cycle", 400);
   }
   const kind = input.kind as DayRecordKind;
-  const subjectField = legacyFamilyId ? "subjectUserId" : "subjectPersonId";
-  const commonFields = ["name", "description", "kind", "anchorDate", subjectField, "icon"];
+  const commonFields = ["name", "description", "kind", "anchorDate", "subjectPersonId", "icon"];
   fields(input, kind === "elapsed"
     ? [...commonFields, "attentionAfterDays"]
     : kind === "countdown"
@@ -338,9 +301,7 @@ async function createDayRecord(context: Context<AppEnv>, space: SpaceRow, legacy
   const description = optionalText(input.description, "description", 5000) ?? null;
   const icon = optionalText(input.icon, "icon", 50) ?? null;
   const anchorDate = exactDate(input.anchorDate, "anchorDate");
-  const subjectPersonId = legacyFamilyId
-    ? await legacySubjectPerson(context.env, legacyFamilyId, input[subjectField])
-    : await requireSubjectPerson(context.env, space.id, input[subjectField]);
+  const subjectPersonId = await requireSubjectPerson(context.env, space.id, input.subjectPersonId);
   const today = spaceToday(space.timezone);
   if (kind !== "countdown" && anchorDate > today) throw new ApiError("INVALID_DAY_RECORD_DATE", "anchorDate cannot be later than the Space current date", 400);
 
@@ -372,18 +333,17 @@ async function createDayRecord(context: Context<AppEnv>, space: SpaceRow, legacy
       VALUES(?,?,?,'initial',?,?,?,?)`).bind(createId("dyo"), id, anchorDate, principal.type, principal.id, actor, timestamp));
   }
   await context.env.DB.batch(statements);
-  return context.json(success(await dayRecordDto(context.env, await findDayRecord(context.env, space.id, id), today, legacyFamilyId)), 201);
+  return context.json(success(await dayRecordDto(context.env, await findDayRecord(context.env, space.id, id), today)), 201);
 }
 
-async function updateDayRecord(context: Context<AppEnv>, space: SpaceRow, legacyFamilyId?: string): Promise<Response> {
+async function updateDayRecord(context: Context<AppEnv>, space: SpaceRow): Promise<Response> {
   const principal = context.get("principal");
   await requireSpacePermission(context.env, principal, space.id, "write");
   const id = context.req.param("dayRecordId")!;
   const previous = await findDayRecord(context.env, space.id, id);
   if (previous.status === "archived") throw new ApiError("DAY_RECORD_ARCHIVED", "Archived day records are read-only", 409);
   const input = await body(context);
-  const subjectField = legacyFamilyId ? "subjectUserId" : "subjectPersonId";
-  const common = ["name", "description", "icon", subjectField, "version"];
+  const common = ["name", "description", "icon", "subjectPersonId", "version"];
   fields(input, previous.kind === "elapsed"
     ? [...common, "attentionAfterDays"]
     : previous.kind === "countdown"
@@ -394,11 +354,9 @@ async function updateDayRecord(context: Context<AppEnv>, space: SpaceRow, legacy
   const name = input.name === undefined ? previous.name : text(input.name, "name", 100);
   const description = input.description === undefined ? previous.description : optionalText(input.description, "description", 5000) ?? null;
   const icon = input.icon === undefined ? previous.icon : optionalText(input.icon, "icon", 50) ?? null;
-  const subjectPersonId = input[subjectField] === undefined
+  const subjectPersonId = input.subjectPersonId === undefined
     ? previous.subject_person_id
-    : legacyFamilyId
-      ? await legacySubjectPerson(context.env, legacyFamilyId, input[subjectField])
-      : await requireSubjectPerson(context.env, space.id, input[subjectField]);
+    : await requireSubjectPerson(context.env, space.id, input.subjectPersonId);
   const anchorDate = input.anchorDate === undefined ? previous.anchor_date : exactDate(input.anchorDate, "anchorDate");
   const cycleDays = input.cycleDays === undefined ? previous.cycle_days : nullableInteger(input.cycleDays, "cycleDays", 1);
   if (previous.kind === "cycle" && cycleDays === null) throw new ApiError("INVALID_DAY_RECORD_RULE", "cycleDays cannot be null", 400);
@@ -414,7 +372,7 @@ async function updateDayRecord(context: Context<AppEnv>, space: SpaceRow, legacy
     .bind(name, description, icon, subjectPersonId, anchorDate, cycleDays, nextDueDate, attentionBeforeDays, attentionAfterDays,
       principal.type, principal.id, actor, timestamp, id, space.id, expected).run();
   if (!result.meta.changes) throw new ApiError("DAY_RECORD_VERSION_CONFLICT", "Day record version conflict", 409);
-  return context.json(success(await dayRecordDto(context.env, await findDayRecord(context.env, space.id, id), spaceToday(space.timezone), legacyFamilyId)));
+  return context.json(success(await dayRecordDto(context.env, await findDayRecord(context.env, space.id, id), spaceToday(space.timezone))));
 }
 
 async function deleteDayRecord(context: Context<AppEnv>, space: SpaceRow): Promise<Response> {
@@ -433,7 +391,7 @@ async function deleteDayRecord(context: Context<AppEnv>, space: SpaceRow): Promi
   return context.body(null, 204);
 }
 
-async function statusAction(context: Context<AppEnv>, space: SpaceRow, target: DayRecordStatus, legacyFamilyId?: string): Promise<Response> {
+async function statusAction(context: Context<AppEnv>, space: SpaceRow, target: DayRecordStatus): Promise<Response> {
   const principal = context.get("principal");
   await requireSpacePermission(context.env, principal, space.id, "write");
   const id = context.req.param("dayRecordId")!;
@@ -451,10 +409,10 @@ async function statusAction(context: Context<AppEnv>, space: SpaceRow, target: D
     WHERE id=? AND space_id=? AND deleted_at IS NULL AND version=? AND status=?`)
     .bind(target, principal.type, principal.id, actor, timestamp, id, space.id, expected, previous.status).run();
   if (!result.meta.changes) throw new ApiError("DAY_RECORD_VERSION_CONFLICT", "Day record version conflict", 409);
-  return context.json(success(await dayRecordDto(context.env, await findDayRecord(context.env, space.id, id), spaceToday(space.timezone), legacyFamilyId)));
+  return context.json(success(await dayRecordDto(context.env, await findDayRecord(context.env, space.id, id), spaceToday(space.timezone))));
 }
 
-async function addOccurrence(context: Context<AppEnv>, space: SpaceRow, legacyFamilyId?: string): Promise<Response> {
+async function addOccurrence(context: Context<AppEnv>, space: SpaceRow): Promise<Response> {
   const principal = context.get("principal");
   await requireSpacePermission(context.env, principal, space.id, "write");
   const id = context.req.param("dayRecordId")!;
@@ -496,11 +454,11 @@ async function addOccurrence(context: Context<AppEnv>, space: SpaceRow, legacyFa
   return context.json(success({
     previousAnchorDate: previous.anchor_date,
     intervalDays: daysBetween(previous.anchor_date, occurredOn),
-    record: await dayRecordDto(context.env, await findDayRecord(context.env, space.id, id), today, legacyFamilyId),
+    record: await dayRecordDto(context.env, await findDayRecord(context.env, space.id, id), today),
   }), 201);
 }
 
-async function listOccurrences(context: Context<AppEnv>, space: SpaceRow, legacyFamilyId?: string): Promise<Response> {
+async function listOccurrences(context: Context<AppEnv>, space: SpaceRow): Promise<Response> {
   await requireSpacePermission(context.env, context.get("principal"), space.id, "read");
   const id = context.req.param("dayRecordId")!;
   await findDayRecord(context.env, space.id, id);
@@ -516,38 +474,26 @@ async function listOccurrences(context: Context<AppEnv>, space: SpaceRow, legacy
   const hasMore = remaining.length > limit;
   const last = page.at(-1);
   return context.json(success({
-    items: await Promise.all(page.map((row) => occurrenceDto(context.env, row, Boolean(legacyFamilyId)))),
+    items: page.map(occurrenceDto),
     nextCursor: hasMore && last ? encodeCursor({ v: 1, resource: "day-record-occurrences", sort: "occurred_desc", key: last.occurred_on, id: last.id, filter }) : null,
   }));
 }
 
-async function subjectFilter(context: Context<AppEnv>, space: SpaceRow, legacyFamilyId?: string): Promise<string | undefined> {
-  const field = legacyFamilyId ? "subjectUserId" : "subjectPersonId";
-  let value = context.req.query(field);
+async function subjectFilter(context: Context<AppEnv>, space: SpaceRow): Promise<string | undefined> {
+  const value = context.req.query("subjectPersonId");
   if (!value) return undefined;
   if (value === "me") {
     const principal = context.get("principal");
     if (principal.type !== "user") throw new ApiError("INVALID_FILTER", "me is available only for users", 400);
-    if (legacyFamilyId) {
-      const mapping = await context.env.DB.prepare(`SELECT map.person_id FROM legacy_homemew_membership_maps map
-        JOIN legacy_homemew_user_maps user_map ON user_map.legacy_user_id=map.legacy_user_id
-        JOIN space_people p ON p.id=map.person_id AND p.deleted_at IS NULL
-        WHERE map.legacy_family_id=? AND user_map.lifespace_user_id=?`)
-        .bind(legacyFamilyId, principal.id).first<{ person_id: string }>();
-      if (!mapping) throw new ApiError("SUBJECT_NOT_FAMILY_MEMBER", "Current user is not an active family member", 400);
-      return mapping.person_id;
-    }
     const person = await context.env.DB.prepare("SELECT id FROM space_people WHERE space_id=? AND linked_user_id=? AND deleted_at IS NULL")
       .bind(space.id, principal.id).first<{ id: string }>();
     if (!person) throw new ApiError("INVALID_DAY_RECORD_SUBJECT", "Current user is not an active Space Person", 400);
     return person.id;
   }
-  return legacyFamilyId
-    ? (await legacySubjectPerson(context.env, legacyFamilyId, value)) ?? undefined
-    : (await requireSubjectPerson(context.env, space.id, value)) ?? undefined;
+  return (await requireSubjectPerson(context.env, space.id, value)) ?? undefined;
 }
 
-async function listDayRecords(context: Context<AppEnv>, space: SpaceRow, legacyFamilyId?: string): Promise<Response> {
+async function listDayRecords(context: Context<AppEnv>, space: SpaceRow): Promise<Response> {
   await requireSpacePermission(context.env, context.get("principal"), space.id, "read");
   const kinds = parseKinds(context.req.query("kind"));
   const statuses = parseStatuses(context.req.query("status"));
@@ -560,7 +506,7 @@ async function listDayRecords(context: Context<AppEnv>, space: SpaceRow, legacyF
   if (!["attention", "date_asc", "date_desc", "created_desc", "updated_desc"].includes(sort)) {
     throw new ApiError("INVALID_DAY_RECORD_RULE", "sort is invalid", 400);
   }
-  const subjectPersonId = await subjectFilter(context, space, legacyFamilyId);
+  const subjectPersonId = await subjectFilter(context, space);
   const today = spaceToday(space.timezone);
   const filter = JSON.stringify({ kinds, statuses, subjectPersonId: subjectPersonId ?? null, attentionOnly, today });
   const cursor = context.req.query("cursor") ? decodeCursor(context.req.query("cursor")!, "day-records", sort) : undefined;
@@ -572,7 +518,7 @@ async function listDayRecords(context: Context<AppEnv>, space: SpaceRow, legacyF
   let sql = `SELECT * FROM day_records WHERE space_id=? AND deleted_at IS NULL AND kind IN (${kindMarks}) AND status IN (${statusMarks})`;
   if (subjectPersonId) { sql += " AND subject_person_id=?"; args.push(subjectPersonId); }
   const rows = await context.env.DB.prepare(sql).bind(...args).all<DayRecordRow>();
-  let records = await Promise.all(rows.results.map((row) => dayRecordDto(context.env, row, today, legacyFamilyId))) as Array<Record<string, any>>;
+  let records = await Promise.all(rows.results.map((row) => dayRecordDto(context.env, row, today))) as Array<Record<string, any>>;
   if (attentionOnly) records = records.filter((record) => record.computed.isAttentionRequired);
   const descending = ["date_desc", "created_desc", "updated_desc"].includes(sort);
   records.sort((a, b) => compareTuple(sortKey(a, sort), a.id, sortKey(b, sort), b.id, descending));
@@ -587,10 +533,10 @@ async function listDayRecords(context: Context<AppEnv>, space: SpaceRow, legacyF
   }));
 }
 
-async function readDayRecord(context: Context<AppEnv>, space: SpaceRow, legacyFamilyId?: string): Promise<Response> {
+async function readDayRecord(context: Context<AppEnv>, space: SpaceRow): Promise<Response> {
   await requireSpacePermission(context.env, context.get("principal"), space.id, "read");
   const row = await findDayRecord(context.env, space.id, context.req.param("dayRecordId")!);
-  return context.json(success(await dayRecordDto(context.env, row, spaceToday(space.timezone), legacyFamilyId)));
+  return context.json(success(await dayRecordDto(context.env, row, spaceToday(space.timezone))));
 }
 
 export function registerDayRecordRoutes(app: App): void {
@@ -612,41 +558,4 @@ export function registerDayRecordRoutes(app: App): void {
     listOccurrences(context, await findSpace(context.env, context.req.param("spaceId"))));
   app.post("/api/v1/spaces/:spaceId/day-records/:dayRecordId/occurrences", requireScope("day-records:write"), async (context) =>
     addOccurrence(context, await findSpace(context.env, context.req.param("spaceId"))));
-
-  app.get("/api/v1/families/:familyId/day-records", requireScope("day-records:read"), async (context) => {
-    const family = await findFamily(context.env, context.req.param("familyId"));
-    return listDayRecords(context, { id: family.space_id, timezone: family.timezone }, family.legacy_family_id);
-  });
-  app.post("/api/v1/families/:familyId/day-records", requireScope("day-records:write"), async (context) => {
-    const family = await findFamily(context.env, context.req.param("familyId"));
-    return createDayRecord(context, { id: family.space_id, timezone: family.timezone }, family.legacy_family_id);
-  });
-  app.get("/api/v1/families/:familyId/day-records/:dayRecordId", requireScope("day-records:read"), async (context) => {
-    const family = await findFamily(context.env, context.req.param("familyId"));
-    return readDayRecord(context, { id: family.space_id, timezone: family.timezone }, family.legacy_family_id);
-  });
-  app.patch("/api/v1/families/:familyId/day-records/:dayRecordId", requireScope("day-records:write"), async (context) => {
-    const family = await findFamily(context.env, context.req.param("familyId"));
-    return updateDayRecord(context, { id: family.space_id, timezone: family.timezone }, family.legacy_family_id);
-  });
-  app.delete("/api/v1/families/:familyId/day-records/:dayRecordId", requireScope("day-records:write"), async (context) => {
-    const family = await findFamily(context.env, context.req.param("familyId"));
-    return deleteDayRecord(context, { id: family.space_id, timezone: family.timezone });
-  });
-  app.post("/api/v1/families/:familyId/day-records/:dayRecordId/archive", requireScope("day-records:write"), async (context) => {
-    const family = await findFamily(context.env, context.req.param("familyId"));
-    return statusAction(context, { id: family.space_id, timezone: family.timezone }, "archived", family.legacy_family_id);
-  });
-  app.post("/api/v1/families/:familyId/day-records/:dayRecordId/restore", requireScope("day-records:write"), async (context) => {
-    const family = await findFamily(context.env, context.req.param("familyId"));
-    return statusAction(context, { id: family.space_id, timezone: family.timezone }, "active", family.legacy_family_id);
-  });
-  app.get("/api/v1/families/:familyId/day-records/:dayRecordId/occurrences", requireScope("day-records:read"), async (context) => {
-    const family = await findFamily(context.env, context.req.param("familyId"));
-    return listOccurrences(context, { id: family.space_id, timezone: family.timezone }, family.legacy_family_id);
-  });
-  app.post("/api/v1/families/:familyId/day-records/:dayRecordId/occurrences", requireScope("day-records:write"), async (context) => {
-    const family = await findFamily(context.env, context.req.param("familyId"));
-    return addOccurrence(context, { id: family.space_id, timezone: family.timezone }, family.legacy_family_id);
-  });
 }
