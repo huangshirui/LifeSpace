@@ -1,3 +1,4 @@
+import { validateCapabilities, type CapabilityDefinitions } from "./capability-definition";
 import { validateModelPolicies, type ModelPoliciesDefinition } from "./policy-definition";
 import { validateWorkflowActions, type WorkflowActionsDefinition } from "./workflow-definition";
 
@@ -57,7 +58,7 @@ export type ModelDefinition = {
     optimisticConcurrency?: boolean;
     softDelete?: boolean;
   };
-  capabilities?: string[];
+  capabilities?: CapabilityDefinitions;
   policies?: ModelPoliciesDefinition;
   actions?: WorkflowActionsDefinition;
 };
@@ -98,7 +99,6 @@ const RESERVED_FIELDS = new Set([
   "createdBy",
   "updatedBy",
 ]);
-const SUPPORTED_CAPABILITIES = new Set<string>([]);
 const FIELD_TYPE_SET = new Set<string>(FIELD_TYPES);
 const ACCESS_SET = new Set<string>(["read", "write", "manage"]);
 
@@ -277,8 +277,8 @@ export function validateModelDefinition(input: unknown): ModelValidationResult {
     for (const property of ["optimisticConcurrency", "softDelete"] as const) if (lifecycleInput[property] !== undefined && typeof lifecycleInput[property] !== "boolean") issue(issues, `lifecycle.${property}`, "INVALID_BOOLEAN", `${property} must be boolean`);
   }
 
-  const capabilities = stringArray(issues, input.capabilities, "capabilities") ?? [];
-  for (const capability of capabilities) if (!SUPPORTED_CAPABILITIES.has(capability)) issue(issues, "capabilities", "UNSUPPORTED_CAPABILITY", `Capability ${capability} is not registered in Model Definition v1`);
+  const capabilityResult = validateCapabilities(input.capabilities, fields);
+  issues.push(...capabilityResult.issues);
 
   const modelPolicies = validateModelPolicies(input.policies, fields);
   issues.push(...modelPolicies.issues);
@@ -302,7 +302,7 @@ export function validateModelDefinition(input: unknown): ModelValidationResult {
     ...(query ? { query } : {}),
     access: accessInput as ModelAccess[],
     ...(lifecycle ? { lifecycle } : {}),
-    ...(capabilities.length ? { capabilities } : {}),
+    ...(capabilityResult.capabilities ? { capabilities: capabilityResult.capabilities } : {}),
     ...(modelPolicies.policies ? { policies: modelPolicies.policies } : {}),
     ...(workflow.actions ? { actions: workflow.actions } : {}),
   };
