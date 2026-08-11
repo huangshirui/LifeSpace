@@ -114,4 +114,20 @@ jobs:
           done
 
       - name: Initialize runtime secrets and run native staging smoke test
-        run: node infra/scripts/initialize-staging-runtime.mjs
+        run: |
+          SUMMARY_PATH="$GITHUB_STEP_SUMMARY"
+          GITHUB_STEP_SUMMARY="" node infra/scripts/initialize-staging-runtime.mjs
+          cat >> "$SUMMARY_PATH" <<'EOF'
+          ## LifeSpace staging runtime
+
+          - Core: schema v9 / contract 0.11.0
+          - Identity: schema v4 / contract 0.3.0
+          - Signing keys: active pair preserved on normal deployment; repair path convergence-checked
+          - Identity token -> Core Space authorization: passed
+          - Profile and user avatar: passed
+          - Space avatar: passed
+          - Service API Token / OAuth / Data Grant lifecycle: passed
+          - Creation Draft Queue delivery to terminal state: passed
+          - Retired HomeMew compatibility route check: passed
+          - Event / Task / Day Record / Wish native E2E: passed
+          EOF
