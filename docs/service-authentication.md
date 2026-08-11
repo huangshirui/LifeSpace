@@ -35,7 +35,7 @@ Self-hosted n8n, private scripts, scheduled jobs, and similar services already r
 
 A fixed token does not mean an ungoverned secret. LifeSpace Service API Tokens remain:
 
-- bound to one service principal and one registered client/application context;
+- bound to one service principal and one registered application context;
 - limited by explicit scopes;
 - limited to current Core Data Grants;
 - individually named, auditable, rotatable, and immediately revocable;
@@ -103,14 +103,14 @@ Short-lived JWTs continue to be verified locally by Core with Identity's public 
 
 Core does not have direct access to Identity D1 and does not duplicate credential hashes. Positive introspection caching is not part of the initial implementation; current-state verification is used so token/principal revocation takes effect on the next request.
 
-## Principal, client, scope, and Grant semantics
+## Principal, application, scope, and Grant semantics
 
 A service principal is not a Space member merely because it can call the API.
 
 Each Service API Token resolves to:
 
 - `principal_id` with principal type `service`;
-- bound application/client context;
+- bound registered application context;
 - Core audience;
 - granted scopes;
 - current token and principal status;
@@ -122,7 +122,7 @@ Example:
 
 ```text
 Service principal: svc_n8n_home
-Client: n8n-home
+Application context: homemew-external
 Token scopes: events:read events:write tasks:read tasks:write
 
 Core Data Grants:
