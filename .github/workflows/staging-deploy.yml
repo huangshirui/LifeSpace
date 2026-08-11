@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: lifespace-staging-deploy
@@ -22,8 +22,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          ref: ${{ github.ref_name }}
 
       - name: Report deployment source
         run: |
@@ -52,31 +50,8 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Finalize profile/assets source and generated bindings
-        run: |
-          test -f infra/scripts/phase2-profile-assets-patch.mjs
-          test -f infra/scripts/phase2-profile-assets-patch-fix.mjs
-          test -f infra/scripts/phase2-profile-assets-patch-addon.mjs
-          node infra/scripts/phase2-profile-assets-patch-fix.mjs
-          node infra/scripts/phase2-profile-assets-patch.mjs
-          node infra/scripts/phase2-profile-assets-patch-addon.mjs
-          pnpm --dir apps/core exec wrangler types src/worker-configuration.d.ts --env-interface CloudflareBindings --include-runtime false
-
       - name: Validate repository
         run: pnpm check
-
-      - name: Persist validated profile/assets finalization
-        run: |
-          rm infra/scripts/phase2-profile-assets-patch.mjs
-          rm infra/scripts/phase2-profile-assets-patch-fix.mjs
-          rm infra/scripts/phase2-profile-assets-patch-addon.mjs
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
-          if ! git diff --cached --quiet; then
-            git commit -m "feat: complete native user profile and avatar assets"
-            git push origin HEAD:phase2-user-profile-assets
-          fi
 
       - name: Resolve staging D1 IDs
         run: node infra/scripts/resolve-staging-d1.mjs
