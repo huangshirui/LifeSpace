@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: lifespace-staging-deploy
@@ -52,29 +52,8 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Finalize creation-draft source and generated bindings
-        run: |
-          test -f infra/scripts/phase2-creation-drafts-finalize.mjs
-          test -f infra/scripts/phase2-creation-drafts-staging-fix.mjs
-          node infra/scripts/phase2-creation-drafts-staging-fix.mjs
-          node infra/scripts/phase2-creation-drafts-finalize.mjs
-          node --check infra/scripts/initialize-staging-runtime.mjs
-          pnpm --dir apps/core exec wrangler types src/worker-configuration.d.ts --env-interface CloudflareBindings --include-runtime false
-
       - name: Validate repository
         run: pnpm check
-
-      - name: Persist validated creation-draft finalization
-        run: |
-          rm infra/scripts/phase2-creation-drafts-finalize.mjs
-          rm infra/scripts/phase2-creation-drafts-staging-fix.mjs
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
-          if ! git diff --cached --quiet; then
-            git commit -m "feat: complete native creation drafts"
-            git push origin HEAD:phase2-creation-drafts
-          fi
 
       - name: Resolve staging D1 IDs
         run: node infra/scripts/resolve-staging-d1.mjs
