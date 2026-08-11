@@ -1,13 +1,18 @@
 import type { Context, Hono } from "hono";
-import type { Bindings, Variables } from "./env";
+import { isCalendarSpecialQuery, queryCalendarResources } from "./calendar-query";
 import {
-  createGenericResource,
-  deleteGenericResource,
-  getGenericResource,
-  type GenericResource,
-  updateGenericResource,
-} from "./generic-resource";
+  capabilityActionAccess,
+  createCapabilityAwareResource,
+  decorateCapabilityResponse,
+  executeCapabilityAction,
+  listCapabilityOccurrences,
+  prepareCapabilityUpdatePolicyInput,
+  updateCapabilityAwareResource,
+} from "./capability-runtime";
+import type { Bindings, Variables } from "./env";
+import { deleteGenericResource, getGenericResource, type GenericResource } from "./generic-resource";
 import { queryGenericResources } from "./generic-query";
+import { isTemporalSpecialQuery, queryTemporalResources } from "./temporal-query";
 import { ApiError, success } from "./http";
 import { requireModelAccess } from "./model-authorization";
 import { getPublishedModelByRoute, type PublishedModel } from "./model-registry";
@@ -20,37 +25,31 @@ type Body = Record<string, unknown>;
 
 async function body(context: Context<AppEnv>): Promise<Body> {
   const value = await context.req.json<unknown>().catch(() => null);
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new ApiError("INVALID_REQUEST", "Request body must be a JSON object", 400);
-  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new ApiError("INVALID_REQUEST", "Request body must be a JSON object", 400);
   return value as Body;
 }
-
-function positiveVersion(value: unknown): number {
+function positiveVersion(value: unknown) {
   if (!Number.isInteger(value) || Number(value) < 1) throw new ApiError("INVALID_REQUEST", "version must be a positive integer", 400);
   return Number(value);
 }
-
 async function model(context: Context<AppEnv>): Promise<PublishedModel> {
   const route = context.req.param("modelRoute");
-  if (!route) throw new ApiError("MODEL_NOT_FOUND", "Published model not found", 404);
-  const model = await getPublishedModelByRoute(context.env, route);
-  if (!model) throw new ApiError("MODEL_NOT_FOUND", "Published model not found", 404);
-  return model;
+  const resolved = route ? await getPublishedModelByRoute(context.env, route) : null;
+  if (!resolved) throw new ApiError("MODEL_NOT_FOUND", "Published model not found", 404);
+  return resolved;
 }
-
-async function requireActiveSpace(env: Bindings, spaceId: string): Promise<void> {
+async function requireActiveSpace(env: Bindings, spaceId: string) {
   const row = await env.DB.prepare("SELECT id FROM spaces WHERE id=? AND deleted_at IS NULL").bind(spaceId).first<{ id: string }>();
   if (!row) throw new ApiError("SPACE_NOT_FOUND", "Space not found", 404);
 }
-
-function dto(resource: GenericResource) {
+async function dto(env: Bindings, spaceId: string, model: PublishedModel, resource: GenericResource) {
   return {
     id: resource.id,
     spaceId: resource.spaceId,
     modelKey: resource.modelKey,
     modelVersion: resource.modelVersion,
     ...resource.data,
+    ...(await decorateCapabilityResponse(env, spaceId, model, resource)),
     version: resource.version,
     createdAt: resource.createdAt,
     updatedAt: resource.updatedAt,
@@ -65,8 +64,13 @@ export function registerGenericResourceRoutes(app: App): void {
     const principal = context.get("principal");
     await requireModelAccess(context.env, principal, spaceId, resolved, "read");
     await requireModelPolicy(context.env, principal, spaceId, resolved, "read");
-    const result = await queryGenericResources(context.env, spaceId, resolved, new URL(context.req.url).searchParams);
-    return context.json(success({ items: result.items.map(dto), nextCursor: result.nextCursor }));
+    const params = new URL(context.req.url).searchParams;
+    const result = isTemporalSpecialQuery(resolved, params)
+      ? await queryTemporalResources(context.env, principal, spaceId, resolved, params)
+      : isCalendarSpecialQuery(resolved, params)
+        ? await queryCalendarResources(context.env, principal, spaceId, resolved, params)
+        : await queryGenericResources(context.env, spaceId, resolved, params);
+    return context.json(success({ items: await Promise.all(result.items.map((resource) => dto(context.env, spaceId, resolved, resource))), nextCursor: result.nextCursor }));
   });
 
   app.post("/api/v1/spaces/:spaceId/:modelRoute", async (context) => {
@@ -77,8 +81,8 @@ export function registerGenericResourceRoutes(app: App): void {
     await requireModelAccess(context.env, principal, spaceId, resolved, "write");
     const input = await body(context);
     await requireModelPolicy(context.env, principal, spaceId, resolved, "create", undefined, input);
-    const created = await createGenericResource(context.env, principal, spaceId, resolved, input);
-    return context.json(success(dto(created)), 201);
+    const created = await createCapabilityAwareResource(context.env, principal, spaceId, resolved, input);
+    return context.json(success(await dto(context.env, spaceId, resolved, created)), 201);
   });
 
   app.get("/api/v1/spaces/:spaceId/:modelRoute/:recordId", async (context) => {
@@ -90,7 +94,7 @@ export function registerGenericResourceRoutes(app: App): void {
     const resource = await getGenericResource(context.env, spaceId, resolved.key, context.req.param("recordId"));
     if (!resource) throw new ApiError("RESOURCE_NOT_FOUND", "Resource not found", 404);
     await requireModelPolicy(context.env, principal, spaceId, resolved, "read", resource);
-    return context.json(success(dto(resource)));
+    return context.json(success(await dto(context.env, spaceId, resolved, resource)));
   });
 
   app.patch("/api/v1/spaces/:spaceId/:modelRoute/:recordId", async (context) => {
@@ -103,11 +107,10 @@ export function registerGenericResourceRoutes(app: App): void {
     const expected = positiveVersion(input.version);
     const changes = Object.fromEntries(Object.entries(input).filter(([key]) => key !== "version"));
     if (!Object.keys(changes).length) throw new ApiError("INVALID_REQUEST", "At least one resource field change is required", 400);
-    const resource = await getGenericResource(context.env, spaceId, resolved.key, context.req.param("recordId"));
-    if (!resource) throw new ApiError("RESOURCE_NOT_FOUND", "Resource not found", 404);
-    await requireModelPolicy(context.env, principal, spaceId, resolved, "update", resource, changes);
-    const updated = await updateGenericResource(context.env, principal, spaceId, resolved, resource.id, expected, changes);
-    return context.json(success(dto(updated)));
+    const prepared = await prepareCapabilityUpdatePolicyInput(context.env, spaceId, resolved, context.req.param("recordId"), changes);
+    await requireModelPolicy(context.env, principal, spaceId, resolved, "update", prepared.resource, prepared.prepared);
+    const updated = await updateCapabilityAwareResource(context.env, principal, spaceId, resolved, prepared.resource.id, expected, changes);
+    return context.json(success(await dto(context.env, spaceId, resolved, updated)));
   });
 
   app.delete("/api/v1/spaces/:spaceId/:modelRoute/:recordId", async (context) => {
@@ -125,25 +128,37 @@ export function registerGenericResourceRoutes(app: App): void {
     return context.body(null, 204);
   });
 
+  app.get("/api/v1/spaces/:spaceId/:modelRoute/:recordId/occurrences", async (context) => {
+    const spaceId = context.req.param("spaceId");
+    const resolved = await model(context);
+    const principal = context.get("principal");
+    await requireModelAccess(context.env, principal, spaceId, resolved, "read");
+    const resource = await getGenericResource(context.env, spaceId, resolved.key, context.req.param("recordId"));
+    if (!resource) throw new ApiError("RESOURCE_NOT_FOUND", "Resource not found", 404);
+    await requireModelPolicy(context.env, principal, spaceId, resolved, "read", resource);
+    const rawLimit = new URL(context.req.url).searchParams.get("limit");
+    const limit = rawLimit === null ? 100 : Number(rawLimit);
+    if (!Number.isInteger(limit) || limit < 1 || limit > 200) throw new ApiError("INVALID_QUERY", "limit must be between 1 and 200", 400);
+    const result = await listCapabilityOccurrences(context.env, spaceId, resolved, resource.id, limit, new URL(context.req.url).searchParams.get("cursor") ?? undefined);
+    return context.json(success(result));
+  });
+
   app.post("/api/v1/spaces/:spaceId/:modelRoute/:recordId/actions/:actionKey", async (context) => {
     const spaceId = context.req.param("spaceId");
     await requireActiveSpace(context.env, spaceId);
     const resolved = await model(context);
     const actionKey = context.req.param("actionKey");
     if (!actionKey) throw new ApiError("ACTION_NOT_FOUND", "Action not found", 404);
-    const requiredAccess = workflowActionAccess(resolved, actionKey);
+    const capabilityAccess = capabilityActionAccess(resolved, actionKey);
+    const requiredAccess = capabilityAccess ?? workflowActionAccess(resolved, actionKey);
     await requireModelAccess(context.env, context.get("principal"), spaceId, resolved, requiredAccess);
     const input = await body(context);
+    if (capabilityAccess) {
+      const updated = await executeCapabilityAction(context.env, context.get("principal"), spaceId, resolved, context.req.param("recordId"), actionKey, input);
+      return context.json(success(await dto(context.env, spaceId, resolved, updated)));
+    }
     if (Object.keys(input).some((key) => key !== "version")) throw new ApiError("INVALID_REQUEST", "Action accepts only version in Model Definition v1", 400);
-    const updated = await executeWorkflowAction(
-      context.env,
-      context.get("principal"),
-      spaceId,
-      resolved,
-      context.req.param("recordId"),
-      actionKey,
-      positiveVersion(input.version),
-    );
-    return context.json(success(dto(updated)));
+    const updated = await executeWorkflowAction(context.env, context.get("principal"), spaceId, resolved, context.req.param("recordId"), actionKey, positiveVersion(input.version));
+    return context.json(success(await dto(context.env, spaceId, resolved, updated)));
   });
 }
