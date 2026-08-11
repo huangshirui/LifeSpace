@@ -11,6 +11,7 @@ import { queryGenericResources } from "./generic-query";
 import { ApiError, success } from "./http";
 import { requireModelAccess } from "./model-authorization";
 import { getPublishedModelByRoute, type PublishedModel } from "./model-registry";
+import { requireModelPolicy } from "./policy";
 import { executeWorkflowAction, workflowActionAccess } from "./workflow";
 
 type AppEnv = { Bindings: Bindings; Variables: Variables };
@@ -61,7 +62,9 @@ export function registerGenericResourceRoutes(app: App): void {
     const spaceId = context.req.param("spaceId");
     await requireActiveSpace(context.env, spaceId);
     const resolved = await model(context);
-    await requireModelAccess(context.env, context.get("principal"), spaceId, resolved, "read");
+    const principal = context.get("principal");
+    await requireModelAccess(context.env, principal, spaceId, resolved, "read");
+    await requireModelPolicy(context.env, principal, spaceId, resolved, "read");
     const result = await queryGenericResources(context.env, spaceId, resolved, new URL(context.req.url).searchParams);
     return context.json(success({ items: result.items.map(dto), nextCursor: result.nextCursor }));
   });
@@ -70,8 +73,11 @@ export function registerGenericResourceRoutes(app: App): void {
     const spaceId = context.req.param("spaceId");
     await requireActiveSpace(context.env, spaceId);
     const resolved = await model(context);
-    await requireModelAccess(context.env, context.get("principal"), spaceId, resolved, "write");
-    const created = await createGenericResource(context.env, context.get("principal"), spaceId, resolved, await body(context));
+    const principal = context.get("principal");
+    await requireModelAccess(context.env, principal, spaceId, resolved, "write");
+    const input = await body(context);
+    await requireModelPolicy(context.env, principal, spaceId, resolved, "create", undefined, input);
+    const created = await createGenericResource(context.env, principal, spaceId, resolved, input);
     return context.json(success(dto(created)), 201);
   });
 
@@ -79,9 +85,11 @@ export function registerGenericResourceRoutes(app: App): void {
     const spaceId = context.req.param("spaceId");
     await requireActiveSpace(context.env, spaceId);
     const resolved = await model(context);
-    await requireModelAccess(context.env, context.get("principal"), spaceId, resolved, "read");
+    const principal = context.get("principal");
+    await requireModelAccess(context.env, principal, spaceId, resolved, "read");
     const resource = await getGenericResource(context.env, spaceId, resolved.key, context.req.param("recordId"));
     if (!resource) throw new ApiError("RESOURCE_NOT_FOUND", "Resource not found", 404);
+    await requireModelPolicy(context.env, principal, spaceId, resolved, "read", resource);
     return context.json(success(dto(resource)));
   });
 
@@ -89,20 +97,16 @@ export function registerGenericResourceRoutes(app: App): void {
     const spaceId = context.req.param("spaceId");
     await requireActiveSpace(context.env, spaceId);
     const resolved = await model(context);
-    await requireModelAccess(context.env, context.get("principal"), spaceId, resolved, "write");
+    const principal = context.get("principal");
+    await requireModelAccess(context.env, principal, spaceId, resolved, "write");
     const input = await body(context);
     const expected = positiveVersion(input.version);
     const changes = Object.fromEntries(Object.entries(input).filter(([key]) => key !== "version"));
     if (!Object.keys(changes).length) throw new ApiError("INVALID_REQUEST", "At least one resource field change is required", 400);
-    const updated = await updateGenericResource(
-      context.env,
-      context.get("principal"),
-      spaceId,
-      resolved,
-      context.req.param("recordId"),
-      expected,
-      changes,
-    );
+    const resource = await getGenericResource(context.env, spaceId, resolved.key, context.req.param("recordId"));
+    if (!resource) throw new ApiError("RESOURCE_NOT_FOUND", "Resource not found", 404);
+    await requireModelPolicy(context.env, principal, spaceId, resolved, "update", resource, changes);
+    const updated = await updateGenericResource(context.env, principal, spaceId, resolved, resource.id, expected, changes);
     return context.json(success(dto(updated)));
   });
 
@@ -110,17 +114,14 @@ export function registerGenericResourceRoutes(app: App): void {
     const spaceId = context.req.param("spaceId");
     await requireActiveSpace(context.env, spaceId);
     const resolved = await model(context);
-    await requireModelAccess(context.env, context.get("principal"), spaceId, resolved, "write");
+    const principal = context.get("principal");
+    await requireModelAccess(context.env, principal, spaceId, resolved, "write");
     const input = await body(context);
     if (Object.keys(input).some((key) => key !== "version")) throw new ApiError("INVALID_REQUEST", "Delete accepts only version", 400);
-    await deleteGenericResource(
-      context.env,
-      context.get("principal"),
-      spaceId,
-      resolved,
-      context.req.param("recordId"),
-      positiveVersion(input.version),
-    );
+    const resource = await getGenericResource(context.env, spaceId, resolved.key, context.req.param("recordId"));
+    if (!resource) throw new ApiError("RESOURCE_NOT_FOUND", "Resource not found", 404);
+    await requireModelPolicy(context.env, principal, spaceId, resolved, "delete", resource);
+    await deleteGenericResource(context.env, principal, spaceId, resolved, resource.id, positiveVersion(input.version));
     return context.body(null, 204);
   });
 
