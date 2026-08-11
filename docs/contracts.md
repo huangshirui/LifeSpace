@@ -6,19 +6,18 @@ Canonical service contracts live with the service implementation in this reposit
 
 Identity API syntax remains explicitly owned by `apps/identity/openapi.yaml`.
 
-Core contract input is split into:
+Core has two contract layers:
 
-1. explicit Kernel API definitions;
-2. validated/published Model Definitions;
-3. registered Capability contract contributions.
+1. **Kernel Contract** — explicit, code-owned APIs such as Space, Membership, Data Grant, authentication-facing Core behavior and model administration.
+2. **Model Contract Revision** — immutable OpenAPI/JSON Schema snapshots generated from the published Model Registry plus registered Capability contract contributions.
 
-`apps/core/openapi.yaml` remains the reproducible, versioned canonical publication artifact consumed by applications and checks, but ordinary model paths/schemas must not become separately hand-maintained sources of truth once the generator owns them.
+During Phase 3 convergence, `apps/core/openapi.yaml` remains the versioned Phase-2/publication artifact and contract-check input until the old handwritten domain routes are retired. Ordinary model paths/schemas must not become newly hand-maintained sections of that file. The final generated publication surface is assembled from the explicit Kernel contract and a selected immutable Model Contract Revision.
 
 Do not create a separately hand-maintained contract repository.
 
 ## Model-driven generation
 
-Publishing an ordinary model must be sufficient to derive its standard CRUD/query/action contract surface from the Model Registry and Generic Runtime semantics.
+Publishing an ordinary model is sufficient to derive its standard CRUD/query/action contract surface from the Model Registry and Generic Runtime semantics.
 
 The generator owns model-derived:
 
@@ -26,55 +25,96 @@ The generator owns model-derived:
 - request/response schemas;
 - field constraints;
 - relation identifiers;
-- declared query/filter/sort parameters;
+- declared search/filter/range/sort/cursor parameters;
 - lifecycle/version fields;
-- model workflow actions;
-- model scope/catalog metadata where published as contract artifacts.
+- workflow action paths;
+- Capability-specific additions once a Capability registers its deterministic contract contribution.
 
-Capabilities contribute their additional contract surface through registered deterministic generators; they do not patch OpenAPI ad hoc at runtime.
+AI Admin never edits OpenAPI directly. It proposes Model Definitions; normal validation/publication drives contract generation.
 
-AI Admin never edits OpenAPI directly. It proposes Model Definitions; normal validation/publication then drives generation.
+## Immutable Model Contract Revisions
+
+Every successful Model Registry publish or retire operation atomically activates a concrete Model Contract Revision.
+
+A revision contains:
+
+- a manifest of model key, route, model version and schema hash;
+- generated concrete OpenAPI paths/schemas;
+- a generated JSON Schema bundle;
+- immutable creator/timestamp evidence.
+
+Its identity is content-addressed:
+
+```text
+mct_<sha256(canonical(manifest + openapi + jsonSchema))>
+```
+
+The content hash does **not** include the mutable Registry revision counter. If the active model contract later returns to exactly the same content, the same immutable `mct_*` artifact is reused. `model_contract_state.registry_revision` separately records which Registry mutation currently activates that artifact.
+
+Registry mutation and contract activation are one D1 transaction guarded by the global Registry revision/mutation token. Core must never commit a model publication while leaving the active contract on the previous model set.
+
+The initial post-migration Task Registry is lazily given an active contract revision on first contract read if no model mutation has already created one; initialization is revision-guarded and cannot overwrite a concurrent publication.
 
 ## Published artifacts
 
-`packages/contracts` is the reproducible publication surface for versioned contract artifacts such as generated TypeScript types, JSON Schema/OpenAPI bundles and stable Markdown indexes. `packages/client` is the generated or thin handwritten SDK surface built against an explicit contract version.
+`packages/contracts` is the reproducible publication/export surface for pinned Kernel + Model Contract combinations such as OpenAPI bundles, JSON Schema, TypeScript types and stable indexes. `packages/client` is the generated or thin handwritten SDK surface built against an explicit compatible combination.
 
 Generated output must be reproducible from canonical inputs and must never become a second editable source of truth.
 
-## Runtime versus build-time registry
+A repository commit is **not** required merely to make a newly published Model Definition have a contract revision. Repository publication/export is needed when an application or release wants a checked-in/package artifact for a selected revision.
 
-Production Core resolves active Model Definitions from its Registry at runtime. Public contract publication is still an explicit versioned release action: the build/release process snapshots the intended published Registry/definition set and produces deterministic OpenAPI/JSON Schema/client artifacts.
+## Runtime and downstream pinning
 
-Dynamic model administration therefore does not mean downstream applications silently consume an unversioned moving API contract.
+Production Core resolves the active Model Registry at runtime. Applications do not silently consume that moving Registry as their build contract.
+
+An application release pins, directly or through a generated package, an explicit compatible pair such as:
+
+```text
+Kernel Contract: <version>
+Model Contract:  mct_<hash>
+```
+
+Pinning an old Model Contract Revision is contract evidence and a reproducible code-generation input; it is **not** a promise that arbitrary future breaking active-model changes remain runtime-compatible forever.
+
+Therefore:
+
+- additive compatible model versions must preserve clients built against the compatible earlier revision;
+- a breaking model publication requires an explicit downstream migration/rollout strategy before activation;
+- model retirement requires confirmation that dependent applications/integrations no longer rely on that model route;
+- future AI Admin diff/publish gates must surface affected Application × Model access and pinned dependency evidence before destructive activation.
+
+Where genuine simultaneous incompatible runtime versions are later required, that must be introduced deliberately through versioned routing/storage semantics rather than pretending an old contract snapshot alone provides runtime compatibility.
 
 ## Downstream applications
 
-ALOHA, HomeMew and vertical apps must depend on an explicit compatible contract/client version. They must not fetch an unversioned latest contract during normal builds.
+ALOHA, HomeMew and vertical apps must depend on explicit compatible contract artifacts/revisions. They must not fetch an unversioned latest model contract during normal builds.
 
-For Coding Agents and repository-local development, an application may check in or generate a read-only contract snapshot containing the exact version it consumes. Such snapshots are generated artifacts and must not be edited manually.
+For Coding Agents and repository-local development, an application may check in or generate a read-only snapshot containing the exact Kernel/model contract combination it consumes. Such snapshots are generated artifacts and must not be edited manually.
 
 ## Compatibility
 
 - Published Model Definition versions are immutable.
-- Model changes require explicit compatibility classification: initial, compatible or breaking.
-- Additive compatible changes may remain within the current API major version when semantics are preserved.
-- Breaking request/response or behavior changes require an approved contract/version and downstream migration strategy.
-- Model retirement is an explicit lifecycle action and does not silently delete historical definition versions.
-- Core deployment and contract publication are coordinated, but applications release independently and may temporarily consume different compatible contract versions.
-- Planned models/endpoints/fields must be clearly distinguishable from implemented/deployed ones before clients are allowed to call them.
+- Model changes require explicit compatibility classification: `initial`, `compatible` or `breaking`.
+- Additive compatible changes may remain on the existing runtime route only when earlier compatible clients remain valid.
+- Breaking request/response or behavior changes require an approved downstream migration/versioning strategy before activation.
+- Model retirement is an explicit lifecycle action and does not delete historical Model Definitions or Model Contract Revisions.
+- Kernel deployment and package publication are coordinated where Kernel behavior changes, while model-only publication can create a new `mct_*` revision without a Worker code deployment.
+- Planned models/endpoints/fields must be clearly distinguishable from published/active ones before clients are allowed to call them.
 
 ## Required checks
 
-Changes to public API behavior should fail CI when Kernel inputs, Model/Capability definitions, generated canonical contracts, implementation and published artifacts drift.
+Changes to public API behavior should fail CI when Kernel inputs, Model/Capability definitions, generated contracts, implementation and selected publication artifacts drift.
 
-Required metadata-platform checks progressively include:
+Metadata-platform checks include:
 
 - Model Definition validation;
 - deterministic schema hashing;
 - deterministic OpenAPI/JSON Schema generation;
 - no Kernel/model route collisions;
 - no duplicate model-derived operation IDs/schema names;
-- contract snapshot reproducibility;
-- Generic Runtime behavior matching generated constraints.
+- content-addressed contract snapshot reproducibility;
+- atomic Registry revision + active contract mutation;
+- Generic Runtime behavior matching generated constraints;
+- compatibility/retirement dependency gates before production use.
 
-HomeMew's former handwritten OpenAPI contract-check pattern remains a behavioral reference for strict drift detection, not the future source-authoring model.
+HomeMew's former handwritten OpenAPI contract-check pattern remains a behavioral reference for strict drift detection, not the future ordinary-model source-authoring model.
