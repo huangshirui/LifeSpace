@@ -1,7 +1,9 @@
 import type { FieldDefinition, ModelAccess, ModelValidationIssue } from "./model-definition";
+import { validatePolicyExpression, type PolicyExpression } from "./policy-definition";
 
-export const WORKFLOW_REFERENCES = ["now", "actor.id", "actor.type"] as const;
-export type WorkflowReferenceName = typeof WORKFLOW_REFERENCES[number];
+export const WORKFLOW_REFERENCES = ["now", "actor.id", "actor.type", "actor.personId"] as const;
+export type FixedWorkflowReferenceName = typeof WORKFLOW_REFERENCES[number];
+export type WorkflowReferenceName = FixedWorkflowReferenceName | `record.${string}`;
 export type WorkflowReference = { $ref: WorkflowReferenceName };
 export type WorkflowLiteral = string | number | boolean | null;
 export type WorkflowAssignmentValue = WorkflowLiteral | WorkflowReference;
@@ -17,6 +19,7 @@ export type WorkflowGuardDefinition = {
 
 export type WorkflowActionDefinition = {
   access: Extract<ModelAccess, "write" | "manage">;
+  policy?: PolicyExpression;
   guards?: WorkflowGuardDefinition[];
   set: Record<string, WorkflowAssignmentValue>;
 };
@@ -26,6 +29,7 @@ export type WorkflowActionsDefinition = Record<string, WorkflowActionDefinition>
 const ACTION_KEY = /^[a-z][a-z0-9-]{1,62}$/;
 const ERROR_CODE = /^[A-Z][A-Z0-9_]{1,63}$/;
 const WORKFLOW_REFERENCE_SET = new Set<string>(WORKFLOW_REFERENCES);
+const RECORD_REFERENCE = /^record\.([a-z][A-Za-z0-9]{0,62})$/;
 const ACTION_ACCESS = new Set<string>(["write", "manage"]);
 const GUARD_OPERATORS = new Set<string>(["eq", "neq"]);
 
@@ -62,19 +66,34 @@ function literalCompatible(field: FieldDefinition, value: WorkflowLiteral): bool
   }
 }
 
-function assignmentReference(value: unknown): WorkflowReference | null {
-  if (!isObject(value) || Object.keys(value).length !== 1 || typeof value.$ref !== "string" || !WORKFLOW_REFERENCE_SET.has(value.$ref)) return null;
-  return { $ref: value.$ref as WorkflowReferenceName };
+function assignmentReference(value: unknown, fields: Record<string, FieldDefinition>): WorkflowReference | null {
+  if (!isObject(value) || Object.keys(value).length !== 1 || typeof value.$ref !== "string") return null;
+  if (WORKFLOW_REFERENCE_SET.has(value.$ref)) return { $ref: value.$ref as FixedWorkflowReferenceName };
+  const match = RECORD_REFERENCE.exec(value.$ref);
+  if (match && fields[match[1]]) return { $ref: value.$ref as `record.${string}` };
+  return null;
 }
 
-function referenceCompatible(field: FieldDefinition, reference: WorkflowReferenceName): boolean {
-  if (reference === "now") return field.type === "datetime";
-  if (reference === "actor.id") return field.type === "string" || field.type === "text";
+function fieldTypesCompatible(target: FieldDefinition, source: FieldDefinition): boolean {
+  if (target.type === source.type) return true;
+  return (target.type === "string" || target.type === "text") && (source.type === "string" || source.type === "text");
+}
+
+function referenceCompatible(
+  target: FieldDefinition,
+  reference: WorkflowReferenceName,
+  fields: Record<string, FieldDefinition>,
+): boolean {
+  if (reference === "now") return target.type === "datetime";
+  if (reference === "actor.id") return target.type === "string" || target.type === "text";
+  if (reference === "actor.personId") return target.type === "person" || target.type === "string" || target.type === "text";
   if (reference === "actor.type") {
-    return field.type === "enum"
-      && ["user", "service", "device"].every((value) => field.values?.includes(value));
+    return target.type === "enum"
+      && ["user", "service", "device"].every((value) => target.values?.includes(value));
   }
-  return false;
+  const match = RECORD_REFERENCE.exec(reference);
+  const source = match ? fields[match[1]] : undefined;
+  return Boolean(source && fieldTypesCompatible(target, source));
 }
 
 export function validateWorkflowActions(
@@ -100,11 +119,16 @@ export function validateWorkflowActions(
       continue;
     }
     for (const property of Object.keys(rawAction)) {
-      if (!["access", "guards", "set"].includes(property)) issue(issues, `${path}.${property}`, "UNKNOWN_PROPERTY", `Unsupported action property ${property}`);
+      if (!["access", "policy", "guards", "set"].includes(property)) issue(issues, `${path}.${property}`, "UNKNOWN_PROPERTY", `Unsupported action property ${property}`);
     }
 
     const access = typeof rawAction.access === "string" ? rawAction.access : "";
     if (!ACTION_ACCESS.has(access)) issue(issues, `${path}.access`, "INVALID_ACTION_ACCESS", "Workflow actions require write or manage access");
+
+    const policyResult = rawAction.policy === undefined
+      ? { issues: [] as ModelValidationIssue[], policy: undefined }
+      : validatePolicyExpression(rawAction.policy, fields, { operation: "action", allowRecord: true, allowInput: false }, `${path}.policy`);
+    issues.push(...policyResult.issues);
 
     const guards: WorkflowGuardDefinition[] = [];
     if (rawAction.guards !== undefined) {
@@ -162,10 +186,14 @@ export function validateWorkflowActions(
           continue;
         }
         if (field.immutable) issue(issues, assignmentPath, "IMMUTABLE_ACTION_FIELD", `Action cannot assign immutable field ${fieldKey}`);
-        const reference = assignmentReference(rawValue);
+        const reference = assignmentReference(rawValue, fields);
         if (reference) {
-          if (!referenceCompatible(field, reference.$ref)) issue(issues, assignmentPath, "INCOMPATIBLE_ACTION_REFERENCE", `${reference.$ref} is incompatible with ${fieldKey}`);
+          if (!referenceCompatible(field, reference.$ref, fields)) issue(issues, assignmentPath, "INCOMPATIBLE_ACTION_REFERENCE", `${reference.$ref} is incompatible with ${fieldKey}`);
           set[fieldKey] = reference;
+          continue;
+        }
+        if (isObject(rawValue) && typeof rawValue.$ref === "string") {
+          issue(issues, assignmentPath, "INVALID_ACTION_REFERENCE", `${rawValue.$ref} is not a supported workflow reference`);
           continue;
         }
         if (rawValue !== null && !["string", "number", "boolean"].includes(typeof rawValue)) {
@@ -183,6 +211,7 @@ export function validateWorkflowActions(
     if (ACTION_KEY.test(actionKey) && ACTION_ACCESS.has(access) && setInput) {
       actions[actionKey] = {
         access: access as WorkflowActionDefinition["access"],
+        ...(policyResult.policy ? { policy: policyResult.policy } : {}),
         ...(rawAction.guards === undefined ? {} : { guards }),
         set,
       };
