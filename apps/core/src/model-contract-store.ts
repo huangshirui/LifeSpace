@@ -23,13 +23,6 @@ type ContractRow = {
   created_at: string;
 };
 
-export type ContractMutationGuard = {
-  modelId: string;
-  state: "published" | "retired";
-  timestampColumn?: "published_at" | "retired_at";
-  timestamp?: string;
-};
-
 function rowToContract(row: ContractRow): StoredModelContract {
   try {
     return {
@@ -50,32 +43,18 @@ function rowToContract(row: ContractRow): StoredModelContract {
   }
 }
 
-function guardSql(guard: ContractMutationGuard | undefined): { sql: string; args: unknown[] } {
-  if (!guard) return { sql: "1=1", args: [] };
-  if (guard.timestampColumn && guard.timestamp !== undefined) {
-    return {
-      sql: `EXISTS(SELECT 1 FROM model_definitions WHERE id=? AND state=? AND ${guard.timestampColumn}=?)`,
-      args: [guard.modelId, guard.state, guard.timestamp],
-    };
-  }
-  return {
-    sql: "EXISTS(SELECT 1 FROM model_definitions WHERE id=? AND state=?)",
-    args: [guard.modelId, guard.state],
-  };
-}
-
-export function modelContractMutationStatements(
+function revisionInsert(
   env: Bindings,
   snapshot: ModelContractSnapshot,
   principal: Principal,
-  updatedAt: string,
-  guard?: ContractMutationGuard,
-): D1PreparedStatement[] {
-  const guarded = guardSql(guard);
-  const revision = env.DB.prepare(`INSERT OR IGNORE INTO model_contract_revisions(
+  createdAt: string,
+  predicateSql: string,
+  predicateArgs: unknown[],
+): D1PreparedStatement {
+  return env.DB.prepare(`INSERT OR IGNORE INTO model_contract_revisions(
       id,contract_hash,manifest_json,openapi_json,json_schema_json,
       created_by_type,created_by_id,created_by_name_snapshot,created_at
-    ) SELECT ?,?,?,?,?,?,?,?,? WHERE ${guarded.sql}`)
+    ) SELECT ?,?,?,?,?,?,?,?,? WHERE ${predicateSql}`)
     .bind(
       snapshot.id,
       snapshot.hash,
@@ -85,33 +64,47 @@ export function modelContractMutationStatements(
       principal.type,
       principal.id,
       principal.id,
-      updatedAt,
-      ...guarded.args,
+      createdAt,
+      ...predicateArgs,
     );
-
-  const insertStateGuard = guardSql(guard);
-  const insertState = env.DB.prepare(`INSERT OR IGNORE INTO model_contract_state(singleton,active_contract_id,updated_at)
-      SELECT 1,?,? WHERE EXISTS(SELECT 1 FROM model_contract_revisions WHERE id=?) AND ${insertStateGuard.sql}`)
-    .bind(snapshot.id, updatedAt, snapshot.id, ...insertStateGuard.args);
-
-  const updateStateGuard = guardSql(guard);
-  const updateState = env.DB.prepare(`UPDATE model_contract_state SET active_contract_id=?,updated_at=?
-      WHERE singleton=1 AND EXISTS(SELECT 1 FROM model_contract_revisions WHERE id=?) AND ${updateStateGuard.sql}`)
-    .bind(snapshot.id, updatedAt, snapshot.id, ...updateStateGuard.args);
-
-  return [revision, insertState, updateState];
 }
 
-export async function persistModelContract(
+export function modelContractMutationStatements(
   env: Bindings,
   snapshot: ModelContractSnapshot,
   principal: Principal,
-  updatedAt = new Date().toISOString(),
-): Promise<StoredModelContract> {
-  await env.DB.batch(modelContractMutationStatements(env, snapshot, principal, updatedAt));
-  const stored = await getModelContract(env, snapshot.id);
-  if (!stored) throw new ApiError("MODEL_CONTRACT_STORAGE_INCONSISTENT", "Model contract could not be read back", 500);
-  return stored;
+  updatedAt: string,
+  registryRevision: number,
+  mutationToken: string,
+): D1PreparedStatement[] {
+  const predicate = "EXISTS(SELECT 1 FROM model_registry_state WHERE singleton=1 AND revision=? AND mutation_token=?)";
+  const args = [registryRevision, mutationToken];
+  const revision = revisionInsert(env, snapshot, principal, updatedAt, predicate, args);
+  const insertState = env.DB.prepare(`INSERT OR IGNORE INTO model_contract_state(singleton,active_contract_id,registry_revision,updated_at)
+      SELECT 1,?,?,? WHERE EXISTS(SELECT 1 FROM model_contract_revisions WHERE id=?) AND ${predicate}`)
+    .bind(snapshot.id, registryRevision, updatedAt, snapshot.id, ...args);
+  const updateState = env.DB.prepare(`UPDATE model_contract_state
+      SET active_contract_id=?,registry_revision=?,updated_at=?
+      WHERE singleton=1 AND EXISTS(SELECT 1 FROM model_contract_revisions WHERE id=?) AND ${predicate}`)
+    .bind(snapshot.id, registryRevision, updatedAt, snapshot.id, ...args);
+  return [revision, insertState, updateState];
+}
+
+export function initializeModelContractStatements(
+  env: Bindings,
+  snapshot: ModelContractSnapshot,
+  principal: Principal,
+  createdAt: string,
+  expectedRegistryRevision: number,
+): D1PreparedStatement[] {
+  const predicate = `EXISTS(SELECT 1 FROM model_registry_state
+    WHERE singleton=1 AND revision=? AND mutation_token IS NULL)`;
+  const revision = revisionInsert(env, snapshot, principal, createdAt, predicate, [expectedRegistryRevision]);
+  const state = env.DB.prepare(`INSERT OR IGNORE INTO model_contract_state(singleton,active_contract_id,registry_revision,updated_at)
+      SELECT 1,?,?,? WHERE NOT EXISTS(SELECT 1 FROM model_contract_state WHERE singleton=1)
+      AND EXISTS(SELECT 1 FROM model_contract_revisions WHERE id=?) AND ${predicate}`)
+    .bind(snapshot.id, expectedRegistryRevision, createdAt, snapshot.id, expectedRegistryRevision);
+  return [revision, state];
 }
 
 export async function getModelContract(env: Bindings, contractId: string): Promise<StoredModelContract | null> {
@@ -121,11 +114,11 @@ export async function getModelContract(env: Bindings, contractId: string): Promi
   return row ? rowToContract(row) : null;
 }
 
-export async function getActiveModelContract(env: Bindings): Promise<StoredModelContract | null> {
+export async function getActiveModelContract(env: Bindings): Promise<(StoredModelContract & { registryRevision: number }) | null> {
   const row = await env.DB.prepare(`SELECT r.id,r.contract_hash,r.manifest_json,r.openapi_json,r.json_schema_json,
-      r.created_by_type,r.created_by_id,r.created_by_name_snapshot,r.created_at
+      r.created_by_type,r.created_by_id,r.created_by_name_snapshot,r.created_at,s.registry_revision
     FROM model_contract_state s
     JOIN model_contract_revisions r ON r.id=s.active_contract_id
-    WHERE s.singleton=1`).first<ContractRow>();
-  return row ? rowToContract(row) : null;
+    WHERE s.singleton=1`).first<ContractRow & { registry_revision: number }>();
+  return row ? { ...rowToContract(row), registryRevision: row.registry_revision } : null;
 }
