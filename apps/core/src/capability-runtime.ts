@@ -2,6 +2,7 @@ import { createCalendarResource, prepareCalendarUpdate, updateCalendarResource }
 import type { Bindings, Principal } from "./env";
 import { createGenericResource, getGenericResource, updateGenericResource, type GenericResource } from "./generic-resource";
 import { ApiError } from "./http";
+import { applyModelDefaults } from "./model-defaults";
 import type { PublishedModel } from "./model-registry";
 import {
   computeTemporalResource,
@@ -20,13 +21,18 @@ export type CapabilityOccurrenceList = { items: TemporalOccurrence[]; nextCursor
 export function hasTemporalCapability(model: PublishedModel) { return Boolean(model.definition.capabilities?.temporal); }
 export function hasCalendarCapability(model: PublishedModel) { return Boolean(model.definition.capabilities?.calendar); }
 
+export function prepareCapabilityCreateInput(model: PublishedModel, input: unknown): Record<string, unknown> {
+  return applyModelDefaults(model.definition, input);
+}
+
 export async function createCapabilityAwareResource(env: Bindings, principal: Principal, spaceId: string, model: PublishedModel, input: unknown): Promise<GenericResource> {
+  const prepared = prepareCapabilityCreateInput(model, input);
   if (hasTemporalCapability(model)) {
     const space = await loadSpaceTemporalContext(env, spaceId);
-    return createTemporalResource(env, principal, space, model, input);
+    return createTemporalResource(env, principal, space, model, prepared);
   }
-  if (hasCalendarCapability(model)) return createCalendarResource(env, principal, spaceId, model, input);
-  return createGenericResource(env, principal, spaceId, model, input);
+  if (hasCalendarCapability(model)) return createCalendarResource(env, principal, spaceId, model, prepared);
+  return createGenericResource(env, principal, spaceId, model, prepared);
 }
 
 export async function updateCapabilityAwareResource(env: Bindings, principal: Principal, spaceId: string, model: PublishedModel, recordId: string, expectedVersion: number, input: unknown): Promise<GenericResource> {
