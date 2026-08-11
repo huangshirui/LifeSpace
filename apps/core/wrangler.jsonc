@@ -4,24 +4,40 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-08-08",
   "observability": { "enabled": true },
-  "vars": { "ENVIRONMENT": "local" },
+  "triggers": { "crons": ["0 * * * *"] },
+  "vars": { "ENVIRONMENT": "local", "AI_BASE_URL": "https://openrouter.ai/api/v1" },
   "d1_databases": [{ "binding": "DB", "database_name": "lifespace-core-local", "database_id": "00000000-0000-0000-0000-000000000001", "migrations_dir": "migrations" }],
   "r2_buckets": [{ "binding": "ASSETS", "bucket_name": "lifespace-local-assets" }],
+  "queues": {
+    "producers": [{ "binding": "CREATION_DRAFT_QUEUE", "queue": "lifespace-local-creation-drafts" }],
+    "consumers": [{ "queue": "lifespace-local-creation-drafts", "max_batch_size": 1, "max_batch_timeout": 1, "max_retries": 2 }]
+  },
+  "ratelimits": [{ "name": "AI_RATE_LIMITER", "namespace_id": "26001", "simple": { "limit": 10, "period": 60 } }],
   "env": {
     "staging": {
       "name": "lifespace-core-staging",
-      "vars": { "ENVIRONMENT": "staging" },
+      "vars": { "ENVIRONMENT": "staging", "AI_BASE_URL": "https://openrouter.ai/api/v1" },
       "routes": [{ "pattern": "core-staging.aisr.online", "custom_domain": true }],
       "d1_databases": [{ "binding": "DB", "database_name": "lifespace-core-staging", "database_id": "00000000-0000-0000-0000-000000000002", "migrations_dir": "migrations" }],
       "r2_buckets": [{ "binding": "ASSETS", "bucket_name": "lifespace-staging-assets" }],
-      "services": [{ "binding": "IDENTITY", "service": "lifespace-identity-staging" }]
+      "services": [{ "binding": "IDENTITY", "service": "lifespace-identity-staging" }],
+      "queues": {
+        "producers": [{ "binding": "CREATION_DRAFT_QUEUE", "queue": "lifespace-staging-creation-drafts" }],
+        "consumers": [{ "queue": "lifespace-staging-creation-drafts", "max_batch_size": 1, "max_batch_timeout": 1, "max_retries": 2 }]
+      },
+      "ratelimits": [{ "name": "AI_RATE_LIMITER", "namespace_id": "26002", "simple": { "limit": 10, "period": 60 } }]
     },
     "production": {
       "name": "lifespace-core",
-      "vars": { "ENVIRONMENT": "production" },
+      "vars": { "ENVIRONMENT": "production", "AI_BASE_URL": "https://openrouter.ai/api/v1" },
       "d1_databases": [{ "binding": "DB", "database_name": "lifespace-core", "database_id": "00000000-0000-0000-0000-000000000003", "migrations_dir": "migrations" }],
       "r2_buckets": [{ "binding": "ASSETS", "bucket_name": "lifespace-assets" }],
-      "services": [{ "binding": "IDENTITY", "service": "lifespace-identity" }]
+      "services": [{ "binding": "IDENTITY", "service": "lifespace-identity" }],
+      "queues": {
+        "producers": [{ "binding": "CREATION_DRAFT_QUEUE", "queue": "lifespace-creation-drafts" }],
+        "consumers": [{ "queue": "lifespace-creation-drafts", "max_batch_size": 1, "max_batch_timeout": 1, "max_retries": 2 }]
+      },
+      "ratelimits": [{ "name": "AI_RATE_LIMITER", "namespace_id": "26003", "simple": { "limit": 10, "period": 60 } }]
     }
   }
 }
