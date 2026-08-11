@@ -14,6 +14,12 @@ export type Bindings = CloudflareBindings & {
   CORE_IDENTITY_SHARED_SECRET?: string;
   ASSETS: R2Bucket;
   CORS_ORIGINS?: string;
+  CREATION_DRAFT_QUEUE: Queue;
+  AI_RATE_LIMITER: RateLimit;
+  AI_BASE_URL?: string;
+  AI_API_KEY?: string;
+  AI_MODEL?: string;
+  AI_PROMPT_APPENDIX?: string;
 };
 
 export type Variables = {
