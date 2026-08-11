@@ -20,6 +20,7 @@ jobs:
       - name: Finalize creation-draft slice in validation workspace
         run: |
           if [ -f infra/scripts/phase2-creation-drafts-finalize.mjs ]; then
+            node infra/scripts/phase2-creation-drafts-staging-fix.mjs
             node infra/scripts/phase2-creation-drafts-finalize.mjs
             node --check infra/scripts/initialize-staging-runtime.mjs
             pnpm --dir apps/core exec wrangler types src/worker-configuration.d.ts --env-interface CloudflareBindings --include-runtime false
