@@ -1,8 +1,8 @@
 openapi: 3.1.0
 info:
   title: LifeSpace Identity API
-  version: 0.2.0
-  description: Global LifeSpace user identity, profile, trusted application exchange and credential issuance API.
+  version: 0.3.0
+  description: Global LifeSpace user identity, profile, trusted application exchange, service principals and credential issuance API.
 paths:
   /health:
     get:
@@ -103,12 +103,142 @@ paths:
         '200': { description: App-scoped short-lived LifeSpace user access token }
         '401': { description: Trusted application authentication required }
         '403': { description: User/application/scope is not allowed }
+  /api/v1/service-principals:
+    get:
+      description: Trusted application backend lists service principals in its own application context. Optional createdByUserId narrows the operator view.
+      security: [{ applicationCredential: [] }]
+      parameters:
+        - name: createdByUserId
+          in: query
+          schema: { type: string, pattern: ^usr_ }
+      responses:
+        '200': { description: Service principal list, content: { application/json: { schema: { $ref: '#/components/schemas/ServicePrincipalListResponse' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      description: Trusted application backend creates a service principal. maxScopes must remain inside the registered application's scope ceiling.
+      security: [{ applicationCredential: [] }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/CreateServicePrincipalRequest' } } }
+      responses:
+        '201': { description: Service principal created, content: { application/json: { schema: { $ref: '#/components/schemas/ServicePrincipalResponse' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/service-principals/{principalId}:
+    parameters:
+      - $ref: '#/components/parameters/PrincipalId'
+    patch:
+      description: Update, disable/re-enable, or change the service principal scope ceiling inside the bound application's allowed scopes. Existing opaque tokens do not gain newly added scopes automatically.
+      security: [{ applicationCredential: [] }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/UpdateServicePrincipalRequest' } } }
+      responses:
+        '200': { description: Service principal updated, content: { application/json: { schema: { $ref: '#/components/schemas/ServicePrincipalResponse' } } } }
+        '404': { description: Service principal not found }
+  /api/v1/service-principals/{principalId}/tokens:
+    parameters:
+      - $ref: '#/components/parameters/PrincipalId'
+    get:
+      description: List opaque Service API Token metadata. Plaintext and hashes are never returned.
+      security: [{ applicationCredential: [] }]
+      responses:
+        '200': { description: Token metadata list, content: { application/json: { schema: { $ref: '#/components/schemas/ServiceTokenListResponse' } } } }
+    post:
+      description: Create an opaque lsp_pat_* Service API Token. Plaintext is returned exactly once. expiresAt may be null for owner-controlled trusted workloads.
+      security: [{ applicationCredential: [] }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/CreateServiceTokenRequest' } } }
+      responses:
+        '201': { description: Service API Token created, content: { application/json: { schema: { $ref: '#/components/schemas/CreateServiceTokenResponse' } } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /api/v1/service-principals/{principalId}/tokens/{tokenId}:
+    parameters:
+      - $ref: '#/components/parameters/PrincipalId'
+      - $ref: '#/components/parameters/ServiceTokenId'
+    patch:
+      description: Update label/expiry or reduce the current token scopes. Increasing scopes requires token rotation.
+      security: [{ applicationCredential: [] }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/UpdateServiceTokenRequest' } } }
+      responses:
+        '200': { description: Token metadata updated, content: { application/json: { schema: { $ref: '#/components/schemas/ServiceTokenResponse' } } } }
+    delete:
+      description: Immediately revoke an opaque Service API Token.
+      security: [{ applicationCredential: [] }]
+      responses:
+        '204': { description: Token revoked }
+        '404': { description: Active token not found }
+  /api/v1/service-principals/{principalId}/oauth-credentials:
+    parameters:
+      - $ref: '#/components/parameters/PrincipalId'
+    get:
+      description: List OAuth client credential metadata without plaintext or hashes.
+      security: [{ applicationCredential: [] }]
+      responses:
+        '200': { description: OAuth credential list, content: { application/json: { schema: { $ref: '#/components/schemas/OAuthCredentialListResponse' } } } }
+    post:
+      description: Create a client secret for optional OAuth 2.0 client_credentials use. Plaintext is returned exactly once.
+      security: [{ applicationCredential: [] }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/CreateOAuthCredentialRequest' } } }
+      responses:
+        '201': { description: OAuth client credential created, content: { application/json: { schema: { $ref: '#/components/schemas/CreateOAuthCredentialResponse' } } } }
+  /api/v1/service-principals/{principalId}/oauth-credentials/{credentialId}:
+    parameters:
+      - $ref: '#/components/parameters/PrincipalId'
+      - $ref: '#/components/parameters/OAuthCredentialId'
+    delete:
+      description: Revoke an OAuth client credential.
+      security: [{ applicationCredential: [] }]
+      responses:
+        '204': { description: OAuth credential revoked }
+  /oauth/token:
+    post:
+      description: OAuth 2.0 client_credentials endpoint for service principals. The service principal ID is the OAuth client_id; client authentication may use HTTP Basic or form fields.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema: { $ref: '#/components/schemas/OAuthTokenRequest' }
+      responses:
+        '200': { description: Short-lived service access token, content: { application/json: { schema: { $ref: '#/components/schemas/OAuthTokenResponse' } } } }
+        '400': { description: OAuth invalid_request / unsupported_grant_type / invalid_scope }
+        '401': { description: OAuth invalid_client }
+  /introspection/v1/service-tokens:
+    post:
+      description: Internal Core-to-Identity opaque Service API Token introspection. Requires the Core/Identity internal service secret and is called through the Cloudflare Service Binding.
+      security: [{ internalServiceSecret: [], serviceToken: [] }]
+      responses:
+        '200': { description: Current token/principal state, content: { application/json: { schema: { $ref: '#/components/schemas/ServiceTokenIntrospectionResponse' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
 components:
   securitySchemes:
     userBearer:
       type: http
       scheme: bearer
       bearerFormat: JWT
+    applicationCredential:
+      type: http
+      scheme: bearer
+      bearerFormat: lsa_ trusted application credential
+    serviceToken:
+      type: http
+      scheme: bearer
+      bearerFormat: lsp_pat_ opaque token
+    internalServiceSecret:
+      type: apiKey
+      in: header
+      name: x-lifespace-internal-secret
+  parameters:
+    PrincipalId: { name: principalId, in: path, required: true, schema: { type: string, pattern: ^svc_ } }
+    ServiceTokenId: { name: tokenId, in: path, required: true, schema: { type: string, pattern: ^sat_ } }
+    OAuthCredentialId: { name: credentialId, in: path, required: true, schema: { type: string, pattern: ^soc_ } }
   schemas:
     ErrorResponse:
       type: object
@@ -143,8 +273,7 @@ components:
     ProfileResponse:
       type: object
       required: [data]
-      properties:
-        data: { $ref: '#/components/schemas/UserProfile' }
+      properties: { data: { $ref: '#/components/schemas/UserProfile' } }
     AvatarResponse:
       type: object
       required: [data]
@@ -153,8 +282,157 @@ components:
           type: object
           additionalProperties: false
           required: [avatarUrl]
+          properties: { avatarUrl: { type: string, format: uri } }
+    ServicePrincipal:
+      type: object
+      additionalProperties: false
+      required: [id, clientId, displayName, description, maxScopes, status, createdByUserId, createdAt, updatedAt, disabledAt]
+      properties:
+        id: { type: string, pattern: ^svc_ }
+        clientId: { type: string }
+        displayName: { type: string, minLength: 1, maxLength: 100 }
+        description: { type: [string, 'null'], maxLength: 500 }
+        maxScopes: { type: array, uniqueItems: true, items: { type: string } }
+        status: { type: string, enum: [active, disabled] }
+        createdByUserId: { type: [string, 'null'], pattern: ^usr_ }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        disabledAt: { type: [string, 'null'], format: date-time }
+    CreateServicePrincipalRequest:
+      type: object
+      additionalProperties: false
+      required: [displayName, maxScopes]
+      properties:
+        displayName: { type: string, minLength: 1, maxLength: 100 }
+        description: { type: [string, 'null'], maxLength: 500 }
+        maxScopes: { type: array, uniqueItems: true, items: { type: string } }
+        createdByUserId: { type: string, pattern: ^usr_ }
+    UpdateServicePrincipalRequest:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        displayName: { type: string, minLength: 1, maxLength: 100 }
+        description: { type: [string, 'null'], maxLength: 500 }
+        maxScopes: { type: array, uniqueItems: true, items: { type: string } }
+        status: { type: string, enum: [active, disabled] }
+    ServicePrincipalResponse: { type: object, required: [data], properties: { data: { $ref: '#/components/schemas/ServicePrincipal' } } }
+    ServicePrincipalListResponse: { type: object, required: [data], properties: { data: { type: array, items: { $ref: '#/components/schemas/ServicePrincipal' } } } }
+    ServiceToken:
+      type: object
+      additionalProperties: false
+      required: [id, principalId, displayPrefix, lastFour, label, scopes, audience, expiresAt, createdAt, createdByUserId, lastUsedAt, revokedAt]
+      properties:
+        id: { type: string, pattern: ^sat_ }
+        principalId: { type: string, pattern: ^svc_ }
+        displayPrefix: { type: string }
+        lastFour: { type: string, minLength: 4, maxLength: 4 }
+        label: { type: string, minLength: 1, maxLength: 100 }
+        scopes: { type: array, uniqueItems: true, items: { type: string } }
+        audience: { type: string, const: lifespace-core }
+        expiresAt: { type: [string, 'null'], format: date-time }
+        createdAt: { type: string, format: date-time }
+        createdByUserId: { type: [string, 'null'], pattern: ^usr_ }
+        lastUsedAt: { type: [string, 'null'], format: date-time }
+        revokedAt: { type: [string, 'null'], format: date-time }
+    CreateServiceTokenRequest:
+      type: object
+      additionalProperties: false
+      required: [label, scopes]
+      properties:
+        label: { type: string, minLength: 1, maxLength: 100 }
+        scopes: { type: array, uniqueItems: true, items: { type: string } }
+        expiresAt: { type: [string, 'null'], format: date-time }
+        createdByUserId: { type: string, pattern: ^usr_ }
+    UpdateServiceTokenRequest:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        label: { type: string, minLength: 1, maxLength: 100 }
+        scopes: { type: array, uniqueItems: true, items: { type: string } }
+        expiresAt: { type: [string, 'null'], format: date-time }
+    ServiceTokenResponse: { type: object, required: [data], properties: { data: { $ref: '#/components/schemas/ServiceToken' } } }
+    ServiceTokenListResponse: { type: object, required: [data], properties: { data: { type: array, items: { $ref: '#/components/schemas/ServiceToken' } } } }
+    CreateServiceTokenResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          allOf:
+            - { $ref: '#/components/schemas/ServiceToken' }
+            - type: object
+              required: [token]
+              properties: { token: { type: string, pattern: '^lsp_pat_', writeOnly: true } }
+    OAuthCredential:
+      type: object
+      additionalProperties: false
+      required: [id, principalId, secretSuffix, label, status, createdAt, createdByUserId, lastUsedAt, revokedAt]
+      properties:
+        id: { type: string, pattern: ^soc_ }
+        principalId: { type: string, pattern: ^svc_ }
+        secretSuffix: { type: string }
+        label: { type: string }
+        status: { type: string, enum: [active, revoked] }
+        createdAt: { type: string, format: date-time }
+        createdByUserId: { type: [string, 'null'], pattern: ^usr_ }
+        lastUsedAt: { type: [string, 'null'], format: date-time }
+        revokedAt: { type: [string, 'null'], format: date-time }
+    CreateOAuthCredentialRequest:
+      type: object
+      additionalProperties: false
+      required: [label]
+      properties:
+        label: { type: string, minLength: 1, maxLength: 100 }
+        createdByUserId: { type: string, pattern: ^usr_ }
+    CreateOAuthCredentialResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          allOf:
+            - { $ref: '#/components/schemas/OAuthCredential' }
+            - type: object
+              required: [clientId, clientSecret]
+              properties:
+                clientId: { type: string, pattern: ^svc_ }
+                clientSecret: { type: string, pattern: '^lsp_client_', writeOnly: true }
+    OAuthCredentialListResponse: { type: object, required: [data], properties: { data: { type: array, items: { $ref: '#/components/schemas/OAuthCredential' } } } }
+    OAuthTokenRequest:
+      type: object
+      required: [grant_type]
+      properties:
+        grant_type: { type: string, const: client_credentials }
+        client_id: { type: string, pattern: ^svc_ }
+        client_secret: { type: string, writeOnly: true }
+        scope: { type: string }
+    OAuthTokenResponse:
+      type: object
+      required: [access_token, token_type, expires_in, scope]
+      properties:
+        access_token: { type: string, writeOnly: true }
+        token_type: { type: string, const: Bearer }
+        expires_in: { type: integer, minimum: 300, maximum: 3600 }
+        scope: { type: string }
+    ServiceTokenIntrospectionResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          required: [active]
           properties:
-            avatarUrl: { type: string, format: uri }
+            active: { type: boolean }
+            audience: { type: string, const: lifespace-core }
+            principal:
+              type: object
+              required: [type, id, clientId, scopes, tokenId]
+              properties:
+                type: { type: string, const: service }
+                id: { type: string, pattern: ^svc_ }
+                clientId: { type: string }
+                scopes: { type: array, items: { type: string } }
+                tokenId: { type: string, pattern: ^sat_ }
   responses:
     InvalidRequest:
       description: Invalid request
@@ -163,7 +441,7 @@ components:
       description: Authentication failed
       content: { application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } } }
     Forbidden:
-      description: Scope or current user state does not allow the request
+      description: Scope/current identity state does not allow the request
       content: { application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } } }
     ValidationError:
       description: Validation failed
