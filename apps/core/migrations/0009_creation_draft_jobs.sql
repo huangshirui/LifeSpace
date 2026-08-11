@@ -30,5 +30,5 @@ CREATE INDEX idx_creation_draft_jobs_expiry
   ON creation_draft_jobs(expires_at);
 
 UPDATE schema_metadata
-SET value='9', updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
+SET value='9'
 WHERE key='schema_version';
