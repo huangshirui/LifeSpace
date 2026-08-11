@@ -17,12 +17,4 @@ jobs:
         with:
           node-version: 24
       - run: pnpm install --no-frozen-lockfile
-      - name: Finalize profile/assets slice in validation workspace
-        run: |
-          if [ -f infra/scripts/phase2-profile-assets-patch.mjs ]; then
-            node infra/scripts/phase2-profile-assets-patch-fix.mjs
-            node infra/scripts/phase2-profile-assets-patch.mjs
-            node infra/scripts/phase2-profile-assets-patch-addon.mjs
-            pnpm --dir apps/core exec wrangler types src/worker-configuration.d.ts --env-interface CloudflareBindings --include-runtime false
-          fi
       - run: pnpm check
