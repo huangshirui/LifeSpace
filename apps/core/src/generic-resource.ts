@@ -237,46 +237,90 @@ function rowToResource(row: ResourceRow): GenericResource {
   };
 }
 
-async function replaceProjections(
+async function projectionStatements(
   env: Bindings,
   recordId: string,
   spaceId: string,
   model: PublishedModel,
   data: JsonObject,
+  mutationToken?: string,
 ): Promise<D1PreparedStatement[]> {
   const relations = await projectRelations(env, spaceId, model.definition, data);
   const indexes = projectIndexes(model.definition, data);
-  const statements: D1PreparedStatement[] = [
-    env.DB.prepare("DELETE FROM resource_relations WHERE source_record_id=?").bind(recordId),
-    env.DB.prepare("DELETE FROM resource_index_values WHERE record_id=?").bind(recordId),
-  ];
+  const statements: D1PreparedStatement[] = mutationToken
+    ? [
+      env.DB.prepare(`DELETE FROM resource_relations WHERE source_record_id=?
+        AND EXISTS(SELECT 1 FROM resource_records WHERE id=? AND mutation_token=?)`).bind(recordId, recordId, mutationToken),
+      env.DB.prepare(`DELETE FROM resource_index_values WHERE record_id=?
+        AND EXISTS(SELECT 1 FROM resource_records WHERE id=? AND mutation_token=?)`).bind(recordId, recordId, mutationToken),
+    ]
+    : [
+      env.DB.prepare("DELETE FROM resource_relations WHERE source_record_id=?").bind(recordId),
+      env.DB.prepare("DELETE FROM resource_index_values WHERE record_id=?").bind(recordId),
+    ];
+
   for (const relation of relations) {
-    statements.push(env.DB.prepare(`INSERT INTO resource_relations(
-      source_record_id,source_space_id,source_model_key,field_key,ordinal,target_type,target_person_id,target_record_id
-    ) VALUES(?,?,?,?,?,?,?,?)`).bind(
-      recordId,
-      spaceId,
-      model.key,
-      relation.fieldKey,
-      relation.ordinal,
-      relation.targetType,
-      relation.targetType === "person" ? relation.targetId : null,
-      relation.targetType === "record" ? relation.targetId : null,
-    ));
+    if (mutationToken) {
+      statements.push(env.DB.prepare(`INSERT INTO resource_relations(
+        source_record_id,source_space_id,source_model_key,field_key,ordinal,target_type,target_person_id,target_record_id
+      ) SELECT ?,?,?,?,?,?,?,? WHERE EXISTS(SELECT 1 FROM resource_records WHERE id=? AND mutation_token=?)`).bind(
+        recordId,
+        spaceId,
+        model.key,
+        relation.fieldKey,
+        relation.ordinal,
+        relation.targetType,
+        relation.targetType === "person" ? relation.targetId : null,
+        relation.targetType === "record" ? relation.targetId : null,
+        recordId,
+        mutationToken,
+      ));
+    } else {
+      statements.push(env.DB.prepare(`INSERT INTO resource_relations(
+        source_record_id,source_space_id,source_model_key,field_key,ordinal,target_type,target_person_id,target_record_id
+      ) VALUES(?,?,?,?,?,?,?,?)`).bind(
+        recordId,
+        spaceId,
+        model.key,
+        relation.fieldKey,
+        relation.ordinal,
+        relation.targetType,
+        relation.targetType === "person" ? relation.targetId : null,
+        relation.targetType === "record" ? relation.targetId : null,
+      ));
+    }
   }
+
   for (const index of indexes) {
-    statements.push(env.DB.prepare(`INSERT INTO resource_index_values(
-      record_id,space_id,model_key,field_key,value_type,text_value,number_value,boolean_value
-    ) VALUES(?,?,?,?,?,?,?,?)`).bind(
-      recordId,
-      spaceId,
-      model.key,
-      index.fieldKey,
-      index.valueType,
-      index.textValue,
-      index.numberValue,
-      index.booleanValue,
-    ));
+    if (mutationToken) {
+      statements.push(env.DB.prepare(`INSERT INTO resource_index_values(
+        record_id,space_id,model_key,field_key,value_type,text_value,number_value,boolean_value
+      ) SELECT ?,?,?,?,?,?,?,? WHERE EXISTS(SELECT 1 FROM resource_records WHERE id=? AND mutation_token=?)`).bind(
+        recordId,
+        spaceId,
+        model.key,
+        index.fieldKey,
+        index.valueType,
+        index.textValue,
+        index.numberValue,
+        index.booleanValue,
+        recordId,
+        mutationToken,
+      ));
+    } else {
+      statements.push(env.DB.prepare(`INSERT INTO resource_index_values(
+        record_id,space_id,model_key,field_key,value_type,text_value,number_value,boolean_value
+      ) VALUES(?,?,?,?,?,?,?,?)`).bind(
+        recordId,
+        spaceId,
+        model.key,
+        index.fieldKey,
+        index.valueType,
+        index.textValue,
+        index.numberValue,
+        index.booleanValue,
+      ));
+    }
   }
   return statements;
 }
@@ -308,7 +352,7 @@ export async function createGenericResource(
     principal.id,
     timestamp,
     timestamp,
-  ), ...(await replaceProjections(env, id, spaceId, model, data))];
+  ), ...(await projectionStatements(env, id, spaceId, model, data))];
   await env.DB.batch(statements);
   const created = await getGenericResource(env, spaceId, model.key, id);
   if (!created) throw new ApiError("RESOURCE_STORAGE_INCONSISTENT", "Created resource could not be read back", 500);
@@ -334,15 +378,20 @@ export async function updateGenericResource(
     .bind(recordId, spaceId, model.key).first<ResourceRow>();
   if (!row) throw new ApiError("RESOURCE_NOT_FOUND", "Resource not found", 404);
   if (row.version !== expectedVersion) throw new ApiError("VERSION_CONFLICT", "Resource version is stale", 409);
+
   const previous = rowToResource(row);
   const data = validateResourceData(model.definition, input, "update", previous.data);
   const timestamp = new Date().toISOString();
+  const mutationToken = crypto.randomUUID();
   const nextVersion = row.version + 1;
-  const projections = await replaceProjections(env, recordId, spaceId, model, data);
-  const statements = [env.DB.prepare(`UPDATE resource_records SET
-    data_json=?,model_version=?,updated_by_type=?,updated_by_id=?,updated_by_name_snapshot=?,version=?,updated_at=?
-    WHERE id=? AND space_id=? AND model_key=? AND deleted_at IS NULL AND version=?`)
-    .bind(JSON.stringify(data), model.version, principal.type, principal.id, principal.id, nextVersion, timestamp, recordId, spaceId, model.key, expectedVersion), ...projections];
+  const statements = [
+    env.DB.prepare(`UPDATE resource_records SET
+      data_json=?,model_version=?,updated_by_type=?,updated_by_id=?,updated_by_name_snapshot=?,version=?,updated_at=?,mutation_token=?
+      WHERE id=? AND space_id=? AND model_key=? AND deleted_at IS NULL AND version=?`)
+      .bind(JSON.stringify(data), model.version, principal.type, principal.id, principal.id, nextVersion, timestamp, mutationToken, recordId, spaceId, model.key, expectedVersion),
+    ...(await projectionStatements(env, recordId, spaceId, model, data, mutationToken)),
+    env.DB.prepare("UPDATE resource_records SET mutation_token=NULL WHERE id=? AND mutation_token=?").bind(recordId, mutationToken),
+  ];
   const results = await env.DB.batch(statements);
   if (!results[0].meta.changes) throw new ApiError("VERSION_CONFLICT", "Resource version is stale", 409);
   const updated = await getGenericResource(env, spaceId, model.key, recordId);
