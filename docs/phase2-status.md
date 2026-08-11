@@ -125,7 +125,7 @@ The 2026-08-11 staging acceptance ran through the normal `Deploy staging` workfl
 
 ### 2.6 Space-owned wishes and HomeMew compatibility
 
-**Status: implemented in PR #14; staging deployment and verification pending.**
+**Status: deployed and verified in staging on 2026-08-11.**
 
 - [x] Freeze the released HomeMew Wish lifecycle and permissions from runtime, schema v11, OpenAPI and tests.
 - [x] Add schema v7 `wishes` owned by `space_id`, with owner, claimant and fulfiller represented by same-Space `space_person` references.
@@ -140,11 +140,11 @@ The 2026-08-11 staging acceptance ran through the normal `Deploy staging` workfl
 - [x] Add Workers/D1 integration and migration-transform tests for native/compatibility shapes, permissions, lifecycle, optimistic concurrency, filtering/sorting/cursors, scopes, removed-claimant restore fallback and soft deletion.
 - [x] Extend the repeatable staging smoke to require schema v7 / contract 0.7.0, provision Wish scopes and exercise create/list, own-claim rejection, optimistic-concurrency failure, fulfill/reopen/archive/restore/update and soft deletion.
 - [x] Update Core runtime/package target to 0.7.0 and canonical OpenAPI/contract checks.
-- [ ] Merge and deploy schema v7 / Core 0.7.0 to staging, then pass the real Wish staging E2E without switching production/HomeMew traffic.
+- [x] Merge PR #14, apply schema v7 / deploy Core 0.7.0 to staging, and pass the real Wish staging E2E without switching production/HomeMew traffic.
 
 Phase 2.6 intentionally stores Wish people as durable Space Person references rather than user IDs. Membership removal deactivates the Person but does not rewrite historical Wish ownership, claim or fulfillment. This matches HomeMew's historical rendering behavior while retaining Space as the authoritative ownership boundary.
 
-The staging Wish E2E is prepared in the normal `Deploy staging` smoke but is not evidence of staging acceptance until PR #14 is merged and the deployment workflow has actually applied schema v7 and executed the smoke. Production/HomeMew remains unchanged.
+The 2026-08-11 staging acceptance ran through the normal `Deploy staging` workflow after PR #14 was merged as `4cea0a7a79443a14a0801b77315225aeb183e628`. The deployment applied Core schema v7 / contract 0.7.0 and the repeatable smoke completed successfully, including Wish create/list, owner self-claim rejection, optimistic-concurrency rejection, fulfill/reopen/archive/restore/update, authentication denial and soft deletion. Production/HomeMew traffic remained unchanged.
 
 ## Next slices
 
