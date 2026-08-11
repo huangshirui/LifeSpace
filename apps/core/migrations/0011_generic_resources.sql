@@ -11,6 +11,7 @@ CREATE TABLE resource_records (
   updated_by_id TEXT NOT NULL,
   updated_by_name_snapshot TEXT NOT NULL,
   version INTEGER NOT NULL DEFAULT 1 CHECK(version >= 1),
+  mutation_token TEXT,
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
   updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
   deleted_at TEXT,
