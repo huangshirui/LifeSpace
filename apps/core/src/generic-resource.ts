@@ -333,6 +333,7 @@ export async function updateGenericResource(
   const row = await env.DB.prepare(`SELECT * FROM resource_records WHERE id=? AND space_id=? AND model_key=? AND deleted_at IS NULL`)
     .bind(recordId, spaceId, model.key).first<ResourceRow>();
   if (!row) throw new ApiError("RESOURCE_NOT_FOUND", "Resource not found", 404);
+  if (row.version !== expectedVersion) throw new ApiError("VERSION_CONFLICT", "Resource version is stale", 409);
   const previous = rowToResource(row);
   const data = validateResourceData(model.definition, input, "update", previous.data);
   const timestamp = new Date().toISOString();
