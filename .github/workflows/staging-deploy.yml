@@ -55,7 +55,9 @@ jobs:
       - name: Finalize profile/assets source and generated bindings
         run: |
           test -f infra/scripts/phase2-profile-assets-patch.mjs
+          test -f infra/scripts/phase2-profile-assets-patch-fix.mjs
           test -f infra/scripts/phase2-profile-assets-patch-addon.mjs
+          node infra/scripts/phase2-profile-assets-patch-fix.mjs
           node infra/scripts/phase2-profile-assets-patch.mjs
           node infra/scripts/phase2-profile-assets-patch-addon.mjs
           pnpm --dir apps/core exec wrangler types src/worker-configuration.d.ts --env-interface CloudflareBindings --include-runtime false
@@ -66,6 +68,7 @@ jobs:
       - name: Persist validated profile/assets finalization
         run: |
           rm infra/scripts/phase2-profile-assets-patch.mjs
+          rm infra/scripts/phase2-profile-assets-patch-fix.mjs
           rm infra/scripts/phase2-profile-assets-patch-addon.mjs
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
