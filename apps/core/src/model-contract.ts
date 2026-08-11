@@ -9,12 +9,7 @@ export type ModelContractSnapshot = {
   hash: string;
   manifest: {
     kind: "lifespace-model-contract";
-    models: Array<{
-      key: string;
-      route: string;
-      version: number;
-      schemaHash: string;
-    }>;
+    models: Array<{ key: string; route: string; version: number; schemaHash: string }>;
   };
   openapi: OpenApiDocument;
   jsonSchema: JsonSchema;
@@ -93,8 +88,18 @@ function fieldSchema(field: FieldDefinition): JsonSchema {
       break;
   }
   const result = nullable(schema, field);
+  if (field.description) result.description = field.description;
   if (field.readOnly) result.readOnly = true;
   return result;
+}
+
+function hasDefault(definition: ModelDefinition, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(definition.defaults ?? {}, key);
+}
+
+function schemaWithDefault(definition: ModelDefinition, key: string, field: FieldDefinition): JsonSchema {
+  const schema = fieldSchema(field);
+  return hasDefault(definition, key) ? { ...schema, default: structuredClone(definition.defaults![key]) } : schema;
 }
 
 function writableFields(definition: ModelDefinition, mode: "create" | "update"): Array<[string, FieldDefinition]> {
@@ -105,18 +110,59 @@ function writableFields(definition: ModelDefinition, mode: "create" | "update"):
   });
 }
 
-function createSchema(definition: ModelDefinition): JsonSchema {
-  const fields = writableFields(definition, "create");
+function calendarCreateConstraint(model: PublishedModel): JsonSchema | null {
+  const c = model.definition.capabilities?.calendar;
+  if (!c) return null;
   return {
-    type: "object",
-    additionalProperties: false,
-    properties: Object.fromEntries(fields.map(([key, field]) => [key, fieldSchema(field)])),
-    required: fields.filter(([, field]) => field.required).map(([key]) => key),
+    oneOf: [
+      {
+        title: "All-day Calendar resource",
+        required: [c.allDayField, c.allDayStartField, c.allDayEndExclusiveField],
+        properties: {
+          [c.allDayField]: { const: true },
+          [c.allDayStartField]: { type: "string", format: "date" },
+          [c.allDayEndExclusiveField]: { type: "string", format: "date" },
+          [c.timedStartField]: { type: "null" },
+          [c.timedEndField]: { type: "null" },
+          [c.startTimezoneField]: { type: "null" },
+          [c.endTimezoneField]: { type: "null" },
+        },
+      },
+      {
+        title: "Timed Calendar resource",
+        required: [c.allDayField, c.timedStartField, c.timedEndField, c.startTimezoneField, c.endTimezoneField],
+        properties: {
+          [c.allDayField]: { const: false },
+          [c.timedStartField]: { type: "string", format: "date-time" },
+          [c.timedEndField]: { type: "string", format: "date-time" },
+          [c.startTimezoneField]: { type: "string", "x-lifespace-format": "iana-timezone" },
+          [c.endTimezoneField]: { type: "string", "x-lifespace-format": "iana-timezone" },
+          [c.allDayStartField]: { type: "null" },
+          [c.allDayEndExclusiveField]: { type: "null" },
+        },
+      },
+    ],
+    "x-lifespace-range-semantics": "half-open; end must be later than start",
   };
 }
 
-function updateSchema(definition: ModelDefinition): JsonSchema {
-  const fields = writableFields(definition, "update");
+function createSchema(model: PublishedModel): JsonSchema {
+  const definition = model.definition;
+  const fields = writableFields(definition, "create");
+  const base: JsonSchema = {
+    type: "object",
+    additionalProperties: false,
+    properties: Object.fromEntries(fields.map(([key, field]) => [key, schemaWithDefault(definition, key, field)])),
+    required: fields
+      .filter(([key, field]) => field.required && !hasDefault(definition, key))
+      .map(([key]) => key),
+  };
+  const calendar = calendarCreateConstraint(model);
+  return calendar ? { ...base, allOf: [calendar] } : base;
+}
+
+function updateSchema(model: PublishedModel): JsonSchema {
+  const fields = writableFields(model.definition, "update");
   return {
     type: "object",
     additionalProperties: false,
@@ -126,34 +172,66 @@ function updateSchema(definition: ModelDefinition): JsonSchema {
       ...Object.fromEntries(fields.map(([key, field]) => [key, fieldSchema(field)])),
     },
     required: ["version"],
+    ...(model.definition.capabilities?.calendar
+      ? { "x-lifespace-calendar-update": "A mode switch must provide a complete valid timed or all-day Calendar shape." }
+      : {}),
   };
 }
 
-function resourceSchema(definition: ModelDefinition): JsonSchema {
+function temporalComputedSchema(): JsonSchema {
   return {
     type: "object",
     additionalProperties: false,
     properties: {
-      id: { type: "string", pattern: "^rec_" },
-      spaceId: { type: "string", pattern: "^spc_" },
-      modelKey: { type: "string", const: definition.key },
-      modelVersion: { type: "integer", minimum: 1 },
-      ...Object.fromEntries(Object.entries(definition.fields).map(([key, field]) => [key, fieldSchema(field)])),
-      version: { type: "integer", minimum: 1 },
-      createdAt: { type: "string", format: "date-time" },
-      updatedAt: { type: "string", format: "date-time" },
+      today: { type: "string", format: "date" },
+      state: {
+        type: "string",
+        enum: ["normal", "threshold_reached", "future", "upcoming", "today", "past", "due", "overdue"],
+      },
+      attentionLevel: { type: "string", enum: ["none", "info", "warning", "critical"] },
+      isAttentionRequired: { type: "boolean" },
+      elapsedDays: { type: "integer" },
+      remainingDays: { anyOf: [{ type: "integer" }, { type: "null" }] },
+      progressRatio: { type: "number" },
+      nextDueDate: { type: "string", format: "date" },
     },
-    required: [
-      "id",
-      "spaceId",
-      "modelKey",
-      "modelVersion",
-      ...Object.entries(definition.fields).filter(([, field]) => field.required).map(([key]) => key),
-      "version",
-      "createdAt",
-      "updatedAt",
-    ],
+    required: ["today", "state", "attentionLevel", "isAttentionRequired"],
   };
+}
+
+function resourceSchema(model: PublishedModel): JsonSchema {
+  const definition = model.definition;
+  const properties: Record<string, unknown> = {
+    id: { type: "string", pattern: "^rec_" },
+    spaceId: { type: "string", pattern: "^spc_" },
+    modelKey: { type: "string", const: definition.key },
+    modelVersion: { type: "integer", minimum: 1 },
+    ...Object.fromEntries(Object.entries(definition.fields).map(([key, field]) => [key, fieldSchema(field)])),
+    version: { type: "integer", minimum: 1 },
+    createdAt: { type: "string", format: "date-time" },
+    updatedAt: { type: "string", format: "date-time" },
+  };
+  const required = [
+    "id",
+    "spaceId",
+    "modelKey",
+    "modelVersion",
+    ...Object.entries(definition.fields).filter(([, field]) => field.required).map(([key]) => key),
+    "version",
+    "createdAt",
+    "updatedAt",
+  ];
+  if (definition.capabilities?.temporal) {
+    properties.computed = {
+      type: "object",
+      additionalProperties: false,
+      properties: { temporal: temporalComputedSchema() },
+      required: ["temporal"],
+      readOnly: true,
+    };
+    required.push("computed");
+  }
+  return { type: "object", additionalProperties: false, properties, required };
 }
 
 function versionRequestSchema(): JsonSchema {
@@ -162,6 +240,46 @@ function versionRequestSchema(): JsonSchema {
     additionalProperties: false,
     properties: { version: { type: "integer", minimum: 1 } },
     required: ["version"],
+  };
+}
+
+function temporalOccurrenceRequestSchema(): JsonSchema {
+  return {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      version: { type: "integer", minimum: 1 },
+      occurredOn: { type: "string", format: "date" },
+      note: { anyOf: [{ type: "string", maxLength: 1000 }, { type: "null" }] },
+    },
+    required: ["version", "occurredOn"],
+  };
+}
+
+function temporalOccurrenceSchema(): JsonSchema {
+  return {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      id: { type: "string", pattern: "^tmo_" },
+      recordId: { type: "string", pattern: "^rec_" },
+      occurredOn: { type: "string", format: "date" },
+      note: { anyOf: [{ type: "string" }, { type: "null" }] },
+      source: { type: "string", enum: ["initial", "manual"] },
+      intervalDays: { anyOf: [{ type: "integer" }, { type: "null" }] },
+      recordedBy: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          type: { type: "string", enum: ["user", "service", "device"] },
+          id: { type: "string" },
+          displayName: { type: "string" },
+        },
+        required: ["type", "id", "displayName"],
+      },
+      createdAt: { type: "string", format: "date-time" },
+    },
+    required: ["id", "recordId", "occurredOn", "note", "source", "intervalDays", "recordedBy", "createdAt"],
   };
 }
 
@@ -177,11 +295,17 @@ function responseSchemaRef(name: string): JsonSchema {
   };
 }
 
-function queryParameters(model: PublishedModel): unknown[] {
-  const parameters: unknown[] = [];
+function parameterMap(model: PublishedModel): Map<string, Record<string, unknown>> {
+  const parameters = new Map<string, Record<string, unknown>>();
+  const put = (parameter: Record<string, unknown> & { name: string }) => parameters.set(parameter.name, parameter);
+
   if (model.definition.query?.searchable?.length) {
-    parameters.push({ name: "q", in: "query", schema: { type: "string", minLength: 1, maxLength: 100 } });
+    put({ name: "q", in: "query", schema: { type: "string", minLength: 1, maxLength: 100 } });
   }
+
+  const temporal = model.definition.capabilities?.temporal;
+  const calendar = model.definition.capabilities?.calendar;
+
   for (const fieldKey of model.definition.query?.filterable ?? []) {
     const field = model.definition.fields[fieldKey];
     if (!field) continue;
@@ -189,32 +313,147 @@ function queryParameters(model: PublishedModel): unknown[] {
     if (field.type === "enum") {
       schema = { type: "string", description: "One enum value, or a comma-separated set of enum values" };
     }
-    parameters.push({ name: fieldKey, in: "query", schema });
+    if (
+      (temporal?.subjectPersonField === fieldKey || calendar?.attendeePersonField === fieldKey)
+      && (field.type === "person" || field.type === "person_list")
+    ) {
+      schema = { anyOf: [{ type: "string", pattern: "^per_" }, { const: "me" }] };
+    }
+    put({ name: fieldKey, in: "query", schema });
     if (["date", "datetime", "integer", "number"].includes(field.type)) {
-      parameters.push({ name: `${fieldKey}From`, in: "query", schema: fieldSchema({ ...field, nullable: false, readOnly: false }) });
-      parameters.push({ name: `${fieldKey}To`, in: "query", schema: fieldSchema({ ...field, nullable: false, readOnly: false }) });
+      put({ name: `${fieldKey}From`, in: "query", schema: fieldSchema({ ...field, nullable: false, readOnly: false }) });
+      put({ name: `${fieldKey}To`, in: "query", schema: fieldSchema({ ...field, nullable: false, readOnly: false }) });
     }
   }
-  const sortValues = ["createdAt:asc", "createdAt:desc", "updatedAt:asc", "updatedAt:desc"];
+
+  const sortValues = new Set([
+    "createdAt:asc",
+    "createdAt:desc",
+    "updatedAt:asc",
+    "updatedAt:desc",
+  ]);
   for (const fieldKey of model.definition.query?.sortable ?? []) {
-    sortValues.push(`${fieldKey}:asc`, `${fieldKey}:desc`);
+    sortValues.add(`${fieldKey}:asc`);
+    sortValues.add(`${fieldKey}:desc`);
   }
-  parameters.push({ name: "sort", in: "query", schema: { type: "string", enum: sortValues, default: "createdAt:desc" } });
-  parameters.push({ name: "limit", in: "query", schema: { type: "integer", minimum: 1, maximum: 200, default: 100 } });
-  parameters.push({ name: "cursor", in: "query", schema: { type: "string" } });
+
+  if (temporal) {
+    put({ name: "attentionOnly", in: "query", schema: { type: "boolean", default: false } });
+    sortValues.add("attention:desc");
+    sortValues.add("effectiveDate:asc");
+    sortValues.add("effectiveDate:desc");
+  }
+
+  if (calendar) {
+    put({ name: "rangeStart", in: "query", schema: { type: "string", format: "date-time" }, "x-lifespace-paired-with": "rangeEnd" });
+    put({ name: "rangeEnd", in: "query", schema: { type: "string", format: "date-time" }, "x-lifespace-paired-with": "rangeStart" });
+    put({ name: "dateStart", in: "query", schema: { type: "string", format: "date" }, "x-lifespace-paired-with": "dateEndExclusive" });
+    put({ name: "dateEndExclusive", in: "query", schema: { type: "string", format: "date" }, "x-lifespace-paired-with": "dateStart" });
+    sortValues.add("calendarStart:asc");
+    sortValues.add("calendarStart:desc");
+  }
+
+  put({
+    name: "sort",
+    in: "query",
+    schema: {
+      type: "string",
+      enum: [...sortValues],
+      default: temporal ? "effectiveDate:asc" : calendar ? "calendarStart:asc" : "createdAt:desc",
+    },
+  });
+  put({ name: "limit", in: "query", schema: { type: "integer", minimum: 1, maximum: 200, default: 100 } });
+  put({ name: "cursor", in: "query", schema: { type: "string" } });
   return parameters;
 }
 
-function modelOpenApi(model: PublishedModel, schemas: Record<string, JsonSchema>, paths: Record<string, unknown>) {
+function queryParameters(model: PublishedModel): unknown[] {
+  return [...parameterMap(model).values()];
+}
+
+function addTemporalContract(
+  model: PublishedModel,
+  schemas: Record<string, JsonSchema>,
+  paths: Record<string, unknown>,
+  recordPath: string,
+  resourceName: string,
+): void {
+  const temporal = model.definition.capabilities?.temporal;
+  if (!temporal?.occurrences) return;
+
+  const occurrenceName = schemaName(model, "TemporalOccurrence");
+  const occurrenceListName = schemaName(model, "TemporalOccurrenceListResponse");
+  const occurrenceRequestName = schemaName(model, "RecordOccurrenceRequest");
+  schemas[occurrenceName] = temporalOccurrenceSchema();
+  schemas[occurrenceRequestName] = temporalOccurrenceRequestSchema();
+  schemas[occurrenceListName] = {
+    type: "object",
+    required: ["data"],
+    properties: {
+      data: {
+        type: "object",
+        required: ["items", "nextCursor"],
+        properties: {
+          items: { type: "array", items: { $ref: `#/components/schemas/${occurrenceName}` } },
+          nextCursor: { anyOf: [{ type: "string" }, { type: "null" }] },
+        },
+      },
+    },
+  };
+
+  paths[`${recordPath}/occurrences`] = {
+    parameters: [
+      { $ref: "#/components/parameters/SpaceId" },
+      { $ref: "#/components/parameters/RecordId" },
+    ],
+    get: {
+      operationId: `list_${model.key}_occurrences`,
+      tags: [model.definition.display.plural],
+      parameters: [
+        { name: "limit", in: "query", schema: { type: "integer", minimum: 1, maximum: 200, default: 100 } },
+        { name: "cursor", in: "query", schema: { type: "string" } },
+      ],
+      responses: {
+        "200": {
+          description: "Temporal occurrence history",
+          content: { "application/json": { schema: { $ref: `#/components/schemas/${occurrenceListName}` } } },
+        },
+      },
+    },
+  };
+
+  paths[`${recordPath}/actions/record-occurrence`] = {
+    parameters: [
+      { $ref: "#/components/parameters/SpaceId" },
+      { $ref: "#/components/parameters/RecordId" },
+    ],
+    post: {
+      operationId: `record_occurrence_${model.key}`,
+      tags: [model.definition.display.plural],
+      requestBody: {
+        required: true,
+        content: { "application/json": { schema: { $ref: `#/components/schemas/${occurrenceRequestName}` } } },
+      },
+      responses: {
+        "200": {
+          description: "Temporal occurrence recorded",
+          content: { "application/json": { schema: responseSchemaRef(resourceName) } },
+        },
+      },
+    },
+  };
+}
+
+function modelOpenApi(model: PublishedModel, schemas: Record<string, JsonSchema>, paths: Record<string, unknown>): void {
   const createName = schemaName(model, "Create");
   const updateName = schemaName(model, "Update");
   const resourceName = schemaName(model, "Resource");
   const versionName = schemaName(model, "VersionRequest");
   const listName = schemaName(model, "ListResponse");
 
-  schemas[createName] = createSchema(model.definition);
-  schemas[updateName] = updateSchema(model.definition);
-  schemas[resourceName] = resourceSchema(model.definition);
+  schemas[createName] = createSchema(model);
+  schemas[updateName] = updateSchema(model);
+  schemas[resourceName] = resourceSchema(model);
   schemas[versionName] = versionRequestSchema();
   schemas[listName] = {
     type: "object",
@@ -239,15 +478,29 @@ function modelOpenApi(model: PublishedModel, schemas: Record<string, JsonSchema>
       operationId: `list_${model.key}`,
       tags: [model.definition.display.plural],
       parameters: queryParameters(model),
-      responses: { "200": { description: "Model records", content: { "application/json": { schema: { $ref: `#/components/schemas/${listName}` } } } } },
+      responses: {
+        "200": {
+          description: "Model records",
+          content: { "application/json": { schema: { $ref: `#/components/schemas/${listName}` } } },
+        },
+      },
     },
     post: {
       operationId: `create_${model.key}`,
       tags: [model.definition.display.plural],
-      requestBody: { required: true, content: { "application/json": { schema: { $ref: `#/components/schemas/${createName}` } } } },
-      responses: { "201": { description: "Created model record", content: { "application/json": { schema: responseSchemaRef(resourceName) } } } },
+      requestBody: {
+        required: true,
+        content: { "application/json": { schema: { $ref: `#/components/schemas/${createName}` } } },
+      },
+      responses: {
+        "201": {
+          description: "Created model record",
+          content: { "application/json": { schema: responseSchemaRef(resourceName) } },
+        },
+      },
     },
   };
+
   paths[recordPath] = {
     parameters: [
       { $ref: "#/components/parameters/SpaceId" },
@@ -256,18 +509,34 @@ function modelOpenApi(model: PublishedModel, schemas: Record<string, JsonSchema>
     get: {
       operationId: `get_${model.key}`,
       tags: [model.definition.display.plural],
-      responses: { "200": { description: "Model record", content: { "application/json": { schema: responseSchemaRef(resourceName) } } } },
+      responses: {
+        "200": {
+          description: "Model record",
+          content: { "application/json": { schema: responseSchemaRef(resourceName) } },
+        },
+      },
     },
     patch: {
       operationId: `update_${model.key}`,
       tags: [model.definition.display.plural],
-      requestBody: { required: true, content: { "application/json": { schema: { $ref: `#/components/schemas/${updateName}` } } } },
-      responses: { "200": { description: "Updated model record", content: { "application/json": { schema: responseSchemaRef(resourceName) } } } },
+      requestBody: {
+        required: true,
+        content: { "application/json": { schema: { $ref: `#/components/schemas/${updateName}` } } },
+      },
+      responses: {
+        "200": {
+          description: "Updated model record",
+          content: { "application/json": { schema: responseSchemaRef(resourceName) } },
+        },
+      },
     },
     delete: {
       operationId: `delete_${model.key}`,
       tags: [model.definition.display.plural],
-      requestBody: { required: true, content: { "application/json": { schema: { $ref: `#/components/schemas/${versionName}` } } } },
+      requestBody: {
+        required: true,
+        content: { "application/json": { schema: { $ref: `#/components/schemas/${versionName}` } } },
+      },
       responses: { "204": { description: "Deleted" } },
     },
   };
@@ -281,11 +550,21 @@ function modelOpenApi(model: PublishedModel, schemas: Record<string, JsonSchema>
       post: {
         operationId: `${actionKey}_${model.key}`,
         tags: [model.definition.display.plural],
-        requestBody: { required: true, content: { "application/json": { schema: { $ref: `#/components/schemas/${versionName}` } } } },
-        responses: { "200": { description: "Action result", content: { "application/json": { schema: responseSchemaRef(resourceName) } } } },
+        requestBody: {
+          required: true,
+          content: { "application/json": { schema: { $ref: `#/components/schemas/${versionName}` } } },
+        },
+        responses: {
+          "200": {
+            description: "Action result",
+            content: { "application/json": { schema: responseSchemaRef(resourceName) } },
+          },
+        },
       },
     };
   }
+
+  addTemporalContract(model, schemas, paths, recordPath, resourceName);
 }
 
 function jsonSchemaBundle(models: PublishedModel[]): JsonSchema {
@@ -293,10 +572,11 @@ function jsonSchemaBundle(models: PublishedModel[]): JsonSchema {
   const metadata: Record<string, unknown> = {};
   for (const model of models) {
     const prefix = schemaName(model, "");
-    defs[`${prefix}Create`] = createSchema(model.definition);
-    defs[`${prefix}Update`] = updateSchema(model.definition);
-    defs[`${prefix}Resource`] = resourceSchema(model.definition);
+    defs[`${prefix}Create`] = createSchema(model);
+    defs[`${prefix}Update`] = updateSchema(model);
+    defs[`${prefix}Resource`] = resourceSchema(model);
     defs[`${prefix}VersionRequest`] = versionRequestSchema();
+    const capabilityActions = model.definition.capabilities?.temporal?.occurrences ? ["record-occurrence"] : [];
     metadata[model.key] = {
       route: model.route,
       version: model.version,
@@ -304,7 +584,8 @@ function jsonSchemaBundle(models: PublishedModel[]): JsonSchema {
       createSchema: `#/$defs/${prefix}Create`,
       updateSchema: `#/$defs/${prefix}Update`,
       resourceSchema: `#/$defs/${prefix}Resource`,
-      actions: Object.keys(model.definition.actions ?? {}).sort(),
+      actions: [...Object.keys(model.definition.actions ?? {}).sort(), ...capabilityActions],
+      capabilities: Object.keys(model.definition.capabilities ?? {}).sort(),
     };
   }
   return {
@@ -340,10 +621,22 @@ export async function generateModelContract(input: PublishedModel[]): Promise<Mo
     security: [{ bearerAuth: [] }],
     paths,
     components: {
-      securitySchemes: { bearerAuth: { type: "http", scheme: "bearer", bearerFormat: "JWT or lsp_pat_" } },
+      securitySchemes: {
+        bearerAuth: { type: "http", scheme: "bearer", bearerFormat: "JWT or lsp_pat_" },
+      },
       parameters: {
-        SpaceId: { name: "spaceId", in: "path", required: true, schema: { type: "string", pattern: "^spc_" } },
-        RecordId: { name: "recordId", in: "path", required: true, schema: { type: "string", pattern: "^rec_" } },
+        SpaceId: {
+          name: "spaceId",
+          in: "path",
+          required: true,
+          schema: { type: "string", pattern: "^spc_" },
+        },
+        RecordId: {
+          name: "recordId",
+          in: "path",
+          required: true,
+          schema: { type: "string", pattern: "^rec_" },
+        },
       },
       schemas,
     },
