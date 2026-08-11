@@ -85,7 +85,7 @@ function referenceType(
     return { kind: "unknown" };
   }
   const [, source, fieldKey] = match;
-  if (source === "record" && options.allowRecord === false) {
+  if (source === "record" && options.allowRecord !== true) {
     issue(issues, path, "POLICY_RECORD_REFERENCE_NOT_ALLOWED", `record references are not allowed for ${options.operation}`);
   }
   if (source === "input" && options.allowInput !== true) {
@@ -232,7 +232,9 @@ export function validateModelPolicies(
     const result = validatePolicyExpression(raw[operation], fields, {
       operation,
       allowInput: operation === "create" || operation === "update",
-      allowRecord: operation !== "create",
+      // v1 list queries evaluate read policy once before pagination; record-aware
+      // read predicates wait for the policy-aware query compiler.
+      allowRecord: operation === "update" || operation === "delete",
     }, `policies.${operation}`);
     issues.push(...result.issues);
     if (result.policy) policies[operation] = result.policy;
