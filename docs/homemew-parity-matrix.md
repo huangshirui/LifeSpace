@@ -2,9 +2,9 @@
 
 Updated: 2026-08-11
 
-This document freezes the Phase 2 migration baseline. It is derived from HomeMew `main` at commit `6ecdc7f3`, the canonical HomeMew OpenAPI, Core route registration, migrations, Wrangler bindings, product rules, and released Mini Program API wrappers.
+This document freezes the production-used HomeMew capability baseline and tracks its migration to native LifeSpace capabilities. It is derived from HomeMew `main` at commit `6ecdc7f3`, the canonical HomeMew OpenAPI, Core route registration, migrations, Wrangler bindings, product rules, and released Mini Program API wrappers.
 
-LifeSpace must update this matrix whenever a released HomeMew client starts depending on a new Core capability during Phase 2.
+After Phase 2.6, the migration direction changed: **parity means preserving required business/data semantics through the native LifeSpace model, not preserving HomeMew URL paths, response shapes, token formats, or runtime compatibility façades.** HomeMew clients will migrate to the native LifeSpace contract.
 
 ## Baseline inventory
 
@@ -12,13 +12,13 @@ LifeSpace must update this matrix whenever a released HomeMew client starts depe
 
 | Surface | HomeMew baseline | Migration classification | LifeSpace target |
 | --- | --- | --- | --- |
-| Worker | `homemew-core` | Runtime baseline | LifeSpace Core plus temporary legacy compatibility route |
+| Worker | `homemew-core` | Runtime baseline | Native LifeSpace Core; no production HomeMew API façade target |
 | D1 | `homemew-core`, schema version 11 | Durable | Repeatable export/transform into LifeSpace Core D1 |
-| R2 | `homemew-assets` via `AVATARS` | Object storage | Copy verified objects into the isolated LifeSpace assets bucket |
-| Queue | `homemew-creation-drafts` | Ephemeral | Do not migrate messages; drain or let expire during cutover |
-| Cron | hourly creation-draft cleanup | Runtime behavior | Re-create only if creation drafts remain in the parity freeze |
+| R2 | `homemew-assets` via `AVATARS` | Object storage | Copy/transform verified objects into isolated LifeSpace platform storage |
+| Queue | `homemew-creation-drafts` | Ephemeral | Re-create native Space-aware workflow only if still required; do not migrate in-flight messages |
+| Cron | hourly creation-draft cleanup | Runtime behavior | Re-create only if native creation drafts remain required |
 | Rate limit | AI rate-limit binding | Ephemeral policy state | Re-provision; do not migrate counters |
-| Secrets | JWT and AI/provider secrets | Secret | Re-provision through deployment secrets; never export as data |
+| Secrets | JWT and AI/provider secrets | Secret | Re-provision through deployment/application secrets; never export as data |
 
 The HomeMew D1 history is:
 
@@ -34,149 +34,160 @@ The HomeMew D1 history is:
 10. `0010_create_wishes.sql`
 11. `0011_create_creation_draft_jobs.sql`
 
-### Contract inventory
+## Contract/capability inventory
 
-The HomeMew OpenAPI currently exposes 60 implemented operations. The table groups them by migration slice; the OpenAPI remains authoritative for request/response details, except where an observed runtime drift is explicitly recorded below.
+The HomeMew OpenAPI baseline exposes 60 implemented operations. The table groups those operations by migration capability. The old OpenAPI remains authoritative for understanding source behavior, but it is **not** the target LifeSpace public contract.
 
-| Capability | Implemented HomeMew surface | Data class | LifeSpace replacement | Phase 2 status |
-| --- | --- | --- | --- | --- |
-| System probes | health and schema/status | Runtime | Native Core probes | Foundation complete |
-| User profile | read/update profile; user avatar | Durable + object | Identity user profile plus platform object behavior | Not started |
-| Family listing/profile | list/create/read/update family | Durable | family-kind Space plus HomeMew compatibility mapping | Deployed and verified in staging |
-| Members | list, change role, remove, leave | Durable | Space membership + linked Space Person | Deployed and verified in staging |
-| Invitations | create/list/revoke/preview/join | Durable | Core-owned Space invitations | Deployed and verified in staging |
-| Family avatar | upload/read derived URL | Object | Space asset behavior | Deferred to R2 slice |
-| Events | list/search/filter/create/read/update/delete; attendees | Durable | Space-owned events; attendee Space People | Deployed and verified in staging |
-| Tasks | list/search/filter/create/read/update/delete/complete/reopen; assignees | Durable | Space-owned tasks; assignee Space People | Deployed and verified in staging |
-| Day records | CRUD, occurrence history, archive/restore | Durable | Space-owned day records and occurrences | Deployed and verified in staging |
-| Wishes | CRUD, claim/unclaim/fulfill/reopen/archive/restore | Durable | Space-owned wishes with owner/claimant/fulfiller Space People | Deployed and verified in staging |
-| External integrations | integration CRUD, credential issue/list/revoke, OAuth client credentials | Durable credentials + secret material | Service principal + new opaque `lsp_pat_*` token for owner-controlled n8n/curl/scripts/MCP, optional OAuth `client_credentials` for third parties, and explicit Space Data Grants/scopes; never copy `hmw_pat_*` plaintext | Not started |
-| Creation drafts | asynchronous interpret/job polling and cleanup | Ephemeral | Space-aware queue workflow if retained at freeze | Not started |
-| Internal user creation | trusted backend user creation | Durable identity | LifeSpace Identity trusted application user creation | Foundation replacement exists |
+| Capability | HomeMew baseline | Native LifeSpace replacement | Status / cutover treatment |
+| --- | --- | --- | --- |
+| System probes | health and schema/status | Native Core probes | Foundation complete |
+| User profile | read/update profile; user avatar | Final Identity profile + native platform object behavior | Remaining Phase 2 work |
+| Family listing/profile | list/create/read/update family | `Space(kind=family)` | Native deployed; legacy façade scheduled for removal |
+| Members | list, change role, remove, leave | Space membership + linked Space Person | Native deployed; legacy façade scheduled for removal |
+| Invitations | create/list/revoke/preview/join | Core-owned Space invitations | Native deployed; legacy façade scheduled for removal |
+| Family avatar | upload/read derived URL | Native Space/object behavior | Remaining Phase 2 work |
+| Events | CRUD/search/filter; attendees | Space-owned events + Space Person attendees | Native deployed; legacy façade scheduled for removal |
+| Tasks | CRUD/search/filter/complete/reopen; assignees | Space-owned tasks + Space Person assignees | Native deployed; legacy façade scheduled for removal |
+| Day records | CRUD, occurrence history, archive/restore | Space-owned day records + occurrences | Native deployed; legacy façade scheduled for removal |
+| Wishes | CRUD, lifecycle actions | Space-owned wishes + Space Person owner/claimant/fulfiller | Native deployed; legacy façade scheduled for removal |
+| External integrations | integration CRUD, credential issue/list/revoke, OAuth client credentials | Service principal + `lsp_pat_*` + optional OAuth `client_credentials` + Data Grants/scopes | Remaining Phase 2 work; new credentials required |
+| Creation drafts | asynchronous interpret/job polling and cleanup | Native Space-aware queue workflow if retained | Remaining Phase 2 decision/work |
+| Internal user creation | trusted backend user creation | LifeSpace Identity trusted application user creation | Foundation replacement exists |
 
 ### Explicitly absent from the released baseline
 
-The current HomeMew OpenAPI has no implemented anniversary, notification, outbound webhook, or general attachment API. These are not Phase 2 parity blockers unless they become implemented and consumed before the freeze. If that happens, add them to this matrix before changing HomeMew production behavior.
+The frozen HomeMew baseline has no implemented anniversary, notification, outbound webhook, or general attachment API. They are not HomeMew cutover blockers unless a released HomeMew client starts depending on them before the migration freeze is closed.
 
-The Mini Program currently consumes family, member, invitation, event, task, day-record, wish, integration, avatar, and creation-draft capabilities. `currentFamilyId` remains presentation state and never authorizes access.
+The Mini Program baseline consumes family/member/invitation/event/task/day-record/wish/integration/avatar/creation-draft capabilities. `currentFamilyId` is presentation state only; in the native client it becomes a selected mapped `spaceId`, not an authorization claim.
 
-## Family Space transformation policy
+## Direction-reset rules
 
-The first Phase 2 vertical slice maps HomeMew household semantics onto the existing Space model.
+From 2026-08-11 onward:
 
-| HomeMew concept | LifeSpace concept | Rule |
+- Native LifeSpace routes use `/api/v1/spaces/{spaceId}/...` or other canonical platform routes.
+- Do not add new `/api/v1/families/...` routes for migration convenience.
+- Do not keep old HomeMew response field names or role names as a LifeSpace public API requirement.
+- Do not add a production legacy HomeMew token verifier.
+- HomeMew UI may retain product terms such as "家庭" while its API/data layer uses `Space`, membership and Space Person.
+- Migration mappings and transforms remain mandatory where IDs/models change.
+- Already-implemented Phase 2.2-2.6 compatibility code is transitional and must be removed before the target staging runtime is accepted for native HomeMew client migration/cutover.
+
+## Core transformation policies
+
+### Family -> Space
+
+| HomeMew concept | LifeSpace concept | Migration/client rule |
 | --- | --- | --- |
-| `fam_*` family | `spc_*` Space with `kind=family` | Use an explicit migration map; do not reinterpret IDs |
-| creator/admin | owner or admin membership | The creator becomes owner; other HomeMew admins become admin |
-| member | editor membership | HomeMew members can mutate household domains, so viewer would be too weak |
-| represented member | linked Space Person | Every active migrated member has one active linked person in the same Space |
-| family timezone | Space timezone | Store an IANA timezone on the Space; migrated families preserve their value |
-| max 8 active members | family Space policy | Enforce transactionally in Core |
-| max 3 created families | HomeMew compatibility policy | Do not impose this HomeMew product limit on every LifeSpace application |
-| invitation | Space invitation | Store only a token hash; return plaintext once; join atomically validates expiry, uses and member limit |
-| active admin invariant | owner/admin invariant | A family Space must retain at least one active owner/admin |
-| remove/leave | soft-deleted membership/person link lifecycle | Preserve history and run domain cleanup in the same Core-owned operation |
+| `fam_*` family | `spc_*` Space with `kind=family` | Use explicit migration mapping; HomeMew client stores/uses `spaceId` after migration |
+| creator/admin | owner or admin membership | Creator becomes owner when valid; other admins become admin |
+| member | editor membership | Preserve proven mutation authority unless intentionally changed in final platform policy |
+| represented member | linked Space Person | Domain person references use Person IDs, not login user IDs |
+| family timezone | Space timezone | Preserve IANA timezone |
+| max 8 active members | family Space policy | Platform family-kind invariant as implemented |
+| max 3 created families | HomeMew application policy | Must not remain a generic Core platform restriction solely for HomeMew compatibility |
+| invitation | Space invitation | Native invitation lifecycle and atomic join/reactivation |
 
-Generic Space APIs use LifeSpace roles. The temporary HomeMew compatibility facade maps `owner/admin -> admin` and `editor -> member`; `viewer` has no legacy HomeMew equivalent and must not be exposed through the old family-member mutation contract.
+The source family creator is mapped to owner only when still an active administrator; otherwise the deterministic active-admin fallback defined by the migration transform applies. This is migration semantics, not a requirement to expose old HomeMew role responses.
 
-The source family creator is mapped to `owner` only when still an active administrator. If the creator is no longer active, the earliest active administrator becomes owner so both the HomeMew last-admin invariant and the LifeSpace manager invariant remain true. Because `owner` is immutable in the native contract, the legacy role endpoint returns a conflict instead of demoting it. This is an intentional platform difference recorded for compatibility testing.
+### People references
 
-Compatibility tables persist `legacy_user -> LifeSpace user`, `fam -> Space`, member -> membership/Space Person, and invite mappings. They are transitional translation/audit metadata only; all mutable family state remains in native LifeSpace tables. HomeMew user display names are retained as migration snapshots only to support member presentation and invite joins until the user-profile slice owns the final compatibility behavior.
+HomeMew commonly used `userId` for both login identity and represented household subject. Native LifeSpace separates those concepts.
 
-Invitations belong in Core because membership activation, invite redemption, active-member limits, and Space Person creation/reactivation must be one authoritative transaction. External-provider identities and WeChat `openid` mappings remain in the HomeMew application boundary.
+| HomeMew field/use | Native LifeSpace use |
+| --- | --- |
+| attendee user ID | attendee Space Person ID |
+| assignee user ID | assignee Space Person ID |
+| day-record `subjectUserId` | `subjectPersonId` |
+| wish owner/claimant/fulfiller user | Space Person IDs |
+| current authenticated actor | verified principal/user from credential, never request user ID |
 
-Family avatar parity is intentionally not claimed by the first membership/invitation slice. It remains unavailable on LifeSpace compatibility endpoints until the R2 object migration slice is complete.
+HomeMew client adapters must migrate to Person IDs for domain relationships. The platform must not retain a permanent user-ID translation façade to hide this model change.
 
-## Task transformation and compatibility policy
+### Tasks
 
-Phase 2.4 keeps one native task record per task and translates only the application-facing identity shape.
+- Preserve stable `tsk_*` IDs where practical.
+- Preserve `pending`, `completed`, `cancelled` lifecycle semantics.
+- Preserve date-only `dueDate`, optimistic concurrency, soft deletion and audit history.
+- Same-Space assignee constraints remain native invariants.
+- The old `includeNoDue` OpenAPI/runtime drift is source-system history. Native LifeSpace documents one explicit final behavior; it does not need to preserve the legacy omission behavior after the HomeMew client migrates.
 
-| HomeMew concept | LifeSpace concept | Rule |
-| --- | --- | --- |
-| `tsk_*` task | Space-owned `tasks` row | Preserve the stable task ID while ownership changes from `family_id` to `space_id` |
-| `task_assignees.user_id` | `task_assignees.person_id` | Resolve through the exact family membership mapping to the authoritative same-Space `space_person` |
-| `assigneeIds` | `assigneePersonIds` | Legacy IDs exist only on the HomeMew compatibility surface; native APIs use Space Person IDs |
-| `pending/completed/cancelled` | same lifecycle values | Preserve source status and completion invariants; complete/reopen remain action endpoints |
-| `completedBy/createdBy/updatedBy` | principal actor snapshot | HomeMew `system` actors become LifeSpace `service`; user actors map through the frozen user mapping |
-| `dueDate` | date-only `YYYY-MM-DD` | Preserve date-only semantics; timestamps and the retired `due` field remain invalid |
-| optimistic `version` | optimistic `version` | PATCH, DELETE, complete and reopen reject stale versions |
-| delete | soft delete | Preserve history and hide deleted tasks from normal reads/lists |
+### Day records
 
-The D1 schema additionally enforces same-Space task assignees, so a valid foreign-key reference alone cannot attach a Person from another Space.
+- Preserve `elapsed`, `countdown`, `cycle` domain semantics.
+- Preserve Space-timezone date-only `today` behavior.
+- Preserve occurrence history and anchor/next-due invariants.
+- Preserve historical subject meaning after Person deactivation while requiring a valid active Person for new assignments as defined by the native API.
+- Preserve optimistic concurrency, archive/restore and soft deletion.
 
-### Known HomeMew `includeNoDue` contract/runtime drift
+### Wishes
 
-The frozen HomeMew OpenAPI declares `includeNoDue` with a default of `true`, but the deployed HomeMew task-list runtime evaluates an omitted query parameter as `false` (`includeNoDue === "true"`). Existing tests cover the explicit `includeNoDue=true` behavior but do not establish the documented default.
+- Preserve stable `wsh_*` IDs where practical.
+- Use native Space Person references for owner/claimant/fulfiller.
+- Preserve claim/unclaim/fulfill/reopen/archive/restore semantics selected for the native LifeSpace domain.
+- Preserve historical people meaning after Person deactivation.
+- Preserve date-only `desiredDate`, optimistic concurrency, actor history and soft deletion.
+- Service/Agent lifecycle authority is defined by final LifeSpace principal/scope/Data Grant rules, not inferred from HomeMew user-only behavior.
 
-LifeSpace Phase 2.4 therefore preserves the observed HomeMew runtime behavior on the compatibility route: omitted means `false`; callers that want undated tasks alongside a due-date range must send `includeNoDue=true`. The native LifeSpace contract also states its behavior explicitly instead of inheriting the contradictory HomeMew documentation. This drift must not be silently changed during migration; a future HomeMew contract correction can be made separately if desired.
+## Migration artifacts vs runtime compatibility
 
-## Day-record transformation and compatibility policy
+The following **remain required**:
 
-Phase 2.5 preserves HomeMew's date-only household semantics while moving ownership and person references onto the generic Space model.
+- `legacy_user_id -> LifeSpace user_id` when changed.
+- `family_id -> space_id`.
+- family member -> membership / Space Person.
+- historical actor/person mappings.
+- event/task/day-record/wish transforms and semantic validation.
+- object-storage migration manifests.
+- integration/credential ID -> new service-principal/credential metadata mapping.
+- migration count, referential-integrity and authorization reports.
 
-| HomeMew concept | LifeSpace concept | Rule |
-| --- | --- | --- |
-| `day_*` day record | Space-owned `day_records` row | Preserve stable record IDs while ownership changes from `family_id` to `space_id` |
-| `subjectUserId` | `subjectPersonId` | Native APIs use a same-Space `space_person`; the HomeMew facade translates the legacy user ID through the family membership/person map |
-| removed historical subject | deactivated Space Person reference | Existing records keep the Person reference and remain renderable after membership removal; assigning or filtering a new explicit subject still requires an active Person |
-| `elapsed/countdown/cycle` | same discriminated kinds | Preserve each kind's field rules and computed state semantics rather than flattening them into a generic JSON rule object |
-| family-local `today` | Space-timezone `today` | All date-only computed state and occurrence validation use the owning Space's IANA timezone |
-| `anchorDate` | date-only current anchor | Elapsed/cycle anchors cannot be moved by ordinary PATCH; they advance through occurrence creation. Countdown anchor remains directly editable |
-| `day_record_occurrences` | Space-owned record occurrence history | Preserve `dyo_*` IDs, `initial/manual` source, notes, actor history and unique date-per-record semantics |
-| cycle next due | derived persisted `next_due_date` | Must equal `anchorDate + cycleDays` and is recomputed when a new occurrence advances the anchor or when `cycleDays` changes |
-| `active/archived` | same lifecycle | Archived records remain readable but reject edits/new occurrences until restored |
-| user/system actors | principal actor snapshots | HomeMew `system` actors become LifeSpace `service`; user actors map through the frozen user mapping |
-| optimistic `version` | optimistic `version` | PATCH, DELETE, archive, restore and occurrence creation reject stale versions |
-| delete | soft delete | Preserve deletion actor/timestamp and hide deleted records from normal reads/lists |
+The following are **not target architecture**:
 
-Non-countdown records preserve their occurrence history during migration. The transform requires exactly one initial occurrence and requires the current `anchorDate` to equal the newest occurrence date. Countdown records must not have occurrence history. These validations prevent a migration from reproducing a row while silently losing the history that gives the current anchor its meaning.
+- HomeMew `/api/v1/families/...` routes in LifeSpace.
+- legacy HomeMew response façades.
+- runtime `userId -> personId` translation solely for old clients.
+- legacy HomeMew role vocabulary exposed by LifeSpace.
+- legacy HomeMew JWT issuer/audience acceptance.
+- `hmw_pat_*` credentials reinterpreted as LifeSpace credentials.
 
-The D1 schema enforces that a referenced subject Person belongs to the same Space. It intentionally does not require that the Person remain active, because the released HomeMew behavior explicitly preserves historical subject presentation after a member is removed. API mutation/filter validation is stricter and requires an active subject when resolving a new person reference.
+## External integration migration
 
-Phase 2.5 staging acceptance completed on 2026-08-11. The repeatable deployment smoke verified Core schema v6 / contract 0.6.0 and exercised Day-record creation, subject filtering, initial/manual occurrence history, atomic anchor and cycle due-date advancement, optimistic-concurrency rejection, archive read-only behavior, restore/update, authentication denial and soft deletion. Production/HomeMew traffic remained unchanged.
+HomeMew `hmw_pat_*` plaintext must never be copied into LifeSpace.
 
-## Wish transformation and compatibility policy
+For each active integration:
 
-Phase 2.6 preserves HomeMew's lifecycle ownership rules while moving all durable people relations to Space People.
+1. Create/resolve a LifeSpace service principal and registered client/application context.
+2. Translate HomeMew permissions into final LifeSpace scopes.
+3. Translate the family binding into explicit Data Grants on the mapped Space.
+4. Issue a new `lsp_pat_*` Service API Token or approved OAuth credential.
+5. Update HomeMew integration UI and the external n8n/script/MCP caller.
+6. Verify native LifeSpace allow/deny behavior in staging.
+7. Revoke the old HomeMew credential after cutover and rollback stabilization.
 
-| HomeMew concept | LifeSpace concept | Rule |
-| --- | --- | --- |
-| `wsh_*` wish | Space-owned `wishes` row | Preserve the stable wish ID while ownership changes from `family_id` to `space_id` |
-| owner user | `owner_person_id` | Resolve through the exact family membership/person mapping; native APIs return a Person ref while compatibility returns the legacy user ref |
-| claimant user | `claimant_person_id` | Preserve the historical claimant relation even after member removal; only new lifecycle actions require an active current Person |
-| fulfiller user | `fulfilled_by_person_id` | Preserve who fulfilled the wish as durable semantic history |
-| `open/claimed/fulfilled/archived` | same lifecycle | Keep HomeMew lifecycle states and action endpoints rather than flattening them into generic updates |
-| archive | archived state plus `archived_from_status` | Preserve the prior lifecycle state. Restore returns to `claimed` only if the former claimant is still active; otherwise it returns to `open` and clears the claimant |
-| `desiredDate` | nullable date-only `YYYY-MM-DD` | Preserve HomeMew date-only semantics |
-| user/system actor snapshots | LifeSpace principal actor snapshots | User actors map through the frozen user mapping; migration retains source audit meaning |
-| optimistic `version` | optimistic `version` | PATCH, DELETE and every lifecycle action reject stale versions |
-| delete | soft delete | Preserve deletion history and hide deleted wishes from ordinary reads/lists |
+Migration reports may map legacy credential identifiers to new non-secret metadata but never export plaintext credentials.
 
-The D1 schema enforces that owner, claimant and fulfiller Persons belong to the same Space, but intentionally does not require those historical Persons to remain active. Removing a member must not erase who owned, claimed or fulfilled an existing wish.
+## HomeMew client migration requirements
 
-Phase 2.6 lifecycle mutations intentionally require a current user principal with an active linked Space Person. Service/Agent behavior is not inferred from HomeMew and is deferred to the external-integrations slice, where service principals, `lsp_pat_*` credentials, scopes and Data Grants can be defined coherently.
+Before production cutover, the supported HomeMew client must:
 
-The schema-v11 Wish transform shares the exact family mapping manifest and `exportedAt` with the family transform. It preserves stable IDs, lifecycle timestamps, versions, soft deletion and removed-member historical references, and rejects inconsistent lifecycle records before SQL is emitted. Phase 2.6 staging acceptance completed on 2026-08-11 after PR #14 was merged. The normal `Deploy staging` workflow applied Core schema v7 / contract 0.7.0 and the repeatable Wish smoke completed successfully. Production/HomeMew traffic remained unchanged.
+- use `spaceId` rather than a LifeSpace legacy `familyId` route;
+- resolve/display membership and Space Person correctly;
+- send Person IDs for attendee/assignee/subject/wish-person relationships;
+- use a pinned native LifeSpace contract/client version;
+- obtain LifeSpace Identity-backed short-lived app-scoped user tokens through the trusted HomeMew WeChat adapter/Cloud Function;
+- manage LifeSpace service credentials/Grants for external integrations;
+- use only native LifeSpace profile/avatar/creation-draft behavior required by the cutover set.
 
-## Compatibility and migration rules
-
-- HomeMew production Core remains the writable baseline until the cutover gate.
-- Phase 2 does not dual-write HomeMew and LifeSpace.
-- New native routes use `/api/v1/spaces/{spaceId}/...`.
-- Temporary `/api/v1/families/...` compatibility routes, when introduced, operate on the same LifeSpace records and never create a second data store.
-- Preserve HomeMew resource IDs for domain records where practical. Maintain explicit maps for users, families/Spaces, memberships/Space People, and any ID that changes.
-- Preserve date-only, UTC, timezone, cursor, optimistic-concurrency, soft-delete, and audit semantics unless an intentional difference is recorded here.
-- External system credentials are durable product data, but deployment secrets are re-provisioned.
-- Queue messages, rate-limit counters, expired tokens, and expired creation drafts are not migrated.
-- Every migration transform must be repeatable against a fresh staging target and validated by counts, relationships, authorization behavior, and representative API responses.
+The UI may continue to present HomeMew concepts such as family/member. This is an application presentation concern, not a platform compatibility requirement.
 
 ## Freeze rule
 
 From this baseline forward, any new HomeMew Core capability intended for a released client must include, in the same change:
 
 1. a parity-matrix entry;
-2. a LifeSpace replacement/compatibility decision;
-3. a migration classification and transform impact;
-4. a decision on whether it blocks cutover.
+2. the final native LifeSpace replacement or an explicit decision that it remains application-local;
+3. migration classification and transform/object/secret impact;
+4. required HomeMew client change;
+5. a decision on whether it blocks cutover.
 
-A HomeMew-only feature may not silently expand the production migration scope.
+A HomeMew-only feature may not silently expand the production migration scope, and no new legacy runtime compatibility requirement may be introduced without an explicit new architecture decision.
