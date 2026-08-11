@@ -1,6 +1,6 @@
 # HomeMew -> LifeSpace parity matrix
 
-Updated: 2026-08-10
+Updated: 2026-08-11
 
 This document freezes the Phase 2 migration baseline. It is derived from HomeMew `main` at commit `6ecdc7f3`, the canonical HomeMew OpenAPI, Core route registration, migrations, Wrangler bindings, product rules, and released Mini Program API wrappers.
 
@@ -48,7 +48,7 @@ The HomeMew OpenAPI currently exposes 60 implemented operations. The table group
 | Family avatar | upload/read derived URL | Object | Space asset behavior | Deferred to R2 slice |
 | Events | list/search/filter/create/read/update/delete; attendees | Durable | Space-owned events; attendee Space People | Deployed and verified in staging |
 | Tasks | list/search/filter/create/read/update/delete/complete/reopen; assignees | Durable | Space-owned tasks; assignee Space People | Deployed and verified in staging |
-| Day records | CRUD, occurrence history, archive/restore | Durable | Space-owned day records and occurrences | Implemented in PR #12; staging pending |
+| Day records | CRUD, occurrence history, archive/restore | Durable | Space-owned day records and occurrences | Deployed and verified in staging |
 | Wishes | CRUD, claim/unclaim/fulfill/reopen/archive/restore | Durable | Space-owned wishes and lifecycle | Not started |
 | External integrations | integration CRUD, credential issue/list/revoke, OAuth client credentials | Durable credentials + secret material | Service principal + new opaque `lsp_pat_*` token for owner-controlled n8n/curl/scripts/MCP, optional OAuth `client_credentials` for third parties, and explicit Space Data Grants/scopes; never copy `hmw_pat_*` plaintext | Not started |
 | Creation drafts | asynchronous interpret/job polling and cleanup | Ephemeral | Space-aware queue workflow if retained at freeze | Not started |
@@ -132,6 +132,8 @@ Phase 2.5 preserves HomeMew's date-only household semantics while moving ownersh
 Non-countdown records preserve their occurrence history during migration. The transform requires exactly one initial occurrence and requires the current `anchorDate` to equal the newest occurrence date. Countdown records must not have occurrence history. These validations prevent a migration from reproducing a row while silently losing the history that gives the current anchor its meaning.
 
 The D1 schema enforces that a referenced subject Person belongs to the same Space. It intentionally does not require that the Person remain active, because the released HomeMew behavior explicitly preserves historical subject presentation after a member is removed. API mutation/filter validation is stricter and requires an active subject when resolving a new person reference.
+
+Phase 2.5 staging acceptance completed on 2026-08-11. The repeatable deployment smoke verified Core schema v6 / contract 0.6.0 and exercised Day-record creation, subject filtering, initial/manual occurrence history, atomic anchor and cycle due-date advancement, optimistic-concurrency rejection, archive read-only behavior, restore/update, authentication denial and soft deletion. Production/HomeMew traffic remained unchanged.
 
 ## Compatibility and migration rules
 
