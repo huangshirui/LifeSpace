@@ -75,7 +75,7 @@ describe("Model Registry", () => {
   it("retires the active model without deleting version history", async () => {
     const definition = noteDefinition(`notes-${crypto.randomUUID().slice(0, 8)}`);
     const published = await publishModelDefinition(bindings(), publisher, definition, "initial");
-    await retireModel(bindings(), definition.key);
+    await retireModel(bindings(), publisher, definition.key);
     expect(await getPublishedModel(bindings(), definition.key)).toBeNull();
 
     const history = await (env as unknown as TestEnv).DB.prepare("SELECT state FROM model_definitions WHERE id=?")
