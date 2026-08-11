@@ -2,26 +2,32 @@
 
 ## 1. Goal
 
-Migrate HomeMew's proven shared backend capabilities into LifeSpace without breaking the current HomeMew applications, while replacing HomeMew-specific ownership and authorization assumptions with the LifeSpace platform model.
+Migrate HomeMew's proven shared backend capabilities into LifeSpace while replacing HomeMew-specific ownership, identity and authorization assumptions with the final LifeSpace platform model.
 
-The migration target is **not** "finish every future LifeSpace domain before switching HomeMew". The target is:
+The migration target is **not** "finish every future LifeSpace domain before switching HomeMew" and, as of the direction reset approved after Phase 2.6 on 2026-08-11, it is also **not** "make LifeSpace emulate the released HomeMew Core API".
 
-> Build the LifeSpace platform foundation, reach functional parity for everything the current HomeMew production clients depend on, rehearse and verify data migration, cut traffic over safely, then retire HomeMew's business Core.
+The target is:
 
-LifeSpace becomes the sole source of truth for Identity integration, Space/Data Grant authorization, shared business domains, migrations, contracts and platform infrastructure. HomeMew remains an application on top of LifeSpace.
+> Build the LifeSpace platform foundation, implement every production-used HomeMew capability through the final native LifeSpace contract, migrate HomeMew clients to that contract, rehearse and verify data migration, cut production over safely, then retire HomeMew's business Core.
+
+LifeSpace becomes the sole source of truth for Identity integration, Space/Data Grant authorization, shared business domains, migrations, contracts and platform infrastructure. HomeMew remains an application on top of LifeSpace and adapts its Mini Program, Cloud Functions/BFF and integrations to the platform rather than requiring the platform to preserve the old HomeMew API.
 
 ## 2. Non-negotiable principles
 
 - Migrate by capability, not by copying `apps/core` wholesale.
-- Keep the current HomeMew Core operational until LifeSpace is deployed, verified and able to serve every required production capability.
+- Implement new or remaining migration work against the final native LifeSpace model and contract; do not add new HomeMew runtime compatibility routes, response façades or legacy-token verification paths.
+- Compatibility code already implemented in Phase 2.2-2.6 is migration history, not target architecture. Remove it before production cutover after preserving the migration transforms and audit mappings that remain necessary.
+- Keep the current HomeMew Core operational until LifeSpace is deployed, the native HomeMew client is verified, and every required production capability is ready.
 - Do not make HomeMew depend on an undeployed or `planned` LifeSpace endpoint.
 - Do not dual-write HomeMew D1 and LifeSpace D1 during normal migration. For this project size, a short controlled write-freeze cutover is safer than distributed dual-write consistency.
 - Every durable business record has one source of truth before and after the cutover.
 - Preserve business meaning, audit history and stable resource IDs where practical. Where a platform ID must change, use an explicit migration mapping rather than pretending two identity domains are the same.
+- Migration mappings are data-migration/audit artifacts, not a runtime API compatibility layer.
 - Separate global Identity concerns from Core Space/domain authorization. Identity and Core have separate service/data ownership.
 - Production and staging resources remain physically isolated.
 - Migration tooling must be repeatable and idempotent enough to run multiple staging rehearsals from a fresh target database.
-- A migration is not accepted based only on row counts. Contract, authorization, relationships, domain semantics and representative API results must also be verified.
+- A migration is not accepted based only on row counts. Contract, authorization, relationships, domain semantics and representative native API results must also be verified.
+- HomeMew product terminology may remain `family`, `member`, etc. in the UI, but application code translates those concepts to native LifeSpace `Space`, `membership` and `Space Person` contracts.
 - Old HomeMew Core code, migrations and infrastructure ownership are removed only after the new platform is stable and rollback is no longer needed.
 
 ## 3. Target runtime during and after migration
@@ -43,22 +49,23 @@ ALOHA / HomeMew / vertical apps ---> LifeSpace Core
 HomeMew Web browser
   -> same-origin HomeMew BFF
   -> Service Binding
-  -> LifeSpace Core
+  -> LifeSpace Core native API
 
 HomeMew Mini Program
-  -> short-lived app-scoped bearer token
-  -> LifeSpace Core
+  -> HomeMew login Cloud Function resolves WeChat openid -> LifeSpace user_id
+  -> LifeSpace Identity issues a short-lived HomeMew-app-scoped bearer token
+  -> Mini Program calls LifeSpace Core native API directly
 
-Legacy HomeMew API hostname/path
-  -> temporary compatibility route/alias
-  -> the same LifeSpace Core
+Owner-controlled HomeMew integrations
+  -> LifeSpace Service API Token / approved service credential
+  -> LifeSpace Core native API
 ```
 
-The old HomeMew Core remains available as the production baseline until cutover. It must not be modified into a partial LifeSpace implementation.
+There is no production target in which `homemew.aisr.online` or `/api/v1/families/...` remains a permanent façade over LifeSpace. The old HomeMew Core remains available as the production baseline until cutover, then as a temporary read-only rollback reference during stabilization.
 
 ## 4. Migration scope and parity inventory
 
-Before implementation begins, maintain a parity inventory of every HomeMew capability currently used by a released client or external integration.
+Maintain a parity inventory of every HomeMew capability currently used by a released client or external integration.
 
 Initial known capability groups include:
 
@@ -77,7 +84,7 @@ Initial known capability groups include:
 - Notifications, outbound webhooks and subscriptions that are implemented before the parity freeze.
 - `/health`, `/api/v1/status`, schema version checks and request tracing.
 
-This list is a starting point, not the final authority. Immediately before the parity phase is frozen, compare the current HomeMew OpenAPI, migrations, route registration, client calls and integration configuration. Any capability used by a released client becomes part of the required parity matrix.
+The inventory describes **business and semantic parity requirements**, not a requirement to reproduce HomeMew URL paths or response shapes. For each capability, determine the final LifeSpace replacement, data transform, downstream HomeMew client change and whether it blocks cutover.
 
 Future LifeSpace domains such as goals, assets, health, credentials, growth and school records are **not blockers** for the HomeMew migration unless a HomeMew production client starts depending on them before cutover.
 
@@ -105,7 +112,7 @@ Do not silently reinterpret `fam_*` as a platform `spc_*` identifier. Prefer a n
 fam_xxx -> spc_xxx
 ```
 
-Family settings that are truly Space-level settings may migrate to the Space. HomeMew-only presentation settings remain in the HomeMew application.
+Family settings that are truly Space-level settings may migrate to the Space. HomeMew-only presentation or product-limit settings remain in the HomeMew application boundary.
 
 ### 5.3 Family members -> Membership + Space Person
 
@@ -124,7 +131,7 @@ space_person
 
 For current HomeMew members that have login users, the migrated `space_person.linked_user_id` points at the migrated LifeSpace user.
 
-Events, tasks, health/growth records and future person-subject domains should reference Space People where the relationship represents a person inside the Space, rather than assuming every represented person is an authenticated user.
+Events, tasks, health/growth records and future person-subject domains reference Space People where the relationship represents a person inside the Space, rather than assuming every represented person is an authenticated user.
 
 ### 5.4 Business records
 
@@ -163,8 +170,8 @@ Examples:
 - Wishes and lifecycle/audit references.
 - Anniversaries or other implemented durable domains.
 - External integration definitions.
-- Credential metadata and hashes when the credential can remain valid safely.
-- Webhook subscriptions and durable delivery configuration.
+- Credential metadata when needed for migration audit/reconciliation.
+- Webhook subscriptions and durable delivery configuration when implemented before the freeze.
 - Audit/version/deletion metadata needed to preserve behavior.
 
 ### Object storage — copy or deliberately preserve by reference
@@ -207,7 +214,7 @@ Examples:
 - WeChat secrets.
 - Service secrets.
 
-Credential hashes stored as durable product data are different from deployment secrets and must be handled according to their credential contract.
+Legacy `hmw_pat_*` plaintext is not migrated. Active integrations receive new LifeSpace credentials according to `docs/service-authentication.md`.
 
 ## 7. Phase 0 — Baseline and migration controls
 
@@ -218,10 +225,10 @@ Credential hashes stored as durable product data are different from deployment s
 - [x] Establish LifeSpace repository and nested `AGENTS.md` hierarchy.
 - [x] Record platform architecture, permission and contract principles.
 - [x] Inventory all current HomeMew Core routes, OpenAPI operations, D1 migrations, R2 usage, Queues, crons, external integrations and Mini Program/Web callers.
-- [x] Build the parity matrix with `HomeMew capability -> LifeSpace replacement -> compatibility requirement -> status`.
+- [x] Build the parity matrix for the production-used HomeMew capability baseline.
 - [x] Identify all external systems and credentials that must survive cutover.
 - [x] Record current production resource names and current schema version.
-- [x] Define migration freeze rules: once parity implementation begins, any new HomeMew Core capability must also be reflected in this migration plan and LifeSpace parity matrix.
+- [x] Define migration freeze rules: any new HomeMew Core capability intended for a released client must also be reflected in this migration plan and parity matrix.
 
 ### Exit gate
 
@@ -232,7 +239,7 @@ Credential hashes stored as durable product data are different from deployment s
 
 Build the platform pieces that every migrated domain depends on before porting event/task business routes.
 
-**Status: complete — staging foundation deployed and end-to-end verified on 2026-08-10. Phase 2 may begin.**
+**Status: complete — staging foundation deployed and end-to-end verified on 2026-08-10.**
 
 ### 8.1 Engineering/runtime foundation
 
@@ -248,8 +255,6 @@ Build the platform pieces that every migrated domain depends on before porting e
 
 ### 8.2 Identity foundation
 
-Define and implement the minimum global Identity model needed for HomeMew and future applications:
-
 - [x] Global users.
 - [x] Application-owned external identity mapping boundary and trusted backend exchange contract; provider IDs stay outside LifeSpace Core/Identity storage.
 - [x] Registered applications/clients.
@@ -259,8 +264,6 @@ Define and implement the minimum global Identity model needed for HomeMew and fu
 - [x] Identity and Core signing/verification mechanism appropriate for separate services.
 - [x] Web SSO/session model documented without shared parent-domain cookies; runtime browser SSO remains demand-driven.
 - [x] Trusted backend token exchange primitive for Mini Program/application adapters; provider login and mapping remain application-owned.
-
-Do not require ALOHA/HomeMew browser sessions to share a `.aisr.online` parent cookie.
 
 ### 8.3 Core ownership/authorization foundation
 
@@ -276,8 +279,6 @@ Do not require ALOHA/HomeMew browser sessions to share a `.aisr.online` parent c
 
 ### 8.4 Staging infrastructure
 
-Create isolated staging resources before production resources are used:
-
 ```text
 auth-staging.aisr.online
 core-staging.aisr.online
@@ -288,151 +289,160 @@ staging Queue(s)
 staging secrets
 ```
 
-Never point staging Worker bindings at HomeMew production D1/R2/Queue resources.
+The Phase 1 gate was verified by the staging deployment smoke test: Identity and Core deployed independently, runtime/schema status endpoints succeeded, a trusted staging application created a user, Identity issued an RS256 app-scoped token, Core accepted it to create/read a Space, unauthenticated access was denied, and `pnpm check` passed.
 
-### Phase 1 exit gate
+## 9. Phase 2 — Native HomeMew capability migration
 
-The foundation is complete only when:
+**Status: in progress. Phase 2.1-2.6 are deployed and verified in staging. Direction reset approved after Phase 2.6 on 2026-08-11.**
 
-The Phase 1 gate was verified by the staging deployment smoke test: Identity and Core deployed independently, the runtime/schema status endpoints succeeded, a trusted staging application created a user, Identity issued an RS256 app-scoped token, Core accepted it to create/read a Space, and an unauthenticated request was denied. `pnpm check` passed before deployment.
+Phase 2 now has one purpose: ensure every production-used HomeMew backend capability has a complete **native LifeSpace** replacement and deterministic migration path.
 
-- Identity and Core can deploy independently to staging.
-- A test user can authenticate and obtain a valid app-scoped Core credential.
-- Core can create/read a Space and membership and evaluate allow/deny cases.
-- Data Grant and application-scope intersection is covered by tests.
-- `/health` and `/api/v1/status` verify the expected runtime/schema bindings.
-- CI passes contract, tests, typecheck and build.
+A slice is complete only when its native contract, schema, authorization, implementation, tests, migration transform and staging verification are complete. HomeMew legacy URL/response compatibility is no longer a completion requirement.
 
-Do not start bulk domain migration before this gate is satisfied.
+### 9.1 Completed history through Phase 2.6
 
-## 9. Phase 2 — HomeMew capability migration to functional parity
+The following work is complete and remains valid:
 
-**Status: in progress — baseline inventory frozen on 2026-08-10. Track execution in `docs/phase2-status.md` and capability coverage in `docs/homemew-parity-matrix.md`.**
+1. Family Space policy, memberships, invitations and Space People.
+2. Events and attendees as Space-owned records.
+3. Tasks and assignees as Space-owned records.
+4. Day records and occurrence history as Space-owned records.
+5. Wishes and lifecycle using Space Person references.
+6. Deterministic transforms/mappings for these durable domains.
+7. Native OpenAPI, D1 schemas, authorization and repeatable staging E2E for the completed slices.
 
-Migrate shared domains incrementally. Each domain is one complete vertical slice: contract, schema, authorization, implementation, tests, migration transform and compatibility considerations.
+Phase 2.2-2.6 also implemented temporary HomeMew compatibility routes and compatibility tests. Those implementations are preserved as historical completed work but are **not part of the target architecture** after the 2026-08-11 direction reset.
+
+### 9.2 Native-only direction reset
+
+From this point forward:
+
+- Do not add another `/api/v1/families/...` route solely for HomeMew migration.
+- Do not preserve HomeMew response field names solely to avoid changing the HomeMew client.
+- Do not add legacy HomeMew token verification to LifeSpace production.
+- Do not encode HomeMew-only product limits into generic Core APIs. For example, HomeMew's three-created-family product limit belongs in the HomeMew application policy, not generic Space creation.
+- Keep `fam_* -> spc_*`, user, membership/Person and domain ID mappings required by deterministic migration and audit.
+- Keep migration transforms and semantic validation already implemented.
+- Remove compatibility-only runtime routes, compatibility-only OpenAPI surfaces, allowlists, role/field translation and tests before the native HomeMew client is accepted for production cutover.
+
+### 9.3 Remaining Phase 2 slices
 
 Recommended order:
 
-1. Family management -> family Space policy, memberships, invitations and Space People.
-2. Events and attendees.
-3. Tasks and assignees.
-4. Day records and occurrence history.
-5. Wishes and lifecycle rules.
-6. Anniversaries if part of the released HomeMew contract by the parity freeze.
-7. R2 avatar/object behavior.
-8. External integrations, service principals, opaque Service API Tokens, optional OAuth `client_credentials`, Data Grants, and system scopes.
-9. Webhooks/notifications that exist in the released Core.
-10. AI creation drafts, Queue handling and related privacy/rate-limit behavior.
-11. Remaining production-used HomeMew Core capability discovered in Phase 0.
+1. **Native-only convergence / compatibility retirement** — remove the Phase 2.2-2.6 runtime compatibility façade while preserving transforms/mappings and native tests.
+2. **User profile + R2 avatars/objects** — implement final Identity/Core ownership and object semantics required by HomeMew.
+3. **External integrations** — service principals, opaque `lsp_pat_*` Service API Tokens, optional OAuth `client_credentials`, scopes, Data Grants and migration/report tooling. Do not reproduce `hmw_pat_*` as a LifeSpace credential format.
+4. **Creation drafts / Queue** — implement a Space-aware native workflow only if still required by the parity freeze.
+5. **Final native parity sweep** — verify every production-used HomeMew capability has a native deployed replacement and deterministic migration path.
 
-### Family compatibility decision
+### Per-domain checklist from the reset onward
 
-The family slice uses persisted transitional maps for legacy users, families, memberships/Space People, and invitations. These maps translate released HomeMew paths and fields but do not hold an independent mutable family model. Native `spaces`, `space_memberships`, `space_people`, and `space_invites` remain authoritative.
-
-The schema-v11 family transform preserves valid `usr_*` IDs, derives deterministic new `spc_*`, membership, and person IDs, and emits separate Identity/Core SQL plus a mapping manifest and verification report. An active creator/admin becomes owner; if the creator is no longer an active administrator, the earliest active administrator becomes owner. Removed memberships and people retain their deletion history. Duplicate historical redemptions of the same invite by the same user are collapsed into the native replay-safe relation and named in the report, while the source invite use count remains preserved.
-
-Temporary HomeMew family routes require LifeSpace-issued, HomeMew-app-scoped credentials and current native authorization. They map `owner/admin -> admin` and `editor -> member`, reject `viewer`, keep invitation join at HTTP 200, and enforce the HomeMew three-created-family rule only for compatibility-created/migrated families. Family avatar values remain unavailable until the later R2 slice.
-
-### Per-domain checklist
-
-For every migrated domain:
+For every remaining migrated domain:
 
 - [ ] Define ownership (`space_id`) and subject (`space_person_id` where applicable).
 - [ ] Define supported principals and required app scopes.
 - [ ] Define Space role/Data Grant authorization.
 - [ ] Port schema and indexes with important invariants enforced in D1.
 - [ ] Preserve or explicitly transform version/deletion/audit behavior.
-- [ ] Port UTC/date-only/timezone semantics without accidental changes.
-- [ ] Port search/filter/sort/cursor semantics required by released clients.
-- [ ] Define old HomeMew API compatibility behavior.
+- [ ] Preserve required UTC/date-only/timezone semantics.
+- [ ] Define the final native search/filter/sort/cursor semantics.
 - [ ] Update canonical OpenAPI.
 - [ ] Update contract checks.
 - [ ] Add CRUD/state-transition tests.
 - [ ] Add cross-Space isolation tests.
-- [ ] Add user/system/service/device allow/deny tests as applicable.
+- [ ] Add user/service/device allow/deny tests as applicable.
 - [ ] Add stale-version and deletion/history tests where applicable.
-- [ ] Add a migration transform and validation for the domain.
-- [ ] Record intentional differences from HomeMew.
+- [ ] Add a migration transform and validation for durable data.
+- [ ] Record HomeMew client changes required to consume the native contract.
+- [ ] Record intentional semantic differences from the legacy HomeMew implementation.
 
-Do not call a domain migrated if only its happy-path CRUD route works.
+### Phase 2 exit gate
 
-## 10. Phase 3 — Cross-Space aggregation and sharing
+Phase 2 is complete only when:
 
-After basic HomeMew parity domains are stable, add the capabilities that justify LifeSpace as a shared platform rather than a renamed HomeMew Core.
+- Every production-used HomeMew backend capability has a tested, deployed native LifeSpace replacement.
+- Every durable HomeMew data set has a deterministic transform or an explicit retirement decision.
+- Required R2 object migration behavior is implemented and testable.
+- Required service/integration authentication is implemented according to the final LifeSpace service-authentication model.
+- Staging contains no HomeMew compatibility API that is required by the target migration path.
+- The canonical LifeSpace contracts expose only implemented/deployed functionality that the new HomeMew client may consume.
 
-### Work
+## 10. Phase 3 — HomeMew native client migration
 
-- [ ] `/api/v1/me/events` across all currently accessible Spaces.
-- [ ] `/api/v1/me/tasks` and other aggregate views when approved.
-- [ ] Source-Space metadata and effective permission in aggregate responses where clients need it.
-- [ ] Cross-Space Data Grant reads without copying source records.
-- [ ] Read-only sharing from personal Space to family Space.
-- [ ] Event `free_busy` sharing semantics if included in the first platform release.
-- [ ] Tests proving a shared record remains owned by exactly one source Space.
-- [ ] Tests proving a read-only grantee cannot mutate the source.
-- [ ] Tests proving revoked grants stop access without waiting for a stale permission copy in a client.
+HomeMew becomes an ordinary LifeSpace application before production data cutover.
 
-### Exit gate
+### 10.1 Mini Program API migration
 
-ALOHA/HomeMew can query authorized data through platform semantics without the client manually enumerating and merging every Space.
+Update the HomeMew Mini Program API/data-access layer to consume the pinned native LifeSpace contract.
 
-## 11. Phase 4 — Contract parity and compatibility layer
-
-Before data migration, LifeSpace must be able to serve both the new platform contract and the released HomeMew clients that cannot all upgrade at once.
-
-### Versioned platform contract
-
-- [ ] Canonical Core OpenAPI is implemented, not merely `planned`.
-- [ ] `packages/contracts` is reproducibly generated/versioned from canonical contracts.
-- [ ] `packages/client` targets an explicit contract version.
-- [ ] HomeMew pins a compatible LifeSpace contract/client version when it moves to the new APIs.
-
-### Legacy HomeMew compatibility
-
-For the Mini Program migration period, preserve the released API behavior needed by old versions, for example:
+Product vocabulary does not need to change. The UI can continue to say "家庭" and "家庭成员" while application code uses:
 
 ```text
-/api/v1/families/{familyId}/events
-/api/v1/families/{familyId}/tasks
-...
+HomeMew family        -> LifeSpace Space(kind=family)
+HomeMew familyId      -> LifeSpace spaceId
+HomeMew member        -> membership + Space Person
+attendee/assignee     -> Space Person ID
+Day-record subject    -> Space Person ID
+Wish owner/claimant   -> Space Person ID
 ```
 
-The compatibility route may translate `familyId` through the migration mapping to a `kind=family` Space and then use the same LifeSpace domain implementation. It must not duplicate business data or maintain a second authorization engine.
+The Mini Program must not retain a hidden dependency on `/api/v1/families/...`.
 
-Temporary compatibility may include:
+### 10.2 WeChat identity adapter / Cloud Function
 
-- Existing HomeMew API paths.
-- Existing response field names required by released clients.
-- `homemew.aisr.online` as a temporary hostname alias to the LifeSpace Core Worker.
-- A strictly time-bounded legacy token verification path during identity cutover if needed.
+Keep WeChat-specific identity handling in HomeMew:
 
-Compatibility code must be explicitly marked and removable. New applications must use the LifeSpace contract, not the legacy HomeMew façade.
+```text
+Mini Program login
+  -> HomeMew Cloud Function obtains trusted openid
+  -> HomeMew mapping resolves openid -> LifeSpace user_id
+  -> trusted HomeMew backend authenticates to LifeSpace Identity
+  -> Identity issues short-lived HomeMew-app-scoped Core token
+  -> Mini Program calls LifeSpace Core native API
+```
 
-### Exit gate
+The Mini Program must never submit an arbitrary LifeSpace `user_id` for token issuance. HomeMew keeps provider mapping and WeChat secrets; LifeSpace Identity owns the resulting global user and token issuance.
 
-- Current released HomeMew Web/Mini Program behavior can run against LifeSpace staging without accessing HomeMew D1.
-- New LifeSpace clients can use native Space and `/me` APIs.
-- Compatibility behavior has tests and an explicit retirement condition.
+### 10.3 Contract consumption
 
-## 12. Phase 5 — Migration tooling and rehearsal
+- [ ] HomeMew pins an explicit compatible LifeSpace contract/client version.
+- [ ] Repository-local generated/read-only contract snapshots are reproducible and not hand-edited.
+- [ ] HomeMew client types and API wrappers use native Space/Person fields.
+- [ ] App-specific presentation aliases remain local to HomeMew and do not leak back into Core.
+
+### 10.4 External integrations and app-specific policy
+
+- Update HomeMew integration management UI/flows to create and manage LifeSpace service credentials and Grants instead of HomeMew-specific credentials.
+- Move HomeMew-only product rules that are not platform invariants into the HomeMew application boundary.
+- Keep Core as the security authority for Space membership, Data Grants, app scopes and domain authorization.
+
+### Phase 3 exit gate
+
+- The released-candidate HomeMew Mini Program and required Cloud Functions operate against LifeSpace staging using only native LifeSpace APIs.
+- Family/member/event/task/day-record/wish/profile/avatar/integration/creation-draft flows required at cutover pass application E2E.
+- The login flow produces LifeSpace Identity-backed app-scoped tokens.
+- No supported HomeMew application request depends on a LifeSpace `/api/v1/families/...` compatibility route or legacy HomeMew token verifier.
+- Any old HomeMew client version that will not work after cutover is explicitly outside the supported cutover set; HomeMew uses its normal client update/upgrade UX rather than adding a permanent Core compatibility layer.
+
+## 11. Phase 4 — Migration tooling and full staging rehearsal
 
 Do not perform the first full transformation against the final production target.
 
-### 12.1 Migration tooling
+### 11.1 Migration tooling
 
-Build version-controlled tooling under the LifeSpace repository that can:
+Version-controlled tooling under LifeSpace must be able to:
 
 1. Read a HomeMew D1 export/snapshot.
-2. Create migration maps for users/families/members as needed.
-3. Transform records into the current LifeSpace schema.
+2. Create migration maps for users/families/members and any changed identifiers.
+3. Transform records into the current native LifeSpace schema.
 4. Import into an empty LifeSpace target database.
 5. Copy/verify required R2 objects when moving buckets.
 6. Produce a machine-readable migration report.
-7. Run integrity and parity verification.
+7. Run integrity, authorization and semantic verification.
 
 The migration must be reproducible from a clean staging database. Do not rely on manual D1 edits for normal migration steps.
 
-### 12.2 Required mapping artifacts
+### 11.2 Required mapping artifacts
 
 At minimum, persist migration-run mappings for:
 
@@ -441,12 +451,12 @@ legacy_user_id   -> lifespace_user_id       when changed
 family_id        -> space_id
 family_member    -> space_membership
 represented user -> space_person
-legacy integration/credential IDs -> new IDs when changed
+legacy integration/credential IDs -> new principal/credential metadata
 ```
 
-These mappings are migration artifacts and audit aids; they do not need to become public API models.
+These mappings are migration artifacts and audit aids. They must not become a public runtime compatibility model.
 
-### 12.3 Rehearsal data migration
+### 11.3 Full rehearsal
 
 Use a recent HomeMew production snapshot or a production-like sanitized copy:
 
@@ -455,125 +465,79 @@ HomeMew snapshot
   -> migration tool
   -> fresh LifeSpace staging D1/R2
   -> integrity checks
-  -> API parity checks
-  -> application smoke tests
+  -> native API semantic checks
+  -> native HomeMew Mini Program / Cloud Function E2E
 ```
 
 Repeat until the migration is deterministic and the verification report is clean.
 
-## 13. Migration verification requirements
+### 11.4 Verification requirements
 
-### 13.1 Database-level verification
+Verify at least:
 
-Compare relevant durable counts before/after transformation:
-
-- Users.
+- Users and user mapping.
 - Families -> family Spaces.
 - Memberships and Space People.
 - Events/attendees.
 - Tasks/assignees.
 - Day records/occurrences.
 - Wishes and lifecycle relations.
-- Other parity domains.
-- Integrations/credentials/subscriptions.
-
-Counts do not need to be numerically identical for transformed structures such as member -> membership + Space Person, but the migration report must explain the expected relationship.
-
-### 13.2 Referential-integrity verification
-
-Verify at least:
-
-- Every migrated business record references an existing Space.
-- Every attendee/assignee/subject points at a valid Space Person in the same Space where required.
-- Every linked Space Person user exists when `linked_user_id` is set.
-- Every membership user exists.
-- Every Data Grant has a valid principal/resource target.
-- Historical actor references required by the domain are preserved.
-- No active record references a deleted/invalid relation in a way that violates current LifeSpace rules.
-
-### 13.3 Domain-semantic verification
-
-For representative records, verify old and new behavior for:
-
-- Timed event UTC ordering and timezone display metadata.
-- All-day half-open date ranges.
-- Task date-only due semantics.
-- Search/filter/pagination behavior.
-- Optimistic version conflicts.
-- Soft-deleted record exclusion.
+- Profiles and object storage.
+- Integrations/service principals/Grants.
+- Creation-draft durable state only if explicitly retained.
+- Referential integrity and same-Space person relationships.
+- Timed event UTC ordering and all-day ranges.
+- Task date-only semantics.
+- Search/filter/pagination behavior required by the new HomeMew client.
+- Optimistic concurrency and soft-deletion behavior.
 - Day-record computed state and occurrence history.
 - Wish claim/fulfill/archive rules.
-- Membership removal cleanup behavior.
-- External-system scope enforcement.
+- Membership removal lifecycle behavior.
+- App scope and service/Data Grant enforcement.
 
-### 13.4 API parity comparison
+Where useful, compare legacy HomeMew source behavior with native LifeSpace behavior, but normalize intentional model/contract differences. The purpose is semantic migration validation, not URL/response-shape compatibility.
 
-Build a comparison harness where practical:
+### Phase 4 exit gate
 
-```text
-old HomeMew Core GET
-      vs
-LifeSpace compatibility/native GET
-```
+- At least one complete migration from a fresh HomeMew snapshot into a fresh LifeSpace staging target succeeds.
+- The migration report explains all expected count/ID transformations.
+- Authorization and semantic checks pass.
+- The native HomeMew client passes its required E2E against the migrated staging data.
+- No compatibility façade is needed to complete the rehearsal.
 
-Normalize values that are intentionally different, such as:
+## 12. Phase 5 — Production cutover preparation
 
-- `requestId`.
-- Platform metadata added only by LifeSpace.
-- IDs explicitly remapped by the migration manifest.
-- Canonical asset hostname when object storage moves.
-
-Unexpected semantic differences fail the rehearsal.
-
-### 13.5 Authorization matrix
-
-Verify allow/deny behavior for:
-
-- Space owner/admin/editor/viewer roles as implemented.
-- Ordinary HomeMew family members after migration.
-- Cross-Space isolation.
-- Read-only Data Grants.
-- Revoked grants.
-- External systems/service identities.
-- Device identities if the household display is migrated.
-- App scope narrower than the user's Space permission.
-
-## 14. Phase 6 — Production cutover preparation
-
-The production cutover is permitted only after all prior gates pass.
+Production cutover is permitted only after Phases 2, 3 and 4 pass. Post-cutover platform evolution is not a prerequisite.
 
 ### Required preconditions
 
 - [ ] LifeSpace production Identity/Core Workers are deployed using production-only resources.
 - [ ] Production D1/R2/Queue bindings are verified by `/api/v1/status` and smoke checks.
-- [ ] Current HomeMew parity matrix is 100% complete for production-used capability.
+- [ ] Current HomeMew parity matrix is 100% complete for production-used capability under the native-only definition.
 - [ ] At least one full staging migration rehearsal succeeded from a fresh target.
 - [ ] Migration and verification scripts are committed and versioned.
-- [ ] HomeMew legacy API compatibility is deployed and tested.
-- [ ] Mini Program identity/token transition is tested.
-- [ ] External integration credentials/webhooks have an explicit migration procedure.
+- [ ] HomeMew native Mini Program and Cloud Functions are release-ready and tested against LifeSpace staging.
+- [ ] HomeMew WeChat identity mapping/token exchange is tested against LifeSpace production preparation resources without exposing arbitrary-user token issuance.
+- [ ] External integrations have new LifeSpace credentials/Grants and an explicit switch procedure.
+- [ ] Unsupported legacy HomeMew client versions and the user update path are explicitly understood; no LifeSpace compatibility layer will be added solely to keep them running.
 - [ ] Rollback decision points are written down before the maintenance window starts.
 
-### Identity/token transition
-
-Because released HomeMew clients may cache a short-lived Core token, do not switch Core verification assumptions blindly.
+### Token/client transition
 
 Preferred transition:
 
-1. Update the trusted HomeMew login path/Cloud Function to obtain LifeSpace Identity-backed user tokens while keeping the client-facing login response compatible.
-2. Verify new tokens against the still-compatible API path in staging/production preparation.
-3. Allow the maximum legacy token TTL to expire before Core cutover where operationally practical.
-4. If an overlap is unavoidable, LifeSpace may temporarily accept the legacy HomeMew issuer/audience under a narrowly scoped compatibility verifier with an explicit removal deadline.
+1. Release/update the HomeMew Cloud Function so the supported client obtains LifeSpace Identity-backed user tokens.
+2. Release the native LifeSpace HomeMew Mini Program build and verify it against staging/production-ready endpoints.
+3. Ensure the controlled HomeMew user population is running the supported build before final cutover, or use HomeMew's normal upgrade UX to prevent unsupported legacy clients from continuing.
+4. Do not add legacy HomeMew issuer/audience acceptance to LifeSpace solely to avoid upgrading the HomeMew client.
 
-Do not make permanent legacy-token acceptance part of the LifeSpace security model.
-
-## 15. Phase 7 — Production data cutover
+## 13. Phase 6 — Production data cutover
 
 Use a controlled write-freeze instead of normal dual-write.
 
 ### Cutover sequence
 
-1. Announce/enter the maintenance window for write operations.
+1. Enter the maintenance window for write operations.
 2. Stop or reject new mutating HomeMew Core requests while keeping a clear maintenance response.
 3. Stop/drain scheduled producers and Queue producers that can create durable writes.
 4. Wait for or explicitly terminate in-flight write requests.
@@ -585,18 +549,18 @@ Use a controlled write-freeze instead of normal dual-write.
 10. Run database integrity checks.
 11. Run migration report/count checks.
 12. Run authorization checks.
-13. Run representative API parity/smoke tests.
-14. Verify external integration/webhook configuration without enabling duplicate delivery.
-15. Route the compatibility hostname/path to LifeSpace Core or update the relevant backend/BFF configuration.
-16. Verify HomeMew Web, Mini Program, household display and critical integrations against LifeSpace while writes are still frozen.
+13. Run representative native LifeSpace API semantic/smoke tests.
+14. Activate/verify new external integration credentials and Grants without duplicate delivery.
+15. Point the supported HomeMew client/Cloud Function configuration to LifeSpace production native endpoints where configuration switching is required.
+16. Verify HomeMew Mini Program, Web/dashboard, household display and critical integrations against native LifeSpace while writes are still frozen.
 17. Make the go/no-go decision.
 18. If GO, enable LifeSpace writes and resume approved schedulers/Queue producers.
 19. Keep old HomeMew Core and its D1 read-only for the defined stabilization period.
-20. Monitor errors, authorization denials, Queue failures, webhook duplication and application behavior.
+20. Monitor errors, authorization denials, Queue failures, integration failures and application behavior.
 
-Do not delete the old database or Core deployment during the cutover window.
+Do not deploy a production legacy HomeMew API façade as part of cutover. Do not delete the old database or Core deployment during the cutover window.
 
-## 16. Rollback strategy
+## 14. Rollback strategy
 
 ### Before LifeSpace writes are enabled
 
@@ -605,7 +569,7 @@ Rollback is simple and should be preferred if any critical validation fails:
 ```text
 LifeSpace validation fails
   -> keep LifeSpace writes disabled
-  -> restore HomeMew routing
+  -> restore HomeMew routing/configuration
   -> re-enable HomeMew writes
   -> investigate and repeat migration later
 ```
@@ -622,95 +586,74 @@ After write enablement:
 - For a true rollback, first freeze LifeSpace writes and account for every post-cutover durable mutation through an approved reverse/delta migration process.
 - The old HomeMew Core remains useful as a reference/read-only fallback, not as an automatically writable split-brain peer.
 
-This is another reason not to keep normal dual-write during migration.
+## 15. Phase 7 — Stabilization and HomeMew Core cleanup
 
-## 17. Phase 8 — Client transition and compatibility retirement
+During stabilization:
 
-### HomeMew Web
+- Monitor native HomeMew client behavior, Identity exchanges, authorization denials, object access, Queue behavior and service integrations.
+- Keep the old HomeMew Core/D1 read-only for the agreed rollback evidence window.
+- Do not introduce a compatibility façade as a shortcut for fixing native client/platform defects; fix the owning native contract or client.
 
-Move browser traffic to the HomeMew same-origin BFF and then to LifeSpace Core through Service Binding where practical. The browser should not need to know platform service credentials.
-
-### HomeMew Mini Program
-
-Old released versions may continue calling legacy HomeMew paths/hostname during the compatibility window. New versions should gradually move to the versioned LifeSpace contract and Space terminology where the product needs it.
-
-Do not require every installed Mini Program version to update at the exact production data cutover moment.
-
-### Household display
-
-Move to a narrowly scoped read-only device identity/token. Do not migrate a household administrator's long-lived personal session into the display.
-
-### ALOHA
-
-ALOHA should integrate directly with native LifeSpace Identity/Core contracts and should not be built on the legacy HomeMew façade.
-
-### External systems
-
-Migrate n8n/Agents/other integrations to platform service/app identity and Data Grant semantics. Per `docs/service-authentication.md`, owner-controlled n8n, curl/scripts, scheduled jobs, and MCP servers should normally receive a new opaque `lsp_pat_*` Service API Token and continue making one direct Bearer-authenticated Core request. OAuth `client_credentials` remains available for third-party or policy-controlled integrations; it is not mandatory for self-hosted services.
-
-Do not copy `hmw_pat_*` plaintext into LifeSpace. Create a new service principal/credential, translate HomeMew permissions into LifeSpace scopes and the family binding into Grants on the mapped Space, verify it in staging, update the caller, and revoke the legacy credential after the rollback window. A user-initiated Agent action should continue to preserve the acting user's authority rather than becoming a permanent family administrator.
-
-### Compatibility retirement gate
-
-Remove legacy HomeMew routes/hostname/token verification only when:
-
-- Supported released clients no longer depend on them.
-- Observability shows no meaningful legacy traffic for the agreed period.
-- External integrations have migrated.
-- A rollback to the old writable HomeMew Core is no longer part of the operational plan.
-
-## 18. Phase 9 — HomeMew repository cleanup
-
-Only after the stabilization and compatibility gates pass:
+After the rollback window is closed:
 
 - [ ] Remove migrated Core business implementation from HomeMew.
 - [ ] Remove HomeMew-owned D1 migrations that are no longer authoritative, retaining history only where useful for migration/reference.
 - [ ] Remove HomeMew Core deploy workflows and Worker resource ownership.
 - [ ] Remove duplicated OpenAPI/contract ownership; keep only the pinned/generated LifeSpace contract snapshot required by HomeMew development.
 - [ ] Update HomeMew `AGENTS.md` so LifeSpace is explicitly the platform/API source of truth.
+- [ ] Revoke legacy HomeMew integration credentials after new LifeSpace credentials are verified and rollback no longer requires them.
 - [ ] Archive or delete obsolete HomeMew D1/R2/Queue resources only after backups and retention decisions are complete.
 
-HomeMew remains responsible for its Mini Program, Web/dashboard, app-specific BFF and product UX.
+HomeMew remains responsible for its Mini Program, Web/dashboard, app-specific BFF/Cloud Functions, provider identity mapping and product UX.
 
-## 19. Recommended implementation PR sequence
+## 16. Phase 8 — Post-cutover LifeSpace platform evolution
 
-Keep PRs capability-sized and independently verifiable. A reasonable initial sequence is:
+These are valid LifeSpace platform capabilities but are **not HomeMew cutover blockers unless a concrete supported HomeMew flow requires one of them before cutover**.
 
-1. **Platform runtime/CI** — Hono/Wrangler/Vitest/OpenAPI checks, health/status, staging config.
-2. **Identity foundation** — global user/app/principal/token model and staging Identity Worker.
-3. **Space foundation** — Space, membership, Space Person, Data Grant and authorization tests.
-4. **HomeMew identity bridge** — current user/family identity mapping and temporary token compatibility.
-5. **Family compatibility** — family -> family Space, membership/invitation compatibility routes.
-6. **Events** — schema, attendees, contract, authorization, compatibility and migration transform.
-7. **Tasks** — schema, assignees, state transitions, contract and migration transform.
-8. **Day records**.
-9. **Wishes**.
-10. **Remaining parity domains** — anniversaries/avatars/integrations/webhooks/notifications as actually required.
-11. **Creation drafts / Queue** if still required at parity freeze.
-12. **Cross-Space `/me` aggregation and sharing**.
-13. **Generated contracts/client packages** and HomeMew pinned consumption.
-14. **Migration tooling + verification harness**.
-15. **Full staging rehearsal**.
-16. **Production infrastructure + cutover runbook finalization**.
-17. **Production data cutover**.
-18. **Client modernization and legacy compatibility retirement**.
-19. **HomeMew Core cleanup**.
+Examples:
+
+- `/api/v1/me/events` across all currently accessible Spaces.
+- `/api/v1/me/tasks` and other aggregate views when approved.
+- Source-Space metadata and effective permission in aggregate responses.
+- Cross-Space Data Grant reads without copying source records.
+- Read-only sharing from personal Space to family Space.
+- Event `free_busy` sharing semantics.
+- Broader ALOHA cross-Space aggregation and sharing experiences.
+
+Tests must continue proving that shared records retain exactly one source Space, read-only grantees cannot mutate the source, and revoked Grants stop access from current Core authorization state.
+
+## 17. Recommended implementation sequence from the 2026-08-11 reset
+
+1. **Phase 2 native-only convergence** — remove completed compatibility runtime surfaces while preserving migration maps/transforms.
+2. **User profile + R2 objects**.
+3. **Service principals / Service API Tokens / integration Grants and migration tooling**.
+4. **Creation drafts / Queue** if still required by the parity freeze.
+5. **Final native parity sweep**.
+6. **HomeMew Mini Program API-client migration** to Space/Space Person/native domain contracts.
+7. **HomeMew WeChat Cloud Function identity migration** to LifeSpace Identity exchange.
+8. **HomeMew integration-management migration** to LifeSpace service credentials/Grants.
+9. **Full native HomeMew staging E2E**.
+10. **Migration tooling finalization + full staging data rehearsal**.
+11. **Production infrastructure + cutover runbook finalization**.
+12. **Production data cutover**.
+13. **Stabilization and HomeMew Core cleanup**.
+14. **Cross-Space aggregation/sharing and other non-blocking platform evolution**.
 
 Do not bundle all domains into one migration PR merely because they currently live in one HomeMew Worker.
 
-## 20. Definition of HomeMew migration complete
+## 18. Definition of HomeMew migration complete
 
 The migration is complete only when all of the following are true:
 
-- LifeSpace Identity is the authoritative global identity/token service for migrated applications.
+- LifeSpace Identity is the authoritative global identity/token service for migrated HomeMew flows.
 - LifeSpace Core is the authoritative owner of migrated business data.
-- Current HomeMew production capability is served from LifeSpace without reading/writing HomeMew D1.
+- Current supported HomeMew production capability is served through native LifeSpace APIs without reading/writing HomeMew D1.
 - Production data and object storage migration have passed repeatable verification.
-- HomeMew Web/Mini Program/display and required integrations operate against LifeSpace.
-- Required old Mini Program versions are either upgraded or served only by a tested compatibility façade over the same LifeSpace data.
-- Cross-Space authorization follows Space/Data Grant + application-scope rules.
+- HomeMew Mini Program/Web/display and required integrations operate against native LifeSpace contracts.
+- HomeMew WeChat/provider identity mappings remain in the HomeMew application boundary while tokens come from LifeSpace Identity.
+- Cross-Space authorization, where used, follows Space/Data Grant + application-scope rules.
 - Old HomeMew Core is no longer a writable production source of truth.
-- Legacy compatibility has either been retired or has an explicit, time-bounded removal plan.
+- No HomeMew legacy runtime compatibility façade or legacy token verifier is required in LifeSpace production.
 - HomeMew repository no longer owns shared platform migrations/contracts/deployments.
 
 At that point new shared domains are added to LifeSpace first and consumed by ALOHA, HomeMew or other vertical applications as clients.
