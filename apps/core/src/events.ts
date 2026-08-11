@@ -33,7 +33,6 @@ type EventRow = {
   sort_key?: string;
 };
 type SpaceRow = { id: string; timezone: string };
-type LegacyFamilyRow = { legacy_family_id: string; space_id: string; timezone: string };
 type EventTime = {
   isAllDay: number;
   startAt: string | null;
@@ -234,15 +233,6 @@ async function findSpace(env: Bindings, spaceId: string): Promise<SpaceRow> {
   return row;
 }
 
-async function findFamily(env: Bindings, familyId: string): Promise<LegacyFamilyRow> {
-  const row = await env.DB.prepare(`SELECT fm.legacy_family_id,fm.space_id,s.timezone
-    FROM legacy_homemew_family_maps fm JOIN spaces s ON s.id=fm.space_id
-    WHERE fm.legacy_family_id=? AND s.kind='family' AND s.deleted_at IS NULL`)
-    .bind(familyId).first<LegacyFamilyRow>();
-  if (!row) throw new ApiError("FAMILY_NOT_FOUND", "Family not found", 404);
-  return row;
-}
-
 async function findEvent(env: Bindings, spaceId: string, eventId: string): Promise<EventRow> {
   const row = await env.DB.prepare("SELECT * FROM events WHERE id=? AND space_id=? AND deleted_at IS NULL")
     .bind(eventId, spaceId).first<EventRow>();
@@ -255,10 +245,7 @@ async function actorName(env: Bindings, spaceId: string, principal: Principal): 
   const person = await env.DB.prepare(`SELECT display_name FROM space_people
     WHERE space_id=? AND linked_user_id=? ORDER BY deleted_at IS NULL DESC,created_at DESC LIMIT 1`)
     .bind(spaceId, principal.id).first<{ display_name: string }>();
-  if (person) return person.display_name;
-  const legacy = await env.DB.prepare("SELECT display_name_snapshot FROM legacy_homemew_user_maps WHERE lifespace_user_id=?")
-    .bind(principal.id).first<{ display_name_snapshot: string }>();
-  return legacy?.display_name_snapshot ?? principal.id;
+  return person?.display_name ?? principal.id;
 }
 
 async function requirePeople(env: Bindings, spaceId: string, personIds: string[]): Promise<void> {
@@ -271,61 +258,26 @@ async function requirePeople(env: Bindings, spaceId: string, personIds: string[]
   }
 }
 
-async function legacyPeople(env: Bindings, familyId: string, legacyUserIds: string[]): Promise<string[]> {
-  if (!legacyUserIds.length) return [];
-  const placeholders = legacyUserIds.map(() => "?").join(",");
-  const rows = await env.DB.prepare(`SELECT map.legacy_user_id,map.person_id
-    FROM legacy_homemew_membership_maps map
-    JOIN space_people p ON p.id=map.person_id AND p.deleted_at IS NULL
-    WHERE map.legacy_family_id=? AND map.legacy_user_id IN (${placeholders})`)
-    .bind(familyId, ...legacyUserIds).all<{ legacy_user_id: string; person_id: string }>();
-  const byUser = new Map(rows.results.map((row) => [row.legacy_user_id, row.person_id]));
-  if (byUser.size !== legacyUserIds.length) {
-    throw new ApiError("INVALID_ATTENDEE", "Every attendee must be an active family member", 400);
-  }
-  return legacyUserIds.map((userId) => byUser.get(userId)!);
+function actorDto(type: Principal["type"], id: string, name: string) {
+  return { type, id, displayName: name };
 }
 
-async function actorDto(env: Bindings, type: Principal["type"], id: string, name: string, legacy: boolean) {
-  if (!legacy) return { type, id, displayName: name };
-  if (type === "user") {
-    const mapping = await env.DB.prepare("SELECT legacy_user_id FROM legacy_homemew_user_maps WHERE lifespace_user_id=?")
-      .bind(id).first<{ legacy_user_id: string }>();
-    return { type: "user", id: mapping?.legacy_user_id ?? id, name, avatarUrl: null };
-  }
-  return { type: "system", id, name, avatarUrl: null };
-}
-
-async function eventDto(env: Bindings, row: EventRow, legacyFamilyId?: string) {
-  const legacy = Boolean(legacyFamilyId);
-  const attendees = legacy
-    ? await env.DB.prepare(`SELECT map.legacy_user_id user_id,p.display_name
-        FROM event_attendees ea
-        JOIN space_people p ON p.id=ea.person_id AND p.deleted_at IS NULL
-        JOIN legacy_homemew_membership_maps map ON map.person_id=p.id AND map.legacy_family_id=?
-        WHERE ea.event_id=? ORDER BY ea.created_at,p.id`)
-      .bind(legacyFamilyId, row.id).all<{ user_id: string; display_name: string }>()
-    : await env.DB.prepare(`SELECT p.id person_id,p.display_name
-        FROM event_attendees ea JOIN space_people p ON p.id=ea.person_id AND p.deleted_at IS NULL
-        WHERE ea.event_id=? ORDER BY ea.created_at,p.id`)
-      .bind(row.id).all<{ person_id: string; display_name: string }>();
+async function eventDto(env: Bindings, row: EventRow) {
+  const attendees = await env.DB.prepare(`SELECT p.id person_id,p.display_name
+    FROM event_attendees ea JOIN space_people p ON p.id=ea.person_id AND p.deleted_at IS NULL
+    WHERE ea.event_id=? ORDER BY ea.created_at,p.id`)
+    .bind(row.id).all<{ person_id: string; display_name: string }>();
   const common = {
     id: row.id,
-    ...(legacy ? { familyId: legacyFamilyId } : { spaceId: row.space_id }),
+    spaceId: row.space_id,
     summary: row.summary,
     description: row.description,
     isAllDay: Boolean(row.is_all_day),
     location: row.location,
     status: row.status,
-    attendees: legacy
-      ? (attendees.results as Array<{ user_id: string; display_name: string }>).map((item) => ({
-          userId: item.user_id, displayName: item.display_name, avatarUrl: null,
-        }))
-      : (attendees.results as Array<{ person_id: string; display_name: string }>).map((item) => ({
-          personId: item.person_id, displayName: item.display_name,
-        })),
-    createdBy: await actorDto(env, row.created_by_type, row.created_by_id, row.created_by_name_snapshot, legacy),
-    updatedBy: await actorDto(env, row.updated_by_type, row.updated_by_id, row.updated_by_name_snapshot, legacy),
+    attendees: attendees.results.map((item) => ({ personId: item.person_id, displayName: item.display_name })),
+    createdBy: actorDto(row.created_by_type, row.created_by_id, row.created_by_name_snapshot),
+    updatedBy: actorDto(row.updated_by_type, row.updated_by_id, row.updated_by_name_snapshot),
     version: row.version,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -335,12 +287,11 @@ async function eventDto(env: Bindings, row: EventRow, legacyFamilyId?: string) {
     : { ...common, startAt: row.start_at, endAt: row.end_at, startTimezone: row.start_timezone, endTimezone: row.end_timezone };
 }
 
-async function createEvent(context: Context<AppEnv>, space: SpaceRow, legacyFamilyId?: string): Promise<Response> {
+async function createEvent(context: Context<AppEnv>, space: SpaceRow): Promise<Response> {
   const principal = context.get("principal");
   await requireSpacePermission(context.env, principal, space.id, "write");
   const input = await body(context);
-  const attendeeField = legacyFamilyId ? "attendeeIds" : "attendeePersonIds";
-  fields(input, [...COMMON_FIELDS, ...TIMED_FIELDS, ...ALL_DAY_FIELDS, "isAllDay", attendeeField]);
+  fields(input, [...COMMON_FIELDS, ...TIMED_FIELDS, ...ALL_DAY_FIELDS, "isAllDay", "attendeePersonIds"]);
   const summary = text(input.summary, "summary", 100);
   const description = optionalText(input.description, "description", 5000) ?? null;
   const location = optionalText(input.location, "location", 500) ?? null;
@@ -349,11 +300,8 @@ async function createEvent(context: Context<AppEnv>, space: SpaceRow, legacyFami
     : input.startTimezone === undefined ? space.timezone : optionalTimezone(input.startTimezone, "startTimezone") ?? null;
   const endTimezone = time.isAllDay ? null
     : input.endTimezone === undefined ? space.timezone : optionalTimezone(input.endTimezone, "endTimezone") ?? null;
-  const attendeeIds = input[attendeeField] === undefined ? [] : ids(input[attendeeField], attendeeField, legacyFamilyId ? 8 : 100);
-  const personIds = legacyFamilyId
-    ? await legacyPeople(context.env, legacyFamilyId, attendeeIds)
-    : attendeeIds;
-  if (!legacyFamilyId) await requirePeople(context.env, space.id, personIds);
+  const personIds = input.attendeePersonIds === undefined ? [] : ids(input.attendeePersonIds, "attendeePersonIds", 100);
+  await requirePeople(context.env, space.id, personIds);
   const eventId = createId("evt");
   const createdAt = now();
   const name = await actorName(context.env, space.id, principal);
@@ -369,18 +317,17 @@ async function createEvent(context: Context<AppEnv>, space: SpaceRow, legacyFami
       "INSERT INTO event_attendees(event_id,person_id,created_at) VALUES(?,?,?)",
     ).bind(eventId, personId, createdAt)),
   ]);
-  return context.json(success(await eventDto(context.env, await findEvent(context.env, space.id, eventId), legacyFamilyId)), 201);
+  return context.json(success(await eventDto(context.env, await findEvent(context.env, space.id, eventId))), 201);
 }
 
-async function updateEvent(context: Context<AppEnv>, space: SpaceRow, legacyFamilyId?: string): Promise<Response> {
+async function updateEvent(context: Context<AppEnv>, space: SpaceRow): Promise<Response> {
   const principal = context.get("principal");
   await requireSpacePermission(context.env, principal, space.id, "write");
   const eventId = context.req.param("eventId");
   if (!eventId) throw new ApiError("INVALID_REQUEST", "eventId is required", 400);
   const previous = await findEvent(context.env, space.id, eventId);
   const input = await body(context);
-  const attendeeField = legacyFamilyId ? "attendeeIds" : "attendeePersonIds";
-  fields(input, [...COMMON_FIELDS, ...TIMED_FIELDS, ...ALL_DAY_FIELDS, "isAllDay", attendeeField, "version"]);
+  fields(input, [...COMMON_FIELDS, ...TIMED_FIELDS, ...ALL_DAY_FIELDS, "isAllDay", "attendeePersonIds", "version"]);
   if (Object.keys(input).length < 2) throw new ApiError("INVALID_REQUEST", "At least one event change is required", 400);
   const expected = positiveInteger(input.version, "version");
   const summary = input.summary === undefined ? previous.summary : text(input.summary, "summary", 100);
@@ -394,15 +341,10 @@ async function updateEvent(context: Context<AppEnv>, space: SpaceRow, legacyFami
   const endTimezone = time.isAllDay ? null : input.endTimezone === undefined
     ? switchedToTimed ? space.timezone : previous.end_timezone
     : optionalTimezone(input.endTimezone, "endTimezone") ?? null;
-  const suppliedAttendees = input[attendeeField] === undefined
+  const personIds = input.attendeePersonIds === undefined
     ? undefined
-    : ids(input[attendeeField], attendeeField, legacyFamilyId ? 8 : 100);
-  const personIds = suppliedAttendees === undefined
-    ? undefined
-    : legacyFamilyId
-      ? await legacyPeople(context.env, legacyFamilyId, suppliedAttendees)
-      : suppliedAttendees;
-  if (personIds && !legacyFamilyId) await requirePeople(context.env, space.id, personIds);
+    : ids(input.attendeePersonIds, "attendeePersonIds", 100);
+  if (personIds) await requirePeople(context.env, space.id, personIds);
   const mutationToken = crypto.randomUUID();
   const updatedAt = now();
   const name = await actorName(context.env, space.id, principal);
@@ -425,7 +367,7 @@ async function updateEvent(context: Context<AppEnv>, space: SpaceRow, legacyFami
     .bind(eventId, mutationToken));
   const results = await context.env.DB.batch(statements);
   if (!results[0].meta.changes) throw new ApiError("EVENT_VERSION_CONFLICT", "Event version conflict", 409);
-  return context.json(success(await eventDto(context.env, await findEvent(context.env, space.id, eventId), legacyFamilyId)));
+  return context.json(success(await eventDto(context.env, await findEvent(context.env, space.id, eventId))));
 }
 
 async function deleteEvent(context: Context<AppEnv>, space: SpaceRow): Promise<Response> {
@@ -446,36 +388,23 @@ async function deleteEvent(context: Context<AppEnv>, space: SpaceRow): Promise<R
   return context.body(null, 204);
 }
 
-async function attendeeFilter(context: Context<AppEnv>, spaceId: string, legacyFamilyId?: string): Promise<string | undefined> {
-  const field = legacyFamilyId ? "attendeeId" : "attendeePersonId";
-  let value = context.req.query(field);
+async function attendeeFilter(context: Context<AppEnv>, spaceId: string): Promise<string | undefined> {
+  let value = context.req.query("attendeePersonId");
   if (!value) return undefined;
   if (value === "me") {
     const principal = context.get("principal");
     if (principal.type !== "user") throw new ApiError("INVALID_FILTER", "me is available only for users", 400);
-    if (legacyFamilyId) {
-      const mapping = await context.env.DB.prepare(`SELECT person_id FROM legacy_homemew_membership_maps
-        WHERE legacy_family_id=? AND legacy_user_id IN (
-          SELECT legacy_user_id FROM legacy_homemew_user_maps WHERE lifespace_user_id=?
-        )`).bind(legacyFamilyId, principal.id).first<{ person_id: string }>();
-      if (!mapping) throw new ApiError("INVALID_ATTENDEE", "Current user is not an active family member", 400);
-      value = mapping.person_id;
-    } else {
-      const person = await context.env.DB.prepare(`SELECT id FROM space_people
-        WHERE space_id=? AND linked_user_id=? AND deleted_at IS NULL`).bind(spaceId, principal.id).first<{ id: string }>();
-      if (!person) throw new ApiError("INVALID_ATTENDEE", "Current user is not an active Space Person", 400);
-      value = person.id;
-    }
-  } else if (legacyFamilyId) {
-    const mapped = await legacyPeople(context.env, legacyFamilyId, [value]);
-    value = mapped[0];
+    const person = await context.env.DB.prepare(`SELECT id FROM space_people
+      WHERE space_id=? AND linked_user_id=? AND deleted_at IS NULL`).bind(spaceId, principal.id).first<{ id: string }>();
+    if (!person) throw new ApiError("INVALID_ATTENDEE", "Current user is not an active Space Person", 400);
+    value = person.id;
   } else {
     await requirePeople(context.env, spaceId, [value]);
   }
   return value;
 }
 
-async function listEvents(context: Context<AppEnv>, space: SpaceRow, legacyFamilyId?: string): Promise<Response> {
+async function listEvents(context: Context<AppEnv>, space: SpaceRow): Promise<Response> {
   await requireSpacePermission(context.env, context.get("principal"), space.id, "read");
   if (context.req.query("start") !== undefined || context.req.query("end") !== undefined) {
     throw new ApiError("INVALID_REQUEST", "Use startDate and endDateExclusive", 400);
@@ -494,7 +423,7 @@ async function listEvents(context: Context<AppEnv>, space: SpaceRow, legacyFamil
   const status = context.req.query("status") ?? "active";
   if (status !== "active" && status !== "cancelled") throw new ApiError("INVALID_REQUEST", "status must be active or cancelled", 400);
   const query = context.req.query("q") === undefined ? undefined : text(context.req.query("q"), "q", 100);
-  const personId = await attendeeFilter(context, space.id, legacyFamilyId);
+  const personId = await attendeeFilter(context, space.id);
   const filter = JSON.stringify({ startDate, endDate, viewingTimezone, status, personId: personId ?? null, q: query ?? null });
   const cursor = context.req.query("cursor") ? decodeCursor(context.req.query("cursor")!) : undefined;
   if (cursor && cursor.filter !== filter) throw new ApiError("INVALID_REQUEST", "cursor is invalid for this query", 400);
@@ -519,7 +448,7 @@ async function listEvents(context: Context<AppEnv>, space: SpaceRow, legacyFamil
   args.push(limit + 1);
   const rows = await context.env.DB.prepare(sql).bind(...args).all<EventRow>();
   const page = rows.results.slice(0, limit);
-  const items = await Promise.all(page.map((row) => eventDto(context.env, row, legacyFamilyId)));
+  const items = await Promise.all(page.map((row) => eventDto(context.env, row)));
   const last = page.at(-1);
   const nextCursor = rows.results.length > limit && last?.sort_key
     ? encodeCursor({ v: 1, resource: "events", sort: "start_asc", key: last.sort_key, id: last.id, filter })
@@ -548,31 +477,5 @@ export function registerEventRoutes(app: App): void {
   app.delete("/api/v1/spaces/:spaceId/events/:eventId", requireScope("events:write"), async (context) => {
     const space = await findSpace(context.env, context.req.param("spaceId"));
     return deleteEvent(context, space);
-  });
-
-  app.get("/api/v1/families/:familyId/events", requireScope("events:read"), async (context) => {
-    const family = await findFamily(context.env, context.req.param("familyId"));
-    return listEvents(context, { id: family.space_id, timezone: family.timezone }, family.legacy_family_id);
-  });
-  app.post("/api/v1/families/:familyId/events", requireScope("events:write"), async (context) => {
-    const family = await findFamily(context.env, context.req.param("familyId"));
-    return createEvent(context, { id: family.space_id, timezone: family.timezone }, family.legacy_family_id);
-  });
-  app.get("/api/v1/families/:familyId/events/:eventId", requireScope("events:read"), async (context) => {
-    const family = await findFamily(context.env, context.req.param("familyId"));
-    await requireSpacePermission(context.env, context.get("principal"), family.space_id, "read");
-    return context.json(success(await eventDto(
-      context.env,
-      await findEvent(context.env, family.space_id, context.req.param("eventId")),
-      family.legacy_family_id,
-    )));
-  });
-  app.patch("/api/v1/families/:familyId/events/:eventId", requireScope("events:write"), async (context) => {
-    const family = await findFamily(context.env, context.req.param("familyId"));
-    return updateEvent(context, { id: family.space_id, timezone: family.timezone }, family.legacy_family_id);
-  });
-  app.delete("/api/v1/families/:familyId/events/:eventId", requireScope("events:write"), async (context) => {
-    const family = await findFamily(context.env, context.req.param("familyId"));
-    return deleteEvent(context, { id: family.space_id, timezone: family.timezone });
   });
 }
