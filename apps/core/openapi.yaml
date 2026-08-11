@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: LifeSpace Core API
-  version: 0.10.0
+  version: 0.11.0
   description: Native LifeSpace Space, authorization, service-authenticated Data Grant, avatar, event, task, day-record and wish APIs. HomeMew runtime compatibility facades were retired after Phase 2.6; applications consume this native contract.
 security:
   - bearerAuth: []
@@ -882,6 +882,56 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
+  /api/v1/spaces/{spaceId}/creation-drafts:
+    parameters:
+      - $ref: "#/components/parameters/SpaceId"
+    post:
+      tags: [Creation Drafts]
+      operationId: createSpaceCreationDraft
+      description: Queue an ephemeral AI-assisted creation draft. Only an active user Space member may use this workflow; service principals are not supported. Requires creation-drafts:write and current Space read access.
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/CreateCreationDraftRequest" } } }
+      responses:
+        "202": { description: Draft queued, content: { application/json: { schema: { $ref: "#/components/schemas/CreationDraftResponse" } } } }
+        "400": { $ref: "#/components/responses/InvalidRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/InvalidRequest" }
+        "429": { description: AI creation rate limit exceeded, content: { application/json: { schema: { $ref: "#/components/schemas/ErrorResponse" } } } }
+        "502": { description: Queue unavailable, content: { application/json: { schema: { $ref: "#/components/schemas/ErrorResponse" } } } }
+  /api/v1/spaces/{spaceId}/creation-drafts/{draftId}:
+    parameters:
+      - $ref: "#/components/parameters/SpaceId"
+      - $ref: "#/components/parameters/DraftId"
+    get:
+      tags: [Creation Drafts]
+      operationId: getSpaceCreationDraft
+      description: Poll a creation draft owned by the current user. Drafts expire after 24 hours. Requires creation-drafts:read and current Space read access.
+      responses:
+        "200": { description: Current draft state, content: { application/json: { schema: { $ref: "#/components/schemas/CreationDraftResponse" } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /api/v1/spaces/{spaceId}/creation-drafts/{draftId}/choose-kind:
+    parameters:
+      - $ref: "#/components/parameters/SpaceId"
+      - $ref: "#/components/parameters/DraftId"
+    post:
+      tags: [Creation Drafts]
+      operationId: chooseSpaceCreationDraftKind
+      description: Resolve an ambiguous creation kind and requeue the same short-lived source text. Only the draft owner may choose.
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/ChooseCreationDraftKindRequest" } } }
+      responses:
+        "202": { description: Draft requeued, content: { application/json: { schema: { $ref: "#/components/schemas/CreationDraftResponse" } } } }
+        "400": { $ref: "#/components/responses/InvalidRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/InvalidRequest" }
 components:
   securitySchemes:
     bearerAuth:
@@ -899,6 +949,7 @@ components:
     DayRecordId: { name: dayRecordId, in: path, required: true, schema: { type: string, pattern: ^day_ } }
     WishId: { name: wishId, in: path, required: true, schema: { type: string, pattern: ^wsh_ } }
     GrantId: { name: grantId, in: path, required: true, schema: { type: string, pattern: ^grt_ } }
+    DraftId: { name: draftId, in: path, required: true, schema: { type: string, pattern: ^drf_ } }
   responses:
     InvalidRequest:
       description: Request validation failed
@@ -1189,6 +1240,120 @@ components:
         expiresAt: { type: [string, "null"], format: date-time }
     DataGrantResponse: { type: object, required: [data], properties: { data: { $ref: "#/components/schemas/DataGrant" } } }
     DataGrantListResponse: { type: object, required: [data], properties: { data: { type: array, items: { $ref: "#/components/schemas/DataGrant" } } } }
+    CreationDraftKind: { type: string, enum: [event, task, day_record, wish] }
+    DraftWarning:
+      type: object
+      additionalProperties: false
+      required: [code, field, message]
+      properties:
+        code: { type: string, enum: [AMBIGUOUS_PERSON, UNRESOLVED_PERSON, INVALID_INFERRED_VALUE, UNSUPPORTED_DETAIL] }
+        field: { type: [string, "null"] }
+        message: { type: string, minLength: 1, maxLength: 500 }
+    CreateCreationDraftRequest:
+      type: object
+      additionalProperties: false
+      required: [text, viewingTimezone]
+      properties:
+        text: { type: string, minLength: 1, maxLength: 5000 }
+        viewingTimezone: { $ref: "#/components/schemas/IanaTimezone" }
+    ChooseCreationDraftKindRequest:
+      type: object
+      additionalProperties: false
+      required: [targetKind]
+      properties: { targetKind: { $ref: "#/components/schemas/CreationDraftKind" } }
+    CreationDraftEventForm:
+      type: object
+      required: [summary, description, isAllDay, startDate, endDate, endDateExclusive, startTime, endTime, startTimezone, endTimezone, location, attendeePersonIds]
+      properties:
+        summary: { type: [string, "null"], maxLength: 100 }
+        description: { type: [string, "null"], maxLength: 5000 }
+        isAllDay: { type: [boolean, "null"] }
+        startDate: { type: [string, "null"], format: date }
+        endDate: { type: [string, "null"], format: date }
+        endDateExclusive: { type: [string, "null"], format: date }
+        startTime: { type: [string, "null"] }
+        endTime: { type: [string, "null"] }
+        startTimezone: { type: [string, "null"] }
+        endTimezone: { type: [string, "null"] }
+        location: { type: [string, "null"], maxLength: 500 }
+        attendeePersonIds: { type: array, items: { type: string, pattern: ^per_ }, uniqueItems: true }
+    CreationDraftTaskForm:
+      type: object
+      required: [name, description, dueDate, assigneePersonIds]
+      properties:
+        name: { type: [string, "null"], maxLength: 100 }
+        description: { type: [string, "null"], maxLength: 5000 }
+        dueDate: { type: [string, "null"], format: date }
+        assigneePersonIds: { type: array, items: { type: string, pattern: ^per_ }, uniqueItems: true }
+    CreationDraftDayRecordForm:
+      type: object
+      required: [dayRecordKind, name, description, anchorDate, subjectPersonId, icon, attentionAfterDays, attentionBeforeDays, cycleDays]
+      properties:
+        dayRecordKind: { type: [string, "null"], enum: [elapsed, countdown, cycle, null] }
+        name: { type: [string, "null"], maxLength: 100 }
+        description: { type: [string, "null"], maxLength: 5000 }
+        anchorDate: { type: [string, "null"], format: date }
+        subjectPersonId: { type: [string, "null"], pattern: ^per_ }
+        icon: { type: [string, "null"], maxLength: 50 }
+        attentionAfterDays: { type: [integer, "null"], minimum: 0 }
+        attentionBeforeDays: { type: [integer, "null"], minimum: 0 }
+        cycleDays: { type: [integer, "null"], minimum: 1 }
+    CreationDraftWishForm:
+      type: object
+      required: [title, description, desiredDate]
+      properties:
+        title: { type: [string, "null"], maxLength: 100 }
+        description: { type: [string, "null"], maxLength: 5000 }
+        desiredDate: { type: [string, "null"], format: date }
+    CreationDraftProcessing:
+      type: object
+      required: [draftId, status, expiresAt]
+      properties:
+        draftId: { type: string, pattern: ^drf_ }
+        status: { type: string, const: processing }
+        expiresAt: { type: string, format: date-time }
+    CreationDraftChooseKind:
+      type: object
+      required: [draftId, status, expiresAt, candidateKinds]
+      properties:
+        draftId: { type: string, pattern: ^drf_ }
+        status: { type: string, const: choose_kind }
+        expiresAt: { type: string, format: date-time }
+        candidateKinds: { type: array, minItems: 2, maxItems: 4, uniqueItems: true, items: { $ref: "#/components/schemas/CreationDraftKind" } }
+    CreationDraftReadyEvent:
+      type: object
+      required: [draftId, status, expiresAt, kind, draft, missingFields, warnings]
+      properties: { draftId: { type: string, pattern: ^drf_ }, status: { type: string, const: ready }, expiresAt: { type: string, format: date-time }, kind: { type: string, const: event }, draft: { $ref: "#/components/schemas/CreationDraftEventForm" }, missingFields: { type: array, items: { type: string } }, warnings: { type: array, items: { $ref: "#/components/schemas/DraftWarning" } } }
+    CreationDraftReadyTask:
+      type: object
+      required: [draftId, status, expiresAt, kind, draft, missingFields, warnings]
+      properties: { draftId: { type: string, pattern: ^drf_ }, status: { type: string, const: ready }, expiresAt: { type: string, format: date-time }, kind: { type: string, const: task }, draft: { $ref: "#/components/schemas/CreationDraftTaskForm" }, missingFields: { type: array, items: { type: string } }, warnings: { type: array, items: { $ref: "#/components/schemas/DraftWarning" } } }
+    CreationDraftReadyDayRecord:
+      type: object
+      required: [draftId, status, expiresAt, kind, draft, missingFields, warnings]
+      properties: { draftId: { type: string, pattern: ^drf_ }, status: { type: string, const: ready }, expiresAt: { type: string, format: date-time }, kind: { type: string, const: day_record }, draft: { $ref: "#/components/schemas/CreationDraftDayRecordForm" }, missingFields: { type: array, items: { type: string } }, warnings: { type: array, items: { $ref: "#/components/schemas/DraftWarning" } } }
+    CreationDraftReadyWish:
+      type: object
+      required: [draftId, status, expiresAt, kind, draft, missingFields, warnings]
+      properties: { draftId: { type: string, pattern: ^drf_ }, status: { type: string, const: ready }, expiresAt: { type: string, format: date-time }, kind: { type: string, const: wish }, draft: { $ref: "#/components/schemas/CreationDraftWishForm" }, missingFields: { type: array, items: { type: string } }, warnings: { type: array, items: { $ref: "#/components/schemas/DraftWarning" } } }
+    CreationDraftFailed:
+      type: object
+      required: [draftId, status, expiresAt, error]
+      properties:
+        draftId: { type: string, pattern: ^drf_ }
+        status: { type: string, const: failed }
+        expiresAt: { type: string, format: date-time }
+        error: { type: object, required: [code], properties: { code: { type: string } } }
+    CreationDraftState:
+      oneOf:
+        - { $ref: "#/components/schemas/CreationDraftProcessing" }
+        - { $ref: "#/components/schemas/CreationDraftChooseKind" }
+        - { $ref: "#/components/schemas/CreationDraftReadyEvent" }
+        - { $ref: "#/components/schemas/CreationDraftReadyTask" }
+        - { $ref: "#/components/schemas/CreationDraftReadyDayRecord" }
+        - { $ref: "#/components/schemas/CreationDraftReadyWish" }
+        - { $ref: "#/components/schemas/CreationDraftFailed" }
+    CreationDraftResponse: { type: object, required: [data], properties: { data: { $ref: "#/components/schemas/CreationDraftState" } } }
     EventPersonRef:
       type: object
       additionalProperties: false
@@ -1576,7 +1741,7 @@ components:
             environment: { type: string }
             database: { type: string, const: available }
             schemaVersion: { type: string }
-            contractVersion: { type: string, const: 0.10.0 }
+            contractVersion: { type: string, const: 0.11.0 }
     PrincipalResponse:
       type: object
       required: [data]

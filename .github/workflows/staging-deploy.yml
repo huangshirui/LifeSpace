@@ -85,7 +85,7 @@ jobs:
       - name: Deploy Core first
         run: pnpm --dir apps/core exec wrangler deploy --env staging
 
-      - name: Wait for Core 0.10 staging convergence
+      - name: Wait for Core 0.11 staging convergence
         run: |
           curl --fail --silent --show-error --retry 12 --retry-delay 5 --retry-all-errors https://core-staging.aisr.online/health
           echo
@@ -94,13 +94,13 @@ jobs:
             if [ -n "$STATUS" ] && printf '%s' "$STATUS" | node --input-type=module -e '
               import fs from "node:fs";
               const data = JSON.parse(fs.readFileSync(0, "utf8"))?.data ?? {};
-              process.exit(data.environment === "staging" && data.schemaVersion === "8" && data.contractVersion === "0.10.0" ? 0 : 1);
+              process.exit(data.environment === "staging" && data.schemaVersion === "9" && data.contractVersion === "0.11.0" ? 0 : 1);
             '; then
               echo "$STATUS"
-              echo "Core staging is serving schema v8 / contract 0.10.0"
+              echo "Core staging is serving schema v9 / contract 0.11.0"
               break
             fi
-            echo "Core staging has not converged to schema v8 / contract 0.10.0 yet (attempt ${attempt}/12): ${STATUS:-<no response>}"
+            echo "Core staging has not converged to schema v9 / contract 0.11.0 yet (attempt ${attempt}/12): ${STATUS:-<no response>}"
             if [ "$attempt" -eq 12 ]; then exit 1; fi
             sleep 5
           done

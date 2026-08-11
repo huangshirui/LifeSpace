@@ -2,7 +2,7 @@ import fs from "node:fs";
 import YAML from "yaml";
 
 const document = YAML.parse(fs.readFileSync(new URL("../openapi.yaml", import.meta.url), "utf8"));
-if (document.openapi !== "3.1.0" || document.info?.version !== "0.10.0") throw new Error("Core OpenAPI version metadata is invalid");
+if (document.openapi !== "3.1.0" || document.info?.version !== "0.11.0") throw new Error("Core OpenAPI version metadata is invalid");
 
 const requiredPaths = [
   "/health",
@@ -41,6 +41,9 @@ const requiredPaths = [
   "/api/v1/spaces/{spaceId}/wishes/{wishId}/restore",
   "/api/v1/spaces/{spaceId}/grants",
   "/api/v1/spaces/{spaceId}/grants/{grantId}",
+  "/api/v1/spaces/{spaceId}/creation-drafts",
+  "/api/v1/spaces/{spaceId}/creation-drafts/{draftId}",
+  "/api/v1/spaces/{spaceId}/creation-drafts/{draftId}/choose-kind",
 ];
 for (const path of requiredPaths) if (!document.paths?.[path]) throw new Error(`Core OpenAPI missing ${path}`);
 
@@ -68,6 +71,10 @@ if (schemas.JoinInviteRequest?.additionalProperties !== false || !schemas.JoinIn
 if (document.components?.securitySchemes?.bearerAuth?.bearerFormat !== "JWT or lsp_pat_") throw new Error("Core bearer contract must expose JWT and opaque service-token authentication");
 if (!schemas.CreateGrantRequest?.properties?.granteeType?.enum?.includes("service")) throw new Error("Data Grants must support service principals");
 if (!document.paths?.["/api/v1/spaces/{spaceId}/grants"]?.get || !document.paths?.["/api/v1/spaces/{spaceId}/grants/{grantId}"]?.delete) throw new Error("Data Grant management lifecycle is incomplete");
+if (!schemas.CreationDraftEventForm?.properties?.attendeePersonIds || schemas.CreationDraftEventForm?.properties?.attendeeIds) throw new Error("Creation draft event people must use Space Person IDs");
+if (!schemas.CreationDraftTaskForm?.properties?.assigneePersonIds || schemas.CreationDraftTaskForm?.properties?.assigneeIds) throw new Error("Creation draft task people must use Space Person IDs");
+if (!schemas.CreationDraftDayRecordForm?.properties?.subjectPersonId || schemas.CreationDraftDayRecordForm?.properties?.subjectUserId) throw new Error("Creation draft day-record subject must use Space Person ID");
+if (!document.paths?.["/api/v1/spaces/{spaceId}/creation-drafts"]?.post?.description?.includes("active user Space member")) throw new Error("Creation drafts must document user-member-only access");
 
 if (!schemas.EventCommon?.required?.includes("spaceId") || schemas.EventCommon?.properties?.familyId) throw new Error("Native events must be Space-owned");
 if (!schemas.CreateEventCommon?.properties?.attendeePersonIds || schemas.CreateEventCommon?.properties?.attendeeIds) throw new Error("Native attendees must reference Space People");
@@ -104,6 +111,6 @@ for (const action of ["claim", "unclaim", "fulfill", "reopen", "archive", "resto
   if (resolved?.post?.responses?.["200"] === undefined) throw new Error(`Native wish ${action} must return 200`);
 }
 
-if (schemas.StatusResponse?.properties?.data?.properties?.contractVersion?.const !== "0.10.0") throw new Error("Core status contract version drifted");
+if (schemas.StatusResponse?.properties?.data?.properties?.contractVersion?.const !== "0.11.0") throw new Error("Core status contract version drifted");
 
 console.log("Core OpenAPI native contract sanity check passed");
