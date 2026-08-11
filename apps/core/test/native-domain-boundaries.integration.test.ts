@@ -226,6 +226,11 @@ describe("native domain boundary coverage after HomeMew compatibility retirement
     });
     expect(forbiddenOccurrence.status).toBe(409);
     expect((await forbiddenOccurrence.json<{ error: { code: string } }>()).error.code).toBe("OCCURRENCE_NOT_ALLOWED");
+    const archivedCountdown = await request(`/api/v1/spaces/${family.spaceId}/day-records/${countdown.id}/archive`, family.ownerToken, publicKey, {
+      method: "POST",
+      body: JSON.stringify({ version: 1 }),
+    });
+    expect(archivedCountdown.status).toBe(200);
 
     for (const input of [
       { name: "Critical", kind: "countdown", anchorDate: addDateDays(current, -1) },
