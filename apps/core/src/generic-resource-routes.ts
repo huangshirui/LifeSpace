@@ -11,6 +11,7 @@ import {
 import { ApiError, success } from "./http";
 import { requireModelAccess } from "./model-authorization";
 import { getPublishedModelByRoute, type PublishedModel } from "./model-registry";
+import { executeWorkflowAction, workflowActionAccess } from "./workflow";
 
 type AppEnv = { Bindings: Bindings; Variables: Variables };
 type App = Hono<AppEnv>;
@@ -129,5 +130,27 @@ export function registerGenericResourceRoutes(app: App): void {
       positiveVersion(input.version),
     );
     return context.body(null, 204);
+  });
+
+  app.post("/api/v1/spaces/:spaceId/:modelRoute/:recordId/actions/:actionKey", async (context) => {
+    const spaceId = context.req.param("spaceId");
+    await requireActiveSpace(context.env, spaceId);
+    const resolved = await model(context);
+    const actionKey = context.req.param("actionKey");
+    if (!actionKey) throw new ApiError("ACTION_NOT_FOUND", "Action not found", 404);
+    const requiredAccess = workflowActionAccess(resolved, actionKey);
+    await requireModelAccess(context.env, context.get("principal"), spaceId, resolved, requiredAccess);
+    const input = await body(context);
+    if (Object.keys(input).some((key) => key !== "version")) throw new ApiError("INVALID_REQUEST", "Action accepts only version in Model Definition v1", 400);
+    const updated = await executeWorkflowAction(
+      context.env,
+      context.get("principal"),
+      spaceId,
+      resolved,
+      context.req.param("recordId"),
+      actionKey,
+      positiveVersion(input.version),
+    );
+    return context.json(success(dto(updated)));
   });
 }
