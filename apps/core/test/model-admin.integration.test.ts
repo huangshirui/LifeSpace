@@ -69,12 +69,20 @@ describe("Model Admin API", () => {
     const userToken = await token(pair.privateKey, "user", ["models:manage"]);
     const response = await call(pair.publicKey, userToken, "/api/v1/model-admin/models");
     expect(response.status).toBe(403);
+
+    const contractsResponse = await call(pair.publicKey, userToken, "/api/v1/model-admin/contracts/active");
+    expect(contractsResponse.status).toBe(403);
   });
 
-  it("validates and publishes a model through the authenticated Registry path", async () => {
+  it("validates/publishes a model and advances an immutable contract revision", async () => {
     const pair = await keys();
     const serviceToken = await token(pair.privateKey, "service", ["models:manage"]);
     const model = definition();
+
+    const initialContractResponse = await call(pair.publicKey, serviceToken, "/api/v1/model-admin/contracts/active");
+    expect(initialContractResponse.status).toBe(200);
+    const initialContract = await initialContractResponse.json<{ data: { id: string; registryRevision: number; manifest: { models: Array<{ key: string }> } } }>();
+    expect(initialContract.data.id).toMatch(/^mct_[a-f0-9]{64}$/u);
 
     const validateResponse = await call(pair.publicKey, serviceToken, "/api/v1/model-admin/models/validate", {
       method: "POST",
@@ -83,7 +91,7 @@ describe("Model Admin API", () => {
     expect(validateResponse.status).toBe(200);
     const validation = await validateResponse.json<{ data: { valid: boolean; schemaHash?: string } }>();
     expect(validation.data.valid).toBe(true);
-    expect(validation.data.schemaHash).toMatch(/^[a-f0-9]{64}$/);
+    expect(validation.data.schemaHash).toMatch(/^[a-f0-9]{64}$/u);
 
     const publishResponse = await call(pair.publicKey, serviceToken, "/api/v1/model-admin/models", {
       method: "POST",
@@ -93,11 +101,29 @@ describe("Model Admin API", () => {
     const published = await publishResponse.json<{ data: { key: string; version: number; schemaHash: string } }>();
     expect(published.data).toMatchObject({ key: model.key, version: 1 });
 
+    const activeContractResponse = await call(pair.publicKey, serviceToken, "/api/v1/model-admin/contracts/active");
+    expect(activeContractResponse.status).toBe(200);
+    const activeContract = await activeContractResponse.json<{ data: { id: string; registryRevision: number; manifest: { models: Array<{ key: string }> } } }>();
+    expect(activeContract.data.id).not.toBe(initialContract.data.id);
+    expect(activeContract.data.registryRevision).toBe(initialContract.data.registryRevision + 1);
+    expect(activeContract.data.manifest.models.some((entry) => entry.key === model.key)).toBe(true);
+
+    const historicalResponse = await call(pair.publicKey, serviceToken, `/api/v1/model-admin/contracts/${initialContract.data.id}`);
+    expect(historicalResponse.status).toBe(200);
+    const historical = await historicalResponse.json<{ data: { id: string } }>();
+    expect(historical.data.id).toBe(initialContract.data.id);
+
     const getResponse = await call(pair.publicKey, serviceToken, `/api/v1/model-admin/models/${model.key}`);
     expect(getResponse.status).toBe(200);
 
     const retireResponse = await call(pair.publicKey, serviceToken, `/api/v1/model-admin/models/${model.key}/retire`, { method: "POST" });
     expect(retireResponse.status).toBe(204);
+
+    const afterRetireResponse = await call(pair.publicKey, serviceToken, "/api/v1/model-admin/contracts/active");
+    expect(afterRetireResponse.status).toBe(200);
+    const afterRetire = await afterRetireResponse.json<{ data: { registryRevision: number; manifest: { models: Array<{ key: string }> } } }>();
+    expect(afterRetire.data.registryRevision).toBe(activeContract.data.registryRevision + 1);
+    expect(afterRetire.data.manifest.models.some((entry) => entry.key === model.key)).toBe(false);
 
     const missingResponse = await call(pair.publicKey, serviceToken, `/api/v1/model-admin/models/${model.key}`);
     expect(missingResponse.status).toBe(404);
