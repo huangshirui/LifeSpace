@@ -64,11 +64,19 @@ async function sha256(value: string): Promise<string> {
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-async function constantTimeEqual(left: string, right: string): Promise<boolean> {
-  const [a, b] = await Promise.all([sha256(left), sha256(right)]);
+function constantTimeEqualDigest(left: string, right: string): boolean {
+  if (left.length !== right.length) return false;
   let diff = 0;
-  for (let index = 0; index < a.length; index += 1) diff |= a.charCodeAt(index) ^ b.charCodeAt(index);
+  for (let index = 0; index < left.length; index += 1) diff |= left.charCodeAt(index) ^ right.charCodeAt(index);
   return diff === 0;
+}
+
+async function constantTimeEqual(left: string, right: string): Promise<boolean> {
+  return constantTimeEqualDigest(await sha256(left), await sha256(right));
+}
+
+async function matchesStoredHash(value: string, expectedHash: string): Promise<boolean> {
+  return constantTimeEqualDigest(await sha256(value), expectedHash);
 }
 
 function randomSecret(prefix: string): string {
@@ -257,7 +265,8 @@ export function registerServiceAuthenticationRoutes(app: App): void {
       const previousMax = parseJsonArray(row.max_scopes);
       const maxScopes = body.maxScopes === undefined ? previousMax : parseScopes(body.maxScopes, "maxScopes");
       if (!scopeSubset(maxScopes, application.allowedScopes)) return c.json(fail("FORBIDDEN", "Service principal scopes exceed the application scope ceiling", c.get("requestId")), 403);
-      if (body.maxScopes !== undefined && !scopeSubset(maxScopes, previousMax)) throw new Error("maxScopes may only be reduced after creation");
+      // The principal ceiling may change within the registered application's ceiling.
+      // Existing opaque tokens keep their own scopes and therefore never auto-expand.
       const timestamp = now();
       const disabledAt = status === "disabled" ? (row.disabled_at ?? timestamp) : null;
       await c.env.DB.prepare(`UPDATE service_principals SET display_name=?,description=?,max_scopes=?,status=?,updated_at=?,disabled_at=? WHERE id=? AND application_id=?`)
@@ -348,7 +357,7 @@ export function registerServiceAuthenticationRoutes(app: App): void {
     if (application instanceof Response) return application;
     const principal = await principalForApplication(c.env, c.req.param("principalId"), application.id);
     if (!principal) return c.json(fail("SERVICE_PRINCIPAL_NOT_FOUND", "Service principal not found", c.get("requestId")), 404);
-    const revokedByUserId = c.req.header("x-lifespace-actor-user-id")?.trim() || null;
+    const revokedByUserId = await activeUser(c.env, c.req.header("x-lifespace-actor-user-id")?.trim() || null);
     const result = await c.env.DB.prepare(`UPDATE service_api_tokens SET revoked_at=?,revoked_by_user_id=?
       WHERE id=? AND principal_id=? AND revoked_at IS NULL`).bind(now(), revokedByUserId, c.req.param("tokenId"), principal.id).run();
     if (!result.meta.changes) return c.json(fail("SERVICE_TOKEN_NOT_FOUND", "Active service token not found", c.get("requestId")), 404);
@@ -394,7 +403,7 @@ export function registerServiceAuthenticationRoutes(app: App): void {
     if (application instanceof Response) return application;
     const principal = await principalForApplication(c.env, c.req.param("principalId"), application.id);
     if (!principal) return c.json(fail("SERVICE_PRINCIPAL_NOT_FOUND", "Service principal not found", c.get("requestId")), 404);
-    const revokedByUserId = c.req.header("x-lifespace-actor-user-id")?.trim() || null;
+    const revokedByUserId = await activeUser(c.env, c.req.header("x-lifespace-actor-user-id")?.trim() || null);
     const result = await c.env.DB.prepare(`UPDATE service_oauth_credentials SET status='revoked',revoked_at=?,revoked_by_user_id=?
       WHERE id=? AND principal_id=? AND status='active'`).bind(now(), revokedByUserId, c.req.param("credentialId"), principal.id).run();
     if (!result.meta.changes) return c.json(fail("OAUTH_CREDENTIAL_NOT_FOUND", "Active OAuth credential not found", c.get("requestId")), 404);
@@ -429,7 +438,7 @@ export function registerServiceAuthenticationRoutes(app: App): void {
         credentialId: string; secretHash: string; principalId: string; applicationId: string; maxScopes: string; principalStatus: string;
         allowedScopes: string; applicationStatus: string; ttl: number;
       }>();
-    if (!credential || credential.principalStatus !== "active" || credential.applicationStatus !== "active" || !await constantTimeEqual(await sha256(clientSecret), credential.secretHash)) {
+    if (!credential || credential.principalStatus !== "active" || credential.applicationStatus !== "active" || !await matchesStoredHash(clientSecret, credential.secretHash)) {
       return oauthError(c, 401, "invalid_client", "Client authentication failed");
     }
     const requested = typeof form.scope === "string" && form.scope.trim() ? form.scope.trim().split(/\s+/) : [];

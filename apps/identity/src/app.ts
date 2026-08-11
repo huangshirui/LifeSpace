@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import type { MiddlewareHandler } from "hono";
 import { sign, verify } from "hono/jwt";
 import { AvatarError, bestEffortDeleteUserAvatar, parseAvatarFile, storeUserAvatar } from "./avatar";
+import { registerServiceAuthenticationRoutes } from "./service-auth";
 import type { Bindings, Variables } from "./env";
 
 type AppEnv = { Bindings: Bindings; Variables: Variables };
@@ -176,7 +177,7 @@ export function createApp() {
       environment: c.env.ENVIRONMENT ?? "local",
       database: "available",
       schemaVersion: row.value,
-      contractVersion: "0.2.0",
+      contractVersion: "0.3.0",
     }));
   });
 
@@ -339,6 +340,8 @@ export function createApp() {
 
     return c.json(ok({ accessToken: token, tokenType: "Bearer", expiresIn: tokenTtlSeconds, scope: requested.join(" ") }));
   });
+
+  registerServiceAuthenticationRoutes(app);
 
   app.notFound((c) => c.json(fail("NOT_FOUND", "Route not found", c.get("requestId")), 404));
   app.onError((error, c) => {

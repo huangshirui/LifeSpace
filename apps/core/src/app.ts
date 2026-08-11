@@ -9,6 +9,7 @@ import { registerTaskRoutes } from "./tasks";
 import { registerWishRoutes } from "./wishes";
 import { registerSpaceRoutes } from "./spaces";
 import { registerSpaceAvatarRoutes } from "./space-avatars";
+import { registerGrantRoutes } from "./grants";
 
 type AppEnv = { Bindings: Bindings; Variables: Variables };
 const defaultOrigins = ["http://localhost:5173", "http://127.0.0.1:5173"];
@@ -43,7 +44,7 @@ export function createApp() {
     environment: context.env.ENVIRONMENT ?? "local",
     database: "available",
     schemaVersion: await schemaVersion(context.env),
-    contractVersion: "0.9.0",
+    contractVersion: "0.10.0",
   })));
   app.use("/api/v1/me", authenticate());
   app.use("/api/v1/me/*", authenticate());
@@ -52,6 +53,7 @@ export function createApp() {
   app.use("/api/v1/space-invites/*", authenticate());
   registerSpaceAvatarRoutes(app);
   registerSpaceRoutes(app);
+  registerGrantRoutes(app);
   registerEventRoutes(app);
   registerTaskRoutes(app);
   registerDayRecordRoutes(app);
