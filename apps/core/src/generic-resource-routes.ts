@@ -4,10 +4,10 @@ import {
   createGenericResource,
   deleteGenericResource,
   getGenericResource,
-  listGenericResources,
   type GenericResource,
   updateGenericResource,
 } from "./generic-resource";
+import { queryGenericResources } from "./generic-query";
 import { ApiError, success } from "./http";
 import { requireModelAccess } from "./model-authorization";
 import { getPublishedModelByRoute, type PublishedModel } from "./model-registry";
@@ -27,14 +27,6 @@ async function body(context: Context<AppEnv>): Promise<Body> {
 
 function positiveVersion(value: unknown): number {
   if (!Number.isInteger(value) || Number(value) < 1) throw new ApiError("INVALID_REQUEST", "version must be a positive integer", 400);
-  return Number(value);
-}
-
-function limit(value: string | undefined): number {
-  if (value === undefined) return 100;
-  if (!/^\d+$/.test(value) || Number(value) < 1 || Number(value) > 200) {
-    throw new ApiError("INVALID_REQUEST", "limit must be an integer between 1 and 200", 400);
-  }
   return Number(value);
 }
 
@@ -70,8 +62,8 @@ export function registerGenericResourceRoutes(app: App): void {
     await requireActiveSpace(context.env, spaceId);
     const resolved = await model(context);
     await requireModelAccess(context.env, context.get("principal"), spaceId, resolved, "read");
-    const items = await listGenericResources(context.env, spaceId, resolved.key, limit(context.req.query("limit")));
-    return context.json(success({ items: items.map(dto), nextCursor: null }));
+    const result = await queryGenericResources(context.env, spaceId, resolved, new URL(context.req.url).searchParams);
+    return context.json(success({ items: result.items.map(dto), nextCursor: result.nextCursor }));
   });
 
   app.post("/api/v1/spaces/:spaceId/:modelRoute", async (context) => {
