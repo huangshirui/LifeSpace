@@ -6,6 +6,7 @@ on:
     paths:
       - .github/workflows/phase2-profile-assets-apply.yml
       - infra/scripts/phase2-profile-assets-patch.mjs
+  workflow_dispatch:
 
 permissions:
   contents: write
