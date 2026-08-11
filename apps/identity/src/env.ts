@@ -1,6 +1,15 @@
+export type UserPrincipal = {
+  id: string;
+  clientId: string;
+  scopes: string[];
+  tokenId: string;
+};
+
 export type Bindings = {
   DB: D1Database;
+  ASSETS: R2Bucket;
   TOKEN_PRIVATE_KEY: string;
+  TOKEN_PUBLIC_KEY: string;
   BOOTSTRAP_SECRET: string;
   ENVIRONMENT?: string;
 };
@@ -10,4 +19,5 @@ export type Variables = {
   currentApplicationId: string;
   currentApplicationScopes: string[];
   currentApplicationTokenTtlSeconds: number;
+  principal: UserPrincipal;
 };

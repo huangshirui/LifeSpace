@@ -10,11 +10,16 @@ function unauthorized(): ApiError {
   return new ApiError("UNAUTHORIZED", "Authentication is required", 401);
 }
 
+function audienceIncludes(value: unknown, expected: string): boolean {
+  if (typeof value === "string") return value === expected;
+  return Array.isArray(value) && value.some((entry) => entry === expected);
+}
+
 export async function verifyAccessToken(rawToken: string, publicKey: string): Promise<Principal> {
   try {
     const payload = await verify(rawToken, publicKey, "RS256");
     const now = Math.floor(Date.now() / 1000);
-    if (payload.iss !== "lifespace-identity" || payload.aud !== "lifespace-core") throw unauthorized();
+    if (payload.iss !== "lifespace-identity" || !audienceIncludes(payload.aud, "lifespace-core")) throw unauthorized();
     if (typeof payload.sub !== "string" || !payload.sub) throw unauthorized();
     if (typeof payload.azp !== "string" || !payload.azp) throw unauthorized();
     if (typeof payload.jti !== "string" || !payload.jti) throw unauthorized();

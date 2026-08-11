@@ -7,7 +7,7 @@ import { ApiError, success } from "./http";
 type AppEnv = { Bindings: Bindings; Variables: Variables };
 type App = Hono<AppEnv>;
 type Body = Record<string, unknown>;
-type SpaceRow = { id: string; kind: "personal" | "family" | "team"; name: string; timezone: string; version: number };
+type SpaceRow = { id: string; kind: "personal" | "family" | "team"; name: string; timezone: string; avatar_key: string | null; version: number };
 type MembershipRow = { id: string; space_id: string; user_id: string; role: SpaceRole; version: number; deleted_at: string | null };
 type PersonRow = { id: string; deleted_at: string | null };
 type InviteRow = {
@@ -85,10 +85,20 @@ function fields(input: Body, allowed: string[]): void {
 }
 
 async function findSpace(env: Bindings, spaceId: string): Promise<SpaceRow> {
-  const row = await env.DB.prepare("SELECT id,kind,name,timezone,version FROM spaces WHERE id=? AND deleted_at IS NULL")
+  const row = await env.DB.prepare("SELECT id,kind,name,timezone,avatar_key,version FROM spaces WHERE id=? AND deleted_at IS NULL")
     .bind(spaceId).first<SpaceRow>();
   if (!row) throw new ApiError("SPACE_NOT_FOUND", "Space not found", 404);
   return row;
+}
+
+function spaceAvatarUrl(requestUrl: string, spaceId: string, avatarKey: string | null): string | null {
+  if (!avatarKey) return null;
+  return new URL(`/assets/spaces/${encodeURIComponent(spaceId)}/avatar`, requestUrl).toString();
+}
+
+function spaceDto<T extends SpaceRow>(requestUrl: string, row: T) {
+  const { avatar_key: avatarKey, ...rest } = row;
+  return { ...rest, avatarUrl: spaceAvatarUrl(requestUrl, row.id, avatarKey) };
 }
 
 async function findMembership(env: Bindings, spaceId: string, userId: string, activeOnly = true): Promise<MembershipRow | null> {
@@ -179,12 +189,12 @@ export function registerSpaceRoutes(app: App): void {
   app.get("/api/v1/me/spaces", requireScope("spaces:read"), async (c) => {
     const principal = c.get("principal");
     const result = principal.type === "user"
-      ? await c.env.DB.prepare(`SELECT s.id,s.kind,s.name,s.timezone,m.role,s.version
+      ? await c.env.DB.prepare(`SELECT s.id,s.kind,s.name,s.timezone,s.avatar_key,m.role,s.version
           FROM spaces s JOIN space_memberships m ON m.space_id=s.id
           WHERE m.user_id=? AND m.deleted_at IS NULL AND s.deleted_at IS NULL ORDER BY m.created_at`)
-        .bind(principal.id).all()
-      : { results: [] };
-    return c.json(success(result.results));
+        .bind(principal.id).all<SpaceRow & { role: SpaceRole }>()
+      : { results: [] as (SpaceRow & { role: SpaceRole })[] };
+    return c.json(success(result.results.map((row) => spaceDto(c.req.url, row))));
   });
 
   app.post("/api/v1/spaces", requireScope("spaces:write"), async (c) => {
@@ -209,14 +219,14 @@ export function registerSpaceRoutes(app: App): void {
       c.env.DB.prepare(`INSERT INTO space_people(id,space_id,linked_user_id,display_name,created_at,updated_at) VALUES(?,?,?,?,?,?)`)
         .bind(personId, spaceId, principal.id, ownerDisplayName, createdAt, createdAt),
     ]);
-    return c.json(success({ id: spaceId, kind, name, timezone: zone, role: "owner", ownerPersonId: personId, version: 1 }), 201);
+    return c.json(success({ id: spaceId, kind, name, timezone: zone, avatarUrl: null, role: "owner", ownerPersonId: personId, version: 1 }), 201);
   });
 
   app.get("/api/v1/spaces/:spaceId", requireScope("spaces:read"), async (c) => {
     const principal = c.get("principal");
     const spaceId = c.req.param("spaceId");
     const access = await requireSpacePermission(c.env, principal, spaceId, "read");
-    return c.json(success({ ...await findSpace(c.env, spaceId), access }));
+    return c.json(success({ ...spaceDto(c.req.url, await findSpace(c.env, spaceId)), access }));
   });
 
   app.patch("/api/v1/spaces/:spaceId", requireScope("spaces:manage"), async (c) => {
@@ -234,7 +244,7 @@ export function registerSpaceRoutes(app: App): void {
     const updated = await c.env.DB.prepare(`UPDATE spaces SET name=?,timezone=?,updated_at=?,version=version+1
       WHERE id=? AND deleted_at IS NULL AND version=?`).bind(name, zone, now(), spaceId, expected).run();
     if (!updated.meta.changes) throw new ApiError("SPACE_VERSION_CONFLICT", "Space version conflict", 409);
-    return c.json(success(await findSpace(c.env, spaceId)));
+    return c.json(success(spaceDto(c.req.url, await findSpace(c.env, spaceId))));
   });
 
   app.get("/api/v1/spaces/:spaceId/members", requireScope("spaces:read"), async (c) => {

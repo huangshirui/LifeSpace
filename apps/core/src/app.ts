@@ -8,6 +8,7 @@ import { registerEventRoutes } from "./events";
 import { registerTaskRoutes } from "./tasks";
 import { registerWishRoutes } from "./wishes";
 import { registerSpaceRoutes } from "./spaces";
+import { registerSpaceAvatarRoutes } from "./space-avatars";
 
 type AppEnv = { Bindings: Bindings; Variables: Variables };
 const defaultOrigins = ["http://localhost:5173", "http://127.0.0.1:5173"];
@@ -33,7 +34,7 @@ export function createApp() {
   app.use("*", cors({
     origin: (origin, context) => origins(context.env).includes(origin) ? origin : undefined,
     allowHeaders: ["Authorization", "Content-Type", "X-Request-ID"],
-    allowMethods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+    allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
   }));
   app.get("/health", (context) => context.json(success({ status: "ok" })));
   app.get("/api/v1/status", async (context) => context.json(success({
@@ -42,13 +43,14 @@ export function createApp() {
     environment: context.env.ENVIRONMENT ?? "local",
     database: "available",
     schemaVersion: await schemaVersion(context.env),
-    contractVersion: "0.8.0",
+    contractVersion: "0.9.0",
   })));
   app.use("/api/v1/me", authenticate());
   app.use("/api/v1/me/*", authenticate());
   app.use("/api/v1/spaces", authenticate());
   app.use("/api/v1/spaces/*", authenticate());
   app.use("/api/v1/space-invites/*", authenticate());
+  registerSpaceAvatarRoutes(app);
   registerSpaceRoutes(app);
   registerEventRoutes(app);
   registerTaskRoutes(app);

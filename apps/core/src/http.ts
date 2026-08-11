@@ -7,7 +7,7 @@ export function failure(code: string, message: string, requestId: string) {
 }
 
 export class ApiError extends Error {
-  constructor(public code: string, message: string, public status: 400 | 401 | 403 | 404 | 409 | 422 | 500) {
+  constructor(public code: string, message: string, public status: 400 | 401 | 403 | 404 | 409 | 413 | 415 | 422 | 500) {
     super(message);
   }
 }

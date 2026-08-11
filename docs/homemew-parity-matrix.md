@@ -13,8 +13,8 @@ After Phase 2.6, the migration direction changed: **parity means preserving requ
 | Surface | HomeMew baseline | Migration classification | LifeSpace target |
 | --- | --- | --- | --- |
 | Worker | `homemew-core` | Runtime baseline | Native LifeSpace Core; no production HomeMew API façade target |
-| D1 | `homemew-core`, schema version 11 | Durable | Repeatable export/transform into LifeSpace Core D1 |
-| R2 | `homemew-assets` via `AVATARS` | Object storage | Copy/transform verified objects into isolated LifeSpace platform storage |
+| D1 | `homemew-core`, schema version 11 | Durable | Repeatable export/transform into LifeSpace Identity/Core D1 according to service ownership |
+| R2 | `homemew-assets` via `AVATARS` | Object storage | Copy/verify objects into the environment-isolated LifeSpace assets bucket; Identity owns `avatars/users/...`, Core owns `avatars/spaces/...`, raw keys stay private |
 | Queue | `homemew-creation-drafts` | Ephemeral | Re-create native Space-aware workflow only if still required; do not migrate in-flight messages |
 | Cron | hourly creation-draft cleanup | Runtime behavior | Re-create only if native creation drafts remain required |
 | Rate limit | AI rate-limit binding | Ephemeral policy state | Re-provision; do not migrate counters |
@@ -40,16 +40,16 @@ The HomeMew OpenAPI baseline exposes 60 implemented operations. The table groups
 
 | Capability | HomeMew baseline | Native LifeSpace replacement | Status / cutover treatment |
 | --- | --- | --- | --- |
-| System probes | health and schema/status | Native Core probes | Foundation complete |
-| User profile | read/update profile; user avatar | Final Identity profile + native platform object behavior | Remaining Phase 2 work |
-| Family listing/profile | list/create/read/update family | `Space(kind=family)` | Native deployed; legacy façade scheduled for removal |
-| Members | list, change role, remove, leave | Space membership + linked Space Person | Native deployed; legacy façade scheduled for removal |
-| Invitations | create/list/revoke/preview/join | Core-owned Space invitations | Native deployed; legacy façade scheduled for removal |
-| Family avatar | upload/read derived URL | Native Space/object behavior | Remaining Phase 2 work |
-| Events | CRUD/search/filter; attendees | Space-owned events + Space Person attendees | Native deployed; legacy façade scheduled for removal |
-| Tasks | CRUD/search/filter/complete/reopen; assignees | Space-owned tasks + Space Person assignees | Native deployed; legacy façade scheduled for removal |
-| Day records | CRUD, occurrence history, archive/restore | Space-owned day records + occurrences | Native deployed; legacy façade scheduled for removal |
-| Wishes | CRUD, lifecycle actions | Space-owned wishes + Space Person owner/claimant/fulfiller | Native deployed; legacy façade scheduled for removal |
+| System probes | health and schema/status | Native Core/Identity probes | Foundation complete |
+| User profile | read/update profile; user avatar | Identity-owned profile + native user-avatar object behavior | Native Identity 0.2.0 / schema v3 deployed and verified in staging |
+| Family listing/profile | list/create/read/update family | `Space(kind=family)` | Native deployed; legacy façade retired by Core 0.8.0 |
+| Members | list, change role, remove, leave | Space membership + linked Space Person | Native deployed; legacy façade retired by Core 0.8.0 |
+| Invitations | create/list/revoke/preview/join | Core-owned Space invitations | Native deployed; legacy façade retired by Core 0.8.0 |
+| Family avatar | upload/read derived URL | Core-owned Space avatar + native object behavior | Native Core 0.9.0 / schema v8 deployed and verified in staging |
+| Events | CRUD/search/filter; attendees | Space-owned events + Space Person attendees | Native deployed; legacy façade retired by Core 0.8.0 |
+| Tasks | CRUD/search/filter/complete/reopen; assignees | Space-owned tasks + Space Person assignees | Native deployed; legacy façade retired by Core 0.8.0 |
+| Day records | CRUD, occurrence history, archive/restore | Space-owned day records + occurrences | Native deployed; legacy façade retired by Core 0.8.0 |
+| Wishes | CRUD, lifecycle actions | Space-owned wishes + Space Person owner/claimant/fulfiller | Native deployed; legacy façade retired by Core 0.8.0 |
 | External integrations | integration CRUD, credential issue/list/revoke, OAuth client credentials | Service principal + `lsp_pat_*` + optional OAuth `client_credentials` + Data Grants/scopes | Remaining Phase 2 work; new credentials required |
 | Creation drafts | asynchronous interpret/job polling and cleanup | Native Space-aware queue workflow if retained | Remaining Phase 2 decision/work |
 | Internal user creation | trusted backend user creation | LifeSpace Identity trusted application user creation | Foundation replacement exists |
@@ -70,7 +70,7 @@ From 2026-08-11 onward:
 - Do not add a production legacy HomeMew token verifier.
 - HomeMew UI may retain product terms such as "家庭" while its API/data layer uses `Space`, membership and Space Person.
 - Migration mappings and transforms remain mandatory where IDs/models change.
-- Already-implemented Phase 2.2-2.6 compatibility code is transitional and must be removed before the target staging runtime is accepted for native HomeMew client migration/cutover.
+- Phase 2.2-2.6 compatibility code is historical migration work and has been removed from the target Core runtime.
 
 ## Core transformation policies
 
@@ -102,6 +102,18 @@ HomeMew commonly used `userId` for both login identity and represented household
 | current authenticated actor | verified principal/user from credential, never request user ID |
 
 HomeMew client adapters must migrate to Person IDs for domain relationships. The platform must not retain a permanent user-ID translation façade to hide this model change.
+
+### Profiles and avatars
+
+- Global user profile data and user-avatar metadata are owned by LifeSpace Identity, not Core.
+- Space avatar metadata is owned by Core with the Space record.
+- The environment-isolated LifeSpace assets R2 bucket is shared physically but divided by service-owned namespaces: `avatars/users/...` for Identity and `avatars/spaces/...` for Core.
+- Raw R2 keys are persistence details and are never public contract fields. Clients receive stable Worker URLs from Identity/Core.
+- Avatar replacement preserves the HomeMew safety properties: JPEG/PNG/WebP only, maximum 5 MB, write the new object first, roll it back if metadata persistence fails, and delete the previous object only after success.
+- Space avatar replacement uses optimistic Space version concurrency.
+- User JWTs issued after Identity 0.2.0 carry both `lifespace-core` and `lifespace-identity` audiences; Core accepts the previous single-Core audience during the issuer rollout window.
+- HomeMew migration tooling emits native `avatar_key` metadata plus a deterministic `object-copy-manifest.json` mapping each valid legacy source key to the target LifeSpace namespace.
+- Migration validation rejects avatar keys outside the expected legacy user/family owner prefix rather than silently copying cross-owner data.
 
 ### Tasks
 
@@ -137,7 +149,7 @@ The following **remain required**:
 - family member -> membership / Space Person.
 - historical actor/person mappings.
 - event/task/day-record/wish transforms and semantic validation.
-- object-storage migration manifests.
+- `object-copy-manifest.json` and object existence/integrity verification for avatars.
 - integration/credential ID -> new service-principal/credential metadata mapping.
 - migration count, referential-integrity and authorization reports.
 
@@ -176,7 +188,8 @@ Before production cutover, the supported HomeMew client must:
 - use a pinned native LifeSpace contract/client version;
 - obtain LifeSpace Identity-backed short-lived app-scoped user tokens through the trusted HomeMew WeChat adapter/Cloud Function;
 - manage LifeSpace service credentials/Grants for external integrations;
-- use only native LifeSpace profile/avatar/creation-draft behavior required by the cutover set.
+- use Identity-owned user profile/avatar and Core-owned Space avatar behavior through native stable URLs;
+- use only native LifeSpace creation-draft behavior if that capability remains in the cutover set.
 
 The UI may continue to present HomeMew concepts such as family/member. This is an application presentation concern, not a platform compatibility requirement.
 

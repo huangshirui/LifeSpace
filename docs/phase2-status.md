@@ -2,7 +2,7 @@
 
 Updated: 2026-08-11
 
-Phase 2 is **in progress**. Phase 1 staging is the accepted platform baseline. Phase 2.1-2.6 and the native-only convergence/compatibility-retirement slice are deployed and verified in staging. After Phase 2.6, the migration direction was reset: LifeSpace no longer targets a HomeMew runtime compatibility layer; remaining work targets the final native LifeSpace architecture and HomeMew will adapt its clients to that contract.
+Phase 2 is **in progress**. Phase 1 staging is the accepted platform baseline. Phase 2.1-2.6, the native-only convergence/compatibility-retirement slice, and the native user-profile/R2-avatar slice are deployed and verified in staging. After Phase 2.6, the migration direction was reset: LifeSpace no longer targets a HomeMew runtime compatibility layer; remaining work targets the final native LifeSpace architecture and HomeMew will adapt its clients to that contract.
 
 ## Phase 2 objective
 
@@ -132,26 +132,39 @@ Completed scope:
 - [x] Pass complete repository CI (`contract -> tests -> typecheck -> build`), including restored native boundary coverage.
 - [x] Deploy Core 0.8.0 to staging and pass the repeatable native staging smoke without switching production/HomeMew traffic.
 - [x] Confirm runtime Event/Task/Day Record/Wish/Core routing code no longer reads legacy mapping tables; remaining `legacy_homemew_*` usage is restricted to migration/audit schema and transform tooling.
+- [x] Remove the unused `HOMEMEW_COMPAT_CLIENT_IDS` Wrangler/generated-binding configuration artifact while regenerating bindings in the profile/assets slice.
 
-Known non-blocking cleanup:
+## User profile + R2 avatars/objects
 
-- `HOMEMEW_COMPAT_CLIENT_IDS` may still appear as an unused Wrangler/generated-binding configuration artifact. There is no runtime consumer after Core 0.8.0. Remove it through the normal Wrangler binding-regeneration workflow rather than hand-editing generated artifacts.
+**Status: complete — Identity 0.2.0 / schema v3 and Core 0.9.0 / schema v8 deployed and verified in staging on 2026-08-11 through PR #17. Production and HomeMew traffic remain unchanged.**
 
-## Next slices after convergence
+Completed scope:
 
-1. **User profile + R2 avatars/objects**
-   - Implement final Identity/Core ownership and object behavior required by HomeMew.
-   - Add deterministic object/data migration and verification without adding HomeMew legacy routes.
+- [x] Keep global user profile ownership in Identity; add authenticated `GET/PATCH /api/v1/me` with `profile:read` / `profile:write`.
+- [x] Add Identity-owned user avatar metadata and `PUT /api/v1/me/avatar` with JPEG/PNG/WebP and 5 MB validation.
+- [x] Keep Space avatar ownership in Core; add optimistic `PUT /api/v1/spaces/{spaceId}/avatar` protected by `spaces:manage` and current Space permission.
+- [x] Keep raw R2 object keys private; expose stable public avatar read URLs through Identity/Core Worker routes.
+- [x] Use one LifeSpace assets bucket per environment with service-owned namespaces: `avatars/users/...` for Identity and `avatars/spaces/...` for Core.
+- [x] Preserve safe replacement semantics: write new object first, roll it back on DB/concurrency failure, and delete the old object only after metadata succeeds.
+- [x] Add `avatarUrl` to native Space DTOs and Identity profile responses without exposing `avatar_key` as a public contract field.
+- [x] Issue user JWTs for both `lifespace-core` and `lifespace-identity`; keep Core temporarily accepting the previous single-Core audience during issuer rollout.
+- [x] Deploy Core verifier before the Identity issuer so the audience transition has no incompatible window.
+- [x] Extend deterministic HomeMew migration tooling to populate native avatar metadata and emit `object-copy-manifest.json` with explicit legacy R2 source -> LifeSpace target mappings.
+- [x] Validate avatar source ownership prefixes and reject invalid/cross-owner legacy keys rather than copying them silently.
+- [x] Add Identity/Core Workers+D1+R2 integration coverage, contract checks, migration-transform tests and repeatable staging smoke for profile/user-avatar/Space-avatar behavior.
+- [x] Keep production resources and HomeMew traffic untouched.
 
-2. **External integrations / service authentication**
+## Next slices
+
+1. **External integrations / service authentication**
    - Implement service principals, opaque `lsp_pat_*` Service API Tokens, optional OAuth `client_credentials`, scopes and Data Grants according to `docs/service-authentication.md`.
    - Add HomeMew integration migration/report tooling, but do not reproduce `hmw_pat_*` as a LifeSpace credential format.
 
-3. **Creation drafts / Queue**
+2. **Creation drafts / Queue**
    - Implement a native Space-aware workflow only if still required by the frozen HomeMew production capability set.
    - Queue messages and other ephemeral state are not migrated.
 
-4. **Final native parity sweep**
+3. **Final native parity sweep**
    - Verify every production-used HomeMew capability has a deployed native replacement and deterministic migration/retirement decision.
    - Produce the exact native contract version HomeMew Phase 3 client migration will consume.
 

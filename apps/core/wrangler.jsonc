@@ -4,19 +4,22 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-08-08",
   "observability": { "enabled": true },
-  "vars": { "ENVIRONMENT": "local", "HOMEMEW_COMPAT_CLIENT_IDS": "homemew-miniprogram" },
+  "vars": { "ENVIRONMENT": "local" },
   "d1_databases": [{ "binding": "DB", "database_name": "lifespace-core-local", "database_id": "00000000-0000-0000-0000-000000000001", "migrations_dir": "migrations" }],
+  "r2_buckets": [{ "binding": "ASSETS", "bucket_name": "lifespace-local-assets" }],
   "env": {
     "staging": {
       "name": "lifespace-core-staging",
-      "vars": { "ENVIRONMENT": "staging", "HOMEMEW_COMPAT_CLIENT_IDS": "homemew-miniprogram" },
+      "vars": { "ENVIRONMENT": "staging" },
       "routes": [{ "pattern": "core-staging.aisr.online", "custom_domain": true }],
-      "d1_databases": [{ "binding": "DB", "database_name": "lifespace-core-staging", "database_id": "00000000-0000-0000-0000-000000000002", "migrations_dir": "migrations" }]
+      "d1_databases": [{ "binding": "DB", "database_name": "lifespace-core-staging", "database_id": "00000000-0000-0000-0000-000000000002", "migrations_dir": "migrations" }],
+      "r2_buckets": [{ "binding": "ASSETS", "bucket_name": "lifespace-staging-assets" }]
     },
     "production": {
       "name": "lifespace-core",
-      "vars": { "ENVIRONMENT": "production", "HOMEMEW_COMPAT_CLIENT_IDS": "homemew-miniprogram" },
-      "d1_databases": [{ "binding": "DB", "database_name": "lifespace-core", "database_id": "00000000-0000-0000-0000-000000000003", "migrations_dir": "migrations" }]
+      "vars": { "ENVIRONMENT": "production" },
+      "d1_databases": [{ "binding": "DB", "database_name": "lifespace-core", "database_id": "00000000-0000-0000-0000-000000000003", "migrations_dir": "migrations" }],
+      "r2_buckets": [{ "binding": "ASSETS", "bucket_name": "lifespace-assets" }]
     }
   }
 }

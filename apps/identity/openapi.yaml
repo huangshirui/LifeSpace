@@ -1,7 +1,8 @@
 openapi: 3.1.0
 info:
   title: LifeSpace Identity API
-  version: 0.1.2
+  version: 0.2.0
+  description: Global LifeSpace user identity, profile, trusted application exchange and credential issuance API.
 paths:
   /health:
     get:
@@ -11,6 +12,77 @@ paths:
     get:
       responses:
         '200': { description: Identity status }
+  /assets/users/{userId}/avatar:
+    parameters:
+      - name: userId
+        in: path
+        required: true
+        schema: { type: string, pattern: ^usr_ }
+    get:
+      description: Public stable URL for the current avatar of an active LifeSpace user. The underlying R2 object key is private implementation detail.
+      security: []
+      responses:
+        '200':
+          description: Current user avatar bytes
+          content:
+            image/jpeg: { schema: { type: string, contentEncoding: binary } }
+            image/png: { schema: { type: string, contentEncoding: binary } }
+            image/webp: { schema: { type: string, contentEncoding: binary } }
+        '404': { description: User/avatar not found }
+  /api/v1/me:
+    get:
+      description: Return the authenticated global LifeSpace user profile. Requires profile:read.
+      security: [{ userBearer: [] }]
+      responses:
+        '200':
+          description: Current user profile
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProfileResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    patch:
+      description: Update the authenticated global LifeSpace user profile. Requires profile:write.
+      security: [{ userBearer: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateProfileRequest' }
+      responses:
+        '200':
+          description: Updated profile
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProfileResponse' }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/me/avatar:
+    put:
+      description: Replace the authenticated user's avatar. Requires profile:write. Accepts JPEG, PNG or WebP up to 5 MB.
+      security: [{ userBearer: [] }]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: { type: string, contentEncoding: binary }
+      responses:
+        '200':
+          description: Avatar replaced
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AvatarResponse' }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '413': { description: Avatar is larger than 5 MB }
+        '415': { description: Avatar content type is not JPEG, PNG or WebP }
   /bootstrap/v1/applications:
     post:
       description: Platform-admin bootstrap endpoint. Registers an application, configures its access-token TTL (300-3600 seconds), and returns a backend credential once when trustedBackend is true.
@@ -26,8 +98,73 @@ paths:
         '401': { description: Trusted application authentication required }
   /internal/v1/tokens:
     post:
-      description: Trusted application backend exchanges an already-resolved LifeSpace user ID for a Core token. Calling application and token lifetime are derived from its registered application policy; the caller cannot choose either.
+      description: Trusted application backend exchanges an already-resolved LifeSpace user ID for a short-lived app-scoped LifeSpace token. The issued user token is valid for both LifeSpace Core and Identity resource audiences; calling application and token lifetime are derived from registered application policy.
       responses:
-        '200': { description: App-scoped short-lived Core access token }
+        '200': { description: App-scoped short-lived LifeSpace user access token }
         '401': { description: Trusted application authentication required }
         '403': { description: User/application/scope is not allowed }
+components:
+  securitySchemes:
+    userBearer:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    ErrorResponse:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          type: object
+          additionalProperties: false
+          required: [code, message, requestId]
+          properties:
+            code: { type: string }
+            message: { type: string }
+            requestId: { type: string }
+    UserProfile:
+      type: object
+      additionalProperties: false
+      required: [id, displayName, avatarUrl, status, createdAt, updatedAt]
+      properties:
+        id: { type: string, pattern: ^usr_ }
+        displayName: { type: string, minLength: 1, maxLength: 50 }
+        avatarUrl: { type: [string, 'null'], format: uri }
+        status: { type: string, enum: [active, disabled] }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    UpdateProfileRequest:
+      type: object
+      additionalProperties: false
+      required: [displayName]
+      properties:
+        displayName: { type: string, minLength: 1, maxLength: 50 }
+    ProfileResponse:
+      type: object
+      required: [data]
+      properties:
+        data: { $ref: '#/components/schemas/UserProfile' }
+    AvatarResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          additionalProperties: false
+          required: [avatarUrl]
+          properties:
+            avatarUrl: { type: string, format: uri }
+  responses:
+    InvalidRequest:
+      description: Invalid request
+      content: { application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } } }
+    Unauthorized:
+      description: Authentication failed
+      content: { application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } } }
+    Forbidden:
+      description: Scope or current user state does not allow the request
+      content: { application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } } }
+    ValidationError:
+      description: Validation failed
+      content: { application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } } }

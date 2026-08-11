@@ -92,6 +92,7 @@ async function rotateSigningKeys() {
 
   await wranglerSecretBulk("apps/identity", {
     TOKEN_PRIVATE_KEY: privateKey,
+    TOKEN_PUBLIC_KEY: publicKey,
     BOOTSTRAP_SECRET: bootstrapSecret,
   });
   await wranglerSecretBulk("apps/core", {
@@ -105,12 +106,19 @@ await wranglerSecretBulk("apps/identity", {
 });
 console.log("Staging bootstrap secret synchronized and activated");
 
+// Identity 0.2 adds user-token verification at the Identity resource server.
+// Rotate the staging-only pair once per staging deployment so Identity and Core
+// are guaranteed to share the same active public key before profile smoke tests.
+await rotateSigningKeys();
+
 const appId = `app_staging_smoke_${smokeId}`;
 const displayName = `Staging Smoke ${smokeId}`;
 const scopes = [
   "profile:read",
+  "profile:write",
   "spaces:read",
   "spaces:write",
+  "spaces:manage",
   "events:read",
   "events:write",
   "tasks:read",
@@ -152,7 +160,7 @@ const user = await requestJson(`${identityBase}/internal/v1/users`, {
 const userId = user?.data?.id;
 if (!userId) throw new Error("Smoke user creation did not return a user id");
 
-let rotatedSigningKeys = false;
+let rotatedSigningKeys = true;
 let tokenProbe = await issueToken(clientSecret, userId, scopes);
 let accessToken = tokenProbe.payload?.data?.accessToken;
 let coreProbe = accessToken ? await probeCore(accessToken) : null;
@@ -186,11 +194,39 @@ if (coreProbe?.response.status !== 200) {
   throw new Error(`Core token verification failed: ${coreProbe?.response.status} ${JSON.stringify(coreProbe?.payload)}`);
 }
 
+const profile = await requestJson(`${identityBase}/api/v1/me`, { headers: { authorization: `Bearer ${accessToken}` } }, 200);
+if (profile?.data?.id !== userId || profile?.data?.displayName !== displayName || profile?.data?.avatarUrl !== null) {
+  throw new Error(`Unexpected Identity profile: ${JSON.stringify(profile)}`);
+}
+const updatedProfileName = `${displayName} Updated`;
+const updatedProfile = await requestJson(`${identityBase}/api/v1/me`, {
+  method: "PATCH", headers: { authorization: `Bearer ${accessToken}`, "content-type": "application/json" },
+  body: JSON.stringify({ displayName: updatedProfileName }),
+}, 200);
+if (updatedProfile?.data?.displayName !== updatedProfileName) throw new Error(`Identity profile update failed: ${JSON.stringify(updatedProfile)}`);
+const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl2dAAAAABJRU5ErkJggg==", "base64");
+const userAvatarForm = new FormData();
+userAvatarForm.set("file", new Blob([png], { type: "image/png" }), "avatar.png");
+const uploadedUserAvatar = await requestJson(`${identityBase}/api/v1/me/avatar`, {
+  method: "PUT", headers: { authorization: `Bearer ${accessToken}` }, body: userAvatarForm,
+}, 200);
+const userAvatarUrl = uploadedUserAvatar?.data?.avatarUrl;
+if (!userAvatarUrl) throw new Error(`Identity avatar upload did not return a URL: ${JSON.stringify(uploadedUserAvatar)}`);
+const userAvatarResponse = await fetch(userAvatarUrl);
+if (userAvatarResponse.status !== 200 || userAvatarResponse.headers.get("content-type") !== "image/png") {
+  throw new Error(`Identity public avatar read failed: ${userAvatarResponse.status} ${userAvatarResponse.headers.get("content-type")}`);
+}
+
+const identityStatus = await requestJson(`${identityBase}/api/v1/status`, {}, 200);
+if (identityStatus?.data?.environment !== "staging" || identityStatus?.data?.schemaVersion !== "3" || identityStatus?.data?.contractVersion !== "0.2.0") {
+  throw new Error(`Unexpected Identity staging status: ${JSON.stringify(identityStatus)}`);
+}
+
 const coreStatus = await requestJson(`${coreBase}/api/v1/status`, {}, 200);
 if (
   coreStatus?.data?.environment !== "staging"
-  || coreStatus?.data?.schemaVersion !== "7"
-  || coreStatus?.data?.contractVersion !== "0.8.0"
+  || coreStatus?.data?.schemaVersion !== "8"
+  || coreStatus?.data?.contractVersion !== "0.9.0"
 ) {
   throw new Error(`Unexpected Core staging status: ${JSON.stringify(coreStatus)}`);
 }
@@ -213,10 +249,27 @@ const spaceId = space?.data?.id;
 const ownerPersonId = space?.data?.ownerPersonId;
 if (!spaceId) throw new Error("Core did not return a Space id");
 if (!ownerPersonId) throw new Error("Core did not return the owner Space Person id");
+if (space?.data?.avatarUrl !== null || space?.data?.version !== 1) throw new Error(`Unexpected initial Space avatar state: ${JSON.stringify(space)}`);
 
-await requestJson(`${coreBase}/api/v1/spaces/${spaceId}`, {
+const spaceAvatarForm = new FormData();
+spaceAvatarForm.set("file", new Blob([png], { type: "image/png" }), "space-avatar.png");
+spaceAvatarForm.set("version", "1");
+const uploadedSpaceAvatar = await requestJson(`${coreBase}/api/v1/spaces/${spaceId}/avatar`, {
+  method: "PUT", headers: { authorization: `Bearer ${accessToken}` }, body: spaceAvatarForm,
+}, 200);
+if (!uploadedSpaceAvatar?.data?.avatarUrl || uploadedSpaceAvatar?.data?.version !== 2) {
+  throw new Error(`Space avatar upload failed: ${JSON.stringify(uploadedSpaceAvatar)}`);
+}
+const spaceAvatarResponse = await fetch(uploadedSpaceAvatar.data.avatarUrl);
+if (spaceAvatarResponse.status !== 200 || spaceAvatarResponse.headers.get("content-type") !== "image/png") {
+  throw new Error(`Space public avatar read failed: ${spaceAvatarResponse.status} ${spaceAvatarResponse.headers.get("content-type")}`);
+}
+const spaceRead = await requestJson(`${coreBase}/api/v1/spaces/${spaceId}`, {
   headers: { authorization: `Bearer ${accessToken}` },
 }, 200);
+if (spaceRead?.data?.avatarUrl !== uploadedSpaceAvatar.data.avatarUrl || spaceRead?.data?.version !== 2) {
+  throw new Error(`Space avatar was not reflected in Space DTO: ${JSON.stringify(spaceRead)}`);
+}
 await requestJson(`${coreBase}/api/v1/spaces/${spaceId}`, {}, 401);
 
 const retiredFamily = await fetchJson(`${coreBase}/api/v1/families`, {
