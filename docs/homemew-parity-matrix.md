@@ -49,7 +49,7 @@ The HomeMew OpenAPI currently exposes 60 implemented operations. The table group
 | Events | list/search/filter/create/read/update/delete; attendees | Durable | Space-owned events; attendee Space People | Deployed and verified in staging |
 | Tasks | list/search/filter/create/read/update/delete/complete/reopen; assignees | Durable | Space-owned tasks; assignee Space People | Deployed and verified in staging |
 | Day records | CRUD, occurrence history, archive/restore | Durable | Space-owned day records and occurrences | Deployed and verified in staging |
-| Wishes | CRUD, claim/unclaim/fulfill/reopen/archive/restore | Durable | Space-owned wishes with owner/claimant/fulfiller Space People | Implemented in PR #14; staging verification pending |
+| Wishes | CRUD, claim/unclaim/fulfill/reopen/archive/restore | Durable | Space-owned wishes with owner/claimant/fulfiller Space People | Deployed and verified in staging |
 | External integrations | integration CRUD, credential issue/list/revoke, OAuth client credentials | Durable credentials + secret material | Service principal + new opaque `lsp_pat_*` token for owner-controlled n8n/curl/scripts/MCP, optional OAuth `client_credentials` for third parties, and explicit Space Data Grants/scopes; never copy `hmw_pat_*` plaintext | Not started |
 | Creation drafts | asynchronous interpret/job polling and cleanup | Ephemeral | Space-aware queue workflow if retained at freeze | Not started |
 | Internal user creation | trusted backend user creation | Durable identity | LifeSpace Identity trusted application user creation | Foundation replacement exists |
@@ -62,7 +62,7 @@ The Mini Program currently consumes family, member, invitation, event, task, day
 
 ## Family Space transformation policy
 
-The first Phase 2 vertical slice maps HomeMew household semantics onto the existing Space foundation.
+The first Phase 2 vertical slice maps HomeMew household semantics onto the existing Space model.
 
 | HomeMew concept | LifeSpace concept | Rule |
 | --- | --- | --- |
@@ -156,7 +156,7 @@ The D1 schema enforces that owner, claimant and fulfiller Persons belong to the 
 
 Phase 2.6 lifecycle mutations intentionally require a current user principal with an active linked Space Person. Service/Agent behavior is not inferred from HomeMew and is deferred to the external-integrations slice, where service principals, `lsp_pat_*` credentials, scopes and Data Grants can be defined coherently.
 
-The schema-v11 Wish transform shares the exact family mapping manifest and `exportedAt` with the family transform. It preserves stable IDs, lifecycle timestamps, versions, soft deletion and removed-member historical references, and rejects inconsistent lifecycle records before SQL is emitted. Staging smoke for schema v7 / contract 0.7.0 is prepared but does not count as deployed parity until PR #14 is merged and the normal staging workflow passes.
+The schema-v11 Wish transform shares the exact family mapping manifest and `exportedAt` with the family transform. It preserves stable IDs, lifecycle timestamps, versions, soft deletion and removed-member historical references, and rejects inconsistent lifecycle records before SQL is emitted. Phase 2.6 staging acceptance completed on 2026-08-11 after PR #14 was merged. The normal `Deploy staging` workflow applied Core schema v7 / contract 0.7.0 and the repeatable Wish smoke completed successfully. Production/HomeMew traffic remained unchanged.
 
 ## Compatibility and migration rules
 
