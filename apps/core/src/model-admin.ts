@@ -87,8 +87,9 @@ export function registerModelAdminRoutes(app: App): void {
   });
 
   app.post("/api/v1/model-admin/models/:modelKey/retire", requireScope("models:manage"), async (context) => {
-    requireService(context.get("principal"));
-    await retireModel(context.env, context.req.param("modelKey"));
+    const principal = context.get("principal");
+    requireService(principal);
+    await retireModel(context.env, principal, context.req.param("modelKey"));
     return context.body(null, 204);
   });
 }
