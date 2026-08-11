@@ -6,6 +6,7 @@ import {
   decorateCapabilityResponse,
   executeCapabilityAction,
   listCapabilityOccurrences,
+  prepareCapabilityCreateInput,
   prepareCapabilityUpdatePolicyInput,
   updateCapabilityAwareResource,
 } from "./capability-runtime";
@@ -80,8 +81,9 @@ export function registerGenericResourceRoutes(app: App): void {
     const principal = context.get("principal");
     await requireModelAccess(context.env, principal, spaceId, resolved, "write");
     const input = await body(context);
-    await requireModelPolicy(context.env, principal, spaceId, resolved, "create", undefined, input);
-    const created = await createCapabilityAwareResource(context.env, principal, spaceId, resolved, input);
+    const prepared = prepareCapabilityCreateInput(resolved, input);
+    await requireModelPolicy(context.env, principal, spaceId, resolved, "create", undefined, prepared);
+    const created = await createCapabilityAwareResource(context.env, principal, spaceId, resolved, prepared);
     return context.json(success(await dto(context.env, spaceId, resolved, created)), 201);
   });
 
