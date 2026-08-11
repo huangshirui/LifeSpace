@@ -1,6 +1,6 @@
 import type { Bindings } from "./env";
 import { ApiError } from "./http";
-import type { FieldDefinition } from "./model-definition";
+import type { FieldDefinition, ModelDefaultValue } from "./model-definition";
 import { listPublishedModels, type PublishedModel } from "./model-registry";
 
 export type RegistryDraftWarningCode = "AMBIGUOUS_PERSON" | "UNRESOLVED_PERSON" | "INVALID_INFERRED_VALUE" | "UNSUPPORTED_DETAIL";
@@ -54,13 +54,29 @@ function writableFields(model: PublishedModel) {
   return Object.entries(model.definition.fields).filter(([, field]) => !field.readOnly);
 }
 
+function defaultFor(model: PublishedModel, fieldKey: string): { present: false } | { present: true; value: ModelDefaultValue } {
+  const defaults = model.definition.defaults ?? {};
+  if (!Object.prototype.hasOwnProperty.call(defaults, fieldKey)) return { present: false };
+  return { present: true, value: defaults[fieldKey]! };
+}
+
 export function creationDraftModelDescriptors(models: PublishedModel[]) {
   return models.map((model) => ({
     key: model.key,
     version: model.version,
     name: model.definition.display.singular,
     description: model.definition.description ?? `${model.definition.display.singular} LifeSpace record`,
-    fields: writableFields(model).map(([key, field]) => ({ key, type: field.type, required: field.required === true, description: field.description ?? null, values: field.values ?? null })),
+    fields: writableFields(model).map(([key, field]) => {
+      const fallback = defaultFor(model, key);
+      return {
+        key,
+        type: field.type,
+        required: field.required === true && !fallback.present,
+        description: field.description ?? null,
+        values: field.values ?? null,
+        default: fallback.present ? fallback.value : null,
+      };
+    }),
   }));
 }
 
@@ -77,7 +93,11 @@ export function buildRegistryCreationDraftSchema(models: PublishedModel[]) {
     return closed(["status", "modelKey", "draft", "missingFields", "warnings"], {
       status: { const: "ready" },
       modelKey: { const: model.key },
-      draft: closed(fields.map(([key]) => key), Object.fromEntries(fields.map(([key, field]) => [key, aiFieldSchema(field)]))),
+      draft: closed(fields.map(([key]) => key), Object.fromEntries(fields.map(([key, field]) => {
+        const fallback = defaultFor(model, key);
+        const schema = aiFieldSchema(field);
+        return [key, fallback.present ? { ...schema, default: fallback.value } : schema];
+      }))),
       missingFields: { type: "array", maxItems: 100, uniqueItems: true, items: { type: "string" } },
       warnings: { type: "array", maxItems: 32, items: warning },
     });
@@ -178,7 +198,17 @@ export function normalizeRegistryCreationDraft(
     } else if (field.type === "record") draft[key] = null;
     else if (field.type === "record_list") draft[key] = [];
     else draft[key] = scalar(field, value, key, warnings);
-    if (field.required && (draft[key] === null || draft[key] === undefined || (Array.isArray(draft[key]) && draft[key].length === 0))) missing.add(key);
+
+    const fallback = defaultFor(model, key);
+    const empty = draft[key] === null || draft[key] === undefined || (Array.isArray(draft[key]) && draft[key].length === 0);
+    if (empty && fallback.present) {
+      draft[key] = structuredClone(fallback.value);
+      missing.delete(key);
+    } else if (field.required && empty) {
+      missing.add(key);
+    } else if (!empty) {
+      missing.delete(key);
+    }
   }
   return { status: "ready", modelKey: model.key, modelVersion: model.version, draft, missingFields: [...missing].slice(0, 100), warnings: warnings.slice(0, 32) };
 }
