@@ -10,51 +10,50 @@ Shared Cloudflare Worker business API for Space-owned life data.
 - Linked Space People for person-subject domain relationships.
 - Health/status diagnostics and standard success/error envelopes.
 
-## Phase 2 family Space management
+## Phase 2 native HomeMew capability replacement
 
-Core API contract version 0.7.0 contains the native family Space policy, Space-owned events/attendees, tasks/assignees, day records/occurrence history, wishes/lifecycle, and temporary HomeMew compatibility facades:
+Core API contract version **0.8.0** is native-only. It contains the family Space policy and the Space-owned Events, Tasks, Day Records and Wishes needed by the frozen HomeMew migration baseline, but no longer exposes HomeMew `/api/v1/families/...` or `/api/v1/family-invites/...` runtime compatibility facades.
 
-- Every Space stores an IANA `timezone`; native creation defaults to `UTC` when omitted.
-- Space profile updates require optimistic-concurrency `version`.
-- Family Spaces allow at most eight active memberships.
-- A Space always retains at least one active owner or administrator.
-- Membership activation/deactivation keeps its linked Space Person consistent.
-- Core owns hashed, expiring, revocable Space invitations. Plaintext invitation tokens are returned only once at creation.
-- Invitation redemption atomically validates lifecycle/use/member limits and creates or reactivates both membership and Space Person.
+HomeMew remains free to use product terms such as “家庭” and “家庭成员” in its UI. Its application layer maps those product concepts to the native LifeSpace contract:
 
-The compatibility routes translate `fam_*`, HomeMew roles, legacy field names, and response codes over the same native records. They do not create a second family data model. The HomeMew maximum-three-created-families rule is enforced only when a family is created through `/api/v1/families`; native Space creation has no such platform-wide limit. HomeMew avatar values remain `null` until the R2 object migration slice.
-
-Events are stored once against `space_id`. Native attendee relationships reference active `space_person` records; the HomeMew facade translates legacy attendee user IDs through the family membership/person map. Timed event instants are canonical UTC with optional display timezones, all-day ranges are half-open dates, and update/delete use optimistic versions plus soft deletion.
-
-Tasks are also stored once against `space_id`. Native assignee relationships reference active same-Space `space_person` records while the HomeMew facade accepts and returns legacy user IDs. Task status remains `pending`, `completed`, or `cancelled`; `dueDate` stays date-only; PATCH, DELETE, complete, and reopen preserve optimistic versions and task deletion remains soft. The compatibility list route intentionally preserves the deployed HomeMew behavior where omitted `includeNoDue` is false, despite the frozen HomeMew OpenAPI having documented true.
-
-Day records are Space-owned date-only records with `elapsed`, `countdown`, and `cycle` kinds. Computed state uses the owning Space's IANA timezone. Elapsed and cycle records start with an initial occurrence; later manual occurrences advance the anchor atomically, preserve interval history, and recalculate the next cycle due date. Archived records are readable but immutable until restored. Native subjects use Space Person IDs, while the HomeMew facade accepts/returns legacy user IDs. A historical subject remains renderable after its membership/Space Person is deactivated, while assigning a new subject still requires an active person.
-
-Wishes are Space-owned records with `open`, `claimed`, `fulfilled`, and `archived` lifecycle states. Owner, claimant, and fulfiller are durable same-Space Person references; historical references remain renderable after membership removal. An owner cannot claim their own wish, the current claimant may unclaim, owner or claimant may fulfill, and owner controls edit/delete/reopen/archive/restore. Archive preserves the prior lifecycle state; restoring a previously claimed wish falls back to `open` when the former claimant is no longer active. Phase 2.6 lifecycle actions require a current user principal with an active linked Space Person; service/Agent lifecycle semantics are deferred to the external-integrations slice.
-
-## HomeMew family snapshot transform
-
-`scripts/homemew-family-transform.mjs` accepts a normalized HomeMew schema-v11 JSON snapshot with these arrays:
-
-- `users`
-- `families`
-- `familyMembers`
-- `familyInvites`
-- `inviteRedemptions`
-
-The `source` object must include `schemaVersion: "11"` and an RFC 3339 UTC `exportedAt`. Source fields use the HomeMew column meaning in camelCase, including durable IDs, statuses, roles, hashes, timestamps, and optional avatar keys.
-
-Run:
-
-```sh
-node scripts/homemew-family-transform.mjs --input homemew-family-snapshot.json --out-dir migration-output
+```text
+family            -> Space(kind=family)
+family member     -> Space membership + Space Person
+familyId          -> spaceId
+attendee/assignee -> Space Person ID
+day subject       -> Space Person ID
+wish people       -> Space Person ID
 ```
 
-The command validates references and family invariants, then writes deterministic `identity.sql`, `core.sql`, `mapping-manifest.json`, and `migration-report.json`. SQL output targets fresh LifeSpace databases that already have the current service migrations applied. Avatar keys are counted as deferred objects but are not copied by this slice.
+The retired compatibility implementation from Phase 2.2–2.6 is migration history, not target architecture. Migration mapping tables and transform scripts remain because they are needed to deterministically transform HomeMew production data and preserve audit traceability; native request handling does not consult those mappings.
 
-## HomeMew event snapshot transform
+## Native domain behavior
 
-After generating the family mapping manifest, transform the matching schema-v11 event snapshot:
+- Every Space stores an IANA `timezone`; creation defaults to `UTC` when omitted.
+- Space profile updates use optimistic-concurrency `version`.
+- Family Spaces allow at most eight active memberships and retain at least one active owner/admin.
+- Membership activation/deactivation keeps its linked Space Person consistent.
+- Core owns hashed, expiring, revocable Space invitations. Plaintext invitation tokens are returned exactly once at creation; redemption atomically creates/reactivates membership plus Space Person.
+- Events are stored against `space_id`. Attendees are active same-Space `space_person` references. Timed instants are canonical UTC with display timezones; all-day ranges use half-open dates; update/delete use optimistic versions and soft deletion.
+- Tasks are stored against `space_id`. Assignees are active same-Space `space_person` references. Status is `pending`, `completed`, or `cancelled`; `dueDate` is date-only; PATCH/DELETE/complete/reopen use optimistic versions. When a due-date range is supplied, omitted `includeNoDue` is explicitly `false`.
+- Day Records are Space-owned date-only records with `elapsed`, `countdown`, and `cycle` kinds. Computed state uses the owning Space timezone. Elapsed/cycle records preserve occurrence history; manual occurrences advance the anchor atomically. Archived records are readable but immutable until restored. Native subjects use Space Person IDs and historical subject references remain renderable after deactivation.
+- Wishes are Space-owned records with `open`, `claimed`, `fulfilled`, and `archived` lifecycle states. Owner, claimant, and fulfiller are durable same-Space Person references. Phase 2.6 lifecycle actions still require a current user principal with an active linked Space Person; service/Agent lifecycle semantics belong to the external-integrations slice.
+
+## HomeMew migration transforms
+
+The following scripts deliberately remain even though runtime compatibility has been retired. They convert the frozen HomeMew schema-v11 snapshot into native LifeSpace records and mapping/audit artifacts.
+
+### Family / membership / invite transform
+
+```sh
+node scripts/homemew-family-transform.mjs \
+  --input homemew-family-snapshot.json \
+  --out-dir migration-output
+```
+
+The normalized snapshot includes `users`, `families`, `familyMembers`, `familyInvites`, and `inviteRedemptions`, plus `source.schemaVersion: "11"` and an RFC 3339 UTC `exportedAt`. The transform writes deterministic `identity.sql`, `core.sql`, `mapping-manifest.json`, and `migration-report.json`.
+
+### Events
 
 ```sh
 node scripts/homemew-event-transform.mjs \
@@ -63,11 +62,9 @@ node scripts/homemew-event-transform.mjs \
   --out-dir migration-output
 ```
 
-The event snapshot contains `users`, optional `systemIdentities`, `familyMembers`, `events`, and `eventAttendees` from the same `exportedAt` as the family snapshot. The transform preserves `evt_*`, versions, audit timestamps, soft deletion, UTC/all-day semantics and system actor IDs; attendee user relations become Space Person relations. It emits `core-events.sql`, `event-mapping-manifest.json`, and `event-migration-report.json`.
+Preserves `evt_*`, versions, audit timestamps, soft deletion and time semantics; attendee user relations become exact Space Person relations.
 
-## HomeMew task snapshot transform
-
-Use the same family mapping manifest and matching `exportedAt` for tasks:
+### Tasks
 
 ```sh
 node scripts/homemew-task-transform.mjs \
@@ -76,11 +73,9 @@ node scripts/homemew-task-transform.mjs \
   --out-dir migration-output
 ```
 
-The task snapshot contains `users`, optional `systemIdentities`, `familyMembers`, `tasks`, and optional `taskAssignees`. The transform preserves `tsk_*` IDs, statuses, date-only due dates, versions, audit/completion actors, timestamps and soft deletion; assignee user relations become exact Space Person relations from the family mapping. It emits `core-tasks.sql`, `task-mapping-manifest.json`, and `task-migration-report.json`.
+Preserves `tsk_*`, lifecycle, date-only due dates, completion/audit actors and soft deletion; assignee user relations become exact Space Person relations.
 
-## HomeMew day-record snapshot transform
-
-Day records use the same family mapping manifest and must come from the same schema-v11 export:
+### Day Records
 
 ```sh
 node scripts/homemew-day-record-transform.mjs \
@@ -89,11 +84,9 @@ node scripts/homemew-day-record-transform.mjs \
   --out-dir migration-output
 ```
 
-The snapshot contains `users`, optional `systemIdentities`, `familyMembers`, `dayRecords`, and `dayRecordOccurrences`. The transform preserves `day_*` / `dyo_*` IDs, kind-specific rules, date-only anchors, cycle due dates, attention settings, versions, status, timestamps, soft deletion and occurrence history. `subjectUserId` becomes the exact mapped Space Person even for a historically removed member; new API assignments still require an active subject. User/system actors become LifeSpace user/service actor snapshots. The transform validates that non-countdown records have occurrence history whose newest occurrence matches the current anchor and emits `core-day-records.sql`, `day-record-mapping-manifest.json`, and `day-record-migration-report.json`.
+Preserves `day_*` / `dyo_*`, kind rules, anchors, cycle due dates, attention settings, status, versions, soft deletion and occurrence history. Historical `subjectUserId` values become mapped Space Person references.
 
-## HomeMew Wish snapshot transform
-
-Wishes use the same family mapping manifest and exact schema-v11 `exportedAt`:
+### Wishes
 
 ```sh
 node scripts/homemew-wish-transform.mjs \
@@ -102,10 +95,10 @@ node scripts/homemew-wish-transform.mjs \
   --out-dir migration-output
 ```
 
-The transform preserves stable `wsh_*` IDs, nullable date-only desired dates, open/claimed/fulfilled/archived lifecycle data, optimistic versions, actor snapshots, timestamps and soft deletion. Owner, claimant and fulfiller user references become exact Space Person references, including historically removed family members. It validates lifecycle invariants before emitting `core-wishes.sql`, `wish-mapping-manifest.json`, and `wish-migration-report.json`.
+Preserves `wsh_*`, lifecycle, desired dates, actors, versions and historical owner/claimant/fulfiller relations as Space Person references.
 
-Canonical request and response syntax lives in `openapi.yaml`. D1 migrations live in `migrations/` and are applied before deploying the compatible Worker.
+Canonical request and response syntax lives in `openapi.yaml`. D1 migrations live in `migrations/`. Migration maps under the compatibility-era schema remain migration/audit artifacts, not public runtime models.
 
 ## Verification
 
-`pnpm --filter @lifespace/core check` runs the canonical OpenAPI contract check, Workers-runtime D1 tests, Node migration-transform tests, TypeScript checking, and Wrangler dry-run build. The staging deployment smoke additionally verifies the deployed schema/contract and representative Task, Day-record, and Wish lifecycle flows before a Phase 2 slice is accepted.
+`pnpm --filter @lifespace/core check` runs Wrangler binding drift checks, canonical OpenAPI checks, Workers-runtime D1 integration tests, Node migration-transform tests, TypeScript checking, and Wrangler dry-run build. Native-domain integration tests use only `/api/v1/spaces/...` and explicitly verify that retired HomeMew compatibility paths return `404`.
