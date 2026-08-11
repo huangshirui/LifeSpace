@@ -7,11 +7,24 @@ export type TemporalCapabilityDefinition = {
   attentionBeforeDaysField: string;
   attentionAfterDaysField: string;
   statusField: string;
+  subjectPersonField?: string;
   occurrences?: boolean;
+};
+
+export type CalendarCapabilityDefinition = {
+  allDayField: string;
+  timedStartField: string;
+  timedEndField: string;
+  startTimezoneField: string;
+  endTimezoneField: string;
+  allDayStartField: string;
+  allDayEndExclusiveField: string;
+  attendeePersonField?: string;
 };
 
 export type CapabilityDefinitions = {
   temporal?: TemporalCapabilityDefinition;
+  calendar?: CalendarCapabilityDefinition;
 };
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -22,15 +35,16 @@ function issue(issues: ModelValidationIssue[], path: string, code: string, messa
   issues.push({ path, code, message });
 }
 
-function field(
+function namedField(
   raw: Record<string, unknown>,
-  property: keyof TemporalCapabilityDefinition,
+  capability: "temporal" | "calendar",
+  property: string,
   fields: Record<string, FieldDefinition>,
   expectedTypes: string[],
   issues: ModelValidationIssue[],
 ): string {
   const value = raw[property];
-  const path = `capabilities.temporal.${property}`;
+  const path = `capabilities.${capability}.${property}`;
   if (typeof value !== "string" || !value) {
     issue(issues, path, "CAPABILITY_FIELD_REQUIRED", `${property} must name a declared model field`);
     return "";
@@ -56,59 +70,80 @@ function validateTemporal(
     return { issues };
   }
   const allowed = new Set([
-    "kindField",
-    "anchorDateField",
-    "cycleDaysField",
-    "attentionBeforeDaysField",
-    "attentionAfterDaysField",
-    "statusField",
-    "occurrences",
+    "kindField", "anchorDateField", "cycleDaysField", "attentionBeforeDaysField",
+    "attentionAfterDaysField", "statusField", "subjectPersonField", "occurrences",
   ]);
   for (const key of Object.keys(raw)) {
     if (!allowed.has(key)) issue(issues, `capabilities.temporal.${key}`, "UNKNOWN_PROPERTY", `Unsupported temporal capability property ${key}`);
   }
 
-  const kindField = field(raw, "kindField", fields, ["enum"], issues);
-  const anchorDateField = field(raw, "anchorDateField", fields, ["date"], issues);
-  const cycleDaysField = field(raw, "cycleDaysField", fields, ["integer"], issues);
-  const attentionBeforeDaysField = field(raw, "attentionBeforeDaysField", fields, ["integer"], issues);
-  const attentionAfterDaysField = field(raw, "attentionAfterDaysField", fields, ["integer"], issues);
-  const statusField = field(raw, "statusField", fields, ["enum"], issues);
+  const kindField = namedField(raw, "temporal", "kindField", fields, ["enum"], issues);
+  const anchorDateField = namedField(raw, "temporal", "anchorDateField", fields, ["date"], issues);
+  const cycleDaysField = namedField(raw, "temporal", "cycleDaysField", fields, ["integer"], issues);
+  const attentionBeforeDaysField = namedField(raw, "temporal", "attentionBeforeDaysField", fields, ["integer"], issues);
+  const attentionAfterDaysField = namedField(raw, "temporal", "attentionAfterDaysField", fields, ["integer"], issues);
+  const statusField = namedField(raw, "temporal", "statusField", fields, ["enum"], issues);
+  const subjectPersonField = raw.subjectPersonField === undefined
+    ? undefined
+    : namedField(raw, "temporal", "subjectPersonField", fields, ["person"], issues);
 
   const kindDefinition = fields[kindField];
   if (kindDefinition?.type === "enum" && !["elapsed", "countdown", "cycle"].every((value) => kindDefinition.values?.includes(value))) {
-    issue(issues, `capabilities.temporal.kindField`, "INVALID_TEMPORAL_KIND_ENUM", "Temporal kind field must include elapsed, countdown, and cycle");
+    issue(issues, "capabilities.temporal.kindField", "INVALID_TEMPORAL_KIND_ENUM", "Temporal kind field must include elapsed, countdown, and cycle");
   }
   const statusDefinition = fields[statusField];
   if (statusDefinition?.type === "enum" && !["active", "archived"].every((value) => statusDefinition.values?.includes(value))) {
-    issue(issues, `capabilities.temporal.statusField`, "INVALID_TEMPORAL_STATUS_ENUM", "Temporal status field must include active and archived");
-  }
-  const cycleDefinition = fields[cycleDaysField];
-  if (cycleDefinition && cycleDefinition.minimum !== undefined && cycleDefinition.minimum < 1) {
-    issue(issues, `capabilities.temporal.cycleDaysField`, "INVALID_TEMPORAL_CONSTRAINT", "cycleDays minimum must be at least 1");
-  }
-  const beforeDefinition = fields[attentionBeforeDaysField];
-  if (beforeDefinition && beforeDefinition.minimum !== undefined && beforeDefinition.minimum < 0) {
-    issue(issues, `capabilities.temporal.attentionBeforeDaysField`, "INVALID_TEMPORAL_CONSTRAINT", "attentionBeforeDays minimum must be at least 0");
-  }
-  const afterDefinition = fields[attentionAfterDaysField];
-  if (afterDefinition && afterDefinition.minimum !== undefined && afterDefinition.minimum < 1) {
-    issue(issues, `capabilities.temporal.attentionAfterDaysField`, "INVALID_TEMPORAL_CONSTRAINT", "attentionAfterDays minimum must be at least 1");
+    issue(issues, "capabilities.temporal.statusField", "INVALID_TEMPORAL_STATUS_ENUM", "Temporal status field must include active and archived");
   }
   if (raw.occurrences !== undefined && typeof raw.occurrences !== "boolean") {
     issue(issues, "capabilities.temporal.occurrences", "INVALID_BOOLEAN", "occurrences must be boolean");
   }
-
   if (issues.length) return { issues };
   return {
     definition: {
-      kindField,
-      anchorDateField,
-      cycleDaysField,
-      attentionBeforeDaysField,
-      attentionAfterDaysField,
-      statusField,
+      kindField, anchorDateField, cycleDaysField, attentionBeforeDaysField, attentionAfterDaysField, statusField,
+      ...(subjectPersonField ? { subjectPersonField } : {}),
       ...(raw.occurrences === undefined ? {} : { occurrences: raw.occurrences as boolean }),
+    },
+    issues,
+  };
+}
+
+function validateCalendar(
+  raw: unknown,
+  fields: Record<string, FieldDefinition>,
+): { definition?: CalendarCapabilityDefinition; issues: ModelValidationIssue[] } {
+  const issues: ModelValidationIssue[] = [];
+  if (!isObject(raw)) {
+    issue(issues, "capabilities.calendar", "INVALID_CAPABILITY", "calendar capability config must be an object");
+    return { issues };
+  }
+  const allowed = new Set([
+    "allDayField", "timedStartField", "timedEndField", "startTimezoneField", "endTimezoneField",
+    "allDayStartField", "allDayEndExclusiveField", "attendeePersonField",
+  ]);
+  for (const key of Object.keys(raw)) {
+    if (!allowed.has(key)) issue(issues, `capabilities.calendar.${key}`, "UNKNOWN_PROPERTY", `Unsupported calendar capability property ${key}`);
+  }
+  const allDayField = namedField(raw, "calendar", "allDayField", fields, ["boolean"], issues);
+  const timedStartField = namedField(raw, "calendar", "timedStartField", fields, ["datetime"], issues);
+  const timedEndField = namedField(raw, "calendar", "timedEndField", fields, ["datetime"], issues);
+  const startTimezoneField = namedField(raw, "calendar", "startTimezoneField", fields, ["timezone"], issues);
+  const endTimezoneField = namedField(raw, "calendar", "endTimezoneField", fields, ["timezone"], issues);
+  const allDayStartField = namedField(raw, "calendar", "allDayStartField", fields, ["date"], issues);
+  const allDayEndExclusiveField = namedField(raw, "calendar", "allDayEndExclusiveField", fields, ["date"], issues);
+  const attendeePersonField = raw.attendeePersonField === undefined
+    ? undefined
+    : namedField(raw, "calendar", "attendeePersonField", fields, ["person_list"], issues);
+  const coreFields = [allDayField, timedStartField, timedEndField, startTimezoneField, endTimezoneField, allDayStartField, allDayEndExclusiveField].filter(Boolean);
+  if (new Set(coreFields).size !== coreFields.length) {
+    issue(issues, "capabilities.calendar", "DUPLICATE_CAPABILITY_FIELD", "Calendar core fields must map to distinct model fields");
+  }
+  if (issues.length) return { issues };
+  return {
+    definition: {
+      allDayField, timedStartField, timedEndField, startTimezoneField, endTimezoneField,
+      allDayStartField, allDayEndExclusiveField, ...(attendeePersonField ? { attendeePersonField } : {}),
     },
     issues,
   };
@@ -128,16 +163,19 @@ export function validateCapabilities(
     }
     return { issues };
   }
-
   for (const key of Object.keys(raw)) {
-    if (key !== "temporal") issue(issues, `capabilities.${key}`, "UNSUPPORTED_CAPABILITY", `Capability ${key} is not registered`);
+    if (key !== "temporal" && key !== "calendar") issue(issues, `capabilities.${key}`, "UNSUPPORTED_CAPABILITY", `Capability ${key} is not registered`);
   }
-
   const capabilities: CapabilityDefinitions = {};
   if (raw.temporal !== undefined) {
     const temporal = validateTemporal(raw.temporal, fields);
     issues.push(...temporal.issues);
     if (temporal.definition) capabilities.temporal = temporal.definition;
+  }
+  if (raw.calendar !== undefined) {
+    const calendar = validateCalendar(raw.calendar, fields);
+    issues.push(...calendar.issues);
+    if (calendar.definition) capabilities.calendar = calendar.definition;
   }
   return { ...(Object.keys(capabilities).length ? { capabilities } : {}), issues };
 }
