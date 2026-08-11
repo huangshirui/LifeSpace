@@ -34,6 +34,20 @@ export type GenericResource = {
   updatedAt: string;
 };
 
+export type ResourceMutationExtensionContext = {
+  env: Bindings;
+  principal: Principal;
+  recordId: string;
+  spaceId: string;
+  model: PublishedModel;
+  timestamp: string;
+  mutationToken?: string;
+};
+
+export type ResourceMutationExtension = (
+  context: ResourceMutationExtensionContext,
+) => Promise<D1PreparedStatement[]> | D1PreparedStatement[];
+
 type RelationProjection = {
   fieldKey: string;
   targetType: "person" | "record";
@@ -140,22 +154,24 @@ function validateFieldValue(fieldKey: string, field: FieldDefinition, value: unk
 export function validateResourceData(
   definition: ModelDefinition,
   input: unknown,
-  mode: "create" | "update" | "action",
+  mode: "create" | "create_internal" | "update" | "action",
   previous?: JsonObject,
 ): JsonObject {
   if (!isObject(input)) throw new ApiError("INVALID_RESOURCE", "Resource body must be an object", 400);
   const unknown = Object.keys(input).find((key) => !definition.fields[key]);
   if (unknown) throw new ApiError("INVALID_RESOURCE", `Field ${unknown} is not declared by model ${definition.key}`, 400);
 
-  const result: JsonObject = mode === "create" ? {} : { ...(previous ?? {}) };
+  const creating = mode === "create" || mode === "create_internal";
+  const trusted = mode === "create_internal" || mode === "action";
+  const result: JsonObject = creating ? {} : { ...(previous ?? {}) };
   for (const [fieldKey, field] of Object.entries(definition.fields)) {
     const supplied = Object.prototype.hasOwnProperty.call(input, fieldKey);
-    if (field.readOnly && supplied && mode !== "action") throw new ApiError("INVALID_RESOURCE", `Field ${fieldKey} is read-only`, 400);
-    if (mode !== "create" && field.immutable && supplied && previous?.[fieldKey] !== input[fieldKey]) {
+    if (field.readOnly && supplied && !trusted) throw new ApiError("INVALID_RESOURCE", `Field ${fieldKey} is read-only`, 400);
+    if (!creating && field.immutable && supplied && previous?.[fieldKey] !== input[fieldKey]) {
       throw new ApiError("INVALID_RESOURCE", `Field ${fieldKey} is immutable`, 400);
     }
     if (!supplied) {
-      if (mode === "create" && field.required && !field.readOnly) throw new ApiError("INVALID_RESOURCE", `Field ${fieldKey} is required`, 400);
+      if (creating && field.required && !field.readOnly) throw new ApiError("INVALID_RESOURCE", `Field ${fieldKey} is required`, 400);
       continue;
     }
     result[fieldKey] = validateFieldValue(fieldKey, field, input[fieldKey]);
@@ -331,8 +347,10 @@ export async function createGenericResource(
   spaceId: string,
   model: PublishedModel,
   input: unknown,
+  trustedCapabilityInput = false,
+  extension?: ResourceMutationExtension,
 ): Promise<GenericResource> {
-  const data = validateResourceData(model.definition, input, "create");
+  const data = validateResourceData(model.definition, input, trustedCapabilityInput ? "create_internal" : "create");
   const id = createId();
   const timestamp = new Date().toISOString();
   const statements = [env.DB.prepare(`INSERT INTO resource_records(
@@ -353,6 +371,7 @@ export async function createGenericResource(
     timestamp,
     timestamp,
   ), ...(await projectionStatements(env, id, spaceId, model, data))];
+  if (extension) statements.push(...await extension({ env, principal, recordId: id, spaceId, model, timestamp }));
   await env.DB.batch(statements);
   const created = await getGenericResource(env, spaceId, model.key, id);
   if (!created) throw new ApiError("RESOURCE_STORAGE_INCONSISTENT", "Created resource could not be read back", 500);
@@ -374,6 +393,7 @@ export async function updateGenericResource(
   expectedVersion: number,
   input: unknown,
   mutationMode: "client" | "action" = "client",
+  extension?: ResourceMutationExtension,
 ): Promise<GenericResource> {
   const row = await env.DB.prepare(`SELECT * FROM resource_records WHERE id=? AND space_id=? AND model_key=? AND deleted_at IS NULL`)
     .bind(recordId, spaceId, model.key).first<ResourceRow>();
@@ -391,8 +411,9 @@ export async function updateGenericResource(
       WHERE id=? AND space_id=? AND model_key=? AND deleted_at IS NULL AND version=?`)
       .bind(JSON.stringify(data), model.version, principal.type, principal.id, principal.id, nextVersion, timestamp, mutationToken, recordId, spaceId, model.key, expectedVersion),
     ...(await projectionStatements(env, recordId, spaceId, model, data, mutationToken)),
-    env.DB.prepare("UPDATE resource_records SET mutation_token=NULL WHERE id=? AND mutation_token=?").bind(recordId, mutationToken),
   ];
+  if (extension) statements.push(...await extension({ env, principal, recordId, spaceId, model, timestamp, mutationToken }));
+  statements.push(env.DB.prepare("UPDATE resource_records SET mutation_token=NULL WHERE id=? AND mutation_token=?").bind(recordId, mutationToken));
   const results = await env.DB.batch(statements);
   if (!results[0].meta.changes) throw new ApiError("VERSION_CONFLICT", "Resource version is stale", 409);
   const updated = await getGenericResource(env, spaceId, model.key, recordId);
