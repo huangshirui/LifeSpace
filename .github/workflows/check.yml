@@ -17,13 +17,4 @@ jobs:
         with:
           node-version: 24
       - run: pnpm install --no-frozen-lockfile
-      - name: Finalize service-auth slice in validation workspace
-        run: |
-          if [ -f infra/scripts/phase2-service-auth-finalize.mjs ]; then
-            node infra/scripts/phase2-service-auth-finalize.mjs
-            node infra/scripts/phase2-service-auth-staging-fix.mjs
-            node infra/scripts/phase2-service-auth-staging-patch.mjs
-            node --check infra/scripts/initialize-staging-runtime.mjs
-            pnpm --dir apps/core exec wrangler types src/worker-configuration.d.ts --env-interface CloudflareBindings --include-runtime false
-          fi
       - run: pnpm check
