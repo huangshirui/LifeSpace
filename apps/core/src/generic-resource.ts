@@ -140,18 +140,18 @@ function validateFieldValue(fieldKey: string, field: FieldDefinition, value: unk
 export function validateResourceData(
   definition: ModelDefinition,
   input: unknown,
-  mode: "create" | "update",
+  mode: "create" | "update" | "action",
   previous?: JsonObject,
 ): JsonObject {
   if (!isObject(input)) throw new ApiError("INVALID_RESOURCE", "Resource body must be an object", 400);
   const unknown = Object.keys(input).find((key) => !definition.fields[key]);
   if (unknown) throw new ApiError("INVALID_RESOURCE", `Field ${unknown} is not declared by model ${definition.key}`, 400);
 
-  const result: JsonObject = mode === "update" ? { ...(previous ?? {}) } : {};
+  const result: JsonObject = mode === "create" ? {} : { ...(previous ?? {}) };
   for (const [fieldKey, field] of Object.entries(definition.fields)) {
     const supplied = Object.prototype.hasOwnProperty.call(input, fieldKey);
-    if (field.readOnly && supplied) throw new ApiError("INVALID_RESOURCE", `Field ${fieldKey} is read-only`, 400);
-    if (mode === "update" && field.immutable && supplied && previous?.[fieldKey] !== input[fieldKey]) {
+    if (field.readOnly && supplied && mode !== "action") throw new ApiError("INVALID_RESOURCE", `Field ${fieldKey} is read-only`, 400);
+    if (mode !== "create" && field.immutable && supplied && previous?.[fieldKey] !== input[fieldKey]) {
       throw new ApiError("INVALID_RESOURCE", `Field ${fieldKey} is immutable`, 400);
     }
     if (!supplied) {
@@ -373,6 +373,7 @@ export async function updateGenericResource(
   recordId: string,
   expectedVersion: number,
   input: unknown,
+  mutationMode: "client" | "action" = "client",
 ): Promise<GenericResource> {
   const row = await env.DB.prepare(`SELECT * FROM resource_records WHERE id=? AND space_id=? AND model_key=? AND deleted_at IS NULL`)
     .bind(recordId, spaceId, model.key).first<ResourceRow>();
@@ -380,7 +381,7 @@ export async function updateGenericResource(
   if (row.version !== expectedVersion) throw new ApiError("VERSION_CONFLICT", "Resource version is stale", 409);
 
   const previous = rowToResource(row);
-  const data = validateResourceData(model.definition, input, "update", previous.data);
+  const data = validateResourceData(model.definition, input, mutationMode === "action" ? "action" : "update", previous.data);
   const timestamp = new Date().toISOString();
   const mutationToken = crypto.randomUUID();
   const nextVersion = row.version + 1;
