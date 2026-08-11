@@ -13,13 +13,15 @@
       "vars": { "ENVIRONMENT": "staging" },
       "routes": [{ "pattern": "core-staging.aisr.online", "custom_domain": true }],
       "d1_databases": [{ "binding": "DB", "database_name": "lifespace-core-staging", "database_id": "00000000-0000-0000-0000-000000000002", "migrations_dir": "migrations" }],
-      "r2_buckets": [{ "binding": "ASSETS", "bucket_name": "lifespace-staging-assets" }]
+      "r2_buckets": [{ "binding": "ASSETS", "bucket_name": "lifespace-staging-assets" }],
+      "services": [{ "binding": "IDENTITY", "service": "lifespace-identity-staging" }]
     },
     "production": {
       "name": "lifespace-core",
       "vars": { "ENVIRONMENT": "production" },
       "d1_databases": [{ "binding": "DB", "database_name": "lifespace-core", "database_id": "00000000-0000-0000-0000-000000000003", "migrations_dir": "migrations" }],
-      "r2_buckets": [{ "binding": "ASSETS", "bucket_name": "lifespace-assets" }]
+      "r2_buckets": [{ "binding": "ASSETS", "bucket_name": "lifespace-assets" }],
+      "services": [{ "binding": "IDENTITY", "service": "lifespace-identity" }]
     }
   }
 }
