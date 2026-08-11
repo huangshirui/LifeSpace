@@ -15,6 +15,7 @@ export const TASK_MODEL_DEFINITION: ModelDefinition = {
     completedByType: { type: "enum", nullable: true, readOnly: true, values: ["user", "service", "device"] },
     completedById: { type: "string", nullable: true, readOnly: true, maxLength: 100 },
   },
+  defaults: { status: "pending" },
   query: { searchable: ["name", "description"], filterable: ["status", "dueDate", "assigneePersonIds"], sortable: ["dueDate", "name"] },
   access: ["read", "write"],
   lifecycle: { optimisticConcurrency: true, softDelete: true },
@@ -52,6 +53,7 @@ export const WISH_MODEL_DEFINITION: ModelDefinition = {
     fulfilledAt: { type: "datetime", nullable: true, readOnly: true },
     archivedFromStatus: { type: "enum", nullable: true, readOnly: true, values: ["open", "claimed", "fulfilled"] },
   },
+  defaults: { status: "open" },
   query: { searchable: ["title", "description"], filterable: ["status", "ownerPersonId", "claimantPersonId", "desiredDate"], sortable: ["desiredDate", "title"] },
   access: ["read", "write"],
   lifecycle: { optimisticConcurrency: true, softDelete: true },
@@ -153,6 +155,7 @@ export const EVENT_MODEL_DEFINITION: ModelDefinition = {
     attendeePersonIds: { type: "person_list" },
     status: { type: "enum", required: true, values: ["active", "cancelled"] },
   },
+  defaults: { status: "active" },
   query: {
     searchable: ["summary", "description", "location"],
     filterable: ["status", "isAllDay", "startAt", "startDate", "attendeePersonIds"],
