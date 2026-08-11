@@ -10,6 +10,7 @@ export type Principal = {
 
 export type Bindings = CloudflareBindings & {
   IDENTITY_PUBLIC_KEY: string;
+  ASSETS: R2Bucket;
   CORS_ORIGINS?: string;
 };
 
