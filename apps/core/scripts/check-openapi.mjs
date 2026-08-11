@@ -88,7 +88,10 @@ if (!schemas.Wish?.properties?.owner || !schemas.Wish?.properties?.claimant || !
 if (schemas.WishPersonRef?.properties?.userId || !schemas.WishPersonRef?.properties?.personId) throw new Error("Native wish people must use Space Person IDs");
 if (schemas.UpdateWishRequest?.required?.[0] !== "version" || schemas.UpdateWishRequest?.minProperties !== 2) throw new Error("Native wish updates must use optimistic concurrency");
 for (const action of ["claim", "unclaim", "fulfill", "reopen", "archive", "restore"]) {
-  if (document.paths?.[`/api/v1/spaces/{spaceId}/wishes/{wishId}/${action}`]?.post?.responses?.["200"] === undefined) throw new Error(`Native wish ${action} must return 200`);
+  const pathItem = document.paths?.[`/api/v1/spaces/{spaceId}/wishes/{wishId}/${action}`];
+  const refName = pathItem?.$ref?.split("/").at(-1);
+  const resolved = refName ? document.components?.pathItems?.[refName] : pathItem;
+  if (resolved?.post?.responses?.["200"] === undefined) throw new Error(`Native wish ${action} must return 200`);
 }
 
 if (schemas.StatusResponse?.properties?.data?.properties?.contractVersion?.const !== "0.8.0") throw new Error("Core status contract version drifted");
