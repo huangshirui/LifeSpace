@@ -1,3 +1,4 @@
+import { validateModelPolicies, type ModelPoliciesDefinition } from "./policy-definition";
 import { validateWorkflowActions, type WorkflowActionsDefinition } from "./workflow-definition";
 
 export const MODEL_DEFINITION_VERSION = 1 as const;
@@ -57,6 +58,7 @@ export type ModelDefinition = {
     softDelete?: boolean;
   };
   capabilities?: string[];
+  policies?: ModelPoliciesDefinition;
   actions?: WorkflowActionsDefinition;
 };
 
@@ -154,7 +156,7 @@ export function validateModelDefinition(input: unknown): ModelValidationResult {
     return { valid: false, issues: [{ path: "$", code: "INVALID_DEFINITION", message: "Model definition must be an object" }] };
   }
 
-  const allowedTopLevel = new Set(["definitionVersion", "key", "route", "display", "fields", "query", "access", "lifecycle", "capabilities", "actions"]);
+  const allowedTopLevel = new Set(["definitionVersion", "key", "route", "display", "fields", "query", "access", "lifecycle", "capabilities", "policies", "actions"]);
   for (const key of Object.keys(input)) {
     if (!allowedTopLevel.has(key)) issue(issues, key, "UNKNOWN_PROPERTY", `Unsupported model property ${key}`);
   }
@@ -278,6 +280,9 @@ export function validateModelDefinition(input: unknown): ModelValidationResult {
   const capabilities = stringArray(issues, input.capabilities, "capabilities") ?? [];
   for (const capability of capabilities) if (!SUPPORTED_CAPABILITIES.has(capability)) issue(issues, "capabilities", "UNSUPPORTED_CAPABILITY", `Capability ${capability} is not registered in Model Definition v1`);
 
+  const modelPolicies = validateModelPolicies(input.policies, fields);
+  issues.push(...modelPolicies.issues);
+
   const workflow = validateWorkflowActions(input.actions, fields);
   issues.push(...workflow.issues);
   if (workflow.actions) {
@@ -298,6 +303,7 @@ export function validateModelDefinition(input: unknown): ModelValidationResult {
     access: accessInput as ModelAccess[],
     ...(lifecycle ? { lifecycle } : {}),
     ...(capabilities.length ? { capabilities } : {}),
+    ...(modelPolicies.policies ? { policies: modelPolicies.policies } : {}),
     ...(workflow.actions ? { actions: workflow.actions } : {}),
   };
   return { valid: true, definition, hashInput: canonicalModelDefinition(definition) };
