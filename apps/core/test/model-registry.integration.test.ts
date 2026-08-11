@@ -34,12 +34,13 @@ function noteDefinition(route = "notes") {
 }
 
 describe("Model Registry", () => {
-  it("loads the bootstrap Task definition from D1", async () => {
+  it("loads the converged Task definition from D1", async () => {
     const model = await getPublishedModel(bindings(), "task");
     expect(model).not.toBeNull();
     expect(model?.route).toBe("tasks");
-    expect(model?.version).toBe(1);
-    expect(model?.schemaHash).toBe("1fd6d6fdc7bb6039503bf012aad9eeaf417459196b680133c4d2bf96ef9fb173");
+    expect(model?.version).toBe(2);
+    expect(model?.schemaHash).toBe("97053c8fd9e6f90ef9881cfbabc34d081a7ebbbaabc21143343aa9b9e57faa76");
+    expect(model?.definition.defaults).toEqual({ status: "pending" });
   });
 
   it("publishes a validated model and resolves it by route", async () => {
