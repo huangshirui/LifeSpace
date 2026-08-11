@@ -175,7 +175,7 @@ The following are **not target architecture**:
 
 ## External integration migration
 
-The LifeSpace target capability is now implemented and staging-verified. HomeMew `hmw_pat_*` plaintext must never be copied into LifeSpace.
+The LifeSpace target capability is implemented and staging-verified. HomeMew `hmw_pat_*` plaintext must never be copied into LifeSpace.
 
 For each active integration at migration/cutover time:
 
@@ -187,7 +187,7 @@ For each active integration at migration/cutover time:
 6. Verify native LifeSpace allow/deny behavior against staging/production-ready resources.
 7. Revoke the old HomeMew credential after cutover and rollback stabilization.
 
-The deterministic migration transform now produces service-principal/Data-Grant output and a credential-rotation report. Reports may map legacy credential identifiers to new non-secret metadata but never export plaintext credentials or legacy hashes.
+The deterministic migration transform now produces service-principal/Data-Grant output and a credential-rotation report. Reports map legacy integration/credential identifiers to new service-principal/non-secret credential metadata; they never export plaintext credentials or legacy hashes. Actual new `lsp_pat_*`/OAuth secret values are generated during controlled credential rotation rather than by the data transform.
 
 ## HomeMew client migration requirements
 
