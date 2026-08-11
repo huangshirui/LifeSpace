@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import type { Bindings, Variables } from "./env";
 import { authenticate } from "./auth";
-import { registerCreationDraftRoutes } from "./creation-draft-jobs";
+import { registerRegistryCreationDraftRoutes } from "./registry-creation-draft-jobs";
 import { registerDayRecordRoutes } from "./day-records";
 import { registerGenericResourceRoutes } from "./generic-resource-routes";
 import { ApiError, failure, success } from "./http";
@@ -16,11 +16,7 @@ import { registerGrantRoutes } from "./grants";
 
 type AppEnv = { Bindings: Bindings; Variables: Variables };
 const defaultOrigins = ["http://localhost:5173", "http://127.0.0.1:5173"];
-
-function origins(env: Bindings) {
-  return env.CORS_ORIGINS ? env.CORS_ORIGINS.split(",").map((value) => value.trim()).filter(Boolean) : defaultOrigins;
-}
-
+function origins(env: Bindings) { return env.CORS_ORIGINS ? env.CORS_ORIGINS.split(",").map((value) => value.trim()).filter(Boolean) : defaultOrigins; }
 async function schemaVersion(env: Bindings) {
   const row = await env.DB.prepare("SELECT value FROM schema_metadata WHERE key='schema_version'").first<{ value: string }>();
   if (!row) throw new Error("schema version metadata is missing");
@@ -42,12 +38,8 @@ export function createApp() {
   }));
   app.get("/health", (context) => context.json(success({ status: "ok" })));
   app.get("/api/v1/status", async (context) => context.json(success({
-    status: "ok",
-    service: "core",
-    environment: context.env.ENVIRONMENT ?? "local",
-    database: "available",
-    schemaVersion: await schemaVersion(context.env),
-    contractVersion: "0.11.0",
+    status: "ok", service: "core", environment: context.env.ENVIRONMENT ?? "local", database: "available",
+    schemaVersion: await schemaVersion(context.env), contractVersion: "0.11.0",
   })));
   app.use("/api/v1/me", authenticate());
   app.use("/api/v1/me/*", authenticate());
@@ -64,11 +56,7 @@ export function createApp() {
   registerTaskRoutes(app);
   registerDayRecordRoutes(app);
   registerWishRoutes(app);
-  registerCreationDraftRoutes(app);
-  // Generic model routes are deliberately registered after explicit Kernel and
-  // Phase-2 proving routes. New model routes resolve through the Registry now;
-  // the four proving domains move over only when their required Engines and
-  // Capabilities are complete.
+  registerRegistryCreationDraftRoutes(app);
   registerGenericResourceRoutes(app);
   app.notFound((context) => context.json(failure("NOT_FOUND", "Route not found", context.get("requestId")), 404));
   app.onError((error, context) => {
