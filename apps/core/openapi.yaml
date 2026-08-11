@@ -1,8 +1,8 @@
 openapi: 3.1.0
 info:
   title: LifeSpace Core API
-  version: 0.9.0
-  description: Native LifeSpace Space, authorization, avatar, event, task, day-record and wish APIs. HomeMew runtime compatibility facades were retired after Phase 2.6; applications consume this native contract.
+  version: 0.10.0
+  description: Native LifeSpace Space, authorization, service-authenticated Data Grant, avatar, event, task, day-record and wish APIs. HomeMew runtime compatibility facades were retired after Phase 2.6; applications consume this native contract.
 security:
   - bearerAuth: []
 tags:
@@ -832,9 +832,20 @@ paths:
   /api/v1/spaces/{spaceId}/grants:
     parameters:
       - $ref: "#/components/parameters/SpaceId"
+    get:
+      tags: [Data Grants]
+      operationId: listDataGrants
+      description: List Space-level Data Grants. Requires a user principal with grants:manage and current manage permission on the Space.
+      parameters:
+        - { name: includeRevoked, in: query, schema: { type: boolean, default: false } }
+      responses:
+        "200": { description: Data Grant list, content: { application/json: { schema: { $ref: "#/components/schemas/DataGrantListResponse" } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
     post:
       tags: [Data Grants]
       operationId: createDataGrant
+      description: Create a Space-level Grant. A service grantee authenticates separately and gains no access without a current Grant.
       requestBody:
         required: true
         content:
@@ -845,12 +856,39 @@ paths:
         "400": { $ref: "#/components/responses/InvalidRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
+  /api/v1/spaces/{spaceId}/grants/{grantId}:
+    parameters:
+      - $ref: "#/components/parameters/SpaceId"
+      - $ref: "#/components/parameters/GrantId"
+    patch:
+      tags: [Data Grants]
+      operationId: updateDataGrant
+      description: Update the permission or expiry of an active Space-level Grant.
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/UpdateGrantRequest" } } }
+      responses:
+        "200": { description: Data Grant updated, content: { application/json: { schema: { $ref: "#/components/schemas/DataGrantResponse" } } } }
+        "400": { $ref: "#/components/responses/InvalidRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      tags: [Data Grants]
+      operationId: revokeDataGrant
+      description: Revoke an active Grant; authorization changes take effect on the next Core request.
+      responses:
+        "204": { description: Data Grant revoked }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
 components:
   securitySchemes:
     bearerAuth:
       type: http
       scheme: bearer
-      bearerFormat: JWT
+      bearerFormat: JWT or lsp_pat_
+      description: Short-lived LifeSpace JWT or opaque lsp_pat_* Service API Token. Opaque tokens are introspected against current Identity state.
   parameters:
     SpaceId: { name: spaceId, in: path, required: true, schema: { type: string, pattern: ^spc_ } }
     UserId: { name: userId, in: path, required: true, schema: { type: string, pattern: ^usr_ } }
@@ -860,6 +898,7 @@ components:
     TaskId: { name: taskId, in: path, required: true, schema: { type: string, pattern: ^tsk_ } }
     DayRecordId: { name: dayRecordId, in: path, required: true, schema: { type: string, pattern: ^day_ } }
     WishId: { name: wishId, in: path, required: true, schema: { type: string, pattern: ^wsh_ } }
+    GrantId: { name: grantId, in: path, required: true, schema: { type: string, pattern: ^grt_ } }
   responses:
     InvalidRequest:
       description: Request validation failed
@@ -1116,6 +1155,22 @@ components:
       required: [displayName]
       properties:
         displayName: { type: string, minLength: 1, maxLength: 100 }
+    DataGrant:
+      type: object
+      additionalProperties: false
+      required: [id, sourceSpaceId, granteeType, granteeId, resourceType, resourceId, permission, createdByUserId, createdAt, expiresAt, revokedAt]
+      properties:
+        id: { type: string, pattern: ^grt_ }
+        sourceSpaceId: { type: string, pattern: ^spc_ }
+        granteeType: { type: string, enum: [user, space, service, device] }
+        granteeId: { type: string }
+        resourceType: { type: string, const: space }
+        resourceId: { type: "null" }
+        permission: { $ref: "#/components/schemas/Permission" }
+        createdByUserId: { type: string, pattern: ^usr_ }
+        createdAt: { type: string, format: date-time }
+        expiresAt: { type: [string, "null"], format: date-time }
+        revokedAt: { type: [string, "null"], format: date-time }
     CreateGrantRequest:
       type: object
       additionalProperties: false
@@ -1125,6 +1180,15 @@ components:
         granteeId: { type: string }
         permission: { $ref: "#/components/schemas/Permission" }
         expiresAt: { type: [string, "null"], format: date-time }
+    UpdateGrantRequest:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        permission: { $ref: "#/components/schemas/Permission" }
+        expiresAt: { type: [string, "null"], format: date-time }
+    DataGrantResponse: { type: object, required: [data], properties: { data: { $ref: "#/components/schemas/DataGrant" } } }
+    DataGrantListResponse: { type: object, required: [data], properties: { data: { type: array, items: { $ref: "#/components/schemas/DataGrant" } } } }
     EventPersonRef:
       type: object
       additionalProperties: false
@@ -1512,7 +1576,7 @@ components:
             environment: { type: string }
             database: { type: string, const: available }
             schemaVersion: { type: string }
-            contractVersion: { type: string, const: 0.9.0 }
+            contractVersion: { type: string, const: 0.10.0 }
     PrincipalResponse:
       type: object
       required: [data]

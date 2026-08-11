@@ -50,7 +50,7 @@ The HomeMew OpenAPI baseline exposes 60 implemented operations. The table groups
 | Tasks | CRUD/search/filter/complete/reopen; assignees | Space-owned tasks + Space Person assignees | Native deployed; legacy façade retired by Core 0.8.0 |
 | Day records | CRUD, occurrence history, archive/restore | Space-owned day records + occurrences | Native deployed; legacy façade retired by Core 0.8.0 |
 | Wishes | CRUD, lifecycle actions | Space-owned wishes + Space Person owner/claimant/fulfiller | Native deployed; legacy façade retired by Core 0.8.0 |
-| External integrations | integration CRUD, credential issue/list/revoke, OAuth client credentials | Service principal + `lsp_pat_*` + optional OAuth `client_credentials` + Data Grants/scopes | Remaining Phase 2 work; new credentials required |
+| External integrations | integration CRUD, credential issue/list/revoke, OAuth client credentials | Identity-owned service principal + `lsp_pat_*` + optional OAuth `client_credentials`; Core Data Grants/scopes | Native Identity 0.3.0 / Core 0.10.0 deployed and verified in staging; HomeMew credentials must be rotated, not copied |
 | Creation drafts | asynchronous interpret/job polling and cleanup | Native Space-aware queue workflow if retained | Remaining Phase 2 decision/work |
 | Internal user creation | trusted backend user creation | LifeSpace Identity trusted application user creation | Foundation replacement exists |
 
@@ -115,6 +115,17 @@ HomeMew client adapters must migrate to Person IDs for domain relationships. The
 - HomeMew migration tooling emits native `avatar_key` metadata plus a deterministic `object-copy-manifest.json` mapping each valid legacy source key to the target LifeSpace namespace.
 - Migration validation rejects avatar keys outside the expected legacy user/family owner prefix rather than silently copying cross-owner data.
 
+### Service authentication and external integrations
+
+- Identity owns `svc_*` service principals, opaque `lsp_pat_*` token hashes/metadata and optional OAuth client credentials.
+- Core owns Space/Data Grant authorization; a service principal is not made a Space member to obtain access.
+- Opaque PATs are introspected through the Core→Identity Service Binding on each request in the initial implementation; Core never reads Identity D1 or stores token hashes.
+- OAuth `client_credentials` issues a short-lived service JWT for the same service principal and uses the same current Data Grant/domain authorization in Core.
+- Effective service authority remains the intersection of credential/application scope ceilings, current Grant state and domain restrictions.
+- Grant revocation affects both opaque and OAuth modes on the next Core request; PAT revocation/disabled principal status affects opaque authentication on the next request.
+- HomeMew integration migration emits deterministic service-principal/Data-Grant artifacts plus a credential-rotation report. Existing HomeMew plaintext or secret hashes are never copied.
+- Owner-controlled n8n/curl callers may use one direct Core request with `Authorization: Bearer lsp_pat_...`; no OAuth token-acquisition node is required unless OAuth is deliberately selected.
+
 ### Tasks
 
 - Preserve stable `tsk_*` IDs where practical.
@@ -164,19 +175,19 @@ The following are **not target architecture**:
 
 ## External integration migration
 
-HomeMew `hmw_pat_*` plaintext must never be copied into LifeSpace.
+The LifeSpace target capability is implemented and staging-verified. HomeMew `hmw_pat_*` plaintext must never be copied into LifeSpace.
 
-For each active integration:
+For each active integration at migration/cutover time:
 
-1. Create/resolve a LifeSpace service principal and registered client/application context.
+1. Create/resolve the LifeSpace service principal in the appropriate registered application context.
 2. Translate HomeMew permissions into final LifeSpace scopes.
 3. Translate the family binding into explicit Data Grants on the mapped Space.
 4. Issue a new `lsp_pat_*` Service API Token or approved OAuth credential.
 5. Update HomeMew integration UI and the external n8n/script/MCP caller.
-6. Verify native LifeSpace allow/deny behavior in staging.
+6. Verify native LifeSpace allow/deny behavior against staging/production-ready resources.
 7. Revoke the old HomeMew credential after cutover and rollback stabilization.
 
-Migration reports may map legacy credential identifiers to new non-secret metadata but never export plaintext credentials.
+The deterministic migration transform now produces service-principal/Data-Grant output and a credential-rotation report. Reports map legacy integration/credential identifiers to new service-principal/non-secret credential metadata; they never export plaintext credentials or legacy hashes. Actual new `lsp_pat_*`/OAuth secret values are generated during controlled credential rotation rather than by the data transform.
 
 ## HomeMew client migration requirements
 

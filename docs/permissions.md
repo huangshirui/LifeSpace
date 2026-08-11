@@ -25,13 +25,13 @@ No application is trusted merely because of its hostname or product name.
 
 ## Service credentials
 
-**Planned runtime; accepted authorization policy.** See `docs/service-authentication.md` for the normative credential lifecycle and implementation plan.
+**Implemented and verified in staging on 2026-08-11.** See `docs/service-authentication.md` for the normative credential lifecycle and implementation details.
 
 A service may authenticate either with an opaque `lsp_pat_*` Service API Token or with a short-lived service JWT obtained through OAuth `client_credentials`. OAuth is optional for owner-controlled trusted services.
 
-The credential authenticates a service principal; it does not itself confer Space membership or broad data access. Core must intersect current token/client scopes with current Grants and domain rules on every request. Revoking a Token, disabling its principal, reducing its scopes, or revoking a Data Grant must remove the corresponding authority.
+The credential authenticates a service principal; it does not itself confer Space membership or broad data access. Core intersects current token/client scopes with current Grants and domain rules on every request. Revoking a Token, disabling its principal, reducing its scopes, or revoking a Data Grant removes the corresponding authority on subsequent requests.
 
-Service API Tokens may have `expires_at = null`, but they must remain individually revocable and must never be issued to browsers, Mini Programs, downloadable clients, or permanent personal-user identities.
+Service API Tokens may have `expires_at = null`, but they remain individually revocable and must never be issued to browsers, Mini Programs, downloadable clients, or permanent personal-user identities.
 
 ## Space roles
 

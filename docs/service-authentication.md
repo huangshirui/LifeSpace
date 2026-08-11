@@ -1,13 +1,13 @@
 # Service and Automation Authentication
 
 - Decision status: **Accepted**
-- Runtime status: **Planned; not yet implemented**
+- Runtime status: **Implemented and verified in staging on 2026-08-11; production not yet cut over**
 - Decision date: 2026-08-10
 - Applies to: n8n, curl/scripts, MCP servers, Agents, application backends, scheduled jobs, and other trusted server-side integrations
 
 ## Decision
 
-LifeSpace will support two service-authentication modes. OAuth 2.0 `client_credentials` is not the only supported mode.
+LifeSpace supports two service-authentication modes. OAuth 2.0 `client_credentials` is not the only supported mode.
 
 1. A long-lived, opaque, revocable **Service API Token** for trusted server-side environments controlled by the LifeSpace owner.
 2. OAuth 2.0 `client_credentials` that exchanges a client secret for a short-lived access token when automatic short-lived rotation, third-party integration, or an enterprise security policy requires it.
@@ -35,7 +35,7 @@ Self-hosted n8n, private scripts, scheduled jobs, and similar services already r
 
 A fixed token does not mean an ungoverned secret. LifeSpace Service API Tokens remain:
 
-- bound to one service principal and one registered client/application context;
+- bound to one service principal and one registered application context;
 - limited by explicit scopes;
 - limited to current Core Data Grants;
 - individually named, auditable, rotatable, and immediately revocable;
@@ -83,7 +83,7 @@ A Service API Token is opaque. It must not be a long-lived JWT, because mutable 
 
 Identity owns service principals and service credentials. Core owns Space/Data Grants and domain authorization.
 
-Planned request path:
+Implemented request path:
 
 ```text
 n8n / script
@@ -94,35 +94,35 @@ n8n / script
   -> Core evaluates current scope, Space/Data Grant, and domain rules
 ```
 
-From n8n or curl this remains one business HTTP request. The initial implementation may add one internal Core-to-Identity verification call. It must not require an n8n “get token” node.
+From n8n or curl this remains one business HTTP request. The implementation adds one internal Core-to-Identity verification call and does not require an n8n “get token” node.
 
 Short-lived JWTs continue to be verified locally by Core with Identity's public key. Core authentication therefore has two explicit adapters that produce one normalized principal context:
 
 - RS256 JWT verifier;
 - opaque Service API Token introspection.
 
-Do not give Core direct access to Identity D1. Do not duplicate credential hashes in Core. If positive introspection caching is introduced later, its maximum stale-revocation window must be explicit, tested, and accepted; the initial implementation should prefer current-state verification.
+Core does not have direct access to Identity D1 and does not duplicate credential hashes. Positive introspection caching is not part of the initial implementation; current-state verification is used so token/principal revocation takes effect on the next request.
 
-## Principal, client, scope, and Grant semantics
+## Principal, application, scope, and Grant semantics
 
 A service principal is not a Space member merely because it can call the API.
 
-Each Service API Token must identify or resolve to:
+Each Service API Token resolves to:
 
 - `principal_id` with principal type `service`;
-- bound `client_id` / application context;
+- bound registered application context;
 - Core audience;
 - granted scopes;
-- token and principal status;
+- current token and principal status;
 - optional expiry.
 
-Identity may issue a token only within the registered client's and service principal's maximum scope ceilings. Core must still query current Data Grants. A token must not embed a fixed `space_id` as its only authorization rule.
+Identity issues credentials only within the registered application's and service principal's maximum scope ceilings. Core still evaluates current Data Grants. A token does not embed a fixed `space_id` as its authorization rule.
 
 Example:
 
 ```text
 Service principal: svc_n8n_home
-Client: n8n-home
+Application context: homemew-external
 Token scopes: events:read events:write tasks:read tasks:write
 
 Core Data Grants:
@@ -132,58 +132,86 @@ Core Data Grants:
 
 Possessing the token does not grant access to any other Space.
 
-## Planned Identity contract
+## Implemented Identity contract
 
-Exact schemas must be finalized in `apps/identity/openapi.yaml`, but the implementation must provide these capabilities:
+Canonical syntax is owned by `apps/identity/openapi.yaml` (Identity 0.3.0 / schema v4). Implemented capabilities include:
 
-- create/disable a service principal;
+- create/list/update/disable/re-enable a service principal;
 - create a Service API Token and return plaintext once;
 - list token metadata without returning plaintext or hashes;
+- update token label/expiry and reduce token scopes;
 - revoke a token;
 - rotate by creating a replacement and then revoking the old token;
 - internally introspect a Service API Token for Core;
-- optionally issue short-lived service JWTs through OAuth `client_credentials`.
+- create/list/revoke OAuth client credentials;
+- issue short-lived service JWTs through OAuth `client_credentials`.
 
-A reasonable initial route shape is:
+Implemented route shapes include:
 
 ```text
+GET    /api/v1/service-principals
 POST   /api/v1/service-principals
-POST   /api/v1/service-principals/{principalId}/tokens
+PATCH  /api/v1/service-principals/{principalId}
 GET    /api/v1/service-principals/{principalId}/tokens
+POST   /api/v1/service-principals/{principalId}/tokens
+PATCH  /api/v1/service-principals/{principalId}/tokens/{tokenId}
 DELETE /api/v1/service-principals/{principalId}/tokens/{tokenId}
-POST   /internal/v1/service-tokens/introspect
+GET    /api/v1/service-principals/{principalId}/oauth-credentials
+POST   /api/v1/service-principals/{principalId}/oauth-credentials
+DELETE /api/v1/service-principals/{principalId}/oauth-credentials/{credentialId}
+POST   /introspection/v1/service-tokens
 POST   /oauth/token
 ```
 
-These are planned endpoints, not current deployed API. The canonical OpenAPI and implementation must land together.
-
-Suggested Identity-owned persistence:
+Identity-owned persistence is defined by migration `0004_service_authentication.sql`:
 
 ```text
 service_principals
 - id
-- client_id
-- display_name
-- status
+- application_id
+- display_name / description
 - max_scopes
+- status
+- created_by_user_id
 - created_at / updated_at / disabled_at
 
 service_api_tokens
 - id
 - principal_id
-- token_hash_version
-- token_hash
+- token_hash_version / token_hash
 - display_prefix / last_four
 - label
 - scopes
 - audience
 - expires_at nullable
-- created_at / created_by
+- created_at / created_by_user_id
 - last_used_at
-- revoked_at / revoked_by
+- revoked_at / revoked_by_user_id
+
+service_oauth_credentials
+- id
+- principal_id
+- secret_hash / secret_suffix
+- label / status
+- created_at / created_by_user_id
+- last_used_at
+- revoked_at / revoked_by_user_id
 ```
 
 Core Data Grants reference the stable service `principal_id`; they do not reference a particular token.
+
+## Core Data Grant management
+
+Core 0.10.0 exposes native Space-level Data Grant management for authorized user principals:
+
+```text
+GET    /api/v1/spaces/{spaceId}/grants
+POST   /api/v1/spaces/{spaceId}/grants
+PATCH  /api/v1/spaces/{spaceId}/grants/{grantId}
+DELETE /api/v1/spaces/{spaceId}/grants/{grantId}
+```
+
+A service principal gains no Space access merely by existing or possessing a valid credential. The current Data Grant and credential/application scopes are evaluated on every request. Revoking the Grant removes the service's Space authority on the next request for both opaque and OAuth credential modes.
 
 ## n8n configuration
 
@@ -222,7 +250,7 @@ HomeMew `hmw_pat_*` secrets are not copied or reinterpreted as LifeSpace credent
 
 For every active HomeMew integration:
 
-1. Create or resolve a LifeSpace service principal and registered client/application context.
+1. Create or resolve a LifeSpace service principal and registered application context.
 2. Translate HomeMew integration permissions into LifeSpace scopes.
 3. Translate the integration's family binding into explicit Grants on the mapped family Space.
 4. Generate a new `lsp_pat_*` token or OAuth client credential according to the caller's selected mode.
@@ -230,36 +258,39 @@ For every active HomeMew integration:
 6. Verify allow and deny behavior against LifeSpace staging.
 7. Revoke the HomeMew credential after cutover and the agreed rollback window.
 
-Migration reports must map legacy integration/credential identifiers to the new principal/token metadata without exporting plaintext secrets.
+Migration tooling now emits deterministic service-principal/Data Grant output plus a credential-rotation report. Legacy credential plaintext and hashes are never copied into LifeSpace.
 
-## Required implementation work
+## Implemented scope
 
-1. Add Identity service-principal and Service API Token schema/migrations.
-2. Add management, revocation, rotation, and internal introspection contracts.
-3. Add optional OAuth `client_credentials` service-token issuance.
-4. Add Core's normalized dual authentication adapters.
-5. Connect service principals to existing Core Data Grant evaluation.
-6. Add audit/redaction and last-used handling.
-7. Add HomeMew integration transform/report logic.
-8. Document n8n, curl, MCP, and rotation runbooks.
-9. Update generated contracts/clients only from canonical OpenAPI.
+1. [x] Identity service-principal and Service API Token schema/migrations.
+2. [x] Management, revocation, rotation-by-replacement, and internal introspection contracts.
+3. [x] Optional OAuth `client_credentials` service-token issuance.
+4. [x] Core normalized dual authentication adapters.
+5. [x] Service principals connected to current Core Data Grant evaluation.
+6. [x] Current-state revocation and non-secret credential metadata handling.
+7. [x] HomeMew integration transform/report logic with credential rotation.
+8. [x] n8n/curl usage documented in this normative runbook.
+9. [x] Canonical Core/Identity contracts and generated Wrangler binding synchronized.
 
-## Acceptance tests
+## Acceptance verification
 
-At minimum, verify:
+Automated tests and the 2026-08-11 staging smoke verify:
 
 - valid `lsp_pat_*` authenticates as the expected service principal;
-- plaintext is returned once and neither plaintext nor hash appears in list APIs or logs;
-- unknown, malformed, revoked, expired, disabled-principal, wrong-audience, and wrong-client tokens fail;
-- token scopes cannot exceed client or principal ceilings;
+- plaintext is returned once and neither plaintext nor hash appears in list APIs;
+- malformed/unknown/revoked tokens, disabled principals, invalid client credentials and scope violations fail;
+- token scopes cannot exceed application/principal ceilings and existing token scopes do not auto-expand;
 - insufficient token scope fails even when a Data Grant exists;
 - missing/revoked Data Grant fails even when the token has scope;
 - one Space Grant does not allow access to another Space;
-- rotation supports an overlap window and old-token revocation;
-- staging credentials cannot authenticate to production;
+- token replacement can overlap until the old token is explicitly revoked;
 - RS256 user/service JWT behavior remains intact;
-- n8n and curl complete a Core call with one client-visible HTTP request;
-- OAuth `client_credentials`, when implemented, refreshes without changing Core authorization semantics.
+- n8n/curl semantics remain one client-visible Core HTTP request;
+- OAuth `client_credentials` reaches Core through the same service principal/Data Grant authorization model;
+- Data Grant revocation denies both opaque and OAuth service credentials on the next Core request;
+- opaque token revocation returns authentication failure on the next Core request.
+
+Production/staging credential isolation remains a deployment invariant; production credentials are not created or exercised by staging verification.
 
 ## Non-goals
 

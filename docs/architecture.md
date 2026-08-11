@@ -79,7 +79,7 @@ This preserves the proven HomeMew boundary while removing the old shared-HS256-s
 
 ## Service and automation authentication
 
-**Planned runtime; accepted architecture decision.** The normative implementation basis is `docs/service-authentication.md`.
+**Implemented and verified in staging on 2026-08-11.** The normative credential and authorization rules are in `docs/service-authentication.md`.
 
 LifeSpace supports two service modes:
 
@@ -88,7 +88,7 @@ LifeSpace supports two service modes:
 
 Both modes authenticate a service principal and pass through the same application-scope, current Data Grant, and domain authorization checks. Browser and Mini Program clients must not receive Service API Tokens.
 
-Identity owns service principals and token hashes. Core recognizes an opaque token and uses an internal Identity Service Binding introspection call, then evaluates current Core authorization. The client still makes one Core HTTP request; it does not need a token-acquisition request. Core must not read Identity D1 directly or duplicate credential hashes.
+Identity owns service principals and token hashes. Core recognizes an opaque token and uses an internal Identity Service Binding introspection call, then evaluates current Core authorization. The client still makes one Core HTTP request; it does not need a token-acquisition request. Core does not read Identity D1 directly or duplicate credential hashes.
 
 ## Data ownership
 

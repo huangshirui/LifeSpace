@@ -1,4 +1,4 @@
-import { generateKeyPairSync } from "node:crypto";
+import { generateKeyPairSync, randomBytes } from "node:crypto";
 import { spawn } from "node:child_process";
 
 const bootstrapSecret = process.env.LIFESPACE_STAGING_BOOTSTRAP_SECRET;
@@ -101,10 +101,15 @@ async function rotateSigningKeys() {
   console.log("Generated, installed, and activated a new staging RS256 signing key pair");
 }
 
+const coreIdentitySharedSecret = randomBytes(32).toString("base64url");
 await wranglerSecretBulk("apps/identity", {
   BOOTSTRAP_SECRET: bootstrapSecret,
+  CORE_IDENTITY_SHARED_SECRET: coreIdentitySharedSecret,
 });
-console.log("Staging bootstrap secret synchronized and activated");
+await wranglerSecretBulk("apps/core", {
+  CORE_IDENTITY_SHARED_SECRET: coreIdentitySharedSecret,
+});
+console.log("Staging bootstrap and Core↔Identity introspection secrets synchronized and activated");
 
 // Identity 0.2 adds user-token verification at the Identity resource server.
 // Rotate the staging-only pair once per staging deployment so Identity and Core
@@ -119,6 +124,7 @@ const scopes = [
   "spaces:read",
   "spaces:write",
   "spaces:manage",
+  "grants:manage",
   "events:read",
   "events:write",
   "tasks:read",
@@ -218,7 +224,7 @@ if (userAvatarResponse.status !== 200 || userAvatarResponse.headers.get("content
 }
 
 const identityStatus = await requestJson(`${identityBase}/api/v1/status`, {}, 200);
-if (identityStatus?.data?.environment !== "staging" || identityStatus?.data?.schemaVersion !== "3" || identityStatus?.data?.contractVersion !== "0.2.0") {
+if (identityStatus?.data?.environment !== "staging" || identityStatus?.data?.schemaVersion !== "4" || identityStatus?.data?.contractVersion !== "0.3.0") {
   throw new Error(`Unexpected Identity staging status: ${JSON.stringify(identityStatus)}`);
 }
 
@@ -226,7 +232,7 @@ const coreStatus = await requestJson(`${coreBase}/api/v1/status`, {}, 200);
 if (
   coreStatus?.data?.environment !== "staging"
   || coreStatus?.data?.schemaVersion !== "8"
-  || coreStatus?.data?.contractVersion !== "0.9.0"
+  || coreStatus?.data?.contractVersion !== "0.10.0"
 ) {
   throw new Error(`Unexpected Core staging status: ${JSON.stringify(coreStatus)}`);
 }
@@ -250,6 +256,82 @@ const ownerPersonId = space?.data?.ownerPersonId;
 if (!spaceId) throw new Error("Core did not return a Space id");
 if (!ownerPersonId) throw new Error("Core did not return the owner Space Person id");
 if (space?.data?.avatarUrl !== null || space?.data?.version !== 1) throw new Error(`Unexpected initial Space avatar state: ${JSON.stringify(space)}`);
+
+const servicePrincipal = await requestJson(`${identityBase}/api/v1/service-principals`, {
+  method: "POST",
+  headers: { authorization: `Bearer ${clientSecret}`, "content-type": "application/json" },
+  body: JSON.stringify({
+    displayName: `Staging n8n ${smokeId}`,
+    description: "Phase 2 service-auth staging smoke",
+    maxScopes: ["spaces:read"],
+    createdByUserId: userId,
+  }),
+}, 201);
+const servicePrincipalId = servicePrincipal?.data?.id;
+if (!servicePrincipalId?.startsWith("svc_")) throw new Error(`Identity did not return a service principal: ${JSON.stringify(servicePrincipal)}`);
+
+const serviceTokenCreated = await requestJson(`${identityBase}/api/v1/service-principals/${servicePrincipalId}/tokens`, {
+  method: "POST",
+  headers: { authorization: `Bearer ${clientSecret}`, "content-type": "application/json" },
+  body: JSON.stringify({ label: "staging n8n PAT", scopes: ["spaces:read"], createdByUserId: userId }),
+}, 201);
+const serviceToken = serviceTokenCreated?.data?.token;
+const serviceTokenId = serviceTokenCreated?.data?.id;
+if (!serviceToken?.startsWith("lsp_pat_") || !serviceTokenId?.startsWith("sat_")) throw new Error(`Identity did not return a one-time lsp_pat token: ${JSON.stringify(serviceTokenCreated)}`);
+const tokenMetadata = await requestJson(`${identityBase}/api/v1/service-principals/${servicePrincipalId}/tokens`, {
+  headers: { authorization: `Bearer ${clientSecret}` },
+}, 200);
+if (JSON.stringify(tokenMetadata).includes(serviceToken)) throw new Error("Service token listing leaked plaintext");
+
+const serviceGrant = await requestJson(`${coreBase}/api/v1/spaces/${spaceId}/grants`, {
+  method: "POST",
+  headers: { authorization: `Bearer ${accessToken}`, "content-type": "application/json" },
+  body: JSON.stringify({ granteeType: "service", granteeId: servicePrincipalId, permission: "read", expiresAt: null }),
+}, 201);
+const serviceGrantId = serviceGrant?.data?.id;
+if (!serviceGrantId?.startsWith("grt_")) throw new Error(`Core did not return a service Data Grant: ${JSON.stringify(serviceGrant)}`);
+
+const serviceRead = await requestJson(`${coreBase}/api/v1/spaces/${spaceId}`, {
+  headers: { authorization: `Bearer ${serviceToken}` },
+}, 200);
+if (serviceRead?.data?.id !== spaceId || serviceRead?.data?.access !== "grant") throw new Error(`Opaque Service API Token did not reach Core through current Grant: ${JSON.stringify(serviceRead)}`);
+
+const oauthCredential = await requestJson(`${identityBase}/api/v1/service-principals/${servicePrincipalId}/oauth-credentials`, {
+  method: "POST",
+  headers: { authorization: `Bearer ${clientSecret}`, "content-type": "application/json" },
+  body: JSON.stringify({ label: "staging OAuth", createdByUserId: userId }),
+}, 201);
+const oauthClientSecret = oauthCredential?.data?.clientSecret;
+const oauthCredentialId = oauthCredential?.data?.id;
+if (!oauthClientSecret?.startsWith("lsp_client_") || !oauthCredentialId?.startsWith("soc_")) throw new Error(`Identity did not return OAuth client credentials: ${JSON.stringify(oauthCredential)}`);
+const oauthForm = new URLSearchParams({ grant_type: "client_credentials", client_id: servicePrincipalId, client_secret: oauthClientSecret, scope: "spaces:read" });
+const oauthToken = await requestJson(`${identityBase}/oauth/token`, {
+  method: "POST",
+  headers: { "content-type": "application/x-www-form-urlencoded" },
+  body: oauthForm.toString(),
+}, 200);
+const oauthAccessToken = oauthToken?.access_token;
+if (!oauthAccessToken) throw new Error(`OAuth client_credentials did not return an access token: ${JSON.stringify(oauthToken)}`);
+const oauthRead = await requestJson(`${coreBase}/api/v1/spaces/${spaceId}`, { headers: { authorization: `Bearer ${oauthAccessToken}` } }, 200);
+if (oauthRead?.data?.id !== spaceId || oauthRead?.data?.access !== "grant") throw new Error(`OAuth service token did not use the current Data Grant: ${JSON.stringify(oauthRead)}`);
+
+await requestJson(`${coreBase}/api/v1/spaces/${spaceId}/grants/${serviceGrantId}`, {
+  method: "DELETE", headers: { authorization: `Bearer ${accessToken}` },
+}, 204);
+const opaqueAfterGrantRevoke = await fetchJson(`${coreBase}/api/v1/spaces/${spaceId}`, { headers: { authorization: `Bearer ${serviceToken}` } });
+if (opaqueAfterGrantRevoke.response.status !== 403) throw new Error(`Opaque service Grant revocation did not take effect immediately: ${opaqueAfterGrantRevoke.response.status} ${JSON.stringify(opaqueAfterGrantRevoke.payload)}`);
+const oauthAfterGrantRevoke = await fetchJson(`${coreBase}/api/v1/spaces/${spaceId}`, { headers: { authorization: `Bearer ${oauthAccessToken}` } });
+if (oauthAfterGrantRevoke.response.status !== 403) throw new Error(`OAuth service Grant revocation did not take effect immediately: ${oauthAfterGrantRevoke.response.status} ${JSON.stringify(oauthAfterGrantRevoke.payload)}`);
+
+await requestJson(`${identityBase}/api/v1/service-principals/${servicePrincipalId}/tokens/${serviceTokenId}`, {
+  method: "DELETE", headers: { authorization: `Bearer ${clientSecret}`, "x-lifespace-actor-user-id": userId },
+}, 204);
+const opaqueAfterTokenRevoke = await fetchJson(`${coreBase}/api/v1/spaces/${spaceId}`, { headers: { authorization: `Bearer ${serviceToken}` } });
+if (opaqueAfterTokenRevoke.response.status !== 401) throw new Error(`Opaque token revocation did not take effect immediately: ${opaqueAfterTokenRevoke.response.status} ${JSON.stringify(opaqueAfterTokenRevoke.payload)}`);
+await requestJson(`${identityBase}/api/v1/service-principals/${servicePrincipalId}/oauth-credentials/${oauthCredentialId}`, {
+  method: "DELETE", headers: { authorization: `Bearer ${clientSecret}`, "x-lifespace-actor-user-id": userId },
+}, 204);
+console.log(`Phase 2 service authentication staging E2E passed for ${servicePrincipalId} / ${spaceId}`);
 
 const spaceAvatarForm = new FormData();
 spaceAvatarForm.set("file", new Blob([png], { type: "image/png" }), "space-avatar.png");

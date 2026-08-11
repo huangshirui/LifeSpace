@@ -11,6 +11,7 @@ export type Bindings = {
   TOKEN_PRIVATE_KEY: string;
   TOKEN_PUBLIC_KEY: string;
   BOOTSTRAP_SECRET: string;
+  CORE_IDENTITY_SHARED_SECRET: string;
   ENVIRONMENT?: string;
 };
 

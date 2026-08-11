@@ -2,7 +2,7 @@
 
 Updated: 2026-08-11
 
-Phase 2 is **in progress**. Phase 1 staging is the accepted platform baseline. Phase 2.1-2.6, the native-only convergence/compatibility-retirement slice, and the native user-profile/R2-avatar slice are deployed and verified in staging. After Phase 2.6, the migration direction was reset: LifeSpace no longer targets a HomeMew runtime compatibility layer; remaining work targets the final native LifeSpace architecture and HomeMew will adapt its clients to that contract.
+Phase 2 is **in progress**. Phase 1 staging is the accepted platform baseline. Phase 2.1-2.6, the native-only convergence/compatibility-retirement slice, the native user-profile/R2-avatar slice, and the external-integration/service-authentication slice are deployed and verified in staging. After Phase 2.6, the migration direction was reset: LifeSpace no longer targets a HomeMew runtime compatibility layer; remaining work targets the final native LifeSpace architecture and HomeMew will adapt its clients to that contract.
 
 ## Phase 2 objective
 
@@ -154,17 +154,33 @@ Completed scope:
 - [x] Add Identity/Core Workers+D1+R2 integration coverage, contract checks, migration-transform tests and repeatable staging smoke for profile/user-avatar/Space-avatar behavior.
 - [x] Keep production resources and HomeMew traffic untouched.
 
+## External integrations / service authentication
+
+**Status: complete — Identity 0.3.0 / schema v4 and Core 0.10.0 / schema v8 deployed and verified in staging on 2026-08-11 through PR #18. Production and HomeMew traffic remain unchanged.**
+
+Completed scope:
+
+- [x] Add Identity-owned `svc_*` service principals bound to a registered application context and scope ceiling.
+- [x] Add opaque persistent/revocable `lsp_pat_*` Service API Tokens for owner-controlled n8n/curl/scripts/MCP/backend workloads; plaintext is returned once and only hashes/non-secret metadata are stored.
+- [x] Add optional OAuth 2.0 `client_credentials` for the same service-principal model with one-time client-secret issuance and short-lived service JWTs.
+- [x] Add Core dual authentication: local RS256 JWT verification plus opaque-token introspection through an Identity Cloudflare Service Binding.
+- [x] Normalize both credential modes into the same service Principal context and intersect credential/application scopes with current Data Grants and domain rules.
+- [x] Keep service principals out of Space membership; possessing a credential alone grants no Space access.
+- [x] Add native Data Grant list/create/update/revoke management under `/api/v1/spaces/{spaceId}/grants`.
+- [x] Verify Grant revocation takes effect on the next Core request for both opaque and OAuth credentials, while PAT revocation produces authentication failure on the next request.
+- [x] Add deterministic HomeMew `system_identities` / `family_system_access` -> LifeSpace service-principal/Data-Grant migration output and credential-rotation report.
+- [x] Never copy legacy `hmw_pat_*`, OAuth plaintext, or credential hashes into LifeSpace.
+- [x] Preserve the n8n/curl direct-call model: one client-visible Core HTTP request when using `lsp_pat_*`; the Core-to-Identity introspection is internal.
+- [x] Pass Identity/Core Workers+D1 tests, OpenAPI checks, Service Binding type generation, migration-transform tests, TypeScript/build validation and full staging E2E.
+- [x] Staging E2E explicitly exercised PAT and OAuth access through a current service Data Grant, immediate Grant revocation for both modes, and opaque-token revocation.
+
 ## Next slices
 
-1. **External integrations / service authentication**
-   - Implement service principals, opaque `lsp_pat_*` Service API Tokens, optional OAuth `client_credentials`, scopes and Data Grants according to `docs/service-authentication.md`.
-   - Add HomeMew integration migration/report tooling, but do not reproduce `hmw_pat_*` as a LifeSpace credential format.
-
-2. **Creation drafts / Queue**
+1. **Creation drafts / Queue**
    - Implement a native Space-aware workflow only if still required by the frozen HomeMew production capability set.
    - Queue messages and other ephemeral state are not migrated.
 
-3. **Final native parity sweep**
+2. **Final native parity sweep**
    - Verify every production-used HomeMew capability has a deployed native replacement and deterministic migration/retirement decision.
    - Produce the exact native contract version HomeMew Phase 3 client migration will consume.
 
