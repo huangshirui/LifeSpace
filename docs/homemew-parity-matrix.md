@@ -47,8 +47,8 @@ The HomeMew OpenAPI currently exposes 60 implemented operations. The table group
 | Invitations | create/list/revoke/preview/join | Durable | Core-owned Space invitations | Deployed and verified in staging |
 | Family avatar | upload/read derived URL | Object | Space asset behavior | Deferred to R2 slice |
 | Events | list/search/filter/create/read/update/delete; attendees | Durable | Space-owned events; attendee Space People | Deployed and verified in staging |
-| Tasks | list/search/filter/create/read/update/delete/complete/reopen; assignees | Durable | Space-owned tasks; assignee Space People | Implemented in PR #10; staging pending |
-| Day records | CRUD, occurrence history, archive/restore | Durable | Space-owned day records and occurrences | Not started |
+| Tasks | list/search/filter/create/read/update/delete/complete/reopen; assignees | Durable | Space-owned tasks; assignee Space People | Deployed and verified in staging |
+| Day records | CRUD, occurrence history, archive/restore | Durable | Space-owned day records and occurrences | Implemented in PR #12; staging pending |
 | Wishes | CRUD, claim/unclaim/fulfill/reopen/archive/restore | Durable | Space-owned wishes and lifecycle | Not started |
 | External integrations | integration CRUD, credential issue/list/revoke, OAuth client credentials | Durable credentials + secret material | Service principal + new opaque `lsp_pat_*` token for owner-controlled n8n/curl/scripts/MCP, optional OAuth `client_credentials` for third parties, and explicit Space Data Grants/scopes; never copy `hmw_pat_*` plaintext | Not started |
 | Creation drafts | asynchronous interpret/job polling and cleanup | Ephemeral | Space-aware queue workflow if retained at freeze | Not started |
@@ -109,6 +109,29 @@ The D1 schema additionally enforces same-Space task assignees, so a valid foreig
 The frozen HomeMew OpenAPI declares `includeNoDue` with a default of `true`, but the deployed HomeMew task-list runtime evaluates an omitted query parameter as `false` (`includeNoDue === "true"`). Existing tests cover the explicit `includeNoDue=true` behavior but do not establish the documented default.
 
 LifeSpace Phase 2.4 therefore preserves the observed HomeMew runtime behavior on the compatibility route: omitted means `false`; callers that want undated tasks alongside a due-date range must send `includeNoDue=true`. The native LifeSpace contract also states its behavior explicitly instead of inheriting the contradictory HomeMew documentation. This drift must not be silently changed during migration; a future HomeMew contract correction can be made separately if desired.
+
+## Day-record transformation and compatibility policy
+
+Phase 2.5 preserves HomeMew's date-only household semantics while moving ownership and person references onto the generic Space model.
+
+| HomeMew concept | LifeSpace concept | Rule |
+| --- | --- | --- |
+| `day_*` day record | Space-owned `day_records` row | Preserve stable record IDs while ownership changes from `family_id` to `space_id` |
+| `subjectUserId` | `subjectPersonId` | Native APIs use a same-Space `space_person`; the HomeMew facade translates the legacy user ID through the family membership/person map |
+| removed historical subject | deactivated Space Person reference | Existing records keep the Person reference and remain renderable after membership removal; assigning or filtering a new explicit subject still requires an active Person |
+| `elapsed/countdown/cycle` | same discriminated kinds | Preserve each kind's field rules and computed state semantics rather than flattening them into a generic JSON rule object |
+| family-local `today` | Space-timezone `today` | All date-only computed state and occurrence validation use the owning Space's IANA timezone |
+| `anchorDate` | date-only current anchor | Elapsed/cycle anchors cannot be moved by ordinary PATCH; they advance through occurrence creation. Countdown anchor remains directly editable |
+| `day_record_occurrences` | Space-owned record occurrence history | Preserve `dyo_*` IDs, `initial/manual` source, notes, actor history and unique date-per-record semantics |
+| cycle next due | derived persisted `next_due_date` | Must equal `anchorDate + cycleDays` and is recomputed when a new occurrence advances the anchor or when `cycleDays` changes |
+| `active/archived` | same lifecycle | Archived records remain readable but reject edits/new occurrences until restored |
+| user/system actors | principal actor snapshots | HomeMew `system` actors become LifeSpace `service`; user actors map through the frozen user mapping |
+| optimistic `version` | optimistic `version` | PATCH, DELETE, archive, restore and occurrence creation reject stale versions |
+| delete | soft delete | Preserve deletion actor/timestamp and hide deleted records from normal reads/lists |
+
+Non-countdown records preserve their occurrence history during migration. The transform requires exactly one initial occurrence and requires the current `anchorDate` to equal the newest occurrence date. Countdown records must not have occurrence history. These validations prevent a migration from reproducing a row while silently losing the history that gives the current anchor its meaning.
+
+The D1 schema enforces that a referenced subject Person belongs to the same Space. It intentionally does not require that the Person remain active, because the released HomeMew behavior explicitly preserves historical subject presentation after a member is removed. API mutation/filter validation is stricter and requires an active subject when resolving a new person reference.
 
 ## Compatibility and migration rules
 

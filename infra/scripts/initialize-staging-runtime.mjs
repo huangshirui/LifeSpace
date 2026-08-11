@@ -15,6 +15,12 @@ if (!bootstrapSecret || bootstrapSecret.length < 32) {
 const identityBase = "https://auth-staging.aisr.online";
 const coreBase = "https://core-staging.aisr.online";
 
+function addUtcDays(date, days) {
+  const value = new Date(`${date}T00:00:00.000Z`);
+  value.setUTCDate(value.getUTCDate() + days);
+  return value.toISOString().slice(0, 10);
+}
+
 async function wranglerSecretBulk(cwd, secrets) {
   await new Promise((resolve, reject) => {
     const child = spawn("pnpm", ["exec", "wrangler", "secret", "bulk", "--env", "staging"], {
@@ -104,7 +110,15 @@ console.log("Staging bootstrap secret synchronized and activated");
 
 const appId = `app_staging_smoke_${smokeId}`;
 const displayName = `Staging Smoke ${smokeId}`;
-const scopes = ["profile:read", "spaces:read", "spaces:write", "tasks:read", "tasks:write"];
+const scopes = [
+  "profile:read",
+  "spaces:read",
+  "spaces:write",
+  "tasks:read",
+  "tasks:write",
+  "day-records:read",
+  "day-records:write",
+];
 
 const application = await requestJson(`${identityBase}/bootstrap/v1/applications`, {
   method: "POST",
@@ -174,8 +188,8 @@ if (coreProbe?.response.status !== 200) {
 const coreStatus = await requestJson(`${coreBase}/api/v1/status`, {}, 200);
 if (
   coreStatus?.data?.environment !== "staging"
-  || coreStatus?.data?.schemaVersion !== "5"
-  || coreStatus?.data?.contractVersion !== "0.5.0"
+  || coreStatus?.data?.schemaVersion !== "6"
+  || coreStatus?.data?.contractVersion !== "0.6.0"
 ) {
   throw new Error(`Unexpected Core staging status: ${JSON.stringify(coreStatus)}`);
 }
@@ -190,6 +204,7 @@ const space = await requestJson(`${coreBase}/api/v1/spaces`, {
     kind: "personal",
     name: `Staging Smoke ${smokeId}`,
     ownerDisplayName: displayName,
+    timezone: "UTC",
   }),
 }, 201);
 
@@ -349,10 +364,181 @@ if (deletedTask.response.status !== 404 || deletedTask.payload?.error?.code !== 
 
 console.log(`Phase 2.4 staging Task E2E passed for ${spaceId} / ${taskId}`);
 
+const smokeToday = new Date().toISOString().slice(0, 10);
+const dayAnchor = addUtcDays(smokeToday, -1);
+const expectedNextDue = addUtcDays(smokeToday, 30);
+const dayName = `Staging Smoke Day ${smokeId}`;
+const dayRecord = await requestJson(`${coreBase}/api/v1/spaces/${spaceId}/day-records`, {
+  method: "POST",
+  headers: {
+    authorization: `Bearer ${accessToken}`,
+    "content-type": "application/json",
+  },
+  body: JSON.stringify({
+    name: dayName,
+    description: "Phase 2.5 staging E2E",
+    kind: "cycle",
+    anchorDate: dayAnchor,
+    cycleDays: 30,
+    subjectPersonId: ownerPersonId,
+  }),
+}, 201);
+
+const dayRecordId = dayRecord?.data?.id;
+if (!dayRecordId) throw new Error("Core did not return a Day record id");
+if (
+  dayRecord.data?.spaceId !== spaceId
+  || dayRecord.data?.kind !== "cycle"
+  || dayRecord.data?.anchorDate !== dayAnchor
+  || dayRecord.data?.nextDueDate !== addUtcDays(dayAnchor, 30)
+  || dayRecord.data?.attentionBeforeDays !== 7
+  || dayRecord.data?.status !== "active"
+  || dayRecord.data?.version !== 1
+  || dayRecord.data?.subject?.personId !== ownerPersonId
+) {
+  throw new Error(`Unexpected created Day record shape: ${JSON.stringify(dayRecord)}`);
+}
+
+const dayList = await requestJson(
+  `${coreBase}/api/v1/spaces/${spaceId}/day-records?kind=cycle&subjectPersonId=me&sort=created_desc`,
+  { headers: { authorization: `Bearer ${accessToken}` } },
+  200,
+);
+if (dayList?.data?.items?.length !== 1 || dayList.data.items[0]?.id !== dayRecordId) {
+  throw new Error(`Day record list/subject E2E failed: ${JSON.stringify(dayList)}`);
+}
+
+const initialOccurrences = await requestJson(
+  `${coreBase}/api/v1/spaces/${spaceId}/day-records/${dayRecordId}/occurrences`,
+  { headers: { authorization: `Bearer ${accessToken}` } },
+  200,
+);
+if (
+  initialOccurrences?.data?.items?.length !== 1
+  || initialOccurrences.data.items[0]?.occurredOn !== dayAnchor
+  || initialOccurrences.data.items[0]?.source !== "initial"
+  || initialOccurrences.data.items[0]?.intervalDays !== null
+) {
+  throw new Error(`Day initial occurrence E2E failed: ${JSON.stringify(initialOccurrences)}`);
+}
+
+await requestJson(`${coreBase}/api/v1/spaces/${spaceId}/day-records`, {}, 401);
+
+const staleDayUpdate = await fetchJson(`${coreBase}/api/v1/spaces/${spaceId}/day-records/${dayRecordId}`, {
+  method: "PATCH",
+  headers: {
+    authorization: `Bearer ${accessToken}`,
+    "content-type": "application/json",
+  },
+  body: JSON.stringify({ version: 999, description: "stale update must fail" }),
+});
+if (staleDayUpdate.response.status !== 409 || staleDayUpdate.payload?.error?.code !== "DAY_RECORD_VERSION_CONFLICT") {
+  throw new Error(`Day optimistic-concurrency E2E failed: ${staleDayUpdate.response.status} ${JSON.stringify(staleDayUpdate.payload)}`);
+}
+
+const occurrence = await requestJson(`${coreBase}/api/v1/spaces/${spaceId}/day-records/${dayRecordId}/occurrences`, {
+  method: "POST",
+  headers: {
+    authorization: `Bearer ${accessToken}`,
+    "content-type": "application/json",
+  },
+  body: JSON.stringify({ occurredOn: smokeToday, note: "Phase 2.5 staging occurrence", version: 1 }),
+}, 201);
+if (
+  occurrence?.data?.previousAnchorDate !== dayAnchor
+  || occurrence?.data?.intervalDays !== 1
+  || occurrence?.data?.record?.anchorDate !== smokeToday
+  || occurrence?.data?.record?.nextDueDate !== expectedNextDue
+  || occurrence?.data?.record?.version !== 2
+) {
+  throw new Error(`Day occurrence/anchor E2E failed: ${JSON.stringify(occurrence)}`);
+}
+
+const occurrenceHistory = await requestJson(
+  `${coreBase}/api/v1/spaces/${spaceId}/day-records/${dayRecordId}/occurrences`,
+  { headers: { authorization: `Bearer ${accessToken}` } },
+  200,
+);
+if (
+  occurrenceHistory?.data?.items?.length !== 2
+  || occurrenceHistory.data.items[0]?.occurredOn !== smokeToday
+  || occurrenceHistory.data.items[0]?.source !== "manual"
+  || occurrenceHistory.data.items[0]?.intervalDays !== 1
+) {
+  throw new Error(`Day occurrence history E2E failed: ${JSON.stringify(occurrenceHistory)}`);
+}
+
+const archivedDay = await requestJson(`${coreBase}/api/v1/spaces/${spaceId}/day-records/${dayRecordId}/archive`, {
+  method: "POST",
+  headers: {
+    authorization: `Bearer ${accessToken}`,
+    "content-type": "application/json",
+  },
+  body: JSON.stringify({ version: 2 }),
+}, 200);
+if (archivedDay?.data?.status !== "archived" || archivedDay?.data?.version !== 3) {
+  throw new Error(`Day archive E2E failed: ${JSON.stringify(archivedDay)}`);
+}
+
+const archivedOccurrence = await fetchJson(`${coreBase}/api/v1/spaces/${spaceId}/day-records/${dayRecordId}/occurrences`, {
+  method: "POST",
+  headers: {
+    authorization: `Bearer ${accessToken}`,
+    "content-type": "application/json",
+  },
+  body: JSON.stringify({ occurredOn: smokeToday, version: 3 }),
+});
+if (archivedOccurrence.response.status !== 409 || archivedOccurrence.payload?.error?.code !== "DAY_RECORD_ARCHIVED") {
+  throw new Error(`Day archived read-only E2E failed: ${archivedOccurrence.response.status} ${JSON.stringify(archivedOccurrence.payload)}`);
+}
+
+const restoredDay = await requestJson(`${coreBase}/api/v1/spaces/${spaceId}/day-records/${dayRecordId}/restore`, {
+  method: "POST",
+  headers: {
+    authorization: `Bearer ${accessToken}`,
+    "content-type": "application/json",
+  },
+  body: JSON.stringify({ version: 3 }),
+}, 200);
+if (restoredDay?.data?.status !== "active" || restoredDay?.data?.version !== 4) {
+  throw new Error(`Day restore E2E failed: ${JSON.stringify(restoredDay)}`);
+}
+
+const updatedDay = await requestJson(`${coreBase}/api/v1/spaces/${spaceId}/day-records/${dayRecordId}`, {
+  method: "PATCH",
+  headers: {
+    authorization: `Bearer ${accessToken}`,
+    "content-type": "application/json",
+  },
+  body: JSON.stringify({ version: 4, cycleDays: 31, attentionBeforeDays: 5 }),
+}, 200);
+if (
+  updatedDay?.data?.version !== 5
+  || updatedDay?.data?.cycleDays !== 31
+  || updatedDay?.data?.nextDueDate !== addUtcDays(smokeToday, 31)
+  || updatedDay?.data?.attentionBeforeDays !== 5
+) {
+  throw new Error(`Day update E2E failed: ${JSON.stringify(updatedDay)}`);
+}
+
+await requestJson(`${coreBase}/api/v1/spaces/${spaceId}/day-records/${dayRecordId}?version=5`, {
+  method: "DELETE",
+  headers: { authorization: `Bearer ${accessToken}` },
+}, 204);
+
+const deletedDay = await fetchJson(`${coreBase}/api/v1/spaces/${spaceId}/day-records/${dayRecordId}`, {
+  headers: { authorization: `Bearer ${accessToken}` },
+});
+if (deletedDay.response.status !== 404 || deletedDay.payload?.error?.code !== "DAY_RECORD_NOT_FOUND") {
+  throw new Error(`Day soft-delete E2E failed: ${deletedDay.response.status} ${JSON.stringify(deletedDay.payload)}`);
+}
+
+console.log(`Phase 2.5 staging Day record E2E passed for ${spaceId} / ${dayRecordId}`);
+
 if (process.env.GITHUB_STEP_SUMMARY) {
   const { appendFile } = await import("node:fs/promises");
   await appendFile(
     process.env.GITHUB_STEP_SUMMARY,
-    `## LifeSpace staging runtime\n\n- Bootstrap secret: synchronized and activated from GitHub staging secret\n- RS256 signing keys: ${rotatedSigningKeys ? "repaired and activated" : "existing active pair preserved"}\n- Identity -> token -> Core -> Space smoke test: passed\n- Core schema/contract: v5 / 0.5.0\n- Task create/read/list/filter/assignee E2E: passed\n- Task optimistic concurrency + complete/reopen/update E2E: passed\n- Task includeNoDue compatibility semantics: passed\n- Task soft deletion: passed\n- Authentication deny checks: passed\n- Smoke Space: \`${spaceId}\`\n- Smoke Task: \`${taskId}\`\n`,
+    `## LifeSpace staging runtime\n\n- Bootstrap secret: synchronized and activated from GitHub staging secret\n- RS256 signing keys: ${rotatedSigningKeys ? "repaired and activated" : "existing active pair preserved"}\n- Identity -> token -> Core -> Space smoke test: passed\n- Core schema/contract: v6 / 0.6.0\n- Task create/read/list/filter/assignee E2E: passed\n- Task optimistic concurrency + complete/reopen/update E2E: passed\n- Task includeNoDue compatibility semantics: passed\n- Task soft deletion: passed\n- Day record create/read/list/subject E2E: passed\n- Day occurrence history + anchor advancement E2E: passed\n- Day optimistic concurrency + archive/restore/update E2E: passed\n- Day soft deletion: passed\n- Authentication deny checks: passed\n- Smoke Space: \`${spaceId}\`\n- Smoke Task: \`${taskId}\`\n- Smoke Day record: \`${dayRecordId}\`\n`,
   );
 }
