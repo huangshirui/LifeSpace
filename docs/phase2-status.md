@@ -2,7 +2,7 @@
 
 Updated: 2026-08-11
 
-Phase 2 is **in progress**. Phase 1 staging is the accepted platform baseline. Phase 2.1-2.6 are deployed and verified in staging. After Phase 2.6, the migration direction was reset: LifeSpace no longer targets a HomeMew runtime compatibility layer; remaining work targets the final native LifeSpace architecture and HomeMew will adapt its clients to that contract.
+Phase 2 is **in progress**. Phase 1 staging is the accepted platform baseline. Phase 2.1-2.6 and the native-only convergence/compatibility-retirement slice are deployed and verified in staging. After Phase 2.6, the migration direction was reset: LifeSpace no longer targets a HomeMew runtime compatibility layer; remaining work targets the final native LifeSpace architecture and HomeMew will adapt its clients to that contract.
 
 ## Phase 2 objective
 
@@ -19,10 +19,10 @@ From 2026-08-11 onward:
 - Do not add legacy HomeMew token verification to the LifeSpace target architecture.
 - HomeMew product terminology may remain `family` / `member` in its UI, but application code will consume native `Space`, membership and Space Person contracts.
 - Keep all migration mappings, transforms, validation reports and stable-ID preservation needed to move HomeMew data safely.
-- Remove compatibility-only runtime routes, OpenAPI surfaces, translation logic, allowlists and tests implemented in Phase 2.2-2.6 before production cutover.
+- Compatibility-only runtime routes, OpenAPI surfaces, translation logic and allowlists implemented in Phase 2.2-2.6 have now been retired from the target Core runtime.
 - HomeMew-only product rules that are not platform invariants belong in the HomeMew application boundary.
 
-This reset does **not** rewrite completed migration history. Phase 2.2-2.6 compatibility work was implemented and staging-verified under the previous plan; it is now classified as transitional code to retire rather than target architecture.
+This reset does **not** rewrite completed migration history. Phase 2.2-2.6 compatibility work was implemented and staging-verified under the previous plan; it is migration history rather than target architecture.
 
 ## Completed in Phase 2
 
@@ -49,9 +49,9 @@ This reset does **not** rewrite completed migration history. Phase 2.2-2.6 compa
 - [x] Add authorization, concurrency, invitation and lifecycle tests.
 - [x] Update canonical OpenAPI and contract checks.
 
-### 2.2 Family migration + transitional compatibility
+### 2.2 Family migration + historical transitional compatibility
 
-**Status: deployed and verified in staging on 2026-08-10.**
+**Status: deployed and verified in staging on 2026-08-10; transitional runtime compatibility retired by Core 0.8.0 on 2026-08-11.**
 
 Completed durable work that remains required:
 
@@ -59,15 +59,15 @@ Completed durable work that remains required:
 - [x] Deterministic transforms and validation for users, families, memberships, Space People, invitations and redemption history.
 - [x] Native Space records remain authoritative with no second family store.
 
-Transitional work now being retired:
+Historical transitional work:
 
-- [x] Temporary family-route compatibility was implemented under the previous plan.
-- [x] Legacy role/field/status translation was implemented under the previous plan.
-- [x] HomeMew compatibility-only three-created-family enforcement was implemented under the previous plan.
+- [x] Temporary family-route compatibility was implemented under the previous plan and later retired.
+- [x] Legacy role/field/status translation was implemented under the previous plan and later retired.
+- [x] HomeMew compatibility-only three-created-family enforcement was implemented under the previous plan and later removed from generic Core policy.
 
 ### 2.3 Space-owned events
 
-**Status: deployed and verified in staging on 2026-08-10.**
+**Status: deployed and verified in staging on 2026-08-10; compatibility facade retired by Core 0.8.0 on 2026-08-11.**
 
 - [x] Native Space-owned `events` with same-Space Space Person attendees.
 - [x] Timed UTC/display-timezone and half-open all-day semantics.
@@ -75,11 +75,11 @@ Transitional work now being retired:
 - [x] Stable `evt_*` IDs, optimistic concurrency, audit snapshots and soft deletion.
 - [x] Deterministic schema-v11 event transform.
 - [x] Native D1/authorization/time/pagination/transform tests and staging E2E.
-- [x] Temporary HomeMew event compatibility facade was implemented under the previous plan and is now being retired.
+- [x] Temporary HomeMew event compatibility facade was retired from runtime and canonical contract.
 
 ### 2.4 Space-owned tasks
 
-**Status: deployed and verified in staging on 2026-08-10.**
+**Status: deployed and verified in staging on 2026-08-10; compatibility facade retired by Core 0.8.0 on 2026-08-11.**
 
 - [x] Native Space-owned `tasks` and same-Space Person assignees.
 - [x] Preserve pending/completed/cancelled lifecycle and date-only `dueDate`.
@@ -87,11 +87,11 @@ Transitional work now being retired:
 - [x] Stable `tsk_*` IDs, optimistic versions, actor snapshots and soft deletion.
 - [x] Deterministic schema-v11 task transform and validation.
 - [x] Native Workers/D1 tests and repeatable staging E2E.
-- [x] Temporary HomeMew task compatibility facade was implemented under the previous plan and is now being retired; native `includeNoDue` omission remains explicitly `false`.
+- [x] Temporary HomeMew task compatibility facade was retired; native `includeNoDue` omission remains explicitly `false`.
 
 ### 2.5 Space-owned day records
 
-**Status: deployed and verified in staging on 2026-08-11.**
+**Status: deployed and verified in staging on 2026-08-11; compatibility facade retired by Core 0.8.0 on 2026-08-11.**
 
 - [x] Native Space-owned day records and occurrence history.
 - [x] Native `elapsed`, `countdown`, `cycle` discriminated semantics.
@@ -100,38 +100,42 @@ Transitional work now being retired:
 - [x] Archive/restore, occurrence advancement, optimistic concurrency and soft deletion.
 - [x] Deterministic schema-v11 day-record/occurrence transform and semantic validation.
 - [x] Native Workers/D1 tests and repeatable staging E2E.
-- [x] Temporary HomeMew day-record compatibility facade was implemented under the previous plan and is now being retired.
+- [x] Temporary HomeMew day-record compatibility facade was retired from runtime and canonical contract.
 
 ### 2.6 Space-owned wishes
 
-**Status: deployed and verified in staging on 2026-08-11.**
+**Status: deployed and verified in staging on 2026-08-11; compatibility facade retired by Core 0.8.0 on 2026-08-11.**
 
 - [x] Native Space-owned wishes with owner/claimant/fulfiller as same-Space Space People.
 - [x] Preserve stable `wsh_*` IDs, optional date-only `desiredDate`, optimistic versions, audit snapshots and soft deletion.
 - [x] Native CRUD plus claim/unclaim/fulfill/reopen/archive/restore with `wishes:read` / `wishes:write` scopes.
 - [x] Preserve historical owner/claimant/fulfiller meaning after membership removal.
 - [x] Deterministic schema-v11 Wish transform and lifecycle validation.
-- [x] Native Workers/D1 tests and repeatable staging E2E on Core schema v7 / contract 0.7.0.
-- [x] Temporary HomeMew Wish compatibility facade was implemented under the previous plan and is now being retired.
+- [x] Native Workers/D1 tests and repeatable staging E2E on Core schema v7.
+- [x] Temporary HomeMew Wish compatibility facade was retired from runtime and canonical contract.
 
-## Current slice — Native-only convergence / compatibility retirement
+## Native-only convergence / compatibility retirement
 
-**Status: implementation in progress on branch `phase2-native-only-convergence`.**
+**Status: complete — Core 0.8.0 deployed and native staging smoke verified on 2026-08-11; PR #16 squash-merged to `main` as `651f42f8eaf154c78c9f20044e291edbbe5f9c26`.**
 
-Target contract version: **Core 0.8.0**. No D1 schema migration is required for this slice because the native tables and migration/audit mapping tables remain unchanged.
+No D1 schema migration was required for this slice because the native tables and migration/audit mapping tables remain unchanged.
 
-Implementation scope:
+Completed scope:
 
 - [x] Stop registering/authenticating `/api/v1/families...`, `/api/v1/family-invites...` and `/api/v1/me/families` in Core.
 - [x] Delete the standalone HomeMew compatibility runtime router.
 - [x] Remove legacy family/user mapping branches from Event, Task, Day Record and Wish request/response handling.
 - [x] Make native person-reference fields (`attendeePersonIds`, `assigneePersonIds`, `subjectPersonId`, Wish Space Person refs) the only runtime model.
 - [x] Publish canonical Core OpenAPI 0.8.0 with native paths/schemas only and contract checks rejecting retired paths or `Legacy*` schemas.
-- [x] Replace legacy-first domain integration tests with native Space-domain lifecycle coverage and explicit retired-route `404` assertions.
+- [x] Replace legacy-first domain integration tests with native Space-domain lifecycle/boundary coverage and explicit retired-route `404` assertions.
 - [x] Preserve `legacy_homemew_*` migration mapping tables and all HomeMew transform/validation scripts/tests as migration/audit artifacts.
-- [ ] Pass complete repository CI (`contract -> tests -> typecheck -> build`).
-- [ ] Deploy Core 0.8.0 to staging and pass the repeatable native staging smoke without switching production/HomeMew traffic.
-- [ ] Confirm no runtime code path reads legacy mapping tables after deployment.
+- [x] Pass complete repository CI (`contract -> tests -> typecheck -> build`), including restored native boundary coverage.
+- [x] Deploy Core 0.8.0 to staging and pass the repeatable native staging smoke without switching production/HomeMew traffic.
+- [x] Confirm runtime Event/Task/Day Record/Wish/Core routing code no longer reads legacy mapping tables; remaining `legacy_homemew_*` usage is restricted to migration/audit schema and transform tooling.
+
+Known non-blocking cleanup:
+
+- `HOMEMEW_COMPAT_CLIENT_IDS` may still appear as an unused Wrangler/generated-binding configuration artifact. There is no runtime consumer after Core 0.8.0. Remove it through the normal Wrangler binding-regeneration workflow rather than hand-editing generated artifacts.
 
 ## Next slices after convergence
 
