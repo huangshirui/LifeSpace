@@ -1,5 +1,7 @@
 import type { Bindings, Principal } from "./env";
 import { ApiError } from "./http";
+import { generateModelContract } from "./model-contract";
+import { modelContractMutationStatements } from "./model-contract-store";
 import {
   canonicalModelDefinition,
   type ModelDefinition,
@@ -31,6 +33,11 @@ type ModelRow = {
   schema_hash: string;
   compatibility: ModelCompatibility;
   published_at: string;
+};
+
+type RegistryStateRow = {
+  revision: number;
+  mutation_token: string | null;
 };
 
 const createId = (prefix: string) => `${prefix}_${crypto.randomUUID().replaceAll("-", "")}`;
@@ -101,6 +108,18 @@ export async function listPublishedModels(env: Bindings): Promise<PublishedModel
   return rows.results.map(rowToPublished);
 }
 
+export async function getModelRegistryRevision(env: Bindings): Promise<number> {
+  const row = await env.DB.prepare("SELECT revision,mutation_token FROM model_registry_state WHERE singleton=1")
+    .first<RegistryStateRow>();
+  if (!row) throw new ApiError("MODEL_REGISTRY_INCONSISTENT", "Model registry state is missing", 500);
+  if (row.mutation_token !== null) throw new ApiError("MODEL_PUBLICATION_CONFLICT", "Model registry is currently mutating", 409);
+  return row.revision;
+}
+
+function registryGuardSql(): string {
+  return "EXISTS(SELECT 1 FROM model_registry_state WHERE singleton=1 AND revision=? AND mutation_token=?)";
+}
+
 export async function publishModelDefinition(
   env: Bindings,
   principal: Principal,
@@ -112,7 +131,9 @@ export async function publishModelDefinition(
     throw new ApiError("INVALID_MODEL_DEFINITION", JSON.stringify(validation.issues), 422);
   }
 
-  const current = await getPublishedModel(env, validation.definition.key);
+  const expectedRevision = await getModelRegistryRevision(env);
+  const currentModels = await listPublishedModels(env);
+  const current = currentModels.find((model) => model.key === validation.definition.key) ?? null;
   if (!current && compatibility !== "initial") {
     throw new ApiError("INVALID_MODEL_COMPATIBILITY", "The first published version must use compatibility=initial", 400);
   }
@@ -123,7 +144,7 @@ export async function publishModelDefinition(
     throw new ApiError("MODEL_DEFINITION_UNCHANGED", "The published model definition is unchanged", 409);
   }
 
-  const routeOwner = await getPublishedModelByRoute(env, validation.definition.route);
+  const routeOwner = currentModels.find((model) => model.route === validation.definition.route) ?? null;
   if (routeOwner && routeOwner.key !== validation.definition.key) {
     throw new ApiError("MODEL_ROUTE_CONFLICT", `Route ${validation.definition.route} is already owned by model ${routeOwner.key}`, 409);
   }
@@ -132,16 +153,36 @@ export async function publishModelDefinition(
   const id = createId("mdl");
   const definitionJson = canonicalModelDefinition(validation.definition);
   const publishedAt = new Date().toISOString();
+  const targetRevision = expectedRevision + 1;
+  const mutationToken = crypto.randomUUID();
+  const candidate: PublishedModel = {
+    id,
+    key: validation.definition.key,
+    route: validation.definition.route,
+    version: nextVersion,
+    state: "published",
+    schemaHash: validation.schemaHash,
+    compatibility,
+    definition: validation.definition,
+    publishedAt,
+  };
+  const nextModels = [...currentModels.filter((model) => model.key !== candidate.key), candidate];
+  const contract = await generateModelContract(nextModels);
 
-  const statements: D1PreparedStatement[] = [];
+  const lock = env.DB.prepare(`UPDATE model_registry_state
+    SET revision=revision+1,mutation_token=?,updated_at=?
+    WHERE singleton=1 AND revision=? AND mutation_token IS NULL`)
+    .bind(mutationToken, publishedAt, expectedRevision);
+  const statements: D1PreparedStatement[] = [lock];
   if (current) {
     statements.push(env.DB.prepare(`UPDATE model_definitions SET state='superseded',superseded_at=?
-      WHERE id=? AND state='published'`).bind(publishedAt, current.id));
+      WHERE id=? AND state='published' AND ${registryGuardSql()}`)
+      .bind(publishedAt, current.id, targetRevision, mutationToken));
   }
   statements.push(env.DB.prepare(`INSERT INTO model_definitions(
       id,model_key,route_segment,version,state,definition_version,definition_json,schema_hash,compatibility,
       published_by_type,published_by_id,published_by_name_snapshot,published_at
-    ) VALUES(?,?,?,?, 'published',1,?,?,?,?,?,?,?)`)
+    ) SELECT ?,?,?,?,'published',1,?,?,?,?,?,?,? WHERE ${registryGuardSql()}`)
     .bind(
       id,
       validation.definition.key,
@@ -154,14 +195,21 @@ export async function publishModelDefinition(
       principal.id,
       actorName(principal),
       publishedAt,
+      targetRevision,
+      mutationToken,
     ));
+  statements.push(...modelContractMutationStatements(env, contract, principal, publishedAt, targetRevision, mutationToken));
+  statements.push(env.DB.prepare("UPDATE model_registry_state SET mutation_token=NULL WHERE singleton=1 AND revision=? AND mutation_token=?")
+    .bind(targetRevision, mutationToken));
 
+  let results: D1Result<unknown>[];
   try {
-    await env.DB.batch(statements);
+    results = await env.DB.batch(statements);
   } catch (error) {
     console.error(JSON.stringify({ message: "Model publication failed", modelKey: validation.definition.key, error: error instanceof Error ? error.message : String(error) }));
     throw new ApiError("MODEL_PUBLICATION_CONFLICT", "Model publication conflicted with current registry state", 409);
   }
+  if (!results[0].meta.changes) throw new ApiError("MODEL_PUBLICATION_CONFLICT", "Model registry changed concurrently", 409);
 
   const published = await getPublishedModel(env, validation.definition.key);
   if (!published || published.version !== nextVersion || published.schemaHash !== validation.schemaHash) {
@@ -170,11 +218,39 @@ export async function publishModelDefinition(
   return published;
 }
 
-export async function retireModel(env: Bindings, key: string): Promise<void> {
-  const current = await getPublishedModel(env, key);
+export async function retireModel(env: Bindings, principal: Principal, key: string): Promise<void> {
+  const expectedRevision = await getModelRegistryRevision(env);
+  const currentModels = await listPublishedModels(env);
+  const current = currentModels.find((model) => model.key === key) ?? null;
   if (!current) throw new ApiError("MODEL_NOT_FOUND", "Published model not found", 404);
+
   const retiredAt = new Date().toISOString();
-  const result = await env.DB.prepare(`UPDATE model_definitions SET state='retired',retired_at=? WHERE id=? AND state='published'`)
-    .bind(retiredAt, current.id).run();
-  if (!result.meta.changes) throw new ApiError("MODEL_PUBLICATION_CONFLICT", "Published model changed concurrently", 409);
+  const targetRevision = expectedRevision + 1;
+  const mutationToken = crypto.randomUUID();
+  const contract = await generateModelContract(currentModels.filter((model) => model.key !== key));
+  const lock = env.DB.prepare(`UPDATE model_registry_state
+    SET revision=revision+1,mutation_token=?,updated_at=?
+    WHERE singleton=1 AND revision=? AND mutation_token IS NULL`)
+    .bind(mutationToken, retiredAt, expectedRevision);
+  const retire = env.DB.prepare(`UPDATE model_definitions SET state='retired',retired_at=?
+    WHERE id=? AND state='published' AND ${registryGuardSql()}`)
+    .bind(retiredAt, current.id, targetRevision, mutationToken);
+  const statements = [
+    lock,
+    retire,
+    ...modelContractMutationStatements(env, contract, principal, retiredAt, targetRevision, mutationToken),
+    env.DB.prepare("UPDATE model_registry_state SET mutation_token=NULL WHERE singleton=1 AND revision=? AND mutation_token=?")
+      .bind(targetRevision, mutationToken),
+  ];
+
+  let results: D1Result<unknown>[];
+  try {
+    results = await env.DB.batch(statements);
+  } catch (error) {
+    console.error(JSON.stringify({ message: "Model retirement failed", modelKey: key, error: error instanceof Error ? error.message : String(error) }));
+    throw new ApiError("MODEL_PUBLICATION_CONFLICT", "Model retirement conflicted with current registry state", 409);
+  }
+  if (!results[0].meta.changes || !results[1].meta.changes) {
+    throw new ApiError("MODEL_PUBLICATION_CONFLICT", "Published model changed concurrently", 409);
+  }
 }
