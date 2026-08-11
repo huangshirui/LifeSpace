@@ -5,9 +5,6 @@ on:
   push:
     branches: [main]
 
-permissions:
-  contents: write
-
 jobs:
   check:
     runs-on: ubuntu-latest
@@ -21,21 +18,3 @@ jobs:
           node-version: 24
       - run: pnpm install --no-frozen-lockfile
       - run: pnpm check
-      - name: Finalize generated Core OpenAPI
-        if: github.event_name == 'pull_request' && github.head_ref == 'agent/phase2-wishes'
-        shell: bash
-        run: |
-          cp apps/core/openapi.yaml /tmp/lifespace-core-openapi.yaml
-          git fetch origin "$GITHUB_HEAD_REF"
-          git checkout -B "$GITHUB_HEAD_REF" "origin/$GITHUB_HEAD_REF"
-          cp /tmp/lifespace-core-openapi.yaml apps/core/openapi.yaml
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add apps/core/openapi.yaml
-          git diff --cached --check
-          if git diff --cached --quiet; then
-            echo "Canonical OpenAPI already finalized."
-            exit 0
-          fi
-          git commit -m "docs(core): finalize Wishes OpenAPI 0.7.0"
-          git push origin "HEAD:$GITHUB_HEAD_REF"
