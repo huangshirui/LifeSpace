@@ -51,7 +51,8 @@ async function createSpace(privateKey: string, publicKey: string, queued: Regist
 }
 async function publishModel(key: string, withPerson = false) {
   const principal = { type: "service" as const, id: `svc_${key}`, clientId: "lifespace-platform-admin", scopes: ["models:manage"], tokenId: `tok_${key}` };
-  const model = await publishModelDefinition({ DB: (env as unknown as TestEnv).DB } as Bindings, principal, {
+  const db = (env as unknown as TestEnv).DB;
+  const model = await publishModelDefinition({ DB: db } as Bindings, principal, {
     definitionVersion: 1,
     key,
     route: `${key.replaceAll("_", "-")}s`,
@@ -64,7 +65,8 @@ async function publishModel(key: string, withPerson = false) {
     access: ["read", "write"],
     lifecycle: { optimisticConcurrency: true, softDelete: true },
   }, "initial");
-  await (env as unknown as TestEnv).DB.prepare("INSERT OR REPLACE INTO application_model_access(application_id,model_key,max_access) VALUES('homemew-miniprogram',?,'write')").bind(model.key).run();
+  await db.prepare(`INSERT OR REPLACE INTO application_model_access(application_id,model_key,max_access,created_by_type,created_by_id)
+    VALUES(?,?,?,?,?)`).bind("homemew-miniprogram", model.key, "write", "service", "svc_creation_draft_test").run();
   return model;
 }
 
@@ -96,7 +98,7 @@ describe("Registry-driven creation drafts", () => {
 
     const poll = await call(`/api/v1/spaces/${home.spaceId}/creation-drafts/${created.data.draftId}`, home.bearer, publicKey, queued);
     expect(await poll.json()).toMatchObject({ data: { status: "ready", modelKey: model.key, modelVersion: 1, draft: { title: "今天很开心", ownerPersonId: home.ownerPersonId }, missingFields: [] } });
-    const row = await (env as unknown as TestEnv).DB.prepare("SELECT input_text FROM creation_draft_jobs WHERE id=?").bind(created.data.draftId).first<{ input_text: string | null }>();
+    const row = await db.prepare("SELECT input_text FROM creation_draft_jobs WHERE id=?").bind(created.data.draftId).first<{ input_text: string | null }>();
     expect(row?.input_text).toBeNull();
   });
 
