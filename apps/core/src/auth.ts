@@ -5,9 +5,14 @@ import { ApiError } from "./http";
 
 type AppEnv = { Bindings: Bindings; Variables: Variables };
 const MAX_ACCESS_TOKEN_TTL_SECONDS = 3600;
+const SERVICE_TOKEN_PREFIX = "lsp_pat_";
 
 function unauthorized(): ApiError {
   return new ApiError("UNAUTHORIZED", "Authentication is required", 401);
+}
+
+function notConfigured(message: string): ApiError {
+  return new ApiError("AUTHENTICATION_NOT_CONFIGURED", message, 500);
 }
 
 function audienceIncludes(value: unknown, expected: string): boolean {
@@ -33,11 +38,50 @@ export async function verifyAccessToken(rawToken: string, publicKey: string): Pr
   }
 }
 
+export async function introspectServiceToken(rawToken: string, env: Bindings): Promise<Principal> {
+  if (!env.IDENTITY || !env.CORE_IDENTITY_SHARED_SECRET) {
+    throw notConfigured("Identity introspection binding is not configured");
+  }
+  let response: Response;
+  try {
+    response = await env.IDENTITY.fetch("https://identity.internal/introspection/v1/service-tokens", {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${rawToken}`,
+        "x-lifespace-internal-secret": env.CORE_IDENTITY_SHARED_SECRET,
+      },
+    });
+  } catch {
+    throw unauthorized();
+  }
+  if (!response.ok) throw unauthorized();
+  const payload = await response.json<{ data?: { active?: boolean; principal?: Principal; audience?: string } }>().catch(() => null);
+  const principal = payload?.data?.principal;
+  if (
+    payload?.data?.active !== true
+    || payload.data.audience !== "lifespace-core"
+    || !principal
+    || principal.type !== "service"
+    || typeof principal.id !== "string"
+    || typeof principal.clientId !== "string"
+    || typeof principal.tokenId !== "string"
+    || !Array.isArray(principal.scopes)
+    || principal.scopes.some((scope) => typeof scope !== "string")
+  ) throw unauthorized();
+  return principal;
+}
+
 export function authenticate(): MiddlewareHandler<AppEnv> {
   return async (context, next) => {
     const authorization = context.req.header("authorization");
-    if (!authorization?.startsWith("Bearer ") || !context.env.IDENTITY_PUBLIC_KEY) throw unauthorized();
-    const principal = await verifyAccessToken(authorization.slice(7), context.env.IDENTITY_PUBLIC_KEY);
+    if (!authorization?.startsWith("Bearer ")) throw unauthorized();
+    const rawToken = authorization.slice(7).trim();
+    if (!rawToken) throw unauthorized();
+    const principal = rawToken.startsWith(SERVICE_TOKEN_PREFIX)
+      ? await introspectServiceToken(rawToken, context.env)
+      : context.env.IDENTITY_PUBLIC_KEY
+        ? await verifyAccessToken(rawToken, context.env.IDENTITY_PUBLIC_KEY)
+        : (() => { throw notConfigured("Identity public verification key is not configured"); })();
     context.set("principal", principal);
     await next();
   };
