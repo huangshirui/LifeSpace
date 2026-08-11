@@ -140,7 +140,7 @@ function operand(
 function compatible(left: OperandType, right: OperandType): boolean {
   if (left.kind === "unknown" || right.kind === "unknown") return true;
   if (left.kind === "null") return right.nullable === true || right.kind === "null";
-  if (right.kind === "null") return left.nullable === true || left.kind === "null";
+  if (right.kind === "null") return left.nullable === true;
   return left.kind === right.kind;
 }
 
