@@ -1,3 +1,13 @@
+CREATE TABLE model_registry_state (
+  singleton INTEGER PRIMARY KEY CHECK(singleton=1),
+  revision INTEGER NOT NULL DEFAULT 0 CHECK(revision >= 0),
+  mutation_token TEXT,
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+
+INSERT INTO model_registry_state(singleton,revision,mutation_token)
+VALUES(1,0,NULL);
+
 CREATE TABLE model_contract_revisions (
   id TEXT PRIMARY KEY CHECK(id GLOB 'mct_*'),
   contract_hash TEXT NOT NULL UNIQUE CHECK(length(contract_hash)=64),
@@ -13,6 +23,7 @@ CREATE TABLE model_contract_revisions (
 CREATE TABLE model_contract_state (
   singleton INTEGER PRIMARY KEY CHECK(singleton=1),
   active_contract_id TEXT NOT NULL REFERENCES model_contract_revisions(id),
+  registry_revision INTEGER NOT NULL CHECK(registry_revision >= 0),
   updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 );
 
