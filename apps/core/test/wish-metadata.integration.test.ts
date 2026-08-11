@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { WISH_MODEL_DEFINITION } from "../src/builtin-models";
 import type { Bindings, Principal } from "../src/env";
 import { createGenericResource } from "../src/generic-resource";
-import { publishModelDefinition } from "../src/model-registry";
+import { getPublishedModel, publishModelDefinition } from "../src/model-registry";
 import { requireModelPolicy } from "../src/policy";
 import { executeWorkflowAction } from "../src/workflow";
 
@@ -47,7 +47,8 @@ async function fixture() {
     scopes: ["models:manage"],
     tokenId: `tok_wish_publisher_${suffix}`,
   };
-  const model = await publishModelDefinition(bindings(), publisher, WISH_MODEL_DEFINITION, "initial");
+  const model = await getPublishedModel(bindings(), "wish")
+    ?? await publishModelDefinition(bindings(), publisher, WISH_MODEL_DEFINITION, "initial");
   return {
     db,
     spaceId,
