@@ -153,3 +153,52 @@ export const WISH_MODEL_DEFINITION: ModelDefinition = {
     },
   },
 };
+
+export const DAY_RECORD_MODEL_DEFINITION: ModelDefinition = {
+  definitionVersion: 1,
+  key: "day_record",
+  route: "day-records",
+  display: { singular: "Day Record", plural: "Day Records" },
+  fields: {
+    name: { type: "string", required: true, minLength: 1, maxLength: 100 },
+    description: { type: "text", nullable: true, maxLength: 5000 },
+    kind: { type: "enum", required: true, immutable: true, values: ["elapsed", "countdown", "cycle"] },
+    anchorDate: { type: "date", required: true },
+    subjectPersonId: { type: "person", nullable: true },
+    icon: { type: "string", nullable: true, maxLength: 50 },
+    attentionAfterDays: { type: "integer", nullable: true, minimum: 1 },
+    attentionBeforeDays: { type: "integer", nullable: true, minimum: 0 },
+    cycleDays: { type: "integer", nullable: true, minimum: 1 },
+    status: { type: "enum", required: true, readOnly: true, values: ["active", "archived"] },
+  },
+  query: {
+    searchable: ["name", "description"],
+    filterable: ["kind", "status", "subjectPersonId", "anchorDate"],
+    sortable: ["anchorDate", "name"],
+  },
+  access: ["read", "write"],
+  lifecycle: { optimisticConcurrency: true, softDelete: true },
+  capabilities: {
+    temporal: {
+      kindField: "kind",
+      anchorDateField: "anchorDate",
+      cycleDaysField: "cycleDays",
+      attentionBeforeDaysField: "attentionBeforeDays",
+      attentionAfterDaysField: "attentionAfterDays",
+      statusField: "status",
+      occurrences: true,
+    },
+  },
+  actions: {
+    archive: {
+      access: "write",
+      guards: [{ field: "status", op: "neq", value: "archived", errorCode: "DAY_RECORD_ARCHIVED", message: "Day record is already archived" }],
+      set: { status: "archived" },
+    },
+    restore: {
+      access: "write",
+      guards: [{ field: "status", op: "neq", value: "active", errorCode: "DAY_RECORD_ALREADY_ACTIVE", message: "Day record is already active" }],
+      set: { status: "active" },
+    },
+  },
+};
