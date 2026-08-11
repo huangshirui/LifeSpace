@@ -56,57 +56,58 @@ jobs:
       - name: Resolve staging D1 IDs
         run: node infra/scripts/resolve-staging-d1.mjs
 
-      - name: Apply Identity migrations
-        run: pnpm --filter @lifespace/identity db:migrate:staging
-
       - name: Apply Core migrations
         run: pnpm --filter @lifespace/core db:migrate:staging
 
-      - name: Deploy Identity
-        run: pnpm --dir apps/identity exec wrangler deploy --env staging
-
-      - name: Deploy Core
+      - name: Deploy Core first
         run: pnpm --dir apps/core exec wrangler deploy --env staging
 
-      - name: Ensure staging custom domains
-        run: node infra/scripts/ensure-staging-domains.mjs
-
-      - name: Verify Identity health and status
-        run: |
-          curl --fail --silent --show-error --retry 12 --retry-delay 5 --retry-all-errors https://auth-staging.aisr.online/health
-          echo
-          curl --fail --silent --show-error --retry 6 --retry-delay 5 --retry-all-errors https://auth-staging.aisr.online/api/v1/status
-          echo
-
-      - name: Wait for Core staging contract convergence
+      - name: Wait for Core 0.9 staging convergence
         run: |
           curl --fail --silent --show-error --retry 12 --retry-delay 5 --retry-all-errors https://core-staging.aisr.online/health
           echo
-
           for attempt in $(seq 1 12); do
             STATUS="$(curl --fail --silent --show-error https://core-staging.aisr.online/api/v1/status || true)"
             if [ -n "$STATUS" ] && printf '%s' "$STATUS" | node --input-type=module -e '
               import fs from "node:fs";
-              const payload = JSON.parse(fs.readFileSync(0, "utf8"));
-              const data = payload?.data ?? {};
-              process.exit(
-                data.environment === "staging"
-                && data.schemaVersion === "7"
-                && data.contractVersion === "0.8.0"
-                  ? 0
-                  : 1,
-              );
+              const data = JSON.parse(fs.readFileSync(0, "utf8"))?.data ?? {};
+              process.exit(data.environment === "staging" && data.schemaVersion === "8" && data.contractVersion === "0.9.0" ? 0 : 1);
             '; then
               echo "$STATUS"
-              echo "Core staging is serving schema v7 / contract 0.8.0"
+              echo "Core staging is serving schema v8 / contract 0.9.0"
               break
             fi
+            echo "Core staging has not converged to schema v8 / contract 0.9.0 yet (attempt ${attempt}/12): ${STATUS:-<no response>}"
+            if [ "$attempt" -eq 12 ]; then exit 1; fi
+            sleep 5
+          done
 
-            echo "Core staging has not converged to schema v7 / contract 0.8.0 yet (attempt ${attempt}/12): ${STATUS:-<no response>}"
-            if [ "$attempt" -eq 12 ]; then
-              echo "Core staging deployment did not converge to the expected contract"
-              exit 1
+      - name: Apply Identity migrations
+        run: pnpm --filter @lifespace/identity db:migrate:staging
+
+      - name: Deploy Identity after compatible Core
+        run: pnpm --dir apps/identity exec wrangler deploy --env staging
+
+      - name: Ensure staging custom domains
+        run: node infra/scripts/ensure-staging-domains.mjs
+
+      - name: Wait for Identity 0.2 staging convergence
+        run: |
+          curl --fail --silent --show-error --retry 12 --retry-delay 5 --retry-all-errors https://auth-staging.aisr.online/health
+          echo
+          for attempt in $(seq 1 12); do
+            STATUS="$(curl --fail --silent --show-error https://auth-staging.aisr.online/api/v1/status || true)"
+            if [ -n "$STATUS" ] && printf '%s' "$STATUS" | node --input-type=module -e '
+              import fs from "node:fs";
+              const data = JSON.parse(fs.readFileSync(0, "utf8"))?.data ?? {};
+              process.exit(data.environment === "staging" && data.schemaVersion === "3" && data.contractVersion === "0.2.0" ? 0 : 1);
+            '; then
+              echo "$STATUS"
+              echo "Identity staging is serving schema v3 / contract 0.2.0"
+              break
             fi
+            echo "Identity staging has not converged to schema v3 / contract 0.2.0 yet (attempt ${attempt}/12): ${STATUS:-<no response>}"
+            if [ "$attempt" -eq 12 ]; then exit 1; fi
             sleep 5
           done
 
