@@ -6,6 +6,7 @@ import { registerRegistryCreationDraftRoutes } from "./registry-creation-draft-j
 import { registerGenericResourceRoutes } from "./generic-resource-routes";
 import { ApiError, failure, success } from "./http";
 import { registerModelAdminRoutes } from "./model-admin";
+import { registerModelAdminAiRoutes } from "./model-admin-ai";
 import { registerSpaceRoutes } from "./spaces";
 import { registerSpaceAvatarRoutes } from "./space-avatars";
 import { registerGrantRoutes } from "./grants";
@@ -48,6 +49,7 @@ export function createApp() {
   registerSpaceRoutes(app);
   registerGrantRoutes(app);
   registerModelAdminRoutes(app);
+  registerModelAdminAiRoutes(app);
   registerRegistryCreationDraftRoutes(app);
   registerGenericResourceRoutes(app);
   app.notFound((context) => context.json(failure("NOT_FOUND", "Route not found", context.get("requestId")), 404));
