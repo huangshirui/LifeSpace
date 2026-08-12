@@ -1,38 +1,18 @@
 import type { Bindings, Principal } from "./env";
 import { ApiError } from "./http";
 import type { FieldDefinition, ModelDefinition } from "./model-definition";
-import type { PublishedModel } from "./model-registry";
+import { getRuntimeModel, type PublishedModel } from "./model-registry";
+import {
+  getTypedResource,
+  listTypedResources,
+  typedInsertStatement,
+  typedUpdateStatement,
+  type TypedStoredResource,
+} from "./typed-resource-storage";
 
 type JsonObject = Record<string, unknown>;
 
-type ResourceRow = {
-  id: string;
-  space_id: string;
-  model_key: string;
-  model_version: number;
-  data_json: string;
-  created_by_type: Principal["type"];
-  created_by_id: string;
-  created_by_name_snapshot: string;
-  updated_by_type: Principal["type"];
-  updated_by_id: string;
-  updated_by_name_snapshot: string;
-  version: number;
-  created_at: string;
-  updated_at: string;
-  deleted_at: string | null;
-};
-
-export type GenericResource = {
-  id: string;
-  spaceId: string;
-  modelKey: string;
-  modelVersion: number;
-  data: JsonObject;
-  version: number;
-  createdAt: string;
-  updatedAt: string;
-};
+export type GenericResource = TypedStoredResource;
 
 export type ResourceMutationExtensionContext = {
   env: Bindings;
@@ -52,16 +32,12 @@ type RelationProjection = {
   fieldKey: string;
   targetType: "person" | "record";
   targetId: string;
+  targetModel?: string;
   ordinal: number;
 };
 
-type IndexProjection = {
-  fieldKey: string;
-  valueType: "text" | "number" | "date" | "datetime" | "boolean";
-  textValue: string | null;
-  numberValue: number | null;
-  booleanValue: number | null;
-};
+type PeopleRow = { id: string };
+type RecordTargetRow = { id: string; model_key: string };
 
 const createId = () => `rec_${crypto.randomUUID().replaceAll("-", "")}`;
 
@@ -179,102 +155,83 @@ export function validateResourceData(
   return result;
 }
 
-async function requireActivePeople(env: Bindings, spaceId: string, personIds: string[]): Promise<void> {
-  if (!personIds.length) return;
-  const placeholders = personIds.map(() => "?").join(",");
-  const rows = await env.DB.prepare(`SELECT id FROM space_people WHERE space_id=? AND deleted_at IS NULL AND id IN (${placeholders})`)
-    .bind(spaceId, ...personIds).all<{ id: string }>();
-  if (rows.results.length !== personIds.length) throw new ApiError("INVALID_RESOURCE_RELATION", "Every Person relation must reference an active Person in the same Space", 400);
-}
-
-async function requireRecordTargets(env: Bindings, spaceId: string, targetModel: string, recordIds: string[]): Promise<void> {
-  if (!recordIds.length) return;
-  const placeholders = recordIds.map(() => "?").join(",");
-  const rows = await env.DB.prepare(`SELECT id FROM resource_records WHERE space_id=? AND model_key=? AND deleted_at IS NULL AND id IN (${placeholders})`)
-    .bind(spaceId, targetModel, ...recordIds).all<{ id: string }>();
-  if (rows.results.length !== recordIds.length) throw new ApiError("INVALID_RESOURCE_RELATION", `Every record relation must reference an active ${targetModel} record in the same Space`, 400);
-}
-
-async function projectRelations(env: Bindings, spaceId: string, definition: ModelDefinition, data: JsonObject): Promise<RelationProjection[]> {
+function collectRelations(definition: ModelDefinition, data: JsonObject): RelationProjection[] {
   const relations: RelationProjection[] = [];
   for (const [fieldKey, field] of Object.entries(definition.fields)) {
     const value = data[fieldKey];
     if (value === undefined || value === null) continue;
     if (field.type === "person" || field.type === "person_list") {
       const ids = relationIds(value, fieldKey, field.type === "person_list");
-      await requireActivePeople(env, spaceId, ids);
       ids.forEach((targetId, ordinal) => relations.push({ fieldKey, targetType: "person", targetId, ordinal }));
     }
     if (field.type === "record" || field.type === "record_list") {
       const ids = relationIds(value, fieldKey, field.type === "record_list");
-      await requireRecordTargets(env, spaceId, field.targetModel!, ids);
-      ids.forEach((targetId, ordinal) => relations.push({ fieldKey, targetType: "record", targetId, ordinal }));
+      ids.forEach((targetId, ordinal) => relations.push({ fieldKey, targetType: "record", targetId, targetModel: field.targetModel!, ordinal }));
     }
   }
   return relations;
 }
 
-function projectIndexes(definition: ModelDefinition, data: JsonObject): IndexProjection[] {
-  const declared = new Set([...(definition.query?.filterable ?? []), ...(definition.query?.sortable ?? [])]);
-  const values: IndexProjection[] = [];
-  for (const fieldKey of declared) {
-    const field = definition.fields[fieldKey];
-    const value = data[fieldKey];
-    if (!field || value === undefined || value === null || Array.isArray(value)) continue;
-    if (field.type === "string" || field.type === "text" || field.type === "enum" || field.type === "timezone") {
-      values.push({ fieldKey, valueType: "text", textValue: String(value), numberValue: null, booleanValue: null });
-    } else if (field.type === "date" || field.type === "datetime") {
-      values.push({ fieldKey, valueType: field.type, textValue: String(value), numberValue: null, booleanValue: null });
-    } else if (field.type === "integer" || field.type === "number") {
-      values.push({ fieldKey, valueType: "number", textValue: null, numberValue: Number(value), booleanValue: null });
-    } else if (field.type === "boolean") {
-      values.push({ fieldKey, valueType: "boolean", textValue: null, numberValue: null, booleanValue: value ? 1 : 0 });
+async function validateRelationTargets(env: Bindings, spaceId: string, relations: RelationProjection[]): Promise<void> {
+  const personIds = [...new Set(relations.filter((relation) => relation.targetType === "person").map((relation) => relation.targetId))];
+  const recordTargets = [...new Map(
+    relations
+      .filter((relation) => relation.targetType === "record")
+      .map((relation) => [`${relation.targetModel}\u0000${relation.targetId}`, { modelKey: relation.targetModel!, id: relation.targetId }]),
+  ).values()];
+  if (!personIds.length && !recordTargets.length) return;
+
+  const statements: D1PreparedStatement[] = [];
+  let peopleIndex = -1;
+  let recordsIndex = -1;
+  if (personIds.length) {
+    peopleIndex = statements.length;
+    statements.push(env.DB.prepare(`SELECT id FROM space_people
+      WHERE space_id=? AND deleted_at IS NULL AND id IN (${personIds.map(() => "?").join(",")})`)
+      .bind(spaceId, ...personIds));
+  }
+  if (recordTargets.length) {
+    recordsIndex = statements.length;
+    const clauses = recordTargets.map(() => "(model_key=? AND id=?)").join(" OR ");
+    statements.push(env.DB.prepare(`SELECT id,model_key FROM resource_records
+      WHERE space_id=? AND deleted_at IS NULL AND (${clauses})`)
+      .bind(spaceId, ...recordTargets.flatMap((target) => [target.modelKey, target.id])));
+  }
+
+  const results = await env.DB.batch(statements);
+  if (peopleIndex >= 0) {
+    const found = new Set(((results[peopleIndex].results ?? []) as PeopleRow[]).map((row) => row.id));
+    if (personIds.some((id) => !found.has(id))) {
+      throw new ApiError("INVALID_RESOURCE_RELATION", "Every Person relation must reference an active Person in the same Space", 400);
     }
   }
-  return values;
-}
-
-function rowToResource(row: ResourceRow): GenericResource {
-  let data: JsonObject;
-  try {
-    data = JSON.parse(row.data_json) as JsonObject;
-  } catch {
-    throw new ApiError("RESOURCE_STORAGE_CORRUPT", `Resource ${row.id} contains invalid JSON`, 500);
+  if (recordsIndex >= 0) {
+    const found = new Set(((results[recordsIndex].results ?? []) as RecordTargetRow[]).map((row) => `${row.model_key}\u0000${row.id}`));
+    if (recordTargets.some((target) => !found.has(`${target.modelKey}\u0000${target.id}`))) {
+      throw new ApiError("INVALID_RESOURCE_RELATION", "Every record relation must reference an active declared target model record in the same Space", 400);
+    }
   }
-  return {
-    id: row.id,
-    spaceId: row.space_id,
-    modelKey: row.model_key,
-    modelVersion: row.model_version,
-    data,
-    version: row.version,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-  };
 }
 
-async function projectionStatements(
+async function projectRelations(env: Bindings, spaceId: string, definition: ModelDefinition, data: JsonObject): Promise<RelationProjection[]> {
+  const relations = collectRelations(definition, data);
+  await validateRelationTargets(env, spaceId, relations);
+  return relations;
+}
+
+function relationStatements(
   env: Bindings,
   recordId: string,
   spaceId: string,
   model: PublishedModel,
-  data: JsonObject,
+  relations: RelationProjection[],
   mutationToken?: string,
-): Promise<D1PreparedStatement[]> {
-  const relations = await projectRelations(env, spaceId, model.definition, data);
-  const indexes = projectIndexes(model.definition, data);
-  const statements: D1PreparedStatement[] = mutationToken
-    ? [
-      env.DB.prepare(`DELETE FROM resource_relations WHERE source_record_id=?
-        AND EXISTS(SELECT 1 FROM resource_records WHERE id=? AND mutation_token=?)`).bind(recordId, recordId, mutationToken),
-      env.DB.prepare(`DELETE FROM resource_index_values WHERE record_id=?
-        AND EXISTS(SELECT 1 FROM resource_records WHERE id=? AND mutation_token=?)`).bind(recordId, recordId, mutationToken),
-    ]
-    : [
-      env.DB.prepare("DELETE FROM resource_relations WHERE source_record_id=?").bind(recordId),
-      env.DB.prepare("DELETE FROM resource_index_values WHERE record_id=?").bind(recordId),
-    ];
-
+): D1PreparedStatement[] {
+  const statements: D1PreparedStatement[] = [];
+  if (mutationToken) {
+    statements.push(env.DB.prepare(`DELETE FROM resource_relations WHERE source_record_id=?
+      AND EXISTS(SELECT 1 FROM resource_records WHERE id=? AND mutation_token=?)`).bind(recordId, recordId, mutationToken));
+  }
   for (const relation of relations) {
     if (mutationToken) {
       statements.push(env.DB.prepare(`INSERT INTO resource_relations(
@@ -306,39 +263,12 @@ async function projectionStatements(
       ));
     }
   }
-
-  for (const index of indexes) {
-    if (mutationToken) {
-      statements.push(env.DB.prepare(`INSERT INTO resource_index_values(
-        record_id,space_id,model_key,field_key,value_type,text_value,number_value,boolean_value
-      ) SELECT ?,?,?,?,?,?,?,? WHERE EXISTS(SELECT 1 FROM resource_records WHERE id=? AND mutation_token=?)`).bind(
-        recordId,
-        spaceId,
-        model.key,
-        index.fieldKey,
-        index.valueType,
-        index.textValue,
-        index.numberValue,
-        index.booleanValue,
-        recordId,
-        mutationToken,
-      ));
-    } else {
-      statements.push(env.DB.prepare(`INSERT INTO resource_index_values(
-        record_id,space_id,model_key,field_key,value_type,text_value,number_value,boolean_value
-      ) VALUES(?,?,?,?,?,?,?,?)`).bind(
-        recordId,
-        spaceId,
-        model.key,
-        index.fieldKey,
-        index.valueType,
-        index.textValue,
-        index.numberValue,
-        index.booleanValue,
-      ));
-    }
-  }
   return statements;
+}
+
+async function resolveModel(env: Bindings, modelOrKey: PublishedModel | string): Promise<PublishedModel | null> {
+  if (typeof modelOrKey !== "string") return modelOrKey;
+  return getRuntimeModel(env, modelOrKey);
 }
 
 export async function createGenericResource(
@@ -351,37 +281,47 @@ export async function createGenericResource(
   extension?: ResourceMutationExtension,
 ): Promise<GenericResource> {
   const data = validateResourceData(model.definition, input, trustedCapabilityInput ? "create_internal" : "create");
+  const relations = await projectRelations(env, spaceId, model.definition, data);
   const id = createId();
   const timestamp = new Date().toISOString();
-  const statements = [env.DB.prepare(`INSERT INTO resource_records(
-    id,space_id,model_key,model_version,data_json,created_by_type,created_by_id,created_by_name_snapshot,
-    updated_by_type,updated_by_id,updated_by_name_snapshot,version,created_at,updated_at
-  ) VALUES(?,?,?,?,?,?,?,?,?,?,?,1,?,?)`).bind(
-    id,
-    spaceId,
-    model.key,
-    model.version,
-    JSON.stringify(data),
-    principal.type,
-    principal.id,
-    principal.id,
-    principal.type,
-    principal.id,
-    principal.id,
-    timestamp,
-    timestamp,
-  ), ...(await projectionStatements(env, id, spaceId, model, data))];
+  const statements: D1PreparedStatement[] = [
+    env.DB.prepare(`INSERT INTO resource_records(
+      id,space_id,model_key,model_version,data_json,created_by_type,created_by_id,created_by_name_snapshot,
+      updated_by_type,updated_by_id,updated_by_name_snapshot,version,created_at,updated_at
+    ) VALUES(?,?,?,?,?,?,?,?,?,?,?,1,?,?)`).bind(
+      id,
+      spaceId,
+      model.key,
+      model.version,
+      "{}",
+      principal.type,
+      principal.id,
+      principal.id,
+      principal.type,
+      principal.id,
+      principal.id,
+      timestamp,
+      timestamp,
+    ),
+    typedInsertStatement(env, model, id, spaceId, data),
+    ...relationStatements(env, id, spaceId, model, relations),
+  ];
   if (extension) statements.push(...await extension({ env, principal, recordId: id, spaceId, model, timestamp }));
   await env.DB.batch(statements);
-  const created = await getGenericResource(env, spaceId, model.key, id);
+  const created = await getTypedResource(env, spaceId, model, id);
   if (!created) throw new ApiError("RESOURCE_STORAGE_INCONSISTENT", "Created resource could not be read back", 500);
   return created;
 }
 
-export async function getGenericResource(env: Bindings, spaceId: string, modelKey: string, recordId: string): Promise<GenericResource | null> {
-  const row = await env.DB.prepare(`SELECT * FROM resource_records WHERE id=? AND space_id=? AND model_key=? AND deleted_at IS NULL`)
-    .bind(recordId, spaceId, modelKey).first<ResourceRow>();
-  return row ? rowToResource(row) : null;
+export async function getGenericResource(
+  env: Bindings,
+  spaceId: string,
+  modelOrKey: PublishedModel | string,
+  recordId: string,
+): Promise<GenericResource | null> {
+  const model = await resolveModel(env, modelOrKey);
+  if (!model) return null;
+  return getTypedResource(env, spaceId, model, recordId);
 }
 
 export async function updateGenericResource(
@@ -395,28 +335,28 @@ export async function updateGenericResource(
   mutationMode: "client" | "action" = "client",
   extension?: ResourceMutationExtension,
 ): Promise<GenericResource> {
-  const row = await env.DB.prepare(`SELECT * FROM resource_records WHERE id=? AND space_id=? AND model_key=? AND deleted_at IS NULL`)
-    .bind(recordId, spaceId, model.key).first<ResourceRow>();
-  if (!row) throw new ApiError("RESOURCE_NOT_FOUND", "Resource not found", 404);
-  if (row.version !== expectedVersion) throw new ApiError("VERSION_CONFLICT", "Resource version is stale", 409);
+  const previous = await getTypedResource(env, spaceId, model, recordId);
+  if (!previous) throw new ApiError("RESOURCE_NOT_FOUND", "Resource not found", 404);
+  if (previous.version !== expectedVersion) throw new ApiError("VERSION_CONFLICT", "Resource version is stale", 409);
 
-  const previous = rowToResource(row);
   const data = validateResourceData(model.definition, input, mutationMode === "action" ? "action" : "update", previous.data);
+  const relations = await projectRelations(env, spaceId, model.definition, data);
   const timestamp = new Date().toISOString();
   const mutationToken = crypto.randomUUID();
-  const nextVersion = row.version + 1;
-  const statements = [
+  const nextVersion = previous.version + 1;
+  const statements: D1PreparedStatement[] = [
     env.DB.prepare(`UPDATE resource_records SET
-      data_json=?,model_version=?,updated_by_type=?,updated_by_id=?,updated_by_name_snapshot=?,version=?,updated_at=?,mutation_token=?
+      data_json='{}',model_version=?,updated_by_type=?,updated_by_id=?,updated_by_name_snapshot=?,version=?,updated_at=?,mutation_token=?
       WHERE id=? AND space_id=? AND model_key=? AND deleted_at IS NULL AND version=?`)
-      .bind(JSON.stringify(data), model.version, principal.type, principal.id, principal.id, nextVersion, timestamp, mutationToken, recordId, spaceId, model.key, expectedVersion),
-    ...(await projectionStatements(env, recordId, spaceId, model, data, mutationToken)),
+      .bind(model.version, principal.type, principal.id, principal.id, nextVersion, timestamp, mutationToken, recordId, spaceId, model.key, expectedVersion),
+    typedUpdateStatement(env, model, recordId, spaceId, data, mutationToken),
+    ...relationStatements(env, recordId, spaceId, model, relations, mutationToken),
   ];
   if (extension) statements.push(...await extension({ env, principal, recordId, spaceId, model, timestamp, mutationToken }));
   statements.push(env.DB.prepare("UPDATE resource_records SET mutation_token=NULL WHERE id=? AND mutation_token=?").bind(recordId, mutationToken));
   const results = await env.DB.batch(statements);
   if (!results[0].meta.changes) throw new ApiError("VERSION_CONFLICT", "Resource version is stale", 409);
-  const updated = await getGenericResource(env, spaceId, model.key, recordId);
+  const updated = await getTypedResource(env, spaceId, model, recordId);
   if (!updated) throw new ApiError("RESOURCE_STORAGE_INCONSISTENT", "Updated resource could not be read back", 500);
   return updated;
 }
@@ -435,25 +375,21 @@ export async function deleteGenericResource(
     WHERE id=? AND space_id=? AND model_key=? AND deleted_at IS NULL AND version=?`)
     .bind(timestamp, timestamp, principal.type, principal.id, principal.id, recordId, spaceId, model.key, expectedVersion).run();
   if (!result.meta.changes) {
-    const existing = await getGenericResource(env, spaceId, model.key, recordId);
+    const existing = await getTypedResource(env, spaceId, model, recordId);
     if (!existing) throw new ApiError("RESOURCE_NOT_FOUND", "Resource not found", 404);
     throw new ApiError("VERSION_CONFLICT", "Resource version is stale", 409);
   }
-  await env.DB.batch([
-    env.DB.prepare("DELETE FROM resource_relations WHERE source_record_id=?").bind(recordId),
-    env.DB.prepare("DELETE FROM resource_index_values WHERE record_id=?").bind(recordId),
-  ]);
+  await env.DB.prepare("DELETE FROM resource_relations WHERE source_record_id=?").bind(recordId).run();
 }
 
 export async function listGenericResources(
   env: Bindings,
   spaceId: string,
-  modelKey: string,
+  modelOrKey: PublishedModel | string,
   limit = 100,
 ): Promise<GenericResource[]> {
   if (!Number.isInteger(limit) || limit < 1 || limit > 200) throw new ApiError("INVALID_REQUEST", "limit must be between 1 and 200", 400);
-  const rows = await env.DB.prepare(`SELECT * FROM resource_records
-    WHERE space_id=? AND model_key=? AND deleted_at IS NULL ORDER BY created_at DESC,id DESC LIMIT ?`)
-    .bind(spaceId, modelKey, limit).all<ResourceRow>();
-  return rows.results.map(rowToResource);
+  const model = await resolveModel(env, modelOrKey);
+  if (!model) return [];
+  return listTypedResources(env, spaceId, model, limit);
 }
