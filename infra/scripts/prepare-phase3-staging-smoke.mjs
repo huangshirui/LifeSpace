@@ -149,6 +149,29 @@ async function issueUserToken(clientSecret, userId) {
   });
 }
 
+async function createSmokeUser(clientSecret, displayName) {
+  const user = await jsonRequest(identityBase, "/internal/v1/users", {
+    method: "POST",
+    bearer: clientSecret,
+    body: { displayName },
+  });
+  if (user.response.status !== 201 || !user.payload?.data?.id) {
+    throw new Error(`Staging smoke user creation failed: ${user.response.status} ${JSON.stringify(user.payload)}`);
+  }
+  return user.payload.data.id;
+}
+
+async function issueAndProbeUser(clientSecret, userId, label) {
+  const tokenResult = await issueUserToken(clientSecret, userId);
+  const bearer = tokenResult.payload?.data?.accessToken ?? "";
+  const probe = bearer ? await jsonRequest(coreBase, "/api/v1/me", { bearer }) : null;
+  if (tokenResult.response.status !== 200 || !bearer || probe?.response.status !== 200) {
+    throw new Error(`${label} token verification failed: identity=${tokenResult.response.status} core=${probe?.response.status ?? "not-called"}`);
+  }
+  mask(bearer);
+  return bearer;
+}
+
 function repairSigningKeys() {
   const pair = generateKeyPairSync("rsa", {
     modulusLength: 2048,
@@ -203,15 +226,7 @@ const clientSecret = app.payload?.data?.clientSecret;
 if (!clientSecret) throw new Error("Staging smoke application did not return a client secret");
 mask(clientSecret);
 
-const user = await jsonRequest(identityBase, "/internal/v1/users", {
-  method: "POST",
-  bearer: clientSecret,
-  body: { displayName: `Phase 3 Staging ${smokeId}` },
-});
-if (user.response.status !== 201 || !user.payload?.data?.id) {
-  throw new Error(`Staging smoke user creation failed: ${user.response.status} ${JSON.stringify(user.payload)}`);
-}
-const userId = user.payload.data.id;
+const userId = await createSmokeUser(clientSecret, `Phase 3 Owner ${smokeId}`);
 
 let userTokenResult = await issueUserToken(clientSecret, userId);
 let userBearer = userTokenResult.payload?.data?.accessToken ?? "";
@@ -248,6 +263,9 @@ if (coreUserProbe?.response.status !== 200) {
   throw new Error(`Core user-token verification failed: ${coreUserProbe?.response.status} ${JSON.stringify(coreUserProbe?.payload)}`);
 }
 mask(userBearer);
+
+const claimantUserId = await createSmokeUser(clientSecret, `Phase 3 Claimant ${smokeId}`);
+const claimantBearer = await issueAndProbeUser(clientSecret, claimantUserId, "Staging claimant user");
 
 const servicePrincipal = await jsonRequest(identityBase, "/api/v1/service-principals", {
   method: "POST",
@@ -314,7 +332,7 @@ const space = await jsonRequest(coreBase, "/api/v1/spaces", {
   body: {
     kind: "personal",
     name: `Phase 3 staging exit ${smokeId}`,
-    ownerDisplayName: `Phase 3 Staging ${smokeId}`,
+    ownerDisplayName: `Phase 3 Owner ${smokeId}`,
     timezone: "UTC",
   },
 });
@@ -324,17 +342,34 @@ if (space.response.status !== 201 || !space.payload?.data?.id || !space.payload?
 const spaceId = space.payload.data.id;
 const personId = space.payload.data.ownerPersonId;
 
+const claimantMembership = await jsonRequest(coreBase, `/api/v1/spaces/${spaceId}/members`, {
+  method: "POST",
+  bearer: userBearer,
+  body: {
+    userId: claimantUserId,
+    role: "editor",
+    displayName: `Phase 3 Claimant ${smokeId}`,
+  },
+});
+if (claimantMembership.response.status !== 201 || !claimantMembership.payload?.data?.personId) {
+  throw new Error(`Staging claimant membership creation failed: ${claimantMembership.response.status} ${JSON.stringify(claimantMembership.payload)}`);
+}
+const claimantPersonId = claimantMembership.payload.data.personId;
+
 exportEnv("LIFESPACE_CORE_STAGING_URL", coreBase);
 exportEnv("LIFESPACE_IDENTITY_STAGING_URL", identityBase);
 exportEnv("LIFESPACE_STAGING_MODEL_ADMIN_BEARER", serviceBearer, { secret: true });
 exportEnv("LIFESPACE_STAGING_USER_BEARER", userBearer, { secret: true });
+exportEnv("LIFESPACE_STAGING_CLAIMANT_USER_BEARER", claimantBearer, { secret: true });
 exportEnv("LIFESPACE_STAGING_SPACE_ID", spaceId);
 exportEnv("LIFESPACE_STAGING_PERSON_ID", personId);
+exportEnv("LIFESPACE_STAGING_CLAIMANT_PERSON_ID", claimantPersonId);
 exportEnv("LIFESPACE_STAGING_SPACE_TIMEZONE", "UTC");
 exportEnv("LIFESPACE_STAGING_VIEWING_TIMEZONE", "UTC");
 exportEnv("LIFESPACE_STAGING_SMOKE_APPLICATION_ID", applicationId);
 exportEnv("LIFESPACE_STAGING_SMOKE_APPLICATION_SECRET", clientSecret, { secret: true });
 exportEnv("LIFESPACE_STAGING_SMOKE_USER_ID", userId);
+exportEnv("LIFESPACE_STAGING_SMOKE_CLAIMANT_USER_ID", claimantUserId);
 exportEnv("LIFESPACE_STAGING_SMOKE_SERVICE_PRINCIPAL_ID", servicePrincipalId);
 exportEnv("LIFESPACE_STAGING_SMOKE_SERVICE_TOKEN_ID", serviceTokenId);
 exportEnv("ALLOW_AI_UNCONFIGURED", "1");
@@ -343,10 +378,13 @@ console.log(JSON.stringify({
   ok: true,
   applicationId,
   userId,
+  claimantUserId,
   servicePrincipalId,
   serviceTokenExpiresAt: expiresAt,
   spaceId,
   personId,
+  claimantPersonId,
   modelAccess: Object.fromEntries(modelKeys.map((key) => [key, "write"])),
+  wishPolicyActorsPrepared: { owner: personId, claimant: claimantPersonId },
   secretsMaskedAndExportedToCurrentJob: true,
 }, null, 2));
