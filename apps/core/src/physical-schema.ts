@@ -1,8 +1,9 @@
 import { ApiError } from "./http";
-import type { FieldDefinition, ModelDefinition } from "./model-definition";
+import type { FieldDefinition, FieldType, ModelDefinition } from "./model-definition";
 
 export type PhysicalColumn = {
   fieldKey: string;
+  logicalType: FieldType;
   sqlType: "TEXT" | "INTEGER" | "REAL";
   nullable: boolean;
   checkSql?: string;
@@ -70,7 +71,7 @@ function columnFor(fieldKey: string, field: FieldDefinition): PhysicalColumn | n
     checkSql = `${identifier(fieldKey)} IS NULL OR ${identifier(fieldKey)} IN (${field.values.map(literal).join(",")})`;
   }
 
-  return { fieldKey, sqlType, nullable, ...(checkSql ? { checkSql } : {}) };
+  return { fieldKey, logicalType: field.type, sqlType, nullable, ...(checkSql ? { checkSql } : {}) };
 }
 
 function indexFor(tableName: string, fieldKey: string): PhysicalIndex {
@@ -130,7 +131,8 @@ export function compilePhysicalSchema(definition: ModelDefinition): PhysicalSche
 }
 
 function sameColumn(left: PhysicalColumn, right: PhysicalColumn): boolean {
-  return left.sqlType === right.sqlType
+  return left.logicalType === right.logicalType
+    && left.sqlType === right.sqlType
     && left.nullable === right.nullable
     && left.checkSql === right.checkSql;
 }
