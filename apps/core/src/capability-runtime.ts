@@ -1,4 +1,4 @@
-import { createCalendarResource, prepareCalendarUpdate, updateCalendarResource } from "./calendar-capability";
+import { createCalendarResource, prepareCalendarUpdate } from "./calendar-capability";
 import type { Bindings, Principal } from "./env";
 import { createGenericResource, getGenericResource, updateGenericResource, type GenericResource } from "./generic-resource";
 import { ApiError } from "./http";
@@ -11,7 +11,6 @@ import {
   loadSpaceTemporalContext,
   prepareTemporalUpdate,
   recordTemporalOccurrence,
-  updateTemporalResource,
   type TemporalOccurrence,
 } from "./temporal-capability";
 
@@ -35,17 +34,28 @@ export async function createCapabilityAwareResource(env: Bindings, principal: Pr
   return createGenericResource(env, principal, spaceId, model, prepared);
 }
 
-export async function updateCapabilityAwareResource(env: Bindings, principal: Principal, spaceId: string, model: PublishedModel, recordId: string, expectedVersion: number, input: unknown): Promise<GenericResource> {
-  if (hasTemporalCapability(model)) {
-    const space = await loadSpaceTemporalContext(env, spaceId);
-    return updateTemporalResource(env, principal, space, model, recordId, expectedVersion, input);
-  }
-  if (hasCalendarCapability(model)) return updateCalendarResource(env, principal, spaceId, model, recordId, expectedVersion, input);
-  return updateGenericResource(env, principal, spaceId, model, recordId, expectedVersion, input);
+export async function updateCapabilityAwareResource(
+  env: Bindings,
+  principal: Principal,
+  spaceId: string,
+  model: PublishedModel,
+  recordId: string,
+  expectedVersion: number,
+  input: unknown,
+  previousResource?: GenericResource,
+): Promise<GenericResource> {
+  const resource = previousResource ?? await getGenericResource(env, spaceId, model, recordId);
+  if (!resource) throw new ApiError("RESOURCE_NOT_FOUND", "Resource not found", 404);
+  const prepared = hasTemporalCapability(model)
+    ? prepareTemporalUpdate(model, resource, input)
+    : hasCalendarCapability(model)
+      ? prepareCalendarUpdate(model, resource, input)
+      : input;
+  return updateGenericResource(env, principal, spaceId, model, recordId, expectedVersion, prepared, "client", undefined, resource);
 }
 
 export async function prepareCapabilityUpdatePolicyInput(env: Bindings, spaceId: string, model: PublishedModel, recordId: string, input: unknown) {
-  const resource = await getGenericResource(env, spaceId, model.key, recordId);
+  const resource = await getGenericResource(env, spaceId, model, recordId);
   if (!resource) throw new ApiError("RESOURCE_NOT_FOUND", "Resource not found", 404);
   if (hasTemporalCapability(model)) return { resource, prepared: prepareTemporalUpdate(model, resource, input) };
   if (hasCalendarCapability(model)) return { resource, prepared: prepareCalendarUpdate(model, resource, input) };
