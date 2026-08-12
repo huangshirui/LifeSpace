@@ -4,6 +4,7 @@ import { generateModelContract } from "./model-contract";
 import { modelContractMutationStatements } from "./model-contract-store";
 import {
   canonicalModelDefinition,
+  type FieldDefinition,
   type ModelDefinition,
   type ModelValidationIssue,
   validateModelDefinition,
@@ -23,6 +24,17 @@ export type PublishedModel = {
   publishedAt: string;
 };
 
+export type RuntimeModelDescriptor = PublishedModel & {
+  runtime: {
+    fields: ReadonlyMap<string, FieldDefinition>;
+    allowedQueryKeys: ReadonlySet<string>;
+    searchable: readonly string[];
+    filterable: readonly string[];
+    sortable: readonly string[];
+    relationFields: readonly string[];
+  };
+};
+
 type ModelRow = {
   id: string;
   model_key: string;
@@ -40,6 +52,14 @@ type RegistryStateRow = {
   mutation_token: string | null;
 };
 
+type RuntimeRegistrySnapshot = {
+  expiresAt: number;
+  byKey: Map<string, RuntimeModelDescriptor>;
+  byRoute: Map<string, RuntimeModelDescriptor>;
+};
+
+const RUNTIME_REGISTRY_TTL_MS = 60_000;
+const runtimeRegistrySnapshots = new WeakMap<object, RuntimeRegistrySnapshot>();
 const createId = (prefix: string) => `${prefix}_${crypto.randomUUID().replaceAll("-", "")}`;
 
 function actorName(principal: Principal): string {
@@ -73,6 +93,66 @@ function rowToPublished(row: ModelRow): PublishedModel {
     definition: validation.definition,
     publishedAt: row.published_at,
   };
+}
+
+function compileRuntimeModel(model: PublishedModel): RuntimeModelDescriptor {
+  const searchable = Object.freeze([...(model.definition.query?.searchable ?? [])]);
+  const filterable = Object.freeze([...(model.definition.query?.filterable ?? [])]);
+  const sortable = Object.freeze([...(model.definition.query?.sortable ?? [])]);
+  const allowedQueryKeys = new Set<string>(["q", "sort", "cursor", "limit"]);
+  for (const fieldKey of filterable) {
+    allowedQueryKeys.add(fieldKey);
+    const field = model.definition.fields[fieldKey];
+    if (field && ["date", "datetime", "integer", "number"].includes(field.type)) {
+      allowedQueryKeys.add(`${fieldKey}From`);
+      allowedQueryKeys.add(`${fieldKey}To`);
+    }
+  }
+  const relationFields = Object.entries(model.definition.fields)
+    .filter(([, field]) => ["person", "person_list", "record", "record_list"].includes(field.type))
+    .map(([fieldKey]) => fieldKey);
+  return {
+    ...model,
+    runtime: {
+      fields: new Map(Object.entries(model.definition.fields)),
+      allowedQueryKeys,
+      searchable,
+      filterable,
+      sortable,
+      relationFields: Object.freeze(relationFields),
+    },
+  };
+}
+
+async function loadRuntimeRegistrySnapshot(env: Bindings): Promise<RuntimeRegistrySnapshot> {
+  const models = await listPublishedModels(env);
+  const descriptors = models.map(compileRuntimeModel);
+  const snapshot: RuntimeRegistrySnapshot = {
+    expiresAt: Date.now() + RUNTIME_REGISTRY_TTL_MS,
+    byKey: new Map(descriptors.map((model) => [model.key, model])),
+    byRoute: new Map(descriptors.map((model) => [model.route, model])),
+  };
+  runtimeRegistrySnapshots.set(env.DB as unknown as object, snapshot);
+  return snapshot;
+}
+
+async function runtimeRegistrySnapshot(env: Bindings): Promise<RuntimeRegistrySnapshot> {
+  const key = env.DB as unknown as object;
+  const cached = runtimeRegistrySnapshots.get(key);
+  if (cached && cached.expiresAt > Date.now()) return cached;
+  return loadRuntimeRegistrySnapshot(env);
+}
+
+export function invalidateRuntimeModelRegistry(env: Bindings): void {
+  runtimeRegistrySnapshots.delete(env.DB as unknown as object);
+}
+
+export async function getRuntimeModel(env: Bindings, key: string): Promise<RuntimeModelDescriptor | null> {
+  return (await runtimeRegistrySnapshot(env)).byKey.get(key) ?? null;
+}
+
+export async function getRuntimeModelByRoute(env: Bindings, route: string): Promise<RuntimeModelDescriptor | null> {
+  return (await runtimeRegistrySnapshot(env)).byRoute.get(route) ?? null;
 }
 
 export async function validateDefinition(input: unknown): Promise<
@@ -211,6 +291,7 @@ export async function publishModelDefinition(
   }
   if (!results[0].meta.changes) throw new ApiError("MODEL_PUBLICATION_CONFLICT", "Model registry changed concurrently", 409);
 
+  invalidateRuntimeModelRegistry(env);
   const published = await getPublishedModel(env, validation.definition.key);
   if (!published || published.version !== nextVersion || published.schemaHash !== validation.schemaHash) {
     throw new ApiError("MODEL_REGISTRY_INCONSISTENT", "Published model could not be read back consistently", 500);
@@ -253,4 +334,5 @@ export async function retireModel(env: Bindings, principal: Principal, key: stri
   if (!results[0].meta.changes || !results[1].meta.changes) {
     throw new ApiError("MODEL_PUBLICATION_CONFLICT", "Published model changed concurrently", 409);
   }
+  invalidateRuntimeModelRegistry(env);
 }
