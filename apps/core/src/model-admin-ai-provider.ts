@@ -153,14 +153,15 @@ function parseOutput(value: unknown): ModelAdminAiOutput {
 }
 
 export function createModelAdminAiProvider(config: OpenAICompatibleProviderConfig) {
-  if (!config.baseUrl?.trim() || !config.apiKey?.trim() || !config.model?.trim()) {
-    throw new OpenAICompatibleProviderError("AI_NOT_CONFIGURED", "AI provider configuration is incomplete");
-  }
   const fetchImpl = config.fetch ?? ((input: string, init?: RequestInit) => globalThis.fetch(input, init));
   const timeoutMs = config.timeoutMs ?? 60_000;
 
   return {
     async generate(input: ModelAdminAiInput): Promise<{ output: ModelAdminAiOutput; metadata: CreationProviderResult["metadata"] }> {
+      if (!config.baseUrl?.trim() || !config.apiKey?.trim() || !config.model?.trim()) {
+        throw new OpenAICompatibleProviderError("AI_NOT_CONFIGURED", "AI provider configuration is incomplete");
+      }
+
       const controller = new AbortController();
       let timeout: ReturnType<typeof setTimeout> | undefined;
       const timeoutResult = new Promise<never>((_resolve, reject) => {
