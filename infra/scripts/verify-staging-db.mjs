@@ -120,11 +120,17 @@ for (const [table, expectedColumns] of REQUIRED_TYPED_COLUMNS) {
 }
 
 for (const [modelKey, table] of MODEL_TABLES) {
-  const orphanEnvelope = single(`SELECT COUNT(*) AS count
+  const orphanEnvelopes = runSql(`SELECT
+      r.id,r.space_id,r.model_key,r.model_version,r.version,
+      r.created_by_type,r.created_by_id,r.created_at,r.updated_at,r.deleted_at
     FROM resource_records r
     LEFT JOIN ${table} m ON m.record_id=r.id AND m.space_id=r.space_id
-    WHERE r.model_key='${modelKey}' AND m.record_id IS NULL`, `${modelKey} typed envelope consistency`);
-  assertEqual(orphanEnvelope.count, 0, `${modelKey} resources without typed rows`);
+    WHERE r.model_key='${modelKey}' AND m.record_id IS NULL
+    ORDER BY r.created_at,r.id
+    LIMIT 20`);
+  if (orphanEnvelopes.length) {
+    fail(`${modelKey} resources without typed rows: expected 0, got at least ${orphanEnvelopes.length}`, orphanEnvelopes);
+  }
 }
 
 const draftColumns = new Set(runSql("SELECT name FROM pragma_table_info('model_definition_drafts')").map((row) => row.name));
@@ -153,6 +159,7 @@ console.log(JSON.stringify({
   schemaVersion: STAGING_EXPECTATIONS.core.schemaVersion,
   models: Object.fromEntries(PROVING_MODELS.map((model) => [model.key, model.version])),
   typedModelTables: [...REQUIRED_TYPED_COLUMNS.keys()],
+  typedEnvelopeConsistency: true,
   legacyGenericStorageRemoved: true,
   homemewModelAccess: "write",
   activeModelContract: contractRows[0]?.active_contract_id ?? null,
