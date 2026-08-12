@@ -14,15 +14,20 @@ export type PolicyContext = {
   input?: Record<string, unknown>;
 };
 
+export type ResolvedPolicyActor = {
+  personId: string | null;
+};
+
 export async function resolvePolicyContext(
   env: Bindings,
   principal: Principal,
   spaceId: string,
   record?: GenericResource | Record<string, unknown>,
   input?: Record<string, unknown>,
+  resolvedActor?: ResolvedPolicyActor,
 ): Promise<PolicyContext> {
-  let personId: string | null = null;
-  if (principal.type === "user") {
+  let personId: string | null = resolvedActor?.personId ?? null;
+  if (principal.type === "user" && resolvedActor === undefined) {
     const person = await env.DB.prepare(`SELECT id FROM space_people
       WHERE space_id=? AND linked_user_id=? AND deleted_at IS NULL LIMIT 1`)
       .bind(spaceId, principal.id).first<{ id: string }>();
@@ -72,8 +77,9 @@ export async function requireModelPolicy(
   operation: keyof ModelPoliciesDefinition,
   record?: GenericResource,
   input?: Record<string, unknown>,
+  resolvedActor?: ResolvedPolicyActor,
 ): Promise<PolicyContext> {
-  const context = await resolvePolicyContext(env, principal, spaceId, record, input);
+  const context = await resolvePolicyContext(env, principal, spaceId, record, input, resolvedActor);
   const policy = modelPolicy(model, operation);
   if (policy && !evaluatePolicyExpression(policy, context)) {
     throw new ApiError("POLICY_DENIED", `Model ${model.key} ${operation} policy denied this operation`, 403);
@@ -88,8 +94,9 @@ export async function requirePolicyExpression(
   policy: PolicyExpression | undefined,
   record?: GenericResource,
   input?: Record<string, unknown>,
+  resolvedActor?: ResolvedPolicyActor,
 ): Promise<PolicyContext> {
-  const context = await resolvePolicyContext(env, principal, spaceId, record, input);
+  const context = await resolvePolicyContext(env, principal, spaceId, record, input, resolvedActor);
   if (policy && !evaluatePolicyExpression(policy, context)) {
     throw new ApiError("POLICY_DENIED", "Record policy denied this operation", 403);
   }
