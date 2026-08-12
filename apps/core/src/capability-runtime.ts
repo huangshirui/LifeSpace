@@ -58,6 +58,17 @@ export async function decorateCapabilityResponse(env: Bindings, spaceId: string,
   return { computed: { temporal: computeTemporalResource(model, resource, space) } };
 }
 
+export async function decorateCapabilityResponses(
+  env: Bindings,
+  spaceId: string,
+  model: PublishedModel,
+  resources: readonly GenericResource[],
+): Promise<CapabilityResponseDecoration[]> {
+  if (!hasTemporalCapability(model)) return resources.map(() => ({}));
+  const space = await loadSpaceTemporalContext(env, spaceId);
+  return resources.map((resource) => ({ computed: { temporal: computeTemporalResource(model, resource, space) } }));
+}
+
 export function capabilityActionAccess(model: PublishedModel, actionKey: string): "write" | null {
   if (hasTemporalCapability(model) && actionKey === "record-occurrence" && model.definition.capabilities?.temporal?.occurrences === true) return "write";
   return null;
