@@ -62,34 +62,53 @@ Kernel concepts remain explicit and cannot be created as ordinary user-defined m
 - Space, Membership and Space Person;
 - Data Grant and authorization state;
 - Model Registry administration and publication state;
+- Registry-driven Creation Draft orchestration;
 - security/signing/deployment state.
+
+The checked-in `apps/core/openapi.yaml` describes only this explicit Kernel surface. Ordinary model endpoints are not manually copied into the Kernel contract.
 
 ### Model Registry
 
 Published Model Definitions are the logical source of truth for ordinary business-model schema. They are validated, immutable by version, schema-hashed and compatibility classified.
 
-AI Admin may propose definitions, but it has no arbitrary DDL/code execution path. Publication always uses the same validator and audit path.
+AI Admin may propose definitions, but it has no arbitrary DDL/code execution path. Publication always uses the same validator and registry as every other model change.
+
+Each successful publish/retire activates an immutable content-addressed Model Contract Revision containing the concrete model OpenAPI/JSON Schema generated from Registry + Capability metadata.
 
 ### Generic Resource Runtime
 
-Ordinary Space-owned records use one fixed runtime for schema validation, CRUD, query, pagination, relation integrity, optimistic concurrency, soft deletion and actor audit.
+Ordinary Space-owned records use one fixed runtime for schema validation, declarative defaults, CRUD, query, pagination, relation integrity, optimistic concurrency, soft deletion and actor audit.
 
 Generic JSON persistence is permitted only behind this runtime and a published definition. There is no schemaless resource API.
 
 ### Engines and Capabilities
 
-Reusable Engines/Capabilities add semantics that should not be encoded as arbitrary model code. Initial target set:
+Reusable Engines/Capabilities add semantics that should not be encoded as arbitrary model code. Current Phase-3 proving set includes:
 
 - Policy;
-- Workflow/actions;
-- computed fields;
+- Workflow/actions, including bounded state/relation-aware branches;
 - Calendar;
 - Temporal/Cycle;
-- Asset;
-- AI Interpretation;
-- Async Job.
+- AI Interpretation / Registry-driven Creation Draft;
+- Async Job / Queue orchestration.
 
-Capabilities may own auxiliary persistence/indexes where generic storage would weaken correctness or query performance.
+Capabilities may own auxiliary persistence/indexes where generic storage would weaken correctness or query performance. They also own deterministic contract contributions so Runtime semantics and `mct_*` remain aligned.
+
+## Contract boundary
+
+Core has two independently versioned contract layers:
+
+```text
+Kernel Contract
+  apps/core/openapi.yaml
+  explicit Space / Membership / Grant / Model Admin / Creation Draft APIs
+
+Model Contract Revision
+  mct_<sha256>
+  concrete published model CRUD/query/action/Capability APIs
+```
+
+A client release pins a compatible pair rather than treating the active Registry as an unversioned build contract. Core Kernel `0.12.0` is the first checked-in contract after this split; the former Phase-2 `0.11.0` combined-domain OpenAPI is no longer the target architecture.
 
 ## Identity boundary
 
@@ -141,14 +160,20 @@ Target production topology:
 
 Production and staging use separate Workers and separate D1/R2/Queue resources.
 
-## Phase-2 domain implementations
+## Phase-2 domain convergence
 
-Phase 2 established verified semantics for Event, Task, Day Record, Wish and Creation Draft. Because HomeMew has not cut over and durable HomeMew data has not migrated, their dedicated LifeSpace domain persistence/runtime is not a compatibility constraint.
+Phase 2 established verified semantics for Event, Task, Day Record, Wish and Creation Draft. HomeMew never cut over to that intermediate domain runtime, so Phase 3 used those implementations only as golden semantic references.
 
-During the metadata-platform phase they are used as golden semantic references and are replaced in increasing complexity:
+The target Core source has now converged to:
 
 ```text
-Task -> Wish -> Day Record -> Event -> registry-driven Creation Draft
+Task       -> Model Definition + Generic Runtime + Workflow
+Wish       -> Model Definition + Generic Runtime + Policy + Workflow
+Day Record -> Model Definition + Generic Runtime + Temporal
+Event      -> Model Definition + Generic Runtime + Calendar
+Creation Draft -> Registry-driven AI Interpretation + Async Job
 ```
 
-HomeMew client/data migration remains paused until the metadata-driven target architecture passes staging verification.
+The handwritten Event/Task/Day Record/Wish services and fixed four-kind Creation Draft implementation have been removed. The old dedicated domain tables are dropped by destructive staging convergence migrations while historical migrations remain as audit evidence.
+
+HomeMew client/data migration remains paused until the remaining Phase-3 AI Admin work and staging verification complete.
