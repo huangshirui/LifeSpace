@@ -132,13 +132,12 @@ try {
   const eventRangeStart = encodeURIComponent(new Date(eventStart.getTime() - 60_000).toISOString());
   const eventRangeEnd = encodeURIComponent(new Date(eventEnd.getTime() + 60_000).toISOString());
 
-  const entries = await Promise.all([
-    measure("taskGet", () => expectData(`/api/v1/spaces/${spaceId}/tasks/${tasks[0].id}`)),
-    measure("taskList10", () => expectData(`/api/v1/spaces/${spaceId}/tasks?limit=10`)),
-    measure("eventWindow", () => expectData(`/api/v1/spaces/${spaceId}/events?rangeStart=${eventRangeStart}&rangeEnd=${eventRangeEnd}&limit=20`)),
-    measure("dayRecordList", () => expectData(`/api/v1/spaces/${spaceId}/day-records?sort=effectiveDate:asc&limit=20`)),
-    measure("wishList", () => expectData(`/api/v1/spaces/${spaceId}/wishes?limit=20`)),
-  ]);
+  const entries = [];
+  entries.push(await measure("taskGet", () => expectData(`/api/v1/spaces/${spaceId}/tasks/${tasks[0].id}`)));
+  entries.push(await measure("taskList10", () => expectData(`/api/v1/spaces/${spaceId}/tasks?limit=10`)));
+  entries.push(await measure("eventWindow", () => expectData(`/api/v1/spaces/${spaceId}/events?rangeStart=${eventRangeStart}&rangeEnd=${eventRangeEnd}&limit=20`)));
+  entries.push(await measure("dayRecordList", () => expectData(`/api/v1/spaces/${spaceId}/day-records?sort=effectiveDate:asc&limit=20`)));
+  entries.push(await measure("wishList", () => expectData(`/api/v1/spaces/${spaceId}/wishes?limit=20`)));
   const reads = Object.fromEntries(entries);
 
   // Mutations are measured separately because the Phase-3 acceptance target is
@@ -191,7 +190,6 @@ try {
     throw new Error(`Staging read performance target missed: ${JSON.stringify(readTargetsMet)}`);
   }
 
-  // Keep today referenced so accidental timezone/date fixture regressions are visible.
   if (!/^\d{4}-\d{2}-\d{2}$/u.test(today)) throw new Error("UTC benchmark date is invalid");
 } finally {
   for (const record of cleanup.reverse()) await deleteRecord(record.route, record.id, record.version);
