@@ -14,6 +14,7 @@ describe("Model Definition v1", () => {
     expect(result.definition.key).toBe("task");
     expect(result.definition.route).toBe("tasks");
     expect(result.definition.fields.assigneePersonIds.type).toBe("person_list");
+    expect(result.definition.defaults).toEqual({ status: "pending" });
     expect(result.hashInput).toBe(canonicalModelDefinition(result.definition));
   });
 
@@ -24,6 +25,28 @@ describe("Model Definition v1", () => {
       fields: Object.fromEntries(Object.entries(TASK_MODEL_DEFINITION.fields).reverse()),
     };
     expect(canonicalModelDefinition(reordered)).toBe(first);
+  });
+
+  it("rejects defaults for undeclared or incompatible fields", () => {
+    const unknown = validateModelDefinition({
+      ...TASK_MODEL_DEFINITION,
+      defaults: { status: "pending", missing: "x" },
+    });
+    expect(issueCodes(unknown)).toContain("UNKNOWN_DEFAULT_FIELD");
+
+    const incompatible = validateModelDefinition({
+      ...TASK_MODEL_DEFINITION,
+      defaults: { status: "not-a-status" },
+    });
+    expect(issueCodes(incompatible)).toContain("INVALID_DEFAULT");
+  });
+
+  it("does not allow hard-coded Person identifiers as model defaults", () => {
+    const result = validateModelDefinition({
+      ...TASK_MODEL_DEFINITION,
+      defaults: { assigneePersonIds: ["per_fixed"] },
+    });
+    expect(issueCodes(result)).toContain("INVALID_DEFAULT");
   });
 
   it("rejects Kernel route collisions", () => {
