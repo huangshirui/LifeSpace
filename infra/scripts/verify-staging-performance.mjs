@@ -5,6 +5,8 @@ const bearer = process.env.LIFESPACE_STAGING_USER_BEARER ?? "";
 const spaceId = process.env.LIFESPACE_STAGING_SPACE_ID ?? "";
 const personId = process.env.LIFESPACE_STAGING_PERSON_ID ?? "";
 const enforce = process.env.ENFORCE_PERFORMANCE_TARGETS === "1";
+const benchmarkProfile = process.env.PERFORMANCE_BENCHMARK_PROFILE ?? "diagnostic-github";
+const acceptanceEligible = benchmarkProfile === "apac";
 
 for (const [name, value] of Object.entries({
   LIFESPACE_CORE_STAGING_URL: coreBaseUrl,
@@ -13,6 +15,10 @@ for (const [name, value] of Object.entries({
   LIFESPACE_STAGING_PERSON_ID: personId,
 })) {
   if (!value) throw new Error(`${name} is required`);
+}
+
+if (enforce && !acceptanceEligible) {
+  throw new Error(`Refusing to enforce absolute latency targets for non-APAC benchmark profile: ${benchmarkProfile}`);
 }
 
 const READ_TARGETS = Object.freeze({ p50Ms: 220, p90Ms: 500 });
@@ -140,9 +146,6 @@ try {
   entries.push(await measure("wishList", () => expectData(`/api/v1/spaces/${spaceId}/wishes?limit=20`)));
   const reads = Object.fromEntries(entries);
 
-  // Mutations are measured separately because the Phase-3 acceptance target is
-  // defined for common reads. Alternate values/actions so every sample performs
-  // a real write rather than a no-op.
   let patchVersion = tasks[1].version;
   const patchSamples = [];
   for (let index = 0; index < 8; index += 1) {
@@ -172,7 +175,11 @@ try {
   const allReadTargetsMet = Object.values(readTargetsMet).every(Boolean);
   const result = {
     ok: true,
-    source: "GitHub Actions runner to Cloudflare staging edge",
+    benchmarkProfile,
+    acceptanceEligible,
+    source: acceptanceEligible
+      ? "Representative APAC runner/client to Cloudflare staging"
+      : "GitHub-hosted runner to Cloudflare staging; runner geography is uncontrolled for acceptance",
     marker,
     targets: READ_TARGETS,
     reads,
@@ -182,12 +189,14 @@ try {
       taskPatch: summarize(patchSamples),
       taskWorkflow: summarize(actionSamples),
     },
-    note: "HTTP timings include runner-to-edge network latency; D1 round-trip budgets are enforced separately in Core integration tests.",
+    note: acceptanceEligible
+      ? "Absolute read targets are eligible for Phase-3 acceptance; D1 round-trip budgets remain independently enforced in Core integration tests."
+      : "Diagnostic only: absolute HTTP timings may include long-distance runner-to-edge and Worker-to-D1 latency and must not accept or reject Phase 3. D1 round-trip budgets are enforced separately in Core integration tests.",
   };
   console.log(JSON.stringify(result, null, 2));
 
   if (enforce && !allReadTargetsMet) {
-    throw new Error(`Staging read performance target missed: ${JSON.stringify(readTargetsMet)}`);
+    throw new Error(`Staging APAC read performance target missed: ${JSON.stringify(readTargetsMet)}`);
   }
 
   if (!/^\d{4}-\d{2}-\d{2}$/u.test(today)) throw new Error("UTC benchmark date is invalid");
