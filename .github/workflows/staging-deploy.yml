@@ -20,6 +20,7 @@ jobs:
       CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID || secrets.CLOUDFLARE_ACCOUNT_ID }}
       LIFESPACE_STAGING_BOOTSTRAP_SECRET: ${{ secrets.LIFESPACE_STAGING_BOOTSTRAP_SECRET }}
       LIFESPACE_CORE_STAGING_URL: https://core-staging.aisr.online
+      LIFESPACE_IDENTITY_STAGING_URL: https://auth-staging.aisr.online
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -45,16 +46,21 @@ jobs:
           cache: pnpm
 
       - name: Validate staging credentials
+        shell: bash
         run: |
-          test -n "$CLOUDFLARE_API_TOKEN" || (echo "CLOUDFLARE_API_TOKEN is not configured" && exit 1)
-          test -n "$CLOUDFLARE_ACCOUNT_ID" || (echo "CLOUDFLARE_ACCOUNT_ID is not configured" && exit 1)
-          test ${#LIFESPACE_STAGING_BOOTSTRAP_SECRET} -ge 32 || (echo "LIFESPACE_STAGING_BOOTSTRAP_SECRET must be at least 32 characters" && exit 1)
+          set -euo pipefail
+          test -n "${CLOUDFLARE_API_TOKEN:-}" || { echo "CLOUDFLARE_API_TOKEN is not configured" >&2; exit 1; }
+          test -n "${CLOUDFLARE_ACCOUNT_ID:-}" || { echo "CLOUDFLARE_ACCOUNT_ID is not configured" >&2; exit 1; }
+          test ${#LIFESPACE_STAGING_BOOTSTRAP_SECRET} -ge 32 || { echo "LIFESPACE_STAGING_BOOTSTRAP_SECRET must be at least 32 characters" >&2; exit 1; }
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
       - name: Validate repository
         run: pnpm check
+
+      - name: Resolve expected staging versions
+        run: node infra/scripts/staging-expectations.mjs
 
       - name: Resolve staging D1 IDs
         run: node infra/scripts/resolve-staging-d1.mjs
@@ -65,22 +71,24 @@ jobs:
       - name: Deploy Core first
         run: pnpm --dir apps/core exec wrangler deploy --env staging
 
-      - name: Wait for Core 0.12 staging convergence
+      - name: Wait for Core staging convergence
+        shell: bash
         run: |
+          set -euo pipefail
           curl --fail --silent --show-error --retry 12 --retry-delay 5 --retry-all-errors https://core-staging.aisr.online/health
           echo
           for attempt in $(seq 1 12); do
             STATUS="$(curl --fail --silent --show-error https://core-staging.aisr.online/api/v1/status || true)"
-            if [ -n "$STATUS" ] && printf '%s' "$STATUS" | node --input-type=module -e '
+            if [ -n "$STATUS" ] && printf '%s' "$STATUS" | EXPECTED_CONTRACT="$LIFESPACE_EXPECTED_CORE_CONTRACT_VERSION" EXPECTED_SCHEMA="$LIFESPACE_EXPECTED_CORE_SCHEMA_VERSION" node --input-type=module -e '
               import fs from "node:fs";
               const data = JSON.parse(fs.readFileSync(0, "utf8"))?.data ?? {};
-              process.exit(data.environment === "staging" && String(data.schemaVersion) === "21" && data.contractVersion === "0.12.0" ? 0 : 1);
+              process.exit(data.environment === "staging" && String(data.schemaVersion) === process.env.EXPECTED_SCHEMA && data.contractVersion === process.env.EXPECTED_CONTRACT ? 0 : 1);
             '; then
               echo "$STATUS"
-              echo "Core staging is serving schema v21 / contract 0.12.0"
+              echo "Core staging converged to schema v${LIFESPACE_EXPECTED_CORE_SCHEMA_VERSION} / contract ${LIFESPACE_EXPECTED_CORE_CONTRACT_VERSION}"
               break
             fi
-            echo "Core staging has not converged to schema v21 / contract 0.12.0 yet (attempt ${attempt}/12): ${STATUS:-<no response>}"
+            echo "Core staging has not converged yet (attempt ${attempt}/12): ${STATUS:-<no response>}"
             if [ "$attempt" -eq 12 ]; then exit 1; fi
             sleep 5
           done
@@ -94,69 +102,66 @@ jobs:
       - name: Ensure staging custom domains
         run: node infra/scripts/ensure-staging-domains.mjs
 
-      - name: Wait for Identity 0.3 staging convergence
+      - name: Wait for Identity staging convergence
+        shell: bash
         run: |
+          set -euo pipefail
           curl --fail --silent --show-error --retry 12 --retry-delay 5 --retry-all-errors https://auth-staging.aisr.online/health
           echo
           for attempt in $(seq 1 12); do
             STATUS="$(curl --fail --silent --show-error https://auth-staging.aisr.online/api/v1/status || true)"
-            if [ -n "$STATUS" ] && printf '%s' "$STATUS" | node --input-type=module -e '
+            if [ -n "$STATUS" ] && printf '%s' "$STATUS" | EXPECTED_CONTRACT="$LIFESPACE_EXPECTED_IDENTITY_CONTRACT_VERSION" EXPECTED_SCHEMA="$LIFESPACE_EXPECTED_IDENTITY_SCHEMA_VERSION" node --input-type=module -e '
               import fs from "node:fs";
               const data = JSON.parse(fs.readFileSync(0, "utf8"))?.data ?? {};
-              process.exit(data.environment === "staging" && String(data.schemaVersion) === "4" && data.contractVersion === "0.3.0" ? 0 : 1);
+              process.exit(data.environment === "staging" && String(data.schemaVersion) === process.env.EXPECTED_SCHEMA && data.contractVersion === process.env.EXPECTED_CONTRACT ? 0 : 1);
             '; then
               echo "$STATUS"
-              echo "Identity staging is serving schema v4 / contract 0.3.0"
+              echo "Identity staging converged to schema v${LIFESPACE_EXPECTED_IDENTITY_SCHEMA_VERSION} / contract ${LIFESPACE_EXPECTED_IDENTITY_CONTRACT_VERSION}"
               break
             fi
-            echo "Identity staging has not converged to schema v4 / contract 0.3.0 yet (attempt ${attempt}/12): ${STATUS:-<no response>}"
+            echo "Identity staging has not converged yet (attempt ${attempt}/12): ${STATUS:-<no response>}"
             if [ "$attempt" -eq 12 ]; then exit 1; fi
             sleep 5
           done
 
-      - name: Verify Phase 3 D1 convergence
-        run: node infra/scripts/verify-phase3-staging-db.mjs
+      - name: Verify staging database convergence
+        run: node infra/scripts/verify-staging-db.mjs
 
-      - name: Prepare ephemeral authenticated Phase 3 smoke
-        run: node infra/scripts/prepare-phase3-staging-smoke.mjs
+      - name: Prepare ephemeral authenticated staging smoke
+        run: node infra/scripts/prepare-staging-smoke.mjs
 
       - name: Verify authenticated Kernel and Model Contract
-        run: node infra/scripts/verify-phase3-staging-http.mjs
+        run: node infra/scripts/verify-staging-http.mjs
 
       - name: Verify active Model Contract D1 pointer
         env:
           REQUIRE_ACTIVE_MODEL_CONTRACT: "1"
-        run: node infra/scripts/verify-phase3-staging-db.mjs
+        run: node infra/scripts/verify-staging-db.mjs
 
-      - name: Verify Task Wish Day Record Event metadata runtime
-        run: node infra/scripts/verify-phase3-staging-models.mjs
+      - name: Verify proving-model platform regression
+        run: node infra/scripts/verify-staging-models.mjs
 
       - name: Verify Registry-driven Creation Draft Queue
-        run: node infra/scripts/verify-phase3-staging-creation-draft.mjs
+        run: node infra/scripts/verify-staging-creation-draft.mjs
 
       - name: Cleanup ephemeral staging authority
         if: ${{ always() }}
         continue-on-error: true
-        run: node infra/scripts/cleanup-phase3-staging-smoke.mjs
+        run: node infra/scripts/cleanup-staging-smoke.mjs
 
-      - name: Summarize staging deployment and Phase 3 exit
+      - name: Summarize staging deployment
         if: ${{ success() }}
         run: |
-          cat >> "$GITHUB_STEP_SUMMARY" <<'EOF'
-          ## LifeSpace staging deployment + Phase 3 exit
+          cat >> "$GITHUB_STEP_SUMMARY" <<EOF
+          ## LifeSpace staging deployment
 
-          - Core: schema v21 / Kernel contract 0.12.0
-          - Identity: schema v4 / contract 0.3.0
-          - Phase 3 D1 convergence: passed
+          - Core: schema v${LIFESPACE_EXPECTED_CORE_SCHEMA_VERSION} / Kernel contract ${LIFESPACE_EXPECTED_CORE_CONTRACT_VERSION}
+          - Identity: schema v${LIFESPACE_EXPECTED_IDENTITY_SCHEMA_VERSION} / contract ${LIFESPACE_EXPECTED_IDENTITY_CONTRACT_VERSION}
+          - Platform D1 convergence: passed
           - Service-only Model Admin / AI Admin boundary: passed
-          - Active immutable Model Contract `mct_*`: passed
-          - Task: Generic Runtime + defaults + Workflow: passed
-          - Wish: Generic Runtime + Policy + Workflow: passed
-          - Day Record: Generic Runtime + Temporal: passed
-          - Event: Generic Runtime + Calendar: passed
+          - Active immutable Model Contract \`mct_*\`: passed
+          - Proving models (Task/Wish/Day Record/Event): passed
           - Registry-driven Creation Draft Queue: reached a valid terminal state
           - Ephemeral smoke PAT: maximum 15-minute lifetime; cleanup attempted
           - Production and HomeMew traffic/data were not touched.
-
-          This run is suitable as the technical staging evidence for Phase 3 closeout.
           EOF
