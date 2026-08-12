@@ -10,7 +10,7 @@ const githubEnv = process.env.GITHUB_ENV ?? "";
 const runId = (process.env.GITHUB_RUN_ID ?? `${Date.now()}`).replace(/[^0-9A-Za-z_-]/gu, "_");
 const runAttempt = (process.env.GITHUB_RUN_ATTEMPT ?? "1").replace(/[^0-9A-Za-z_-]/gu, "_");
 const smokeId = `${runId}_${runAttempt}`;
-const applicationId = `app_phase3_exit_${smokeId}`;
+const applicationId = `app_staging_smoke_${smokeId}`;
 const CORE_DIR = new URL("../../apps/core/", import.meta.url);
 const IDENTITY_DIR = new URL("../../apps/identity/", import.meta.url);
 
@@ -22,9 +22,7 @@ for (const [name, value] of Object.entries({
 })) {
   if (!value) throw new Error(`${name} is required`);
 }
-if (bootstrapSecret.length < 32) {
-  throw new Error("LIFESPACE_STAGING_BOOTSTRAP_SECRET must contain at least 32 characters");
-}
+if (bootstrapSecret.length < 32) throw new Error("LIFESPACE_STAGING_BOOTSTRAP_SECRET must contain at least 32 characters");
 
 const applicationScopes = [
   "profile:read",
@@ -46,9 +44,7 @@ function mask(value) {
 
 function exportEnv(name, value, { secret = false } = {}) {
   if (secret) mask(value);
-  if (String(value).includes("\n") || String(value).includes("\r")) {
-    throw new Error(`${name} cannot contain newlines`);
-  }
+  if (String(value).includes("\n") || String(value).includes("\r")) throw new Error(`${name} cannot contain newlines`);
   appendFileSync(githubEnv, `${name}=${value}\n`, "utf8");
 }
 
@@ -57,45 +53,23 @@ function sqlString(value) {
 }
 
 function wranglerSecretBulk(cwd, secrets) {
-  execFileSync(
-    "pnpm",
-    ["exec", "wrangler", "secret", "bulk", "--env", "staging"],
-    {
-      cwd,
-      env: process.env,
-      input: JSON.stringify(secrets),
-      stdio: ["pipe", "inherit", "inherit"],
-    },
-  );
+  execFileSync("pnpm", ["exec", "wrangler", "secret", "bulk", "--env", "staging"], {
+    cwd,
+    env: process.env,
+    input: JSON.stringify(secrets),
+    stdio: ["pipe", "inherit", "inherit"],
+  });
 }
 
 function runCoreSql(sql) {
   const output = execFileSync(
     "pnpm",
-    [
-      "exec",
-      "wrangler",
-      "d1",
-      "execute",
-      "DB",
-      "--remote",
-      "--env",
-      "staging",
-      "--json",
-      `--command=${sql}`,
-    ],
-    {
-      cwd: CORE_DIR,
-      env: process.env,
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "inherit"],
-    },
+    ["exec", "wrangler", "d1", "execute", "DB", "--remote", "--env", "staging", "--json", `--command=${sql}`],
+    { cwd: CORE_DIR, env: process.env, encoding: "utf8", stdio: ["ignore", "pipe", "inherit"] },
   );
   const parsed = JSON.parse(output);
   const entries = Array.isArray(parsed) ? parsed : [parsed];
-  if (entries.some((entry) => entry?.success === false)) {
-    throw new Error(`Staging D1 mutation failed: ${output}`);
-  }
+  if (entries.some((entry) => entry?.success === false)) throw new Error(`Staging D1 mutation failed: ${output}`);
 }
 
 async function fetchJson(url, init = {}) {
@@ -103,11 +77,8 @@ async function fetchJson(url, init = {}) {
   const raw = await response.text();
   let payload = null;
   if (raw) {
-    try {
-      payload = JSON.parse(raw);
-    } catch {
-      payload = raw;
-    }
+    try { payload = JSON.parse(raw); }
+    catch { payload = raw; }
   }
   return { response, payload };
 }
@@ -123,9 +94,7 @@ async function requestUntil(label, request, predicate, attempts = 12, delayMs = 
     }
     if (attempt < attempts) await new Promise((resolve) => setTimeout(resolve, delayMs));
   }
-  const detail = last?.response
-    ? `${last.response.status} ${JSON.stringify(last.payload)}`
-    : String(last?.error ?? "no response");
+  const detail = last?.response ? `${last.response.status} ${JSON.stringify(last.payload)}` : String(last?.error ?? "no response");
   throw new Error(`${label} did not converge: ${detail}`);
 }
 
@@ -151,9 +120,7 @@ async function issueUserToken(clientSecret, userId) {
 
 async function createSmokeUser(clientSecret, displayName) {
   const user = await jsonRequest(identityBase, "/internal/v1/users", {
-    method: "POST",
-    bearer: clientSecret,
-    body: { displayName },
+    method: "POST", bearer: clientSecret, body: { displayName },
   });
   if (user.response.status !== 201 || !user.payload?.data?.id) {
     throw new Error(`Staging smoke user creation failed: ${user.response.status} ${JSON.stringify(user.payload)}`);
@@ -189,16 +156,11 @@ function repairSigningKeys() {
 
 function repairServiceIntrospectionSecret() {
   const shared = randomBytes(32).toString("base64url");
-  wranglerSecretBulk(IDENTITY_DIR, {
-    BOOTSTRAP_SECRET: bootstrapSecret,
-    CORE_IDENTITY_SHARED_SECRET: shared,
-  });
+  wranglerSecretBulk(IDENTITY_DIR, { BOOTSTRAP_SECRET: bootstrapSecret, CORE_IDENTITY_SHARED_SECRET: shared });
   wranglerSecretBulk(CORE_DIR, { CORE_IDENTITY_SHARED_SECRET: shared });
   console.log("Repaired staging Core↔Identity opaque-token introspection secret alignment");
 }
 
-// Keep the GitHub staging secret authoritative for bootstrap access without
-// rotating unrelated signing credentials on every verification run.
 wranglerSecretBulk(IDENTITY_DIR, { BOOTSTRAP_SECRET: bootstrapSecret });
 await requestUntil(
   "Identity health after bootstrap-secret synchronization",
@@ -213,7 +175,7 @@ const app = await requestUntil(
     bootstrap: bootstrapSecret,
     body: {
       id: applicationId,
-      name: `Phase 3 staging exit ${smokeId}`,
+      name: `LifeSpace staging smoke ${smokeId}`,
       clientType: "service",
       allowedScopes: applicationScopes,
       trustedBackend: true,
@@ -226,13 +188,10 @@ const clientSecret = app.payload?.data?.clientSecret;
 if (!clientSecret) throw new Error("Staging smoke application did not return a client secret");
 mask(clientSecret);
 
-const userId = await createSmokeUser(clientSecret, `Phase 3 Owner ${smokeId}`);
-
+const userId = await createSmokeUser(clientSecret, `Staging Owner ${smokeId}`);
 let userTokenResult = await issueUserToken(clientSecret, userId);
 let userBearer = userTokenResult.payload?.data?.accessToken ?? "";
-let coreUserProbe = userBearer
-  ? await jsonRequest(coreBase, "/api/v1/me", { bearer: userBearer })
-  : null;
+let coreUserProbe = userBearer ? await jsonRequest(coreBase, "/api/v1/me", { bearer: userBearer }) : null;
 const needsSigningRepair =
   (userTokenResult.response.status === 500 && userTokenResult.payload?.error?.code === "IDENTITY_NOT_CONFIGURED")
   || (userBearer && coreUserProbe?.response.status === 401);
@@ -264,15 +223,15 @@ if (coreUserProbe?.response.status !== 200) {
 }
 mask(userBearer);
 
-const claimantUserId = await createSmokeUser(clientSecret, `Phase 3 Claimant ${smokeId}`);
+const claimantUserId = await createSmokeUser(clientSecret, `Staging Claimant ${smokeId}`);
 const claimantBearer = await issueAndProbeUser(clientSecret, claimantUserId, "Staging claimant user");
 
 const servicePrincipal = await jsonRequest(identityBase, "/api/v1/service-principals", {
   method: "POST",
   bearer: clientSecret,
   body: {
-    displayName: `Phase 3 Model Admin ${smokeId}`,
-    description: "Ephemeral staging-only Phase 3 exit principal",
+    displayName: `Staging Model Admin ${smokeId}`,
+    description: "Ephemeral staging-only platform regression principal",
     maxScopes: ["models:manage"],
     createdByUserId: userId,
   },
@@ -286,7 +245,7 @@ const serviceTokenResult = await jsonRequest(identityBase, `/api/v1/service-prin
   method: "POST",
   bearer: clientSecret,
   body: {
-    label: `Phase 3 staging exit ${smokeId}`,
+    label: `LifeSpace staging smoke ${smokeId}`,
     scopes: ["models:manage"],
     expiresAt,
     createdByUserId: userId,
@@ -302,14 +261,13 @@ mask(serviceBearer);
 let modelAdminProbe = await jsonRequest(coreBase, "/api/v1/model-admin/models", { bearer: serviceBearer });
 if (modelAdminProbe.response.status !== 200) {
   repairServiceIntrospectionSecret();
-  const repaired = await requestUntil(
+  modelAdminProbe = await requestUntil(
     "staging opaque service-token introspection",
     () => jsonRequest(coreBase, "/api/v1/model-admin/models", { bearer: serviceBearer }),
     ({ response }) => response.status === 200,
     12,
     5000,
   );
-  modelAdminProbe = repaired;
 }
 if (modelAdminProbe.response.status !== 200) {
   throw new Error(`Core Model Admin service-token verification failed: ${modelAdminProbe.response.status} ${JSON.stringify(modelAdminProbe.payload)}`);
@@ -322,17 +280,15 @@ const accessValues = modelKeys
 runCoreSql(`INSERT INTO application_model_access(
   application_id,model_key,max_access,created_by_type,created_by_id,created_at,updated_at
 ) VALUES ${accessValues}
-ON CONFLICT(application_id,model_key) DO UPDATE SET
-  max_access=excluded.max_access,
-  updated_at=excluded.updated_at`);
+ON CONFLICT(application_id,model_key) DO UPDATE SET max_access=excluded.max_access,updated_at=excluded.updated_at`);
 
 const space = await jsonRequest(coreBase, "/api/v1/spaces", {
   method: "POST",
   bearer: userBearer,
   body: {
     kind: "personal",
-    name: `Phase 3 staging exit ${smokeId}`,
-    ownerDisplayName: `Phase 3 Owner ${smokeId}`,
+    name: `LifeSpace staging smoke ${smokeId}`,
+    ownerDisplayName: `Staging Owner ${smokeId}`,
     timezone: "UTC",
   },
 });
@@ -345,11 +301,7 @@ const personId = space.payload.data.ownerPersonId;
 const claimantMembership = await jsonRequest(coreBase, `/api/v1/spaces/${spaceId}/members`, {
   method: "POST",
   bearer: userBearer,
-  body: {
-    userId: claimantUserId,
-    role: "editor",
-    displayName: `Phase 3 Claimant ${smokeId}`,
-  },
+  body: { userId: claimantUserId, role: "editor", displayName: `Staging Claimant ${smokeId}` },
 });
 if (claimantMembership.response.status !== 201 || !claimantMembership.payload?.data?.personId) {
   throw new Error(`Staging claimant membership creation failed: ${claimantMembership.response.status} ${JSON.stringify(claimantMembership.payload)}`);

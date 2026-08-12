@@ -9,7 +9,7 @@ const tokenId = process.env.LIFESPACE_STAGING_SMOKE_SERVICE_TOKEN_ID ?? "";
 const CORE_DIR = new URL("../../apps/core/", import.meta.url);
 
 if (!applicationId) {
-  console.log("No Phase 3 staging smoke application was prepared; cleanup is a no-op");
+  console.log("No staging smoke application was prepared; cleanup is a no-op");
   process.exit(0);
 }
 
@@ -20,25 +20,14 @@ function sqlString(value) {
 function runCoreSql(sql) {
   execFileSync(
     "pnpm",
-    [
-      "exec",
-      "wrangler",
-      "d1",
-      "execute",
-      "DB",
-      "--remote",
-      "--env",
-      "staging",
-      "--command",
-      sql,
-    ],
+    ["exec", "wrangler", "d1", "execute", "DB", "--remote", "--env", "staging", "--command", sql],
     { cwd: CORE_DIR, env: process.env, stdio: "inherit" },
   );
 }
 
 async function request(path, { method = "GET", body } = {}) {
   if (!applicationSecret) return null;
-  const response = await fetch(`${identityBase}${path}`, {
+  return fetch(`${identityBase}${path}`, {
     method,
     headers: {
       authorization: `Bearer ${applicationSecret}`,
@@ -46,17 +35,13 @@ async function request(path, { method = "GET", body } = {}) {
     },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
-  return response;
 }
 
 const warnings = [];
-
 if (applicationSecret && principalId && tokenId) {
   try {
     const revoked = await request(`/api/v1/service-principals/${principalId}/tokens/${tokenId}`, { method: "DELETE" });
-    if (revoked && revoked.status !== 204 && revoked.status !== 404) {
-      warnings.push(`Service PAT revocation returned HTTP ${revoked.status}`);
-    }
+    if (revoked && revoked.status !== 204 && revoked.status !== 404) warnings.push(`Service PAT revocation returned HTTP ${revoked.status}`);
   } catch (error) {
     warnings.push(`Service PAT revocation failed: ${error instanceof Error ? error.message : String(error)}`);
   }
@@ -64,13 +49,8 @@ if (applicationSecret && principalId && tokenId) {
 
 if (applicationSecret && principalId) {
   try {
-    const disabled = await request(`/api/v1/service-principals/${principalId}`, {
-      method: "PATCH",
-      body: { status: "disabled" },
-    });
-    if (disabled && disabled.status !== 200 && disabled.status !== 404) {
-      warnings.push(`Service principal disable returned HTTP ${disabled.status}`);
-    }
+    const disabled = await request(`/api/v1/service-principals/${principalId}`, { method: "PATCH", body: { status: "disabled" } });
+    if (disabled && disabled.status !== 200 && disabled.status !== 404) warnings.push(`Service principal disable returned HTTP ${disabled.status}`);
   } catch (error) {
     warnings.push(`Service principal disable failed: ${error instanceof Error ? error.message : String(error)}`);
   }
@@ -90,5 +70,4 @@ console.log(JSON.stringify({
   modelAccessCleanupAttempted: true,
   warnings,
 }, null, 2));
-
 if (warnings.length) process.exitCode = 1;

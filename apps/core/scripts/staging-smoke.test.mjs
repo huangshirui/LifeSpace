@@ -5,11 +5,11 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 const scripts = [
-  new URL("../../../infra/scripts/prepare-phase3-staging-smoke.mjs", import.meta.url),
-  new URL("../../../infra/scripts/cleanup-phase3-staging-smoke.mjs", import.meta.url),
+  new URL("../../../infra/scripts/prepare-staging-smoke.mjs", import.meta.url),
+  new URL("../../../infra/scripts/cleanup-staging-smoke.mjs", import.meta.url),
 ];
 
-test("Phase 3 authenticated staging smoke scripts remain syntax-valid and staging-only", () => {
+test("authenticated staging smoke scripts remain syntax-valid and staging-only", () => {
   for (const url of scripts) {
     const filename = fileURLToPath(url);
     const result = spawnSync(process.execPath, ["--check", filename], { encoding: "utf8" });
@@ -23,7 +23,7 @@ test("Phase 3 authenticated staging smoke scripts remain syntax-valid and stagin
   }
 });
 
-test("Phase 3 staging bootstrap masks ephemeral credentials before job export", () => {
+test("staging bootstrap masks ephemeral credentials before job export", () => {
   const source = readFileSync(fileURLToPath(scripts[0]), "utf8");
   assert.match(source, /::add-mask::/u);
   assert.match(source, /GITHUB_ENV/u);
