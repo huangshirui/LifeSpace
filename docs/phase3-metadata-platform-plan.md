@@ -1,6 +1,6 @@
 # Phase 3 — Metadata-driven / AI-native LifeSpace Platform
 
-Updated: 2026-08-11
+Updated: 2026-08-12
 
 ## 1. Decision
 
@@ -15,6 +15,8 @@ New runtime code should normally be required only when LifeSpace gains a new reu
 This Phase deliberately changes the Phase-2 target domain architecture before HomeMew cutover. There is no compatibility requirement for the Phase-2 Event/Task/Day Record/Wish persistence or public domain contract because no HomeMew production traffic or durable HomeMew data has migrated to LifeSpace yet.
 
 Identity, Space, Membership, Space Person, Data Grant, service authentication, R2, Queue, rate-limit, environment isolation, request tracing and the deployment foundation remain platform assets and are not being rebuilt.
+
+Phase 3 now also includes the performance/physical-storage convergence defined in `docs/phase3-performance-convergence-plan.md`. HomeMew migration remains blocked until that convergence and its staging benchmark pass.
 
 ## 2. Architecture target
 
@@ -32,8 +34,10 @@ LifeSpace
 │   ├── Model Definition DSL
 │   ├── Model Registry
 │   ├── Model Version / publish lifecycle
-│   ├── Generic Resource Storage
-│   ├── Relation / index projection
+│   ├── Runtime Model Descriptor cache
+│   ├── Physical Schema Compiler
+│   ├── Generic Resource Runtime
+│   ├── Relation projection
 │   ├── Generic CRUD / query / pagination
 │   ├── schema validation
 │   └── contract generation
@@ -65,19 +69,23 @@ LifeSpace
 
 Model definitions are validated against a closed, versioned DSL. Model definitions may not contain arbitrary JavaScript, SQL, Worker code, shell commands or unrestricted expressions.
 
-AI Admin may propose model definitions but may never execute arbitrary DDL or arbitrary runtime code. Publication flows through the same validator and registry as every other model change.
+AI Admin may propose model definitions but may never execute arbitrary DDL or arbitrary runtime code. Publication flows through the same validator and registry as every other model change. Any physical DDL is generated deterministically by fixed Core code from a validated definition and approved compatibility/migration plan.
 
 ### 3.2 Registry is the source of truth
 
 The logical model schema is the published Model Registry definition, not the physical D1 representation.
 
-OpenAPI/JSON Schema, runtime validation, route registration, query semantics, authorization requirements and AI draft schemas are derived from the published registry and capability definitions.
+OpenAPI/JSON Schema, runtime validation, route registration, query semantics, authorization requirements, physical schema planning and AI draft schemas are derived from the published registry and capability definitions.
 
-### 3.3 Generic storage is strongly governed
+D1 Registry remains durable authority, but ordinary hot-cache business requests must resolve stable published model metadata from a Worker-isolate Runtime Model Descriptor snapshot. Repeated business requests must not reread and reparse the same Registry row.
 
-Generic JSON persistence is allowed only behind a published model definition and the generic runtime. Clients cannot write undeclared fields. Required fields, types, relations, lifecycle, authorization and capability invariants are validated before persistence.
+### 3.3 Metadata-driven is not universal-JSON storage
 
-Capabilities may own auxiliary tables/indexes when generic storage cannot efficiently or correctly represent their semantics.
+The initial Phase-3 Generic Runtime used `resource_records.data_json`, `resource_relations` and `resource_index_values` to prove that ordinary domain behavior could run without handwritten per-model source code. That representation is an intermediate implementation, not the final physical-storage invariant.
+
+Before HomeMew cutover, ordinary scalar business values converge to deterministic typed model tables generated from validated Model Definitions. Shared record identity/ownership/audit/lifecycle remains generic; relation values remain in shared relation storage; Capabilities may own auxiliary projections when that protects correctness or query performance.
+
+Clients still cannot write undeclared fields. Required fields, types, relations, lifecycle, authorization and capability invariants are validated by the same Generic Runtime. Typed physical tables do not reintroduce handwritten Task/Event/etc. services or routers.
 
 ### 3.4 Kernel data is not an ordinary model
 
@@ -85,9 +93,9 @@ Identity, applications, credentials, Space, membership, Space Person, Data Grant
 
 ### 3.5 No compatibility burden before HomeMew cutover
 
-Phase-2 domain tables/routes may be removed or replaced destructively in staging. No dual-read, dual-write, backfill bridge or legacy LifeSpace domain compatibility facade is required.
+Phase-2 domain tables/routes and the intermediate Phase-3 JSON/index representation may be removed or replaced destructively in staging. No dual-read, dual-write, backfill bridge or legacy LifeSpace domain compatibility facade is required.
 
-HomeMew migration transforms will be updated only after the new target model runtime is stable.
+HomeMew migration transforms will be updated only after the final target model runtime is stable.
 
 ## 4. Model Definition v1
 
@@ -114,8 +122,7 @@ Initial field types:
 - `date`, `datetime`, `timezone`;
 - `enum`;
 - `person`, `person_list` for same-Space Space Person references;
-- `record`, `record_list` for typed model references;
-- `json` only for explicitly bounded capability-owned payloads, not as an escape hatch for undeclared schemas.
+- `record`, `record_list` for typed model references.
 
 Field constraints include required/nullable, min/max, string length, enum values, uniqueness where supported, immutable/read-only flags and relation target constraints.
 
@@ -124,6 +131,7 @@ Field constraints include required/nullable, min/max, string length, enum values
 ```text
 draft
   -> validate
+  -> compatibility + physical schema plan
   -> publish
   -> active
   -> superseded / retired
@@ -131,7 +139,7 @@ draft
 
 Published definitions are immutable. A change creates a new version.
 
-Validation must reject at least:
+Validation/publication must reject at least:
 
 - invalid/reserved model keys or route segments;
 - duplicate fields;
@@ -139,10 +147,12 @@ Validation must reject at least:
 - incompatible relation targets;
 - unsafe or unknown policy/workflow operators;
 - route collisions with Kernel APIs;
-- destructive schema changes without an explicit migration classification;
+- destructive physical schema changes without an explicit safe migration plan;
 - contract generation collisions.
 
 A model publication records actor, timestamp, schema hash and compatibility classification.
+
+Ordinary model publication must not require a GitHub commit, GitHub Action or Worker deployment. Kernel/Identity deployment schema continues to use repository-owned D1 migrations.
 
 ## 6. Generic API target
 
@@ -164,23 +174,42 @@ Workflow actions later use:
 POST /api/v1/spaces/{spaceId}/{modelRoute}/{recordId}/actions/{actionKey}
 ```
 
-The route is resolved to a published model definition; the runtime never dispatches to generated source files.
+The route is resolved to a published Runtime Model Descriptor; the runtime never dispatches to generated per-model source files.
 
 Cross-Space `/api/v1/me/...` aggregate support is model metadata/capability driven and is added after the single-Space runtime is stable.
 
 ## 7. Storage target
 
-Initial generic storage:
+Final pre-HomeMew-cutover ordinary-model persistence:
 
-- `model_definitions` / immutable published model versions;
-- `resource_records` for ordinary model records;
-- `resource_relations` for validated relation projections;
-- `resource_index_values` for declared searchable/filterable/sortable projections where needed;
-- audit metadata either in resource rows plus the existing audit pattern or a generic append-only audit table when required.
+```text
+resource_records
+  id / space_id / model_key / model_version
+  optimistic version / actor audit / timestamps / soft delete
 
-Every resource row keeps exactly one `space_id`, model key/version, optimistic version, actor snapshots, timestamps and soft-delete state.
+mdl_<model_key>
+  record_id -> resource_records.id
+  duplicated space_id for query locality
+  typed scalar business columns generated from Model Definition
 
-Capability-specific auxiliary persistence is allowed when it protects semantics or performance. Calendar and Temporal are expected to need auxiliary projections rather than forcing every concern into `data_json`.
+resource_relations
+  person / record relation values and ordered relation-list entries
+
+Capability projections
+  Calendar / Temporal / future capability-specific persistence and indexes
+```
+
+Rules:
+
+- `resource_records` is the common record catalog/envelope and stable foreign-key target, not a JSON business-data store after convergence.
+- `mdl_<model_key>` table/column/index names and DDL are generated deterministically by the Physical Schema Compiler from validated metadata.
+- `string/text/date/datetime/timezone/enum`, numeric and boolean scalar fields map to closed SQLite storage types; relation fields stay in `resource_relations`.
+- Declared filter/sort requirements generate appropriate model-table indexes where useful. Query plans must use those typed columns rather than `json_extract`.
+- Initial publication can create a typed model table and indexes. Compatible additive changes may add safely representable columns/indexes. Destructive/type-rewriting changes require an explicit physical migration/backfill plan and are rejected when no safe plan exists.
+- `resource_index_values` and `resource_records.data_json` are intermediate Phase-3 structures and must be removed once no supported model/capability path depends on them.
+- Capability-specific auxiliary persistence remains allowed when it protects semantics or performance. Calendar and Temporal continue to use dedicated projections where needed.
+
+Every resource keeps exactly one `space_id` ownership boundary even when that value is duplicated into the model table for query locality.
 
 ## 8. Authorization target
 
@@ -195,7 +224,7 @@ verified principal
 
 Phase 3 introduces a Model Scope Catalog so a model can declare read/write/manage capability without source-code registration.
 
-The implementation must not weaken current immediate membership/Grant/token revocation semantics.
+The implementation must not weaken current immediate membership/Grant/token revocation semantics. Stable Model Definition/routing/query plans may be isolate-cached; mutable authorization state may not be hidden behind a long-lived metadata cache.
 
 Model administration is platform administration, not an ordinary Space write. The first admin API must be service-only and require an explicit platform model-management scope. A normal app/member must never be able to publish model definitions merely because it can manage one Space.
 
@@ -251,6 +280,8 @@ A deterministic generator produces the versioned OpenAPI/JSON Schema publication
 
 Applications continue to pin explicit compatible contract versions; dynamic models do not mean clients consume an unversioned moving contract.
 
+Physical storage details such as `mdl_<model_key>` names are not public API contract fields.
+
 ## 12. Implementation slices
 
 ### 3.0 — Direction reset and normative architecture
@@ -275,13 +306,13 @@ Exit: a validated Task definition can be published/read without adding a Task ru
 
 ### 3.2 — Generic Resource Storage + CRUD
 
-- Add `resource_records` and relation/index projections.
+- Add initial `resource_records` and relation/index projections.
 - Implement generic create/get/update/delete/list/query runtime.
 - Implement optimistic concurrency, soft delete, actor snapshots, stable errors and pagination.
 - Add same-Space Person relation validation.
 - Route published model paths into the generic runtime.
 
-Exit: Task CRUD works solely through its model definition and Generic Runtime.
+Exit: Task CRUD works solely through its model definition and Generic Runtime. The JSON/index representation created here is explicitly intermediate pending 3.10 typed-storage convergence.
 
 ### 3.3 — Model authorization + Scope Catalog
 
@@ -351,11 +382,27 @@ Exit: no supported ordinary domain depends on a handwritten CRUD service.
 
 Exit: a model can be described in natural language, reviewed as a structured diff, published through Registry and immediately used by Generic Runtime.
 
+### 3.10 — Performance / physical-storage convergence
+
+Normative detailed plan: `docs/phase3-performance-convergence-plan.md`.
+
+Required work includes:
+
+- isolate-memory Runtime Model Registry snapshot with compiled descriptors and bounded refresh;
+- eliminate Registry D1 lookups from hot ordinary business requests;
+- remove list/response N+1 D1 behavior and batch shared Space/relation/person context;
+- deterministic Physical Schema Compiler;
+- runtime-created typed `mdl_<model_key>` tables/indexes for ordinary scalar fields;
+- Generic Runtime CRUD/query cutover from `data_json`/`resource_index_values` to typed model tables;
+- preserve shared `resource_records`, relations and Capability projections;
+- minimize mutable authorization D1 round trips without weakening immediate revocation;
+- staging benchmark against measured HomeMew request/I/O baseline.
+
+Exit: the logical metadata architecture remains dynamic while ordinary request performance no longer pays repeated Registry interpretation, N+1 hydration or universal-JSON scalar query costs.
+
 ## 13. Implementation order / proving strategy
 
-Do not attempt Event first.
-
-Use increasing complexity:
+The semantic proving order remains:
 
 ```text
 Task
@@ -363,6 +410,15 @@ Task
   -> Day Record
   -> Event
   -> Creation Draft genericization
+```
+
+For physical-storage/performance convergence, use the same models in increasing complexity after the compiler is proven:
+
+```text
+Task typed storage
+  -> Wish policy
+  -> Day Record + Temporal projection
+  -> Event + Calendar projection
 ```
 
 Task proves ordinary CRUD + relation + workflow.
@@ -374,7 +430,7 @@ The Phase-2 semantic tests are golden behavior references, not persistence/API c
 
 ## 14. Phase 3 exit gate
 
-- [ ] Ordinary models can be added/published without modifying Core runtime source.
+- [ ] Ordinary models can be added/published without modifying Core runtime source or requiring a Worker deployment.
 - [ ] Published model definitions are immutable/versioned and schema-hashed.
 - [ ] Generic Runtime enforces schema, same-Space ownership, authorization, concurrency and soft deletion.
 - [ ] Model authorization works for users and service principals without weakening Data Grant/token revocation.
@@ -384,13 +440,18 @@ The Phase-2 semantic tests are golden behavior references, not persistence/API c
 - [ ] Event runs through the Calendar capability.
 - [ ] Creation Draft discovers supported models from Registry rather than a four-kind hard-coded union.
 - [ ] Phase-2 handwritten domain runtime is removed from target Core.
-- [ ] Staging passes Kernel, Identity, service-auth, R2, Queue and four-domain semantic E2E on the new architecture.
-- [ ] HomeMew migration transforms and client contract are regenerated against the new platform only after the target architecture is stable.
+- [ ] Ordinary scalar business data executes from generated typed model tables rather than the intermediate universal `data_json` representation.
+- [ ] Physical schema planning is deterministic and rejects unsafe destructive changes without an explicit migration/backfill plan.
+- [ ] Hot-cache ordinary business requests perform zero Model Registry D1 lookups.
+- [ ] List/query D1 call count is O(1) with respect to result count; response mapping contains no unapproved per-record D1 lookup.
+- [ ] Common staging request paths meet the D1 round-trip budgets and performance acceptance criteria in `docs/phase3-performance-convergence-plan.md`.
+- [ ] Staging passes Kernel, Identity, service-auth, R2, Queue and four-domain semantic E2E on the final metadata/typed-storage architecture.
+- [ ] HomeMew migration transforms and client contract are regenerated against the final platform only after this architecture is stable.
 
 ## 15. HomeMew sequencing impact
 
 HomeMew native client migration and production data migration are paused until this Phase exits.
 
-This is intentional: adapting HomeMew to Core `0.11.0` and then immediately migrating it again to a metadata-runtime contract would create avoidable client and data migration work.
+This is intentional: adapting HomeMew to an intermediate Generic Runtime representation and then immediately migrating it again to the typed metadata-runtime target would create avoidable client and data migration work.
 
-After Phase 3, HomeMew will pin the new generated Core contract and migration tooling will transform the HomeMew source snapshot directly into the final metadata-driven target instead of into the discarded Phase-2 intermediate domain schema.
+After Phase 3, HomeMew will pin the new generated Core contract and migration tooling will transform the HomeMew source snapshot directly into the final metadata-driven typed-storage target instead of into a discarded intermediate schema.
