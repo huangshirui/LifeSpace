@@ -56,9 +56,12 @@ describe("Generic Workflow Engine", () => {
     expect(typeof completed.data.completedAt).toBe("string");
     expect(Number.isNaN(Date.parse(completed.data.completedAt as string))).toBe(false);
 
-    const statusIndex = await db.prepare(`SELECT text_value FROM resource_index_values
-      WHERE record_id=? AND field_key='status'`).bind(resource.id).first<{ text_value: string }>();
-    expect(statusIndex?.text_value).toBe("completed");
+    const typed = await db.prepare(`SELECT status,completedByType,completedById,completedAt FROM mdl_task WHERE record_id=?`)
+      .bind(resource.id).first<{ status: string; completedByType: string; completedById: string; completedAt: string }>();
+    expect(typed?.status).toBe("completed");
+    expect(typed?.completedByType).toBe("service");
+    expect(typed?.completedById).toBe(serviceActor.id);
+    expect(typed?.completedAt).toBe(completed.data.completedAt);
 
     await expect(executeWorkflowAction(bindings(), serviceActor, spaceId, model, resource.id, "complete", 2))
       .rejects.toMatchObject({ code: "TASK_ALREADY_COMPLETED", status: 409 });
