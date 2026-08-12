@@ -282,9 +282,16 @@ export async function createGenericResource(
   ];
   if (extension) statements.push(...await extension({ env, principal, recordId: id, spaceId, model, timestamp }));
   await env.DB.batch(statements);
-  const created = await getTypedResource(env, spaceId, model, id);
-  if (!created) throw new ApiError("RESOURCE_STORAGE_INCONSISTENT", "Created resource could not be read back", 500);
-  return created;
+  return {
+    id,
+    spaceId,
+    modelKey: model.key,
+    modelVersion: model.version,
+    data,
+    version: 1,
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  };
 }
 
 export async function getGenericResource(
@@ -308,9 +315,12 @@ export async function updateGenericResource(
   input: unknown,
   mutationMode: "client" | "action" = "client",
   extension?: ResourceMutationExtension,
+  previousResource?: GenericResource,
 ): Promise<GenericResource> {
-  const previous = await getTypedResource(env, spaceId, model, recordId);
-  if (!previous) throw new ApiError("RESOURCE_NOT_FOUND", "Resource not found", 404);
+  const previous = previousResource ?? await getTypedResource(env, spaceId, model, recordId);
+  if (!previous || previous.id !== recordId || previous.spaceId !== spaceId || previous.modelKey !== model.key) {
+    throw new ApiError("RESOURCE_NOT_FOUND", "Resource not found", 404);
+  }
   if (previous.version !== expectedVersion) throw new ApiError("VERSION_CONFLICT", "Resource version is stale", 409);
 
   const data = validateResourceData(model.definition, input, mutationMode === "action" ? "action" : "update", previous.data);
@@ -330,9 +340,16 @@ export async function updateGenericResource(
   statements.push(env.DB.prepare("UPDATE resource_records SET mutation_token=NULL WHERE id=? AND mutation_token=?").bind(recordId, mutationToken));
   const results = await env.DB.batch(statements);
   if (!results[0].meta.changes) throw new ApiError("VERSION_CONFLICT", "Resource version is stale", 409);
-  const updated = await getTypedResource(env, spaceId, model, recordId);
-  if (!updated) throw new ApiError("RESOURCE_STORAGE_INCONSISTENT", "Updated resource could not be read back", 500);
-  return updated;
+  return {
+    id: recordId,
+    spaceId,
+    modelKey: model.key,
+    modelVersion: model.version,
+    data,
+    version: nextVersion,
+    createdAt: previous.createdAt,
+    updatedAt: timestamp,
+  };
 }
 
 export async function deleteGenericResource(
