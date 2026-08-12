@@ -1,17 +1,31 @@
 import { describe, expect, it } from "vitest";
-import { TASK_MODEL_DEFINITION, WISH_MODEL_DEFINITION } from "../src/builtin-models";
+import {
+  DAY_RECORD_MODEL_DEFINITION,
+  EVENT_MODEL_DEFINITION,
+  TASK_MODEL_DEFINITION,
+  WISH_MODEL_DEFINITION,
+} from "../src/builtin-models";
 import { generateModelContract } from "../src/model-contract";
 import type { PublishedModel } from "../src/model-registry";
 
-function published(key: "task" | "wish"): PublishedModel {
-  const definition = key === "task" ? TASK_MODEL_DEFINITION : WISH_MODEL_DEFINITION;
+const definitions = {
+  task: TASK_MODEL_DEFINITION,
+  wish: WISH_MODEL_DEFINITION,
+  day_record: DAY_RECORD_MODEL_DEFINITION,
+  event: EVENT_MODEL_DEFINITION,
+} as const;
+
+type Key = keyof typeof definitions;
+
+function published(key: Key): PublishedModel {
+  const definition = definitions[key];
   return {
     id: `mdl_${key}`,
     key,
     route: definition.route,
-    version: 1,
+    version: key === "wish" ? 3 : key === "task" || key === "event" ? 2 : 1,
     state: "published",
-    schemaHash: key === "task" ? "1".repeat(64) : "2".repeat(64),
+    schemaHash: ({ task: "1", wish: "2", day_record: "3", event: "4" } as const)[key].repeat(64),
     compatibility: "initial",
     definition,
     publishedAt: "2026-08-11T00:00:00.000Z",
@@ -51,6 +65,18 @@ describe("Model Contract Generator", () => {
     expect(generatedPaths["/api/v1/spaces/{spaceId}/wishes/{recordId}/actions/restore"]?.post).toBeTruthy();
   });
 
+  it("derives server defaults without making defaulted required fields client-required", async () => {
+    const snapshot = await generateModelContract([published("task")]);
+    const taskCreate = schemas(snapshot).TaskCreate as {
+      properties: Record<string, { default?: unknown }>;
+      required: string[];
+    };
+
+    expect(taskCreate.properties.status?.default).toBe("pending");
+    expect(taskCreate.required).toContain("name");
+    expect(taskCreate.required).not.toContain("status");
+  });
+
   it("derives writable/create/update schemas without exposing read-only or immutable mutations", async () => {
     const snapshot = await generateModelContract([published("task"), published("wish")]);
     const generatedSchemas = schemas(snapshot);
@@ -68,9 +94,58 @@ describe("Model Contract Generator", () => {
     expect(wishUpdate.properties.title).toBeTruthy();
   });
 
+  it("contributes Temporal computed/query/occurrence contracts", async () => {
+    const snapshot = await generateModelContract([published("day_record")]);
+    const generatedPaths = paths(snapshot);
+    const generatedSchemas = schemas(snapshot);
+    const list = generatedPaths["/api/v1/spaces/{spaceId}/day-records"]?.get as {
+      parameters: Array<{ name: string; schema?: { enum?: string[] } }>;
+    };
+    const names = list.parameters.map((parameter) => parameter.name);
+    const sort = list.parameters.find((parameter) => parameter.name === "sort")?.schema?.enum ?? [];
+
+    expect(names).toContain("attentionOnly");
+    expect(sort).toContain("attention:desc");
+    expect(sort).toContain("effectiveDate:asc");
+    expect(generatedPaths["/api/v1/spaces/{spaceId}/day-records/{recordId}/occurrences"]?.get).toBeTruthy();
+    expect(generatedPaths["/api/v1/spaces/{spaceId}/day-records/{recordId}/actions/record-occurrence"]?.post).toBeTruthy();
+
+    const resource = generatedSchemas.DayRecordResource as {
+      properties: { computed?: { properties?: { temporal?: unknown } } };
+    };
+    expect(resource.properties.computed?.properties?.temporal).toBeTruthy();
+
+    const metadata = snapshot.jsonSchema["x-lifespace-models"] as Record<string, { actions: string[]; capabilities: string[] }>;
+    expect(metadata.day_record.actions).toContain("record-occurrence");
+    expect(metadata.day_record.capabilities).toContain("temporal");
+  });
+
+  it("contributes Calendar mode and dual-window query contracts", async () => {
+    const snapshot = await generateModelContract([published("event")]);
+    const generatedPaths = paths(snapshot);
+    const generatedSchemas = schemas(snapshot);
+    const list = generatedPaths["/api/v1/spaces/{spaceId}/events"]?.get as {
+      parameters: Array<{ name: string; schema?: { enum?: string[] } }>;
+    };
+    const names = list.parameters.map((parameter) => parameter.name);
+    const sort = list.parameters.find((parameter) => parameter.name === "sort")?.schema?.enum ?? [];
+
+    expect(names).toEqual(expect.arrayContaining(["rangeStart", "rangeEnd", "dateStart", "dateEndExclusive"]));
+    expect(sort).toContain("calendarStart:asc");
+    expect(sort).toContain("calendarStart:desc");
+
+    const create = generatedSchemas.EventCreate as { allOf?: Array<{ oneOf?: unknown[] }> };
+    expect(create.allOf?.[0]?.oneOf).toHaveLength(2);
+
+    const metadata = snapshot.jsonSchema["x-lifespace-models"] as Record<string, { capabilities: string[] }>;
+    expect(metadata.event.capabilities).toContain("calendar");
+  });
+
   it("derives list query parameters and JSON Schema model metadata", async () => {
     const snapshot = await generateModelContract([published("task")]);
-    const taskList = paths(snapshot)["/api/v1/spaces/{spaceId}/tasks"]?.get as { parameters: Array<{ name: string; schema?: unknown }> };
+    const taskList = paths(snapshot)["/api/v1/spaces/{spaceId}/tasks"]?.get as {
+      parameters: Array<{ name: string; schema?: unknown }>;
+    };
     const names = taskList.parameters.map((parameter) => parameter.name);
     expect(names).toContain("q");
     expect(names).toContain("status");
