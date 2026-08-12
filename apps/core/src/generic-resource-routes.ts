@@ -113,7 +113,7 @@ export function registerGenericResourceRoutes(app: App): void {
     if (!Object.keys(changes).length) throw new ApiError("INVALID_REQUEST", "At least one resource field change is required", 400);
     const prepared = await prepareCapabilityUpdatePolicyInput(context.env, spaceId, resolved, context.req.param("recordId"), changes);
     await requireModelPolicy(context.env, principal, spaceId, resolved, "update", prepared.resource, prepared.prepared, { personId: access.actorPersonId });
-    const updated = await updateCapabilityAwareResource(context.env, principal, spaceId, resolved, prepared.resource.id, expected, changes);
+    const updated = await updateCapabilityAwareResource(context.env, principal, spaceId, resolved, prepared.resource.id, expected, changes, prepared.resource);
     return context.json(success(await dto(context.env, spaceId, resolved, updated)));
   });
 
@@ -153,14 +153,23 @@ export function registerGenericResourceRoutes(app: App): void {
     if (!actionKey) throw new ApiError("ACTION_NOT_FOUND", "Action not found", 404);
     const capabilityAccess = capabilityActionAccess(resolved, actionKey);
     const requiredAccess = capabilityAccess ?? workflowActionAccess(resolved, actionKey);
-    await requireModelAccess(context.env, context.get("principal"), spaceId, resolved, requiredAccess);
+    const access = await requireModelAccess(context.env, context.get("principal"), spaceId, resolved, requiredAccess);
     const input = await body(context);
     if (capabilityAccess) {
       const updated = await executeCapabilityAction(context.env, context.get("principal"), spaceId, resolved, context.req.param("recordId"), actionKey, input);
       return context.json(success(await dto(context.env, spaceId, resolved, updated)));
     }
     if (Object.keys(input).some((key) => key !== "version")) throw new ApiError("INVALID_REQUEST", "Action accepts only version in Model Definition v1", 400);
-    const updated = await executeWorkflowAction(context.env, context.get("principal"), spaceId, resolved, context.req.param("recordId"), actionKey, positiveVersion(input.version));
+    const updated = await executeWorkflowAction(
+      context.env,
+      context.get("principal"),
+      spaceId,
+      resolved,
+      context.req.param("recordId"),
+      actionKey,
+      positiveVersion(input.version),
+      { personId: access.actorPersonId },
+    );
     return context.json(success(await dto(context.env, spaceId, resolved, updated)));
   });
 }
