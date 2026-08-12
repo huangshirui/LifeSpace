@@ -1,7 +1,9 @@
 import type { Bindings, Principal } from "./env";
-import { getGenericResource, type GenericResource } from "./generic-resource";
+import type { GenericResource } from "./generic-resource";
 import { ApiError } from "./http";
 import type { PublishedModel } from "./model-registry";
+import { getTypedResourcesByIds } from "./typed-resource-batch";
+import { typedScalarExpression, typedTableSql } from "./typed-resource-storage";
 
 type Cursor = { v: 1; modelKey: string; signature: string; sort: string; key: string; id: string };
 type Row = { id: string; sort_key: string };
@@ -66,8 +68,12 @@ export async function queryCalendarResources(env: Bindings, principal: Principal
   if (attendee === "me") attendee = await mePerson(env, principal, spaceId);
   const sort = params.get("sort") ?? "calendarStart:asc";
   if (!["calendarStart:asc", "calendarStart:desc"].includes(sort)) throw new ApiError("INVALID_QUERY", "Unsupported Calendar sort", 400);
-  const j = (field: string) => `json_extract(r.data_json,'$.${field}')`;
-  const allDay = j(c.allDayField), startAt = j(c.timedStartField), endAt = j(c.timedEndField), startDate = j(c.allDayStartField), endDate = j(c.allDayEndExclusiveField);
+  const s = (field: string) => typedScalarExpression(model, field, "m");
+  const allDay = s(c.allDayField);
+  const startAt = s(c.timedStartField);
+  const endAt = s(c.timedEndField);
+  const startDate = s(c.allDayStartField);
+  const endDate = s(c.allDayEndExclusiveField);
   const where = ["r.space_id=?", "r.model_key=?", "r.deleted_at IS NULL"];
   const args: unknown[] = [spaceId, model.key];
   if (rangeStart || dateStart) {
@@ -76,15 +82,15 @@ export async function queryCalendarResources(env: Bindings, principal: Principal
     if (dateStart && dateEnd) { overlap.push(`(${allDay}=1 AND ${startDate}<? AND ${endDate}>?)`); args.push(dateEnd, dateStart); }
     where.push(`(${overlap.join(" OR ")})`);
   }
-  if (params.get("status")) { where.push(`${j("status") }=?`); args.push(params.get("status")); }
+  if (params.get("status")) { where.push(`${s("status") }=?`); args.push(params.get("status")); }
   if (attendee && c.attendeePersonField) {
-    where.push(`EXISTS(SELECT 1 FROM resource_relations rr WHERE rr.source_record_id=r.id AND rr.field_key=? AND rr.target_person_id=?)`);
+    where.push("EXISTS(SELECT 1 FROM resource_relations rr WHERE rr.source_record_id=r.id AND rr.field_key=? AND rr.target_type='person' AND rr.target_person_id=?)");
     args.push(c.attendeePersonField, attendee);
   }
   const q = params.get("q")?.trim();
   if (q) {
     const fields = model.definition.query?.searchable ?? [];
-    where.push(`(${fields.map((field) => `instr(lower(COALESCE(${j(field)},'')),lower(?))>0`).join(" OR ")})`);
+    where.push(`(${fields.map((field) => `instr(lower(COALESCE(${s(field)},'')),lower(?))>0`).join(" OR ")})`);
     args.push(...fields.map(() => q));
   }
   const sortExpr = `CASE WHEN ${allDay}=1 THEN ${startDate} ELSE ${startAt} END`;
@@ -93,9 +99,12 @@ export async function queryCalendarResources(env: Bindings, principal: Principal
   const asc = sort.endsWith(":asc");
   if (cursor) { const op = asc ? ">" : "<"; where.push(`(${sortExpr}${op}? OR (${sortExpr}=? AND r.id${op}?))`); args.push(cursor.key, cursor.key, cursor.id); }
   const pageLimit = limit(params.get("limit")); args.push(pageLimit + 1);
-  const rows = await env.DB.prepare(`SELECT r.id,${sortExpr} sort_key FROM resource_records r WHERE ${where.join(" AND ")} ORDER BY sort_key ${asc ? "ASC" : "DESC"},r.id ${asc ? "ASC" : "DESC"} LIMIT ?`).bind(...args).all<Row>();
+  const rows = await env.DB.prepare(`SELECT r.id,${sortExpr} sort_key
+    FROM resource_records r JOIN ${typedTableSql(model)} m ON m.record_id=r.id AND m.space_id=r.space_id
+    WHERE ${where.join(" AND ")} ORDER BY sort_key ${asc ? "ASC" : "DESC"},r.id ${asc ? "ASC" : "DESC"} LIMIT ?`)
+    .bind(...args).all<Row>();
   const page = rows.results.slice(0, pageLimit);
-  const items = (await Promise.all(page.map((row) => getGenericResource(env, spaceId, model.key, row.id)))).filter((item): item is GenericResource => Boolean(item));
+  const items = await getTypedResourcesByIds(env, spaceId, model, page.map((row) => row.id));
   const last = page.at(-1);
   return { items, nextCursor: rows.results.length > pageLimit && last ? encode({ v: 1, modelKey: model.key, signature: sig, sort, key: last.sort_key, id: last.id }) : null };
 }
