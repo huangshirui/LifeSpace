@@ -41,10 +41,6 @@ async function model(context: Context<AppEnv>): Promise<PublishedModel> {
   if (!resolved) throw new ApiError("MODEL_NOT_FOUND", "Published model not found", 404);
   return resolved;
 }
-async function requireActiveSpace(env: Bindings, spaceId: string) {
-  const row = await env.DB.prepare("SELECT id FROM spaces WHERE id=? AND deleted_at IS NULL").bind(spaceId).first<{ id: string }>();
-  if (!row) throw new ApiError("SPACE_NOT_FOUND", "Space not found", 404);
-}
 async function dto(
   env: Bindings,
   spaceId: string,
@@ -68,11 +64,10 @@ async function dto(
 export function registerGenericResourceRoutes(app: App): void {
   app.get("/api/v1/spaces/:spaceId/:modelRoute", async (context) => {
     const spaceId = context.req.param("spaceId");
-    await requireActiveSpace(context.env, spaceId);
     const resolved = await model(context);
     const principal = context.get("principal");
-    await requireModelAccess(context.env, principal, spaceId, resolved, "read");
-    await requireModelPolicy(context.env, principal, spaceId, resolved, "read");
+    const access = await requireModelAccess(context.env, principal, spaceId, resolved, "read");
+    await requireModelPolicy(context.env, principal, spaceId, resolved, "read", undefined, undefined, { personId: access.actorPersonId });
     const params = new URL(context.req.url).searchParams;
     const result = isTemporalSpecialQuery(resolved, params)
       ? await queryTemporalResources(context.env, principal, spaceId, resolved, params)
@@ -86,56 +81,52 @@ export function registerGenericResourceRoutes(app: App): void {
 
   app.post("/api/v1/spaces/:spaceId/:modelRoute", async (context) => {
     const spaceId = context.req.param("spaceId");
-    await requireActiveSpace(context.env, spaceId);
     const resolved = await model(context);
     const principal = context.get("principal");
-    await requireModelAccess(context.env, principal, spaceId, resolved, "write");
+    const access = await requireModelAccess(context.env, principal, spaceId, resolved, "write");
     const input = await body(context);
     const prepared = prepareCapabilityCreateInput(resolved, input);
-    await requireModelPolicy(context.env, principal, spaceId, resolved, "create", undefined, prepared);
+    await requireModelPolicy(context.env, principal, spaceId, resolved, "create", undefined, prepared, { personId: access.actorPersonId });
     const created = await createCapabilityAwareResource(context.env, principal, spaceId, resolved, prepared);
     return context.json(success(await dto(context.env, spaceId, resolved, created)), 201);
   });
 
   app.get("/api/v1/spaces/:spaceId/:modelRoute/:recordId", async (context) => {
     const spaceId = context.req.param("spaceId");
-    await requireActiveSpace(context.env, spaceId);
     const resolved = await model(context);
     const principal = context.get("principal");
-    await requireModelAccess(context.env, principal, spaceId, resolved, "read");
-    const resource = await getGenericResource(context.env, spaceId, resolved.key, context.req.param("recordId"));
+    const access = await requireModelAccess(context.env, principal, spaceId, resolved, "read");
+    const resource = await getGenericResource(context.env, spaceId, resolved, context.req.param("recordId"));
     if (!resource) throw new ApiError("RESOURCE_NOT_FOUND", "Resource not found", 404);
-    await requireModelPolicy(context.env, principal, spaceId, resolved, "read", resource);
+    await requireModelPolicy(context.env, principal, spaceId, resolved, "read", resource, undefined, { personId: access.actorPersonId });
     return context.json(success(await dto(context.env, spaceId, resolved, resource)));
   });
 
   app.patch("/api/v1/spaces/:spaceId/:modelRoute/:recordId", async (context) => {
     const spaceId = context.req.param("spaceId");
-    await requireActiveSpace(context.env, spaceId);
     const resolved = await model(context);
     const principal = context.get("principal");
-    await requireModelAccess(context.env, principal, spaceId, resolved, "write");
+    const access = await requireModelAccess(context.env, principal, spaceId, resolved, "write");
     const input = await body(context);
     const expected = positiveVersion(input.version);
     const changes = Object.fromEntries(Object.entries(input).filter(([key]) => key !== "version"));
     if (!Object.keys(changes).length) throw new ApiError("INVALID_REQUEST", "At least one resource field change is required", 400);
     const prepared = await prepareCapabilityUpdatePolicyInput(context.env, spaceId, resolved, context.req.param("recordId"), changes);
-    await requireModelPolicy(context.env, principal, spaceId, resolved, "update", prepared.resource, prepared.prepared);
+    await requireModelPolicy(context.env, principal, spaceId, resolved, "update", prepared.resource, prepared.prepared, { personId: access.actorPersonId });
     const updated = await updateCapabilityAwareResource(context.env, principal, spaceId, resolved, prepared.resource.id, expected, changes);
     return context.json(success(await dto(context.env, spaceId, resolved, updated)));
   });
 
   app.delete("/api/v1/spaces/:spaceId/:modelRoute/:recordId", async (context) => {
     const spaceId = context.req.param("spaceId");
-    await requireActiveSpace(context.env, spaceId);
     const resolved = await model(context);
     const principal = context.get("principal");
-    await requireModelAccess(context.env, principal, spaceId, resolved, "write");
+    const access = await requireModelAccess(context.env, principal, spaceId, resolved, "write");
     const input = await body(context);
     if (Object.keys(input).some((key) => key !== "version")) throw new ApiError("INVALID_REQUEST", "Delete accepts only version", 400);
-    const resource = await getGenericResource(context.env, spaceId, resolved.key, context.req.param("recordId"));
+    const resource = await getGenericResource(context.env, spaceId, resolved, context.req.param("recordId"));
     if (!resource) throw new ApiError("RESOURCE_NOT_FOUND", "Resource not found", 404);
-    await requireModelPolicy(context.env, principal, spaceId, resolved, "delete", resource);
+    await requireModelPolicy(context.env, principal, spaceId, resolved, "delete", resource, undefined, { personId: access.actorPersonId });
     await deleteGenericResource(context.env, principal, spaceId, resolved, resource.id, positiveVersion(input.version));
     return context.body(null, 204);
   });
@@ -144,10 +135,10 @@ export function registerGenericResourceRoutes(app: App): void {
     const spaceId = context.req.param("spaceId");
     const resolved = await model(context);
     const principal = context.get("principal");
-    await requireModelAccess(context.env, principal, spaceId, resolved, "read");
-    const resource = await getGenericResource(context.env, spaceId, resolved.key, context.req.param("recordId"));
+    const access = await requireModelAccess(context.env, principal, spaceId, resolved, "read");
+    const resource = await getGenericResource(context.env, spaceId, resolved, context.req.param("recordId"));
     if (!resource) throw new ApiError("RESOURCE_NOT_FOUND", "Resource not found", 404);
-    await requireModelPolicy(context.env, principal, spaceId, resolved, "read", resource);
+    await requireModelPolicy(context.env, principal, spaceId, resolved, "read", resource, undefined, { personId: access.actorPersonId });
     const rawLimit = new URL(context.req.url).searchParams.get("limit");
     const limit = rawLimit === null ? 100 : Number(rawLimit);
     if (!Number.isInteger(limit) || limit < 1 || limit > 200) throw new ApiError("INVALID_QUERY", "limit must be between 1 and 200", 400);
@@ -157,7 +148,6 @@ export function registerGenericResourceRoutes(app: App): void {
 
   app.post("/api/v1/spaces/:spaceId/:modelRoute/:recordId/actions/:actionKey", async (context) => {
     const spaceId = context.req.param("spaceId");
-    await requireActiveSpace(context.env, spaceId);
     const resolved = await model(context);
     const actionKey = context.req.param("actionKey");
     if (!actionKey) throw new ApiError("ACTION_NOT_FOUND", "Action not found", 404);
