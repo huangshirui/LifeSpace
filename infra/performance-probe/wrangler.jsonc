@@ -1,0 +1,9 @@
+{
+  "$schema": "../../apps/core/node_modules/wrangler/config-schema.json",
+  "name": "lifespace-staging-apac-performance-probe",
+  "main": "worker.mjs",
+  "compatibility_date": "2026-08-08",
+  "workers_dev": true,
+  "placement": { "region": "aws:ap-southeast-1" },
+  "limits": { "subrequests": 2 }
+}
