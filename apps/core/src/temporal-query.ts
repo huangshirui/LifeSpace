@@ -1,9 +1,11 @@
 import type { Bindings, Principal } from "./env";
-import { getGenericResource, type GenericResource } from "./generic-resource";
+import type { GenericResource } from "./generic-resource";
 import { ApiError } from "./http";
 import type { PublishedModel } from "./model-registry";
 import { spaceToday } from "./day-calculation";
 import { loadSpaceTemporalContext } from "./temporal-capability";
+import { getTypedResourcesByIds } from "./typed-resource-batch";
+import { typedScalarExpression, typedTableSql } from "./typed-resource-storage";
 
 type Cursor = { v: 1; modelKey: string; signature: string; sort: string; key: string | number; id: string };
 type Row = { id: string; sort_key: string | number };
@@ -56,22 +58,30 @@ export async function queryTemporalResources(env: Bindings, principal: Principal
   if (subject === "me") subject = await mePerson(env, principal, spaceId);
   const space = await loadSpaceTemporalContext(env, spaceId);
   const today = spaceToday(space.timezone);
-  const j = (field: string) => `json_extract(r.data_json,'$.${field}')`;
-  const kind = j(t.kindField), anchor = j(t.anchorDateField), cycle = j(t.cycleDaysField), before = j(t.attentionBeforeDaysField), after = j(t.attentionAfterDaysField), status = j(t.statusField);
+  const s = (field: string) => typedScalarExpression(model, field, "m");
+  const kind = s(t.kindField);
+  const anchor = s(t.anchorDateField);
+  const cycle = s(t.cycleDaysField);
+  const before = s(t.attentionBeforeDaysField);
+  const after = s(t.attentionAfterDaysField);
+  const status = s(t.statusField);
   const effective = `CASE WHEN ${kind}='cycle' THEN date(${anchor},'+'||CAST(${cycle} AS TEXT)||' days') ELSE ${anchor} END`;
   const attention = `CASE WHEN ${status}!='active' THEN -1000000000 WHEN ${kind}='elapsed' AND ${after} IS NOT NULL AND julianday(c.today)-julianday(${anchor})>=${after} THEN CAST(julianday(c.today)-julianday(${anchor})-${after} AS INTEGER) WHEN ${kind}='countdown' AND ${before} IS NOT NULL AND julianday(${anchor})-julianday(c.today)<=${before} THEN CAST(${before}-(julianday(${anchor})-julianday(c.today)) AS INTEGER) WHEN ${kind}='cycle' AND ${before} IS NOT NULL AND julianday(${effective})-julianday(c.today)<=${before} THEN CAST(${before}-(julianday(${effective})-julianday(c.today)) AS INTEGER) ELSE -1000000000 END`;
   const where = ["r.space_id=?", "r.model_key=?", "r.deleted_at IS NULL"];
   const args: unknown[] = [today, spaceId, model.key];
   if (params.get("kind")) { where.push(`${kind}=?`); args.push(params.get("kind")); }
   if (params.get("status")) { where.push(`${status}=?`); args.push(params.get("status")); }
-  if (subject && t.subjectPersonField) { where.push(`${j(t.subjectPersonField)}=?`); args.push(subject); }
+  if (subject && t.subjectPersonField) {
+    where.push("EXISTS(SELECT 1 FROM resource_relations rr WHERE rr.source_record_id=r.id AND rr.field_key=? AND rr.target_type='person' AND rr.target_person_id=?)");
+    args.push(t.subjectPersonField, subject);
+  }
   if (params.get("anchorDateFrom")) { where.push(`${anchor}>=?`); args.push(params.get("anchorDateFrom")); }
   if (params.get("anchorDateTo")) { where.push(`${anchor}<=?`); args.push(params.get("anchorDateTo")); }
   if (attentionOnly) where.push(`${attention}>-1000000000`);
   const q = params.get("q")?.trim();
   if (q) {
     const fields = model.definition.query?.searchable ?? [];
-    where.push(`(${fields.map((field) => `instr(lower(COALESCE(${j(field)},'')),lower(?))>0`).join(" OR ")})`);
+    where.push(`(${fields.map((field) => `instr(lower(COALESCE(${s(field)},'')),lower(?))>0`).join(" OR ")})`);
     args.push(...fields.map(() => q));
   }
   const signature = querySignature(params);
@@ -86,10 +96,14 @@ export async function queryTemporalResources(env: Bindings, principal: Principal
   }
   const limit = parseLimit(params.get("limit")); args.push(limit + 1);
   const order = sort === "attention:desc" ? "attention_score DESC,id DESC" : `effective_date ${asc ? "ASC" : "DESC"},id ${asc ? "ASC" : "DESC"}`;
-  const rows = await env.DB.prepare(`WITH constants(today) AS (VALUES (?)), scoped AS (SELECT r.id,${effective} effective_date,${attention} attention_score FROM resource_records r CROSS JOIN constants c WHERE ${where.join(" AND ")}) SELECT id,${sortColumn} sort_key FROM scoped ${cursorWhere} ORDER BY ${order} LIMIT ?`)
+  const rows = await env.DB.prepare(`WITH constants(today) AS (VALUES (?)), scoped AS (
+    SELECT r.id,${effective} effective_date,${attention} attention_score
+    FROM resource_records r JOIN ${typedTableSql(model)} m ON m.record_id=r.id AND m.space_id=r.space_id
+    CROSS JOIN constants c WHERE ${where.join(" AND ")}
+  ) SELECT id,${sortColumn} sort_key FROM scoped ${cursorWhere} ORDER BY ${order} LIMIT ?`)
     .bind(...args).all<Row>();
   const page = rows.results.slice(0, limit);
-  const items = (await Promise.all(page.map((row) => getGenericResource(env, spaceId, model.key, row.id)))).filter((item): item is GenericResource => Boolean(item));
+  const items = await getTypedResourcesByIds(env, spaceId, model, page.map((row) => row.id));
   const last = page.at(-1);
   return { items, nextCursor: rows.results.length > limit && last ? encode({ v: 1, modelKey: model.key, signature, sort, key: last.sort_key, id: last.id }) : null };
 }
