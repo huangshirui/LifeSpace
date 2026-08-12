@@ -140,7 +140,7 @@ async function fixture() {
     return createApp().request(`http://localhost${path}`, { ...init, headers }, bindings);
   }
 
-  return { counter, request, spaceId, records };
+  return { DB, counter, request, spaceId, records };
 }
 
 async function measured(
@@ -161,9 +161,8 @@ describe("Core D1 round-trip budgets", () => {
     const f = await fixture();
 
     f.counter.roundTrips = 0;
-    expect(await getRuntimeModelByRoute({ DB: (undefined as never) }, "tasks").catch(() => null)).toBeNull();
-    // The real request binding is already warmed by fixture; request assertions
-    // below therefore include zero Registry D1 round-trips.
+    expect(await getRuntimeModelByRoute({ DB: f.DB } as Bindings, "tasks")).not.toBeNull();
+    expect(f.counter.roundTrips).toBe(0);
 
     const list = await measured(
       f.counter,
