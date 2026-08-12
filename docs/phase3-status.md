@@ -1,16 +1,16 @@
 # Phase 3 Status — Metadata-driven Platform Runtime
 
-Status: **repository implementation complete; base staging deployment passed; authenticated staging exit pending**
+Status: **technical implementation complete; authenticated staging exit passed**
 
 Draft PR: #20 (`phase3-metadata-platform`)
 
-HomeMew Phase 4 remains blocked until the authenticated staging exit workflow passes at the exact PR head.
+Phase 3 has reached its technical exit criteria. HomeMew production/client cutover has **not** started and production LifeSpace resources were not touched.
 
 ## Target invariant
 
 > Adding an ordinary LifeSpace business model must not require modifying Core Runtime source code.
 
-Phase 3 changes the unit of Core development from “one service/router/table per domain model” to reusable platform primitives:
+The target runtime is now:
 
 ```text
 Kernel
@@ -21,8 +21,7 @@ Kernel
   Creation Draft orchestration
 
 Generic Runtime
-  schema validation
-  declarative defaults
+  schema validation / defaults
   CRUD / query / cursor
   relation and index projections
   optimistic concurrency
@@ -43,27 +42,12 @@ Model Definitions
   Wish
   Day Record
   Event
-  future ordinary models
+  future ordinary models without Core CRUD source changes
 ```
 
-## Repository implementation
+## Implemented platform behavior
 
-### Model platform
-
-Implemented:
-
-- closed Model Definition v1;
-- model/field semantic descriptions;
-- static server defaults;
-- immutable published model versions;
-- deterministic canonical schema hashes;
-- explicit `initial | compatible | breaking` classification;
-- Application × Model access catalog;
-- stable `resources:read | resources:write | resources:manage` scopes;
-- Generic Resource persistence, relation/index projections, CRUD and query;
-- optimistic concurrency, soft deletion and actor audit.
-
-Identity does not mint per-model token scopes. Effective ordinary-model authority is:
+Ordinary-model authorization is the intersection of:
 
 ```text
 verified principal
@@ -74,33 +58,11 @@ verified principal
 ∩ model policy/Capability restrictions
 ```
 
-Publishing a new ordinary model therefore does not require an Identity runtime or application-scope vocabulary change.
+Identity does not mint one token-scope vocabulary per model. Publishing a new ordinary model therefore does not require an Identity runtime change; application access is governed by Core's Application × Model catalog.
 
-### Engines
+Published Model Definitions are validated, immutable by version, schema-hashed and compatibility-classified. Generic Resource Runtime owns schema/default validation, CRUD/query, relation integrity, optimistic concurrency, soft deletion and actor audit. Policy and Workflow use bounded declarative ASTs rather than arbitrary code.
 
-Policy and Workflow use bounded declarative ASTs, not arbitrary code.
-
-Workflow supports:
-
-- state/value guards;
-- actor/time/record references;
-- deterministic field assignment;
-- bounded conditional branches;
-- bounded active-Person relation conditions.
-
-This is sufficient for Task lifecycle and Wish lifecycle, including the Phase-2 removed-claimant restore fallback, without Wish-specific runtime code.
-
-### Capabilities
-
-Temporal owns elapsed/countdown/cycle semantics, Space-timezone date calculation, occurrence history, atomic advancement, attention/effective-date query and contract contribution.
-
-Calendar owns timed/all-day normalization, IANA timezone labels, half-open overlap semantics, attendee relations, calendar sorting and contract contribution.
-
-Capability code is registered platform code. Model metadata cannot name unknown capabilities or inject SQL/JavaScript/network calls.
-
-### Model contracts
-
-Core contracts are deliberately split:
+Core contracts are split into:
 
 ```text
 Kernel Contract
@@ -109,53 +71,12 @@ Kernel Contract
 
 Model Contract Revision
   mct_<sha256>
-  generated OpenAPI + JSON Schema from published Registry + Capability contributions
+  generated OpenAPI + JSON Schema from Registry + Capability contributions
 ```
 
-Ordinary model paths must never be copied into the Kernel OpenAPI. CI rejects Event/Task/Day Record/Wish or generic model route templates if they leak back into `apps/core/openapi.yaml`.
+Registry-driven Creation Draft derives the writable model set from the published Registry intersected with current Application × Model access, and pins an immutable Model Contract Revision for queued execution.
 
-### Registry-driven Creation Draft
-
-Creation Draft no longer contains a fixed union of Event/Task/Day Record/Wish.
-
-At execution time Core derives the allowed model set from:
-
-```text
-published Model Registry
-∩ requesting Application × Model write access
-```
-
-The job pins an immutable Model Contract Revision and rechecks current Application authorization before AI execution. Person relations use temporary refs and are resolved by Core; the AI never receives internal Person IDs.
-
-### Guarded AI Model Admin
-
-AI Model Admin is a proposal control plane, not publication authority:
-
-```text
-natural-language admin intent
-  -> AI candidate Model Definition JSON
-  -> Core parse + closed validation
-  -> canonical schema hash
-  -> deterministic diff / compatibility recommendation
-  -> audited proposal
-  -> explicit service-admin publish
-  -> normal Model Registry publication
-```
-
-AI cannot execute DDL, SQL, JavaScript, shell commands, migrations, credential changes or model publication.
-
-Invalid/unsafe output is retained only as a non-publishable `draft` with validation issues.
-
-Publish rechecks:
-
-- service principal + `models:manage`;
-- current base model version;
-- current Model Definition validator;
-- stored schema hash;
-- explicit compatibility;
-- Core compatibility floor (`breaking` cannot be understated).
-
-A publication claim prevents concurrent publish/discard. D1 schema v21 finalizes an exact claimed proposal in the same transaction as its matching authoritative `model_definitions` INSERT.
+AI Model Admin is a guarded proposal control plane only: AI may propose a Model Definition, but Core reparses it through the closed validator, computes deterministic diff/hash evidence, and requires explicit service-admin publication. AI has no DDL, SQL, JavaScript, shell, credential or autonomous publish authority.
 
 ## Current proving versions
 
@@ -171,135 +92,63 @@ Core D1 schema: **21**
 Identity Contract: **0.3.0**  
 Identity D1 schema: **4**
 
-## Removed Phase-2 runtime
+The Phase-2 handwritten Event/Task/Day Record/Wish services and fixed four-kind Creation Draft implementation are removed from the target Core runtime. Historical migrations remain as audit evidence; destructive staging convergence removed the obsolete dedicated domain tables before any HomeMew durable-data cutover.
 
-The final Core application no longer registers handwritten ordinary-domain routers.
+## Phase 3 staging exit evidence
 
-Removed source implementations:
+Authoritative staging evidence:
 
-- `events.ts`
-- `tasks.ts`
-- `day-records.ts`
-- `wishes.ts`
-- fixed four-kind Creation Draft model/job/provider implementation
+- Workflow: **Deploy staging**
+- Run: **#23**
+- GitHub Actions run ID: `31561015721`
+- Branch: `phase3-metadata-platform`
+- Commit: `8a4d9fddb906a97bfa289a616f6469e69847f643`
+- Date: **2026-08-12**
+- Result: **success**
 
-Historical Phase-2 migrations remain as audit evidence. Destructive staging convergence migrations remove the obsolete dedicated domain tables before HomeMew ever cuts over.
+The successful run passed all of the following at the exact deployed commit:
 
-## Staging evidence already passed
+1. repository `pnpm check`;
+2. Core D1 migrations through schema 21;
+3. Core staging deployment and public `0.12.0 / schema 21` convergence;
+4. Identity migrations/deployment and public `0.3.0 / schema 4` convergence;
+5. staging custom-domain verification;
+6. Phase-3 D1 convergence checker;
+7. ephemeral authenticated staging bootstrap;
+8. authenticated Kernel / service-only Model Admin / AI Admin boundary verification;
+9. active immutable `mct_*` Model Contract and D1 pointer verification;
+10. Task defaults + complete/reopen Workflow;
+11. Event Calendar interval/overlap/Person relation semantics;
+12. Day Record Temporal computation and occurrence history;
+13. Wish Policy deny/allow behavior with separate owner and claimant plus claim/unclaim Workflow;
+14. Registry-driven Creation Draft Queue reaching a valid terminal state;
+15. cleanup of ephemeral staging authority.
 
-On 2026-08-12 the general **Deploy staging** workflow succeeded on `phase3-metadata-platform` after being updated to the Phase-3 target.
+The Wish staging fixture explicitly proves both sides of policy enforcement: the owner cannot claim their own wish (`POLICY_DENIED`), while a distinct active Space member can claim and unclaim it.
 
-Passed gates:
-
-- repository `pnpm check`;
-- Core migrations through schema 21;
-- Core staging deployment;
-- public Core `0.12.0 / schema 21` convergence;
-- Identity migrations/deployment;
-- public Identity `0.3.0 / schema 4` convergence;
-- staging custom-domain verification;
-- Phase-3 D1 convergence checker.
-
-This proves the base staging runtime and infrastructure are converged. It does not by itself close Phase 3 because authenticated Model Contract/model/Queue gates remain.
-
-## Authenticated staging exit workflow
-
-The authoritative remaining gate is:
-
-```text
-Actions -> Phase 3 staging exit -> Run workflow
-```
-
-Default inputs:
-
-```text
-core_base_url = https://core-staging.aisr.online
-deploy_core = false
-```
-
-`deploy_core=false` is appropriate when the exact Core runtime under test is already deployed. Set it to `true` only when the PR head contains a Core runtime/migration change that must be redeployed before verification.
-
-The workflow is staging-only and refuses a non-staging Core URL.
-
-### Ephemeral smoke bootstrap
-
-`prepare-phase3-staging-smoke.mjs` creates one run-unique staging trusted application, user, short-lived user bearer, service principal and 15-minute maximum-lifetime service PAT.
-
-The test application receives stable scopes only:
-
-```text
-profile:read
-spaces:read
-spaces:write
-spaces:manage
-resources:read
-resources:write
-creation-drafts:read
-creation-drafts:write
-models:manage
-```
-
-The user bearer intentionally carries `models:manage` as well so the HTTP gate proves that AI/Model Admin remains service-principal-only even when a user has the same scope string.
-
-The staging bootstrap writes explicit `write` Application × Model catalog entries for Task/Wish/Day Record/Event directly to **staging Core D1 only**. This is test-fixture setup, not a production administration path.
-
-Plaintext credentials are masked with GitHub `add-mask` and exported only through the current job's `GITHUB_ENV`. They are never written to repository files, artifacts or job summaries.
-
-If staging signing keys or the Core↔Identity opaque-token introspection secret are missing/misaligned, the bootstrap repairs **staging only** and waits for verification convergence. It never targets production.
-
-### Authenticated gates
-
-The workflow then runs, in order:
-
-1. `verify-phase3-staging-http.mjs`
-   - Core Kernel 0.12.0 / schema 21;
-   - exact four published model versions;
-   - active immutable `mct_*` manifest;
-   - service-only Model Admin / AI Model Admin boundary;
-   - user principal denial even with `models:manage`.
-2. `REQUIRE_ACTIVE_MODEL_CONTRACT=1 verify-phase3-staging-db.mjs`
-   - active D1 Model Contract pointer/hash/revision.
-3. `verify-phase3-staging-models.mjs`
-   - Task defaults + complete/reopen Workflow;
-   - Event Calendar interval/overlap/Person relation;
-   - Day Record Temporal computation/occurrence history;
-   - Wish Policy + claim/unclaim Workflow.
-4. `verify-phase3-staging-creation-draft.mjs`
-   - Registry-driven candidate set;
-   - immutable Model Contract pin;
-   - `choose_model` requeue when returned;
-   - Queue/worker reaches a valid terminal state.
-
-A live paid AI provider is not mandatory for Phase-3 closeout. When staging AI is intentionally unconfigured, a recognized explicit configuration failure is accepted only after the Queue/worker reaches the terminal state and the pinned contract behavior has been verified. Repository tests remain authoritative for unsafe AI output, stale proposal, compatibility floor and atomic proposal audit.
-
-### Cleanup
-
-An `always()` cleanup step:
-
-- revokes the ephemeral service PAT when possible;
-- disables the ephemeral service principal;
-- removes the run-unique Application × Model catalog entries.
-
-The service PAT also has a 15-minute maximum lifetime, so cleanup failure cannot create a long-lived model-admin credential.
-
-Disposable staging user/application/Space audit fixtures may remain for traceability; they hold no plaintext credential in the repository and the removed catalog entries prevent the user bearer from retaining ordinary-model access after cleanup.
+The smoke bootstrap uses run-unique staging identities and a service PAT with a maximum 15-minute lifetime. Plaintext credentials are masked and kept only in the current Actions job environment. Cleanup revokes/disables ephemeral service authority and removes temporary Application × Model catalog entries.
 
 ## Phase 3 exit criteria
 
-Phase 3 is complete only when all are true:
+All technical exit criteria are now satisfied:
 
-- exact PR head passes repository CI;
-- staging Core reports Kernel 0.12.0 / D1 schema 21;
-- staging Identity reports 0.3.0 / D1 schema 4;
-- D1 convergence checker passes;
-- authenticated Kernel/control-plane checker passes;
-- active immutable Model Contract checker passes;
-- service authentication is exercised through a real staging service PAT;
-- four proving models pass metadata-runtime semantic E2E;
-- Registry-driven Creation Draft reaches a valid staging terminal state;
-- AI Model Admin service-only boundary is verified;
-- ephemeral staging authority cleanup is attempted;
-- no production deployment occurs;
-- no HomeMew client/data cutover occurs.
+- [x] ordinary models can be added/published without handwritten Core CRUD source;
+- [x] published model definitions are immutable/versioned/schema-hashed;
+- [x] Generic Runtime enforces schema, relations, authorization, concurrency and soft deletion;
+- [x] user/service authorization preserves current credential, Application × Model and Space/Data Grant boundaries;
+- [x] generated model contracts are content-addressed and reproducible;
+- [x] Task and Wish execute through Model Definition + Generic Engines;
+- [x] Day Record executes through Temporal;
+- [x] Event executes through Calendar;
+- [x] Creation Draft is Registry-driven rather than fixed to four handwritten kinds;
+- [x] Phase-2 handwritten ordinary-domain runtime is removed from the target Core;
+- [x] Core/Identity/service-auth/model-contract/four-model/Queue staging gates passed;
+- [x] AI Model Admin service-only security boundary was exercised in staging;
+- [x] no production deployment occurred;
+- [x] no HomeMew client or production-data cutover occurred.
 
-After this, PR #20 may be moved out of Draft and merged according to the agreed review/deployment process. HomeMew Phase 4 starts only after the Phase-3 closeout is recorded.
+## Next step
+
+Phase 3 is technically ready for repository closeout. PR #20 may now be moved from Draft to Ready and squash-merged to `main` after explicit approval.
+
+HomeMew Phase 4 / application migration should begin only from the merged Phase-3 baseline and must pin the new Kernel + Model Contract architecture rather than the discarded Phase-2 handwritten-domain contract.
