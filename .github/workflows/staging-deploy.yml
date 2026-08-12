@@ -141,6 +141,9 @@ jobs:
       - name: Verify proving-model platform regression
         run: node infra/scripts/verify-staging-models.mjs
 
+      - name: Measure typed-runtime staging performance
+        run: node infra/scripts/verify-staging-performance.mjs
+
       - name: Verify Registry-driven Creation Draft Queue
         run: node infra/scripts/verify-staging-creation-draft.mjs
 
@@ -158,6 +161,9 @@ jobs:
           - Core: schema v${LIFESPACE_EXPECTED_CORE_SCHEMA_VERSION} / Kernel contract ${LIFESPACE_EXPECTED_CORE_CONTRACT_VERSION}
           - Identity: schema v${LIFESPACE_EXPECTED_IDENTITY_SCHEMA_VERSION} / contract ${LIFESPACE_EXPECTED_IDENTITY_CONTRACT_VERSION}
           - Platform D1 convergence: passed
+          - Typed model storage / legacy JSON cleanup: passed
+          - D1 hot-path budgets: passed in repository validation
+          - Staging HTTP performance benchmark: recorded in workflow logs
           - Service-only Model Admin / AI Admin boundary: passed
           - Active immutable Model Contract \`mct_*\`: passed
           - Proving models (Task/Wish/Day Record/Event): passed
