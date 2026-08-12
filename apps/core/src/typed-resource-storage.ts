@@ -114,19 +114,24 @@ export function typedUpdateStatement(
   recordId: string,
   spaceId: string,
   data: JsonObject,
+  mutationToken: string,
 ): D1PreparedStatement {
   const plan = physicalPlanFor(model);
   if (!plan.columns.length) {
-    return env.DB.prepare(`UPDATE ${identifier(plan.tableName)} SET space_id=space_id WHERE record_id=? AND space_id=?`)
-      .bind(recordId, spaceId);
+    return env.DB.prepare(`UPDATE ${identifier(plan.tableName)} SET space_id=space_id
+      WHERE record_id=? AND space_id=?
+        AND EXISTS(SELECT 1 FROM resource_records WHERE id=? AND mutation_token=?)`)
+      .bind(recordId, spaceId, recordId, mutationToken);
   }
   const values: unknown[] = [];
   const assignments = plan.columns.map((column) => {
     values.push(encodedValue(model.definition.fields[column.fieldKey], data[column.fieldKey]));
     return `${identifier(column.fieldKey)}=?`;
   });
-  return env.DB.prepare(`UPDATE ${identifier(plan.tableName)} SET ${assignments.join(",")} WHERE record_id=? AND space_id=?`)
-    .bind(...values, recordId, spaceId);
+  return env.DB.prepare(`UPDATE ${identifier(plan.tableName)} SET ${assignments.join(",")}
+    WHERE record_id=? AND space_id=?
+      AND EXISTS(SELECT 1 FROM resource_records WHERE id=? AND mutation_token=?)`)
+    .bind(...values, recordId, spaceId, recordId, mutationToken);
 }
 
 function scalarData(model: PublishedModel, row: TypedResourceRow): JsonObject {
