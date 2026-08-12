@@ -9,6 +9,10 @@ const REQUIRED_PLATFORM_TABLES = [
   "resource_records",
   "resource_relations",
   "resource_index_values",
+  "mdl_task",
+  "mdl_wish",
+  "mdl_day_record",
+  "mdl_event",
   "temporal_occurrences",
   "model_definitions",
   "application_model_access",
@@ -16,6 +20,13 @@ const REQUIRED_PLATFORM_TABLES = [
   "model_contract_state",
   "model_definition_drafts",
 ];
+
+const REQUIRED_TYPED_COLUMNS = new Map([
+  ["mdl_task", ["record_id", "space_id", "completedAt", "completedById", "completedByType", "description", "dueDate", "name", "status"]],
+  ["mdl_wish", ["record_id", "space_id", "archivedFromStatus", "claimedAt", "description", "desiredDate", "fulfilledAt", "status", "title"]],
+  ["mdl_day_record", ["record_id", "space_id", "anchorDate", "attentionAfterDays", "attentionBeforeDays", "cycleDays", "description", "icon", "kind", "name", "status"]],
+  ["mdl_event", ["record_id", "space_id", "description", "endAt", "endDateExclusive", "endTimezone", "isAllDay", "location", "startAt", "startDate", "startTimezone", "status", "summary"]],
+]);
 
 const RETIRED_DOMAIN_TABLES = [
   "events",
@@ -92,6 +103,10 @@ for (const key of EXPECTED_MODELS.keys()) assertEqual(access.get(key), "write", 
 const tableSet = new Set(runSql("SELECT name FROM sqlite_master WHERE type='table'").map((row) => row.name));
 for (const table of REQUIRED_PLATFORM_TABLES) assertTruthy(tableSet.has(table), `Required platform table ${table} is missing`);
 for (const table of RETIRED_DOMAIN_TABLES) if (tableSet.has(table)) fail(`Retired Phase-2 domain table ${table} still exists`);
+for (const [table, expectedColumns] of REQUIRED_TYPED_COLUMNS) {
+  const actualColumns = new Set(runSql(`SELECT name FROM pragma_table_info('${table}')`).map((row) => row.name));
+  for (const column of expectedColumns) assertTruthy(actualColumns.has(column), `Typed model table ${table} is missing column ${column}`);
+}
 
 const draftColumns = new Set(runSql("SELECT name FROM pragma_table_info('model_definition_drafts')").map((row) => row.name));
 for (const column of ["source", "proposal_status", "schema_hash", "diff_json", "recommended_compatibility", "publication_token", "publication_started_at", "published_model_id"]) {
@@ -118,6 +133,7 @@ console.log(JSON.stringify({
   ok: true,
   schemaVersion: STAGING_EXPECTATIONS.core.schemaVersion,
   models: Object.fromEntries(PROVING_MODELS.map((model) => [model.key, model.version])),
+  typedModelTables: [...REQUIRED_TYPED_COLUMNS.keys()],
   homemewModelAccess: "write",
   activeModelContract: contractRows[0]?.active_contract_id ?? null,
   proposalAuditTrigger: true,
