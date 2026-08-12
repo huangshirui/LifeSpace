@@ -71,12 +71,9 @@ describe("Generic Resource Runtime", () => {
       .bind(resource.id).first<{ name: string; status: string; dueDate: string }>();
     expect(typed).toEqual({ name: "Buy milk", status: "pending", dueDate: "2026-08-12" });
 
-    const envelope = await db.prepare("SELECT data_json FROM resource_records WHERE id=?")
-      .bind(resource.id).first<{ data_json: string }>();
-    expect(envelope?.data_json).toBe("{}");
-    const indexCount = await db.prepare("SELECT count(*) AS count FROM resource_index_values WHERE record_id=?")
-      .bind(resource.id).first<{ count: number }>();
-    expect(indexCount?.count).toBe(0);
+    const envelope = await db.prepare("SELECT model_key,model_version,version FROM resource_records WHERE id=?")
+      .bind(resource.id).first<{ model_key: string; model_version: number; version: number }>();
+    expect(envelope).toEqual({ model_key: "task", model_version: 2, version: 1 });
   });
 
   it("enforces declared schema and read-only fields", async () => {
