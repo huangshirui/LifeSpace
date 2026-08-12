@@ -1,0 +1,149 @@
+name: APAC performance gate
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lifespace-staging-apac-performance
+  cancel-in-progress: false
+
+jobs:
+  benchmark:
+    name: Verify staging from APAC
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: staging
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID || secrets.CLOUDFLARE_ACCOUNT_ID }}
+      LIFESPACE_STAGING_BOOTSTRAP_SECRET: ${{ secrets.LIFESPACE_STAGING_BOOTSTRAP_SECRET }}
+      LIFESPACE_CORE_STAGING_URL: https://core-staging.aisr.online
+      LIFESPACE_IDENTITY_STAGING_URL: https://auth-staging.aisr.online
+      LIFESPACE_APAC_PROBE_NAME: lifespace-staging-apac-performance-probe
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+
+      - name: Require main
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = "main" || { echo "APAC performance acceptance must run from main" >&2; exit 1; }
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.13.1
+          run_install: false
+
+      - name: Setup Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Validate staging credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${CLOUDFLARE_API_TOKEN:-}" || { echo "CLOUDFLARE_API_TOKEN is not configured" >&2; exit 1; }
+          test -n "${CLOUDFLARE_ACCOUNT_ID:-}" || { echo "CLOUDFLARE_ACCOUNT_ID is not configured" >&2; exit 1; }
+          test ${#LIFESPACE_STAGING_BOOTSTRAP_SECRET} -ge 32 || { echo "LIFESPACE_STAGING_BOOTSTRAP_SECRET must be at least 32 characters" >&2; exit 1; }
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate APAC gate sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check infra/scripts/staging-performance-benchmark.mjs
+          node --check infra/scripts/verify-staging-apac-performance.mjs
+          node --check infra/performance-probe/worker.mjs
+          pnpm --dir apps/core exec wrangler deploy --dry-run --config ../../infra/performance-probe/wrangler.jsonc
+
+      - name: Prepare ephemeral authenticated staging smoke
+        run: node infra/scripts/prepare-staging-smoke.mjs
+
+      - name: Generate ephemeral probe credential
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROBE_TOKEN="$(node -e 'process.stdout.write(crypto.randomBytes(32).toString("hex"))')"
+          echo "::add-mask::$PROBE_TOKEN"
+          echo "LIFESPACE_APAC_PROBE_TOKEN=$PROBE_TOKEN" >> "$GITHUB_ENV"
+
+      - name: Deploy temporary APAC probe
+        run: pnpm --dir apps/core exec wrangler deploy --config ../../infra/performance-probe/wrangler.jsonc
+
+      - name: Configure ephemeral probe secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module -e '
+            process.stdout.write(JSON.stringify({
+              PROBE_TOKEN: process.env.LIFESPACE_APAC_PROBE_TOKEN,
+              USER_BEARER: process.env.LIFESPACE_STAGING_USER_BEARER,
+              SPACE_ID: process.env.LIFESPACE_STAGING_SPACE_ID,
+            }));
+          ' | pnpm --dir apps/core exec wrangler secret bulk --config ../../infra/performance-probe/wrangler.jsonc
+
+      - name: Resolve APAC probe URL
+        shell: bash
+        run: |
+          set -euo pipefail
+          RESPONSE="$(curl --fail --silent --show-error \
+            "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/subdomain" \
+            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}")"
+          SUBDOMAIN="$(printf '%s' "$RESPONSE" | node --input-type=module -e '
+            import fs from "node:fs";
+            const body = JSON.parse(fs.readFileSync(0, "utf8"));
+            if (!body.success || !body.result?.subdomain) process.exit(1);
+            process.stdout.write(body.result.subdomain);
+          ')"
+          PROBE_URL="https://${LIFESPACE_APAC_PROBE_NAME}.${SUBDOMAIN}.workers.dev"
+          echo "LIFESPACE_APAC_PROBE_URL=$PROBE_URL" >> "$GITHUB_ENV"
+          echo "APAC probe URL resolved"
+
+      - name: Wait for APAC probe
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --retry 12 --retry-delay 2 --retry-all-errors \
+            "${LIFESPACE_APAC_PROBE_URL}/health" \
+            -H "x-lifespace-probe-token: ${LIFESPACE_APAC_PROBE_TOKEN}"
+          echo
+
+      - name: Enforce representative APAC performance targets
+        run: node infra/scripts/verify-staging-apac-performance.mjs
+
+      - name: Delete temporary APAC probe
+        if: ${{ always() }}
+        continue-on-error: true
+        run: pnpm --dir apps/core exec wrangler delete --config ../../infra/performance-probe/wrangler.jsonc --name "$LIFESPACE_APAC_PROBE_NAME"
+
+      - name: Cleanup ephemeral staging authority
+        if: ${{ always() }}
+        continue-on-error: true
+        run: node infra/scripts/cleanup-staging-smoke.mjs
+
+      - name: Summarize APAC performance acceptance
+        if: ${{ success() }}
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<'EOF'
+          ## LifeSpace Phase 3 APAC performance gate
+
+          - Probe placement: explicitly targeted near `aws:ap-southeast-1`.
+          - Probe access: ephemeral random credential; staging user bearer stored only as a temporary Worker secret.
+          - Benchmark profile: `apac`, acceptance eligible.
+          - Common read target: P50 <= 220 ms and P90 <= 500 ms.
+          - D1 round-trip budgets: independently enforced by repository integration tests.
+          - Temporary probe Worker: deletion attempted on every outcome.
+          - Production and HomeMew traffic/data were not touched.
+          EOF
