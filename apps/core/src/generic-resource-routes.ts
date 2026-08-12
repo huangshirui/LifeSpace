@@ -4,11 +4,13 @@ import {
   capabilityActionAccess,
   createCapabilityAwareResource,
   decorateCapabilityResponse,
+  decorateCapabilityResponses,
   executeCapabilityAction,
   listCapabilityOccurrences,
   prepareCapabilityCreateInput,
   prepareCapabilityUpdatePolicyInput,
   updateCapabilityAwareResource,
+  type CapabilityResponseDecoration,
 } from "./capability-runtime";
 import type { Bindings, Variables } from "./env";
 import { deleteGenericResource, getGenericResource, type GenericResource } from "./generic-resource";
@@ -16,7 +18,7 @@ import { queryGenericResources } from "./generic-query";
 import { isTemporalSpecialQuery, queryTemporalResources } from "./temporal-query";
 import { ApiError, success } from "./http";
 import { requireModelAccess } from "./model-authorization";
-import { getPublishedModelByRoute, type PublishedModel } from "./model-registry";
+import { getRuntimeModelByRoute, type PublishedModel } from "./model-registry";
 import { requireModelPolicy } from "./policy";
 import { executeWorkflowAction, workflowActionAccess } from "./workflow";
 
@@ -35,7 +37,7 @@ function positiveVersion(value: unknown) {
 }
 async function model(context: Context<AppEnv>): Promise<PublishedModel> {
   const route = context.req.param("modelRoute");
-  const resolved = route ? await getPublishedModelByRoute(context.env, route) : null;
+  const resolved = route ? await getRuntimeModelByRoute(context.env, route) : null;
   if (!resolved) throw new ApiError("MODEL_NOT_FOUND", "Published model not found", 404);
   return resolved;
 }
@@ -43,14 +45,20 @@ async function requireActiveSpace(env: Bindings, spaceId: string) {
   const row = await env.DB.prepare("SELECT id FROM spaces WHERE id=? AND deleted_at IS NULL").bind(spaceId).first<{ id: string }>();
   if (!row) throw new ApiError("SPACE_NOT_FOUND", "Space not found", 404);
 }
-async function dto(env: Bindings, spaceId: string, model: PublishedModel, resource: GenericResource) {
+async function dto(
+  env: Bindings,
+  spaceId: string,
+  model: PublishedModel,
+  resource: GenericResource,
+  decoration?: CapabilityResponseDecoration,
+) {
   return {
     id: resource.id,
     spaceId: resource.spaceId,
     modelKey: resource.modelKey,
     modelVersion: resource.modelVersion,
     ...resource.data,
-    ...(await decorateCapabilityResponse(env, spaceId, model, resource)),
+    ...(decoration ?? await decorateCapabilityResponse(env, spaceId, model, resource)),
     version: resource.version,
     createdAt: resource.createdAt,
     updatedAt: resource.updatedAt,
@@ -71,7 +79,9 @@ export function registerGenericResourceRoutes(app: App): void {
       : isCalendarSpecialQuery(resolved, params)
         ? await queryCalendarResources(context.env, principal, spaceId, resolved, params)
         : await queryGenericResources(context.env, spaceId, resolved, params);
-    return context.json(success({ items: await Promise.all(result.items.map((resource) => dto(context.env, spaceId, resolved, resource))), nextCursor: result.nextCursor }));
+    const decorations = await decorateCapabilityResponses(context.env, spaceId, resolved, result.items);
+    const items = await Promise.all(result.items.map((resource, index) => dto(context.env, spaceId, resolved, resource, decorations[index])));
+    return context.json(success({ items, nextCursor: result.nextCursor }));
   });
 
   app.post("/api/v1/spaces/:spaceId/:modelRoute", async (context) => {
