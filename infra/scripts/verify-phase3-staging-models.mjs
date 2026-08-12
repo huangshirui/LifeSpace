@@ -2,15 +2,19 @@ import process from "node:process";
 
 const coreBaseUrl = (process.env.LIFESPACE_CORE_STAGING_URL ?? "").replace(/\/+$/u, "");
 const bearer = process.env.LIFESPACE_STAGING_USER_BEARER ?? "";
+const claimantBearer = process.env.LIFESPACE_STAGING_CLAIMANT_USER_BEARER ?? "";
 const spaceId = process.env.LIFESPACE_STAGING_SPACE_ID ?? "";
 const personId = process.env.LIFESPACE_STAGING_PERSON_ID ?? "";
+const claimantPersonId = process.env.LIFESPACE_STAGING_CLAIMANT_PERSON_ID ?? "";
 const spaceTimezone = process.env.LIFESPACE_STAGING_SPACE_TIMEZONE ?? "UTC";
 
 for (const [name, value] of Object.entries({
   LIFESPACE_CORE_STAGING_URL: coreBaseUrl,
   LIFESPACE_STAGING_USER_BEARER: bearer,
+  LIFESPACE_STAGING_CLAIMANT_USER_BEARER: claimantBearer,
   LIFESPACE_STAGING_SPACE_ID: spaceId,
   LIFESPACE_STAGING_PERSON_ID: personId,
+  LIFESPACE_STAGING_CLAIMANT_PERSON_ID: claimantPersonId,
 })) {
   if (!value) throw new Error(`${name} is required`);
 }
@@ -32,11 +36,11 @@ function addDays(date, days) {
   return instant.toISOString().slice(0, 10);
 }
 
-async function request(path, { method = "GET", body } = {}) {
+async function request(path, { method = "GET", body, bearer: requestBearer = bearer } = {}) {
   const response = await fetch(`${coreBaseUrl}${path}`, {
     method,
     headers: {
-      authorization: `Bearer ${bearer}`,
+      authorization: `Bearer ${requestBearer}`,
       ...(body === undefined ? {} : { "content-type": "application/json" }),
     },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
@@ -156,7 +160,9 @@ try {
     throw new Error(`Temporal occurrence history mismatch: ${JSON.stringify(occurrences)}`);
   }
 
-  // Wish: Policy + Workflow claim/unclaim while owner relation remains immutable.
+  // Wish: prove both sides of the declarative Policy. The owner must be denied
+  // from claiming their own wish; a distinct active Space Person may claim and
+  // then unclaim it through the same generic Workflow runtime.
   const wish = await expectData(`/api/v1/spaces/${spaceId}/wishes`, {
     method: "POST",
     body: {
@@ -168,16 +174,27 @@ try {
   if (wish.status !== "open" || wish.ownerPersonId !== personId) {
     throw new Error(`Wish default/owner mismatch: ${JSON.stringify(wish)}`);
   }
-  const claimed = await expectData(`/api/v1/spaces/${spaceId}/wishes/${wish.id}/actions/claim`, {
+
+  const ownerClaim = await request(`/api/v1/spaces/${spaceId}/wishes/${wish.id}/actions/claim`, {
     method: "POST",
     body: { version: wish.version },
   });
+  if (ownerClaim.status !== 403 || ownerClaim.payload?.error?.code !== "POLICY_DENIED") {
+    throw new Error(`Wish owner self-claim policy mismatch: expected 403 POLICY_DENIED, got ${ownerClaim.status}: ${JSON.stringify(ownerClaim.payload)}`);
+  }
+
+  const claimed = await expectData(`/api/v1/spaces/${spaceId}/wishes/${wish.id}/actions/claim`, {
+    method: "POST",
+    bearer: claimantBearer,
+    body: { version: wish.version },
+  });
   cleanup[cleanup.length - 1].version = claimed.version;
-  if (claimed.status !== "claimed" || claimed.claimantPersonId !== personId) {
+  if (claimed.status !== "claimed" || claimed.claimantPersonId !== claimantPersonId) {
     throw new Error(`Wish claim Workflow mismatch: ${JSON.stringify(claimed)}`);
   }
   const unclaimed = await expectData(`/api/v1/spaces/${spaceId}/wishes/${wish.id}/actions/unclaim`, {
     method: "POST",
+    bearer: claimantBearer,
     body: { version: claimed.version },
   });
   cleanup[cleanup.length - 1].version = unclaimed.version;
@@ -191,7 +208,12 @@ try {
     task: { id: task.id, workflow: "complete/reopen" },
     event: { id: event.id, calendarOverlap: true },
     dayRecord: { id: day.id, temporalOccurrence: true },
-    wish: { id: wish.id, workflow: "claim/unclaim" },
+    wish: {
+      id: wish.id,
+      ownerSelfClaimDenied: true,
+      claimantPersonId,
+      workflow: "claim/unclaim",
+    },
   }, null, 2));
 } finally {
   for (const record of cleanup.reverse()) {
