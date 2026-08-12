@@ -75,7 +75,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          PROBE_TOKEN="$(node -e 'process.stdout.write(crypto.randomBytes(32).toString("hex"))')"
+          PROBE_TOKEN="$(node --input-type=module -e 'import { randomBytes } from "node:crypto"; process.stdout.write(randomBytes(32).toString("hex"))')"
           echo "::add-mask::$PROBE_TOKEN"
           echo "LIFESPACE_APAC_PROBE_TOKEN=$PROBE_TOKEN" >> "$GITHUB_ENV"
 
