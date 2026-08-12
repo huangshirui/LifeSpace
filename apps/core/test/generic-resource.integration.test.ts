@@ -48,7 +48,7 @@ async function fixture() {
 }
 
 describe("Generic Resource Runtime", () => {
-  it("creates and reads a Task solely from its published Model Definition", async () => {
+  it("creates and reads a Task from its generated typed table", async () => {
     const { db, spaceId, personId, model } = await fixture();
     const resource = await createGenericResource(bindings(), actor, spaceId, model, {
       name: "Buy milk",
@@ -67,9 +67,16 @@ describe("Generic Resource Runtime", () => {
       WHERE source_record_id=? AND field_key='assigneePersonIds'`).bind(resource.id).first<{ target_type: string; target_person_id: string }>();
     expect(relation).toEqual({ target_type: "person", target_person_id: personId });
 
-    const index = await db.prepare(`SELECT value_type,text_value FROM resource_index_values
-      WHERE record_id=? AND field_key='status'`).bind(resource.id).first<{ value_type: string; text_value: string }>();
-    expect(index).toEqual({ value_type: "text", text_value: "pending" });
+    const typed = await db.prepare(`SELECT name,status,dueDate FROM mdl_task WHERE record_id=?`)
+      .bind(resource.id).first<{ name: string; status: string; dueDate: string }>();
+    expect(typed).toEqual({ name: "Buy milk", status: "pending", dueDate: "2026-08-12" });
+
+    const envelope = await db.prepare("SELECT data_json FROM resource_records WHERE id=?")
+      .bind(resource.id).first<{ data_json: string }>();
+    expect(envelope?.data_json).toBe("{}");
+    const indexCount = await db.prepare("SELECT count(*) AS count FROM resource_index_values WHERE record_id=?")
+      .bind(resource.id).first<{ count: number }>();
+    expect(indexCount?.count).toBe(0);
   });
 
   it("enforces declared schema and read-only fields", async () => {
@@ -96,7 +103,7 @@ describe("Generic Resource Runtime", () => {
     })).rejects.toMatchObject({ code: "INVALID_RESOURCE_RELATION" });
   });
 
-  it("updates with optimistic concurrency and refreshes projections", async () => {
+  it("updates typed fields with optimistic concurrency and refreshes relations", async () => {
     const { db, spaceId, personId, model } = await fixture();
     const resource = await createGenericResource(bindings(), actor, spaceId, model, {
       name: "Initial",
@@ -112,6 +119,10 @@ describe("Generic Resource Runtime", () => {
     expect(updated.version).toBe(2);
     expect(updated.data).toMatchObject({ name: "Updated", status: "cancelled", assigneePersonIds: [] });
 
+    const typed = await db.prepare("SELECT name,status FROM mdl_task WHERE record_id=?")
+      .bind(resource.id).first<{ name: string; status: string }>();
+    expect(typed).toEqual({ name: "Updated", status: "cancelled" });
+
     const relationCount = await db.prepare("SELECT count(*) AS count FROM resource_relations WHERE source_record_id=?")
       .bind(resource.id).first<{ count: number }>();
     expect(relationCount?.count).toBe(0);
@@ -120,7 +131,7 @@ describe("Generic Resource Runtime", () => {
       .rejects.toMatchObject({ code: "VERSION_CONFLICT" });
   });
 
-  it("soft-deletes resources and removes relation/index projections", async () => {
+  it("soft-deletes resources and removes relation projections", async () => {
     const { db, spaceId, personId, model } = await fixture();
     const resource = await createGenericResource(bindings(), actor, spaceId, model, {
       name: "Delete me",
@@ -130,14 +141,11 @@ describe("Generic Resource Runtime", () => {
     });
 
     await deleteGenericResource(bindings(), actor, spaceId, model, resource.id, 1);
-    expect(await getGenericResource(bindings(), spaceId, "task", resource.id)).toBeNull();
-    expect((await listGenericResources(bindings(), spaceId, "task")).some((item) => item.id === resource.id)).toBe(false);
+    expect(await getGenericResource(bindings(), spaceId, model, resource.id)).toBeNull();
+    expect((await listGenericResources(bindings(), spaceId, model)).some((item) => item.id === resource.id)).toBe(false);
 
     const relationCount = await db.prepare("SELECT count(*) AS count FROM resource_relations WHERE source_record_id=?")
       .bind(resource.id).first<{ count: number }>();
-    const indexCount = await db.prepare("SELECT count(*) AS count FROM resource_index_values WHERE record_id=?")
-      .bind(resource.id).first<{ count: number }>();
     expect(relationCount?.count).toBe(0);
-    expect(indexCount?.count).toBe(0);
   });
 });
