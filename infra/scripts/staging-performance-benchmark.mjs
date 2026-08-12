@@ -32,6 +32,7 @@ export async function runStagingPerformanceBenchmark({
   benchmarkProfile,
   source,
   fetchImpl = fetch,
+  requestAdapter,
   sampleCount = DEFAULT_SAMPLE_COUNT,
   warmupCount = DEFAULT_WARMUP_COUNT,
 }) {
@@ -41,12 +42,13 @@ export async function runStagingPerformanceBenchmark({
   }
   if (!Number.isInteger(sampleCount) || sampleCount < 1) throw new Error("sampleCount must be a positive integer");
   if (!Number.isInteger(warmupCount) || warmupCount < 0) throw new Error("warmupCount must be a non-negative integer");
+  if (requestAdapter !== undefined && typeof requestAdapter !== "function") throw new Error("requestAdapter must be a function");
 
   const acceptanceEligible = benchmarkProfile === "apac";
   const marker = `perf-${crypto.randomUUID().replaceAll("-", "").slice(0, 10)}`;
   const cleanup = [];
 
-  async function request(path, { method = "GET", body } = {}) {
+  async function directRequest(path, { method = "GET", body } = {}) {
     const started = performance.now();
     const response = await fetchImpl(`${baseUrl}${path}`, {
       method,
@@ -67,6 +69,16 @@ export async function runStagingPerformanceBenchmark({
       }
     }
     return { status: response.status, payload, elapsedMs };
+  }
+
+  async function request(path, options = {}) {
+    const result = requestAdapter
+      ? await requestAdapter(path, options)
+      : await directRequest(path, options);
+    if (!result || !Number.isInteger(result.status) || typeof result.elapsedMs !== "number") {
+      throw new Error(`Benchmark request adapter returned an invalid result for ${options.method ?? "GET"} ${path}`);
+    }
+    return result;
   }
 
   async function expectData(path, options, expectedStatus = 200) {
