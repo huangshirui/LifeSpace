@@ -8,7 +8,6 @@ const EXPECTED_MODELS = new Map(PROVING_MODELS.map((model) => [model.key, model]
 const REQUIRED_PLATFORM_TABLES = [
   "resource_records",
   "resource_relations",
-  "resource_index_values",
   "mdl_task",
   "mdl_wish",
   "mdl_day_record",
@@ -28,7 +27,15 @@ const REQUIRED_TYPED_COLUMNS = new Map([
   ["mdl_event", ["record_id", "space_id", "description", "endAt", "endDateExclusive", "endTimezone", "isAllDay", "location", "startAt", "startDate", "startTimezone", "status", "summary"]],
 ]);
 
-const RETIRED_DOMAIN_TABLES = [
+const MODEL_TABLES = new Map([
+  ["task", "mdl_task"],
+  ["wish", "mdl_wish"],
+  ["day_record", "mdl_day_record"],
+  ["event", "mdl_event"],
+]);
+
+const RETIRED_TABLES = [
+  "resource_index_values",
   "events",
   "event_attendees",
   "tasks",
@@ -102,10 +109,22 @@ for (const key of EXPECTED_MODELS.keys()) assertEqual(access.get(key), "write", 
 
 const tableSet = new Set(runSql("SELECT name FROM sqlite_master WHERE type='table'").map((row) => row.name));
 for (const table of REQUIRED_PLATFORM_TABLES) assertTruthy(tableSet.has(table), `Required platform table ${table} is missing`);
-for (const table of RETIRED_DOMAIN_TABLES) if (tableSet.has(table)) fail(`Retired Phase-2 domain table ${table} still exists`);
+for (const table of RETIRED_TABLES) if (tableSet.has(table)) fail(`Retired table ${table} still exists`);
+
+const resourceColumns = new Set(runSql("SELECT name FROM pragma_table_info('resource_records')").map((row) => row.name));
+if (resourceColumns.has("data_json")) fail("Legacy resource_records.data_json column still exists");
+
 for (const [table, expectedColumns] of REQUIRED_TYPED_COLUMNS) {
   const actualColumns = new Set(runSql(`SELECT name FROM pragma_table_info('${table}')`).map((row) => row.name));
   for (const column of expectedColumns) assertTruthy(actualColumns.has(column), `Typed model table ${table} is missing column ${column}`);
+}
+
+for (const [modelKey, table] of MODEL_TABLES) {
+  const orphanEnvelope = single(`SELECT COUNT(*) AS count
+    FROM resource_records r
+    LEFT JOIN ${table} m ON m.record_id=r.id AND m.space_id=r.space_id
+    WHERE r.model_key='${modelKey}' AND m.record_id IS NULL`, `${modelKey} typed envelope consistency`);
+  assertEqual(orphanEnvelope.count, 0, `${modelKey} resources without typed rows`);
 }
 
 const draftColumns = new Set(runSql("SELECT name FROM pragma_table_info('model_definition_drafts')").map((row) => row.name));
@@ -134,6 +153,7 @@ console.log(JSON.stringify({
   schemaVersion: STAGING_EXPECTATIONS.core.schemaVersion,
   models: Object.fromEntries(PROVING_MODELS.map((model) => [model.key, model.version])),
   typedModelTables: [...REQUIRED_TYPED_COLUMNS.keys()],
+  legacyGenericStorageRemoved: true,
   homemewModelAccess: "write",
   activeModelContract: contractRows[0]?.active_contract_id ?? null,
   proposalAuditTrigger: true,
