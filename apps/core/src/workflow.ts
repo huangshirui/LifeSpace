@@ -2,7 +2,7 @@ import type { Bindings, Principal } from "./env";
 import { getGenericResource, updateGenericResource, type GenericResource } from "./generic-resource";
 import { ApiError } from "./http";
 import type { PublishedModel } from "./model-registry";
-import { requirePolicyExpression, type PolicyContext } from "./policy";
+import { requirePolicyExpression, type PolicyContext, type ResolvedPolicyActor } from "./policy";
 import type {
   WorkflowActionDefinition,
   WorkflowAssignmentValue,
@@ -112,15 +112,16 @@ export async function executeWorkflowAction(
   recordId: string,
   actionKey: string,
   expectedVersion: number,
+  resolvedActor?: ResolvedPolicyActor,
 ): Promise<GenericResource> {
   const action = actionFor(model, actionKey);
-  const resource = await getGenericResource(env, spaceId, model.key, recordId);
+  const resource = await getGenericResource(env, spaceId, model, recordId);
   if (!resource) throw new ApiError("RESOURCE_NOT_FOUND", "Resource not found", 404);
   if (resource.version !== expectedVersion) {
     throw new ApiError("VERSION_CONFLICT", "Resource version is stale", 409);
   }
 
-  const policyContext = await requirePolicyExpression(env, principal, spaceId, action.policy, resource);
+  const policyContext = await requirePolicyExpression(env, principal, spaceId, action.policy, resource, undefined, resolvedActor);
 
   for (const guard of action.guards ?? []) {
     if (!guardPasses(resource, guard)) {
@@ -149,6 +150,8 @@ export async function executeWorkflowAction(
     expectedVersion,
     changes,
     "action",
+    undefined,
+    resource,
   );
 }
 
