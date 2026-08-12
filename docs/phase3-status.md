@@ -1,10 +1,10 @@
 # Phase 3 Status — Metadata-driven Platform Runtime
 
-Status: **repository implementation complete; staging exit pending**
+Status: **repository implementation complete; base staging deployment passed; authenticated staging exit pending**
 
 Draft PR: #20 (`phase3-metadata-platform`)
 
-HomeMew Phase 4 remains blocked until every staging exit gate below passes.
+HomeMew Phase 4 remains blocked until the authenticated staging exit workflow passes at the exact PR head.
 
 ## Target invariant
 
@@ -62,6 +62,19 @@ Implemented:
 - stable `resources:read | resources:write | resources:manage` scopes;
 - Generic Resource persistence, relation/index projections, CRUD and query;
 - optimistic concurrency, soft deletion and actor audit.
+
+Identity does not mint per-model token scopes. Effective ordinary-model authority is:
+
+```text
+verified principal
+∩ stable resources:* credential scope
+∩ Application × Model Access
+∩ current Space membership/Data Grant
+∩ published model capability
+∩ model policy/Capability restrictions
+```
+
+Publishing a new ordinary model therefore does not require an Identity runtime or application-scope vocabulary change.
 
 ### Engines
 
@@ -154,7 +167,9 @@ A publication claim prevents concurrent publish/discard. D1 schema v21 finalizes
 | Event | 2 | Generic Runtime + Calendar |
 
 Core Kernel Contract: **0.12.0**  
-Core D1 schema: **21**
+Core D1 schema: **21**  
+Identity Contract: **0.3.0**  
+Identity D1 schema: **4**
 
 ## Removed Phase-2 runtime
 
@@ -170,149 +185,120 @@ Removed source implementations:
 
 Historical Phase-2 migrations remain as audit evidence. Destructive staging convergence migrations remove the obsolete dedicated domain tables before HomeMew ever cuts over.
 
-## Staging exit sequence
+## Staging evidence already passed
 
-Run only against staging until all gates pass.
+On 2026-08-12 the general **Deploy staging** workflow succeeded on `phase3-metadata-platform` after being updated to the Phase-3 target.
 
-### 1. Repository gate
+Passed gates:
 
-```bash
-pnpm check
+- repository `pnpm check`;
+- Core migrations through schema 21;
+- Core staging deployment;
+- public Core `0.12.0 / schema 21` convergence;
+- Identity migrations/deployment;
+- public Identity `0.3.0 / schema 4` convergence;
+- staging custom-domain verification;
+- Phase-3 D1 convergence checker.
+
+This proves the base staging runtime and infrastructure are converged. It does not by itself close Phase 3 because authenticated Model Contract/model/Queue gates remain.
+
+## Authenticated staging exit workflow
+
+The authoritative remaining gate is:
+
+```text
+Actions -> Phase 3 staging exit -> Run workflow
 ```
 
-Must be green at the exact commit being deployed.
+Default inputs:
 
-### 2. Apply Core D1 migrations
-
-Apply staging migrations through schema **21** before deploying the new Core runtime.
-
-The migration sequence is intentionally destructive for the obsolete Phase-2 domain tables because HomeMew never cut over durable production data to that intermediate runtime.
-
-### 3. Deploy Identity/Core staging
-
-Deploy the exact PR head to staging only.
-
-Expected public Core status after deployment:
-
-```json
-{
-  "service": "core",
-  "schemaVersion": "21",
-  "contractVersion": "0.12.0"
-}
+```text
+core_base_url = https://core-staging.aisr.online
+deploy_core = false
 ```
 
-### 4. D1 convergence gate
+`deploy_core=false` is appropriate when the exact Core runtime under test is already deployed. Set it to `true` only when the PR head contains a Core runtime/migration change that must be redeployed before verification.
 
-Run:
+The workflow is staging-only and refuses a non-staging Core URL.
 
-```bash
-node infra/scripts/verify-phase3-staging-db.mjs
+### Ephemeral smoke bootstrap
+
+`prepare-phase3-staging-smoke.mjs` creates one run-unique staging trusted application, user, short-lived user bearer, service principal and 15-minute maximum-lifetime service PAT.
+
+The test application receives stable scopes only:
+
+```text
+profile:read
+spaces:read
+spaces:write
+spaces:manage
+resources:read
+resources:write
+creation-drafts:read
+creation-drafts:write
+models:manage
 ```
 
-After active Model Contract initialization, run the stricter form:
+The user bearer intentionally carries `models:manage` as well so the HTTP gate proves that AI/Model Admin remains service-principal-only even when a user has the same scope string.
 
-```bash
-REQUIRE_ACTIVE_MODEL_CONTRACT=1 node infra/scripts/verify-phase3-staging-db.mjs
-```
+The staging bootstrap writes explicit `write` Application × Model catalog entries for Task/Wish/Day Record/Event directly to **staging Core D1 only**. This is test-fixture setup, not a production administration path.
 
-This verifies:
+Plaintext credentials are masked with GitHub `add-mask` and exported only through the current job's `GITHUB_ENV`. They are never written to repository files, artifacts or job summaries.
 
-- schema v21;
-- Task v2 / Wish v3 / Day Record v1 / Event v2 exact schema hashes;
-- HomeMew Application × Model `write` catalog entries;
-- required Generic/Temporal/Registry tables;
-- absence of old dedicated Event/Task/Day/Wish tables;
-- AI proposal columns and atomic audit trigger;
-- active content-addressed `mct_*` when required.
+If staging signing keys or the Core↔Identity opaque-token introspection secret are missing/misaligned, the bootstrap repairs **staging only** and waits for verification convergence. It never targets production.
 
-### 5. Kernel/control-plane HTTP gate
+### Authenticated gates
 
-Provide the already-created staging service-admin bearer to:
+The workflow then runs, in order:
 
-```bash
-LIFESPACE_CORE_STAGING_URL=<core-staging-url> \
-LIFESPACE_STAGING_MODEL_ADMIN_BEARER=<service-bearer> \
-node infra/scripts/verify-phase3-staging-http.mjs
-```
+1. `verify-phase3-staging-http.mjs`
+   - Core Kernel 0.12.0 / schema 21;
+   - exact four published model versions;
+   - active immutable `mct_*` manifest;
+   - service-only Model Admin / AI Model Admin boundary;
+   - user principal denial even with `models:manage`.
+2. `REQUIRE_ACTIVE_MODEL_CONTRACT=1 verify-phase3-staging-db.mjs`
+   - active D1 Model Contract pointer/hash/revision.
+3. `verify-phase3-staging-models.mjs`
+   - Task defaults + complete/reopen Workflow;
+   - Event Calendar interval/overlap/Person relation;
+   - Day Record Temporal computation/occurrence history;
+   - Wish Policy + claim/unclaim Workflow.
+4. `verify-phase3-staging-creation-draft.mjs`
+   - Registry-driven candidate set;
+   - immutable Model Contract pin;
+   - `choose_model` requeue when returned;
+   - Queue/worker reaches a valid terminal state.
 
-Optionally add a user bearer to prove the AI Model Admin user-principal denial boundary:
+A live paid AI provider is not mandatory for Phase-3 closeout. When staging AI is intentionally unconfigured, a recognized explicit configuration failure is accepted only after the Queue/worker reaches the terminal state and the pinned contract behavior has been verified. Repository tests remain authoritative for unsafe AI output, stale proposal, compatibility floor and atomic proposal audit.
 
-```bash
-LIFESPACE_STAGING_USER_BEARER=<user-bearer>
-```
+### Cleanup
 
-This verifies:
+An `always()` cleanup step:
 
-- Kernel `0.12.0` / schema 21;
-- published four-model Registry versions;
-- active immutable Model Contract manifest;
-- service-only AI Model Admin read boundary.
+- revokes the ephemeral service PAT when possible;
+- disables the ephemeral service principal;
+- removes the run-unique Application × Model catalog entries.
 
-The script does not create credentials or duplicate staging bootstrap logic.
+The service PAT also has a 15-minute maximum lifetime, so cleanup failure cannot create a long-lived model-admin credential.
 
-### 6. Existing infrastructure/auth gates
-
-The existing staging bootstrap/deployment flow must still prove:
-
-- Identity health/status;
-- Core health/status;
-- application credential authentication;
-- opaque Service API Token behavior;
-- OAuth/service principal behavior where configured;
-- Data Grant authorization;
-- Space avatar/R2 behavior;
-- Queue availability and Creation Draft worker execution.
-
-Any Phase-2 assertion in those scripts that expects Core `0.11.0`, schema 9, `events:*`/`tasks:*` scopes, handwritten domain tables or fixed `choose-kind` Creation Draft is obsolete and must be updated before the Phase-3 deploy workflow is considered authoritative.
-
-### 7. Four-model semantic staging E2E
-
-Using a disposable staging Space and current `resources:*` credentials, verify:
-
-- Event: timed/all-day conversion rules, overlap window and attendee relation;
-- Task: server default `pending`, complete/reopen Workflow and optimistic concurrency;
-- Day Record: Temporal default/calculation, occurrence recording/history and archive/restore;
-- Wish: owner/claim/fulfill/reopen/archive/restore Policy/Workflow, including removed claimant fallback;
-- cross-Space Person relations are rejected;
-- inactive historical Person references remain readable where required.
-
-### 8. Registry-driven Creation Draft staging E2E
-
-Verify:
-
-- candidate models come from current writable Registry catalog;
-- dynamic model descriptors/schema are used;
-- `choose_model` can requeue;
-- job exposes/pins `modelContractRevision`;
-- contract change invalidates an old draft rather than interpreting it against new metadata;
-- source input is removed after terminal states according to privacy rules.
-
-### 9. AI Model Admin staging boundary
-
-The Phase-3 exit does not require publishing a throwaway model through a paid/live AI provider if staging AI is intentionally unconfigured.
-
-It does require:
-
-- service-only proposal API is reachable;
-- user principal is denied when a user bearer is available;
-- unconfigured AI returns an explicit configuration error and does not change Model Registry state;
-- repository tests for unsafe output, stale proposal, compatibility floor and atomic proposal audit remain green at the deployed commit.
-
-If staging AI credentials are intentionally configured, one disposable proposal may additionally be generated and discarded; do not use a production model key.
+Disposable staging user/application/Space audit fixtures may remain for traceability; they hold no plaintext credential in the repository and the removed catalog entries prevent the user bearer from retaining ordinary-model access after cleanup.
 
 ## Phase 3 exit criteria
 
 Phase 3 is complete only when all are true:
 
-- exact deployed commit passes repository CI;
+- exact PR head passes repository CI;
 - staging Core reports Kernel 0.12.0 / D1 schema 21;
+- staging Identity reports 0.3.0 / D1 schema 4;
 - D1 convergence checker passes;
-- Kernel/control-plane checker passes;
-- Identity/service-auth/Data Grant/R2/Queue gates pass;
+- authenticated Kernel/control-plane checker passes;
+- active immutable Model Contract checker passes;
+- service authentication is exercised through a real staging service PAT;
 - four proving models pass metadata-runtime semantic E2E;
-- Registry-driven Creation Draft passes staging E2E;
-- AI Model Admin security/control-plane boundary is verified;
+- Registry-driven Creation Draft reaches a valid staging terminal state;
+- AI Model Admin service-only boundary is verified;
+- ephemeral staging authority cleanup is attempted;
 - no production deployment occurs;
 - no HomeMew client/data cutover occurs.
 
