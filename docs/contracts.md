@@ -8,10 +8,17 @@ Identity API syntax remains explicitly owned by `apps/identity/openapi.yaml`.
 
 Core has two contract layers:
 
-1. **Kernel Contract** — explicit, code-owned APIs such as Space, Membership, Data Grant, authentication-facing Core behavior and model administration.
+1. **Kernel Contract** — explicit, code-owned APIs such as Space, Membership, Data Grant, Registry-driven Creation Draft orchestration and model administration. The checked-in contract is `apps/core/openapi.yaml` and is versioned independently from ordinary models.
 2. **Model Contract Revision** — immutable OpenAPI/JSON Schema snapshots generated from the published Model Registry plus registered Capability contract contributions.
 
-During Phase 3 convergence, `apps/core/openapi.yaml` remains the versioned Phase-2/publication artifact and contract-check input until the old handwritten domain routes are retired. Ordinary model paths/schemas must not become newly hand-maintained sections of that file. The final generated publication surface is assembled from the explicit Kernel contract and a selected immutable Model Contract Revision.
+As of Core Kernel `0.12.0`, ordinary model paths/schemas are deliberately absent from `apps/core/openapi.yaml`. They exist only in a concrete immutable Model Contract Revision. CI rejects Event/Task/Day Record/Wish or generic `{modelRoute}` paths if they are reintroduced into the Kernel OpenAPI.
+
+The effective client contract is therefore an explicit pair:
+
+```text
+Kernel Contract: 0.12.0 (or another pinned Kernel version)
+Model Contract:  mct_<hash>
+```
 
 Do not create a separately hand-maintained contract repository.
 
@@ -21,14 +28,17 @@ Publishing an ordinary model is sufficient to derive its standard CRUD/query/act
 
 The generator owns model-derived:
 
-- Space model collection/item paths;
+- concrete Space model collection/item paths;
 - request/response schemas;
+- server-default semantics;
 - field constraints;
 - relation identifiers;
 - declared search/filter/range/sort/cursor parameters;
 - lifecycle/version fields;
 - workflow action paths;
-- Capability-specific additions once a Capability registers its deterministic contract contribution.
+- Capability-specific additions registered deterministically by the Capability.
+
+Current Capability contributions include Temporal computed/query/occurrence/action surfaces and Calendar timed/all-day/dual-window query semantics.
 
 AI Admin never edits OpenAPI directly. It proposes Model Definitions; normal validation/publication drives contract generation.
 
@@ -53,7 +63,22 @@ The content hash does **not** include the mutable Registry revision counter. If 
 
 Registry mutation and contract activation are one D1 transaction guarded by the global Registry revision/mutation token. Core must never commit a model publication while leaving the active contract on the previous model set.
 
-The initial post-migration Task Registry is lazily given an active contract revision on first contract read if no model mutation has already created one; initialization is revision-guarded and cannot overwrite a concurrent publication.
+If a migrated environment has a Registry state but no active contract pointer, first contract read may initialize the matching revision. Initialization is Registry-revision guarded and cannot overwrite a concurrent publication.
+
+## Kernel Contract
+
+The Kernel OpenAPI is intentionally explicit and comparatively stable. It currently covers:
+
+- health/status and authentication-facing Core principal behavior;
+- Space, Membership, Space Person-facing membership operations and invitations;
+- Space avatar replacement/public reads;
+- Data Grant lifecycle;
+- Registry-driven Creation Draft orchestration;
+- service-only Model Admin and immutable Model Contract reads.
+
+The Kernel contract must never be used as a second hand-maintained description of ordinary business models. A new ordinary model must not require an edit to `apps/core/openapi.yaml`.
+
+A Kernel behavior change is versioned independently from model publication. The Phase-3 contract split moves Core from the Phase-2 `0.11.0` combined-domain contract to Kernel `0.12.0`.
 
 ## Published artifacts
 
@@ -107,9 +132,12 @@ Changes to public API behavior should fail CI when Kernel inputs, Model/Capabili
 
 Metadata-platform checks include:
 
+- Kernel OpenAPI contains only explicit Kernel surfaces and rejects ordinary/generic model paths;
 - Model Definition validation;
 - deterministic schema hashing;
 - deterministic OpenAPI/JSON Schema generation;
+- server defaults remain aligned between Runtime, AI draft generation and generated contract;
+- Capability contract contributions remain aligned with Capability Runtime/query semantics;
 - no Kernel/model route collisions;
 - no duplicate model-derived operation IDs/schema names;
 - content-addressed contract snapshot reproducibility;
@@ -117,4 +145,4 @@ Metadata-platform checks include:
 - Generic Runtime behavior matching generated constraints;
 - compatibility/retirement dependency gates before production use.
 
-HomeMew's former handwritten OpenAPI contract-check pattern remains a behavioral reference for strict drift detection, not the future ordinary-model source-authoring model.
+HomeMew's former handwritten OpenAPI contract-check pattern remains a behavioral reference for strict drift detection, not the ordinary-model source-authoring model.
