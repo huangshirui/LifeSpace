@@ -12,8 +12,9 @@ Read:
 4. `docs/service-authentication.md` when changing service or machine authentication
 5. `docs/contracts.md`
 6. `docs/phase3-metadata-platform-plan.md` when changing model/runtime architecture
-7. `docs/migration-plan.md` when porting HomeMew behavior
-8. Core contract, Model Definitions, migrations, tests and relevant implementation
+7. `docs/phase3-performance-convergence-plan.md` when changing ordinary-model storage, Registry runtime lookup, query hydration, authorization I/O, or performance-sensitive request paths
+8. `docs/migration-plan.md` when porting HomeMew behavior
+9. Core contract, Model Definitions, migrations, tests and relevant implementation
 
 ## Core responsibilities
 
@@ -43,9 +44,21 @@ Core does not own:
 - Do not add another handwritten ordinary-domain CRUD router/service/table when the requirement can be represented by Model Definition or a reusable Capability.
 - If a requirement cannot be represented, first decide whether the gap belongs in a reusable Engine/Capability. Add source code at that reusable boundary, not at a one-off model boundary.
 - Model Definitions are immutable once published; changes create a new version and explicit compatibility classification.
-- Registry logical schema is authoritative. Generic JSON persistence is an implementation detail and must never become a schemaless client API.
+- Registry logical schema is authoritative. Metadata-driven logical schema does **not** require a universal JSON physical-storage table. During Phase 3 performance convergence, ordinary scalar fields move to deterministic generated `mdl_<model_key>` typed tables while common record identity/audit remains generic and relation/capability projections remain shared.
+- Physical model tables/columns/indexes are generated only from validated Model Definitions by fixed platform code. Never add handwritten per-model DDL as the normal ordinary-model extension path, and never execute AI/client-provided SQL.
 - Kernel routes and model routes must never collide. Reserved routes are enforced by Model Definition validation.
 - Model metadata cannot contain arbitrary JavaScript, SQL, shell code or unrestricted expressions.
+
+## Runtime performance rules
+
+- D1 Model Registry remains authoritative durable state, but a normal hot-cache ordinary business request must resolve published model metadata from the Worker-isolate runtime Registry snapshot rather than querying `model_definitions` per request.
+- Compile stable model lookup/query/relation/access metadata once per runtime Registry snapshot; do not repeatedly parse and validate the same published `definition_json` on each business request.
+- Cache only stable model/runtime rules. Membership, Data Grants, Application × Model Access and other revocable authority remain current-state authorization checks and must not be hidden behind a long-lived metadata cache.
+- Result mapping/hydration must not perform D1 I/O per returned record. Any D1 query inside a loop/`map` over query results is an N+1 defect unless explicitly bounded and justified.
+- Load shared Space/Person/Capability context once per request or response where possible; batch relation/person hydration instead of resolving the same entity repeatedly.
+- Prefer reducing Worker↔D1 round trips over micro-optimizing already-sub-millisecond SQL. Use D1 `batch()` when multiple statements can safely share one database call without weakening authorization or transaction semantics.
+- Design against the budgets in `docs/phase3-performance-convergence-plan.md`: hot-cache ordinary single GET <= 4 D1 round trips, list/query <= 5 independent of result count, mutation <= 6, and Registry hot-path lookup = 0.
+- Do not introduce Workers KV, Cache API, Durable Object Registry reads or another distributed cache layer without measured evidence that isolate memory + D1 fallback is insufficient.
 
 ## Authorization rules
 
@@ -74,9 +87,9 @@ Do not mechanically port:
 
 ## Persistence
 
-- Core D1 migrations belong under `apps/core/migrations`.
+- Core D1 migrations belong under `apps/core/migrations` for Kernel/platform-owned deployment schema. Ordinary model physical schema is produced by the validated Model publication/schema-planning path once Phase 3 typed-storage convergence is active; it must not require a repository migration for every new ordinary model.
 - Kernel tables remain explicit.
-- Ordinary resources may use generic storage only behind validated published model definitions.
+- Ordinary resources may use generic/shared storage only behind validated published model definitions. The intermediate `resource_records.data_json` / `resource_index_values` representation is not a permanent target after Phase 3 performance convergence.
 - Important invariants should be enforced in D1 when cheap and reliable; semantic invariants additionally belong in Registry/Runtime validation.
 - Capabilities may own auxiliary tables/indexes when generic storage is insufficient for correctness/performance.
 - Avoid schema designs that require application clients to repair referential integrity.
@@ -84,4 +97,4 @@ Do not mechanically port:
 
 ## Verification
 
-A Core change is incomplete until canonical contract checks, tests, type checks and dry-run build pass. Metadata-platform changes additionally require Model Definition/Registry validation tests, Kernel/model authorization isolation tests and reproducibility checks for generated model contracts once generation is enabled.
+A Core change is incomplete until canonical contract checks, tests, type checks and dry-run build pass. Metadata-platform changes additionally require Model Definition/Registry validation tests, Kernel/model authorization isolation tests and reproducibility checks for generated model contracts once generation is enabled. Performance-convergence changes additionally require deterministic physical-schema tests where applicable and must preserve the request-I/O invariants in `docs/phase3-performance-convergence-plan.md`.
