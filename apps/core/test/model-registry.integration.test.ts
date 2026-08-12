@@ -2,8 +2,14 @@ import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
 import type { Bindings, Principal } from "../src/env";
 import { getPublishedModel, getPublishedModelByRoute, publishModelDefinition, retireModel } from "../src/model-registry";
+import { physicalTableName } from "../src/physical-schema";
 
 type TestEnv = { DB: D1Database };
+
+type TableInfoRow = {
+  name: string;
+  type: string;
+};
 
 function bindings(): Bindings {
   return { DB: (env as unknown as TestEnv).DB } as Bindings;
@@ -43,7 +49,7 @@ describe("Model Registry", () => {
     expect(model?.definition.defaults).toEqual({ status: "pending" });
   });
 
-  it("publishes a validated model and resolves it by route", async () => {
+  it("publishes a validated model, creates its typed table and resolves it by route", async () => {
     const definition = noteDefinition(`notes-${crypto.randomUUID().slice(0, 8)}`);
     const published = await publishModelDefinition(bindings(), publisher, definition, "initial");
     expect(published.version).toBe(1);
@@ -51,9 +57,18 @@ describe("Model Registry", () => {
 
     const byRoute = await getPublishedModelByRoute(bindings(), definition.route);
     expect(byRoute?.key).toBe(definition.key);
+
+    const table = physicalTableName(definition.key);
+    const columns = await (env as unknown as TestEnv).DB.prepare(`PRAGMA table_info("${table}")`).all<TableInfoRow>();
+    expect(columns.results.map((column) => [column.name, column.type])).toEqual([
+      ["record_id", "TEXT"],
+      ["space_id", "TEXT"],
+      ["title", "TEXT"],
+      ["body", "TEXT"],
+    ]);
   });
 
-  it("supersedes an immutable published version instead of overwriting it", async () => {
+  it("supersedes an immutable published version and applies compatible additive DDL", async () => {
     const definition = noteDefinition(`notes-${crypto.randomUUID().slice(0, 8)}`);
     const first = await publishModelDefinition(bindings(), publisher, definition, "initial");
     const second = await publishModelDefinition(bindings(), publisher, {
@@ -71,6 +86,27 @@ describe("Model Registry", () => {
       .bind(first.id).first<{ state: string; superseded_at: string | null }>();
     expect(old?.state).toBe("superseded");
     expect(old?.superseded_at).toBeTruthy();
+
+    const table = physicalTableName(definition.key);
+    const columns = await (env as unknown as TestEnv).DB.prepare(`PRAGMA table_info("${table}")`).all<TableInfoRow>();
+    expect(columns.results.some((column) => column.name === "pinned" && column.type === "INTEGER")).toBe(true);
+  });
+
+  it("rejects physical rewrites before changing the active Registry version", async () => {
+    const definition = noteDefinition(`notes-${crypto.randomUUID().slice(0, 8)}`);
+    const first = await publishModelDefinition(bindings(), publisher, definition, "initial");
+
+    await expect(publishModelDefinition(bindings(), publisher, {
+      ...definition,
+      fields: {
+        ...definition.fields,
+        title: { ...definition.fields.title, type: "text" },
+      },
+    }, "breaking")).rejects.toMatchObject({ code: "MODEL_PHYSICAL_MIGRATION_REQUIRED" });
+
+    const stillPublished = await getPublishedModel(bindings(), definition.key);
+    expect(stillPublished?.id).toBe(first.id);
+    expect(stillPublished?.version).toBe(1);
   });
 
   it("retires the active model without deleting version history", async () => {
