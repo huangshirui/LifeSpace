@@ -1,10 +1,10 @@
 # Phase 3 Status — Metadata-driven Platform Runtime
 
-Status: **technical implementation complete; authenticated staging exit passed**
+Status: **platform/typed-storage implementation complete; authenticated staging v24 passed; performance closeout pending representative APAC validation**
 
-Draft PR: #20 (`phase3-metadata-platform`)
+Updated: **2026-08-12**
 
-Phase 3 has reached its technical exit criteria. HomeMew production/client cutover has **not** started and production LifeSpace resources were not touched.
+HomeMew production/client cutover has **not** started and production LifeSpace resources have not been touched.
 
 ## Target invariant
 
@@ -20,12 +20,17 @@ Kernel
   Model Registry / Model Admin
   Creation Draft orchestration
 
-Generic Runtime
-  schema validation / defaults
-  CRUD / query / cursor
-  relation and index projections
-  optimistic concurrency
-  soft delete / actor audit
+Metadata-driven Model Platform
+  Model Definition / Registry
+  isolate-memory Runtime Model Descriptor cache
+  Physical Schema Compiler
+  Generic Runtime
+
+Physical storage
+  resource_records common envelope/catalog
+  mdl_<model_key> typed scalar table
+  resource_relations shared relation storage
+  Capability-owned projections
 
 Generic Engines
   Policy
@@ -45,9 +50,9 @@ Model Definitions
   future ordinary models without Core CRUD source changes
 ```
 
-## Implemented platform behavior
+## Current architecture state
 
-Ordinary-model authorization is the intersection of:
+Ordinary-model authorization remains the intersection of:
 
 ```text
 verified principal
@@ -60,9 +65,9 @@ verified principal
 
 Identity does not mint one token-scope vocabulary per model. Publishing a new ordinary model therefore does not require an Identity runtime change; application access is governed by Core's Application × Model catalog.
 
-Published Model Definitions are validated, immutable by version, schema-hashed and compatibility-classified. Generic Resource Runtime owns schema/default validation, CRUD/query, relation integrity, optimistic concurrency, soft deletion and actor audit. Policy and Workflow use bounded declarative ASTs rather than arbitrary code.
+Published Model Definitions are validated, immutable by version, schema-hashed and compatibility-classified. Generic Runtime owns schema/default validation, CRUD/query, relation integrity, optimistic concurrency, soft deletion and actor audit. Policy and Workflow use bounded declarative ASTs rather than arbitrary code.
 
-Core contracts are split into:
+Core contracts remain split into:
 
 ```text
 Kernel Contract
@@ -76,7 +81,45 @@ Model Contract Revision
 
 Registry-driven Creation Draft derives the writable model set from the published Registry intersected with current Application × Model access, and pins an immutable Model Contract Revision for queued execution.
 
-AI Model Admin is a guarded proposal control plane only: AI may propose a Model Definition, but Core reparses it through the closed validator, computes deterministic diff/hash evidence, and requires explicit service-admin publication. AI has no DDL, SQL, JavaScript, shell, credential or autonomous publish authority.
+AI Model Admin remains a guarded proposal control plane only: AI may propose a Model Definition, but Core reparses it through the closed validator, computes deterministic diff/hash evidence, and requires explicit service-admin publication. AI has no arbitrary DDL, SQL, JavaScript, shell, credential or autonomous publish authority.
+
+## Phase 3 performance / physical-storage convergence
+
+The intermediate generic JSON representation has been retired from the supported runtime.
+
+Final ordinary-model physical shape:
+
+```text
+resource_records
+  common identity / Space ownership / model version
+  optimistic version / audit / timestamps / soft delete
+
+mdl_task
+mdl_wish
+mdl_day_record
+mdl_event
+mdl_<future_model>
+  typed scalar business columns
+
+resource_relations
+  person / record relation values
+
+Capability projections
+  Temporal / Calendar / future capability storage
+```
+
+Current guarantees:
+
+- `resource_records.data_json` is removed;
+- `resource_index_values` is removed;
+- ordinary scalar CRUD/query executes against generated typed model tables;
+- model publication can generate bounded deterministic DDL from validated metadata;
+- hot-cache model route resolution uses an isolate-memory Runtime Model Descriptor snapshot and performs zero Registry D1 reads;
+- list/query response hydration does not perform D1 I/O per returned record;
+- current mutable authorization remains real-time/current-state checked;
+- D1 round-trip budgets are enforced by integration tests: single GET <= 4, list/query <= 5, mutation <= 6, hot Registry = 0.
+
+Core staging/production Wrangler configuration now enables Cloudflare Smart Placement. This is a deployment-topology optimization for the D1-heavy Core request path; it does not alter authorization, contracts or data ownership. Local development keeps the default local placement behavior. CI locks this configuration.
 
 ## Current proving versions
 
@@ -88,49 +131,71 @@ AI Model Admin is a guarded proposal control plane only: AI may propose a Model 
 | Event | 2 | Generic Runtime + Calendar |
 
 Core Kernel Contract: **0.12.0**  
-Core D1 schema: **21**  
+Core D1 schema: **24**  
 Identity Contract: **0.3.0**  
 Identity D1 schema: **4**
 
-The Phase-2 handwritten Event/Task/Day Record/Wish services and fixed four-kind Creation Draft implementation are removed from the target Core runtime. Historical migrations remain as audit evidence; destructive staging convergence removed the obsolete dedicated domain tables before any HomeMew durable-data cutover.
+The Phase-2 handwritten Event/Task/Day Record/Wish services and fixed four-kind Creation Draft implementation are removed from the target Core runtime. Historical migrations remain as audit evidence; destructive staging convergence removed obsolete dedicated-domain and intermediate JSON/index persistence before any HomeMew durable-data cutover.
 
-## Phase 3 staging exit evidence
+## Latest authoritative staging evidence
 
-Authoritative staging evidence:
+Latest full typed-storage staging convergence before Smart Placement redeployment:
 
 - Workflow: **Deploy staging**
-- Run: **#23**
-- GitHub Actions run ID: `31561015721`
-- Branch: `phase3-metadata-platform`
-- Commit: `8a4d9fddb906a97bfa289a616f6469e69847f643`
+- Run: **#26**
+- GitHub Actions run ID: `31607375508`
+- Branch: `main`
+- Commit: `6620781af236098e78be784c1a59207074025f72`
 - Date: **2026-08-12**
 - Result: **success**
 
-The successful run passed all of the following at the exact deployed commit:
+The run passed:
 
 1. repository `pnpm check`;
-2. Core D1 migrations through schema 21;
-3. Core staging deployment and public `0.12.0 / schema 21` convergence;
-4. Identity migrations/deployment and public `0.3.0 / schema 4` convergence;
-5. staging custom-domain verification;
-6. Phase-3 D1 convergence checker;
-7. ephemeral authenticated staging bootstrap;
+2. Core D1 migrations through schema 24;
+3. typed model table / common-envelope convergence;
+4. removal of `data_json` and `resource_index_values`;
+5. removal of unrecoverable pre-typed staging orphan envelopes;
+6. Core staging `0.12.0 / schema 24` convergence;
+7. Identity `0.3.0 / schema 4` convergence;
 8. authenticated Kernel / service-only Model Admin / AI Admin boundary verification;
-9. active immutable `mct_*` Model Contract and D1 pointer verification;
-10. Task defaults + complete/reopen Workflow;
-11. Event Calendar interval/overlap/Person relation semantics;
-12. Day Record Temporal computation and occurrence history;
-13. Wish Policy deny/allow behavior with separate owner and claimant plus claim/unclaim Workflow;
+9. active immutable `mct_*` Model Contract verification;
+10. Task CRUD/defaults + complete/reopen Workflow;
+11. Event Calendar overlap/query semantics;
+12. Day Record Temporal computation / occurrence semantics;
+13. Wish Policy + Workflow semantics;
 14. Registry-driven Creation Draft Queue reaching a valid terminal state;
 15. cleanup of ephemeral staging authority.
 
-The Wish staging fixture explicitly proves both sides of policy enforcement: the owner cannot claim their own wish (`POLICY_DENIED`), while a distinct active Space member can claim and unclaim it.
+The D1 verifier reported typed envelope consistency for all four proving models and confirmed legacy generic storage was removed.
 
-The smoke bootstrap uses run-unique staging identities and a service PAT with a maximum 15-minute lifetime. Plaintext credentials are masked and kept only in the current Actions job environment. Cleanup revokes/disables ephemeral service authority and removes temporary Application × Model catalog entries.
+## Performance evidence and remaining gate
 
-## Phase 3 exit criteria
+HomeMew production baseline measured on 2026-08-12 remains the practical comparison point:
 
-All technical exit criteria are now satisfied:
+- request duration P50 about **339 ms**, P90 about **780 ms**, P99 about **2 s**;
+- CPU P50 about **12.3 ms**;
+- D1 query latency P50 about **0.16 ms**;
+- roughly **24 D1 queries per Worker invocation** on average, with repeated actor/person lookup dominating query count.
+
+LifeSpace has already reduced the structural D1 hot path to bounded O(1) calls, but the first staging HTTP benchmark was executed by a GitHub-hosted runner in North Central US while staging D1 primary was observed in APAC/Singapore. That run measured roughly 1–5 second HTTP timings and is intentionally classified as **diagnostic only**, because it combines uncontrolled runner geography with long-distance Worker-to-D1 topology and is not comparable to HomeMew's representative APAC workload.
+
+`infra/scripts/verify-staging-performance.mjs` now requires an explicit benchmark profile:
+
+- default `diagnostic-github`: records timings but cannot accept or reject Phase 3;
+- `apac`: eligible for the Phase-3 absolute latency gate;
+- `ENFORCE_PERFORMANCE_TARGETS=1` is rejected unless the profile is `apac`.
+
+Representative APAC acceptance targets remain:
+
+- common ordinary-resource read P50 <= **220 ms**;
+- common read P90 <= **500 ms**;
+- stretch P50 <= **180 ms**;
+- D1 round-trip budgets must remain satisfied independently of HTTP geography.
+
+## Phase 3 exit checklist
+
+Implemented and verified:
 
 - [x] ordinary models can be added/published without handwritten Core CRUD source;
 - [x] published model definitions are immutable/versioned/schema-hashed;
@@ -140,15 +205,20 @@ All technical exit criteria are now satisfied:
 - [x] Task and Wish execute through Model Definition + Generic Engines;
 - [x] Day Record executes through Temporal;
 - [x] Event executes through Calendar;
-- [x] Creation Draft is Registry-driven rather than fixed to four handwritten kinds;
+- [x] Creation Draft is Registry-driven;
 - [x] Phase-2 handwritten ordinary-domain runtime is removed from the target Core;
-- [x] Core/Identity/service-auth/model-contract/four-model/Queue staging gates passed;
-- [x] AI Model Admin service-only security boundary was exercised in staging;
+- [x] typed `mdl_<model_key>` physical storage is active;
+- [x] intermediate `data_json` / `resource_index_values` storage is removed;
+- [x] Registry hot-path and list N+1 behavior are removed;
+- [x] D1 round-trip budgets are enforced by CI;
+- [x] Core/Identity/service-auth/model-contract/four-model/Queue staging gates passed on schema 24;
 - [x] no production deployment occurred;
-- [x] no HomeMew client or production-data cutover occurred.
+- [x] no HomeMew client or production-data cutover occurred;
+- [ ] deploy/observe Core staging with Smart Placement enabled;
+- [ ] run a representative APAC performance benchmark and meet the Phase-3 latency gate.
 
 ## Next step
 
-Phase 3 is technically ready for repository closeout. PR #20 may now be moved from Draft to Ready and squash-merged to `main` after explicit approval.
+Deploy the current `main` to staging so the new Smart Placement configuration becomes active. After deployment, allow normal/test traffic to establish placement behavior as needed, then run the same benchmark from a representative APAC execution point using `PERFORMANCE_BENCHMARK_PROFILE=apac` and enforce the documented thresholds.
 
-HomeMew Phase 4 / application migration should begin only from the merged Phase-3 baseline and must pin the new Kernel + Model Contract architecture rather than the discarded Phase-2 handwritten-domain contract.
+Phase 3 must not be declared closed and HomeMew migration must remain blocked until that representative APAC performance gate passes.
