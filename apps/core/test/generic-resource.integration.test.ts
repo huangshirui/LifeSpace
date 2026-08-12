@@ -20,7 +20,7 @@ const actor: Principal = {
   type: "user",
   id: "usr_generic_resource_test",
   clientId: "homemew-miniprogram",
-  scopes: ["tasks:read", "tasks:write"],
+  scopes: ["resources:read", "resources:write"],
   tokenId: "tok_generic_resource_test",
 };
 
@@ -59,7 +59,7 @@ describe("Generic Resource Runtime", () => {
     });
 
     expect(resource.modelKey).toBe("task");
-    expect(resource.modelVersion).toBe(1);
+    expect(resource.modelVersion).toBe(2);
     expect(resource.version).toBe(1);
     expect(resource.data).toMatchObject({ name: "Buy milk", status: "pending", assigneePersonIds: [personId] });
 
