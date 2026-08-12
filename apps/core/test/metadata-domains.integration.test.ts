@@ -398,7 +398,7 @@ describe("metadata-driven built-in domains", () => {
       version: number;
     }>(created);
     expect(wish).toMatchObject({
-      modelVersion: 2,
+      modelVersion: 3,
       status: "open",
       ownerPersonId: family.ownerPersonId,
       version: 1,
@@ -444,5 +444,59 @@ describe("metadata-driven built-in domains", () => {
     });
     expect(await data<{ status: string; version: number }>(restored))
       .toMatchObject({ status: "open", version: 6 });
+  });
+
+  it("falls back to open when an archived Wish claimant is no longer active", async () => {
+    const { privateKey, publicKey } = await keys();
+    const family = await createFamily(privateKey, publicKey, "Wish fallback");
+    const member = await addMember(family, privateKey, publicKey, "Claimant");
+
+    const created = await request(`/api/v1/spaces/${family.spaceId}/wishes`, family.ownerToken, publicKey, {
+      method: "POST",
+      body: JSON.stringify({ title: "Archived claim", ownerPersonId: family.ownerPersonId }),
+    });
+    const wish = await data<{ id: string }>(created);
+
+    const claimed = await request(`/api/v1/spaces/${family.spaceId}/wishes/${wish.id}/actions/claim`, member.accessToken, publicKey, {
+      method: "POST",
+      body: JSON.stringify({ version: 1 }),
+    });
+    expect(await data<{ status: string; claimantPersonId: string; version: number }>(claimed))
+      .toMatchObject({ status: "claimed", claimantPersonId: member.personId, version: 2 });
+
+    const archived = await request(`/api/v1/spaces/${family.spaceId}/wishes/${wish.id}/actions/archive`, family.ownerToken, publicKey, {
+      method: "POST",
+      body: JSON.stringify({ version: 2 }),
+    });
+    expect(await data<{ status: string; archivedFromStatus: string; claimantPersonId: string; version: number }>(archived))
+      .toMatchObject({
+        status: "archived",
+        archivedFromStatus: "claimed",
+        claimantPersonId: member.personId,
+        version: 3,
+      });
+
+    expect((await request(`/api/v1/spaces/${family.spaceId}/members/${member.userId}`, family.ownerToken, publicKey, {
+      method: "DELETE",
+    })).status).toBe(204);
+
+    const restored = await request(`/api/v1/spaces/${family.spaceId}/wishes/${wish.id}/actions/restore`, family.ownerToken, publicKey, {
+      method: "POST",
+      body: JSON.stringify({ version: 3 }),
+    });
+    expect(restored.status).toBe(200);
+    expect(await data<{
+      status: string;
+      claimantPersonId: string | null;
+      claimedAt: string | null;
+      archivedFromStatus: string | null;
+      version: number;
+    }>(restored)).toMatchObject({
+      status: "open",
+      claimantPersonId: null,
+      claimedAt: null,
+      archivedFromStatus: null,
+      version: 4,
+    });
   });
 });
