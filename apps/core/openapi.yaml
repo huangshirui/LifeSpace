@@ -1,8 +1,13 @@
 openapi: 3.1.0
 info:
-  title: LifeSpace Core API
-  version: 0.11.0
-  description: Native LifeSpace Space, authorization, service-authenticated Data Grant, avatar, event, task, day-record and wish APIs. HomeMew runtime compatibility facades were retired after Phase 2.6; applications consume this native contract.
+  title: LifeSpace Core Kernel API
+  version: 0.12.0
+  description: >-
+    Stable LifeSpace Core Kernel contract for Space, membership, invitations, Data Grants,
+    model administration, assets and Registry-driven Creation Draft orchestration.
+    Ordinary business-model routes are intentionally not declared here; each published
+    Model Registry state produces an immutable Model Contract Revision (mct_<sha256>)
+    containing its concrete CRUD/query/action/Capability OpenAPI and JSON Schema.
 security:
   - bearerAuth: []
 tags:
@@ -11,11 +16,9 @@ tags:
   - name: Spaces
   - name: Members
   - name: Invitations
-  - name: Events
-  - name: Tasks
-  - name: Day records
-  - name: Wishes
   - name: Data Grants
+  - name: Creation Drafts
+  - name: Model Admin
 paths:
   /health:
     get:
@@ -27,20 +30,18 @@ paths:
           description: Healthy
           content:
             application/json:
-              schema:
-                $ref: "#/components/schemas/HealthResponse"
+              schema: { $ref: "#/components/schemas/HealthResponse" }
   /api/v1/status:
     get:
       tags: [System]
-      operationId: getStatus
+      operationId: getCoreStatus
       security: []
       responses:
         "200":
-          description: Core runtime and schema status
+          description: Core Kernel runtime and schema status
           content:
             application/json:
-              schema:
-                $ref: "#/components/schemas/StatusResponse"
+              schema: { $ref: "#/components/schemas/StatusResponse" }
   /assets/spaces/{spaceId}/avatar:
     parameters:
       - $ref: "#/components/parameters/SpaceId"
@@ -62,24 +63,24 @@ paths:
       operationId: getCurrentPrincipal
       responses:
         "200":
-          description: Current verified principal
+          description: Current verified Core principal
           content:
             application/json:
-              schema:
-                $ref: "#/components/schemas/PrincipalResponse"
+              schema: { $ref: "#/components/schemas/PrincipalResponse" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
   /api/v1/me/spaces:
     get:
       tags: [Me, Spaces]
       operationId: listMySpaces
       responses:
         "200":
-          description: Active membership Spaces
+          description: Active membership Spaces for a user principal
           content:
             application/json:
-              schema:
-                $ref: "#/components/schemas/SpaceSummaryListResponse"
+              schema: { $ref: "#/components/schemas/SpaceSummaryListResponse" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
   /api/v1/spaces:
     post:
       tags: [Spaces]
@@ -98,6 +99,7 @@ paths:
         "400": { $ref: "#/components/responses/InvalidRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/ValidationError" }
   /api/v1/spaces/{spaceId}:
     parameters:
       - $ref: "#/components/parameters/SpaceId"
@@ -106,7 +108,7 @@ paths:
       operationId: getSpace
       responses:
         "200":
-          description: Space detail and current access
+          description: Space detail and the current membership/grant access source
           content:
             application/json:
               schema: { $ref: "#/components/schemas/SpaceResponse" }
@@ -132,13 +134,14 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/ValidationError" }
   /api/v1/spaces/{spaceId}/avatar:
     parameters:
       - $ref: "#/components/parameters/SpaceId"
     put:
       tags: [Spaces]
       operationId: replaceSpaceAvatar
-      description: Replace the Space avatar under optimistic concurrency. Requires spaces:manage. JPEG, PNG or WebP up to 5 MB.
+      description: Replace the Space avatar under Space optimistic concurrency. Requires spaces:manage.
       requestBody:
         required: true
         content:
@@ -161,8 +164,8 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
-        "413": { description: Avatar is larger than 5 MB }
-        "415": { description: Avatar content type is not JPEG, PNG or WebP }
+        "413": { description: Avatar is larger than the configured maximum }
+        "415": { description: Unsupported avatar content type }
   /api/v1/spaces/{spaceId}/members:
     parameters:
       - $ref: "#/components/parameters/SpaceId"
@@ -195,6 +198,7 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/ValidationError" }
   /api/v1/spaces/{spaceId}/members/{userId}:
     parameters:
       - $ref: "#/components/parameters/SpaceId"
@@ -218,6 +222,7 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/ValidationError" }
     delete:
       tags: [Members]
       operationId: removeSpaceMember
@@ -246,7 +251,7 @@ paths:
       operationId: listSpaceInvites
       responses:
         "200":
-          description: Invitations without plaintext tokens
+          description: Space invitations without plaintext tokens
           content:
             application/json:
               schema: { $ref: "#/components/schemas/InviteListResponse" }
@@ -262,13 +267,14 @@ paths:
             schema: { $ref: "#/components/schemas/CreateInviteRequest" }
       responses:
         "201":
-          description: Invitation created; plaintext token returned once
+          description: Invitation created; plaintext token is returned once only
           content:
             application/json:
               schema: { $ref: "#/components/schemas/CreateInviteResponse" }
         "400": { $ref: "#/components/responses/InvalidRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/ValidationError" }
   /api/v1/spaces/{spaceId}/invites/{inviteId}/revoke:
     parameters:
       - $ref: "#/components/parameters/SpaceId"
@@ -294,6 +300,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/InvitePreviewResponse" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
   /api/v1/space-invites/{token}/join:
     parameters:
@@ -314,548 +321,46 @@ paths:
               schema: { $ref: "#/components/schemas/JoinInviteResponse" }
         "400": { $ref: "#/components/responses/InvalidRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
-        "404": { $ref: "#/components/responses/NotFound" }
-        "409": { $ref: "#/components/responses/Conflict" }
-  /api/v1/spaces/{spaceId}/events:
-    parameters:
-      - $ref: "#/components/parameters/SpaceId"
-    get:
-      tags: [Events]
-      operationId: listSpaceEvents
-      parameters:
-        - { name: startDate, in: query, required: true, schema: { type: string, format: date } }
-        - { name: endDateExclusive, in: query, required: true, schema: { type: string, format: date } }
-        - name: timezone
-          in: query
-          schema: { $ref: "#/components/schemas/IanaTimezone" }
-        - name: attendeePersonId
-          in: query
-          schema: { type: string, description: Space Person ID or me }
-        - name: status
-          in: query
-          schema: { $ref: "#/components/schemas/EventStatus" }
-        - { name: q, in: query, schema: { type: string, minLength: 1, maxLength: 100 } }
-        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 200, default: 100 } }
-        - { name: cursor, in: query, schema: { type: string } }
-      responses:
-        "200":
-          description: Event page
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/EventListResponse" }
-        "400": { $ref: "#/components/responses/InvalidRequest" }
-        "401": { $ref: "#/components/responses/Unauthorized" }
-        "403": { $ref: "#/components/responses/Forbidden" }
-    post:
-      tags: [Events]
-      operationId: createSpaceEvent
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: "#/components/schemas/CreateEventRequest" }
-      responses:
-        "201":
-          description: Event created
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/EventResponse" }
-        "400": { $ref: "#/components/responses/InvalidRequest" }
-        "401": { $ref: "#/components/responses/Unauthorized" }
-        "403": { $ref: "#/components/responses/Forbidden" }
-  /api/v1/spaces/{spaceId}/events/{eventId}:
-    parameters:
-      - $ref: "#/components/parameters/SpaceId"
-      - $ref: "#/components/parameters/EventId"
-    get:
-      tags: [Events]
-      operationId: getSpaceEvent
-      responses:
-        "200":
-          description: Event detail
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/EventResponse" }
-        "401": { $ref: "#/components/responses/Unauthorized" }
-        "403": { $ref: "#/components/responses/Forbidden" }
-        "404": { $ref: "#/components/responses/NotFound" }
-    patch:
-      tags: [Events]
-      operationId: updateSpaceEvent
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: "#/components/schemas/UpdateEventRequest" }
-      responses:
-        "200":
-          description: Event updated
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/EventResponse" }
-        "400": { $ref: "#/components/responses/InvalidRequest" }
-        "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
-    delete:
-      tags: [Events]
-      operationId: deleteSpaceEvent
-      parameters:
-        - { name: version, in: query, required: true, schema: { type: integer, minimum: 1 } }
-      responses:
-        "204": { description: Event soft-deleted }
-        "401": { $ref: "#/components/responses/Unauthorized" }
-        "403": { $ref: "#/components/responses/Forbidden" }
-        "404": { $ref: "#/components/responses/NotFound" }
-        "409": { $ref: "#/components/responses/Conflict" }
-  /api/v1/spaces/{spaceId}/tasks:
-    parameters:
-      - $ref: "#/components/parameters/SpaceId"
-    get:
-      tags: [Tasks]
-      operationId: listSpaceTasks
-      description: Lists non-deleted Space tasks. With a due-date range, undated tasks are included only when includeNoDue=true.
-      parameters:
-        - { name: status, in: query, schema: { type: string, default: pending } }
-        - name: assigneePersonId
-          in: query
-          schema: { type: string, description: Space Person ID or me }
-        - { name: dueDateFrom, in: query, schema: { type: string, format: date } }
-        - { name: dueDateTo, in: query, schema: { type: string, format: date } }
-        - { name: includeNoDue, in: query, schema: { type: boolean, default: false } }
-        - name: sort
-          in: query
-          schema: { type: string, enum: [due_asc, due_desc, created_desc, updated_desc], default: due_asc }
-        - { name: q, in: query, schema: { type: string, minLength: 1, maxLength: 100 } }
-        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 200, default: 100 } }
-        - { name: cursor, in: query, schema: { type: string } }
-      responses:
-        "200":
-          description: Task page
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/TaskListResponse" }
-        "400": { $ref: "#/components/responses/InvalidRequest" }
-        "401": { $ref: "#/components/responses/Unauthorized" }
-        "403": { $ref: "#/components/responses/Forbidden" }
-    post:
-      tags: [Tasks]
-      operationId: createSpaceTask
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: "#/components/schemas/CreateTaskRequest" }
-      responses:
-        "201":
-          description: Task created
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/TaskResponse" }
-        "400": { $ref: "#/components/responses/InvalidRequest" }
-        "401": { $ref: "#/components/responses/Unauthorized" }
-        "403": { $ref: "#/components/responses/Forbidden" }
-  /api/v1/spaces/{spaceId}/tasks/{taskId}:
-    parameters:
-      - $ref: "#/components/parameters/SpaceId"
-      - $ref: "#/components/parameters/TaskId"
-    get:
-      tags: [Tasks]
-      operationId: getSpaceTask
-      responses:
-        "200":
-          description: Task detail
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/TaskResponse" }
-        "401": { $ref: "#/components/responses/Unauthorized" }
-        "403": { $ref: "#/components/responses/Forbidden" }
-        "404": { $ref: "#/components/responses/NotFound" }
-    patch:
-      tags: [Tasks]
-      operationId: updateSpaceTask
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: "#/components/schemas/UpdateTaskRequest" }
-      responses:
-        "200":
-          description: Task updated
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/TaskResponse" }
-        "400": { $ref: "#/components/responses/InvalidRequest" }
-        "401": { $ref: "#/components/responses/Unauthorized" }
-        "403": { $ref: "#/components/responses/Forbidden" }
-        "404": { $ref: "#/components/responses/NotFound" }
-        "409": { $ref: "#/components/responses/Conflict" }
-    delete:
-      tags: [Tasks]
-      operationId: deleteSpaceTask
-      parameters:
-        - { name: version, in: query, required: true, schema: { type: integer, minimum: 1 } }
-      responses:
-        "204": { description: Task soft-deleted }
-        "401": { $ref: "#/components/responses/Unauthorized" }
-        "403": { $ref: "#/components/responses/Forbidden" }
-        "404": { $ref: "#/components/responses/NotFound" }
-        "409": { $ref: "#/components/responses/Conflict" }
-  /api/v1/spaces/{spaceId}/tasks/{taskId}/complete:
-    parameters:
-      - $ref: "#/components/parameters/SpaceId"
-      - $ref: "#/components/parameters/TaskId"
-    post:
-      tags: [Tasks]
-      operationId: completeSpaceTask
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: "#/components/schemas/TaskActionRequest" }
-      responses:
-        "200":
-          description: Task completed
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/TaskResponse" }
-        "400": { $ref: "#/components/responses/InvalidRequest" }
-        "401": { $ref: "#/components/responses/Unauthorized" }
-        "403": { $ref: "#/components/responses/Forbidden" }
-        "404": { $ref: "#/components/responses/NotFound" }
-        "409": { $ref: "#/components/responses/Conflict" }
-  /api/v1/spaces/{spaceId}/tasks/{taskId}/reopen:
-    parameters:
-      - $ref: "#/components/parameters/SpaceId"
-      - $ref: "#/components/parameters/TaskId"
-    post:
-      tags: [Tasks]
-      operationId: reopenSpaceTask
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: "#/components/schemas/TaskActionRequest" }
-      responses:
-        "200":
-          description: Task reopened
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/TaskResponse" }
-        "400": { $ref: "#/components/responses/InvalidRequest" }
-        "401": { $ref: "#/components/responses/Unauthorized" }
-        "403": { $ref: "#/components/responses/Forbidden" }
-        "404": { $ref: "#/components/responses/NotFound" }
-        "409": { $ref: "#/components/responses/Conflict" }
-  /api/v1/spaces/{spaceId}/day-records:
-    parameters:
-      - $ref: "#/components/parameters/SpaceId"
-    get:
-      tags: [Day records]
-      operationId: listSpaceDayRecords
-      parameters:
-        - { name: kind, in: query, schema: { type: string } }
-        - { name: status, in: query, schema: { type: string, default: active } }
-        - name: subjectPersonId
-          in: query
-          schema: { type: string, description: Active Space Person ID or me }
-        - { name: attentionOnly, in: query, schema: { type: boolean, default: false } }
-        - name: sort
-          in: query
-          schema: { $ref: "#/components/schemas/DayRecordSort" }
-        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 200, default: 100 } }
-        - { name: cursor, in: query, schema: { type: string } }
-      responses:
-        "200":
-          description: Day-record page computed using Space timezone
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/DayRecordListResponse" }
-        "400": { $ref: "#/components/responses/InvalidRequest" }
-        "401": { $ref: "#/components/responses/Unauthorized" }
-        "403": { $ref: "#/components/responses/Forbidden" }
-    post:
-      tags: [Day records]
-      operationId: createSpaceDayRecord
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: "#/components/schemas/CreateDayRecordRequest" }
-      responses:
-        "201":
-          description: Day record created
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/DayRecordResponse" }
-        "400": { $ref: "#/components/responses/InvalidRequest" }
-        "401": { $ref: "#/components/responses/Unauthorized" }
-        "403": { $ref: "#/components/responses/Forbidden" }
-  /api/v1/spaces/{spaceId}/day-records/{dayRecordId}:
-    parameters:
-      - $ref: "#/components/parameters/SpaceId"
-      - $ref: "#/components/parameters/DayRecordId"
-    get:
-      tags: [Day records]
-      operationId: getSpaceDayRecord
-      responses:
-        "200":
-          description: Day record detail
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/DayRecordResponse" }
-        "401": { $ref: "#/components/responses/Unauthorized" }
-        "403": { $ref: "#/components/responses/Forbidden" }
-        "404": { $ref: "#/components/responses/NotFound" }
-    patch:
-      tags: [Day records]
-      operationId: updateSpaceDayRecord
-      description: Mutable fields depend on persisted kind; kind is immutable.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: "#/components/schemas/UpdateDayRecordRequest" }
-      responses:
-        "200":
-          description: Day record updated
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/DayRecordResponse" }
-        "400": { $ref: "#/components/responses/InvalidRequest" }
-        "401": { $ref: "#/components/responses/Unauthorized" }
-        "403": { $ref: "#/components/responses/Forbidden" }
-        "404": { $ref: "#/components/responses/NotFound" }
-        "409": { $ref: "#/components/responses/Conflict" }
-    delete:
-      tags: [Day records]
-      operationId: deleteSpaceDayRecord
-      parameters:
-        - { name: version, in: query, required: true, schema: { type: integer, minimum: 1 } }
-      responses:
-        "204": { description: Day record soft-deleted }
-        "401": { $ref: "#/components/responses/Unauthorized" }
-        "403": { $ref: "#/components/responses/Forbidden" }
-        "404": { $ref: "#/components/responses/NotFound" }
-        "409": { $ref: "#/components/responses/Conflict" }
-  /api/v1/spaces/{spaceId}/day-records/{dayRecordId}/archive:
-    parameters:
-      - $ref: "#/components/parameters/SpaceId"
-      - $ref: "#/components/parameters/DayRecordId"
-    post:
-      tags: [Day records]
-      operationId: archiveSpaceDayRecord
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: "#/components/schemas/DayRecordActionRequest" }
-      responses:
-        "200":
-          description: Day record archived
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/DayRecordResponse" }
-        "400": { $ref: "#/components/responses/InvalidRequest" }
-        "401": { $ref: "#/components/responses/Unauthorized" }
-        "403": { $ref: "#/components/responses/Forbidden" }
-        "404": { $ref: "#/components/responses/NotFound" }
-        "409": { $ref: "#/components/responses/Conflict" }
-  /api/v1/spaces/{spaceId}/day-records/{dayRecordId}/restore:
-    parameters:
-      - $ref: "#/components/parameters/SpaceId"
-      - $ref: "#/components/parameters/DayRecordId"
-    post:
-      tags: [Day records]
-      operationId: restoreSpaceDayRecord
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: "#/components/schemas/DayRecordActionRequest" }
-      responses:
-        "200":
-          description: Day record restored
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/DayRecordResponse" }
-        "400": { $ref: "#/components/responses/InvalidRequest" }
-        "401": { $ref: "#/components/responses/Unauthorized" }
-        "403": { $ref: "#/components/responses/Forbidden" }
-        "404": { $ref: "#/components/responses/NotFound" }
-        "409": { $ref: "#/components/responses/Conflict" }
-  /api/v1/spaces/{spaceId}/day-records/{dayRecordId}/occurrences:
-    parameters:
-      - $ref: "#/components/parameters/SpaceId"
-      - $ref: "#/components/parameters/DayRecordId"
-    get:
-      tags: [Day records]
-      operationId: listSpaceDayRecordOccurrences
-      parameters:
-        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 200, default: 100 } }
-        - { name: cursor, in: query, schema: { type: string } }
-      responses:
-        "200":
-          description: Occurrence history newest first
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/DayRecordOccurrenceListResponse" }
-        "400": { $ref: "#/components/responses/InvalidRequest" }
-        "401": { $ref: "#/components/responses/Unauthorized" }
-        "403": { $ref: "#/components/responses/Forbidden" }
-        "404": { $ref: "#/components/responses/NotFound" }
-    post:
-      tags: [Day records]
-      operationId: addSpaceDayRecordOccurrence
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: "#/components/schemas/CreateDayRecordOccurrenceRequest" }
-      responses:
-        "201":
-          description: Occurrence added and anchor advanced atomically
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/CreateDayRecordOccurrenceResponse" }
-        "400": { $ref: "#/components/responses/InvalidRequest" }
-        "401": { $ref: "#/components/responses/Unauthorized" }
-        "403": { $ref: "#/components/responses/Forbidden" }
-        "404": { $ref: "#/components/responses/NotFound" }
-        "409": { $ref: "#/components/responses/Conflict" }
-  /api/v1/spaces/{spaceId}/wishes:
-    parameters:
-      - $ref: "#/components/parameters/SpaceId"
-    get:
-      tags: [Wishes]
-      operationId: listSpaceWishes
-      parameters:
-        - { name: status, in: query, schema: { type: string } }
-        - name: ownerPersonId
-          in: query
-          schema: { type: string, description: Space Person ID or me }
-        - name: claimantPersonId
-          in: query
-          schema: { type: string, description: Space Person ID or me }
-        - { name: desiredFrom, in: query, schema: { type: string, format: date } }
-        - { name: desiredTo, in: query, schema: { type: string, format: date } }
-        - name: sort
-          in: query
-          schema: { type: string, enum: [default, desired_asc, created_desc, updated_desc], default: default }
-        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 200, default: 100 } }
-        - { name: cursor, in: query, schema: { type: string } }
-      responses:
-        "200":
-          description: Wish page
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/WishListResponse" }
-        "400": { $ref: "#/components/responses/InvalidRequest" }
-        "401": { $ref: "#/components/responses/Unauthorized" }
-        "403": { $ref: "#/components/responses/Forbidden" }
-    post:
-      tags: [Wishes]
-      operationId: createSpaceWish
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: "#/components/schemas/CreateWishRequest" }
-      responses:
-        "201":
-          description: Wish created for current Space Person
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/WishResponse" }
-        "400": { $ref: "#/components/responses/InvalidRequest" }
-        "401": { $ref: "#/components/responses/Unauthorized" }
-        "403": { $ref: "#/components/responses/Forbidden" }
-  /api/v1/spaces/{spaceId}/wishes/{wishId}:
-    parameters:
-      - $ref: "#/components/parameters/SpaceId"
-      - $ref: "#/components/parameters/WishId"
-    get:
-      tags: [Wishes]
-      operationId: getSpaceWish
-      responses:
-        "200":
-          description: Wish detail
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/WishResponse" }
-        "401": { $ref: "#/components/responses/Unauthorized" }
-        "403": { $ref: "#/components/responses/Forbidden" }
-        "404": { $ref: "#/components/responses/NotFound" }
-    patch:
-      tags: [Wishes]
-      operationId: updateSpaceWish
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: "#/components/schemas/UpdateWishRequest" }
-      responses:
-        "200":
-          description: Wish updated
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/WishResponse" }
-        "400": { $ref: "#/components/responses/InvalidRequest" }
-        "401": { $ref: "#/components/responses/Unauthorized" }
-        "403": { $ref: "#/components/responses/Forbidden" }
-        "404": { $ref: "#/components/responses/NotFound" }
-        "409": { $ref: "#/components/responses/Conflict" }
-    delete:
-      tags: [Wishes]
-      operationId: deleteSpaceWish
-      parameters:
-        - { name: version, in: query, required: true, schema: { type: integer, minimum: 1 } }
-      responses:
-        "204": { description: Wish soft-deleted }
-        "401": { $ref: "#/components/responses/Unauthorized" }
-        "403": { $ref: "#/components/responses/Forbidden" }
-        "404": { $ref: "#/components/responses/NotFound" }
-        "409": { $ref: "#/components/responses/Conflict" }
-  /api/v1/spaces/{spaceId}/wishes/{wishId}/claim:
-    $ref: "#/components/pathItems/WishClaim"
-  /api/v1/spaces/{spaceId}/wishes/{wishId}/unclaim:
-    $ref: "#/components/pathItems/WishUnclaim"
-  /api/v1/spaces/{spaceId}/wishes/{wishId}/fulfill:
-    $ref: "#/components/pathItems/WishFulfill"
-  /api/v1/spaces/{spaceId}/wishes/{wishId}/reopen:
-    $ref: "#/components/pathItems/WishReopen"
-  /api/v1/spaces/{spaceId}/wishes/{wishId}/archive:
-    $ref: "#/components/pathItems/WishArchive"
-  /api/v1/spaces/{spaceId}/wishes/{wishId}/restore:
-    $ref: "#/components/pathItems/WishRestore"
+        "422": { $ref: "#/components/responses/ValidationError" }
   /api/v1/spaces/{spaceId}/grants:
     parameters:
       - $ref: "#/components/parameters/SpaceId"
     get:
       tags: [Data Grants]
       operationId: listDataGrants
-      description: List Space-level Data Grants. Requires a user principal with grants:manage and current manage permission on the Space.
       parameters:
-        - { name: includeRevoked, in: query, schema: { type: boolean, default: false } }
+        - name: includeRevoked
+          in: query
+          schema: { type: boolean, default: false }
       responses:
-        "200": { description: Data Grant list, content: { application/json: { schema: { $ref: "#/components/schemas/DataGrantListResponse" } } } }
+        "200":
+          description: Space-level Data Grants
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DataGrantListResponse" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
     post:
       tags: [Data Grants]
       operationId: createDataGrant
-      description: Create a Space-level Grant. A service grantee authenticates separately and gains no access without a current Grant.
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: "#/components/schemas/CreateGrantRequest" }
+            schema: { $ref: "#/components/schemas/CreateDataGrantRequest" }
       responses:
-        "201": { description: Data Grant created }
+        "201":
+          description: Space-level Data Grant created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DataGrantResponse" }
         "400": { $ref: "#/components/responses/InvalidRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/ValidationError" }
   /api/v1/spaces/{spaceId}/grants/{grantId}:
     parameters:
       - $ref: "#/components/parameters/SpaceId"
@@ -863,20 +368,25 @@ paths:
     patch:
       tags: [Data Grants]
       operationId: updateDataGrant
-      description: Update the permission or expiry of an active Space-level Grant.
       requestBody:
         required: true
-        content: { application/json: { schema: { $ref: "#/components/schemas/UpdateGrantRequest" } } }
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateDataGrantRequest" }
       responses:
-        "200": { description: Data Grant updated, content: { application/json: { schema: { $ref: "#/components/schemas/DataGrantResponse" } } } }
+        "200":
+          description: Data Grant updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DataGrantResponse" }
         "400": { $ref: "#/components/responses/InvalidRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/ValidationError" }
     delete:
       tags: [Data Grants]
       operationId: revokeDataGrant
-      description: Revoke an active Grant; authorization changes take effect on the next Core request.
       responses:
         "204": { description: Data Grant revoked }
         "401": { $ref: "#/components/responses/Unauthorized" }
@@ -887,202 +397,255 @@ paths:
       - $ref: "#/components/parameters/SpaceId"
     post:
       tags: [Creation Drafts]
-      operationId: createSpaceCreationDraft
-      description: Queue an ephemeral AI-assisted creation draft. Only an active user Space member may use this workflow; service principals are not supported. Requires creation-drafts:write and current Space read access.
+      operationId: createCreationDraft
+      description: >-
+        Queue Registry-driven AI interpretation for an active user Space member.
+        The job binds the requesting application and active immutable Model Contract Revision;
+        only currently writable Application x Model catalog entries are offered to the model.
       requestBody:
         required: true
-        content: { application/json: { schema: { $ref: "#/components/schemas/CreateCreationDraftRequest" } } }
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateCreationDraftRequest" }
       responses:
-        "202": { description: Draft queued, content: { application/json: { schema: { $ref: "#/components/schemas/CreationDraftResponse" } } } }
+        "202":
+          description: Creation Draft queued
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CreationDraftProcessingResponse" }
         "400": { $ref: "#/components/responses/InvalidRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
-        "422": { $ref: "#/components/responses/InvalidRequest" }
-        "429": { description: AI creation rate limit exceeded, content: { application/json: { schema: { $ref: "#/components/schemas/ErrorResponse" } } } }
-        "502": { description: Queue unavailable, content: { application/json: { schema: { $ref: "#/components/schemas/ErrorResponse" } } } }
+        "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { description: AI creation rate limit reached }
   /api/v1/spaces/{spaceId}/creation-drafts/{draftId}:
     parameters:
       - $ref: "#/components/parameters/SpaceId"
       - $ref: "#/components/parameters/DraftId"
     get:
       tags: [Creation Drafts]
-      operationId: getSpaceCreationDraft
-      description: Poll a creation draft owned by the current user. Drafts expire after 24 hours. Requires creation-drafts:read and current Space read access.
+      operationId: getCreationDraft
       responses:
-        "200": { description: Current draft state, content: { application/json: { schema: { $ref: "#/components/schemas/CreationDraftResponse" } } } }
+        "200":
+          description: Current Creation Draft state/result
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CreationDraftResponse" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
-  /api/v1/spaces/{spaceId}/creation-drafts/{draftId}/choose-kind:
+  /api/v1/spaces/{spaceId}/creation-drafts/{draftId}/choose-model:
     parameters:
       - $ref: "#/components/parameters/SpaceId"
       - $ref: "#/components/parameters/DraftId"
     post:
       tags: [Creation Drafts]
-      operationId: chooseSpaceCreationDraftKind
-      description: Resolve an ambiguous creation kind and requeue the same short-lived source text. Only the draft owner may choose.
+      operationId: chooseCreationDraftModel
       requestBody:
         required: true
-        content: { application/json: { schema: { $ref: "#/components/schemas/ChooseCreationDraftKindRequest" } } }
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ChooseCreationDraftModelRequest" }
       responses:
-        "202": { description: Draft requeued, content: { application/json: { schema: { $ref: "#/components/schemas/CreationDraftResponse" } } } }
+        "202":
+          description: Chosen model requeued for interpretation against the pinned Model Contract Revision
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CreationDraftProcessingResponse" }
         "400": { $ref: "#/components/responses/InvalidRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+  /api/v1/model-admin/models:
+    get:
+      tags: [Model Admin]
+      operationId: listPublishedModels
+      description: Service-principal-only model administration. Requires models:manage.
+      responses:
+        "200":
+          description: Published Model Registry entries
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PublishedModelListResponse" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    post:
+      tags: [Model Admin]
+      operationId: publishModelDefinition
+      description: Service-principal-only validated publication. Successful mutation atomically activates a new Model Contract Revision.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PublishModelRequest" }
+      responses:
+        "201":
+          description: Model version published
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PublishedModelResponse" }
+        "400": { $ref: "#/components/responses/InvalidRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+  /api/v1/model-admin/models/validate:
+    post:
+      tags: [Model Admin]
+      operationId: validateModelDefinition
+      description: Service-principal-only validation without publication.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ValidateModelRequest" }
+      responses:
+        "200":
+          description: Validation result and deterministic schema hash when valid
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ModelValidationResponse" }
+        "400": { $ref: "#/components/responses/InvalidRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+  /api/v1/model-admin/models/{modelKey}:
+    parameters:
+      - $ref: "#/components/parameters/ModelKey"
+    get:
+      tags: [Model Admin]
+      operationId: getPublishedModel
+      description: Service-principal-only model administration. Requires models:manage.
+      responses:
+        "200":
+          description: Current published model version
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PublishedModelResponse" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /api/v1/model-admin/models/{modelKey}/retire:
+    parameters:
+      - $ref: "#/components/parameters/ModelKey"
+    post:
+      tags: [Model Admin]
+      operationId: retirePublishedModel
+      description: Service-principal-only explicit retirement; version history and immutable contract evidence are retained.
+      responses:
+        "204": { description: Model retired and active Model Contract Revision changed atomically }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
-        "422": { $ref: "#/components/responses/InvalidRequest" }
+  /api/v1/model-admin/contracts/active:
+    get:
+      tags: [Model Admin]
+      operationId: getActiveModelContract
+      description: Service-principal-only current immutable Model Contract Revision.
+      responses:
+        "200":
+          description: Active Model Contract Revision and Registry revision pointer
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ActiveModelContractResponse" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+  /api/v1/model-admin/contracts/{contractId}:
+    parameters:
+      - $ref: "#/components/parameters/ContractId"
+    get:
+      tags: [Model Admin]
+      operationId: getModelContractRevision
+      description: Service-principal-only read of an immutable historical Model Contract Revision.
+      responses:
+        "200":
+          description: Immutable Model Contract Revision
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ModelContractResponse" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
 components:
   securitySchemes:
     bearerAuth:
       type: http
       scheme: bearer
       bearerFormat: JWT or lsp_pat_
-      description: Short-lived LifeSpace JWT or opaque lsp_pat_* Service API Token. Opaque tokens are introspected against current Identity state.
   parameters:
-    SpaceId: { name: spaceId, in: path, required: true, schema: { type: string, pattern: ^spc_ } }
-    UserId: { name: userId, in: path, required: true, schema: { type: string, pattern: ^usr_ } }
-    InviteId: { name: inviteId, in: path, required: true, schema: { type: string, pattern: ^inv_ } }
-    InviteToken: { name: token, in: path, required: true, schema: { type: string, minLength: 10, maxLength: 100 } }
-    EventId: { name: eventId, in: path, required: true, schema: { type: string, pattern: ^evt_ } }
-    TaskId: { name: taskId, in: path, required: true, schema: { type: string, pattern: ^tsk_ } }
-    DayRecordId: { name: dayRecordId, in: path, required: true, schema: { type: string, pattern: ^day_ } }
-    WishId: { name: wishId, in: path, required: true, schema: { type: string, pattern: ^wsh_ } }
-    GrantId: { name: grantId, in: path, required: true, schema: { type: string, pattern: ^grt_ } }
-    DraftId: { name: draftId, in: path, required: true, schema: { type: string, pattern: ^drf_ } }
+    SpaceId:
+      name: spaceId
+      in: path
+      required: true
+      schema: { type: string, pattern: "^spc_" }
+    UserId:
+      name: userId
+      in: path
+      required: true
+      schema: { type: string, pattern: "^usr_" }
+    InviteId:
+      name: inviteId
+      in: path
+      required: true
+      schema: { type: string, pattern: "^inv_" }
+    InviteToken:
+      name: token
+      in: path
+      required: true
+      schema: { type: string, minLength: 1 }
+    GrantId:
+      name: grantId
+      in: path
+      required: true
+      schema: { type: string, pattern: "^grt_" }
+    DraftId:
+      name: draftId
+      in: path
+      required: true
+      schema: { type: string, pattern: "^drf_" }
+    ModelKey:
+      name: modelKey
+      in: path
+      required: true
+      schema: { type: string, pattern: "^[a-z][a-z0-9_]{1,62}$" }
+    ContractId:
+      name: contractId
+      in: path
+      required: true
+      schema: { type: string, pattern: "^mct_[a-f0-9]{64}$" }
   responses:
     InvalidRequest:
-      description: Request validation failed
-      content: { application/json: { schema: { $ref: "#/components/schemas/ErrorResponse" } } }
+      description: Invalid request shape
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorResponse" }
+    ValidationError:
+      description: Validation failed
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorResponse" }
     Unauthorized:
       description: Authentication failed
-      content: { application/json: { schema: { $ref: "#/components/schemas/ErrorResponse" } } }
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorResponse" }
     Forbidden:
-      description: App scope or current data authorization is insufficient
-      content: { application/json: { schema: { $ref: "#/components/schemas/ErrorResponse" } } }
+      description: Scope, Space permission, principal type or model-admin boundary denied access
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorResponse" }
     NotFound:
       description: Resource not found
-      content: { application/json: { schema: { $ref: "#/components/schemas/ErrorResponse" } } }
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorResponse" }
     Conflict:
-      description: Optimistic-concurrency, lifecycle or invariant conflict
-      content: { application/json: { schema: { $ref: "#/components/schemas/ErrorResponse" } } }
-  pathItems:
-    WishClaim:
-      parameters:
-        - $ref: "#/components/parameters/SpaceId"
-        - $ref: "#/components/parameters/WishId"
-      post:
-        tags: [Wishes]
-        operationId: claimSpaceWish
-        requestBody:
-          required: true
-          content: { application/json: { schema: { $ref: "#/components/schemas/WishActionRequest" } } }
-        responses:
-          "200": { description: Wish claimed, content: { application/json: { schema: { $ref: "#/components/schemas/WishResponse" } } } }
-          "400": { $ref: "#/components/responses/InvalidRequest" }
-          "401": { $ref: "#/components/responses/Unauthorized" }
-          "403": { $ref: "#/components/responses/Forbidden" }
-          "404": { $ref: "#/components/responses/NotFound" }
-          "409": { $ref: "#/components/responses/Conflict" }
-    WishUnclaim:
-      parameters:
-        - $ref: "#/components/parameters/SpaceId"
-        - $ref: "#/components/parameters/WishId"
-      post:
-        tags: [Wishes]
-        operationId: unclaimSpaceWish
-        requestBody:
-          required: true
-          content: { application/json: { schema: { $ref: "#/components/schemas/WishActionRequest" } } }
-        responses:
-          "200": { description: Wish released, content: { application/json: { schema: { $ref: "#/components/schemas/WishResponse" } } } }
-          "400": { $ref: "#/components/responses/InvalidRequest" }
-          "401": { $ref: "#/components/responses/Unauthorized" }
-          "403": { $ref: "#/components/responses/Forbidden" }
-          "404": { $ref: "#/components/responses/NotFound" }
-          "409": { $ref: "#/components/responses/Conflict" }
-    WishFulfill:
-      parameters:
-        - $ref: "#/components/parameters/SpaceId"
-        - $ref: "#/components/parameters/WishId"
-      post:
-        tags: [Wishes]
-        operationId: fulfillSpaceWish
-        requestBody:
-          required: true
-          content: { application/json: { schema: { $ref: "#/components/schemas/WishActionRequest" } } }
-        responses:
-          "200": { description: Wish fulfilled, content: { application/json: { schema: { $ref: "#/components/schemas/WishResponse" } } } }
-          "400": { $ref: "#/components/responses/InvalidRequest" }
-          "401": { $ref: "#/components/responses/Unauthorized" }
-          "403": { $ref: "#/components/responses/Forbidden" }
-          "404": { $ref: "#/components/responses/NotFound" }
-          "409": { $ref: "#/components/responses/Conflict" }
-    WishReopen:
-      parameters:
-        - $ref: "#/components/parameters/SpaceId"
-        - $ref: "#/components/parameters/WishId"
-      post:
-        tags: [Wishes]
-        operationId: reopenSpaceWish
-        requestBody:
-          required: true
-          content: { application/json: { schema: { $ref: "#/components/schemas/WishActionRequest" } } }
-        responses:
-          "200": { description: Wish reopened, content: { application/json: { schema: { $ref: "#/components/schemas/WishResponse" } } } }
-          "400": { $ref: "#/components/responses/InvalidRequest" }
-          "401": { $ref: "#/components/responses/Unauthorized" }
-          "403": { $ref: "#/components/responses/Forbidden" }
-          "404": { $ref: "#/components/responses/NotFound" }
-          "409": { $ref: "#/components/responses/Conflict" }
-    WishArchive:
-      parameters:
-        - $ref: "#/components/parameters/SpaceId"
-        - $ref: "#/components/parameters/WishId"
-      post:
-        tags: [Wishes]
-        operationId: archiveSpaceWish
-        requestBody:
-          required: true
-          content: { application/json: { schema: { $ref: "#/components/schemas/WishActionRequest" } } }
-        responses:
-          "200": { description: Wish archived, content: { application/json: { schema: { $ref: "#/components/schemas/WishResponse" } } } }
-          "400": { $ref: "#/components/responses/InvalidRequest" }
-          "401": { $ref: "#/components/responses/Unauthorized" }
-          "403": { $ref: "#/components/responses/Forbidden" }
-          "404": { $ref: "#/components/responses/NotFound" }
-          "409": { $ref: "#/components/responses/Conflict" }
-    WishRestore:
-      parameters:
-        - $ref: "#/components/parameters/SpaceId"
-        - $ref: "#/components/parameters/WishId"
-      post:
-        tags: [Wishes]
-        operationId: restoreSpaceWish
-        requestBody:
-          required: true
-          content: { application/json: { schema: { $ref: "#/components/schemas/WishActionRequest" } } }
-        responses:
-          "200": { description: Wish restored, content: { application/json: { schema: { $ref: "#/components/schemas/WishResponse" } } } }
-          "400": { $ref: "#/components/responses/InvalidRequest" }
-          "401": { $ref: "#/components/responses/Unauthorized" }
-          "403": { $ref: "#/components/responses/Forbidden" }
-          "404": { $ref: "#/components/responses/NotFound" }
-          "409": { $ref: "#/components/responses/Conflict" }
+      description: Optimistic concurrency, state or Registry mutation conflict
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorResponse" }
   schemas:
-    SpaceKind: { type: string, enum: [personal, family, team] }
-    SpaceRole: { type: string, enum: [owner, admin, editor, viewer] }
-    AssignableSpaceRole: { type: string, enum: [admin, editor, viewer] }
-    Permission: { type: string, enum: [free_busy, read, write, manage] }
-    IanaTimezone: { type: string, minLength: 1, maxLength: 100, examples: [Asia/Shanghai] }
-    EventStatus: { type: string, enum: [active, cancelled] }
-    TaskStatus: { type: string, enum: [pending, completed, cancelled] }
-    DayRecordKind: { type: string, enum: [elapsed, countdown, cycle] }
-    DayRecordStatus: { type: string, enum: [active, archived] }
-    DayRecordSort: { type: string, enum: [attention, date_asc, date_desc, created_desc, updated_desc], default: attention }
-    DayRecordAttentionLevel: { type: string, enum: [none, info, warning, critical] }
-    DayRecordState: { type: string, enum: [normal, threshold_reached, future, upcoming, today, past, due, overdue] }
-    WishStatus: { type: string, enum: [open, claimed, fulfilled, archived] }
     ErrorResponse:
       type: object
       additionalProperties: false
@@ -1096,46 +659,98 @@ components:
             code: { type: string }
             message: { type: string }
             requestId: { type: string }
+    HealthResponse:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data:
+          type: object
+          additionalProperties: false
+          required: [status]
+          properties:
+            status: { const: ok }
+    StatusResponse:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data:
+          type: object
+          additionalProperties: false
+          required: [status, service, environment, database, schemaVersion, contractVersion]
+          properties:
+            status: { const: ok }
+            service: { const: core }
+            environment: { type: string }
+            database: { const: available }
+            schemaVersion: { type: string }
+            contractVersion: { const: 0.12.0 }
+    PrincipalType:
+      type: string
+      enum: [user, service, device]
     Principal:
       type: object
       additionalProperties: false
       required: [type, id, clientId, scopes, tokenId]
       properties:
-        type: { type: string, enum: [user, service, device] }
+        type: { $ref: "#/components/schemas/PrincipalType" }
         id: { type: string }
         clientId: { type: string }
-        scopes: { type: array, items: { type: string }, uniqueItems: true }
+        scopes:
+          type: array
+          items: { type: string }
+          uniqueItems: true
         tokenId: { type: string }
-    ActorRef:
+    PrincipalResponse:
       type: object
       additionalProperties: false
-      required: [type, id, displayName]
+      required: [data]
       properties:
-        type: { type: string, enum: [user, service, device] }
-        id: { type: string }
-        displayName: { type: string }
+        data:
+          type: object
+          additionalProperties: false
+          required: [principal]
+          properties:
+            principal: { $ref: "#/components/schemas/Principal" }
+    SpaceKind:
+      type: string
+      enum: [personal, family, team]
+    SpaceRole:
+      type: string
+      enum: [owner, admin, editor, viewer]
+    SpacePermissionSource:
+      type: string
+      enum: [owner, admin, editor, viewer, grant]
+    IanaTimezone:
+      type: string
+      x-lifespace-format: iana-timezone
     Space:
       type: object
+      additionalProperties: false
       required: [id, kind, name, timezone, avatarUrl, version]
       properties:
-        id: { type: string, pattern: ^spc_ }
+        id: { type: string, pattern: "^spc_" }
         kind: { $ref: "#/components/schemas/SpaceKind" }
         name: { type: string, minLength: 1, maxLength: 100 }
         timezone: { $ref: "#/components/schemas/IanaTimezone" }
-        avatarUrl: { type: [string, "null"], format: uri }
+        avatarUrl: { anyOf: [{ type: string, format: uri }, { type: "null" }] }
         version: { type: integer, minimum: 1 }
-        access:
-          oneOf:
-            - { $ref: "#/components/schemas/SpaceRole" }
-            - { type: string, const: grant }
-        ownerPersonId: { type: string, pattern: ^per_ }
     SpaceSummary:
       allOf:
-        - { $ref: "#/components/schemas/Space" }
+        - $ref: "#/components/schemas/Space"
         - type: object
           required: [role]
           properties:
             role: { $ref: "#/components/schemas/SpaceRole" }
+    SpaceSummaryListResponse:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/SpaceSummary" }
     CreateSpaceRequest:
       type: object
       additionalProperties: false
@@ -1144,614 +759,45 @@ components:
         kind: { $ref: "#/components/schemas/SpaceKind" }
         name: { type: string, minLength: 1, maxLength: 100 }
         ownerDisplayName: { type: string, minLength: 1, maxLength: 100 }
-        timezone: { $ref: "#/components/schemas/IanaTimezone", default: UTC }
+        timezone:
+          allOf: [{ $ref: "#/components/schemas/IanaTimezone" }]
+          default: UTC
+    CreateSpaceResponse:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data:
+          allOf:
+            - $ref: "#/components/schemas/Space"
+            - type: object
+              required: [role, ownerPersonId]
+              properties:
+                role: { const: owner }
+                ownerPersonId: { type: string, pattern: "^per_" }
+    SpaceResponse:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data:
+          allOf:
+            - $ref: "#/components/schemas/Space"
+            - type: object
+              properties:
+                access: { $ref: "#/components/schemas/SpacePermissionSource" }
     UpdateSpaceRequest:
       type: object
       additionalProperties: false
-      required: [version]
       minProperties: 2
+      required: [version]
       properties:
+        version: { type: integer, minimum: 1 }
         name: { type: string, minLength: 1, maxLength: 100 }
         timezone: { $ref: "#/components/schemas/IanaTimezone" }
-        version: { type: integer, minimum: 1 }
-    Member:
-      type: object
-      required: [id, userId, role, version, personId, displayName]
-      properties:
-        id: { type: string, pattern: ^mem_ }
-        userId: { type: string, pattern: ^usr_ }
-        role: { $ref: "#/components/schemas/SpaceRole" }
-        version: { type: integer, minimum: 1 }
-        personId: { type: string, pattern: ^per_ }
-        displayName: { type: string }
-        createdAt: { type: string, format: date-time }
-    AddMemberRequest:
-      type: object
-      additionalProperties: false
-      required: [userId, role, displayName]
-      properties:
-        userId: { type: string, pattern: ^usr_ }
-        role: { $ref: "#/components/schemas/AssignableSpaceRole" }
-        displayName: { type: string, minLength: 1, maxLength: 100 }
-    UpdateMemberRequest:
-      type: object
-      additionalProperties: false
-      required: [role, version]
-      properties:
-        role: { $ref: "#/components/schemas/AssignableSpaceRole" }
-        version: { type: integer, minimum: 1 }
-    Invite:
-      type: object
-      required: [id, role, status, expiresAt, maxUses, usedCount]
-      properties:
-        id: { type: string, pattern: ^inv_ }
-        tokenPrefix: { type: string }
-        role: { $ref: "#/components/schemas/AssignableSpaceRole" }
-        status: { type: string, enum: [active, expired, exhausted, revoked] }
-        expiresAt: { type: string, format: date-time }
-        maxUses: { type: integer, minimum: 1, maximum: 100 }
-        usedCount: { type: integer, minimum: 0 }
-        createdByUserId: { type: string, pattern: ^usr_ }
-        createdAt: { type: string, format: date-time }
-    CreateInviteRequest:
-      type: object
-      additionalProperties: false
-      properties:
-        role: { $ref: "#/components/schemas/AssignableSpaceRole", default: editor }
-        expiresInMinutes: { type: integer, minimum: 1, maximum: 43200, default: 1440 }
-        maxUses: { type: integer, minimum: 1, maximum: 100, default: 1 }
-    JoinInviteRequest:
-      type: object
-      additionalProperties: false
-      required: [displayName]
-      properties:
-        displayName: { type: string, minLength: 1, maxLength: 100 }
-    DataGrant:
-      type: object
-      additionalProperties: false
-      required: [id, sourceSpaceId, granteeType, granteeId, resourceType, resourceId, permission, createdByUserId, createdAt, expiresAt, revokedAt]
-      properties:
-        id: { type: string, pattern: ^grt_ }
-        sourceSpaceId: { type: string, pattern: ^spc_ }
-        granteeType: { type: string, enum: [user, space, service, device] }
-        granteeId: { type: string }
-        resourceType: { type: string, const: space }
-        resourceId: { type: "null" }
-        permission: { $ref: "#/components/schemas/Permission" }
-        createdByUserId: { type: string, pattern: ^usr_ }
-        createdAt: { type: string, format: date-time }
-        expiresAt: { type: [string, "null"], format: date-time }
-        revokedAt: { type: [string, "null"], format: date-time }
-    CreateGrantRequest:
-      type: object
-      additionalProperties: false
-      required: [granteeType, granteeId, permission]
-      properties:
-        granteeType: { type: string, enum: [user, space, service, device] }
-        granteeId: { type: string }
-        permission: { $ref: "#/components/schemas/Permission" }
-        expiresAt: { type: [string, "null"], format: date-time }
-    UpdateGrantRequest:
-      type: object
-      additionalProperties: false
-      minProperties: 1
-      properties:
-        permission: { $ref: "#/components/schemas/Permission" }
-        expiresAt: { type: [string, "null"], format: date-time }
-    DataGrantResponse: { type: object, required: [data], properties: { data: { $ref: "#/components/schemas/DataGrant" } } }
-    DataGrantListResponse: { type: object, required: [data], properties: { data: { type: array, items: { $ref: "#/components/schemas/DataGrant" } } } }
-    CreationDraftKind: { type: string, enum: [event, task, day_record, wish] }
-    DraftWarning:
-      type: object
-      additionalProperties: false
-      required: [code, field, message]
-      properties:
-        code: { type: string, enum: [AMBIGUOUS_PERSON, UNRESOLVED_PERSON, INVALID_INFERRED_VALUE, UNSUPPORTED_DETAIL] }
-        field: { type: [string, "null"] }
-        message: { type: string, minLength: 1, maxLength: 500 }
-    CreateCreationDraftRequest:
-      type: object
-      additionalProperties: false
-      required: [text, viewingTimezone]
-      properties:
-        text: { type: string, minLength: 1, maxLength: 5000 }
-        viewingTimezone: { $ref: "#/components/schemas/IanaTimezone" }
-    ChooseCreationDraftKindRequest:
-      type: object
-      additionalProperties: false
-      required: [targetKind]
-      properties: { targetKind: { $ref: "#/components/schemas/CreationDraftKind" } }
-    CreationDraftEventForm:
-      type: object
-      required: [summary, description, isAllDay, startDate, endDate, endDateExclusive, startTime, endTime, startTimezone, endTimezone, location, attendeePersonIds]
-      properties:
-        summary: { type: [string, "null"], maxLength: 100 }
-        description: { type: [string, "null"], maxLength: 5000 }
-        isAllDay: { type: [boolean, "null"] }
-        startDate: { type: [string, "null"], format: date }
-        endDate: { type: [string, "null"], format: date }
-        endDateExclusive: { type: [string, "null"], format: date }
-        startTime: { type: [string, "null"] }
-        endTime: { type: [string, "null"] }
-        startTimezone: { type: [string, "null"] }
-        endTimezone: { type: [string, "null"] }
-        location: { type: [string, "null"], maxLength: 500 }
-        attendeePersonIds: { type: array, items: { type: string, pattern: ^per_ }, uniqueItems: true }
-    CreationDraftTaskForm:
-      type: object
-      required: [name, description, dueDate, assigneePersonIds]
-      properties:
-        name: { type: [string, "null"], maxLength: 100 }
-        description: { type: [string, "null"], maxLength: 5000 }
-        dueDate: { type: [string, "null"], format: date }
-        assigneePersonIds: { type: array, items: { type: string, pattern: ^per_ }, uniqueItems: true }
-    CreationDraftDayRecordForm:
-      type: object
-      required: [dayRecordKind, name, description, anchorDate, subjectPersonId, icon, attentionAfterDays, attentionBeforeDays, cycleDays]
-      properties:
-        dayRecordKind: { type: [string, "null"], enum: [elapsed, countdown, cycle, null] }
-        name: { type: [string, "null"], maxLength: 100 }
-        description: { type: [string, "null"], maxLength: 5000 }
-        anchorDate: { type: [string, "null"], format: date }
-        subjectPersonId: { type: [string, "null"], pattern: ^per_ }
-        icon: { type: [string, "null"], maxLength: 50 }
-        attentionAfterDays: { type: [integer, "null"], minimum: 0 }
-        attentionBeforeDays: { type: [integer, "null"], minimum: 0 }
-        cycleDays: { type: [integer, "null"], minimum: 1 }
-    CreationDraftWishForm:
-      type: object
-      required: [title, description, desiredDate]
-      properties:
-        title: { type: [string, "null"], maxLength: 100 }
-        description: { type: [string, "null"], maxLength: 5000 }
-        desiredDate: { type: [string, "null"], format: date }
-    CreationDraftProcessing:
-      type: object
-      required: [draftId, status, expiresAt]
-      properties:
-        draftId: { type: string, pattern: ^drf_ }
-        status: { type: string, const: processing }
-        expiresAt: { type: string, format: date-time }
-    CreationDraftChooseKind:
-      type: object
-      required: [draftId, status, expiresAt, candidateKinds]
-      properties:
-        draftId: { type: string, pattern: ^drf_ }
-        status: { type: string, const: choose_kind }
-        expiresAt: { type: string, format: date-time }
-        candidateKinds: { type: array, minItems: 2, maxItems: 4, uniqueItems: true, items: { $ref: "#/components/schemas/CreationDraftKind" } }
-    CreationDraftReadyEvent:
-      type: object
-      required: [draftId, status, expiresAt, kind, draft, missingFields, warnings]
-      properties: { draftId: { type: string, pattern: ^drf_ }, status: { type: string, const: ready }, expiresAt: { type: string, format: date-time }, kind: { type: string, const: event }, draft: { $ref: "#/components/schemas/CreationDraftEventForm" }, missingFields: { type: array, items: { type: string } }, warnings: { type: array, items: { $ref: "#/components/schemas/DraftWarning" } } }
-    CreationDraftReadyTask:
-      type: object
-      required: [draftId, status, expiresAt, kind, draft, missingFields, warnings]
-      properties: { draftId: { type: string, pattern: ^drf_ }, status: { type: string, const: ready }, expiresAt: { type: string, format: date-time }, kind: { type: string, const: task }, draft: { $ref: "#/components/schemas/CreationDraftTaskForm" }, missingFields: { type: array, items: { type: string } }, warnings: { type: array, items: { $ref: "#/components/schemas/DraftWarning" } } }
-    CreationDraftReadyDayRecord:
-      type: object
-      required: [draftId, status, expiresAt, kind, draft, missingFields, warnings]
-      properties: { draftId: { type: string, pattern: ^drf_ }, status: { type: string, const: ready }, expiresAt: { type: string, format: date-time }, kind: { type: string, const: day_record }, draft: { $ref: "#/components/schemas/CreationDraftDayRecordForm" }, missingFields: { type: array, items: { type: string } }, warnings: { type: array, items: { $ref: "#/components/schemas/DraftWarning" } } }
-    CreationDraftReadyWish:
-      type: object
-      required: [draftId, status, expiresAt, kind, draft, missingFields, warnings]
-      properties: { draftId: { type: string, pattern: ^drf_ }, status: { type: string, const: ready }, expiresAt: { type: string, format: date-time }, kind: { type: string, const: wish }, draft: { $ref: "#/components/schemas/CreationDraftWishForm" }, missingFields: { type: array, items: { type: string } }, warnings: { type: array, items: { $ref: "#/components/schemas/DraftWarning" } } }
-    CreationDraftFailed:
-      type: object
-      required: [draftId, status, expiresAt, error]
-      properties:
-        draftId: { type: string, pattern: ^drf_ }
-        status: { type: string, const: failed }
-        expiresAt: { type: string, format: date-time }
-        error: { type: object, required: [code], properties: { code: { type: string } } }
-    CreationDraftState:
-      oneOf:
-        - { $ref: "#/components/schemas/CreationDraftProcessing" }
-        - { $ref: "#/components/schemas/CreationDraftChooseKind" }
-        - { $ref: "#/components/schemas/CreationDraftReadyEvent" }
-        - { $ref: "#/components/schemas/CreationDraftReadyTask" }
-        - { $ref: "#/components/schemas/CreationDraftReadyDayRecord" }
-        - { $ref: "#/components/schemas/CreationDraftReadyWish" }
-        - { $ref: "#/components/schemas/CreationDraftFailed" }
-    CreationDraftResponse: { type: object, required: [data], properties: { data: { $ref: "#/components/schemas/CreationDraftState" } } }
-    EventPersonRef:
-      type: object
-      additionalProperties: false
-      required: [personId, displayName]
-      properties:
-        personId: { type: string, pattern: ^per_ }
-        displayName: { type: string }
-    EventCommon:
-      type: object
-      required: [id, spaceId, summary, description, isAllDay, location, status, attendees, createdBy, updatedBy, version, createdAt, updatedAt]
-      properties:
-        id: { type: string, pattern: ^evt_ }
-        spaceId: { type: string, pattern: ^spc_ }
-        summary: { type: string, minLength: 1, maxLength: 100 }
-        description: { type: [string, "null"], maxLength: 5000 }
-        isAllDay: { type: boolean }
-        location: { type: [string, "null"], maxLength: 500 }
-        status: { $ref: "#/components/schemas/EventStatus" }
-        attendees: { type: array, items: { $ref: "#/components/schemas/EventPersonRef" } }
-        createdBy: { $ref: "#/components/schemas/ActorRef" }
-        updatedBy: { $ref: "#/components/schemas/ActorRef" }
-        version: { type: integer, minimum: 1 }
-        createdAt: { type: string, format: date-time }
-        updatedAt: { type: string, format: date-time }
-    TimedEvent:
-      allOf:
-        - { $ref: "#/components/schemas/EventCommon" }
-        - type: object
-          required: [startAt, endAt, startTimezone, endTimezone]
-          properties:
-            isAllDay: { const: false }
-            startAt: { type: string, format: date-time, pattern: Z$ }
-            endAt: { type: string, format: date-time, pattern: Z$ }
-            startTimezone: { oneOf: [{ $ref: "#/components/schemas/IanaTimezone" }, { type: "null" }] }
-            endTimezone: { oneOf: [{ $ref: "#/components/schemas/IanaTimezone" }, { type: "null" }] }
-    AllDayEvent:
-      allOf:
-        - { $ref: "#/components/schemas/EventCommon" }
-        - type: object
-          required: [startDate, endDateExclusive]
-          properties:
-            isAllDay: { const: true }
-            startDate: { type: string, format: date }
-            endDateExclusive: { type: string, format: date }
-    Event:
-      oneOf:
-        - { $ref: "#/components/schemas/TimedEvent" }
-        - { $ref: "#/components/schemas/AllDayEvent" }
-    CreateEventCommon:
-      type: object
-      required: [summary, isAllDay]
-      properties:
-        summary: { type: string, minLength: 1, maxLength: 100 }
-        description: { type: [string, "null"], maxLength: 5000 }
-        location: { type: [string, "null"], maxLength: 500 }
-        attendeePersonIds: { type: array, uniqueItems: true, maxItems: 100, items: { type: string, pattern: ^per_ } }
-    CreateTimedEventRequest:
-      allOf:
-        - { $ref: "#/components/schemas/CreateEventCommon" }
-        - type: object
-          required: [startAt, endAt]
-          properties:
-            isAllDay: { const: false }
-            startAt: { type: string, format: date-time, pattern: Z$ }
-            endAt: { type: string, format: date-time, pattern: Z$ }
-            startTimezone: { oneOf: [{ $ref: "#/components/schemas/IanaTimezone" }, { type: "null" }] }
-            endTimezone: { oneOf: [{ $ref: "#/components/schemas/IanaTimezone" }, { type: "null" }] }
-    CreateAllDayEventRequest:
-      allOf:
-        - { $ref: "#/components/schemas/CreateEventCommon" }
-        - type: object
-          required: [startDate, endDateExclusive]
-          properties:
-            isAllDay: { const: true }
-            startDate: { type: string, format: date }
-            endDateExclusive: { type: string, format: date }
-    CreateEventRequest:
-      oneOf:
-        - { $ref: "#/components/schemas/CreateTimedEventRequest" }
-        - { $ref: "#/components/schemas/CreateAllDayEventRequest" }
-    UpdateEventRequest:
-      type: object
-      additionalProperties: false
-      required: [version]
-      minProperties: 2
-      properties:
-        version: { type: integer, minimum: 1 }
-        summary: { type: string, minLength: 1, maxLength: 100 }
-        description: { type: [string, "null"], maxLength: 5000 }
-        location: { type: [string, "null"], maxLength: 500 }
-        attendeePersonIds: { type: array, uniqueItems: true, maxItems: 100, items: { type: string, pattern: ^per_ } }
-        isAllDay: { type: boolean }
-        startAt: { type: string, format: date-time, pattern: Z$ }
-        endAt: { type: string, format: date-time, pattern: Z$ }
-        startTimezone: { oneOf: [{ $ref: "#/components/schemas/IanaTimezone" }, { type: "null" }] }
-        endTimezone: { oneOf: [{ $ref: "#/components/schemas/IanaTimezone" }, { type: "null" }] }
-        startDate: { type: string, format: date }
-        endDateExclusive: { type: string, format: date }
-    TaskPersonRef:
-      type: object
-      additionalProperties: false
-      required: [personId, displayName]
-      properties:
-        personId: { type: string, pattern: ^per_ }
-        displayName: { type: string }
-    Task:
-      type: object
-      additionalProperties: false
-      required: [id, spaceId, name, description, dueDate, status, assignees, completedAt, completedBy, createdBy, updatedBy, version, createdAt, updatedAt]
-      properties:
-        id: { type: string, pattern: ^tsk_ }
-        spaceId: { type: string, pattern: ^spc_ }
-        name: { type: string, minLength: 1, maxLength: 100 }
-        description: { type: [string, "null"], maxLength: 5000 }
-        dueDate: { type: [string, "null"], format: date }
-        status: { $ref: "#/components/schemas/TaskStatus" }
-        assignees: { type: array, items: { $ref: "#/components/schemas/TaskPersonRef" } }
-        completedAt: { type: [string, "null"], format: date-time }
-        completedBy: { oneOf: [{ $ref: "#/components/schemas/ActorRef" }, { type: "null" }] }
-        createdBy: { $ref: "#/components/schemas/ActorRef" }
-        updatedBy: { $ref: "#/components/schemas/ActorRef" }
-        version: { type: integer, minimum: 1 }
-        createdAt: { type: string, format: date-time }
-        updatedAt: { type: string, format: date-time }
-    CreateTaskRequest:
-      type: object
-      additionalProperties: false
-      required: [name]
-      properties:
-        name: { type: string, minLength: 1, maxLength: 100 }
-        description: { type: [string, "null"], maxLength: 5000 }
-        dueDate: { type: [string, "null"], format: date }
-        assigneePersonIds: { type: array, uniqueItems: true, maxItems: 100, items: { type: string, pattern: ^per_ } }
-    UpdateTaskRequest:
-      type: object
-      additionalProperties: false
-      required: [version]
-      minProperties: 2
-      properties:
-        version: { type: integer, minimum: 1 }
-        name: { type: string, minLength: 1, maxLength: 100 }
-        description: { type: [string, "null"], maxLength: 5000 }
-        dueDate: { type: [string, "null"], format: date }
-        assigneePersonIds: { type: array, uniqueItems: true, maxItems: 100, items: { type: string, pattern: ^per_ } }
-    TaskActionRequest:
-      type: object
-      additionalProperties: false
-      required: [version]
-      properties: { version: { type: integer, minimum: 1 } }
-    DayRecordPersonRef:
-      type: object
-      additionalProperties: false
-      required: [personId, displayName]
-      properties:
-        personId: { type: string, pattern: ^per_ }
-        displayName: { type: string }
-    DayRecordComputedBase:
-      type: object
-      required: [today, state, attentionLevel, isAttentionRequired]
-      properties:
-        today: { type: string, format: date }
-        state: { $ref: "#/components/schemas/DayRecordState" }
-        attentionLevel: { $ref: "#/components/schemas/DayRecordAttentionLevel" }
-        isAttentionRequired: { type: boolean }
-    ElapsedDayRecordComputed:
-      allOf:
-        - { $ref: "#/components/schemas/DayRecordComputedBase" }
-        - type: object
-          required: [elapsedDays]
-          properties: { elapsedDays: { type: integer, minimum: 0 } }
-    CountdownDayRecordComputed:
-      allOf:
-        - { $ref: "#/components/schemas/DayRecordComputedBase" }
-        - type: object
-          required: [remainingDays]
-          properties: { remainingDays: { type: integer } }
-    CycleDayRecordComputed:
-      allOf:
-        - { $ref: "#/components/schemas/DayRecordComputedBase" }
-        - type: object
-          required: [remainingDays]
-          properties: { remainingDays: { type: integer } }
-    DayRecordCommon:
-      type: object
-      required: [id, spaceId, name, description, kind, subject, icon, status, version, createdBy, updatedBy, createdAt, updatedAt]
-      properties:
-        id: { type: string, pattern: ^day_ }
-        spaceId: { type: string, pattern: ^spc_ }
-        name: { type: string, minLength: 1, maxLength: 100 }
-        description: { type: [string, "null"], maxLength: 5000 }
-        kind: { $ref: "#/components/schemas/DayRecordKind" }
-        subject: { oneOf: [{ $ref: "#/components/schemas/DayRecordPersonRef" }, { type: "null" }] }
-        icon: { type: [string, "null"], maxLength: 50 }
-        status: { $ref: "#/components/schemas/DayRecordStatus" }
-        version: { type: integer, minimum: 1 }
-        createdBy: { $ref: "#/components/schemas/ActorRef" }
-        updatedBy: { $ref: "#/components/schemas/ActorRef" }
-        createdAt: { type: string, format: date-time }
-        updatedAt: { type: string, format: date-time }
-    ElapsedDayRecord:
-      allOf:
-        - { $ref: "#/components/schemas/DayRecordCommon" }
-        - type: object
-          required: [anchorDate, attentionAfterDays, computed]
-          properties:
-            kind: { const: elapsed }
-            anchorDate: { type: string, format: date }
-            attentionAfterDays: { type: [integer, "null"], minimum: 1, maximum: 3650 }
-            computed: { $ref: "#/components/schemas/ElapsedDayRecordComputed" }
-    CountdownDayRecord:
-      allOf:
-        - { $ref: "#/components/schemas/DayRecordCommon" }
-        - type: object
-          required: [anchorDate, attentionBeforeDays, computed]
-          properties:
-            kind: { const: countdown }
-            anchorDate: { type: string, format: date }
-            attentionBeforeDays: { type: [integer, "null"], minimum: 0, maximum: 3650 }
-            computed: { $ref: "#/components/schemas/CountdownDayRecordComputed" }
-    CycleDayRecord:
-      allOf:
-        - { $ref: "#/components/schemas/DayRecordCommon" }
-        - type: object
-          required: [anchorDate, cycleDays, nextDueDate, attentionBeforeDays, computed]
-          properties:
-            kind: { const: cycle }
-            anchorDate: { type: string, format: date }
-            cycleDays: { type: integer, minimum: 1, maximum: 3650 }
-            nextDueDate: { type: string, format: date }
-            attentionBeforeDays: { type: [integer, "null"], minimum: 0, maximum: 3650 }
-            computed: { $ref: "#/components/schemas/CycleDayRecordComputed" }
-    DayRecord:
-      oneOf:
-        - { $ref: "#/components/schemas/ElapsedDayRecord" }
-        - { $ref: "#/components/schemas/CountdownDayRecord" }
-        - { $ref: "#/components/schemas/CycleDayRecord" }
-    CreateDayRecordCommon:
-      type: object
-      required: [name, kind, anchorDate]
-      properties:
-        name: { type: string, minLength: 1, maxLength: 100 }
-        description: { type: [string, "null"], maxLength: 5000 }
-        anchorDate: { type: string, format: date }
-        subjectPersonId: { type: [string, "null"], pattern: ^per_ }
-        icon: { type: [string, "null"], maxLength: 50 }
-    CreateElapsedDayRecordRequest:
-      allOf:
-        - { $ref: "#/components/schemas/CreateDayRecordCommon" }
-        - type: object
-          properties:
-            kind: { const: elapsed }
-            attentionAfterDays: { type: [integer, "null"], minimum: 1, maximum: 3650 }
-    CreateCountdownDayRecordRequest:
-      allOf:
-        - { $ref: "#/components/schemas/CreateDayRecordCommon" }
-        - type: object
-          properties:
-            kind: { const: countdown }
-            attentionBeforeDays: { type: [integer, "null"], minimum: 0, maximum: 3650, default: 30 }
-    CreateCycleDayRecordRequest:
-      allOf:
-        - { $ref: "#/components/schemas/CreateDayRecordCommon" }
-        - type: object
-          required: [cycleDays]
-          properties:
-            kind: { const: cycle }
-            cycleDays: { type: integer, minimum: 1, maximum: 3650 }
-            attentionBeforeDays: { type: [integer, "null"], minimum: 0, maximum: 3650, default: 7 }
-    CreateDayRecordRequest:
-      oneOf:
-        - { $ref: "#/components/schemas/CreateElapsedDayRecordRequest" }
-        - { $ref: "#/components/schemas/CreateCountdownDayRecordRequest" }
-        - { $ref: "#/components/schemas/CreateCycleDayRecordRequest" }
-    UpdateDayRecordRequest:
-      type: object
-      additionalProperties: false
-      required: [version]
-      minProperties: 2
-      description: Core rejects fields not valid for the persisted kind.
-      properties:
-        version: { type: integer, minimum: 1 }
-        name: { type: string, minLength: 1, maxLength: 100 }
-        description: { type: [string, "null"], maxLength: 5000 }
-        icon: { type: [string, "null"], maxLength: 50 }
-        subjectPersonId: { type: [string, "null"], pattern: ^per_ }
-        anchorDate: { type: string, format: date }
-        cycleDays: { type: integer, minimum: 1, maximum: 3650 }
-        attentionBeforeDays: { type: [integer, "null"], minimum: 0, maximum: 3650 }
-        attentionAfterDays: { type: [integer, "null"], minimum: 1, maximum: 3650 }
-    DayRecordActionRequest:
-      type: object
-      additionalProperties: false
-      required: [version]
-      properties: { version: { type: integer, minimum: 1 } }
-    DayRecordOccurrence:
-      type: object
-      additionalProperties: false
-      required: [id, dayRecordId, occurredOn, note, source, intervalDays, recordedBy, createdAt]
-      properties:
-        id: { type: string, pattern: ^dyo_ }
-        dayRecordId: { type: string, pattern: ^day_ }
-        occurredOn: { type: string, format: date }
-        note: { type: [string, "null"], maxLength: 1000 }
-        source: { type: string, enum: [initial, manual] }
-        intervalDays: { type: [integer, "null"] }
-        recordedBy: { $ref: "#/components/schemas/ActorRef" }
-        createdAt: { type: string, format: date-time }
-    CreateDayRecordOccurrenceRequest:
-      type: object
-      additionalProperties: false
-      required: [occurredOn, version]
-      properties:
-        occurredOn: { type: string, format: date }
-        note: { type: [string, "null"], maxLength: 1000 }
-        version: { type: integer, minimum: 1 }
-    WishPersonRef:
-      type: object
-      additionalProperties: false
-      required: [personId, displayName]
-      properties:
-        personId: { type: string, pattern: ^per_ }
-        displayName: { type: string }
-    Wish:
-      type: object
-      additionalProperties: false
-      required: [id, spaceId, title, description, desiredDate, status, owner, claimant, claimedAt, fulfilledBy, fulfilledAt, createdBy, updatedBy, version, createdAt, updatedAt]
-      properties:
-        id: { type: string, pattern: ^wsh_ }
-        spaceId: { type: string, pattern: ^spc_ }
-        title: { type: string, minLength: 1, maxLength: 100 }
-        description: { type: [string, "null"], maxLength: 5000 }
-        desiredDate: { type: [string, "null"], format: date }
-        status: { $ref: "#/components/schemas/WishStatus" }
-        owner: { $ref: "#/components/schemas/WishPersonRef" }
-        claimant: { oneOf: [{ $ref: "#/components/schemas/WishPersonRef" }, { type: "null" }] }
-        claimedAt: { type: [string, "null"], format: date-time }
-        fulfilledBy: { oneOf: [{ $ref: "#/components/schemas/WishPersonRef" }, { type: "null" }] }
-        fulfilledAt: { type: [string, "null"], format: date-time }
-        createdBy: { $ref: "#/components/schemas/ActorRef" }
-        updatedBy: { $ref: "#/components/schemas/ActorRef" }
-        version: { type: integer, minimum: 1 }
-        createdAt: { type: string, format: date-time }
-        updatedAt: { type: string, format: date-time }
-    CreateWishRequest:
-      type: object
-      additionalProperties: false
-      required: [title]
-      properties:
-        title: { type: string, minLength: 1, maxLength: 100 }
-        description: { type: [string, "null"], maxLength: 5000 }
-        desiredDate: { type: [string, "null"], format: date }
-    UpdateWishRequest:
-      type: object
-      additionalProperties: false
-      required: [version]
-      minProperties: 2
-      properties:
-        version: { type: integer, minimum: 1 }
-        title: { type: string, minLength: 1, maxLength: 100 }
-        description: { type: [string, "null"], maxLength: 5000 }
-        desiredDate: { type: [string, "null"], format: date }
-    WishActionRequest:
-      type: object
-      additionalProperties: false
-      required: [version]
-      properties: { version: { type: integer, minimum: 1 } }
-    HealthResponse:
-      type: object
-      required: [data]
-      properties:
-        data:
-          type: object
-          required: [status]
-          properties: { status: { type: string, const: ok } }
-    StatusResponse:
-      type: object
-      required: [data]
-      properties:
-        data:
-          type: object
-          required: [status, service, environment, database, schemaVersion, contractVersion]
-          properties:
-            status: { type: string, const: ok }
-            service: { type: string, const: core }
-            environment: { type: string }
-            database: { type: string, const: available }
-            schemaVersion: { type: string }
-            contractVersion: { type: string, const: 0.11.0 }
-    PrincipalResponse:
-      type: object
-      required: [data]
-      properties: { data: { $ref: "#/components/schemas/Principal" } }
-    SpaceResponse:
-      type: object
-      required: [data]
-      properties: { data: { $ref: "#/components/schemas/Space" } }
     SpaceAvatarResponse:
       type: object
+      additionalProperties: false
       required: [data]
       properties:
         data:
@@ -1761,152 +807,422 @@ components:
           properties:
             avatarUrl: { type: string, format: uri }
             version: { type: integer, minimum: 2 }
-    CreateSpaceResponse:
+    Member:
       type: object
-      required: [data]
+      additionalProperties: false
+      required: [id, userId, role, version]
       properties:
-        data:
-          allOf:
-            - { $ref: "#/components/schemas/Space" }
-            - type: object
-              required: [ownerPersonId]
-              properties: { ownerPersonId: { type: string, pattern: ^per_ } }
-    SpaceSummaryListResponse:
-      type: object
-      required: [data]
-      properties:
-        data:
-          type: object
-          required: [items]
-          properties: { items: { type: array, items: { $ref: "#/components/schemas/SpaceSummary" } } }
+        id: { type: string, pattern: "^mem_" }
+        userId: { type: string }
+        personId: { type: string, pattern: "^per_" }
+        displayName: { type: string }
+        role: { $ref: "#/components/schemas/SpaceRole" }
+        version: { type: integer, minimum: 1 }
+        createdAt: { type: string, format: date-time }
     MemberResponse:
       type: object
+      additionalProperties: false
       required: [data]
-      properties: { data: { $ref: "#/components/schemas/Member" } }
+      properties:
+        data: { $ref: "#/components/schemas/Member" }
     MemberListResponse:
       type: object
+      additionalProperties: false
       required: [data]
       properties:
         data:
-          type: object
-          required: [items]
-          properties: { items: { type: array, items: { $ref: "#/components/schemas/Member" } } }
-    InviteListResponse:
+          type: array
+          items: { $ref: "#/components/schemas/Member" }
+    AddMemberRequest:
       type: object
-      required: [data]
+      additionalProperties: false
+      required: [userId, role, displayName]
       properties:
-        data:
-          type: object
-          required: [items]
-          properties: { items: { type: array, items: { $ref: "#/components/schemas/Invite" } } }
+        userId: { type: string, minLength: 1, maxLength: 200 }
+        role:
+          type: string
+          enum: [admin, editor, viewer]
+        displayName: { type: string, minLength: 1, maxLength: 100 }
+    UpdateMemberRequest:
+      type: object
+      additionalProperties: false
+      required: [role, version]
+      properties:
+        role:
+          type: string
+          enum: [admin, editor, viewer]
+        version: { type: integer, minimum: 1 }
+    InviteStatus:
+      type: string
+      enum: [active, expired, exhausted, revoked]
+    Invite:
+      type: object
+      additionalProperties: false
+      required: [id, role, status, expiresAt, maxUses, usedCount, createdByUserId, createdAt]
+      properties:
+        id: { type: string, pattern: "^inv_" }
+        tokenPrefix: { type: string }
+        role:
+          type: string
+          enum: [admin, editor, viewer]
+        status: { $ref: "#/components/schemas/InviteStatus" }
+        expiresAt: { type: string, format: date-time }
+        maxUses: { type: integer, minimum: 1 }
+        usedCount: { type: integer, minimum: 0 }
+        createdByUserId: { type: string }
+        createdAt: { type: string, format: date-time }
+    CreateInviteRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        role:
+          type: string
+          enum: [admin, editor, viewer]
+          default: editor
+        expiresInMinutes: { type: integer, minimum: 1, maximum: 43200, default: 1440 }
+        maxUses: { type: integer, minimum: 1, default: 1 }
     CreateInviteResponse:
       type: object
+      additionalProperties: false
       required: [data]
       properties:
         data:
           allOf:
-            - { $ref: "#/components/schemas/Invite" }
+            - $ref: "#/components/schemas/Invite"
             - type: object
               required: [token]
-              properties: { token: { type: string, writeOnly: true } }
+              properties:
+                token: { type: string, writeOnly: true }
+    InviteListResponse:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/Invite" }
     InvitePreviewResponse:
       type: object
+      additionalProperties: false
       required: [data]
       properties:
         data:
           type: object
-          required: [spaceId, spaceName, role, expiresAt]
+          additionalProperties: false
+          required: [space, role, expiresAt, canJoin]
           properties:
-            spaceId: { type: string, pattern: ^spc_ }
-            spaceName: { type: string }
-            role: { $ref: "#/components/schemas/AssignableSpaceRole" }
+            space:
+              type: object
+              additionalProperties: false
+              required: [id, name, kind, timezone, memberCount]
+              properties:
+                id: { type: string, pattern: "^spc_" }
+                name: { type: string }
+                kind: { $ref: "#/components/schemas/SpaceKind" }
+                timezone: { $ref: "#/components/schemas/IanaTimezone" }
+                memberCount: { type: integer, minimum: 0 }
+            role:
+              type: string
+              enum: [admin, editor, viewer]
             expiresAt: { type: string, format: date-time }
+            canJoin: { type: boolean }
+    JoinInviteRequest:
+      type: object
+      additionalProperties: false
+      required: [displayName]
+      properties:
+        displayName: { type: string, minLength: 1, maxLength: 100 }
     JoinInviteResponse:
       type: object
+      additionalProperties: false
       required: [data]
       properties:
         data:
           type: object
-          required: [spaceId, membershipId, personId, role]
+          additionalProperties: false
+          required: [spaceId, role, personId, joinedAt]
           properties:
-            spaceId: { type: string, pattern: ^spc_ }
-            membershipId: { type: string, pattern: ^mem_ }
-            personId: { type: string, pattern: ^per_ }
-            role: { $ref: "#/components/schemas/AssignableSpaceRole" }
-    EventResponse:
+            spaceId: { type: string, pattern: "^spc_" }
+            role:
+              type: string
+              enum: [admin, editor, viewer]
+            personId: { type: string, pattern: "^per_" }
+            joinedAt: { type: string, format: date-time }
+    GrantPermission:
+      type: string
+      enum: [free_busy, read, write, manage]
+    GranteeType:
+      type: string
+      enum: [user, space, service, device]
+    DataGrant:
       type: object
+      additionalProperties: false
+      required: [id, sourceSpaceId, granteeType, granteeId, permission]
+      properties:
+        id: { type: string, pattern: "^grt_" }
+        sourceSpaceId: { type: string, pattern: "^spc_" }
+        granteeType: { $ref: "#/components/schemas/GranteeType" }
+        granteeId: { type: string }
+        resourceType: { const: space }
+        resourceId: { type: "null" }
+        permission: { $ref: "#/components/schemas/GrantPermission" }
+        createdByUserId: { type: string }
+        createdAt: { type: string, format: date-time }
+        expiresAt: { anyOf: [{ type: string, format: date-time }, { type: "null" }] }
+        revokedAt: { anyOf: [{ type: string, format: date-time }, { type: "null" }] }
+    CreateDataGrantRequest:
+      type: object
+      additionalProperties: false
+      required: [granteeType, granteeId, permission]
+      properties:
+        granteeType: { $ref: "#/components/schemas/GranteeType" }
+        granteeId: { type: string, minLength: 1 }
+        permission: { $ref: "#/components/schemas/GrantPermission" }
+        expiresAt: { anyOf: [{ type: string, format: date-time }, { type: "null" }] }
+    UpdateDataGrantRequest:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        permission: { $ref: "#/components/schemas/GrantPermission" }
+        expiresAt: { anyOf: [{ type: string, format: date-time }, { type: "null" }] }
+    DataGrantResponse:
+      type: object
+      additionalProperties: false
       required: [data]
-      properties: { data: { $ref: "#/components/schemas/Event" } }
-    EventListResponse:
+      properties:
+        data: { $ref: "#/components/schemas/DataGrant" }
+    DataGrantListResponse:
       type: object
+      additionalProperties: false
       required: [data]
       properties:
         data:
-          type: object
-          required: [items, nextCursor]
-          properties:
-            items: { type: array, items: { $ref: "#/components/schemas/Event" } }
-            nextCursor: { type: [string, "null"] }
-    TaskResponse:
+          type: array
+          items: { $ref: "#/components/schemas/DataGrant" }
+    CreateCreationDraftRequest:
       type: object
+      additionalProperties: false
+      required: [text, viewingTimezone]
+      properties:
+        text: { type: string, minLength: 1, maxLength: 5000 }
+        viewingTimezone: { $ref: "#/components/schemas/IanaTimezone" }
+    ChooseCreationDraftModelRequest:
+      type: object
+      additionalProperties: false
+      required: [targetModelKey]
+      properties:
+        targetModelKey: { type: string, pattern: "^[a-z][a-z0-9_]{1,62}$" }
+    CreationDraftProcessing:
+      type: object
+      additionalProperties: false
+      required: [draftId, status, expiresAt, modelContractRevision]
+      properties:
+        draftId: { type: string, pattern: "^drf_" }
+        status: { const: processing }
+        expiresAt: { type: string, format: date-time }
+        modelContractRevision: { type: string, pattern: "^mct_[a-f0-9]{64}$" }
+    CreationDraftProcessingResponse:
+      type: object
+      additionalProperties: false
       required: [data]
-      properties: { data: { $ref: "#/components/schemas/Task" } }
-    TaskListResponse:
+      properties:
+        data: { $ref: "#/components/schemas/CreationDraftProcessing" }
+    DraftWarning:
       type: object
+      additionalProperties: false
+      required: [code, field, message]
+      properties:
+        code:
+          type: string
+          enum: [AMBIGUOUS_PERSON, UNRESOLVED_PERSON, INVALID_INFERRED_VALUE, UNSUPPORTED_DETAIL]
+        field: { anyOf: [{ type: string }, { type: "null" }] }
+        message: { type: string }
+    CreationDraftResponse:
+      type: object
+      additionalProperties: false
       required: [data]
       properties:
         data:
-          type: object
-          required: [items, nextCursor]
-          properties:
-            items: { type: array, items: { $ref: "#/components/schemas/Task" } }
-            nextCursor: { type: [string, "null"] }
-    DayRecordResponse:
+          oneOf:
+            - $ref: "#/components/schemas/CreationDraftProcessing"
+            - type: object
+              additionalProperties: false
+              required: [draftId, status, expiresAt, modelContractRevision, candidateModels]
+              properties:
+                draftId: { type: string, pattern: "^drf_" }
+                status: { const: choose_model }
+                expiresAt: { type: string, format: date-time }
+                modelContractRevision: { type: string, pattern: "^mct_[a-f0-9]{64}$" }
+                candidateModels:
+                  type: array
+                  minItems: 2
+                  uniqueItems: true
+                  items: { type: string }
+            - type: object
+              additionalProperties: false
+              required: [draftId, status, expiresAt, modelContractRevision, modelKey, modelVersion, draft, missingFields, warnings]
+              properties:
+                draftId: { type: string, pattern: "^drf_" }
+                status: { const: ready }
+                expiresAt: { type: string, format: date-time }
+                modelContractRevision: { type: string, pattern: "^mct_[a-f0-9]{64}$" }
+                modelKey: { type: string }
+                modelVersion: { type: integer, minimum: 1 }
+                draft: { type: object, additionalProperties: true }
+                missingFields:
+                  type: array
+                  uniqueItems: true
+                  items: { type: string }
+                warnings:
+                  type: array
+                  items: { $ref: "#/components/schemas/DraftWarning" }
+            - type: object
+              additionalProperties: false
+              required: [draftId, status, expiresAt, modelContractRevision, error]
+              properties:
+                draftId: { type: string, pattern: "^drf_" }
+                status: { const: failed }
+                expiresAt: { type: string, format: date-time }
+                modelContractRevision: { type: string, pattern: "^mct_[a-f0-9]{64}$" }
+                error:
+                  type: object
+                  additionalProperties: false
+                  required: [code]
+                  properties:
+                    code: { type: string }
+    ModelCompatibility:
+      type: string
+      enum: [initial, compatible, breaking]
+    ModelDefinition:
       type: object
+      description: >-
+        Closed declarative Model Definition v1 validated by Core. The full shape is governed
+        by the Model Definition validator and generated model-contract schemas; arbitrary
+        executable code, SQL or shell fragments are not supported.
+      additionalProperties: true
+    PublishedModel:
+      type: object
+      additionalProperties: false
+      required: [id, key, route, version, state, schemaHash, compatibility, definition, publishedAt]
+      properties:
+        id: { type: string, pattern: "^mdl_" }
+        key: { type: string }
+        route: { type: string }
+        version: { type: integer, minimum: 1 }
+        state: { const: published }
+        schemaHash: { type: string, pattern: "^[a-f0-9]{64}$" }
+        compatibility: { $ref: "#/components/schemas/ModelCompatibility" }
+        definition: { $ref: "#/components/schemas/ModelDefinition" }
+        publishedAt: { type: string, format: date-time }
+    PublishedModelResponse:
+      type: object
+      additionalProperties: false
       required: [data]
-      properties: { data: { $ref: "#/components/schemas/DayRecord" } }
-    DayRecordListResponse:
+      properties:
+        data: { $ref: "#/components/schemas/PublishedModel" }
+    PublishedModelListResponse:
       type: object
+      additionalProperties: false
       required: [data]
       properties:
         data:
-          type: object
-          required: [items, nextCursor]
-          properties:
-            items: { type: array, items: { $ref: "#/components/schemas/DayRecord" } }
-            nextCursor: { type: [string, "null"] }
-    DayRecordOccurrenceListResponse:
+          type: array
+          items: { $ref: "#/components/schemas/PublishedModel" }
+    ValidateModelRequest:
       type: object
+      additionalProperties: false
+      required: [definition]
+      properties:
+        definition: { $ref: "#/components/schemas/ModelDefinition" }
+    PublishModelRequest:
+      type: object
+      additionalProperties: false
+      required: [definition, compatibility]
+      properties:
+        definition: { $ref: "#/components/schemas/ModelDefinition" }
+        compatibility: { $ref: "#/components/schemas/ModelCompatibility" }
+    ModelValidationIssue:
+      type: object
+      additionalProperties: false
+      required: [path, code, message]
+      properties:
+        path: { type: string }
+        code: { type: string }
+        message: { type: string }
+    ModelValidationResponse:
+      type: object
+      additionalProperties: false
       required: [data]
       properties:
         data:
-          type: object
-          required: [items, nextCursor]
-          properties:
-            items: { type: array, items: { $ref: "#/components/schemas/DayRecordOccurrence" } }
-            nextCursor: { type: [string, "null"] }
-    CreateDayRecordOccurrenceResponse:
+          oneOf:
+            - type: object
+              additionalProperties: false
+              required: [valid, definition, schemaHash]
+              properties:
+                valid: { const: true }
+                definition: { $ref: "#/components/schemas/ModelDefinition" }
+                schemaHash: { type: string, pattern: "^[a-f0-9]{64}$" }
+            - type: object
+              additionalProperties: false
+              required: [valid, issues]
+              properties:
+                valid: { const: false }
+                issues:
+                  type: array
+                  items: { $ref: "#/components/schemas/ModelValidationIssue" }
+    ModelContractManifestEntry:
       type: object
+      additionalProperties: false
+      required: [key, route, version, schemaHash]
+      properties:
+        key: { type: string }
+        route: { type: string }
+        version: { type: integer, minimum: 1 }
+        schemaHash: { type: string, pattern: "^[a-f0-9]{64}$" }
+    ModelContract:
+      type: object
+      additionalProperties: false
+      required: [id, hash, manifest, openapi, jsonSchema, createdBy, createdAt]
+      properties:
+        id: { type: string, pattern: "^mct_[a-f0-9]{64}$" }
+        hash: { type: string, pattern: "^[a-f0-9]{64}$" }
+        manifest:
+          type: object
+          additionalProperties: false
+          required: [kind, models]
+          properties:
+            kind: { const: lifespace-model-contract }
+            models:
+              type: array
+              items: { $ref: "#/components/schemas/ModelContractManifestEntry" }
+        openapi: { type: object, additionalProperties: true }
+        jsonSchema: { type: object, additionalProperties: true }
+        createdBy:
+          type: object
+          additionalProperties: false
+          required: [type, id, displayName]
+          properties:
+            type: { $ref: "#/components/schemas/PrincipalType" }
+            id: { type: string }
+            displayName: { type: string }
+        createdAt: { type: string, format: date-time }
+    ModelContractResponse:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data: { $ref: "#/components/schemas/ModelContract" }
+    ActiveModelContractResponse:
+      type: object
+      additionalProperties: false
       required: [data]
       properties:
         data:
-          type: object
-          required: [previousAnchorDate, intervalDays, record]
-          properties:
-            previousAnchorDate: { type: string, format: date }
-            intervalDays: { type: integer, minimum: 1 }
-            record: { $ref: "#/components/schemas/DayRecord" }
-    WishResponse:
-      type: object
-      required: [data]
-      properties: { data: { $ref: "#/components/schemas/Wish" } }
-    WishListResponse:
-      type: object
-      required: [data]
-      properties:
-        data:
-          type: object
-          required: [items, nextCursor]
-          properties:
-            items: { type: array, items: { $ref: "#/components/schemas/Wish" } }
-            nextCursor: { type: [string, "null"] }
+          allOf:
+            - $ref: "#/components/schemas/ModelContract"
+            - type: object
+              required: [registryRevision]
+              properties:
+                registryRevision: { type: integer, minimum: 0 }
