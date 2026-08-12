@@ -61,8 +61,9 @@ export async function findProposalPublicationEvidence(
   env: Bindings,
   modelKey: string,
   expectedVersion: number,
-  schemaHash: string,
+  schemaHash: string | null,
 ): Promise<ProposalPublicationEvidence | null> {
+  if (!schemaHash) return null;
   const row = await env.DB.prepare(`SELECT
       id,model_key,route_segment,version,definition_json,schema_hash,compatibility,published_at
     FROM model_definitions
