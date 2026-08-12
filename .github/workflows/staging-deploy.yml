@@ -12,12 +12,14 @@ concurrency:
 
 jobs:
   deploy:
-    name: Migrate and deploy staging
+    name: Migrate, deploy and verify staging
     runs-on: ubuntu-latest
     environment: staging
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID || secrets.CLOUDFLARE_ACCOUNT_ID }}
+      LIFESPACE_STAGING_BOOTSTRAP_SECRET: ${{ secrets.LIFESPACE_STAGING_BOOTSTRAP_SECRET }}
+      LIFESPACE_CORE_STAGING_URL: https://core-staging.aisr.online
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -46,6 +48,7 @@ jobs:
         run: |
           test -n "$CLOUDFLARE_API_TOKEN" || (echo "CLOUDFLARE_API_TOKEN is not configured" && exit 1)
           test -n "$CLOUDFLARE_ACCOUNT_ID" || (echo "CLOUDFLARE_ACCOUNT_ID is not configured" && exit 1)
+          test ${#LIFESPACE_STAGING_BOOTSTRAP_SECRET} -ge 32 || (echo "LIFESPACE_STAGING_BOOTSTRAP_SECRET must be at least 32 characters" && exit 1)
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -114,15 +117,46 @@ jobs:
       - name: Verify Phase 3 D1 convergence
         run: node infra/scripts/verify-phase3-staging-db.mjs
 
-      - name: Summarize staging deployment
+      - name: Prepare ephemeral authenticated Phase 3 smoke
+        run: node infra/scripts/prepare-phase3-staging-smoke.mjs
+
+      - name: Verify authenticated Kernel and Model Contract
+        run: node infra/scripts/verify-phase3-staging-http.mjs
+
+      - name: Verify active Model Contract D1 pointer
+        env:
+          REQUIRE_ACTIVE_MODEL_CONTRACT: "1"
+        run: node infra/scripts/verify-phase3-staging-db.mjs
+
+      - name: Verify Task Wish Day Record Event metadata runtime
+        run: node infra/scripts/verify-phase3-staging-models.mjs
+
+      - name: Verify Registry-driven Creation Draft Queue
+        run: node infra/scripts/verify-phase3-staging-creation-draft.mjs
+
+      - name: Cleanup ephemeral staging authority
+        if: ${{ always() }}
+        continue-on-error: true
+        run: node infra/scripts/cleanup-phase3-staging-smoke.mjs
+
+      - name: Summarize staging deployment and Phase 3 exit
+        if: ${{ success() }}
         run: |
           cat >> "$GITHUB_STEP_SUMMARY" <<'EOF'
-          ## LifeSpace staging deployment
+          ## LifeSpace staging deployment + Phase 3 exit
 
           - Core: schema v21 / Kernel contract 0.12.0
           - Identity: schema v4 / contract 0.3.0
           - Phase 3 D1 convergence: passed
-          - This general deployment workflow does not run authenticated model/AI smoke tests.
-          - Run **Phase 3 staging exit** for fresh-bearer, Model Contract, four-model, Queue and AI verification before Phase 3 closeout.
+          - Service-only Model Admin / AI Admin boundary: passed
+          - Active immutable Model Contract `mct_*`: passed
+          - Task: Generic Runtime + defaults + Workflow: passed
+          - Wish: Generic Runtime + Policy + Workflow: passed
+          - Day Record: Generic Runtime + Temporal: passed
+          - Event: Generic Runtime + Calendar: passed
+          - Registry-driven Creation Draft Queue: reached a valid terminal state
+          - Ephemeral smoke PAT: maximum 15-minute lifetime; cleanup attempted
           - Production and HomeMew traffic/data were not touched.
+
+          This run is suitable as the technical staging evidence for Phase 3 closeout.
           EOF
