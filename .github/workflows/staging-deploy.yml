@@ -12,13 +12,14 @@ concurrency:
 
 jobs:
   deploy:
-    name: Migrate and deploy staging
+    name: Migrate, deploy and verify staging
     runs-on: ubuntu-latest
     environment: staging
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID || secrets.CLOUDFLARE_ACCOUNT_ID }}
       LIFESPACE_STAGING_BOOTSTRAP_SECRET: ${{ secrets.LIFESPACE_STAGING_BOOTSTRAP_SECRET }}
+      LIFESPACE_CORE_STAGING_URL: https://core-staging.aisr.online
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -64,7 +65,7 @@ jobs:
       - name: Deploy Core first
         run: pnpm --dir apps/core exec wrangler deploy --env staging
 
-      - name: Wait for Core 0.11 staging convergence
+      - name: Wait for Core 0.12 staging convergence
         run: |
           curl --fail --silent --show-error --retry 12 --retry-delay 5 --retry-all-errors https://core-staging.aisr.online/health
           echo
@@ -73,13 +74,13 @@ jobs:
             if [ -n "$STATUS" ] && printf '%s' "$STATUS" | node --input-type=module -e '
               import fs from "node:fs";
               const data = JSON.parse(fs.readFileSync(0, "utf8"))?.data ?? {};
-              process.exit(data.environment === "staging" && data.schemaVersion === "9" && data.contractVersion === "0.11.0" ? 0 : 1);
+              process.exit(data.environment === "staging" && String(data.schemaVersion) === "21" && data.contractVersion === "0.12.0" ? 0 : 1);
             '; then
               echo "$STATUS"
-              echo "Core staging is serving schema v9 / contract 0.11.0"
+              echo "Core staging is serving schema v21 / contract 0.12.0"
               break
             fi
-            echo "Core staging has not converged to schema v9 / contract 0.11.0 yet (attempt ${attempt}/12): ${STATUS:-<no response>}"
+            echo "Core staging has not converged to schema v21 / contract 0.12.0 yet (attempt ${attempt}/12): ${STATUS:-<no response>}"
             if [ "$attempt" -eq 12 ]; then exit 1; fi
             sleep 5
           done
@@ -102,7 +103,7 @@ jobs:
             if [ -n "$STATUS" ] && printf '%s' "$STATUS" | node --input-type=module -e '
               import fs from "node:fs";
               const data = JSON.parse(fs.readFileSync(0, "utf8"))?.data ?? {};
-              process.exit(data.environment === "staging" && data.schemaVersion === "4" && data.contractVersion === "0.3.0" ? 0 : 1);
+              process.exit(data.environment === "staging" && String(data.schemaVersion) === "4" && data.contractVersion === "0.3.0" ? 0 : 1);
             '; then
               echo "$STATUS"
               echo "Identity staging is serving schema v4 / contract 0.3.0"
@@ -113,21 +114,49 @@ jobs:
             sleep 5
           done
 
-      - name: Initialize runtime secrets and run native staging smoke test
-        run: |
-          SUMMARY_PATH="$GITHUB_STEP_SUMMARY"
-          GITHUB_STEP_SUMMARY="" node infra/scripts/initialize-staging-runtime.mjs
-          cat >> "$SUMMARY_PATH" <<'EOF'
-          ## LifeSpace staging runtime
+      - name: Verify Phase 3 D1 convergence
+        run: node infra/scripts/verify-phase3-staging-db.mjs
 
-          - Core: schema v9 / contract 0.11.0
+      - name: Prepare ephemeral authenticated Phase 3 smoke
+        run: node infra/scripts/prepare-phase3-staging-smoke.mjs
+
+      - name: Verify authenticated Kernel and Model Contract
+        run: node infra/scripts/verify-phase3-staging-http.mjs
+
+      - name: Verify active Model Contract D1 pointer
+        env:
+          REQUIRE_ACTIVE_MODEL_CONTRACT: "1"
+        run: node infra/scripts/verify-phase3-staging-db.mjs
+
+      - name: Verify Task Wish Day Record Event metadata runtime
+        run: node infra/scripts/verify-phase3-staging-models.mjs
+
+      - name: Verify Registry-driven Creation Draft Queue
+        run: node infra/scripts/verify-phase3-staging-creation-draft.mjs
+
+      - name: Cleanup ephemeral staging authority
+        if: ${{ always() }}
+        continue-on-error: true
+        run: node infra/scripts/cleanup-phase3-staging-smoke.mjs
+
+      - name: Summarize staging deployment and Phase 3 exit
+        if: ${{ success() }}
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<'EOF'
+          ## LifeSpace staging deployment + Phase 3 exit
+
+          - Core: schema v21 / Kernel contract 0.12.0
           - Identity: schema v4 / contract 0.3.0
-          - Signing keys: active pair preserved on normal deployment; repair path convergence-checked
-          - Identity token -> Core Space authorization: passed
-          - Profile and user avatar: passed
-          - Space avatar: passed
-          - Service API Token / OAuth / Data Grant lifecycle: passed
-          - Creation Draft Queue delivery to terminal state: passed
-          - Retired HomeMew compatibility route check: passed
-          - Event / Task / Day Record / Wish native E2E: passed
+          - Phase 3 D1 convergence: passed
+          - Service-only Model Admin / AI Admin boundary: passed
+          - Active immutable Model Contract `mct_*`: passed
+          - Task: Generic Runtime + defaults + Workflow: passed
+          - Wish: Generic Runtime + Policy + Workflow: passed
+          - Day Record: Generic Runtime + Temporal: passed
+          - Event: Generic Runtime + Calendar: passed
+          - Registry-driven Creation Draft Queue: reached a valid terminal state
+          - Ephemeral smoke PAT: maximum 15-minute lifetime; cleanup attempted
+          - Production and HomeMew traffic/data were not touched.
+
+          This run is suitable as the technical staging evidence for Phase 3 closeout.
           EOF

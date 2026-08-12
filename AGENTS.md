@@ -10,25 +10,28 @@ Read these files in order:
 2. `docs/permissions.md`
 3. `docs/service-authentication.md` when changing service, Agent, automation, device, or machine credentials
 4. `docs/contracts.md`
-5. `docs/migration-plan.md` when changing or moving behavior from HomeMew
-6. The nearest nested `AGENTS.md` for every directory being changed
-7. Relevant OpenAPI, tests, migrations, implementation, and generated artifacts
+5. `docs/phase3-metadata-platform-plan.md` when changing business-model/runtime architecture
+6. `docs/migration-plan.md` when changing or moving behavior from HomeMew
+7. The nearest nested `AGENTS.md` for every directory being changed
+8. Relevant OpenAPI, tests, migrations, implementation, Model Definitions and generated artifacts
 
 If a referenced file has not been created yet during the initial scaffold, create or update it before implementing behavior that depends on it.
 
 ## Sources of truth
 
 - Platform boundaries and runtime topology: `docs/architecture.md`
-- Space ownership, Data Grant semantics, roles, principals, and effective authorization: `docs/permissions.md`
+- Space ownership, Data Grant semantics, roles, principals, model authorization and effective authorization: `docs/permissions.md`
 - Service, Agent, automation, and machine credential policy: `docs/service-authentication.md`
-- Contract ownership, versioning, publication, and downstream consumption: `docs/contracts.md`
-- Core API syntax: `apps/core/openapi.yaml`
+- Contract ownership, generation, versioning, publication, and downstream consumption: `docs/contracts.md`
+- Metadata-driven business-model architecture and implementation order: `docs/phase3-metadata-platform-plan.md`
+- Core Kernel API syntax plus reproducible generated model contract surface: `apps/core/openapi.yaml`
 - Identity API syntax: `apps/identity/openapi.yaml`
+- Published model semantics: validated Model Definitions / Model Registry
 - Database history: migrations owned by the service that owns the database
 - Verified runtime behavior: automated tests
 - Implementation details: source code
 
-Do not silently reconcile disagreements between these sources. Preserve deployed behavior unless the task explicitly changes the contract, and update contract, implementation, tests, docs, migrations, and affected consumers together.
+Do not silently reconcile disagreements between these sources. Preserve deployed behavior unless the task explicitly changes the contract. Phase 3 explicitly permits breaking the Phase-2 handwritten business-domain runtime before HomeMew cutover; Kernel/security behavior remains protected unless separately approved.
 
 ## Mandatory platform rules
 
@@ -36,17 +39,20 @@ Do not silently reconcile disagreements between these sources. Preserve deployed
 - Application-specific external identities are not LifeSpace identities. WeChat `openid`, WeCom `userid`, school-platform IDs, and similar provider identifiers are resolved and mapped by the owning application adapter/BFF, not by Core and not by the generic LifeSpace Identity service.
 - A trusted application backend may assert an already-resolved LifeSpace `user_id` to Identity only with its own revocable application credential. Identity must derive the calling application from that credential and constrain issued scopes to the application's registered maximum scopes.
 - Never trust a browser, Mini Program, or other untrusted client to submit an arbitrary `user_id` for token issuance. External-provider credentials and mapping data stay in the owning application boundary.
-- A Space is the ownership and default authorization boundary for business data. Every business record belongs to exactly one source Space.
+- A Space is the ownership and default authorization boundary for business data. Every ordinary business record belongs to exactly one source Space.
 - Sharing never changes data ownership and must not create a second source-of-truth copy. Cross-user and cross-Space visibility is expressed through Data Grants or approved derived views.
-- Data authorization and application authorization are independent. Effective permission is the intersection of the principal's current data authorization and the calling application's granted scopes.
+- Data authorization and application authorization are independent. Effective permission is the intersection of the principal's current data authorization, calling application/credential authorization and published model policy.
 - The authenticated actor comes from verified credentials. Never trust a client-provided `userId` as the current actor.
-- Core owns Space/Grant authorization and business-domain authorization. Clients and BFFs may hide controls for usability but are never the security authority.
+- Core owns Space/Grant authorization, Model Registry, Generic Resource Runtime, reusable business capabilities and business authorization. Clients and BFFs may hide controls for usability but are never the security authority.
 - Identity owns LifeSpace users, trusted application/client registration and credentials, platform SSO/session capabilities when explicitly implemented, short-lived token issuance/revocation, service principal and opaque Service API Token lifecycle, and signing-key lifecycle. Identity must not become an integration hub for every application's external login provider.
 - Keep `Data Grant` terminology distinct from OAuth authorization grants or consent records.
 - ALOHA, HomeMew, and vertical applications are clients of the platform. Do not add application-specific business rules to Core merely because one current client needs a particular UI flow.
 - Keep Core a modular monolith unless a separately approved architecture decision justifies splitting a runtime service.
-- Do not build a universal JSON `resources` table as a substitute for explicit domain models. Shared ownership and permission fields may be common, but domain invariants must remain explicit.
-- Cross-Space aggregate queries such as `/api/v1/me/events` are a Core capability. Do not force every client to rediscover and merge all accessible Spaces itself.
+- Ordinary business models are metadata-driven. Adding an ordinary model must not require a new handwritten CRUD router/service/table set. New source code should normally represent a reusable Kernel or Capability concern.
+- Generic storage is allowed only behind a published, validated Model Definition and fixed Generic Runtime. Never expose an arbitrary schemaless JSON store as a platform API.
+- Model metadata must never contain arbitrary JavaScript, SQL, shell code or unrestricted executable expressions. AI may propose Model Definitions but publication always flows through the same validator, compatibility checks and audit trail.
+- Identity, Application, credentials, Space, Membership, Space Person, Data Grant, Model Registry administration and signing/security state are Kernel concepts, not user-defined ordinary models.
+- Cross-Space aggregate queries such as `/api/v1/me/...` are a Core capability. Do not force every client to rediscover and merge all accessible Spaces itself.
 
 ## Identity and browser security
 
@@ -56,41 +62,44 @@ Do not silently reconcile disagreements between these sources. Preserve deployed
 - Web applications should prefer browser -> same-origin BFF -> service binding -> Core. BFFs must not become a second business-data store.
 - Core must not rely on a browser-wide ambient session cookie as its primary authentication mechanism. Untrusted clients use appropriately scoped short-lived bearer credentials. Owner-controlled trusted services may instead use individually scoped, opaque, revocable Service API Tokens according to `docs/service-authentication.md`; OAuth `client_credentials` remains an optional service mode, not the only one.
 - Mini Programs, devices, Agents, and automation services use explicit app/device/service identities and scopes appropriate to their execution mode.
-- CORS is not authorization. If direct browser-to-Core access is supported, use an exact Origin allowlist and still enforce token, app-scope, and data permissions in Core.
+- CORS is not authorization. If direct browser-to-Core access is supported, use an exact Origin allowlist and still enforce token, app-scope, data permissions and model policy in Core.
 
 ## Contract workflow
 
 For any public API or behavior change:
 
-1. Update the owning service's canonical OpenAPI/JSON Schema contract.
+1. Update explicit Kernel contract inputs and/or the published Model/Capability definition that owns the behavior.
 2. Update architecture or permission documentation when boundaries or authorization change.
 3. Update implementation.
 4. Update migrations when persistence changes.
-5. Add or update automated tests and contract checks.
-6. Regenerate published contract/client artifacts instead of hand-editing generated files.
+5. Add or update automated tests and contract-generation checks.
+6. Regenerate canonical OpenAPI/JSON Schema and published contract/client artifacts instead of hand-editing generated model surfaces.
 7. Record compatibility and downstream application impact.
 
 Applications must consume an explicit compatible contract version. They must not silently track an unversioned "latest" Core contract.
 
-## Adding a business domain
+## Adding an ordinary business model
 
-Before adding a domain such as goals, assets, health records, credentials, growth records, or school records, explicitly define:
+Before publishing a model such as goals, assets, health records, credentials, growth records, school records or future ordinary domains, define through Model Definition / registered Capabilities:
 
-- Owning Space and subject/person semantics.
-- Supported principals: user, delegated Agent, system/service, device, or application.
-- Read/write/manage permission model and any sensitive-data restrictions.
-- Whether cross-Space sharing is allowed and at what granularity.
-- Time/date semantics.
-- Persistence invariants, IDs, indexes, lifecycle, soft deletion, and concurrency rules.
-- Search, aggregate `/me` views, notifications, webhooks, AI-draft participation, and external integrations.
-- Contract, SDK/client, migration, and downstream-app impact.
+- owning Space and subject/person semantics;
+- supported principals and model access capabilities;
+- read/write/manage policy and sensitive-data restrictions;
+- cross-Space sharing/grant behavior;
+- field schema and time/date semantics;
+- indexes/query/search/aggregate requirements;
+- lifecycle, soft deletion and concurrency behavior;
+- required reusable Capabilities;
+- actions/workflows and computed fields where supported;
+- notifications/webhooks/AI interpretation participation where enabled;
+- contract and downstream-app impact.
 
-A domain is not complete when only its table and CRUD routes exist.
+Do not create a new handwritten domain router/service simply because the DSL cannot yet express a requirement. Decide whether the missing behavior belongs in a reusable Capability/Engine or is truly a Kernel exception, document that decision, then implement the reusable abstraction.
 
 ## Repository discipline
 
-- Keep platform code, contracts, migrations, and deployment configuration in this repository; keep application UI, external-provider identity mapping, and app-specific BFF behavior in the application repositories.
-- Do not copy HomeMew code mechanically. Preserve proven behavior where appropriate, but remove HomeMew/family-specific assumptions unless they are deliberate Space policies.
+- Keep platform code, contracts, Model Definitions, migrations and deployment configuration in this repository; keep application UI, external-provider identity mapping and app-specific BFF behavior in the application repositories.
+- Do not copy HomeMew code mechanically. Preserve proven behavior as semantic tests/capability requirements where appropriate, but remove HomeMew/family-specific assumptions unless they are deliberate Space policies.
 - Do not introduce packages that have no concrete consumer or clearly documented near-term role.
 - Generated artifacts must be reproducible and clearly marked; never hand-edit them.
 - Preserve standard API success/error envelopes and request tracing once the canonical contract defines them.
@@ -99,4 +108,4 @@ A domain is not complete when only its table and CRUD routes exist.
 
 ## Change completion
 
-Before declaring a platform change complete, inspect all coupled surfaces: Identity, Space/Grant rules, Core domains, contracts, migrations, tests, SDK/client generation, docs, infrastructure, and downstream compatibility. Fix drift in the same change or explicitly record an approved follow-up while keeping unsupported functionality unavailable.
+Before declaring a platform change complete, inspect all coupled surfaces: Identity, Space/Grant rules, Model Registry, Generic Runtime, Capabilities, contracts/generation, migrations, tests, SDK/client generation, docs, infrastructure and downstream compatibility. Fix drift in the same change or explicitly record an approved follow-up while keeping unsupported functionality unavailable.

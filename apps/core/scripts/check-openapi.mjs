@@ -2,7 +2,16 @@ import fs from "node:fs";
 import YAML from "yaml";
 
 const document = YAML.parse(fs.readFileSync(new URL("../openapi.yaml", import.meta.url), "utf8"));
-if (document.openapi !== "3.1.0" || document.info?.version !== "0.11.0") throw new Error("Core OpenAPI version metadata is invalid");
+
+if (document.openapi !== "3.1.0" || document.info?.version !== "0.12.0") {
+  throw new Error("Core Kernel OpenAPI version metadata is invalid");
+}
+if (!document.info?.title?.includes("Kernel")) {
+  throw new Error("Static Core OpenAPI must identify itself as the Kernel contract");
+}
+if (!document.info?.description?.includes("Model Contract Revision")) {
+  throw new Error("Kernel OpenAPI must explain the separate immutable Model Contract surface");
+}
 
 const requiredPaths = [
   "/health",
@@ -20,97 +29,144 @@ const requiredPaths = [
   "/api/v1/spaces/{spaceId}/invites/{inviteId}/revoke",
   "/api/v1/space-invites/{token}",
   "/api/v1/space-invites/{token}/join",
-  "/api/v1/spaces/{spaceId}/events",
-  "/api/v1/spaces/{spaceId}/events/{eventId}",
-  "/api/v1/spaces/{spaceId}/tasks",
-  "/api/v1/spaces/{spaceId}/tasks/{taskId}",
-  "/api/v1/spaces/{spaceId}/tasks/{taskId}/complete",
-  "/api/v1/spaces/{spaceId}/tasks/{taskId}/reopen",
-  "/api/v1/spaces/{spaceId}/day-records",
-  "/api/v1/spaces/{spaceId}/day-records/{dayRecordId}",
-  "/api/v1/spaces/{spaceId}/day-records/{dayRecordId}/archive",
-  "/api/v1/spaces/{spaceId}/day-records/{dayRecordId}/restore",
-  "/api/v1/spaces/{spaceId}/day-records/{dayRecordId}/occurrences",
-  "/api/v1/spaces/{spaceId}/wishes",
-  "/api/v1/spaces/{spaceId}/wishes/{wishId}",
-  "/api/v1/spaces/{spaceId}/wishes/{wishId}/claim",
-  "/api/v1/spaces/{spaceId}/wishes/{wishId}/unclaim",
-  "/api/v1/spaces/{spaceId}/wishes/{wishId}/fulfill",
-  "/api/v1/spaces/{spaceId}/wishes/{wishId}/reopen",
-  "/api/v1/spaces/{spaceId}/wishes/{wishId}/archive",
-  "/api/v1/spaces/{spaceId}/wishes/{wishId}/restore",
   "/api/v1/spaces/{spaceId}/grants",
   "/api/v1/spaces/{spaceId}/grants/{grantId}",
   "/api/v1/spaces/{spaceId}/creation-drafts",
   "/api/v1/spaces/{spaceId}/creation-drafts/{draftId}",
-  "/api/v1/spaces/{spaceId}/creation-drafts/{draftId}/choose-kind",
+  "/api/v1/spaces/{spaceId}/creation-drafts/{draftId}/choose-model",
+  "/api/v1/model-admin/models",
+  "/api/v1/model-admin/models/validate",
+  "/api/v1/model-admin/models/{modelKey}",
+  "/api/v1/model-admin/models/{modelKey}/retire",
+  "/api/v1/model-admin/contracts/active",
+  "/api/v1/model-admin/contracts/{contractId}",
 ];
-for (const path of requiredPaths) if (!document.paths?.[path]) throw new Error(`Core OpenAPI missing ${path}`);
+for (const path of requiredPaths) {
+  if (!document.paths?.[path]) throw new Error(`Core Kernel OpenAPI missing ${path}`);
+}
 
+const retiredCompatibility = [
+  "/api/v1/me/families",
+  "/api/v1/families",
+  "/api/v1/family-invites",
+];
 for (const path of Object.keys(document.paths ?? {})) {
-  if (path === "/api/v1/me/families" || path.startsWith("/api/v1/families") || path.startsWith("/api/v1/family-invites")) {
-    throw new Error(`Retired HomeMew compatibility path remains in canonical OpenAPI: ${path}`);
+  if (retiredCompatibility.some((prefix) => path === prefix || path.startsWith(`${prefix}/`))) {
+    throw new Error(`Retired HomeMew compatibility path remains in Kernel OpenAPI: ${path}`);
   }
+}
+
+const ordinaryModelPrefixes = [
+  "/api/v1/spaces/{spaceId}/events",
+  "/api/v1/spaces/{spaceId}/tasks",
+  "/api/v1/spaces/{spaceId}/day-records",
+  "/api/v1/spaces/{spaceId}/wishes",
+];
+for (const path of Object.keys(document.paths ?? {})) {
+  if (ordinaryModelPrefixes.some((prefix) => path === prefix || path.startsWith(`${prefix}/`))) {
+    throw new Error(`Ordinary model path leaked into Kernel OpenAPI instead of mct_*: ${path}`);
+  }
+  if (path.includes("{modelRoute}") || path.includes("{recordId}") || path.includes("{actionKey}")) {
+    throw new Error(`Generic/model route template leaked into Kernel OpenAPI instead of concrete mct_*: ${path}`);
+  }
+}
+
+if (document.paths?.["/api/v1/spaces/{spaceId}/creation-drafts/{draftId}/choose-kind"]) {
+  throw new Error("Hard-coded Creation Draft choose-kind route must not remain");
 }
 
 const schemas = document.components?.schemas ?? {};
 for (const name of Object.keys(schemas)) {
-  if (name.startsWith("Legacy")) throw new Error(`Retired HomeMew compatibility schema remains in canonical OpenAPI: ${name}`);
+  if (/^(Event|Task|DayRecord|Wish|CreationDraftEvent|CreationDraftTask|CreationDraftDayRecord|CreationDraftWish)/.test(name)) {
+    throw new Error(`Ordinary-model schema leaked into Kernel OpenAPI: ${name}`);
+  }
+  if (name.startsWith("Legacy")) {
+    throw new Error(`Retired compatibility schema remains in Kernel OpenAPI: ${name}`);
+  }
 }
 
-if (JSON.stringify(schemas.SpaceRole?.enum) !== JSON.stringify(["owner", "admin", "editor", "viewer"])) throw new Error("Space roles drifted");
-if (!schemas.Space?.required?.includes("timezone") || !schemas.Space?.required?.includes("version") || !schemas.Space?.required?.includes("avatarUrl")) throw new Error("Space must expose timezone, avatarUrl and version");
-if (schemas.Space?.properties?.avatarKey) throw new Error("R2 avatar keys must not become a public Space contract");
-if (schemas.UpdateSpaceRequest?.required?.[0] !== "version" || schemas.UpdateSpaceRequest?.minProperties !== 2) throw new Error("Space updates must use optimistic concurrency");
+const tagNames = (document.tags ?? []).map((tag) => tag?.name);
+for (const forbidden of ["Events", "Tasks", "Day Records", "Wishes"]) {
+  if (tagNames.includes(forbidden)) throw new Error(`Ordinary-model tag leaked into Kernel OpenAPI: ${forbidden}`);
+}
+
+if (JSON.stringify(schemas.SpaceRole?.enum) !== JSON.stringify(["owner", "admin", "editor", "viewer"])) {
+  throw new Error("Space roles drifted");
+}
+if (!schemas.Space?.required?.includes("timezone") || !schemas.Space?.required?.includes("version") || !schemas.Space?.required?.includes("avatarUrl")) {
+  throw new Error("Space must expose timezone, avatarUrl and version");
+}
+if (schemas.Space?.properties?.avatarKey) {
+  throw new Error("R2 avatar keys must not become a public Space contract");
+}
+if (schemas.UpdateSpaceRequest?.required?.[0] !== "version" || schemas.UpdateSpaceRequest?.minProperties !== 2) {
+  throw new Error("Space updates must use optimistic concurrency");
+}
 const avatarPut = document.paths?.["/api/v1/spaces/{spaceId}/avatar"]?.put;
-if (!avatarPut?.requestBody?.content?.["multipart/form-data"]?.schema?.required?.includes("version")) throw new Error("Space avatar replacement must use optimistic concurrency");
-if (document.paths?.["/assets/spaces/{spaceId}/avatar"]?.get?.security?.length !== 0) throw new Error("Stable Space avatar URL must be publicly readable without exposing the R2 key");
-if (schemas.CreateInviteResponse?.properties?.data?.allOf?.[1]?.properties?.token?.writeOnly !== true) throw new Error("Invitation plaintext token must be one-time/write-only");
-if (schemas.Invite?.properties?.token) throw new Error("Stored/listed invites must not expose plaintext tokens");
-if (schemas.JoinInviteRequest?.additionalProperties !== false || !schemas.JoinInviteRequest?.required?.includes("displayName")) throw new Error("Invitation join must create/reactivate a Space Person");
-if (document.components?.securitySchemes?.bearerAuth?.bearerFormat !== "JWT or lsp_pat_") throw new Error("Core bearer contract must expose JWT and opaque service-token authentication");
-if (!schemas.CreateGrantRequest?.properties?.granteeType?.enum?.includes("service")) throw new Error("Data Grants must support service principals");
-if (!document.paths?.["/api/v1/spaces/{spaceId}/grants"]?.get || !document.paths?.["/api/v1/spaces/{spaceId}/grants/{grantId}"]?.delete) throw new Error("Data Grant management lifecycle is incomplete");
-if (!schemas.CreationDraftEventForm?.properties?.attendeePersonIds || schemas.CreationDraftEventForm?.properties?.attendeeIds) throw new Error("Creation draft event people must use Space Person IDs");
-if (!schemas.CreationDraftTaskForm?.properties?.assigneePersonIds || schemas.CreationDraftTaskForm?.properties?.assigneeIds) throw new Error("Creation draft task people must use Space Person IDs");
-if (!schemas.CreationDraftDayRecordForm?.properties?.subjectPersonId || schemas.CreationDraftDayRecordForm?.properties?.subjectUserId) throw new Error("Creation draft day-record subject must use Space Person ID");
-if (!document.paths?.["/api/v1/spaces/{spaceId}/creation-drafts"]?.post?.description?.includes("active user Space member")) throw new Error("Creation drafts must document user-member-only access");
-
-if (!schemas.EventCommon?.required?.includes("spaceId") || schemas.EventCommon?.properties?.familyId) throw new Error("Native events must be Space-owned");
-if (!schemas.CreateEventCommon?.properties?.attendeePersonIds || schemas.CreateEventCommon?.properties?.attendeeIds) throw new Error("Native attendees must reference Space People");
-if (schemas.UpdateEventRequest?.required?.[0] !== "version" || schemas.UpdateEventRequest?.minProperties !== 2) throw new Error("Native event updates must use optimistic concurrency");
-
-if (JSON.stringify(schemas.TaskStatus?.enum) !== JSON.stringify(["pending", "completed", "cancelled"])) throw new Error("Task statuses drifted");
-if (!schemas.Task?.required?.includes("spaceId") || schemas.Task?.properties?.familyId) throw new Error("Native tasks must be Space-owned");
-if (!schemas.CreateTaskRequest?.properties?.assigneePersonIds || schemas.CreateTaskRequest?.properties?.assigneeIds) throw new Error("Native task assignees must reference Space People");
-if (schemas.UpdateTaskRequest?.required?.[0] !== "version" || schemas.UpdateTaskRequest?.minProperties !== 2) throw new Error("Native task updates must use optimistic concurrency");
-const nativeIncludeNoDue = document.paths?.["/api/v1/spaces/{spaceId}/tasks"]?.get?.parameters?.find((parameter) => parameter?.name === "includeNoDue");
-if (nativeIncludeNoDue?.schema?.default !== false) throw new Error("Native task includeNoDue omission behavior must be explicit");
-
-if (JSON.stringify(schemas.DayRecordKind?.enum) !== JSON.stringify(["elapsed", "countdown", "cycle"])) throw new Error("Day record kinds drifted");
-if (JSON.stringify(schemas.DayRecordStatus?.enum) !== JSON.stringify(["active", "archived"])) throw new Error("Day record statuses drifted");
-if (!schemas.DayRecordCommon?.required?.includes("spaceId") || schemas.DayRecordCommon?.properties?.familyId) throw new Error("Native day records must be Space-owned");
-if (!schemas.CreateDayRecordCommon?.properties?.subjectPersonId || schemas.CreateDayRecordCommon?.properties?.subjectUserId) throw new Error("Native day-record subjects must reference Space People");
-if (schemas.UpdateDayRecordRequest?.required?.[0] !== "version" || schemas.UpdateDayRecordRequest?.minProperties !== 2) throw new Error("Native day-record updates must use optimistic concurrency");
-if (!schemas.CreateDayRecordOccurrenceRequest?.required?.includes("occurredOn") || !schemas.CreateDayRecordOccurrenceRequest?.required?.includes("version")) throw new Error("Day-record occurrences must advance by date under optimistic concurrency");
-if (schemas.DayRecordComputedBase?.additionalProperties === false) throw new Error("Day record computed base must allow allOf-derived computed fields");
-for (const schemaName of ["CreateElapsedDayRecordRequest", "CreateCountdownDayRecordRequest", "CreateCycleDayRecordRequest"]) {
-  if (schemas[schemaName]?.allOf?.[1]?.additionalProperties === false) throw new Error(`${schemaName} must allow fields evaluated by its allOf common schema`);
+if (!avatarPut?.requestBody?.content?.["multipart/form-data"]?.schema?.required?.includes("version")) {
+  throw new Error("Space avatar replacement must use optimistic concurrency");
 }
-if (document.paths?.["/api/v1/spaces/{spaceId}/day-records/{dayRecordId}/occurrences"]?.post?.responses?.["201"] === undefined) throw new Error("Native occurrence creation must return 201");
-
-if (JSON.stringify(schemas.WishStatus?.enum) !== JSON.stringify(["open", "claimed", "fulfilled", "archived"])) throw new Error("Wish statuses drifted");
-if (!schemas.Wish?.required?.includes("spaceId") || schemas.Wish?.properties?.familyId) throw new Error("Native wishes must be Space-owned");
-if (!schemas.Wish?.properties?.owner || !schemas.Wish?.properties?.claimant || !schemas.Wish?.properties?.fulfilledBy) throw new Error("Native wish lifecycle people are missing");
-if (schemas.WishPersonRef?.properties?.userId || !schemas.WishPersonRef?.properties?.personId) throw new Error("Native wish people must use Space Person IDs");
-if (schemas.UpdateWishRequest?.required?.[0] !== "version" || schemas.UpdateWishRequest?.minProperties !== 2) throw new Error("Native wish updates must use optimistic concurrency");
-for (const action of ["claim", "unclaim", "fulfill", "reopen", "archive", "restore"]) {
-  const pathItem = document.paths?.[`/api/v1/spaces/{spaceId}/wishes/{wishId}/${action}`];
-  const refName = pathItem?.$ref?.split("/").at(-1);
-  const resolved = refName ? document.components?.pathItems?.[refName] : pathItem;
-  if (resolved?.post?.responses?.["200"] === undefined) throw new Error(`Native wish ${action} must return 200`);
+if (document.paths?.["/assets/spaces/{spaceId}/avatar"]?.get?.security?.length !== 0) {
+  throw new Error("Stable Space avatar URL must be publicly readable without exposing the R2 key");
 }
 
-if (schemas.StatusResponse?.properties?.data?.properties?.contractVersion?.const !== "0.11.0") throw new Error("Core status contract version drifted");
+if (schemas.Invite?.properties?.token) {
+  throw new Error("Stored/listed invites must not expose plaintext tokens");
+}
+const createInviteData = schemas.CreateInviteResponse?.properties?.data;
+const tokenSchema = createInviteData?.allOf?.[1]?.properties?.token;
+if (tokenSchema?.writeOnly !== true) {
+  throw new Error("Invitation plaintext token must be one-time/write-only");
+}
+if (schemas.JoinInviteRequest?.additionalProperties !== false || !schemas.JoinInviteRequest?.required?.includes("displayName")) {
+  throw new Error("Invitation join must create/reactivate a Space Person");
+}
 
-console.log("Core OpenAPI native contract sanity check passed");
+if (document.components?.securitySchemes?.bearerAuth?.bearerFormat !== "JWT or lsp_pat_") {
+  throw new Error("Core bearer contract must expose JWT and opaque service-token authentication");
+}
+if (!schemas.CreateDataGrantRequest?.properties?.granteeType?.enum && !schemas.GranteeType?.enum) {
+  throw new Error("Data Grant grantee types are missing");
+}
+if (!schemas.GranteeType?.enum?.includes("service")) {
+  throw new Error("Data Grants must support service principals");
+}
+const grants = document.paths?.["/api/v1/spaces/{spaceId}/grants"];
+const grant = document.paths?.["/api/v1/spaces/{spaceId}/grants/{grantId}"];
+if (!grants?.get || !grants?.post || !grant?.patch || !grant?.delete) {
+  throw new Error("Data Grant management lifecycle is incomplete");
+}
+
+const creationDraft = document.paths?.["/api/v1/spaces/{spaceId}/creation-drafts"]?.post;
+if (!creationDraft?.description?.includes("active user Space member")) {
+  throw new Error("Creation Drafts must document user-member-only access");
+}
+if (!creationDraft?.description?.includes("Model Contract Revision")) {
+  throw new Error("Creation Drafts must document the pinned Model Contract Revision");
+}
+if (!schemas.ChooseCreationDraftModelRequest?.required?.includes("targetModelKey")) {
+  throw new Error("Registry Creation Draft model choice is missing targetModelKey");
+}
+if (!schemas.CreationDraftProcessing?.required?.includes("modelContractRevision")) {
+  throw new Error("Creation Draft jobs must expose their pinned Model Contract Revision");
+}
+
+const adminModels = document.paths?.["/api/v1/model-admin/models"];
+if (!adminModels?.get?.description?.includes("Service-principal-only") || !adminModels?.post?.description?.includes("Service-principal-only")) {
+  throw new Error("Model Admin must be documented as service-principal-only");
+}
+if (!document.paths?.["/api/v1/model-admin/contracts/active"]?.get) {
+  throw new Error("Active Model Contract Revision read surface is missing");
+}
+if (schemas.ModelCompatibility?.enum?.join(",") !== "initial,compatible,breaking") {
+  throw new Error("Model compatibility values drifted");
+}
+if (schemas.ModelContract?.properties?.id?.pattern !== "^mct_[a-f0-9]{64}$") {
+  throw new Error("Model Contract revisions must be content-addressed mct_<sha256>");
+}
+
+if (schemas.StatusResponse?.properties?.data?.properties?.contractVersion?.const !== "0.12.0") {
+  throw new Error("Core Kernel status contract version drifted");
+}
+
+console.log("Core Kernel OpenAPI contract sanity check passed");

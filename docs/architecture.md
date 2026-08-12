@@ -2,7 +2,9 @@
 
 ## Purpose
 
-LifeSpace is a shared platform for ALOHA, HomeMew, and future vertical applications. Applications present different product experiences over one LifeSpace user identity and authorization model and one set of shared life-domain records.
+LifeSpace is a shared, metadata-driven life-data platform for ALOHA, HomeMew, and future vertical applications. Applications present different product experiences over one LifeSpace user identity and authorization model and one set of shared Space-owned records.
+
+Ordinary business models are configuration interpreted by a fixed Generic Runtime. New Core source code should normally represent a reusable platform Engine/Capability or a Kernel concern, not one more handwritten domain CRUD implementation.
 
 ## Runtime boundaries
 
@@ -31,10 +33,82 @@ Application-specific external login
   -> authenticated backend token exchange with LifeSpace Identity
 ```
 
-Initial platform services:
+Platform services:
 
-- `apps/core`: modular-monolith business API. Owns Spaces, Data Grants, shared domain models, business authorization, aggregate `/me` views, business migrations and webhooks/notifications that belong to domains.
-- `apps/identity`: global LifeSpace user registry and credential issuer. Owns `usr_*` users, trusted application registration/credentials, service principals, opaque Service API Token lifecycle, short-lived token issuance/revocation and signing-key lifecycle. Platform SSO/session flows may be added later as explicit platform capabilities.
+- `apps/core`: modular-monolith business platform. Owns Spaces, Data Grants, Model Registry, Generic Resource Runtime, reusable business Engines/Capabilities, business authorization, aggregate `/me` views, business migrations and domain event/webhook behavior.
+- `apps/identity`: global LifeSpace user registry and credential issuer. Owns `usr_*` users, trusted application registration/credentials, service principals, opaque Service API Token lifecycle, short-lived token issuance/revocation and signing-key lifecycle.
+
+## Core internal architecture
+
+```text
+Request
+  -> authentication
+  -> Kernel route OR model route resolution
+  -> Model Registry
+  -> current Space/Data Grant + credential authorization
+  -> model policy
+  -> schema/relation validation
+  -> Generic Runtime
+  -> Capability hooks
+  -> generic/capability storage
+  -> audit/response
+```
+
+### Kernel
+
+Kernel concepts remain explicit and cannot be created as ordinary user-defined models:
+
+- Identity/Application/Principal and credential state;
+- Space, Membership and Space Person;
+- Data Grant and authorization state;
+- Model Registry administration and publication state;
+- Registry-driven Creation Draft orchestration;
+- security/signing/deployment state.
+
+The checked-in `apps/core/openapi.yaml` describes only this explicit Kernel surface. Ordinary model endpoints are not manually copied into the Kernel contract.
+
+### Model Registry
+
+Published Model Definitions are the logical source of truth for ordinary business-model schema. They are validated, immutable by version, schema-hashed and compatibility classified.
+
+AI Admin may propose definitions, but it has no arbitrary DDL/code execution path. Publication always uses the same validator and registry as every other model change.
+
+Each successful publish/retire activates an immutable content-addressed Model Contract Revision containing the concrete model OpenAPI/JSON Schema generated from Registry + Capability metadata.
+
+### Generic Resource Runtime
+
+Ordinary Space-owned records use one fixed runtime for schema validation, declarative defaults, CRUD, query, pagination, relation integrity, optimistic concurrency, soft deletion and actor audit.
+
+Generic JSON persistence is permitted only behind this runtime and a published definition. There is no schemaless resource API.
+
+### Engines and Capabilities
+
+Reusable Engines/Capabilities add semantics that should not be encoded as arbitrary model code. Current Phase-3 proving set includes:
+
+- Policy;
+- Workflow/actions, including bounded state/relation-aware branches;
+- Calendar;
+- Temporal/Cycle;
+- AI Interpretation / Registry-driven Creation Draft;
+- Async Job / Queue orchestration.
+
+Capabilities may own auxiliary persistence/indexes where generic storage would weaken correctness or query performance. They also own deterministic contract contributions so Runtime semantics and `mct_*` remain aligned.
+
+## Contract boundary
+
+Core has two independently versioned contract layers:
+
+```text
+Kernel Contract
+  apps/core/openapi.yaml
+  explicit Space / Membership / Grant / Model Admin / Creation Draft APIs
+
+Model Contract Revision
+  mct_<sha256>
+  concrete published model CRUD/query/action/Capability APIs
+```
+
+A client release pins a compatible pair rather than treating the active Registry as an unversioned build contract. Core Kernel `0.12.0` is the first checked-in contract after this split; the former Phase-2 `0.11.0` combined-domain OpenAPI is no longer the target architecture.
 
 ## Identity boundary
 
@@ -55,44 +129,20 @@ Other vertical app adapter
 
 Core never stores or authenticates WeChat `openid`, WeCom `userid`, or equivalent external application IDs.
 
-A trusted application backend authenticates to Identity with its own revocable application credential and may then:
-
-- create a LifeSpace user when its own external mapping has no user yet;
-- assert an existing LifeSpace `user_id` after resolving its own mapping;
-- exchange that assertion for a short-lived Core token whose `azp` is derived from the authenticated application and whose scopes cannot exceed that application's registered scope ceiling.
-
-Browser or Mini Program clients must never be allowed to submit an arbitrary `user_id` directly to token issuance endpoints.
-
-Example HomeMew flow:
-
-```text
-Mini Program
-  -> HomeMew login Cloud Function obtains trusted openid
-  -> HomeMew mapping DB resolves openid -> usr_xxx
-     or trusted HomeMew backend creates usr_xxx through Identity and stores the mapping
-  -> HomeMew backend authenticates with its application credential
-  -> Identity issues short-lived token: sub=usr_xxx, azp=homemew-miniprogram
-  -> Mini Program calls LifeSpace Core with the token
-```
-
-This preserves the proven HomeMew boundary while removing the old shared-HS256-secret model.
+A trusted application backend authenticates to Identity with its own revocable application credential and may create/resolve LifeSpace users through approved Identity flows. Browser or Mini Program clients must never be allowed to submit an arbitrary `user_id` directly to token issuance endpoints.
 
 ## Service and automation authentication
 
-**Implemented and verified in staging on 2026-08-11.** The normative credential and authorization rules are in `docs/service-authentication.md`.
+The deployed service-authentication model remains authoritative. See `docs/service-authentication.md`.
 
-LifeSpace supports two service modes:
+- owner-controlled trusted backends may use opaque, revocable `lsp_pat_*` Service API Tokens;
+- third-party/policy-controlled services may use OAuth `client_credentials` short-lived JWTs.
 
-- owner-controlled trusted backends such as self-hosted n8n, private scripts, cron jobs, and MCP servers may call Core directly with an opaque, revocable `lsp_pat_*` Service API Token;
-- third-party or policy-controlled services may use OAuth `client_credentials` to obtain short-lived access tokens.
-
-Both modes authenticate a service principal and pass through the same application-scope, current Data Grant, and domain authorization checks. Browser and Mini Program clients must not receive Service API Tokens.
-
-Identity owns service principals and token hashes. Core recognizes an opaque token and uses an internal Identity Service Binding introspection call, then evaluates current Core authorization. The client still makes one Core HTTP request; it does not need a token-acquisition request. Core does not read Identity D1 directly or duplicate credential hashes.
+Both normalize to a service Principal and remain subject to current credential/application authority, Data Grant and model policy. Possessing a credential alone grants no Space data access.
 
 ## Data ownership
 
-Every business record belongs to exactly one source Space. A Space may represent a personal, family, team, or future approved context. `space.kind` may drive defaults and product presentation but must not fork the underlying domain model without a real domain reason.
+Every ordinary business record belongs to exactly one source Space. A Space may represent a personal, family, team, or future approved context.
 
 Cross-Space sharing uses Data Grants or approved derived views. Sharing does not copy or move the source record.
 
@@ -110,8 +160,20 @@ Target production topology:
 
 Production and staging use separate Workers and separate D1/R2/Queue resources.
 
-## Core evolution from HomeMew
+## Phase-2 domain convergence
 
-HomeMew Core is the reference implementation for proven patterns such as Hono on Workers, D1 migrations, standard response envelopes, request IDs, optimistic concurrency, soft deletion, OpenAPI checks, Queue usage and build/test discipline. Migration into LifeSpace must generalize `family` ownership into Space/Grant semantics rather than copying family-specific authorization mechanically.
+Phase 2 established verified semantics for Event, Task, Day Record, Wish and Creation Draft. HomeMew never cut over to that intermediate domain runtime, so Phase 3 used those implementations only as golden semantic references.
 
-HomeMew's existing identity implementation is also the reference for the external-identity boundary: WeChat Cloud Functions own `openid -> internal user ID` mapping, while Core accepts only the internal user ID carried by a verified token. LifeSpace keeps that boundary and centralizes only the LifeSpace user registry and token issuer.
+The target Core source has now converged to:
+
+```text
+Task       -> Model Definition + Generic Runtime + Workflow
+Wish       -> Model Definition + Generic Runtime + Policy + Workflow
+Day Record -> Model Definition + Generic Runtime + Temporal
+Event      -> Model Definition + Generic Runtime + Calendar
+Creation Draft -> Registry-driven AI Interpretation + Async Job
+```
+
+The handwritten Event/Task/Day Record/Wish services and fixed four-kind Creation Draft implementation have been removed. The old dedicated domain tables are dropped by destructive staging convergence migrations while historical migrations remain as audit evidence.
+
+HomeMew client/data migration remains paused until the remaining Phase-3 AI Admin work and staging verification complete.
