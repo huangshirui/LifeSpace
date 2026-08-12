@@ -7,12 +7,20 @@ import {
   listTypedResources,
   typedInsertStatement,
   typedUpdateStatement,
-  type TypedStoredResource,
 } from "./typed-resource-storage";
 
 type JsonObject = Record<string, unknown>;
 
-export type GenericResource = TypedStoredResource;
+export type GenericResource = {
+  id: string;
+  spaceId: string;
+  modelKey: string;
+  modelVersion: number;
+  data: JsonObject;
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+};
 
 export type ResourceMutationExtensionContext = {
   env: Bindings;
@@ -32,12 +40,8 @@ type RelationProjection = {
   fieldKey: string;
   targetType: "person" | "record";
   targetId: string;
-  targetModel?: string;
   ordinal: number;
 };
-
-type PeopleRow = { id: string };
-type RecordTargetRow = { id: string; model_key: string };
 
 const createId = () => `rec_${crypto.randomUUID().replaceAll("-", "")}`;
 
@@ -155,67 +159,38 @@ export function validateResourceData(
   return result;
 }
 
-function collectRelations(definition: ModelDefinition, data: JsonObject): RelationProjection[] {
+async function requireActivePeople(env: Bindings, spaceId: string, personIds: string[]): Promise<void> {
+  if (!personIds.length) return;
+  const placeholders = personIds.map(() => "?").join(",");
+  const rows = await env.DB.prepare(`SELECT id FROM space_people WHERE space_id=? AND deleted_at IS NULL AND id IN (${placeholders})`)
+    .bind(spaceId, ...personIds).all<{ id: string }>();
+  if (rows.results.length !== personIds.length) throw new ApiError("INVALID_RESOURCE_RELATION", "Every Person relation must reference an active Person in the same Space", 400);
+}
+
+async function requireRecordTargets(env: Bindings, spaceId: string, targetModel: string, recordIds: string[]): Promise<void> {
+  if (!recordIds.length) return;
+  const placeholders = recordIds.map(() => "?").join(",");
+  const rows = await env.DB.prepare(`SELECT id FROM resource_records WHERE space_id=? AND model_key=? AND deleted_at IS NULL AND id IN (${placeholders})`)
+    .bind(spaceId, targetModel, ...recordIds).all<{ id: string }>();
+  if (rows.results.length !== recordIds.length) throw new ApiError("INVALID_RESOURCE_RELATION", `Every record relation must reference an active ${targetModel} record in the same Space`, 400);
+}
+
+async function projectRelations(env: Bindings, spaceId: string, definition: ModelDefinition, data: JsonObject): Promise<RelationProjection[]> {
   const relations: RelationProjection[] = [];
   for (const [fieldKey, field] of Object.entries(definition.fields)) {
     const value = data[fieldKey];
     if (value === undefined || value === null) continue;
     if (field.type === "person" || field.type === "person_list") {
       const ids = relationIds(value, fieldKey, field.type === "person_list");
+      await requireActivePeople(env, spaceId, ids);
       ids.forEach((targetId, ordinal) => relations.push({ fieldKey, targetType: "person", targetId, ordinal }));
     }
     if (field.type === "record" || field.type === "record_list") {
       const ids = relationIds(value, fieldKey, field.type === "record_list");
-      ids.forEach((targetId, ordinal) => relations.push({ fieldKey, targetType: "record", targetId, targetModel: field.targetModel!, ordinal }));
+      await requireRecordTargets(env, spaceId, field.targetModel!, ids);
+      ids.forEach((targetId, ordinal) => relations.push({ fieldKey, targetType: "record", targetId, ordinal }));
     }
   }
-  return relations;
-}
-
-async function validateRelationTargets(env: Bindings, spaceId: string, relations: RelationProjection[]): Promise<void> {
-  const personIds = [...new Set(relations.filter((relation) => relation.targetType === "person").map((relation) => relation.targetId))];
-  const recordTargets = [...new Map(
-    relations
-      .filter((relation) => relation.targetType === "record")
-      .map((relation) => [`${relation.targetModel}\u0000${relation.targetId}`, { modelKey: relation.targetModel!, id: relation.targetId }]),
-  ).values()];
-  if (!personIds.length && !recordTargets.length) return;
-
-  const statements: D1PreparedStatement[] = [];
-  let peopleIndex = -1;
-  let recordsIndex = -1;
-  if (personIds.length) {
-    peopleIndex = statements.length;
-    statements.push(env.DB.prepare(`SELECT id FROM space_people
-      WHERE space_id=? AND deleted_at IS NULL AND id IN (${personIds.map(() => "?").join(",")})`)
-      .bind(spaceId, ...personIds));
-  }
-  if (recordTargets.length) {
-    recordsIndex = statements.length;
-    const clauses = recordTargets.map(() => "(model_key=? AND id=?)").join(" OR ");
-    statements.push(env.DB.prepare(`SELECT id,model_key FROM resource_records
-      WHERE space_id=? AND deleted_at IS NULL AND (${clauses})`)
-      .bind(spaceId, ...recordTargets.flatMap((target) => [target.modelKey, target.id])));
-  }
-
-  const results = await env.DB.batch(statements);
-  if (peopleIndex >= 0) {
-    const found = new Set(((results[peopleIndex].results ?? []) as PeopleRow[]).map((row) => row.id));
-    if (personIds.some((id) => !found.has(id))) {
-      throw new ApiError("INVALID_RESOURCE_RELATION", "Every Person relation must reference an active Person in the same Space", 400);
-    }
-  }
-  if (recordsIndex >= 0) {
-    const found = new Set(((results[recordsIndex].results ?? []) as RecordTargetRow[]).map((row) => `${row.model_key}\u0000${row.id}`));
-    if (recordTargets.some((target) => !found.has(`${target.modelKey}\u0000${target.id}`))) {
-      throw new ApiError("INVALID_RESOURCE_RELATION", "Every record relation must reference an active declared target model record in the same Space", 400);
-    }
-  }
-}
-
-async function projectRelations(env: Bindings, spaceId: string, definition: ModelDefinition, data: JsonObject): Promise<RelationProjection[]> {
-  const relations = collectRelations(definition, data);
-  await validateRelationTargets(env, spaceId, relations);
   return relations;
 }
 
@@ -286,14 +261,13 @@ export async function createGenericResource(
   const timestamp = new Date().toISOString();
   const statements: D1PreparedStatement[] = [
     env.DB.prepare(`INSERT INTO resource_records(
-      id,space_id,model_key,model_version,data_json,created_by_type,created_by_id,created_by_name_snapshot,
+      id,space_id,model_key,model_version,created_by_type,created_by_id,created_by_name_snapshot,
       updated_by_type,updated_by_id,updated_by_name_snapshot,version,created_at,updated_at
-    ) VALUES(?,?,?,?,?,?,?,?,?,?,?,1,?,?)`).bind(
+    ) VALUES(?,?,?,?,?,?,?,?,?,?,1,?,?)`).bind(
       id,
       spaceId,
       model.key,
       model.version,
-      "{}",
       principal.type,
       principal.id,
       principal.id,
@@ -346,7 +320,7 @@ export async function updateGenericResource(
   const nextVersion = previous.version + 1;
   const statements: D1PreparedStatement[] = [
     env.DB.prepare(`UPDATE resource_records SET
-      data_json='{}',model_version=?,updated_by_type=?,updated_by_id=?,updated_by_name_snapshot=?,version=?,updated_at=?,mutation_token=?
+      model_version=?,updated_by_type=?,updated_by_id=?,updated_by_name_snapshot=?,version=?,updated_at=?,mutation_token=?
       WHERE id=? AND space_id=? AND model_key=? AND deleted_at IS NULL AND version=?`)
       .bind(model.version, principal.type, principal.id, principal.id, nextVersion, timestamp, mutationToken, recordId, spaceId, model.key, expectedVersion),
     typedUpdateStatement(env, model, recordId, spaceId, data, mutationToken),
