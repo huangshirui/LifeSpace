@@ -98,6 +98,15 @@ export const WISH_MODEL_DEFINITION: ModelDefinition = {
     restore: {
       access: "write", policy: ownerIsActor,
       guards: [{ field: "status", op: "eq", value: "archived", errorCode: "WISH_NOT_ARCHIVED", message: "Wish is not archived" }],
+      branches: [{
+        when: {
+          all: [
+            { field: "archivedFromStatus", op: "eq", value: "claimed" },
+            { personRelation: "claimantPersonId", active: false },
+          ],
+        },
+        set: { status: "open", claimantPersonId: null, claimedAt: null, archivedFromStatus: null },
+      }],
       set: { status: { $ref: "record.archivedFromStatus" }, archivedFromStatus: null },
     },
   },
