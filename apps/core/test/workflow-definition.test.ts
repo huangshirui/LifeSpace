@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { TASK_MODEL_DEFINITION } from "../src/builtin-models";
+import { TASK_MODEL_DEFINITION, WISH_MODEL_DEFINITION } from "../src/builtin-models";
 import { validateModelDefinition } from "../src/model-definition";
 
 function codes(input: unknown): string[] {
@@ -15,6 +15,35 @@ describe("Workflow Model Definition", () => {
     expect(result.definition.actions?.complete.set.completedAt).toEqual({ $ref: "now" });
     expect(result.definition.actions?.complete.set.completedByType).toEqual({ $ref: "actor.type" });
     expect(result.definition.actions?.reopen.set.completedAt).toBeNull();
+  });
+
+  it("accepts a bounded Person-relation branch for Wish restore", () => {
+    const result = validateModelDefinition(WISH_MODEL_DEFINITION);
+    expect(result.valid).toBe(true);
+    if (!result.valid) return;
+    expect(result.definition.actions?.restore.branches?.[0]).toMatchObject({
+      when: {
+        all: [
+          { field: "archivedFromStatus", op: "eq", value: "claimed" },
+          { personRelation: "claimantPersonId", active: false },
+        ],
+      },
+      set: { status: "open", claimantPersonId: null },
+    });
+  });
+
+  it("rejects relation branches on non-Person fields", () => {
+    const input = structuredClone(WISH_MODEL_DEFINITION) as typeof WISH_MODEL_DEFINITION;
+    input.actions!.restore.branches![0]!.when = { personRelation: "status", active: false } as never;
+    expect(codes(input)).toContain("INVALID_PERSON_RELATION_CONDITION");
+  });
+
+  it("rejects overly deep workflow branch conditions", () => {
+    const input = structuredClone(WISH_MODEL_DEFINITION) as typeof WISH_MODEL_DEFINITION;
+    input.actions!.restore.branches![0]!.when = {
+      not: { not: { not: { not: { not: { personRelation: "claimantPersonId", active: false } } } } },
+    } as never;
+    expect(codes(input)).toContain("WORKFLOW_CONDITION_TOO_COMPLEX");
   });
 
   it("rejects action assignments to undeclared fields", () => {
