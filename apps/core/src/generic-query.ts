@@ -1,27 +1,15 @@
-import type { Bindings, Principal } from "./env";
+import type { Bindings } from "./env";
 import type { GenericResource } from "./generic-resource";
 import { ApiError } from "./http";
 import type { FieldDefinition } from "./model-definition";
 import type { PublishedModel } from "./model-registry";
-
-type ResourceRow = {
-  id: string;
-  space_id: string;
-  model_key: string;
-  model_version: number;
-  data_json: string;
-  created_by_type: Principal["type"];
-  created_by_id: string;
-  created_by_name_snapshot: string;
-  updated_by_type: Principal["type"];
-  updated_by_id: string;
-  updated_by_name_snapshot: string;
-  version: number;
-  created_at: string;
-  updated_at: string;
-  deleted_at: string | null;
-  sort_value: string | number | null;
-};
+import {
+  hydrateTypedResourceRows,
+  typedScalarExpression,
+  typedSelectColumns,
+  typedTableSql,
+  type TypedResourceRow,
+} from "./typed-resource-storage";
 
 type Cursor = {
   v: 1;
@@ -36,25 +24,6 @@ export type GenericQueryResult = {
   items: GenericResource[];
   nextCursor: string | null;
 };
-
-function rowToResource(row: ResourceRow): GenericResource {
-  let data: Record<string, unknown>;
-  try {
-    data = JSON.parse(row.data_json) as Record<string, unknown>;
-  } catch {
-    throw new ApiError("RESOURCE_STORAGE_CORRUPT", `Resource ${row.id} contains invalid JSON`, 500);
-  }
-  return {
-    id: row.id,
-    spaceId: row.space_id,
-    modelKey: row.model_key,
-    modelVersion: row.model_version,
-    data,
-    version: row.version,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-  };
-}
 
 function encodeCursor(cursor: Cursor): string {
   const bytes = new TextEncoder().encode(JSON.stringify(cursor));
@@ -137,10 +106,6 @@ function rangeValue(field: FieldDefinition, raw: string, key: string): string | 
   throw new ApiError("INVALID_QUERY", `${key} is not supported for ${field.type}`, 400);
 }
 
-function jsonExpression(fieldKey: string): string {
-  return `json_extract(r.data_json,'$.${fieldKey}')`;
-}
-
 function escapeLike(value: string): string {
   return value.replaceAll("\\", "\\\\").replaceAll("%", "\\%").replaceAll("_", "\\_");
 }
@@ -185,7 +150,13 @@ function parseSort(model: PublishedModel, params: URLSearchParams): { raw: strin
   if (field === "createdAt") return { raw, field, direction, expression: "r.created_at", nullable: false };
   if (field === "updatedAt") return { raw, field, direction, expression: "r.updated_at", nullable: false };
   if (!model.definition.query?.sortable?.includes(field)) throw new ApiError("INVALID_QUERY", `${field} is not a sortable field for model ${model.key}`, 400);
-  return { raw, field, direction, expression: jsonExpression(field), nullable: model.definition.fields[field]?.nullable === true || model.definition.fields[field]?.required !== true };
+  return {
+    raw,
+    field,
+    direction,
+    expression: typedScalarExpression(model, field),
+    nullable: model.definition.fields[field]?.nullable === true || model.definition.fields[field]?.required !== true,
+  };
 }
 
 export async function queryGenericResources(
@@ -201,7 +172,10 @@ export async function queryGenericResources(
   const sort = parseSort(model, params);
   const signature = querySignature(params);
   const args: unknown[] = [spaceId, model.key];
-  let sql = `SELECT r.*,${sort.expression} AS sort_value FROM resource_records r WHERE r.space_id=? AND r.model_key=? AND r.deleted_at IS NULL`;
+  const scalarSelect = typedSelectColumns(model);
+  let sql = `SELECT r.id,r.space_id,r.model_key,r.model_version,r.version,r.created_at,r.updated_at${scalarSelect ? `,${scalarSelect}` : ""},${sort.expression} AS sort_value
+    FROM resource_records r JOIN ${typedTableSql(model)} m ON m.record_id=r.id AND m.space_id=r.space_id
+    WHERE r.space_id=? AND r.model_key=? AND r.deleted_at IS NULL`;
 
   const q = one(params, "q");
   if (q !== undefined) {
@@ -213,7 +187,7 @@ export async function queryGenericResources(
     for (const fieldKey of searchable) {
       const field = model.definition.fields[fieldKey];
       if (!field || !["string", "text", "enum"].includes(field.type)) continue;
-      clauses.push(`lower(CAST(${jsonExpression(fieldKey)} AS TEXT)) LIKE lower(?) ESCAPE '\\'`);
+      clauses.push(`lower(CAST(${typedScalarExpression(model, fieldKey)} AS TEXT)) LIKE lower(?) ESCAPE '\\'`);
       args.push(`%${escapeLike(normalized)}%`);
     }
     if (!clauses.length) throw new ApiError("INVALID_QUERY", `Model ${model.key} has no text-searchable fields`, 400);
@@ -235,10 +209,10 @@ export async function queryGenericResources(
         const values = exact.split(",").filter(Boolean);
         if (!values.length || new Set(values).size !== values.length) throw new ApiError("INVALID_QUERY", `${fieldKey} enum filter is invalid`, 400);
         const parsed = values.map((value) => scalarValue(field, value, fieldKey));
-        sql += ` AND ${jsonExpression(fieldKey)} IN (${parsed.map(() => "?").join(",")})`;
+        sql += ` AND ${typedScalarExpression(model, fieldKey)} IN (${parsed.map(() => "?").join(",")})`;
         args.push(...parsed);
       } else {
-        sql += ` AND ${jsonExpression(fieldKey)}=?`;
+        sql += ` AND ${typedScalarExpression(model, fieldKey)}=?`;
         args.push(scalarValue(field, exact, fieldKey));
       }
     }
@@ -246,11 +220,13 @@ export async function queryGenericResources(
     const from = one(params, `${fieldKey}From`);
     const to = one(params, `${fieldKey}To`);
     if (from !== undefined) {
-      sql += ` AND ${jsonExpression(fieldKey)}>=?`;
+      if (["person", "person_list", "record", "record_list"].includes(field.type)) throw new ApiError("INVALID_QUERY", `${fieldKey}From is not supported for relation fields`, 400);
+      sql += ` AND ${typedScalarExpression(model, fieldKey)}>=?`;
       args.push(rangeValue(field, from, `${fieldKey}From`));
     }
     if (to !== undefined) {
-      sql += ` AND ${jsonExpression(fieldKey)}<=?`;
+      if (["person", "person_list", "record", "record_list"].includes(field.type)) throw new ApiError("INVALID_QUERY", `${fieldKey}To is not supported for relation fields`, 400);
+      sql += ` AND ${typedScalarExpression(model, fieldKey)}<=?`;
       args.push(rangeValue(field, to, `${fieldKey}To`));
     }
   }
@@ -272,16 +248,18 @@ export async function queryGenericResources(
     }
   }
 
-  sql += sort.nullable ? ` ORDER BY ${sort.expression} IS NULL ASC,${sort.expression} ${sort.direction.toUpperCase()},r.id ASC` : ` ORDER BY ${sort.expression} ${sort.direction.toUpperCase()},r.id ASC`;
+  sql += sort.nullable
+    ? ` ORDER BY ${sort.expression} IS NULL ASC,${sort.expression} ${sort.direction.toUpperCase()},r.id ASC`
+    : ` ORDER BY ${sort.expression} ${sort.direction.toUpperCase()},r.id ASC`;
   sql += " LIMIT ?";
   args.push(limit + 1);
 
-  const rows = await env.DB.prepare(sql).bind(...args).all<ResourceRow>();
+  const rows = await env.DB.prepare(sql).bind(...args).all<TypedResourceRow>();
   const page = rows.results.slice(0, limit);
-  const items = page.map(rowToResource);
+  const items = await hydrateTypedResourceRows(env, model, page);
   const last = page.at(-1);
   const nextCursor = rows.results.length > limit && last
-    ? encodeCursor({ v: 1, model: model.key, sort: sort.raw, key: last.sort_value, id: last.id, signature })
+    ? encodeCursor({ v: 1, model: model.key, sort: sort.raw, key: last.sort_value ?? null, id: last.id, signature })
     : null;
   return { items, nextCursor };
 }
