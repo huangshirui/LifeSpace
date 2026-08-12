@@ -9,6 +9,7 @@ import {
   type ModelValidationIssue,
   validateModelDefinition,
 } from "./model-definition";
+import { physicalPublicationStatements, registryMutationGuardStatement } from "./model-physical-publication";
 
 export type ModelCompatibility = "initial" | "compatible" | "breaking";
 
@@ -229,6 +230,7 @@ export async function publishModelDefinition(
     throw new ApiError("MODEL_ROUTE_CONFLICT", `Route ${validation.definition.route} is already owned by model ${routeOwner.key}`, 409);
   }
 
+  const physicalStatements = physicalPublicationStatements(env, current?.definition ?? null, validation.definition);
   const nextVersion = (current?.version ?? 0) + 1;
   const id = createId("mdl");
   const definitionJson = canonicalModelDefinition(validation.definition);
@@ -253,7 +255,11 @@ export async function publishModelDefinition(
     SET revision=revision+1,mutation_token=?,updated_at=?
     WHERE singleton=1 AND revision=? AND mutation_token IS NULL`)
     .bind(mutationToken, publishedAt, expectedRevision);
-  const statements: D1PreparedStatement[] = [lock];
+  const statements: D1PreparedStatement[] = [
+    lock,
+    registryMutationGuardStatement(env, targetRevision, mutationToken),
+    ...physicalStatements,
+  ];
   if (current) {
     statements.push(env.DB.prepare(`UPDATE model_definitions SET state='superseded',superseded_at=?
       WHERE id=? AND state='published' AND ${registryGuardSql()}`)
@@ -287,7 +293,7 @@ export async function publishModelDefinition(
     results = await env.DB.batch(statements);
   } catch (error) {
     console.error(JSON.stringify({ message: "Model publication failed", modelKey: validation.definition.key, error: error instanceof Error ? error.message : String(error) }));
-    throw new ApiError("MODEL_PUBLICATION_CONFLICT", "Model publication conflicted with current registry state", 409);
+    throw new ApiError("MODEL_PUBLICATION_CONFLICT", "Model publication conflicted with current registry or physical schema state", 409);
   }
   if (!results[0].meta.changes) throw new ApiError("MODEL_PUBLICATION_CONFLICT", "Model registry changed concurrently", 409);
 
