@@ -2,9 +2,24 @@ import type { Context, Hono } from "hono";
 import { requireScope } from "./auth";
 import type { Bindings, Principal, Variables } from "./env";
 import { ApiError, success } from "./http";
-import { canonicalModelDefinition, type ModelDefinition, type ModelValidationIssue } from "./model-definition";
-import { createModelAdminAiProvider, type ModelAdminAiOutput } from "./model-admin-ai-provider";
+import {
+  createModelAdminAiProvider,
+  type ModelAdminAiInput,
+  type ModelAdminAiOutput,
+} from "./model-admin-ai-provider";
+import {
+  canonicalModelDefinition,
+  type ModelDefinition,
+  type ModelValidationIssue,
+} from "./model-definition";
 import { diffModelDefinition, type ModelDefinitionDiff } from "./model-proposal";
+import {
+  acquireProposalPublicationClaim,
+  finalizeProposalPublication,
+  findProposalPublicationEvidence,
+  releaseProposalPublicationClaim,
+  type ProposalPublicationEvidence,
+} from "./model-proposal-publication";
 import {
   getPublishedModel,
   listPublishedModels,
@@ -13,7 +28,10 @@ import {
   type ModelCompatibility,
   type PublishedModel,
 } from "./model-registry";
-import { OpenAICompatibleProviderError } from "./registry-openai-provider";
+import {
+  OpenAICompatibleProviderError,
+  type CreationProviderResult,
+} from "./registry-openai-provider";
 
 type AppEnv = { Bindings: Bindings; Variables: Variables };
 type App = Hono<AppEnv>;
@@ -43,10 +61,15 @@ type ProposalRow = {
   updated_at: string;
   published_at: string | null;
   discarded_at: string | null;
+  publication_token: string | null;
+  publication_started_at: string | null;
 };
 
 export type ModelAdminAiProvider = {
-  generate(input: Parameters<ReturnType<typeof createModelAdminAiProvider>["generate"]>[0]): ReturnType<ReturnType<typeof createModelAdminAiProvider>["generate"]>;
+  generate(input: ModelAdminAiInput): Promise<{
+    output: ModelAdminAiOutput;
+    metadata: CreationProviderResult["metadata"];
+  }>;
 };
 
 export type CreateModelProposalInput = {
@@ -74,10 +97,17 @@ function createInput(input: Body): CreateModelProposalInput {
   if (Object.keys(input).some((key) => key !== "instruction" && key !== "targetModelKey")) {
     throw new ApiError("INVALID_REQUEST", "AI model proposal accepts only instruction and targetModelKey", 400);
   }
-  if (typeof input.instruction !== "string" || input.instruction.trim().length < 1 || input.instruction.trim().length > 5000) {
+  if (
+    typeof input.instruction !== "string"
+    || input.instruction.trim().length < 1
+    || input.instruction.trim().length > 5000
+  ) {
     throw new ApiError("VALIDATION_ERROR", "instruction must contain 1-5000 characters", 422);
   }
-  if (input.targetModelKey !== undefined && (typeof input.targetModelKey !== "string" || !/^[a-z][a-z0-9_]{1,62}$/u.test(input.targetModelKey))) {
+  if (
+    input.targetModelKey !== undefined
+    && (typeof input.targetModelKey !== "string" || !/^[a-z][a-z0-9_]{1,62}$/u.test(input.targetModelKey))
+  ) {
     throw new ApiError("VALIDATION_ERROR", "targetModelKey must be a valid model key", 422);
   }
   return {
@@ -118,6 +148,7 @@ function proposalDto(row: ProposalRow) {
     schemaHash: row.schema_hash,
     diff: safeJson<ModelDefinitionDiff | null>(row.diff_json, null),
     recommendedCompatibility: row.recommended_compatibility,
+    publicationInProgress: Boolean(row.publication_token),
     ai: {
       summary: row.ai_summary,
       warnings: safeJson<string[]>(row.ai_warnings_json, []),
@@ -150,11 +181,17 @@ function parseAiDefinition(output: ModelAdminAiOutput): { value: unknown; issue?
   try {
     const value = JSON.parse(output.definitionJson) as unknown;
     if (!value || typeof value !== "object" || Array.isArray(value)) {
-      return { value: {}, issue: invalidIssue("AI_DEFINITION_NOT_OBJECT", "AI definitionJson must encode one JSON object") };
+      return {
+        value: {},
+        issue: invalidIssue("AI_DEFINITION_NOT_OBJECT", "AI definitionJson must encode one JSON object"),
+      };
     }
     return { value };
   } catch {
-    return { value: {}, issue: invalidIssue("AI_DEFINITION_INVALID_JSON", "AI definitionJson is not valid JSON") };
+    return {
+      value: {},
+      issue: invalidIssue("AI_DEFINITION_INVALID_JSON", "AI definitionJson is not valid JSON"),
+    };
   }
 }
 
@@ -174,7 +211,11 @@ function providerError(error: unknown): ApiError {
   if (error.code === "AI_TIMEOUT") return new ApiError("AI_PROVIDER_TIMEOUT", error.message, 504);
   if (error.code === "AI_RATE_LIMITED") return new ApiError(error.code, error.message, 429);
   if (error.code === "AI_INVALID_RESPONSE") return new ApiError(error.code, error.message, 502);
-  if (error.code === "AI_AUTHENTICATION_FAILED" || error.code === "AI_ACCESS_DENIED" || error.code === "AI_QUOTA_EXCEEDED") {
+  if (
+    error.code === "AI_AUTHENTICATION_FAILED"
+    || error.code === "AI_ACCESS_DENIED"
+    || error.code === "AI_QUOTA_EXCEEDED"
+  ) {
     return new ApiError(error.code, error.message, 502);
   }
   return new ApiError("AI_PROVIDER_UNAVAILABLE", error.message, 502);
@@ -188,6 +229,68 @@ function modelCatalog(models: PublishedModel[]) {
     displayName: model.definition.display.singular,
     description: model.definition.description ?? null,
   }));
+}
+
+function publicationEvidence(model: PublishedModel): ProposalPublicationEvidence {
+  return {
+    id: model.id,
+    key: model.key,
+    route: model.route,
+    version: model.version,
+    schemaHash: model.schemaHash,
+    compatibility: model.compatibility,
+    definition: model.definition,
+    publishedAt: model.publishedAt,
+  };
+}
+
+function publishedDto(published: ProposalPublicationEvidence) {
+  return {
+    id: published.id,
+    key: published.key,
+    route: published.route,
+    version: published.version,
+    state: "published" as const,
+    schemaHash: published.schemaHash,
+    compatibility: published.compatibility,
+    definition: published.definition,
+    publishedAt: published.publishedAt,
+  };
+}
+
+function assertProposalBase(
+  currentProposal: ProposalRow,
+  currentModel: PublishedModel | null,
+  requestedCompatibility: ModelCompatibility,
+): void {
+  if (currentProposal.base_published_version === null) {
+    if (currentModel) {
+      throw new ApiError(
+        "MODEL_PROPOSAL_STALE",
+        "A model with this key was published after the proposal was generated",
+        409,
+      );
+    }
+    if (requestedCompatibility !== "initial") {
+      throw new ApiError(
+        "INVALID_MODEL_COMPATIBILITY",
+        "New-model proposal must publish with compatibility=initial",
+        400,
+      );
+    }
+    return;
+  }
+
+  if (!currentModel || currentModel.version !== currentProposal.base_published_version) {
+    throw new ApiError("MODEL_PROPOSAL_STALE", "Published model changed after the proposal was generated", 409);
+  }
+  if (requestedCompatibility === "initial") {
+    throw new ApiError(
+      "INVALID_MODEL_COMPATIBILITY",
+      "Existing-model proposal cannot publish with compatibility=initial",
+      400,
+    );
+  }
 }
 
 export async function createAiModelProposal(
@@ -225,22 +328,27 @@ export async function createAiModelProposal(
     extraIssues.push(invalidIssue("AI_TARGET_MODEL_MISMATCH", `AI proposal key must remain ${base.key}`));
   }
   if (!base && existing.some((model) => model.key === key)) {
-    extraIssues.push(invalidIssue("AI_NEW_MODEL_KEY_CONFLICT", `Model ${key} already exists; use targetModelKey to propose an update`));
+    extraIssues.push(invalidIssue(
+      "AI_NEW_MODEL_KEY_CONFLICT",
+      `Model ${key} already exists; use targetModelKey to propose an update`,
+    ));
   }
 
-  const validation = parsed.issue ? { valid: false as const, issues: [] as ModelValidationIssue[] } : await validateDefinition(parsed.value);
+  const validation = parsed.issue
+    ? { valid: false as const, issues: [] as ModelValidationIssue[] }
+    : await validateDefinition(parsed.value);
   const issues = [
     ...extraIssues,
     ...(validation.valid ? [] : validation.issues),
   ];
-  const valid = issues.length === 0 && validation.valid;
-  const normalizedDefinition = valid ? validation.definition : parsed.value;
-  const diff = valid ? diffModelDefinition(base, validation.definition) : null;
+  const validated = validation.valid && issues.length === 0 ? validation : null;
+  const normalizedDefinition: unknown = validated ? validated.definition : parsed.value;
+  const diff = validated ? diffModelDefinition(base, validated.definition) : null;
   const timestamp = now.toISOString();
   const id = proposalId();
-  const proposalStatus: ProposalStatus = valid ? "proposed" : "draft";
-  const validationJson = valid
-    ? JSON.stringify({ valid: true, schemaHash: validation.schemaHash })
+  const proposalStatus: ProposalStatus = validated ? "proposed" : "draft";
+  const validationJson = validated
+    ? JSON.stringify({ valid: true, schemaHash: validated.schemaHash })
     : JSON.stringify({ valid: false, issues });
 
   await env.DB.prepare(`INSERT INTO model_definition_drafts(
@@ -251,7 +359,7 @@ export async function createAiModelProposal(
   ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(
     id,
     key,
-    valid ? canonicalModelDefinition(normalizedDefinition as ModelDefinition) : JSON.stringify(normalizedDefinition),
+    validated ? canonicalModelDefinition(validated.definition) : JSON.stringify(normalizedDefinition),
     1,
     validationJson,
     base?.version ?? null,
@@ -263,15 +371,14 @@ export async function createAiModelProposal(
     "ai",
     proposalStatus,
     input.instruction,
-    valid ? validation.schemaHash : null,
+    validated?.schemaHash ?? null,
     diff ? JSON.stringify(diff) : null,
     diff?.recommendedCompatibility ?? null,
     generated.output.summary,
     JSON.stringify(generated.output.warnings),
   ).run();
 
-  const stored = await proposal(env, id);
-  return proposalDto(stored);
+  return proposalDto(await proposal(env, id));
 }
 
 export async function listAiModelProposals(env: Bindings, status?: ProposalStatus) {
@@ -296,12 +403,18 @@ export async function discardAiModelProposal(env: Bindings, id: string, now = ne
     throw new ApiError("MODEL_PROPOSAL_STATE_CONFLICT", "Published proposal cannot be discarded", 409);
   }
   if (current.proposal_status === "discarded") return proposalDto(current);
+  if (current.publication_token) {
+    throw new ApiError("MODEL_PROPOSAL_PUBLISH_IN_PROGRESS", "Proposal publication is in progress", 409);
+  }
+
   const timestamp = now.toISOString();
   const result = await env.DB.prepare(`UPDATE model_definition_drafts
     SET proposal_status='discarded',discarded_at=?,updated_at=?
-    WHERE id=? AND source='ai' AND proposal_status IN ('draft','proposed')`)
+    WHERE id=? AND source='ai' AND proposal_status IN ('draft','proposed') AND publication_token IS NULL`)
     .bind(timestamp, timestamp, id).run();
-  if (!result.meta.changes) throw new ApiError("MODEL_PROPOSAL_STATE_CONFLICT", "Proposal state changed", 409);
+  if (!result.meta.changes) {
+    throw new ApiError("MODEL_PROPOSAL_STATE_CONFLICT", "Proposal state changed", 409);
+  }
   return proposalDto(await proposal(env, id));
 }
 
@@ -313,24 +426,12 @@ export async function publishAiModelProposal(
   now = new Date(),
 ) {
   requireService(principal);
-  const currentProposal = await proposal(env, id);
+  let currentProposal = await proposal(env, id);
   if (currentProposal.proposal_status !== "proposed") {
     throw new ApiError("MODEL_PROPOSAL_STATE_CONFLICT", "Only a valid proposed draft can be published", 409);
   }
-
-  const currentModel = await getPublishedModel(env, currentProposal.model_key);
-  if (currentProposal.base_published_version === null) {
-    if (currentModel) throw new ApiError("MODEL_PROPOSAL_STALE", "A model with this key was published after the proposal was generated", 409);
-    if (requestedCompatibility !== "initial") {
-      throw new ApiError("INVALID_MODEL_COMPATIBILITY", "New-model proposal must publish with compatibility=initial", 400);
-    }
-  } else {
-    if (!currentModel || currentModel.version !== currentProposal.base_published_version) {
-      throw new ApiError("MODEL_PROPOSAL_STALE", "Published model changed after the proposal was generated", 409);
-    }
-    if (requestedCompatibility === "initial") {
-      throw new ApiError("INVALID_MODEL_COMPATIBILITY", "Existing-model proposal cannot publish with compatibility=initial", 400);
-    }
+  if (!currentProposal.schema_hash) {
+    throw new ApiError("MODEL_PROPOSAL_INVALID", "Proposed draft is missing its validated schema hash", 409);
   }
 
   if (currentProposal.recommended_compatibility === "breaking" && requestedCompatibility !== "breaking") {
@@ -344,31 +445,89 @@ export async function publishAiModelProposal(
   const definition = safeJson<unknown>(currentProposal.definition_json, null);
   const validation = await validateDefinition(definition);
   if (!validation.valid || validation.schemaHash !== currentProposal.schema_hash) {
-    throw new ApiError("MODEL_PROPOSAL_INVALID", "Stored proposal no longer validates against the current Model Definition rules", 409);
+    throw new ApiError(
+      "MODEL_PROPOSAL_INVALID",
+      "Stored proposal no longer validates against the current Model Definition rules",
+      409,
+    );
   }
 
-  const published = await publishModelDefinition(env, principal, validation.definition, requestedCompatibility);
-  const timestamp = now.toISOString();
-  const result = await env.DB.prepare(`UPDATE model_definition_drafts
-    SET proposal_status='published',published_model_id=?,published_at=?,updated_at=?
-    WHERE id=? AND source='ai' AND proposal_status='proposed'`)
-    .bind(published.id, timestamp, timestamp, id).run();
-  if (!result.meta.changes) {
-    throw new ApiError("MODEL_PROPOSAL_STATE_CONFLICT", "Model published but proposal audit state changed concurrently", 409);
+  const expectedVersion = (currentProposal.base_published_version ?? 0) + 1;
+
+  if (currentProposal.publication_token) {
+    const recovered = await findProposalPublicationEvidence(
+      env,
+      currentProposal.model_key,
+      expectedVersion,
+      currentProposal.schema_hash,
+    );
+    if (recovered) {
+      await finalizeProposalPublication(env, id, currentProposal.publication_token, recovered, now);
+      return {
+        proposal: proposalDto(await proposal(env, id)),
+        publishedModel: publishedDto(recovered),
+      };
+    }
   }
-  return {
-    proposal: proposalDto(await proposal(env, id)),
-    publishedModel: {
-      id: published.id,
-      key: published.key,
-      route: published.route,
-      version: published.version,
-      schemaHash: published.schemaHash,
-      compatibility: published.compatibility,
-      definition: published.definition,
-      publishedAt: published.publishedAt,
-    },
-  };
+
+  assertProposalBase(
+    currentProposal,
+    await getPublishedModel(env, currentProposal.model_key),
+    requestedCompatibility,
+  );
+
+  const claim = await acquireProposalPublicationClaim(env, {
+    proposalId: id,
+    modelKey: currentProposal.model_key,
+    expectedVersion,
+    schemaHash: currentProposal.schema_hash,
+  }, now);
+
+  if (claim.recovered) {
+    return {
+      proposal: proposalDto(await proposal(env, id)),
+      publishedModel: publishedDto(claim.recovered),
+    };
+  }
+
+  try {
+    currentProposal = await proposal(env, id);
+    assertProposalBase(
+      currentProposal,
+      await getPublishedModel(env, currentProposal.model_key),
+      requestedCompatibility,
+    );
+
+    const published = await publishModelDefinition(
+      env,
+      principal,
+      validation.definition,
+      requestedCompatibility,
+    );
+    const evidence = publicationEvidence(published);
+
+    await finalizeProposalPublication(env, id, claim.publicationToken, evidence, now);
+    return {
+      proposal: proposalDto(await proposal(env, id)),
+      publishedModel: publishedDto(evidence),
+    };
+  } catch (error) {
+    const recovered = await findProposalPublicationEvidence(
+      env,
+      currentProposal.model_key,
+      expectedVersion,
+      currentProposal.schema_hash,
+    );
+    if (recovered) {
+      await finalizeProposalPublication(env, id, claim.publicationToken, recovered, now);
+      return {
+        proposal: proposalDto(await proposal(env, id)),
+        publishedModel: publishedDto(recovered),
+      };
+    }
+    await releaseProposalPublicationClaim(env, id, claim.publicationToken, now);
+    throw error;
+  }
 }
 
 export function defaultModelAdminAiProvider(env: Bindings) {
@@ -391,7 +550,10 @@ export function registerModelAdminAiRoutes(app: App): void {
     if (statusValue && !PROPOSAL_STATUS.has(statusValue as ProposalStatus)) {
       throw new ApiError("INVALID_QUERY", "status must be draft, proposed, published, or discarded", 400);
     }
-    return context.json(success(await listAiModelProposals(context.env, statusValue as ProposalStatus | undefined)));
+    return context.json(success(await listAiModelProposals(
+      context.env,
+      statusValue as ProposalStatus | undefined,
+    )));
   });
 
   app.post("/api/v1/model-admin/ai/proposals", requireScope("models:manage"), async (context) => {
@@ -433,7 +595,9 @@ export function registerModelAdminAiRoutes(app: App): void {
   app.post("/api/v1/model-admin/ai/proposals/:proposalId/discard", requireScope("models:manage"), async (context) => {
     requireService(context.get("principal"));
     const input = await body(context);
-    if (Object.keys(input).length) throw new ApiError("INVALID_REQUEST", "Proposal discard body must be empty", 400);
+    if (Object.keys(input).length) {
+      throw new ApiError("INVALID_REQUEST", "Proposal discard body must be empty", 400);
+    }
     return context.json(success(await discardAiModelProposal(context.env, context.req.param("proposalId"))));
   });
 }
