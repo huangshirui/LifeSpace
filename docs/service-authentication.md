@@ -38,13 +38,15 @@ It authenticates an application-owned backend/BFF to Identity so that, after the
 Example:
 
 ```text
-HomeMew WeChat Cloud Function
-  trusted openid
+HomeMew Cloudflare application backend
+  WeChat server-side identity exchange -> trusted openid
   -> HomeMew openid -> usr_* mapping
   -> Identity with server-only lsa_*
   -> short-lived RS256 HomeMew-app user token
   -> LifeSpace Core / Identity
 ```
+
+The existing HomeMew WeChat Cloud Function is not adapted as an intermediate LifeSpace bridge. The redesigned HomeMew backend is developed independently after/alongside LifeSpace integration readiness.
 
 `lsa_*` is prohibited in Mini Program/browser/mobile client code. Its platform-admin lifecycle is documented normatively in `docs/application-authentication.md`.
 
@@ -68,7 +70,7 @@ OAuth `client_credentials` remains valuable for third-party or policy-controlled
 | Caller | Credential | Default |
 |---|---|---|
 | Browser or Web App frontend | Short-lived user access token or same-origin BFF session | Required; never expose a Service API Token |
-| WeChat Mini Program | Short-lived app-scoped user access token; owning Cloud Function/BFF uses server-only `lsa_*` for Identity exchange | Required |
+| WeChat Mini Program | Short-lived app-scoped user access token; owning trusted application backend/BFF uses server-only `lsa_*` or another explicitly approved equivalent Identity trust mechanism | Required |
 | Self-hosted n8n | Opaque Service API Token | Recommended |
 | Owner-controlled curl/script/cron | Opaque Service API Token | Recommended |
 | Owner-controlled MCP server or Agent backend | Opaque Service API Token, unless delegated user authority is required | Recommended |
@@ -295,14 +297,14 @@ The same direct-token pattern is appropriate for private scripts and scheduled j
 
 HomeMew `hmw_pat_*` secrets are not copied or reinterpreted as LifeSpace credentials.
 
-For the HomeMew Mini Program login boundary:
+For the future HomeMew application identity boundary:
 
-1. keep WeChat `openid` resolution and mapping in HomeMew;
-2. inspect/update the staging `homemew-miniprogram` application policy through Identity's bootstrap-admin route;
-3. create a replacement staging `lsa_*` credential;
-4. install it only in the HomeMew Cloud Function/backend secret store;
-5. exchange mapped `usr_*` identities for short-lived HomeMew-app user tokens;
-6. verify LifeSpace Identity/Core authorization before revoking any older application credential.
+1. keep WeChat `openid` resolution and mapping in the redesigned HomeMew application backend;
+2. do **not** retrofit the existing HomeMew WeChat login Cloud Function as a temporary LifeSpace adapter;
+3. before the `HomeMew Integration Ready` milestone, freeze the application scope ceiling, Application × Model Access and trusted-backend authentication mechanism that the future HomeMew Cloudflare backend will consume;
+4. keep `lsa_*` lifecycle available as the generic trusted-application mechanism; if a later Service-Binding-specific trust path is adopted, it must preserve explicit application identity, scope and revocation semantics;
+5. create environment-specific runtime credentials only for their intended staging/production backend deployments and store them only in the final secret store;
+6. issue only short-lived app-scoped user tokens to the untrusted Mini Program.
 
 For every active HomeMew external integration:
 
