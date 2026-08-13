@@ -123,4 +123,115 @@ describe("D1-backed Identity trust flow", () => {
     }, privateKey);
     expect(disabled.status).toBe(403);
   });
+
+  it("rotates trusted application credentials with overlap and immediate revocation", async () => {
+    const privateKey = await privateKeyPem();
+    const appId = `rotate-${crypto.randomUUID()}`;
+    const bootstrapHeaders = { "content-type": "application/json", "x-bootstrap-secret": "bootstrap-test" };
+    const bootstrap = await request("/bootstrap/v1/applications", {
+      method: "POST",
+      headers: bootstrapHeaders,
+      body: JSON.stringify({
+        id: appId,
+        name: "Rotation Test",
+        clientType: "mini_program",
+        trustedBackend: true,
+        allowedScopes: ["spaces:read"],
+        accessTokenTtlSeconds: 900,
+      }),
+    }, privateKey);
+    expect(bootstrap.status).toBe(201);
+    const oldSecret = ((await bootstrap.json()) as any).data.clientSecret as string;
+
+    const metadata = await request(`/bootstrap/v1/applications/${appId}`, {
+      method: "GET",
+      headers: { "x-bootstrap-secret": "bootstrap-test" },
+    }, privateKey);
+    expect(metadata.status).toBe(200);
+    expect((await metadata.json() as any).data).toMatchObject({
+      id: appId,
+      clientType: "mini_program",
+      allowedScopes: ["spaces:read"],
+      trustedBackend: true,
+      accessTokenTtlSeconds: 900,
+      status: "active",
+    });
+
+    const updated = await request(`/bootstrap/v1/applications/${appId}`, {
+      method: "PATCH",
+      headers: bootstrapHeaders,
+      body: JSON.stringify({ allowedScopes: ["spaces:read", "spaces:write"], accessTokenTtlSeconds: 1200 }),
+    }, privateKey);
+    expect(updated.status).toBe(200);
+    expect((await updated.json() as any).data).toMatchObject({
+      allowedScopes: ["spaces:read", "spaces:write"],
+      accessTokenTtlSeconds: 1200,
+    });
+
+    const user = await request("/internal/v1/users", {
+      method: "POST",
+      headers: { authorization: `Bearer ${oldSecret}`, "content-type": "application/json" },
+      body: JSON.stringify({ displayName: "Rotating User" }),
+    }, privateKey);
+    expect(user.status).toBe(201);
+    const userId = ((await user.json()) as any).data.id as string;
+
+    const replacement = await request(`/bootstrap/v1/applications/${appId}/credentials`, {
+      method: "POST",
+      headers: { "x-bootstrap-secret": "bootstrap-test" },
+    }, privateKey);
+    expect(replacement.status).toBe(201);
+    const replacementData = (await replacement.json() as any).data;
+    const newSecret = replacementData.clientSecret as string;
+    expect(newSecret.startsWith("lsa_")).toBe(true);
+    expect(replacementData.secretSuffix).toBe(newSecret.slice(-8));
+    expect(replacementData.secretHash).toBeUndefined();
+
+    const credentials = await request(`/bootstrap/v1/applications/${appId}/credentials`, {
+      method: "GET",
+      headers: { "x-bootstrap-secret": "bootstrap-test" },
+    }, privateKey);
+    expect(credentials.status).toBe(200);
+    const credentialList = (await credentials.json() as any).data as Array<Record<string, any>>;
+    expect(credentialList).toHaveLength(2);
+    expect(credentialList.every((item) => item.clientSecret === undefined && item.secretHash === undefined)).toBe(true);
+    const oldCredential = credentialList.find((item) => item.secretSuffix === oldSecret.slice(-8));
+    expect(oldCredential?.id).toMatch(/^apc_/);
+
+    const storedReplacement = await (env as unknown as TestEnv).DB.prepare(
+      `SELECT secret_hash secretHash FROM application_credentials WHERE id=?`,
+    ).bind(replacementData.id).first<{ secretHash: string }>();
+    expect(storedReplacement?.secretHash).toBeTruthy();
+    expect(storedReplacement?.secretHash).not.toBe(newSecret);
+
+    for (const secret of [oldSecret, newSecret]) {
+      const issue = await request("/internal/v1/tokens", {
+        method: "POST",
+        headers: { authorization: `Bearer ${secret}`, "content-type": "application/json" },
+        body: JSON.stringify({ subjectId: userId, scopes: ["spaces:write"] }),
+      }, privateKey);
+      expect(issue.status).toBe(200);
+      expect((await issue.json() as any).data.expiresIn).toBe(1200);
+    }
+
+    const revoke = await request(`/bootstrap/v1/applications/${appId}/credentials/${oldCredential!.id}`, {
+      method: "DELETE",
+      headers: { "x-bootstrap-secret": "bootstrap-test" },
+    }, privateKey);
+    expect(revoke.status).toBe(204);
+
+    const oldAfterRevoke = await request("/internal/v1/tokens", {
+      method: "POST",
+      headers: { authorization: `Bearer ${oldSecret}`, "content-type": "application/json" },
+      body: JSON.stringify({ subjectId: userId, scopes: ["spaces:read"] }),
+    }, privateKey);
+    expect(oldAfterRevoke.status).toBe(401);
+
+    const newAfterRevoke = await request("/internal/v1/tokens", {
+      method: "POST",
+      headers: { authorization: `Bearer ${newSecret}`, "content-type": "application/json" },
+      body: JSON.stringify({ subjectId: userId, scopes: ["spaces:read"] }),
+    }, privateKey);
+    expect(newAfterRevoke.status).toBe(200);
+  });
 });
