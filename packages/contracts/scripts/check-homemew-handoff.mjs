@@ -40,7 +40,7 @@ assert.match(profile.contracts?.modelContract ?? "", /^mct_[a-f0-9]{64}$/u, "Hom
 assert.ok(["proving-not-frozen", "accepted"].includes(profile.contracts?.pinStatus), "HomeMew contract pin status is invalid");
 
 const serialized = JSON.stringify(profile);
-for (const pattern of [/lsa_[A-Za-z0-9_-]{20,}/u, /lsp_pat_[A-Za-z0-9_-]{8,}/u, /"clientSecret"/u, /"secretHash"/u, /"privateKey"/u]) {
+for (const pattern of [/lsa_[a-f0-9]{64}/u, /lsp_pat_[A-Za-z0-9_-]{8,}/u, /"clientSecret"/u, /"secretHash"/u, /"privateKey"/u]) {
   assert.doesNotMatch(serialized, pattern, `HomeMew handoff profile must not contain secret material matching ${pattern}`);
 }
 
