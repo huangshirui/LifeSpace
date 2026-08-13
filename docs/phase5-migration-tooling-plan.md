@@ -1,7 +1,8 @@
 # Phase 5 — HomeMew One-shot Migration Rehearsal
 
-Status: **In progress — implementation complete, rehearsal pending**  
-Started: 2026-08-13
+Status: **Complete — staging rehearsal passed**  
+Started: 2026-08-13  
+Completed: 2026-08-13
 
 ## Objective
 
@@ -66,30 +67,45 @@ Intentionally not imported:
 - legacy integration credentials;
 - source record versions and historical audit timestamps/actors.
 
-The script does not silently truncate or reinterpret incompatible active data. Unrepresentable active data is a hard failure before target mutation.
+The script does not silently truncate or reinterpret incompatible active data. Unrepresentable active data is a hard failure.
 
 ### One report
 
 Each rehearsal emits one `migration-report.json` containing the source checksum, source-to-target mappings, migrated counts, intentional omission counts, integration re-provisioning actions, verification results and final `PASS`/`FAIL` state.
 
-Generated snapshot/report files are git-ignored. The staging workflow uploads only the report, never the source snapshot.
+Generated snapshot/report files are git-ignored. The staging rehearsal uploaded only the report, never the source snapshot.
 
-## Branch rehearsal
+## Staging rehearsal evidence
 
-The branch version of the existing `Deploy staging` workflow contains temporary Phase-5-only steps that run only for `phase5-one-shot-migration`:
+The temporary branch-only rehearsal wiring was executed once and then removed from the normal staging workflow.
 
-1. complete the normal LifeSpace staging deployment and verification gates;
-2. create a temporary credential for the accepted HomeMew staging application;
-3. run `node infra/migration/homemew-one-shot.mjs rehearse`;
-4. upload `migration-report.json`;
-5. revoke the temporary application credential even if the rehearsal fails.
+`Deploy staging` run #30 / GitHub Actions run `31710955761` completed successfully from rehearsal commit `bc42c1ed2b9e8fad05fe57c84dccfba677bdb7bb`.
 
-These workflow steps are temporary branch execution plumbing. They are removed after rehearsal evidence is captured so the normal staging workflow does not become a permanent migration mechanism.
+The run completed the normal staging gates, created a temporary HomeMew staging application credential, executed `node infra/migration/homemew-one-shot.mjs rehearse`, uploaded the report artifact, and revoked the temporary credential.
+
+`migration-report.json` final result: **PASS**.
+
+Verified counts:
+
+- 4 users;
+- 3 family Spaces;
+- 6 Memberships / 6 Space People;
+- 461 Events;
+- 20 Tasks;
+- 4 Day Records;
+- 5 Wishes;
+- 490 business resources verified;
+- 1 Day Record occurrence verified;
+- 5 avatar objects verified by byte length and SHA-256.
+
+Two active external-system definitions were recorded for later credential/Data Grant re-provisioning without copying legacy secrets.
+
+Detailed closeout evidence and Phase-7 inputs are recorded in `docs/phase5-status.md`.
 
 ## Safety invariants
 
 - HomeMew D1 is never mutated by Phase 5.
-- Target writes are staging-only and use normal LifeSpace APIs rather than direct target D1 writes.
+- Target writes during Phase 5 are staging-only and use normal LifeSpace APIs rather than direct target D1 writes.
 - No source snapshot/user data is committed or uploaded as a workflow artifact.
 - Old application/service credentials are not migrated.
 - Schema/reference/semantic/object incompatibility fails the run.
@@ -97,11 +113,15 @@ These workflow steps are temporary branch execution plumbing. They are removed a
 
 ## Deliverables and exit gate
 
-Phase 5 requires only:
+Phase 5 required only:
 
 1. the one-shot script;
 2. one `migration-report.json` format;
-3. one successful staging branch rehearsal with report `PASS`;
+3. one successful staging rehearsal with report `PASS`;
 4. concise Phase-7 execution inputs recorded in `docs/phase5-status.md`.
 
-Phase 5 completes when that rehearsal passes, representative current business state/relations verify, and the temporary staging credential is revoked. At that point Phase 4 + Phase 5 establish the HomeMew Integration Ready milestone.
+### Exit gate — passed
+
+All four deliverables are complete. The staging report passed, representative current business state/relations and avatar objects verified, and the temporary staging credential was revoked.
+
+**Phase 4 + Phase 5 establish the HomeMew Integration Ready milestone.**
