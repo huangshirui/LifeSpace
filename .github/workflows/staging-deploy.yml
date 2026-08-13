@@ -60,7 +60,9 @@ jobs:
         run: pnpm check
 
       - name: Validate staging verifier syntax
-        run: node --check infra/scripts/verify-staging-application-admin.mjs
+        run: |
+          node --check infra/scripts/verify-staging-application-admin.mjs
+          node --check infra/scripts/verify-staging-homemew-integration.mjs
 
       - name: Resolve expected staging versions
         run: node infra/scripts/staging-expectations.mjs
@@ -136,6 +138,9 @@ jobs:
       - name: Verify trusted application credential lifecycle
         run: node infra/scripts/verify-staging-application-admin.mjs
 
+      - name: Verify HomeMew integration readiness boundary
+        run: node infra/scripts/verify-staging-homemew-integration.mjs
+
       - name: Verify authenticated Kernel and Model Contract
         run: node infra/scripts/verify-staging-http.mjs
 
@@ -168,6 +173,9 @@ jobs:
           - Identity: schema v${LIFESPACE_EXPECTED_IDENTITY_SCHEMA_VERSION} / contract ${LIFESPACE_EXPECTED_IDENTITY_CONTRACT_VERSION}
           - Platform D1 convergence: passed
           - Trusted application credential replacement/revocation lifecycle: passed
+          - HomeMew integration profile / app-scoped user-token boundary: passed
+          - HomeMew user-token platform-admin scope exclusion: passed
+          - HomeMew Application x Model Access (Task/Wish/Day Record/Event): passed
           - Typed model storage / legacy JSON cleanup: passed
           - D1 hot-path budgets: passed in repository validation
           - Staging HTTP performance benchmark: recorded in workflow logs
