@@ -2,6 +2,14 @@ import { Hono } from "hono";
 import type { MiddlewareHandler } from "hono";
 import { sign, verify } from "hono/jwt";
 import { AvatarError, bestEffortDeleteUserAvatar, parseAvatarFile, storeUserAvatar } from "./avatar";
+import {
+  DEFAULT_ACCESS_TOKEN_TTL_SECONDS,
+  IDENTITY_CONTRACT_VERSION,
+  hashApplicationSecret,
+  newApplicationSecret,
+  registerApplicationAdminRoutes,
+  validApplicationTokenTtl,
+} from "./application-admin";
 import { registerServiceAuthenticationRoutes } from "./service-auth";
 import type { Bindings, Variables } from "./env";
 
@@ -28,24 +36,8 @@ type UserRow = {
 const ok = <T>(data: T) => ({ data });
 const fail = (code: string, message: string, requestId: string) => ({ error: { code, message, requestId } });
 const id = (prefix: string) => `${prefix}_${crypto.randomUUID().replaceAll("-", "")}`;
-const DEFAULT_ACCESS_TOKEN_TTL_SECONDS = 900;
-const MIN_ACCESS_TOKEN_TTL_SECONDS = 300;
-const MAX_ACCESS_TOKEN_TTL_SECONDS = 3600;
 const TOKEN_ISSUER = "lifespace-identity";
 const TOKEN_AUDIENCES = ["lifespace-core", "lifespace-identity"] as const;
-
-async function sha256(value: string): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
-  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
-}
-
-function newApplicationSecret(): string {
-  return `lsa_${crypto.randomUUID().replaceAll("-", "")}${crypto.randomUUID().replaceAll("-", "")}`;
-}
-
-function validTokenTtl(value: number): boolean {
-  return Number.isInteger(value) && value >= MIN_ACCESS_TOKEN_TTL_SECONDS && value <= MAX_ACCESS_TOKEN_TTL_SECONDS;
-}
 
 function audienceIncludes(value: unknown, expected: string): boolean {
   if (typeof value === "string") return value === expected;
@@ -141,7 +133,7 @@ export function createApp() {
     if (!secret.startsWith("lsa_") || secret.length < 40) {
       return c.json(fail("UNAUTHORIZED", "Trusted application authentication is required", c.get("requestId")), 401);
     }
-    const secretHash = await sha256(secret);
+    const secretHash = await hashApplicationSecret(secret);
     const credential = await c.env.DB.prepare(`
       SELECT c.application_id applicationId,
              a.allowed_scopes allowedScopes,
@@ -177,7 +169,7 @@ export function createApp() {
       environment: c.env.ENVIRONMENT ?? "local",
       database: "available",
       schemaVersion: row.value,
-      contractVersion: "0.3.0",
+      contractVersion: IDENTITY_CONTRACT_VERSION,
     }));
   });
 
@@ -254,7 +246,7 @@ export function createApp() {
       return c.json(fail("VALIDATION_ERROR", "id, name and valid clientType are required", c.get("requestId")), 422);
     }
     const tokenTtlSeconds = body.accessTokenTtlSeconds ?? DEFAULT_ACCESS_TOKEN_TTL_SECONDS;
-    if (!validTokenTtl(tokenTtlSeconds)) {
+    if (!validApplicationTokenTtl(tokenTtlSeconds)) {
       return c.json(fail("VALIDATION_ERROR", "accessTokenTtlSeconds must be an integer between 300 and 3600", c.get("requestId")), 422);
     }
     const ts = new Date().toISOString();
@@ -271,7 +263,7 @@ export function createApp() {
         ...(secret ? [c.env.DB.prepare(`
           INSERT INTO application_credentials(id,application_id,secret_hash,secret_suffix,created_at)
           VALUES(?,?,?,?,?)
-        `).bind(id("apc"), body.id, await sha256(secret), secret.slice(-8), ts)] : []),
+        `).bind(id("apc"), body.id, await hashApplicationSecret(secret), secret.slice(-8), ts)] : []),
       ]);
     } catch (error) {
       console.error("Application bootstrap failed", { requestId: c.get("requestId"), applicationId: body.id, error });
@@ -287,6 +279,8 @@ export function createApp() {
       ...(secret ? { clientSecret: secret } : {}),
     }), 201);
   });
+
+  registerApplicationAdminRoutes(app);
 
   app.post("/internal/v1/users", async (c) => {
     const body = (await c.req.json<UserBody>().catch(() => ({}))) as UserBody;
