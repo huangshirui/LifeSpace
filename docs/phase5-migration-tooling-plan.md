@@ -1,17 +1,19 @@
-# Phase 5 — One-shot Migration Tooling & Rehearsal
+# Phase 5 — HomeMew One-shot Migration Rehearsal
 
 Status: **In progress**  
 Started: 2026-08-13
 
 ## Objective
 
-Build and rehearse a deterministic, version-controlled, fail-closed procedure that migrates HomeMew durable production data exactly once into the final LifeSpace metadata-driven/typed-storage schema.
+Prove that the current HomeMew durable data can be migrated once into the accepted final LifeSpace schema with a small, purpose-built migration script.
 
-Phase 5 does not modify the production HomeMew client, does not introduce dual-write/CDC, and does not deploy LifeSpace production.
+Phase 5 is deliberately not a reusable migration framework. Generic adapters, manifest frameworks, reusable report frameworks, dual-write, CDC, and incremental synchronization are out of scope.
+
+Phase 5 does not modify the production HomeMew client, migrate production data, or deploy LifeSpace production.
 
 ## Accepted target contract
 
-Phase 5 targets the Phase-4 accepted HomeMew integration tuple:
+The one-shot script targets the Phase-4 accepted HomeMew integration tuple:
 
 ```text
 Core Kernel Contract: 0.12.0
@@ -22,110 +24,56 @@ Identity D1 schema:   4
 Integration Profile:  infra/homemew-integration-profile.json / profileVersion 1 / accepted
 ```
 
-A migration run must refuse to target a different contract tuple unless the migration specification is intentionally revised and re-reviewed.
+The script must refuse an incompatible HomeMew source schema or a different LifeSpace target contract.
 
-## Workstreams
+## Actual work
 
-### 5.1 Source inventory and migration contract
+Phase 5 has three implementation tasks.
 
-- Pin the supported HomeMew source schema/migration baseline.
-- Define durable, derived, ephemeral, object-storage and secret classifications.
-- Define required source tables/columns and reject unknown/incompatible source schema versions.
-- Produce a source inventory report before any target mutation.
+### 1. One-shot migration script
 
-Exit: a HomeMew snapshot can be inspected read-only and classified without importing data.
+Create one purpose-built script under `infra/migration/` that reads a HomeMew D1 export/snapshot as read-only input, validates the frozen HomeMew schema, maps users/families/members into LifeSpace users/Spaces/Memberships/Space People, migrates Event/Task/Day Record/Wish data directly into the accepted final LifeSpace schema, copies required avatar objects when present, excludes ephemeral/derived state, requires integrations to receive new LifeSpace credentials instead of copying legacy credentials, and verifies migrated counts/references before success.
 
-### 5.2 Deterministic identity and ownership mapping
+The script may be specific to the frozen HomeMew schema and accepted LifeSpace contract. Generalization for future products is explicitly out of scope.
 
-- HomeMew users -> LifeSpace global users.
-- families -> `Space(kind=family)`.
-- members -> Membership + Space Person.
-- Preserve an explicit machine-readable source ID -> target ID mapping.
-- IDs are stable for the same source dataset and migration namespace; reruns on fresh targets produce identical plans.
+### 2. Single migration report
 
-Exit: all ownership/person references resolve or the plan fails closed.
+Each run emits one `migration-report.json` containing:
 
-### 5.3 Business-domain transforms
+- source schema/version and snapshot checksum;
+- source ID -> target ID mappings needed for diagnosis/audit;
+- migrated counts for users, Spaces, people, Events, Tasks, Day Records, Wishes and objects;
+- intentional omissions;
+- integrations requiring credential re-provisioning;
+- count/reference/object verification results;
+- final `PASS` or `FAIL` result.
 
-Transform directly into the final Phase-3 physical/runtime model:
+Separate inventory, mapping, integrity, semantic, object and credential-report frameworks are not required.
 
-- Event + attendees;
-- Task + assignees/lifecycle;
-- Day Record + occurrence semantics;
-- Wish + lifecycle/person relations.
+### 3. One staging rehearsal
 
-No Phase-2 handwritten tables and no intermediate JSON persistence may be used as a migration target.
+Run the script once against a recent HomeMew production snapshot/export and a fresh isolated LifeSpace staging rehearsal target.
 
-Exit: generated import plans pass schema, relation, temporal and lifecycle validation.
-
-### 5.4 Integrations and credentials
-
-- Convert legacy integration definitions to service-principal/Application × Model Access/Data Grant plans.
-- Never copy HomeMew `hmw_pat_*`, secret plaintext, secret hashes or provider secrets.
-- Emit a credential-rotation/re-provisioning report for every integration that requires a new LifeSpace credential.
-
-Exit: every source integration is either mapped with a rotation action or explicitly retired.
-
-### 5.5 R2 objects
-
-- Copy required user avatars and family/Space avatars.
-- Verify source existence, target existence, byte length and digest when available.
-- Treat object keys as persistence details, not public contract identifiers.
-
-Exit: every required object is verified or migration fails.
-
-### 5.6 Import and verification runner
-
-The runner must execute against a fresh isolated target and separate planning from mutation:
-
-1. inspect source;
-2. create deterministic plan;
-3. validate plan;
-4. require explicit target/environment selection;
-5. import Identity/Kernel ownership data;
-6. import ordinary model/Capability data;
-7. copy R2 objects;
-8. verify counts, mappings, relationships, authorization, semantics and objects;
-9. emit final immutable report bundle.
-
-Partial success is failure. A failed run must leave enough audit information to diagnose the failure and must never silently skip unresolved records.
-
-### 5.7 Staging rehearsal
-
-Use a recent HomeMew production snapshot/export and a fresh isolated LifeSpace staging rehearsal target.
-
-The rehearsal is successful only when:
-
-- all expected durable rows are explained by import/mapping reports;
-- every intentional omission is classified and counted;
-- integrity and relationship verification passes;
-- representative authorization checks pass;
-- Event/Task/Day Record/Wish semantic checks pass;
-- required R2 objects verify;
-- credential-rotation actions are explicit;
-- a second planning run over the same source produces the same deterministic plan/checksums.
+The rehearsal passes when every expected durable source record is migrated or explicitly explained, all migrated references resolve, representative HomeMew authorization and Event/Task/Day Record/Wish behavior remains correct, required objects are readable, and the final report result is `PASS`.
 
 ## Safety invariants
 
-- Source HomeMew snapshot access is read-only.
-- No production target is supported by Phase-5 rehearsal commands.
-- No dual-write, CDC or incremental synchronization is introduced.
-- Secrets are never embedded in mapping or report artifacts.
-- Unknown source schema, unresolved references, target contract mismatch and object mismatch are hard failures.
-- Creation Draft jobs/messages, caches, sessions/tokens and other ephemeral state are intentionally excluded.
-- Derived state is recomputed rather than copied.
+- HomeMew source access is read-only.
+- Phase-5 commands reject LifeSpace production targets.
+- Incompatible source schema, unresolved references and object mismatches are hard failures.
+- Credentials are re-provisioned rather than copied from HomeMew.
+- Partial success is failure; unresolved durable records must not be silently skipped.
+- Staging and production resources remain isolated.
 
-## Version-controlled artifacts
+## Phase 5 deliverables
 
-Phase 5 owns:
+Only these deliverables are required:
 
-- `packages/homemew-migration/` — deterministic planner/verifier library and CLI;
-- fixtures containing synthetic HomeMew source data only;
-- source/target manifest schemas;
-- machine-readable mapping and verification report schemas;
-- staging rehearsal workflow/runbook;
-- `docs/phase5-status.md` — implementation and rehearsal evidence.
+1. one version-controlled HomeMew -> LifeSpace migration script;
+2. one machine-readable `migration-report.json` format produced by that script;
+3. one successful isolated staging rehearsal with evidence recorded in `docs/phase5-status.md`;
+4. concise production execution notes sufficient to repeat the same script during Phase 7.
 
-## Phase 5 exit gate
+## Exit gate
 
-Phase 5 is complete only when all criteria in `docs/migration-plan.md` are satisfied, including at least one clean end-to-end staging rehearsal from a recent HomeMew snapshot. Until then, the HomeMew Integration Ready milestone is not reached.
+Phase 5 is complete after one recent HomeMew snapshot is migrated successfully into a fresh isolated LifeSpace staging target and the resulting report/verifications pass. At that point Phase 4 + Phase 5 establish the HomeMew Integration Ready milestone.
