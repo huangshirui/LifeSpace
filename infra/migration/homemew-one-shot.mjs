@@ -3,6 +3,10 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 
 const SOURCE_SCHEMA_VERSION = "11";
+const SOURCE_DATABASE_ID = "3921d02d-8158-4706-a979-c18ff9f05ff8";
+const SOURCE_ASSETS_PUBLIC_URL = "https://homemew-assets.aisr.online";
+const IDENTITY_URL = "https://auth-staging.aisr.online";
+const CORE_URL = "https://core-staging.aisr.online";
 const SNAPSHOT_FORMAT_VERSION = 1;
 const REPORT_FORMAT_VERSION = 1;
 const TARGET = Object.freeze({
@@ -121,31 +125,27 @@ function sanitizeError(error) {
   return { name: error instanceof Error ? error.name : "Error", message: error instanceof Error ? error.message : String(error) };
 }
 
-function assertNonProductionUrl(value, label) {
-  let url;
+function validTimezone(value) {
+  if (typeof value !== "string" || !value) return false;
   try {
-    url = new URL(value);
+    new Intl.DateTimeFormat("en-US", { timeZone: value }).format(new Date(0));
+    return true;
   } catch {
-    throw new MigrationError(`${label} must be an absolute URL`);
+    return false;
   }
-  if (url.protocol !== "https:" && url.hostname !== "localhost" && url.hostname !== "127.0.0.1") {
-    throw new MigrationError(`${label} must use HTTPS outside local development`);
-  }
-  if (["auth.aisr.online", "core.aisr.online"].includes(url.hostname.toLowerCase())) {
-    throw new MigrationError(`Phase 5 refuses production target ${url.hostname}`);
-  }
-  return url.toString().replace(/\/$/, "");
 }
 
 async function cloudflareD1Batch(entries) {
   const accountId = requiredEnv("CLOUDFLARE_ACCOUNT_ID");
-  const databaseId = requiredEnv("HOMEMEW_D1_DATABASE_ID");
   const token = requiredEnv("HOMEMEW_D1_API_TOKEN", "CLOUDFLARE_API_TOKEN");
-  const response = await fetch(`https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(accountId)}/d1/database/${encodeURIComponent(databaseId)}/query`, {
-    method: "POST",
-    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
-    body: JSON.stringify({ batch: entries.map(({ sql }) => ({ sql })) }),
-  });
+  const response = await fetch(
+    `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(accountId)}/d1/database/${SOURCE_DATABASE_ID}/query`,
+    {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ batch: entries.map(({ sql }) => ({ sql })) }),
+    },
+  );
   const payload = await response.json().catch(() => null);
   if (!response.ok || !payload || payload.success === false || !Array.isArray(payload.result)) {
     const message = payload?.errors?.map((item) => item.message).filter(Boolean).join("; ") || response.statusText || "D1 query failed";
@@ -160,7 +160,7 @@ async function cloudflareD1Batch(entries) {
     }
     output[entries[index].name] = result.results;
   }
-  return { databaseId, output };
+  return output;
 }
 
 async function captureSnapshot(outPath) {
@@ -168,32 +168,34 @@ async function captureSnapshot(outPath) {
     { name: "schema", sql: "SELECT value FROM schema_metadata WHERE key='schema_version'" },
     { name: "users", sql: "SELECT id,display_name,status,created_from,avatar_key FROM users WHERE status='active' ORDER BY id" },
     { name: "families", sql: "SELECT id,name,created_by,status,timezone,avatar_key FROM families WHERE status='active' ORDER BY id" },
-    { name: "familyMembers", sql: "SELECT id,family_id,user_id,role,status,joined_at FROM family_members WHERE status='active' ORDER BY family_id,user_id" },
-    { name: "events", sql: "SELECT id,family_id,summary,description,start_at,end_at,start_date,end_date,is_all_day,start_timezone,end_timezone,location,status FROM events WHERE deleted_at IS NULL ORDER BY id" },
-    { name: "eventAttendees", sql: "SELECT ea.event_id,ea.user_id FROM event_attendees ea JOIN events e ON e.id=ea.event_id WHERE e.deleted_at IS NULL ORDER BY ea.event_id,ea.user_id" },
-    { name: "tasks", sql: "SELECT id,family_id,name,description,due_date,status,completed_at,completed_by_type,completed_by_id FROM tasks WHERE deleted_at IS NULL ORDER BY id" },
-    { name: "taskAssignees", sql: "SELECT ta.task_id,ta.user_id FROM task_assignees ta JOIN tasks t ON t.id=ta.task_id WHERE t.deleted_at IS NULL ORDER BY ta.task_id,ta.user_id" },
-    { name: "dayRecords", sql: "SELECT id,family_id,name,description,kind,anchor_date,cycle_days,next_due_date,attention_before_days,attention_after_days,subject_user_id,icon,status FROM day_records WHERE deleted_at IS NULL ORDER BY id" },
-    { name: "dayRecordOccurrences", sql: "SELECT o.id,o.day_record_id,o.occurred_on,o.note,o.source,o.recorded_by_type,o.recorded_by_id FROM day_record_occurrences o JOIN day_records d ON d.id=o.day_record_id WHERE d.deleted_at IS NULL ORDER BY o.day_record_id,o.occurred_on,o.id" },
-    { name: "wishes", sql: "SELECT id,family_id,owner_user_id,title,description,desired_date,status,claimant_user_id,claimed_at,fulfilled_by_user_id,fulfilled_at,archived_from_status FROM wishes WHERE deleted_at IS NULL ORDER BY id" },
-    { name: "systems", sql: "SELECT id,family_id,name,description,status FROM system_identities WHERE status!='deleted' ORDER BY id" },
-    { name: "systemAccess", sql: "SELECT family_id,system_id,status,permissions FROM family_system_access ORDER BY family_id,system_id" },
-    { name: "systemCredentials", sql: "SELECT system_id,credential_type,status,expires_at,COUNT(*) credential_count FROM system_credentials GROUP BY system_id,credential_type,status,expires_at ORDER BY system_id,credential_type,status,expires_at" },
+    { name: "familyMembers", sql: "SELECT fm.id,fm.family_id,fm.user_id,fm.role,fm.status,fm.joined_at FROM family_members fm JOIN families f ON f.id=fm.family_id WHERE fm.status='active' AND f.status='active' ORDER BY fm.family_id,fm.user_id" },
+    { name: "events", sql: "SELECT e.id,e.family_id,e.summary,e.description,e.start_at,e.end_at,e.start_date,e.end_date,e.is_all_day,e.start_timezone,e.end_timezone,e.location,e.status FROM events e JOIN families f ON f.id=e.family_id WHERE e.deleted_at IS NULL AND f.status='active' ORDER BY e.id" },
+    { name: "eventAttendees", sql: "SELECT ea.event_id,ea.user_id FROM event_attendees ea JOIN events e ON e.id=ea.event_id JOIN families f ON f.id=e.family_id WHERE e.deleted_at IS NULL AND f.status='active' ORDER BY ea.event_id,ea.user_id" },
+    { name: "tasks", sql: "SELECT t.id,t.family_id,t.name,t.description,t.due_date,t.status,t.completed_at,t.completed_by_type,t.completed_by_id FROM tasks t JOIN families f ON f.id=t.family_id WHERE t.deleted_at IS NULL AND f.status='active' ORDER BY t.id" },
+    { name: "taskAssignees", sql: "SELECT ta.task_id,ta.user_id FROM task_assignees ta JOIN tasks t ON t.id=ta.task_id JOIN families f ON f.id=t.family_id WHERE t.deleted_at IS NULL AND f.status='active' ORDER BY ta.task_id,ta.user_id" },
+    { name: "dayRecords", sql: "SELECT d.id,d.family_id,d.name,d.description,d.kind,d.anchor_date,d.cycle_days,d.next_due_date,d.attention_before_days,d.attention_after_days,d.subject_user_id,d.icon,d.status FROM day_records d JOIN families f ON f.id=d.family_id WHERE d.deleted_at IS NULL AND f.status='active' ORDER BY d.id" },
+    { name: "dayRecordOccurrences", sql: "SELECT o.id,o.day_record_id,o.occurred_on,o.note,o.source,o.recorded_by_type,o.recorded_by_id FROM day_record_occurrences o JOIN day_records d ON d.id=o.day_record_id JOIN families f ON f.id=d.family_id WHERE d.deleted_at IS NULL AND f.status='active' ORDER BY o.day_record_id,o.occurred_on,o.id" },
+    { name: "wishes", sql: "SELECT w.id,w.family_id,w.owner_user_id,w.title,w.description,w.desired_date,w.status,w.claimant_user_id,w.claimed_at,w.fulfilled_by_user_id,w.fulfilled_at,w.archived_from_status FROM wishes w JOIN families f ON f.id=w.family_id WHERE w.deleted_at IS NULL AND f.status='active' ORDER BY w.id" },
+    { name: "systems", sql: "SELECT s.id,s.family_id,s.name,s.description,s.status FROM system_identities s JOIN families f ON f.id=s.family_id WHERE s.status!='deleted' AND f.status='active' ORDER BY s.id" },
+    { name: "systemAccess", sql: "SELECT a.family_id,a.system_id,a.status,a.permissions FROM family_system_access a JOIN system_identities s ON s.id=a.system_id JOIN families f ON f.id=a.family_id WHERE s.status!='deleted' AND f.status='active' ORDER BY a.family_id,a.system_id" },
+    { name: "systemCredentials", sql: "SELECT c.system_id,c.credential_type,c.status,c.expires_at,COUNT(*) credential_count FROM system_credentials c JOIN system_identities s ON s.id=c.system_id JOIN families f ON f.id=s.family_id WHERE s.status!='deleted' AND f.status='active' GROUP BY c.system_id,c.credential_type,c.status,c.expires_at ORDER BY c.system_id,c.credential_type,c.status,c.expires_at" },
     { name: "omissions", sql: `SELECT
       (SELECT COUNT(*) FROM users WHERE status!='active') disabled_users,
       (SELECT COUNT(*) FROM families WHERE status!='active') archived_families,
-      (SELECT COUNT(*) FROM family_members WHERE status!='active') removed_memberships,
-      (SELECT COUNT(*) FROM family_invites) family_invites,
-      (SELECT COUNT(*) FROM family_invite_redemptions) invite_redemptions,
-      (SELECT COUNT(*) FROM events WHERE deleted_at IS NOT NULL) deleted_events,
-      (SELECT COUNT(*) FROM tasks WHERE deleted_at IS NOT NULL) deleted_tasks,
-      (SELECT COUNT(*) FROM day_records WHERE deleted_at IS NOT NULL) deleted_day_records,
-      (SELECT COUNT(*) FROM wishes WHERE deleted_at IS NOT NULL) deleted_wishes,
+      (SELECT COUNT(*) FROM family_members fm JOIN families f ON f.id=fm.family_id WHERE fm.status!='active' AND f.status='active') removed_memberships,
+      (SELECT COUNT(*) FROM family_invites i JOIN families f ON f.id=i.family_id WHERE f.status='active') family_invites,
+      (SELECT COUNT(*) FROM family_invite_redemptions r JOIN families f ON f.id=r.family_id WHERE f.status='active') invite_redemptions,
+      (SELECT COUNT(*) FROM events e JOIN families f ON f.id=e.family_id WHERE e.deleted_at IS NOT NULL AND f.status='active') deleted_events,
+      (SELECT COUNT(*) FROM tasks t JOIN families f ON f.id=t.family_id WHERE t.deleted_at IS NOT NULL AND f.status='active') deleted_tasks,
+      (SELECT COUNT(*) FROM day_records d JOIN families f ON f.id=d.family_id WHERE d.deleted_at IS NOT NULL AND f.status='active') deleted_day_records,
+      (SELECT COUNT(*) FROM wishes w JOIN families f ON f.id=w.family_id WHERE w.deleted_at IS NOT NULL AND f.status='active') deleted_wishes,
+      (SELECT COUNT(*) FROM system_identities s JOIN families f ON f.id=s.family_id WHERE s.status='deleted' AND f.status='active') deleted_systems,
+      (SELECT COUNT(*) FROM system_identities s JOIN families f ON f.id=s.family_id WHERE f.status!='active') systems_in_archived_families,
       (SELECT COUNT(*) FROM oauth_rate_limits) oauth_rate_limits,
       (SELECT COUNT(*) FROM oauth_access_tokens) oauth_access_tokens,
       (SELECT COUNT(*) FROM creation_draft_jobs) creation_draft_jobs` },
   ];
-  const { databaseId, output } = await cloudflareD1Batch(queries);
+  const output = await cloudflareD1Batch(queries);
   const schemaVersion = String(output.schema[0]?.value ?? "");
   if (schemaVersion !== SOURCE_SCHEMA_VERSION) {
     throw new MigrationError(`Unsupported HomeMew schema ${schemaVersion || "missing"}; expected ${SOURCE_SCHEMA_VERSION}`);
@@ -203,8 +205,8 @@ async function captureSnapshot(outPath) {
     capturedAt: new Date().toISOString(),
     source: {
       schemaVersion,
-      databaseId,
-      assetsPublicUrl: process.env.HOMEMEW_ASSETS_PUBLIC_URL?.trim() || null,
+      databaseId: SOURCE_DATABASE_ID,
+      assetsPublicUrl: SOURCE_ASSETS_PUBLIC_URL,
       snapshotChecksum: null,
     },
     data: {
@@ -235,6 +237,9 @@ async function loadSnapshot(path) {
   const value = JSON.parse(await readFile(resolve(path), "utf-8"));
   if (value?.formatVersion !== SNAPSHOT_FORMAT_VERSION) throw new MigrationError(`Unsupported snapshot format ${value?.formatVersion}`);
   if (String(value?.source?.schemaVersion ?? "") !== SOURCE_SCHEMA_VERSION) throw new MigrationError(`Unsupported HomeMew schema ${value?.source?.schemaVersion}`);
+  if (value?.source?.databaseId !== SOURCE_DATABASE_ID || value?.source?.assetsPublicUrl !== SOURCE_ASSETS_PUBLIC_URL) {
+    throw new MigrationError("Snapshot source does not match the frozen HomeMew production source");
+  }
   const expected = value?.source?.snapshotChecksum;
   if (typeof expected !== "string" || expected !== checksumSnapshot(value)) throw new MigrationError("Snapshot checksum mismatch");
   return value;
@@ -266,6 +271,12 @@ function validateSnapshot(snapshot) {
   const membersByFamily = groupBy(members, "family_id");
   const occurrencesByDay = groupBy(occurrences, "day_record_id");
 
+  for (const user of users) {
+    if (typeof user.display_name !== "string" || user.display_name !== user.display_name.trim() || user.display_name.length < 1 || user.display_name.length > 50) {
+      throw new MigrationError(`Active HomeMew user ${user.id} display_name cannot be represented by LifeSpace Identity without modification`);
+    }
+  }
+
   const membershipKey = new Set();
   for (const member of members) {
     if (!familyById.has(member.family_id)) throw new MigrationError(`Active membership ${member.id} references a non-active family ${member.family_id}`);
@@ -274,7 +285,12 @@ function validateSnapshot(snapshot) {
     if (membershipKey.has(key)) throw new MigrationError(`Duplicate active membership ${key}`);
     membershipKey.add(key);
   }
+
   for (const family of families) {
+    if (typeof family.name !== "string" || family.name !== family.name.trim()) {
+      throw new MigrationError(`Family ${family.id} name is not normalized`);
+    }
+    if (!validTimezone(family.timezone)) throw new MigrationError(`Family ${family.id} has invalid timezone ${family.timezone}`);
     if (!userById.has(family.created_by)) throw new MigrationError(`Family ${family.id} creator ${family.created_by} is not an active user`);
     const familyMembers = membersByFamily.get(family.id) ?? [];
     const creatorMember = familyMembers.find((member) => member.user_id === family.created_by);
@@ -287,45 +303,74 @@ function validateSnapshot(snapshot) {
     if (userId === null || userId === undefined) return;
     if (!membershipKey.has(`${familyId}:${userId}`)) throw new MigrationError(`${label} references user ${userId} who is not an active member of family ${familyId}`);
   };
+
   for (const event of events) {
     if (!familyById.has(event.family_id)) throw new MigrationError(`Event ${event.id} references a non-active family`);
+    if (!Boolean(event.is_all_day) && (!validTimezone(event.start_timezone) || !validTimezone(event.end_timezone))) {
+      throw new MigrationError(`Timed Event ${event.id} has missing/invalid timezone metadata and cannot be represented without modification`);
+    }
   }
   for (const attendee of attendees) {
     const event = eventById.get(attendee.event_id);
     if (!event) throw new MigrationError(`Attendee references unknown event ${attendee.event_id}`);
     assertMember(event.family_id, attendee.user_id, `Event ${event.id} attendee`);
   }
+
   for (const task of tasks) {
     if (!familyById.has(task.family_id)) throw new MigrationError(`Task ${task.id} references a non-active family`);
+    if (task.status === "completed" && task.completed_by_type === "user") {
+      assertMember(task.family_id, task.completed_by_id, `Task ${task.id} completer`);
+    }
   }
   for (const assignee of assignees) {
     const task = taskById.get(assignee.task_id);
     if (!task) throw new MigrationError(`Assignee references unknown task ${assignee.task_id}`);
     assertMember(task.family_id, assignee.user_id, `Task ${task.id} assignee`);
   }
+
   for (const day of days) {
     if (!familyById.has(day.family_id)) throw new MigrationError(`Day Record ${day.id} references a non-active family`);
     assertMember(day.family_id, day.subject_user_id, `Day Record ${day.id} subject`);
     const history = [...(occurrencesByDay.get(day.id) ?? [])].sort((left, right) => left.occurred_on.localeCompare(right.occurred_on) || left.id.localeCompare(right.id));
-    if (day.kind === "countdown" && history.length) throw new MigrationError(`Countdown Day Record ${day.id} unexpectedly has occurrence history`);
-    if (day.kind !== "countdown" && history.length && history.at(-1).occurred_on !== day.anchor_date) {
-      throw new MigrationError(`Day Record ${day.id} latest occurrence does not match anchor_date`);
+    if (day.kind === "countdown") {
+      if (history.length) throw new MigrationError(`Countdown Day Record ${day.id} unexpectedly has occurrence history`);
+    } else {
+      if (!history.length) throw new MigrationError(`Day Record ${day.id} is missing its initial occurrence`);
+      if (history[0].source !== "initial" || history[0].note !== null) {
+        throw new MigrationError(`Day Record ${day.id} initial occurrence cannot be replayed exactly through the native Temporal API`);
+      }
+      if (history.slice(1).some((item) => item.source !== "manual")) {
+        throw new MigrationError(`Day Record ${day.id} contains an unexpected non-manual occurrence after the initial occurrence`);
+      }
+      if (history.at(-1).occurred_on !== day.anchor_date) throw new MigrationError(`Day Record ${day.id} latest occurrence does not match anchor_date`);
     }
   }
   for (const occurrence of occurrences) {
     if (!dayById.has(occurrence.day_record_id)) throw new MigrationError(`Occurrence ${occurrence.id} references unknown Day Record ${occurrence.day_record_id}`);
   }
+
   for (const wish of wishes) {
     if (!familyById.has(wish.family_id)) throw new MigrationError(`Wish ${wish.id} references a non-active family`);
     assertMember(wish.family_id, wish.owner_user_id, `Wish ${wish.id} owner`);
     assertMember(wish.family_id, wish.claimant_user_id, `Wish ${wish.id} claimant`);
     assertMember(wish.family_id, wish.fulfilled_by_user_id, `Wish ${wish.id} fulfiller`);
+    const state = wish.status === "archived" ? wish.archived_from_status : wish.status;
+    if (wish.status === "archived" && !state) throw new MigrationError(`Archived Wish ${wish.id} is missing archived_from_status`);
+    if ((state === "claimed" || (state === "fulfilled" && wish.claimant_user_id)) && wish.claimant_user_id === wish.owner_user_id) {
+      throw new MigrationError(`Wish ${wish.id} claimant cannot be its owner`);
+    }
+    if (state === "claimed" && !wish.claimant_user_id) throw new MigrationError(`Wish ${wish.id} is claimed without claimant_user_id`);
+    if (state === "fulfilled") {
+      if (!wish.fulfilled_by_user_id) throw new MigrationError(`Wish ${wish.id} is fulfilled without fulfilled_by_user_id`);
+      if (wish.fulfilled_by_user_id !== wish.owner_user_id && wish.fulfilled_by_user_id !== wish.claimant_user_id) {
+        throw new MigrationError(`Wish ${wish.id} fulfiller is neither owner nor claimant`);
+      }
+    }
   }
+
   for (const system of systems) {
     if (!familyById.has(system.family_id)) throw new MigrationError(`System ${system.id} references a non-active family`);
   }
-  const hasAvatar = users.some((row) => row.avatar_key) || families.some((row) => row.avatar_key);
-  if (hasAvatar && !snapshot.source.assetsPublicUrl) throw new MigrationError("HOMEMEW_ASSETS_PUBLIC_URL was not captured but avatar objects are present");
 
   return { userById, familyById, eventById, taskById, dayById, membersByFamily, occurrencesByDay };
 }
@@ -348,9 +393,9 @@ async function apiRequest(service, base, path, { method = "GET", token = undefin
   return payload.data;
 }
 
-async function targetStatuses(identityUrl, coreUrl) {
-  const identity = await apiRequest("identity", identityUrl, "/api/v1/status");
-  const core = await apiRequest("core", coreUrl, "/api/v1/status");
+async function targetStatuses() {
+  const identity = await apiRequest("identity", IDENTITY_URL, "/api/v1/status");
+  const core = await apiRequest("core", CORE_URL, "/api/v1/status");
   if (identity.environment !== "staging" || core.environment !== "staging") {
     throw new MigrationError(`Phase 5 requires staging targets; got Identity=${identity.environment}, Core=${core.environment}`);
   }
@@ -363,13 +408,12 @@ async function targetStatuses(identityUrl, coreUrl) {
   return { identity, core };
 }
 
-function sourceObjectUrl(base, key) {
-  const normalized = `${base.replace(/\/$/, "")}/${String(key).replace(/^\/+/, "")}`;
-  return new URL(normalized).toString();
+function sourceObjectUrl(key) {
+  return new URL(`${SOURCE_ASSETS_PUBLIC_URL}/${String(key).replace(/^\/+/, "")}`).toString();
 }
 
-async function readAvatar(base, key) {
-  const response = await fetch(sourceObjectUrl(base, key));
+async function readAvatar(key) {
+  const response = await fetch(sourceObjectUrl(key));
   if (!response.ok) throw new MigrationError(`Source avatar ${key} is not readable: ${response.status}`);
   const contentType = response.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
   if (!["image/jpeg", "image/png", "image/webp"].includes(contentType)) throw new MigrationError(`Source avatar ${key} has unsupported content type ${contentType}`);
@@ -391,8 +435,6 @@ async function verifyAvatar(url, expected) {
 
 async function migrateSnapshot(snapshot, reportPath) {
   const indexes = validateSnapshot(snapshot);
-  const identityUrl = assertNonProductionUrl(requiredEnv("LIFESPACE_IDENTITY_URL"), "LIFESPACE_IDENTITY_URL");
-  const coreUrl = assertNonProductionUrl(requiredEnv("LIFESPACE_CORE_URL"), "LIFESPACE_CORE_URL");
   const applicationSecret = requiredEnv("LIFESPACE_APPLICATION_SECRET");
   if (!applicationSecret.startsWith("lsa_")) throw new MigrationError("LIFESPACE_APPLICATION_SECRET must be a trusted application credential (lsa_*)");
 
@@ -402,16 +444,31 @@ async function migrateSnapshot(snapshot, reportPath) {
     completedAt: null,
     source: {
       schemaVersion: snapshot.source.schemaVersion,
+      databaseId: SOURCE_DATABASE_ID,
       snapshotChecksum: snapshot.source.snapshotChecksum,
       capturedAt: snapshot.capturedAt,
     },
     target: {
-      identityUrl,
-      coreUrl,
+      identityUrl: IDENTITY_URL,
+      coreUrl: CORE_URL,
       expected: TARGET,
       identityStatus: null,
       coreStatus: null,
       modelContractVerification: "behavioral-through-pinned-model-routes",
+    },
+    scope: {
+      mode: "current-operational-state",
+      intentionallyNotImported: [
+        "disabled users",
+        "archived families",
+        "removed memberships",
+        "invites/redemption history",
+        "soft-deleted business records",
+        "Creation Draft jobs",
+        "OAuth access/rate-limit state",
+        "legacy credential secrets",
+        "historical record versions/timestamps/actor audit",
+      ],
     },
     mappings: { users: {}, spaces: {}, memberships: {}, people: {}, events: {}, tasks: {}, dayRecords: {}, wishes: {} },
     migrated: { users: 0, spaces: 0, memberships: 0, people: 0, events: 0, tasks: 0, dayRecords: 0, wishes: 0, objects: 0 },
@@ -420,7 +477,8 @@ async function migrateSnapshot(snapshot, reportPath) {
     audit: {
       historicalTimestampsPreserved: false,
       sourceVersionsPreserved: false,
-      note: "Phase 5 preserves current business state and relations through native LifeSpace APIs; historical audit timestamps/versions are intentionally not imported.",
+      occurrenceNotesPreservedExceptInitialInvariant: true,
+      note: "Phase 5 preserves current operational business state and relationships through native LifeSpace APIs. Historical audit timestamps/versions/actors and inactive/deleted source state are intentionally not imported.",
       actorSubstitutions: [],
     },
     verification: { users: 0, spaces: 0, memberships: 0, resources: 0, occurrences: 0, objects: [], result: "PENDING" },
@@ -432,8 +490,6 @@ async function migrateSnapshot(snapshot, reportPath) {
     report,
     snapshot,
     indexes,
-    identityUrl,
-    coreUrl,
     applicationSecret,
     tokens: new Map(),
     people: new Map(),
@@ -451,7 +507,7 @@ async function migrateSnapshot(snapshot, reportPath) {
   };
 
   try {
-    const statuses = await targetStatuses(identityUrl, coreUrl);
+    const statuses = await targetStatuses();
     report.target.identityStatus = statuses.identity;
     report.target.coreStatus = statuses.core;
     await migrateUsers(runtime);
@@ -478,7 +534,7 @@ async function userToken(runtime, sourceUserId) {
   if (runtime.tokens.has(sourceUserId)) return runtime.tokens.get(sourceUserId);
   const targetUserId = runtime.report.mappings.users[sourceUserId];
   if (!targetUserId) throw new MigrationError(`No target user mapping for ${sourceUserId}`);
-  const token = await apiRequest("identity", runtime.identityUrl, "/internal/v1/tokens", {
+  const token = await apiRequest("identity", IDENTITY_URL, "/internal/v1/tokens", {
     method: "POST",
     token: runtime.applicationSecret,
     json: { subjectId: targetUserId, scopes: USER_SCOPES },
@@ -489,7 +545,7 @@ async function userToken(runtime, sourceUserId) {
 
 async function migrateUsers(runtime) {
   for (const user of runtime.snapshot.data.users) {
-    const created = await apiRequest("identity", runtime.identityUrl, "/internal/v1/users", {
+    const created = await apiRequest("identity", IDENTITY_URL, "/internal/v1/users", {
       method: "POST",
       token: runtime.applicationSecret,
       json: { displayName: user.display_name },
@@ -497,14 +553,14 @@ async function migrateUsers(runtime) {
     runtime.report.mappings.users[user.id] = created.id;
     runtime.report.migrated.users += 1;
     const token = await userToken(runtime, user.id);
-    const profile = await apiRequest("identity", runtime.identityUrl, "/api/v1/me", { token });
+    const profile = await apiRequest("identity", IDENTITY_URL, "/api/v1/me", { token });
     if (profile.id !== created.id || profile.displayName !== user.display_name) throw new MigrationError(`User verification failed for ${user.id}`);
     runtime.report.verification.users += 1;
     if (user.avatar_key) {
-      const source = await readAvatar(runtime.snapshot.source.assetsPublicUrl, user.avatar_key);
+      const source = await readAvatar(user.avatar_key);
       const form = new FormData();
       form.append("file", new Blob([source.bytes], { type: source.contentType }), source.filename);
-      const uploaded = await apiRequest("identity", runtime.identityUrl, "/api/v1/me/avatar", { method: "PUT", token, form });
+      const uploaded = await apiRequest("identity", IDENTITY_URL, "/api/v1/me/avatar", { method: "PUT", token, form });
       const verified = await verifyAvatar(uploaded.avatarUrl, source);
       runtime.report.migrated.objects += 1;
       runtime.report.verification.objects.push({ type: "user-avatar", sourceId: user.id, targetId: created.id, ...verified });
@@ -518,7 +574,7 @@ async function migrateSpaces(runtime) {
     runtime.familyOwners.set(family.id, ownerSourceId);
     const ownerToken = await userToken(runtime, ownerSourceId);
     const owner = runtime.indexes.userById.get(ownerSourceId);
-    const created = await apiRequest("core", runtime.coreUrl, "/api/v1/spaces", {
+    const created = await apiRequest("core", CORE_URL, "/api/v1/spaces", {
       method: "POST",
       token: ownerToken,
       json: { kind: "family", name: family.name, ownerDisplayName: owner.display_name, timezone: family.timezone },
@@ -532,7 +588,7 @@ async function migrateSpaces(runtime) {
       if (member.user_id === ownerSourceId) continue;
       const targetUserId = runtime.report.mappings.users[member.user_id];
       const sourceUser = runtime.indexes.userById.get(member.user_id);
-      const added = await apiRequest("core", runtime.coreUrl, `/api/v1/spaces/${encodeURIComponent(created.id)}/members`, {
+      const added = await apiRequest("core", CORE_URL, `/api/v1/spaces/${encodeURIComponent(created.id)}/members`, {
         method: "POST",
         token: ownerToken,
         json: { userId: targetUserId, role: member.role === "admin" ? "admin" : "editor", displayName: sourceUser.display_name },
@@ -540,7 +596,7 @@ async function migrateSpaces(runtime) {
       runtime.people.set(`${family.id}:${member.user_id}`, added.personId);
     }
 
-    const currentMembers = await apiRequest("core", runtime.coreUrl, `/api/v1/spaces/${encodeURIComponent(created.id)}/members`, { token: ownerToken });
+    const currentMembers = await apiRequest("core", CORE_URL, `/api/v1/spaces/${encodeURIComponent(created.id)}/members`, { token: ownerToken });
     if (currentMembers.length !== members.length) throw new MigrationError(`Space ${created.id} member count mismatch`);
     for (const member of members) {
       const targetUserId = runtime.report.mappings.users[member.user_id];
@@ -557,11 +613,11 @@ async function migrateSpaces(runtime) {
     runtime.report.verification.memberships += members.length;
 
     if (family.avatar_key) {
-      const source = await readAvatar(runtime.snapshot.source.assetsPublicUrl, family.avatar_key);
+      const source = await readAvatar(family.avatar_key);
       const form = new FormData();
       form.append("file", new Blob([source.bytes], { type: source.contentType }), source.filename);
       form.append("version", String(created.version));
-      const uploaded = await apiRequest("core", runtime.coreUrl, `/api/v1/spaces/${encodeURIComponent(created.id)}/avatar`, { method: "PUT", token: ownerToken, form });
+      const uploaded = await apiRequest("core", CORE_URL, `/api/v1/spaces/${encodeURIComponent(created.id)}/avatar`, { method: "PUT", token: ownerToken, form });
       const verified = await verifyAvatar(uploaded.avatarUrl, source);
       runtime.report.migrated.objects += 1;
       runtime.report.verification.objects.push({ type: "space-avatar", sourceId: family.id, targetId: created.id, ...verified });
@@ -585,13 +641,13 @@ function familyOwner(runtime, familyId) {
 async function createModel(runtime, sourceFamilyId, route, actorSourceUserId, input) {
   const spaceId = runtime.report.mappings.spaces[sourceFamilyId];
   const token = await userToken(runtime, actorSourceUserId);
-  return apiRequest("core", runtime.coreUrl, `/api/v1/spaces/${encodeURIComponent(spaceId)}/${route}`, { method: "POST", token, json: input });
+  return apiRequest("core", CORE_URL, `/api/v1/spaces/${encodeURIComponent(spaceId)}/${route}`, { method: "POST", token, json: input });
 }
 
 async function modelAction(runtime, sourceFamilyId, route, targetId, action, actorSourceUserId, version, extra = {}) {
   const spaceId = runtime.report.mappings.spaces[sourceFamilyId];
   const token = await userToken(runtime, actorSourceUserId);
-  return apiRequest("core", runtime.coreUrl, `/api/v1/spaces/${encodeURIComponent(spaceId)}/${route}/${encodeURIComponent(targetId)}/actions/${action}`, {
+  return apiRequest("core", CORE_URL, `/api/v1/spaces/${encodeURIComponent(spaceId)}/${route}/${encodeURIComponent(targetId)}/actions/${action}`, {
     method: "POST",
     token,
     json: { version, ...extra },
@@ -620,8 +676,24 @@ async function migrateEvents(runtime) {
     runtime.report.mappings.events[event.id] = created.id;
     runtime.report.migrated.events += 1;
     runtime.expectedResources.push({
-      sourceId: event.id, familyId: event.family_id, route: "events", targetId: created.id,
-      fields: { summary: event.summary, description: event.description, location: event.location, isAllDay: Boolean(event.is_all_day), startAt: event.start_at, endAt: event.end_at, startTimezone: event.start_timezone, endTimezone: event.end_timezone, startDate: event.start_date, endDateExclusive: event.end_date, attendeePersonIds, status: event.status },
+      sourceId: event.id,
+      familyId: event.family_id,
+      route: "events",
+      targetId: created.id,
+      fields: {
+        summary: event.summary,
+        description: event.description,
+        location: event.location,
+        isAllDay: Boolean(event.is_all_day),
+        startAt: event.start_at,
+        endAt: event.end_at,
+        startTimezone: event.start_timezone,
+        endTimezone: event.end_timezone,
+        startDate: event.start_date,
+        endDateExclusive: event.end_date,
+        attendeePersonIds,
+        status: event.status,
+      },
       arrayFields: ["attendeePersonIds"],
     });
   }
@@ -641,14 +713,26 @@ async function migrateTasks(runtime) {
     });
     if (task.status === "completed") {
       let actor = owner;
-      if (task.completed_by_type === "user" && runtime.people.has(`${task.family_id}:${task.completed_by_id}`)) actor = task.completed_by_id;
-      else runtime.report.audit.actorSubstitutions.push({ type: "task-completion", sourceId: task.id, sourceActorType: task.completed_by_type, sourceActorId: task.completed_by_id, substitutedWithUserId: owner });
+      if (task.completed_by_type === "user" && runtime.people.has(`${task.family_id}:${task.completed_by_id}`)) {
+        actor = task.completed_by_id;
+      } else {
+        runtime.report.audit.actorSubstitutions.push({
+          type: "task-completion",
+          sourceId: task.id,
+          sourceActorType: task.completed_by_type,
+          sourceActorId: task.completed_by_id,
+          substitutedWithUserId: owner,
+        });
+      }
       current = await modelAction(runtime, task.family_id, "tasks", current.id, "complete", actor, current.version);
     }
     runtime.report.mappings.tasks[task.id] = current.id;
     runtime.report.migrated.tasks += 1;
     runtime.expectedResources.push({
-      sourceId: task.id, familyId: task.family_id, route: "tasks", targetId: current.id,
+      sourceId: task.id,
+      familyId: task.family_id,
+      route: "tasks",
+      targetId: current.id,
       fields: { name: task.name, description: task.description, dueDate: task.due_date, status: task.status, assigneePersonIds },
       arrayFields: ["assigneePersonIds"],
     });
@@ -659,7 +743,7 @@ async function migrateDayRecords(runtime) {
   for (const day of runtime.snapshot.data.dayRecords) {
     const owner = familyOwner(runtime, day.family_id);
     const history = [...(runtime.indexes.occurrencesByDay.get(day.id) ?? [])].sort((left, right) => left.occurred_on.localeCompare(right.occurred_on) || left.id.localeCompare(right.id));
-    const initialAnchor = day.kind === "countdown" || history.length === 0 ? day.anchor_date : history[0].occurred_on;
+    const initialAnchor = day.kind === "countdown" ? day.anchor_date : history[0].occurred_on;
     const input = {
       name: day.name,
       description: day.description,
@@ -678,7 +762,7 @@ async function migrateDayRecords(runtime) {
     const expectedDates = [];
     if (day.kind !== "countdown") {
       expectedDates.push(initialAnchor);
-      for (const occurrence of history.filter((item) => item.occurred_on !== initialAnchor)) {
+      for (const occurrence of history.slice(1)) {
         current = await modelAction(runtime, day.family_id, "day-records", current.id, "record-occurrence", owner, current.version, { occurredOn: occurrence.occurred_on, note: occurrence.note });
         expectedDates.push(occurrence.occurred_on);
       }
@@ -688,8 +772,22 @@ async function migrateDayRecords(runtime) {
     runtime.report.mappings.dayRecords[day.id] = current.id;
     runtime.report.migrated.dayRecords += 1;
     runtime.expectedResources.push({
-      sourceId: day.id, familyId: day.family_id, route: "day-records", targetId: current.id,
-      fields: { name: day.name, description: day.description, kind: day.kind, anchorDate: day.anchor_date, subjectPersonId: personId(runtime, day.family_id, day.subject_user_id), icon: day.icon, attentionAfterDays: day.kind === "elapsed" ? day.attention_after_days : null, attentionBeforeDays: day.kind === "countdown" || day.kind === "cycle" ? day.attention_before_days : null, cycleDays: day.kind === "cycle" ? day.cycle_days : null, status: day.status },
+      sourceId: day.id,
+      familyId: day.family_id,
+      route: "day-records",
+      targetId: current.id,
+      fields: {
+        name: day.name,
+        description: day.description,
+        kind: day.kind,
+        anchorDate: day.anchor_date,
+        subjectPersonId: personId(runtime, day.family_id, day.subject_user_id),
+        icon: day.icon,
+        attentionAfterDays: day.kind === "elapsed" ? day.attention_after_days : null,
+        attentionBeforeDays: day.kind === "countdown" || day.kind === "cycle" ? day.attention_before_days : null,
+        cycleDays: day.kind === "cycle" ? day.cycle_days : null,
+        status: day.status,
+      },
       arrayFields: [],
     });
     runtime.expectedOccurrences.push({ familyId: day.family_id, targetId: current.id, dates: expectedDates });
@@ -708,12 +806,10 @@ async function migrateWishes(runtime) {
     });
 
     const originalState = wish.status === "archived" ? wish.archived_from_status : wish.status;
-    if (originalState === "claimed" || originalState === "fulfilled") {
-      if (wish.claimant_user_id) current = await modelAction(runtime, wish.family_id, "wishes", current.id, "claim", wish.claimant_user_id, current.version);
-      else if (originalState === "claimed") throw new MigrationError(`Wish ${wish.id} is claimed without claimant_user_id`);
+    if ((originalState === "claimed" || originalState === "fulfilled") && wish.claimant_user_id) {
+      current = await modelAction(runtime, wish.family_id, "wishes", current.id, "claim", wish.claimant_user_id, current.version);
     }
     if (originalState === "fulfilled") {
-      if (!wish.fulfilled_by_user_id) throw new MigrationError(`Wish ${wish.id} is fulfilled without fulfilled_by_user_id`);
       current = await modelAction(runtime, wish.family_id, "wishes", current.id, "fulfill", wish.fulfilled_by_user_id, current.version);
     }
     if (wish.status === "archived") current = await modelAction(runtime, wish.family_id, "wishes", current.id, "archive", owner, current.version);
@@ -721,7 +817,10 @@ async function migrateWishes(runtime) {
     runtime.report.mappings.wishes[wish.id] = current.id;
     runtime.report.migrated.wishes += 1;
     runtime.expectedResources.push({
-      sourceId: wish.id, familyId: wish.family_id, route: "wishes", targetId: current.id,
+      sourceId: wish.id,
+      familyId: wish.family_id,
+      route: "wishes",
+      targetId: current.id,
       fields: {
         title: wish.title,
         description: wish.description,
@@ -748,7 +847,12 @@ function planCredentialReprovisioning(runtime) {
       status: system.status,
       accessStatus: access?.status ?? null,
       permissions: access?.permissions ?? null,
-      credentialMetadata: (credentialsBySystem.get(system.id) ?? []).map((row) => ({ credentialType: row.credential_type, status: row.status, expiresAt: row.expires_at, count: Number(row.credential_count) })),
+      credentialMetadata: (credentialsBySystem.get(system.id) ?? []).map((row) => ({
+        credentialType: row.credential_type,
+        status: row.status,
+        expiresAt: row.expires_at,
+        count: Number(row.credential_count),
+      })),
       action: "re-provision LifeSpace service principal/Data Grant/credential during cutover; no HomeMew secret is migrated",
     });
   }
@@ -759,7 +863,7 @@ async function verifyMigration(runtime) {
     const owner = familyOwner(runtime, family.id);
     const ownerToken = await userToken(runtime, owner);
     const spaceId = runtime.report.mappings.spaces[family.id];
-    const space = await apiRequest("core", runtime.coreUrl, `/api/v1/spaces/${encodeURIComponent(spaceId)}`, { token: ownerToken });
+    const space = await apiRequest("core", CORE_URL, `/api/v1/spaces/${encodeURIComponent(spaceId)}`, { token: ownerToken });
     if (space.id !== spaceId || space.name !== family.name || space.timezone !== family.timezone) throw new MigrationError(`Space verification failed for ${family.id}`);
     runtime.report.verification.spaces += 1;
   }
@@ -767,7 +871,7 @@ async function verifyMigration(runtime) {
   for (const expected of runtime.expectedResources) {
     const token = await userToken(runtime, familyOwner(runtime, expected.familyId));
     const spaceId = runtime.report.mappings.spaces[expected.familyId];
-    const current = await apiRequest("core", runtime.coreUrl, `/api/v1/spaces/${encodeURIComponent(spaceId)}/${expected.route}/${encodeURIComponent(expected.targetId)}`, { token });
+    const current = await apiRequest("core", CORE_URL, `/api/v1/spaces/${encodeURIComponent(spaceId)}/${expected.route}/${encodeURIComponent(expected.targetId)}`, { token });
     for (const [field, value] of Object.entries(expected.fields)) {
       if (expected.arrayFields.includes(field)) {
         if (!sameStringArray(current[field] ?? [], value ?? [])) throw new MigrationError(`${expected.route} ${expected.sourceId} field ${field} mismatch`);
@@ -782,7 +886,7 @@ async function verifyMigration(runtime) {
     if (!expected.dates.length) continue;
     const token = await userToken(runtime, familyOwner(runtime, expected.familyId));
     const spaceId = runtime.report.mappings.spaces[expected.familyId];
-    const result = await apiRequest("core", runtime.coreUrl, `/api/v1/spaces/${encodeURIComponent(spaceId)}/day-records/${encodeURIComponent(expected.targetId)}/occurrences?limit=200`, { token });
+    const result = await apiRequest("core", CORE_URL, `/api/v1/spaces/${encodeURIComponent(spaceId)}/day-records/${encodeURIComponent(expected.targetId)}/occurrences?limit=200`, { token });
     const dates = result.items.map((item) => item.occurredOn);
     if (!sameStringArray(dates, expected.dates)) throw new MigrationError(`Day Record occurrence verification failed for ${expected.targetId}`);
     runtime.report.verification.occurrences += dates.length;
@@ -790,6 +894,7 @@ async function verifyMigration(runtime) {
 
   if (runtime.report.migrated.users !== runtime.snapshot.data.users.length) throw new MigrationError("User count verification failed");
   if (runtime.report.migrated.spaces !== runtime.snapshot.data.families.length) throw new MigrationError("Space count verification failed");
+  if (runtime.report.migrated.memberships !== runtime.snapshot.data.familyMembers.length) throw new MigrationError("Membership count verification failed");
   if (runtime.report.migrated.events !== runtime.snapshot.data.events.length) throw new MigrationError("Event count verification failed");
   if (runtime.report.migrated.tasks !== runtime.snapshot.data.tasks.length) throw new MigrationError("Task count verification failed");
   if (runtime.report.migrated.dayRecords !== runtime.snapshot.data.dayRecords.length) throw new MigrationError("Day Record count verification failed");
@@ -797,7 +902,20 @@ async function verifyMigration(runtime) {
 }
 
 function usage() {
-  console.log(`Usage:\n  node infra/migration/homemew-one-shot.mjs snapshot [--out ${DEFAULT_SNAPSHOT}]\n  node infra/migration/homemew-one-shot.mjs migrate --source ${DEFAULT_SNAPSHOT} [--report ${DEFAULT_REPORT}]\n  node infra/migration/homemew-one-shot.mjs rehearse [--snapshot ${DEFAULT_SNAPSHOT}] [--report ${DEFAULT_REPORT}]\n\nSnapshot env:\n  CLOUDFLARE_ACCOUNT_ID\n  HOMEMEW_D1_DATABASE_ID\n  HOMEMEW_D1_API_TOKEN (or CLOUDFLARE_API_TOKEN)\n  HOMEMEW_ASSETS_PUBLIC_URL (required when avatar_key values exist)\n\nMigration env:\n  LIFESPACE_IDENTITY_URL\n  LIFESPACE_CORE_URL\n  LIFESPACE_APPLICATION_SECRET (server-only lsa_* credential)\n\nPhase 5 refuses any target whose status environment is not staging.`);
+  console.log(`Usage:
+  node infra/migration/homemew-one-shot.mjs snapshot [--out ${DEFAULT_SNAPSHOT}]
+  node infra/migration/homemew-one-shot.mjs migrate --source ${DEFAULT_SNAPSHOT} [--report ${DEFAULT_REPORT}]
+  node infra/migration/homemew-one-shot.mjs rehearse [--snapshot ${DEFAULT_SNAPSHOT}] [--report ${DEFAULT_REPORT}]
+
+Source is pinned to HomeMew D1 ${SOURCE_DATABASE_ID} and ${SOURCE_ASSETS_PUBLIC_URL}.
+Target is pinned to ${IDENTITY_URL} and ${CORE_URL}.
+
+Required env:
+  CLOUDFLARE_ACCOUNT_ID
+  HOMEMEW_D1_API_TOKEN (or CLOUDFLARE_API_TOKEN)
+  LIFESPACE_APPLICATION_SECRET (server-only staging lsa_* credential)
+
+The source D1 credential only needs read access. Phase 5 refuses a target whose status environment is not staging.`);
 }
 
 async function main() {
