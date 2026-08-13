@@ -1,14 +1,14 @@
-# Phase 5 Migration Tooling Agent Instructions
+# Phase 5 One-shot Migration Agent Instructions
 
-This directory contains operational one-shot HomeMew -> LifeSpace migration planning, import and verification tooling.
+This directory contains only the purpose-built HomeMew -> LifeSpace one-shot migration script and concise execution notes.
 
 ## Rules
 
+- Keep the implementation specific to the frozen HomeMew source schema and accepted LifeSpace target. Do not generalize it into a migration framework without a separately approved need.
 - Source HomeMew data is read-only. Never write to the source database or snapshot.
-- Identical source data + migration namespace + accepted target contract tuple must produce identical mappings and report checksums.
-- Fail closed on unknown source schema, unresolved references, duplicate source identifiers, target contract mismatch, semantic mismatch, or missing required objects.
-- Never copy or emit source credential plaintext/hashes, signing keys, provider secrets, Cloudflare secrets, or WeChat `openid` mappings.
+- Reject incompatible source schema, unresolved durable references, unexpected target contract state, or missing required objects.
+- Sensitive authentication material is re-provisioned separately and is not part of the migration payload.
 - Transform durable data directly into the final metadata-driven/typed-storage target; never recreate retired Phase-2 business tables or intermediate JSON persistence.
-- Planning and mutation are separate operations. A plan must be inspectable before target mutation.
-- Tests and fixtures must be synthetic; never commit production snapshots or user data.
-- Production execution is out of scope until Phase 7 and requires explicit approval plus environment guards.
+- Emit one consolidated `migration-report.json` with enough source-to-target mapping, counts, omissions and verification information to diagnose a run.
+- Never commit production snapshots or user data.
+- Phase-5 rehearsal must reject production targets. Production execution belongs to Phase 7 and requires explicit approval and environment guards.
