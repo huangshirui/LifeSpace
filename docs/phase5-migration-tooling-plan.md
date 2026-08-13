@@ -34,6 +34,10 @@ Phase 5 has three implementation tasks.
 
 Create one purpose-built script under `infra/migration/` that reads a HomeMew D1 export/snapshot as read-only input, validates the frozen HomeMew schema, maps users/families/members into LifeSpace users/Spaces/Memberships/Space People, migrates Event/Task/Day Record/Wish data directly into the accepted final LifeSpace schema, copies required avatar objects when present, excludes ephemeral/derived state, requires integrations to receive new LifeSpace credentials instead of copying legacy credentials, and verifies migrated counts/references before success.
 
+Target writes should reuse existing LifeSpace Identity/Core APIs and Generic Runtime wherever those APIs already express the final semantics. The one-shot script should not duplicate the final typed-storage implementation by writing model tables directly unless an API gap is explicitly identified.
+
+Because this is a one-shot migration, staging and production runs do not need identical generated target IDs. Each run records its own complete source ID -> target ID mapping in `migration-report.json` and uses that mapping to resolve all dependent records during the same run.
+
 The script may be specific to the frozen HomeMew schema and accepted LifeSpace contract. Generalization for future products is explicitly out of scope.
 
 ### 2. Single migration report
