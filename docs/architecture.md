@@ -168,8 +168,8 @@ LifeSpace Identity is authoritative for the LifeSpace `user_id`, not for every e
 Application-owned mappings stay in the application boundary:
 
 ```text
-HomeMew WeChat Cloud Function
-  openid -> LifeSpace user_id
+HomeMew Cloudflare application backend
+  WeChat server-side identity exchange -> openid -> LifeSpace user_id
 
 School Mini Program adapter
   its WeChat/provider identity -> LifeSpace user_id
@@ -229,6 +229,6 @@ Event      -> Model Definition + Generic Runtime + Calendar
 Creation Draft -> Registry-driven AI Interpretation + Async Job
 ```
 
-The handwritten Event/Task/Day Record/Wish services and fixed four-kind Creation Draft implementation have been removed. Phase 3 performance/physical-storage convergence now replaces the intermediate universal JSON/index persistence with generated typed model storage while preserving those logical abstractions and semantic tests.
+The handwritten Event/Task/Day Record/Wish services and fixed four-kind Creation Draft implementation have been removed. Phase 3 also completed the replacement of the intermediate universal JSON/index persistence with generated typed model storage while preserving those logical abstractions and semantic tests.
 
-HomeMew client/data migration remains paused until Phase 3 typed-storage/performance convergence and final staging verification complete.
+Phase 3 is complete. Current HomeMew-related platform work is limited to LifeSpace integration readiness and one-shot migration tooling/rehearsal. The redesigned HomeMew Mini Program and Cloudflare backend are developed independently in the HomeMew project and integrate directly with the frozen LifeSpace contract when the `HomeMew Integration Ready` milestone is reached.
