@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "profileVersion": 1,
+  "status": "phase4-candidate",
+  "application": {
+    "key": "homemew",
+    "stagingId": "app_homemew_staging",
+    "clientType": "mini_program",
+    "trustedBackend": true,
+    "accessTokenTtlSeconds": 900,
+    "allowedUserScopes": [
+      "profile:read",
+      "profile:write",
+      "spaces:read",
+      "spaces:write",
+      "spaces:manage",
+      "resources:read",
+      "resources:write",
+      "creation-drafts:read",
+      "creation-drafts:write"
+    ],
+    "forbiddenUserScopes": [
+      "models:manage"
+    ]
+  },
+  "trustedBackend": {
+    "credentialType": "lsa_application_credential",
+    "credentialLocation": "server_only",
+    "identityExchangePath": "/internal/v1/tokens",
+    "transportPolicy": "https_or_same_account_service_binding_with_explicit_application_authentication",
+    "providerIdentityOwner": "homemew",
+    "providerIdentityMapping": "wechat_openid_to_lifespace_user_id",
+    "miniProgramMayAssertLifeSpaceUserId": false
+  },
+  "modelAccess": {
+    "task": "write",
+    "wish": "write",
+    "day_record": "write",
+    "event": "write"
+  },
+  "contracts": {
+    "coreKernel": "0.12.0",
+    "identity": "0.4.0",
+    "modelContract": "mct_9a3d9588da8591ab376ef000e5e661f670a64dd8b1ebc14fd146580f0ed1fa45",
+    "pinStatus": "proving-not-frozen"
+  }
+}
