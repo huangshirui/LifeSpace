@@ -1,7 +1,7 @@
 # Service and Automation Authentication
 
 - Decision status: **Accepted**
-- Runtime status: **Implemented and verified in staging on 2026-08-11; production not yet cut over**
+- Runtime status: **Service authentication implemented and verified in staging on 2026-08-11; Identity 0.4.0 trusted-application credential lifecycle implemented in repository on 2026-08-13 and awaiting staging deployment; production not yet cut over**
 - Decision date: 2026-08-10
 - Applies to: n8n, curl/scripts, MCP servers, Agents, application backends, scheduled jobs, and other trusted server-side integrations
 
@@ -29,6 +29,25 @@ Authorization: Bearer <credential>
 
 A Service API Token is sent directly as `lsp_pat_...`. OAuth obtains a short-lived bearer JWT first. The use of an HTTP bearer header does not imply that OAuth is required.
 
+## Trusted application backend credentials are a separate boundary
+
+An `lsa_*` trusted application credential is not a Service API Token and does not represent a service principal directly to Core.
+
+It authenticates an application-owned backend/BFF to Identity so that, after the application has securely resolved its own external identity mapping, it can create/resolve a LifeSpace `usr_*` and exchange that already-resolved user for a short-lived app-scoped user token.
+
+Example:
+
+```text
+HomeMew WeChat Cloud Function
+  trusted openid
+  -> HomeMew openid -> usr_* mapping
+  -> Identity with server-only lsa_*
+  -> short-lived RS256 HomeMew-app user token
+  -> LifeSpace Core / Identity
+```
+
+`lsa_*` is prohibited in Mini Program/browser/mobile client code. Its platform-admin lifecycle is documented normatively in `docs/application-authentication.md`.
+
 ## Why
 
 Self-hosted n8n, private scripts, scheduled jobs, and similar services already run in a trusted server environment and can safely store a narrowly scoped secret. Forcing every such caller through a token-exchange flow would add credential-refresh configuration without materially improving the security boundary for this use case.
@@ -49,7 +68,7 @@ OAuth `client_credentials` remains valuable for third-party or policy-controlled
 | Caller | Credential | Default |
 |---|---|---|
 | Browser or Web App frontend | Short-lived user access token or same-origin BFF session | Required; never expose a Service API Token |
-| WeChat Mini Program | Short-lived app-scoped user access token | Required |
+| WeChat Mini Program | Short-lived app-scoped user access token; owning Cloud Function/BFF uses server-only `lsa_*` for Identity exchange | Required |
 | Self-hosted n8n | Opaque Service API Token | Recommended |
 | Owner-controlled curl/script/cron | Opaque Service API Token | Recommended |
 | Owner-controlled MCP server or Agent backend | Opaque Service API Token, unless delegated user authority is required | Recommended |
@@ -81,9 +100,9 @@ A Service API Token is opaque. It must not be a long-lived JWT, because mutable 
 
 ## Ownership and runtime verification
 
-Identity owns service principals and service credentials. Core owns Space/Data Grants and domain authorization.
+Identity owns trusted application credentials, service principals and service credentials. Core owns Space/Data Grants and domain authorization.
 
-Implemented request path:
+Implemented Service API Token request path:
 
 ```text
 n8n / script
@@ -123,18 +142,31 @@ Example:
 ```text
 Service principal: svc_n8n_home
 Application context: homemew-external
-Token scopes: events:read events:write tasks:read tasks:write
+Token scopes: resources:read resources:write
 
 Core Data Grants:
-  spc_family_xxx: events read/write, tasks read/write
-  spc_personal_xxx: events read only
+  spc_family_xxx: allowed model/resource access
+  spc_personal_xxx: narrower allowed access
 ```
 
 Possessing the token does not grant access to any other Space.
 
 ## Implemented Identity contract
 
-Canonical syntax is owned by `apps/identity/openapi.yaml` (Identity 0.3.0 / schema v4). Implemented capabilities include:
+Canonical syntax is owned by `apps/identity/openapi.yaml` (**Identity 0.4.0 / schema v4** in repository; staging remains on the previously deployed contract until the next explicit staging deployment).
+
+Trusted application backend capabilities include:
+
+- register an application under the platform bootstrap-admin boundary;
+- inspect current application metadata/scope ceiling/token TTL;
+- update bounded mutable application policy;
+- create replacement `lsa_*` application credentials with one-time plaintext return;
+- list application credential metadata without plaintext/hashes;
+- revoke an application credential immediately;
+- create a global LifeSpace user after application-owned external identity resolution;
+- exchange an already-resolved `usr_*` for a short-lived app-scoped LifeSpace user token.
+
+Service-authentication capabilities include:
 
 - create/list/update/disable/re-enable a service principal;
 - create a Service API Token and return plaintext once;
@@ -146,7 +178,20 @@ Canonical syntax is owned by `apps/identity/openapi.yaml` (Identity 0.3.0 / sche
 - create/list/revoke OAuth client credentials;
 - issue short-lived service JWTs through OAuth `client_credentials`.
 
-Implemented route shapes include:
+Application backend route shapes include:
+
+```text
+POST   /bootstrap/v1/applications
+GET    /bootstrap/v1/applications/{applicationId}
+PATCH  /bootstrap/v1/applications/{applicationId}
+GET    /bootstrap/v1/applications/{applicationId}/credentials
+POST   /bootstrap/v1/applications/{applicationId}/credentials
+DELETE /bootstrap/v1/applications/{applicationId}/credentials/{credentialId}
+POST   /internal/v1/users
+POST   /internal/v1/tokens
+```
+
+Service-authentication route shapes include:
 
 ```text
 GET    /api/v1/service-principals
@@ -163,7 +208,9 @@ POST   /introspection/v1/service-tokens
 POST   /oauth/token
 ```
 
-Identity-owned persistence is defined by migration `0004_service_authentication.sql`:
+Application credential persistence was introduced by Identity migration `0002_application_credentials.sql`; Identity 0.4.0 reuses that existing schema and does not require a new D1 migration.
+
+Identity-owned service persistence is defined by migration `0004_service_authentication.sql`:
 
 ```text
 service_principals
@@ -202,7 +249,7 @@ Core Data Grants reference the stable service `principal_id`; they do not refere
 
 ## Core Data Grant management
 
-Core 0.10.0 exposes native Space-level Data Grant management for authorized user principals:
+Core exposes native Space-level Data Grant management for authorized user principals:
 
 ```text
 GET    /api/v1/spaces/{spaceId}/grants
@@ -226,7 +273,7 @@ Value: Bearer lsp_pat_xxxxxxxxx
 Then call Core directly:
 
 ```text
-https://core.aisr.online/api/v1/spaces/{spaceId}/events
+https://core.aisr.online/api/v1/spaces/{spaceId}/{modelRoute}
 ```
 
 There is no token acquisition node and no refresh workflow.
@@ -238,7 +285,7 @@ If OAuth `client_credentials` is deliberately selected, configure n8n's OAuth2 c
 Use an environment variable or secret store rather than placing the credential directly in shell history:
 
 ```bash
-curl "https://core.aisr.online/api/v1/spaces/spc_xxx/events" \
+curl "https://core.aisr.online/api/v1/spaces/spc_xxx/tasks" \
   -H "Authorization: Bearer ${LIFESPACE_TOKEN}"
 ```
 
@@ -248,17 +295,26 @@ The same direct-token pattern is appropriate for private scripts and scheduled j
 
 HomeMew `hmw_pat_*` secrets are not copied or reinterpreted as LifeSpace credentials.
 
-For every active HomeMew integration:
+For the HomeMew Mini Program login boundary:
+
+1. keep WeChat `openid` resolution and mapping in HomeMew;
+2. inspect/update the staging `homemew-miniprogram` application policy through Identity's bootstrap-admin route;
+3. create a replacement staging `lsa_*` credential;
+4. install it only in the HomeMew Cloud Function/backend secret store;
+5. exchange mapped `usr_*` identities for short-lived HomeMew-app user tokens;
+6. verify LifeSpace Identity/Core authorization before revoking any older application credential.
+
+For every active HomeMew external integration:
 
 1. Create or resolve a LifeSpace service principal and registered application context.
-2. Translate HomeMew integration permissions into LifeSpace scopes.
+2. Translate HomeMew integration permissions into stable LifeSpace scopes/model access.
 3. Translate the integration's family binding into explicit Grants on the mapped family Space.
 4. Generate a new `lsp_pat_*` token or OAuth client credential according to the caller's selected mode.
 5. Update n8n/script/MCP configuration.
 6. Verify allow and deny behavior against LifeSpace staging.
 7. Revoke the HomeMew credential after cutover and the agreed rollback window.
 
-Migration tooling now emits deterministic service-principal/Data Grant output plus a credential-rotation report. Legacy credential plaintext and hashes are never copied into LifeSpace.
+Migration tooling emits deterministic service-principal/Data Grant output plus a credential-rotation report. Legacy credential plaintext and hashes are never copied into LifeSpace.
 
 ## Implemented scope
 
@@ -271,10 +327,11 @@ Migration tooling now emits deterministic service-principal/Data Grant output pl
 7. [x] HomeMew integration transform/report logic with credential rotation.
 8. [x] n8n/curl usage documented in this normative runbook.
 9. [x] Canonical Core/Identity contracts and generated Wrangler binding synchronized.
+10. [x] Trusted application `lsa_*` metadata, policy update, replacement and immediate revocation lifecycle implemented in Identity 0.4.0 repository code/tests.
 
 ## Acceptance verification
 
-Automated tests and the 2026-08-11 staging smoke verify:
+Automated tests verify:
 
 - valid `lsp_pat_*` authenticates as the expected service principal;
 - plaintext is returned once and neither plaintext nor hash appears in list APIs;
@@ -288,15 +345,17 @@ Automated tests and the 2026-08-11 staging smoke verify:
 - n8n/curl semantics remain one client-visible Core HTTP request;
 - OAuth `client_credentials` reaches Core through the same service principal/Data Grant authorization model;
 - Data Grant revocation denies both opaque and OAuth service credentials on the next Core request;
-- opaque token revocation returns authentication failure on the next Core request.
+- opaque token revocation returns authentication failure on the next Core request;
+- `lsa_*` replacement credentials overlap safely and old credentials fail immediately after explicit revoke;
+- application credential metadata never exposes plaintext/hash and current application policy bounds subsequent user-token exchanges.
 
 Production/staging credential isolation remains a deployment invariant; production credentials are not created or exercised by staging verification.
 
 ## Non-goals
 
 - Permanent personal-user API tokens.
-- Service API Tokens in browsers, Mini Programs, mobile apps, or downloadable clients.
+- Service API Tokens or application credentials in browsers, Mini Programs, mobile apps, or downloadable clients.
 - Long-lived JWTs presented as revocable opaque tokens.
 - Treating a service principal as a hidden Space administrator.
 - Encoding all mutable Space authorization in credential claims.
-- Reusing one token across unrelated workloads or environments.
+- Reusing one token/credential across unrelated workloads or environments.
