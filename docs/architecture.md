@@ -182,6 +182,52 @@ Core never stores or authenticates WeChat `openid`, WeCom `userid`, or equivalen
 
 A trusted application backend authenticates to Identity with its own revocable application credential and may create/resolve LifeSpace users through approved Identity flows. Browser or Mini Program clients must never be allowed to submit an arbitrary `user_id` directly to token issuance endpoints.
 
+### Web authentication and SSO boundary
+
+Cloudflare Access is the preferred authentication and SSO layer for owner-controlled Web, PWA, Admin and internal-tool applications. Applications that should share browser login state are registered as separate Access Applications in the same Cloudflare Zero Trust organization. Each application keeps its own Access policy and authorization boundary; an existing Access global session avoids unnecessary re-authentication but does not imply authorization to every protected application.
+
+LifeSpace Identity does not duplicate Cloudflare Access as a general-purpose Web SSO or external IdP platform. For a Web application that needs LifeSpace data, its trusted same-origin BFF validates the Cloudflare Access identity and resolves it to the corresponding LifeSpace `user_id` before obtaining or using LifeSpace credentials. Applications unrelated to LifeSpace, such as an independent Admin tool, may use Cloudflare Access SSO without depending on LifeSpace Identity at all.
+
+```text
+                         Web applications
+
+                 Cloudflare Access
+              authentication + Web SSO
+                         |
+          +--------------+---------------+
+          |              |               |
+          v              v               v
+   LifeSpace Web    Task Hub Admin     ALOHA Web
+          |
+          | only when LifeSpace data is needed
+          v
+   LifeSpace Identity
+          |
+       usr_xxx
+          |
+     Space / Grant
+          |
+    LifeSpace Core
+```
+
+Non-Web application authentication remains independent of Cloudflare Access. For example, a Mini Program may authenticate with WeChat through its application backend, map that provider identity to the same LifeSpace `user_id`, and then obtain appropriately scoped LifeSpace credentials:
+
+```text
+HomeMew Mini Program
+      |
+WeChat identity
+      |
+HomeMew backend
+      |
+LifeSpace Identity
+      |
+ same usr_xxx
+      |
+Space / Grant
+```
+
+Cloudflare Access therefore owns Web authentication/SSO and perimeter access policy, while LifeSpace Identity owns LifeSpace principal resolution and LifeSpace credential issuance. Unified LifeSpace identity does not require LifeSpace to become the SSO provider for unrelated applications.
+
 ## Service and automation authentication
 
 The deployed service-authentication model remains authoritative. See `docs/service-authentication.md`.
