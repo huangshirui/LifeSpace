@@ -8,17 +8,21 @@ Updated: 2026-08-13
 
 Trusted LifeSpace application backends/BFFs authenticate to Identity with an application credential whose plaintext starts with `lsa_`.
 
-This credential is specifically for application-owned backend trust boundaries such as the HomeMew WeChat Cloud Function:
+This credential is a generic platform mechanism for an application-owned trusted backend that has already resolved its own external identity mapping.
+
+Example target flow:
 
 ```text
-WeChat Mini Program
-  -> HomeMew Cloud Function resolves trusted openid
-  -> HomeMew mapping resolves openid -> LifeSpace usr_*
-  -> Cloud Function authenticates to Identity with lsa_*
+Mini Program / application client
+  -> application-owned backend resolves provider identity
+  -> application mapping resolves provider identity -> LifeSpace usr_*
+  -> trusted backend authenticates to Identity with lsa_*
   -> POST /internal/v1/tokens
   -> short-lived RS256 app-scoped user token
-  -> Mini Program calls LifeSpace Core/Identity
+  -> untrusted client or approved BFF path calls LifeSpace Core/Identity
 ```
+
+For HomeMew, the target application-owned backend is a redesigned Cloudflare backend. The existing WeChat Cloud Function is **not** adapted as a temporary LifeSpace bridge.
 
 The `lsa_*` credential is never exposed to Mini Program code, browser JavaScript, mobile clients, logs, documentation or ordinary user APIs.
 
@@ -34,6 +38,8 @@ A trusted application may assert a LifeSpace `user_id` only after authenticating
 The client cannot choose another application ID and cannot request scopes outside the application's current `allowedScopes`.
 
 Application-owned provider identifiers such as WeChat `openid` remain outside LifeSpace Identity.
+
+A same-account Cloudflare Service Binding may be selected as transport between an application Worker and a LifeSpace Worker where appropriate, but transport topology is not itself application authorization. Any future Service-Binding-specific trust mechanism must preserve explicit application identity, scope ceilings and revocation semantics rather than relying on hostname or network location.
 
 ## Credential storage
 
@@ -90,13 +96,13 @@ Do not revoke the old credential before the replacement backend deployment has b
 
 If a credential plaintext is lost before it is installed, create another replacement. Plaintext is never recoverable from Identity.
 
-## HomeMew Phase 4
+## HomeMew Integration Readiness
 
-HomeMew Phase 4 uses this lifecycle before modifying the Mini Program login path.
+Identity 0.4.0 credential lifecycle is retained as a **generic LifeSpace platform capability**. It is not an instruction to retrofit the old HomeMew Mini Program login Cloud Function.
 
-The staging `homemew-miniprogram` application must be inspected and, if necessary, updated to the Phase-3 stable scope vocabulary before a new application credential is issued.
+Before the `HomeMew Integration Ready` milestone, LifeSpace must decide and document the final trusted-backend path for the redesigned HomeMew Cloudflare backend, including whether it uses `lsa_*` directly over HTTP/service binding transport or a later explicitly approved same-account mechanism with equivalent identity, scope and revocation guarantees.
 
-Expected user-facing application scopes are limited to the HomeMew product needs, for example:
+The final HomeMew application policy must define only product-needed user-facing scopes, for example:
 
 ```text
 profile:read
@@ -110,9 +116,11 @@ creation-drafts:read
 creation-drafts:write
 ```
 
-`models:manage` is a service-admin capability and must not be placed into ordinary HomeMew Mini Program user tokens.
+`models:manage` is a service-admin capability and must not be placed into ordinary HomeMew user tokens.
 
 Core still intersects the resulting token scopes with current Space membership/Data Grants, Application × Model Access, published model access and model/Capability policy.
+
+The exact HomeMew application credential and contract configuration is frozen at the `HomeMew Integration Ready` milestone, not during intermediate platform proving work.
 
 ## Verification
 
