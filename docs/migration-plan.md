@@ -4,13 +4,13 @@ Updated: 2026-08-13
 
 ## 1. Goal
 
-Prepare LifeSpace as the final shared platform that a redesigned HomeMew can integrate with directly, and prepare a deterministic **one-shot** migration path for HomeMew production data.
+Prepare LifeSpace as the final shared platform that a redesigned HomeMew can integrate with directly, and provide a rehearsed **one-shot** migration path for HomeMew production data.
 
 LifeSpace owns global Identity, Space/Data Grant authorization, shared business models, migrations, contracts and platform deployment configuration. HomeMew remains an application that owns its UI, WeChat/provider identity mapping, Cloudflare application backend/BFF behavior and product-only policy.
 
 The redesigned HomeMew Mini Program and its Cloudflare backend are developed independently in the HomeMew project. They are **not** an intermediate step in this LifeSpace migration plan, and the existing WeChat Cloud Functions are not adapted to LifeSpace as a temporary bridge.
 
-Phase 2 proved native capability parity without production cutover. Phase 3 replaced the handwritten-domain proving runtime with the final metadata-driven/typed-storage platform and completed APAC performance convergence. Phase 4 then froze the application-facing LifeSpace surface and HomeMew integration boundary. Phase 5 is in progress as a deliberately small one-shot migration rehearsal, not a reusable migration platform.
+Phase 2 proved native capability parity without production cutover. Phase 3 replaced the handwritten-domain proving runtime with the final metadata-driven/typed-storage platform and completed APAC performance convergence. Phase 4 froze the application-facing LifeSpace surface and HomeMew integration boundary. Phase 5 then completed one real staging rehearsal of the deliberately small one-shot migration procedure.
 
 ## 2. Non-negotiable principles
 
@@ -61,27 +61,37 @@ There is no permanent target where `homemew.aisr.online` or `/api/v1/families/..
 
 ## 4. Migration classification
 
-### Durable — migrate or explicitly retire
+Phase 5 intentionally converged on **current operational state**, not a complete historical/audit clone of the HomeMew database.
 
-- HomeMew users/profile metadata -> LifeSpace users;
-- families -> Spaces;
-- memberships and represented household people -> Membership + Space Person;
-- invitations/history required by final semantics;
-- Events/attendees;
-- Tasks/assignees;
-- Day Records/occurrences;
-- Wishes/lifecycle references;
-- external integration definitions and non-secret audit mappings;
-- version, audit and deletion metadata required to preserve behavior.
+### Durable current state — migrate
 
-Transforms target the final Model/Capability schema directly.
+- active HomeMew users/profile metadata -> LifeSpace users;
+- active families -> Spaces;
+- active memberships and represented household people -> Membership + Space Person;
+- non-deleted Events/attendees;
+- non-deleted Tasks/assignees and current lifecycle state;
+- non-deleted Day Records/current occurrences required to represent current semantics;
+- non-deleted Wishes/current lifecycle/person relations;
+- non-sensitive external integration definitions needed to describe later re-provisioning.
+
+Transforms target the final Model/Capability schema through normal LifeSpace APIs. Each migration run records its own source ID -> target ID mapping; different runs do not require identical generated target IDs.
+
+### Historical/retired state — intentionally do not migrate
+
+- disabled users, archived families and removed memberships;
+- invitation/redemption history;
+- soft-deleted business records;
+- source record versions;
+- historical audit timestamps/actors that are not expressible through the public final API.
+
+If an **active** source record cannot be represented without changing its business meaning, migration fails instead of silently truncating or reinterpreting it.
 
 ### Object storage — copy and verify
 
-- user avatars;
-- family/Space avatars.
+- current user avatars;
+- current family/Space avatars.
 
-Raw R2 keys are persistence details, never public contract fields.
+Raw R2 keys are persistence details, never public contract fields. Phase 5 copies objects through the existing avatar APIs and verifies byte length and SHA-256.
 
 ### Ephemeral — do not migrate
 
@@ -89,6 +99,7 @@ Raw R2 keys are persistence details, never public contract fields.
 - AI Creation Draft jobs/results with short TTL;
 - rate-limit counters;
 - expired sessions/tokens;
+- transient OAuth state;
 - rebuildable caches.
 
 ### Derived — recompute
@@ -105,25 +116,25 @@ Raw R2 keys are persistence details, never public contract fields.
 - WeChat secrets;
 - application/service credentials.
 
-Legacy `hmw_pat_*` plaintext and hashes are never migrated into LifeSpace credentials.
+Legacy `hmw_pat_*` plaintext/hashes and other HomeMew credential material are never migrated into LifeSpace credentials.
 
 ## 5. Core transformation principles
 
 ### Global users
 
-HomeMew internal users map deterministically to global LifeSpace users. WeChat `openid` remains HomeMew application data and maps to LifeSpace `user_id` in the future HomeMew Cloudflare backend.
+Each active HomeMew internal user is created/resolved as a global LifeSpace user during the migration run and recorded in that run's source-to-target mapping. WeChat `openid` remains HomeMew application data and maps to LifeSpace `user_id` in the HomeMew Cloudflare backend.
 
 ### Families -> Spaces
 
-Each HomeMew family becomes a `Space(kind=family)` with an explicit `family_id -> space_id` mapping. Family timezone is preserved. HomeMew-only product limits remain HomeMew policy unless independently adopted as platform policy.
+Each active HomeMew family becomes a `Space(kind=family)` and the run records `family_id -> space_id`. Family timezone is preserved. HomeMew-only product limits remain HomeMew policy unless independently adopted as platform policy.
 
 ### Members -> Membership + Space Person
 
-Authorization membership and represented household person remain distinct. Business relations use Space Person IDs.
+Authorization membership and represented household person remain distinct. Business relations use Space Person IDs. HomeMew family creator maps to `owner`, other `admin` to `admin`, and ordinary `member` to `editor`.
 
 ### Business domains -> final Model/Capability storage
 
-HomeMew Event, Task, Day Record and Wish records transform directly into the final published Model Definitions plus Generic Runtime/Capability persistence produced by the Phase-3 architecture.
+HomeMew Event, Task, Day Record and Wish state transforms directly into the final published Model Definitions plus Generic Runtime/Capability persistence produced by the Phase-3 architecture.
 
 ### Data Grants
 
@@ -131,7 +142,7 @@ Do not manufacture broad Grants merely because source family membership existed.
 
 ### External integrations
 
-HomeMew system identities/family access become LifeSpace service principals + Data Grants. New `lsp_pat_*` or OAuth credentials are issued during controlled credential rotation; source secrets are not copied.
+HomeMew system identities/family access are recorded for later LifeSpace service-principal + Data Grant re-provisioning. New `lsp_pat_*` or OAuth credentials are issued during controlled credential rotation; source secrets are not copied.
 
 ## 6. Phase status
 
@@ -142,8 +153,8 @@ HomeMew system identities/family access become LifeSpace service principals + Da
 | Phase 2 | **Complete** | Native replacement/proof of every frozen production-used HomeMew backend capability |
 | Phase 3 | **Complete** | Metadata-driven/AI-native runtime + typed storage + APAC performance convergence |
 | Phase 4 | **Complete** | **HomeMew Integration Readiness** — frozen LifeSpace application surface, trusted-backend boundary and reproducible handoff |
-| Phase 5 | **In progress** | **One-shot Migration Rehearsal** — one purpose-built migration script, one report and one staging rehearsal |
-| Milestone | Planned | **HomeMew Integration Ready** — reached only after both Phase 4 and Phase 5 pass |
+| Phase 5 | **Complete** | **One-shot Migration Rehearsal** — purpose-built script, consolidated report and real staging rehearsal |
+| Milestone | **Complete** | **HomeMew Integration Ready** — Phase 4 + Phase 5 passed |
 | Phase 6 | Planned | LifeSpace production platform bring-up with no HomeMew production data/traffic |
 | Phase 7 | Planned | Controlled one-shot HomeMew production data migration and application cutover |
 | Phase 8 | Planned | Stabilization and retirement of old HomeMew shared Core/infrastructure |
@@ -161,40 +172,15 @@ HomeMew system identities/family access become LifeSpace service principals + Da
 
 **Complete on 2026-08-11.** Detailed historical evidence remains in `docs/phase2-status.md` and `docs/homemew-parity-matrix.md`.
 
-Completed capabilities include:
+Completed capabilities include family Space/membership/Space Person/invitations, Events, Tasks, Day Records, Wishes, native-only convergence, Identity/Core avatars, service principals and service authentication, Data Grants, native Creation Draft Queue and explicit ephemeral non-migration decisions.
 
-- family Space policy, membership, Space Person and invitations;
-- Events + attendee semantics;
-- Tasks + assignee/lifecycle semantics;
-- Day Records + occurrence/temporal semantics;
-- Wishes + lifecycle/person policy semantics;
-- native-only convergence / compatibility retirement;
-- Identity profile/user avatar + Core Space avatar/R2 behavior;
-- service principals, Service API Tokens, OAuth `client_credentials`, Data Grants;
-- native Creation Draft Queue, TTL/privacy/rate-limit behavior;
-- deterministic transforms for the Phase-2 target and explicit ephemeral non-migration decisions.
-
-Phase-2 exit contracts were Core `0.11.0` / D1 v9 and Identity `0.3.0` / D1 v4. These are historical proving contracts, not the contract future HomeMew will consume.
-
-No HomeMew production traffic or durable data was switched to those contracts.
+Phase-2 exit contracts were Core `0.11.0` / D1 v9 and Identity `0.3.0` / D1 v4. These are historical proving contracts, not the contract future HomeMew will consume. No HomeMew production traffic or durable data was switched to those contracts.
 
 ## 10. Phase 3 — Metadata-driven / AI-native platform
 
 **Complete on 2026-08-13.** Normative implementation plan: `docs/phase3-metadata-platform-plan.md`; final evidence: `docs/phase3-status.md` and `docs/phase3-performance-convergence-plan.md`.
 
-Phase 3 completed:
-
-- Model Definition v1 and immutable/versioned Model Registry;
-- isolate-memory Runtime Model Descriptor cache;
-- deterministic Physical Schema Compiler;
-- final `resource_records + mdl_<model_key> + resource_relations + Capability projections` persistence;
-- Generic CRUD/query/relation/concurrency/soft-delete runtime;
-- current-state model authorization/Application × Model Access;
-- Policy/Workflow engines;
-- deterministic content-addressed Model Contracts;
-- Calendar and Temporal reusable capabilities;
-- Registry-driven Creation Draft / AI Interpretation;
-- destructive cleanup of replaced Phase-2 and intermediate JSON/index persistence.
+Phase 3 completed Model Definition/Registry, runtime descriptor caching, deterministic physical-schema compilation, typed storage, Generic CRUD/query/relation/concurrency/soft-delete runtime, current-state model authorization/Application × Model Access, Policy/Workflow engines, immutable Model Contracts, Calendar/Temporal capabilities, Registry-driven Creation Draft / AI Interpretation, and destructive cleanup of replaced intermediate persistence.
 
 Final Phase-3 proving baseline:
 
@@ -205,9 +191,7 @@ Identity Contract 0.3.0
 Identity D1 schema 4
 ```
 
-The representative APAC performance gate passed on 2026-08-13 (Action run ID `31664559657`). Common read P50 measured **44–92 ms** and P90 **57–111 ms**, inside the Phase-3 targets of P50 <= 220 ms and P90 <= 500 ms. D1 round-trip budgets are independently enforced in CI.
-
-The Phase-3 blocker is cleared.
+The representative APAC performance gate passed on 2026-08-13 (Action run ID `31664559657`). Common read P50 measured **44–92 ms** and P90 **57–111 ms**, inside the Phase-3 targets. D1 round-trip budgets are independently enforced in CI.
 
 ## 11. Phase 4 — HomeMew Integration Readiness
 
@@ -227,9 +211,9 @@ Integration Profile:  infra/homemew-integration-profile.json / profileVersion 1 
 The accepted HomeMew application boundary is:
 
 - HomeMew Cloudflare backend owns WeChat/provider identity and `openid -> LifeSpace usr_*` mapping;
-- a server-only `lsa_*` authenticates that trusted backend to Identity;
-- Identity issues a 900-second HomeMew-app-scoped user token after the backend has resolved the authenticated user;
-- the Mini Program never receives `lsa_*` and cannot assert an arbitrary LifeSpace user ID;
+- server-only `lsa_*` authenticates the trusted backend to Identity;
+- Identity issues a 900-second HomeMew-app-scoped user token after the backend resolves the authenticated user;
+- Mini Program never receives `lsa_*` and cannot assert arbitrary LifeSpace user IDs;
 - allowed HomeMew scopes are `profile:read/write`, `spaces:read/write/manage`, `resources:read/write` and `creation-drafts:read/write`;
 - `models:manage` is excluded from HomeMew user tokens;
 - Application × Model Access is `write` for Task, Wish, Day Record and Event;
@@ -237,18 +221,12 @@ The accepted HomeMew application boundary is:
 
 All frozen HomeMew backend capability groups were rechecked against the final metadata-driven runtime. No legacy `/families/...` route, legacy token acceptance, runtime user-ID-to-Person compatibility façade or additional HomeMew-specific Core runtime is required.
 
-`packages/contracts` now provides a reproducible/read-only HomeMew handoff exporter that pins the exact immutable `mct_*` rather than consuming active/latest contract state.
+`packages/contracts` provides a reproducible/read-only HomeMew handoff exporter that pins the exact immutable `mct_*` rather than consuming active/latest contract state.
 
 ### Phase 4 staging evidence
 
-Two normal staging runs establish the Phase-4 boundary and final handoff:
-
-- run #28 / `31692421666`: dedicated HomeMew application auth/scope/TTL/model-access boundary passed;
+- run #28 / `31692421666`: HomeMew application auth/scope/TTL/model-access boundary passed;
 - run #29 / `31694445585`, commit `76499060dd736655b218b1a1e00902fb7d988682`: exporter-enabled full staging gate passed, including deterministic handoff export and artifact upload.
-
-Run #29 produced workflow artifact `9178811267`, named `homemew-contract-handoff-76499060dd736655b218b1a1e00902fb7d988682`. Its candidate checksum bundle id was `hmb_d6f6a4ef08e7312ee702ff48e52e205956841ac01dacec58c3cca31b31b7944d`; all payload checksums were verified during closeout and no actual application/service credential, secret hash, signing private key or bootstrap secret was present.
-
-The final profile publication-state flip to `accepted` changes only handoff status metadata, not contract syntax, model revision, scope ceiling, TTL, Application × Model Access or runtime behavior. Repository CI validates that accepted closeout state.
 
 Detailed evidence and policy live in `docs/phase4-homemew-integration-readiness.md`.
 
@@ -259,69 +237,69 @@ Detailed evidence and policy live in `docs/phase4-homemew-integration-readiness.
 - Application × Model Access and stable scope requirements are explicit;
 - Kernel/Identity contracts and one immutable Model Contract revision are accepted;
 - reproducible/read-only contract artifacts can be handed to HomeMew;
-- no exit criterion depends on modifying the old HomeMew Mini Program or WeChat Cloud Functions;
 - production and HomeMew production traffic/data remain untouched.
 
 ## 12. Phase 5 — One-shot Migration Rehearsal
 
-**In progress.** Phase 5 is intentionally narrow: it proves the specific HomeMew production migration path once instead of building a reusable migration framework.
+**Complete on 2026-08-13.** Phase 5 intentionally proved the specific HomeMew production migration path once instead of building a reusable migration framework.
 
-Required work:
+The implementation is one purpose-built script at `infra/migration/homemew-one-shot.mjs`. It reads the frozen HomeMew D1 source with SELECT-only access, validates source/target compatibility, creates users/Spaces/Memberships/Space People through normal LifeSpace APIs, migrates Event/Task/Day Record/Wish state and relations, copies/verifies current avatars, records integration re-provisioning actions, and emits one consolidated `migration-report.json`.
 
-1. implement one version-controlled HomeMew -> LifeSpace migration script that reads the frozen HomeMew D1 export/snapshot without mutating the source;
-2. map users/families/members and transform Event/Task/Day Record/Wish records directly into the accepted final LifeSpace schema;
-3. copy required avatar objects when present;
-4. omit ephemeral/derived state and require integrations to receive new LifeSpace credentials rather than copying legacy credentials;
-5. fail closed on incompatible source schema, unresolved durable references or object mismatches;
-6. emit one consolidated `migration-report.json` containing source identity/checksum, source-to-target mappings needed for audit, migrated counts, intentional omissions, credential re-provisioning actions, verification results and final PASS/FAIL;
-7. run that script once against a recent HomeMew snapshot and a fresh isolated LifeSpace staging rehearsal target.
+Generic source adapters, manifest frameworks, separate report frameworks, reusable import-runner abstractions, deterministic target-ID generation across environments, dual-write, CDC, incremental catch-up and future-product migration generalization are explicitly out of scope.
 
-Generic source adapters, manifest frameworks, separate report frameworks, reusable import-runner abstractions, dual-write, CDC, incremental catch-up and future-product migration generalization are explicitly out of scope.
+### Full staging rehearsal — passed
 
-### Full staging rehearsal
+`Deploy staging` run #30 / GitHub Actions run `31710955761`, rehearsal commit `bc42c1ed2b9e8fad05fe57c84dccfba677bdb7bb`, completed successfully.
 
-```text
-recent HomeMew production snapshot/export
-  -> purpose-built one-shot migration script
-  -> fresh/isolated LifeSpace staging rehearsal target
-  -> migration-report.json
-```
+`migration-report.json`: **PASS**.
 
-The rehearsal proves the later Phase-7 production procedure. It does **not** establish ongoing synchronization and does not make the rehearsal copy a second source of truth.
+Verified migration counts:
 
-Creation Draft historical jobs/messages remain intentionally absent because they are ephemeral.
+- 4 users;
+- 3 family Spaces;
+- 6 Memberships / 6 Space People;
+- 461 Events;
+- 20 Tasks;
+- 4 Day Records;
+- 5 Wishes;
+- 490 business resources verified;
+- 1 Day Record occurrence verified;
+- 5 avatar objects verified by byte length and SHA-256.
 
-### Phase 5 exit gate
+The report explicitly accounted for intentional omissions in the source, including invitation/redemption history and soft-deleted records. Two active external-system definitions were recorded for later service-principal/Data Grant/new-credential re-provisioning; no legacy credential material was copied.
 
-- one clean end-to-end migration rehearsal from a recent HomeMew snapshot succeeds;
-- every expected durable source record is migrated or explicitly explained;
-- required references, representative authorization/business semantics and avatar objects verify;
-- `migration-report.json` records PASS;
-- concise production execution notes are sufficient to repeat the same script during Phase 7;
-- no dual-write, CDC or incremental catch-up mechanism is required.
+The temporary HomeMew staging application credential used by the rehearsal was revoked after the run, and the branch-only rehearsal workflow plumbing was removed after evidence capture.
+
+Detailed evidence and Phase-7 execution inputs live in `docs/phase5-status.md`.
+
+### Phase 5 exit gate — passed
+
+- one clean end-to-end migration rehearsal from the current HomeMew source succeeded;
+- every migrated current-state record was verified or every intentional omission was explicitly classified;
+- required references, representative business semantics and avatar objects verified;
+- `migration-report.json` recorded `PASS`;
+- production execution inputs are sufficient to repeat the same one-shot procedure during Phase 7;
+- no dual-write, CDC or incremental catch-up mechanism exists or is required.
 
 ## 13. Milestone — HomeMew Integration Ready
 
-This milestone is reached when **Phase 4 and Phase 5 both pass**.
+**Complete on 2026-08-13.** Phase 4 and Phase 5 have both passed.
 
 It means:
 
-> LifeSpace is ready for the redesigned HomeMew application to integrate, and a later HomeMew production cutover can migrate durable data once using the rehearsed procedure.
+> LifeSpace is ready for the redesigned HomeMew application to integrate, and a later HomeMew production cutover can migrate current durable state once using the rehearsed procedure.
 
-Milestone deliverables:
+Completed milestone deliverables:
 
 - frozen compatible Kernel + Identity contract versions for HomeMew;
 - frozen accepted HomeMew Model Contract revision and reproducible contract/client artifacts;
 - documented HomeMew Cloudflare trusted-backend/Identity boundary;
 - explicit application scopes, Application × Model Access and integration credential rules;
-- version-controlled one-shot data/R2 migration tooling;
-- successful staging migration rehearsal and verification report;
-- production provisioning/deployment runbook;
-- production cutover and rollback runbook.
+- version-controlled one-shot data/avatar migration script;
+- successful staging migration rehearsal and PASS verification report;
+- concise Phase-7 production migration/cutover inputs in this plan and `docs/phase5-status.md`.
 
-Phase 4 has completed the contract/boundary items above. The milestone remains Planned because Phase 5 has not yet passed.
-
-The milestone does **not** require the redesigned HomeMew Mini Program or Cloudflare backend to be finished. Their development proceeds independently in the HomeMew project after/alongside the platform handoff.
+The milestone does **not** require the redesigned HomeMew Mini Program or Cloudflare backend to be finished. Their development proceeds independently in the HomeMew project against the accepted LifeSpace contract.
 
 ## 14. Phase 6 — LifeSpace production platform bring-up
 
@@ -346,7 +324,7 @@ At this phase:
 - create production credentials only through approved lifecycle procedures and store them in their final secret stores;
 - keep staging and production physically isolated.
 
-This intentionally separates first-time production provisioning from the later data migration/application cutover.
+This intentionally separates first-time production provisioning from later data migration/application cutover.
 
 ## 15. Independent HomeMew application development
 
@@ -374,30 +352,30 @@ Preconditions:
 - empty LifeSpace production platform deployed and verified;
 - redesigned HomeMew Mini Program + Cloudflare backend release-ready;
 - redesigned HomeMew staging E2E passed against the frozen LifeSpace contracts;
-- final source backup/export procedure and rollback decision points confirmed.
+- final source backup/read procedure and rollback decision points confirmed.
 
 Sequence:
 
 1. enter HomeMew maintenance/write-freeze window;
 2. stop old HomeMew durable mutations/producers;
 3. drain/terminate approved ephemeral work;
-4. capture the **final** HomeMew D1 export and R2 evidence;
-5. record source schema/deployment/export metadata;
+4. capture the **final** HomeMew source state using the same read-only migration input path rehearsed in Phase 5;
+5. record source schema/deployment/snapshot metadata;
 6. confirm clean/expected LifeSpace production targets;
-7. run the committed one-shot transform/import and R2 copy;
-8. run mapping/count/integrity/authorization/relationship/semantic/object verification;
-9. provision/activate new integration credentials and Grants without duplicate delivery;
+7. run the committed one-shot migration against the explicitly selected production target;
+8. require the resulting `migration-report.json` to pass mapping/count/reference/authorization/semantic/object verification;
+9. provision/activate new integration credentials and Grants without copying old credentials or creating duplicate delivery;
 10. activate the redesigned HomeMew configuration/release against LifeSpace production;
 11. run critical application/integration smoke while writes remain frozen;
 12. make the go/no-go decision;
 13. on GO, enable LifeSpace-backed HomeMew writes/producers;
-14. retain the old HomeMew Core/D1 read-only during stabilization.
+14. retain the old HomeMew Core/data read-only during stabilization.
 
-The final production snapshot is migrated **once**. Any staging rehearsal data is disposable evidence and is not incrementally synchronized into production.
+The final production source state is migrated **once**. Staging rehearsal data is disposable evidence and is never incrementally synchronized into production.
 
 ### Rollback before LifeSpace-backed writes
 
-On critical validation failure, keep LifeSpace-backed HomeMew writes disabled, restore the old HomeMew application routing/configuration and re-enable old HomeMew writes. Because the final export occurred during the freeze, no production write is lost in this rollback case.
+On critical validation failure, keep LifeSpace-backed HomeMew writes disabled, restore old HomeMew application routing/configuration and re-enable old HomeMew writes. Because the final source capture occurred during the freeze, no production write is lost in this rollback case.
 
 ### Rollback after LifeSpace-backed writes
 
