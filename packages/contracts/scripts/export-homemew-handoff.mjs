@@ -123,11 +123,6 @@ const handoff = {
     modelAccess: profile.modelAccess,
   },
   modelManifest: modelContract.manifest.models,
-  deploymentEvidence: {
-    environment: expectedEnvironment,
-    coreSchemaVersion: coreData.schemaVersion,
-    identitySchemaVersion: identityData.schemaVersion,
-  },
 };
 files.set("handoff.json", json(handoff));
 
@@ -152,7 +147,11 @@ console.log(JSON.stringify({
   bundleId,
   output: "packages/contracts/dist/homemew",
   contracts: handoff.contracts,
-  environment: expectedEnvironment,
+  validatedDeployment: {
+    environment: expectedEnvironment,
+    coreSchemaVersion: coreData.schemaVersion,
+    identitySchemaVersion: identityData.schemaVersion,
+  },
   files: [...files.keys()].sort(),
   secretMaterialIncluded: false,
 }, null, 2));
