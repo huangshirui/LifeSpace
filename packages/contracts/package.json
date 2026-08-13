@@ -2,5 +2,9 @@
   "name": "@lifespace/contracts",
   "version": "0.0.0",
   "private": true,
-  "type": "module"
+  "type": "module",
+  "scripts": {
+    "check": "node scripts/check-homemew-handoff.mjs && node --check scripts/export-homemew-handoff.mjs",
+    "export:homemew": "node scripts/export-homemew-handoff.mjs"
+  }
 }
