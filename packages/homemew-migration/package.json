@@ -1,0 +1,10 @@
+{
+  "name": "@lifespace/homemew-migration",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "plan": "node src/cli.mjs"
+  }
+}
