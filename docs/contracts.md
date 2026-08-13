@@ -88,6 +88,10 @@ Generated output must be reproducible from canonical inputs and must never becom
 
 A repository commit is **not** required merely to make a newly published Model Definition have a contract revision. Repository publication/export is needed when an application or release wants a checked-in/package artifact for a selected revision.
 
+Application-specific handoff artifacts are generated from an explicit integration profile rather than from the currently active/unversioned Model Contract. The exporter must verify the deployed Kernel/Identity versions, read the exact configured immutable `mct_*` revision, and include only non-secret contract/application-policy material. A service-only credential used to read the immutable revision is an export-time implementation detail and must never be written into the handoff.
+
+The initial Phase-4 HomeMew handoff under `packages/contracts` contains the pinned Identity OpenAPI, Core Kernel OpenAPI, Model Contract OpenAPI/JSON Schema/manifest, HomeMew integration profile, a handoff manifest and SHA-256 checksums with a deterministic bundle id. The normal staging workflow uploads this generated directory as a read-only workflow artifact after the HomeMew integration and platform regression gates pass.
+
 ## Runtime and downstream pinning
 
 Production Core resolves the active Model Registry at runtime. Applications do not silently consume that moving Registry as their build contract.
