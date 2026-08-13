@@ -2,50 +2,60 @@
 
 Updated: 2026-08-13
 
-Status: **In progress**
+Status: **In progress — script implemented, staging rehearsal pending**
 
 ## Goal
 
 Migrate HomeMew once, not build a reusable migration platform.
 
-Phase 5 now delivers one purpose-built HomeMew -> LifeSpace migration script, one `migration-report.json`, and one isolated staging rehearsal from a recent HomeMew snapshot.
+Phase 5 delivers one purpose-built HomeMew -> LifeSpace migration script, one `migration-report.json`, and one staging rehearsal.
 
-## Decision — scope simplified
+## Simplified scope
 
-The initial Phase-5 proposal split migration into source inventory, deterministic mapping, domain transforms, integration planning, object migration, import/verification runner and rehearsal workstreams. That was intentionally reduced after review because HomeMew requires a controlled one-shot migration rather than an ongoing/generalized migration capability.
+No generic migration adapters, reusable migration framework, multiple report frameworks, dual-write, CDC, incremental catch-up or future-product generalization are required.
 
-The following framework work is no longer required:
+The safety requirements remain: source read-only, staging-only target, fail-closed compatibility/reference checks, target verification, and staging/production isolation.
 
-- generic source adapters;
-- standalone source/target manifest frameworks;
-- separate inventory/mapping/integrity/semantic/object report schemas;
-- reusable integration migration framework;
-- reusable import-runner abstraction;
-- dual-write, CDC or incremental catch-up support;
-- future-product migration generalization.
+## Implemented
 
-The safety requirements remain: source read-only, production-target rejection during Phase 5, fail-closed reference/schema checks, credential re-provisioning rather than copying legacy credentials, target verification, and staging/production isolation.
+- Branch `phase5-one-shot-migration`, PR #24.
+- Added the single migration program at `infra/migration/homemew-one-shot.mjs`.
+- The source is pinned to the HomeMew schema/configuration already committed in the HomeMew repository.
+- The target is pinned to the current LifeSpace staging Identity/Core endpoints and accepted Phase-4 contract/schema tuple.
+- Source access is SELECT-only.
+- Target creation uses existing LifeSpace Identity/Core APIs instead of direct target D1 writes.
+- HomeMew family creator -> LifeSpace `owner`; other `admin` -> `admin`; `member` -> `editor`.
+- Event attendee, Task assignee, Day Record subject and Wish relations are converted to Space Person IDs.
+- Task/Wish/Day Record state is replayed through native LifeSpace actions.
+- Avatars are copied through the existing avatar APIs and verified by byte length and digest.
+- Existing external integration definitions are recorded as re-provisioning actions rather than recreated during the rehearsal.
+- Each run emits one report containing ID mappings, counts, intentional omissions, verification results and `PASS`/`FAIL`.
+- Failed runs still write the report with the mappings created before failure; there is no resume/incremental mode.
+- Root CI syntax-checks the standalone script with `node --check`.
+- Generated `.migration/*` files are git-ignored.
 
-## Current implementation
+## Current-state boundary
 
-- Branch: `phase5-one-shot-migration`.
-- PR #24 is being converged to the simplified one-shot design.
-- `infra/migration/` remains the location for the purpose-built script and its concise execution notes.
-- The accepted Phase-4 Core/Identity/Model Contract/integration-profile tuple remains the only Phase-5 target.
+The simplified migration preserves **current operational application state**, not the old database's full audit/history representation.
+
+Migrated: active users, active families/memberships, non-deleted Event/Task/Day Record/Wish records in active families, current lifecycle state and Person relations, Day Record occurrence dates/manual notes, current avatar objects, and non-sensitive integration metadata needed for later re-provisioning.
+
+Not imported: inactive users/families/memberships, invitation history, soft-deleted records, Creation Draft jobs, transient OAuth state, old credentials, source record versions, or historical audit timestamps/actors.
+
+If active source state cannot be represented by the accepted LifeSpace APIs without changing its business meaning, the script fails before target mutation instead of silently truncating or rewriting it.
 
 ## Remaining work
 
-1. implement the one-shot script against the frozen HomeMew source schema and accepted LifeSpace target;
-2. emit one consolidated `migration-report.json` with mappings, counts, omissions and verification result;
-3. run the script once against a recent HomeMew snapshot and a fresh isolated LifeSpace staging target;
-4. record the successful rehearsal evidence and concise Phase-7 production execution steps here.
+1. run the script against the current HomeMew source using read-only access and LifeSpace staging;
+2. inspect `migration-report.json` plus representative application semantics;
+3. record the successful rehearsal evidence and concise Phase-7 execution steps here.
 
 ## Safety state
 
 - No HomeMew production client change.
-- No production data migration.
-- No production LifeSpace deployment.
+- No production data mutation.
+- No production LifeSpace target write.
 - No dual-write or CDC.
-- No production/user data committed.
+- No user data committed.
 
-Phase 5 remains incomplete until the one-shot staging rehearsal passes.
+Phase 5 remains incomplete until the staging rehearsal passes.
