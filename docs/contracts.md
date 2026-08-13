@@ -88,6 +88,25 @@ Generated output must be reproducible from canonical inputs and must never becom
 
 A repository commit is **not** required merely to make a newly published Model Definition have a contract revision. Repository publication/export is needed when an application or release wants a checked-in/package artifact for a selected revision.
 
+Application-specific handoff artifacts are generated from an explicit integration profile rather than from the currently active/unversioned Model Contract. The exporter must verify the deployed Kernel/Identity versions, read the exact configured immutable `mct_*` revision, and include only non-secret contract/application-policy material. A service-only credential used to read the immutable revision is an export-time implementation detail and must never be written into the handoff.
+
+The Phase-4 HomeMew handoff under `packages/contracts` contains the pinned Identity OpenAPI, Core Kernel OpenAPI, Model Contract OpenAPI/JSON Schema/manifest, HomeMew integration profile, a handoff manifest and SHA-256 checksums with a deterministic bundle id. The normal staging workflow uploads this generated directory as a read-only workflow artifact after the HomeMew integration and platform regression gates pass.
+
+### Accepted HomeMew handoff — Phase 4
+
+Phase 4 accepts and freezes this application contract tuple:
+
+```text
+Identity Contract:    0.4.0
+Core Kernel Contract: 0.12.0
+Model Contract:       mct_9a3d9588da8591ab376ef000e5e661f670a64dd8b1ebc14fd146580f0ed1fa45
+Integration Profile:  infra/homemew-integration-profile.json / profileVersion 1 / accepted
+```
+
+The exporter-enabled `Deploy staging` run #29 (`31694445585`) passed on 2026-08-13 and proved deterministic export/upload of that exact contract/application-policy combination before the publication-state flip from candidate to accepted. The closeout flip changes only handoff publication status; it does not change API syntax, model revision, token TTL, scope ceiling, model-access catalog or runtime behavior.
+
+HomeMew and its Coding Agents must treat the Phase-2 Core `0.11.0` / Identity `0.3.0` versions as historical parity evidence only. They are not the accepted HomeMew client contract after Phase 4.
+
 ## Runtime and downstream pinning
 
 Production Core resolves the active Model Registry at runtime. Applications do not silently consume that moving Registry as their build contract.
