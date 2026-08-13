@@ -1,7 +1,31 @@
 # @lifespace/contracts
 
-Versioned contract publication package for LifeSpace services.
+Reproducible contract publication/export surface for LifeSpace consumers.
 
-Planned outputs include generated TypeScript types, OpenAPI/JSON Schema bundles and stable indexes derived from canonical contracts in `apps/core` and `apps/identity`.
+Canonical API syntax remains owned by the services and Model Registry:
 
-This package is intentionally empty of generated artifacts during the scaffold phase.
+- `apps/identity/openapi.yaml` — Identity contract;
+- `apps/core/openapi.yaml` — Core Kernel contract;
+- immutable `mct_*` Model Contract revisions — ordinary model OpenAPI/JSON Schema;
+- application integration policy such as `infra/homemew-integration-profile.json`.
+
+Generated/exported artifacts are read-only handoff material. They must never become a second editable source of truth, and downstream applications must pin an explicit compatible contract combination instead of consuming an unversioned latest revision.
+
+## HomeMew Phase 4 handoff
+
+`pnpm --filter @lifespace/contracts export:homemew` exports `dist/homemew/` after verifying the configured staging deployment and exact pinned Model Contract revision.
+
+The bundle contains:
+
+- `identity.openapi.yaml`;
+- `core-kernel.openapi.yaml`;
+- `model-contract.openapi.json`;
+- `model-contract.schema.json`;
+- `model-contract.manifest.json`;
+- `homemew-integration-profile.json`;
+- `handoff.json` with the explicit contract/application-policy tuple;
+- `checksums.json` with SHA-256 file hashes and a deterministic `hmb_*` bundle id.
+
+The exporter requires a service-only `models:manage` bearer only to read the exact immutable `mct_*` revision from Core. That bearer is not written to the bundle. Application credentials, Service API Tokens, signing keys and other secret material are never handoff artifacts.
+
+The normal staging workflow exports and uploads the candidate bundle only after the HomeMew application boundary and platform regressions pass.
