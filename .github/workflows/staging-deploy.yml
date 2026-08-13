@@ -182,62 +182,6 @@ jobs:
         continue-on-error: true
         run: node infra/scripts/cleanup-staging-smoke.mjs
 
-      - name: Provision Phase 5 temporary HomeMew credential
-        if: ${{ success() && github.ref_name == 'phase5-one-shot-migration' }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          node --input-type=module <<'NODE'
-          import fs from "node:fs";
-          const applicationId = "app_homemew_staging";
-          const response = await fetch(`${process.env.LIFESPACE_IDENTITY_STAGING_URL}/bootstrap/v1/applications/${applicationId}/credentials`, {
-            method: "POST",
-            headers: { "x-bootstrap-secret": process.env.LIFESPACE_STAGING_BOOTSTRAP_SECRET },
-          });
-          const payload = await response.json().catch(() => null);
-          if (!response.ok || !payload?.data?.clientSecret || !payload?.data?.id) {
-            throw new Error(`Unable to create temporary HomeMew staging credential: ${response.status} ${JSON.stringify(payload)}`);
-          }
-          console.log(`::add-mask::${payload.data.clientSecret}`);
-          fs.appendFileSync(process.env.GITHUB_ENV, `LIFESPACE_APPLICATION_SECRET=${payload.data.clientSecret}\n`);
-          fs.appendFileSync(process.env.GITHUB_ENV, `LIFESPACE_PHASE5_CREDENTIAL_ID=${payload.data.id}\n`);
-          NODE
-
-      - name: Run Phase 5 one-shot HomeMew rehearsal
-        if: ${{ success() && github.ref_name == 'phase5-one-shot-migration' }}
-        run: node infra/migration/homemew-one-shot.mjs rehearse
-
-      - name: Upload Phase 5 migration report
-        if: ${{ always() && github.ref_name == 'phase5-one-shot-migration' }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: phase5-migration-report-${{ github.sha }}
-          path: .migration/migration-report.json
-          if-no-files-found: warn
-          retention-days: 30
-
-      - name: Revoke Phase 5 temporary HomeMew credential
-        if: ${{ always() && github.ref_name == 'phase5-one-shot-migration' }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [ -z "${LIFESPACE_PHASE5_CREDENTIAL_ID:-}" ]; then
-            echo "No Phase 5 temporary credential was created"
-            exit 0
-          fi
-          CREDENTIAL_ID="$LIFESPACE_PHASE5_CREDENTIAL_ID" node --input-type=module <<'NODE'
-          const applicationId = "app_homemew_staging";
-          const response = await fetch(`${process.env.LIFESPACE_IDENTITY_STAGING_URL}/bootstrap/v1/applications/${applicationId}/credentials/${encodeURIComponent(process.env.CREDENTIAL_ID)}`, {
-            method: "DELETE",
-            headers: { "x-bootstrap-secret": process.env.LIFESPACE_STAGING_BOOTSTRAP_SECRET },
-          });
-          if (response.status !== 204) {
-            const text = await response.text();
-            throw new Error(`Unable to revoke temporary HomeMew staging credential: ${response.status} ${text}`);
-          }
-          console.log("Phase 5 temporary HomeMew credential revoked");
-          NODE
-
       - name: Summarize staging deployment
         if: ${{ success() }}
         run: |
@@ -260,6 +204,5 @@ jobs:
           - Proving models (Task/Wish/Day Record/Event): passed
           - Registry-driven Creation Draft Queue: reached a valid terminal state
           - Ephemeral smoke PAT: maximum 15-minute lifetime; cleanup attempted
-          ${{ github.ref_name == 'phase5-one-shot-migration' && '- Phase 5 HomeMew one-shot migration rehearsal: passed; report artifact uploaded; temporary credential revoked.' || '' }}
-          - Production target resources and HomeMew source data were not mutated.
+          - Production and HomeMew traffic/data were not touched.
           EOF
