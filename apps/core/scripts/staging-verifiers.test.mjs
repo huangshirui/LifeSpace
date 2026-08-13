@@ -9,6 +9,7 @@ const scripts = [
   new URL("../../../infra/scripts/verify-staging-http.mjs", import.meta.url),
   new URL("../../../infra/scripts/verify-staging-models.mjs", import.meta.url),
   new URL("../../../infra/scripts/verify-staging-creation-draft.mjs", import.meta.url),
+  new URL("../../../infra/scripts/verify-staging-homemew-integration.mjs", import.meta.url),
 ];
 
 test("staging verifier scripts remain valid Node syntax", () => {
@@ -20,7 +21,7 @@ test("staging verifier scripts remain valid Node syntax", () => {
   }
 });
 
- test("staging expectations derive contract/schema versions from repository sources", async () => {
+test("staging expectations derive contract/schema versions from repository sources", async () => {
   const { STAGING_EXPECTATIONS } = await import("../../../infra/scripts/staging-expectations.mjs");
   assert.match(STAGING_EXPECTATIONS.core.contractVersion, /^\d+\.\d+\.\d+$/u);
   assert.match(STAGING_EXPECTATIONS.identity.contractVersion, /^\d+\.\d+\.\d+$/u);
