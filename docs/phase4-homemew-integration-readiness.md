@@ -1,42 +1,46 @@
 # Phase 4 — HomeMew Integration Readiness
 
-Status: **In progress — application boundary staging-verified; handoff export pending final gate**
+Status: **Complete**
 
-Updated: 2026-08-13
+Completed: 2026-08-13
 
-## 1. Goal
+## 1. Outcome
 
-Phase 4 makes LifeSpace's final application-facing platform surface explicit and staging-verifiable for the redesigned HomeMew Mini Program + Cloudflare backend.
+Phase 4 freezes the LifeSpace application-facing surface that the redesigned HomeMew Mini Program + Cloudflare backend may consume.
 
-This phase changes **LifeSpace only**. It does not adapt the old HomeMew Mini Program or WeChat Cloud Functions, migrate HomeMew durable production data, deploy LifeSpace production, or switch HomeMew production traffic.
+This phase changed **LifeSpace only**. It did not adapt the old HomeMew Mini Program or WeChat Cloud Functions, migrate HomeMew durable production data, deploy LifeSpace production, or switch HomeMew production traffic.
 
-The Phase 4 output is an integration contract that HomeMew can consume independently and that Phase 5 migration tooling can target without inventing application-specific platform behavior.
+The accepted handoff is explicit and version-pinned. HomeMew must not consume an unversioned latest contract.
 
-## 2. Entry baseline
+## 2. Accepted contract tuple
 
-Phase 3 is complete, including metadata-driven Generic Runtime, typed physical storage, current-state authorization, deterministic Model Contracts and the representative APAC performance gate.
-
-Phase 4 starts from the following proving combination:
+The Phase-4 HomeMew handoff is frozen as:
 
 ```text
-Core Kernel Contract: 0.12.0
-Core D1 schema:        24
 Identity Contract:    0.4.0
 Identity D1 schema:   4
+Core Kernel Contract: 0.12.0
+Core D1 schema:       24
 Model Contract:       mct_9a3d9588da8591ab376ef000e5e661f670a64dd8b1ebc14fd146580f0ed1fa45
+Integration Profile:  infra/homemew-integration-profile.json (profileVersion 1, accepted)
 ```
 
-The Model Contract revision remains a proving revision until the complete Phase 4 exit gate accepts a concrete revision for HomeMew handoff.
+The machine-readable profile has `status=accepted` and `contracts.pinStatus=accepted`.
 
-## 3. HomeMew application integration profile
+The accepted Model Contract contains:
 
-The machine-readable Phase 4 profile is `infra/homemew-integration-profile.json`.
+| Model | Route | Version | HomeMew maximum access |
+| --- | --- | ---: | --- |
+| Day Record | `day-records` | 1 | `write` |
+| Event | `events` | 2 | `write` |
+| Task | `tasks` | 2 | `write` |
+| Wish | `wishes` | 3 | `write` |
 
-Until Phase 4 closes it is marked `phase4-candidate`. The exit gate freezes the accepted values and changes the handoff status; downstream HomeMew code must not infer an unversioned `latest` contract.
+Any future breaking Kernel, Identity, Model Contract or integration-profile change requires a new explicit downstream compatibility/migration decision. The accepted tuple is not replaced by an unversioned active/latest value.
 
-### Trusted backend boundary
+## 3. Trusted HomeMew backend boundary
 
-The redesigned HomeMew Cloudflare backend owns WeChat provider integration and the mapping:
+The redesigned HomeMew Cloudflare backend owns WeChat/provider identity and the mapping:
 
 ```text
 trusted WeChat openid
@@ -44,20 +48,20 @@ trusted WeChat openid
   -> LifeSpace usr_*
 ```
 
-After resolving that mapping, the backend authenticates to LifeSpace Identity with a server-only `lsa_*` trusted-application credential and calls `POST /internal/v1/tokens` to obtain a short-lived HomeMew-app-scoped user token.
+After resolving the mapping, the trusted HomeMew backend authenticates to LifeSpace Identity with a server-only `lsa_*` application credential and calls `POST /internal/v1/tokens` for a short-lived HomeMew-app-scoped user token.
 
-The Mini Program must never receive an `lsa_*` credential and must never be trusted to assert an arbitrary LifeSpace `user_id` directly to Identity.
+The Mini Program must never receive the `lsa_*` credential and must never be trusted to assert an arbitrary LifeSpace user ID directly to Identity.
 
-`lsa_*` is the explicit application authorization mechanism. HTTPS and a same-account Cloudflare Service Binding are transport choices only. A Service Binding may be adopted to reduce network overhead, but it does not replace application identity, scope ceilings, credential rotation or revocation. Any later replacement mechanism requires a separately approved trust model with equivalent properties.
+HTTPS and a same-account Cloudflare Service Binding are transport choices only. They do not replace explicit application identity, scope ceilings, credential rotation or revocation.
 
-### User token policy
+## 4. Accepted HomeMew user-token policy
 
-Candidate HomeMew application policy:
+The accepted policy is:
 
 - client type: `mini_program`;
 - trusted backend: enabled;
-- access-token TTL: 900 seconds (15 minutes);
-- allowed user scopes:
+- LifeSpace access-token TTL: **900 seconds (15 minutes)**;
+- allowed scopes:
   - `profile:read`;
   - `profile:write`;
   - `spaces:read`;
@@ -66,100 +70,75 @@ Candidate HomeMew application policy:
   - `resources:read`;
   - `resources:write`;
   - `creation-drafts:read`;
-  - `creation-drafts:write`.
+  - `creation-drafts:write`;
+- `models:manage` is explicitly forbidden.
 
-The 900-second value is the LifeSpace access-token lifetime, not the HomeMew/WeChat login-session lifetime. A trusted HomeMew backend may transparently obtain a fresh short-lived user token after it has resolved the authenticated WeChat identity to the corresponding LifeSpace user.
+The 900-second access-token TTL is independent of the HomeMew/WeChat login-session lifetime. The trusted backend may obtain a new short-lived token after resolving an authenticated WeChat identity to the corresponding LifeSpace user.
 
-`models:manage` is explicitly forbidden from ordinary HomeMew user tokens. Model Registry / AI Admin authority remains a separate platform-administration path.
+Effective resource authority remains the intersection of the verified principal, current Space/Data Grant authority, application scope ceiling, Application × Model Access and model Policy/Capability rules.
 
-Identity derives token `azp` from the authenticated `lsa_*` credential and rejects scopes outside the current registered application ceiling.
+## 5. Frozen capability review
 
-### Application × Model Access
+All 13 frozen HomeMew backend capability groups have a final native LifeSpace surface:
 
-Candidate HomeMew model access is:
-
-| Model | Maximum access |
-| --- | --- |
-| Task (`task`) | `write` |
-| Wish (`wish`) | `write` |
-| Day Record (`day_record`) | `write` |
-| Event (`event`) | `write` |
-
-This catalog is independent of stable `resources:*` token scopes. Effective access still intersects current Space membership/Data Grants, Application × Model Access, model access requirements and Policy/Capability rules.
-
-## 4. Frozen capability review
-
-Phase 4 rechecks the Phase-2 parity matrix against the final Phase-3 runtime rather than against removed Phase-2 dedicated domain implementations.
-
-Required HomeMew platform surfaces are:
-
-| Capability | Final LifeSpace surface | Phase 4 state |
+| Capability | Final LifeSpace surface | Phase-4 result |
 | --- | --- | --- |
-| User profile/avatar | Identity `/api/v1/me` + user avatar asset | Native surface retained; HomeMew-scoped profile access staging-verified |
-| Family | `Space(kind=family)` | Native Kernel surface retained and covered by platform staging regression |
-| Membership / represented people | Membership + Space Person | Native Kernel surface retained and covered by platform staging regression |
-| Invitations | Space invitations | Native Kernel surface retained and covered by platform staging regression |
-| Family avatar | Core Space avatar | Native surface retained; staging regression passed |
-| Events | metadata-driven Event + Calendar Capability | Final Phase-3 runtime; staging proving-model regression passed |
-| Tasks | metadata-driven Task + Workflow | Final Phase-3 runtime; staging proving-model regression passed |
-| Day Records | metadata-driven Day Record + Temporal Capability | Final Phase-3 runtime; staging proving-model regression passed |
-| Wishes | metadata-driven Wish + Policy/Workflow | Final Phase-3 runtime; staging proving-model regression passed |
-| Creation Draft | Registry-driven Creation Draft / Queue | Final Registry-driven surface; staging Queue regression passed |
-| Owner-controlled integrations | service principal + `lsp_pat_*` + Data Grant | Native service-auth surface retained; staging regression passed |
-| OAuth service integrations | service principal + OAuth `client_credentials` + Data Grant | Native service-auth surface retained; staging regression passed |
-| Trusted application user exchange | `lsa_*` -> short-lived app-scoped user token | Identity 0.4.0; HomeMew-specific staging gate passed |
+| System / principal context | Identity/Core health, status and `/api/v1/me` | Accepted |
+| User profile/avatar | Identity profile + user avatar | Accepted |
+| Family | `Space(kind=family)` | Accepted |
+| Membership / represented people | Membership + Space Person | Accepted |
+| Invitations | Space invitations | Accepted |
+| Family avatar | Core Space avatar | Accepted |
+| Events | metadata-driven Event + Calendar Capability | Accepted |
+| Tasks | metadata-driven Task + Workflow | Accepted |
+| Day Records | metadata-driven Day Record + Temporal Capability | Accepted |
+| Wishes | metadata-driven Wish + Policy/Workflow | Accepted |
+| Creation Draft | Registry-driven Creation Draft / Queue | Accepted |
+| External integrations | service principal + `lsp_pat_*` or OAuth + Data Grant | Accepted |
+| Trusted application user exchange | `lsa_*` -> short-lived app-scoped user token | Accepted |
 
-A capability is not considered missing merely because its Phase-2 handwritten route no longer exists. The final metadata-driven contract and runtime are authoritative.
+No frozen capability requires a legacy `/api/v1/families/...` compatibility route, legacy token acceptance, runtime user-ID-to-Person translation, or an additional HomeMew-specific Core runtime.
 
-No frozen HomeMew capability currently requires a legacy LifeSpace compatibility route or an additional HomeMew-specific Core runtime implementation.
+## 6. Staging evidence
 
-## 5. Phase 4 staging gate
+### Application-boundary proof
 
-`Deploy staging` must prove a dedicated HomeMew-like application boundary in addition to the generic platform smoke tests.
+`Deploy staging` run #28 / run ID `31692421666` passed on commit `489977b97d6483915c2f33e9287231b27ef829e2`.
 
-The HomeMew integration verifier establishes that:
+It proved the dedicated HomeMew application registration, exact 900-second token TTL/scope set, `azp=app_homemew_staging`, `models:manage` rejection, four-model `write` access, Identity profile access, Core membership context, credential redaction/revocation and final proving-model/Creation-Draft behavior.
 
-1. staging contains the canonical HomeMew staging application registration with the exact profile policy;
-2. a fresh `lsa_*` credential can exchange an already-resolved active `usr_*` for a short-lived user token;
-3. token `azp`, subject, principal type, scope set and TTL match the profile;
-4. requesting `models:manage` or another scope outside the HomeMew ceiling is rejected;
-5. the HomeMew application has exactly the required Application × Model Access rows for the proving HomeMew model set;
-6. the HomeMew-scoped token can read Identity profile and reach Core using the existing authenticated Space membership;
-7. the four HomeMew ordinary model routes authorize through the HomeMew application catalog;
-8. replacement/revocation semantics remain proven by the generic Identity application-credential lifecycle verifier;
-9. no application credential plaintext or secret hash appears in metadata output.
+### Exporter-enabled final gate
 
-The gate must not grant `models:manage` to the HomeMew application merely to make platform-admin regression convenient.
+`Deploy staging` run #29 / run ID `31694445585` passed on commit `76499060dd736655b218b1a1e00902fb7d988682`.
 
-### Successful application-boundary run
+Every workflow step passed, including:
 
-The first complete Phase-4 application-boundary gate passed on 2026-08-13:
+- repository validation;
+- Core/Identity migration and staging convergence;
+- HomeMew integration readiness verifier;
+- active immutable Model Contract pointer;
+- final proving-model platform regression;
+- typed-runtime performance measurement;
+- Registry-driven Creation Draft Queue;
+- **Export and prove pinned HomeMew handoff reproducibility**;
+- **Upload HomeMew contract handoff**.
 
-- workflow: `Deploy staging`;
-- run: #28;
-- GitHub Actions run ID: `31692421666`;
-- branch: `phase4-homemew-integration-readiness`;
-- tested commit: `489977b97d6483915c2f33e9287231b27ef829e2`;
-- result: **success**.
-
-The run verified Core `0.12.0` / schema `24`, Identity `0.4.0` / schema `4`, active Model Contract `mct_9a3d9588da8591ab376ef000e5e661f670a64dd8b1ebc14fd146580f0ed1fa45`, `azp=app_homemew_staging`, the exact 900-second user-token TTL and scope set, `models:manage` rejection, four-model `write` access, Identity profile access, Core membership context, credential redaction/revocation, proving-model behavior and Registry-driven Creation Draft behavior.
-
-This run establishes the application authorization boundary. A newer branch commit is still required to pass after the contract handoff exporter is added.
-
-## 6. Contract handoff
-
-HomeMew will consume an explicit compatible tuple:
+The uploaded workflow artifact is:
 
 ```text
-Identity Contract
-+ Core Kernel Contract
-+ Model Contract revision
-+ HomeMew integration profile
+artifact id:   9178811267
+artifact name: homemew-contract-handoff-76499060dd736655b218b1a1e00902fb7d988682
+artifact sha256: 7e4cf049367e8babfcd531e8973b33e09e33b62a63a79552561253ecbbda4d3e
+candidate bundle id: hmb_d6f6a4ef08e7312ee702ff48e52e205956841ac01dacec58c3cca31b31b7944d
 ```
 
-The repository-owned canonical contracts remain `apps/identity/openapi.yaml`, `apps/core/openapi.yaml` and the immutable generated Model Contract revision. Any HomeMew snapshot/package is generated/read-only handoff material, not a second source of truth.
+The bundle checksum manifest was independently rechecked during closeout: all seven hashed payloads matched. No actual `lsa_*` credential, `lsp_pat_*` credential, secret hash, signing private key or bootstrap secret was present. `clientSecret` text in Identity OpenAPI is only a write-only schema/property definition, not credential material.
 
-`packages/contracts` now implements the Phase-4 HomeMew handoff exporter. It verifies the deployed Identity/Core versions, retrieves the **exact profile-pinned `mct_*` revision** through the service-only Model Admin contract-read API, and exports:
+The staging artifact was generated immediately before the publication-state flip from candidate to accepted. The closeout flip changes only `status` / `pinStatus`; it does not change the accepted contract versions, Model Contract, scopes, TTL, model access, routes or runtime behavior. Final repository CI validates the accepted profile after this flip.
+
+## 7. Reproducible handoff
+
+`packages/contracts` is the read-only publication/export surface. The HomeMew exporter reads the **exact profile-pinned `mct_*`**, never an active/latest contract, and exports:
 
 - Identity OpenAPI;
 - Core Kernel OpenAPI;
@@ -167,30 +146,27 @@ The repository-owned canonical contracts remain `apps/identity/openapi.yaml`, `a
 - Model Contract JSON Schema;
 - Model Contract manifest;
 - HomeMew integration profile;
-- deterministic handoff manifest;
-- SHA-256 checksums and a deterministic `hmb_*` bundle id.
+- handoff manifest;
+- SHA-256 checksum manifest with deterministic `hmb_*` bundle identity.
 
-No `lsa_*`, `lsp_pat_*`, signing key, bootstrap secret or Model Admin bearer is written into the artifact. The Model Admin bearer exists only while the exporter reads the immutable pinned contract revision.
+Canonical sources remain service-owned; generated artifacts are not a second editable source of truth.
 
-The normal staging workflow uploads `packages/contracts/dist/homemew` as a read-only workflow artifact after the integration/platform gates pass. A final successful run on the exporter-enabled commit is required before the Phase-4 contract tuple can be marked accepted.
+## 8. Exit gate
 
-Phase 4 may still create a newer compatible `mct_*` if a genuine integration gap is found. The accepted revision is frozen only when the exit gate passes.
+Phase 4 is complete because:
 
-## 7. Exit gate
+- the trusted HomeMew backend boundary is explicit and staging-verified;
+- the HomeMew scope ceiling and 900-second access-token TTL are explicit and least-privilege;
+- platform-admin `models:manage` authority is excluded;
+- Task/Wish/Day Record/Event Application × Model Access is explicit and verified;
+- all frozen HomeMew backend capabilities have final native LifeSpace surfaces;
+- Identity `0.4.0`, Core Kernel `0.12.0` and one immutable Model Contract revision are accepted;
+- reproducible/read-only handoff generation and upload are staging-proven;
+- repository validation passed on the exporter-enabled candidate and is required again for the accepted closeout commit;
+- production and HomeMew production traffic/data were untouched.
 
-Phase 4 closes only when all of the following are true:
+## 9. Boundary after Phase 4
 
-- the final HomeMew trusted-backend boundary is documented and staging-verified;
-- the HomeMew application scope ceiling and token TTL are explicit and least-privilege;
-- `models:manage` and other platform-admin authority are absent from HomeMew user tokens;
-- HomeMew Application × Model Access is explicit and verified;
-- every frozen HomeMew backend capability has a final native LifeSpace surface or an explicit approved retirement decision;
-- Identity/Core Kernel versions and one Model Contract revision are accepted for HomeMew handoff;
-- reproducible/read-only handoff artifacts can be generated for the HomeMew project;
-- repository checks and the normal `Deploy staging` workflow pass on the exporter-enabled Phase-4 candidate;
-- no criterion requires modifying the old HomeMew Mini Program or WeChat Cloud Functions;
-- production and HomeMew production traffic/data remain untouched.
+Phase 4 completion does **not** mean the broader `HomeMew Integration Ready` milestone is complete. That milestone also requires the separately planned Phase 5 migration tooling/rehearsal gate defined in `docs/migration-plan.md`.
 
-Current remaining blocker: **run the normal staging gate on the exporter-enabled PR head, confirm the uploaded handoff artifact and its deterministic checksum manifest, then freeze the accepted contract tuple.**
-
-Phase 5 then owns deterministic one-shot migration tooling and rehearsal against this accepted final surface.
+**Phase 5 remains Planned and is not started by this closeout.**
