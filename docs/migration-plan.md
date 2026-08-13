@@ -1,6 +1,6 @@
 # HomeMew Core -> LifeSpace Migration Plan
 
-Updated: 2026-08-11
+Updated: 2026-08-13
 
 ## 1. Goal
 
@@ -8,7 +8,7 @@ Migrate HomeMew's production-used shared backend capabilities into the **final**
 
 LifeSpace is the sole source of truth for global Identity, Space/Data Grant authorization, shared business models, migrations, contracts and platform deployment configuration. HomeMew remains an application that owns UI, WeChat/provider identity mapping, app-specific Cloud Functions/BFF behavior and product-only policy.
 
-Phase 2 proved native capability parity but HomeMew has not migrated any production traffic or durable data. Before client/data migration, LifeSpace now intentionally replaces the Phase-2 handwritten-domain Core with the metadata-driven platform defined in `docs/phase3-metadata-platform-plan.md`.
+Phase 2 proved native capability parity but HomeMew has not migrated any production traffic or durable data. Phase 3 replaced the Phase-2 handwritten-domain Core with the metadata-driven platform defined in `docs/phase3-metadata-platform-plan.md` and completed typed-storage/performance convergence before any HomeMew cutover.
 
 ## 2. Non-negotiable principles
 
@@ -23,7 +23,7 @@ Phase 2 proved native capability parity but HomeMew has not migrated any product
 - Secrets are re-provisioned/rotated, never copied through ordinary data export.
 - Migration acceptance requires semantic, authorization and relationship verification, not only row counts.
 - Keep HomeMew production Core operational until native client migration, full staging rehearsal and production cutover gates pass.
-- Do not migrate HomeMew clients/data to the Phase-2 intermediate domain schema. Migration resumes only after Phase 3 metadata-platform exit.
+- HomeMew clients/data must target the final Phase-3 metadata-driven/typed-storage contract, never the discarded Phase-2 or intermediate JSON representation.
 
 ## 3. Final target runtime
 
@@ -70,7 +70,7 @@ There is no permanent production target where `homemew.aisr.online` or `/api/v1/
 - External integration definitions and non-secret audit mappings.
 - Version, audit and deletion metadata required to preserve behavior.
 
-Phase 4+ transforms target the final metadata-driven Resource/Capability schema, not the discarded Phase-2 dedicated domain tables.
+Phase 5+ transforms target the final metadata-driven Resource/Capability schema, not discarded dedicated-domain or JSON storage.
 
 ### Object storage — copy and verify
 
@@ -121,7 +121,7 @@ Authorization membership and represented household person remain distinct. Busin
 
 HomeMew Event, Task, Day Record and Wish data transform directly into the final published Model Definitions plus Generic Runtime/Capability persistence determined by Phase 3.
 
-Do not first import production data into the Phase-2 dedicated `events`, `tasks`, `day_records` or `wishes` target tables and then migrate it again.
+Do not first import production data into Phase-2 dedicated tables or the discarded `resource_records.data_json` representation and then migrate it again.
 
 ### Data Grants
 
@@ -138,8 +138,8 @@ HomeMew system identities/family access become LifeSpace service principals + Da
 | Phase 0 | **Complete** | Baseline inventory, freeze rules and migration controls |
 | Phase 1 | **Complete** | LifeSpace Identity/Core/Space/Grant foundation + staging infrastructure |
 | Phase 2 | **Complete** | Native replacement/proof of every frozen production-used HomeMew backend capability |
-| Phase 3 | **In progress** | Metadata-driven / AI-native Model Platform and Generic Runtime |
-| Phase 4 | Planned | HomeMew native client/Cloud Function/integration adaptation to final contract |
+| Phase 3 | **Complete** | Metadata-driven/AI-native runtime + typed storage + APAC performance convergence |
+| Phase 4 | **In progress** | HomeMew native client/Cloud Function/integration adaptation to final contract |
 | Phase 5 | Planned | Final-schema migration tooling and full staging data rehearsal |
 | Phase 6 | Planned | Production cutover preparation |
 | Phase 7 | Planned | Controlled production data cutover |
@@ -171,64 +171,60 @@ Completed capabilities include:
 - native Creation Draft Queue, TTL/privacy/rate-limit behavior;
 - deterministic transforms for the Phase-2 target and explicit ephemeral non-migration decisions.
 
-Phase-2 exit contracts were Core `0.11.0` / D1 v9 and Identity `0.3.0` / D1 v4. These are **historical Phase-2 exit contracts**, not the contract HomeMew will now migrate to.
+Phase-2 exit contracts were Core `0.11.0` / D1 v9 and Identity `0.3.0` / D1 v4. These are **historical Phase-2 exit contracts**, not the contract HomeMew will migrate to.
 
 No HomeMew production traffic or durable data was switched to those contracts.
 
 ## 10. Phase 3 — Metadata-driven / AI-native platform
 
-**In progress.** Normative implementation plan: `docs/phase3-metadata-platform-plan.md`.
+**Complete on 2026-08-13.** Normative implementation plan: `docs/phase3-metadata-platform-plan.md`; final evidence: `docs/phase3-status.md` and `docs/phase3-performance-convergence-plan.md`.
 
-Purpose:
+Phase 3 replaced handwritten ordinary-domain runtime with:
 
-> Adding an ordinary LifeSpace business model must not require modifying Core runtime source code.
-
-Phase 3 preserves Kernel/security assets from Phases 1–2 while replacing handwritten ordinary-domain runtime with:
-
-- Model Definition v1;
-- immutable/versioned Model Registry;
-- strongly governed Generic Resource Storage;
+- Model Definition v1 and immutable/versioned Model Registry;
+- isolate-memory Runtime Model Descriptor cache;
+- deterministic Physical Schema Compiler;
+- final `resource_records + mdl_<model_key> + resource_relations + Capability projections` storage;
 - Generic CRUD/query/relation/concurrency/soft-delete runtime;
-- model authorization/scope catalog;
-- safe Policy/Workflow/computed-field engines;
-- deterministic contract generation;
+- current-state model authorization/Application × Model Access;
+- safe Policy/Workflow engines;
+- deterministic content-addressed model contracts;
 - Calendar and Temporal reusable capabilities;
 - Registry-driven Creation Draft / AI Interpretation;
-- destructive cleanup of replaced Phase-2 dedicated domain runtime before any HomeMew cutover.
+- destructive cleanup of replaced Phase-2 and intermediate JSON/index persistence.
 
-Proving order:
+Final proving versions:
 
 ```text
-Task -> Wish -> Day Record -> Event -> Creation Draft genericization
+Core Kernel Contract 0.12.0
+Core D1 schema 24
+Identity Contract 0.3.0
+Identity D1 schema 4
 ```
 
-### Phase 3 exit gate
+The representative APAC performance gate passed on 2026-08-13 (Action run ID `31664559657`). Common read P50 measured **44–92 ms** and P90 **57–111 ms**, comfortably inside the Phase-3 target of P50 <= 220 ms and P90 <= 500 ms. D1 round-trip budgets are independently enforced in CI.
 
-The complete exit gate is maintained in `docs/phase3-metadata-platform-plan.md`. At minimum:
-
-- ordinary models can be published without Core source changes;
-- Generic Runtime enforces schema/Space/authorization/concurrency/soft delete;
-- Task/Wish run without handwritten domain runtime;
-- Day Record uses Temporal capability;
-- Event uses Calendar capability;
-- model contract generation is reproducible;
-- Creation Draft discovers models from Registry;
-- staging Kernel/Identity/service-auth/R2/Queue/four-domain semantic E2E passes;
-- final HomeMew migration transforms/contracts are regenerated only after this architecture is stable.
-
-HomeMew client/data migration is blocked until this gate passes.
+The Phase-3 migration blocker is therefore cleared.
 
 ## 11. Phase 4 — HomeMew native client migration to final contract
 
-HomeMew becomes an ordinary LifeSpace application against the **post-Phase-3 generated contract** before any production data cutover.
+**In progress.** HomeMew becomes an ordinary LifeSpace application against the **post-Phase-3 generated contract** before any production data cutover.
 
 ### Contract pinning
 
-HomeMew pins the final Core contract produced by Phase 3 and compatible Identity contract. It must never silently consume unversioned latest contracts.
+HomeMew must pin an explicit compatible contract pair:
+
+```text
+Kernel Contract: 0.12.0
+Model Contract:  mct_<exact accepted revision>
+Identity Contract: 0.3.0
+```
+
+The exact Model Contract revision used by the HomeMew release candidate must be captured from LifeSpace staging and checked/generated into the HomeMew application build surface. HomeMew must never silently consume an unversioned latest contract.
 
 ### Mini Program / data layer
 
-Application terminology may remain “家庭/成员”, while data-layer semantics use Space, membership, Space Person, Model Registry generated domain contracts and final relation IDs.
+Application terminology may remain “家庭/成员”, while data-layer semantics use Space, membership, Space Person, generated model routes and final relation IDs.
 
 Migrate all frozen flows:
 
@@ -252,13 +248,23 @@ Mini Program login
 
 The Mini Program never submits an arbitrary `user_id` to obtain a token.
 
+### Phase 4 first implementation slice
+
+1. inventory current HomeMew Mini Program/Cloud Function/Core coupling against the final LifeSpace Kernel + Model Contract;
+2. pin the exact staging contract pair used by the migration branch/release candidate;
+3. introduce staging-only LifeSpace client/auth configuration without switching production traffic;
+4. adapt login/external identity exchange first, then Space/membership identity semantics;
+5. migrate one proving ordinary model end-to-end (Task) before expanding to Wish/Day Record/Event;
+6. keep existing HomeMew production Core as the active source until the complete Phase-4 exit gate passes.
+
 ### Phase 4 exit gate
 
 - release-candidate Mini Program/Cloud Functions run against final LifeSpace staging APIs only;
 - all frozen user/family/member/domain/integration/Creation Draft flows pass app E2E;
 - login uses LifeSpace Identity-backed app-scoped tokens;
 - external integrations use LifeSpace credentials/Grants;
-- no supported request depends on legacy HomeMew compatibility behavior.
+- no supported request depends on legacy HomeMew compatibility behavior;
+- production HomeMew Core remains unchanged until an explicit later cutover decision.
 
 ## 12. Phase 5 — Final-schema migration tooling and full staging rehearsal
 
