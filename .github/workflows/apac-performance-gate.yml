@@ -68,6 +68,7 @@ jobs:
           set -euo pipefail
           node --check infra/scripts/staging-performance-benchmark.mjs
           node --check infra/scripts/verify-staging-apac-performance.mjs
+          node --check infra/scripts/wait-staging-apac-probe.mjs
           node --check infra/performance-probe/worker.mjs
           pnpm --dir apps/core exec wrangler deploy --dry-run --config ../../infra/performance-probe/wrangler.jsonc
 
@@ -114,14 +115,8 @@ jobs:
           echo "LIFESPACE_APAC_PROBE_URL=$PROBE_URL" >> "$GITHUB_ENV"
           echo "APAC probe URL resolved"
 
-      - name: Wait for APAC probe
-        shell: bash
-        run: |
-          set -euo pipefail
-          curl --fail --silent --show-error --retry 12 --retry-delay 2 --retry-all-errors \
-            "${LIFESPACE_APAC_PROBE_URL}/health" \
-            -H "x-lifespace-probe-token: ${LIFESPACE_APAC_PROBE_TOKEN}"
-          echo
+      - name: Wait for APAC probe benchmark route
+        run: node infra/scripts/wait-staging-apac-probe.mjs
 
       - name: Enforce representative APAC performance targets
         run: node infra/scripts/verify-staging-apac-performance.mjs
@@ -144,6 +139,7 @@ jobs:
 
           - Probe placement: explicitly targeted near `aws:ap-southeast-1`.
           - Probe access: ephemeral random credential; staging user bearer stored only as a temporary Worker secret.
+          - Readiness: both `/health` and the real `POST /run -> Core` read path must converge before timed samples start.
           - Benchmark profile: `apac`, acceptance eligible.
           - Common read target: P50 <= 220 ms and P90 <= 500 ms.
           - D1 round-trip budgets: independently enforced by repository integration tests.
