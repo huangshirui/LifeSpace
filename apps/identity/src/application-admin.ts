@@ -120,7 +120,7 @@ export function registerApplicationAdminRoutes(app: Hono<AppEnv>) {
     }
 
     const assignments: string[] = [];
-    const values: unknown[] = [];
+    const values: Array<string | number> = [];
     if ("name" in input) {
       if (typeof input.name !== "string" || !input.name.trim() || input.name.trim().length > 100) {
         return c.json(fail("VALIDATION_ERROR", "name must contain 1-100 characters", c.get("requestId")), 422);
