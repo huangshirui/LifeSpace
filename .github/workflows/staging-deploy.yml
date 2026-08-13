@@ -59,6 +59,9 @@ jobs:
       - name: Validate repository
         run: pnpm check
 
+      - name: Validate staging verifier syntax
+        run: node --check infra/scripts/verify-staging-application-admin.mjs
+
       - name: Resolve expected staging versions
         run: node infra/scripts/staging-expectations.mjs
 
@@ -130,6 +133,9 @@ jobs:
       - name: Prepare ephemeral authenticated staging smoke
         run: node infra/scripts/prepare-staging-smoke.mjs
 
+      - name: Verify trusted application credential lifecycle
+        run: node infra/scripts/verify-staging-application-admin.mjs
+
       - name: Verify authenticated Kernel and Model Contract
         run: node infra/scripts/verify-staging-http.mjs
 
@@ -161,6 +167,7 @@ jobs:
           - Core: schema v${LIFESPACE_EXPECTED_CORE_SCHEMA_VERSION} / Kernel contract ${LIFESPACE_EXPECTED_CORE_CONTRACT_VERSION}
           - Identity: schema v${LIFESPACE_EXPECTED_IDENTITY_SCHEMA_VERSION} / contract ${LIFESPACE_EXPECTED_IDENTITY_CONTRACT_VERSION}
           - Platform D1 convergence: passed
+          - Trusted application credential replacement/revocation lifecycle: passed
           - Typed model storage / legacy JSON cleanup: passed
           - D1 hot-path budgets: passed in repository validation
           - Staging HTTP performance benchmark: recorded in workflow logs
