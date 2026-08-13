@@ -10,7 +10,7 @@ LifeSpace owns global Identity, Space/Data Grant authorization, shared business 
 
 The redesigned HomeMew Mini Program and its Cloudflare backend are developed independently in the HomeMew project. They are **not** an intermediate step in this LifeSpace migration plan, and the existing WeChat Cloud Functions are not adapted to LifeSpace as a temporary bridge.
 
-Phase 2 proved native capability parity without production cutover. Phase 3 replaced the handwritten-domain proving runtime with the final metadata-driven/typed-storage platform and completed APAC performance convergence. The remaining LifeSpace work is to become integration-ready and migration-ready for the future HomeMew release.
+Phase 2 proved native capability parity without production cutover. Phase 3 replaced the handwritten-domain proving runtime with the final metadata-driven/typed-storage platform and completed APAC performance convergence. Phase 4 then froze the application-facing LifeSpace surface and HomeMew integration boundary. Phase 5 remains separately planned for one-shot migration tooling and rehearsal.
 
 ## 2. Non-negotiable principles
 
@@ -141,9 +141,9 @@ HomeMew system identities/family access become LifeSpace service principals + Da
 | Phase 1 | **Complete** | LifeSpace Identity/Core/Space/Grant foundation + staging infrastructure |
 | Phase 2 | **Complete** | Native replacement/proof of every frozen production-used HomeMew backend capability |
 | Phase 3 | **Complete** | Metadata-driven/AI-native runtime + typed storage + APAC performance convergence |
-| Phase 4 | **In progress** | **HomeMew Integration Readiness** — finish/freeze the LifeSpace platform surface HomeMew will consume |
-| Phase 5 | Planned | **One-shot Migration Tooling & Rehearsal** — deterministic final-schema migration and staging rehearsal |
-| Milestone | Planned | **HomeMew Integration Ready** — LifeSpace is ready for independent HomeMew development and a later one-shot cutover |
+| Phase 4 | **Complete** | **HomeMew Integration Readiness** — frozen LifeSpace application surface, trusted-backend boundary and reproducible handoff |
+| Phase 5 | **Planned — not started** | **One-shot Migration Tooling & Rehearsal** — deterministic final-schema migration and staging rehearsal |
+| Milestone | Planned | **HomeMew Integration Ready** — reached only after both Phase 4 and Phase 5 pass |
 | Phase 6 | Planned | LifeSpace production platform bring-up with no HomeMew production data/traffic |
 | Phase 7 | Planned | Controlled one-shot HomeMew production data migration and application cutover |
 | Phase 8 | Planned | Stabilization and retirement of old HomeMew shared Core/infrastructure |
@@ -211,63 +211,62 @@ The Phase-3 blocker is cleared.
 
 ## 11. Phase 4 — HomeMew Integration Readiness
 
-**In progress.** This phase changes **LifeSpace only**. It does not migrate the existing HomeMew Mini Program or WeChat Cloud Functions.
+**Complete on 2026-08-13.** This phase changed **LifeSpace only**. It did not migrate the existing HomeMew Mini Program or WeChat Cloud Functions, move HomeMew durable data, deploy LifeSpace production or switch production traffic.
 
-The goal is to make the platform surface complete, stable and documented enough that the redesigned HomeMew Mini Program + Cloudflare backend can be developed independently against it.
-
-### Current proving contract
-
-The currently proven staging combination is:
+The accepted HomeMew contract tuple is:
 
 ```text
 Core Kernel Contract: 0.12.0
-Model Contract:  mct_9a3d9588da8591ab376ef000e5e661f670a64dd8b1ebc14fd146580f0ed1fa45
-Identity repository contract: 0.4.0
-Identity D1 schema: 4
+Core D1 schema:        24
+Model Contract:       mct_9a3d9588da8591ab376ef000e5e661f670a64dd8b1ebc14fd146580f0ed1fa45
+Identity Contract:    0.4.0
+Identity D1 schema:   4
+Integration Profile:  infra/homemew-integration-profile.json / profileVersion 1 / accepted
 ```
 
-The `mct_*` above is a **current proving revision**, not yet the permanent HomeMew release contract. Phase 4 may legitimately produce compatible contract revisions while integration gaps are closed. The exact HomeMew integration contract is frozen only at the **HomeMew Integration Ready** milestone.
+The accepted HomeMew application boundary is:
 
-Identity 0.4.0 adds generic trusted-application metadata/policy inspection and `lsa_*` replacement/revocation lifecycle on existing schema v4. This is retained as a platform capability; it is not a commitment to adapt the old HomeMew WeChat login Cloud Function.
+- HomeMew Cloudflare backend owns WeChat/provider identity and `openid -> LifeSpace usr_*` mapping;
+- a server-only `lsa_*` authenticates that trusted backend to Identity;
+- Identity issues a 900-second HomeMew-app-scoped user token after the backend has resolved the authenticated user;
+- the Mini Program never receives `lsa_*` and cannot assert an arbitrary LifeSpace user ID;
+- allowed HomeMew scopes are `profile:read/write`, `spaces:read/write/manage`, `resources:read/write` and `creation-drafts:read/write`;
+- `models:manage` is excluded from HomeMew user tokens;
+- Application × Model Access is `write` for Task, Wish, Day Record and Event;
+- HTTPS/Service Binding is transport, not a replacement for explicit application authorization.
 
-### Required LifeSpace readiness work
+All frozen HomeMew backend capability groups were rechecked against the final metadata-driven runtime. No legacy `/families/...` route, legacy token acceptance, runtime user-ID-to-Person compatibility façade or additional HomeMew-specific Core runtime is required.
 
-Before Phase 4 can close, verify against the frozen HomeMew capability matrix that LifeSpace provides the final, app-independent platform behavior required for:
+`packages/contracts` now provides a reproducible/read-only HomeMew handoff exporter that pins the exact immutable `mct_*` rather than consuming active/latest contract state.
 
-- global user/profile and avatar operations;
-- family semantics represented through Space, Membership and Space Person;
-- invitations;
-- Space avatar/object behavior;
-- Event + Calendar semantics;
-- Task + Workflow semantics;
-- Day Record + Temporal semantics;
-- Wish policy/workflow semantics;
-- Registry-driven Creation Draft / AI Interpretation;
-- external service principals, credentials, Application × Model Access and Data Grants;
-- all authorization and lifecycle behavior required by the frozen production baseline.
+### Phase 4 staging evidence
 
-For the redesigned HomeMew application boundary, LifeSpace must document and prove:
+Two normal staging runs establish the Phase-4 boundary and final handoff:
 
-- how a HomeMew Cloudflare backend authenticates to Identity after it has resolved WeChat identity to a LifeSpace user;
-- how short-lived app-scoped user tokens are issued without ever trusting an arbitrary user ID from the Mini Program;
-- which stable scopes and Application × Model Access entries HomeMew requires;
-- which contract artifacts the HomeMew project must pin;
-- whether Cloudflare Service Bindings are used as transport between same-account Workers and how application identity/authorization remains explicit rather than hostname-based.
+- run #28 / `31692421666`: dedicated HomeMew application auth/scope/TTL/model-access boundary passed;
+- run #29 / `31694445585`, commit `76499060dd736655b218b1a1e00902fb7d988682`: exporter-enabled full staging gate passed, including deterministic handoff export and artifact upload.
 
-No HomeMew application code is implemented in this phase.
+Run #29 produced workflow artifact `9178811267`, named `homemew-contract-handoff-76499060dd736655b218b1a1e00902fb7d988682`. Its candidate checksum bundle id was `hmb_d6f6a4ef08e7312ee702ff48e52e205956841ac01dacec58c3cca31b31b7944d`; all payload checksums were verified during closeout and no actual application/service credential, secret hash, signing private key or bootstrap secret was present.
 
-### Phase 4 exit gate
+The final profile publication-state flip to `accepted` changes only handoff status metadata, not contract syntax, model revision, scope ceiling, TTL, Application × Model Access or runtime behavior. Repository CI validates that accepted closeout state.
 
-- every frozen HomeMew backend capability required by the future application has a final native LifeSpace surface or an explicit approved retirement decision;
-- final HomeMew-required authorization and trusted-backend boundaries are documented and staging-verified;
-- Application × Model Access and stable user/service scope requirements are explicit;
-- Kernel/Identity contracts and an accepted Model Contract revision are eligible to be frozen for HomeMew;
-- generated/read-only contract artifacts can be handed to the HomeMew project;
-- no exit criterion depends on modifying the old HomeMew Mini Program or WeChat Cloud Functions.
+Detailed evidence and policy live in `docs/phase4-homemew-integration-readiness.md`.
+
+### Phase 4 exit gate — passed
+
+- every frozen HomeMew backend capability required by the future application has a final native LifeSpace surface;
+- final HomeMew authorization and trusted-backend boundaries are documented and staging-verified;
+- Application × Model Access and stable scope requirements are explicit;
+- Kernel/Identity contracts and one immutable Model Contract revision are accepted;
+- reproducible/read-only contract artifacts can be handed to HomeMew;
+- no exit criterion depends on modifying the old HomeMew Mini Program or WeChat Cloud Functions;
+- production and HomeMew production traffic/data remain untouched.
 
 ## 12. Phase 5 — One-shot Migration Tooling & Rehearsal
 
-This phase also changes LifeSpace/migration tooling, not the production HomeMew client.
+**Planned. Not started by the Phase-4 closeout.**
+
+This phase changes LifeSpace/migration tooling, not the production HomeMew client.
 
 Version-controlled tooling must:
 
@@ -324,6 +323,8 @@ Milestone deliverables:
 - production provisioning/deployment runbook;
 - production cutover and rollback runbook.
 
+Phase 4 has completed the contract/boundary items above. The milestone remains Planned because Phase 5 has not started or passed.
+
 The milestone does **not** require the redesigned HomeMew Mini Program or Cloudflare backend to be finished. Their development proceeds independently in the HomeMew project after/alongside the platform handoff.
 
 ## 14. Phase 6 — LifeSpace production platform bring-up
@@ -355,7 +356,7 @@ This intentionally separates first-time production provisioning from the later d
 
 The redesigned HomeMew Mini Program frontend and Cloudflare backend are outside this LifeSpace migration-plan phase sequence.
 
-The HomeMew project consumes the frozen LifeSpace contract artifacts and develops directly against LifeSpace staging. It owns:
+The HomeMew project consumes the accepted LifeSpace contract artifacts and develops directly against LifeSpace staging. It owns:
 
 - WeChat login/provider exchange and `openid -> LifeSpace user_id` mapping;
 - Cloudflare backend/BFF implementation and application secrets;
@@ -365,7 +366,7 @@ The HomeMew project consumes the frozen LifeSpace contract artifacts and develop
 
 There is no requirement to first migrate or adapt the old HomeMew WeChat Cloud Functions.
 
-Production cutover cannot begin until the redesigned HomeMew release is ready and its staging E2E against the frozen LifeSpace contract has passed.
+Production cutover cannot begin until the redesigned HomeMew release is ready and its staging E2E against the accepted LifeSpace contract has passed.
 
 ## 16. Phase 7 — Controlled one-shot production cutover
 
