@@ -10,7 +10,7 @@ LifeSpace owns global Identity, Space/Data Grant authorization, shared business 
 
 The redesigned HomeMew Mini Program and its Cloudflare backend are developed independently in the HomeMew project. They are **not** an intermediate step in this LifeSpace migration plan, and the existing WeChat Cloud Functions are not adapted to LifeSpace as a temporary bridge.
 
-Phase 2 proved native capability parity without production cutover. Phase 3 replaced the handwritten-domain proving runtime with the final metadata-driven/typed-storage platform and completed APAC performance convergence. Phase 4 then froze the application-facing LifeSpace surface and HomeMew integration boundary. Phase 5 remains separately planned for one-shot migration tooling and rehearsal.
+Phase 2 proved native capability parity without production cutover. Phase 3 replaced the handwritten-domain proving runtime with the final metadata-driven/typed-storage platform and completed APAC performance convergence. Phase 4 then froze the application-facing LifeSpace surface and HomeMew integration boundary. Phase 5 is in progress as a deliberately small one-shot migration rehearsal, not a reusable migration platform.
 
 ## 2. Non-negotiable principles
 
@@ -142,7 +142,7 @@ HomeMew system identities/family access become LifeSpace service principals + Da
 | Phase 2 | **Complete** | Native replacement/proof of every frozen production-used HomeMew backend capability |
 | Phase 3 | **Complete** | Metadata-driven/AI-native runtime + typed storage + APAC performance convergence |
 | Phase 4 | **Complete** | **HomeMew Integration Readiness** — frozen LifeSpace application surface, trusted-backend boundary and reproducible handoff |
-| Phase 5 | **Planned — not started** | **One-shot Migration Tooling & Rehearsal** — deterministic final-schema migration and staging rehearsal |
+| Phase 5 | **In progress** | **One-shot Migration Rehearsal** — one purpose-built migration script, one report and one staging rehearsal |
 | Milestone | Planned | **HomeMew Integration Ready** — reached only after both Phase 4 and Phase 5 pass |
 | Phase 6 | Planned | LifeSpace production platform bring-up with no HomeMew production data/traffic |
 | Phase 7 | Planned | Controlled one-shot HomeMew production data migration and application cutover |
@@ -262,46 +262,42 @@ Detailed evidence and policy live in `docs/phase4-homemew-integration-readiness.
 - no exit criterion depends on modifying the old HomeMew Mini Program or WeChat Cloud Functions;
 - production and HomeMew production traffic/data remain untouched.
 
-## 12. Phase 5 — One-shot Migration Tooling & Rehearsal
+## 12. Phase 5 — One-shot Migration Rehearsal
 
-**Planned. Not started by the Phase-4 closeout.**
+**In progress.** Phase 5 is intentionally narrow: it proves the specific HomeMew production migration path once instead of building a reusable migration framework.
 
-This phase changes LifeSpace/migration tooling, not the production HomeMew client.
+Required work:
 
-Version-controlled tooling must:
+1. implement one version-controlled HomeMew -> LifeSpace migration script that reads the frozen HomeMew D1 export/snapshot without mutating the source;
+2. map users/families/members and transform Event/Task/Day Record/Wish records directly into the accepted final LifeSpace schema;
+3. copy required avatar objects when present;
+4. omit ephemeral/derived state and require integrations to receive new LifeSpace credentials rather than copying legacy credentials;
+5. fail closed on incompatible source schema, unresolved durable references or object mismatches;
+6. emit one consolidated `migration-report.json` containing source identity/checksum, source-to-target mappings needed for audit, migrated counts, intentional omissions, credential re-provisioning actions, verification results and final PASS/FAIL;
+7. run that script once against a recent HomeMew snapshot and a fresh isolated LifeSpace staging rehearsal target.
 
-1. read a HomeMew D1 export/snapshot without mutating the source;
-2. create deterministic HomeMew user -> LifeSpace user mappings;
-3. create deterministic family -> Space and member -> Membership/Space Person mappings;
-4. transform durable Event/Task/Day Record/Wish data directly into the final Model/Capability schema;
-5. transform integration definitions into service-principal/Application × Model Access/Data Grant plans without copying source secrets;
-6. copy and verify required R2 objects;
-7. explicitly omit ephemeral data and recompute derived state;
-8. generate machine-readable mapping, count, integrity and credential-rotation reports;
-9. run authorization, relationship, semantic and object verification after import;
-10. be safe to run against a fresh isolated target and fail closed on unresolved mappings or invariants.
+Generic source adapters, manifest frameworks, separate report frameworks, reusable import-runner abstractions, dual-write, CDC, incremental catch-up and future-product migration generalization are explicitly out of scope.
 
 ### Full staging rehearsal
 
 ```text
 recent HomeMew production snapshot/export
-  -> committed deterministic transforms
+  -> purpose-built one-shot migration script
   -> fresh/isolated LifeSpace staging rehearsal target
-  -> final-schema import + R2 copy
-  -> mapping/count/integrity/authorization/semantic verification
-  -> migration report
+  -> migration-report.json
 ```
 
-The rehearsal proves the one-shot production procedure. It does **not** establish ongoing synchronization and does not make the rehearsal copy a second source of truth.
+The rehearsal proves the later Phase-7 production procedure. It does **not** establish ongoing synchronization and does not make the rehearsal copy a second source of truth.
 
 Creation Draft historical jobs/messages remain intentionally absent because they are ephemeral.
 
 ### Phase 5 exit gate
 
-- at least one clean end-to-end migration rehearsal from a recent HomeMew snapshot succeeds;
-- reports explain every expected count/ID transformation and every intentional omission;
-- integrity, authorization, relationship, semantic and R2 verification pass;
-- production migration tooling/runbook is deterministic and version controlled;
+- one clean end-to-end migration rehearsal from a recent HomeMew snapshot succeeds;
+- every expected durable source record is migrated or explicitly explained;
+- required references, representative authorization/business semantics and avatar objects verify;
+- `migration-report.json` records PASS;
+- concise production execution notes are sufficient to repeat the same script during Phase 7;
 - no dual-write, CDC or incremental catch-up mechanism is required.
 
 ## 13. Milestone — HomeMew Integration Ready
@@ -323,7 +319,7 @@ Milestone deliverables:
 - production provisioning/deployment runbook;
 - production cutover and rollback runbook.
 
-Phase 4 has completed the contract/boundary items above. The milestone remains Planned because Phase 5 has not started or passed.
+Phase 4 has completed the contract/boundary items above. The milestone remains Planned because Phase 5 has not yet passed.
 
 The milestone does **not** require the redesigned HomeMew Mini Program or Cloudflare backend to be finished. Their development proceeds independently in the HomeMew project after/alongside the platform handoff.
 
