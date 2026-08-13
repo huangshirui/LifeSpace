@@ -10,3 +10,4 @@ coverage/
 !.dev.vars.example
 .DS_Store
 *.log
+.migration/*
