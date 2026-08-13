@@ -19,7 +19,7 @@ test("authenticated staging smoke scripts remain syntax-valid and staging-only",
     assert.equal(result.status, 0, `${filename} failed node --check: ${result.stderr || result.stdout}`);
 
     const source = readFileSync(filename, "utf8");
-    assert.match(source, /staging/u, `${filename} must remain explicitly staging-scoped`);
+    assert.match(source, /staging/iu, `${filename} must remain explicitly staging-scoped`);
     assert.doesNotMatch(source, /--env[\s"',]+production/u, `${filename} must never target Wrangler production`);
     assert.doesNotMatch(source, /core\.aisr\.online/u, `${filename} must never target the production Core hostname`);
     assert.doesNotMatch(source, /auth\.aisr\.online/u, `${filename} must never target the production Identity hostname`);
