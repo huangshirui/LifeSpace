@@ -2,7 +2,7 @@ import fs from "node:fs";
 import YAML from "yaml";
 
 const doc = YAML.parse(fs.readFileSync(new URL("../openapi.yaml",import.meta.url),"utf8"));
-if (doc.openapi !== "3.1.0" || doc.info?.version !== "0.3.0") {
+if (doc.openapi !== "3.1.0" || doc.info?.version !== "0.4.0") {
   throw new Error("Identity OpenAPI version metadata is invalid");
 }
 
@@ -13,6 +13,9 @@ for (const path of [
   "/api/v1/me",
   "/api/v1/me/avatar",
   "/bootstrap/v1/applications",
+  "/bootstrap/v1/applications/{applicationId}",
+  "/bootstrap/v1/applications/{applicationId}/credentials",
+  "/bootstrap/v1/applications/{applicationId}/credentials/{credentialId}",
   "/internal/v1/users",
   "/internal/v1/tokens",
   "/api/v1/service-principals",
@@ -39,6 +42,19 @@ if (!tokenDescription.includes("Core and Identity")) throw new Error("Identity c
 
 const profile = doc.components?.schemas?.UserProfile;
 if (!profile?.properties?.avatarUrl || !doc.paths?.["/api/v1/me/avatar"]?.put) throw new Error("Identity contract must expose native user profile/avatar behavior");
+
+const applicationCredential = doc.components?.schemas?.ApplicationCredential;
+if (!applicationCredential || applicationCredential.properties?.clientSecret || applicationCredential.properties?.secretHash) {
+  throw new Error("Listed application credential metadata must never expose plaintext or hashes");
+}
+const createdApplicationSecret = doc.components?.schemas?.CreateApplicationCredentialResponse?.properties?.data?.allOf?.[1]?.properties?.clientSecret;
+if (createdApplicationSecret?.writeOnly !== true || !String(createdApplicationSecret?.pattern ?? "").includes("lsa_")) {
+  throw new Error("New lsa_ application credential plaintext must be one-time/write-only");
+}
+const applicationPatch = doc.paths?.["/bootstrap/v1/applications/{applicationId}"]?.patch;
+if (!applicationPatch || doc.components?.schemas?.UpdateApplicationRequest?.properties?.trustedBackend || doc.components?.schemas?.UpdateApplicationRequest?.properties?.clientType) {
+  throw new Error("Application admin must expose bounded mutable policy without changing trust/client classification");
+}
 
 const serviceToken = doc.components?.schemas?.ServiceToken;
 if (!serviceToken || serviceToken.properties?.token || serviceToken.properties?.tokenHash || serviceToken.properties?.secretHash) {
