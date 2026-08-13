@@ -9,6 +9,7 @@ const scripts = [
   new URL("../../../infra/scripts/cleanup-staging-smoke.mjs", import.meta.url),
 ];
 const apacWorkflow = new URL("../../../.github/workflows/apac-performance-gate.yml", import.meta.url);
+const apacProbeConfig = new URL("../../../infra/performance-probe/wrangler.jsonc", import.meta.url);
 
 test("authenticated staging smoke scripts remain syntax-valid and staging-only", () => {
   for (const url of scripts) {
@@ -40,4 +41,13 @@ test("APAC performance gate resolves real staging D1 IDs before preparing smoke 
   assert.notEqual(resolveIndex, -1, "APAC gate must resolve staging D1 bindings in its ephemeral checkout");
   assert.notEqual(prepareIndex, -1, "APAC gate must prepare staging smoke authority");
   assert.ok(resolveIndex < prepareIndex, "staging D1 bindings must be resolved before prepare-staging-smoke uses wrangler d1 execute");
+});
+
+test("APAC performance probe remains deployable on Workers Free", () => {
+  const source = readFileSync(fileURLToPath(apacProbeConfig), "utf8");
+  const config = JSON.parse(source);
+
+  assert.equal(config.workers_dev, true);
+  assert.deepEqual(config.placement, { region: "aws:ap-southeast-1" });
+  assert.equal(config.limits, undefined, "Workers Free must use platform-default CPU/subrequest limits instead of custom limits");
 });
