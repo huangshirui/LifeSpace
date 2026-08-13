@@ -212,15 +212,20 @@ The Phase-3 migration blocker is therefore cleared.
 
 ### Contract pinning
 
-HomeMew must pin an explicit compatible contract pair:
+The Phase-4 HomeMew staging release candidate is pinned to:
 
 ```text
-Kernel Contract: 0.12.0
-Model Contract:  mct_<exact accepted revision>
-Identity Contract: 0.3.0
+Core Kernel Contract: 0.12.0
+Model Contract:  mct_9a3d9588da8591ab376ef000e5e661f670a64dd8b1ebc14fd146580f0ed1fa45
+Identity Contract: 0.4.0
+Identity D1 schema: 4
 ```
 
-The exact Model Contract revision used by the HomeMew release candidate must be captured from LifeSpace staging and checked/generated into the HomeMew application build surface. HomeMew must never silently consume an unversioned latest contract.
+The `mct_*` revision was observed consistently through the successful LifeSpace staging deployment's D1 pointer, authenticated HTTP verification and Registry-driven Creation Draft flow.
+
+Identity 0.4.0 is a Phase-4 additive application-management contract: it adds trusted application metadata/policy inspection and `lsa_*` replacement/revocation lifecycle on the existing schema v4. Repository implementation/tests are complete; HomeMew must not depend on the 0.4.0 routes until the next explicit LifeSpace staging deployment verifies that contract.
+
+HomeMew must never silently consume an unversioned latest contract. A later compatible Model Contract revision may be adopted only through an explicit pin update and downstream check.
 
 ### Mini Program / data layer
 
@@ -241,27 +246,34 @@ Migrate all frozen flows:
 Mini Program login
   -> HomeMew Cloud Function obtains trusted openid
   -> HomeMew mapping resolves openid -> LifeSpace user_id
-  -> HomeMew backend authenticates to Identity
+  -> HomeMew backend authenticates to Identity with server-only lsa_*
   -> Identity issues HomeMew-app-scoped bearer token
   -> Mini Program calls LifeSpace Core
 ```
 
-The Mini Program never submits an arbitrary `user_id` to obtain a token.
+The Mini Program never submits an arbitrary `user_id` to obtain a token and never receives the `lsa_*` application credential.
+
+Application credential lifecycle follows `docs/application-authentication.md`: inspect/update the `homemew-miniprogram` scope ceiling, create a replacement credential, install it in the backend secret store, verify the new backend deployment, then revoke the old credential.
 
 ### Phase 4 first implementation slice
 
 1. inventory current HomeMew Mini Program/Cloud Function/Core coupling against the final LifeSpace Kernel + Model Contract;
-2. pin the exact staging contract pair used by the migration branch/release candidate;
-3. introduce staging-only LifeSpace client/auth configuration without switching production traffic;
-4. adapt login/external identity exchange first, then Space/membership identity semantics;
-5. migrate one proving ordinary model end-to-end (Task) before expanding to Wish/Day Record/Event;
-6. keep existing HomeMew production Core as the active source until the complete Phase-4 exit gate passes.
+2. pin the exact staging contract triple above;
+3. deploy/verify Identity 0.4.0 in LifeSpace staging, inspect `homemew-miniprogram` policy and normalize it to the stable `resources:*` scope vocabulary if required;
+4. create/install a staging-only replacement `lsa_*` application credential without exposing plaintext to Mini Program/client code or repository logs;
+5. introduce staging-only LifeSpace client/auth configuration without switching production traffic;
+6. adapt login/external identity exchange first, then Space/membership identity semantics;
+7. migrate one proving ordinary model end-to-end (Task) before expanding to Wish/Day Record/Event;
+8. keep existing HomeMew production Core as the active source until the complete Phase-4 exit gate passes.
+
+Ordinary HomeMew user tokens should request only application-needed scopes such as `profile:*`, `spaces:*`, `resources:*` and `creation-drafts:*`. `models:manage` is a service-admin capability and must not be placed into Mini Program user tokens.
 
 ### Phase 4 exit gate
 
-- release-candidate Mini Program/Cloud Functions run against final LifeSpace staging APIs only;
+- release-candidate Mini Program/Cloud Functions run against the pinned LifeSpace staging APIs only;
 - all frozen user/family/member/domain/integration/Creation Draft flows pass app E2E;
 - login uses LifeSpace Identity-backed app-scoped tokens;
+- trusted application credential is server-only, rotatable and old staging credential revocation has been verified;
 - external integrations use LifeSpace credentials/Grants;
 - no supported request depends on legacy HomeMew compatibility behavior;
 - production HomeMew Core remains unchanged until an explicit later cutover decision.
