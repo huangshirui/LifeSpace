@@ -1,16 +1,16 @@
 # Phase 3 Status — Metadata-driven Platform Runtime
 
-Status: **platform/typed-storage implementation complete; authenticated staging v24 passed; performance closeout pending representative APAC validation**
+Status: **Complete — metadata runtime, typed storage, staging semantics/security, D1 I/O budgets and representative APAC performance all verified**
 
-Updated: **2026-08-12**
+Updated: **2026-08-13**
 
-HomeMew production/client cutover has **not** started and production LifeSpace resources have not been touched.
+HomeMew production/client cutover has **not** started and LifeSpace production resources have not been touched by the Phase-3 verification work. The Phase-3 blocker on HomeMew migration is now removed; Phase 4 may begin against the pinned final Phase-3 contract.
 
 ## Target invariant
 
 > Adding an ordinary LifeSpace business model must not require modifying Core Runtime source code.
 
-The target runtime is now:
+The completed runtime is:
 
 ```text
 Kernel
@@ -50,7 +50,7 @@ Model Definitions
   future ordinary models without Core CRUD source changes
 ```
 
-## Current architecture state
+## Completed architecture state
 
 Ordinary-model authorization remains the intersection of:
 
@@ -83,7 +83,7 @@ Registry-driven Creation Draft derives the writable model set from the published
 
 AI Model Admin remains a guarded proposal control plane only: AI may propose a Model Definition, but Core reparses it through the closed validator, computes deterministic diff/hash evidence, and requires explicit service-admin publication. AI has no arbitrary DDL, SQL, JavaScript, shell, credential or autonomous publish authority.
 
-## Phase 3 performance / physical-storage convergence
+## Final physical-storage and request-I/O convergence
 
 The intermediate generic JSON representation has been retired from the supported runtime.
 
@@ -108,7 +108,7 @@ Capability projections
   Temporal / Calendar / future capability storage
 ```
 
-Current guarantees:
+Verified guarantees:
 
 - `resource_records.data_json` is removed;
 - `resource_index_values` is removed;
@@ -116,12 +116,11 @@ Current guarantees:
 - model publication can generate bounded deterministic DDL from validated metadata;
 - hot-cache model route resolution uses an isolate-memory Runtime Model Descriptor snapshot and performs zero Registry D1 reads;
 - list/query response hydration does not perform D1 I/O per returned record;
-- current mutable authorization remains real-time/current-state checked;
-- D1 round-trip budgets are enforced by integration tests: single GET <= 4, list/query <= 5, mutation <= 6, hot Registry = 0.
+- mutable authorization remains real-time/current-state checked;
+- D1 round-trip budgets are enforced by integration tests: single GET <= 4, list/query <= 5, mutation <= 6, hot Registry = 0;
+- Core staging/production Wrangler configuration enables Cloudflare Smart Placement while local development keeps default local placement behavior.
 
-Core staging/production Wrangler configuration now enables Cloudflare Smart Placement. This is a deployment-topology optimization for the D1-heavy Core request path; it does not alter authorization, contracts or data ownership. Local development keeps the default local placement behavior. CI locks this configuration.
-
-## Current proving versions
+## Proving versions
 
 | Model | Version | Runtime composition |
 |---|---:|---|
@@ -137,65 +136,62 @@ Identity D1 schema: **4**
 
 The Phase-2 handwritten Event/Task/Day Record/Wish services and fixed four-kind Creation Draft implementation are removed from the target Core runtime. Historical migrations remain as audit evidence; destructive staging convergence removed obsolete dedicated-domain and intermediate JSON/index persistence before any HomeMew durable-data cutover.
 
-## Latest authoritative staging evidence
+## Staging semantic/security evidence
 
-Latest full typed-storage staging convergence before Smart Placement redeployment:
+The typed-storage staging convergence through schema 24 passed repository checks, Core/Identity convergence, authenticated Kernel and service-only Model Admin verification, active immutable Model Contract verification, Task/Wish/Day Record/Event semantics, Creation Draft Queue behavior and cleanup of ephemeral authority.
 
-- Workflow: **Deploy staging**
-- Run: **#26**
-- GitHub Actions run ID: `31607375508`
+The D1 verifier confirmed typed-envelope consistency for all four proving models and confirmed that `data_json` and `resource_index_values` no longer exist.
+
+## Representative APAC performance acceptance
+
+Authoritative performance gate:
+
+- Workflow: **APAC performance gate**
+- Run: **#5**
+- GitHub Actions run ID: `31664559657`
 - Branch: `main`
-- Commit: `6620781af236098e78be784c1a59207074025f72`
-- Date: **2026-08-12**
+- Commit: `12b823098ed73ed3605b82c67e6d763fb503e46b`
+- Date: **2026-08-13**
 - Result: **success**
+- Probe placement: explicitly targeted near `aws:ap-southeast-1`
+- D1 primary observed during cleanup: APAC / SIN
 
-The run passed:
+The probe first verified the real `POST /run -> Core` path, then measured request time inside the APAC Worker so GitHub Runner geography was excluded from the timed sample.
 
-1. repository `pnpm check`;
-2. Core D1 migrations through schema 24;
-3. typed model table / common-envelope convergence;
-4. removal of `data_json` and `resource_index_values`;
-5. removal of unrecoverable pre-typed staging orphan envelopes;
-6. Core staging `0.12.0 / schema 24` convergence;
-7. Identity `0.3.0 / schema 4` convergence;
-8. authenticated Kernel / service-only Model Admin / AI Admin boundary verification;
-9. active immutable `mct_*` Model Contract verification;
-10. Task CRUD/defaults + complete/reopen Workflow;
-11. Event Calendar overlap/query semantics;
-12. Day Record Temporal computation / occurrence semantics;
-13. Wish Policy + Workflow semantics;
-14. Registry-driven Creation Draft Queue reaching a valid terminal state;
-15. cleanup of ephemeral staging authority.
+Acceptance targets:
 
-The D1 verifier reported typed envelope consistency for all four proving models and confirmed legacy generic storage was removed.
-
-## Performance evidence and remaining gate
-
-HomeMew production baseline measured on 2026-08-12 remains the practical comparison point:
-
-- request duration P50 about **339 ms**, P90 about **780 ms**, P99 about **2 s**;
-- CPU P50 about **12.3 ms**;
-- D1 query latency P50 about **0.16 ms**;
-- roughly **24 D1 queries per Worker invocation** on average, with repeated actor/person lookup dominating query count.
-
-LifeSpace has already reduced the structural D1 hot path to bounded O(1) calls, but the first staging HTTP benchmark was executed by a GitHub-hosted runner in North Central US while staging D1 primary was observed in APAC/Singapore. That run measured roughly 1–5 second HTTP timings and is intentionally classified as **diagnostic only**, because it combines uncontrolled runner geography with long-distance Worker-to-D1 topology and is not comparable to HomeMew's representative APAC workload.
-
-`infra/scripts/verify-staging-performance.mjs` now requires an explicit benchmark profile:
-
-- default `diagnostic-github`: records timings but cannot accept or reject Phase 3;
-- `apac`: eligible for the Phase-3 absolute latency gate;
-- `ENFORCE_PERFORMANCE_TARGETS=1` is rejected unless the profile is `apac`.
-
-Representative APAC acceptance targets remain:
-
-- common ordinary-resource read P50 <= **220 ms**;
+- common read P50 <= **220 ms**;
 - common read P90 <= **500 ms**;
-- stretch P50 <= **180 ms**;
-- D1 round-trip budgets must remain satisfied independently of HTTP geography.
+- stretch P50 <= **180 ms**.
+
+Measured results:
+
+| Scenario | Samples | P50 | P90 | P99 | Min | Max |
+|---|---:|---:|---:|---:|---:|---:|
+| Task single GET | 15 | **47 ms** | **70 ms** | 91 ms | 38 ms | 91 ms |
+| Task list, limit 10 | 15 | **44 ms** | **57 ms** | 58 ms | 38 ms | 58 ms |
+| Event time-window list | 15 | **54 ms** | **79 ms** | 93 ms | 50 ms | 93 ms |
+| Day Record list + Temporal | 15 | **92 ms** | **111 ms** | 116 ms | 69 ms | 116 ms |
+| Wish list + Policy | 15 | **45 ms** | **66 ms** | 72 ms | 37 ms | 72 ms |
+| Task PATCH | 8 | **65 ms** | **83 ms** | 83 ms | 55 ms | 83 ms |
+| Task Workflow complete/reopen | 8 | **58 ms** | **79 ms** | 79 ms | 51 ms | 79 ms |
+
+All five read scenarios passed the Phase-3 acceptance gate and the P50 stretch target. Task list latency remaining essentially flat versus Task single GET is also consistent with the separately enforced O(1) D1 round-trip/list-hydration invariant.
+
+The earlier GitHub-hosted US-runner benchmark remains diagnostic evidence only and must not be used as the APAC acceptance result.
+
+## HomeMew comparison
+
+HomeMew's measured production baseline on 2026-08-12 was approximately:
+
+- request duration P50 **339 ms**, P90 **780 ms**, P99 **2 s**;
+- CPU P50 **12.3 ms**;
+- D1 query latency P50 **0.16 ms**;
+- roughly **24 D1 queries per Worker invocation**, with repeated actor/person lookup dominating query count.
+
+The measurement populations are not identical, so the APAC controlled benchmark must not be described as a direct 5x/7x production speedup. The valid conclusion is that LifeSpace's metadata-driven + typed-storage architecture has no material platform-abstraction latency regression at the intended scale and is comfortably inside the agreed migration gate.
 
 ## Phase 3 exit checklist
-
-Implemented and verified:
 
 - [x] ordinary models can be added/published without handwritten Core CRUD source;
 - [x] published model definitions are immutable/versioned/schema-hashed;
@@ -212,13 +208,13 @@ Implemented and verified:
 - [x] Registry hot-path and list N+1 behavior are removed;
 - [x] D1 round-trip budgets are enforced by CI;
 - [x] Core/Identity/service-auth/model-contract/four-model/Queue staging gates passed on schema 24;
-- [x] no production deployment occurred;
-- [x] no HomeMew client or production-data cutover occurred;
-- [ ] deploy/observe Core staging with Smart Placement enabled;
-- [ ] run a representative APAC performance benchmark and meet the Phase-3 latency gate.
+- [x] Core Smart Placement is deployed/verified for deployed environments;
+- [x] representative APAC performance gate passed;
+- [x] no production deployment occurred as part of the Phase-3 acceptance work;
+- [x] no HomeMew client or production-data cutover occurred.
 
 ## Next step
 
-Deploy the current `main` to staging so the new Smart Placement configuration becomes active. After deployment, allow normal/test traffic to establish placement behavior as needed, then run the same benchmark from a representative APAC execution point using `PERFORMANCE_BENCHMARK_PROFILE=apac` and enforce the documented thresholds.
+Phase 3 is closed. HomeMew migration may proceed to **Phase 4 — native client/Cloud Function/integration adaptation to the final LifeSpace contract**.
 
-Phase 3 must not be declared closed and HomeMew migration must remain blocked until that representative APAC performance gate passes.
+Phase 4 must pin an explicit compatible contract pair rather than consume an unversioned active Registry, adapt HomeMew's WeChat identity/token exchange and data layer to Space/Space Person/model-contract semantics, and prove all frozen HomeMew flows against LifeSpace staging before any production data cutover.
