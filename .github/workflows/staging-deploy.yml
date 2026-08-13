@@ -158,10 +158,16 @@ jobs:
       - name: Verify Registry-driven Creation Draft Queue
         run: node infra/scripts/verify-staging-creation-draft.mjs
 
-      - name: Export pinned HomeMew contract handoff
+      - name: Export and prove pinned HomeMew handoff reproducibility
         env:
           LIFESPACE_HANDOFF_ENVIRONMENT: staging
-        run: pnpm --filter @lifespace/contracts export:homemew
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm --filter @lifespace/contracts export:homemew
+          cp packages/contracts/dist/homemew/checksums.json "$RUNNER_TEMP/homemew-checksums-first.json"
+          pnpm --filter @lifespace/contracts export:homemew
+          cmp "$RUNNER_TEMP/homemew-checksums-first.json" packages/contracts/dist/homemew/checksums.json
 
       - name: Upload HomeMew contract handoff
         uses: actions/upload-artifact@v4
@@ -189,7 +195,7 @@ jobs:
           - HomeMew integration profile / app-scoped user-token boundary: passed
           - HomeMew user-token platform-admin scope exclusion: passed
           - HomeMew Application x Model Access (Task/Wish/Day Record/Event): passed
-          - HomeMew pinned contract handoff bundle: exported and uploaded
+          - HomeMew pinned contract handoff bundle: reproducible, exported and uploaded
           - Typed model storage / legacy JSON cleanup: passed
           - D1 hot-path budgets: passed in repository validation
           - Staging HTTP performance benchmark: recorded in workflow logs
