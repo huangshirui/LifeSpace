@@ -1,21 +1,20 @@
-# HomeMew -> LifeSpace one-shot migration tooling
+# HomeMew -> LifeSpace one-shot migration
 
-Phase 5 tooling lives here because it is operational migration infrastructure, not a reusable runtime package.
+Phase 5 keeps only the operational files needed to rehearse and later repeat one controlled HomeMew -> LifeSpace migration.
 
-Current first slice establishes deterministic IDs/checksums and the migration-plan envelope. Later slices add read-only HomeMew D1 snapshot inspection, final-schema transforms, target import, R2 copy and full verification.
+This directory is not a reusable migration framework. The intended final shape is intentionally small:
+
+- one purpose-built migration script for the frozen HomeMew source schema and accepted LifeSpace target;
+- one consolidated `migration-report.json` per run;
+- concise staging/production execution notes.
 
 ## Safety
 
-- Never point Phase-5 rehearsal commands at LifeSpace production.
-- Source HomeMew snapshots are read-only inputs.
+- HomeMew source snapshots are read-only inputs.
+- Phase-5 rehearsal commands must reject LifeSpace production targets.
 - Production/user data must never be committed.
-- Unknown schema or unresolved references are fatal.
-- Secrets are rotation inputs, not migration payloads.
+- Incompatible source schema, unresolved durable references and required object mismatches are fatal.
+- Legacy credentials are re-provisioned rather than copied.
+- Partial migration is failure.
 
-## Local checks
-
-```bash
-node --test infra/migration/test/*.test.mjs
-```
-
-The accepted target contract tuple is defined in `manifest.mjs` and must match `infra/homemew-integration-profile.json` plus the Phase-4 accepted contract before import tooling is allowed to mutate a target.
+The accepted target tuple is the Phase-4 HomeMew integration tuple documented in `docs/phase5-migration-tooling-plan.md`.
