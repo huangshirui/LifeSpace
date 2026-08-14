@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import type { Bindings, Variables } from "./env";
 import { authenticate } from "./auth";
+import { registerApplicationAccessAdminRoutes } from "./application-access-admin";
 import { registerRegistryCreationDraftRoutes } from "./registry-creation-draft-jobs";
 import { registerGenericResourceRoutes } from "./generic-resource-routes";
 import { ApiError, failure, success } from "./http";
@@ -49,6 +50,7 @@ export function createApp() {
   registerSpaceRoutes(app);
   registerGrantRoutes(app);
   registerModelAdminRoutes(app);
+  registerApplicationAccessAdminRoutes(app);
   registerModelAdminAiRoutes(app);
   registerRegistryCreationDraftRoutes(app);
   registerGenericResourceRoutes(app);
