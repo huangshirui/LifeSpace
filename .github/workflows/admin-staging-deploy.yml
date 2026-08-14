@@ -1,0 +1,116 @@
+name: Deploy Admin staging
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lifespace-admin-staging-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy and initialize Admin staging
+    runs-on: ubuntu-latest
+    environment: staging
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID || secrets.CLOUDFLARE_ACCOUNT_ID }}
+      LIFESPACE_STAGING_BOOTSTRAP_SECRET: ${{ secrets.LIFESPACE_STAGING_BOOTSTRAP_SECRET }}
+      LIFESPACE_CORE_STAGING_URL: https://core-staging.aisr.online
+      LIFESPACE_IDENTITY_STAGING_URL: https://auth-staging.aisr.online
+      LIFESPACE_STAGING_ADMIN_ACCESS_TEAM_DOMAIN: ${{ vars.LIFESPACE_STAGING_ADMIN_ACCESS_TEAM_DOMAIN }}
+      LIFESPACE_STAGING_ADMIN_ACCESS_AUD: ${{ vars.LIFESPACE_STAGING_ADMIN_ACCESS_AUD }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+
+      - name: Report deployment source
+        run: |
+          echo "ref=$GITHUB_REF"
+          echo "sha=$GITHUB_SHA"
+          echo "checkout=$(git rev-parse HEAD)"
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.13.1
+          run_install: false
+
+      - name: Setup Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Validate Admin staging configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${CLOUDFLARE_API_TOKEN:-}" || { echo "CLOUDFLARE_API_TOKEN is not configured" >&2; exit 1; }
+          test -n "${CLOUDFLARE_ACCOUNT_ID:-}" || { echo "CLOUDFLARE_ACCOUNT_ID is not configured" >&2; exit 1; }
+          test ${#LIFESPACE_STAGING_BOOTSTRAP_SECRET} -ge 32 || { echo "LIFESPACE_STAGING_BOOTSTRAP_SECRET must be at least 32 characters" >&2; exit 1; }
+          test -n "${LIFESPACE_STAGING_ADMIN_ACCESS_TEAM_DOMAIN:-}" || { echo "LIFESPACE_STAGING_ADMIN_ACCESS_TEAM_DOMAIN is not configured in the staging Environment variables" >&2; exit 1; }
+          test -n "${LIFESPACE_STAGING_ADMIN_ACCESS_AUD:-}" || { echo "LIFESPACE_STAGING_ADMIN_ACCESS_AUD is not configured in the staging Environment variables" >&2; exit 1; }
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate repository
+        run: pnpm check
+
+      - name: Verify staging platform is reachable
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --retry 6 --retry-delay 3 --retry-all-errors https://core-staging.aisr.online/health
+          echo
+          curl --fail --silent --show-error --retry 6 --retry-delay 3 --retry-all-errors https://auth-staging.aisr.online/health
+          echo
+
+      - name: Deploy Admin staging Worker
+        run: pnpm --dir apps/core exec wrangler deploy --config ../admin/wrangler.jsonc --env staging
+
+      - name: Initialize Admin staging authority and secrets
+        run: node infra/scripts/initialize-staging-admin-runtime.mjs
+
+      - name: Verify Cloudflare Access protects Admin hostname
+        shell: bash
+        run: |
+          set -euo pipefail
+          STATUS="$(curl --silent --show-error --output "$RUNNER_TEMP/admin-staging-body" --dump-header "$RUNNER_TEMP/admin-staging-headers" --write-out '%{http_code}' https://admin-staging.aisr.online/ || true)"
+          if [ "$STATUS" = "200" ]; then
+            echo "admin-staging.aisr.online returned HTTP 200 without an Access session; Cloudflare Access is not protecting the hostname" >&2
+            cat "$RUNNER_TEMP/admin-staging-headers" >&2 || true
+            exit 1
+          fi
+          case "$STATUS" in
+            301|302|303|307|308|401|403) ;;
+            *)
+              echo "Unexpected unauthenticated Admin status: ${STATUS:-<none>}" >&2
+              cat "$RUNNER_TEMP/admin-staging-headers" >&2 || true
+              exit 1
+              ;;
+          esac
+          echo "Cloudflare Access perimeter intercepted unauthenticated Admin request with HTTP $STATUS"
+
+      - name: Summarize Admin staging deployment
+        if: ${{ success() }}
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<'EOF'
+          ## LifeSpace Admin staging
+
+          - Admin Worker: deployed to `admin-staging.aisr.online`
+          - Cloudflare Access perimeter: unauthenticated request intercepted
+          - Worker-side Access JWT verification: enabled for every privileged `/api/*` request
+          - Identity bootstrap credential: installed as an Admin Worker secret
+          - Dedicated Core `models:manage` service principal/token: provisioned and installed directly as an Admin Worker secret
+          - Previous Admin runtime Core tokens: revoked after successful secret replacement
+          - Plaintext `lsa_*` / `lsp_pat_*` credentials: not persisted in the repository or workflow output
+          - Production resources and HomeMew traffic/data: untouched
+          - Remaining proof: sign in through Cloudflare Access and run one application-onboarding flow in the browser
+          EOF
