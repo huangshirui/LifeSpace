@@ -8,75 +8,129 @@ Bring up an empty, isolated LifeSpace production platform before any HomeMew pro
 
 Phase 6 must not migrate HomeMew durable production data and must not route HomeMew production traffic to LifeSpace.
 
-## Target production resources
-
-- Identity Worker: `lifespace-identity` -> `auth.aisr.online`
-- Core Worker: `lifespace-core` -> `core.aisr.online`
-- Identity D1: `lifespace-identity`
-- Core D1: `lifespace-core`
-- R2: `lifespace-assets`
-- Queue: `lifespace-creation-drafts`
-- production-only runtime/signing/shared secrets
-- HomeMew production application registration required for later Phase 7 cutover
-
 ## Status
 
-**In progress.** Phase 6 started on 2026-08-14.
+**Complete on 2026-08-14.**
 
-Repository implementation is now prepared on PR #25. Production provisioning/deployment evidence has not yet been accepted, so Phase 6 is not complete.
+Accepted production deployment evidence:
 
-### Implemented production foundation
+```text
+Workflow: Deploy production
+Run:      31776861588 / run #4
+SHA:      52c988898ea2fbfaf95d7b35f43124c6580091f0
+Result:   success
+Inputs:   phase6_bringup=true / provision=false / confirmation=DEPLOY_PRODUCTION
+```
 
-- explicit production resource manifest at `infra/production/resources.json`;
-- idempotent create-if-missing provisioning in `infra/scripts/provision-production.mjs`;
-- exact production D1 resolution into the ephemeral CI checkout only;
-- conservative production Custom Domain preflight/attachment that refuses to move an existing hostname owned by another Worker;
-- production contract/schema expectations derived from current package versions and numbered migrations;
-- guarded manual `Deploy production` workflow using the GitHub `production` Environment;
-- repository `pnpm check` now validates production infrastructure scripts and frozen production resource/profile invariants before merge;
-- one-time first-bring-up ordering of Identity -> Core so the initial Core Service Binding has an existing Identity target;
-- long-lived post-Phase-6 deployment ordering of Core -> Identity to preserve verifier/runtime compatibility;
-- production runtime secret initialization that creates signing/shared material only when the complete sets are absent, preserves existing complete sets, and refuses partial automatic repair/rotation;
-- production HTTP, Cloudflare resource/isolation, D1/Registry/Model Contract and business-empty verification scripts;
-- disposable production Model Admin probe that verifies `lsp_pat_*` -> Core introspection and initializes/verifies the pinned active Model Contract, then removes probe authority;
-- frozen HomeMew production application ID `homemew-miniprogram` aligned with Core Application × Model Access;
-- HomeMew production registration/JWT probe that leaves the application registered but leaves **zero active HomeMew application credentials** after Phase 6.
+The successful run repeated the first-bring-up deployment/verification path against the already-created production resources, converged both production Workers, and passed every Phase 6 acceptance gate. HomeMew durable production data was not migrated and HomeMew production traffic was not switched.
 
-### Accepted HomeMew production registration behavior
+## Accepted production platform
 
-`infra/homemew-integration-profile.json` now freezes:
+### Workers and domains
+
+- `lifespace-identity` -> `auth.aisr.online`
+- `lifespace-core` -> `core.aisr.online`
+- Identity Worker deployed with production D1/R2 bindings.
+- Core Worker deployed with production D1/R2, Identity Service Binding, Queue producer/consumer and production rate-limit bindings.
+- Custom-domain ownership and staging isolation verified.
+
+### Production storage and Queue
+
+- Identity D1 `lifespace-identity`: `a5707433-5cc1-4bce-8645-8da5d3064bb3`
+- Core D1 `lifespace-core`: `8f08b671-abf0-4624-b88e-9918908073a2`
+- R2 `lifespace-assets`
+- Queue `lifespace-creation-drafts`
+- Queue producer and Worker consumer attachment to `lifespace-core` verified.
+- Production resources do not reuse the staging D1/R2/Queue identities.
+
+### Runtime and contracts
+
+```text
+Core Kernel Contract: 0.12.0
+Core D1 schema:        24
+Identity Contract:    0.4.0
+Identity D1 schema:   4
+Model Contract:       mct_9a3d9588da8591ab376ef000e5e661f670a64dd8b1ebc14fd146580f0ed1fa45
+```
+
+Production HTTP convergence verified the exact production service/environment/schema/contract values.
+
+Runtime-secret initialization synchronized the production bootstrap secret while preserving the already-complete RS256 signing material and Core↔Identity shared authentication secret. Secret values were not exposed.
+
+The disposable Model Admin probe verified `lsp_pat_* -> Core -> Identity introspection`, the Model Admin service boundary, and the accepted active Model Contract. The production proving models were verified against the pinned definitions in `infra/scripts/production-expectations.mjs`:
+
+- Task v2
+- Wish v3
+- Day Record v1
+- Event v2
+
+The probe authority was removed after verification.
+
+## HomeMew production application boundary
+
+The registered production application is:
 
 ```text
 productionId: homemew-miniprogram
+trustedBackend: true
+accessTokenTtlSeconds: 900
 ```
 
-Phase 6 registers this application with the accepted HomeMew scope/TTL/trusted-backend policy, verifies the Identity -> JWT -> Core path using disposable authority, and revokes the temporary credential.
+Accepted scopes:
 
-The final HomeMew production `lsa_*` credential is deliberately **not** retained or exported during Phase 6. Phase 7 creates a fresh credential and stores it in the HomeMew production secret store as part of the controlled cutover.
+- `profile:read`
+- `profile:write`
+- `spaces:read`
+- `spaces:write`
+- `spaces:manage`
+- `resources:read`
+- `resources:write`
+- `creation-drafts:read`
+- `creation-drafts:write`
 
-## Remaining work
+`models:manage` was explicitly rejected for the HomeMew application boundary. Identity JWT verification and Core JWT verification both passed.
 
-1. Let PR #25 repository CI validate the production implementation and fix any failures.
-2. Merge the validated Phase 6 implementation to `main`; GitHub requires a `workflow_dispatch` workflow to exist on the default branch before it can be manually dispatched.
-3. Configure/confirm the GitHub `production` Environment inputs required by `infra/production/README.md`, especially the production-only bootstrap secret.
-4. From `main`, run `Deploy production` with `phase6_bringup=true`, `provision=true`, `confirmation=DEPLOY_PRODUCTION`.
-5. Confirm production D1/R2/Queue/Workers/domains and runtime secrets are created/isolated as expected.
-6. Confirm HTTP schema/contracts, JWT signing, opaque service authentication, Registry/Model Contract and HomeMew application registration all pass.
-7. Confirm the final Phase 6 database gate reports business state empty and no residual probe authority/active HomeMew credential.
-8. Record the GitHub Actions run ID/SHA and resulting evidence here, then mark Phase 6 complete.
+The temporary verification credential was revoked/removed. **No final HomeMew cutover credential was issued in Phase 6.** Final active HomeMew production application credential count at the exit gate: **0**.
 
-## Safety invariants
+## Empty-platform exit gate
 
-- No HomeMew production D1 reads/writes are part of Phase 6.
-- No HomeMew traffic routing changes are part of Phase 6.
-- No staging resource may be rebound or reused by production.
-- Provisioning is create-if-missing and does not delete/rename resources.
-- Production credentials/secrets never enter repository files or workflow artifacts.
-- Production signing/shared secret sets are never automatically rotated merely because a deployment runs.
-- Phase 6 verification authority must be disposable and cleaned before the empty-state gate passes.
-- The HomeMew production application has no active cutover credential at Phase 6 exit.
-- Phase 7 remains the only phase allowed to perform the controlled one-shot HomeMew production migration/cutover.
+Final production database verification reported:
+
+```text
+coreSchemaVersion:        24
+identitySchemaVersion:    4
+activeModelContract:      mct_9a3d9588da8591ab376ef000e5e661f670a64dd8b1ebc14fd146580f0ed1fa45
+homemewApplicationId:     homemew-miniprogram
+homemewActiveCredentials: 0
+businessState:            empty
+probeAuthorityResiduals:  0
+```
+
+The strict Phase 6 gate therefore proves that production contains the required platform metadata/registrations but no migrated HomeMew business state and no residual disposable verification authority.
+
+## Implementation/fix history
+
+- PR #25 introduced the guarded production platform bring-up and verification path.
+- PR #26 stabilized Queue attachment convergence checks.
+- PR #27 aligned Queue Worker-consumer verification with Wrangler's current `script` / `service` response fields while retaining compatibility with `script_name`.
+- PR #28 bounded disposable Model Admin probe labels to Identity validation limits.
+- `Deploy production` run `31776861588` on `52c988898ea2fbfaf95d7b35f43124c6580091f0` is the accepted final Phase 6 production evidence.
+
+## Safety invariants — passed
+
+- No HomeMew production durable data migration was invoked.
+- No HomeMew production traffic cutover was performed.
+- No staging resource was rebound or reused by production.
+- Production provisioning remained create-if-missing and non-destructive.
+- Production credentials/secrets were not written to repository files or workflow artifacts.
+- Existing complete signing/shared-secret material was preserved rather than rotated by deployment.
+- Disposable Model Admin/HomeMew verification authority was cleaned before the final database gate.
+- `homemew-miniprogram` remains registered but has zero active cutover credentials.
 
 ## Exit gate
 
-Phase 6 is complete when the empty production platform is independently deployed and verified at the accepted contracts, with production Identity/Core D1, R2, Queue, signing/authentication, Model Registry/Contract and HomeMew production application registration ready for Phase 7, while HomeMew production data and traffic remain untouched and no final HomeMew production credential has yet been issued.
+**Passed. Phase 6 is complete.**
+
+LifeSpace now has an isolated, empty production platform at the accepted contracts with Identity/Core D1, R2, Queue, runtime signing/authentication, Model Registry/Contract and the HomeMew production application boundary ready for a later controlled cutover.
+
+This completion does **not** authorize Phase 7. Phase 7 remains a separate planned operation requiring the redesigned HomeMew application to be release-ready, its staging E2E to pass, an explicit production write-freeze/cutover decision, and fresh production credentials issued through the approved cutover lifecycle.
