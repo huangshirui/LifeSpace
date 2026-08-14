@@ -104,6 +104,23 @@ The MVP Admin uses two server-side, environment-specific administration credenti
 
 The global Identity bootstrap secret remains a platform-administration credential and must never become an Application runtime credential. A later dedicated scoped Identity operator API may replace its use inside Admin without changing the Application onboarding model.
 
+### Staging authority bootstrap
+
+Staging keeps Admin deployment isolated from the normal Core/Identity deployment workflow. `.github/workflows/admin-staging-deploy.yml` deploys `lifespace-admin-staging` only after the existing staging platform is reachable.
+
+`infra/scripts/initialize-staging-admin-runtime.mjs` reconciles a dedicated `app_lifespace_admin_staging` Identity Application and service principal whose only scope is `models:manage`. On each Admin staging deployment it creates a replacement non-expiring, individually revocable `lsp_pat_*`, verifies that token against Core's internal Application × Model Access interface, writes the token directly into the Admin Worker secret store, and only then revokes previous active Admin runtime tokens. The temporary `lsa_*` used to administer that service principal is also revoked before the workflow exits.
+
+The staging workflow therefore requires only two new non-secret GitHub Environment variables after the Cloudflare Access Application exists:
+
+- `LIFESPACE_STAGING_ADMIN_ACCESS_TEAM_DOMAIN`;
+- `LIFESPACE_STAGING_ADMIN_ACCESS_AUD`.
+
+It reuses the existing staging `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, and `LIFESPACE_STAGING_BOOTSTRAP_SECRET`. No Admin runtime credential plaintext is committed to the repository or exported as a workflow artifact.
+
+The workflow also fails if an unauthenticated request to `admin-staging.aisr.online` returns HTTP 200. This proves the Access perimeter is intercepting anonymous traffic, but it does not replace the final human sign-in / browser onboarding proof.
+
+Production uses a separate Access Application, application/service authority and Worker secrets; staging authority is never promoted or copied into production.
+
 ## Contract boundary
 
 Application onboarding does not create a new ordinary model contract. The Application receives access to selected currently published models; downstream releases still pin explicit compatible Core Kernel + Model Contract revisions through the existing contract workflow.
