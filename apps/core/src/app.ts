@@ -46,6 +46,7 @@ export function createApp() {
   app.use("/api/v1/space-invites/*", authenticate());
   app.use("/api/v1/model-admin", authenticate());
   app.use("/api/v1/model-admin/*", authenticate());
+  app.use("/internal/v1/application-model-access/*", authenticate());
   registerSpaceAvatarRoutes(app);
   registerSpaceRoutes(app);
   registerGrantRoutes(app);
