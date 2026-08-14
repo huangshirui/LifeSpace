@@ -33,6 +33,7 @@ Repository implementation is now prepared on PR #25. Production provisioning/dep
 - conservative production Custom Domain preflight/attachment that refuses to move an existing hostname owned by another Worker;
 - production contract/schema expectations derived from current package versions and numbered migrations;
 - guarded manual `Deploy production` workflow using the GitHub `production` Environment;
+- repository `pnpm check` now validates production infrastructure scripts and frozen production resource/profile invariants before merge;
 - one-time first-bring-up ordering of Identity -> Core so the initial Core Service Binding has an existing Identity target;
 - long-lived post-Phase-6 deployment ordering of Core -> Identity to preserve verifier/runtime compatibility;
 - production runtime secret initialization that creates signing/shared material only when the complete sets are absent, preserves existing complete sets, and refuses partial automatic repair/rotation;
@@ -55,13 +56,14 @@ The final HomeMew production `lsa_*` credential is deliberately **not** retained
 
 ## Remaining work
 
-1. Let PR #25 repository CI validate the new production workflow/scripts and fix any static/test failures.
-2. Configure/confirm the GitHub `production` Environment inputs required by `infra/production/README.md`, especially the production-only bootstrap secret.
-3. Run `Deploy production` with `phase6_bringup=true`, `provision=true`, `confirmation=DEPLOY_PRODUCTION`.
-4. Confirm production D1/R2/Queue/Workers/domains and runtime secrets are created/isolated as expected.
-5. Confirm HTTP schema/contracts, JWT signing, opaque service authentication, Registry/Model Contract and HomeMew application registration all pass.
-6. Confirm the final Phase 6 database gate reports business state empty and no residual probe authority/active HomeMew credential.
-7. Record the GitHub Actions run ID/SHA and resulting evidence here, then mark Phase 6 complete.
+1. Let PR #25 repository CI validate the production implementation and fix any failures.
+2. Merge the validated Phase 6 implementation to `main`; GitHub requires a `workflow_dispatch` workflow to exist on the default branch before it can be manually dispatched.
+3. Configure/confirm the GitHub `production` Environment inputs required by `infra/production/README.md`, especially the production-only bootstrap secret.
+4. From `main`, run `Deploy production` with `phase6_bringup=true`, `provision=true`, `confirmation=DEPLOY_PRODUCTION`.
+5. Confirm production D1/R2/Queue/Workers/domains and runtime secrets are created/isolated as expected.
+6. Confirm HTTP schema/contracts, JWT signing, opaque service authentication, Registry/Model Contract and HomeMew application registration all pass.
+7. Confirm the final Phase 6 database gate reports business state empty and no residual probe authority/active HomeMew credential.
+8. Record the GitHub Actions run ID/SHA and resulting evidence here, then mark Phase 6 complete.
 
 ## Safety invariants
 
