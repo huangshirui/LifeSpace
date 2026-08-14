@@ -88,17 +88,7 @@ jobs:
         run: pnpm check
 
       - name: Validate production scripts
-        run: |
-          node --check infra/scripts/provision-production.mjs
-          node --check infra/scripts/production-expectations.mjs
-          node --check infra/scripts/resolve-production-d1.mjs
-          node --check infra/scripts/ensure-production-domains.mjs
-          node --check infra/scripts/initialize-production-runtime.mjs
-          node --check infra/scripts/verify-production-http.mjs
-          node --check infra/scripts/verify-production-cloudflare.mjs
-          node --check infra/scripts/verify-production-model-admin.mjs
-          node --check infra/scripts/verify-production-homemew-auth.mjs
-          node --check infra/scripts/verify-production-db.mjs
+        run: node infra/scripts/check-production-infra.mjs
 
       - name: Resolve expected production versions
         run: node infra/scripts/production-expectations.mjs
@@ -137,19 +127,19 @@ jobs:
       # After Phase 6, use the same compatibility-preserving ordering as staging:
       # newer Core verifier/runtime first, then Identity may issue against it.
       - name: Apply Core migrations
-        if: ${{ !inputs.phase6_bringup }}
+        if: ${{ inputs.phase6_bringup == false }}
         run: pnpm --filter @lifespace/core db:migrate:production
 
       - name: Deploy Core first
-        if: ${{ !inputs.phase6_bringup }}
+        if: ${{ inputs.phase6_bringup == false }}
         run: pnpm --dir apps/core exec wrangler deploy --env production
 
       - name: Apply Identity migrations
-        if: ${{ !inputs.phase6_bringup }}
+        if: ${{ inputs.phase6_bringup == false }}
         run: pnpm --filter @lifespace/identity db:migrate:production
 
       - name: Deploy Identity after compatible Core
-        if: ${{ !inputs.phase6_bringup }}
+        if: ${{ inputs.phase6_bringup == false }}
         run: pnpm --dir apps/identity exec wrangler deploy --env production
 
       - name: Ensure production custom domains
