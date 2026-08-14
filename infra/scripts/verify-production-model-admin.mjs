@@ -101,7 +101,7 @@ try {
     },
   });
   servicePrincipalId = principal.payload?.data?.id ?? "";
-  if (principal.response.status !== 201 || !servicePrincipalId.startsWith("spn_")) {
+  if (principal.response.status !== 201 || !servicePrincipalId.startsWith("svc_")) {
     throw new Error(`Production Model Admin service principal creation failed: ${principal.response.status} ${JSON.stringify(principal.payload)}`);
   }
 
@@ -117,7 +117,7 @@ try {
   });
   serviceTokenId = token.payload?.data?.id ?? "";
   const serviceBearer = token.payload?.data?.token ?? "";
-  if (token.response.status !== 201 || !serviceTokenId || !serviceBearer.startsWith("lsp_pat_")) {
+  if (token.response.status !== 201 || !serviceTokenId.startsWith("sat_") || !serviceBearer.startsWith("lsp_pat_")) {
     throw new Error(`Production Model Admin service token creation failed: ${token.response.status} ${JSON.stringify(token.payload)}`);
   }
   mask(serviceBearer);
