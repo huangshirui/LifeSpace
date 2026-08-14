@@ -7,9 +7,9 @@
     "node": ">=24"
   },
   "scripts": {
-    "check": "pnpm -r --if-present check && node --check infra/migration/homemew-one-shot.mjs && node --test infra/scripts/production-cloudflare-shapes.test.mjs infra/scripts/production-probe-label.test.mjs && node infra/scripts/check-production-infra.mjs",
-    "test": "pnpm -r --if-present test",
+    "check": "pnpm -r --if-present check && node --test apps/admin/test/*.test.mjs && pnpm --dir apps/core exec wrangler deploy --dry-run --config ../admin/wrangler.jsonc --outdir ../admin/dist && node --check infra/migration/homemew-one-shot.mjs && node --test infra/scripts/production-cloudflare-shapes.test.mjs infra/scripts/production-probe-label.test.mjs && node infra/scripts/check-production-infra.mjs",
+    "test": "pnpm -r --if-present test && node --test apps/admin/test/*.test.mjs",
     "typecheck": "pnpm -r --if-present typecheck",
-    "build": "pnpm -r --if-present build"
+    "build": "pnpm -r --if-present build && pnpm --dir apps/core exec wrangler deploy --dry-run --config ../admin/wrangler.jsonc --outdir ../admin/dist"
   }
 }
