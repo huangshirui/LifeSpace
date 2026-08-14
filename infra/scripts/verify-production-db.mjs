@@ -9,6 +9,11 @@ const profile = JSON.parse(readFileSync(new URL("../homemew-integration-profile.
 const productionApplicationId = profile.application.productionId;
 
 const REQUIRED_PLATFORM_TABLES = [
+  "spaces",
+  "space_memberships",
+  "space_people",
+  "space_invites",
+  "data_grants",
   "resource_records",
   "resource_relations",
   "mdl_task",
@@ -101,12 +106,14 @@ for (const table of REQUIRED_PLATFORM_TABLES) if (!tableSet.has(table)) fail(`Re
 for (const table of RETIRED_TABLES) if (tableSet.has(table)) fail(`Retired production table ${table} still exists`);
 
 // Phase 6 is explicitly an empty-platform bring-up. These checks are intentionally
-// stricter than the long-lived production deploy gate and must be removed from that
-// gate after Phase 7 starts writing production business state.
+// stricter than the long-lived production deploy gate and are only invoked when
+// phase6_bringup=true; normal production deploys do not run them after Phase 7 starts.
 for (const [table, label] of [
   ["spaces", "Core spaces"],
-  ["memberships", "Core memberships"],
+  ["space_memberships", "Core memberships"],
   ["space_people", "Core space people"],
+  ["space_invites", "Core space invites"],
+  ["data_grants", "Core data grants"],
   ["resource_records", "Core business resources"],
   ["resource_relations", "Core resource relations"],
   ["temporal_occurrences", "Core temporal occurrences"],
