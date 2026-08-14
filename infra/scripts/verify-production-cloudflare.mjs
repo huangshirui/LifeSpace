@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import { queueAttachmentSnapshot } from "./production-cloudflare-shapes.mjs";
 
 const token = process.env.CLOUDFLARE_API_TOKEN;
 const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
@@ -6,6 +7,7 @@ if (!token) throw new Error("CLOUDFLARE_API_TOKEN is required");
 if (!accountId) throw new Error("CLOUDFLARE_ACCOUNT_ID is required");
 
 const manifest = JSON.parse(await readFile(new URL("../production/resources.json", import.meta.url), "utf8"));
+const sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
 async function cf(path) {
   const response = await fetch(`https://api.cloudflare.com/client/v4${path}`, {
@@ -38,19 +40,33 @@ for (const desired of manifest.r2 ?? []) {
 }
 if (manifest.r2?.some((item) => item.name === "lifespace-staging-assets")) throw new Error("Production manifest references the staging R2 bucket");
 
-const queues = await cf(`/accounts/${accountId}/queues`);
-const queueByName = new Map((queues ?? []).map((item) => [item.queue_name, item]));
+// Queue producer/consumer metadata can converge a few seconds after a successful
+// Worker deployment. Prove the attachment through both List Queues and the
+// dedicated consumer endpoint, but keep the gate fail-closed if neither view
+// converges to the expected Worker within the bounded retry window.
+const verifiedQueues = new Map();
 for (const desired of manifest.queues ?? []) {
-  const queue = queueByName.get(desired.name);
-  if (!queue?.queue_id) throw new Error(`Production Queue ${desired.name} is missing`);
-  const consumers = await cf(`/accounts/${accountId}/queues/${queue.queue_id}/consumers`);
-  if (!Array.isArray(consumers) || !consumers.some((consumer) => consumer.script_name === "lifespace-core")) {
-    throw new Error(`Production Queue ${desired.name} is not consumed by lifespace-core`);
+  let lastObserved = null;
+  for (let attempt = 1; attempt <= 8; attempt += 1) {
+    const queues = await cf(`/accounts/${accountId}/queues`);
+    const queue = (queues ?? []).find((item) => item.queue_name === desired.name);
+    if (!queue?.queue_id) throw new Error(`Production Queue ${desired.name} is missing`);
+    const endpointConsumers = await cf(`/accounts/${accountId}/queues/${queue.queue_id}/consumers`);
+    const snapshot = queueAttachmentSnapshot(queue, endpointConsumers, "lifespace-core");
+    lastObserved = { attempt, queueId: queue.queue_id, ...snapshot.observed };
+    if (snapshot.consumerAttached && snapshot.producerAttached) {
+      verifiedQueues.set(desired.name, queue);
+      break;
+    }
+    if (attempt < 8) await sleep(3000);
   }
-  if (!Array.isArray(queue.producers) || !queue.producers.some((producer) => producer.type === "worker" && producer.script === "lifespace-core")) {
-    throw new Error(`Production Queue ${desired.name} is not produced by lifespace-core`);
+  if (!verifiedQueues.has(desired.name)) {
+    throw new Error(`Production Queue ${desired.name} producer/consumer attachments did not converge: ${JSON.stringify(lastObserved)}`);
   }
 }
+
+const queues = await cf(`/accounts/${accountId}/queues`);
+const queueByName = new Map((queues ?? []).map((item) => [item.queue_name, item]));
 const productionQueue = queueByName.get("lifespace-creation-drafts");
 const stagingQueue = queueByName.get("lifespace-staging-creation-drafts");
 if (productionQueue && stagingQueue && productionQueue.queue_id === stagingQueue.queue_id) {
@@ -115,6 +131,7 @@ console.log(JSON.stringify({
   d1: Object.fromEntries(productionD1),
   r2: manifest.r2?.map((item) => item.name) ?? [],
   queues: manifest.queues?.map((item) => item.name) ?? [],
+  queueAttachmentsVerified: true,
   workers: ["lifespace-core", "lifespace-identity"],
   deployedBindingsVerified: {
     core: ["DB", "ASSETS", "IDENTITY", "CREATION_DRAFT_QUEUE"],
