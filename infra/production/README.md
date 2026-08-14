@@ -31,7 +31,9 @@ The workflow never writes generated secrets to repository files or artifacts.
 
 ## First Phase 6 run
 
-Run **Actions -> Deploy production -> Run workflow** on the reviewed Phase 6 ref with:
+GitHub only dispatches a `workflow_dispatch` workflow after that workflow file exists on the repository default branch. Therefore the Phase 6 implementation PR must pass CI and be merged to `main` before the first production run is dispatched.
+
+After merge, run **Actions -> Deploy production -> Run workflow**, select `main`, and use:
 
 ```text
 phase6_bringup: true
@@ -56,7 +58,7 @@ The workflow:
 
 The HomeMew production application registration is intentional metadata. Its actual cutover `lsa_*` credential is **not** retained by Phase 6. Phase 7 creates a new credential and places it directly in the HomeMew production secret store.
 
-If the first run fails after resources have already been created, rerun Phase 6 with `provision: false` unless a missing resource still needs create-if-missing provisioning.
+If the first run fails after resources have already been created, rerun Phase 6 from `main` with `provision: false` unless a missing resource still needs create-if-missing provisioning.
 
 ## Normal production deployments after Phase 6
 
