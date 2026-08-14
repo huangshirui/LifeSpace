@@ -5,6 +5,7 @@
   "application": {
     "key": "homemew",
     "stagingId": "app_homemew_staging",
+    "productionId": "homemew-miniprogram",
     "clientType": "mini_program",
     "trustedBackend": true,
     "accessTokenTtlSeconds": 900,
