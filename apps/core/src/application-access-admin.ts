@@ -51,7 +51,7 @@ async function parseEntries(context: Context<AppEnv>): Promise<AccessEntry[]> {
 }
 
 function applicationId(context: Context<AppEnv>): string {
-  const value = context.req.param("applicationId").trim();
+  const value = context.req.param("applicationId")?.trim() ?? "";
   if (!value || value.length > 128 || !/^[A-Za-z0-9][A-Za-z0-9._:-]*$/u.test(value)) {
     throw new ApiError("VALIDATION_ERROR", "applicationId is invalid", 422);
   }
