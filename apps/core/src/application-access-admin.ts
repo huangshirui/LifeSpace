@@ -76,7 +76,7 @@ async function validateAgainstRegistry(env: Bindings, entries: AccessEntry[]): P
 
 export function registerApplicationAccessAdminRoutes(app: App): void {
   app.get(
-    "/api/v1/model-admin/applications/:applicationId/access",
+    "/internal/v1/application-model-access/:applicationId",
     requireScope("models:manage"),
     async (context) => {
       requireService(context.get("principal"));
@@ -97,7 +97,7 @@ export function registerApplicationAccessAdminRoutes(app: App): void {
   );
 
   app.put(
-    "/api/v1/model-admin/applications/:applicationId/access",
+    "/internal/v1/application-model-access/:applicationId",
     requireScope("models:manage"),
     async (context) => {
       const principal = context.get("principal");
