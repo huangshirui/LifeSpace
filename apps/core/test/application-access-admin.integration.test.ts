@@ -49,12 +49,13 @@ async function call(publicKey: string, accessToken: string, path: string, init: 
   });
 }
 
-describe("Application model-access admin API", () => {
+describe("Application model-access internal admin API", () => {
   it("replaces one application's model catalog and rejects user principals", async () => {
     const pair = await keys();
     const serviceToken = await token(pair.privateKey, "service", ["models:manage"]);
     const userToken = await token(pair.privateKey, "user", ["models:manage"]);
     const applicationId = `app_test_${crypto.randomUUID().replaceAll("-", "")}`;
+    const path = `/internal/v1/application-model-access/${applicationId}`;
 
     const modelsResponse = await call(pair.publicKey, serviceToken, "/api/v1/model-admin/models");
     expect(modelsResponse.status).toBe(200);
@@ -65,7 +66,7 @@ describe("Application model-access admin API", () => {
     const denied = await call(
       pair.publicKey,
       userToken,
-      `/api/v1/model-admin/applications/${applicationId}/access`,
+      path,
       { method: "PUT", body: JSON.stringify({ models: [{ modelKey: writable!.key, maxAccess: "write" }] }) },
     );
     expect(denied.status).toBe(403);
@@ -73,7 +74,7 @@ describe("Application model-access admin API", () => {
     const replace = await call(
       pair.publicKey,
       serviceToken,
-      `/api/v1/model-admin/applications/${applicationId}/access`,
+      path,
       { method: "PUT", body: JSON.stringify({ models: [{ modelKey: writable!.key, maxAccess: "write" }] }) },
     );
     expect(replace.status).toBe(200);
@@ -86,7 +87,7 @@ describe("Application model-access admin API", () => {
     expect(stored.results).toHaveLength(1);
     expect(stored.results[0]).toMatchObject({ applicationId, modelKey: writable!.key, maxAccess: "write", createdByType: "service" });
 
-    const get = await call(pair.publicKey, serviceToken, `/api/v1/model-admin/applications/${applicationId}/access`);
+    const get = await call(pair.publicKey, serviceToken, path);
     expect(get.status).toBe(200);
     const current = await get.json<{ data: { applicationId: string; models: Array<{ modelKey: string; maxAccess: string }> } }>();
     expect(current.data.applicationId).toBe(applicationId);
@@ -95,7 +96,7 @@ describe("Application model-access admin API", () => {
     const clear = await call(
       pair.publicKey,
       serviceToken,
-      `/api/v1/model-admin/applications/${applicationId}/access`,
+      path,
       { method: "PUT", body: JSON.stringify({ models: [] }) },
     );
     expect(clear.status).toBe(200);
@@ -109,11 +110,12 @@ describe("Application model-access admin API", () => {
     const pair = await keys();
     const serviceToken = await token(pair.privateKey, "service", ["models:manage"]);
     const applicationId = `app_test_${crypto.randomUUID().replaceAll("-", "")}`;
+    const path = `/internal/v1/application-model-access/${applicationId}`;
 
     const unknown = await call(
       pair.publicKey,
       serviceToken,
-      `/api/v1/model-admin/applications/${applicationId}/access`,
+      path,
       { method: "PUT", body: JSON.stringify({ models: [{ modelKey: "does_not_exist", maxAccess: "read" }] }) },
     );
     expect(unknown.status).toBe(404);
@@ -121,7 +123,7 @@ describe("Application model-access admin API", () => {
     const duplicate = await call(
       pair.publicKey,
       serviceToken,
-      `/api/v1/model-admin/applications/${applicationId}/access`,
+      path,
       {
         method: "PUT",
         body: JSON.stringify({
