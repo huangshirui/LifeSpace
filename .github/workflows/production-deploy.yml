@@ -1,0 +1,196 @@
+name: Deploy production
+
+on:
+  workflow_dispatch:
+    inputs:
+      phase6_bringup:
+        description: "Run the Phase 6 empty-platform bring-up gate"
+        required: true
+        default: false
+        type: boolean
+      provision:
+        description: "Create missing production D1/R2/Queue resources (Phase 6 only)"
+        required: true
+        default: false
+        type: boolean
+      confirmation:
+        description: "Type DEPLOY_PRODUCTION"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lifespace-production-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Migrate, deploy and verify production
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID || secrets.CLOUDFLARE_ACCOUNT_ID }}
+      LIFESPACE_PRODUCTION_BOOTSTRAP_SECRET: ${{ secrets.LIFESPACE_PRODUCTION_BOOTSTRAP_SECRET }}
+      LIFESPACE_CORE_PRODUCTION_URL: https://core.aisr.online
+      LIFESPACE_IDENTITY_PRODUCTION_URL: https://auth.aisr.online
+
+    steps:
+      - name: Validate production intent
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${{ inputs.confirmation }}" = "DEPLOY_PRODUCTION" || { echo "confirmation must be DEPLOY_PRODUCTION" >&2; exit 1; }
+          if [ "${{ inputs.provision }}" = "true" ] && [ "${{ inputs.phase6_bringup }}" != "true" ]; then
+            echo "Production provisioning is restricted to explicit Phase 6 bring-up runs" >&2
+            exit 1
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+
+      - name: Report deployment source
+        run: |
+          echo "ref=$GITHUB_REF"
+          echo "sha=$GITHUB_SHA"
+          echo "checkout=$(git rev-parse HEAD)"
+          echo "phase6_bringup=${{ inputs.phase6_bringup }}"
+          echo "provision=${{ inputs.provision }}"
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.13.1
+          run_install: false
+
+      - name: Setup Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Validate production credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${CLOUDFLARE_API_TOKEN:-}" || { echo "CLOUDFLARE_API_TOKEN is not configured" >&2; exit 1; }
+          test -n "${CLOUDFLARE_ACCOUNT_ID:-}" || { echo "CLOUDFLARE_ACCOUNT_ID is not configured" >&2; exit 1; }
+          test ${#LIFESPACE_PRODUCTION_BOOTSTRAP_SECRET} -ge 32 || { echo "LIFESPACE_PRODUCTION_BOOTSTRAP_SECRET must be at least 32 characters" >&2; exit 1; }
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate repository
+        run: pnpm check
+
+      - name: Validate production scripts
+        run: node infra/scripts/check-production-infra.mjs
+
+      - name: Resolve expected production versions
+        run: node infra/scripts/production-expectations.mjs
+
+      - name: Provision missing production resources
+        if: ${{ inputs.provision }}
+        run: node infra/scripts/provision-production.mjs
+
+      - name: Resolve production D1 IDs
+        run: node infra/scripts/resolve-production-d1.mjs
+
+      - name: Preflight production custom domains
+        env:
+          PRODUCTION_DOMAIN_PREFLIGHT_ONLY: "1"
+        run: node infra/scripts/ensure-production-domains.mjs
+
+      # First bring-up is intentionally Identity-first because Core's Service Binding
+      # requires the target Identity Worker to exist. No production application traffic
+      # exists during Phase 6, so there is no compatibility window to protect yet.
+      - name: Apply Identity migrations for first bring-up
+        if: ${{ inputs.phase6_bringup }}
+        run: pnpm --filter @lifespace/identity db:migrate:production
+
+      - name: Deploy Identity foundation first
+        if: ${{ inputs.phase6_bringup }}
+        run: pnpm --dir apps/identity exec wrangler deploy --env production
+
+      - name: Apply Core migrations for first bring-up
+        if: ${{ inputs.phase6_bringup }}
+        run: pnpm --filter @lifespace/core db:migrate:production
+
+      - name: Deploy Core after Identity foundation
+        if: ${{ inputs.phase6_bringup }}
+        run: pnpm --dir apps/core exec wrangler deploy --env production
+
+      # After Phase 6, use the same compatibility-preserving ordering as staging:
+      # newer Core verifier/runtime first, then Identity may issue against it.
+      - name: Apply Core migrations
+        if: ${{ inputs.phase6_bringup == false }}
+        run: pnpm --filter @lifespace/core db:migrate:production
+
+      - name: Deploy Core first
+        if: ${{ inputs.phase6_bringup == false }}
+        run: pnpm --dir apps/core exec wrangler deploy --env production
+
+      - name: Apply Identity migrations
+        if: ${{ inputs.phase6_bringup == false }}
+        run: pnpm --filter @lifespace/identity db:migrate:production
+
+      - name: Deploy Identity after compatible Core
+        if: ${{ inputs.phase6_bringup == false }}
+        run: pnpm --dir apps/identity exec wrangler deploy --env production
+
+      - name: Ensure production custom domains
+        run: node infra/scripts/ensure-production-domains.mjs
+
+      - name: Initialize or preserve production runtime secrets
+        run: node infra/scripts/initialize-production-runtime.mjs
+
+      - name: Wait for production HTTP convergence
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 18); do
+            if node infra/scripts/verify-production-http.mjs; then
+              exit 0
+            fi
+            echo "Production endpoints have not converged yet (attempt ${attempt}/18)"
+            if [ "$attempt" -eq 18 ]; then exit 1; fi
+            sleep 5
+          done
+
+      - name: Verify production Cloudflare isolation and bindings
+        run: node infra/scripts/verify-production-cloudflare.mjs
+
+      - name: Initialize and verify Model Contract through service authentication
+        if: ${{ inputs.phase6_bringup }}
+        run: node infra/scripts/verify-production-model-admin.mjs
+
+      - name: Register and verify HomeMew production application boundary
+        if: ${{ inputs.phase6_bringup }}
+        run: node infra/scripts/verify-production-homemew-auth.mjs
+
+      - name: Verify Phase 6 production databases remain business-empty
+        if: ${{ inputs.phase6_bringup }}
+        run: node infra/scripts/verify-production-db.mjs
+
+      - name: Summarize production deployment
+        if: ${{ success() }}
+        shell: bash
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<EOF
+          ## LifeSpace production deployment
+
+          - Ref: \`${GITHUB_REF}\`
+          - SHA: \`${GITHUB_SHA}\`
+          - Core: schema v${LIFESPACE_EXPECTED_CORE_SCHEMA_VERSION} / Kernel contract ${LIFESPACE_EXPECTED_CORE_CONTRACT_VERSION}
+          - Identity: schema v${LIFESPACE_EXPECTED_IDENTITY_SCHEMA_VERSION} / contract ${LIFESPACE_EXPECTED_IDENTITY_CONTRACT_VERSION}
+          - Custom domains: \`core.aisr.online\`, \`auth.aisr.online\`
+          - Production D1/R2/Queue/Worker isolation: passed
+          - Production runtime signing/shared-secret presence: passed
+          - Phase 6 empty-platform gate: ${{ inputs.phase6_bringup }}
+          - HomeMew production data migration: **not performed**
+          - HomeMew production traffic cutover: **not performed**
+          EOF

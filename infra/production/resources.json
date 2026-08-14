@@ -1,0 +1,36 @@
+{
+  "location": "apac",
+  "d1": [
+    {
+      "name": "lifespace-identity",
+      "config": "apps/identity/wrangler.jsonc"
+    },
+    {
+      "name": "lifespace-core",
+      "config": "apps/core/wrangler.jsonc"
+    }
+  ],
+  "r2": [
+    {
+      "name": "lifespace-assets",
+      "locationHint": "apac"
+    }
+  ],
+  "queues": [
+    {
+      "name": "lifespace-creation-drafts"
+    }
+  ],
+  "domains": [
+    {
+      "hostname": "auth.aisr.online",
+      "service": "lifespace-identity",
+      "zoneName": "aisr.online"
+    },
+    {
+      "hostname": "core.aisr.online",
+      "service": "lifespace-core",
+      "zoneName": "aisr.online"
+    }
+  ]
+}

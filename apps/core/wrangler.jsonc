@@ -32,6 +32,7 @@
       "name": "lifespace-core",
       "placement": { "mode": "smart" },
       "vars": { "ENVIRONMENT": "production", "AI_BASE_URL": "https://openrouter.ai/api/v1" },
+      "routes": [{ "pattern": "core.aisr.online", "custom_domain": true }],
       "d1_databases": [{ "binding": "DB", "database_name": "lifespace-core", "database_id": "00000000-0000-0000-0000-000000000003", "migrations_dir": "migrations" }],
       "r2_buckets": [{ "binding": "ASSETS", "bucket_name": "lifespace-assets" }],
       "services": [{ "binding": "IDENTITY", "service": "lifespace-identity" }],
