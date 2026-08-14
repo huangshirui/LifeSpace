@@ -38,6 +38,15 @@ Each environment requires separate values:
 
 Staging and production secrets must never be reused across environments.
 
+For staging, `.github/workflows/admin-staging-deploy.yml` installs these Worker secrets without exposing plaintext credentials in repository configuration. It reuses the existing staging Identity bootstrap secret and `infra/scripts/initialize-staging-admin-runtime.mjs` creates/rotates a dedicated non-expiring `models:manage` service token, writes it directly to the Admin Worker through Wrangler bulk secrets, then revokes the previous Admin runtime token after successful replacement.
+
+The staging GitHub Environment therefore needs only these additional non-secret Access variables before the first Admin deployment:
+
+- `LIFESPACE_STAGING_ADMIN_ACCESS_TEAM_DOMAIN`;
+- `LIFESPACE_STAGING_ADMIN_ACCESS_AUD`.
+
+`CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, and `LIFESPACE_STAGING_BOOTSTRAP_SECRET` continue to use the existing staging deployment configuration.
+
 ## Cloudflare Access
 
 Create separate Access Applications for:
@@ -46,6 +55,8 @@ Create separate Access Applications for:
 - `admin.aisr.online`.
 
 The Access policy decides which human operators may enter the Admin. The Worker additionally verifies the Access JWT signature, issuer, audience and expiration on every `/api/*` request.
+
+The isolated `Deploy Admin staging` workflow refuses a successful result if an unauthenticated request to `admin-staging.aisr.online` receives HTTP 200, so a missing Access perimeter cannot be mistaken for a completed staging deployment. The final MVP proof remains a real operator sign-in followed by one browser application-onboarding flow.
 
 ## Local development
 
