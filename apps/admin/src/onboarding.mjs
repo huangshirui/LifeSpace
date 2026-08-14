@@ -91,23 +91,27 @@ async function coreRequest(env, path, init = {}) {
 
 async function disableApplication(env, applicationId) {
   try {
-    await identityRequest(env, `/bootstrap/v1/applications/${encodeURIComponent(applicationId)}`, {
+    const disabled = await identityRequest(env, `/bootstrap/v1/applications/${encodeURIComponent(applicationId)}`, {
       method: "PATCH",
       body: JSON.stringify({ status: "disabled" }),
     });
+    if (!disabled.ok) return false;
+
     const credentialsResponse = await identityRequest(env, `/bootstrap/v1/applications/${encodeURIComponent(applicationId)}/credentials`);
-    if (!credentialsResponse.ok) return;
+    if (!credentialsResponse.ok) return false;
     const credentials = await jsonResponse(credentialsResponse);
     for (const credential of credentials?.data ?? []) {
       if (credential?.status !== "active" || typeof credential.id !== "string") continue;
-      await identityRequest(
+      const revoked = await identityRequest(
         env,
         `/bootstrap/v1/applications/${encodeURIComponent(applicationId)}/credentials/${encodeURIComponent(credential.id)}`,
         { method: "DELETE" },
       );
+      if (!revoked.ok) return false;
     }
+    return true;
   } catch {
-    // The original onboarding failure remains authoritative. We report whether compensation succeeded separately.
+    return false;
   }
 }
 
@@ -141,17 +145,21 @@ export async function onboardApplication(env, rawInput, operator) {
     });
   }
 
-  const coreResponse = await coreRequest(env, `/api/v1/model-admin/applications/${encodeURIComponent(applicationId)}/access`, {
+  const coreResponse = await coreRequest(env, `/internal/v1/application-model-access/${encodeURIComponent(applicationId)}`, {
     method: "PUT",
     body: JSON.stringify({ models: input.modelAccess }),
   });
   const corePayload = await jsonResponse(coreResponse);
   if (!coreResponse.ok) {
-    await disableApplication(env, applicationId);
-    fail("CORE_APPLICATION_ACCESS_FAILED", "Core could not configure application model access; Identity application was disabled", 502, {
-      applicationId,
-      upstreamStatus: coreResponse.status,
-    });
+    const compensated = await disableApplication(env, applicationId);
+    fail(
+      "CORE_APPLICATION_ACCESS_FAILED",
+      compensated
+        ? "Core could not configure application model access; the new Identity application was disabled and its credentials revoked"
+        : "Core could not configure application model access and automatic Identity compensation did not complete",
+      502,
+      { applicationId, upstreamStatus: coreResponse.status, compensated },
+    );
   }
 
   return {
