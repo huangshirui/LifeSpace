@@ -1,6 +1,6 @@
 # HomeMew Core -> LifeSpace Migration Plan
 
-Updated: 2026-08-13
+Updated: 2026-08-14
 
 ## 1. Goal
 
@@ -155,7 +155,7 @@ HomeMew system identities/family access are recorded for later LifeSpace service
 | Phase 4 | **Complete** | **HomeMew Integration Readiness** — frozen LifeSpace application surface, trusted-backend boundary and reproducible handoff |
 | Phase 5 | **Complete** | **One-shot Migration Rehearsal** — purpose-built script, consolidated report and real staging rehearsal |
 | Milestone | **Complete** | **HomeMew Integration Ready** — Phase 4 + Phase 5 passed |
-| Phase 6 | Planned | LifeSpace production platform bring-up with no HomeMew production data/traffic |
+| Phase 6 | **Complete** | Empty isolated LifeSpace production platform deployed and verified; no HomeMew production data/traffic |
 | Phase 7 | Planned | Controlled one-shot HomeMew production data migration and application cutover |
 | Phase 8 | Planned | Stabilization and retirement of old HomeMew shared Core/infrastructure |
 | Phase 9 | Non-blocking | Post-cutover LifeSpace aggregation/sharing evolution |
@@ -303,28 +303,39 @@ The milestone does **not** require the redesigned HomeMew Mini Program or Cloudf
 
 ## 14. Phase 6 — LifeSpace production platform bring-up
 
-After **HomeMew Integration Ready**, deploy the production LifeSpace platform before the HomeMew cutover day.
+**Complete on 2026-08-14.** The empty, isolated LifeSpace production platform is deployed and verified before any HomeMew production migration or traffic cutover.
 
-Bring up and verify isolated production resources:
+Accepted production deployment evidence:
 
 ```text
-auth.aisr.online
-core.aisr.online
-production Identity/Core D1
-production R2
-production Queue/runtime secrets
-production application/service registrations required for later HomeMew cutover
+Deploy production run: 31776861588 / run #4
+Accepted SHA:          52c988898ea2fbfaf95d7b35f43124c6580091f0
+Identity:              auth.aisr.online / D1 schema 4 / contract 0.4.0
+Core:                  core.aisr.online / D1 schema 24 / Kernel contract 0.12.0
+Model Contract:        mct_9a3d9588da8591ab376ef000e5e661f670a64dd8b1ebc14fd146580f0ed1fa45
+R2:                    lifespace-assets
+Queue:                 lifespace-creation-drafts
+HomeMew application:   homemew-miniprogram
 ```
 
-At this phase:
+The production gate verified:
 
-- do **not** migrate HomeMew durable production data;
-- do **not** send HomeMew production traffic to LifeSpace;
-- verify health/status, schema/contracts, signing/authentication, Registry/Model Contract, object/Queue bindings and representative empty-platform operations;
-- create production credentials only through approved lifecycle procedures and store them in their final secret stores;
-- keep staging and production physically isolated.
+- exact production D1 identities and no staging resource reuse;
+- production R2, Queue, Workers, custom domains and deployed bindings;
+- `lifespace-core` Queue producer and Worker consumer attachment;
+- production health/status convergence with exact schema/contract/environment values;
+- RS256 signing material and Core↔Identity shared service-authentication secret presence/preservation;
+- `lsp_pat_* -> Core -> Identity introspection` through a disposable Model Admin authority;
+- the accepted active Model Contract and production proving models;
+- HomeMew trusted-backend scope/TTL boundary, Identity JWT verification and Core JWT verification;
+- explicit rejection of `models:manage` from the HomeMew application boundary;
+- zero residual disposable probe authority;
+- zero active HomeMew cutover credentials;
+- final production business state `empty`.
 
-This intentionally separates first-time production provisioning from later data migration/application cutover.
+No HomeMew production durable data migration was invoked and no HomeMew production traffic was sent to LifeSpace. The final HomeMew `lsa_*` credential was deliberately not issued. Detailed evidence lives in `docs/phase6-status.md`.
+
+Phase 6 completion does **not** authorize Phase 7; it only removes first-time LifeSpace production provisioning from the later cutover risk envelope.
 
 ## 15. Independent HomeMew application development
 
