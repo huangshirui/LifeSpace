@@ -16,6 +16,12 @@ Web App browser
   -> Cloudflare Service Binding
   -> LifeSpace Core
 
+LifeSpace Admin browser
+  -> Cloudflare Access
+  -> same-origin LifeSpace Admin BFF
+  -> authenticated control-plane Service Bindings
+  -> LifeSpace Identity / Core
+
 Mini Program / untrusted client
   -> short-lived app-scoped bearer token
   -> LifeSpace Core
@@ -39,6 +45,25 @@ Platform services:
 
 - `apps/core`: modular-monolith business platform. Owns Spaces, Data Grants, Model Registry, Runtime Model Descriptor cache, Physical Schema Compiler, Generic Resource Runtime, reusable business Engines/Capabilities, business authorization, aggregate `/me` views, Kernel/business migrations and domain event/webhook behavior.
 - `apps/identity`: global LifeSpace user registry and credential issuer. Owns `usr_*` users, trusted application registration/credentials, service principals, opaque Service API Token lifecycle, short-lived token issuance/revocation and signing-key lifecycle.
+- `apps/admin`: owner-controlled LifeSpace control plane. It is independently deployed behind Cloudflare Access, verifies the Access JWT again at the Worker boundary, and orchestrates privileged Identity/Core operations through authenticated Service Bindings. It never owns a copy of Identity/Core records and never binds their D1 databases directly.
+
+### Admin control-plane boundary
+
+Application onboarding is the first implemented Admin workflow. Its normative detail lives in `docs/application-onboarding.md`.
+
+```text
+Authorized operator
+  -> Cloudflare Access
+  -> apps/admin
+       -> Identity: create app_* + optional one-time lsa_*
+       -> Core internal service interface: set Application × Model Access
+```
+
+Identity remains authoritative for Application/credential state and Core remains authoritative for Application × Model Access. Admin is an orchestrator only. The browser never receives the Identity bootstrap secret or Admin's Core `lsp_pat_*` credential.
+
+The Core Application × Model Access mutation used by Admin is an internal service interface, not a downstream client API and not part of the public Core Kernel OpenAPI. It still requires an authenticated service principal with `models:manage`; Cloudflare Service Binding transport does not itself confer authority.
+
+Because Identity and Core deliberately retain independent D1 databases, onboarding uses a fail-closed compensation flow rather than cross-database coupling: if Core access configuration fails after Identity application creation, Admin disables the new Identity application and revokes its active application credential. A compensation failure is reported explicitly for operator repair.
 
 ## Core internal architecture
 
@@ -70,7 +95,7 @@ Kernel concepts remain explicit and cannot be created as ordinary user-defined m
 - Registry-driven Creation Draft orchestration;
 - security/signing/deployment state.
 
-The checked-in `apps/core/openapi.yaml` describes only this explicit Kernel surface. Ordinary model endpoints are not manually copied into the Kernel contract.
+The checked-in `apps/core/openapi.yaml` describes only this explicit public Kernel surface. Ordinary model endpoints are not manually copied into the Kernel contract. Internal authenticated control-plane interfaces used exclusively between LifeSpace-owned services are not downstream client contract surface unless explicitly promoted and versioned as such.
 
 ### Model Registry and Runtime Model Descriptors
 
@@ -186,7 +211,7 @@ A trusted application backend authenticates to Identity with its own revocable a
 
 Cloudflare Access is the preferred authentication and SSO layer for owner-controlled Web, PWA, Admin and internal-tool applications. Applications that should share browser login state are registered as separate Access Applications in the same Cloudflare Zero Trust organization. Each application keeps its own Access policy and authorization boundary; an existing Access global session avoids unnecessary re-authentication but does not imply authorization to every protected application.
 
-LifeSpace Identity does not duplicate Cloudflare Access as a general-purpose Web SSO or external IdP platform. For a Web application that needs LifeSpace data, its trusted same-origin BFF validates the Cloudflare Access identity and resolves it to the corresponding LifeSpace `user_id` before obtaining or using LifeSpace credentials. Applications unrelated to LifeSpace, such as an independent Admin tool, may use Cloudflare Access SSO without depending on LifeSpace Identity at all.
+LifeSpace Identity does not duplicate Cloudflare Access as a general-purpose Web SSO or external IdP platform. For a Web application that needs LifeSpace data, its trusted same-origin BFF validates the Cloudflare Access identity and resolves it to the corresponding LifeSpace `user_id` before obtaining or using LifeSpace credentials. A platform Admin instead uses the Access identity as operator authentication while its server-side BFF invokes narrowly authorized platform-administration interfaces; the browser operator is not converted into an all-powerful LifeSpace user token.
 
 ```text
                          Web applications
@@ -197,17 +222,17 @@ LifeSpace Identity does not duplicate Cloudflare Access as a general-purpose Web
           +--------------+---------------+
           |              |               |
           v              v               v
-   LifeSpace Web    Task Hub Admin     ALOHA Web
-          |
-          | only when LifeSpace data is needed
-          v
-   LifeSpace Identity
-          |
-       usr_xxx
-          |
-     Space / Grant
-          |
-    LifeSpace Core
+   LifeSpace Admin   Other Admin      ALOHA Web
+          |                              |
+          | control-plane service auth   | LifeSpace data as user
+          v                              v
+   Identity + Core                LifeSpace Identity
+                                         |
+                                      usr_xxx
+                                         |
+                                   Space / Grant
+                                         |
+                                  LifeSpace Core
 ```
 
 Non-Web application authentication remains independent of Cloudflare Access. For example, a Mini Program may authenticate with WeChat through its application backend, map that provider identity to the same LifeSpace `user_id`, and then obtain appropriately scoped LifeSpace credentials:
@@ -249,15 +274,18 @@ A typed model table may duplicate `space_id` solely for query locality/indexing;
 
 ALOHA, HomeMew and vertical applications are clients, not data owners. App repositories own UI, app-specific navigation, local presentation state, external-provider identity mapping, provider secrets and optional BFF aggregation. They must not become parallel sources of truth for platform business data.
 
+A new LifeSpace Application is registered through the platform control plane rather than by adding application-specific Core/Identity code. Registration establishes the Application identity, scope ceiling and explicit Application × Model Access only; it does not grant Space data. See `docs/application-onboarding.md`.
+
 ## Cloudflare deployment
 
 Target production topology:
 
 - `auth.aisr.online` -> Identity Worker
 - `core.aisr.online` -> Core Worker
+- `admin.aisr.online` -> LifeSpace Admin Worker behind its own Cloudflare Access Application
 - application domains -> their own application Worker/Pages deployment and optional same-origin BFF
 
-Production and staging use separate Workers and separate D1/R2/Queue resources.
+Staging includes the isolated counterparts `auth-staging.aisr.online`, `core-staging.aisr.online` and `admin-staging.aisr.online`. Production and staging use separate Workers, Access policies/credentials and separate D1/R2/Queue resources where those resources exist.
 
 Publishing or compatibly extending an ordinary model after typed-storage convergence does not itself require a Worker deployment. Kernel/Runtime/Capability code changes still use the normal repository deployment process.
 
