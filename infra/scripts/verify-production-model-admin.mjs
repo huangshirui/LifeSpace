@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import process from "node:process";
 import { PRODUCTION_PROVING_MODELS, assertProductionServiceUrl } from "./production-expectations.mjs";
+import { boundedProbeLabel } from "./production-probe-label.mjs";
 
 const identityBase = (process.env.LIFESPACE_IDENTITY_PRODUCTION_URL ?? "https://auth.aisr.online").replace(/\/+$/u, "");
 const coreBase = (process.env.LIFESPACE_CORE_PRODUCTION_URL ?? "https://core.aisr.online").replace(/\/+$/u, "");
@@ -17,6 +18,7 @@ const runId = (process.env.GITHUB_RUN_ID ?? `${Date.now()}`).replace(/[^0-9A-Za-
 const runAttempt = (process.env.GITHUB_RUN_ATTEMPT ?? "1").replace(/[^0-9A-Za-z_-]/gu, "_");
 const probeId = `${runId}_${runAttempt}`;
 const applicationId = `app_production_model_probe_${probeId}`;
+const probeLabel = boundedProbeLabel("Phase6 model probe", probeId, 50);
 
 function mask(value) {
   if (typeof value === "string" && value) console.log(`::add-mask::${value}`);
@@ -67,7 +69,7 @@ try {
     bootstrap: bootstrapSecret,
     body: {
       id: applicationId,
-      name: `LifeSpace production Model Admin probe ${probeId}`,
+      name: probeLabel,
       clientType: "service",
       allowedScopes: ["models:manage"],
       trustedBackend: true,
@@ -83,7 +85,7 @@ try {
   const user = await jsonRequest(identityBase, "/internal/v1/users", {
     method: "POST",
     bearer: applicationSecret,
-    body: { displayName: `LifeSpace production Model Admin probe ${probeId}` },
+    body: { displayName: probeLabel },
   });
   userId = user.payload?.data?.id ?? "";
   if (user.response.status !== 201 || !userId.startsWith("usr_")) {
@@ -94,7 +96,7 @@ try {
     method: "POST",
     bearer: applicationSecret,
     body: {
-      displayName: `LifeSpace production Model Admin probe ${probeId}`,
+      displayName: probeLabel,
       description: "Ephemeral Phase 6 production verification principal",
       maxScopes: ["models:manage"],
       createdByUserId: userId,
@@ -109,7 +111,7 @@ try {
     method: "POST",
     bearer: applicationSecret,
     body: {
-      label: `Phase 6 production probe ${probeId}`,
+      label: probeLabel,
       scopes: ["models:manage"],
       expiresAt: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
       createdByUserId: userId,
