@@ -1,11 +1,6 @@
 name: Deploy staging
 
 on:
-  push:
-    branches:
-      - feat/application-onboarding-admin
-    paths:
-      - .github/staging-deploy-trigger
   workflow_dispatch:
 
 permissions:
