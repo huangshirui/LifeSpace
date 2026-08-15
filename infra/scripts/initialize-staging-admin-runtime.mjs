@@ -4,7 +4,10 @@ import process from "node:process";
 const identityBase = (process.env.LIFESPACE_IDENTITY_STAGING_URL ?? "https://auth-staging.aisr.online").replace(/\/+$/u, "");
 const coreBase = (process.env.LIFESPACE_CORE_STAGING_URL ?? "https://core-staging.aisr.online").replace(/\/+$/u, "");
 const bootstrapSecret = process.env.LIFESPACE_STAGING_BOOTSTRAP_SECRET ?? "";
-const accessTeamDomain = (process.env.LIFESPACE_STAGING_ADMIN_ACCESS_TEAM_DOMAIN ?? "").replace(/\/+$/u, "");
+const rawAccessTeamDomain = (process.env.LIFESPACE_STAGING_ADMIN_ACCESS_TEAM_DOMAIN ?? "").trim().replace(/\/+$/u, "");
+const accessTeamDomain = rawAccessTeamDomain && !/^https?:\/\//u.test(rawAccessTeamDomain)
+  ? `https://${rawAccessTeamDomain}`
+  : rawAccessTeamDomain;
 const accessAudience = process.env.LIFESPACE_STAGING_ADMIN_ACCESS_AUD ?? "";
 const ADMIN_DIR = new URL("../../apps/admin/", import.meta.url);
 const CORE_DIR = new URL("../../apps/core/", import.meta.url);
@@ -25,7 +28,7 @@ for (const [name, value] of Object.entries({
 }
 if (bootstrapSecret.length < 32) throw new Error("LIFESPACE_STAGING_BOOTSTRAP_SECRET must contain at least 32 characters");
 if (!/^https:\/\/[A-Za-z0-9.-]+\.cloudflareaccess\.com$/u.test(accessTeamDomain)) {
-  throw new Error("LIFESPACE_STAGING_ADMIN_ACCESS_TEAM_DOMAIN must be an https://<team>.cloudflareaccess.com URL");
+  throw new Error("LIFESPACE_STAGING_ADMIN_ACCESS_TEAM_DOMAIN must be a <team>.cloudflareaccess.com hostname or https URL");
 }
 if (!/^[A-Za-z0-9_-]{8,256}$/u.test(accessAudience)) {
   throw new Error("LIFESPACE_STAGING_ADMIN_ACCESS_AUD is invalid");
