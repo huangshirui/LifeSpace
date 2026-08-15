@@ -31,7 +31,7 @@ Admin generates the `app_*` id, registers the application in Identity, then atom
 
 Each environment requires separate values:
 
-- `CF_ACCESS_TEAM_DOMAIN` — for example `https://<team>.cloudflareaccess.com`;
+- `CF_ACCESS_TEAM_DOMAIN` — normalized to `https://<team>.cloudflareaccess.com`;
 - `CF_ACCESS_AUD` — Access Application audience tag for the Admin hostname;
 - `IDENTITY_BOOTSTRAP_SECRET` — environment-specific Identity platform bootstrap credential;
 - `CORE_ADMIN_TOKEN` — `lsp_pat_*` token for a service principal with `models:manage` in the platform-admin application context.
@@ -42,7 +42,7 @@ For staging, `.github/workflows/admin-staging-deploy.yml` installs these Worker 
 
 The staging GitHub Environment therefore needs only these additional non-secret Access variables before the first Admin deployment:
 
-- `LIFESPACE_STAGING_ADMIN_ACCESS_TEAM_DOMAIN`;
+- `LIFESPACE_STAGING_ADMIN_ACCESS_TEAM_DOMAIN` — accepts either `<team>.cloudflareaccess.com` or the full `https://<team>.cloudflareaccess.com` URL and stores the normalized HTTPS form in the Worker secret;
 - `LIFESPACE_STAGING_ADMIN_ACCESS_AUD`.
 
 `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, and `LIFESPACE_STAGING_BOOTSTRAP_SECRET` continue to use the existing staging deployment configuration.
@@ -56,7 +56,9 @@ Create separate Access Applications for:
 
 The Access policy decides which human operators may enter the Admin. The Worker additionally verifies the Access JWT signature, issuer, audience and expiration on every `/api/*` request.
 
-The isolated `Deploy Admin staging` workflow refuses a successful result if an unauthenticated request to `admin-staging.aisr.online` receives HTTP 200, so a missing Access perimeter cannot be mistaken for a completed staging deployment. The final MVP proof remains a real operator sign-in followed by one browser application-onboarding flow.
+The isolated `Deploy Admin staging` workflow refuses a successful result if an unauthenticated request to `admin-staging.aisr.online` receives HTTP 200, so a missing Access perimeter cannot be mistaken for a completed staging deployment.
+
+Staging deployment run #4 (`31894039940`) passed on 2026-08-15. It proved the Admin Worker deployment, dedicated `models:manage` service authority initialization/secret installation, and Cloudflare Access interception of unauthenticated traffic. The remaining MVP proof is a real operator sign-in followed by one browser application-onboarding flow.
 
 ## Local development
 
