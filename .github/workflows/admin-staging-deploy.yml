@@ -26,8 +26,8 @@ jobs:
       LIFESPACE_STAGING_BOOTSTRAP_SECRET: ${{ secrets.LIFESPACE_STAGING_BOOTSTRAP_SECRET }}
       LIFESPACE_CORE_STAGING_URL: https://core-staging.aisr.online
       LIFESPACE_IDENTITY_STAGING_URL: https://auth-staging.aisr.online
-      LIFESPACE_STAGING_ADMIN_ACCESS_TEAM_DOMAIN: ${{ vars.LIFESPACE_STAGING_ADMIN_ACCESS_TEAM_DOMAIN }}
-      LIFESPACE_STAGING_ADMIN_ACCESS_AUD: ${{ vars.LIFESPACE_STAGING_ADMIN_ACCESS_AUD }}
+      LIFESPACE_STAGING_ADMIN_ACCESS_TEAM_DOMAIN: ${{ vars.LIFESPACE_STAGING_ADMIN_ACCESS_TEAM_DOMAIN || secrets.LIFESPACE_STAGING_ADMIN_ACCESS_TEAM_DOMAIN }}
+      LIFESPACE_STAGING_ADMIN_ACCESS_AUD: ${{ vars.LIFESPACE_STAGING_ADMIN_ACCESS_AUD || secrets.LIFESPACE_STAGING_ADMIN_ACCESS_AUD }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -59,8 +59,8 @@ jobs:
           test -n "${CLOUDFLARE_API_TOKEN:-}" || { echo "CLOUDFLARE_API_TOKEN is not configured" >&2; exit 1; }
           test -n "${CLOUDFLARE_ACCOUNT_ID:-}" || { echo "CLOUDFLARE_ACCOUNT_ID is not configured" >&2; exit 1; }
           test ${#LIFESPACE_STAGING_BOOTSTRAP_SECRET} -ge 32 || { echo "LIFESPACE_STAGING_BOOTSTRAP_SECRET must be at least 32 characters" >&2; exit 1; }
-          test -n "${LIFESPACE_STAGING_ADMIN_ACCESS_TEAM_DOMAIN:-}" || { echo "LIFESPACE_STAGING_ADMIN_ACCESS_TEAM_DOMAIN is not configured in the staging Environment variables" >&2; exit 1; }
-          test -n "${LIFESPACE_STAGING_ADMIN_ACCESS_AUD:-}" || { echo "LIFESPACE_STAGING_ADMIN_ACCESS_AUD is not configured in the staging Environment variables" >&2; exit 1; }
+          test -n "${LIFESPACE_STAGING_ADMIN_ACCESS_TEAM_DOMAIN:-}" || { echo "LIFESPACE_STAGING_ADMIN_ACCESS_TEAM_DOMAIN is not configured in the staging Environment variables/secrets" >&2; exit 1; }
+          test -n "${LIFESPACE_STAGING_ADMIN_ACCESS_AUD:-}" || { echo "LIFESPACE_STAGING_ADMIN_ACCESS_AUD is not configured in the staging Environment variables/secrets" >&2; exit 1; }
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
