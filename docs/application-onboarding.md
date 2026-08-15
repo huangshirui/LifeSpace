@@ -1,8 +1,8 @@
 # LifeSpace Application Onboarding
 
-Status: **implemented as Admin MVP; staging runtime proof pending**
+Status: **Admin MVP deployed to staging; browser operator E2E pending**
 
-Updated: 2026-08-14
+Updated: 2026-08-15
 
 ## Purpose
 
@@ -115,9 +115,22 @@ The staging workflow therefore requires only two new non-secret GitHub Environme
 - `LIFESPACE_STAGING_ADMIN_ACCESS_TEAM_DOMAIN`;
 - `LIFESPACE_STAGING_ADMIN_ACCESS_AUD`.
 
+The Team Domain input accepts either `<team>.cloudflareaccess.com` or the full `https://<team>.cloudflareaccess.com` form and is normalized to HTTPS before being written to the Worker secret.
+
 It reuses the existing staging `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, and `LIFESPACE_STAGING_BOOTSTRAP_SECRET`. No Admin runtime credential plaintext is committed to the repository or exported as a workflow artifact.
 
 The workflow also fails if an unauthenticated request to `admin-staging.aisr.online` returns HTTP 200. This proves the Access perimeter is intercepting anonymous traffic, but it does not replace the final human sign-in / browser onboarding proof.
+
+### Staging runtime proof — 2026-08-15
+
+The application-onboarding branch was deployed to staging and verified in two layers:
+
+- `Deploy staging` run #31 (`31893264882`) successfully deployed and converged the Core/Identity branch changes, including the internal Application × Model Access control-plane route, and passed the full staging regression suite.
+- `Deploy Admin staging` run #4 (`31894039940`) successfully deployed `lifespace-admin-staging`, initialized and installed the dedicated `models:manage` service authority, rotated prior Admin runtime tokens after secret replacement, and proved that an unauthenticated request to `admin-staging.aisr.online` is intercepted by Cloudflare Access.
+
+The temporary branch-only push trigger used to prove a workflow that had not yet landed on the default branch was removed after the run. Normal Admin staging deployment remains explicit `workflow_dispatch` only.
+
+The remaining staging proof is browser-level: an authorized operator must sign in through Cloudflare Access and complete one real application registration, including one-time `lsa_*` output and selected Core Application × Model Access.
 
 Production uses a separate Access Application, application/service authority and Worker secrets; staging authority is never promoted or copied into production.
 
