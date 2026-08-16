@@ -23,32 +23,28 @@ jobs:
         run: |
           python - <<'PY'
           from pathlib import Path
+          import re
 
           path = Path('infra/migration/homemew-one-shot.mjs')
           text = path.read_text()
 
-          def replace_once(old, new):
-              global text
-              count = text.count(old)
-              if count != 1:
-                  raise SystemExit(f'expected exactly one match, found {count}: {old[:80]!r}')
-              text = text.replace(old, new, 1)
-
-          replace_once(
-              'const IDENTITY_URL = "https://auth-staging.aisr.online";\nconst CORE_URL = "https://core-staging.aisr.online";',
-              '''const TARGET_ENVIRONMENT = (process.env.LIFESPACE_MIGRATION_TARGET ?? "staging").trim();
+          old = 'const IDENTITY_URL = "https://auth-staging.aisr.online";\nconst CORE_URL = "https://core-staging.aisr.online";'
+          new = '''const TARGET_ENVIRONMENT = (process.env.LIFESPACE_MIGRATION_TARGET ?? "staging").trim();
           if (!["staging", "production"].includes(TARGET_ENVIRONMENT)) {
             throw new Error(`LIFESPACE_MIGRATION_TARGET must be staging or production; got ${TARGET_ENVIRONMENT || "<empty>"}`);
           }
           const IDENTITY_URL = TARGET_ENVIRONMENT === "production" ? "https://auth.aisr.online" : "https://auth-staging.aisr.online";
           const CORE_URL = TARGET_ENVIRONMENT === "production" ? "https://core.aisr.online" : "https://core-staging.aisr.online";'''
-          )
+          if text.count(old) != 1:
+              raise SystemExit('could not find unique staging URL constants')
+          text = text.replace(old, new, 1)
 
-          replace_once(
-              '''  if (identity.environment !== "staging" || core.environment !== "staging") {
-            throw new MigrationError(`Phase 5 requires staging targets; got Identity=${identity.environment}, Core=${core.environment}`);
-          }''',
-              '''  if (identity.environment !== TARGET_ENVIRONMENT || core.environment !== TARGET_ENVIRONMENT) {
+          pattern = re.compile(
+              r'  if \(identity\.environment !== "staging" \|\| core\.environment !== "staging"\) \{\n'
+              r'\s+throw new MigrationError\(`Phase 5 requires staging targets; got Identity=\$\{identity\.environment\}, Core=\$\{core\.environment\}`\);\n'
+              r'  \}'
+          )
+          replacement = '''  if (identity.environment !== TARGET_ENVIRONMENT || core.environment !== TARGET_ENVIRONMENT) {
             throw new MigrationError(`Migration target environment mismatch; expected ${TARGET_ENVIRONMENT}, got Identity=${identity.environment}, Core=${core.environment}`);
           }
           if (TARGET_ENVIRONMENT === "production") {
@@ -57,64 +53,26 @@ jobs:
               throw new MigrationError("Production migration requires HOMEMEW_PRODUCTION_MIGRATION_CONFIRMATION=MIGRATE_HOMEMEW_PRODUCTION");
             }
           }'''
-          )
+          text, count = pattern.subn(replacement, text, count=1)
+          if count != 1:
+              raise SystemExit('could not find unique staging target environment guard')
 
-          replace_once(
-              '''    target: {
-                identityUrl: IDENTITY_URL,
-                coreUrl: CORE_URL,''',
-              '''    target: {
-                environment: TARGET_ENVIRONMENT,
-                identityUrl: IDENTITY_URL,
-                coreUrl: CORE_URL,'''
-          )
-
-          replace_once(
-              '''      note: "Phase 5 preserves current operational business state and relationships through native LifeSpace APIs. Historical audit timestamps/versions/actors and inactive/deleted source state are intentionally not imported.",''',
-              '''      note: `${TARGET_ENVIRONMENT === "production" ? "Phase 7 production cutover" : "Phase 5 staging rehearsal"} preserves current operational business state and relationships through native LifeSpace APIs. Historical audit timestamps/versions/actors and inactive/deleted source state are intentionally not imported.`,'''
-          )
-
-          replace_once(
-              '    console.log(`Migration rehearsal PASS. Report written: ${written}`);',
-              '    console.log(`Migration ${TARGET_ENVIRONMENT === "production" ? "production cutover" : "staging rehearsal"} PASS. Report written: ${written}`);'
-          )
-
-          replace_once(
-              '''Target is pinned to ${IDENTITY_URL} and ${CORE_URL}.
-
-          Required env:
-            CLOUDFLARE_ACCOUNT_ID
-            HOMEMEW_D1_API_TOKEN (or CLOUDFLARE_API_TOKEN)
-            LIFESPACE_APPLICATION_SECRET (server-only staging lsa_* credential)
-
-          The source D1 credential only needs read access. Phase 5 refuses a target whose status environment is not staging.`);''',
-              '''Target is selected only by LIFESPACE_MIGRATION_TARGET=staging|production and resolves to ${IDENTITY_URL} and ${CORE_URL}.
-
-          Required env:
-            CLOUDFLARE_ACCOUNT_ID
-            HOMEMEW_D1_API_TOKEN (or CLOUDFLARE_API_TOKEN)
-            LIFESPACE_APPLICATION_SECRET (server-only environment-specific lsa_* credential)
-            LIFESPACE_MIGRATION_TARGET=production for the Phase 7 production cutover
-            HOMEMEW_PRODUCTION_MIGRATION_CONFIRMATION=MIGRATE_HOMEMEW_PRODUCTION for production
-
-          The source D1 credential only needs read access. Production execution must also pass the Phase 7 workflow's empty-target and write-freeze gates.`);'''
-          )
-
-          replace_once(
-              '''  if (command === "rehearse") {
+          old = '''  if (command === "rehearse") {
             const snapshotPath = cliValue("--snapshot", DEFAULT_SNAPSHOT);
             const snapshot = await captureSnapshot(snapshotPath);
             await migrateSnapshot(snapshot, cliValue("--report", DEFAULT_REPORT));
             return;
-          }''',
-              '''  if (command === "rehearse") {
+          }'''
+          new = '''  if (command === "rehearse") {
             if (TARGET_ENVIRONMENT === "production") throw new MigrationError("rehearse is staging-only; production requires an explicit final snapshot followed by migrate");
             const snapshotPath = cliValue("--snapshot", DEFAULT_SNAPSHOT);
             const snapshot = await captureSnapshot(snapshotPath);
             await migrateSnapshot(snapshot, cliValue("--report", DEFAULT_REPORT));
             return;
           }'''
-          )
+          if text.count(old) != 1:
+              raise SystemExit('could not find unique rehearse command block')
+          text = text.replace(old, new, 1)
 
           path.write_text(text)
           PY
@@ -123,6 +81,7 @@ jobs:
         run: |
           node --check infra/migration/homemew-one-shot.mjs
           node infra/migration/homemew-one-shot.mjs --help >/dev/null
+          LIFESPACE_MIGRATION_TARGET=production node infra/migration/homemew-one-shot.mjs rehearse 2>&1 | grep -q 'rehearse is staging-only'
 
       - name: Commit source enablement
         shell: bash
