@@ -57,21 +57,11 @@ jobs:
           if count != 1:
               raise SystemExit('could not find unique staging target environment guard')
 
-          old = '''  if (command === "rehearse") {
-            const snapshotPath = cliValue("--snapshot", DEFAULT_SNAPSHOT);
-            const snapshot = await captureSnapshot(snapshotPath);
-            await migrateSnapshot(snapshot, cliValue("--report", DEFAULT_REPORT));
-            return;
-          }'''
+          old = '  if (command === "rehearse") {'
           new = '''  if (command === "rehearse") {
-            if (TARGET_ENVIRONMENT === "production") throw new MigrationError("rehearse is staging-only; production requires an explicit final snapshot followed by migrate");
-            const snapshotPath = cliValue("--snapshot", DEFAULT_SNAPSHOT);
-            const snapshot = await captureSnapshot(snapshotPath);
-            await migrateSnapshot(snapshot, cliValue("--report", DEFAULT_REPORT));
-            return;
-          }'''
+            if (TARGET_ENVIRONMENT === "production") throw new MigrationError("rehearse is staging-only; production requires an explicit final snapshot followed by migrate");'''
           if text.count(old) != 1:
-              raise SystemExit('could not find unique rehearse command block')
+              raise SystemExit('could not find unique rehearse command')
           text = text.replace(old, new, 1)
 
           path.write_text(text)
