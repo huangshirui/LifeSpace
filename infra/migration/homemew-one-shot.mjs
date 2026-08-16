@@ -401,14 +401,14 @@ async function targetStatuses() {
   const identity = await apiRequest("identity", IDENTITY_URL, "/api/v1/status");
   const core = await apiRequest("core", CORE_URL, "/api/v1/status");
   if (identity.environment !== TARGET_ENVIRONMENT || core.environment !== TARGET_ENVIRONMENT) {
-  throw new MigrationError(`Migration target environment mismatch; expected ${TARGET_ENVIRONMENT}, got Identity=${identity.environment}, Core=${core.environment}`);
-}
-if (TARGET_ENVIRONMENT === "production") {
-  const confirmation = process.env.HOMEMEW_PRODUCTION_MIGRATION_CONFIRMATION ?? "";
-  if (confirmation !== "MIGRATE_HOMEMEW_PRODUCTION") {
-    throw new MigrationError("Production migration requires HOMEMEW_PRODUCTION_MIGRATION_CONFIRMATION=MIGRATE_HOMEMEW_PRODUCTION");
+    throw new MigrationError(`Migration target environment mismatch; expected ${TARGET_ENVIRONMENT}, got Identity=${identity.environment}, Core=${core.environment}`);
   }
-}
+  if (TARGET_ENVIRONMENT === "production") {
+    const confirmation = process.env.HOMEMEW_PRODUCTION_MIGRATION_CONFIRMATION ?? "";
+    if (confirmation !== "MIGRATE_HOMEMEW_PRODUCTION") {
+      throw new MigrationError("Production migration requires HOMEMEW_PRODUCTION_MIGRATION_CONFIRMATION=MIGRATE_HOMEMEW_PRODUCTION");
+    }
+  }
   if (String(identity.contractVersion) !== TARGET.identityContract || String(identity.schemaVersion) !== TARGET.identitySchema) {
     throw new MigrationError(`Identity target mismatch; expected ${TARGET.identityContract}/schema ${TARGET.identitySchema}`);
   }
@@ -945,7 +945,7 @@ async function main() {
     return;
   }
   if (command === "rehearse") {
-  if (TARGET_ENVIRONMENT === "production") throw new MigrationError("rehearse is staging-only; production requires an explicit final snapshot followed by migrate");
+    if (TARGET_ENVIRONMENT === "production") throw new MigrationError("rehearse is staging-only; production requires an explicit final snapshot followed by migrate");
     const snapshotPath = cliValue("--snapshot", DEFAULT_SNAPSHOT);
     const snapshot = await captureSnapshot(snapshotPath);
     await migrateSnapshot(snapshot, cliValue("--report", DEFAULT_REPORT));
