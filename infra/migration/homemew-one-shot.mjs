@@ -5,8 +5,12 @@ import { dirname, resolve } from "node:path";
 const SOURCE_SCHEMA_VERSION = "11";
 const SOURCE_DATABASE_ID = "3921d02d-8158-4706-a979-c18ff9f05ff8";
 const SOURCE_ASSETS_PUBLIC_URL = "https://homemew-assets.aisr.online";
-const IDENTITY_URL = "https://auth-staging.aisr.online";
-const CORE_URL = "https://core-staging.aisr.online";
+const TARGET_ENVIRONMENT = (process.env.LIFESPACE_MIGRATION_TARGET ?? "staging").trim();
+if (!["staging", "production"].includes(TARGET_ENVIRONMENT)) {
+  throw new Error(`LIFESPACE_MIGRATION_TARGET must be staging or production; got ${TARGET_ENVIRONMENT || "<empty>"}`);
+}
+const IDENTITY_URL = TARGET_ENVIRONMENT === "production" ? "https://auth.aisr.online" : "https://auth-staging.aisr.online";
+const CORE_URL = TARGET_ENVIRONMENT === "production" ? "https://core.aisr.online" : "https://core-staging.aisr.online";
 const SNAPSHOT_FORMAT_VERSION = 1;
 const REPORT_FORMAT_VERSION = 1;
 const TARGET = Object.freeze({
@@ -396,9 +400,15 @@ async function apiRequest(service, base, path, { method = "GET", token = undefin
 async function targetStatuses() {
   const identity = await apiRequest("identity", IDENTITY_URL, "/api/v1/status");
   const core = await apiRequest("core", CORE_URL, "/api/v1/status");
-  if (identity.environment !== "staging" || core.environment !== "staging") {
-    throw new MigrationError(`Phase 5 requires staging targets; got Identity=${identity.environment}, Core=${core.environment}`);
+  if (identity.environment !== TARGET_ENVIRONMENT || core.environment !== TARGET_ENVIRONMENT) {
+  throw new MigrationError(`Migration target environment mismatch; expected ${TARGET_ENVIRONMENT}, got Identity=${identity.environment}, Core=${core.environment}`);
+}
+if (TARGET_ENVIRONMENT === "production") {
+  const confirmation = process.env.HOMEMEW_PRODUCTION_MIGRATION_CONFIRMATION ?? "";
+  if (confirmation !== "MIGRATE_HOMEMEW_PRODUCTION") {
+    throw new MigrationError("Production migration requires HOMEMEW_PRODUCTION_MIGRATION_CONFIRMATION=MIGRATE_HOMEMEW_PRODUCTION");
   }
+}
   if (String(identity.contractVersion) !== TARGET.identityContract || String(identity.schemaVersion) !== TARGET.identitySchema) {
     throw new MigrationError(`Identity target mismatch; expected ${TARGET.identityContract}/schema ${TARGET.identitySchema}`);
   }
@@ -935,6 +945,7 @@ async function main() {
     return;
   }
   if (command === "rehearse") {
+  if (TARGET_ENVIRONMENT === "production") throw new MigrationError("rehearse is staging-only; production requires an explicit final snapshot followed by migrate");
     const snapshotPath = cliValue("--snapshot", DEFAULT_SNAPSHOT);
     const snapshot = await captureSnapshot(snapshotPath);
     await migrateSnapshot(snapshot, cliValue("--report", DEFAULT_REPORT));
