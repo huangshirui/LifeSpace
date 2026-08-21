@@ -7,7 +7,7 @@ on:
       - .github/workflows/homemew-production-preflight-once.yml
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: homemew-production-preflight-once
@@ -118,3 +118,14 @@ jobs:
           - `homemew.aisr.online` still targets legacy `homemew-core`.
           - No freeze, migration, credential issuance, domain switch, or production activation occurred.
           EOF
+
+      - name: Record observable PASS marker
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf 'HomeMew production preflight PASS\nrun_id=%s\ncommit=%s\n' "$GITHUB_RUN_ID" "$GITHUB_SHA" > infra/migration/.homemew-production-preflight-pass
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add infra/migration/.homemew-production-preflight-pass
+          git commit -m "chore: record HomeMew production preflight PASS"
+          git push origin HEAD:main
