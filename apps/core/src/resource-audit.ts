@@ -1,0 +1,105 @@
+import type { Bindings, Principal } from "./env";
+import { ApiError } from "./http";
+
+export type ResourceAuditActor = {
+  type: Principal["type"];
+  id: string;
+  displayName: string;
+};
+
+export type ResourceAudit = {
+  createdBy: ResourceAuditActor;
+  updatedBy: ResourceAuditActor;
+};
+
+type AuditRow = {
+  id: string;
+  created_by_type: Principal["type"];
+  created_by_id: string;
+  created_by_name_snapshot: string;
+  created_current_name: string | null;
+  updated_by_type: Principal["type"];
+  updated_by_id: string;
+  updated_by_name_snapshot: string;
+  updated_current_name: string | null;
+};
+
+function actor(
+  type: Principal["type"],
+  id: string,
+  snapshot: string,
+  currentName: string | null,
+): ResourceAuditActor {
+  return {
+    type,
+    id,
+    displayName: currentName?.trim() || snapshot?.trim() || id,
+  };
+}
+
+/**
+ * Batch-load common Generic Resource audit actors for one response page.
+ *
+ * This intentionally performs one bounded query for the whole result set instead of
+ * looking up actors per record. Active user actors use the current Space Person name
+ * for presentation; removed users and service/device actors fall back to the immutable
+ * name snapshot stored on resource_records.
+ */
+export async function loadResourceAudits(
+  env: Bindings,
+  spaceId: string,
+  recordIds: readonly string[],
+): Promise<Map<string, ResourceAudit>> {
+  const ids = [...new Set(recordIds.filter(Boolean))];
+  if (!ids.length) return new Map();
+
+  const placeholders = ids.map(() => "?").join(",");
+  const rows = await env.DB.prepare(`SELECT
+      r.id,
+      r.created_by_type,r.created_by_id,r.created_by_name_snapshot,
+      created_person.display_name AS created_current_name,
+      r.updated_by_type,r.updated_by_id,r.updated_by_name_snapshot,
+      updated_person.display_name AS updated_current_name
+    FROM resource_records r
+    LEFT JOIN space_people created_person
+      ON r.created_by_type='user'
+      AND created_person.space_id=r.space_id
+      AND created_person.linked_user_id=r.created_by_id
+      AND created_person.deleted_at IS NULL
+    LEFT JOIN space_people updated_person
+      ON r.updated_by_type='user'
+      AND updated_person.space_id=r.space_id
+      AND updated_person.linked_user_id=r.updated_by_id
+      AND updated_person.deleted_at IS NULL
+    WHERE r.space_id=? AND r.id IN (${placeholders})`)
+    .bind(spaceId, ...ids)
+    .all<AuditRow>();
+
+  const result = new Map<string, ResourceAudit>();
+  for (const row of rows.results) {
+    result.set(row.id, {
+      createdBy: actor(
+        row.created_by_type,
+        row.created_by_id,
+        row.created_by_name_snapshot,
+        row.created_current_name,
+      ),
+      updatedBy: actor(
+        row.updated_by_type,
+        row.updated_by_id,
+        row.updated_by_name_snapshot,
+        row.updated_current_name,
+      ),
+    });
+  }
+  return result;
+}
+
+export function requireResourceAudit(
+  audits: Map<string, ResourceAudit>,
+  recordId: string,
+): ResourceAudit {
+  const audit = audits.get(recordId);
+  if (!audit) throw new ApiError("RESOURCE_STORAGE_CORRUPT", `Audit envelope is missing for resource ${recordId}`, 500);
+  return audit;
+}
