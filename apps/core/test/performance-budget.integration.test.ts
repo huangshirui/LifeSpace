@@ -7,7 +7,7 @@ import { createGenericResource } from "../src/generic-resource";
 import { getPublishedModel, getRuntimeModelByRoute } from "../src/model-registry";
 
 type TestEnv = { DB: D1Database };
-type Counter = { roundTrips: number };
+type Counter = { roundTrips: number; maxBindings: number };
 
 const statementTargets = new WeakMap<object, D1PreparedStatement>();
 
@@ -15,7 +15,11 @@ function countedStatement(statement: D1PreparedStatement, counter: Counter): D1P
   const proxy = new Proxy(statement as object, {
     get(target, property) {
       if (property === "bind") {
-        return (...values: unknown[]) => countedStatement(statement.bind(...values), counter);
+        return (...values: unknown[]) => {
+          counter.maxBindings = Math.max(counter.maxBindings, values.length);
+          if (values.length > 100) throw new Error(`D1 bound parameter budget exceeded: ${values.length}`);
+          return countedStatement(statement.bind(...values), counter);
+        };
       }
       if (property === "first" || property === "all" || property === "run" || property === "raw") {
         return (...args: unknown[]) => {
@@ -104,8 +108,9 @@ async function fixture() {
       VALUES(?,?,?,?,?,?)`).bind(personId, spaceId, userId, "Performance Tester", now, now),
   ]);
 
-  const model = await getPublishedModel({ DB: database } as Bindings, "task");
-  if (!model) throw new Error("bootstrap Task model is missing");
+  const taskModel = await getPublishedModel({ DB: database } as Bindings, "task");
+  const eventModel = await getPublishedModel({ DB: database } as Bindings, "event");
+  if (!taskModel || !eventModel) throw new Error("bootstrap Task/Event models are missing");
   const actor: Principal = {
     type: "user",
     id: userId,
@@ -114,17 +119,31 @@ async function fixture() {
     tokenId: `tok_setup_${suffix}`,
   };
   const records = [];
-  for (let index = 0; index < 10; index += 1) {
-    records.push(await createGenericResource({ DB: database } as Bindings, actor, spaceId, model, {
-      name: `Budget task ${index}`,
+  for (let index = 0; index < 200; index += 1) {
+    records.push(await createGenericResource({ DB: database } as Bindings, actor, spaceId, taskModel, {
+      name: `Budget task ${String(index).padStart(3, "0")}`,
       status: "pending",
       assigneePersonIds: [],
     }));
   }
+  for (let index = 0; index < 200; index += 1) {
+    const start = new Date(Date.UTC(2026, 7, 1, 0, index));
+    const end = new Date(start.getTime() + 30 * 60 * 1000);
+    await createGenericResource({ DB: database } as Bindings, actor, spaceId, eventModel, {
+      summary: `Budget event ${String(index).padStart(3, "0")}`,
+      isAllDay: false,
+      startAt: start.toISOString(),
+      endAt: end.toISOString(),
+      startTimezone: "UTC",
+      endTimezone: "UTC",
+      attendeePersonIds: [],
+      status: "active",
+    });
+  }
 
   const keyPair = await keys();
   const bearer = await accessToken(keyPair.privateKey, userId);
-  const counter: Counter = { roundTrips: 0 };
+  const counter: Counter = { roundTrips: 0, maxBindings: 0 };
   const DB = countedDatabase(database, counter);
   const bindings = { DB, IDENTITY_PUBLIC_KEY: keyPair.publicKey, ENVIRONMENT: "test" };
 
@@ -132,6 +151,7 @@ async function fixture() {
   // reset the counter so the assertions below measure the hot path only.
   expect(await getRuntimeModelByRoute({ DB } as Bindings, "tasks")).not.toBeNull();
   counter.roundTrips = 0;
+  counter.maxBindings = 0;
 
   async function request(path: string, init: RequestInit = {}) {
     const headers = new Headers(init.headers);
@@ -150,28 +170,49 @@ async function measured(
   budget: number,
 ): Promise<Response> {
   counter.roundTrips = 0;
+  counter.maxBindings = 0;
   const response = await operation();
   expect(response.status).toBe(expectedStatus);
   expect(counter.roundTrips).toBeLessThanOrEqual(budget);
+  expect(counter.maxBindings).toBeLessThanOrEqual(100);
   return response;
 }
 
 describe("Core D1 round-trip budgets", () => {
-  it("keeps hot Registry lookup out of D1 and ordinary Task paths within budget", async () => {
+  it("keeps hot Registry lookup out of D1 and ordinary paths within round-trip and binding budgets", async () => {
     const f = await fixture();
 
     f.counter.roundTrips = 0;
+    f.counter.maxBindings = 0;
     expect(await getRuntimeModelByRoute({ DB: f.DB } as Bindings, "tasks")).not.toBeNull();
     expect(f.counter.roundTrips).toBe(0);
 
     const list = await measured(
       f.counter,
-      () => f.request(`/api/v1/spaces/${f.spaceId}/tasks?limit=10`),
+      () => f.request(`/api/v1/spaces/${f.spaceId}/tasks?limit=200`),
       200,
       5,
     );
     const listPayload = await list.json<{ data: { items: Array<{ id: string; version: number }> } }>();
-    expect(listPayload.data.items).toHaveLength(10);
+    expect(listPayload.data.items).toHaveLength(200);
+
+    const calendar100 = await measured(
+      f.counter,
+      () => f.request(`/api/v1/spaces/${f.spaceId}/events?rangeStart=2026-07-31T00%3A00%3A00.000Z&rangeEnd=2026-08-02T00%3A00%3A00.000Z&dateStart=2026-07-31&dateEndExclusive=2026-08-02&sort=calendarStart%3Aasc&limit=100`),
+      200,
+      5,
+    );
+    const calendar100Payload = await calendar100.json<{ data: { items: Array<{ id: string }> } }>();
+    expect(calendar100Payload.data.items).toHaveLength(100);
+
+    const calendar200 = await measured(
+      f.counter,
+      () => f.request(`/api/v1/spaces/${f.spaceId}/events?rangeStart=2026-07-31T00%3A00%3A00.000Z&rangeEnd=2026-08-02T00%3A00%3A00.000Z&dateStart=2026-07-31&dateEndExclusive=2026-08-02&sort=calendarStart%3Aasc&limit=200`),
+      200,
+      5,
+    );
+    const calendar200Payload = await calendar200.json<{ data: { items: Array<{ id: string }> } }>();
+    expect(calendar200Payload.data.items).toHaveLength(200);
 
     const target = f.records[0];
     await measured(
