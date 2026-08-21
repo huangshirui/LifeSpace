@@ -164,8 +164,9 @@ jobs:
       - name: Verify production Cloudflare isolation and bindings
         run: node infra/scripts/verify-production-cloudflare.mjs
 
+      # Every production deployment must reconcile/read the active immutable Model Contract
+      # and prove that it exactly matches the HomeMew pinned contract before release proceeds.
       - name: Initialize and verify Model Contract through service authentication
-        if: ${{ inputs.phase6_bringup }}
         run: node infra/scripts/verify-production-model-admin.mjs
 
       - name: Register and verify HomeMew production application boundary
@@ -187,6 +188,7 @@ jobs:
           - SHA: \`${GITHUB_SHA}\`
           - Core: schema v${LIFESPACE_EXPECTED_CORE_SCHEMA_VERSION} / Kernel contract ${LIFESPACE_EXPECTED_CORE_CONTRACT_VERSION}
           - Identity: schema v${LIFESPACE_EXPECTED_IDENTITY_SCHEMA_VERSION} / contract ${LIFESPACE_EXPECTED_IDENTITY_CONTRACT_VERSION}
+          - Active pinned Model Contract: passed
           - Custom domains: \`core.aisr.online\`, \`auth.aisr.online\`
           - Production D1/R2/Queue/Worker isolation: passed
           - Production runtime signing/shared-secret presence: passed
