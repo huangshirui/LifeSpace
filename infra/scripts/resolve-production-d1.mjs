@@ -32,14 +32,21 @@ for (const resource of manifest.d1 ?? []) {
   const configUrl = new URL(`../../${resource.config}`, import.meta.url);
   const source = await readFile(configUrl, "utf8");
   const pattern = new RegExp(
-    `("database_name"\\s*:\\s*"${escapeRegExp(resource.name)}"\\s*,\\s*"database_id"\\s*:\\s*")[^"]+(")`,
+    `("database_name"\\s*:\\s*"${escapeRegExp(resource.name)}"\\s*,\\s*"database_id"\\s*:\\s*")([^"]+)(")`,
   );
+  const match = source.match(pattern);
+  if (!match) throw new Error(`Could not resolve production D1 binding for ${resource.name} in ${resource.config}`);
 
   // Resolve account-specific UUIDs only in the ephemeral deployment checkout.
-  // Production identifiers must not be committed back to the repository.
-  const updated = source.replace(pattern, `$1${database.uuid}$2`);
-  if (updated === source) throw new Error(`Could not resolve production D1 binding for ${resource.name} in ${resource.config}`);
+  // Production identifiers must not be committed back to the repository. The
+  // resolver is intentionally idempotent because Phase 7 verifies the same
+  // production checkout both before and after the legacy write freeze.
+  if (match[2] === database.uuid) {
+    console.log(`already resolved ${resource.name} -> ${database.uuid} in ${resource.config}`);
+    continue;
+  }
 
+  const updated = source.replace(pattern, `$1${database.uuid}$3`);
   await writeFile(configUrl, updated);
   console.log(`resolved ${resource.name} -> ${database.uuid} in ${resource.config}`);
 }
