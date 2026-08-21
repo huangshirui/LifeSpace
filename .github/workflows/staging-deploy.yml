@@ -63,6 +63,7 @@ jobs:
         run: |
           node --check infra/scripts/verify-staging-application-admin.mjs
           node --check infra/scripts/verify-staging-homemew-integration.mjs
+          node --check infra/scripts/baseline-model-semantics.mjs
           node --check infra/scripts/publish-staging-baseline-model-semantics.mjs
 
       - name: Resolve expected staging versions
@@ -136,6 +137,9 @@ jobs:
       - name: Prepare ephemeral authenticated staging smoke
         run: node infra/scripts/prepare-staging-smoke.mjs
 
+      - name: Publish or verify baseline model semantics for Creation Draft classification
+        run: node infra/scripts/publish-staging-baseline-model-semantics.mjs
+
       - name: Verify trusted application credential lifecycle
         run: node infra/scripts/verify-staging-application-admin.mjs
 
@@ -152,9 +156,6 @@ jobs:
 
       - name: Verify proving-model platform regression
         run: node infra/scripts/verify-staging-models.mjs
-
-      - name: Publish baseline model semantics for Creation Draft classification
-        run: node infra/scripts/publish-staging-baseline-model-semantics.mjs
 
       - name: Measure typed-runtime staging performance
         run: node infra/scripts/verify-staging-performance.mjs
@@ -199,13 +200,13 @@ jobs:
           - HomeMew integration profile / app-scoped user-token boundary: passed
           - HomeMew user-token platform-admin scope exclusion: passed
           - HomeMew Application x Model Access (Task/Wish/Day Record/Event): passed
-          - HomeMew pinned contract handoff bundle: reproducible, exported and uploaded
+          - HomeMew pinned semantic contract handoff bundle: reproducible, exported and uploaded
           - Typed model storage / legacy JSON cleanup: passed
           - D1 hot-path budgets: passed in repository validation
           - Staging HTTP performance benchmark: recorded in workflow logs
           - Service-only Model Admin / AI Admin boundary: passed
-          - Active immutable Model Contract \`mct_*\`: passed
-          - Proving models (Task/Wish/Day Record/Event): passed before compatible semantic publication
+          - Active immutable semantic Model Contract \`mct_*\`: passed
+          - Proving models (Task/Wish/Day Record/Event): semantic baseline passed
           - Baseline model AI semantic metadata: published/verified through Model Admin
           - Registry-driven Creation Draft Queue: task classification smoke passed or reached an allowed AI-configuration terminal state
           - Ephemeral smoke PAT: maximum 15-minute lifetime; cleanup attempted
