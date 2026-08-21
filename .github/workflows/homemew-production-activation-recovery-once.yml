@@ -1,0 +1,384 @@
+name: Recover HomeMew production activation once
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/homemew-production-activation-recovery-once.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: homemew-production-cutover
+  cancel-in-progress: false
+
+jobs:
+  recover:
+    name: Validate frozen source and complete HomeMew activation
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 25
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID || secrets.CLOUDFLARE_ACCOUNT_ID }}
+      LIFESPACE_PRODUCTION_BOOTSTRAP_SECRET: ${{ secrets.LIFESPACE_PRODUCTION_BOOTSTRAP_SECRET }}
+      HOMEMEW_BACKEND_WORKER: homemew-backend-production
+      HOMEMEW_LEGACY_WORKER: homemew-core
+      HOMEMEW_PRODUCTION_HOSTNAME: homemew.aisr.online
+      LIFESPACE_IDENTITY_PRODUCTION_URL: https://auth.aisr.online
+      EXPECTED_SOURCE_SNAPSHOT_CHECKSUM: a41dbca902c831dbd2a3305de2cf39560b3b44bc46ce2315fd203e76b5fab1f5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.13.1
+          run_install: false
+
+      - name: Setup Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify recovery preconditions
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${CLOUDFLARE_API_TOKEN:-}"
+          test -n "${CLOUDFLARE_ACCOUNT_ID:-}"
+          test ${#LIFESPACE_PRODUCTION_BOOTSTRAP_SECRET} -ge 32
+          node --check infra/migration/homemew-one-shot.mjs
+
+          pnpm --dir apps/identity exec wrangler secret list \
+            --name "$HOMEMEW_BACKEND_WORKER" --format json --env= \
+            > "$RUNNER_TEMP/homemew-backend-secrets.json"
+
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const entries = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + '/homemew-backend-secrets.json', 'utf8'));
+          const names = new Set(entries.map((item) => item.name));
+          for (const required of ['WECHAT_APP_SECRET', 'LIFESPACE_APPLICATION_CREDENTIAL', 'WECHAT_IDENTITY_BOOTSTRAP_MAP']) {
+            if (!names.has(required)) throw new Error(`HomeMew production Worker is missing recovery prerequisite ${required}`);
+          }
+
+          const base = process.env.LIFESPACE_IDENTITY_PRODUCTION_URL.replace(/\/+$/u, '');
+          const response = await fetch(`${base}/bootstrap/v1/applications/homemew-miniprogram/credentials`, {
+            headers: { 'x-bootstrap-secret': process.env.LIFESPACE_PRODUCTION_BOOTSTRAP_SECRET },
+          });
+          const payload = await response.json().catch(() => null);
+          const active = payload?.data?.filter((item) => item.status === 'active' && item.revokedAt === null) ?? [];
+          if (response.status !== 200 || active.length !== 0) {
+            throw new Error(`Expected zero active HomeMew credentials before recovery, found ${active.length}`);
+          }
+          console.log(JSON.stringify({ ok: true, workerSecretsPresent: true, activeHomeMewCredentials: 0 }));
+          NODE
+
+      - name: Capture current legacy domain metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const endpoint = `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(process.env.CLOUDFLARE_ACCOUNT_ID)}/workers/domains`;
+          const response = await fetch(endpoint, { headers: { authorization: `Bearer ${process.env.CLOUDFLARE_API_TOKEN}` } });
+          const payload = await response.json();
+          if (!response.ok || payload?.success !== true || !Array.isArray(payload.result)) throw new Error('Could not list Cloudflare Worker custom domains');
+          const domain = payload.result.find((item) => item.hostname === process.env.HOMEMEW_PRODUCTION_HOSTNAME);
+          if (!domain) throw new Error(`${process.env.HOMEMEW_PRODUCTION_HOSTNAME} is not a Worker custom domain`);
+          if (domain.service !== process.env.HOMEMEW_LEGACY_WORKER) throw new Error(`Expected legacy domain owner ${process.env.HOMEMEW_LEGACY_WORKER}, found ${domain.service}`);
+          if (!domain.id || !domain.zone_id || !domain.zone_name) throw new Error('Legacy custom domain metadata is incomplete');
+          fs.writeFileSync(process.env.RUNNER_TEMP + '/legacy-domain.json', JSON.stringify({
+            id: domain.id,
+            hostname: domain.hostname,
+            zone_id: domain.zone_id,
+            zone_name: domain.zone_name,
+          }), { mode: 0o600 });
+          console.log(JSON.stringify({ ok: true, hostname: domain.hostname, service: domain.service }));
+          NODE
+
+      - name: Freeze legacy HomeMew writes again
+        shell: bash
+        run: |
+          set -euo pipefail
+          FREEZE_DIR="$RUNNER_TEMP/homemew-freeze"
+          mkdir -p "$FREEZE_DIR"
+          cat > "$FREEZE_DIR/worker.mjs" <<'EOF'
+          const maintenance = () => new Response(JSON.stringify({
+            error: { code: 'MIGRATION_WRITE_FREEZE', message: 'HomeMew production migration is in progress' }
+          }), {
+            status: 503,
+            headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' },
+          });
+          export default {
+            fetch() { return maintenance(); },
+            async queue() {},
+            async scheduled() {},
+          };
+          EOF
+          cat > "$FREEZE_DIR/wrangler.jsonc" <<'EOF'
+          {
+            "name": "homemew-core",
+            "main": "./worker.mjs",
+            "compatibility_date": "2026-07-02",
+            "keep_vars": true,
+            "triggers": { "crons": ["0 * * * *"] },
+            "d1_databases": [{
+              "binding": "DB",
+              "database_name": "homemew-core",
+              "database_id": "3921d02d-8158-4706-a979-c18ff9f05ff8"
+            }],
+            "r2_buckets": [{ "binding": "AVATARS", "bucket_name": "homemew-assets" }],
+            "queues": {
+              "producers": [{ "binding": "CREATION_DRAFT_QUEUE", "queue": "homemew-creation-drafts" }],
+              "consumers": [{
+                "queue": "homemew-creation-drafts",
+                "max_batch_size": 1,
+                "max_batch_timeout": 1,
+                "max_retries": 2
+              }]
+            },
+            "ratelimits": [{
+              "name": "AI_RATE_LIMITER",
+              "namespace_id": "24001",
+              "simple": { "limit": 10, "period": 60 }
+            }]
+          }
+          EOF
+          pnpm --dir apps/identity exec wrangler deploy \
+            --config "$FREEZE_DIR/wrangler.jsonc" \
+            --message "Phase 7 activation recovery write freeze"
+          touch "$RUNNER_TEMP/homemew-freeze-active"
+
+      - name: Verify legacy freeze
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 15); do
+            BODY="$(curl --silent --show-error -w '\n%{http_code}' "https://${HOMEMEW_PRODUCTION_HOSTNAME}/health" || true)"
+            STATUS="${BODY##*$'\n'}"
+            JSON="${BODY%$'\n'*}"
+            if [ "$STATUS" = "503" ] && printf '%s' "$JSON" | node --input-type=module -e '
+              import fs from "node:fs";
+              const value = JSON.parse(fs.readFileSync(0, "utf8"));
+              process.exit(value?.error?.code === "MIGRATION_WRITE_FREEZE" ? 0 : 1);
+            '; then
+              exit 0
+            fi
+            [ "$attempt" -lt 15 ] || { echo "Legacy HomeMew freeze did not converge" >&2; exit 1; }
+            sleep 2
+          done
+
+      - name: Prove source did not drift after migration PASS
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUTPUT="$(node infra/migration/homemew-one-shot.mjs snapshot --out "$RUNNER_TEMP/homemew-recovery-snapshot.json")"
+          printf '%s\n' "$OUTPUT"
+          printf '%s\n' "$OUTPUT" | grep -F "Snapshot checksum: $EXPECTED_SOURCE_SNAPSHOT_CHECKSUM"
+          echo "Legacy HomeMew source is byte-for-byte equivalent at the migration snapshot checksum"
+
+      - name: Issue replacement final HomeMew credential
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const base = process.env.LIFESPACE_IDENTITY_PRODUCTION_URL.replace(/\/+$/u, '');
+          const response = await fetch(`${base}/bootstrap/v1/applications/homemew-miniprogram/credentials`, {
+            method: 'POST',
+            headers: { 'x-bootstrap-secret': process.env.LIFESPACE_PRODUCTION_BOOTSTRAP_SECRET },
+          });
+          const payload = await response.json().catch(() => null);
+          const id = payload?.data?.id ?? '';
+          const secret = payload?.data?.clientSecret ?? '';
+          if (response.status !== 201 || !id.startsWith('apc_') || !secret.startsWith('lsa_')) throw new Error(`Could not issue replacement HomeMew credential: HTTP ${response.status}`);
+          console.log(`::add-mask::${secret}`);
+          fs.writeFileSync(process.env.RUNNER_TEMP + '/recovery-credential-id', id, { mode: 0o600 });
+          fs.writeFileSync(process.env.RUNNER_TEMP + '/recovery-credential-secret', secret, { mode: 0o600 });
+          console.log(JSON.stringify({ ok: true, replacementCredentialIssued: true, credentialId: id }));
+          NODE
+
+      - name: Replace revoked Worker credential
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const credential = fs.readFileSync(process.env.RUNNER_TEMP + '/recovery-credential-secret', 'utf8').trim();
+          fs.writeFileSync(process.env.RUNNER_TEMP + '/homemew-recovery-secret.json', JSON.stringify({
+            LIFESPACE_APPLICATION_CREDENTIAL: credential,
+          }), { mode: 0o600 });
+          NODE
+          VERSION_TAG="homemew-production-recovery-${GITHUB_RUN_ID}"
+          pnpm --dir apps/identity exec wrangler versions secret bulk \
+            "$RUNNER_TEMP/homemew-recovery-secret.json" \
+            --name "$HOMEMEW_BACKEND_WORKER" \
+            --tag "$VERSION_TAG" \
+            --message "HomeMew Phase 7 activation recovery credential" \
+            --env=
+          pnpm --dir apps/identity exec wrangler versions deploy \
+            --version-tag "$VERSION_TAG" \
+            --name "$HOMEMEW_BACKEND_WORKER" \
+            --yes \
+            --env=
+          rm -f "$RUNNER_TEMP/homemew-recovery-secret.json" "$RUNNER_TEMP/recovery-credential-secret"
+
+          pnpm --dir apps/identity exec wrangler secret list \
+            --name "$HOMEMEW_BACKEND_WORKER" --format json --env= \
+            > "$RUNNER_TEMP/homemew-backend-secrets-after.json"
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const entries = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + '/homemew-backend-secrets-after.json', 'utf8'));
+          const names = new Set(entries.map((item) => item.name));
+          for (const required of ['WECHAT_APP_SECRET', 'LIFESPACE_APPLICATION_CREDENTIAL', 'WECHAT_IDENTITY_BOOTSTRAP_MAP']) {
+            if (!names.has(required)) throw new Error(`HomeMew production Worker is missing ${required}`);
+          }
+          console.log(JSON.stringify({ ok: true, requiredSecretsPresent: true }));
+          NODE
+
+      - name: Detach legacy custom domain and attach new backend
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const domain = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + '/legacy-domain.json', 'utf8'));
+          const endpoint = `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(process.env.CLOUDFLARE_ACCOUNT_ID)}/workers/domains`;
+          const headers = {
+            authorization: `Bearer ${process.env.CLOUDFLARE_API_TOKEN}`,
+            'content-type': 'application/json',
+          };
+
+          const detach = await fetch(`${endpoint}/${encodeURIComponent(domain.id)}`, { method: 'DELETE', headers });
+          const detachPayload = await detach.json().catch(() => null);
+          if (!detach.ok || detachPayload?.success !== true) throw new Error(`Could not detach legacy HomeMew custom domain: HTTP ${detach.status}`);
+          fs.writeFileSync(process.env.RUNNER_TEMP + '/domain-detached', '1');
+
+          const attach = await fetch(endpoint, {
+            method: 'PUT',
+            headers,
+            body: JSON.stringify({
+              hostname: domain.hostname,
+              service: process.env.HOMEMEW_BACKEND_WORKER,
+              zone_id: domain.zone_id,
+              zone_name: domain.zone_name,
+            }),
+          });
+          const attachPayload = await attach.json().catch(() => null);
+          if (!attach.ok || attachPayload?.success !== true || attachPayload?.result?.service !== process.env.HOMEMEW_BACKEND_WORKER) {
+            console.error(JSON.stringify({ status: attach.status, errors: attachPayload?.errors ?? [] }));
+            throw new Error(`Could not attach HomeMew custom domain to new backend: HTTP ${attach.status}`);
+          }
+          fs.writeFileSync(process.env.RUNNER_TEMP + '/domain-switched', '1');
+          console.log(JSON.stringify({ ok: true, hostname: attachPayload.result.hostname, service: attachPayload.result.service }));
+          NODE
+
+      - name: Verify new production backend and domain ownership
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 20); do
+            BODY="$(curl --silent --show-error "https://${HOMEMEW_PRODUCTION_HOSTNAME}/health" || true)"
+            if printf '%s' "$BODY" | node --input-type=module -e '
+              import fs from "node:fs";
+              const value = JSON.parse(fs.readFileSync(0, "utf8"));
+              process.exit(value?.ok === true && value?.service === "homemew-backend" && value?.environment === "production" && value?.loginReady === true ? 0 : 1);
+            ' 2>/dev/null; then
+              break
+            fi
+            [ "$attempt" -lt 20 ] || { echo "New HomeMew production backend health did not converge" >&2; exit 1; }
+            sleep 2
+          done
+
+          node --input-type=module <<'NODE'
+          const endpoint = `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(process.env.CLOUDFLARE_ACCOUNT_ID)}/workers/domains`;
+          const response = await fetch(endpoint, { headers: { authorization: `Bearer ${process.env.CLOUDFLARE_API_TOKEN}` } });
+          const payload = await response.json();
+          const domain = payload?.result?.find?.((item) => item.hostname === process.env.HOMEMEW_PRODUCTION_HOSTNAME);
+          if (!response.ok || payload?.success !== true || domain?.service !== process.env.HOMEMEW_BACKEND_WORKER) throw new Error('HomeMew production custom domain ownership verification failed');
+          console.log(JSON.stringify({ ok: true, hostname: domain.hostname, service: domain.service }));
+          NODE
+
+      - name: Restore legacy domain on failure
+        if: ${{ failure() }}
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          [ -f "$RUNNER_TEMP/homemew-freeze-active" ] || exit 0
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          if (!fs.existsSync(process.env.RUNNER_TEMP + '/legacy-domain.json')) process.exit(0);
+          const legacy = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + '/legacy-domain.json', 'utf8'));
+          const endpoint = `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(process.env.CLOUDFLARE_ACCOUNT_ID)}/workers/domains`;
+          const headers = { authorization: `Bearer ${process.env.CLOUDFLARE_API_TOKEN}`, 'content-type': 'application/json' };
+          const listed = await fetch(endpoint, { headers });
+          const payload = await listed.json().catch(() => null);
+          const current = payload?.result?.find?.((item) => item.hostname === legacy.hostname);
+          if (current && current.service === process.env.HOMEMEW_LEGACY_WORKER) process.exit(0);
+          if (current?.id) {
+            const detached = await fetch(`${endpoint}/${encodeURIComponent(current.id)}`, { method: 'DELETE', headers });
+            const detachedPayload = await detached.json().catch(() => null);
+            if (!detached.ok || detachedPayload?.success !== true) throw new Error('Could not detach failed recovery domain owner');
+          }
+          const restored = await fetch(endpoint, {
+            method: 'PUT',
+            headers,
+            body: JSON.stringify({
+              hostname: legacy.hostname,
+              service: process.env.HOMEMEW_LEGACY_WORKER,
+              zone_id: legacy.zone_id,
+              zone_name: legacy.zone_name,
+            }),
+          });
+          const restoredPayload = await restored.json().catch(() => null);
+          if (!restored.ok || restoredPayload?.success !== true) throw new Error(`Could not restore legacy HomeMew custom domain: HTTP ${restored.status}`);
+          NODE
+
+      - name: Revoke replacement credential on failure
+        if: ${{ failure() }}
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          ID_FILE="$RUNNER_TEMP/recovery-credential-id"
+          [ -s "$ID_FILE" ] || exit 0
+          CREDENTIAL_ID="$(cat "$ID_FILE")"
+          STATUS="$(curl --silent --output /dev/null --write-out '%{http_code}' \
+            --request DELETE \
+            --header "x-bootstrap-secret: $LIFESPACE_PRODUCTION_BOOTSTRAP_SECRET" \
+            "$LIFESPACE_IDENTITY_PRODUCTION_URL/bootstrap/v1/applications/homemew-miniprogram/credentials/$CREDENTIAL_ID")"
+          test "$STATUS" = "204" || test "$STATUS" = "404"
+
+      - name: Roll back legacy Core freeze on failure
+        if: ${{ failure() }}
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          [ -f "$RUNNER_TEMP/homemew-freeze-active" ] || exit 0
+          pnpm --dir apps/identity exec wrangler rollback \
+            --name "$HOMEMEW_LEGACY_WORKER" \
+            --message "Rollback HomeMew activation recovery" \
+            --env=
+
+      - name: Summarize successful activation recovery
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<'EOF'
+          ## HomeMew production activation completed
+
+          - The legacy HomeMew source was frozen and matched the exact checksum used by the PASS production migration.
+          - No incremental migration or dual-write path was used.
+          - A replacement final HomeMew application credential was installed in the production application Worker.
+          - The existing custom domain was detached by domain ID and attached to `homemew-backend-production` with its original zone metadata.
+          - Public production health and Cloudflare custom-domain ownership both verified.
+          - Legacy `homemew-core` remains frozen for rollback evidence and Phase 8 retirement.
+          EOF
