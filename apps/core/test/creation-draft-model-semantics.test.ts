@@ -16,6 +16,13 @@ const baselineDefinitions = [
   DAY_RECORD_MODEL_DEFINITION,
   EVENT_MODEL_DEFINITION,
 ];
+const releaseFingerprint = Object.freeze({
+  task: Object.freeze({ version: 3, schemaHash: "3c56f1448340162279be544e16ac82e06c1aefe66a08e428b7f95ba319ab1ed2" }),
+  wish: Object.freeze({ version: 4, schemaHash: "6a5ccd9b6c30bcf3fc012b6e2aac6e4de53972a5d588a4ccd0f3300c7287b8f4" }),
+  day_record: Object.freeze({ version: 2, schemaHash: "4b2f241958aeca05e396eea7e6719a3f030cef3ea7dfd3c57d426c086fe4cf56" }),
+  event: Object.freeze({ version: 3, schemaHash: "6a23eb2f25463ce55d7ed75d64f0afa020d7aab25149badf28fdd77abc2d1aad" }),
+});
+const releaseModelContract = "mct_37f64546f9ebaf9697ee34b6b692ba3b96976a015b7ab5e5b243018fd3cfb41b";
 
 function published(definition: ModelDefinition): PublishedModel {
   return {
@@ -80,18 +87,19 @@ describe("Creation Draft baseline model semantics", () => {
     expect(wishFields.get("desiredDate")?.description).toContain("hoped-for date");
   });
 
-  it("emits the release fingerprint for the semantic baseline contract", async () => {
-    const versions: Record<string, number> = { task: 3, wish: 4, day_record: 2, event: 3 };
+  it("pins the exact release hashes and Model Contract for semantic metadata", async () => {
     const models: PublishedModel[] = [];
     for (const definition of baselineDefinitions) {
+      const expected = releaseFingerprint[definition.key as keyof typeof releaseFingerprint];
       const validated = await validateDefinition(definition);
       expect(validated.valid, definition.key).toBe(true);
       if (!validated.valid) continue;
+      expect(validated.schemaHash, definition.key).toBe(expected.schemaHash);
       models.push({
         id: `mdl_${definition.key}_semantic`,
         key: definition.key,
         route: definition.route,
-        version: versions[definition.key],
+        version: expected.version,
         state: "published",
         schemaHash: validated.schemaHash,
         compatibility: "compatible",
@@ -100,10 +108,6 @@ describe("Creation Draft baseline model semantics", () => {
       });
     }
     const contract = await generateModelContract(models);
-    console.log("SEMANTIC_BASELINE_FINGERPRINT", JSON.stringify({
-      models: Object.fromEntries(models.map((model) => [model.key, { version: model.version, schemaHash: model.schemaHash }])),
-      modelContract: contract.id,
-    }));
-    expect(contract.id).toMatch(/^mct_[a-f0-9]{64}$/u);
+    expect(contract.id).toBe(releaseModelContract);
   });
 });
