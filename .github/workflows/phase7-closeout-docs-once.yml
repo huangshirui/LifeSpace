@@ -1,0 +1,46 @@
+name: Close out Phase 7 docs once
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/phase7-closeout-docs-once.yml
+
+permissions:
+  contents: write
+
+jobs:
+  closeout:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Update migration plan to completed Phase 7 state
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('docs/migration-plan.md')
+          text = path.read_text()
+          text = text.replace('Updated: 2026-08-14', 'Updated: 2026-08-21', 1)
+          text = text.replace('| Phase 7 | Planned | Controlled one-shot HomeMew production data migration and application cutover |', '| Phase 7 | **Complete** | Controlled one-shot HomeMew production data migration and application cutover |')
+          text = text.replace('| Phase 8 | Planned | Stabilization and retirement of old HomeMew shared Core/infrastructure |', '| Phase 8 | In progress | Stabilization and retirement of old HomeMew shared Core/infrastructure |')
+
+          marker = '## 16. Phase 7 — Controlled one-shot production cutover\n\n'
+          replacement = '''## 16. Phase 7 — Controlled one-shot production cutover\n\n**Complete on 2026-08-21.** HomeMew production durable state was migrated once into LifeSpace production with `migration-report.json = PASS`, WeChat provider identity continuity was handed to the redesigned HomeMew backend, and `homemew.aisr.online` was activated on `homemew-backend-production`.\n\nAccepted evidence:\n\n- production migration run `32455970121`; retained report artifact `homemew-production-migration-report-32455970121` / artifact id `9437613506`;\n- migrated and verified 4 users, 3 family Spaces, 6 Memberships/Space People, 499 Events, 22 Tasks, 5 Day Records, 5 Wishes and 5 avatar objects;\n- two legacy external-system definitions were accounted for re-provisioning without copying legacy credential material;\n- after an activation-only failure, the migration was not re-run; read-only semantic recovery run `32460066401` verified `semanticDrift: false` across the migrated state;\n- final activation run `32460777350` successfully transferred the Cloudflare Custom Domain to `homemew-backend-production` and verified public production health with `loginReady=true`;\n- the legacy `homemew-core`/D1 remains frozen/read-only for Phase 8 stabilization and rollback evidence;\n- the production cutover workflow and one-time recovery helpers were retired after evidence capture so the one-shot migration cannot be accidentally repeated.\n\nDetailed evidence is in `docs/phase7-status.md`.\n\nThe executed sequence followed the controlled write-freeze design below. There was no normal dual-write interval.\n\n'''
+          if marker not in text:
+              raise SystemExit('Phase 7 marker not found')
+          text = text.replace(marker, replacement, 1)
+          path.write_text(text)
+          PY
+
+      - name: Commit closeout documentation
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/migration-plan.md
+          git diff --cached --check
+          git commit -m "docs: mark HomeMew Phase 7 complete"
+          git push
