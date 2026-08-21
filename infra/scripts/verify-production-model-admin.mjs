@@ -1,6 +1,11 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import process from "node:process";
+import {
+  BASELINE_MODEL_SEMANTICS,
+  applyBaselineModelSemantics,
+  baselineModelSemanticsMatch,
+} from "./baseline-model-semantics.mjs";
 import { PRODUCTION_PROVING_MODELS, assertProductionServiceUrl } from "./production-expectations.mjs";
 import { boundedProbeLabel } from "./production-probe-label.mjs";
 
@@ -18,7 +23,8 @@ const runId = (process.env.GITHUB_RUN_ID ?? `${Date.now()}`).replace(/[^0-9A-Za-
 const runAttempt = (process.env.GITHUB_RUN_ATTEMPT ?? "1").replace(/[^0-9A-Za-z_-]/gu, "_");
 const probeId = `${runId}_${runAttempt}`;
 const applicationId = `app_production_model_probe_${probeId}`;
-const probeLabel = boundedProbeLabel("Phase6 model probe", probeId, 50);
+const probeLabel = boundedProbeLabel("Production model probe", probeId, 50);
+const expectedByKey = new Map(PRODUCTION_PROVING_MODELS.map((model) => [model.key, model]));
 
 function mask(value) {
   if (typeof value === "string" && value) console.log(`::add-mask::${value}`);
@@ -97,7 +103,7 @@ try {
     bearer: applicationSecret,
     body: {
       displayName: probeLabel,
-      description: "Ephemeral Phase 6 production verification principal",
+      description: "Ephemeral production Model Admin verification and compatible metadata reconciliation principal",
       maxScopes: ["models:manage"],
       createdByUserId: userId,
     },
@@ -124,15 +130,61 @@ try {
   }
   mask(serviceBearer);
 
-  const models = await jsonRequest(coreBase, "/api/v1/model-admin/models", { bearer: serviceBearer });
+  let models = await jsonRequest(coreBase, "/api/v1/model-admin/models", { bearer: serviceBearer });
   if (models.response.status !== 200 || !Array.isArray(models.payload?.data)) {
     throw new Error(`Production Model Admin list failed; Core↔Identity service authentication may be invalid: ${models.response.status} ${JSON.stringify(models.payload)}`);
+  }
+
+  const currentByKey = new Map(models.payload.data.map((model) => [model.key, model]));
+  const publishedSemanticModels = [];
+  for (const [key, semantic] of Object.entries(BASELINE_MODEL_SEMANTICS)) {
+    const expected = expectedByKey.get(key);
+    const current = currentByKey.get(key);
+    if (!expected || !current?.definition || current.route !== semantic.route || current.definition.route !== semantic.route) {
+      throw new Error(`Production model ${key} is not safe to reconcile: ${JSON.stringify(current)}`);
+    }
+    if (baselineModelSemanticsMatch(current.definition, semantic)) continue;
+    if (Number(current.version) !== expected.version - 1) {
+      throw new Error(`Refusing to publish ${key}: expected predecessor v${expected.version - 1}, got v${current.version}`);
+    }
+
+    const result = await jsonRequest(coreBase, "/api/v1/model-admin/models", {
+      method: "POST",
+      bearer: serviceBearer,
+      body: {
+        definition: applyBaselineModelSemantics(current.definition, semantic),
+        compatibility: "compatible",
+      },
+    });
+    const published = result.payload?.data;
+    if (
+      result.response.status !== 201
+      || published?.key !== key
+      || Number(published.version) !== expected.version
+      || published.schemaHash !== expected.hash
+    ) {
+      throw new Error(`Production semantic publication for ${key} did not match the pinned target: ${result.response.status} ${JSON.stringify(result.payload)}`);
+    }
+    publishedSemanticModels.push({ key, version: published.version, schemaHash: published.schemaHash });
+  }
+
+  models = await jsonRequest(coreBase, "/api/v1/model-admin/models", { bearer: serviceBearer });
+  if (models.response.status !== 200 || !Array.isArray(models.payload?.data)) {
+    throw new Error(`Production Model Admin verification list failed: ${models.response.status} ${JSON.stringify(models.payload)}`);
   }
   const actualModels = new Map(models.payload.data.map((model) => [model.key, model]));
   for (const expected of PRODUCTION_PROVING_MODELS) {
     const actual = actualModels.get(expected.key);
-    if (!actual || actual.state !== "published" || Number(actual.version) !== expected.version || actual.schemaHash !== expected.hash) {
-      throw new Error(`Production published model ${expected.key} does not match the accepted contract: ${JSON.stringify(actual)}`);
+    const semantic = BASELINE_MODEL_SEMANTICS[expected.key];
+    if (
+      !actual
+      || actual.state !== "published"
+      || Number(actual.version) !== expected.version
+      || actual.schemaHash !== expected.hash
+      || !semantic
+      || !baselineModelSemanticsMatch(actual.definition, semantic)
+    ) {
+      throw new Error(`Production published model ${expected.key} does not match the accepted semantic contract: ${JSON.stringify(actual)}`);
     }
   }
 
@@ -144,7 +196,7 @@ try {
   const contractModels = new Map((active?.manifest?.models ?? []).map((model) => [model.key, model]));
   for (const expected of PRODUCTION_PROVING_MODELS) {
     const model = contractModels.get(expected.key);
-    if (!model || Number(model.version) !== expected.version) {
+    if (!model || Number(model.version) !== expected.version || model.schemaHash !== expected.hash) {
       throw new Error(`Production active Model Contract is missing accepted ${expected.key} v${expected.version}`);
     }
   }
@@ -153,6 +205,7 @@ try {
     ok: true,
     serviceAuthentication: "lsp_pat_to_core_introspection_passed",
     modelAdminServiceBoundary: true,
+    publishedSemanticModels,
     activeModelContract: active.id,
     models: Object.fromEntries(PRODUCTION_PROVING_MODELS.map((model) => [model.key, model.version])),
     probeAuthorityEphemeral: true,
