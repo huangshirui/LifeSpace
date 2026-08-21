@@ -5,9 +5,16 @@ import {
   TASK_MODEL_DEFINITION,
   WISH_MODEL_DEFINITION,
 } from "../src/builtin-models";
-import type { ModelDefinition } from "../src/model-definition";
+import { validateModelDefinition, type ModelDefinition } from "../src/model-definition";
 import type { PublishedModel } from "../src/model-registry";
 import { creationDraftModelDescriptors } from "../src/registry-creation-draft";
+
+const baselineDefinitions = [
+  TASK_MODEL_DEFINITION,
+  WISH_MODEL_DEFINITION,
+  DAY_RECORD_MODEL_DEFINITION,
+  EVENT_MODEL_DEFINITION,
+];
 
 function published(definition: ModelDefinition): PublishedModel {
   return {
@@ -24,13 +31,15 @@ function published(definition: ModelDefinition): PublishedModel {
 }
 
 describe("Creation Draft baseline model semantics", () => {
-  const descriptors = creationDraftModelDescriptors([
-    published(TASK_MODEL_DEFINITION),
-    published(WISH_MODEL_DEFINITION),
-    published(DAY_RECORD_MODEL_DEFINITION),
-    published(EVENT_MODEL_DEFINITION),
-  ]);
+  const descriptors = creationDraftModelDescriptors(baselineDefinitions.map(published));
   const byKey = new Map(descriptors.map((descriptor) => [descriptor.key, descriptor]));
+
+  it("keeps all four semantic baseline definitions valid", () => {
+    for (const definition of baselineDefinitions) {
+      const result = validateModelDefinition(definition);
+      expect(result.valid, definition.key).toBe(true);
+    }
+  });
 
   it("gives every HomeMew baseline model an explicit semantic description", () => {
     for (const key of ["task", "wish", "day_record", "event"]) {
