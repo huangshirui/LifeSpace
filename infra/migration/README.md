@@ -1,6 +1,6 @@
 # HomeMew -> LifeSpace one-shot migration
 
-This directory contains the deliberately small one-shot HomeMew -> LifeSpace migration used for the completed Phase 5 staging rehearsal and the controlled Phase 7 production cutover.
+This directory contains the deliberately small HomeMew -> LifeSpace one-shot migration used for the completed Phase 5 staging rehearsal and the completed Phase 7 production cutover.
 
 The implementation remains intentionally narrow:
 
@@ -17,14 +17,16 @@ node infra/migration/homemew-one-shot.mjs migrate --source .migration/homemew-sn
 node infra/migration/homemew-one-shot.mjs rehearse
 ```
 
-The default target remains LifeSpace staging. Production is selected only with the explicit environment guard:
+The script keeps staging as its default target. Production support remains guarded in code only as historical/reproducible migration tooling; the Phase 7 production execution entrypoint has been retired after successful cutover so the one-shot migration cannot be accidentally re-run.
+
+Production selection still requires the explicit guards:
 
 ```text
 LIFESPACE_MIGRATION_TARGET=production
 HOMEMEW_PRODUCTION_MIGRATION_CONFIRMATION=MIGRATE_HOMEMEW_PRODUCTION
 ```
 
-Production `rehearse` is rejected. Phase 7 must capture a final frozen source snapshot first and then invoke `migrate` explicitly through `.github/workflows/homemew-production-cutover.yml`.
+Production `rehearse` is rejected.
 
 Required runtime environment for migration includes:
 
@@ -40,16 +42,28 @@ The HomeMew source D1 is pinned to the frozen production source. The target URLs
 
 The completed Phase 5 rehearsal used a temporary HomeMew staging application credential, uploaded only the migration report, revoked the temporary credential, and kept the snapshot only on the ephemeral runner. See `docs/phase5-migration-tooling-plan.md` and `docs/phase5-status.md` for the evidence and accepted target tuple.
 
-## Phase 7 production cutover
+## Phase 7 production cutover — complete
 
-The production workflow has two modes:
+The production one-shot migration completed on 2026-08-21.
 
-- `preflight` is read-only. It requires the LifeSpace production empty-target gate, validates a HomeMew source snapshot, validates the exported legacy WeChat `identity_mappings`, confirms the production HomeMew backend already has `WECHAT_APP_SECRET`, and confirms `homemew.aisr.online` still targets the legacy Core.
-- `cutover` repeats those gates, deploys a reversible write-freeze version to the legacy `homemew-core`, captures the final source snapshot, migrates once, requires `migration-report.json = PASS`, derives the old `openid -> new LifeSpace usr_*` continuity map, hands the final application credential and continuity map directly to `homemew-backend-production` as Cloudflare Worker Secrets, and only then switches `homemew.aisr.online`.
+Accepted migration evidence:
 
-The workflow requires the production-environment secret `HOMEMEW_WECHAT_IDENTITY_MAPPINGS_JSON`. It must contain the legacy WeChat Cloud Database `identity_mappings` export as either a JSON array or an object containing a `data` or `records` array. Each row must contain `openid` and `homemewUserId`. Raw openids and the derived continuity map are never committed or uploaded as artifacts.
+```text
+GitHub Actions run: 32455970121
+migration report:   PASS
+artifact:           homemew-production-migration-report-32455970121
+artifact id:        9437613506
+```
 
-If cutover fails before new production writes are accepted, the workflow attempts to restore the legacy custom domain and roll `homemew-core` back from its temporary write-freeze version. A failed/partial LifeSpace migration is never resumed incrementally.
+Verified production counts were 4 users, 3 family Spaces, 6 Memberships/Space People, 499 Events, 22 Tasks, 5 Day Records, 5 Wishes and 5 avatar objects. Two legacy external-system definitions were accounted for re-provisioning; no legacy credential material was copied.
+
+The WeChat `identity_mappings` export was validated against the frozen source and the derived `openid -> LifeSpace usr_*` continuity map was handed directly to `homemew-backend-production` as the server-only `WECHAT_IDENTITY_BOOTSTRAP_MAP` Secret. Raw provider identities were never committed or uploaded as artifacts.
+
+The first traffic-activation attempt failed after migration PASS while transferring the Cloudflare Worker Custom Domain. The old route was restored and the failed activation credential was revoked. The migration was not re-run. A later read-only semantic gate verified the current legacy source against the original PASS report mappings with `semanticDrift: false` for all migrated users, Spaces, memberships, Events, Tasks, Day Records, Wishes, objects and the two recorded external-system definitions.
+
+Final activation run `32460777350` succeeded. `homemew.aisr.online` is now attached to `homemew-backend-production`, public health reports the production HomeMew backend with `loginReady=true`, and the final production-only `lsa_*` credential remains only in the Worker Secret store.
+
+Detailed evidence is in `docs/phase7-status.md`.
 
 ## Scope
 
@@ -59,13 +73,12 @@ Inactive/deleted state, invitation history, Creation Draft jobs, transient OAuth
 
 Legacy external-system credentials are never copied. Their definitions are reported for later LifeSpace service-principal/Data Grant/new-credential provisioning.
 
-## Safety
+## Post-cutover safety state
 
-- HomeMew source D1 queries are read-only.
-- Production migration is impossible without an explicit target and confirmation value.
-- Production `rehearse` is disabled.
-- Production/user snapshots are never committed or uploaded as workflow artifacts.
+- HomeMew source D1 access in the migration tool is read-only.
+- Production snapshots were never committed or uploaded as workflow artifacts.
 - The final `lsa_*` and provider continuity map are stored only as Cloudflare Worker Secrets.
 - No dual-write, CDC, incremental catch-up or resume mode exists.
-- `migration-report.json` must be `PASS` before final credential handoff or domain cutover.
-- The old HomeMew Core/D1 remains frozen/read-only after a successful cutover for stabilization and rollback evidence.
+- The accepted production `migration-report.json` is `PASS`.
+- The production cutover workflow and temporary activation-recovery helpers have been removed after evidence capture.
+- The old HomeMew Core/D1 remains frozen/read-only for Phase 8 stabilization and rollback evidence.
