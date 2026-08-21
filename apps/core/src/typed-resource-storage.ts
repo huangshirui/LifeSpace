@@ -1,4 +1,5 @@
 import type { Bindings } from "./env";
+import { allD1Batched, chunkD1Values } from "./d1-batch";
 import { ApiError } from "./http";
 import type { FieldDefinition } from "./model-definition";
 import type { PublishedModel } from "./model-registry";
@@ -172,14 +173,14 @@ async function hydrateRelations(
   const relationFields = physicalPlanFor(model).relationFields;
   if (!resources.length || !relationFields.length) return;
 
-  const ids = resources.map((resource) => resource.id);
-  const placeholders = ids.map(() => "?").join(",");
-  const rows = await env.DB.prepare(`SELECT source_record_id,field_key,ordinal,target_person_id,target_record_id
-    FROM resource_relations WHERE source_record_id IN (${placeholders}) ORDER BY source_record_id,field_key,ordinal`)
-    .bind(...ids).all<RelationRow>();
+  const ids = [...new Set(resources.map((resource) => resource.id))];
+  const statements = chunkD1Values(ids).map((chunk) => env.DB.prepare(`SELECT source_record_id,field_key,ordinal,target_person_id,target_record_id
+    FROM resource_relations WHERE source_record_id IN (${chunk.map(() => "?").join(",")}) ORDER BY source_record_id,field_key,ordinal`)
+    .bind(...chunk));
+  const rows = await allD1Batched<RelationRow>(env.DB, statements);
 
   const values = new Map<string, Map<string, string[]>>();
-  for (const row of rows.results) {
+  for (const row of rows) {
     const targetId = row.target_person_id ?? row.target_record_id;
     if (!targetId) throw new ApiError("RESOURCE_STORAGE_CORRUPT", `Relation ${row.field_key} has no target`, 500);
     let fields = values.get(row.source_record_id);
