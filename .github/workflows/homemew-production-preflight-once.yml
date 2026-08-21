@@ -30,7 +30,11 @@ jobs:
       HOMEMEW_PRODUCTION_MIGRATION_CONFIRMATION: MIGRATE_HOMEMEW_PRODUCTION
 
     steps:
-      - name: Validate production preflight inputs
+      - id: checkout
+        uses: actions/checkout@v4
+
+      - id: inputs
+        name: Validate production preflight inputs
         shell: bash
         run: |
           set -euo pipefail
@@ -39,37 +43,42 @@ jobs:
           test ${#LIFESPACE_PRODUCTION_BOOTSTRAP_SECRET} -ge 32 || { echo "LIFESPACE_PRODUCTION_BOOTSTRAP_SECRET is invalid" >&2; exit 1; }
           test -n "${HOMEMEW_WECHAT_IDENTITY_MAPPINGS_JSON:-}" || { echo "HOMEMEW_WECHAT_IDENTITY_MAPPINGS_JSON is not configured" >&2; exit 1; }
 
-      - uses: actions/checkout@v4
-
-      - uses: pnpm/action-setup@v4
+      - id: pnpm
+        uses: pnpm/action-setup@v4
         with:
           version: 10.13.1
           run_install: false
 
-      - uses: actions/setup-node@v4
+      - id: node
+        uses: actions/setup-node@v4
         with:
           node-version: 24
           cache: pnpm
 
-      - name: Install dependencies
+      - id: install
+        name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Validate repository and Phase 7 tooling
+      - id: tooling
+        name: Validate repository and Phase 7 tooling
         run: |
           pnpm check
           node --check infra/migration/homemew-one-shot.mjs
           node --check infra/scripts/phase7-homemew-identities.mjs
           LIFESPACE_MIGRATION_TARGET=production node infra/migration/homemew-one-shot.mjs rehearse 2>&1 | grep -q 'rehearse is staging-only'
 
-      - name: Verify LifeSpace production is still empty
+      - id: empty_target
+        name: Verify LifeSpace production is still empty
         run: node infra/scripts/verify-production-db.mjs
 
-      - name: Verify production endpoints
+      - id: endpoints
+        name: Verify production endpoints
         run: |
           curl --fail --silent --show-error --retry 3 https://auth.aisr.online/health >/dev/null
           curl --fail --silent --show-error --retry 3 https://core.aisr.online/health >/dev/null
 
-      - name: Verify HomeMew production backend secret boundary
+      - id: backend_secrets
+        name: Verify HomeMew production backend secret boundary
         shell: bash
         run: |
           set -euo pipefail
@@ -85,7 +94,8 @@ jobs:
           console.log(JSON.stringify({ ok: true, wechatAppSecretPresent: true, residualCutoverSecrets: false }));
           NODE
 
-      - name: Verify current HomeMew domain still targets legacy Core
+      - id: domain
+        name: Verify current HomeMew domain still targets legacy Core
         shell: bash
         run: |
           set -euo pipefail
@@ -100,13 +110,16 @@ jobs:
           console.log(JSON.stringify({ ok: true, hostname: domain.hostname, service: domain.service }));
           NODE
 
-      - name: Capture read-only source snapshot
+      - id: snapshot
+        name: Capture read-only source snapshot
         run: node infra/migration/homemew-one-shot.mjs snapshot --out "$RUNNER_TEMP/homemew-preflight-snapshot.json"
 
-      - name: Validate legacy WeChat identities
+      - id: identities
+        name: Validate legacy WeChat identities
         run: node infra/scripts/phase7-homemew-identities.mjs validate --snapshot "$RUNNER_TEMP/homemew-preflight-snapshot.json"
 
-      - name: Summarize
+      - name: Summarize PASS
+        if: ${{ success() }}
         run: |
           cat >> "$GITHUB_STEP_SUMMARY" <<'EOF'
           ## HomeMew production preflight PASS
@@ -119,13 +132,27 @@ jobs:
           - No freeze, migration, credential issuance, domain switch, or production activation occurred.
           EOF
 
-      - name: Record observable PASS marker
+      - name: Record observable result marker
+        if: ${{ always() }}
         shell: bash
+        env:
+          RESULT: ${{ job.status }}
+          INPUTS_RESULT: ${{ steps.inputs.outcome }}
+          INSTALL_RESULT: ${{ steps.install.outcome }}
+          TOOLING_RESULT: ${{ steps.tooling.outcome }}
+          EMPTY_TARGET_RESULT: ${{ steps.empty_target.outcome }}
+          ENDPOINTS_RESULT: ${{ steps.endpoints.outcome }}
+          BACKEND_SECRETS_RESULT: ${{ steps.backend_secrets.outcome }}
+          DOMAIN_RESULT: ${{ steps.domain.outcome }}
+          SNAPSHOT_RESULT: ${{ steps.snapshot.outcome }}
+          IDENTITIES_RESULT: ${{ steps.identities.outcome }}
         run: |
           set -euo pipefail
-          printf 'HomeMew production preflight PASS\nrun_id=%s\ncommit=%s\n' "$GITHUB_RUN_ID" "$GITHUB_SHA" > infra/migration/.homemew-production-preflight-pass
+          printf 'result=%s\nrun_id=%s\ninputs=%s\ninstall=%s\ntooling=%s\nempty_target=%s\nendpoints=%s\nbackend_secrets=%s\ndomain=%s\nsnapshot=%s\nidentities=%s\n' \
+            "$RESULT" "$GITHUB_RUN_ID" "$INPUTS_RESULT" "$INSTALL_RESULT" "$TOOLING_RESULT" "$EMPTY_TARGET_RESULT" "$ENDPOINTS_RESULT" "$BACKEND_SECRETS_RESULT" "$DOMAIN_RESULT" "$SNAPSHOT_RESULT" "$IDENTITIES_RESULT" \
+            > infra/migration/.homemew-production-preflight-result
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add infra/migration/.homemew-production-preflight-pass
-          git commit -m "chore: record HomeMew production preflight PASS"
+          git add infra/migration/.homemew-production-preflight-result
+          git commit -m "chore: record HomeMew production preflight result"
           git push origin HEAD:main
