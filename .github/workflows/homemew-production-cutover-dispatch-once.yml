@@ -1,4 +1,5 @@
 name: Dispatch HomeMew production cutover once
+# rerun after idempotent production D1 resolution fix
 
 on:
   push:
