@@ -1,4 +1,5 @@
 name: HomeMew production preflight once
+# rerun after production D1 resolver fix
 
 on:
   push:
