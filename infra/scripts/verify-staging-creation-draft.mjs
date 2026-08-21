@@ -66,9 +66,12 @@ while (Date.now() - started < timeoutMs) {
   if (current.modelContractRevision !== pinnedContract) throw new Error(`Creation Draft Model Contract pin changed: ${JSON.stringify(current)}`);
   if (current.status === "processing") continue;
   if (current.status === "choose_model") {
+    if (expectedModel) {
+      throw new Error(`Creation Draft expected direct ${expectedModel} classification, got choose_model: ${JSON.stringify(current)}`);
+    }
     if (chosen) throw new Error("Creation Draft returned choose_model twice after explicit model choice");
     if (!Array.isArray(current.candidateModels) || current.candidateModels.length < 2) throw new Error(`choose_model candidates are invalid: ${JSON.stringify(current)}`);
-    const target = expectedModel && current.candidateModels.includes(expectedModel) ? expectedModel : current.candidateModels[0];
+    const target = current.candidateModels[0];
     const choose = data(await request(`/api/v1/spaces/${spaceId}/creation-drafts/${draftId}/choose-model`, {
       method: "POST", body: { targetModelKey: target },
     }), 202, "Creation Draft choose-model");
@@ -102,7 +105,7 @@ console.log(JSON.stringify({
   modelContractRevision: pinnedContract,
   modelKey: terminal.modelKey,
   modelVersion: terminal.modelVersion,
-  chooseModelExercised: chosen,
+  directClassification: !chosen,
   missingFields: terminal.missingFields,
   warningCount: terminal.warnings.length,
 }, null, 2));
