@@ -5,8 +5,8 @@ const coreBaseUrl = (process.env.LIFESPACE_CORE_STAGING_URL ?? "").replace(/\/+$
 const bearer = process.env.LIFESPACE_STAGING_USER_BEARER ?? "";
 const spaceId = process.env.LIFESPACE_STAGING_SPACE_ID ?? "";
 const viewingTimezone = process.env.LIFESPACE_STAGING_VIEWING_TIMEZONE ?? "UTC";
-const text = process.env.LIFESPACE_STAGING_CREATION_TEXT ?? "明天下午三点提醒我整理 staging 验证结果";
-const expectedModel = process.env.LIFESPACE_STAGING_CREATION_EXPECT_MODEL ?? "";
+const text = process.env.LIFESPACE_STAGING_CREATION_TEXT ?? "明天记得交电费";
+const expectedModel = process.env.LIFESPACE_STAGING_CREATION_EXPECT_MODEL ?? "task";
 const allowAiUnconfigured = process.env.ALLOW_AI_UNCONFIGURED === "1";
 const timeoutMs = Number(process.env.LIFESPACE_STAGING_CREATION_TIMEOUT_MS ?? 75_000);
 
