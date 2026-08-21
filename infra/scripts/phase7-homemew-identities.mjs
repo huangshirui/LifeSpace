@@ -25,24 +25,47 @@ async function readJson(path, label) {
   }
 }
 
+function rowsFromParsedExport(parsed) {
+  if (Array.isArray(parsed)) return parsed;
+  if (Array.isArray(parsed?.data)) return parsed.data;
+  if (Array.isArray(parsed?.records)) return parsed.records;
+  if (parsed && typeof parsed === "object") return [parsed];
+  return null;
+}
+
 function sourceMappings() {
   const raw = process.env.HOMEMEW_WECHAT_IDENTITY_MAPPINGS_JSON ?? "";
-  if (!raw.trim()) throw new HandoffError("HOMEMEW_WECHAT_IDENTITY_MAPPINGS_JSON is required");
-  let parsed;
+  const trimmed = raw.trim();
+  if (!trimmed) throw new HandoffError("HOMEMEW_WECHAT_IDENTITY_MAPPINGS_JSON is required");
+
+  // WeChat Cloud Database exports may be either one JSON document (array/object)
+  // or newline-delimited JSON with one exported record per line. Accept both while
+  // keeping the same strict identity/reference checks below.
   try {
-    parsed = JSON.parse(raw);
-  } catch (error) {
-    throw new HandoffError(`HOMEMEW_WECHAT_IDENTITY_MAPPINGS_JSON is not valid JSON: ${error instanceof Error ? error.message : String(error)}`);
+    const rows = rowsFromParsedExport(JSON.parse(trimmed));
+    if (!rows) throw new HandoffError("WeChat identity export must contain records");
+    return rows;
+  } catch (jsonError) {
+    const lines = trimmed.split(/\r?\n/u).map((line) => line.trim()).filter(Boolean);
+    if (lines.length < 2) {
+      if (jsonError instanceof HandoffError) throw jsonError;
+      throw new HandoffError(`HOMEMEW_WECHAT_IDENTITY_MAPPINGS_JSON is not valid JSON: ${jsonError instanceof Error ? jsonError.message : String(jsonError)}`);
+    }
+
+    const rows = [];
+    for (let index = 0; index < lines.length; index += 1) {
+      let parsed;
+      try {
+        parsed = JSON.parse(lines[index]);
+      } catch (lineError) {
+        throw new HandoffError(`HOMEMEW_WECHAT_IDENTITY_MAPPINGS_JSON JSONL line ${index + 1} is invalid JSON: ${lineError instanceof Error ? lineError.message : String(lineError)}`);
+      }
+      const lineRows = rowsFromParsedExport(parsed);
+      if (!lineRows) throw new HandoffError(`WeChat identity JSONL line ${index + 1} does not contain a record`);
+      rows.push(...lineRows);
+    }
+    return rows;
   }
-  const rows = Array.isArray(parsed)
-    ? parsed
-    : Array.isArray(parsed?.data)
-      ? parsed.data
-      : Array.isArray(parsed?.records)
-        ? parsed.records
-        : null;
-  if (!rows) throw new HandoffError("WeChat identity export must be a JSON array or an object containing data/records array");
-  return rows;
 }
 
 function validateRows(snapshot, rows) {
@@ -125,7 +148,7 @@ function usage() {
   node infra/scripts/phase7-homemew-identities.mjs validate --snapshot <snapshot.json>
   node infra/scripts/phase7-homemew-identities.mjs build --snapshot <snapshot.json> --report <migration-report.json> --out <bootstrap-map.json>
 
-HOMEMEW_WECHAT_IDENTITY_MAPPINGS_JSON must contain the exported legacy identity_mappings collection as a JSON array, or an object with a data/records array. Raw openids are never printed by this script.`);
+HOMEMEW_WECHAT_IDENTITY_MAPPINGS_JSON must contain the exported legacy identity_mappings collection as a JSON array/object, an object with a data/records array, or newline-delimited JSON (JSONL). Raw openids are never printed by this script.`);
 }
 
 async function main() {
