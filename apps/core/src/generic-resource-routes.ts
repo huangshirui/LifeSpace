@@ -20,6 +20,7 @@ import { ApiError, success } from "./http";
 import { requireModelAccess } from "./model-authorization";
 import { getRuntimeModelByRoute, type PublishedModel } from "./model-registry";
 import { requireModelPolicy } from "./policy";
+import { loadResourceAudits, requireResourceAudit, type ResourceAudit } from "./resource-audit";
 import { executeWorkflowAction, workflowActionAccess } from "./workflow";
 
 type AppEnv = { Bindings: Bindings; Variables: Variables };
@@ -47,7 +48,12 @@ async function dto(
   model: PublishedModel,
   resource: GenericResource,
   decoration?: CapabilityResponseDecoration,
+  audit?: ResourceAudit,
 ) {
+  const resolvedAudit = audit ?? requireResourceAudit(
+    await loadResourceAudits(env, spaceId, [resource.id]),
+    resource.id,
+  );
   return {
     id: resource.id,
     spaceId: resource.spaceId,
@@ -55,6 +61,8 @@ async function dto(
     modelVersion: resource.modelVersion,
     ...resource.data,
     ...(decoration ?? await decorateCapabilityResponse(env, spaceId, model, resource)),
+    createdBy: resolvedAudit.createdBy,
+    updatedBy: resolvedAudit.updatedBy,
     version: resource.version,
     createdAt: resource.createdAt,
     updatedAt: resource.updatedAt,
@@ -74,8 +82,18 @@ export function registerGenericResourceRoutes(app: App): void {
       : isCalendarSpecialQuery(resolved, params)
         ? await queryCalendarResources(context.env, principal, spaceId, resolved, params)
         : await queryGenericResources(context.env, spaceId, resolved, params);
-    const decorations = await decorateCapabilityResponses(context.env, spaceId, resolved, result.items);
-    const items = await Promise.all(result.items.map((resource, index) => dto(context.env, spaceId, resolved, resource, decorations[index])));
+    const [decorations, audits] = await Promise.all([
+      decorateCapabilityResponses(context.env, spaceId, resolved, result.items),
+      loadResourceAudits(context.env, spaceId, result.items.map((resource) => resource.id)),
+    ]);
+    const items = await Promise.all(result.items.map((resource, index) => dto(
+      context.env,
+      spaceId,
+      resolved,
+      resource,
+      decorations[index],
+      requireResourceAudit(audits, resource.id),
+    )));
     return context.json(success({ items, nextCursor: result.nextCursor }));
   });
 
