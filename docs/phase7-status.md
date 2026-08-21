@@ -1,82 +1,127 @@
-# Phase 7 Status
+# Phase 7 Status — HomeMew production cutover
 
-Updated: 2026-08-16
+Updated: 2026-08-21
 
-Status: **In progress — production cutover tooling prepared; production write freeze/migration not yet executed**
+Status: **Complete**
 
-## Goal
+## Outcome
 
-Perform the single controlled HomeMew production migration into the already deployed LifeSpace production platform and activate the redesigned HomeMew Mini Program without dual-write.
+HomeMew production durable state was migrated once from the frozen legacy HomeMew source into LifeSpace production, verified with `migration-report.json = PASS`, and the HomeMew production application domain was activated on the redesigned Cloudflare backend.
 
-## Preconditions already passed
+Final production routing:
 
-- HomeMew Integration Ready milestone passed.
-- Phase 5 one-shot staging rehearsal passed.
-- Phase 6 isolated LifeSpace production platform is deployed and business-empty.
-- Redesigned HomeMew Mini Program staging E2E passed for login, family, member/invite, Event, Task, Day Record, Wish, Creation Draft (`喵一下`) and avatar flows.
-- `homemew-backend-production` and its production `WECHAT_IDENTITIES` Durable Object namespace are deployed traffic-dark with no production custom domain attached.
+```text
+homemew.aisr.online -> homemew-backend-production
+                       -> LifeSpace Identity: auth.aisr.online
+                       -> LifeSpace Core:     core.aisr.online
+```
 
-## Phase 7 tooling
+The legacy `homemew-core` Worker and HomeMew D1 are retained frozen/read-only for the Phase 8 stabilization and rollback-evidence window. No dual-write, CDC, incremental catch-up, or second migration was introduced.
 
-Branch `phase7-homemew-production-cutover` adds:
+## Accepted migration evidence
 
-- guarded production target support to `infra/migration/homemew-one-shot.mjs`;
-- explicit rejection of production `rehearse`;
-- `infra/scripts/phase7-homemew-identities.mjs` to validate the legacy WeChat provider mapping export and derive the post-migration `openid -> LifeSpace usr_*` continuity map without printing raw openids;
-- `.github/workflows/homemew-production-cutover.yml` with separate `preflight` and `cutover` modes.
+The successful one-shot production migration was executed by GitHub Actions run `32455970121`.
 
-The cutover workflow enforces this order:
+The retained workflow artifact is:
 
-1. verify explicit production intent and required secrets;
-2. verify LifeSpace production is still the Phase-6 empty target;
-3. verify `homemew-backend-production` already has `WECHAT_APP_SECRET` but no residual cutover credential/map;
-4. verify `homemew.aisr.online` still belongs to legacy `homemew-core`;
-5. capture a read-only preflight HomeMew snapshot and validate the legacy WeChat `identity_mappings` export;
-6. on `cutover`, deploy a reversible write-freeze version to `homemew-core` and verify the public 503 maintenance response;
-7. capture the final frozen source snapshot and revalidate provider identities;
-8. reconfirm LifeSpace production is empty;
-9. issue a temporary HomeMew production application credential, run the one-shot migration, then revoke that temporary credential;
-10. require `migration-report.json = PASS` and verified production target status;
-11. derive the provider continuity map from the final snapshot + migration report;
-12. issue the final HomeMew production `lsa_*` credential and install it plus the provider map directly as `homemew-backend-production` Cloudflare Worker Secrets;
-13. switch `homemew.aisr.online` to `homemew-backend-production` only after all previous gates pass;
-14. verify public production backend health reports `loginReady=true` and provider bootstrap configured;
-15. retain legacy `homemew-core`/D1 in the frozen state for stabilization and rollback evidence.
+```text
+homemew-production-migration-report-32455970121
+artifact id: 9437613506
+```
 
-If a cutover step fails, the workflow attempts to restore the custom domain to legacy `homemew-core`, revoke any final credential issued during the failed attempt, and roll the legacy Worker back from its temporary freeze version. A partial LifeSpace migration is never resumed automatically.
+The report recorded `PASS` for both the migration result and verification result. Verified production counts were:
+
+- 4 users;
+- 3 family Spaces;
+- 6 Memberships / 6 Space People;
+- 499 Events;
+- 22 Tasks;
+- 5 Day Records;
+- 5 Wishes;
+- 5 avatar objects;
+- 2 legacy external-system definitions accounted for re-provisioning.
+
+The migration used the accepted production contract tuple:
+
+```text
+Identity Contract:    0.4.0
+Core Kernel Contract: 0.12.0
+Core D1 schema:        24
+Model Contract:       mct_9a3d9588da8591ab376ef000e5e661f670a64dd8b1ebc14fd146580f0ed1fa45
+HomeMew application:  homemew-miniprogram
+```
+
+Legacy credentials were not copied into LifeSpace.
 
 ## Provider identity continuity
 
-The existing production Mini Program's `openid -> HomeMew user` mappings live in the legacy WeChat Cloud Database collection `identity_mappings`, not in the HomeMew D1. Ignoring that state would cause returning WeChat users to be treated as new identities after cutover.
+The production cutover validated the legacy WeChat `identity_mappings` export against the frozen active HomeMew users before migration. After migration PASS, the derived `openid -> LifeSpace usr_*` continuity map was handed directly to `homemew-backend-production` as the server-only `WECHAT_IDENTITY_BOOTSTRAP_MAP` Cloudflare Worker Secret.
 
-Phase 7 therefore requires the production-environment secret:
+Raw `openid` values and the derived map were never committed or uploaded as migration artifacts.
+
+A fresh final `lsa_*` trusted-application credential was issued only for the production HomeMew backend and stored as the Worker Secret `LIFESPACE_APPLICATION_CREDENTIAL`. The Mini Program never receives this credential.
+
+## Activation recovery and semantic gate
+
+The first activation attempt completed the data migration but failed before traffic activation while transferring the existing Cloudflare Worker Custom Domain. The old HomeMew route was restored and the credential from that failed activation was revoked.
+
+Because LifeSpace production already contained the verified migrated state, the one-shot migration was **not** run again. Before activation was retried, a read-only semantic recovery gate compared the current frozen legacy source with the already-migrated LifeSpace records using the original PASS report's source-to-target mappings.
+
+Run `32460066401` verified:
 
 ```text
-HOMEMEW_WECHAT_IDENTITY_MAPPINGS_JSON
+semanticDrift: false
+users:         4
+spaces:        3
+memberships:   6
+events:        499
+tasks:         22
+dayRecords:    5
+wishes:        5
+objects:       5
+systems:       2
 ```
 
-It contains the legacy `identity_mappings` export as a JSON array, or an object containing `data`/`records`. Each row must contain `openid` and `homemewUserId`.
+This proved there was no business-state delta requiring cleanup, incremental catch-up, or a second migration.
 
-The workflow validates the export against the frozen HomeMew snapshot, combines it with `migration-report.json` user mappings, and derives `openid -> new LifeSpace usr_*`. That derived value is handed directly to `homemew-backend-production` as the server-only `WECHAT_IDENTITY_BOOTSTRAP_MAP` secret. On a returning user's first login, the HomeMew Durable Object persists the migrated LifeSpace user mapping instead of creating a duplicate user.
+## Final production activation
 
-Raw provider mappings are not committed and are not uploaded as workflow artifacts.
+Final activation run `32460777350` completed successfully.
 
-## Remaining manual production prerequisites
+It re-froze the legacy source, repeated the semantic drift gate, issued and installed a fresh final HomeMew application credential, detached the Custom Domain from `homemew-core`, attached it to `homemew-backend-production`, and verified both public health and Cloudflare domain ownership.
 
-Before running `cutover`:
+The final production checks passed with:
 
-1. configure `WECHAT_APP_SECRET` directly on Cloudflare Worker `homemew-backend-production`;
-2. export the legacy WeChat Cloud Database `identity_mappings` collection and store the JSON only as the LifeSpace GitHub `production` environment secret `HOMEMEW_WECHAT_IDENTITY_MAPPINGS_JSON`;
-3. make the redesigned Mini Program version review/release-ready. `develop`/`trial` continues to use staging; only the formal `release` build selects production.
+```text
+hostname:    homemew.aisr.online
+service:     homemew-backend-production
+health:      ok
+runtime:     homemew-backend
+environment: production
+loginReady:  true
+```
 
-Run `HomeMew production cutover` in `preflight` mode first with confirmation `PREFLIGHT_HOMEMEW_PRODUCTION`. Only after that passes should `cutover` be run with confirmation `CUTOVER_HOMEMEW_PRODUCTION`.
+Failure rollback steps were skipped because activation completed successfully.
 
-## Current production state
+## Post-cutover state
 
-At this status update:
+- LifeSpace production is now the authoritative writable source for migrated HomeMew business data.
+- `homemew.aisr.online` serves the redesigned HomeMew production backend.
+- `WECHAT_APP_SECRET`, `WECHAT_IDENTITY_BOOTSTRAP_MAP`, and the active `LIFESPACE_APPLICATION_CREDENTIAL` remain server-only Cloudflare Worker Secrets.
+- The old HomeMew Core/D1 is retained frozen/read-only for stabilization and rollback evidence.
+- The production one-shot/cutover workflows and temporary recovery helpers are retired after evidence capture so Phase 7 cannot be accidentally re-run.
+- Real-client Mini Program production smoke validation and old-infrastructure retirement belong to Phase 8.
+- The two legacy external-system definitions remain explicit re-provisioning work; legacy credential material was intentionally not migrated.
 
-- no HomeMew production source write freeze has been activated;
-- no HomeMew production data has been migrated into LifeSpace production by Phase 7;
-- no final HomeMew production LifeSpace credential has been issued;
-- `homemew.aisr.online` has not been switched to the new backend;
-- the old HomeMew production application remains the writable source of truth.
+## Phase 7 exit gate
+
+Phase 7 is complete because:
+
+- final production source state was captured under write freeze;
+- one-shot migration completed with a PASS report;
+- migrated users, Spaces, Memberships/People, business resources, relations and objects were verified;
+- WeChat provider identity continuity was validated and handed to the application backend without committing provider identifiers;
+- a fresh production-only trusted application credential is active only in the HomeMew backend;
+- production routing now targets the redesigned HomeMew backend;
+- public production health and Cloudflare domain ownership both pass;
+- no normal dual-write, CDC, resume, or incremental migration path exists.
