@@ -107,6 +107,37 @@ export function initializeModelContractStatements(
   return [revision, state];
 }
 
+/**
+ * Activate a new immutable contract produced by a Core contract-generator change while
+ * the published Model Registry itself is unchanged. The registry revision is preserved;
+ * the update is accepted only while that exact revision is stable and no publication
+ * mutation is in flight.
+ */
+export function reconcileModelContractStatements(
+  env: Bindings,
+  snapshot: ModelContractSnapshot,
+  principal: Principal,
+  updatedAt: string,
+  expectedRegistryRevision: number,
+): D1PreparedStatement[] {
+  const predicate = `EXISTS(SELECT 1 FROM model_registry_state
+    WHERE singleton=1 AND revision=? AND mutation_token IS NULL)`;
+  const revision = revisionInsert(env, snapshot, principal, updatedAt, predicate, [expectedRegistryRevision]);
+  const state = env.DB.prepare(`UPDATE model_contract_state
+      SET active_contract_id=?,registry_revision=?,updated_at=?
+      WHERE singleton=1 AND registry_revision=?
+      AND EXISTS(SELECT 1 FROM model_contract_revisions WHERE id=?) AND ${predicate}`)
+    .bind(
+      snapshot.id,
+      expectedRegistryRevision,
+      updatedAt,
+      expectedRegistryRevision,
+      snapshot.id,
+      expectedRegistryRevision,
+    );
+  return [revision, state];
+}
+
 export async function getModelContract(env: Bindings, contractId: string): Promise<StoredModelContract | null> {
   const row = await env.DB.prepare(`SELECT id,contract_hash,manifest_json,openapi_json,json_schema_json,
       created_by_type,created_by_id,created_by_name_snapshot,created_at
