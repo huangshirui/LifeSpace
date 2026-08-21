@@ -1,6 +1,6 @@
 # HomeMew Core -> LifeSpace Migration Plan
 
-Updated: 2026-08-14
+Updated: 2026-08-21
 
 ## 1. Goal
 
@@ -156,8 +156,8 @@ HomeMew system identities/family access are recorded for later LifeSpace service
 | Phase 5 | **Complete** | **One-shot Migration Rehearsal** — purpose-built script, consolidated report and real staging rehearsal |
 | Milestone | **Complete** | **HomeMew Integration Ready** — Phase 4 + Phase 5 passed |
 | Phase 6 | **Complete** | Empty isolated LifeSpace production platform deployed and verified; no HomeMew production data/traffic |
-| Phase 7 | Planned | Controlled one-shot HomeMew production data migration and application cutover |
-| Phase 8 | Planned | Stabilization and retirement of old HomeMew shared Core/infrastructure |
+| Phase 7 | **Complete** | Controlled one-shot HomeMew production data migration and application cutover |
+| Phase 8 | In progress | Stabilization and retirement of old HomeMew shared Core/infrastructure |
 | Phase 9 | Non-blocking | Post-cutover LifeSpace aggregation/sharing evolution |
 
 ## 7. Phase 0 — Baseline and migration controls
@@ -354,6 +354,22 @@ There is no requirement to first migrate or adapt the old HomeMew WeChat Cloud F
 Production cutover cannot begin until the redesigned HomeMew release is ready and its staging E2E against the accepted LifeSpace contract has passed.
 
 ## 16. Phase 7 — Controlled one-shot production cutover
+
+**Complete on 2026-08-21.** HomeMew production durable state was migrated once into LifeSpace production with `migration-report.json = PASS`, WeChat provider identity continuity was handed to the redesigned HomeMew backend, and `homemew.aisr.online` was activated on `homemew-backend-production`.
+
+Accepted evidence:
+
+- production migration run `32455970121`; retained report artifact `homemew-production-migration-report-32455970121` / artifact id `9437613506`;
+- migrated and verified 4 users, 3 family Spaces, 6 Memberships/Space People, 499 Events, 22 Tasks, 5 Day Records, 5 Wishes and 5 avatar objects;
+- two legacy external-system definitions were accounted for re-provisioning without copying legacy credential material;
+- after an activation-only failure, the migration was not re-run; read-only semantic recovery run `32460066401` verified `semanticDrift: false` across the migrated state;
+- final activation run `32460777350` successfully transferred the Cloudflare Custom Domain to `homemew-backend-production` and verified public production health with `loginReady=true`;
+- the legacy `homemew-core`/D1 remains frozen/read-only for Phase 8 stabilization and rollback evidence;
+- the production cutover workflow and one-time recovery helpers were retired after evidence capture so the one-shot migration cannot be accidentally repeated.
+
+Detailed evidence is in `docs/phase7-status.md`.
+
+The executed sequence followed the controlled write-freeze design below. There was no normal dual-write interval.
 
 Use a controlled write freeze. There is no normal dual-write interval.
 
