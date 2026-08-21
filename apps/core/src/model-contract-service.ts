@@ -1,6 +1,6 @@
 import type { Bindings, Principal } from "./env";
 import { ApiError } from "./http";
-import { generateModelContract, MODEL_CONTRACT_GENERATOR_VERSION } from "./model-contract";
+import { generateModelContract } from "./model-contract";
 import {
   getActiveModelContract,
   getModelContract,
@@ -18,23 +18,21 @@ const bootstrapPrincipal: Principal = {
   tokenId: "internal_model_contract_bootstrap",
 };
 
-function generatorVersion(contract: StoredModelContract | null): number | null {
-  const value = contract?.manifest.generatorVersion;
-  return Number.isInteger(value) ? Number(value) : null;
-}
-
 export async function getOrCreateActiveModelContract(
   env: Bindings,
 ): Promise<StoredModelContract & { registryRevision: number }> {
-  const active = await getActiveModelContract(env);
-  if (active && generatorVersion(active) === MODEL_CONTRACT_GENERATOR_VERSION) return active;
-
   for (let attempt = 0; attempt < 3; attempt += 1) {
     const expectedRevision = await getModelRegistryRevision(env);
     const models = await listPublishedModels(env);
     const snapshot = await generateModelContract(models);
     const updatedAt = new Date().toISOString();
     const existing = await getActiveModelContract(env);
+
+    if (
+      existing
+      && existing.registryRevision === expectedRevision
+      && existing.id === snapshot.id
+    ) return existing;
 
     if (!existing) {
       await env.DB.batch(initializeModelContractStatements(
@@ -44,7 +42,7 @@ export async function getOrCreateActiveModelContract(
         updatedAt,
         expectedRevision,
       ));
-    } else if (existing.id !== snapshot.id || generatorVersion(existing) !== MODEL_CONTRACT_GENERATOR_VERSION) {
+    } else {
       await env.DB.batch(reconcileModelContractStatements(
         env,
         snapshot,
@@ -59,7 +57,6 @@ export async function getOrCreateActiveModelContract(
       reconciled
       && reconciled.registryRevision === expectedRevision
       && reconciled.id === snapshot.id
-      && generatorVersion(reconciled) === MODEL_CONTRACT_GENERATOR_VERSION
     ) return reconciled;
   }
   throw new ApiError("MODEL_CONTRACT_CONFLICT", "Model registry changed repeatedly while initializing its contract", 409);
