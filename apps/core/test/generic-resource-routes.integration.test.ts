@@ -7,6 +7,12 @@ import { publishModelDefinition } from "../src/model-registry";
 
 type TestEnv = { DB: D1Database };
 
+type AuditActor = {
+  type: "user" | "service" | "device";
+  id: string;
+  displayName: string;
+};
+
 function pem(label: "PRIVATE KEY" | "PUBLIC KEY", bytes: ArrayBuffer): string {
   const binary = String.fromCharCode(...new Uint8Array(bytes));
   const base64 = btoa(binary).match(/.{1,64}/g)?.join("\n") ?? "";
@@ -114,24 +120,64 @@ describe("Generic Resource HTTP routes", () => {
       body: JSON.stringify({ title: "Runtime note", pinned: false }),
     });
     expect(createdResponse.status).toBe(201);
-    const created = await createdResponse.json<{ data: { id: string; modelKey: string; title: string; pinned: boolean; version: number } }>();
+    const created = await createdResponse.json<{ data: {
+      id: string;
+      modelKey: string;
+      title: string;
+      pinned: boolean;
+      version: number;
+      createdBy: AuditActor;
+      updatedBy: AuditActor;
+    } }>();
     expect(created.data).toMatchObject({ modelKey: f.modelKey, title: "Runtime note", pinned: false, version: 1 });
+    expect(created.data.createdBy).toEqual({ type: "user", id: f.userId, displayName: "Generic Tester" });
+    expect(created.data.updatedBy).toEqual({ type: "user", id: f.userId, displayName: "Generic Tester" });
+
+    const storedAfterCreate = await f.db.prepare(`SELECT created_by_name_snapshot,updated_by_name_snapshot
+      FROM resource_records WHERE id=?`).bind(created.data.id).first<{
+        created_by_name_snapshot: string;
+        updated_by_name_snapshot: string;
+      }>();
+    expect(storedAfterCreate).toMatchObject({
+      created_by_name_snapshot: "Generic Tester",
+      updated_by_name_snapshot: "Generic Tester",
+    });
 
     const itemResponse = await request(f.publicKey, f.accessToken, `/api/v1/spaces/${f.spaceId}/${f.route}/${created.data.id}`);
     expect(itemResponse.status).toBe(200);
+    const item = await itemResponse.json<{ data: { createdBy: AuditActor; updatedBy: AuditActor } }>();
+    expect(item.data.createdBy.displayName).toBe("Generic Tester");
+
+    await f.db.prepare(`UPDATE space_people SET display_name=?,updated_at=?
+      WHERE space_id=? AND linked_user_id=?`).bind("Renamed Tester", new Date().toISOString(), f.spaceId, f.userId).run();
 
     const updatedResponse = await request(f.publicKey, f.accessToken, `/api/v1/spaces/${f.spaceId}/${f.route}/${created.data.id}`, {
       method: "PATCH",
       body: JSON.stringify({ version: 1, title: "Updated note", pinned: true }),
     });
     expect(updatedResponse.status).toBe(200);
-    const updated = await updatedResponse.json<{ data: { title: string; pinned: boolean; version: number } }>();
+    const updated = await updatedResponse.json<{ data: {
+      title: string;
+      pinned: boolean;
+      version: number;
+      createdBy: AuditActor;
+      updatedBy: AuditActor;
+    } }>();
     expect(updated.data).toMatchObject({ title: "Updated note", pinned: true, version: 2 });
+    expect(updated.data.createdBy.displayName).toBe("Generic Tester");
+    expect(updated.data.updatedBy).toEqual({ type: "user", id: f.userId, displayName: "Renamed Tester" });
 
     const listResponse = await request(f.publicKey, f.accessToken, `/api/v1/spaces/${f.spaceId}/${f.route}`);
     expect(listResponse.status).toBe(200);
-    const list = await listResponse.json<{ data: { items: Array<{ id: string }> } }>();
-    expect(list.data.items.some((item) => item.id === created.data.id)).toBe(true);
+    const list = await listResponse.json<{ data: { items: Array<{
+      id: string;
+      createdBy: AuditActor;
+      updatedBy: AuditActor;
+    }> } }>();
+    const listed = list.data.items.find((entry) => entry.id === created.data.id);
+    expect(listed).toBeTruthy();
+    expect(listed?.createdBy.displayName).toBe("Generic Tester");
+    expect(listed?.updatedBy.displayName).toBe("Renamed Tester");
 
     const deletedResponse = await request(f.publicKey, f.accessToken, `/api/v1/spaces/${f.spaceId}/${f.route}/${created.data.id}`, {
       method: "DELETE",

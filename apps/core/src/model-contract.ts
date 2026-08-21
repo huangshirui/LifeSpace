@@ -199,6 +199,20 @@ function temporalComputedSchema(): JsonSchema {
   };
 }
 
+function resourceAuditActorSchema(): JsonSchema {
+  return {
+    type: "object",
+    additionalProperties: false,
+    readOnly: true,
+    properties: {
+      type: { type: "string", enum: ["user", "service", "device"] },
+      id: { type: "string", minLength: 1 },
+      displayName: { type: "string", minLength: 1 },
+    },
+    required: ["type", "id", "displayName"],
+  };
+}
+
 function resourceSchema(model: PublishedModel): JsonSchema {
   const definition = model.definition;
   const properties: Record<string, unknown> = {
@@ -207,6 +221,8 @@ function resourceSchema(model: PublishedModel): JsonSchema {
     modelKey: { type: "string", const: definition.key },
     modelVersion: { type: "integer", minimum: 1 },
     ...Object.fromEntries(Object.entries(definition.fields).map(([key, field]) => [key, fieldSchema(field)])),
+    createdBy: resourceAuditActorSchema(),
+    updatedBy: resourceAuditActorSchema(),
     version: { type: "integer", minimum: 1 },
     createdAt: { type: "string", format: "date-time" },
     updatedAt: { type: "string", format: "date-time" },
@@ -217,6 +233,8 @@ function resourceSchema(model: PublishedModel): JsonSchema {
     "modelKey",
     "modelVersion",
     ...Object.entries(definition.fields).filter(([, field]) => field.required).map(([key]) => key),
+    "createdBy",
+    "updatedBy",
     "version",
     "createdAt",
     "updatedAt",

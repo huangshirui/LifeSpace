@@ -5,6 +5,7 @@ import {
   getActiveModelContract,
   getModelContract,
   initializeModelContractStatements,
+  reconcileModelContractStatements,
   type StoredModelContract,
 } from "./model-contract-store";
 import { getModelRegistryRevision, listPublishedModels } from "./model-registry";
@@ -21,23 +22,42 @@ export async function getOrCreateActiveModelContract(
   env: Bindings,
 ): Promise<StoredModelContract & { registryRevision: number }> {
   for (let attempt = 0; attempt < 3; attempt += 1) {
-    const existing = await getActiveModelContract(env);
-    if (existing) return existing;
-
     const expectedRevision = await getModelRegistryRevision(env);
     const models = await listPublishedModels(env);
     const snapshot = await generateModelContract(models);
-    const createdAt = new Date().toISOString();
-    await env.DB.batch(initializeModelContractStatements(
-      env,
-      snapshot,
-      bootstrapPrincipal,
-      createdAt,
-      expectedRevision,
-    ));
+    const updatedAt = new Date().toISOString();
+    const existing = await getActiveModelContract(env);
 
-    const initialized = await getActiveModelContract(env);
-    if (initialized) return initialized;
+    if (
+      existing
+      && existing.registryRevision === expectedRevision
+      && existing.id === snapshot.id
+    ) return existing;
+
+    if (!existing) {
+      await env.DB.batch(initializeModelContractStatements(
+        env,
+        snapshot,
+        bootstrapPrincipal,
+        updatedAt,
+        expectedRevision,
+      ));
+    } else {
+      await env.DB.batch(reconcileModelContractStatements(
+        env,
+        snapshot,
+        bootstrapPrincipal,
+        updatedAt,
+        expectedRevision,
+      ));
+    }
+
+    const reconciled = await getActiveModelContract(env);
+    if (
+      reconciled
+      && reconciled.registryRevision === expectedRevision
+      && reconciled.id === snapshot.id
+    ) return reconciled;
   }
   throw new ApiError("MODEL_CONTRACT_CONFLICT", "Model registry changed repeatedly while initializing its contract", 409);
 }
