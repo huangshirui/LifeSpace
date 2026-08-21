@@ -5,8 +5,9 @@ import {
   TASK_MODEL_DEFINITION,
   WISH_MODEL_DEFINITION,
 } from "../src/builtin-models";
+import { generateModelContract } from "../src/model-contract";
 import { validateModelDefinition, type ModelDefinition } from "../src/model-definition";
-import type { PublishedModel } from "../src/model-registry";
+import { validateDefinition, type PublishedModel } from "../src/model-registry";
 import { creationDraftModelDescriptors } from "../src/registry-creation-draft";
 
 const baselineDefinitions = [
@@ -77,5 +78,32 @@ describe("Creation Draft baseline model semantics", () => {
 
     const wishFields = new Map(byKey.get("wish")?.fields.map((field) => [field.key, field]));
     expect(wishFields.get("desiredDate")?.description).toContain("hoped-for date");
+  });
+
+  it("emits the release fingerprint for the semantic baseline contract", async () => {
+    const versions: Record<string, number> = { task: 3, wish: 4, day_record: 2, event: 3 };
+    const models: PublishedModel[] = [];
+    for (const definition of baselineDefinitions) {
+      const validated = await validateDefinition(definition);
+      expect(validated.valid, definition.key).toBe(true);
+      if (!validated.valid) continue;
+      models.push({
+        id: `mdl_${definition.key}_semantic`,
+        key: definition.key,
+        route: definition.route,
+        version: versions[definition.key],
+        state: "published",
+        schemaHash: validated.schemaHash,
+        compatibility: "compatible",
+        definition: validated.definition,
+        publishedAt: "2026-08-21T00:00:00.000Z",
+      });
+    }
+    const contract = await generateModelContract(models);
+    console.log("SEMANTIC_BASELINE_FINGERPRINT", JSON.stringify({
+      models: Object.fromEntries(models.map((model) => [model.key, { version: model.version, schemaHash: model.schemaHash }])),
+      modelContract: contract.id,
+    }));
+    expect(contract.id).toMatch(/^mct_[a-f0-9]{64}$/u);
   });
 });
