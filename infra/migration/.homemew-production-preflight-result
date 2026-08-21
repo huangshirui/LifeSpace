@@ -1,5 +1,5 @@
-result=failure
-run_id=32455273665
+result=success
+run_id=32455513269
 inputs=success
 install=success
 tooling=success
@@ -8,4 +8,4 @@ endpoints=success
 backend_secrets=success
 domain=success
 snapshot=success
-identities=failure
+identities=success
