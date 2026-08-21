@@ -200,19 +200,21 @@ describe("Core D1 round-trip budgets", () => {
       f.counter,
       () => f.request(`/api/v1/spaces/${f.spaceId}/events?rangeStart=2026-07-31T00%3A00%3A00.000Z&rangeEnd=2026-08-02T00%3A00%3A00.000Z&dateStart=2026-07-31&dateEndExclusive=2026-08-02&sort=calendarStart%3Aasc&limit=100`),
       200,
-      5,
+      4,
     );
-    const calendar100Payload = await calendar100.json<{ data: { items: Array<{ id: string }> } }>();
+    const calendar100Payload = await calendar100.json<{ data: { items: Array<{ id: string; summary: string }> } }>();
     expect(calendar100Payload.data.items).toHaveLength(100);
+    expect(calendar100Payload.data.items[0]?.summary).toBe("Budget event 000");
 
     const calendar200 = await measured(
       f.counter,
       () => f.request(`/api/v1/spaces/${f.spaceId}/events?rangeStart=2026-07-31T00%3A00%3A00.000Z&rangeEnd=2026-08-02T00%3A00%3A00.000Z&dateStart=2026-07-31&dateEndExclusive=2026-08-02&sort=calendarStart%3Aasc&limit=200`),
       200,
-      5,
+      4,
     );
-    const calendar200Payload = await calendar200.json<{ data: { items: Array<{ id: string }> } }>();
+    const calendar200Payload = await calendar200.json<{ data: { items: Array<{ id: string; summary: string }> } }>();
     expect(calendar200Payload.data.items).toHaveLength(200);
+    expect(calendar200Payload.data.items.at(-1)?.summary).toBe("Budget event 199");
 
     const target = f.records[0];
     await measured(
