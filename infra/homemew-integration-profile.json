@@ -42,7 +42,7 @@
   "contracts": {
     "coreKernel": "0.12.0",
     "identity": "0.4.0",
-    "modelContract": "mct_9a3d9588da8591ab376ef000e5e661f670a64dd8b1ebc14fd146580f0ed1fa45",
+    "modelContract": "mct_a4cc6dad278204b08cd706f9abeb68107e229148f1cd9ccde0991382606a92b9",
     "pinStatus": "accepted"
   }
 }
