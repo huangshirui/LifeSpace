@@ -1,5 +1,5 @@
 name: HomeMew production preflight once
-# rerun after production D1 resolver fix
+# rerun after JSONL identity export support
 
 on:
   push:
