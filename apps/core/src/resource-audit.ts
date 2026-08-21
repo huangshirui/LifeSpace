@@ -33,7 +33,7 @@ function actor(
   return {
     type,
     id,
-    displayName: currentName?.trim() || snapshot?.trim() || id,
+    displayName: snapshot?.trim() || currentName?.trim() || id,
   };
 }
 
@@ -41,9 +41,9 @@ function actor(
  * Batch-load common Generic Resource audit actors for one response page.
  *
  * This intentionally performs one bounded query for the whole result set instead of
- * looking up actors per record. Active user actors use the current Space Person name
- * for presentation; removed users and service/device actors fall back to the immutable
- * name snapshot stored on resource_records.
+ * looking up actors per record. The immutable name snapshot is authoritative audit
+ * presentation; an active Space Person name is only a compatibility fallback for
+ * legacy rows whose snapshot could not be recovered.
  */
 export async function loadResourceAudits(
   env: Bindings,
