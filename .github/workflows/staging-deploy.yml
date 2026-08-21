@@ -131,14 +131,14 @@ jobs:
             sleep 5
           done
 
-      - name: Verify staging database convergence
-        run: node infra/scripts/verify-staging-db.mjs
-
       - name: Prepare ephemeral authenticated staging smoke
         run: node infra/scripts/prepare-staging-smoke.mjs
 
       - name: Publish or verify baseline model semantics for Creation Draft classification
         run: node infra/scripts/publish-staging-baseline-model-semantics.mjs
+
+      - name: Verify staging database convergence
+        run: node infra/scripts/verify-staging-db.mjs
 
       - name: Verify trusted application credential lifecycle
         run: node infra/scripts/verify-staging-application-admin.mjs
