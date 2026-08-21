@@ -371,8 +371,6 @@ Detailed evidence is in `docs/phase7-status.md`.
 
 The executed sequence followed the controlled write-freeze design below. There was no normal dual-write interval.
 
-Use a controlled write freeze. There is no normal dual-write interval.
-
 Preconditions:
 
 - HomeMew Integration Ready milestone passed;
