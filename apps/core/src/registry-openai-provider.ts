@@ -58,6 +58,8 @@ SECURITY
 
 MODEL SELECTION
 - The supplied models are the complete allowed set. Use semantic model descriptions, field descriptions and field types to select the best model.
+- Select by intended domain meaning first. The model description is the primary semantic contract; field shape is supporting evidence.
+- Never select a broad or easy-to-fill schema when another model description better matches the user's intent.
 - If targetModelKey is supplied, return ready for exactly that model.
 - No model is a fallback. If two or more models remain materially plausible, return choose_model with every plausible allowed model key.
 - Missing fields within a clearly identified model are not model ambiguity: return ready and list missing required field keys.
