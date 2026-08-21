@@ -63,6 +63,7 @@ jobs:
         run: |
           node --check infra/scripts/verify-staging-application-admin.mjs
           node --check infra/scripts/verify-staging-homemew-integration.mjs
+          node --check infra/scripts/publish-staging-baseline-model-semantics.mjs
 
       - name: Resolve expected staging versions
         run: node infra/scripts/staging-expectations.mjs
@@ -152,6 +153,9 @@ jobs:
       - name: Verify proving-model platform regression
         run: node infra/scripts/verify-staging-models.mjs
 
+      - name: Publish baseline model semantics for Creation Draft classification
+        run: node infra/scripts/publish-staging-baseline-model-semantics.mjs
+
       - name: Measure typed-runtime staging performance
         run: node infra/scripts/verify-staging-performance.mjs
 
@@ -201,8 +205,9 @@ jobs:
           - Staging HTTP performance benchmark: recorded in workflow logs
           - Service-only Model Admin / AI Admin boundary: passed
           - Active immutable Model Contract \`mct_*\`: passed
-          - Proving models (Task/Wish/Day Record/Event): passed
-          - Registry-driven Creation Draft Queue: reached a valid terminal state
+          - Proving models (Task/Wish/Day Record/Event): passed before compatible semantic publication
+          - Baseline model AI semantic metadata: published/verified through Model Admin
+          - Registry-driven Creation Draft Queue: task classification smoke passed or reached an allowed AI-configuration terminal state
           - Ephemeral smoke PAT: maximum 15-minute lifetime; cleanup attempted
           - Production and HomeMew traffic/data were not touched.
           EOF
