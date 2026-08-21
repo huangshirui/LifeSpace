@@ -3,6 +3,11 @@ import { readFileSync } from "node:fs";
 import process from "node:process";
 import { PRODUCTION_EXPECTATIONS, PRODUCTION_PROVING_MODELS } from "./production-expectations.mjs";
 
+// Repository Wrangler configs intentionally keep placeholder production D1 UUIDs.
+// Resolve the account-specific production UUIDs in the ephemeral checkout before
+// any remote verification query so callers cannot accidentally query placeholders.
+await import("./resolve-production-d1.mjs");
+
 const CORE_DIR = new URL("../../apps/core/", import.meta.url);
 const IDENTITY_DIR = new URL("../../apps/identity/", import.meta.url);
 const profile = JSON.parse(readFileSync(new URL("../homemew-integration-profile.json", import.meta.url), "utf8"));
