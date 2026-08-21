@@ -1,4 +1,5 @@
 import type { Bindings, Principal } from "./env";
+import { allD1Batched, chunkD1Values } from "./d1-batch";
 import { ApiError } from "./http";
 
 export type ResourceAuditActor = {
@@ -40,10 +41,12 @@ function actor(
 /**
  * Batch-load common Generic Resource audit actors for one response page.
  *
- * This intentionally performs one bounded query for the whole result set instead of
- * looking up actors per record. The immutable name snapshot is authoritative audit
- * presentation; an active Space Person name is only a compatibility fallback for
- * legacy rows whose snapshot could not be recovered.
+ * This intentionally performs one bounded D1 round trip for the whole result set
+ * instead of looking up actors per record. Queries are split only as required by
+ * D1's 100-bound-parameter ceiling and sent together with batch(). The immutable
+ * name snapshot is authoritative audit presentation; an active Space Person name
+ * is only a compatibility fallback for legacy rows whose snapshot could not be
+ * recovered.
  */
 export async function loadResourceAudits(
   env: Bindings,
@@ -53,8 +56,7 @@ export async function loadResourceAudits(
   const ids = [...new Set(recordIds.filter(Boolean))];
   if (!ids.length) return new Map();
 
-  const placeholders = ids.map(() => "?").join(",");
-  const rows = await env.DB.prepare(`SELECT
+  const statements = chunkD1Values(ids, 1).map((chunk) => env.DB.prepare(`SELECT
       r.id,
       r.created_by_type,r.created_by_id,r.created_by_name_snapshot,
       created_person.display_name AS created_current_name,
@@ -71,12 +73,12 @@ export async function loadResourceAudits(
       AND updated_person.space_id=r.space_id
       AND updated_person.linked_user_id=r.updated_by_id
       AND updated_person.deleted_at IS NULL
-    WHERE r.space_id=? AND r.id IN (${placeholders})`)
-    .bind(spaceId, ...ids)
-    .all<AuditRow>();
+    WHERE r.space_id=? AND r.id IN (${chunk.map(() => "?").join(",")})`)
+    .bind(spaceId, ...chunk));
+  const rows = await allD1Batched<AuditRow>(env.DB, statements);
 
   const result = new Map<string, ResourceAudit>();
-  for (const row of rows.results) {
+  for (const row of rows) {
     result.set(row.id, {
       createdBy: actor(
         row.created_by_type,
