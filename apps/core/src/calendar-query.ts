@@ -2,11 +2,16 @@ import type { Bindings, Principal } from "./env";
 import type { GenericResource } from "./generic-resource";
 import { ApiError } from "./http";
 import type { PublishedModel } from "./model-registry";
-import { getTypedResourcesByIds } from "./typed-resource-batch";
-import { typedScalarExpression, typedTableSql } from "./typed-resource-storage";
+import {
+  hydrateTypedResourceRows,
+  typedScalarExpression,
+  typedSelectColumns,
+  typedTableSql,
+  type TypedResourceRow,
+} from "./typed-resource-storage";
 
 type Cursor = { v: 1; modelKey: string; signature: string; sort: string; key: string; id: string };
-type Row = { id: string; sort_key: string };
+type Row = TypedResourceRow & { sort_key: string };
 
 function encode(value: Cursor) {
   const bytes = new TextEncoder().encode(JSON.stringify(value));
@@ -99,12 +104,13 @@ export async function queryCalendarResources(env: Bindings, principal: Principal
   const asc = sort.endsWith(":asc");
   if (cursor) { const op = asc ? ">" : "<"; where.push(`(${sortExpr}${op}? OR (${sortExpr}=? AND r.id${op}?))`); args.push(cursor.key, cursor.key, cursor.id); }
   const pageLimit = limit(params.get("limit")); args.push(pageLimit + 1);
-  const rows = await env.DB.prepare(`SELECT r.id,${sortExpr} sort_key
+  const scalarSelect = typedSelectColumns(model);
+  const rows = await env.DB.prepare(`SELECT r.id,r.space_id,r.model_key,r.model_version,r.version,r.created_at,r.updated_at${scalarSelect ? `,${scalarSelect}` : ""},${sortExpr} sort_key
     FROM resource_records r JOIN ${typedTableSql(model)} m ON m.record_id=r.id AND m.space_id=r.space_id
     WHERE ${where.join(" AND ")} ORDER BY sort_key ${asc ? "ASC" : "DESC"},r.id ${asc ? "ASC" : "DESC"} LIMIT ?`)
     .bind(...args).all<Row>();
   const page = rows.results.slice(0, pageLimit);
-  const items = await getTypedResourcesByIds(env, spaceId, model, page.map((row) => row.id));
+  const items = await hydrateTypedResourceRows(env, model, page);
   const last = page.at(-1);
   return { items, nextCursor: rows.results.length > pageLimit && last ? encode({ v: 1, modelKey: model.key, signature: sig, sort, key: last.sort_key, id: last.id }) : null };
 }
