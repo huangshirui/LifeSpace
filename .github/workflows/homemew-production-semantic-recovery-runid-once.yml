@@ -1,0 +1,37 @@
+name: Expose HomeMew semantic recovery run id once
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/homemew-production-semantic-recovery-runid-once.yml
+permissions:
+  actions: read
+  contents: write
+jobs:
+  locate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/homemew-production-semantic-recovery-once.yml/runs?event=push&branch=main&per_page=5" \
+            > "$RUNNER_TEMP/runs.json"
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const body = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + '/runs.json','utf8'));
+          const run = (body.workflow_runs ?? []).sort((a,b) => Date.parse(b.created_at) - Date.parse(a.created_at))[0];
+          if (!run?.id) throw new Error('No semantic recovery run found');
+          fs.writeFileSync('infra/migration/.homemew-production-semantic-recovery-run', `run_id=${run.id}\nstatus=${run.status}\nconclusion=${run.conclusion ?? ''}\n`);
+          NODE
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add infra/migration/.homemew-production-semantic-recovery-run
+          git commit -m "chore: record HomeMew semantic recovery run id"
+          git push origin HEAD:main
