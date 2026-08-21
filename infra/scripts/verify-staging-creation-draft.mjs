@@ -7,6 +7,7 @@ const spaceId = process.env.LIFESPACE_STAGING_SPACE_ID ?? "";
 const viewingTimezone = process.env.LIFESPACE_STAGING_VIEWING_TIMEZONE ?? "UTC";
 const text = process.env.LIFESPACE_STAGING_CREATION_TEXT ?? "明天记得交电费";
 const expectedModel = process.env.LIFESPACE_STAGING_CREATION_EXPECT_MODEL ?? "task";
+const expectedContract = process.env.LIFESPACE_STAGING_CREATION_EXPECT_CONTRACT ?? "mct_37f64546f9ebaf9697ee34b6b692ba3b96976a015b7ab5e5b243018fd3cfb41b";
 const allowAiUnconfigured = process.env.ALLOW_AI_UNCONFIGURED === "1";
 const timeoutMs = Number(process.env.LIFESPACE_STAGING_CREATION_TIMEOUT_MS ?? 75_000);
 
@@ -52,6 +53,9 @@ const created = data(await request(`/api/v1/spaces/${spaceId}/creation-drafts`, 
 }), 202, "Creation Draft enqueue");
 if (!created?.draftId || created.status !== "processing") throw new Error(`Creation Draft enqueue shape mismatch: ${JSON.stringify(created)}`);
 if (!validContract(created.modelContractRevision)) throw new Error(`Creation Draft did not pin a valid Model Contract Revision: ${JSON.stringify(created)}`);
+if (expectedContract && created.modelContractRevision !== expectedContract) {
+  throw new Error(`Creation Draft contract mismatch: expected ${expectedContract}, got ${created.modelContractRevision}`);
+}
 
 const draftId = created.draftId;
 const pinnedContract = created.modelContractRevision;
