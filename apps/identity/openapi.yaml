@@ -1,8 +1,8 @@
 openapi: 3.1.0
 info:
   title: LifeSpace Identity API
-  version: 0.4.0
-  description: Global LifeSpace user identity, profile, trusted application exchange, application credential lifecycle, service principals and credential issuance API.
+  version: 0.5.0
+  description: Global LifeSpace user identity, profile, trusted application exchange, Cloudflare Access principal resolution/linking, application credential lifecycle, service principals and credential issuance API.
 paths:
   /health:
     get:
@@ -83,6 +83,16 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '413': { description: Avatar is larger than 5 MB }
         '415': { description: Avatar content type is not JPEG, PNG or WebP }
+  /api/v1/me/access-link-challenges/{challengeId}/confirm:
+    parameters:
+      - $ref: '#/components/parameters/AccessLinkChallengeId'
+    post:
+      description: Confirm a one-time Cloudflare Access link challenge using the authenticated LifeSpace user as proof of control. The user is derived only from the verified LifeSpace bearer token; no userId is accepted in the request.
+      security: [{ userBearer: [] }]
+      responses:
+        '204': { description: Access principal linked to the authenticated LifeSpace user }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { description: Challenge expired/consumed, audience was revoked, or the Access principal became linked concurrently }
   /bootstrap/v1/applications:
     post:
       description: Platform-admin bootstrap endpoint. Registers an application, configures its access-token TTL (300-3600 seconds), and returns a backend credential once when trustedBackend is true.
@@ -136,6 +146,37 @@ paths:
         '204': { description: Application credential revoked }
         '401': { description: Bootstrap authentication required }
         '404': { description: Active application credential not found }
+  /bootstrap/v1/applications/{applicationId}/access-audiences:
+    parameters:
+      - $ref: '#/components/parameters/ApplicationId'
+    get:
+      description: List Cloudflare Access audience registrations for this LifeSpace application. Audience registrations are platform-owned Identity state and never identify the user.
+      responses:
+        '200': { description: Access audience registrations, content: { application/json: { schema: { $ref: '#/components/schemas/AccessAudienceListResponse' } } } }
+        '401': { description: Bootstrap authentication required }
+        '404': { description: Application not found }
+    post:
+      description: Bind one Cloudflare Access application audience to an active trusted LifeSpace Web application under the configured Access issuer. A given (issuer, audience) may belong to only one LifeSpace application.
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/RegisterAccessAudienceRequest' } } }
+      responses:
+        '200': { description: Existing/re-activated audience registration, content: { application/json: { schema: { $ref: '#/components/schemas/AccessAudienceResponse' } } } }
+        '201': { description: Audience registered, content: { application/json: { schema: { $ref: '#/components/schemas/AccessAudienceResponse' } } } }
+        '401': { description: Bootstrap authentication required }
+        '404': { description: Application not found }
+        '409': { description: Application is not an active trusted Web application, or audience is bound to another application }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /bootstrap/v1/applications/{applicationId}/access-audiences/{audienceId}:
+    parameters:
+      - $ref: '#/components/parameters/ApplicationId'
+      - $ref: '#/components/parameters/AccessAudienceId'
+    delete:
+      description: Revoke an active Cloudflare Access audience registration. New exchanges and link confirmations using that audience are rejected.
+      responses:
+        '204': { description: Audience registration revoked }
+        '401': { description: Bootstrap authentication required }
+        '404': { description: Active audience registration not found }
   /internal/v1/users:
     post:
       description: Trusted application backend creates a global LifeSpace user after resolving its own external identity mapping.
@@ -149,6 +190,48 @@ paths:
         '200': { description: App-scoped short-lived LifeSpace user access token }
         '401': { description: Trusted application authentication required }
         '403': { description: User/application/scope is not allowed }
+  /internal/v1/access/tokens:
+    post:
+      description: Trusted Web BFF exchanges a raw Cloudflare Access JWT for an app-scoped LifeSpace user token. Identity independently verifies RS256 signature, configured issuer, expiry and subject, then requires one JWT audience to be actively registered to the calling lsa_* application. User identity is resolved only by (iss, sub); email is metadata and never merges accounts.
+      security: [{ applicationCredential: [] }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/AccessTokenExchangeRequest' } } }
+      responses:
+        '200': { description: App-scoped short-lived LifeSpace user token, content: { application/json: { schema: { $ref: '#/components/schemas/UserTokenResponse' } } } }
+        '401': { description: Trusted application authentication failed or Access assertion is invalid }
+        '403': { description: Access audience/app, user/principal state, or requested scopes are not allowed }
+        '409': { description: ACCESS_PRINCIPAL_UNLINKED; caller must explicitly link an existing account or create a new one }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '503': { description: Cloudflare Access signing keys are temporarily unavailable }
+  /internal/v1/access/registrations:
+    post:
+      description: Explicitly create a new LifeSpace user for a verified, currently unlinked Cloudflare Access principal. User creation and (iss, sub) mapping are atomic; email equality is never used for account reconciliation.
+      security: [{ applicationCredential: [] }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/AccessRegistrationRequest' } } }
+      responses:
+        '201': { description: New LifeSpace user and Access mapping created atomically, content: { application/json: { schema: { $ref: '#/components/schemas/AccessRegistrationResponse' } } } }
+        '401': { description: Trusted application authentication failed or Access assertion is invalid }
+        '403': { description: Access audience/app or requested scopes are not allowed }
+        '409': { description: Access principal is already linked or became linked concurrently }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '503': { description: Cloudflare Access signing keys are temporarily unavailable }
+  /internal/v1/access/link-challenges:
+    post:
+      description: Create a high-entropy, short-lived, one-time challenge bound to the independently verified Access (iss, sub), the calling LifeSpace application and the matched registered audience. This does not accept a LifeSpace userId.
+      security: [{ applicationCredential: [] }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/AccessLinkChallengeRequest' } } }
+      responses:
+        '201': { description: Link challenge created, content: { application/json: { schema: { $ref: '#/components/schemas/AccessLinkChallengeResponse' } } } }
+        '401': { description: Trusted application authentication failed or Access assertion is invalid }
+        '403': { description: Access audience does not belong to the calling application }
+        '409': { description: Access principal is already linked }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '503': { description: Cloudflare Access signing keys are temporarily unavailable }
   /api/v1/service-principals:
     get:
       description: Trusted application backend lists service principals in its own application context. Optional createdByUserId narrows the operator view.
@@ -284,6 +367,8 @@ components:
   parameters:
     ApplicationId: { name: applicationId, in: path, required: true, schema: { type: string, minLength: 1 } }
     ApplicationCredentialId: { name: credentialId, in: path, required: true, schema: { type: string, pattern: ^apc_ } }
+    AccessAudienceId: { name: audienceId, in: path, required: true, schema: { type: string, pattern: ^aud_ } }
+    AccessLinkChallengeId: { name: challengeId, in: path, required: true, schema: { type: string, pattern: ^alc_ } }
     PrincipalId: { name: principalId, in: path, required: true, schema: { type: string, pattern: ^svc_ } }
     ServiceTokenId: { name: tokenId, in: path, required: true, schema: { type: string, pattern: ^sat_ } }
     OAuthCredentialId: { name: credentialId, in: path, required: true, schema: { type: string, pattern: ^soc_ } }
@@ -377,6 +462,91 @@ components:
             - type: object
               required: [clientSecret]
               properties: { clientSecret: { type: string, pattern: '^lsa_', writeOnly: true } }
+    AccessAudience:
+      type: object
+      additionalProperties: false
+      required: [id, applicationId, issuer, audience, status, createdAt, revokedAt]
+      properties:
+        id: { type: string, pattern: ^aud_ }
+        applicationId: { type: string }
+        issuer: { type: string, format: uri }
+        audience: { type: string, minLength: 1, maxLength: 256 }
+        status: { type: string, enum: [active, revoked] }
+        createdAt: { type: string, format: date-time }
+        revokedAt: { type: [string, 'null'], format: date-time }
+    RegisterAccessAudienceRequest:
+      type: object
+      additionalProperties: false
+      required: [audience]
+      properties:
+        audience: { type: string, minLength: 1, maxLength: 256, pattern: '^\\S+$' }
+    AccessAudienceResponse: { type: object, required: [data], properties: { data: { $ref: '#/components/schemas/AccessAudience' } } }
+    AccessAudienceListResponse: { type: object, required: [data], properties: { data: { type: array, items: { $ref: '#/components/schemas/AccessAudience' } } } }
+    AccessTokenExchangeRequest:
+      type: object
+      additionalProperties: false
+      required: [accessAssertion, requestedScopes]
+      properties:
+        accessAssertion: { type: string, minLength: 32, maxLength: 32768, writeOnly: true }
+        requestedScopes: { type: array, uniqueItems: true, items: { type: string, minLength: 1, maxLength: 100 } }
+    AccessRegistrationRequest:
+      type: object
+      additionalProperties: false
+      required: [accessAssertion, displayName, requestedScopes]
+      properties:
+        accessAssertion: { type: string, minLength: 32, maxLength: 32768, writeOnly: true }
+        displayName: { type: string, minLength: 1, maxLength: 50 }
+        requestedScopes: { type: array, uniqueItems: true, items: { type: string, minLength: 1, maxLength: 100 } }
+    AccessLinkChallengeRequest:
+      type: object
+      additionalProperties: false
+      required: [accessAssertion]
+      properties:
+        accessAssertion: { type: string, minLength: 32, maxLength: 32768, writeOnly: true }
+    UserTokenResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          additionalProperties: false
+          required: [accessToken, tokenType, expiresIn, scope]
+          properties:
+            accessToken: { type: string, writeOnly: true }
+            tokenType: { type: string, const: Bearer }
+            expiresIn: { type: integer, minimum: 300, maximum: 3600 }
+            scope: { type: string }
+    AccessRegistrationResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          additionalProperties: false
+          required: [user, accessToken, tokenType, expiresIn, scope]
+          properties:
+            user:
+              type: object
+              additionalProperties: false
+              required: [id, displayName]
+              properties:
+                id: { type: string, pattern: ^usr_ }
+                displayName: { type: string, minLength: 1, maxLength: 50 }
+            accessToken: { type: string, writeOnly: true }
+            tokenType: { type: string, const: Bearer }
+            expiresIn: { type: integer, minimum: 300, maximum: 3600 }
+            scope: { type: string }
+    AccessLinkChallengeResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          additionalProperties: false
+          required: [challengeId, expiresAt]
+          properties:
+            challengeId: { type: string, pattern: ^alc_ }
+            expiresAt: { type: string, format: date-time }
     ServicePrincipal:
       type: object
       additionalProperties: false
