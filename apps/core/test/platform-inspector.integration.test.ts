@@ -38,6 +38,22 @@ async function token(privateKey: string, type: "user" | "service", clientId: str
   }, privateKey, "RS256");
 }
 
+async function adminActorToken(privateKey: string, clientId: string) {
+  const iat = Math.floor(Date.now() / 1000);
+  return sign({
+    iss: "lifespace-identity",
+    aud: ["lifespace-core", "lifespace-identity"],
+    sub: `usr_${crypto.randomUUID().replaceAll("-", "")}`,
+    azp: clientId,
+    principal_type: "user",
+    scope: "platform:admin",
+    purpose: "platform_admin_actor",
+    iat,
+    exp: iat + 300,
+    jti: `pad_${crypto.randomUUID()}`,
+  }, privateKey, "RS256");
+}
+
 async function call(publicKey: string, executorToken: string, actorToken: string, path: string) {
   return createApp().request(`http://localhost${path}`, {
     headers: {
@@ -56,7 +72,7 @@ describe("Core Platform Inspector", () => {
     const pair = await keys();
     const clientId = `app_console_${crypto.randomUUID().replaceAll("-", "")}`;
     const executor = await token(pair.privateKey, "service", clientId, ["spaces:inspect"]);
-    const actor = await token(pair.privateKey, "user", clientId, ["platform:admin"]);
+    const actor = await adminActorToken(pair.privateKey, clientId);
     const spaceId = `spc_${crypto.randomUUID().replaceAll("-", "")}`;
     const userId = `usr_${crypto.randomUUID().replaceAll("-", "")}`;
     const createdAt = new Date().toISOString();
@@ -102,7 +118,7 @@ describe("Core Platform Inspector", () => {
     const pair = await keys();
     const clientId = `app_console_${crypto.randomUUID().replaceAll("-", "")}`;
     const executor = await token(pair.privateKey, "service", clientId, ["resources:read"]);
-    const actor = await token(pair.privateKey, "user", clientId, ["platform:admin"]);
+    const actor = await adminActorToken(pair.privateKey, clientId);
     const denied = await call(pair.publicKey, executor, actor, "/api/v1/platform-admin/spaces");
     expect(denied.status).toBe(403);
   });
