@@ -54,6 +54,13 @@ async function provision(pair: Awaited<ReturnType<typeof keys>>) {
     body: JSON.stringify({ displayName: "Inspector Operator" }),
   }, pair);
   const userId = ((await user.json()) as any).data.id as string;
+
+  const assignment = await request(`/bootstrap/v1/platform-administrators/${userId}`, {
+    method: "PUT",
+    headers: { "x-bootstrap-secret": "bootstrap-test" },
+  }, pair);
+  expect(assignment.status).toBe(200);
+
   const token = await request("/internal/v1/tokens", {
     method: "POST",
     headers: { authorization: `Bearer ${secret}`, "content-type": "application/json" },
