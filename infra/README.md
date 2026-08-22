@@ -36,11 +36,66 @@ The Phase 6 production verification uses short-lived probe authority, removes th
 - `ensure-staging-domains.mjs`: verifies/repairs staging custom domains.
 - `staging-expectations.mjs`: derives repository-owned expected contract/schema versions and proving-model baseline.
 - `prepare-staging-smoke.mjs`: prepares masked ephemeral staging principals/tokens/Space/model access.
+- `prepare-staging-web-access.mjs`: idempotently prepares a trusted LifeSpace Web application and registers one real Cloudflare Access audience after Identity 0.5.0/schema v5 is deployed.
 - `verify-staging-db.mjs`: verifies staging schema/platform persistence/active model contract state.
 - `verify-staging-http.mjs`: verifies authenticated Kernel/Model Contract/Model Admin boundaries.
 - `verify-staging-models.mjs`: verifies Task/Wish/Day Record/Event platform semantics.
 - `verify-staging-creation-draft.mjs`: verifies Registry-driven Creation Draft + Queue terminal behavior.
 - `cleanup-staging-smoke.mjs`: revokes temporary authority best-effort.
+
+### HomeMew Web Access staging provisioning
+
+`prepare-staging-web-access.mjs` is intentionally separate from generic staging smoke authority. It provisions the durable staging application identity needed by the HomeMew Web BFF and binds the real Cloudflare Access application AUD to it.
+
+Prerequisites:
+
+1. `Deploy staging` has applied Identity schema v5 and deployed Identity contract `0.5.0`.
+2. Identity staging has the approved Cloudflare Access team domain configured through `ACCESS_TEAM_DOMAIN`.
+3. The HomeMew Web staging hostname is protected by a Cloudflare Access application and its AUD is known.
+4. `LIFESPACE_STAGING_BOOTSTRAP_SECRET` is available only in an operator/staging secret context.
+
+Required input:
+
+```text
+LIFESPACE_STAGING_BOOTSTRAP_SECRET=<staging bootstrap secret>
+LIFESPACE_STAGING_ACCESS_AUD=<Cloudflare Access application AUD>
+```
+
+Defaults:
+
+```text
+LIFESPACE_IDENTITY_STAGING_URL=https://auth-staging.aisr.online
+LIFESPACE_STAGING_WEB_APPLICATION_ID=app_homemew_web_staging
+LIFESPACE_STAGING_WEB_APPLICATION_NAME=HomeMew Web staging
+```
+
+The application is reconciled to `clientType=web`, `trustedBackend=true`, 900-second user-token TTL and the HomeMew user scope ceiling. Immutable `clientType` / `trustedBackend` mismatches fail closed instead of mutating an existing application into another trust class.
+
+Initial trusted-application creation returns an `lsa_*` credential exactly once. The script refuses to create or rotate a credential unless a secure sink exists:
+
+- in GitHub Actions, `GITHUB_ENV` is used and the generated credential is masked before it is exported for later steps;
+- for an explicit local operator run, set `LIFESPACE_STAGING_WEB_CREDENTIAL_OUTPUT` to a **new temporary file outside the repository**. The file is created exclusively with mode `0600` where supported. Move the credential immediately into the HomeMew Web staging Worker secret store and delete the temporary file.
+
+Example local invocation after the real AUD is available:
+
+```bash
+LIFESPACE_STAGING_BOOTSTRAP_SECRET='...' \
+LIFESPACE_STAGING_ACCESS_AUD='...' \
+LIFESPACE_STAGING_WEB_CREDENTIAL_OUTPUT='/tmp/homemew-web-staging-credential.json' \
+node infra/scripts/prepare-staging-web-access.mjs
+```
+
+Do not commit the output file, copy the credential into application configuration, or reuse the Mini Program `lsa_*`. HomeMew Web and HomeMew Mini Program are separate LifeSpace application contexts even when they resolve the same global `usr_*`.
+
+The script first verifies it is talking to `environment=staging`, Identity contract `0.5.0` and schema v5. It then:
+
+1. creates or reconciles `app_homemew_web_staging`;
+2. verifies at least one active application credential, creating one only when a secure sink is configured;
+3. lists current Access audience registrations;
+4. idempotently registers the supplied AUD;
+5. reports the Identity issuer/AUD/application binding without printing secret material.
+
+If audience registration returns `ACCESS_NOT_CONFIGURED`, configure `ACCESS_TEAM_DOMAIN` on Identity staging before retrying. If it returns `ACCESS_AUDIENCE_IN_USE`, stop: that AUD is already bound to another LifeSpace application and must not be silently reassigned.
 
 ## Production scripts
 
