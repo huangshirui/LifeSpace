@@ -1,6 +1,6 @@
 import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
-import { createApp } from "../src/app";
+import { createIdentityApp } from "../src/index";
 
 type TestEnv = { DB: D1Database };
 
@@ -23,7 +23,7 @@ async function keys() {
 }
 
 async function request(path: string, options: RequestInit, pair: Awaited<ReturnType<typeof keys>>) {
-  return createApp().request(`http://localhost${path}`, options, {
+  return createIdentityApp().request(`http://localhost${path}`, options, {
     DB: (env as unknown as TestEnv).DB,
     BOOTSTRAP_SECRET: "bootstrap-test",
     TOKEN_PRIVATE_KEY: pair.privateKey,
@@ -60,13 +60,22 @@ async function provisionConsole(pair: Awaited<ReturnType<typeof keys>>) {
   await (env as unknown as TestEnv).DB.prepare(`INSERT INTO platform_administrators(user_id,status,assigned_at,revoked_at)
     VALUES(?,'active',?,NULL)`).bind(userId, assignedAt).run();
 
-  const actor = await request("/internal/v1/tokens", {
+  const session = await request("/internal/v1/tokens", {
     method: "POST",
     headers: { authorization: `Bearer ${applicationSecret}`, "content-type": "application/json" },
-    body: JSON.stringify({ subjectId: userId, scopes: ["platform:admin"] }),
+    body: JSON.stringify({ subjectId: userId, scopes: [] }),
+  }, pair);
+  expect(session.status).toBe(200);
+  const sessionToken = ((await session.json()) as any).data.accessToken as string;
+
+  const actor = await request("/api/v1/me/platform-admin-actor-token", {
+    method: "POST",
+    headers: { authorization: `Bearer ${sessionToken}` },
   }, pair);
   expect(actor.status).toBe(200);
-  const actorToken = ((await actor.json()) as any).data.accessToken as string;
+  const actorData = ((await actor.json()) as any).data;
+  expect(actorData).toMatchObject({ expiresIn: 300, scope: "platform:admin", purpose: "platform_admin_actor" });
+  const actorToken = actorData.actorToken as string;
   return { applicationId, applicationSecret, userId, actorToken };
 }
 
@@ -108,7 +117,7 @@ describe("Identity Platform Admin API", () => {
     expect(denied.status).toBe(403);
   });
 
-  it("rejects a platform:admin token after the user assignment is revoked", async () => {
+  it("rejects an issued actor proof after the user assignment is revoked", async () => {
     const pair = await keys();
     const console = await provisionConsole(pair);
     await (env as unknown as TestEnv).DB.prepare("UPDATE platform_administrators SET status='revoked',revoked_at=? WHERE user_id=?")
