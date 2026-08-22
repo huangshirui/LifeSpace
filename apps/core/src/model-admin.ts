@@ -3,6 +3,7 @@ import { requireScope } from "./auth";
 import type { Bindings, Principal, Variables } from "./env";
 import { ApiError, success } from "./http";
 import { getOrCreateActiveModelContract, readModelContract } from "./model-contract-service";
+import { requirePlatformAdminContext, type PlatformAdminContext } from "./platform-admin-auth";
 import {
   getPublishedModel,
   listPublishedModels,
@@ -15,6 +16,10 @@ import {
 type AppEnv = { Bindings: Bindings; Variables: Variables };
 type App = Hono<AppEnv>;
 type Body = Record<string, unknown>;
+type PendingAudit = { id: string; admin: PlatformAdminContext };
+
+const createId = (prefix: string) => `${prefix}_${crypto.randomUUID().replaceAll("-", "")}`;
+const now = () => new Date().toISOString();
 
 function requireService(principal: Principal): void {
   if (principal.type !== "service") {
@@ -52,6 +57,61 @@ function dto(model: Awaited<ReturnType<typeof getPublishedModel>>) {
   };
 }
 
+function modelKeyFromDefinition(value: unknown): string {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    const key = (value as Record<string, unknown>).key;
+    if (typeof key === "string" && key.trim()) return key.trim().slice(0, 100);
+  }
+  return "unresolved";
+}
+
+async function beginConsoleMutationAudit(
+  context: Context<AppEnv>,
+  operation: string,
+  modelKey: string,
+  summary: unknown,
+): Promise<PendingAudit | null> {
+  if (!context.req.header("x-lifespace-actor-token")?.trim()) return null;
+  const admin = await requirePlatformAdminContext(context, "models:manage");
+  const auditId = createId("paa");
+  await context.env.DB.prepare(`INSERT INTO platform_admin_audit(
+    id,actor_user_id,actor_application_id,actor_token_id,
+    executor_principal_id,executor_application_id,executor_token_id,
+    operation,target_type,target_id,summary_json,request_id,result,created_at
+  ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(
+    auditId,
+    admin.actor.id,
+    admin.actor.clientId,
+    admin.actor.tokenId,
+    admin.executor.id,
+    admin.executor.clientId,
+    admin.executor.tokenId,
+    operation,
+    "model",
+    modelKey,
+    JSON.stringify(summary),
+    context.get("requestId"),
+    "pending",
+    now(),
+  ).run();
+  return { id: auditId, admin };
+}
+
+async function finishConsoleMutationAudit(
+  context: Context<AppEnv>,
+  audit: PendingAudit | null,
+  result: "success" | "failure",
+  summary: unknown,
+): Promise<void> {
+  if (!audit) return;
+  await context.env.DB.prepare("UPDATE platform_admin_audit SET result=?,summary_json=? WHERE id=? AND result='pending'")
+    .bind(result, JSON.stringify(summary), audit.id).run();
+}
+
+function errorCode(error: unknown): string {
+  return error instanceof ApiError ? error.code : "INTERNAL_ERROR";
+}
+
 export function registerModelAdminRoutes(app: App): void {
   app.get("/api/v1/model-admin/models", requireScope("models:manage"), async (context) => {
     requireService(context.get("principal"));
@@ -83,15 +143,56 @@ export function registerModelAdminRoutes(app: App): void {
     if (Object.keys(input).some((key) => key !== "definition" && key !== "compatibility") || input.definition === undefined) {
       throw new ApiError("INVALID_REQUEST", "Request must contain definition and compatibility", 400);
     }
-    const published = await publishModelDefinition(context.env, principal, input.definition, compatibility(input.compatibility));
-    return context.json(success(dto(published)), 201);
+    const requestedCompatibility = compatibility(input.compatibility);
+    const modelKey = modelKeyFromDefinition(input.definition);
+    const audit = await beginConsoleMutationAudit(context, "model.publish", modelKey, {
+      modelKey,
+      compatibility: requestedCompatibility,
+    });
+    try {
+      const published = await publishModelDefinition(context.env, principal, input.definition, requestedCompatibility);
+      try {
+        await finishConsoleMutationAudit(context, audit, "success", {
+          modelKey: published.key,
+          version: published.version,
+          schemaHash: published.schemaHash,
+          compatibility: published.compatibility,
+        });
+      } catch (error) {
+        console.error(JSON.stringify({ message: "Model publication audit completion failed", auditId: audit?.id, requestId: context.get("requestId"), error: error instanceof Error ? error.message : String(error) }));
+      }
+      return context.json(success(dto(published)), 201);
+    } catch (error) {
+      try {
+        await finishConsoleMutationAudit(context, audit, "failure", { modelKey, compatibility: requestedCompatibility, errorCode: errorCode(error) });
+      } catch (auditError) {
+        console.error(JSON.stringify({ message: "Model publication failure audit completion failed", auditId: audit?.id, requestId: context.get("requestId"), error: auditError instanceof Error ? auditError.message : String(auditError) }));
+      }
+      throw error;
+    }
   });
 
   app.post("/api/v1/model-admin/models/:modelKey/retire", requireScope("models:manage"), async (context) => {
     const principal = context.get("principal");
     requireService(principal);
-    await retireModel(context.env, principal, context.req.param("modelKey"));
-    return context.body(null, 204);
+    const modelKey = context.req.param("modelKey");
+    const audit = await beginConsoleMutationAudit(context, "model.retire", modelKey, { modelKey });
+    try {
+      await retireModel(context.env, principal, modelKey);
+      try {
+        await finishConsoleMutationAudit(context, audit, "success", { modelKey });
+      } catch (error) {
+        console.error(JSON.stringify({ message: "Model retirement audit completion failed", auditId: audit?.id, requestId: context.get("requestId"), error: error instanceof Error ? error.message : String(error) }));
+      }
+      return context.body(null, 204);
+    } catch (error) {
+      try {
+        await finishConsoleMutationAudit(context, audit, "failure", { modelKey, errorCode: errorCode(error) });
+      } catch (auditError) {
+        console.error(JSON.stringify({ message: "Model retirement failure audit completion failed", auditId: audit?.id, requestId: context.get("requestId"), error: auditError instanceof Error ? auditError.message : String(auditError) }));
+      }
+      throw error;
+    }
   });
 
   app.get("/api/v1/model-admin/contracts/active", requireScope("models:manage"), async (context) => {
