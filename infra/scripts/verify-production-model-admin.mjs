@@ -1,5 +1,4 @@
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
 import process from "node:process";
 import {
   BASELINE_MODEL_SEMANTICS,
@@ -12,7 +11,6 @@ import { boundedProbeLabel } from "./production-probe-label.mjs";
 const identityBase = (process.env.LIFESPACE_IDENTITY_PRODUCTION_URL ?? "https://auth.aisr.online").replace(/\/+$/u, "");
 const coreBase = (process.env.LIFESPACE_CORE_PRODUCTION_URL ?? "https://core.aisr.online").replace(/\/+$/u, "");
 const bootstrapSecret = process.env.LIFESPACE_PRODUCTION_BOOTSTRAP_SECRET ?? "";
-const profile = JSON.parse(readFileSync(new URL("../homemew-integration-profile.json", import.meta.url), "utf8"));
 const IDENTITY_DIR = new URL("../../apps/identity/", import.meta.url);
 
 assertProductionServiceUrl(identityBase, "identity");
@@ -184,22 +182,26 @@ try {
       || !semantic
       || !baselineModelSemanticsMatch(actual.definition, semantic)
     ) {
-      throw new Error(`Production published model ${expected.key} does not match the accepted semantic contract: ${JSON.stringify(actual)}`);
+      throw new Error(`Production published model ${expected.key} does not match the accepted semantic baseline: ${JSON.stringify(actual)}`);
     }
   }
 
   const contract = await jsonRequest(coreBase, "/api/v1/model-admin/contracts/active", { bearer: serviceBearer });
   const active = contract.payload?.data;
-  if (contract.response.status !== 200 || active?.id !== profile.contracts.modelContract) {
-    throw new Error(`Production active Model Contract mismatch: expected ${profile.contracts.modelContract}, got ${active?.id ?? contract.response.status}`);
+  if (contract.response.status !== 200 || !/^mct_[a-f0-9]{64}$/u.test(active?.id ?? "") || active?.hash !== active.id.slice(4)) {
+    throw new Error(`Production active Model Contract is invalid: ${contract.response.status} ${JSON.stringify(contract.payload)}`);
   }
   const contractModels = new Map((active?.manifest?.models ?? []).map((model) => [model.key, model]));
   for (const expected of PRODUCTION_PROVING_MODELS) {
     const model = contractModels.get(expected.key);
-    if (!model || Number(model.version) !== expected.version || model.schemaHash !== expected.hash) {
-      throw new Error(`Production active Model Contract is missing accepted ${expected.key} v${expected.version}`);
+    if (!model || model.route !== expected.route || Number(model.version) !== expected.version || model.schemaHash !== expected.hash) {
+      throw new Error(`Production active Model Contract is missing accepted semantic ${expected.key} v${expected.version}`);
     }
   }
+  const baselineKeys = new Set(PRODUCTION_PROVING_MODELS.map((model) => model.key));
+  const additionalPublishedModels = (active?.manifest?.models ?? [])
+    .filter((model) => !baselineKeys.has(model.key))
+    .map((model) => ({ key: model.key, route: model.route, version: model.version, schemaHash: model.schemaHash }));
 
   console.log(JSON.stringify({
     ok: true,
@@ -207,6 +209,8 @@ try {
     modelAdminServiceBoundary: true,
     publishedSemanticModels,
     activeModelContract: active.id,
+    activeManifestModelCount: active.manifest.models.length,
+    additionalPublishedModels,
     models: Object.fromEntries(PRODUCTION_PROVING_MODELS.map((model) => [model.key, model.version])),
     probeAuthorityEphemeral: true,
   }, null, 2));
