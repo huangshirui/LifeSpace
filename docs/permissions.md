@@ -74,6 +74,57 @@ Runtime route resolution derives the model key and required `read` / `write` / `
 
 Model publication/retirement and Application × Model Access administration are platform administration, not ordinary Space `manage` permissions. Model-admin surfaces are separately scoped with `models:manage` and are service-principal-only unless a later explicit security decision changes that boundary.
 
+## Platform administration
+
+Decision status: **accepted for the LifeSpace Console control plane; rollout pending until the Console Admin contract is merged and deployed.**
+
+Platform administration is deliberately separate from Space roles and ordinary business-data authorization. Being a Space `owner` or `admin` does not make a user a LifeSpace platform administrator, and a platform-administration executor is never made a hidden member of every Space.
+
+Privileged Console operations use two independently verified identities:
+
+```text
+human actor
+  short-lived LifeSpace user JWT
+  scope: platform:admin
+              ∩
+controlled executor
+  Identity: server-only lsa_* trusted application credential
+  Core:     service principal / lsp_pat_* or equivalent service JWT
+  operation-specific scope such as applications:manage
+              ∩
+same LifeSpace application context (azp / clientId)
+              =
+platform-admin operation
+```
+
+Rules:
+
+- Cloudflare Access controls entry to `lifespace.aisr.online`, but an Access session or email address is not by itself LifeSpace platform-administration authority.
+- Identity first resolves the verified Access principal to the global `usr_*`; the Console obtains a short-lived LifeSpace user token for that actor.
+- Privileged service endpoints require a separate executor credential held only by the same-origin Console BFF/Worker. Browser JavaScript never receives `lsa_*`, `lsp_pat_*`, bootstrap secrets or equivalent executor secrets.
+- The actor proof is sent as a separate signed LifeSpace user token. A raw `actorUserId`, email, Access `sub`, decoded claim or unsigned header is never accepted as operator identity.
+- The actor token must contain `platform:admin`; the executor must contain the specific operation capability such as `applications:manage`, `models:manage`, `spaces:inspect` or `audit:read`.
+- Actor and executor must resolve to the same registered LifeSpace application context. A token issued to another application cannot be paired with a Console executor credential.
+- Identity verifies both the Console `lsa_*` application context and the actor JWT for Identity-owned administration. Core verifies its service executor and independently verifies the actor JWT for Core-owned administration.
+- Platform-admin operations must emit audit evidence that distinguishes the human `usr_*` actor from the backend/service executor and must never record credential plaintext or hashes.
+- The global bootstrap secret remains provisioning/break-glass authority. It is not a normal Console runtime credential and must not be stored in the Console Worker/BFF.
+
+Initial control-plane scopes are intentionally capability-oriented rather than one permanent superuser token:
+
+```text
+human actor:
+  platform:admin
+
+executor capabilities:
+  applications:manage
+  models:manage
+  spaces:inspect
+  identities:read
+  audit:read
+```
+
+A later platform-admin assignment/recovery model may further constrain which LifeSpace users are eligible to receive/use `platform:admin`; it must not weaken the dual actor/executor proof above.
+
 ## Model policy safety
 
 Policy is deny-capable refinement, never a way to expand authority beyond credential/application and current data authorization.
@@ -139,6 +190,7 @@ Authenticated aggregate endpoints under `/api/v1/me/...` may return records from
 - Access `aud` determines approved application context, not user identity. It must be checked against the registered LifeSpace application before credentials are issued.
 - Account linking is authentication state, not authorization. Linking multiple Access principals to one `usr_*` must not expand that user's Space/Data Grant authority; it only adds another approved way to reach the same global user.
 - User-initiated Agent operations preserve delegated user context.
+- Platform-admin operations preserve both a verified human actor and a separately authenticated controlled executor; neither identity may be replaced by an unsigned operator field.
 - Service and device identities receive only explicit stable scopes, Application × Model Access and Grants.
 - A Service API Token authenticates a service principal and never becomes an implicit Space membership or administrator role.
 - A system identity does not become a Space member merely to gain API access.
