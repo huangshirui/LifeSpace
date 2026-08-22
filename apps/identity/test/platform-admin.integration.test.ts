@@ -56,6 +56,9 @@ async function provisionConsole(pair: Awaited<ReturnType<typeof keys>>) {
   }, pair);
   expect(user.status).toBe(201);
   const userId = ((await user.json()) as any).data.id as string;
+  const assignedAt = new Date().toISOString();
+  await (env as unknown as TestEnv).DB.prepare(`INSERT INTO platform_administrators(user_id,status,assigned_at,revoked_at)
+    VALUES(?,'active',?,NULL)`).bind(userId, assignedAt).run();
 
   const actor = await request("/internal/v1/tokens", {
     method: "POST",
@@ -103,6 +106,20 @@ describe("Identity Platform Admin API", () => {
       headers: adminHeaders(noScopeSecret, console.actorToken),
     }, pair);
     expect(denied.status).toBe(403);
+  });
+
+  it("rejects a platform:admin token after the user assignment is revoked", async () => {
+    const pair = await keys();
+    const console = await provisionConsole(pair);
+    await (env as unknown as TestEnv).DB.prepare("UPDATE platform_administrators SET status='revoked',revoked_at=? WHERE user_id=?")
+      .bind(new Date().toISOString(), console.userId).run();
+
+    const denied = await request("/internal/v1/platform-admin/applications", {
+      method: "GET",
+      headers: adminHeaders(console.applicationSecret, console.actorToken),
+    }, pair);
+    expect(denied.status).toBe(403);
+    expect((await denied.json() as any).error.code).toBe("PLATFORM_ADMIN_NOT_ASSIGNED");
   });
 
   it("creates and manages applications without bootstrap authority and writes audit evidence", async () => {
