@@ -65,9 +65,14 @@ export async function requirePlatformAdminActor(c: Context<AppEnv>, executorScop
     return c.json(fail("PLATFORM_ADMIN_ACTOR_MISMATCH", "Actor proof and executor must belong to the same LifeSpace application", c.get("requestId")), 403);
   }
 
-  const user = await c.env.DB.prepare("SELECT status FROM users WHERE id=?").bind(payload.sub).first<{ status: string }>();
-  if (!user || user.status !== "active") {
+  const state = await c.env.DB.prepare(`SELECT u.status user_status,p.status admin_status
+    FROM users u LEFT JOIN platform_administrators p ON p.user_id=u.id
+    WHERE u.id=?`).bind(payload.sub).first<{ user_status: string; admin_status: string | null }>();
+  if (!state || state.user_status !== "active") {
     return c.json(fail("FORBIDDEN", "Platform administrator actor is not active", c.get("requestId")), 403);
+  }
+  if (state.admin_status !== "active") {
+    return c.json(fail("PLATFORM_ADMIN_NOT_ASSIGNED", "User is not an active LifeSpace platform administrator", c.get("requestId")), 403);
   }
 
   return { id: payload.sub, clientId: payload.azp, scopes, tokenId: payload.jti };
