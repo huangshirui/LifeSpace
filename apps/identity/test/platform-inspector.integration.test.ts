@@ -61,12 +61,20 @@ async function provision(pair: Awaited<ReturnType<typeof keys>>) {
   }, pair);
   expect(assignment.status).toBe(200);
 
-  const token = await request("/internal/v1/tokens", {
+  const session = await request("/internal/v1/tokens", {
     method: "POST",
     headers: { authorization: `Bearer ${secret}`, "content-type": "application/json" },
-    body: JSON.stringify({ subjectId: userId, scopes: ["platform:admin"] }),
+    body: JSON.stringify({ subjectId: userId, scopes: [] }),
   }, pair);
-  const actorToken = ((await token.json()) as any).data.accessToken as string;
+  expect(session.status).toBe(200);
+  const sessionToken = ((await session.json()) as any).data.accessToken as string;
+
+  const proof = await request("/api/v1/me/platform-admin-actor-token", {
+    method: "POST",
+    headers: { authorization: `Bearer ${sessionToken}` },
+  }, pair);
+  expect(proof.status).toBe(200);
+  const actorToken = ((await proof.json()) as any).data.actorToken as string;
   return { appId, secret, userId, actorToken };
 }
 
