@@ -22,7 +22,10 @@ const releaseFingerprint = Object.freeze({
   day_record: Object.freeze({ version: 2, schemaHash: "4b2f241958aeca05e396eea7e6719a3f030cef3ea7dfd3c57d426c086fe4cf56" }),
   event: Object.freeze({ version: 3, schemaHash: "6a23eb2f25463ce55d7ed75d64f0afa020d7aab25149badf28fdd77abc2d1aad" }),
 });
-const releaseModelContract = "mct_37f64546f9ebaf9697ee34b6b692ba3b96976a015b7ab5e5b243018fd3cfb41b";
+// This is the deterministic contract for an isolated Registry containing exactly
+// the four baseline models above. A deployed Registry may legitimately have a
+// different active mct_* when additional ordinary models are published.
+const isolatedBaselineModelContract = "mct_37f64546f9ebaf9697ee34b6b692ba3b96976a015b7ab5e5b243018fd3cfb41b";
 
 function published(definition: ModelDefinition): PublishedModel {
   return {
@@ -87,7 +90,7 @@ describe("Creation Draft baseline model semantics", () => {
     expect(wishFields.get("desiredDate")?.description).toContain("hoped-for date");
   });
 
-  it("pins the exact release hashes and Model Contract for semantic metadata", async () => {
+  it("pins the exact release hashes and isolated four-model contract fingerprint", async () => {
     const models: PublishedModel[] = [];
     for (const definition of baselineDefinitions) {
       const expected = releaseFingerprint[definition.key as keyof typeof releaseFingerprint];
@@ -108,6 +111,6 @@ describe("Creation Draft baseline model semantics", () => {
       });
     }
     const contract = await generateModelContract(models);
-    expect(contract.id).toBe(releaseModelContract);
+    expect(contract.id).toBe(isolatedBaselineModelContract);
   });
 });
