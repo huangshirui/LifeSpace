@@ -13,7 +13,7 @@ CREATE TABLE platform_admin_audit (
   target_id TEXT NOT NULL,
   summary_json TEXT NOT NULL DEFAULT '{}',
   request_id TEXT NOT NULL,
-  result TEXT NOT NULL CHECK(result IN ('success','failure')),
+  result TEXT NOT NULL CHECK(result IN ('pending','success','failure')),
   created_at TEXT NOT NULL
 );
 
