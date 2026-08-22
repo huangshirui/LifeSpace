@@ -1,4 +1,5 @@
 import type { Context } from "hono";
+import { verify } from "hono/jwt";
 import { verifyAccessToken } from "./auth";
 import type { Bindings, Principal, Variables } from "./env";
 import { ApiError } from "./http";
@@ -7,6 +8,7 @@ type AppEnv = { Bindings: Bindings; Variables: Variables };
 
 export const PLATFORM_ADMIN_ACTOR_HEADER = "x-lifespace-actor-token";
 export const PLATFORM_ADMIN_ACTOR_SCOPE = "platform:admin";
+const MAX_ADMIN_ACTOR_TTL_SECONDS = 300;
 
 export type PlatformAdminContext = {
   actor: Principal & { type: "user" };
@@ -34,13 +36,24 @@ export async function requirePlatformAdminContext(
   }
 
   let actor: Principal;
+  let payload: Awaited<ReturnType<typeof verify>>;
   try {
     actor = await verifyAccessToken(rawActorToken, context.env.IDENTITY_PUBLIC_KEY);
+    payload = await verify(rawActorToken, context.env.IDENTITY_PUBLIC_KEY, "RS256");
   } catch {
     throw new ApiError("PLATFORM_ADMIN_ACTOR_INVALID", "Platform administrator actor proof is invalid", 401);
   }
   if (actor.type !== "user" || !actor.scopes.includes(PLATFORM_ADMIN_ACTOR_SCOPE)) {
     throw new ApiError("FORBIDDEN", "Platform administrator actor authority is required", 403);
+  }
+  if (
+    payload.purpose !== "platform_admin_actor"
+    || typeof payload.iat !== "number"
+    || typeof payload.exp !== "number"
+    || payload.exp <= payload.iat
+    || payload.exp - payload.iat > MAX_ADMIN_ACTOR_TTL_SECONDS
+  ) {
+    throw new ApiError("PLATFORM_ADMIN_ACTOR_INVALID", "Platform administrator actor proof is invalid", 401);
   }
   if (actor.clientId !== executor.clientId) {
     throw new ApiError("PLATFORM_ADMIN_ACTOR_MISMATCH", "Actor proof and executor must belong to the same LifeSpace application", 403);
