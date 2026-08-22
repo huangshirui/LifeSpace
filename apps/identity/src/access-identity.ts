@@ -1,4 +1,4 @@
-import type { Hono } from "hono";
+import type { Context, Hono } from "hono";
 import { sign } from "hono/jwt";
 import {
   AccessAssertionError,
@@ -7,6 +7,9 @@ import {
   type AccessAssertionFetch,
   type VerifiedAccessAssertion,
 } from "./access-auth";
+import type { Bindings, Variables } from "./env";
+
+type AppEnv = { Bindings: Bindings; Variables: Variables };
 
 const TOKEN_ISSUER = "lifespace-identity";
 const TOKEN_AUDIENCES = ["lifespace-core", "lifespace-identity"] as const;
@@ -55,7 +58,7 @@ type AccessRegistrationBody = AccessRequestBody & {
   displayName?: unknown;
 };
 
-type AccessRouteOptions = {
+export type AccessRouteOptions = {
   accessFetch?: AccessAssertionFetch;
 };
 
@@ -64,7 +67,7 @@ type VerifiedApplicationAccess = VerifiedAccessAssertion & { audience: string };
 const ok = <T>(data: T) => ({ data });
 const fail = (code: string, message: string, requestId: string) => ({ error: { code, message, requestId } });
 const id = (prefix: string) => `${prefix}_${crypto.randomUUID().replaceAll("-", "")}`;
-const challengeId = () => `alc_${crypto.randomUUID().replaceAll("-", "")}${crypto.randomUUID().replaceAll("-", "")}`;
+const newChallengeId = () => `alc_${crypto.randomUUID().replaceAll("-", "")}${crypto.randomUUID().replaceAll("-", "")}`;
 
 function audienceDto(row: AccessAudienceRow) {
   return {
@@ -100,7 +103,7 @@ function normalizeDisplayName(value: unknown): string | null {
   return name && name.length <= 50 ? name : null;
 }
 
-function accessErrorResponse(c: any, error: unknown) {
+function accessErrorResponse(c: Context<AppEnv>, error: unknown) {
   if (!(error instanceof AccessAssertionError)) throw error;
   if (error.kind === "not_configured") {
     return c.json(fail("ACCESS_NOT_CONFIGURED", "Cloudflare Access verification is not configured", c.get("requestId")), 500);
@@ -118,7 +121,11 @@ async function loadApplication(db: D1Database, applicationId: string): Promise<A
   `).bind(applicationId).first<AccessApplicationRow>();
 }
 
-async function verifyForCurrentApplication(c: any, assertion: unknown, accessFetch?: AccessAssertionFetch): Promise<VerifiedApplicationAccess | Response> {
+async function verifyForCurrentApplication(
+  c: Context<AppEnv>,
+  assertion: unknown,
+  accessFetch?: AccessAssertionFetch,
+): Promise<VerifiedApplicationAccess | Response> {
   if (typeof assertion !== "string") {
     return c.json(fail("VALIDATION_ERROR", "accessAssertion is required", c.get("requestId")), 422);
   }
@@ -126,18 +133,17 @@ async function verifyForCurrentApplication(c: any, assertion: unknown, accessFet
   let verified: VerifiedAccessAssertion;
   try {
     verified = await verifyAccessAssertion(assertion, {
-      teamDomain: c.env.ACCESS_TEAM_DOMAIN as string | undefined,
+      teamDomain: c.env.ACCESS_TEAM_DOMAIN,
       fetcher: accessFetch,
     });
   } catch (error) {
     return accessErrorResponse(c, error);
   }
 
-  const applicationId = c.get("currentApplicationId") as string;
   const registrations = await c.env.DB.prepare(`
     SELECT audience FROM access_audiences
     WHERE application_id=? AND issuer=? AND status='active'
-  `).bind(applicationId, verified.issuer).all<{ audience: string }>();
+  `).bind(c.get("currentApplicationId"), verified.issuer).all<{ audience: string }>();
   const registered = new Set(registrations.results.map((row) => row.audience));
   const audience = verified.audiences.find((entry) => registered.has(entry));
   if (!audience) {
@@ -146,38 +152,35 @@ async function verifyForCurrentApplication(c: any, assertion: unknown, accessFet
   return { ...verified, audience };
 }
 
-function parseRequestedScopes(c: any, value: unknown): string[] | Response {
+function parseRequestedScopes(c: Context<AppEnv>, value: unknown): string[] | Response {
   const scopes = normalizeScopes(value);
   if (!scopes) {
     return c.json(fail("VALIDATION_ERROR", "requestedScopes must contain unique non-empty scope strings", c.get("requestId")), 422);
   }
-  const allowed = c.get("currentApplicationScopes") as string[];
+  const allowed = c.get("currentApplicationScopes");
   if (scopes.some((scope) => !allowed.includes(scope))) {
     return c.json(fail("FORBIDDEN", "Requested scope is not allowed for this application", c.get("requestId")), 403);
   }
   return scopes;
 }
 
-async function issueUserToken(c: any, userId: string, scopes: string[]) {
+async function issueUserToken(c: Context<AppEnv>, userId: string, scopes: string[]) {
   if (!c.env.TOKEN_PRIVATE_KEY) {
     return c.json(fail("IDENTITY_NOT_CONFIGURED", "Token signing key is not configured", c.get("requestId")), 500);
   }
-  const tokenTtlSeconds = c.get("currentApplicationTokenTtlSeconds") as number;
-  const applicationId = c.get("currentApplicationId") as string;
+  const tokenTtlSeconds = c.get("currentApplicationTokenTtlSeconds");
   const iat = Math.floor(Date.now() / 1000);
-  const exp = iat + tokenTtlSeconds;
-  const jti = id("tok");
   const token = await sign({
     iss: TOKEN_ISSUER,
     aud: [...TOKEN_AUDIENCES],
     sub: userId,
-    azp: applicationId,
+    azp: c.get("currentApplicationId"),
     principal_type: "user",
     scope: scopes.join(" "),
     iat,
-    exp,
-    jti,
-  }, c.env.TOKEN_PRIVATE_KEY as string, "RS256");
+    exp: iat + tokenTtlSeconds,
+    jti: id("tok"),
+  }, c.env.TOKEN_PRIVATE_KEY, "RS256");
   return c.json(ok({ accessToken: token, tokenType: "Bearer", expiresIn: tokenTtlSeconds, scope: scopes.join(" ") }));
 }
 
@@ -190,7 +193,7 @@ async function findPrincipal(db: D1Database, issuer: string, subject: string): P
   `).bind(issuer, subject).first<AccessPrincipalRow>();
 }
 
-export function registerAccessIdentityRoutes(app: Hono<any>, options: AccessRouteOptions = {}) {
+export function registerAccessIdentityRoutes(app: Hono<AppEnv>, options: AccessRouteOptions = {}) {
   app.get("/bootstrap/v1/applications/:applicationId/access-audiences", async (c) => {
     const application = await loadApplication(c.env.DB, c.req.param("applicationId"));
     if (!application) return c.json(fail("APPLICATION_NOT_FOUND", "Application not found", c.get("requestId")), 404);
@@ -211,13 +214,13 @@ export function registerAccessIdentityRoutes(app: Hono<any>, options: AccessRout
       return c.json(fail("APPLICATION_DISABLED", "Application is disabled", c.get("requestId")), 409);
     }
 
-    const body = await c.req.json<{ audience?: unknown }>().catch(() => ({}));
+    const body = await c.req.json<{ audience?: unknown }>().catch(() => ({} as { audience?: unknown }));
     const audience = normalizeAudience(body.audience);
     if (!audience) return c.json(fail("VALIDATION_ERROR", "audience must be a non-empty token without whitespace", c.get("requestId")), 422);
 
     let issuer: string;
     try {
-      issuer = configuredAccessIssuer(c.env.ACCESS_TEAM_DOMAIN as string | undefined);
+      issuer = configuredAccessIssuer(c.env.ACCESS_TEAM_DOMAIN);
     } catch (error) {
       return accessErrorResponse(c, error);
     }
@@ -264,7 +267,7 @@ export function registerAccessIdentityRoutes(app: Hono<any>, options: AccessRout
   });
 
   app.post("/internal/v1/access/tokens", async (c) => {
-    const body = await c.req.json<AccessRequestBody>().catch(() => ({}));
+    const body = await c.req.json<AccessRequestBody>().catch(() => ({} as AccessRequestBody));
     const scopes = parseRequestedScopes(c, body.requestedScopes);
     if (scopes instanceof Response) return scopes;
     const verified = await verifyForCurrentApplication(c, body.accessAssertion, options.accessFetch);
@@ -287,7 +290,7 @@ export function registerAccessIdentityRoutes(app: Hono<any>, options: AccessRout
   });
 
   app.post("/internal/v1/access/registrations", async (c) => {
-    const body = await c.req.json<AccessRegistrationBody>().catch(() => ({}));
+    const body = await c.req.json<AccessRegistrationBody>().catch(() => ({} as AccessRegistrationBody));
     const name = normalizeDisplayName(body.displayName);
     if (!name) return c.json(fail("VALIDATION_ERROR", "displayName must contain 1-50 characters", c.get("requestId")), 422);
     const scopes = parseRequestedScopes(c, body.requestedScopes);
@@ -306,19 +309,19 @@ export function registerAccessIdentityRoutes(app: Hono<any>, options: AccessRout
     const userId = id("usr");
     const principalId = id("acp");
     const ts = new Date().toISOString();
-    const tokenTtlSeconds = c.get("currentApplicationTokenTtlSeconds") as number;
+    const tokenTtlSeconds = c.get("currentApplicationTokenTtlSeconds");
     const iat = Math.floor(Date.now() / 1000);
     const token = await sign({
       iss: TOKEN_ISSUER,
       aud: [...TOKEN_AUDIENCES],
       sub: userId,
-      azp: c.get("currentApplicationId") as string,
+      azp: c.get("currentApplicationId"),
       principal_type: "user",
       scope: scopes.join(" "),
       iat,
       exp: iat + tokenTtlSeconds,
       jti: id("tok"),
-    }, c.env.TOKEN_PRIVATE_KEY as string, "RS256");
+    }, c.env.TOKEN_PRIVATE_KEY, "RS256");
 
     try {
       await c.env.DB.batch([
@@ -326,7 +329,7 @@ export function registerAccessIdentityRoutes(app: Hono<any>, options: AccessRout
           .bind(userId, name, ts, ts),
         c.env.DB.prepare(`
           INSERT INTO access_principals(id,issuer,subject,user_id,email_snapshot,status,linked_at,last_seen_at,created_at,updated_at)
-          VALUES(?,?,?,?,?,'active',?,?,?,?,?)
+          VALUES(?,?,?,?,?,'active',?,?,?,?)
         `).bind(principalId, verified.issuer, verified.subject, userId, verified.email, ts, ts, ts, ts),
       ]);
     } catch {
@@ -343,7 +346,7 @@ export function registerAccessIdentityRoutes(app: Hono<any>, options: AccessRout
   });
 
   app.post("/internal/v1/access/link-challenges", async (c) => {
-    const body = await c.req.json<AccessRequestBody>().catch(() => ({}));
+    const body = await c.req.json<AccessRequestBody>().catch(() => ({} as AccessRequestBody));
     const verified = await verifyForCurrentApplication(c, body.accessAssertion, options.accessFetch);
     if (verified instanceof Response) return verified;
     const existing = await findPrincipal(c.env.DB, verified.issuer, verified.subject);
@@ -353,13 +356,13 @@ export function registerAccessIdentityRoutes(app: Hono<any>, options: AccessRout
 
     const createdAt = new Date();
     const expiresAt = new Date(createdAt.getTime() + LINK_CHALLENGE_TTL_MS);
-    const linkId = challengeId();
+    const linkId = newChallengeId();
     await c.env.DB.prepare(`
       INSERT INTO access_link_challenges(id,application_id,issuer,subject,audience,email_snapshot,expires_at,created_at)
       VALUES(?,?,?,?,?,?,?,?)
     `).bind(
       linkId,
-      c.get("currentApplicationId") as string,
+      c.get("currentApplicationId"),
       verified.issuer,
       verified.subject,
       verified.audience,
@@ -387,7 +390,7 @@ export function registerAccessIdentityRoutes(app: Hono<any>, options: AccessRout
       return c.json(fail("ACCESS_LINK_CHALLENGE_INVALID", "Access link challenge is expired, consumed or unavailable", c.get("requestId")), 409);
     }
 
-    const userId = (c.get("principal") as { id: string }).id;
+    const userId = c.get("principal").id;
     const principalId = id("acp");
     try {
       const results = await c.env.DB.batch([
