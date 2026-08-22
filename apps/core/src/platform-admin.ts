@@ -57,8 +57,8 @@ async function normalizeEntries(context: Context<AppEnv>, value: unknown): Promi
 
   if (!requested.length) return requested;
   const placeholders = requested.map(() => "?").join(",");
-  const rows = await context.env.DB.prepare(`SELECT key,definition_json,state FROM model_definitions
-    WHERE state='published' AND key IN (${placeholders})`).bind(...requested.map((entry) => entry.modelKey)).all<ModelRow>();
+  const rows = await context.env.DB.prepare(`SELECT model_key key,definition_json,state FROM model_definitions
+    WHERE state='published' AND model_key IN (${placeholders})`).bind(...requested.map((entry) => entry.modelKey)).all<ModelRow>();
   const byKey = new Map(rows.results.map((row) => [row.key, row]));
   for (const entry of requested) {
     const model = byKey.get(entry.modelKey);
