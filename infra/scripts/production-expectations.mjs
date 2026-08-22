@@ -23,10 +23,10 @@ function latestMigrationVersion(service) {
 }
 
 export const PRODUCTION_PROVING_MODELS = Object.freeze([
-  Object.freeze({ key: "task", route: "tasks", version: 2, hash: "97053c8fd9e6f90ef9881cfbabc34d081a7ebbbaabc21143343aa9b9e57faa76" }),
-  Object.freeze({ key: "wish", route: "wishes", version: 3, hash: "ce8e86a792e0bf6b7ee8bf70324ef51d28f531989b3f503d0408e24798c99fc1" }),
-  Object.freeze({ key: "day_record", route: "day-records", version: 1, hash: "fa692a216e27d6e08df044728766d6c6df0de85a22fc4eb79ddda0f57c18393f" }),
-  Object.freeze({ key: "event", route: "events", version: 2, hash: "4d2c76486402fdb48d4956c68dcd413cbc549075d192760786100380f7bd9522" }),
+  Object.freeze({ key: "task", route: "tasks", version: 3, hash: "3c56f1448340162279be544e16ac82e06c1aefe66a08e428b7f95ba319ab1ed2" }),
+  Object.freeze({ key: "wish", route: "wishes", version: 4, hash: "6a5ccd9b6c30bcf3fc012b6e2aac6e4de53972a5d588a4ccd0f3300c7287b8f4" }),
+  Object.freeze({ key: "day_record", route: "day-records", version: 2, hash: "4b2f241958aeca05e396eea7e6719a3f030cef3ea7dfd3c57d426c086fe4cf56" }),
+  Object.freeze({ key: "event", route: "events", version: 3, hash: "6a23eb2f25463ce55d7ed75d64f0afa020d7aab25149badf28fdd77abc2d1aad" }),
 ]);
 
 export const PRODUCTION_EXPECTATIONS = Object.freeze({

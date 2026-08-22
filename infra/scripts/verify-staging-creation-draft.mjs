@@ -1,28 +1,31 @@
 import process from "node:process";
 import { setTimeout as delay } from "node:timers/promises";
+import { PROVING_MODELS } from "./staging-expectations.mjs";
 
 const coreBaseUrl = (process.env.LIFESPACE_CORE_STAGING_URL ?? "").replace(/\/+$/u, "");
 const bearer = process.env.LIFESPACE_STAGING_USER_BEARER ?? "";
+const modelAdminBearer = process.env.LIFESPACE_STAGING_MODEL_ADMIN_BEARER ?? "";
 const spaceId = process.env.LIFESPACE_STAGING_SPACE_ID ?? "";
 const viewingTimezone = process.env.LIFESPACE_STAGING_VIEWING_TIMEZONE ?? "UTC";
-const text = process.env.LIFESPACE_STAGING_CREATION_TEXT ?? "明天下午三点提醒我整理 staging 验证结果";
-const expectedModel = process.env.LIFESPACE_STAGING_CREATION_EXPECT_MODEL ?? "";
+const text = process.env.LIFESPACE_STAGING_CREATION_TEXT ?? "明天记得交电费";
+const expectedModel = process.env.LIFESPACE_STAGING_CREATION_EXPECT_MODEL ?? "task";
 const allowAiUnconfigured = process.env.ALLOW_AI_UNCONFIGURED === "1";
 const timeoutMs = Number(process.env.LIFESPACE_STAGING_CREATION_TIMEOUT_MS ?? 75_000);
 
 for (const [name, value] of Object.entries({
   LIFESPACE_CORE_STAGING_URL: coreBaseUrl,
   LIFESPACE_STAGING_USER_BEARER: bearer,
+  LIFESPACE_STAGING_MODEL_ADMIN_BEARER: modelAdminBearer,
   LIFESPACE_STAGING_SPACE_ID: spaceId,
 })) {
   if (!value) throw new Error(`${name} is required`);
 }
 
-async function request(path, { method = "GET", body } = {}) {
+async function request(path, { method = "GET", body, bearer: requestBearer = bearer } = {}) {
   const response = await fetch(`${coreBaseUrl}${path}`, {
     method,
     headers: {
-      authorization: `Bearer ${bearer}`,
+      authorization: `Bearer ${requestBearer}`,
       ...(body === undefined ? {} : { "content-type": "application/json" }),
     },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
@@ -47,14 +50,44 @@ function validContract(value) {
   return typeof value === "string" && /^mct_[a-f0-9]{64}$/u.test(value);
 }
 
+function verifyPinnedContract(contract, contractId) {
+  if (contract?.id !== contractId || contract?.hash !== contractId.slice(4)) {
+    throw new Error(`Pinned Model Contract id/hash mismatch: ${JSON.stringify(contract)}`);
+  }
+  const models = contract?.manifest?.models;
+  if (contract?.manifest?.kind !== "lifespace-model-contract" || !Array.isArray(models)) {
+    throw new Error(`Pinned Model Contract manifest is invalid: ${JSON.stringify(contract?.manifest)}`);
+  }
+  const byKey = new Map(models.map((model) => [model.key, model]));
+  for (const expected of PROVING_MODELS) {
+    const actual = byKey.get(expected.key);
+    if (!actual) throw new Error(`Pinned Model Contract is missing required baseline model ${expected.key}`);
+    if (actual.route !== expected.route || Number(actual.version) !== expected.version || actual.schemaHash !== expected.hash) {
+      throw new Error(`Pinned Model Contract baseline mismatch for ${expected.key}: expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
+    }
+  }
+  const baselineKeys = new Set(PROVING_MODELS.map((model) => model.key));
+  return models.filter((model) => !baselineKeys.has(model.key)).map((model) => ({
+    key: model.key,
+    route: model.route,
+    version: model.version,
+    schemaHash: model.schemaHash,
+  }));
+}
+
 const created = data(await request(`/api/v1/spaces/${spaceId}/creation-drafts`, {
   method: "POST", body: { text, viewingTimezone },
 }), 202, "Creation Draft enqueue");
 if (!created?.draftId || created.status !== "processing") throw new Error(`Creation Draft enqueue shape mismatch: ${JSON.stringify(created)}`);
 if (!validContract(created.modelContractRevision)) throw new Error(`Creation Draft did not pin a valid Model Contract Revision: ${JSON.stringify(created)}`);
 
-const draftId = created.draftId;
 const pinnedContract = created.modelContractRevision;
+const contract = data(await request(`/api/v1/model-admin/contracts/${encodeURIComponent(pinnedContract)}`, {
+  bearer: modelAdminBearer,
+}), 200, "Pinned Creation Draft Model Contract");
+const additionalPublishedModels = verifyPinnedContract(contract, pinnedContract);
+
+const draftId = created.draftId;
 const started = Date.now();
 let chosen = false;
 let terminal = null;
@@ -66,9 +99,12 @@ while (Date.now() - started < timeoutMs) {
   if (current.modelContractRevision !== pinnedContract) throw new Error(`Creation Draft Model Contract pin changed: ${JSON.stringify(current)}`);
   if (current.status === "processing") continue;
   if (current.status === "choose_model") {
+    if (expectedModel) {
+      throw new Error(`Creation Draft expected direct ${expectedModel} classification, got choose_model: ${JSON.stringify(current)}`);
+    }
     if (chosen) throw new Error("Creation Draft returned choose_model twice after explicit model choice");
     if (!Array.isArray(current.candidateModels) || current.candidateModels.length < 2) throw new Error(`choose_model candidates are invalid: ${JSON.stringify(current)}`);
-    const target = expectedModel && current.candidateModels.includes(expectedModel) ? expectedModel : current.candidateModels[0];
+    const target = current.candidateModels[0];
     const choose = data(await request(`/api/v1/spaces/${spaceId}/creation-drafts/${draftId}/choose-model`, {
       method: "POST", body: { targetModelKey: target },
     }), 202, "Creation Draft choose-model");
@@ -85,7 +121,16 @@ if (terminal.status === "failed") {
   const code = terminal.error?.code;
   const configurationErrors = new Set(["AI_NOT_CONFIGURED", "AI_AUTHENTICATION_FAILED", "AI_MODEL_NOT_FOUND", "AI_ACCESS_DENIED", "AI_QUOTA_EXCEEDED"]);
   if (!allowAiUnconfigured || !configurationErrors.has(code)) throw new Error(`Creation Draft failed unexpectedly: ${JSON.stringify(terminal)}`);
-  console.log(JSON.stringify({ ok: true, mode: "ai-unconfigured", draftId, modelContractRevision: pinnedContract, terminalError: code, queueAndWorkerReachedTerminalState: true }, null, 2));
+  console.log(JSON.stringify({
+    ok: true,
+    mode: "ai-unconfigured",
+    draftId,
+    modelContractRevision: pinnedContract,
+    pinnedManifestModelCount: contract.manifest.models.length,
+    additionalPublishedModels,
+    terminalError: code,
+    queueAndWorkerReachedTerminalState: true,
+  }, null, 2));
   process.exit(0);
 }
 
@@ -94,15 +139,21 @@ if (!terminal.modelKey || !terminal.draft || !Array.isArray(terminal.missingFiel
   throw new Error(`Ready Creation Draft shape mismatch: ${JSON.stringify(terminal)}`);
 }
 if (expectedModel && terminal.modelKey !== expectedModel) throw new Error(`Creation Draft model mismatch: expected ${expectedModel}, got ${terminal.modelKey}`);
+const expectedReadyModel = PROVING_MODELS.find((model) => model.key === terminal.modelKey);
+if (expectedReadyModel && Number(terminal.modelVersion) !== expectedReadyModel.version) {
+  throw new Error(`Creation Draft model version mismatch for ${terminal.modelKey}: expected ${expectedReadyModel.version}, got ${terminal.modelVersion}`);
+}
 
 console.log(JSON.stringify({
   ok: true,
   mode: "ai-ready",
   draftId,
   modelContractRevision: pinnedContract,
+  pinnedManifestModelCount: contract.manifest.models.length,
+  additionalPublishedModels,
   modelKey: terminal.modelKey,
   modelVersion: terminal.modelVersion,
-  chooseModelExercised: chosen,
+  directClassification: !chosen,
   missingFields: terminal.missingFields,
   warningCount: terminal.warnings.length,
 }, null, 2));
