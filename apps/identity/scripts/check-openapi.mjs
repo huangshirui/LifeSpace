@@ -2,7 +2,7 @@ import fs from "node:fs";
 import YAML from "yaml";
 
 const doc = YAML.parse(fs.readFileSync(new URL("../openapi.yaml",import.meta.url),"utf8"));
-if (doc.openapi !== "3.1.0" || doc.info?.version !== "0.4.0") {
+if (doc.openapi !== "3.1.0" || doc.info?.version !== "0.5.0") {
   throw new Error("Identity OpenAPI version metadata is invalid");
 }
 
@@ -12,12 +12,18 @@ for (const path of [
   "/assets/users/{userId}/avatar",
   "/api/v1/me",
   "/api/v1/me/avatar",
+  "/api/v1/me/access-link-challenges/{challengeId}/confirm",
   "/bootstrap/v1/applications",
   "/bootstrap/v1/applications/{applicationId}",
   "/bootstrap/v1/applications/{applicationId}/credentials",
   "/bootstrap/v1/applications/{applicationId}/credentials/{credentialId}",
+  "/bootstrap/v1/applications/{applicationId}/access-audiences",
+  "/bootstrap/v1/applications/{applicationId}/access-audiences/{audienceId}",
   "/internal/v1/users",
   "/internal/v1/tokens",
+  "/internal/v1/access/tokens",
+  "/internal/v1/access/registrations",
+  "/internal/v1/access/link-challenges",
   "/api/v1/service-principals",
   "/api/v1/service-principals/{principalId}",
   "/api/v1/service-principals/{principalId}/tokens",
@@ -54,6 +60,32 @@ if (createdApplicationSecret?.writeOnly !== true || !String(createdApplicationSe
 const applicationPatch = doc.paths?.["/bootstrap/v1/applications/{applicationId}"]?.patch;
 if (!applicationPatch || doc.components?.schemas?.UpdateApplicationRequest?.properties?.trustedBackend || doc.components?.schemas?.UpdateApplicationRequest?.properties?.clientType) {
   throw new Error("Application admin must expose bounded mutable policy without changing trust/client classification");
+}
+
+const accessAudience = doc.components?.schemas?.AccessAudience;
+if (!accessAudience?.properties?.issuer || !accessAudience?.properties?.audience || accessAudience?.properties?.subject || accessAudience?.properties?.userId) {
+  throw new Error("Access audience registration must bind issuer/audience to an application without becoming a user identity mapping");
+}
+const accessExchange = doc.components?.schemas?.AccessTokenExchangeRequest;
+const accessRegistration = doc.components?.schemas?.AccessRegistrationRequest;
+const accessChallenge = doc.components?.schemas?.AccessLinkChallengeRequest;
+for (const [name, schema] of [["exchange", accessExchange], ["registration", accessRegistration], ["link challenge", accessChallenge]]) {
+  if (!schema?.properties?.accessAssertion || schema.properties.accessAssertion.writeOnly !== true) {
+    throw new Error(`Access ${name} must accept a write-only verifiable Access assertion`);
+  }
+  if (schema.properties?.userId || schema.properties?.subject || schema.properties?.email) {
+    throw new Error(`Access ${name} must not trust client-supplied userId, subject or email identity fields`);
+  }
+}
+if (!String(doc.paths?.["/internal/v1/access/tokens"]?.post?.description ?? "").includes("(iss, sub)")) {
+  throw new Error("Access exchange contract must define (iss, sub) as the platform principal key");
+}
+if (!String(doc.paths?.["/internal/v1/access/registrations"]?.post?.description ?? "").includes("atomic")) {
+  throw new Error("Access new-user registration must document atomic user + principal creation");
+}
+const confirmSecurity = doc.paths?.["/api/v1/me/access-link-challenges/{challengeId}/confirm"]?.post?.security ?? [];
+if (!confirmSecurity.some((entry) => entry?.userBearer)) {
+  throw new Error("Access link confirmation must derive proof of control from a LifeSpace user bearer token");
 }
 
 const serviceToken = doc.components?.schemas?.ServiceToken;
