@@ -7,6 +7,7 @@ import { registerGenericResourceRoutes } from "./generic-resource-routes";
 import { ApiError, failure, success } from "./http";
 import { registerModelAdminRoutes } from "./model-admin";
 import { registerModelAdminAiRoutes } from "./model-admin-ai";
+import { registerPlatformAdminRoutes } from "./platform-admin";
 import { registerSpaceRoutes } from "./spaces";
 import { registerSpaceAvatarRoutes } from "./space-avatars";
 import { registerGrantRoutes } from "./grants";
@@ -30,7 +31,7 @@ export function createApp() {
   });
   app.use("*", cors({
     origin: (origin, context) => origins(context.env).includes(origin) ? origin : undefined,
-    allowHeaders: ["Authorization", "Content-Type", "X-Request-ID"],
+    allowHeaders: ["Authorization", "Content-Type", "X-Request-ID", "X-LifeSpace-Actor-Token"],
     allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
   }));
   app.get("/health", (context) => context.json(success({ status: "ok" })));
@@ -45,11 +46,14 @@ export function createApp() {
   app.use("/api/v1/space-invites/*", authenticate());
   app.use("/api/v1/model-admin", authenticate());
   app.use("/api/v1/model-admin/*", authenticate());
+  app.use("/api/v1/platform-admin", authenticate());
+  app.use("/api/v1/platform-admin/*", authenticate());
   registerSpaceAvatarRoutes(app);
   registerSpaceRoutes(app);
   registerGrantRoutes(app);
   registerModelAdminRoutes(app);
   registerModelAdminAiRoutes(app);
+  registerPlatformAdminRoutes(app);
   registerRegistryCreationDraftRoutes(app);
   registerGenericResourceRoutes(app);
   app.notFound((context) => context.json(failure("NOT_FOUND", "Route not found", context.get("requestId")), 404));
