@@ -12,6 +12,7 @@ export type Bindings = {
   TOKEN_PUBLIC_KEY: string;
   BOOTSTRAP_SECRET: string;
   CORE_IDENTITY_SHARED_SECRET: string;
+  ACCESS_TEAM_DOMAIN?: string;
   ENVIRONMENT?: string;
 };
 
