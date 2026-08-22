@@ -6,7 +6,7 @@ type AppEnv = { Bindings: Bindings; Variables: Variables };
 
 export const PLATFORM_ADMIN_ACTOR_HEADER = "x-lifespace-actor-token";
 export const PLATFORM_ADMIN_ACTOR_SCOPE = "platform:admin";
-const MAX_ACCESS_TOKEN_TTL_SECONDS = 3600;
+const MAX_ADMIN_ACTOR_TTL_SECONDS = 300;
 
 type Failure = { error: { code: string; message: string; requestId: string } };
 
@@ -44,6 +44,7 @@ export async function requirePlatformAdminActor(c: Context<AppEnv>, executorScop
     payload.iss !== "lifespace-identity"
     || !audienceIncludes(payload.aud, "lifespace-identity")
     || payload.principal_type !== "user"
+    || payload.purpose !== "platform_admin_actor"
     || typeof payload.sub !== "string"
     || typeof payload.azp !== "string"
     || typeof payload.jti !== "string"
@@ -52,7 +53,7 @@ export async function requirePlatformAdminActor(c: Context<AppEnv>, executorScop
     || payload.iat > timestamp
     || payload.exp <= timestamp
     || payload.exp <= payload.iat
-    || payload.exp - payload.iat > MAX_ACCESS_TOKEN_TTL_SECONDS
+    || payload.exp - payload.iat > MAX_ADMIN_ACTOR_TTL_SECONDS
   ) {
     return c.json(fail("PLATFORM_ADMIN_ACTOR_INVALID", "Platform administrator actor proof is invalid", c.get("requestId")), 401);
   }
