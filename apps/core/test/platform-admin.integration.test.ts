@@ -4,7 +4,6 @@ import { describe, expect, it } from "vitest";
 import { createApp } from "../src/app";
 
 type TestEnv = { DB: D1Database };
-
 type PrincipalType = "user" | "service";
 
 function pem(label: "PRIVATE KEY" | "PUBLIC KEY", bytes: ArrayBuffer): string {
@@ -40,6 +39,22 @@ async function token(privateKey: string, type: PrincipalType, clientId: string, 
   }, privateKey, "RS256");
 }
 
+async function adminActorToken(privateKey: string, clientId: string, scopes = ["platform:admin"]) {
+  const iat = Math.floor(Date.now() / 1000);
+  return sign({
+    iss: "lifespace-identity",
+    aud: ["lifespace-core", "lifespace-identity"],
+    sub: `usr_${crypto.randomUUID().replaceAll("-", "")}`,
+    azp: clientId,
+    principal_type: "user",
+    scope: scopes.join(" "),
+    purpose: "platform_admin_actor",
+    iat,
+    exp: iat + 300,
+    jti: `pad_${crypto.randomUUID()}`,
+  }, privateKey, "RS256");
+}
+
 async function call(
   publicKey: string,
   executorToken: string,
@@ -59,7 +74,7 @@ async function call(
 }
 
 describe("Platform Admin API", () => {
-  it("requires a service executor plus a same-application platform-admin user proof", async () => {
+  it("requires a service executor plus a purpose-bound same-application platform-admin user proof", async () => {
     const pair = await keys();
     const clientId = `app_console_${crypto.randomUUID().replaceAll("-", "")}`;
     const target = `app_target_${crypto.randomUUID().replaceAll("-", "")}`;
@@ -68,16 +83,20 @@ describe("Platform Admin API", () => {
     const missingActor = await call(pair.publicKey, service, `/api/v1/platform-admin/applications/${target}/model-access`);
     expect(missingActor.status).toBe(401);
 
-    const ordinaryActor = await token(pair.privateKey, "user", clientId, ["profile:read"]);
+    const ordinaryActor = await adminActorToken(pair.privateKey, clientId, ["profile:read"]);
     const ordinaryResponse = await call(pair.publicKey, service, `/api/v1/platform-admin/applications/${target}/model-access`, ordinaryActor);
     expect(ordinaryResponse.status).toBe(403);
 
-    const wrongApplicationActor = await token(pair.privateKey, "user", "app_other_console", ["platform:admin"]);
+    const scopeOnlyActor = await token(pair.privateKey, "user", clientId, ["platform:admin"]);
+    const scopeOnlyResponse = await call(pair.publicKey, service, `/api/v1/platform-admin/applications/${target}/model-access`, scopeOnlyActor);
+    expect(scopeOnlyResponse.status).toBe(401);
+
+    const wrongApplicationActor = await adminActorToken(pair.privateKey, "app_other_console");
     const mismatchResponse = await call(pair.publicKey, service, `/api/v1/platform-admin/applications/${target}/model-access`, wrongApplicationActor);
     expect(mismatchResponse.status).toBe(403);
 
     const userExecutor = await token(pair.privateKey, "user", clientId, ["applications:manage", "platform:admin"]);
-    const userActor = await token(pair.privateKey, "user", clientId, ["platform:admin"]);
+    const userActor = await adminActorToken(pair.privateKey, clientId);
     const userExecutorResponse = await call(pair.publicKey, userExecutor, `/api/v1/platform-admin/applications/${target}/model-access`, userActor);
     expect(userExecutorResponse.status).toBe(403);
   });
@@ -87,7 +106,7 @@ describe("Platform Admin API", () => {
     const clientId = `app_console_${crypto.randomUUID().replaceAll("-", "")}`;
     const target = `app_target_${crypto.randomUUID().replaceAll("-", "")}`;
     const service = await token(pair.privateKey, "service", clientId, ["applications:manage", "audit:read"]);
-    const actor = await token(pair.privateKey, "user", clientId, ["platform:admin"]);
+    const actor = await adminActorToken(pair.privateKey, clientId);
 
     const replace = await call(
       pair.publicKey,
@@ -107,7 +126,7 @@ describe("Platform Admin API", () => {
     expect(audit.status).toBe(200);
     const payload = await audit.json<{ data: Array<{ operation: string; targetId: string; actorUserId: string; executorPrincipalId: string }> }>();
     const entry = payload.data.find((candidate) => candidate.operation === "application_model_access.replace" && candidate.targetId === target);
-    expect(entry?.actorUserId).toMatch(/^user_/u);
+    expect(entry?.actorUserId).toMatch(/^usr_/u);
     expect(entry?.executorPrincipalId).toMatch(/^service_/u);
   });
 });
