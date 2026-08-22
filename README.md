@@ -2,36 +2,166 @@
 
 LifeSpace is the shared life-data platform behind ALOHA, HomeMew, and future vertical applications.
 
-The platform owns global Identity integration, Space/Grant authorization, shared domain models, canonical contracts, migrations, and Cloudflare deployment configuration. Application repositories own UI, application-specific BFF behavior, and product presentation.
+It is the platform source of truth for global LifeSpace Identity, Space/Data Grant authorization, metadata-driven domain models, reusable business capabilities, canonical contracts, migrations, and Cloudflare deployment configuration. Application repositories own product UI, application-specific provider adapters/BFF behavior, and product presentation.
 
-## Planned repository layout
+## Repository layout
 
 ```text
 apps/
-  core/        Shared business Core Worker
-  identity/    Global Identity / OAuth / SSO Worker
+  core/        LifeSpace Core Worker: Spaces, Grants, Model Registry, Generic Runtime and Capabilities
+  identity/    LifeSpace Identity Worker: users, application/service credentials and Web Access principals
 packages/
-  contracts/   Versioned generated/published contracts
-  client/      Platform client/SDK generated from contracts
-docs/          Architecture, permission and contract decisions
-infra/         Shared infrastructure/deployment notes and configuration
+  contracts/   Reproducible versioned/pinned platform contract artifacts
+  client/      Platform client/SDK surface built against explicit contracts
+docs/          Architecture, authorization, contracts, migration plans and phase evidence
+infra/         Shared Cloudflare deployment, verification and migration tooling
 ```
 
-Service-owned D1 migrations remain inside the service that owns the database, for example `apps/core/migrations` and `apps/identity/migrations`.
+Service-owned D1 migrations live with the service that owns the database, for example `apps/core/migrations` and `apps/identity/migrations`.
 
-## Architecture principles
+## Architecture
 
-- One global human identity can participate in many Spaces.
-- Every business record belongs to exactly one source Space.
-- Sharing uses Data Grants; it does not copy or move the source record.
-- Effective access is data authorization intersected with application scope.
-- Core is a modular monolith and the source of truth for shared life-domain data.
-- Identity authenticates principals and issues credentials; Core owns Space and business authorization.
-- Web applications should prefer a same-origin BFF that calls Core through a Cloudflare Service Binding.
-- Mini Programs, devices, Agents, and services call the platform with explicit scoped credentials.
+### Identity
 
-## Current phase
+A human has one global LifeSpace `usr_*` identity across applications and Spaces.
 
-Phase 1 platform foundation is complete and verified in isolated Cloudflare staging. Work now moves to Phase 2: migrate HomeMew capabilities to functional parity as complete vertical slices, while keeping HomeMew production Core as the baseline until cutover.
+Application-specific provider identities remain application-owned. For example, HomeMew owns its WeChat `openid -> usr_*` mapping in the HomeMew application backend; LifeSpace Identity does not become a generic external-provider identity store.
 
-Read `AGENTS.md` and `docs/` before making changes.
+Cloudflare Access is the deliberate Web exception and the long-term authentication/SSO layer for owner-controlled LifeSpace Web/PWA/Admin applications:
+
+```text
+Browser
+  -> Cloudflare Access
+  -> same-origin application BFF
+  -> LifeSpace Identity independently verifies the Access JWT
+  -> (iss, sub) -> global usr_*
+  -> aud -> registered LifeSpace application context
+  -> short-lived app-scoped LifeSpace credential
+  -> LifeSpace Core
+```
+
+Identity owns verified Access principal resolution/linking. Individual applications must not maintain their own Access-subject -> `usr_*` mapping. Google OAuth, Microsoft OAuth and email OTP remain upstream Cloudflare Access login methods rather than separate LifeSpace IdP implementations.
+
+### Space, data and authorization
+
+- Every ordinary business record belongs to exactly one source Space.
+- Sharing uses current Data Grants; it never moves or duplicates the authoritative source record.
+- Effective permission is the intersection of verified principal, credential scope, Application × Model Access, current Space membership/Data Grant authority, published model access capability, and model policy/Capability restrictions.
+- The authenticated actor always comes from verified credentials; clients cannot assert an arbitrary current `userId`.
+
+### Metadata-driven Core
+
+LifeSpace Core is a modular monolith. Ordinary business models are published metadata interpreted by a fixed Generic Runtime rather than handwritten CRUD modules.
+
+Published Model Definitions drive schema validation, typed physical storage, CRUD/query behavior, relations, optimistic concurrency, actions and Capability contributions. Current reusable platform capabilities include Calendar, Temporal/Cycle, Workflow/Policy, Registry-driven AI Creation Drafts, and Queue/async orchestration.
+
+Core contract surface is split into:
+
+```text
+Kernel Contract
+  explicit Kernel APIs in apps/core/openapi.yaml
+
+Model Contract Revision
+  immutable content-addressed mct_<sha256> generated from published models/capabilities
+```
+
+Applications pin explicit compatible contract versions instead of consuming an unversioned latest model surface.
+
+## Authentication modes
+
+| Client/workload | Preferred authentication |
+| --- | --- |
+| Owner-controlled Web/PWA/Admin | Cloudflare Access + same-origin BFF + LifeSpace Identity Access exchange |
+| Mini Program / application-specific provider | Application backend resolves provider identity, then `lsa_*` trusted application exchange |
+| Owner-controlled n8n/script/MCP/backend | Opaque revocable `lsp_pat_*` Service API Token |
+| Third-party/policy-controlled service | OAuth 2.0 `client_credentials` |
+
+Browser, Mini Program and downloadable client code must never contain `lsa_*`, service credentials, signing keys, provider secrets or other backend secrets.
+
+## HomeMew status
+
+HomeMew is already cut over to LifeSpace production as the authoritative writable platform for migrated household data.
+
+Phase 7 completed the controlled one-shot production migration and activation on 2026-08-21. Current production routing is:
+
+```text
+homemew.aisr.online -> HomeMew Cloudflare backend
+                       -> auth.aisr.online
+                       -> core.aisr.online
+```
+
+The legacy HomeMew Core/D1 is retained frozen/read-only only for the Phase 8 stabilization and rollback-evidence window. There is no dual-write or permanent compatibility Core.
+
+Current migration status:
+
+| Phase | Status |
+| --- | --- |
+| Phase 1 — platform foundation | Complete |
+| Phase 2 — native HomeMew capability parity | Complete |
+| Phase 3 — metadata-driven runtime / typed storage / performance convergence | Complete |
+| Phase 4 — HomeMew integration readiness | Complete |
+| Phase 5 — one-shot migration rehearsal | Complete |
+| Phase 6 — isolated production platform deployment | Complete |
+| Phase 7 — HomeMew production migration and cutover | Complete |
+| Phase 8 — stabilization and old-infrastructure retirement | **In progress** |
+| Phase 9 — post-cutover aggregation/sharing evolution | Non-blocking |
+
+See `docs/migration-plan.md` and `docs/phase7-status.md` for the migration/cutover evidence.
+
+## Current contracts and Identity × Cloudflare Access work
+
+The current checked-in Core Kernel contract remains `0.12.0` with the active application model surface pinned through an immutable `mct_*` revision.
+
+The repository Identity contract is now **0.5.0 / schema v5**. It implements the accepted Cloudflare Access platform-identity architecture:
+
+- independently verified Access RS256 JWTs and JWKS key rotation;
+- environment-pinned Access issuer;
+- Access audience registration bound to trusted LifeSpace Web applications;
+- `(iss, sub)` principal -> global `usr_*` resolution;
+- strict Access `aud` + `lsa_*` application agreement;
+- explicit atomic new-user registration without email-based merging;
+- short-lived, high-entropy, single-use existing-account link challenges;
+- multiple verified Access principals may link to one LifeSpace user.
+
+Identity 0.5.0 is merged into the repository main line. Its staging rollout and real HomeMew Web Access-audience proving are the next deployment gate before production rollout of the new Web identity capability. The existing HomeMew Mini Program production identity path continues to use its application-owned WeChat mapping and trusted application exchange.
+
+## Environments
+
+Staging and production resources are isolated.
+
+```text
+staging:
+  auth-staging.aisr.online
+  core-staging.aisr.online
+
+production:
+  auth.aisr.online
+  core.aisr.online
+```
+
+Do not point staging Workers, D1, R2, Queues or credentials at production resources.
+
+## Development and verification
+
+Use Node.js 24 and the repository-pinned pnpm version.
+
+The repository-wide validation entry point is:
+
+```bash
+pnpm check
+```
+
+Service-specific migrations and deployment configuration are repository-owned. Staging deployment applies migrations before deploying compatible Workers and then runs database, authentication, contract, model-runtime and HomeMew integration verification gates.
+
+## Read before changing the platform
+
+Start with `AGENTS.md`, then the relevant source-of-truth documents:
+
+- `docs/architecture.md` — platform/runtime and Identity boundaries
+- `docs/permissions.md` — authorization model
+- `docs/service-authentication.md` — service/Agent/machine credentials
+- `docs/contracts.md` — Kernel/model contract ownership and publication
+- `docs/phase3-metadata-platform-plan.md` — metadata-driven model architecture
+- `docs/phase3-performance-convergence-plan.md` — runtime/storage performance invariants
+- `docs/migration-plan.md` — HomeMew migration/cutover rules and current phase status
+- `docs/application-authentication.md` — trusted application and Cloudflare Access Identity contracts
