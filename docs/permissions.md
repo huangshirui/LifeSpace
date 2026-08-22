@@ -2,7 +2,7 @@
 
 ## Core concepts
 
-- **User**: global human identity authenticated by LifeSpace Identity.
+- **User**: global human LifeSpace identity (`usr_*`) resolved by LifeSpace Identity after an approved authentication path. For owner-controlled Web/PWA applications, Cloudflare Access proves the Web user and Identity resolves the verified Access principal to the global LifeSpace user.
 - **Principal**: authenticated actor such as user, delegated Agent, service, device, or application backend.
 - **Space**: source ownership and default authorization boundary for business data.
 - **Space membership**: role-based relationship between a user and a Space.
@@ -38,6 +38,8 @@ verified principal
 ```
 
 No application is trusted merely because of its hostname or product name. Publishing a model does not automatically grant every application or service access to it.
+
+For Access-authenticated Web requests, Cloudflare authentication alone satisfies none of items 2-6. Identity must first validate the Access assertion, resolve `(iss, sub)` to a LifeSpace `usr_*`, bind the Access `aud` to the intended LifeSpace application context and issue/authorize the appropriate LifeSpace credential. Core authorization then proceeds exactly as for the same `usr_*` reached through any other approved authentication path.
 
 ## Model authorization
 
@@ -133,6 +135,9 @@ Authenticated aggregate endpoints under `/api/v1/me/...` may return records from
 ## Actor safety
 
 - Current actor is derived from verified credentials, never request `userId`.
+- For Access-authenticated Web flows, Identity derives the current LifeSpace actor from a verified `(iss, sub)` mapping. A BFF-supplied `sub`, email or `userId` is not sufficient authority by itself.
+- Access `aud` determines approved application context, not user identity. It must be checked against the registered LifeSpace application before credentials are issued.
+- Account linking is authentication state, not authorization. Linking multiple Access principals to one `usr_*` must not expand that user's Space/Data Grant authority; it only adds another approved way to reach the same global user.
 - User-initiated Agent operations preserve delegated user context.
 - Service and device identities receive only explicit stable scopes, Application × Model Access and Grants.
 - A Service API Token authenticates a service principal and never becomes an implicit Space membership or administrator role.
