@@ -8,6 +8,7 @@ import { ApiError, failure, success } from "./http";
 import { registerModelAdminRoutes } from "./model-admin";
 import { registerModelAdminAiRoutes } from "./model-admin-ai";
 import { registerPlatformAdminRoutes } from "./platform-admin";
+import { registerPlatformInspectorRoutes } from "./platform-inspector";
 import { registerSpaceRoutes } from "./spaces";
 import { registerSpaceAvatarRoutes } from "./space-avatars";
 import { registerGrantRoutes } from "./grants";
@@ -54,6 +55,7 @@ export function createApp() {
   registerModelAdminRoutes(app);
   registerModelAdminAiRoutes(app);
   registerPlatformAdminRoutes(app);
+  registerPlatformInspectorRoutes(app);
   registerRegistryCreationDraftRoutes(app);
   registerGenericResourceRoutes(app);
   app.notFound((context) => context.json(failure("NOT_FOUND", "Route not found", context.get("requestId")), 404));
