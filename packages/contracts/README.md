@@ -13,16 +13,16 @@ Generated/exported artifacts are read-only handoff material. They must never bec
 
 ## HomeMew current accepted handoff
 
-The current HomeMew release pin is:
+The current HomeMew release pin remains:
 
 ```text
 Identity:       0.4.0
 Core Kernel:    0.12.0
-Model Contract: mct_37f64546f9ebaf9697ee34b6b692ba3b96976a015b7ab5e5b243018fd3cfb41b
+Model Contract: mct_a4cc6dad278204b08cd706f9abeb68107e229148f1cd9ccde0991382606a92b9
 Profile:        infra/homemew-integration-profile.json (profileVersion 1, accepted)
 ```
 
-This Model Contract revision was produced on 2026-08-21 by compatible metadata-only publications for the four HomeMew baseline models. Task, Wish, Day Record and Event now carry explicit domain-selection and field semantics consumed by Registry-driven Creation Draft classification. Ordinary CRUD/storage behavior is unchanged; the semantic metadata prevents broad schemas such as Wish from acting as an accidental fallback during AI interpretation.
+This immutable revision introduced Generic Resource audit actors (`createdBy` / `updatedBy`) in the generated ordinary-model response contract and is the contract currently accepted by the production HomeMew release. A compatible Registry publication does not automatically advance this application release pin; the pin is promoted only after the target production Registry state has been deployed and accepted.
 
 `pnpm --filter @lifespace/contracts export:homemew` exports `dist/homemew/` after verifying the configured deployment and exact pinned Model Contract revision.
 
@@ -39,15 +39,22 @@ The bundle contains:
 
 The exporter requires a service-only `models:manage` bearer only to read the exact immutable `mct_*` revision from Core. That bearer is not written to the bundle. Application credentials, Service API Tokens, signing keys and other secret material are never handoff artifacts.
 
-## Previous 2026-08-21 audit-actor handoff
+## Creation Draft semantic release candidate
 
-Before the Creation Draft semantic metadata update, HomeMew pinned:
+The 2026-08-21/22 Creation Draft fix publishes metadata-only compatible versions of the four HomeMew baseline models:
 
 ```text
-Model Contract: mct_a4cc6dad278204b08cd706f9abeb68107e229148f1cd9ccde0991382606a92b9
+Task:       v3  3c56f1448340162279be544e16ac82e06c1aefe66a08e428b7f95ba319ab1ed2
+Wish:       v4  6a5ccd9b6c30bcf3fc012b6e2aac6e4de53972a5d588a4ccd0f3300c7287b8f4
+Day Record: v2  4b2f241958aeca05e396eea7e6719a3f030cef3ea7dfd3c57d426c086fe4cf56
+Event:      v3  6a23eb2f25463ce55d7ed75d64f0afa020d7aab25149badf28fdd77abc2d1aad
 ```
 
-That immutable revision introduced Generic Resource audit actors (`createdBy` / `updatedBy`) in the generated ordinary-model response contract and remains historical contract evidence.
+These versions add explicit domain-selection and field semantics consumed by Registry-driven Creation Draft classification. Ordinary CRUD/storage behavior is unchanged; the semantic metadata prevents broad schemas such as Wish from acting as an accidental fallback during AI interpretation.
+
+The four-model semantic fingerprint is **not** itself an environment-wide active Model Contract pin. `mct_*` revisions snapshot the entire published Registry, so staging or production may legitimately produce a different active `mct_*` when other ordinary models are also published. Creation Draft verification therefore proves that its pinned immutable Registry revision contains the exact four baseline versions/hashes above, while allowing unrelated published models to coexist.
+
+HomeMew's accepted handoff pin will be advanced separately only after the compatible semantic versions are deployed and accepted in production.
 
 ## Historical Phase-4 accepted handoff
 
