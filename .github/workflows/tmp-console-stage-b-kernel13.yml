@@ -1,0 +1,70 @@
+name: Reprove LifeSpace Console Stage B on Kernel 0.13 once
+
+on:
+  push:
+    branches:
+      - feat/lifespace-console-ui-shell
+    paths:
+      - .github/workflows/tmp-console-stage-b-kernel13.yml
+
+permissions:
+  actions: write
+  contents: write
+
+env:
+  TARGET_REF: feat/lifespace-console-ui-shell
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - name: Dispatch canonical Console staging workflow
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          ADMIN_USER_ID: ${{ vars.LIFESPACE_STAGING_PLATFORM_ADMIN_USER_ID }}
+        run: |
+          set -euo pipefail
+          test -n "${ADMIN_USER_ID:-}" || { echo "LIFESPACE_STAGING_PLATFORM_ADMIN_USER_ID is not configured in staging Environment" >&2; exit 1; }
+          [[ "$ADMIN_USER_ID" =~ ^usr_[0-9A-Za-z_-]+$ ]] || { echo "Configured staging platform-admin user ID is invalid" >&2; exit 1; }
+          echo "::add-mask::$ADMIN_USER_ID"
+          node --input-type=module <<'NODE'
+          const response = await fetch(`${process.env.GITHUB_API_URL}/repos/${process.env.GITHUB_REPOSITORY}/actions/workflows/lifespace-console-staging-provision.yml/dispatches`, {
+            method: 'POST',
+            headers: {
+              authorization: `Bearer ${process.env.GITHUB_TOKEN}`,
+              accept: 'application/vnd.github+json',
+              'x-github-api-version': '2022-11-28',
+              'content-type': 'application/json',
+            },
+            body: JSON.stringify({
+              ref: process.env.TARGET_REF,
+              inputs: { platform_admin_user_id: process.env.ADMIN_USER_ID },
+            }),
+          });
+          if (response.status !== 204) {
+            const text = await response.text();
+            throw new Error(`Could not dispatch canonical Console staging workflow: ${response.status} ${text}`);
+          }
+          console.log('Canonical Console staging Stage B workflow dispatched for Kernel 0.13 revalidation.');
+          NODE
+      - name: Remove accidental temporary branch
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          const response = await fetch(`${process.env.GITHUB_API_URL}/repos/${process.env.GITHUB_REPOSITORY}/git/refs/heads/tmp-ignore`, {
+            method: 'DELETE',
+            headers: {
+              authorization: `Bearer ${process.env.GITHUB_TOKEN}`,
+              accept: 'application/vnd.github+json',
+              'x-github-api-version': '2022-11-28',
+            },
+          });
+          if (response.status !== 204 && response.status !== 422 && response.status !== 404) {
+            const text = await response.text();
+            throw new Error(`Could not remove tmp-ignore ref: ${response.status} ${text}`);
+          }
+          console.log('tmp-ignore cleanup completed or ref was already absent.');
+          NODE
