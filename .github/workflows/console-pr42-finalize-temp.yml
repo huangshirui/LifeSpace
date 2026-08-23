@@ -1,5 +1,6 @@
 name: Finalize Console PR 42 (temporary)
 
+# Second commit intentionally triggers this already-present temporary workflow.
 on:
   push:
     branches:
