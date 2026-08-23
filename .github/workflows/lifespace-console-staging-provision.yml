@@ -8,6 +8,11 @@ on:
         required: false
         default: ""
         type: string
+  push:
+    branches:
+      - feat/lifespace-console-ui-shell
+    paths:
+      - .github/workflows/lifespace-console-staging-provision.yml
 
 permissions:
   contents: read
