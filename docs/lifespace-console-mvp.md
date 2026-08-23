@@ -46,7 +46,7 @@ PR #42 已将 Console 所需的控制面安全基础合并到 `main`：
 - Identity/Core 独立 Platform Admin companion contracts `0.1.0`；
 - staging provisioning / verifier。
 
-Core Kernel `0.12.0` 与 Identity Application Contract `0.5.0` 不因为 Console 控制面变化而升级。
+Core Kernel 与 Identity Application Contract 不因 Console 控制面变化而升级；当前 Kernel 已由独立的 Data Grant 变更推进到 `0.13.0`，Identity Application Contract 仍为 `0.5.0`。
 
 ### Historical staging proving shell — completed bootstrap role
 
@@ -412,7 +412,7 @@ Console consumes privileged companion contracts rather than broadening downstrea
 Identity Application Contract:    0.5.0
 Identity Platform Admin Contract: 0.1.0
 
-Core Kernel Contract:             0.12.0
+Core Kernel Contract:             0.13.0
 Core Platform Admin Contract:     0.1.0
 Model Contract Revision:          mct_<hash>
 ```
