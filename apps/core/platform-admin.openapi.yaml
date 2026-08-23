@@ -180,7 +180,7 @@ components:
       name: applicationId
       in: path
       required: true
-      schema: { type: string, pattern: '^app_[A-Za-z0-9_-]{1,120}$' }
+      schema: { type: string, pattern: '^[A-Za-z0-9][A-Za-z0-9_-]{0,119}$' }
     SpaceId:
       name: spaceId
       in: path
@@ -233,7 +233,7 @@ components:
       additionalProperties: false
       required: [applicationId, modelKey, maxAccess, createdBy, createdAt, updatedAt]
       properties:
-        applicationId: { type: string, pattern: '^app_' }
+        applicationId: { type: string, pattern: '^[A-Za-z0-9][A-Za-z0-9_-]{0,119}$' }
         modelKey: { type: string, pattern: '^[a-z][a-z0-9_]{1,62}$' }
         maxAccess: { $ref: '#/components/schemas/AccessLevel' }
         createdBy:
@@ -270,7 +270,7 @@ components:
           additionalProperties: false
           required: [applicationId, models]
           properties:
-            applicationId: { type: string, pattern: '^app_' }
+            applicationId: { type: string, pattern: '^[A-Za-z0-9][A-Za-z0-9_-]{0,119}$' }
             models:
               type: array
               items: { $ref: '#/components/schemas/ApplicationModelAccessEntry' }
