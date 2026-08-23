@@ -36,16 +36,26 @@ function snapshot() {
   };
 }
 
-test("maps HomeMew external integration to service principal + Data Grant without copying credentials", () => {
+test("maps HomeMew external integration to stable scopes plus Space/model Data Grants without copying credentials", () => {
   const result = transformIntegrationSnapshot(snapshot(), mapping, "homemew-external");
   assert.match(result.identitySql, /INSERT INTO service_principals/);
   assert.match(result.identitySql, /homemew-external/);
-  assert.match(result.identitySql, /events:read/);
-  assert.match(result.identitySql, /events:write/);
+  assert.match(result.identitySql, /resources:read/);
+  assert.match(result.identitySql, /resources:write/);
+  assert.doesNotMatch(result.identitySql, /events:read|events:write|tasks:read/);
   assert.match(result.coreSql, /'service'/);
-  assert.match(result.coreSql, /'write'/);
+  assert.match(result.coreSql, /'space',NULL,'read'/);
+  assert.match(result.coreSql, /'model','event','write'/);
+  assert.match(result.coreSql, /'model','task','read'/);
+  assert.equal(result.manifest.version, 2);
   assert.equal(result.manifest.principals[0].spaceId, "spc_home");
-  assert.deepEqual(result.manifest.principals[0].scopes, ["spaces:read", "events:read", "events:write", "tasks:read"]);
+  assert.deepEqual(result.manifest.principals[0].scopes, ["spaces:read", "resources:read", "resources:write"]);
+  assert.deepEqual(result.manifest.principals[0].grants.map(({ resourceType, resourceId, permission }) => ({ resourceType, resourceId, permission })), [
+    { resourceType: "space", resourceId: null, permission: "read" },
+    { resourceType: "model", resourceId: "event", permission: "write" },
+    { resourceType: "model", resourceId: "task", permission: "read" },
+  ]);
+  assert.equal(result.report.grants, 3);
   assert.equal(result.manifest.credentials[0].requiresNewSecret, true);
   assert.equal(result.report.credentialsRequiringReplacement, 1);
   assert.equal(result.report.secretsCopied, 0);
@@ -64,11 +74,12 @@ test("requires write permission dependencies and mapped family/user references",
   assert.throws(() => transformIntegrationSnapshot(missingFamily, mapping), /unmapped family/);
 });
 
-test("disabled integration produces disabled principal and revoked grant", () => {
+test("disabled integration produces disabled principal and revoked Grants", () => {
   const disabled = snapshot();
   disabled.systemIdentities[0].status = "disabled";
   const result = transformIntegrationSnapshot(disabled, mapping);
   assert.match(result.identitySql, /'disabled'/);
   assert.match(result.coreSql, /2026-08-10T00:00:00\.000Z/);
   assert.equal(result.manifest.principals[0].status, "disabled");
+  assert.ok(result.manifest.principals[0].grants.length > 1);
 });
