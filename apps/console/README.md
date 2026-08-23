@@ -2,17 +2,19 @@
 
 LifeSpace Console is the platform operations/governance Web application for `lifespace.aisr.online`.
 
-The current `0.0.1` implementation is a **staging proving shell**, not the complete React/Vite MVP. Its Worker/BFF security and deployment boundary are intended to remain; the temporary static presentation layer will be replaced in the dedicated UI slice.
+The current `0.0.2` implementation is a **staging proving shell**, not the complete React/Vite MVP. Its Worker/BFF security and deployment boundary are intended to remain; the temporary static presentation layer will be replaced in the dedicated UI slice.
 
 ## Current routes
 
 ```text
-GET /api/health
-GET /api/session
-GET /api/platform/probe
+GET  /api/health
+GET  /api/session
+POST /api/session/register   # staging proving only
+GET  /api/platform/probe
 ```
 
 - `/api/session` reads the server-provided `Cf-Access-Jwt-Assertion`, forwards the raw assertion to LifeSpace Identity and returns only the resolved LifeSpace profile/state.
+- `/api/session/register` is a staging-only first-use onboarding endpoint. It requires an exact same-origin browser request plus an explicit intent header, then calls Identity's canonical `/internal/v1/access/registrations`. The browser chooses only a display name; it cannot choose a target `usr_*`, Access `sub`, email mapping or backend credential.
 - `/api/platform/probe` obtains a short-lived platform-admin actor proof server-side, then performs bounded read-only Identity/Core control-plane checks.
 - Access assertions, LifeSpace user tokens, actor proofs, application credentials and Core executor bearers are never returned to browser JavaScript.
 - The proving shell performs no model publication, Space mutation, credential mutation or arbitrary upstream proxying.
@@ -40,6 +42,23 @@ Cf-Access-Jwt-Assertion: <raw Access JWT>
 ```
 
 The Console Worker does not trust decoded Access identity fields. It passes the original assertion to Identity, which independently validates issuer, signature, lifetime, subject and registered audience before issuing a LifeSpace user credential.
+
+## First-use Access identity
+
+A valid Cloudflare Access session may still be unknown to LifeSpace Identity. That state is intentional: email is non-authoritative and LifeSpace never auto-creates or auto-merges users from Access claims.
+
+The canonical Identity model remains:
+
+```text
+unknown verified Access principal
+  -> explicit create-new-user
+  OR
+  -> proof-backed link-existing-user challenge
+```
+
+For this staging proving shell only, an unlinked principal may explicitly choose **Create staging LifeSpace user**. The BFF then forwards the current raw Access assertion plus the entered display name to Identity. Identity atomically creates the new `usr_*` and `(iss, sub)` mapping. The endpoint is unavailable in production.
+
+If the operator already has a staging LifeSpace user, they must **not** create another one. Existing-account linking remains the proof-backed `access-link-challenges` flow confirmed by an already-authenticated LifeSpace user token; the Console does not accept a typed/picked `userId` as proof.
 
 ## Runtime bindings and secrets
 
@@ -112,7 +131,7 @@ The workflow will:
 
 Stage A does **not** assign platform-admin authority and does not create a Core executor.
 
-After it succeeds, open the staging Console through Cloudflare Access. `/api/session` displays the globally resolved LifeSpace `usr_*` for the verified Access principal.
+After it succeeds, open the staging Console through Cloudflare Access. If `/api/session` is already linked, it displays the resolved LifeSpace `usr_*`. If it is unlinked and the Access identity has no existing staging LifeSpace user, explicitly create one in the Session card; the page then displays the newly created `usr_*`.
 
 ### Stage B — full platform-admin proving
 
@@ -143,8 +162,9 @@ After Stage A:
 ```text
 Open https://lifespace-staging.aisr.online
 -> pass Cloudflare Access
--> confirm /api/session is linked
--> copy the displayed usr_*
+-> if linked: read the displayed usr_*
+-> if unlinked and no existing staging user: explicitly create staging user
+-> read the resulting usr_*
 ```
 
 After Stage B:
@@ -157,8 +177,6 @@ Open the Console again
 ```
 
 For scripted allow/deny E2E, `infra/scripts/verify-staging-console-admin.mjs` can additionally use a real raw Access assertion.
-
-If the Access principal is valid but not linked, the Console returns an explicit account-link-required state. It does not create or merge a LifeSpace account by email.
 
 ## Canonical provisioning scripts
 
@@ -194,7 +212,7 @@ Identity: http://127.0.0.1:8788
 Core:     http://127.0.0.1:8787
 ```
 
-Set local Worker secrets through Wrangler development secrets/environment rather than source code. A local request without a valid Access assertion intentionally fails `/api/session` and `/api/platform/probe`; `/api/health` remains available for shell/build verification.
+Set local Worker secrets through Wrangler development secrets/environment rather than source code. A local request without a valid Access assertion intentionally fails `/api/session` and `/api/platform/probe`; `/api/health` remains available for shell/build verification. The staging registration endpoint is disabled outside staging.
 
 ## Final frontend direction
 
