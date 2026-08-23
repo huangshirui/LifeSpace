@@ -27,11 +27,13 @@ export class ConsoleApiError extends Error {
   }
 }
 
-async function request<T>(path: string): Promise<T> {
+async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const headers = new Headers(init.headers);
+  headers.set("accept", "application/json");
   const response = await fetch(path, {
-    method: "GET",
+    ...init,
     credentials: "same-origin",
-    headers: { accept: "application/json" },
+    headers,
   });
   const payload = await response.json().catch(() => null) as Envelope<T> | ErrorEnvelope | null;
   if (!response.ok) {
@@ -49,6 +51,14 @@ async function request<T>(path: string): Promise<T> {
 
 export const consoleApi = {
   session: () => request<ConsoleSession>("/api/session"),
+  registerSession: (displayName: string) => request<ConsoleSession>("/api/session/register", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-lifespace-console-intent": "register-current-access-principal",
+    },
+    body: JSON.stringify({ displayName }),
+  }),
   overview: () => request<OverviewData>("/api/overview"),
   applications: () => request<Application[]>("/api/applications"),
   application: (applicationId: string) => request<ApplicationDetail>(`/api/applications/${encodeURIComponent(applicationId)}`),
