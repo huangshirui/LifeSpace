@@ -1,0 +1,234 @@
+name: Provision HomeMew Web staging
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/homemew-web-staging-provision.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: homemew-web-staging-provision
+  cancel-in-progress: false
+
+jobs:
+  provision:
+    name: Provision and deploy HomeMew Web staging
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    environment: staging
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID || secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_ENV: staging
+      LIFESPACE_STAGING_BOOTSTRAP_SECRET: ${{ secrets.LIFESPACE_STAGING_BOOTSTRAP_SECRET }}
+      LIFESPACE_IDENTITY_STAGING_URL: https://auth-staging.aisr.online
+      LIFESPACE_STAGING_ACCESS_AUD: 645c12c44fa8eb1229d7a2cfc0320913df4e852ecfd9a5407accc11b589084c8
+      LIFESPACE_STAGING_WEB_APPLICATION_ID: app_homemew_web_staging
+      LIFESPACE_STAGING_WEB_APPLICATION_NAME: HomeMew Web staging
+
+    steps:
+      - name: Checkout LifeSpace
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Validate staging authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${CLOUDFLARE_API_TOKEN:-}" || { echo "CLOUDFLARE_API_TOKEN is not configured" >&2; exit 1; }
+          test -n "${CLOUDFLARE_ACCOUNT_ID:-}" || { echo "CLOUDFLARE_ACCOUNT_ID is not configured" >&2; exit 1; }
+          test ${#LIFESPACE_STAGING_BOOTSTRAP_SECRET} -ge 32 || { echo "LIFESPACE_STAGING_BOOTSTRAP_SECRET must be at least 32 characters" >&2; exit 1; }
+
+      - name: Register LifeSpace Web application and Access audience
+        run: node infra/scripts/prepare-staging-web-access.mjs
+
+      - name: Ensure deployable LifeSpace application credential
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+
+          const base = process.env.LIFESPACE_IDENTITY_STAGING_URL.replace(/\/+$/u, '');
+          const appId = process.env.LIFESPACE_STAGING_WEB_APPLICATION_ID;
+          const bootstrap = process.env.LIFESPACE_STAGING_BOOTSTRAP_SECRET;
+          const headers = { accept: 'application/json', 'x-bootstrap-secret': bootstrap };
+
+          async function request(path, options = {}) {
+            const response = await fetch(`${base}${path}`, {
+              method: options.method ?? 'GET',
+              headers: {
+                ...headers,
+                ...(options.body === undefined ? {} : { 'content-type': 'application/json' }),
+              },
+              ...(options.body === undefined ? {} : { body: JSON.stringify(options.body) }),
+            });
+            const text = await response.text();
+            const payload = text ? JSON.parse(text) : null;
+            return { response, payload };
+          }
+
+          const listPath = `/bootstrap/v1/applications/${encodeURIComponent(appId)}/credentials`;
+          const listed = await request(listPath);
+          if (listed.response.status !== 200 || !Array.isArray(listed.payload?.data)) {
+            throw new Error(`Could not list HomeMew Web credentials: ${listed.response.status}`);
+          }
+
+          let active = listed.payload.data.filter((entry) => entry?.status === 'active' && entry?.revokedAt == null);
+          let credential = process.env.LIFESPACE_STAGING_WEB_APPLICATION_CREDENTIAL?.trim() || '';
+          let currentCredentialId = '';
+
+          if (credential) {
+            const suffix = credential.slice(-8);
+            const matches = active.filter((entry) => entry?.secretSuffix === suffix);
+            if (matches.length !== 1) {
+              throw new Error('Could not identify the freshly-created HomeMew Web credential by suffix');
+            }
+            currentCredentialId = matches[0].id;
+          } else {
+            const created = await request(listPath, { method: 'POST' });
+            if (created.response.status !== 201 || !created.payload?.data?.clientSecret?.startsWith('lsa_')) {
+              throw new Error(`Could not rotate HomeMew Web credential: ${created.response.status}`);
+            }
+            credential = created.payload.data.clientSecret;
+            currentCredentialId = created.payload.data.id;
+            active = [...active, created.payload.data];
+          }
+
+          console.log(`::add-mask::${credential}`);
+          const previousIds = active
+            .filter((entry) => entry.id !== currentCredentialId)
+            .map((entry) => entry.id)
+            .join(',');
+
+          fs.appendFileSync(process.env.GITHUB_ENV, `LIFESPACE_STAGING_WEB_APPLICATION_CREDENTIAL=${credential}\n`, 'utf8');
+          fs.appendFileSync(process.env.GITHUB_ENV, `LIFESPACE_STAGING_WEB_CURRENT_CREDENTIAL_ID=${currentCredentialId}\n`, 'utf8');
+          fs.appendFileSync(process.env.GITHUB_ENV, `LIFESPACE_STAGING_WEB_OLD_CREDENTIAL_IDS=${previousIds}\n`, 'utf8');
+          NODE
+
+      - name: Checkout HomeMew main
+        uses: actions/checkout@v4
+        with:
+          repository: huangshirui/HomeMew
+          ref: main
+          path: homemew
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install HomeMew dependencies
+        working-directory: homemew
+        run: corepack pnpm install --frozen-lockfile
+
+      - name: Validate HomeMew Web
+        working-directory: homemew
+        run: |
+          corepack pnpm test:web
+          corepack pnpm typecheck:web
+
+      - name: Prepare ephemeral Worker secrets file
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import crypto from 'node:crypto';
+          import fs from 'node:fs';
+          import path from 'node:path';
+
+          const applicationCredential = process.env.LIFESPACE_STAGING_WEB_APPLICATION_CREDENTIAL;
+          if (!applicationCredential?.startsWith('lsa_')) {
+            throw new Error('HomeMew Web application credential was not produced by LifeSpace provisioning');
+          }
+
+          const sessionSecret = crypto.randomBytes(48).toString('base64url');
+          console.log(`::add-mask::${applicationCredential}`);
+          console.log(`::add-mask::${sessionSecret}`);
+
+          const output = path.join(process.env.RUNNER_TEMP, 'homemew-web-staging-secrets.json');
+          fs.writeFileSync(output, JSON.stringify({
+            LIFESPACE_APPLICATION_CREDENTIAL: applicationCredential,
+            WEB_SESSION_SECRET: sessionSecret,
+          }), { encoding: 'utf8', mode: 0o600, flag: 'wx' });
+          fs.appendFileSync(process.env.GITHUB_ENV, `HOMEMEW_WEB_STAGING_SECRETS_FILE=${output}\n`, 'utf8');
+          NODE
+
+      - name: Build HomeMew Web for staging
+        working-directory: homemew/apps/web
+        run: corepack pnpm build
+
+      - name: Deploy HomeMew Web staging with Worker secrets
+        working-directory: homemew/apps/web
+        run: >-
+          corepack pnpm exec wrangler deploy
+          --secrets-file "$HOMEMEW_WEB_STAGING_SECRETS_FILE"
+
+      - name: Verify staging hostname is live
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 20); do
+            if code="$(curl --silent --show-error --head --output /dev/null --write-out '%{http_code}' --connect-timeout 5 --max-time 10 https://homemew-web-staging.aisr.online/health)"; then
+              if [ "$code" -ge 200 ] && [ "$code" -lt 500 ]; then
+                echo "homemew-web-staging.aisr.online is reachable (HTTP $code; Access may redirect/deny unauthenticated CI)"
+                exit 0
+              fi
+            fi
+            echo "Waiting for HomeMew Web staging hostname (${attempt}/20)"
+            sleep 3
+          done
+          echo "HomeMew Web staging hostname did not become reachable" >&2
+          exit 1
+
+      - name: Revoke superseded LifeSpace application credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          const oldIds = (process.env.LIFESPACE_STAGING_WEB_OLD_CREDENTIAL_IDS ?? '').split(',').filter(Boolean);
+          if (!oldIds.length) process.exit(0);
+
+          const base = process.env.LIFESPACE_IDENTITY_STAGING_URL.replace(/\/+$/u, '');
+          const appId = process.env.LIFESPACE_STAGING_WEB_APPLICATION_ID;
+          for (const credentialId of oldIds) {
+            const response = await fetch(
+              `${base}/bootstrap/v1/applications/${encodeURIComponent(appId)}/credentials/${encodeURIComponent(credentialId)}`,
+              { method: 'DELETE', headers: { 'x-bootstrap-secret': process.env.LIFESPACE_STAGING_BOOTSTRAP_SECRET } },
+            );
+            if (response.status !== 204 && response.status !== 404) {
+              throw new Error(`Could not revoke superseded credential ${credentialId}: ${response.status}`);
+            }
+          }
+          NODE
+
+      - name: Remove ephemeral secrets file
+        if: ${{ always() }}
+        shell: bash
+        run: rm -f "${HOMEMEW_WEB_STAGING_SECRETS_FILE:-$RUNNER_TEMP/homemew-web-staging-secrets.json}"
+
+      - name: Summarize staging provisioning
+        if: ${{ success() }}
+        shell: bash
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<'EOF'
+          ## HomeMew Web staging
+
+          - LifeSpace application: `app_homemew_web_staging`
+          - Access AUD: `645c12c44fa8eb1229d7a2cfc0320913df4e852ecfd9a5407accc11b589084c8`
+          - Worker: `homemew-web-staging`
+          - Web hostname: `homemew-web-staging.aisr.online`
+          - HomeMew source: `huangshirui/HomeMew@main`
+          - Cloudflare Vite/Wrangler environment: `staging` for both build and deploy
+          - LifeSpace application credential: freshly created or recovered in-run, installed as a Worker Secret, older active credentials revoked only after deployment verification
+          - Web session secret: generated in-run and installed as a Worker Secret without plaintext output
+          - Production resources/routes: untouched
+          - Next verification: real browser Cloudflare Access -> LifeSpace Identity -> HomeMew app-session E2E
+          EOF
