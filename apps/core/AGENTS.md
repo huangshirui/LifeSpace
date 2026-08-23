@@ -85,8 +85,10 @@ Rules:
 - request `userId` is never current actor identity;
 - revoking membership/Grant/model access must take effect from current state;
 - Core normalizes verified RS256 JWTs and Identity-introspected opaque `lsp_pat_*` tokens into one principal context;
-- Core must not read Identity D1 or persist Identity credential hashes;
 - service credentials still require explicit application/Data Grant/model authority;
+- whole-Space Data Grants use `resource_type=space, resource_id=NULL`;
+- model-collection Data Grants use `resource_type=model, resource_id=<published model key>` and authorize only Generic Runtime access to that model in the source Space;
+- a model operation may use either a matching model-collection Grant or a whole-Space Grant, taking the highest current active permission; Kernel Space/membership APIs never treat a model-collection Grant as Space authority;
 - no service/platform executor becomes a hidden Space member.
 
 ## Platform administration
@@ -145,7 +147,7 @@ Business-facing Core Kernel contract:
 
 ```text
 apps/core/openapi.yaml
-current Kernel version: 0.12.0
+current Kernel version: 0.13.0
 ```
 
 Privileged LifeSpace Console control-plane contract:

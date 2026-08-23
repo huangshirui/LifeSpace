@@ -3,16 +3,16 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import path from "node:path";
 
-const PERMISSION_SCOPE_MAP = new Map([
-  ["family:read", "spaces:read"],
-  ["events:read", "events:read"],
-  ["events:write", "events:write"],
-  ["tasks:read", "tasks:read"],
-  ["tasks:write", "tasks:write"],
-  ["day-records:read", "day-records:read"],
-  ["day-records:write", "day-records:write"],
+const LEGACY_MODEL_PERMISSIONS = new Map([
+  ["events:read", { modelKey: "event", permission: "read" }],
+  ["events:write", { modelKey: "event", permission: "write" }],
+  ["tasks:read", { modelKey: "task", permission: "read" }],
+  ["tasks:write", { modelKey: "task", permission: "write" }],
+  ["day-records:read", { modelKey: "day_record", permission: "read" }],
+  ["day-records:write", { modelKey: "day_record", permission: "write" }],
 ]);
-const WRITE_SCOPES = new Set(["events:write", "tasks:write", "day-records:write"]);
+const SUPPORTED_PERMISSIONS = new Set(["family:read", ...LEGACY_MODEL_PERMISSIONS.keys()]);
+const permissionRank = { read: 1, write: 2 };
 
 function fail(message) { throw new Error(`HomeMew integration snapshot is invalid: ${message}`); }
 function array(value, field) { if (!Array.isArray(value)) fail(`${field} must be an array`); return value; }
@@ -43,12 +43,27 @@ function unique(items, field) {
 function permissions(value, field) {
   const values = array(value, field).map((permission, index) => string(permission, `${field}[${index}]`));
   if (new Set(values).size !== values.length) fail(`${field} contains duplicates`);
-  for (const permission of values) if (!PERMISSION_SCOPE_MAP.has(permission)) fail(`${field} contains unsupported permission ${permission}`);
-  const scopes = values.map((permission) => PERMISSION_SCOPE_MAP.get(permission));
-  for (const write of ["events", "tasks", "day-records"]) {
-    if (scopes.includes(`${write}:write`) && !scopes.includes(`${write}:read`)) fail(`${field} ${write}:write requires ${write}:read`);
+  for (const permission of values) if (!SUPPORTED_PERMISSIONS.has(permission)) fail(`${field} contains unsupported permission ${permission}`);
+  for (const model of ["events", "tasks", "day-records"]) {
+    if (values.includes(`${model}:write`) && !values.includes(`${model}:read`)) fail(`${field} ${model}:write requires ${model}:read`);
   }
-  return scopes;
+
+  const modelGrants = new Map();
+  for (const legacyPermission of values) {
+    const mapped = LEGACY_MODEL_PERMISSIONS.get(legacyPermission);
+    if (!mapped) continue;
+    const current = modelGrants.get(mapped.modelKey);
+    if (!current || permissionRank[mapped.permission] > permissionRank[current]) modelGrants.set(mapped.modelKey, mapped.permission);
+  }
+  const scopes = [];
+  if (values.includes("family:read")) scopes.push("spaces:read");
+  if (modelGrants.size) scopes.push("resources:read");
+  if ([...modelGrants.values()].some((permission) => permission === "write")) scopes.push("resources:write");
+  return {
+    scopes,
+    wholeSpacePermission: values.includes("family:read") ? "read" : null,
+    modelGrants: [...modelGrants.entries()].map(([modelKey, permission]) => ({ modelKey, permission })),
+  };
 }
 
 export function transformIntegrationSnapshot(snapshot, familyMapping, clientId = "homemew-external") {
@@ -80,6 +95,7 @@ export function transformIntegrationSnapshot(snapshot, familyMapping, clientId =
   const coreSql = ["PRAGMA foreign_keys = ON;", "BEGIN TRANSACTION;"];
   const principalMappings = [];
   const credentialMappings = [];
+  let grantCount = 0;
 
   for (const system of systems) {
     const familyId = string(system.familyId, `system ${system.id}.familyId`);
@@ -90,9 +106,8 @@ export function transformIntegrationSnapshot(snapshot, familyMapping, clientId =
     if (!["active", "disabled", "deleted"].includes(system.status)) fail(`system ${system.id} has invalid status`);
     const createdBy = userMap.get(string(system.createdByUserId, `system ${system.id}.createdByUserId`));
     if (!createdBy) fail(`system ${system.id} references unmapped creator ${system.createdByUserId}`);
-    const scopes = permissions(access.permissions, `system ${system.id}.permissions`);
+    const authority = permissions(access.permissions, `system ${system.id}.permissions`);
     const principalId = deterministicId("svc", "homemew-system", system.id);
-    const grantId = deterministicId("grt", "homemew-system-grant", system.id);
     const active = system.status === "active" && access.status === "active";
     const createdAt = instant(system.createdAt, `system ${system.id}.createdAt`);
     const updatedAt = instant(system.updatedAt, `system ${system.id}.updatedAt`);
@@ -100,13 +115,43 @@ export function transformIntegrationSnapshot(snapshot, familyMapping, clientId =
     const description = system.description === null || system.description === undefined ? null : String(system.description).trim() || null;
     if (description && description.length > 500) fail(`system ${system.id}.description is too long`);
     identitySql.push(`INSERT INTO service_principals(id,application_id,display_name,description,max_scopes,status,created_by_user_id,created_at,updated_at,disabled_at) VALUES(${[
-      principalId, clientId, string(system.name, `system ${system.id}.name`), description, JSON.stringify(scopes), active ? "active" : "disabled", createdBy, createdAt, updatedAt, disabledAt,
+      principalId, clientId, string(system.name, `system ${system.id}.name`), description, JSON.stringify(authority.scopes), active ? "active" : "disabled", createdBy, createdAt, updatedAt, disabledAt,
     ].map(sql).join(",")});`);
-    const permission = scopes.some((scope) => WRITE_SCOPES.has(scope)) ? "write" : "read";
-    coreSql.push(`INSERT INTO data_grants(id,source_space_id,grantee_type,grantee_id,resource_type,resource_id,permission,created_by_user_id,created_at,expires_at,revoked_at) VALUES(${[
-      grantId, familyMap.get(familyId), "service", principalId, "space", null, permission, createdBy, access.createdAt ?? createdAt, null, active ? null : (access.updatedAt ?? updatedAt),
-    ].map(sql).join(",")});`);
-    principalMappings.push({ legacySystemId: system.id, servicePrincipalId: principalId, legacyFamilyId: familyId, spaceId: familyMap.get(familyId), grantId, scopes, grantPermission: permission, status: active ? "active" : "disabled" });
+
+    const grants = [];
+    const revokedAt = active ? null : (access.updatedAt ?? updatedAt);
+    const grantCreatedAt = access.createdAt ?? createdAt;
+    if (authority.wholeSpacePermission) {
+      grants.push({
+        id: deterministicId("grt", "homemew-system-space-grant", system.id),
+        resourceType: "space",
+        resourceId: null,
+        permission: authority.wholeSpacePermission,
+      });
+    }
+    for (const modelGrant of authority.modelGrants) {
+      grants.push({
+        id: deterministicId("grt", `homemew-system-model-grant:${modelGrant.modelKey}`, system.id),
+        resourceType: "model",
+        resourceId: modelGrant.modelKey,
+        permission: modelGrant.permission,
+      });
+    }
+    for (const grant of grants) {
+      coreSql.push(`INSERT INTO data_grants(id,source_space_id,grantee_type,grantee_id,resource_type,resource_id,permission,created_by_user_id,created_at,expires_at,revoked_at) VALUES(${[
+        grant.id, familyMap.get(familyId), "service", principalId, grant.resourceType, grant.resourceId, grant.permission, createdBy, grantCreatedAt, null, revokedAt,
+      ].map(sql).join(",")});`);
+      grantCount += 1;
+    }
+    principalMappings.push({
+      legacySystemId: system.id,
+      servicePrincipalId: principalId,
+      legacyFamilyId: familyId,
+      spaceId: familyMap.get(familyId),
+      scopes: authority.scopes,
+      grants,
+      status: active ? "active" : "disabled",
+    });
   }
 
   for (const credential of credentials) {
@@ -131,7 +176,7 @@ export function transformIntegrationSnapshot(snapshot, familyMapping, clientId =
   coreSql.push("COMMIT;");
 
   const manifest = {
-    version: 1,
+    version: 2,
     source: { schemaVersion: "11", exportedAt: migratedAt, commit: snapshot.source?.commit ?? null },
     clientId,
     principals: principalMappings,
@@ -141,11 +186,12 @@ export function transformIntegrationSnapshot(snapshot, familyMapping, clientId =
     status: "ready_requires_credential_rotation",
     principals: principalMappings.length,
     activePrincipals: principalMappings.filter((entry) => entry.status === "active").length,
-    grants: principalMappings.length,
+    grants: grantCount,
     legacyCredentials: credentialMappings.length,
     credentialsRequiringReplacement: credentialMappings.filter((entry) => entry.legacyStatus === "active").length,
     secretsCopied: 0,
     notes: [
+      "Legacy HomeMew model permissions are preserved as model-scoped LifeSpace Data Grants, not model-specific token scopes.",
       "Legacy HomeMew credential plaintext and hashes are intentionally not copied.",
       "Issue a new lsp_pat_* token or OAuth client credential for every active integration before cutover.",
       "Revoke old HomeMew credentials only after LifeSpace staging verification and the production rollback window.",
