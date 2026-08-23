@@ -1,0 +1,153 @@
+name: Console UI prerequisite patch (temporary)
+
+on:
+  push:
+    branches:
+      - feat/lifespace-console-ui-shell
+    paths:
+      - .github/workflows/console-ui-prereq-temp.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/lifespace-console-ui-shell
+          fetch-depth: 0
+
+      - name: Patch existing application-id compatibility
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          runtime_replacements = {
+              'apps/identity/src/platform-admin.ts': [
+                  ('/^app_[A-Za-z0-9_-]{1,120}$/u', '/^[A-Za-z0-9][A-Za-z0-9_-]{0,119}$/u'),
+              ],
+              'apps/identity/src/platform-service-admin.ts': [
+                  ('/^app_[A-Za-z0-9_-]{1,120}$/u', '/^[A-Za-z0-9][A-Za-z0-9_-]{0,119}$/u'),
+              ],
+              'apps/core/src/platform-admin.ts': [
+                  ('/^app_[A-Za-z0-9_-]{1,120}$/u', '/^[A-Za-z0-9][A-Za-z0-9_-]{0,119}$/u'),
+              ],
+          }
+          for filename, replacements in runtime_replacements.items():
+              path = Path(filename)
+              text = path.read_text()
+              for old, new in replacements:
+                  if old not in text:
+                      raise SystemExit(f'{filename}: expected pattern not found: {old}')
+                  text = text.replace(old, new)
+              path.write_text(text)
+
+          contract_replacements = {
+              'apps/identity/platform-admin.openapi.yaml': [
+                  ("pattern: '^app_[A-Za-z0-9_-]{1,120}$'", "pattern: '^[A-Za-z0-9][A-Za-z0-9_-]{0,119}$'"),
+                  ("applicationId: { type: string, pattern: '^app_' }", "applicationId: { type: string, pattern: '^[A-Za-z0-9][A-Za-z0-9_-]{0,119}$' }"),
+              ],
+              'apps/core/platform-admin.openapi.yaml': [
+                  ("pattern: '^app_[A-Za-z0-9_-]{1,120}$'", "pattern: '^[A-Za-z0-9][A-Za-z0-9_-]{0,119}$'"),
+                  ("applicationId: { type: string, pattern: '^app_' }", "applicationId: { type: string, pattern: '^[A-Za-z0-9][A-Za-z0-9_-]{0,119}$' }"),
+              ],
+          }
+          for filename, replacements in contract_replacements.items():
+              path = Path(filename)
+              text = path.read_text()
+              for old, new in replacements:
+                  count = text.count(old)
+                  if count < 1:
+                      raise SystemExit(f'{filename}: expected contract pattern not found: {old}')
+                  text = text.replace(old, new)
+              path.write_text(text)
+
+          core_test = Path('apps/core/test/platform-admin.integration.test.ts')
+          text = core_test.read_text()
+          old = 'const target = `app_target_${crypto.randomUUID().replaceAll("-", "")}`;'
+          if text.count(old) != 2:
+              raise SystemExit('Core platform-admin test target pattern count changed')
+          text = text.replace(old, 'const target = `legacy-target-${crypto.randomUUID().replaceAll("-", "")}`;')
+          core_test.write_text(text)
+
+          service_test = Path('apps/identity/test/platform-service-admin.integration.test.ts')
+          text = service_test.read_text()
+          old = 'const targetId = `app_service_target_${crypto.randomUUID().replaceAll("-", "")}`;'
+          if text.count(old) != 1:
+              raise SystemExit('Identity service-admin target pattern count changed')
+          text = text.replace(old, 'const targetId = `legacy-service-target-${crypto.randomUUID().replaceAll("-", "")}`;')
+          service_test.write_text(text)
+
+          admin_test = Path('apps/identity/test/platform-admin.integration.test.ts')
+          text = admin_test.read_text()
+          marker = '\n});\n'
+          if not text.endswith(marker):
+              raise SystemExit('Identity platform-admin test ending changed')
+          test = r'''
+
+  it("reads and updates an existing semantic application id while new ids remain app_*", async () => {
+    const pair = await keys();
+    const console = await provisionConsole(pair);
+    const applicationId = `legacy-web-${crypto.randomUUID().replaceAll("-", "")}`;
+    const created = await request("/bootstrap/v1/applications", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-bootstrap-secret": "bootstrap-test" },
+      body: JSON.stringify({
+        id: applicationId,
+        name: "Legacy Semantic Web App",
+        clientType: "web",
+        trustedBackend: true,
+        allowedScopes: ["profile:read"],
+        accessTokenTtlSeconds: 900,
+      }),
+    }, pair);
+    expect(created.status).toBe(201);
+
+    const read = await request(`/internal/v1/platform-admin/applications/${applicationId}`, {
+      method: "GET",
+      headers: adminHeaders(console.applicationSecret, console.actorToken),
+    }, pair);
+    expect(read.status).toBe(200);
+    expect((await read.json() as any).data.id).toBe(applicationId);
+
+    const updated = await request(`/internal/v1/platform-admin/applications/${applicationId}`, {
+      method: "PATCH",
+      headers: { ...adminHeaders(console.applicationSecret, console.actorToken), "content-type": "application/json" },
+      body: JSON.stringify({ name: "Legacy Semantic Web App Updated" }),
+    }, pair);
+    expect(updated.status).toBe(200);
+    expect((await updated.json() as any).data).toMatchObject({ id: applicationId, name: "Legacy Semantic Web App Updated" });
+  });
+'''
+          text = text[:-len(marker)] + test + marker
+          admin_test.write_text(text)
+          PY
+
+          git diff --check
+
+      - name: Run targeted contract and platform-admin tests
+        run: |
+          corepack enable
+          corepack prepare pnpm@10.13.1 --activate
+          pnpm install --frozen-lockfile
+          pnpm --filter @lifespace/identity contract
+          pnpm --filter @lifespace/core contract
+          pnpm --filter @lifespace/identity test -- platform-admin.integration.test.ts platform-service-admin.integration.test.ts
+          pnpm --filter @lifespace/core test -- platform-admin.integration.test.ts
+
+      - name: Commit prerequisite fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add apps/identity/src/platform-admin.ts apps/identity/src/platform-service-admin.ts apps/core/src/platform-admin.ts \
+            apps/identity/platform-admin.openapi.yaml apps/core/platform-admin.openapi.yaml \
+            apps/identity/test/platform-admin.integration.test.ts apps/identity/test/platform-service-admin.integration.test.ts \
+            apps/core/test/platform-admin.integration.test.ts
+          git commit -m "fix(console): support existing semantic application ids"
+          git push origin HEAD:feat/lifespace-console-ui-shell
