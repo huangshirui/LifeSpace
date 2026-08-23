@@ -75,10 +75,14 @@ export async function requireModelAccess(
   }
   const grantIndex = statements.length;
   statements.push(env.DB.prepare(`SELECT permission FROM data_grants
-    WHERE source_space_id=? AND grantee_type=? AND grantee_id=? AND resource_type='space' AND resource_id IS NULL
+    WHERE source_space_id=? AND grantee_type=? AND grantee_id=?
+      AND (
+        (resource_type='space' AND resource_id IS NULL)
+        OR (resource_type='model' AND resource_id=?)
+      )
       AND revoked_at IS NULL AND (expires_at IS NULL OR julianday(expires_at)>julianday('now'))
     ORDER BY CASE permission WHEN 'manage' THEN 4 WHEN 'write' THEN 3 WHEN 'read' THEN 2 ELSE 1 END DESC LIMIT 1`)
-    .bind(spaceId, principal.type, principal.id));
+    .bind(spaceId, principal.type, principal.id, model.key));
   const personIndex = principal.type === "user" ? statements.length : -1;
   if (principal.type === "user") {
     statements.push(env.DB.prepare(`SELECT id FROM space_people
