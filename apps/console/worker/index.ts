@@ -29,8 +29,10 @@ type UnlinkedSession = {
 
 const IDENTITY_PLATFORM_ADMIN_CONTRACT = "0.1.0";
 const CORE_PLATFORM_ADMIN_CONTRACT = "0.1.0";
-const CONSOLE_VERSION = "0.0.1";
+const CONSOLE_VERSION = "0.0.2";
 const ACCESS_ASSERTION_HEADER = "cf-access-jwt-assertion";
+const REGISTRATION_INTENT_HEADER = "x-lifespace-console-intent";
+const REGISTRATION_INTENT = "register-staging-user";
 
 function isRecord(value: unknown): value is JsonRecord {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -108,6 +110,46 @@ function accessAssertion(request: Request): string | null {
   return value;
 }
 
+function requireSameOriginRegistration(request: Request): Response | null {
+  const url = new URL(request.url);
+  const origin = request.headers.get("origin")?.trim() ?? "";
+  const fetchSite = request.headers.get("sec-fetch-site")?.trim() ?? "";
+  const intent = request.headers.get(REGISTRATION_INTENT_HEADER)?.trim() ?? "";
+  const contentType = request.headers.get("content-type")?.toLowerCase() ?? "";
+
+  if (origin !== url.origin || fetchSite !== "same-origin" || intent !== REGISTRATION_INTENT || !contentType.startsWith("application/json")) {
+    return failure("INVALID_BROWSER_MUTATION", "Registration requires an exact same-origin Console request", 403, requestId(request));
+  }
+  return null;
+}
+
+function normalizeDisplayName(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const displayName = value.trim();
+  return displayName && displayName.length <= 50 ? displayName : null;
+}
+
+async function profileFromUserToken(request: Request, env: Env, userToken: string): Promise<LinkedSession["user"] | Response> {
+  const profile = await serviceRequest(env.IDENTITY, env.IDENTITY_BASE_URL, "/api/v1/me", {
+    headers: { authorization: `Bearer ${userToken}`, accept: "application/json" },
+  });
+  if (profile.response.status !== 200) {
+    const error = upstreamError(profile.payload);
+    return failure(error?.code ?? "PROFILE_LOOKUP_FAILED", error?.message ?? "LifeSpace profile lookup failed", 502, error?.requestId ?? requestId(request));
+  }
+  const profileData = dataRecord(profile.payload);
+  const id = stringValue(profileData?.id);
+  const displayName = stringValue(profileData?.displayName);
+  const status = stringValue(profileData?.status);
+  if (!id || !displayName || !status) return failure("IDENTITY_RESPONSE_INVALID", "LifeSpace Identity returned an invalid profile", 502, requestId(request));
+  return {
+    id,
+    displayName,
+    avatarUrl: typeof profileData?.avatarUrl === "string" ? profileData.avatarUrl : null,
+    status,
+  };
+}
+
 async function exchangeAccess(request: Request, env: Env): Promise<LinkedSession | UnlinkedSession | Response> {
   const assertion = accessAssertion(request);
   if (!assertion) {
@@ -148,29 +190,69 @@ async function exchangeAccess(request: Request, env: Env): Promise<LinkedSession
   const userToken = stringValue(exchangeData?.accessToken);
   if (!userToken) return failure("IDENTITY_RESPONSE_INVALID", "LifeSpace Identity returned an invalid user credential response", 502, requestId(request));
 
-  const profile = await serviceRequest(env.IDENTITY, env.IDENTITY_BASE_URL, "/api/v1/me", {
-    headers: { authorization: `Bearer ${userToken}`, accept: "application/json" },
-  });
-  if (profile.response.status !== 200) {
-    const error = upstreamError(profile.payload);
-    return failure(error?.code ?? "PROFILE_LOOKUP_FAILED", error?.message ?? "LifeSpace profile lookup failed", 502, error?.requestId ?? requestId(request));
-  }
-  const profileData = dataRecord(profile.payload);
-  const id = stringValue(profileData?.id);
-  const displayName = stringValue(profileData?.displayName);
-  const status = stringValue(profileData?.status);
-  if (!id || !displayName || !status) return failure("IDENTITY_RESPONSE_INVALID", "LifeSpace Identity returned an invalid profile", 502, requestId(request));
+  const user = await profileFromUserToken(request, env, userToken);
+  if (user instanceof Response) return user;
 
-  return {
-    status: "linked",
-    userToken,
-    user: {
-      id,
-      displayName,
-      avatarUrl: typeof profileData?.avatarUrl === "string" ? profileData.avatarUrl : null,
-      status,
+  return { status: "linked", userToken, user };
+}
+
+async function registerAccessUser(request: Request, env: Env): Promise<Response> {
+  if (environment(env) !== "staging") {
+    return failure("REGISTRATION_NOT_AVAILABLE", "Console first-use registration is available only in staging proving", 404, requestId(request));
+  }
+  const browserGuard = requireSameOriginRegistration(request);
+  if (browserGuard) return browserGuard;
+
+  const assertion = accessAssertion(request);
+  if (!assertion) return failure("ACCESS_ASSERTION_REQUIRED", "Cloudflare Access assertion is required", 401, requestId(request));
+
+  const body = await request.json<unknown>().catch(() => null);
+  const displayName = isRecord(body) ? normalizeDisplayName(body.displayName) : null;
+  if (!displayName) return failure("VALIDATION_ERROR", "displayName must contain 1-50 characters", 422, requestId(request));
+
+  let applicationCredential: string;
+  try { applicationCredential = requiredSecret(env.IDENTITY_APPLICATION_CREDENTIAL, "IDENTITY_APPLICATION_CREDENTIAL"); }
+  catch {
+    return failure("CONSOLE_NOT_CONFIGURED", "Console Identity executor is not configured", 503, requestId(request));
+  }
+
+  const registration = await serviceRequest(env.IDENTITY, env.IDENTITY_BASE_URL, "/internal/v1/access/registrations", {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${applicationCredential}`,
+      "content-type": "application/json",
+      accept: "application/json",
     },
-  };
+    body: JSON.stringify({ accessAssertion: assertion, requestedScopes: ["profile:read"], displayName }),
+  });
+
+  if (registration.response.status !== 201) {
+    const error = upstreamError(registration.payload);
+    const status = registration.response.status === 409 ? 409 : registration.response.status === 422 ? 422 : registration.response.status === 503 ? 503 : 403;
+    return failure(
+      error?.code ?? "ACCESS_REGISTRATION_FAILED",
+      error?.message ?? "LifeSpace Identity rejected the Access registration",
+      status,
+      error?.requestId ?? requestId(request),
+    );
+  }
+
+  const registrationData = dataRecord(registration.payload);
+  const userToken = stringValue(registrationData?.accessToken);
+  if (!userToken) return failure("IDENTITY_RESPONSE_INVALID", "LifeSpace Identity returned an invalid registration response", 502, requestId(request));
+
+  const user = await profileFromUserToken(request, env, userToken);
+  if (user instanceof Response) return user;
+
+  return json({
+    data: {
+      status: "linked",
+      environment: environment(env),
+      user,
+      consoleVersion: CONSOLE_VERSION,
+      created: true,
+    },
+  }, 201);
 }
 
 async function issueActorProof(request: Request, env: Env, userToken: string): Promise<string | Response> {
@@ -201,6 +283,7 @@ async function sessionRoute(request: Request, env: Env): Promise<Response> {
       data: {
         status: "unlinked",
         environment: environment(env),
+        registrationAvailable: environment(env) === "staging",
         message: "This Cloudflare Access principal is not linked to a LifeSpace user. LifeSpace will not create or merge an account by email automatically.",
       },
     }, 409);
@@ -332,6 +415,7 @@ async function api(request: Request, env: Env): Promise<Response> {
     });
   }
   if (request.method === "GET" && url.pathname === "/api/session") return sessionRoute(request, env);
+  if (request.method === "POST" && url.pathname === "/api/session/register") return registerAccessUser(request, env);
   if (request.method === "GET" && url.pathname === "/api/platform/probe") return platformProbeRoute(request, env);
   return failure("NOT_FOUND", "Console API route not found", 404, requestId(request));
 }
