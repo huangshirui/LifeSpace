@@ -5,6 +5,9 @@ on:
   push:
     branches: [main]
 
+permissions:
+  contents: write
+
 jobs:
   check:
     runs-on: ubuntu-latest
@@ -17,9 +20,42 @@ jobs:
         with:
           node-version: 24
       - run: pnpm install --no-frozen-lockfile
-      - name: Capture generated lockfile
+      - name: Persist generated lockfile for this PR only
+        if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'feat/lifespace-console-ui-shell' }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
         run: |
-          printf 'LIFESPACE_LOCKFILE_BASE64_BEGIN\n'
-          base64 -w0 pnpm-lock.yaml
-          printf '\nLIFESPACE_LOCKFILE_BASE64_END\n'
+          if git diff --quiet -- pnpm-lock.yaml; then
+            echo "pnpm-lock.yaml already matches package manifests"
+            exit 0
+          fi
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+
+          const api = process.env.GITHUB_API_URL;
+          const repo = process.env.GITHUB_REPOSITORY;
+          const branch = process.env.HEAD_REF;
+          const headers = {
+            authorization: `Bearer ${process.env.GITHUB_TOKEN}`,
+            accept: 'application/vnd.github+json',
+            'x-github-api-version': '2022-11-28',
+          };
+          const current = await fetch(`${api}/repos/${repo}/contents/pnpm-lock.yaml?ref=${encodeURIComponent(branch)}`, { headers });
+          if (!current.ok) throw new Error(`Could not read current lockfile metadata: ${current.status}`);
+          const metadata = await current.json();
+          const content = fs.readFileSync('pnpm-lock.yaml').toString('base64');
+          const updated = await fetch(`${api}/repos/${repo}/contents/pnpm-lock.yaml`, {
+            method: 'PUT',
+            headers: { ...headers, 'content-type': 'application/json' },
+            body: JSON.stringify({
+              message: 'chore(console): refresh workspace lockfile',
+              content,
+              sha: metadata.sha,
+              branch,
+            }),
+          });
+          if (!updated.ok) throw new Error(`Could not persist regenerated lockfile: ${updated.status} ${await updated.text()}`);
+          console.log('Persisted regenerated pnpm-lock.yaml to PR head branch');
+          NODE
       - run: pnpm check
