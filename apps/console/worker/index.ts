@@ -206,7 +206,7 @@ async function registerAccessUser(request: Request, env: Env): Promise<Response>
   const assertion = accessAssertion(request);
   if (!assertion) return failure("ACCESS_ASSERTION_REQUIRED", "Cloudflare Access assertion is required", 401, requestId(request));
 
-  const body = await request.json<unknown>().catch(() => null);
+  const body = await request.json().catch(() => null) as unknown;
   const displayName = isRecord(body) ? normalizeDisplayName(body.displayName) : null;
   if (!displayName) return failure("VALIDATION_ERROR", "displayName must contain 1-50 characters", 422, requestId(request));
 
