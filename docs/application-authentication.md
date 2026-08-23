@@ -1,388 +1,325 @@
-# Trusted Application Authentication
+# Trusted Application and Web Authentication
 
-Status: **Identity 0.5.0 implements trusted application credentials plus Cloudflare Access principal verification, audience registration, exchange, explicit registration and one-time account linking. Repository CI is green; staging deployment/proof remains required before Web consumers depend on it.**
+## Status
 
-Updated: 2026-08-22
+- Cloudflare Access is the long-term Web/PWA authentication and SSO layer.
+- Identity application/user/service contract remains `0.5.0`.
+- Identity Platform Admin companion contract is `0.1.0` on the Console foundation branch.
+- Access principal verification, audience registration, explicit registration/linking and trusted application credential lifecycle are implemented.
+- Platform-administrator assignment and purpose-bound actor proof are implemented on the Console foundation branch and require staging migration/deployment/E2E before production use.
 
 ## Purpose
 
-LifeSpace supports two deliberately different application authentication boundaries:
+LifeSpace deliberately separates three authentication boundaries:
 
-1. application-owned provider identity, where a trusted application backend has already resolved its own external identity to a LifeSpace `usr_*` and authenticates to Identity with a server-only `lsa_*` credential;
-2. platform-owned Cloudflare Access identity for LifeSpace Web/PWA applications, where the trusted Web BFF forwards the original Access assertion and Identity independently verifies and resolves the platform principal.
+1. **application-owned provider identity** — the application resolves its own provider identifier to a LifeSpace `usr_*`, then its trusted backend authenticates to Identity with `lsa_*`;
+2. **Cloudflare Access platform identity** — Identity independently verifies the raw Access assertion and owns `(iss, sub) -> usr_*` mapping for LifeSpace Web/PWA applications;
+3. **platform administration** — a verified LifeSpace human actor and a separate controlled backend executor are both required for privileged Console operations.
 
-These boundaries must not be collapsed into a generic external-identity table.
+These boundaries must not be collapsed into one generic external-identity or administrator-token model.
 
-Application-owned identifiers such as HomeMew WeChat `openid` remain application-owned. Cloudflare Access `(iss, sub)` is a shared platform Web principal and is Identity-owned.
+## Trusted application credential: `lsa_*`
 
-## Trusted application credentials
-
-Trusted LifeSpace application backends/BFFs authenticate to Identity with an application credential whose plaintext starts with `lsa_`.
-
-The credential is server-only. It must never be exposed to Mini Program code, browser JavaScript, mobile clients, logs, documentation or ordinary user APIs.
-
-It is different from an opaque `lsp_pat_*` Service API Token:
-
-- `lsa_*` authenticates a registered **application backend** to Identity;
-- `lsp_pat_*` authenticates a **service principal** directly under current Data Grants.
-
-For an application-owned provider identity, the flow remains:
+A trusted LifeSpace application backend/BFF authenticates to Identity with a revocable server-only credential:
 
 ```text
-Application client
-  -> application-owned trusted backend verifies provider identity
-  -> application mapping resolves provider identity -> LifeSpace usr_*
-  -> backend authenticates to Identity with lsa_*
+lsa_<random-secret>
+```
+
+`lsa_*` represents a registered **application backend**. It is not:
+
+- a user credential;
+- a service principal credential for Core;
+- a browser/session token;
+- a platform bootstrap secret.
+
+Plaintext is returned exactly once when a credential is created. Identity stores only its cryptographic hash and non-secret suffix/metadata. Multiple active credentials may overlap during zero-downtime rotation; revocation takes effect immediately on subsequent Identity authentication.
+
+`lsa_*` must never appear in Mini Program code, browser JavaScript, mobile/downloadable clients, repository source, logs or documentation examples containing a real secret.
+
+## Application-owned external identity
+
+Application-specific provider identifiers remain in the owning application boundary.
+
+Example: HomeMew Mini Program.
+
+```text
+WeChat server-side authentication
+  -> HomeMew resolves openid
+  -> HomeMew mapping resolves openid -> usr_123
+  -> HomeMew backend authenticates to Identity with lsa_*
   -> POST /internal/v1/tokens
-  -> short-lived RS256 app-scoped LifeSpace user token
+  -> short-lived app-scoped LifeSpace user token
 ```
 
-For HomeMew Mini Program, WeChat `openid -> usr_*` remains in HomeMew's application layer. Identity never receives or persists the `openid`.
+Identity never receives or persists the WeChat `openid`. The same ownership rule applies to WeCom IDs, school-system IDs and other application-specific subjects.
 
-## Application trust boundary
-
-A trusted application may assert an already-resolved LifeSpace `user_id` through `/internal/v1/tokens` only after authenticating with an active `lsa_*` application credential.
-
-Identity derives the calling application (`azp`), scope ceiling and token TTL from current server-side application state. The caller cannot choose another application identity or request scopes outside the registered application's current `allowedScopes`.
-
-Cloudflare Access Web identity uses a separate contract. A Web BFF may validate Access for its own perimeter/session handling, but LifeSpace Identity does not trust BFF-supplied `sub`, email or `user_id`. Identity requires and independently verifies the original Access assertion.
-
-A same-account Cloudflare Service Binding may be used as transport where appropriate, but transport topology is not authorization. Explicit application identity, scope ceilings and revocation semantics remain mandatory.
-
-## `lsa_*` credential storage and lifecycle
-
-Application credentials use Identity D1 `application_credentials`.
-
-Requirements:
-
-- plaintext begins with `lsa_` and contains cryptographically random secret material;
-- only SHA-256 hash and a non-secret suffix are persisted;
-- plaintext is returned exactly once at credential creation;
-- metadata APIs never return plaintext or hashes;
-- multiple active credentials may overlap temporarily for zero-downtime rotation;
-- revocation is immediate for subsequent `/internal/*` authentication;
-- credentials are environment-specific and must not be reused across staging and production.
-
-Identity 0.5.0 retains these bootstrap-admin routes protected by `x-bootstrap-secret`:
-
-```text
-GET    /bootstrap/v1/applications/{applicationId}
-PATCH  /bootstrap/v1/applications/{applicationId}
-GET    /bootstrap/v1/applications/{applicationId}/credentials
-POST   /bootstrap/v1/applications/{applicationId}/credentials
-DELETE /bootstrap/v1/applications/{applicationId}/credentials/{credentialId}
-```
-
-The global bootstrap secret is platform-administration authority only. It must never be copied into application runtime configuration.
-
-Mutable application policy is limited to:
-
-- display name;
-- `allowedScopes` ceiling;
-- user access-token TTL from 300 to 3600 seconds;
-- active/disabled status.
-
-`clientType` and `trustedBackend` are not mutable through the application PATCH route.
-
-### Rotation runbook
-
-```text
-1. Inspect current application metadata and credential suffixes.
-2. POST a replacement application credential.
-3. Store the returned lsa_* immediately in the target backend secret store.
-4. Deploy/restart the backend with the new credential.
-5. Verify token exchange and Core authorization.
-6. DELETE the old credential.
-7. Verify the old credential now receives 401 and the new credential still works.
-```
-
-Do not revoke the old credential before the replacement backend deployment has been verified. If plaintext is lost before installation, create another replacement; Identity never recovers stored plaintext.
+The application may assert an already-resolved LifeSpace user only after authenticating with an active trusted application credential. Identity derives `azp`, allowed scope ceiling and token TTL from current registered application state; the caller cannot choose another application or exceed that ceiling.
 
 ## Cloudflare Access platform identity
 
-Cloudflare Access is the long-term authentication and SSO authority for LifeSpace Web/PWA applications. Google OAuth, Microsoft OAuth, email OTP and future upstream Web login methods are configured in Access rather than reimplemented by LifeSpace Identity.
+Cloudflare Access is intentionally different because it is shared across owner-controlled LifeSpace Web/PWA applications.
 
-Identity 0.5.0 owns the mapping from a verified Access platform principal to a LifeSpace user.
+Cloudflare Access is responsible for:
 
-### Identity and application keys
+- Google/Microsoft/email OTP or other configured upstream Web login methods;
+- Web perimeter policy;
+- Access SSO/session handling.
+
+LifeSpace Identity is responsible for:
+
+- independent RS256 verification of the raw Access JWT;
+- exact configured issuer validation;
+- signing-key/JWKS rotation handling;
+- lifetime, subject and Access application-token type validation;
+- mapping the verified Access platform principal to `usr_*`;
+- binding a verified Access audience to the registered LifeSpace application context;
+- explicit account registration/linking;
+- issuing app-scoped LifeSpace credentials.
+
+Identity is not a parallel Google/Microsoft/email IdP and does not persist their provider refresh tokens or provider subject IDs.
+
+## Access identity and application keys
 
 User identity and application identity are separate:
 
 ```text
-(iss, sub) -> LifeSpace user_id
-
-aud -> registered LifeSpace application / azp
+(iss, sub) -> LifeSpace usr_*
+(iss, aud) -> registered LifeSpace application / azp
 ```
 
 Normative rules:
 
-- `(iss, sub)` is the Access platform-principal key;
-- Access `sub` is never reused directly as a LifeSpace `usr_*`;
-- `aud` identifies the protected Access application and is not part of the user identity key;
-- multiple Access audiences can resolve the same `(iss, sub)` to the same `usr_*`;
-- a given `(issuer, audience)` can be actively registered to only one LifeSpace application;
-- the calling `lsa_*` application and matched Access audience must agree before token issuance;
-- `email` is only a snapshot/attribute for display, audit or recovery UX and never causes account merging;
-- one LifeSpace user may link multiple Access principals.
+- `sub` is never reused as `usr_*`;
+- `aud` identifies the protected Web application, not the human;
+- one `(issuer, audience)` registration can belong actively to only one LifeSpace application;
+- multiple audiences may still resolve the same `(iss, sub)` to the same `usr_*`;
+- the calling `lsa_*` application and matched Access audience must agree;
+- email is non-authoritative metadata and never auto-merges accounts;
+- one `usr_*` may intentionally own multiple Access principals.
 
-### Persistence
+Identity persistence for Access platform identity is already implemented by schema v5 using dedicated `access_audiences`, `access_principals` and one-time `access_link_challenges` state. Application-owned provider IDs do not belong in those tables.
 
-Identity schema v5 adds dedicated platform state:
+## Normal Web token exchange
 
-```text
-access_audiences
-  id
-  application_id
-  issuer
-  audience
-  status
-  created_at
-  revoked_at
-  UNIQUE (issuer, audience)
-
-access_principals
-  id
-  issuer
-  subject
-  user_id
-  email_snapshot
-  status
-  linked_at
-  last_seen_at
-  created_at
-  updated_at
-  UNIQUE (issuer, subject)
-  INDEX  (user_id)
-
-access_link_challenges
-  id
-  application_id
-  issuer
-  subject
-  audience
-  email_snapshot
-  expires_at
-  created_at
-  consumed_at
-  linked_user_id
-```
-
-`access_principals.user_id` is intentionally not unique because multiple verified Access principals may belong to one LifeSpace user.
-
-Application-owned identifiers such as WeChat `openid` do not belong in any of these tables.
-
-## Access JWT verification
-
-Identity independently verifies each Access assertion before using any identity claim.
-
-The configured environment issuer is authoritative. For the current AISR Cloudflare Zero Trust organization it is:
-
-```text
-https://aisronline.cloudflareaccess.com
-```
-
-The verifier:
-
-- accepts only compact JWTs signed with RS256;
-- requires a non-empty `kid` and verifies the signature using the configured issuer's `/cdn-cgi/access/certs` JWKS;
-- compares `iss` exactly with the configured issuer before any signing-key network request;
-- validates `exp` and bounded `nbf` / `iat` timing;
-- requires a non-empty `sub`;
-- accepts Access `aud` as a string or non-empty string array and later requires one audience to match the calling LifeSpace application;
-- rejects non-application Access token `type` values when the claim is present;
-- caches signing keys briefly by issuer and forces one JWKS refresh when an unknown `kid` is seen, covering normal Access key rotation.
-
-The verifier uses Workers WebCrypto directly; no extra JWT dependency is required.
-
-An unverified JWT `iss` never controls the JWKS fetch target.
-
-## Access audience registration
-
-Access application audiences are platform-admin configuration and are stored in Identity, not in each application repository as an authority source.
-
-Identity 0.5.0 exposes:
-
-```text
-GET    /bootstrap/v1/applications/{applicationId}/access-audiences
-POST   /bootstrap/v1/applications/{applicationId}/access-audiences
-DELETE /bootstrap/v1/applications/{applicationId}/access-audiences/{audienceId}
-```
-
-Registration is allowed only for an active trusted LifeSpace application with `clientType=web`.
-
-A registration binds the configured Access issuer plus one Access audience to exactly one LifeSpace application. Revocation prevents new exchanges and also invalidates unconsumed link challenges that depend on that audience.
-
-## Normal Web principal exchange
+A same-origin Web BFF keeps `lsa_*` server-side, obtains the original Access assertion from the Cloudflare-protected request and calls:
 
 ```text
 POST /internal/v1/access/tokens
-Authorization: Bearer <lsa_* application credential>
-Body:
-  accessAssertion: <Cloudflare Access JWT>
-  requestedScopes: [...]
+Authorization: Bearer <lsa_*>
+
+{
+  "accessAssertion": "<raw Access JWT>",
+  "requestedScopes": [...]
+}
 ```
 
-Identity performs this sequence:
+Identity performs:
 
 ```text
-validate lsa_* -> calling LifeSpace application
+validate lsa_* and calling application
 validate Access signature / configured iss / lifetime / sub
-match one Access aud to an active audience registration for that application
+match one aud to an active registration for the same application
 resolve (iss, sub) -> usr_*
-check principal + user status
-intersect request with application scope ceiling
-use application token TTL
-issue app-scoped LifeSpace user token
+check user/principal/application state
+intersect requested scopes with application ceiling
+issue short-lived app-scoped LifeSpace user token
 ```
 
-Expected outcomes:
+The BFF may perform its own perimeter/session validation, but BFF-supplied `sub`, email or `userId` is never accepted as Identity authority.
 
-- `200`: linked principal; short-lived LifeSpace user token issued;
-- `401`: application credential or Access assertion invalid;
-- `403`: audience/application mismatch, disabled principal/user/application, or scope not allowed;
-- `409 ACCESS_PRINCIPAL_UNLINKED`: Access assertion valid but principal not yet linked;
-- `503`: Access signing keys temporarily unavailable.
+## First-use Access resolution
 
-The existing `/internal/v1/tokens` remains the path for application-owned provider mappings that already resolved a `usr_*`.
+A valid but unknown Access principal does not silently create or merge a LifeSpace user.
 
-## First-use resolution
+There are only two supported paths:
 
-A verified unknown Access principal never silently creates a new LifeSpace user.
+1. explicitly create a new `usr_*` and bind the verified principal;
+2. prove control of an existing LifeSpace account and link the principal to that user.
 
-The Web product must explicitly choose one of two paths:
-
-1. link the Access principal to an existing LifeSpace account after proof of control;
-2. explicitly create a new LifeSpace account and atomically bind the current principal.
-
-This prevents accidental duplicates or unsafe merges when a natural person authenticates with different Google/Microsoft-backed Access principals.
-
-### Explicit new-user registration
+### Explicit registration
 
 ```text
 POST /internal/v1/access/registrations
-Authorization: Bearer <lsa_* application credential>
-Body:
-  accessAssertion: <Cloudflare Access JWT>
-  displayName: <explicit user choice>
-  requestedScopes: [...]
+Authorization: Bearer <lsa_*>
 ```
 
-Identity independently verifies the assertion and audience, requires the principal to be unlinked, then creates the `usr_*` and `(iss, sub)` mapping in one D1 batch. Concurrent attempts cannot leave a valid duplicated principal mapping or an independently committed user/mapping pair.
+Identity independently verifies the Access assertion/audience and atomically creates the LifeSpace user plus `(iss, sub)` mapping. Email equality is not consulted to select an existing user.
 
-Email equality is never consulted to select an existing user.
+### Link existing account
 
-### Link existing LifeSpace account
-
-The Web side first requests a challenge:
+The Web BFF first creates a short-lived challenge:
 
 ```text
 POST /internal/v1/access/link-challenges
-Authorization: Bearer <lsa_* application credential>
-Body:
-  accessAssertion: <Cloudflare Access JWT>
-
--> 201 { challengeId, expiresAt }
+Authorization: Bearer <lsa_*>
 ```
 
-The challenge is high-entropy, one-time, short-lived and bound to the verified `(iss, sub)`, the calling LifeSpace application and the matched Access audience.
-
-An already authenticated LifeSpace client then proves control of the target account:
+An already authenticated LifeSpace user confirms it with their current LifeSpace user token:
 
 ```text
 POST /api/v1/me/access-link-challenges/{challengeId}/confirm
-Authorization: Bearer <LifeSpace user token>
-
--> 204
+Authorization: Bearer <LifeSpace user JWT>
 ```
 
-Security invariants:
+The target `usr_*` is derived only from the verified LifeSpace bearer token. The challenge is high-entropy, application/audience/principal-bound, expires after ten minutes and is single-use. Consumption and principal-link insertion are atomic.
 
-- confirmation derives `usr_*` only from the verified LifeSpace bearer token;
-- no request-body `userId` is accepted;
-- the Access assertion is not trusted from a client-supplied decoded claim;
-- the challenge expires after ten minutes and is single-use;
-- a revoked audience invalidates outstanding confirmation attempts;
-- consuming the challenge and inserting the Access-principal mapping execute atomically;
-- a concurrent successful link of the same `(iss, sub)` causes the losing transaction to fail rather than remap the principal;
-- Identity never sees an application-owned Mini Program `openid` during the linking flow.
+This allows an existing HomeMew Mini Program user to link Web Access identity without exposing WeChat `openid` to Identity.
 
 ## Multiple Access principals
 
-A single LifeSpace user can intentionally own multiple Access principals:
+LifeSpace explicitly supports:
 
 ```text
-Google-backed Access principal -----+
-                                     +--> usr_123
-Microsoft-backed Access principal --+
+Access principal A ----+
+                       +--> usr_123
+Access principal B ----+
 ```
 
-Cloudflare may normalize some upstream providers to the same Access user, but LifeSpace does not depend on that behavior. Whenever Access produces a distinct `sub`, LifeSpace treats it as a distinct unlinked principal until the user proves control of an existing LifeSpace account or explicitly creates a new account.
+Cloudflare may normalize some upstream identities itself, but LifeSpace does not depend on that behavior. A distinct verified Access `sub` remains unlinked until explicit proof succeeds.
 
 Automatic merge by email, display name or other mutable claim is forbidden.
 
-User-facing principal listing, unlinking and account-recovery APIs remain deferred until their lockout/recovery threat model is designed.
+## Platform-admin human proof
 
-## Web-first user later linking an application-owned identity
+Cloudflare Access entry to `lifespace.aisr.online` is necessary but insufficient for LifeSpace platform administration.
 
-If Web created `usr_123` first and HomeMew later authenticates `openid_X`, the ownership boundary remains application-side:
+Identity owns explicit `platform_administrators` assignments. Initial assignment/recovery is bootstrap-only.
 
-```text
-HomeMew verifies openid_X
-  -> approved proof resolves existing usr_123
-  -> HomeMew stores openid_X -> usr_123
-```
-
-Identity still does not persist `openid_X`. The application may use an Identity-issued proof/token as evidence of the target `usr_*`, but provider mapping ownership does not move into Identity.
-
-## HomeMew integration boundary
-
-HomeMew Mini Program keeps its application-owned WeChat mapping and existing `/internal/v1/tokens` exchange path.
-
-HomeMew Web uses Cloudflare Access as authentication/SSO and the Identity Access-principal contract above. HomeMew Web must not create its own Access-subject -> `usr_*` database.
-
-The Web BFF keeps its `lsa_*` credential server-side, obtains the Access assertion from the Cloudflare-protected request, and forwards the original assertion to Identity. The browser must not be allowed to choose a decoded Access `sub`, `email`, audience or target LifeSpace user.
-
-The ordinary HomeMew user scope ceiling must contain only product-facing capabilities such as:
+A user must first have an ordinary short-lived LifeSpace user token for the Console application. A currently assigned administrator may then request:
 
 ```text
-profile:read
-profile:write
-spaces:read
-spaces:write
-spaces:manage
-resources:read
-resources:write
-creation-drafts:read
-creation-drafts:write
+POST /api/v1/me/platform-admin-actor-token
+Authorization: Bearer <ordinary Console LifeSpace user JWT>
 ```
 
-`models:manage` remains a service/platform-admin capability and must not be included in ordinary HomeMew user tokens.
+Identity verifies:
 
-Core remains authoritative for Space membership/Data Grants, Application × Model Access, published model access and model/capability policy.
+- the user is active;
+- a current `platform_administrators` assignment is active;
+- the calling LifeSpace application is active;
+- that application is allowed `platform:admin`.
 
-## Verification and rollout gate
+It returns a dedicated proof with:
 
-Repository implementation for Identity 0.5.0 must keep all of the following covered by automated checks:
+```text
+principal_type = user
+scope          = platform:admin
+purpose        = platform_admin_actor
+azp            = Console application
+TTL            = 300 seconds
+```
 
-- Access signature, issuer, expiry and signing-key rotation behavior;
-- Access audience registration uniqueness and audience/application mismatch rejection;
-- `(iss, sub)` as the only Access user mapping key;
-- linked-principal normal exchange;
-- explicit atomic new-user registration;
-- same-email distinct `sub` values not being merged;
-- multiple Access principals linking to one LifeSpace user;
-- link challenge expiry and single-use;
-- link confirmation deriving the target user from the LifeSpace bearer token;
-- existing application credential replacement/revocation behavior remaining intact;
-- Identity OpenAPI and downstream pinned contract versions moving together.
+This actor proof is intentionally separate from ordinary product user tokens. Privileged endpoints receive it as:
 
-As of this repository change, migration v5, Identity contract 0.5.0, runtime implementation and automated CI checks are complete.
+```text
+X-LifeSpace-Actor-Token: <purpose-bound JWT>
+```
 
-Before production rollout, staging must still prove:
+Raw `actorUserId`, Access email/sub, decoded claims or another unsigned header are forbidden substitutes.
 
-1. migration v5 and Identity 0.5.0 deployment;
-2. a real Cloudflare Access assertion against a registered HomeMew Web audience;
-3. HomeMew Web exchange for an already linked user;
-4. HomeMew Mini Program confirmation of a one-time link challenge;
-5. a second Web application/audience proving that cross-application audience exchange is rejected while the same `(iss, sub)` may resolve to the same user after intentional linking;
-6. no production LifeSpace or HomeMew traffic/data is modified during proving.
+## Platform-admin executor pairing
+
+Privileged Console calls require a second credential held only by the same-origin BFF.
+
+For Identity-owned administration:
+
+```text
+Authorization: Bearer <Console lsa_* executor>
+X-LifeSpace-Actor-Token: <5-minute actor proof>
+```
+
+The executor must carry the operation-specific capability required by the route, for example:
+
+```text
+applications:manage
+services:manage
+identities:read
+audit:read
+```
+
+Actor `azp` and executor application ID must match.
+
+For Core-owned administration the same human proof is paired with a Core service executor, described in `docs/permissions.md` and `docs/service-authentication.md`.
+
+## Platform-admin application management
+
+Bootstrap application administration remains available for provisioning/break-glass, but normal Console runtime uses the Identity Platform Admin companion contract:
+
+```text
+/internal/v1/platform-admin/applications*
+```
+
+This control plane supports:
+
+- list/create/read/update applications;
+- create/list/revoke `lsa_*` credentials;
+- register/list/revoke Cloudflare Access audiences;
+- cross-application Service Principal/Service API Token management;
+- read-only global user/Access-principal inspection;
+- platform-admin audit reads.
+
+Credential plaintext remains one-time-only and is never returned by metadata/list APIs.
+
+The global bootstrap secret must never be copied into Console Worker/BFF runtime configuration.
+
+## Service principals are separate
+
+`lsp_pat_*` and OAuth service credentials authenticate service principals. They are not interchangeable with `lsa_*`.
+
+A Console executor may be allowed to manage service principals across applications through `services:manage`, but the resulting service credentials remain bound to the target application/service-principal scope ceilings and normal Core Data Grant/model authorization.
+
+See `docs/service-authentication.md`.
+
+## Web/BFF requirements
+
+- Browser JavaScript never receives `lsa_*`, `lsp_pat_*`, bootstrap secrets or equivalent executor credentials.
+- Each Web app uses a same-origin BFF and host-only application/session cookies where cookies are needed.
+- Do not use a parent-domain `Domain=aisr.online` session cookie for SSO/authority sharing.
+- Cloudflare Access provides Web SSO; Identity exchange resolves LifeSpace identity/authority.
+- The browser must not choose decoded Access `sub`, email, audience or target `usr_*`.
+- CSRF-sensitive cookie-backed writes must validate exact Origin and use the application BFF boundary.
+
+## Contract ownership
+
+Normal application authentication/user/service syntax is owned by:
+
+```text
+apps/identity/openapi.yaml
+Identity contract 0.5.0
+```
+
+Privileged LifeSpace Console syntax is separately owned by:
+
+```text
+apps/identity/platform-admin.openapi.yaml
+Platform Admin contract 0.1.0
+```
+
+Adding privileged Console surfaces must not silently broaden the business application contract consumed by HomeMew/ALOHA.
+
+## Rotation and recovery
+
+Application credential rotation remains:
+
+```text
+create replacement lsa_*
+-> store it in the backend secret store
+-> deploy/restart and verify
+-> revoke old credential
+-> verify old credential fails
+```
+
+Lost plaintext is never recoverable; create a replacement instead.
+
+Platform-administrator assignment/revocation remains a provisioning/recovery action under the bootstrap boundary. Revoking an assignment prevents new actor proofs and causes Identity-owned privileged calls to fail current assignment re-checks. Existing actor proofs are short-lived (maximum five minutes), bounding Core-side revocation latency without duplicating Identity administrator state.
+
+## Non-goals
+
+- LifeSpace-managed Google/Microsoft OAuth provider accounts for Web SSO.
+- Email-based automatic account merging.
+- A generic external-provider identity table containing application-owned subjects.
+- Shared parent-domain authentication cookies.
+- Bootstrap secret as a normal Console runtime credential.
+- Ordinary `platform:admin` user tokens usable as long-lived administrator sessions.
+- Browser exposure of application/service executor secrets.
