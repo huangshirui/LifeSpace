@@ -87,10 +87,10 @@ function persistSecret(name, value) {
 }
 
 function sameStringSet(left, right) {
-  return Array.isArray(left)
-    && Array.isArray(right)
-    && left.length === right.length
-    && [...left].sort().every((value, index) => value === [...right].sort()[index]);
+  if (!Array.isArray(left) || !Array.isArray(right) || left.length !== right.length) return false;
+  const leftSorted = [...left].sort();
+  const rightSorted = [...right].sort();
+  return leftSorted.every((value, index) => value === rightSorted[index]);
 }
 
 async function request(base, path, { method = "GET", bootstrap = false, bearer = "", actor = "", body } = {}) {
@@ -188,31 +188,36 @@ async function reconcileApplication(existing) {
   return { updated: true, application: result.payload?.data };
 }
 
+async function createReplacementApplicationCredential(source) {
+  if (!secureSinkAvailable()) throw new Error(`Console application credential ${source} requires GITHUB_ENV or LIFESPACE_STAGING_CONSOLE_CREDENTIAL_OUTPUT`);
+  const created = await request(identityBase, `/bootstrap/v1/applications/${encodeURIComponent(applicationId)}/credentials`, {
+    method: "POST",
+    bootstrap: true,
+  });
+  if (created.response.status !== 201) throw new Error(`Console application credential creation failed: ${created.response.status} ${JSON.stringify(created.payload)}`);
+  const clientSecret = created.payload?.data?.clientSecret;
+  if (typeof clientSecret !== "string" || !clientSecret.startsWith("lsa_")) throw new Error("Identity did not return replacement Console lsa_*");
+  persistSecret("LIFESPACE_STAGING_CONSOLE_APPLICATION_CREDENTIAL", clientSecret);
+  return { credential: clientSecret, created: true, source };
+}
+
 async function ensureApplicationCredential(applicationCreated, initialSecret) {
   if (applicationCreated) return { credential: initialSecret, created: true, source: "initial-creation" };
-  if (suppliedApplicationCredential) return { credential: suppliedApplicationCredential, created: false, source: "environment" };
 
   const list = await request(identityBase, `/bootstrap/v1/applications/${encodeURIComponent(applicationId)}/credentials`, { bootstrap: true });
   if (list.response.status !== 200 || !Array.isArray(list.payload?.data)) {
     throw new Error(`Console application credential listing failed: ${list.response.status} ${JSON.stringify(list.payload)}`);
   }
   const active = list.payload.data.filter((entry) => entry?.status === "active" && entry?.revokedAt == null);
-  if (!rotateCredentials) {
-    throw new Error(
-      `Console application already has ${active.length} active credential(s), but plaintext cannot be recovered. `
-      + "Set LIFESPACE_STAGING_CONSOLE_APPLICATION_CREDENTIAL to the installed lsa_* or explicitly set LIFESPACE_STAGING_CONSOLE_ROTATE_CREDENTIALS=1 with a secure sink.",
-    );
-  }
-  if (!secureSinkAvailable()) throw new Error("Credential rotation requested but no secure sink is configured");
-  const created = await request(identityBase, `/bootstrap/v1/applications/${encodeURIComponent(applicationId)}/credentials`, {
-    method: "POST",
-    bootstrap: true,
-  });
-  if (created.response.status !== 201) throw new Error(`Console application credential rotation failed: ${created.response.status} ${JSON.stringify(created.payload)}`);
-  const clientSecret = created.payload?.data?.clientSecret;
-  if (typeof clientSecret !== "string" || !clientSecret.startsWith("lsa_")) throw new Error("Identity did not return replacement Console lsa_*");
-  persistSecret("LIFESPACE_STAGING_CONSOLE_APPLICATION_CREDENTIAL", clientSecret);
-  return { credential: clientSecret, created: true, source: "rotation" };
+
+  if (rotateCredentials) return createReplacementApplicationCredential("rotation");
+  if (suppliedApplicationCredential) return { credential: suppliedApplicationCredential, created: false, source: "environment" };
+  if (!active.length) return createReplacementApplicationCredential("recovery-no-active-credential");
+
+  throw new Error(
+    `Console application already has ${active.length} active credential(s), but plaintext cannot be recovered. `
+    + "Set LIFESPACE_STAGING_CONSOLE_APPLICATION_CREDENTIAL to the installed lsa_* or explicitly set LIFESPACE_STAGING_CONSOLE_ROTATE_CREDENTIALS=1 with a secure sink.",
+  );
 }
 
 async function ensureAudience() {
@@ -328,8 +333,10 @@ async function verifyCoreBearer(coreBearer, actorApplicationId) {
   if (result.payload.data.principal.clientId !== actorApplicationId) {
     throw new Error(`Console Core executor application mismatch: expected ${actorApplicationId}, found ${String(result.payload.data.principal.clientId)}`);
   }
-  const missing = CORE_EXECUTOR_SCOPES.filter((scope) => !result.payload.data.principal.scopes?.includes(scope));
-  if (missing.length) throw new Error(`Console Core executor is missing required scopes: ${missing.join(", ")}`);
+  const scopes = result.payload.data.principal.scopes ?? [];
+  if (!sameStringSet(scopes, CORE_EXECUTOR_SCOPES)) {
+    throw new Error(`Console Core executor must have exactly the least-privilege scope set ${CORE_EXECUTOR_SCOPES.join(" ")}; found ${Array.isArray(scopes) ? scopes.join(" ") : String(scopes)}`);
+  }
   return result.payload.data.principal;
 }
 
