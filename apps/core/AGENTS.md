@@ -1,100 +1,190 @@
 # Core Agent Instructions
 
-LifeSpace Core is the shared business API and source of truth for Spaces, Data Grants, the Model Registry and metadata-driven life-domain records.
+LifeSpace Core is the shared business platform and source of truth for Spaces, Data Grants, Application × Model Access, the Model Registry, Generic Runtime and metadata-driven life-domain records. It also owns Core-side LifeSpace platform administration and audit for Core state.
 
 ## Before changing Core
 
 Read:
 
-1. Root `AGENTS.md`
-2. `docs/architecture.md`
-3. `docs/permissions.md`
-4. `docs/service-authentication.md` when changing service or machine authentication
-5. `docs/contracts.md`
-6. `docs/phase3-metadata-platform-plan.md` when changing model/runtime architecture
-7. `docs/phase3-performance-convergence-plan.md` when changing ordinary-model storage, Registry runtime lookup, query hydration, authorization I/O, or performance-sensitive request paths
-8. `docs/migration-plan.md` when porting HomeMew behavior
-9. Core contract, Model Definitions, migrations, tests and relevant implementation
+1. root `AGENTS.md`;
+2. `apps/AGENTS.md`;
+3. `docs/architecture.md`;
+4. `docs/permissions.md`;
+5. `docs/service-authentication.md` when changing service/machine/platform executors;
+6. `docs/contracts.md`;
+7. `docs/phase3-metadata-platform-plan.md` when changing model/runtime architecture;
+8. `docs/phase3-performance-convergence-plan.md` for persistence/query/performance changes;
+9. `docs/migration-plan.md` when porting HomeMew behavior;
+10. the relevant Core contract, migrations, tests, Model Definitions and implementation.
 
 ## Core responsibilities
 
 Core owns:
 
-- Spaces and Space membership.
-- Data Grants and current authorization evaluation.
-- Model Definition validation, Model Registry/version lifecycle and model administration.
-- Generic Resource storage/runtime for ordinary Space-owned business models.
-- Reusable Engines such as Policy/Workflow/computed fields as they are implemented.
-- Reusable Capabilities such as Calendar, Temporal/Cycle, Asset, AI Interpretation and Async Job as they are approved and implemented.
-- Cross-Space aggregate `/me` views.
-- Runtime validation, concurrency, soft deletion, audit fields, relation integrity, search/filter semantics and lifecycle cleanup.
-- Reproducible canonical Core OpenAPI/JSON Schema and business D1 migrations.
+- Spaces, memberships and Space People;
+- Data Grants and current authorization evaluation;
+- Application × Model Access;
+- Model Definition validation, Registry/version lifecycle and Model Admin;
+- Generic Runtime/storage for ordinary Space-owned models;
+- reusable Engines/Capabilities;
+- cross-Space aggregate `/me` views;
+- deterministic typed physical schema planning/publication;
+- runtime validation, concurrency, soft deletion, relations and business audit;
+- Core-side Platform Admin Application × Model Access, read-only Space inspection and platform-admin audit;
+- reproducible business-facing Kernel and privileged Platform Admin contracts.
 
 Core does not own:
 
-- External provider login or SSO browser sessions.
-- WeChat `openid`, Google subject IDs, email OTP flows or other provider-specific authentication mappings.
-- Application UI state or application-specific navigation.
-- A second copy of application BFF session state.
-- Arbitrary executable user code/SQL inside Model Definitions.
+- external provider login/SSO sessions;
+- WeChat `openid` or application-specific provider mappings;
+- Cloudflare Access `(iss, sub) -> usr_*` mapping;
+- LifeSpace application/service credential hashes;
+- platform-administrator assignment state;
+- application UI/session state;
+- arbitrary executable user/AI code or SQL in metadata.
 
 ## Metadata-driven domain rules
 
-- Ordinary models are declared through the closed Model Definition DSL and interpreted by fixed Generic Runtime code.
-- Do not add another handwritten ordinary-domain CRUD router/service/table when the requirement can be represented by Model Definition or a reusable Capability.
-- If a requirement cannot be represented, first decide whether the gap belongs in a reusable Engine/Capability. Add source code at that reusable boundary, not at a one-off model boundary.
-- Model Definitions are immutable once published; changes create a new version and explicit compatibility classification.
-- Registry logical schema is authoritative. Metadata-driven logical schema does **not** require a universal JSON physical-storage table. During Phase 3 performance convergence, ordinary scalar fields move to deterministic generated `mdl_<model_key>` typed tables while common record identity/audit remains generic and relation/capability projections remain shared.
-- Physical model tables/columns/indexes are generated only from validated Model Definitions by fixed platform code. Never add handwritten per-model DDL as the normal ordinary-model extension path, and never execute AI/client-provided SQL.
-- Kernel routes and model routes must never collide. Reserved routes are enforced by Model Definition validation.
-- Model metadata cannot contain arbitrary JavaScript, SQL, shell code or unrestricted expressions.
+- Ordinary models are declared through the closed Model Definition DSL and interpreted by fixed Runtime code.
+- Do not add handwritten CRUD/router/table sets for ordinary models when Model Definition + reusable Capability can represent the requirement.
+- Missing behavior should be evaluated as a reusable Engine/Capability or true Kernel exception before adding source code.
+- Published Model Definition versions are immutable and compatibility-classified.
+- Logical metadata is authoritative; physical persistence uses deterministic generated typed model tables plus shared record/relation/capability structures.
+- Physical DDL is generated only from validated metadata by fixed platform code. Never execute AI/client-provided SQL.
+- Kernel/control-plane routes and model routes must never collide.
+- Metadata must not contain arbitrary JavaScript, SQL, shell code or unrestricted expressions.
 
 ## Runtime performance rules
 
-- D1 Model Registry remains authoritative durable state, but a normal hot-cache ordinary business request must resolve published model metadata from the Worker-isolate runtime Registry snapshot rather than querying `model_definitions` per request.
-- Compile stable model lookup/query/relation/access metadata once per runtime Registry snapshot; do not repeatedly parse and validate the same published `definition_json` on each business request.
-- Cache only stable model/runtime rules. Membership, Data Grants, Application × Model Access and other revocable authority remain current-state authorization checks and must not be hidden behind a long-lived metadata cache.
-- Result mapping/hydration must not perform D1 I/O per returned record. Any D1 query inside a loop/`map` over query results is an N+1 defect unless explicitly bounded and justified.
-- Load shared Space/Person/Capability context once per request or response where possible; batch relation/person hydration instead of resolving the same entity repeatedly.
-- Prefer reducing Worker↔D1 round trips over micro-optimizing already-sub-millisecond SQL. Use D1 `batch()` when multiple statements can safely share one database call without weakening authorization or transaction semantics.
-- Design against the budgets in `docs/phase3-performance-convergence-plan.md`: hot-cache ordinary single GET <= 4 D1 round trips, list/query <= 5 independent of result count, mutation <= 6, and Registry hot-path lookup = 0.
-- Do not introduce Workers KV, Cache API, Durable Object Registry reads or another distributed cache layer without measured evidence that isolate memory + D1 fallback is insufficient.
+- D1 Registry state is durable authority, but hot ordinary requests resolve published model metadata from the Worker-isolate runtime snapshot instead of re-reading Registry rows per request.
+- Compile stable query/relation/access metadata once per runtime Registry snapshot.
+- Cache stable model/runtime rules only. Memberships, Data Grants, Application × Model Access and other revocable authority remain current-state checks.
+- Query/list mapping must not perform D1 I/O per result record.
+- Batch shared Space/Person/Capability/relation context.
+- Prefer fewer Worker↔D1 round trips; use D1 `batch()` where semantics allow it.
+- Preserve budgets in `docs/phase3-performance-convergence-plan.md`.
+- Do not introduce another distributed cache without measured need.
 
-## Authorization rules
+## Ordinary authorization rules
 
-- Every ordinary business record must have exactly one source `space_id`.
-- Every read/write must evaluate authenticated principal, current Space/Data Grant authorization, credential/application authorization and published model policy.
-- Never treat `space_id` existence as proof of access.
-- Never trust request `userId` as actor identity.
-- Cross-Space aggregate endpoints must preserve source Space and effective capability where clients need writable/shared distinction.
-- Revoking membership or a Data Grant must take effect from current authorization state; do not rely only on long-lived token claims.
-- Core normalizes verified RS256 JWTs and Identity-introspected opaque `lsp_pat_*` tokens into the same principal context; it must not read Identity D1 or persist credential hashes.
-- A Service API Token authenticates a service principal only. It must still pass current application scope, Space/Data Grant and model authorization.
-- Model Registry administration is platform administration, not an ordinary Space permission. A future admin API must be explicitly service-only and separately scoped.
+Every ordinary operation evaluates the intersection of:
 
-## HomeMew migration rules
+```text
+verified principal
+∩ stable credential scope
+∩ Application × Model Access
+∩ current Space membership / Data Grant
+∩ published model access capability
+∩ model policy / Capability restrictions
+```
 
-Use HomeMew/Phase-2 Core behavior as semantic reference for Workers/Hono structure, request IDs, response envelopes, optimistic concurrency, soft deletion, time/date semantics, queues, AI privacy boundaries and domain behavior.
+Rules:
 
-Do not mechanically preserve the Phase-2 dedicated Event/Task/Day Record/Wish persistence or routers. Before HomeMew cutover they are proving fixtures for the new Generic Runtime and Capabilities, not compatibility constraints.
+- every ordinary business record has exactly one source `space_id`;
+- `space_id` existence is never proof of access;
+- request `userId` is never current actor identity;
+- revoking membership/Grant/model access must take effect from current state;
+- Core normalizes verified RS256 JWTs and Identity-introspected opaque `lsp_pat_*` tokens into one principal context;
+- Core must not read Identity D1 or persist Identity credential hashes;
+- service credentials still require explicit application/Data Grant/model authority;
+- no service/platform executor becomes a hidden Space member.
 
-Do not mechanically port:
+## Platform administration
 
-- `family_id` ownership assumptions;
-- HomeMew-specific user identity ownership;
-- family-only role checks where Space/Data Grant rules are required;
-- HomeMew integration permission names when platform scopes should be generalized.
+Core platform administration is separate from ordinary Space `manage` and from the business-facing Kernel contract.
+
+A privileged Console request requires:
+
+```text
+Authorization: Bearer <service executor>
+X-LifeSpace-Actor-Token: <Identity-issued human actor proof>
+```
+
+Core verifies independently that:
+
+- executor principal type is `service`;
+- executor contains the route-specific capability (`applications:manage`, `spaces:inspect`, `audit:read`, etc.);
+- actor proof is a valid LifeSpace user JWT;
+- actor proof has `scope=platform:admin`;
+- actor proof has `purpose=platform_admin_actor`;
+- proof lifetime is at most 300 seconds;
+- actor and executor `clientId`/`azp` match.
+
+Core intentionally does **not** duplicate Identity `platform_administrators` assignment state. Identity re-checks assignment on Identity-owned admin calls and new actor-proof issuance; Core bounds assignment-revocation latency through the five-minute proof lifetime.
+
+Read-only Space inspection must never create hidden membership or mutate Space/Grant state.
+
+Platform-admin audit records both the human actor and service executor, bounded secret-free summary, target, request ID, result and timestamp.
+
+## Model Admin compatibility
+
+Model Registry administration remains service-principal-only with `models:manage`.
+
+Existing CI/platform automation may call Model Admin without a human actor proof.
+
+When LifeSpace Console supplies `X-LifeSpace-Actor-Token` for Model publish/retire, Core additionally validates the platform-admin context and records human + executor audit. For those Console-triggered mutations:
+
+- initial audit row is written as `pending` before Registry mutation starts;
+- if that initial audit write fails, mutation must not begin;
+- successful/failed mutation attempts update the pending audit to `success`/`failure` where possible;
+- audit never stores credentials or Authorization headers.
+
+Do not make service automation depend on an interactive human solely to improve Console auditability.
 
 ## Persistence
 
-- Core D1 migrations belong under `apps/core/migrations` for Kernel/platform-owned deployment schema. Ordinary model physical schema is produced by the validated Model publication/schema-planning path once Phase 3 typed-storage convergence is active; it must not require a repository migration for every new ordinary model.
-- Kernel tables remain explicit.
-- Ordinary resources may use generic/shared storage only behind validated published model definitions. The intermediate `resource_records.data_json` / `resource_index_values` representation is not a permanent target after Phase 3 performance convergence.
-- Important invariants should be enforced in D1 when cheap and reliable; semantic invariants additionally belong in Registry/Runtime validation.
-- Capabilities may own auxiliary tables/indexes when generic storage is insufficient for correctness/performance.
-- Avoid schema designs that require application clients to repair referential integrity.
-- Migration and Worker rollout order must be compatible and documented.
+- Kernel/platform migrations remain under `apps/core/migrations`.
+- Ordinary model physical schema is produced by validated model publication/schema planning, not one repository migration per ordinary model.
+- Kernel/control-plane tables remain explicit.
+- Capability auxiliary tables/indexes are allowed when needed for correctness/performance.
+- Migration and Worker rollout order must remain compatible and documented.
+
+## Contract ownership
+
+Business-facing Core Kernel contract:
+
+```text
+apps/core/openapi.yaml
+current Kernel version: 0.12.0
+```
+
+Privileged LifeSpace Console control-plane contract:
+
+```text
+apps/core/platform-admin.openapi.yaml
+current Platform Admin version: 0.1.0
+```
+
+Ordinary model contract:
+
+```text
+immutable Model Contract Revision: mct_<sha256>
+```
+
+Do not put Console-only privileged APIs into the Kernel contract simply because they are served by the same Worker. Do not duplicate ordinary model routes into either code-owned contract.
+
+Console Model publish/retire profiles may reference the existing Kernel Model Admin request/response schemas; they must not become a second hand-maintained Model Definition schema.
+
+## HomeMew migration rules
+
+Use prior HomeMew behavior as semantic reference for request tracing, envelopes, concurrency, time/date behavior, queues and proven business semantics.
+
+Do not mechanically preserve:
+
+- `family_id` ownership assumptions;
+- HomeMew-specific identity ownership;
+- family-only role checks where Space/Data Grant rules are required;
+- handwritten Event/Task/Day Record/Wish persistence/routers where Generic Runtime is now authoritative.
 
 ## Verification
 
-A Core change is incomplete until canonical contract checks, tests, type checks and dry-run build pass. Metadata-platform changes additionally require Model Definition/Registry validation tests, Kernel/model authorization isolation tests and reproducibility checks for generated model contracts once generation is enabled. Performance-convergence changes additionally require deterministic physical-schema tests where applicable and must preserve the request-I/O invariants in `docs/phase3-performance-convergence-plan.md`.
+A Core change is incomplete until:
+
+- applicable Kernel and Platform Admin contract checks pass;
+- tests, typecheck and dry-run Worker build pass;
+- migrations/schema expectations are aligned;
+- metadata/runtime changes preserve Registry/contract reproducibility;
+- authorization changes include positive and deny paths;
+- Platform Admin changes cover service-only executor, missing/wrong-purpose/mismatched actor proof and no-hidden-Space-authority behavior;
+- performance-sensitive changes preserve D1 round-trip/N+1 rules;
+- downstream Kernel/model-contract impact is explicitly assessed.
