@@ -4,9 +4,9 @@
 
 - Cloudflare Access is the long-term Web/PWA authentication and SSO layer.
 - Identity application/user/service contract remains `0.5.0`.
-- Identity Platform Admin companion contract is `0.1.0` on the Console foundation branch.
+- Identity Platform Admin companion contract `0.1.0` and the platform-administrator/purpose-bound actor foundation are merged on `main`.
 - Access principal verification, audience registration, explicit registration/linking and trusted application credential lifecycle are implemented.
-- Platform-administrator assignment and purpose-bound actor proof are implemented on the Console foundation branch and require staging migration/deployment/E2E before production use.
+- `apps/console` now has the permanent React/Vite same-origin BFF shell on PR #47. The current UI slice is read-only except for staging-only first-use registration; final acceptance still requires real staging full-admin/browser E2E before any production rollout.
 
 ## Purpose
 
@@ -273,11 +273,12 @@ See `docs/service-authentication.md`.
 
 ## Web/BFF requirements
 
-- Browser JavaScript never receives `lsa_*`, `lsp_pat_*`, bootstrap secrets or equivalent executor credentials.
+- Browser JavaScript never receives raw Access assertions, LifeSpace user bearers, platform-admin actor proofs, `lsa_*`, `lsp_pat_*`, bootstrap secrets or equivalent executor credentials.
 - Each Web app uses a same-origin BFF and host-only application/session cookies where cookies are needed.
 - Do not use a parent-domain `Domain=aisr.online` session cookie for SSO/authority sharing.
 - Cloudflare Access provides Web SSO; Identity exchange resolves LifeSpace identity/authority.
 - The browser must not choose decoded Access `sub`, email, audience or target `usr_*`.
+- Purpose-specific BFF endpoints must validate identifiers/query bounds and never accept a client-controlled upstream URL/path/Authorization header.
 - CSRF-sensitive cookie-backed writes must validate exact Origin and use the application BFF boundary.
 
 ## Contract ownership
@@ -322,4 +323,4 @@ Platform-administrator assignment/revocation remains a provisioning/recovery act
 - Shared parent-domain authentication cookies.
 - Bootstrap secret as a normal Console runtime credential.
 - Ordinary `platform:admin` user tokens usable as long-lived administrator sessions.
-- Browser exposure of application/service executor secrets.
+- Browser exposure of Access/LifeSpace/actor/application/service executor bearer material.
