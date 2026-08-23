@@ -76,7 +76,7 @@ Model publication/retirement and Application × Model Access administration are 
 
 ## Platform administration
 
-Decision status: **accepted and implemented in the LifeSpace Console Slice 0 branch; deployment remains staging-gated.**
+Decision status: **accepted and merged on `main`; the permanent React/Vite Console read-only slice is implemented on PR #47 and remains staging-acceptance-gated before production rollout.**
 
 Platform administration is deliberately separate from Space roles and ordinary business-data authorization. Being a Space `owner` or `admin` does not make a user a LifeSpace platform administrator, and a platform-administration executor is never made a hidden member of every Space.
 
@@ -109,7 +109,7 @@ Rules:
 - A normal LifeSpace user JWT is **not** accepted as platform-admin actor proof, even if a caller attempts to place `platform:admin` in a normal requested scope list.
 - `POST /api/v1/me/platform-admin-actor-token` is the dedicated privilege-elevation boundary. Identity checks the current user, current `platform_administrators` assignment, current application status, and the application's permission to request `platform:admin`, then issues a purpose-bound actor proof valid for at most five minutes.
 - The actor proof is carried separately as `X-LifeSpace-Actor-Token`. A raw `actorUserId`, email, Access subject, decoded claim, or unsigned operator header is never accepted as operator identity.
-- Privileged service endpoints require a separate executor credential held only by the same-origin Console BFF/Worker. Browser JavaScript never receives `lsa_*`, `lsp_pat_*`, bootstrap secrets, signing keys, or equivalent executor secrets.
+- Privileged service endpoints require a separate executor credential held only by the same-origin Console BFF/Worker. Browser JavaScript never receives raw Access assertions, LifeSpace user bearers, actor proofs, `lsa_*`, `lsp_pat_*`, bootstrap secrets, signing keys, or equivalent executor secrets.
 - Actor proof and executor must resolve to the same registered LifeSpace application context. A proof issued to another application cannot be paired with a Console executor credential.
 - Identity-owned Admin APIs verify the Console `lsa_*`, independently verify the actor proof, and re-check the actor's current `platform_administrators` assignment on every privileged request. Revoking the assignment therefore immediately denies subsequent Identity Admin calls even if an actor proof has not expired.
 - Core-owned Admin APIs independently verify the service executor and the Identity-signed purpose-bound actor proof. Core does not duplicate/read Identity's administrator table; its maximum authorization staleness is therefore bounded by the five-minute actor-proof lifetime.
@@ -117,6 +117,7 @@ Rules:
 - Console-triggered Model Admin mutations first persist a `pending` audit record before the Registry mutation starts, then transition it to `success` or `failure`. If audit persistence is unavailable before mutation, the mutation does not begin.
 - Existing non-interactive service automation using `models:manage` remains supported without a human actor proof. Supplying `X-LifeSpace-Actor-Token` on a mutation opts into the Console human-attribution path and the proof must then validate.
 - The global bootstrap secret remains provisioning/break-glass authority. It is not a normal Console runtime credential and must not be stored in the Console Worker/BFF.
+- The Console BFF exposes only fixed purpose-specific operations. It validates path identifiers, query allow-lists and result bounds and never accepts a client-controlled upstream URL/path/Authorization header.
 
 Initial control-plane capabilities are explicit and revocable rather than one hidden superuser bypass:
 
@@ -178,30 +179,3 @@ The effective result is the intersection. The token cannot use a model absent fr
 Initial role vocabulary remains small: `owner`, `admin`, `editor`, `viewer`. Published model policy or sensitive-data Capabilities may further reduce these defaults. Roles are not a substitute for model checks.
 
 Personal Spaces may apply stricter lifecycle rules than family/team Spaces, such as one immutable owner and no ownership transfer, but such rules must be explicit Kernel policy rather than client assumptions.
-
-## Data Grant principles
-
-- Source data keeps exactly one `space_id`.
-- Sharing must not duplicate the authoritative record.
-- Grants may target a user/principal or another Space when approved.
-- Grant resource scope may evolve from collection-level to record/view-level where a concrete requirement exists.
-- Permission levels should be explicit. Calendar sharing may need `free_busy` in addition to read/write/manage.
-- Revocation must take effect from current Core authorization state; do not encode long-lived mutable Space permissions solely into JWT claims.
-- Generic Runtime must evaluate Grants against the resolved model/resource, not merely against an arbitrary URL segment supplied by the client.
-
-## Aggregate access
-
-Authenticated aggregate endpoints under `/api/v1/me/...` may return records from multiple source Spaces when the model/capability explicitly supports aggregation. Each result must preserve source ownership and the caller's effective capabilities so clients can render read-only/shared data correctly.
-
-## Actor safety
-
-- Current actor is derived from verified credentials, never request `userId`.
-- For Access-authenticated Web flows, Identity derives the current LifeSpace actor from a verified `(iss, sub)` mapping. A BFF-supplied `sub`, email or `userId` is not sufficient authority by itself.
-- Access `aud` determines approved application context, not user identity. It must be checked against the registered LifeSpace application before credentials are issued.
-- Account linking is authentication state, not authorization. Linking multiple Access principals to one `usr_*` must not expand that user's Space/Data Grant authority; it only adds another approved way to reach the same global user.
-- User-initiated Agent operations preserve delegated user context.
-- Platform-admin operations preserve both a current authorized human actor and a separately authenticated controlled executor; neither identity may be replaced by an unsigned operator field.
-- Service and device identities receive only explicit stable scopes, Application × Model Access and Grants.
-- A Service API Token authenticates a service principal and never becomes an implicit Space membership or administrator role.
-- A system identity does not become a Space member merely to gain API access.
-- AI Model Designer has no implicit data/model administration authority; its output is only a proposal until an authorized publisher validates and publishes it.
