@@ -1,0 +1,47 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "lifespace-console-local",
+  "main": "worker/index.ts",
+  "compatibility_date": "2026-08-23",
+  "workers_dev": false,
+  "observability": { "enabled": true },
+  "vars": {
+    "ENVIRONMENT": "local",
+    "IDENTITY_BASE_URL": "http://127.0.0.1:8788",
+    "CORE_BASE_URL": "http://127.0.0.1:8787"
+  },
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
+  },
+  "env": {
+    "staging": {
+      "name": "lifespace-console-staging",
+      "vars": {
+        "ENVIRONMENT": "staging",
+        "IDENTITY_BASE_URL": "https://auth-staging.aisr.online",
+        "CORE_BASE_URL": "https://core-staging.aisr.online"
+      },
+      "routes": [{ "pattern": "lifespace-staging.aisr.online", "custom_domain": true }],
+      "services": [
+        { "binding": "IDENTITY", "service": "lifespace-identity-staging" },
+        { "binding": "CORE", "service": "lifespace-core-staging" }
+      ]
+    },
+    "production": {
+      "name": "lifespace-console",
+      "vars": {
+        "ENVIRONMENT": "production",
+        "IDENTITY_BASE_URL": "https://auth.aisr.online",
+        "CORE_BASE_URL": "https://core.aisr.online"
+      },
+      "routes": [{ "pattern": "lifespace.aisr.online", "custom_domain": true }],
+      "services": [
+        { "binding": "IDENTITY", "service": "lifespace-identity" },
+        { "binding": "CORE", "service": "lifespace-core" }
+      ]
+    }
+  }
+}

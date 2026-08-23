@@ -1,383 +1,569 @@
 # LifeSpace Console MVP
 
-- Decision status: **Accepted for MVP planning**
-- Runtime status: **Planned; not implemented or deployed**
-- Decision date: 2026-08-22
-- Production hostname: `https://lifespace.aisr.online`
-- Planned staging hostname: `https://lifespace-staging.aisr.online`
+## Positioning
 
-## Purpose
+**LifeSpace Console = LifeSpace 平台运维与治理控制台。**
 
-LifeSpace Console is the platform operations and governance console for LifeSpace itself.
-
-It is not a HomeMew administration site, an ALOHA administration site, or a generic business-data editor. Application-specific product administration remains in the owning application repository. The Console manages and inspects LifeSpace platform concepts such as registered Applications, Model Registry state, Model Contract revisions, global users/platform Web principals, Spaces/Data Grants, service principals, credentials, platform health and audit evidence.
-
-The MVP should make routine platform governance possible without depending on ad-hoc `curl`, direct D1 SQL, or bootstrap/provisioning scripts, while preserving LifeSpace's existing Identity, Space/Data Grant and Model Admin security boundaries.
-
-## Product boundary
-
-The MVP owns these platform views:
+生产域名：
 
 ```text
-LifeSpace Console
-
-Overview
-
-Platform
-  Applications
-  Models
-  Users
-  Spaces
-
-Operations
-  Audit
-  System
+https://lifespace.aisr.online
 ```
 
-The Console must not become a second source of truth. Identity remains authoritative for users, Access platform principals, applications and credentials. Core remains authoritative for Spaces, Data Grants, Model Registry, Application × Model Access, Generic Runtime and business authorization.
-
-## Deployment and authentication boundary
-
-The Console is an owner-controlled LifeSpace Web application and follows the accepted Cloudflare Access architecture:
+staging 域名：
 
 ```text
-Browser
-  -> Cloudflare Access
-  -> LifeSpace Console Worker / same-origin BFF
-  -> LifeSpace Identity independently verifies the Access assertion
-  -> (iss, sub) -> global usr_*
-  -> Console Access aud -> registered LifeSpace Console application
-  -> approved admin execution boundary
-  -> Identity Admin APIs / Core Admin APIs
+https://lifespace-staging.aisr.online
 ```
 
-Production and staging are isolated applications and deployments:
+Console 管理的是 LifeSpace 平台本身：Application、Model、Identity、Space、平台凭证、审计和系统状态。
+
+它不是：
+
+- HomeMew 家庭管理后台；
+- ALOHA 管理后台；
+- 通用业务数据编辑器；
+- Cloudflare/GitHub 运维后台；
+- SQL/D1 控制台。
+
+## Delivery status
+
+Current branch: `feat/lifespace-console-admin-foundation` / PR #42.
+
+### Slice 0A — control-plane foundation
+
+Implemented in repository and covered by CI:
+
+- explicit LifeSpace `platform_administrators` assignment state in Identity;
+- dedicated <=5-minute `purpose=platform_admin_actor` human proof;
+- dual human-actor + controlled-executor authorization;
+- Identity formal Platform Admin Application management;
+- Application credential rotation/revocation with one-time plaintext;
+- Cloudflare Access audience management;
+- cross-application Service Principal / `lsp_pat_*` management;
+- global read-only User + Access-principal inspector;
+- Core Application × Model Access administration;
+- global read-only Space/member/Data Grant/model-record-count inspector;
+- Identity/Core platform-admin audit;
+- Console-aware actor attribution for Model publish/retire while retaining service automation compatibility;
+- separate Identity/Core Platform Admin OpenAPI companion contracts `0.1.0`;
+- contract sanity checks in normal repository CI;
+- idempotent staging provisioning helper and read-only staging E2E verifier.
+
+### Slice 0B — staging proving shell
+
+Implemented and deployed to staging:
 
 ```text
-production
-  lifespace.aisr.online
-
-staging
-  lifespace-staging.aisr.online
+apps/console
 ```
 
-They must use separate Cloudflare Access applications/audiences, LifeSpace application registrations, credentials and service principals. Staging must never point at production D1/R2/Queue/credential state.
+The proving shell exists because a real Cloudflare Access end-to-end test needs a real protected Console origin. It establishes the permanent Worker/BFF/deployment security boundary before the full UI dependency set is introduced.
 
-### Bootstrap secret is not a Console credential
+Current implementation:
 
-`LIFESPACE_*_BOOTSTRAP_SECRET` and `/bootstrap/v1/*` remain infrastructure bootstrap / provisioning / recovery authority. The Console must never place a bootstrap secret in browser JavaScript, an App Session, or its normal runtime management path.
+- Cloudflare Worker + Workers Static Assets;
+- staging custom domain `lifespace-staging.aisr.online`;
+- staging/production Service Binding isolation for Identity/Core transport;
+- `/api/session` for raw Access assertion -> Identity -> LifeSpace user resolution;
+- staging-only `/api/session/register` for explicit first-use registration through Identity's canonical Access registration flow;
+- `/api/platform/probe` for server-side actor-proof issuance plus bounded read-only Identity/Core admin checks;
+- no browser-visible `lsa_*`, `lsp_pat_*`, Access bearer, LifeSpace bearer or actor proof;
+- no business-data mutation, model publish/retire, credential management or arbitrary upstream proxy;
+- temporary static presentation only; BFF code/config is intended to remain for the React/Vite UI.
 
-The existing bootstrap routes may be used during initial Console provisioning only. Routine application/credential/audience administration requires a formal non-bootstrap platform-admin contract before the corresponding Console write UI is enabled.
+Real Stage A browser proving confirmed an important identity invariant: a valid Cloudflare Access login whose verified `(iss, sub)` is unknown to Identity returns `ACCESS_PRINCIPAL_UNLINKED`; it is not auto-created or merged from email. The proving shell therefore exposes the canonical explicit create-new-user path in staging only. The browser may supply only a display name and explicit confirmation; the Worker supplies the current Access assertion and server credential, Identity creates the new `usr_*` plus mapping atomically, and the returned LifeSpace bearer remains server-side. The registration write requires exact same-origin browser evidence plus a dedicated intent header and is unavailable in production.
 
-### Human actor and service executor
+If an operator already has a staging LifeSpace user, they must not create a second one. Existing-account linking remains the proof-backed Identity link-challenge flow, confirmed by an already authenticated LifeSpace user credential; the Console must not substitute a `userId` picker or email match.
 
-Existing Model Admin deliberately requires a service principal even when a user token contains `models:manage`. The Console must preserve that service-only execution boundary while still attributing every human-triggered change to the verified LifeSpace user behind Cloudflare Access.
+### Slice 0 staging acceptance gate
 
-A privileged Console mutation therefore has two distinct identities:
+Stage A infrastructure proving has passed:
 
-- **actor** — verified LifeSpace `usr_*` reached through Access -> Identity resolution;
-- **executor** — narrowly scoped Console platform-admin service/application principal used for the privileged backend operation.
+- Identity staging migrated/deployed to schema v7;
+- Core staging migrated/deployed to schema v26;
+- `app_lifespace_console_staging` and the staging Access AUD are registered;
+- Console session-only Worker is deployed behind Access;
+- real Access login reaches the Console and the unlinked-principal path has been proved;
+- Console 0.0.2 explicit staging registration flow has passed full repository checks and code-only staging redeploy;
+- production resources were not touched.
 
-The implementation must not trust a browser- or BFF-supplied arbitrary `actorUserId`. Before privileged Console writes are implemented, Identity/Core must define an approved delegation/admin-call contract that cryptographically or server-side binds the verified actor to the privileged execution request. Audit records must preserve both identities.
+Slice 0 remains accepted only after the remaining real staging steps:
 
-The exact dual-identity transport is an implementation prerequisite, not something the UI may approximate with an unsigned header.
+1. explicitly resolve the current Access principal to one staging LifeSpace `usr_*` by either new-user registration or proof-backed existing-account linking;
+2. bootstrap that exact `usr_*` as a staging platform administrator;
+3. provision the Console exact-scope Core service executor;
+4. prove real Access -> LifeSpace user -> actor proof -> Identity/Core platform-admin flow through the protected Console origin;
+5. prove missing/wrong-purpose/wrong-application actor/executor denial and explicit unlinked-account handling;
+6. prove existing service-only Model Admin automation still works;
+7. remove temporary feature-branch proving triggers before PR Ready;
+8. prove production LifeSpace/HomeMew services, credentials and data are untouched.
 
-## MVP modules
+### Slice 1 — React/Vite Console shell
 
-## 1. Overview
+Starts after Slice 0 staging acceptance.
 
-Purpose: answer "is the LifeSpace platform healthy and what is active now?"
+Keep the proving shell's Worker/BFF/security/deployment boundary and replace the temporary static presentation with:
 
-Show at minimum:
+- React;
+- TypeScript;
+- Vite;
+- Cloudflare Vite plugin / Workers Static Assets;
+- persistent Console navigation/layout/error states/environment banner;
+- purpose-specific BFF client modules generated/thinly wrapped around the explicit control-plane contracts.
 
-- selected environment (`production` or `staging`);
-- Identity health and contract version;
-- Core health and Kernel contract version;
-- current Model Registry revision;
-- active immutable `mct_*` Model Contract revision;
-- published model count;
-- registered/active application count;
+This separates a new frontend dependency/toolchain slice from the security/control-plane foundation while avoiding throwaway backend code.
+
+### Slice 2 — MVP pages
+
+Implement the six functional areas defined below: Overview, Applications, Models, Users, Spaces, Operations.
+
+## Information architecture
+
+```text
+LifeSpace
+├─ Overview
+├─ Platform
+│  ├─ Applications
+│  ├─ Models
+│  ├─ Users
+│  └─ Spaces
+└─ Operations
+   ├─ Audit
+   └─ System
+```
+
+## Overview
+
+Purpose: answer“平台现在是否健康、关键控制面处于什么状态”。
+
+MVP cards:
+
+- current environment (`staging` / `production`) with strong production warning;
+- Identity health + contract/schema status;
+- Core health + Kernel/schema status;
+- Identity/Core Platform Admin contract version;
+- published model count + Registry revision;
+- active `mct_*` Model Contract Revision;
+- registered Application count;
 - user count;
 - Space count;
-- critical configuration/contract mismatch warnings.
+- warning area for unavailable service/contract mismatch.
 
-MVP does not need infrastructure metrics dashboards. Request latency, CPU, D1 query analytics and Cloudflare time-series charts are later observability work.
+Not MVP:
 
-## 2. Applications
+- Grafana replacement;
+- detailed latency/CPU/request dashboards;
+- log search platform.
 
-Purpose: make LifeSpace application trust and authorization visible and manageable from one platform surface.
+## Applications
 
-Application list/detail should expose:
+Applications is one of the primary MVP pages because it replaces platform setup currently done by scripts/curl.
 
-- application id and display name;
-- client type;
-- trusted-backend classification;
-- status;
-- allowed Identity scope ceiling;
-- access-token TTL policy;
-- Cloudflare Access audience registrations for Web applications;
-- trusted application credential metadata and rotation/revocation state;
-- service principals and their credential metadata;
-- Application × Model Access entries.
-
-MVP writes:
-
-- update bounded mutable application policy;
-- register/revoke Access audience;
-- create replacement application credential and show plaintext exactly once;
-- revoke application credential;
-- create/update/disable service principal;
-- create/rotate/revoke Service API Token with plaintext shown exactly once;
-- set/remove Application × Model Access.
-
-All secret views must preserve existing one-time-plaintext and hash-redaction rules.
-
-## 3. Models
-
-Purpose: productize the existing service-only Model Admin capability without weakening it.
-
-Model list/detail should expose:
-
-- key and route;
-- published version/state;
-- schema hash;
-- fields/relations/query/lifecycle/access metadata;
-- Capabilities/actions/policy metadata;
-- raw validated Model Definition;
-- active Model Contract membership.
-
-MVP writes:
-
-```text
-edit/provide Model Definition
-  -> validate
-  -> show validation + compatibility result
-  -> show affected version/schema/contract summary
-  -> explicit publish confirmation
-  -> new immutable Model Contract revision
-```
-
-Retirement is supported only with a strong confirmation step and dependency evidence. The UI must not provide arbitrary SQL, JavaScript, shell execution or direct D1 editing.
-
-AI Model Designer is outside the MVP. AI may be added later as a proposal layer only; publication must still use the canonical validator/compatibility/audit path.
-
-## 4. Users
-
-Purpose: inspect global LifeSpace identity state and diagnose Web principal resolution.
-
-MVP is read-only except for future explicitly designed recovery operations.
-
-User detail should expose:
-
-- global `usr_*` id;
-- profile/display metadata and status;
-- created/updated timestamps;
-- linked Cloudflare Access platform principals;
-- principal issuer, subject, email snapshot, status, linked/last-seen timestamps;
-- Space memberships summary;
-- application usage evidence when safely available.
-
-MVP must not allow:
-
-- editing `usr_*` ids;
-- merging by email/display name;
-- manually rewriting `(iss, sub)`;
-- arbitrary Access-principal reassignment;
-- impersonation.
-
-Principal unlinking/recovery remains deferred until its lockout/recovery threat model is explicitly designed.
-
-## 5. Spaces
-
-Purpose: inspect ownership/authorization state when debugging platform behavior.
-
-MVP is a platform Inspector, not a second business-data editor.
-
-Space list/detail should expose:
-
-- Space id, name, kind, timezone and lifecycle state;
-- owner/creator summary;
-- memberships and roles;
-- Space People linkage summary;
-- Data Grants and grant state;
-- per-model record counts where they can be produced without N+1 scans;
-- relevant application/model authorization diagnostics when useful.
-
-The MVP does not allow the platform administrator to edit ordinary business records. Existing user-facing Space membership and Grant mutation APIs remain product/user operations, not a reason to expose unrestricted mutations in the platform Console.
-
-## 6. Audit
-
-Purpose: make privileged Console actions accountable and diagnosable.
-
-At minimum capture:
-
-- timestamp;
-- environment;
-- verified human actor `usr_*`;
-- privileged executor principal/application;
-- operation;
-- target type/id;
-- bounded before/after or change summary without secrets;
-- request/trace id;
-- result/status;
-- relevant contract/model version evidence.
-
-Audit data must redact credentials, hashes, Access assertions and other secret-bearing payloads.
-
-The initial audit requirement applies at least to Console/platform-admin mutations. It is not necessary for the MVP to turn every ordinary business CRUD request into a globally browsable event log.
-
-## 7. System
-
-Purpose: expose authoritative deployed platform state without becoming a Cloudflare control plane.
+### List
 
 Show:
 
-- Identity URL/health/contract/schema version when available;
-- Core URL/health/Kernel version/schema version when available;
-- Model Registry revision;
-- active Model Contract revision;
-- deployment/environment identifiers that are already safe to expose;
-- warning state when expected contract/environment invariants drift.
+- application name;
+- Application ID;
+- client type;
+- active/disabled state;
+- trusted-backend flag;
+- number of Access audiences;
+- number of Service Principals;
+- current model-access summary.
 
-MVP does not manage Cloudflare DNS, Workers, D1, R2, Queues, GitHub Actions or arbitrary environment variables.
+### General
 
-## Current API coverage and required gaps
+Read/update bounded application policy:
 
-The Console should reuse canonical service contracts where they already have the correct security semantics. It must not build hidden direct-D1 admin behavior to avoid adding an API.
+- name;
+- allowed scope ceiling;
+- access-token TTL;
+- status.
 
-| Console area | Current platform capability | MVP assessment |
-| --- | --- | --- |
-| Identity/Core health | `/health`, `/api/v1/status` exist | Reuse; add a Console aggregation endpoint/view if needed |
-| Model list/get/validate/publish/retire | Core `/api/v1/model-admin/*` exists and is service-principal-only | **Reusable** |
-| Active/historical Model Contract | Core Model Admin contract reads exist | **Reusable** |
-| Application create/get/update | Identity bootstrap-admin routes exist; no normal platform-admin list contract | **Gap: formal non-bootstrap Admin API + list** |
-| Application credentials | Identity bootstrap-admin credential lifecycle exists | **Gap: expose equivalent formal platform-admin contract; do not use bootstrap secret at runtime** |
-| Access audiences | Identity bootstrap-admin audience lifecycle exists | **Gap: formal platform-admin contract** |
-| Service principals/tokens | Existing APIs are scoped to the calling trusted application's own context | **Gap: cross-application platform-admin inspection/management contract** |
-| Application × Model Access | Core table/runtime enforcement exists | **Gap: explicit platform-admin CRUD/list API** |
-| Global users | Profile/self/internal creation and Access resolution/linking exist | **Gap: read-only platform-admin list/detail/search API** |
-| Access principals | Identity persistence/resolution exists; user-facing listing/unlink is deferred | **Gap: read-only platform-admin inspector API** |
-| Spaces | User/principal-scoped Space/member/Grant APIs exist | **Gap: platform-admin global list/detail inspector without pretending admin is a Space member** |
-| Record counts | Generic Runtime owns data; no Console aggregation contract defined | **Gap: bounded batch count/summary API if needed** |
-| Audit | No canonical Console/platform-admin audit surface is currently defined | **Gap: audit persistence + read API + mutation integration** |
-| System summary | Individual status/version sources exist | Partial; aggregate safely in Console BFF or explicit read API |
+Display immutable classification:
 
-## Required platform API design before write-capable Console
+- Application ID;
+- client type;
+- trusted-backend flag;
+- created/updated time.
 
-The first implementation slice is contract/security work, not UI.
+### Application credentials
 
-### Identity
+- list only metadata/suffix/status/time;
+- create replacement `lsa_*`;
+- plaintext displayed exactly once;
+- revoke old credential;
+- never reveal stored plaintext/hash.
 
-Add a formal platform-admin surface that can support, at minimum:
+### Cloudflare Access
 
-- list/get applications;
-- bounded application policy mutation;
-- application credential metadata/create/revoke;
-- Access audience metadata/create/revoke;
-- cross-application service-principal and credential inspection/management;
-- global user read-only list/detail/search;
-- Access principal read-only inspection.
+For Web applications:
 
-These endpoints must use a dedicated privileged service/admin authorization boundary and must not accept `x-bootstrap-secret` as the normal Console credential.
+- issuer;
+- audience values;
+- status;
+- register/revoke audience.
 
-### Core
+No Access `aud` is treated as a user key.
 
-Add platform-admin surfaces for:
+### Application × Model Access
 
-- Application × Model Access list/upsert/delete;
-- global Space read-only list/detail/member/Grant inspection;
-- bounded per-Space model counts/summary if required for the MVP;
-- platform-admin audit reads/writes or an approved shared audit boundary.
+For each published model, show/configure maximum application access:
 
-Existing service-only Model Admin remains authoritative and should be reused rather than duplicated.
+```text
+none / read / write / manage
+```
 
-### Authorization scopes
+This is Core authorization state and is independent from Identity token scope ceiling.
 
-Do not grant the Console one unbounded hidden superuser bypass. Platform-admin authority should stay explicit and revocable. Exact new scope names are to be frozen with the Admin API contract, but they should remain capability-oriented (for example application administration, identity inspection, Space inspection, audit read) while preserving existing `models:manage` for Model Admin.
+### Service Principals
 
-A platform-admin service credential still does not become a Space member and must not silently bypass ordinary business authorization on Generic Runtime routes.
+Within a target application:
+
+- list/create service principals;
+- display/update name/description/maxScopes/status;
+- disable/re-enable principal;
+- list opaque token metadata;
+- create token with one-time plaintext;
+- update label/expiry and reduce token scopes;
+- revoke token.
+
+OAuth credential UI may be added after opaque-token MVP unless a concrete operator need blocks deployment.
+
+## Models
+
+The Console manages the Model Registry; it does not become a free-form low-code IDE.
+
+### Model list
+
+Show:
+
+- key;
+- route;
+- model version;
+- publication state;
+- schema hash;
+- compatibility classification;
+- declared access capabilities.
+
+### Model detail
+
+Structured inspection of the current published Model Definition:
+
+- General;
+- Fields;
+- Relations;
+- Access;
+- Query;
+- Lifecycle;
+- Capabilities;
+- Actions/workflow;
+- Policy;
+- raw definition.
+
+### Validate / publish
+
+MVP flow:
+
+```text
+edit or paste Model Definition
+-> validate
+-> show issues/schema hash
+-> select/confirm compatibility classification
+-> show affected definition summary
+-> publish with explicit confirmation
+```
+
+Console-triggered publication sends the five-minute human actor proof in addition to the Core `models:manage` service executor, so audit distinguishes the human from backend execution.
+
+### Retire
+
+Retirement requires explicit destructive confirmation, preferably typing the model key.
+
+History/contract inspection:
+
+- active `mct_*` revision;
+- immutable historical revision reads;
+- manifest/OpenAPI/JSON Schema inspection.
+
+Not MVP:
+
+- drag-and-drop model designer;
+- AI auto-publish;
+- arbitrary code/SQL policy editor.
+
+## Users
+
+Users is initially a **read-only Identity troubleshooting inspector**.
+
+### User list
+
+- search by `usr_*` or display name;
+- filter active/disabled;
+- bounded page/result size.
+
+### User detail
+
+Show:
+
+- global `usr_*`;
+- display name;
+- avatar;
+- status;
+- created/updated time;
+- linked Cloudflare Access principals.
+
+For each Access principal show only operational metadata:
+
+- issuer;
+- subject;
+- email snapshot marked non-authoritative;
+- status;
+- linked/last-seen times.
+
+Not MVP:
+
+- edit `usr_*`;
+- manual Access-subject editing;
+- email-based merge;
+- user impersonation;
+- arbitrary account unlinking/recovery before lockout threat model exists.
+
+## Spaces
+
+Spaces is initially a **read-only Core troubleshooting inspector**. A platform administrator does not become a hidden member of every Space.
+
+### Space list
+
+Search/filter by:
+
+- `spc_*` / name;
+- kind (`personal` / `family` / `team`).
+
+Show bounded summaries:
+
+- owner/creator metadata where exposed;
+- member count;
+- active Grant count;
+- ordinary record count.
+
+### Space detail
+
+Show:
+
+- ID/name/kind/timezone/version;
+- active members and linked Space Person display names;
+- Data Grants including revoked/expiry state where returned;
+- record counts grouped by model key.
+
+Not MVP:
+
+- edit arbitrary family/personal business records;
+- force membership changes;
+- arbitrary Data Grant mutation from the platform console;
+- bypass Space authorization by impersonation.
+
+## Audit
+
+The Console must expose platform-control audit evidence, not only application logs.
+
+Each privileged event should distinguish:
+
+- human actor `usr_*`;
+- actor application/token proof metadata;
+- backend/service executor;
+- operation;
+- target type/ID;
+- secret-free summary/before-after information;
+- request ID;
+- timestamp;
+- result (`pending` / `success` / `failure` where applicable).
+
+Identity and Core have separate authoritative audit stores because each service owns its state. The Console may aggregate them in the UI but must not create a third authoritative audit database.
+
+MVP filters:
+
+- service (`identity` / `core`);
+- operation;
+- actor user;
+- target;
+- result;
+- recent time range.
+
+Credential plaintext, credential hash and Authorization headers are never audit fields.
+
+## System
+
+Read-only deployment/control-plane status:
+
+- environment;
+- Identity URL/health/schema/application contract version/platform-admin contract version;
+- Core URL/health/schema/Kernel version/platform-admin contract version;
+- Registry revision;
+- active Model Contract Revision;
+- deployment/version metadata when already available from the platform runtime.
+
+System is not a Cloudflare dashboard. Configuration changes to Workers/D1/R2/Queues/Access remain infrastructure/deployment workflows unless a future explicit requirement justifies bringing a bounded operation into LifeSpace.
+
+## Security architecture
+
+### 1. Cloudflare Access is the perimeter, not final admin authorization
+
+```text
+Browser
+-> Cloudflare Access
+-> Console BFF
+-> LifeSpace Identity usr_* resolution
+```
+
+An Access email/session alone does not make the user a LifeSpace platform administrator.
+
+### 2. Explicit administrator assignment
+
+Identity owns `platform_administrators`. Initial assignment/recovery is bootstrap-only.
+
+### 3. Purpose-bound human proof
+
+A currently assigned administrator obtains:
+
+```text
+POST /api/v1/me/platform-admin-actor-token
+```
+
+The returned JWT is limited to:
+
+```text
+scope   = platform:admin
+purpose = platform_admin_actor
+TTL     = 300 seconds
+azp     = Console application
+```
+
+It is not a normal reusable product user token.
+
+### 4. Separate executor
+
+Identity operations:
+
+```text
+Authorization: Bearer <Console lsa_*>
+X-LifeSpace-Actor-Token: <actor proof>
+```
+
+Core operations:
+
+```text
+Authorization: Bearer <Console service executor>
+X-LifeSpace-Actor-Token: <actor proof>
+```
+
+Actor and executor application context must match.
+
+### 5. Bootstrap secret is break-glass only
+
+The global bootstrap secret must never be stored in the normal Console Worker/BFF or browser. It remains for provisioning/recovery such as initial platform-administrator assignment.
+
+## Contract model
+
+The Console consumes privileged companion contracts rather than broadening product contracts:
+
+```text
+Identity application/user/service contract: 0.5.0
+Identity Platform Admin contract:             0.1.0
+
+Core Kernel contract:                         0.12.0
+Core Platform Admin contract:                 0.1.0
+Model Contract Revision:                      mct_<hash>
+```
+
+This separation allows HomeMew/ALOHA to retain their business contract pins when Console-only control-plane APIs evolve.
+
+Canonical files:
+
+```text
+apps/identity/openapi.yaml
+apps/identity/platform-admin.openapi.yaml
+apps/core/openapi.yaml
+apps/core/platform-admin.openapi.yaml
+```
+
+## Technical implementation
+
+Current proving implementation:
+
+```text
+apps/console
+  Cloudflare Worker/BFF
+  Workers Static Assets
+  temporary dependency-light proving page
+```
+
+The Worker reads `Cf-Access-Jwt-Assertion` only at the server boundary and forwards the original assertion to Identity. It never trusts browser-selected decoded Access identity fields. For staging/production, Service Bindings transport requests to the corresponding Identity/Core Workers, while explicit LifeSpace executor credentials remain the authorization boundary.
+
+Cloudflare Static Assets uses Worker-first routing only for `/api/*`; static presentation files do not contain privileged data. The BFF exposes bounded purpose-specific routes instead of an arbitrary proxy.
+
+Final UI stack after staging proving:
+
+- React;
+- TypeScript;
+- Vite;
+- Cloudflare Vite plugin / Worker Static Assets;
+- one Worker deployment containing static UI + same-origin BFF.
+
+Request topology:
+
+```text
+Browser
+-> lifespace.aisr.online / lifespace-staging.aisr.online
+-> Cloudflare Access
+-> Console Worker/BFF
+   -> Identity
+   -> Core
+```
+
+Browser JavaScript never receives server executor credentials or Actor Proof.
+
+Production and staging use separate:
+
+- Access Applications/audiences;
+- Console LifeSpace applications;
+- executor credentials;
+- Console Workers;
+- Identity/Core Workers and data stores;
+- administrator proving state as appropriate.
 
 ## MVP non-goals
 
-The first release explicitly excludes:
-
-- ordinary business-record CRUD/editor;
-- direct SQL/D1 console;
-- Cloudflare control-plane management;
-- GitHub CI/CD controls;
-- HomeMew family product administration;
+- ordinary business-data editor;
+- SQL/D1 console;
+- Cloudflare configuration manager;
+- GitHub CI/CD manager;
+- HomeMew family administration;
 - ALOHA product administration;
 - user impersonation;
-- automatic user merge by email;
-- arbitrary Access-principal reassignment;
-- visual drag-and-drop Model Designer;
-- AI auto-publication;
-- arbitrary API/Swagger executor;
-- infrastructure metrics dashboards;
-- unrestricted Space/Grant mutation from a hidden platform superuser.
+- email-based account merging;
+- AI automatic model publication;
+- drag-and-drop model designer;
+- heavy observability dashboards;
+- arbitrary Space membership/Grant mutation;
+- arbitrary Swagger/API executor.
 
-## Planned repository shape
+## Acceptance criteria
 
-After the Admin contract/security prerequisite is accepted and implemented, add:
+The MVP is accepted only when all of the following are true:
 
-```text
-apps/
-  core/
-  identity/
-  console/
-```
-
-`apps/console` should own the LifeSpace Console Web UI and same-origin Worker/BFF. It must not contain an independent business-data store or an independent Access-subject -> `usr_*` mapping.
-
-The browser should call only the Console's same-origin BFF. Long-lived application/service credentials remain Worker secrets and are never delivered to browser JavaScript.
-
-## Delivery slices
-
-### Slice 0 — Admin contract and audit foundation
-
-1. Define privileged admin scopes/authorization and verified actor attribution.
-2. Add formal Identity platform-admin routes replacing bootstrap-only runtime needs.
-3. Add Core Application × Model Access Admin API.
-4. Add Core global Space Inspector API.
-5. Add read-only Identity User/Access Principal Inspector API.
-6. Add platform-admin audit persistence/read surface.
-7. Add contract tests and deny-path tests proving ordinary user/application credentials cannot call these APIs.
-
-### Slice 1 — Console shell and authentication
-
-1. Add `apps/console` with repository-local `AGENTS.md`.
-2. Register staging Console Web application and Access audience.
-3. Implement Access -> Identity resolution and same-origin session/BFF boundary.
-4. Implement Overview/System read views.
-5. Prove staging/production configuration isolation.
-
-### Slice 2 — Applications
-
-Implement application, Access audience, application credential, service-principal/token and Application × Model Access views and allowed mutations.
-
-### Slice 3 — Models
-
-Implement Model Registry/Contract inspector plus validate/publish/retire flows using the existing service-only Model Admin boundary.
-
-### Slice 4 — Users and Spaces
-
-Implement read-only global user/Access-principal and Space/member/Grant inspectors, including bounded record-count summaries where available.
-
-### Slice 5 — Audit and production rollout
-
-Complete privileged-action audit UX, destructive-action confirmations, staging E2E, production Access application/audience provisioning and production deployment gates.
-
-## MVP acceptance criteria
-
-The MVP is complete when:
-
-1. `lifespace.aisr.online` is protected by its own Cloudflare Access application and registered LifeSpace Access audience.
-2. The same verified LifeSpace user can access the Console without introducing a separate LifeSpace Web IdP or parent-domain shared cookie.
-3. The Console runtime contains no bootstrap secret in its normal management path.
-4. Browser JavaScript contains no `lsa_*`, `lsp_pat_*`, bootstrap secret, signing key or other long-lived backend credential.
-5. Applications, Access audiences, credentials/service principals and Application × Model Access can be managed through formal audited Admin APIs.
-6. Model validate/publish/retire uses the canonical existing Model Admin validator/Registry/Contract path.
-7. Global users/Access principals and Spaces/Grants can be inspected without direct D1 access and without treating the platform admin as an implicit Space member.
-8. Every privileged Console mutation records the verified human actor and privileged executor without logging secret material.
-9. Staging and production Console/Access/application credentials are fully isolated.
-10. `pnpm check` and relevant Admin/Console integration tests prove allow and deny behavior before deployment.
+1. staging Access login reaches the Console application and resolves a LifeSpace `usr_*` through explicit Identity registration/linking where first-use resolution is required;
+2. an assigned platform administrator can obtain the five-minute actor proof;
+3. a non-assigned user cannot obtain/use platform-admin authority;
+4. Identity and Core privileged calls require both human proof and the correct server executor;
+5. cross-application actor/executor pairing is rejected;
+6. Applications/Model Access/Service Principal operations are auditable with human + executor attribution;
+7. User and Space inspector surfaces are read-only and do not create hidden authority;
+8. Console-triggered Model publish/retire records actor-aware audit while existing service automation still works;
+9. credential plaintext is one-time-only and never appears in list/audit responses;
+10. production and staging are isolated and staging proving does not modify production LifeSpace/HomeMew data;
+11. `apps/console` uses only the documented Platform Admin/business contracts and no bootstrap secret;
+12. browser code never receives Access/LifeSpace/Actor/Executor bearer material from the Console BFF;
+13. repository CI and staging E2E are green before production rollout.

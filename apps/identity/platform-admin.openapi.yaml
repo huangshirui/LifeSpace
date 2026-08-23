@@ -1,0 +1,596 @@
+openapi: 3.1.0
+info:
+  title: LifeSpace Identity Platform Admin API
+  version: 0.1.0
+  description: >-
+    Privileged LifeSpace Identity control-plane contract for the LifeSpace Console and break-glass
+    platform provisioning. It is intentionally versioned separately from the downstream Identity
+    application contract so ordinary applications are not forced to repin when Console governance
+    capabilities change. Routine platform-admin calls require the Console application credential
+    plus a dedicated <=5-minute purpose-bound human actor proof from the same LifeSpace application.
+tags:
+  - name: Admin Actor
+  - name: Administrator Assignment
+  - name: Application Admin
+  - name: Identity Inspector
+  - name: Service Admin
+  - name: Platform Audit
+paths:
+  /api/v1/me/platform-admin-actor-token:
+    post:
+      tags: [Admin Actor]
+      operationId: issuePlatformAdminActorProof
+      description: >-
+        Elevate the current ordinary LifeSpace user session into a dedicated <=5-minute
+        purpose=platform_admin_actor proof. Identity requires an active user, an active
+        platform_administrators assignment, an active current application, and that application's
+        platform:admin scope ceiling. A normal user JWT is never accepted as a substitute.
+      security: [{ userBearer: [] }]
+      responses:
+        '200':
+          description: Dedicated platform-admin actor proof issued
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PlatformAdminActorTokenResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /bootstrap/v1/platform-administrators:
+    get:
+      tags: [Administrator Assignment]
+      operationId: listPlatformAdministratorAssignments
+      description: >-
+        Bootstrap/break-glass view of explicit LifeSpace platform-administrator assignments.
+        This route is not used by the routine Console runtime.
+      security: [{ bootstrapSecret: [] }]
+      responses:
+        '200':
+          description: Platform administrator assignments
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PlatformAdministratorListResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /bootstrap/v1/platform-administrators/{userId}:
+    parameters:
+      - $ref: '#/components/parameters/UserId'
+    put:
+      tags: [Administrator Assignment]
+      operationId: assignPlatformAdministrator
+      description: >-
+        Bootstrap/break-glass assignment of one active global LifeSpace user as a platform
+        administrator. Reassigning an existing revoked row reactivates it.
+      security: [{ bootstrapSecret: [] }]
+      responses:
+        '200': { description: Administrator assignment active }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+    delete:
+      tags: [Administrator Assignment]
+      operationId: revokePlatformAdministrator
+      description: Revoke an active platform-administrator assignment for subsequent privileged use.
+      security: [{ bootstrapSecret: [] }]
+      responses:
+        '204': { description: Administrator assignment revoked }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /internal/v1/platform-admin/applications:
+    get:
+      tags: [Application Admin]
+      operationId: listPlatformApplications
+      description: List registered LifeSpace applications. Requires executor applications:manage plus current human actor proof.
+      security: [{ applicationCredential: [], platformAdminActor: [] }]
+      responses:
+        '200':
+          description: Registered applications
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApplicationListResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Application Admin]
+      operationId: createPlatformApplication
+      description: >-
+        Create a registered LifeSpace application with a generated app_* id. When trustedBackend is
+        true an lsa_* credential is returned exactly once and only non-secret metadata enters audit.
+      security: [{ applicationCredential: [], platformAdminActor: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreatePlatformApplicationRequest' }
+      responses:
+        '201':
+          description: Application created; optional clientSecret is write-only and returned once
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CreatePlatformApplicationResponse' }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /internal/v1/platform-admin/applications/{applicationId}:
+    parameters:
+      - $ref: '#/components/parameters/ApplicationId'
+    get:
+      tags: [Application Admin]
+      operationId: getPlatformApplication
+      security: [{ applicationCredential: [], platformAdminActor: [] }]
+      responses:
+        '200': { description: Application metadata, content: { application/json: { schema: { $ref: './openapi.yaml#/components/schemas/ApplicationResponse' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+    patch:
+      tags: [Application Admin]
+      operationId: updatePlatformApplication
+      description: Update only name, allowedScopes, accessTokenTtlSeconds, or active/disabled status; client/trust classification remains immutable.
+      security: [{ applicationCredential: [], platformAdminActor: [] }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: './openapi.yaml#/components/schemas/UpdateApplicationRequest' } } }
+      responses:
+        '200': { description: Updated application, content: { application/json: { schema: { $ref: './openapi.yaml#/components/schemas/ApplicationResponse' } } } }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /internal/v1/platform-admin/applications/{applicationId}/credentials:
+    parameters:
+      - $ref: '#/components/parameters/ApplicationId'
+    get:
+      tags: [Application Admin]
+      operationId: listPlatformApplicationCredentials
+      description: List credential metadata only; plaintext and hashes are never returned.
+      security: [{ applicationCredential: [], platformAdminActor: [] }]
+      responses:
+        '200': { description: Credential metadata, content: { application/json: { schema: { $ref: './openapi.yaml#/components/schemas/ApplicationCredentialListResponse' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      tags: [Application Admin]
+      operationId: createPlatformApplicationCredential
+      description: Create a replacement lsa_* credential and return plaintext exactly once.
+      security: [{ applicationCredential: [], platformAdminActor: [] }]
+      responses:
+        '201': { description: One-time application credential, content: { application/json: { schema: { $ref: './openapi.yaml#/components/schemas/CreateApplicationCredentialResponse' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { description: Application is not an active trusted backend }
+  /internal/v1/platform-admin/applications/{applicationId}/credentials/{credentialId}:
+    parameters:
+      - $ref: '#/components/parameters/ApplicationId'
+      - $ref: '#/components/parameters/ApplicationCredentialId'
+    delete:
+      tags: [Application Admin]
+      operationId: revokePlatformApplicationCredential
+      security: [{ applicationCredential: [], platformAdminActor: [] }]
+      responses:
+        '204': { description: Active application credential revoked }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /internal/v1/platform-admin/applications/{applicationId}/access-audiences:
+    parameters:
+      - $ref: '#/components/parameters/ApplicationId'
+    get:
+      tags: [Application Admin]
+      operationId: listPlatformAccessAudiences
+      security: [{ applicationCredential: [], platformAdminActor: [] }]
+      responses:
+        '200': { description: Access audience registrations, content: { application/json: { schema: { $ref: './openapi.yaml#/components/schemas/AccessAudienceListResponse' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      tags: [Application Admin]
+      operationId: registerPlatformAccessAudience
+      description: Bind one configured-issuer Cloudflare Access audience to exactly one active trusted LifeSpace Web application.
+      security: [{ applicationCredential: [], platformAdminActor: [] }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: './openapi.yaml#/components/schemas/RegisterAccessAudienceRequest' } } }
+      responses:
+        '200': { description: Existing or reactivated audience registration }
+        '201': { description: Access audience registered }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { description: Application is not eligible or audience belongs to another application }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /internal/v1/platform-admin/applications/{applicationId}/access-audiences/{audienceId}:
+    parameters:
+      - $ref: '#/components/parameters/ApplicationId'
+      - $ref: '#/components/parameters/AccessAudienceId'
+    delete:
+      tags: [Application Admin]
+      operationId: revokePlatformAccessAudience
+      security: [{ applicationCredential: [], platformAdminActor: [] }]
+      responses:
+        '204': { description: Active Access audience registration revoked }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /internal/v1/platform-admin/users:
+    get:
+      tags: [Identity Inspector]
+      operationId: inspectPlatformUsers
+      description: Read-only global LifeSpace user inspector. Requires identities:read; it does not modify or merge users.
+      security: [{ applicationCredential: [], platformAdminActor: [] }]
+      parameters:
+        - name: q
+          in: query
+          schema: { type: string, maxLength: 100 }
+        - name: status
+          in: query
+          schema: { type: string, enum: [active, disabled] }
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200': { description: Global user summaries, content: { application/json: { schema: { $ref: '#/components/schemas/PlatformUserListResponse' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /internal/v1/platform-admin/users/{userId}:
+    parameters:
+      - $ref: '#/components/parameters/UserId'
+    get:
+      tags: [Identity Inspector]
+      operationId: inspectPlatformUser
+      description: Read one global LifeSpace user and linked Cloudflare Access principals. emailSnapshot is diagnostic metadata and never account-merge authority.
+      security: [{ applicationCredential: [], platformAdminActor: [] }]
+      responses:
+        '200': { description: User with linked Access principal metadata, content: { application/json: { schema: { $ref: '#/components/schemas/PlatformUserDetailResponse' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /internal/v1/platform-admin/applications/{applicationId}/service-principals:
+    parameters:
+      - $ref: '#/components/parameters/ApplicationId'
+    get:
+      tags: [Service Admin]
+      operationId: listPlatformServicePrincipals
+      description: Cross-application service-principal administration. Requires executor services:manage plus current human actor proof.
+      security: [{ applicationCredential: [], platformAdminActor: [] }]
+      responses:
+        '200': { description: Target application service principals, content: { application/json: { schema: { $ref: '#/components/schemas/PlatformServicePrincipalListResponse' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      tags: [Service Admin]
+      operationId: createPlatformServicePrincipal
+      description: Create a service principal whose maxScopes remain within the target application's current allowedScopes ceiling.
+      security: [{ applicationCredential: [], platformAdminActor: [] }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/CreatePlatformServicePrincipalRequest' } } }
+      responses:
+        '201': { description: Service principal created, content: { application/json: { schema: { $ref: '#/components/schemas/PlatformServicePrincipalResponse' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { description: Target application is disabled }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /internal/v1/platform-admin/applications/{applicationId}/service-principals/{principalId}:
+    parameters:
+      - $ref: '#/components/parameters/ApplicationId'
+      - $ref: '#/components/parameters/PrincipalId'
+    get:
+      tags: [Service Admin]
+      operationId: getPlatformServicePrincipal
+      security: [{ applicationCredential: [], platformAdminActor: [] }]
+      responses:
+        '200': { description: Service principal, content: { application/json: { schema: { $ref: '#/components/schemas/PlatformServicePrincipalResponse' } } } }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Service Admin]
+      operationId: updatePlatformServicePrincipal
+      description: Update metadata, scope ceiling, or active/disabled status inside the target application's current scope ceiling.
+      security: [{ applicationCredential: [], platformAdminActor: [] }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/UpdatePlatformServicePrincipalRequest' } } }
+      responses:
+        '200': { description: Updated service principal, content: { application/json: { schema: { $ref: '#/components/schemas/PlatformServicePrincipalResponse' } } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { description: Disabled target application cannot activate a principal }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /internal/v1/platform-admin/applications/{applicationId}/service-principals/{principalId}/tokens:
+    parameters:
+      - $ref: '#/components/parameters/ApplicationId'
+      - $ref: '#/components/parameters/PrincipalId'
+    get:
+      tags: [Service Admin]
+      operationId: listPlatformServiceTokens
+      description: List opaque Service API Token metadata without plaintext or hashes.
+      security: [{ applicationCredential: [], platformAdminActor: [] }]
+      responses:
+        '200': { description: Token metadata list, content: { application/json: { schema: { $ref: './openapi.yaml#/components/schemas/ServiceTokenListResponse' } } } }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      tags: [Service Admin]
+      operationId: createPlatformServiceToken
+      description: Create lsp_pat_* for the target principal. Plaintext is returned exactly once; scopes must fit both target application and principal ceilings.
+      security: [{ applicationCredential: [], platformAdminActor: [] }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/CreatePlatformServiceTokenRequest' } } }
+      responses:
+        '201': { description: One-time Service API Token, content: { application/json: { schema: { $ref: './openapi.yaml#/components/schemas/CreateServiceTokenResponse' } } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { description: Target application or principal is disabled }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /internal/v1/platform-admin/applications/{applicationId}/service-principals/{principalId}/tokens/{tokenId}:
+    parameters:
+      - $ref: '#/components/parameters/ApplicationId'
+      - $ref: '#/components/parameters/PrincipalId'
+      - $ref: '#/components/parameters/ServiceTokenId'
+    patch:
+      tags: [Service Admin]
+      operationId: updatePlatformServiceToken
+      description: Update label/expiry and reduce token scopes. Existing token scopes can never be expanded through this route.
+      security: [{ applicationCredential: [], platformAdminActor: [] }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/UpdatePlatformServiceTokenRequest' } } }
+      responses:
+        '200': { description: Updated token metadata, content: { application/json: { schema: { $ref: './openapi.yaml#/components/schemas/ServiceTokenResponse' } } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+    delete:
+      tags: [Service Admin]
+      operationId: revokePlatformServiceToken
+      description: Revoke the active token and persist revokedByUserId from the verified human actor.
+      security: [{ applicationCredential: [], platformAdminActor: [] }]
+      responses:
+        '204': { description: Service API Token revoked }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /internal/v1/platform-admin/audit:
+    get:
+      tags: [Platform Audit]
+      operationId: listIdentityPlatformAdminAudit
+      description: Identity control-plane audit. Requires audit:read and separates human actor from Console executor application.
+      security: [{ applicationCredential: [], platformAdminActor: [] }]
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200': { description: Recent Identity platform-admin audit entries, content: { application/json: { schema: { $ref: '#/components/schemas/PlatformAuditListResponse' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+components:
+  securitySchemes:
+    userBearer:
+      type: http
+      scheme: bearer
+      bearerFormat: LifeSpace user JWT
+    applicationCredential:
+      type: http
+      scheme: bearer
+      bearerFormat: lsa_ trusted Console application credential
+    platformAdminActor:
+      type: apiKey
+      in: header
+      name: X-LifeSpace-Actor-Token
+      description: Dedicated Identity-signed <=5-minute proof with scope=platform:admin and purpose=platform_admin_actor.
+    bootstrapSecret:
+      type: apiKey
+      in: header
+      name: x-bootstrap-secret
+      description: Initial provisioning and break-glass authority only; never a routine Console runtime credential.
+  parameters:
+    UserId: { name: userId, in: path, required: true, schema: { type: string, pattern: '^usr_[A-Za-z0-9_-]+$' } }
+    ApplicationId: { name: applicationId, in: path, required: true, schema: { type: string, pattern: '^app_[A-Za-z0-9_-]{1,120}$' } }
+    ApplicationCredentialId: { name: credentialId, in: path, required: true, schema: { type: string, pattern: '^apc_' } }
+    AccessAudienceId: { name: audienceId, in: path, required: true, schema: { type: string, pattern: '^aud_' } }
+    PrincipalId: { name: principalId, in: path, required: true, schema: { type: string, pattern: '^svc_' } }
+    ServiceTokenId: { name: tokenId, in: path, required: true, schema: { type: string, pattern: '^sat_' } }
+    Limit: { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 200, default: 50 } }
+  responses:
+    InvalidRequest:
+      description: Invalid request
+      content: { application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } } }
+    Unauthorized:
+      description: User/executor/actor/bootstrap authentication failed
+      content: { application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } } }
+    Forbidden:
+      description: Current user assignment, actor proof, executor scope, or same-application binding denied access
+      content: { application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } } }
+    NotFound:
+      description: Control-plane resource not found
+      content: { application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } } }
+    ValidationError:
+      description: Validation failed
+      content: { application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } } }
+  schemas:
+    ErrorResponse:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          type: object
+          additionalProperties: false
+          required: [code, message, requestId]
+          properties:
+            code: { type: string }
+            message: { type: string }
+            requestId: { type: string }
+    PlatformAdminActorTokenResponse:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data:
+          type: object
+          additionalProperties: false
+          required: [actorToken, tokenType, expiresIn, scope, purpose]
+          properties:
+            actorToken: { type: string, writeOnly: true }
+            tokenType: { const: Bearer }
+            expiresIn: { type: integer, const: 300 }
+            scope: { const: 'platform:admin' }
+            purpose: { const: platform_admin_actor }
+    PlatformAdministrator:
+      type: object
+      additionalProperties: false
+      required: [userId, status, assignedAt]
+      properties:
+        userId: { type: string, pattern: '^usr_' }
+        displayName: { type: string }
+        userStatus: { type: string, enum: [active, disabled] }
+        status: { type: string, enum: [active, revoked] }
+        assignedAt: { type: string, format: date-time }
+        revokedAt: { anyOf: [{ type: string, format: date-time }, { type: 'null' }] }
+    PlatformAdministratorListResponse:
+      type: object
+      required: [data]
+      properties: { data: { type: array, items: { $ref: '#/components/schemas/PlatformAdministrator' } } }
+    ApplicationListResponse:
+      type: object
+      required: [data]
+      properties: { data: { type: array, items: { $ref: './openapi.yaml#/components/schemas/Application' } } }
+    CreatePlatformApplicationRequest:
+      type: object
+      additionalProperties: false
+      required: [name, clientType]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 100 }
+        clientType: { type: string, enum: [web, mini_program, service, device] }
+        allowedScopes: { type: array, uniqueItems: true, items: { type: string, minLength: 1, maxLength: 100 }, default: [] }
+        trustedBackend: { type: boolean, default: false }
+        accessTokenTtlSeconds: { type: integer, minimum: 300, maximum: 3600 }
+    CreatePlatformApplicationResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          allOf:
+            - { $ref: './openapi.yaml#/components/schemas/Application' }
+            - type: object
+              properties:
+                credential: { $ref: './openapi.yaml#/components/schemas/ApplicationCredential' }
+                clientSecret: { type: string, pattern: '^lsa_', writeOnly: true }
+    PlatformUser:
+      type: object
+      additionalProperties: false
+      required: [id, displayName, avatarUrl, status, createdAt, updatedAt]
+      properties:
+        id: { type: string, pattern: '^usr_' }
+        displayName: { type: string }
+        avatarUrl: { anyOf: [{ type: string, format: uri }, { type: 'null' }] }
+        status: { type: string, enum: [active, disabled] }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    AccessPrincipalDiagnostic:
+      type: object
+      additionalProperties: false
+      required: [id, issuer, subject, userId, emailSnapshot, status, linkedAt, lastSeenAt, createdAt, updatedAt]
+      properties:
+        id: { type: string, pattern: '^acp_' }
+        issuer: { type: string, format: uri }
+        subject: { type: string }
+        userId: { type: string, pattern: '^usr_' }
+        emailSnapshot: { anyOf: [{ type: string }, { type: 'null' }], description: Non-authoritative diagnostic snapshot; never account-merge authority. }
+        status: { type: string, enum: [active, disabled] }
+        linkedAt: { type: string, format: date-time }
+        lastSeenAt: { anyOf: [{ type: string, format: date-time }, { type: 'null' }] }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    PlatformUserListResponse:
+      type: object
+      required: [data]
+      properties: { data: { type: array, items: { $ref: '#/components/schemas/PlatformUser' } } }
+    PlatformUserDetailResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          allOf:
+            - { $ref: '#/components/schemas/PlatformUser' }
+            - type: object
+              required: [accessPrincipals]
+              properties: { accessPrincipals: { type: array, items: { $ref: '#/components/schemas/AccessPrincipalDiagnostic' } } }
+    PlatformServicePrincipal:
+      type: object
+      additionalProperties: false
+      required: [id, applicationId, displayName, description, maxScopes, status, createdByUserId, createdAt, updatedAt, disabledAt]
+      properties:
+        id: { type: string, pattern: '^svc_' }
+        applicationId: { type: string, pattern: '^app_' }
+        displayName: { type: string, minLength: 1, maxLength: 100 }
+        description: { anyOf: [{ type: string, maxLength: 500 }, { type: 'null' }] }
+        maxScopes: { type: array, uniqueItems: true, items: { type: string } }
+        status: { type: string, enum: [active, disabled] }
+        createdByUserId: { anyOf: [{ type: string, pattern: '^usr_' }, { type: 'null' }] }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        disabledAt: { anyOf: [{ type: string, format: date-time }, { type: 'null' }] }
+    PlatformServicePrincipalResponse: { type: object, required: [data], properties: { data: { $ref: '#/components/schemas/PlatformServicePrincipal' } } }
+    PlatformServicePrincipalListResponse: { type: object, required: [data], properties: { data: { type: array, items: { $ref: '#/components/schemas/PlatformServicePrincipal' } } } }
+    CreatePlatformServicePrincipalRequest:
+      type: object
+      additionalProperties: false
+      required: [displayName, maxScopes]
+      properties:
+        displayName: { type: string, minLength: 1, maxLength: 100 }
+        description: { anyOf: [{ type: string, maxLength: 500 }, { type: 'null' }] }
+        maxScopes: { type: array, uniqueItems: true, items: { type: string } }
+    UpdatePlatformServicePrincipalRequest:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        displayName: { type: string, minLength: 1, maxLength: 100 }
+        description: { anyOf: [{ type: string, maxLength: 500 }, { type: 'null' }] }
+        maxScopes: { type: array, uniqueItems: true, items: { type: string } }
+        status: { type: string, enum: [active, disabled] }
+    CreatePlatformServiceTokenRequest:
+      type: object
+      additionalProperties: false
+      required: [label, scopes]
+      properties:
+        label: { type: string, minLength: 1, maxLength: 100 }
+        scopes: { type: array, uniqueItems: true, items: { type: string } }
+        expiresAt: { anyOf: [{ type: string, format: date-time }, { type: 'null' }] }
+    UpdatePlatformServiceTokenRequest:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        label: { type: string, minLength: 1, maxLength: 100 }
+        scopes:
+          type: array
+          uniqueItems: true
+          description: New set must be a subset of the token's current scopes.
+          items: { type: string }
+        expiresAt: { anyOf: [{ type: string, format: date-time }, { type: 'null' }] }
+    PlatformAuditEntry:
+      type: object
+      additionalProperties: false
+      required: [id, actorUserId, actorApplicationId, executorApplicationId, operation, targetType, targetId, requestId, result, createdAt, summary]
+      properties:
+        id: { type: string, pattern: '^paa_' }
+        actorUserId: { type: string, pattern: '^usr_' }
+        actorApplicationId: { type: string }
+        executorApplicationId: { type: string }
+        operation: { type: string }
+        targetType: { type: string }
+        targetId: { type: string }
+        requestId: { type: string }
+        result: { const: success }
+        createdAt: { type: string, format: date-time }
+        summary: { type: object, additionalProperties: true }
+    PlatformAuditListResponse:
+      type: object
+      required: [data]
+      properties: { data: { type: array, items: { $ref: '#/components/schemas/PlatformAuditEntry' } } }

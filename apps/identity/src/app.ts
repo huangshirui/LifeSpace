@@ -10,6 +10,7 @@ import {
   registerApplicationAdminRoutes,
   validApplicationTokenTtl,
 } from "./application-admin";
+import { registerPlatformAdminRoutes } from "./platform-admin";
 import { registerServiceAuthenticationRoutes } from "./service-auth";
 import type { Bindings, Variables } from "./env";
 
@@ -281,6 +282,7 @@ export function createApp() {
   });
 
   registerApplicationAdminRoutes(app);
+  registerPlatformAdminRoutes(app);
 
   app.post("/internal/v1/users", async (c) => {
     const body = (await c.req.json<UserBody>().catch(() => ({}))) as UserBody;
