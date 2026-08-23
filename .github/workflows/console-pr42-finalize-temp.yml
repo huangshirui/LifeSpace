@@ -1,0 +1,59 @@
+name: Finalize Console PR 42 (temporary)
+
+on:
+  push:
+    branches:
+      - feat/lifespace-console-admin-foundation
+    paths:
+      - .github/workflows/console-pr42-finalize-temp.yml
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@v4
+        with:
+          ref: feat/lifespace-console-admin-foundation
+          fetch-depth: 0
+
+      - name: Restore current main HomeMew workflow and remove temporary Console trigger
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          git show origin/main:.github/workflows/homemew-web-staging-provision.yml > .github/workflows/homemew-web-staging-provision.yml
+
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('.github/workflows/lifespace-console-staging-provision.yml')
+          text = path.read_text()
+          old = '''  push:\n    branches:\n      - feat/lifespace-console-admin-foundation\n    paths:\n      - .github/workflows/lifespace-console-staging-provision.yml\n'''
+          if text.count(old) != 1:
+              raise SystemExit('expected exactly one temporary Console push trigger')
+          text = text.replace(old, '', 1)
+          if 'feat/lifespace-console-admin-foundation' in text:
+              raise SystemExit('feature branch reference remains in canonical Console staging workflow')
+          path.write_text(text)
+          PY
+
+          git diff --check
+          git diff -- .github/workflows/lifespace-console-staging-provision.yml .github/workflows/homemew-web-staging-provision.yml
+
+      - name: Commit finalization
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .github/workflows/lifespace-console-staging-provision.yml .github/workflows/homemew-web-staging-provision.yml
+          if git diff --cached --quiet; then
+            echo "No finalization changes required"
+            exit 0
+          fi
+          git commit -m "chore(console): finalize staging proving workflow"
+          git push origin HEAD:feat/lifespace-console-admin-foundation
