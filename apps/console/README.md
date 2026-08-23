@@ -25,7 +25,13 @@ The staging hostname is:
 https://lifespace-staging.aisr.online
 ```
 
-It must be protected by its own Cloudflare Access Self-hosted Application. Copy that Access application's Audience (AUD) tag and register it to the staging Console LifeSpace application during provisioning.
+It is protected by its own Cloudflare Access Self-hosted Application. The staging Audience (AUD) tag is:
+
+```text
+1d42303137e808002273985855078230ce53fe18078b40c5b8cbc09dd3a62a36
+```
+
+This value is environment-specific configuration, not a credential, and is committed only for the staging Console provisioning path.
 
 Cloudflare sends the application token to the Worker as:
 
@@ -66,9 +72,66 @@ CORE_EXECUTOR_BEARER
 
 The global bootstrap secret is deliberately **not** a Console Worker secret.
 
-## Staging provisioning inputs
+## Staging provisioning workflow
 
-`infra/scripts/prepare-staging-console-admin.mjs` prepares the LifeSpace-side staging control-plane state. Required inputs:
+Canonical workflow:
+
+```text
+.github/workflows/lifespace-console-staging-provision.yml
+```
+
+Manual workflow input:
+
+```text
+platform_admin_user_id=<existing staging usr_*>
+```
+
+The AUD, Console application ID and staging hostnames are fixed by the workflow. The workflow uses the existing `staging` GitHub Environment for Cloudflare/bootstrap authority.
+
+Provisioning performs the following sequence:
+
+1. verify that staging Identity/Core already match the branch schema/contract expectations;
+2. create/reconcile `app_lifespace_console_staging`;
+3. register the fixed staging Access AUD;
+4. bootstrap/refresh the requested `usr_*` platform-administrator assignment;
+5. create/reconcile the dedicated Core executor;
+6. mint fresh one-time `lsa_*` and `lsp_pat_*` credentials in-run;
+7. pass those credentials to Wrangler through an ephemeral mode-0600 secrets file;
+8. deploy `lifespace-console-staging` to `lifespace-staging.aisr.online`;
+9. verify that the hostname is reachable behind Access;
+10. only after deployment succeeds, revoke superseded application credentials and Core executor tokens;
+11. remove the ephemeral secrets file.
+
+The workflow never installs the bootstrap secret into the Console Worker and never prints application/Core executor plaintext credentials.
+
+`infra/scripts/prepare-staging-console-admin.mjs` remains the canonical LifeSpace-side reconciliation implementation used by the workflow.
+
+## Staging proving sequence
+
+Do not deploy production as part of this proving flow.
+
+```text
+1. Run “Deploy staging” from the Console branch/ref first.
+   This applies Identity schema v7 / Core schema v26 and deploys the matching runtime.
+
+2. Run “Provision LifeSpace Console staging”.
+   Input: the existing staging LifeSpace usr_* that should be platform administrator.
+
+3. Open https://lifespace-staging.aisr.online through Cloudflare Access.
+
+4. Confirm /api/session resolves that same LifeSpace usr_*.
+
+5. Click “验证控制面” and confirm every read-only Identity/Core check succeeds.
+
+6. Run infra/scripts/verify-staging-console-admin.mjs when a raw real Access assertion
+   is available for scripted E2E/deny-path proving.
+```
+
+If the Access principal is valid but not linked, the Console shows an explicit account-link-required state. It does not create or merge a LifeSpace account by email.
+
+## Direct script inputs
+
+For local/operator use outside the workflow, `infra/scripts/prepare-staging-console-admin.mjs` accepts:
 
 ```text
 LIFESPACE_STAGING_BOOTSTRAP_SECRET
@@ -83,56 +146,7 @@ LIFESPACE_STAGING_CONSOLE_APPLICATION_ID=app_lifespace_console_staging
 LIFESPACE_STAGING_CONSOLE_APPLICATION_NAME="LifeSpace Console staging"
 ```
 
-The script creates/reconciles:
-
-- staging Console LifeSpace Web application;
-- Access audience registration;
-- platform-administrator assignment;
-- dedicated Core service executor with the exact least-privilege scopes;
-- one-time application/Core executor secrets when required.
-
-Generated secrets must be sent only to `GITHUB_ENV` or a mode-0600 file configured by:
-
-```text
-LIFESPACE_STAGING_CONSOLE_CREDENTIAL_OUTPUT
-```
-
-Existing plaintext credentials cannot be recovered. The script fails instead of silently minting replacements unless explicit rotation/recovery conditions are satisfied.
-
-## Staging deployment sequence
-
-Do not deploy production as part of the proving flow.
-
-Recommended staging order:
-
-```text
-1. Create/configure Cloudflare Access Self-hosted Application
-   for lifespace-staging.aisr.online and obtain its AUD.
-
-2. Deploy current Identity/Core branch to staging and apply migrations:
-   Identity -> schema v7
-   Core     -> schema v26
-
-3. Provision LifeSpace Console staging application/audience/admin/executors
-   with infra/scripts/prepare-staging-console-admin.mjs.
-
-4. Deploy apps/console with --env staging.
-
-5. Install the generated credentials as Worker secrets:
-   IDENTITY_APPLICATION_CREDENTIAL
-   CORE_EXECUTOR_BEARER
-
-6. Open https://lifespace-staging.aisr.online through Cloudflare Access.
-
-7. Confirm /api/session resolves the expected LifeSpace usr_*.
-
-8. Click “验证控制面” and confirm every read-only Identity/Core check succeeds.
-
-9. Run infra/scripts/verify-staging-console-admin.mjs when a raw real Access assertion
-   is available for scripted E2E/deny-path proving.
-```
-
-If the Access principal is valid but not linked, the Console shows an explicit account-link-required state. It does not create or merge a LifeSpace account by email.
+Generated plaintext secrets must be sent only to `GITHUB_ENV` or a mode-0600 output file. Existing plaintext credentials cannot be recovered.
 
 ## Local development
 
