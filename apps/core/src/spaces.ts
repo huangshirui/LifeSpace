@@ -465,20 +465,4 @@ export function registerSpaceRoutes(app: App): void {
     }
     return c.json(success({ spaceId: invite.space_id, role: invite.role, personId, joinedAt: redeemedAt }), 201);
   });
-
-  app.post("/api/v1/spaces/:spaceId/grants", requireScope("grants:manage"), async (c) => {
-    const principal = c.get("principal");
-    requireUser(principal);
-    const spaceId = c.req.param("spaceId");
-    await requireSpacePermission(c.env, principal, spaceId, "manage");
-    const input = await body(c);
-    fields(input, ["granteeType", "granteeId", "permission", "expiresAt"]);
-    if (!['user', 'space', 'service', 'device'].includes(input.granteeType as string) || typeof input.granteeId !== 'string' || !input.granteeId || !['free_busy', 'read', 'write', 'manage'].includes(input.permission as string)) {
-      throw new ApiError("VALIDATION_ERROR", "Valid granteeType, granteeId and permission are required", 422);
-    }
-    const grantId = createId("grt");
-    await c.env.DB.prepare(`INSERT INTO data_grants(id,source_space_id,grantee_type,grantee_id,resource_type,resource_id,permission,created_by_user_id,created_at,expires_at)
-      VALUES(?,?,?,?,?,?,?,?,?,?)`).bind(grantId, spaceId, input.granteeType, input.granteeId, "space", null, input.permission, principal.id, now(), input.expiresAt ?? null).run();
-    return c.json(success({ id: grantId, sourceSpaceId: spaceId, ...input }), 201);
-  });
 }

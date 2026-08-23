@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: LifeSpace Core Kernel API
-  version: 0.12.0
+  version: 0.13.0
   description: >-
     Stable LifeSpace Core Kernel contract for Space, membership, invitations, Data Grants,
     model administration, assets and Registry-driven Creation Draft orchestration.
@@ -331,13 +331,14 @@ paths:
     get:
       tags: [Data Grants]
       operationId: listDataGrants
+      description: Lists whole-Space and model-collection Data Grants owned by this Space.
       parameters:
         - name: includeRevoked
           in: query
           schema: { type: boolean, default: false }
       responses:
         "200":
-          description: Space-level Data Grants
+          description: Whole-Space and model-collection Data Grants
           content:
             application/json:
               schema: { $ref: "#/components/schemas/DataGrantListResponse" }
@@ -346,6 +347,9 @@ paths:
     post:
       tags: [Data Grants]
       operationId: createDataGrant
+      description: >-
+        Creates a whole-Space or model-collection Data Grant. Omitting resourceType/resourceId
+        preserves the pre-0.13 behavior and creates a whole-Space grant.
       requestBody:
         required: true
         content:
@@ -353,13 +357,14 @@ paths:
             schema: { $ref: "#/components/schemas/CreateDataGrantRequest" }
       responses:
         "201":
-          description: Space-level Data Grant created
+          description: Whole-Space or model-collection Data Grant created
           content:
             application/json:
               schema: { $ref: "#/components/schemas/DataGrantResponse" }
         "400": { $ref: "#/components/responses/InvalidRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
         "422": { $ref: "#/components/responses/ValidationError" }
   /api/v1/spaces/{spaceId}/grants/{grantId}:
     parameters:
@@ -368,6 +373,7 @@ paths:
     patch:
       tags: [Data Grants]
       operationId: updateDataGrant
+      description: Updates permission or expiry without changing the immutable resource target.
       requestBody:
         required: true
         content:
@@ -685,7 +691,7 @@ components:
             environment: { type: string }
             database: { const: available }
             schemaVersion: { type: string }
-            contractVersion: { const: 0.12.0 }
+            contractVersion: { const: 0.13.0 }
     PrincipalType:
       type: string
       enum: [user, service, device]
@@ -954,18 +960,28 @@ components:
     GranteeType:
       type: string
       enum: [user, space, service, device]
+    DataGrantResourceType:
+      type: string
+      enum: [space, model]
     DataGrant:
       type: object
       additionalProperties: false
-      required: [id, sourceSpaceId, granteeType, granteeId, permission]
+      required: [id, sourceSpaceId, granteeType, granteeId, resourceType, resourceId, permission, createdByUserId, createdAt, expiresAt, revokedAt]
       properties:
         id: { type: string, pattern: "^grt_" }
         sourceSpaceId: { type: string, pattern: "^spc_" }
         granteeType: { $ref: "#/components/schemas/GranteeType" }
         granteeId: { type: string }
-        resourceType: { const: space }
-        resourceId: { type: "null" }
-        permission: { $ref: "#/components/schemas/GrantPermission" }
+        resourceType: { $ref: "#/components/schemas/DataGrantResourceType" }
+        resourceId:
+          description: null for whole-Space grants; published model key when resourceType is model.
+          anyOf:
+            - type: string
+              pattern: "^[a-z][a-z0-9_]{1,62}$"
+            - type: "null"
+        permission:
+          allOf: [{ $ref: "#/components/schemas/GrantPermission" }]
+          description: free_busy is valid only for whole-Space grants; model grants use read/write/manage.
         createdByUserId: { type: string }
         createdAt: { type: string, format: date-time }
         expiresAt: { anyOf: [{ type: string, format: date-time }, { type: "null" }] }
@@ -977,14 +993,28 @@ components:
       properties:
         granteeType: { $ref: "#/components/schemas/GranteeType" }
         granteeId: { type: string, minLength: 1 }
-        permission: { $ref: "#/components/schemas/GrantPermission" }
+        resourceType:
+          allOf: [{ $ref: "#/components/schemas/DataGrantResourceType" }]
+          default: space
+          description: Defaults to whole-Space authorization when omitted.
+        resourceId:
+          description: Omit or null for resourceType=space; required published model key for resourceType=model.
+          anyOf:
+            - type: string
+              pattern: "^[a-z][a-z0-9_]{1,62}$"
+            - type: "null"
+        permission:
+          allOf: [{ $ref: "#/components/schemas/GrantPermission" }]
+          description: free_busy is valid only for whole-Space grants; model grants use read/write/manage.
         expiresAt: { anyOf: [{ type: string, format: date-time }, { type: "null" }] }
     UpdateDataGrantRequest:
       type: object
       additionalProperties: false
       minProperties: 1
       properties:
-        permission: { $ref: "#/components/schemas/GrantPermission" }
+        permission:
+          allOf: [{ $ref: "#/components/schemas/GrantPermission" }]
+          description: free_busy is rejected when the existing Grant target is a model collection.
         expiresAt: { anyOf: [{ type: string, format: date-time }, { type: "null" }] }
     DataGrantResponse:
       type: object

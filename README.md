@@ -46,6 +46,7 @@ Identity owns verified Access principal resolution/linking. Individual applicati
 
 - Every ordinary business record belongs to exactly one source Space.
 - Sharing uses current Data Grants; it never moves or duplicates the authoritative source record.
+- Whole-Space Data Grants authorize the Space boundary; Kernel 0.13.0 also supports model-collection Grants so one service principal can receive different read/write authority for different published models in the same Space.
 - Effective permission is the intersection of verified principal, credential scope, Application × Model Access, current Space membership/Data Grant authority, published model access capability, and model policy/Capability restrictions.
 - The authenticated actor always comes from verified credentials; clients cannot assert an arbitrary current `userId`.
 
@@ -110,9 +111,9 @@ See `docs/migration-plan.md` and `docs/phase7-status.md` for the migration/cutov
 
 ## Current contracts and Identity × Cloudflare Access work
 
-The current checked-in Core Kernel contract remains `0.12.0` with the active application model surface pinned through an immutable `mct_*` revision.
+The current Core Kernel contract is **0.13.0**. It retains stable `resources:*` credential scopes and adds explicit model-collection Data Grants (`resourceType=model`, `resourceId=<modelKey>`) while preserving backwards-compatible whole-Space Grants. This restores the original HomeMew external-integration ability to give different service principals different per-model read/write authority without returning to model-specific token scopes. The active ordinary-model surface remains pinned through an immutable `mct_*` revision.
 
-The repository Identity contract is now **0.5.0 / schema v5**. It implements the accepted Cloudflare Access platform-identity architecture:
+The repository Identity contract is **0.5.0 / schema v5**. It implements the accepted Cloudflare Access platform-identity architecture:
 
 - independently verified Access RS256 JWTs and JWKS key rotation;
 - environment-pinned Access issuer;
@@ -123,7 +124,7 @@ The repository Identity contract is now **0.5.0 / schema v5**. It implements the
 - short-lived, high-entropy, single-use existing-account link challenges;
 - multiple verified Access principals may link to one LifeSpace user.
 
-Identity 0.5.0 is merged into the repository main line. Its staging rollout and real HomeMew Web Access-audience proving are the next deployment gate before production rollout of the new Web identity capability. The existing HomeMew Mini Program production identity path continues to use its application-owned WeChat mapping and trusted application exchange.
+Identity 0.5.0 is deployed and the real HomeMew Web staging Access path has been proven end-to-end through Cloudflare Access -> HomeMew same-origin BFF -> LifeSpace Identity -> global `usr_*` -> LifeSpace Core. The existing HomeMew Mini Program production identity path continues to use its application-owned WeChat mapping and trusted application exchange.
 
 ## Environments
 
@@ -159,6 +160,7 @@ Start with `AGENTS.md`, then the relevant source-of-truth documents:
 
 - `docs/architecture.md` — platform/runtime and Identity boundaries
 - `docs/permissions.md` — authorization model
+- `docs/model-scoped-data-grants.md` — whole-Space vs model-collection Grant semantics
 - `docs/service-authentication.md` — service/Agent/machine credentials
 - `docs/contracts.md` — Kernel/model contract ownership and publication
 - `docs/phase3-metadata-platform-plan.md` — metadata-driven model architecture

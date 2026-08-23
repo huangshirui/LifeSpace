@@ -15,7 +15,7 @@ Core has three contract layers:
 2. **Platform Admin Contract** — `apps/core/platform-admin.openapi.yaml`, a privileged control-plane profile for Application × Model Access, global read-only Space inspection, platform audit and human-attributed Console model mutations. Its initial version is `0.1.0`.
 3. **Model Contract Revision** — immutable OpenAPI/JSON Schema snapshots generated from the published Model Registry plus registered Capability contract contributions.
 
-As of Core Kernel `0.12.0`, ordinary model paths/schemas are deliberately absent from `apps/core/openapi.yaml`. They exist only in a concrete immutable Model Contract Revision. CI rejects Event/Task/Day Record/Wish or generic `{modelRoute}` paths if they are reintroduced into the Kernel OpenAPI.
+As of Core Kernel `0.13.0`, ordinary model paths/schemas remain deliberately absent from `apps/core/openapi.yaml`. They exist only in a concrete immutable Model Contract Revision. CI rejects Event/Task/Day Record/Wish or generic `{modelRoute}` paths if they are reintroduced into the Kernel OpenAPI. Kernel 0.13.0 adds only Kernel-owned Data Grant targeting semantics: whole-Space and published-model collection Grants.
 
 The effective ordinary application contract remains an explicit tuple such as:
 
@@ -105,15 +105,27 @@ The Kernel OpenAPI is intentionally explicit and comparatively stable. It curren
 - health/status and authentication-facing Core principal behavior;
 - Space, Membership, Space Person-facing membership operations and invitations;
 - Space avatar replacement/public reads;
-- Data Grant lifecycle;
+- Data Grant lifecycle and target syntax;
 - Registry-driven Creation Draft orchestration;
 - service-only Model Admin and immutable Model Contract reads.
+
+Kernel 0.13.0 defines these Data Grant targets:
+
+```text
+resourceType=space, resourceId=null
+  whole-Space authority; may authorize Kernel Space surfaces and ordinary model fallback
+
+resourceType=model, resourceId=<published modelKey>
+  model-collection authority; only Generic Runtime operations for that model in the source Space
+```
+
+Omitting `resourceType/resourceId` when creating a Grant remains backwards compatible with the pre-0.13 whole-Space behavior. Model collection targets are Kernel syntax because they govern authorization around generated model routes; the generated model CRUD schemas themselves still belong exclusively to `mct_*`.
 
 The Kernel contract must never be used as a second hand-maintained description of ordinary business models. A new ordinary model must not require an edit to `apps/core/openapi.yaml`.
 
 The Platform Admin split also means Console-only governance syntax does not automatically become downstream Kernel syntax. If a future admin capability genuinely becomes a normal application-facing Kernel feature, that transition must be explicit and versioned rather than achieved by merely pointing an application at the admin contract.
 
-A Kernel behavior change is versioned independently from model publication. The Phase-3 contract split moves Core from the Phase-2 `0.11.0` combined-domain contract to Kernel `0.12.0`.
+A Kernel behavior change is versioned independently from model publication. The Phase-3 contract split moved Core from the Phase-2 `0.11.0` combined-domain contract to Kernel `0.12.0`; Kernel `0.13.0` is the backwards-compatible Data Grant targeting extension that restores per-service-principal model-collection authorization parity for external integrations.
 
 ## Published artifacts
 
@@ -125,24 +137,24 @@ A repository commit is **not** required merely to make a newly published Model D
 
 Application-specific handoff artifacts are generated from an explicit integration profile rather than from the currently active/unversioned Model Contract. The exporter must verify the deployed Kernel/Identity versions, read the exact configured immutable `mct_*` revision, and include only non-secret contract/application-policy material. A service-only credential used to read the immutable revision is an export-time implementation detail and must never be written into the handoff.
 
-The Phase-4 HomeMew handoff under `packages/contracts` contains the pinned Identity OpenAPI, Core Kernel OpenAPI, Model Contract OpenAPI/JSON Schema/manifest, HomeMew integration profile, a handoff manifest and SHA-256 checksums with a deterministic bundle id. The normal staging workflow uploads this generated directory as a read-only workflow artifact after the HomeMew integration and platform regression gates pass.
+The HomeMew handoff under `packages/contracts` contains the pinned Identity OpenAPI, Core Kernel OpenAPI, Model Contract OpenAPI/JSON Schema/manifest, HomeMew integration profile, a handoff manifest and SHA-256 checksums with a deterministic bundle id. The normal staging workflow uploads this generated directory as a read-only workflow artifact after the HomeMew integration and platform regression gates pass.
 
 Platform Admin contracts are **not** added to the HomeMew handoff merely because they exist in the platform repository. They belong only in Console/platform-operator artifacts. This preserves least-privilege discovery and keeps the accepted HomeMew evidence independent from Console evolution.
 
-### Accepted HomeMew handoff — Phase 4
+### Historical accepted HomeMew handoff — Phase 4
 
-Phase 4 accepts and freezes this application contract tuple:
+Phase 4 accepted and froze this application contract tuple:
 
 ```text
 Identity Contract:    0.4.0
 Core Kernel Contract: 0.12.0
 Model Contract:       mct_9a3d9588da8591ab376ef000e5e661f670a64dd8b1ebc14fd146580f0ed1fa45
-Integration Profile:  infra/homemew-integration-profile.json / profileVersion 1 / accepted
+Integration Profile:  infra/homemew-integration-profile.json / profileVersion 1 / accepted at that time
 ```
 
-The exporter-enabled `Deploy staging` run #29 (`31694445585`) passed on 2026-08-13 and proved deterministic export/upload of that exact contract/application-policy combination before the publication-state flip from candidate to accepted. The closeout flip changes only handoff publication status; it does not change API syntax, model revision, token TTL, scope ceiling, model-access catalog or runtime behavior.
+The exporter-enabled `Deploy staging` run #29 (`31694445585`) passed on 2026-08-13 and proved deterministic export/upload of that exact contract/application-policy combination before the publication-state flip from candidate to accepted. That tuple remains immutable historical evidence; later compatible Kernel/Identity/model pins do not rewrite what Phase 4 proved.
 
-HomeMew and its Coding Agents must treat the Phase-2 Core `0.11.0` / Identity `0.3.0` versions as historical parity evidence only. They are not the accepted HomeMew client contract after Phase 4.
+HomeMew and its Coding Agents must treat the Phase-2 Core `0.11.0` / Identity `0.3.0` versions as historical parity evidence only. They are not the current HomeMew client contract.
 
 ## Runtime and downstream pinning
 
@@ -195,6 +207,7 @@ Metadata-platform checks include:
 - Identity/Core Platform Admin OpenAPI contains the implemented Console control-plane routes and explicitly requires the dual actor/executor boundary where applicable;
 - Platform User/Space Inspector contracts remain read-only and do not imply ordinary authorization;
 - platform-managed secret creation remains one-time/write-only and list/read contracts never expose plaintext or hashes;
+- Data Grant contracts preserve whole-Space compatibility and explicitly validate model-collection target semantics;
 - Model Definition validation;
 - deterministic schema hashing;
 - deterministic OpenAPI/JSON Schema generation;

@@ -13,16 +13,18 @@ Generated/exported artifacts are read-only handoff material. They must never bec
 
 ## HomeMew current accepted handoff
 
-The current HomeMew release pin remains:
+The current repository HomeMew handoff pin is:
 
 ```text
-Identity:       0.4.0
-Core Kernel:    0.12.0
+Identity:       0.5.0
+Core Kernel:    0.13.0
 Model Contract: mct_a4cc6dad278204b08cd706f9abeb68107e229148f1cd9ccde0991382606a92b9
 Profile:        infra/homemew-integration-profile.json (profileVersion 1, accepted)
 ```
 
-This immutable revision introduced Generic Resource audit actors (`createdBy` / `updatedBy`) in the generated ordinary-model response contract and is the contract currently accepted by the production HomeMew release. A compatible Registry publication does not automatically advance this application release pin; the pin is promoted only after the target production Registry state has been deployed and accepted.
+Kernel 0.13.0 is backwards compatible for the existing HomeMew Mini Program surface and adds model-collection Data Grant syntax/semantics needed by external integrations. It does not change the Mini Program's existing Space/model routes or require model-specific credential scopes. The corresponding platform deployment remains staging-first before production rollout.
+
+The pinned immutable model revision introduced Generic Resource audit actors (`createdBy` / `updatedBy`) in the generated ordinary-model response contract and remains the current HomeMew model-contract evidence. A compatible Registry publication does not automatically advance this application release pin; the pin is promoted only after the target production Registry state has been deployed and accepted.
 
 `pnpm --filter @lifespace/contracts export:homemew` exports `dist/homemew/` after verifying the configured deployment and exact pinned Model Contract revision.
 
@@ -54,7 +56,7 @@ These versions add explicit domain-selection and field semantics consumed by Reg
 
 The four-model semantic fingerprint is **not** itself an environment-wide active Model Contract pin. `mct_*` revisions snapshot the entire published Registry, so staging or production may legitimately produce a different active `mct_*` when other ordinary models are also published. Creation Draft verification therefore proves that its pinned immutable Registry revision contains the exact four baseline versions/hashes above, while allowing unrelated published models to coexist.
 
-HomeMew's accepted handoff pin will be advanced separately only after the compatible semantic versions are deployed and accepted in production.
+HomeMew's accepted model-contract pin will be advanced separately only after compatible semantic versions are deployed and accepted in production.
 
 ## Historical Phase-4 accepted handoff
 
