@@ -1,0 +1,238 @@
+name: Provision LifeSpace Console staging
+
+on:
+  workflow_dispatch:
+    inputs:
+      platform_admin_user_id:
+        description: Existing staging LifeSpace usr_* to authorize as platform administrator
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lifespace-console-staging-provision
+  cancel-in-progress: false
+
+jobs:
+  provision:
+    name: Provision and deploy LifeSpace Console staging
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    environment: staging
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID || secrets.CLOUDFLARE_ACCOUNT_ID }}
+      LIFESPACE_STAGING_BOOTSTRAP_SECRET: ${{ secrets.LIFESPACE_STAGING_BOOTSTRAP_SECRET }}
+      LIFESPACE_IDENTITY_STAGING_URL: https://auth-staging.aisr.online
+      LIFESPACE_CORE_STAGING_URL: https://core-staging.aisr.online
+      LIFESPACE_STAGING_CONSOLE_ACCESS_AUD: 1d42303137e808002273985855078230ce53fe18078b40c5b8cbc09dd3a62a36
+      LIFESPACE_STAGING_CONSOLE_APPLICATION_ID: app_lifespace_console_staging
+      LIFESPACE_STAGING_CONSOLE_APPLICATION_NAME: LifeSpace Console staging
+      LIFESPACE_STAGING_PLATFORM_ADMIN_USER_ID: ${{ inputs.platform_admin_user_id }}
+      LIFESPACE_STAGING_CONSOLE_ROTATE_CREDENTIALS: "1"
+
+    steps:
+      - name: Checkout LifeSpace
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.13.1
+          run_install: false
+
+      - name: Setup Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Validate staging authority and input
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${CLOUDFLARE_API_TOKEN:-}" || { echo "CLOUDFLARE_API_TOKEN is not configured" >&2; exit 1; }
+          test -n "${CLOUDFLARE_ACCOUNT_ID:-}" || { echo "CLOUDFLARE_ACCOUNT_ID is not configured" >&2; exit 1; }
+          test ${#LIFESPACE_STAGING_BOOTSTRAP_SECRET} -ge 32 || { echo "LIFESPACE_STAGING_BOOTSTRAP_SECRET must be at least 32 characters" >&2; exit 1; }
+          [[ "$LIFESPACE_STAGING_PLATFORM_ADMIN_USER_ID" =~ ^usr_[0-9A-Za-z_-]+$ ]] || { echo "platform_admin_user_id must be a staging usr_* identifier" >&2; exit 1; }
+
+      - name: Install repository dependencies
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Validate repository and Console
+        run: pnpm check
+
+      - name: Resolve expected staging versions
+        run: node infra/scripts/staging-expectations.mjs
+
+      - name: Provision Console application, Access audience and executors
+        run: node infra/scripts/prepare-staging-console-admin.mjs
+
+      - name: Identify superseded Console credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+
+          const identityBase = process.env.LIFESPACE_IDENTITY_STAGING_URL.replace(/\/+$/u, '');
+          const appId = process.env.LIFESPACE_STAGING_CONSOLE_APPLICATION_ID;
+          const bootstrap = process.env.LIFESPACE_STAGING_BOOTSTRAP_SECRET;
+          const applicationCredential = process.env.LIFESPACE_STAGING_CONSOLE_APPLICATION_CREDENTIAL;
+          const coreBearer = process.env.LIFESPACE_STAGING_CONSOLE_CORE_BEARER;
+
+          if (!applicationCredential?.startsWith('lsa_')) throw new Error('Console application credential was not produced');
+          if (!coreBearer?.startsWith('lsp_pat_')) throw new Error('Console Core executor token was not produced');
+
+          console.log(`::add-mask::${applicationCredential}`);
+          console.log(`::add-mask::${coreBearer}`);
+
+          async function request(path, { method = 'GET', bearer = '', bootstrapAuth = false } = {}) {
+            const response = await fetch(`${identityBase}${path}`, {
+              method,
+              headers: {
+                accept: 'application/json',
+                ...(bearer ? { authorization: `Bearer ${bearer}` } : {}),
+                ...(bootstrapAuth ? { 'x-bootstrap-secret': bootstrap } : {}),
+              },
+            });
+            const text = await response.text();
+            const payload = text ? JSON.parse(text) : null;
+            return { response, payload };
+          }
+
+          const credentials = await request(`/bootstrap/v1/applications/${encodeURIComponent(appId)}/credentials`, { bootstrapAuth: true });
+          if (credentials.response.status !== 200 || !Array.isArray(credentials.payload?.data)) {
+            throw new Error(`Could not list Console application credentials: ${credentials.response.status}`);
+          }
+          const credentialSuffix = applicationCredential.slice(-8);
+          const activeCredentials = credentials.payload.data.filter((entry) => entry?.status === 'active' && entry?.revokedAt == null);
+          const currentCredentialMatches = activeCredentials.filter((entry) => entry?.secretSuffix === credentialSuffix);
+          if (currentCredentialMatches.length !== 1) throw new Error('Could not uniquely identify current Console application credential');
+          const oldCredentialIds = activeCredentials.filter((entry) => entry.id !== currentCredentialMatches[0].id).map((entry) => entry.id);
+
+          const principals = await request('/api/v1/service-principals', { bearer: applicationCredential });
+          if (principals.response.status !== 200 || !Array.isArray(principals.payload?.data)) {
+            throw new Error(`Could not list Console service principals: ${principals.response.status}`);
+          }
+          const matches = principals.payload.data.filter((entry) => entry?.displayName === 'LifeSpace Console Core executor (staging)');
+          if (matches.length !== 1) throw new Error('Could not uniquely identify Console Core executor principal');
+          const principalId = matches[0].id;
+
+          const tokens = await request(`/api/v1/service-principals/${encodeURIComponent(principalId)}/tokens`, { bearer: applicationCredential });
+          if (tokens.response.status !== 200 || !Array.isArray(tokens.payload?.data)) {
+            throw new Error(`Could not list Console Core executor tokens: ${tokens.response.status}`);
+          }
+          const lastFour = coreBearer.slice(-4);
+          const activeTokens = tokens.payload.data.filter((entry) => entry?.revokedAt == null && (!entry?.expiresAt || Date.parse(entry.expiresAt) > Date.now()));
+          const currentTokenMatches = activeTokens.filter((entry) => entry?.lastFour === lastFour && entry?.label === 'LifeSpace Console staging Core executor');
+          if (currentTokenMatches.length !== 1) throw new Error('Could not uniquely identify current Console Core executor token');
+          const oldTokenIds = activeTokens.filter((entry) => entry.id !== currentTokenMatches[0].id).map((entry) => entry.id);
+
+          fs.appendFileSync(process.env.GITHUB_ENV, `LIFESPACE_STAGING_CONSOLE_CURRENT_CREDENTIAL_ID=${currentCredentialMatches[0].id}\n`, 'utf8');
+          fs.appendFileSync(process.env.GITHUB_ENV, `LIFESPACE_STAGING_CONSOLE_OLD_CREDENTIAL_IDS=${oldCredentialIds.join(',')}\n`, 'utf8');
+          fs.appendFileSync(process.env.GITHUB_ENV, `LIFESPACE_STAGING_CONSOLE_CORE_PRINCIPAL_ID=${principalId}\n`, 'utf8');
+          fs.appendFileSync(process.env.GITHUB_ENV, `LIFESPACE_STAGING_CONSOLE_CURRENT_CORE_TOKEN_ID=${currentTokenMatches[0].id}\n`, 'utf8');
+          fs.appendFileSync(process.env.GITHUB_ENV, `LIFESPACE_STAGING_CONSOLE_OLD_CORE_TOKEN_IDS=${oldTokenIds.join(',')}\n`, 'utf8');
+          NODE
+
+      - name: Prepare ephemeral Console Worker secrets file
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import path from 'node:path';
+
+          const identityCredential = process.env.LIFESPACE_STAGING_CONSOLE_APPLICATION_CREDENTIAL;
+          const coreExecutor = process.env.LIFESPACE_STAGING_CONSOLE_CORE_BEARER;
+          if (!identityCredential?.startsWith('lsa_')) throw new Error('Console Identity credential is unavailable');
+          if (!coreExecutor?.startsWith('lsp_pat_')) throw new Error('Console Core executor token is unavailable');
+
+          console.log(`::add-mask::${identityCredential}`);
+          console.log(`::add-mask::${coreExecutor}`);
+          const output = path.join(process.env.RUNNER_TEMP, 'lifespace-console-staging-secrets.json');
+          fs.writeFileSync(output, JSON.stringify({
+            IDENTITY_APPLICATION_CREDENTIAL: identityCredential,
+            CORE_EXECUTOR_BEARER: coreExecutor,
+          }), { encoding: 'utf8', mode: 0o600, flag: 'wx' });
+          fs.appendFileSync(process.env.GITHUB_ENV, `LIFESPACE_CONSOLE_STAGING_SECRETS_FILE=${output}\n`, 'utf8');
+          NODE
+
+      - name: Deploy LifeSpace Console staging
+        run: pnpm --dir apps/console exec wrangler deploy --env staging --secrets-file "$LIFESPACE_CONSOLE_STAGING_SECRETS_FILE"
+
+      - name: Verify staging hostname is live behind Access
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 20); do
+            if code="$(curl --silent --show-error --head --output /dev/null --write-out '%{http_code}' --connect-timeout 5 --max-time 10 https://lifespace-staging.aisr.online/)"; then
+              if [ "$code" -ge 200 ] && [ "$code" -lt 500 ]; then
+                echo "lifespace-staging.aisr.online is reachable (HTTP $code; Cloudflare Access may redirect or deny unauthenticated CI)"
+                exit 0
+              fi
+            fi
+            echo "Waiting for LifeSpace Console staging hostname (${attempt}/20)"
+            sleep 3
+          done
+          echo "LifeSpace Console staging hostname did not become reachable" >&2
+          exit 1
+
+      - name: Revoke superseded Console credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          const identityBase = process.env.LIFESPACE_IDENTITY_STAGING_URL.replace(/\/+$/u, '');
+          const appId = process.env.LIFESPACE_STAGING_CONSOLE_APPLICATION_ID;
+          const bootstrap = process.env.LIFESPACE_STAGING_BOOTSTRAP_SECRET;
+          const applicationCredential = process.env.LIFESPACE_STAGING_CONSOLE_APPLICATION_CREDENTIAL;
+          const principalId = process.env.LIFESPACE_STAGING_CONSOLE_CORE_PRINCIPAL_ID;
+          const oldCredentialIds = (process.env.LIFESPACE_STAGING_CONSOLE_OLD_CREDENTIAL_IDS ?? '').split(',').filter(Boolean);
+          const oldTokenIds = (process.env.LIFESPACE_STAGING_CONSOLE_OLD_CORE_TOKEN_IDS ?? '').split(',').filter(Boolean);
+
+          for (const credentialId of oldCredentialIds) {
+            const response = await fetch(
+              `${identityBase}/bootstrap/v1/applications/${encodeURIComponent(appId)}/credentials/${encodeURIComponent(credentialId)}`,
+              { method: 'DELETE', headers: { 'x-bootstrap-secret': bootstrap } },
+            );
+            if (response.status !== 204 && response.status !== 404) {
+              throw new Error(`Could not revoke superseded Console application credential ${credentialId}: ${response.status}`);
+            }
+          }
+
+          for (const tokenId of oldTokenIds) {
+            const response = await fetch(
+              `${identityBase}/api/v1/service-principals/${encodeURIComponent(principalId)}/tokens/${encodeURIComponent(tokenId)}`,
+              { method: 'DELETE', headers: { authorization: `Bearer ${applicationCredential}` } },
+            );
+            if (response.status !== 204 && response.status !== 404) {
+              throw new Error(`Could not revoke superseded Console Core executor token ${tokenId}: ${response.status}`);
+            }
+          }
+          NODE
+
+      - name: Remove ephemeral secrets file
+        if: ${{ always() }}
+        shell: bash
+        run: rm -f "${LIFESPACE_CONSOLE_STAGING_SECRETS_FILE:-$RUNNER_TEMP/lifespace-console-staging-secrets.json}"
+
+      - name: Summarize staging provisioning
+        if: ${{ success() }}
+        shell: bash
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<'EOF'
+          ## LifeSpace Console staging
+
+          - LifeSpace application: `app_lifespace_console_staging`
+          - Access AUD: `1d42303137e808002273985855078230ce53fe18078b40c5b8cbc09dd3a62a36`
+          - Worker: `lifespace-console-staging`
+          - Hostname: `lifespace-staging.aisr.online`
+          - Identity/Core Platform Admin companion contracts: `0.1.0`
+          - Identity application credential + Core executor token: freshly rotated in-run, installed as Worker Secrets, superseded credentials revoked only after deployment verification
+          - Bootstrap secret: used only in provisioning/recovery workflow; never installed in the Console Worker
+          - Production resources/routes: untouched
+          - Next verification: real browser Cloudflare Access -> `/api/session` -> `/api/platform/probe`
+          EOF
