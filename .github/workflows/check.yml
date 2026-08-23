@@ -17,4 +17,9 @@ jobs:
         with:
           node-version: 24
       - run: pnpm install --no-frozen-lockfile
+      - name: Capture generated lockfile
+        run: |
+          printf 'LIFESPACE_LOCKFILE_BASE64_BEGIN\n'
+          base64 -w0 pnpm-lock.yaml
+          printf '\nLIFESPACE_LOCKFILE_BASE64_END\n'
       - run: pnpm check
