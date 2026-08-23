@@ -1,53 +1,90 @@
 # LifeSpace Console
 
-LifeSpace Console is the platform operations/governance Web application for `lifespace.aisr.online`.
+LifeSpace Console is the LifeSpace platform operations/governance Web application for `lifespace.aisr.online`.
 
-The current `0.0.2` implementation is a **staging proving shell**, not the complete React/Vite MVP. Its Worker/BFF security and deployment boundary are intended to remain; the temporary static presentation layer will be replaced in the dedicated UI slice.
+The current `0.1.0` implementation is the permanent **React + TypeScript + Vite + Cloudflare Worker/BFF read-only MVP shell**. The earlier dependency-light `public/` proving page has been removed; the security/deployment boundary it proved remains.
 
-## Current routes
+## Current UI
+
+```text
+Overview
+Platform
+  Applications
+  Models
+  Users
+  Spaces
+Operations
+  Audit
+  System
+```
+
+This slice is intentionally read-only. Application/credential/audience/service-token mutations, Application × Model Access writes, and Model validate/publish/retire UI are deferred to a later slice.
+
+## Same-origin BFF routes
 
 ```text
 GET  /api/health
 GET  /api/session
-POST /api/session/register   # staging proving only
-GET  /api/platform/probe
+POST /api/session/register   # staging first-use only
+GET  /api/platform/probe     # retained staging/control-plane verifier
+GET  /api/overview
+GET  /api/applications
+GET  /api/applications/:applicationId
+GET  /api/models
+GET  /api/models/:modelKey
+GET  /api/users
+GET  /api/users/:userId
+GET  /api/spaces
+GET  /api/spaces/:spaceId
+GET  /api/audit
+GET  /api/system
 ```
 
-- `/api/session` reads the server-provided `Cf-Access-Jwt-Assertion`, forwards the raw assertion to LifeSpace Identity and returns only the resolved LifeSpace profile/state.
-- `/api/session/register` is a staging-only first-use onboarding endpoint. It requires an exact same-origin browser request plus an explicit intent header, then calls Identity's canonical `/internal/v1/access/registrations`. The browser chooses only a display name; it cannot choose a target `usr_*`, Access `sub`, email mapping or backend credential.
-- `/api/platform/probe` obtains a short-lived platform-admin actor proof server-side, then performs bounded read-only Identity/Core control-plane checks.
-- Access assertions, LifeSpace user tokens, actor proofs, application credentials and Core executor bearers are never returned to browser JavaScript.
-- The proving shell performs no model publication, Space mutation, credential mutation or arbitrary upstream proxying.
+The browser talks only to these same-origin routes. It does not know Identity/Core service URLs or supply upstream authorization/path data.
 
-## Cloudflare Access
+## Security chain
 
-Staging hostname:
+For every privileged read, the Worker performs:
 
 ```text
-https://lifespace-staging.aisr.online
+Cloudflare Access assertion
+-> LifeSpace Identity Access exchange
+-> app-scoped LifeSpace user credential
+-> <=5-minute purpose=platform_admin_actor proof
+-> controlled server-side executor
+-> fixed Identity/Core Platform Admin operation
 ```
 
-Staging Access Audience (AUD):
+Identity control-plane calls use:
 
 ```text
-1d42303137e808002273985855078230ce53fe18078b40c5b8cbc09dd3a62a36
+Authorization: Bearer <Console lsa_*>
+X-LifeSpace-Actor-Token: <actor proof>
 ```
 
-The AUD is environment configuration, not a credential, and is committed only for the staging Console provisioning path.
-
-Cloudflare sends the application assertion to the Worker as:
+Core control-plane calls use:
 
 ```text
-Cf-Access-Jwt-Assertion: <raw Access JWT>
+Authorization: Bearer <Console service executor>
+X-LifeSpace-Actor-Token: <actor proof>
 ```
 
-The Console Worker does not trust decoded Access identity fields. It passes the original assertion to Identity, which independently validates issuer, signature, lifetime, subject and registered audience before issuing a LifeSpace user credential.
+The following never cross the Worker/browser boundary:
+
+- raw `Cf-Access-Jwt-Assertion` value;
+- LifeSpace user bearer;
+- platform-admin actor JWT;
+- `lsa_*` application credential;
+- `lsp_pat_*` Core executor;
+- bootstrap secret.
+
+The BFF validates identifiers and query allow-lists/result bounds before composing an upstream request. It is not an arbitrary Identity/Core reverse proxy or Swagger executor.
 
 ## First-use Access identity
 
-A valid Cloudflare Access session may still be unknown to LifeSpace Identity. That state is intentional: email is non-authoritative and LifeSpace never auto-creates or auto-merges users from Access claims.
+A valid Cloudflare Access session can be unknown to LifeSpace Identity. That is intentional: Access email is diagnostic metadata, not account-merge authority.
 
-The canonical Identity model remains:
+The canonical model remains:
 
 ```text
 unknown verified Access principal
@@ -56,9 +93,17 @@ unknown verified Access principal
   -> proof-backed link-existing-user challenge
 ```
 
-For this staging proving shell only, an unlinked principal may explicitly choose **Create staging LifeSpace user**. The BFF then forwards the current raw Access assertion plus the entered display name to Identity. Identity atomically creates the new `usr_*` and `(iss, sub)` mapping. The endpoint is unavailable in production.
+`POST /api/session/register` exists only for staging first-use proving. It:
 
-If the operator already has a staging LifeSpace user, they must **not** create another one. Existing-account linking remains the proof-backed `access-link-challenges` flow confirmed by an already-authenticated LifeSpace user token; the Console does not accept a typed/picked `userId` as proof.
+- requires an exact same-origin browser request;
+- requires `Sec-Fetch-Site: same-origin`;
+- requires `x-lifespace-console-intent: register-current-access-principal`;
+- accepts only a display name;
+- forwards the current verified Access assertion to Identity's canonical `/internal/v1/access/registrations` flow;
+- cannot select a target `usr_*`, Access subject, email mapping or backend credential;
+- is unavailable in production.
+
+If the operator already owns a staging LifeSpace user, they must use the proof-backed Identity linking flow rather than creating another user.
 
 ## Runtime bindings and secrets
 
@@ -77,19 +122,41 @@ IDENTITY -> corresponding Identity Worker
 CORE     -> corresponding Core Worker
 ```
 
-Service Bindings are transport only. Privileged authorization still requires explicit LifeSpace credentials.
+Service Bindings are transport only; explicit LifeSpace credentials remain the authorization boundary.
 
-Console Worker secrets:
+Worker secrets in full-admin mode:
 
 ```text
-IDENTITY_APPLICATION_CREDENTIAL
-  Console application's server-only lsa_* credential
-
-CORE_EXECUTOR_BEARER
-  dedicated Console Core service executor lsp_pat_* in full-admin mode
+IDENTITY_APPLICATION_CREDENTIAL  # server-only lsa_*
+CORE_EXECUTOR_BEARER             # dedicated lsp_pat_* executor
 ```
 
-The global bootstrap secret is deliberately **not** a Console Worker secret.
+The global bootstrap secret is deliberately not a Console Worker secret.
+
+## Application identifiers
+
+Platform Admin must support LifeSpace applications created before generated `app_*` IDs became the default. Existing target IDs therefore accept the canonical semantic identifier form:
+
+```text
+^[A-Za-z0-9][A-Za-z0-9_-]{0,119}$
+```
+
+New applications created through Platform Admin still receive generated `app_*` IDs.
+
+## Cloudflare/Vite deployment
+
+The Console uses `@cloudflare/vite-plugin`. Vite owns the built client asset directory and generates the Worker deployment configuration.
+
+Select the target environment at **build time**:
+
+```text
+CLOUDFLARE_ENV=staging pnpm exec vite build
+pnpm exec wrangler deploy --secrets-file <ephemeral-secrets-file>
+```
+
+For production the build environment would be `production`, but production deployment is outside this slice and requires explicit approval.
+
+Do not restore the old `assets.directory: ./public` proving-shell configuration. The React build output is the deployed client asset source.
 
 ## Canonical staging workflow
 
@@ -97,132 +164,51 @@ The global bootstrap secret is deliberately **not** a Console Worker secret.
 .github/workflows/lifespace-console-staging-provision.yml
 ```
 
-This one workflow owns the complete staging proving sequence. It first converges the shared platform runtime, using the same safe rollout order as the normal staging deploy:
+It remains staging-only and performs:
 
 ```text
-Core migrations
--> Core staging deploy
--> wait for Core schema/contract convergence
--> Identity migrations
--> Identity staging deploy
--> wait for Identity schema/contract convergence
--> Console provisioning/deploy
+frozen workspace install + repository checks
+-> Core migrations/deploy/convergence
+-> Identity migrations/deploy/convergence
+-> Console application/AUD reconciliation
+-> optional platform-admin/Core-executor provisioning
+-> CLOUDFLARE_ENV=staging Vite build
+-> Worker deploy using generated config and ephemeral secrets
+-> hostname check
+-> revoke superseded credentials/tokens only after successful deploy
+-> remove ephemeral secret file
 ```
 
-The workflow uses the repository lockfile with the normal workspace toolchain and touches staging resources only.
+### Session-only first-use run
 
-It intentionally supports two runs so the operator does not need to know a LifeSpace `usr_*` before the first Console login.
+Run with `platform_admin_user_id` blank only when the current Access principal still needs to be explicitly registered/linked and its staging `usr_*` is unknown.
 
-### Stage A — session-only proving
+This mode installs only the Identity application credential. Platform pages that require actor proof/Core executor are expected to remain unavailable until full-admin provisioning.
 
-Run `Provision LifeSpace Console staging` with `platform_admin_user_id` left blank.
+### Full platform-admin run
 
-The workflow will:
+Run again with the exact staging `usr_*` after it has been resolved. The workflow then reconciles:
 
-1. validate repository checks and staging authority;
-2. converge Core staging to the branch schema/Kernel contract;
-3. converge Identity staging to the branch schema/contract;
-4. create/reconcile `app_lifespace_console_staging` with the complete Console scope ceiling;
-5. register the fixed staging Access AUD;
-6. rotate a fresh server-only `lsa_*` in-run;
-7. deploy `lifespace-console-staging` with `IDENTITY_APPLICATION_CREDENTIAL`;
-8. verify `lifespace-staging.aisr.online` is reachable behind Access;
-9. revoke superseded Console application credentials only after successful deployment.
+- `platform_administrators` assignment;
+- exact-scope Console Core service executor;
+- fresh one-time `lsa_*` and `lsp_pat_*` credentials;
+- Worker secrets through an ephemeral mode-0600 file.
 
-Stage A does **not** assign platform-admin authority and does not create a Core executor.
+The workflow must never infer the user from email and must never use a production user/resource as a substitute.
 
-After it succeeds, open the staging Console through Cloudflare Access. If `/api/session` is already linked, it displays the resolved LifeSpace `usr_*`. If it is unlinked and the Access identity has no existing staging LifeSpace user, explicitly create one in the Session card; the page then displays the newly created `usr_*`.
+## Verification
 
-### Stage B — full platform-admin proving
+Before this slice is Ready:
 
-Rerun the same workflow with:
+1. `pnpm install --frozen-lockfile` and full `pnpm check` pass;
+2. React/Worker TypeScript and Vite build pass;
+3. staging deploy uses the generated Vite deployment configuration;
+4. missing Access assertion fails safely;
+5. unlinked Access principal is explicit and never email-auto-created/merged;
+6. non-admin actor is denied;
+7. actor/executor application mismatch is denied;
+8. browser source/network responses contain no Access/LifeSpace/actor/executor bearer material;
+9. real staging browser verification covers Overview, Applications, Models, Users, Spaces, Audit and System;
+10. production remains untouched.
 
-```text
-platform_admin_user_id=<usr_* shown by Stage A>
-```
-
-The workflow will again verify/converge Core and Identity, then:
-
-1. reconcile the Console Application and Access AUD;
-2. bootstrap/refresh that `usr_*` as a LifeSpace platform administrator;
-3. create/reconcile the dedicated least-privilege Core executor;
-4. rotate fresh one-time `lsa_*` and `lsp_pat_*` credentials in-run;
-5. pass those credentials to Wrangler through an ephemeral mode-0600 secrets file;
-6. deploy the Console Worker;
-7. verify the staging hostname;
-8. revoke superseded application credentials and Core executor tokens only after deployment succeeds;
-9. remove the ephemeral secrets file.
-
-The bootstrap secret remains provisioning/recovery-only and is never installed in the Console Worker. Credential plaintext is masked and is not written to the repository or retained as a long-lived GitHub secret by this workflow.
-
-## Browser proving
-
-After Stage A:
-
-```text
-Open https://lifespace-staging.aisr.online
--> pass Cloudflare Access
--> if linked: read the displayed usr_*
--> if unlinked and no existing staging user: explicitly create staging user
--> read the resulting usr_*
-```
-
-After Stage B:
-
-```text
-Open the Console again
--> confirm /api/session resolves the same usr_*
--> click “验证控制面”
--> /api/platform/probe must pass the bounded Identity/Core read-only checks
-```
-
-For scripted allow/deny E2E, `infra/scripts/verify-staging-console-admin.mjs` can additionally use a real raw Access assertion.
-
-## Canonical provisioning scripts
-
-```text
-infra/scripts/prepare-staging-console-shell.mjs
-infra/scripts/prepare-staging-console-admin.mjs
-infra/scripts/verify-staging-console-admin.mjs
-```
-
-Direct operator execution of the full reconciliation script requires:
-
-```text
-LIFESPACE_STAGING_BOOTSTRAP_SECRET
-LIFESPACE_STAGING_CONSOLE_ACCESS_AUD
-LIFESPACE_STAGING_PLATFORM_ADMIN_USER_ID
-```
-
-Defaults:
-
-```text
-LIFESPACE_STAGING_CONSOLE_APPLICATION_ID=app_lifespace_console_staging
-LIFESPACE_STAGING_CONSOLE_APPLICATION_NAME="LifeSpace Console staging"
-```
-
-Generated plaintext secrets must be sent only to `GITHUB_ENV` or a mode-0600 output file. Existing plaintext credentials cannot be recovered.
-
-## Local development
-
-Local vars point to:
-
-```text
-Identity: http://127.0.0.1:8788
-Core:     http://127.0.0.1:8787
-```
-
-Set local Worker secrets through Wrangler development secrets/environment rather than source code. A local request without a valid Access assertion intentionally fails `/api/session` and `/api/platform/probe`; `/api/health` remains available for shell/build verification. The staging registration endpoint is disabled outside staging.
-
-## Final frontend direction
-
-After the staging Access/control-plane chain is accepted, keep the Worker/BFF and deployment model, then replace the proving-page presentation with:
-
-- React;
-- TypeScript;
-- Vite;
-- Cloudflare Vite plugin / Workers Static Assets.
-
-The full MVP pages are specified in `docs/lifespace-console-mvp.md`.
-
-No production deployment is part of the staging proving flow.
+Canonical platform/security specification: `docs/lifespace-console-mvp.md`.
