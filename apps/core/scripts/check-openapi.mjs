@@ -3,7 +3,7 @@ import YAML from "yaml";
 
 const document = YAML.parse(fs.readFileSync(new URL("../openapi.yaml", import.meta.url), "utf8"));
 
-if (document.openapi !== "3.1.0" || document.info?.version !== "0.12.0") {
+if (document.openapi !== "3.1.0" || document.info?.version !== "0.13.0") {
   throw new Error("Core Kernel OpenAPI version metadata is invalid");
 }
 if (!document.info?.title?.includes("Kernel")) {
@@ -131,10 +131,22 @@ if (!schemas.CreateDataGrantRequest?.properties?.granteeType?.enum && !schemas.G
 if (!schemas.GranteeType?.enum?.includes("service")) {
   throw new Error("Data Grants must support service principals");
 }
+if (schemas.DataGrantResourceType?.enum?.join(",") !== "space,model") {
+  throw new Error("Data Grants must expose whole-Space and model-collection resource types");
+}
+if (!schemas.DataGrant?.required?.includes("resourceType") || !schemas.DataGrant?.required?.includes("resourceId")) {
+  throw new Error("Data Grant responses must expose their resource target");
+}
+if (!schemas.CreateDataGrantRequest?.properties?.resourceType || !schemas.CreateDataGrantRequest?.properties?.resourceId) {
+  throw new Error("Data Grant creation must accept an explicit resource target");
+}
 const grants = document.paths?.["/api/v1/spaces/{spaceId}/grants"];
 const grant = document.paths?.["/api/v1/spaces/{spaceId}/grants/{grantId}"];
 if (!grants?.get || !grants?.post || !grant?.patch || !grant?.delete) {
   throw new Error("Data Grant management lifecycle is incomplete");
+}
+if (!grants.get.responses?.["200"]?.description?.includes("model-collection") || !grants.post.responses?.["201"]?.description?.includes("model-collection")) {
+  throw new Error("Data Grant contract must document model-collection support");
 }
 
 const creationDraft = document.paths?.["/api/v1/spaces/{spaceId}/creation-drafts"]?.post;
@@ -165,7 +177,7 @@ if (schemas.ModelContract?.properties?.id?.pattern !== "^mct_[a-f0-9]{64}$") {
   throw new Error("Model Contract revisions must be content-addressed mct_<sha256>");
 }
 
-if (schemas.StatusResponse?.properties?.data?.properties?.contractVersion?.const !== "0.12.0") {
+if (schemas.StatusResponse?.properties?.data?.properties?.contractVersion?.const !== "0.13.0") {
   throw new Error("Core Kernel status contract version drifted");
 }
 
