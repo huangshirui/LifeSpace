@@ -10,7 +10,7 @@
 https://lifespace.aisr.online
 ```
 
-建议 staging 域名：
+staging 域名：
 
 ```text
 https://lifespace-staging.aisr.online
@@ -30,7 +30,7 @@ Console 管理的是 LifeSpace 平台本身：Application、Model、Identity、S
 
 Current branch: `feat/lifespace-console-admin-foundation` / PR #42.
 
-### Slice 0 — control-plane foundation
+### Slice 0A — control-plane foundation
 
 Implemented in repository and covered by CI:
 
@@ -47,31 +47,61 @@ Implemented in repository and covered by CI:
 - Identity/Core platform-admin audit;
 - Console-aware actor attribution for Model publish/retire while retaining service automation compatibility;
 - separate Identity/Core Platform Admin OpenAPI companion contracts `0.1.0`;
-- contract sanity checks in normal repository CI.
+- contract sanity checks in normal repository CI;
+- idempotent staging provisioning helper and read-only staging E2E verifier.
 
-Still required before Slice 0 is considered deployed/accepted:
+### Slice 0B — staging proving shell
 
-- apply Identity migrations `0006_platform_admin_audit.sql` and `0007_platform_administrators.sql` to staging;
-- apply Core migration `0026_platform_admin_audit.sql` to staging;
-- deploy matching Identity/Core branch runtime to staging;
-- provision a dedicated staging Console LifeSpace application;
-- register the staging Cloudflare Access audience;
-- provision the Console Identity `lsa_*` executor and Core service executor;
-- bootstrap at least one staging platform-administrator assignment;
-- prove real Access -> LifeSpace user -> actor proof -> Identity/Core platform-admin flows;
-- prove missing/revoked/wrong-application actor/executor denial;
-- prove production services/data remain untouched.
+Implemented in repository, pending staging deployment:
 
-### Slice 1 — Console application shell
+```text
+apps/console
+```
 
-Starts after Slice 0 staging proof:
+The proving shell exists because a real Cloudflare Access end-to-end test needs a real protected Console origin. It establishes the permanent Worker/BFF/deployment security boundary before the full UI dependency set is introduced.
 
-- add `apps/console` in the LifeSpace monorepo;
-- React + TypeScript + Vite + Cloudflare Worker/Static Assets;
-- same-origin BFF;
-- Cloudflare Access protected staging hostname;
-- session/bootstrap flow that resolves the Access principal to a LifeSpace user and obtains actor proof only when privileged calls are needed;
-- navigation/layout/error states/environment banner.
+Current implementation:
+
+- Cloudflare Worker + Workers Static Assets;
+- staging custom domain `lifespace-staging.aisr.online`;
+- staging/production Service Binding isolation for Identity/Core transport;
+- `/api/session` for raw Access assertion -> Identity -> LifeSpace user resolution;
+- `/api/platform/probe` for server-side actor-proof issuance plus bounded read-only Identity/Core admin checks;
+- no browser-visible `lsa_*`, `lsp_pat_*`, Access bearer, LifeSpace bearer or actor proof;
+- no business-data mutation, model publish/retire, credential management or arbitrary upstream proxy;
+- temporary static presentation only; BFF code/config is intended to remain for the React/Vite UI.
+
+### Slice 0 staging acceptance gate
+
+Slice 0 is accepted only after the repository implementation is proved against real staging infrastructure:
+
+1. apply Identity migrations `0006_platform_admin_audit.sql` and `0007_platform_administrators.sql` to staging;
+2. apply Core migration `0026_platform_admin_audit.sql` to staging;
+3. deploy matching Identity/Core runtime to staging;
+4. create/protect the `lifespace-staging.aisr.online` Cloudflare Access Self-hosted Application and obtain its AUD;
+5. provision the dedicated staging Console LifeSpace application and register that AUD;
+6. provision the Console Identity `lsa_*` executor and exact-scope Core service executor;
+7. bootstrap at least one staging platform-administrator assignment;
+8. deploy the Console proving shell and install only its two normal runtime executor secrets;
+9. prove real Access -> LifeSpace user -> actor proof -> Identity/Core platform-admin flow through the protected Console origin;
+10. prove missing/wrong-purpose/wrong-application actor/executor denial and explicit unlinked-account handling;
+11. prove existing service-only Model Admin automation still works;
+12. prove production LifeSpace/HomeMew services, credentials and data are untouched.
+
+### Slice 1 — React/Vite Console shell
+
+Starts after Slice 0 staging acceptance.
+
+Keep the proving shell's Worker/BFF/security/deployment boundary and replace the temporary static presentation with:
+
+- React;
+- TypeScript;
+- Vite;
+- Cloudflare Vite plugin / Workers Static Assets;
+- persistent Console navigation/layout/error states/environment banner;
+- purpose-specific BFF client modules generated/thinly wrapped around the explicit control-plane contracts.
+
+This separates a new frontend dependency/toolchain slice from the security/control-plane foundation while avoiding throwaway backend code.
 
 ### Slice 2 — MVP pages
 
@@ -450,13 +480,20 @@ apps/core/platform-admin.openapi.yaml
 
 ## Technical implementation
 
-Planned Console application location:
+Current proving implementation:
 
 ```text
 apps/console
+  Cloudflare Worker/BFF
+  Workers Static Assets
+  temporary dependency-light proving page
 ```
 
-Preferred stack:
+The Worker reads `Cf-Access-Jwt-Assertion` only at the server boundary and forwards the original assertion to Identity. It never trusts browser-selected decoded Access identity fields. For staging/production, Service Bindings transport requests to the corresponding Identity/Core Workers, while explicit LifeSpace executor credentials remain the authorization boundary.
+
+Cloudflare Static Assets uses Worker-first routing only for `/api/*`; static presentation files do not contain privileged data. The BFF exposes bounded purpose-specific routes instead of an arbitrary proxy.
+
+Final UI stack after staging proving:
 
 - React;
 - TypeScript;
@@ -468,21 +505,22 @@ Request topology:
 
 ```text
 Browser
--> lifespace.aisr.online
+-> lifespace.aisr.online / lifespace-staging.aisr.online
 -> Cloudflare Access
 -> Console Worker/BFF
    -> Identity
    -> Core
 ```
 
-Browser JavaScript never receives server executor credentials.
+Browser JavaScript never receives server executor credentials or Actor Proof.
 
 Production and staging use separate:
 
 - Access Applications/audiences;
 - Console LifeSpace applications;
 - executor credentials;
-- Workers/D1/R2/Queues;
+- Console Workers;
+- Identity/Core Workers and data stores;
 - administrator proving state as appropriate.
 
 ## MVP non-goals
@@ -516,4 +554,5 @@ The MVP is accepted only when all of the following are true:
 9. credential plaintext is one-time-only and never appears in list/audit responses;
 10. production and staging are isolated and staging proving does not modify production LifeSpace/HomeMew data;
 11. `apps/console` uses only the documented Platform Admin/business contracts and no bootstrap secret;
-12. repository CI and staging E2E are green before production rollout.
+12. browser code never receives Access/LifeSpace/Actor/Executor bearer material from the Console BFF;
+13. repository CI and staging E2E are green before production rollout.
