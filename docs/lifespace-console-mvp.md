@@ -52,7 +52,7 @@ Implemented in repository and covered by CI:
 
 ### Slice 0B — staging proving shell
 
-Implemented in repository, pending staging deployment:
+Implemented and deployed to staging:
 
 ```text
 apps/console
@@ -66,27 +66,38 @@ Current implementation:
 - staging custom domain `lifespace-staging.aisr.online`;
 - staging/production Service Binding isolation for Identity/Core transport;
 - `/api/session` for raw Access assertion -> Identity -> LifeSpace user resolution;
+- staging-only `/api/session/register` for explicit first-use registration through Identity's canonical Access registration flow;
 - `/api/platform/probe` for server-side actor-proof issuance plus bounded read-only Identity/Core admin checks;
 - no browser-visible `lsa_*`, `lsp_pat_*`, Access bearer, LifeSpace bearer or actor proof;
 - no business-data mutation, model publish/retire, credential management or arbitrary upstream proxy;
 - temporary static presentation only; BFF code/config is intended to remain for the React/Vite UI.
 
+Real Stage A browser proving confirmed an important identity invariant: a valid Cloudflare Access login whose verified `(iss, sub)` is unknown to Identity returns `ACCESS_PRINCIPAL_UNLINKED`; it is not auto-created or merged from email. The proving shell therefore exposes the canonical explicit create-new-user path in staging only. The browser may supply only a display name and explicit confirmation; the Worker supplies the current Access assertion and server credential, Identity creates the new `usr_*` plus mapping atomically, and the returned LifeSpace bearer remains server-side. The registration write requires exact same-origin browser evidence plus a dedicated intent header and is unavailable in production.
+
+If an operator already has a staging LifeSpace user, they must not create a second one. Existing-account linking remains the proof-backed Identity link-challenge flow, confirmed by an already authenticated LifeSpace user credential; the Console must not substitute a `userId` picker or email match.
+
 ### Slice 0 staging acceptance gate
 
-Slice 0 is accepted only after the repository implementation is proved against real staging infrastructure:
+Stage A infrastructure proving has passed:
 
-1. apply Identity migrations `0006_platform_admin_audit.sql` and `0007_platform_administrators.sql` to staging;
-2. apply Core migration `0026_platform_admin_audit.sql` to staging;
-3. deploy matching Identity/Core runtime to staging;
-4. create/protect the `lifespace-staging.aisr.online` Cloudflare Access Self-hosted Application and obtain its AUD;
-5. provision the dedicated staging Console LifeSpace application and register that AUD;
-6. provision the Console Identity `lsa_*` executor and exact-scope Core service executor;
-7. bootstrap at least one staging platform-administrator assignment;
-8. deploy the Console proving shell and install only its two normal runtime executor secrets;
-9. prove real Access -> LifeSpace user -> actor proof -> Identity/Core platform-admin flow through the protected Console origin;
-10. prove missing/wrong-purpose/wrong-application actor/executor denial and explicit unlinked-account handling;
-11. prove existing service-only Model Admin automation still works;
-12. prove production LifeSpace/HomeMew services, credentials and data are untouched.
+- Identity staging migrated/deployed to schema v7;
+- Core staging migrated/deployed to schema v26;
+- `app_lifespace_console_staging` and the staging Access AUD are registered;
+- Console session-only Worker is deployed behind Access;
+- real Access login reaches the Console and the unlinked-principal path has been proved;
+- Console 0.0.2 explicit staging registration flow has passed full repository checks and code-only staging redeploy;
+- production resources were not touched.
+
+Slice 0 remains accepted only after the remaining real staging steps:
+
+1. explicitly resolve the current Access principal to one staging LifeSpace `usr_*` by either new-user registration or proof-backed existing-account linking;
+2. bootstrap that exact `usr_*` as a staging platform administrator;
+3. provision the Console exact-scope Core service executor;
+4. prove real Access -> LifeSpace user -> actor proof -> Identity/Core platform-admin flow through the protected Console origin;
+5. prove missing/wrong-purpose/wrong-application actor/executor denial and explicit unlinked-account handling;
+6. prove existing service-only Model Admin automation still works;
+7. remove temporary feature-branch proving triggers before PR Ready;
+8. prove production LifeSpace/HomeMew services, credentials and data are untouched.
 
 ### Slice 1 — React/Vite Console shell
 
@@ -124,7 +135,7 @@ LifeSpace
 
 ## Overview
 
-Purpose: answer “平台现在是否健康、关键控制面处于什么状态”。
+Purpose: answer“平台现在是否健康、关键控制面处于什么状态”。
 
 MVP cards:
 
@@ -543,7 +554,7 @@ Production and staging use separate:
 
 The MVP is accepted only when all of the following are true:
 
-1. staging Access login reaches the Console application and resolves a LifeSpace `usr_*` through Identity;
+1. staging Access login reaches the Console application and resolves a LifeSpace `usr_*` through explicit Identity registration/linking where first-use resolution is required;
 2. an assigned platform administrator can obtain the five-minute actor proof;
 3. a non-assigned user cannot obtain/use platform-admin authority;
 4. Identity and Core privileged calls require both human proof and the correct server executor;
