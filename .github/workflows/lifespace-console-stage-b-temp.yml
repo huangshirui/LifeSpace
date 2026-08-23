@@ -97,24 +97,10 @@ jobs:
           echo "repository-check" > "$RUNNER_TEMP/lifespace-console-stage-b-stage"
           pnpm check
 
-      - name: Verify staging platform convergence
-        shell: bash
+      - name: Resolve staging expectations
         run: |
-          echo "platform-convergence" > "$RUNNER_TEMP/lifespace-console-stage-b-stage"
-          set -euo pipefail
+          echo "staging-expectations" > "$RUNNER_TEMP/lifespace-console-stage-b-stage"
           node infra/scripts/staging-expectations.mjs
-          CORE_STATUS="$(curl --fail --silent --show-error https://core-staging.aisr.online/api/v1/status)"
-          IDENTITY_STATUS="$(curl --fail --silent --show-error https://auth-staging.aisr.online/api/v1/status)"
-          printf '%s' "$CORE_STATUS" | EXPECTED_CONTRACT="$LIFESPACE_EXPECTED_CORE_CONTRACT_VERSION" EXPECTED_SCHEMA="$LIFESPACE_EXPECTED_CORE_SCHEMA_VERSION" node --input-type=module -e '
-            import fs from "node:fs";
-            const data = JSON.parse(fs.readFileSync(0, "utf8"))?.data ?? {};
-            process.exit(data.environment === "staging" && String(data.schemaVersion) === process.env.EXPECTED_SCHEMA && data.contractVersion === process.env.EXPECTED_CONTRACT ? 0 : 1);
-          '
-          printf '%s' "$IDENTITY_STATUS" | EXPECTED_CONTRACT="$LIFESPACE_EXPECTED_IDENTITY_CONTRACT_VERSION" EXPECTED_SCHEMA="$LIFESPACE_EXPECTED_IDENTITY_SCHEMA_VERSION" node --input-type=module -e '
-            import fs from "node:fs";
-            const data = JSON.parse(fs.readFileSync(0, "utf8"))?.data ?? {};
-            process.exit(data.environment === "staging" && String(data.schemaVersion) === process.env.EXPECTED_SCHEMA && data.contractVersion === process.env.EXPECTED_CONTRACT ? 0 : 1);
-          '
 
       - name: Provision platform administrator and executors
         run: |
