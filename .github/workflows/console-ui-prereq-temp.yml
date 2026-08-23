@@ -1,5 +1,6 @@
 name: Console UI prerequisite patch (temporary)
 
+# Triggered once to apply the semantic application-id compatibility prerequisite.
 on:
   push:
     branches:
