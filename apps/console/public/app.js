@@ -49,6 +49,109 @@ async function jsonRequest(path) {
   return { response, payload };
 }
 
+async function postJsonRequest(path, body) {
+  const response = await fetch(path, {
+    method: "POST",
+    credentials: "same-origin",
+    headers: {
+      accept: "application/json",
+      "content-type": "application/json",
+      "x-lifespace-console-intent": "register-staging-user",
+    },
+    body: JSON.stringify(body),
+    cache: "no-store",
+  });
+  let payload = null;
+  try { payload = await response.json(); }
+  catch { payload = null; }
+  return { response, payload };
+}
+
+function renderRegistration(data) {
+  const panel = document.createElement("div");
+  panel.className = "registration-panel";
+
+  const caution = document.createElement("p");
+  caution.className = "registration-caution";
+  caution.textContent = "仅当这个 Access 身份没有对应的 staging LifeSpace 用户时才创建。若你已经有 staging usr_*，不要使用此按钮；已有账户必须通过 proof-backed link challenge 绑定。";
+
+  const field = document.createElement("label");
+  field.className = "field";
+  const fieldLabel = document.createElement("span");
+  fieldLabel.textContent = "显示名称";
+  const input = document.createElement("input");
+  input.type = "text";
+  input.maxLength = 50;
+  input.autocomplete = "name";
+  input.placeholder = "例如：Shirui";
+  field.append(fieldLabel, input);
+
+  const confirmLabel = document.createElement("label");
+  confirmLabel.className = "confirm-line";
+  const confirm = document.createElement("input");
+  confirm.type = "checkbox";
+  const confirmText = document.createElement("span");
+  confirmText.textContent = "我确认当前 Access 身份没有对应的 staging LifeSpace 用户，并明确创建一个新的 staging 用户。";
+  confirmLabel.append(confirm, confirmText);
+
+  const action = document.createElement("button");
+  action.type = "button";
+  action.className = "secondary";
+  action.textContent = "创建 staging LifeSpace 用户";
+  action.disabled = true;
+
+  const feedback = document.createElement("p");
+  feedback.className = "registration-feedback muted";
+
+  function refreshButton() {
+    action.disabled = !confirm.checked || !input.value.trim();
+  }
+  input.addEventListener("input", refreshButton);
+  confirm.addEventListener("change", refreshButton);
+
+  action.addEventListener("click", async () => {
+    const displayName = input.value.trim();
+    if (!displayName || !confirm.checked) return;
+    action.disabled = true;
+    input.disabled = true;
+    confirm.disabled = true;
+    action.textContent = "创建中…";
+    feedback.textContent = "正在由 LifeSpace Identity 验证当前 Access assertion 并创建用户…";
+    text(footerState, "registering staging identity");
+
+    try {
+      const { response, payload } = await postJsonRequest("/api/session/register", { displayName });
+      if (response.ok && payload?.data?.user?.id) {
+        feedback.textContent = `创建成功：${payload.data.user.id}`;
+        await loadSession();
+        return;
+      }
+      if (response.status === 409 && payload?.error?.code === "ACCESS_PRINCIPAL_ALREADY_LINKED") {
+        await loadSession();
+        return;
+      }
+      feedback.textContent = errorMessage(payload, `创建失败：HTTP ${response.status}`);
+    } catch (error) {
+      feedback.textContent = error instanceof Error ? error.message : String(error);
+    }
+
+    input.disabled = false;
+    confirm.disabled = false;
+    action.textContent = "重新创建";
+    refreshButton();
+    text(footerState, "staging identity registration failed");
+  });
+
+  panel.append(caution, field, confirmLabel, action, feedback);
+  if (data?.registrationAvailable !== true) {
+    action.disabled = true;
+    input.disabled = true;
+    confirm.disabled = true;
+    feedback.textContent = "当前环境不开放 Console 首次注册。";
+  }
+  return panel;
+}
+
 async function loadSession() {
   setSessionState("loading");
   text(footerState, "resolving identity");
@@ -76,8 +179,8 @@ async function loadSession() {
     title.textContent = "Access 身份尚未绑定 LifeSpace 用户";
     const message = document.createElement("p");
     message.className = "muted";
-    message.textContent = "LifeSpace 不会按邮箱自动创建或合并账户。完成显式账户绑定后再继续平台管理员验证。";
-    sessionContent.append(title, message);
+    message.textContent = "LifeSpace 不会按邮箱自动创建或合并账户。你可以显式创建新的 staging 用户，或通过已有 LifeSpace 用户凭证完成 link challenge。";
+    sessionContent.append(title, message, renderRegistration(data));
     text(footerState, "account link required");
     return;
   }
