@@ -325,19 +325,47 @@ async function ensureCoreExecutorToken(applicationCredential, principalId) {
   return { bearer: created.payload.data.token, created: true, source: rotateCredentials ? "rotation" : "initial", activeTokenCount: active.length + 1 };
 }
 
-async function verifyCoreBearer(coreBearer, actorApplicationId) {
-  const result = await request(coreBase, "/api/v1/me", { bearer: coreBearer });
-  if (result.response.status !== 200 || result.payload?.data?.principal?.type !== "service") {
-    throw new Error(`Console Core bearer does not authenticate as a service principal: ${result.response.status} ${JSON.stringify(result.payload)}`);
+async function verifyCoreBearer(applicationCredential, coreBearer, principal, actorApplicationId) {
+  if (!principal?.id?.startsWith("svc_")) {
+    throw new Error("Console Core executor service principal is invalid");
   }
-  if (result.payload.data.principal.clientId !== actorApplicationId) {
-    throw new Error(`Console Core executor application mismatch: expected ${actorApplicationId}, found ${String(result.payload.data.principal.clientId)}`);
+  if (principal.clientId !== actorApplicationId) {
+    throw new Error(`Console Core executor application mismatch: expected ${actorApplicationId}, found ${String(principal.clientId)}`);
   }
-  const scopes = result.payload.data.principal.scopes ?? [];
-  if (!sameStringSet(scopes, CORE_EXECUTOR_SCOPES)) {
-    throw new Error(`Console Core executor must have exactly the least-privilege scope set ${CORE_EXECUTOR_SCOPES.join(" ")}; found ${Array.isArray(scopes) ? scopes.join(" ") : String(scopes)}`);
+  const principalScopes = principal.maxScopes ?? [];
+  if (!sameStringSet(principalScopes, CORE_EXECUTOR_SCOPES)) {
+    throw new Error(`Console Core executor principal must have exactly the least-privilege scope ceiling ${CORE_EXECUTOR_SCOPES.join(" ")}; found ${Array.isArray(principalScopes) ? principalScopes.join(" ") : String(principalScopes)}`);
   }
-  return result.payload.data.principal;
+
+  let tokenScopes = CORE_EXECUTOR_SCOPES;
+  if (coreBearer.startsWith("lsp_pat_")) {
+    const tokens = await request(identityBase, `/api/v1/service-principals/${encodeURIComponent(principal.id)}/tokens`, { bearer: applicationCredential });
+    if (tokens.response.status !== 200 || !Array.isArray(tokens.payload?.data)) {
+      throw new Error(`Console Core executor token metadata lookup failed: ${tokens.response.status} ${JSON.stringify(tokens.payload)}`);
+    }
+    const current = tokens.payload.data.filter((entry) =>
+      entry?.principalId === principal.id
+      && entry?.revokedAt == null
+      && (!entry?.expiresAt || Date.parse(entry.expiresAt) > Date.now())
+      && entry?.lastFour === coreBearer.slice(-4)
+      && entry?.label === CORE_TOKEN_LABEL
+    );
+    if (current.length !== 1) {
+      throw new Error("Console Core executor token metadata could not be uniquely verified");
+    }
+    tokenScopes = current[0].scopes ?? [];
+    if (!sameStringSet(tokenScopes, CORE_EXECUTOR_SCOPES)) {
+      throw new Error(`Console Core executor token must have exactly the least-privilege scope set ${CORE_EXECUTOR_SCOPES.join(" ")}; found ${Array.isArray(tokenScopes) ? tokenScopes.join(" ") : String(tokenScopes)}`);
+    }
+  } else if (coreBearer.split(".").length !== 3) {
+    throw new Error("Console Core executor bearer must be an opaque service token or service JWT");
+  }
+
+  const result = await request(coreBase, "/api/v1/model-admin/models", { bearer: coreBearer });
+  if (result.response.status !== 200 || !Array.isArray(result.payload?.data)) {
+    throw new Error(`Console Core bearer does not authorize the service-only Model Admin read boundary: ${result.response.status} ${JSON.stringify(result.payload)}`);
+  }
+  return { id: principal.id, clientId: principal.clientId, scopes: tokenScopes };
 }
 
 const convergence = await requireStagingConvergence();
@@ -359,7 +387,7 @@ const administratorState = await ensurePlatformAdministrator();
 const applicationCredentialState = await ensureApplicationCredential(applicationCreated, initialApplicationSecret);
 const executorState = await ensureCoreExecutor(applicationCredentialState.credential);
 const coreTokenState = await ensureCoreExecutorToken(applicationCredentialState.credential, executorState.principal.id);
-const corePrincipal = await verifyCoreBearer(coreTokenState.bearer, applicationId);
+const corePrincipal = await verifyCoreBearer(applicationCredentialState.credential, coreTokenState.bearer, executorState.principal, applicationId);
 
 console.log(JSON.stringify({
   ok: true,
