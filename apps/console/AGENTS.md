@@ -68,7 +68,10 @@ The proving shell is deliberately constrained:
 - no credential-management UI;
 - no arbitrary API proxy;
 - no browser-visible LifeSpace or Access bearer tokens;
-- only session identity and read-only control-plane probe endpoints.
+- session identity and read-only control-plane probe remain the normal surfaces;
+- while staging proving is incomplete, the shell may additionally expose one bounded first-use Identity onboarding mutation that explicitly creates the **current verified Access principal's new staging LifeSpace user** through Identity's canonical `/internal/v1/access/registrations` flow;
+- that staging registration must require an exact same-origin browser request plus an explicit user confirmation, must never accept a target `usr_*`, email/sub mapping override or backend credential, and must be unavailable in production;
+- existing-account linking remains proof-backed through Identity link challenges and must never be replaced by a Console `userId` picker or email match.
 
 The Worker/BFF implementation and deployment boundary are intended to remain when React/Vite replaces the temporary static presentation layer. Do not put business/security logic into the proving-page JavaScript.
 
@@ -88,9 +91,11 @@ The final MVP frontend is React + TypeScript + Vite on Cloudflare Workers/Static
 A Console change is incomplete until:
 
 - typecheck and Wrangler dry-run build pass;
+- proving-page JavaScript syntax is checked;
 - static/API route behavior is deterministic;
 - missing Access assertion fails safely;
 - unlinked Access principal is surfaced explicitly and never auto-created/email-merged;
+- any staging first-use registration is explicit, exact-origin protected, Identity-owned, target-user-id-free and unavailable in production;
 - non-admin actor is denied;
 - Identity/Core executors and actor proof remain server-only;
 - staging/prod configuration is isolated;
