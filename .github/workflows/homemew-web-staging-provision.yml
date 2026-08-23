@@ -18,19 +18,19 @@ concurrency:
 
 jobs:
   provision:
-    name: Provision and deploy HomeMew Web staging
+    name: Provision HomeMew Web staging identity and secrets
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 15
     environment: staging
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID || secrets.CLOUDFLARE_ACCOUNT_ID }}
-      CLOUDFLARE_ENV: staging
       LIFESPACE_STAGING_BOOTSTRAP_SECRET: ${{ secrets.LIFESPACE_STAGING_BOOTSTRAP_SECRET }}
       LIFESPACE_IDENTITY_STAGING_URL: https://auth-staging.aisr.online
       LIFESPACE_STAGING_ACCESS_AUD: 645c12c44fa8eb1229d7a2cfc0320913df4e852ecfd9a5407accc11b589084c8
       LIFESPACE_STAGING_WEB_APPLICATION_ID: app_homemew_web_staging
       LIFESPACE_STAGING_WEB_APPLICATION_NAME: HomeMew Web staging
+      HOMEMEW_WEB_STAGING_WORKER_NAME: homemew-web-staging
 
     steps:
       - name: Checkout LifeSpace
@@ -146,70 +146,71 @@ jobs:
           fs.appendFileSync(process.env.GITHUB_ENV, `LIFESPACE_STAGING_WEB_OLD_CREDENTIAL_IDS=${previousIds}\n`, 'utf8');
           NODE
 
-      - name: Mark HomeMew checkout stage
-        run: echo "checkout-homemew" > "$RUNNER_TEMP/homemew-web-provision-stage"
-
-      - name: Checkout HomeMew main
-        uses: actions/checkout@v4
-        with:
-          repository: huangshirui/HomeMew
-          ref: main
-          path: homemew
-
-      - name: Enable Corepack
-        run: corepack enable
-
-      - name: Install HomeMew dependencies
-        working-directory: homemew
-        run: |
-          echo "install-homemew" > "$RUNNER_TEMP/homemew-web-provision-stage"
-          corepack pnpm install --frozen-lockfile
-
-      - name: Validate HomeMew Web
-        working-directory: homemew
-        run: |
-          echo "validate-web" > "$RUNNER_TEMP/homemew-web-provision-stage"
-          corepack pnpm test:web
-          corepack pnpm typecheck:web
-
-      - name: Prepare ephemeral Worker secrets file
+      - name: Install HomeMew Web Worker secrets
         shell: bash
         run: |
-          echo "prepare-worker-secrets" > "$RUNNER_TEMP/homemew-web-provision-stage"
+          echo "install-worker-secrets" > "$RUNNER_TEMP/homemew-web-provision-stage"
           set -euo pipefail
           node --input-type=module <<'NODE'
           import crypto from 'node:crypto';
-          import fs from 'node:fs';
-          import path from 'node:path';
 
+          const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
+          const apiToken = process.env.CLOUDFLARE_API_TOKEN;
+          const workerName = process.env.HOMEMEW_WEB_STAGING_WORKER_NAME;
           const applicationCredential = process.env.LIFESPACE_STAGING_WEB_APPLICATION_CREDENTIAL;
           if (!applicationCredential?.startsWith('lsa_')) {
-            throw new Error('HomeMew Web application credential was not produced by LifeSpace provisioning');
+            throw new Error('LifeSpace did not provide a deployable HomeMew Web application credential');
           }
 
           const sessionSecret = crypto.randomBytes(48).toString('base64url');
           console.log(`::add-mask::${applicationCredential}`);
           console.log(`::add-mask::${sessionSecret}`);
 
-          const output = path.join(process.env.RUNNER_TEMP, 'homemew-web-staging-secrets.json');
-          fs.writeFileSync(output, JSON.stringify({
-            LIFESPACE_APPLICATION_CREDENTIAL: applicationCredential,
-            WEB_SESSION_SECRET: sessionSecret,
-          }), { encoding: 'utf8', mode: 0o600, flag: 'wx' });
-          fs.appendFileSync(process.env.GITHUB_ENV, `HOMEMEW_WEB_STAGING_SECRETS_FILE=${output}\n`, 'utf8');
+          async function putSecret(name, text) {
+            const response = await fetch(
+              `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(accountId)}/workers/scripts/${encodeURIComponent(workerName)}/secrets`,
+              {
+                method: 'PUT',
+                headers: {
+                  authorization: `Bearer ${apiToken}`,
+                  accept: 'application/json',
+                  'content-type': 'application/json',
+                },
+                body: JSON.stringify({ name, text, type: 'secret_text' }),
+              },
+            );
+            const payload = await response.json().catch(() => null);
+            if (!response.ok || payload?.success !== true) {
+              throw new Error(`Could not install Worker secret ${name} (HTTP ${response.status})`);
+            }
+          }
+
+          await putSecret('LIFESPACE_APPLICATION_CREDENTIAL', applicationCredential);
+          await putSecret('WEB_SESSION_SECRET', sessionSecret);
           NODE
 
-      - name: Build HomeMew Web for staging
-        working-directory: homemew/apps/web
+      - name: Verify HomeMew Web Worker secrets
+        shell: bash
         run: |
-          echo "build" > "$RUNNER_TEMP/homemew-web-provision-stage"
-          corepack pnpm build
-
-      - name: Deploy HomeMew Web staging with Worker secrets
-        working-directory: homemew/apps/web
-        run: |
-          echo "deploy" > "$RUNNER_TEMP/homemew-web-provision-stage"
-          corepack pnpm exec wrangler deploy --secrets-file "$HOMEMEW_WEB_STAGING_SECRETS_FILE"
+          echo "verify-worker-secrets" > "$RUNNER_TEMP/homemew-web-provision-stage"
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
+          const apiToken = process.env.CLOUDFLARE_API_TOKEN;
+          const workerName = process.env.HOMEMEW_WEB_STAGING_WORKER_NAME;
+          const response = await fetch(
+            `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(accountId)}/workers/scripts/${encodeURIComponent(workerName)}/secrets`,
+            { headers: { authorization: `Bearer ${apiToken}`, accept: 'application/json' } },
+          );
+          const payload = await response.json().catch(() => null);
+          if (!response.ok || payload?.success !== true || !Array.isArray(payload?.result)) {
+            throw new Error(`Could not verify HomeMew Web Worker secrets (HTTP ${response.status})`);
+          }
+          const names = new Set(payload.result.map((entry) => entry?.name).filter(Boolean));
+          for (const required of ['LIFESPACE_APPLICATION_CREDENTIAL', 'WEB_SESSION_SECRET']) {
+            if (!names.has(required)) throw new Error(`Required HomeMew Web Worker secret is missing: ${required}`);
+          }
+          NODE
 
       - name: Verify staging hostname is live
         shell: bash
@@ -250,11 +251,6 @@ jobs:
             }
           }
           NODE
-
-      - name: Remove ephemeral secrets file
-        if: ${{ always() }}
-        shell: bash
-        run: rm -f "${HOMEMEW_WEB_STAGING_SECRETS_FILE:-$RUNNER_TEMP/homemew-web-staging-secrets.json}"
 
       - name: Report provisioning result
         if: ${{ always() }}
@@ -297,16 +293,16 @@ jobs:
         shell: bash
         run: |
           cat >> "$GITHUB_STEP_SUMMARY" <<'EOF'
-          ## HomeMew Web staging
+          ## HomeMew Web staging provisioning
 
           - LifeSpace application: `app_homemew_web_staging`
           - Access AUD: `645c12c44fa8eb1229d7a2cfc0320913df4e852ecfd9a5407accc11b589084c8`
           - Worker: `homemew-web-staging`
           - Web hostname: `homemew-web-staging.aisr.online`
-          - HomeMew source: `huangshirui/HomeMew@main`
-          - Cloudflare Vite/Wrangler environment: `staging` for both build and deploy
-          - LifeSpace application credential: freshly created or recovered in-run, installed as a Worker Secret, older active credentials revoked only after deployment verification
-          - Web session secret: generated in-run and installed as a Worker Secret without plaintext output
+          - LifeSpace application credential: rotated and installed directly through the Cloudflare Workers Secrets API
+          - Web session secret: generated in-run and installed directly through the Cloudflare Workers Secrets API
+          - Superseded active HomeMew Web application credentials: revoked only after Worker secret and hostname verification
+          - HomeMew source code: not read or deployed by LifeSpace
           - Production resources/routes: untouched
           - Next verification: real browser Cloudflare Access -> LifeSpace Identity -> HomeMew app-session E2E
           EOF
