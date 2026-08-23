@@ -179,3 +179,30 @@ The effective result is the intersection. The token cannot use a model absent fr
 Initial role vocabulary remains small: `owner`, `admin`, `editor`, `viewer`. Published model policy or sensitive-data Capabilities may further reduce these defaults. Roles are not a substitute for model checks.
 
 Personal Spaces may apply stricter lifecycle rules than family/team Spaces, such as one immutable owner and no ownership transfer, but such rules must be explicit Kernel policy rather than client assumptions.
+
+## Data Grant principles
+
+- Source data keeps exactly one `space_id`.
+- Sharing must not duplicate the authoritative record.
+- Grants may target a user/principal or another Space when approved.
+- Grant resource scope may evolve from collection-level to record/view-level where a concrete requirement exists.
+- Permission levels should be explicit. Calendar sharing may need `free_busy` in addition to read/write/manage.
+- Revocation must take effect from current Core authorization state; do not encode long-lived mutable Space permissions solely into JWT claims.
+- Generic Runtime must evaluate Grants against the resolved model/resource, not merely against an arbitrary URL segment supplied by the client.
+
+## Aggregate access
+
+Authenticated aggregate endpoints under `/api/v1/me/...` may return records from multiple source Spaces when the model/capability explicitly supports aggregation. Each result must preserve source ownership and the caller's effective capabilities so clients can render read-only/shared data correctly.
+
+## Actor safety
+
+- Current actor is derived from verified credentials, never request `userId`.
+- For Access-authenticated Web flows, Identity derives the current LifeSpace actor from a verified `(iss, sub)` mapping. A BFF-supplied `sub`, email or `userId` is not sufficient authority by itself.
+- Access `aud` determines approved application context, not user identity. It must be checked against the registered LifeSpace application before credentials are issued.
+- Account linking is authentication state, not authorization. Linking multiple Access principals to one `usr_*` must not expand that user's Space/Data Grant authority; it only adds another approved way to reach the same global user.
+- User-initiated Agent operations preserve delegated user context.
+- Platform-admin operations preserve both a current authorized human actor and a separately authenticated controlled executor; neither identity may be replaced by an unsigned operator field.
+- Service and device identities receive only explicit stable scopes, Application × Model Access and Grants.
+- A Service API Token authenticates a service principal and never becomes an implicit Space membership or administrator role.
+- A system identity does not become a Space member merely to gain API access.
+- AI Model Designer has no implicit data/model administration authority; its output is only a proposal until an authorized publisher validates and publishes it.
