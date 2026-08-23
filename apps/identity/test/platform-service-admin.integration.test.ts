@@ -102,10 +102,10 @@ async function sha256(value: string): Promise<string> {
 }
 
 describe("Identity cross-application Platform Service Admin", () => {
-  it("creates and governs a target application's service principal and opaque token with human audit attribution", async () => {
+  it("creates and governs a semantic-id target application's service principal and opaque token with human audit attribution", async () => {
     const pair = await keys();
     const console = await provisionConsole(pair, ["platform:admin", "services:manage", "audit:read"]);
-    const targetId = `app_service_target_${crypto.randomUUID().replaceAll("-", "")}`;
+    const targetId = `legacy-service-target-${crypto.randomUUID().replaceAll("-", "")}`;
     await bootstrapApplication(pair, targetId, "Target Service App", ["resources:read", "resources:write"]);
 
     const createPrincipal = await request(`/internal/v1/platform-admin/applications/${targetId}/service-principals`, {
