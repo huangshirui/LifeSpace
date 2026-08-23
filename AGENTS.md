@@ -1,126 +1,181 @@
 # LifeSpace Agent Instructions
 
-LifeSpace is the shared life-data platform behind ALOHA, HomeMew, and future vertical applications. It is the sole source of truth for global LifeSpace user identities, Space/Grant authorization, shared business-domain models, migrations, API contracts, and platform deployment configuration.
+LifeSpace is the shared life-data platform behind ALOHA, HomeMew and future vertical applications. It is the sole source of truth for global LifeSpace user identity, Space/Data Grant authorization, shared domain models, platform migrations, contracts and deployment configuration.
 
 ## Read before making changes
 
-Read these files in order:
+Read in this order:
 
-1. `docs/architecture.md`
-2. `docs/permissions.md`
-3. `docs/service-authentication.md` when changing service, Agent, automation, device, or machine credentials
-4. `docs/contracts.md`
-5. `docs/phase3-metadata-platform-plan.md` when changing business-model/runtime architecture
-6. `docs/phase3-performance-convergence-plan.md` when changing ordinary-model storage, Registry runtime lookup, query hydration, authorization I/O, or performance-sensitive Core paths
-7. `docs/migration-plan.md` when changing or moving behavior from HomeMew
-8. The nearest nested `AGENTS.md` for every directory being changed
-9. Relevant OpenAPI, tests, migrations, implementation, Model Definitions and generated artifacts
+1. `docs/architecture.md`;
+2. `docs/permissions.md`;
+3. `docs/application-authentication.md` for Web/Access/application identity work;
+4. `docs/service-authentication.md` for service, Agent, automation, device or machine credentials;
+5. `docs/contracts.md`;
+6. `docs/phase3-metadata-platform-plan.md` for business-model/runtime architecture;
+7. `docs/phase3-performance-convergence-plan.md` for ordinary-model storage, Registry runtime lookup, query hydration, authorization I/O or performance-sensitive paths;
+8. `docs/migration-plan.md` when changing/moving HomeMew behavior;
+9. `apps/AGENTS.md` and the nearest nested `AGENTS.md` for every directory changed;
+10. relevant OpenAPI contracts, tests, migrations, implementation, Model Definitions and generated artifacts.
 
-If a referenced file has not been created yet during the initial scaffold, create or update it before implementing behavior that depends on it.
+If a required source does not yet exist during initial scaffold, create/update it before implementing behavior that depends on it.
 
 ## Sources of truth
 
-- Platform boundaries and runtime topology: `docs/architecture.md`
-- Space ownership, Data Grant semantics, roles, principals, model authorization and effective authorization: `docs/permissions.md`
-- Service, Agent, automation, and machine credential policy: `docs/service-authentication.md`
-- Contract ownership, generation, versioning, publication, and downstream consumption: `docs/contracts.md`
-- Metadata-driven business-model architecture and implementation order: `docs/phase3-metadata-platform-plan.md`
-- Metadata runtime performance, physical-storage convergence, Registry caching and D1 round-trip budgets: `docs/phase3-performance-convergence-plan.md`
-- Core Kernel API syntax plus reproducible generated model contract surface: `apps/core/openapi.yaml`
-- Identity API syntax: `apps/identity/openapi.yaml`
-- Published model semantics: validated Model Definitions / Model Registry
-- Database history: migrations owned by the service that owns the database
-- Verified runtime behavior: automated tests
+- Platform boundaries/topology: `docs/architecture.md`
+- Space ownership, Grants, principals and effective authorization: `docs/permissions.md`
+- Application/Cloudflare Access identity: `docs/application-authentication.md`
+- Service/machine credential policy: `docs/service-authentication.md`
+- Contract ownership/versioning/publication/downstream consumption: `docs/contracts.md`
+- Metadata business-model architecture: `docs/phase3-metadata-platform-plan.md`
+- Runtime performance/typed persistence: `docs/phase3-performance-convergence-plan.md`
+- Core business-facing Kernel API: `apps/core/openapi.yaml`
+- Core privileged Platform Admin API: `apps/core/platform-admin.openapi.yaml`
+- Identity application/user/service API: `apps/identity/openapi.yaml`
+- Identity privileged Platform Admin API: `apps/identity/platform-admin.openapi.yaml`
+- Ordinary business-model semantics/contracts: validated Model Definitions / Model Registry / immutable `mct_*` revisions
+- Database history: service-owned migrations
+- Verified behavior: automated tests
 - Implementation details: source code
 
-Do not silently reconcile disagreements between these sources. Preserve deployed behavior unless the task explicitly changes the contract. Phase 3 explicitly permits breaking the Phase-2 handwritten business-domain runtime and the intermediate Phase-3 JSON physical representation before HomeMew cutover; Kernel/security behavior remains protected unless separately approved.
+Do not silently reconcile disagreements between these sources. Preserve deployed behavior unless the task explicitly changes the contract/boundary.
 
 ## Mandatory platform rules
 
-- LifeSpace user identity is global. A human user has one platform `user_id` regardless of which applications, Web authentication principals or Spaces they use.
-- Application-specific external identities are not LifeSpace identities. WeChat `openid`, WeCom `userid`, school-platform IDs, and similar provider identifiers are resolved and mapped by the owning application adapter/BFF, not by Core and not by generic Identity provider storage. Cloudflare Access platform principals are the deliberate exception: because Access is the shared long-term authentication/SSO layer for LifeSpace Web applications, Identity owns verified Access principal -> LifeSpace `user_id` resolution and account linking.
-- A trusted application backend may assert an already-resolved LifeSpace `user_id` to Identity only with its own revocable application credential. Identity must derive the calling application from that credential and constrain issued scopes to the application's registered maximum scopes.
-- Never trust a browser, Mini Program, or other untrusted client to submit an arbitrary `user_id` for token issuance. Application-specific provider credentials and mapping data stay in the owning application boundary. Web Access principal resolution must derive `(iss, sub)` from an independently verified Cloudflare Access assertion rather than from client-supplied identity fields.
-- A Space is the ownership and default authorization boundary for business data. Every ordinary business record belongs to exactly one source Space.
-- Sharing never changes data ownership and must not create a second source-of-truth copy. Cross-user and cross-Space visibility is expressed through Data Grants or approved derived views.
-- Data authorization and application authorization are independent. Effective permission is the intersection of the principal's current data authorization, calling application/credential authorization and published model policy.
-- The authenticated actor comes from verified credentials. Never trust a client-provided `userId` as the current actor.
-- Core owns Space/Grant authorization, Model Registry, Generic Resource Runtime, reusable business capabilities and business authorization. Clients and BFFs may hide controls for usability but are never the security authority.
-- Identity owns LifeSpace users, Cloudflare Access platform-principal resolution/linking for LifeSpace Web applications, trusted application/client registration and credentials, LifeSpace principal resolution, short-lived token issuance/revocation, service principal and opaque Service API Token lifecycle, and signing-key lifecycle. Identity must not become a general-purpose Web IdP or integration hub for every application's external login provider; Google/Microsoft/email Web authentication remains upstream in Cloudflare Access.
-- Owner-controlled Web, PWA, Admin and internal-tool applications should use Cloudflare Access as the long-term preferred Web authentication and SSO layer when they are protected within the same Cloudflare Zero Trust organization. An Access global session may avoid re-authentication across applications, but each application keeps its own Access policy and authorization boundary.
-- Applications unrelated to LifeSpace may use Cloudflare Access SSO without depending on LifeSpace Identity. When a Web application does need LifeSpace data, its trusted BFF presents the Access assertion through the approved Identity contract; Identity independently validates the assertion, resolves `(iss, sub)` to a LifeSpace `user_id`, checks the Access audience against the registered LifeSpace application, and then issues/authorizes LifeSpace credentials. Individual applications must not own independent Access-subject -> `usr_*` mappings.
-- Keep `Data Grant` terminology distinct from OAuth authorization grants or consent records.
-- ALOHA, HomeMew, and vertical applications are clients of the platform. Do not add application-specific business rules to Core merely because one current client needs a particular UI flow.
-- Keep Core a modular monolith unless a separately approved architecture decision justifies splitting a runtime service.
-- Ordinary business models are metadata-driven. Adding an ordinary model must not require a new handwritten CRUD router/service/table set. New source code should normally represent a reusable Kernel, Runtime, Engine, Capability or deterministic schema-planning concern.
-- Metadata-driven logical schema does not imply a universal JSON physical store. During Phase 3 performance convergence, ordinary scalar fields are materialized into deterministic generated typed model tables while common record identity/audit, relations and Capability projections remain reusable platform structures.
-- Generic/shared storage is allowed only behind a published, validated Model Definition and fixed Generic Runtime. Never expose an arbitrary schemaless JSON store as a platform API.
-- Ordinary model physical DDL must be generated by fixed platform code from validated metadata; AI/client input may propose definitions but must never supply or execute arbitrary SQL.
-- Published model Registry rows remain durable authority, but normal hot-cache business requests must use the Worker-isolate Runtime Model Descriptor snapshot. Do not re-read and re-validate the same Registry row on every ordinary request.
-- List/query response mapping must not perform per-record D1 I/O. Batch shared relation/person/Space/Capability context and follow the D1 round-trip budgets in `docs/phase3-performance-convergence-plan.md`.
-- Mutable authorization state such as membership, Data Grants and Application × Model Access must remain current-state checks; do not trade immediate revocation for a long-lived metadata cache.
-- Model metadata must never contain arbitrary JavaScript, SQL, shell code or unrestricted executable expressions. AI may propose Model Definitions but publication always flows through the same validator, compatibility checks and audit trail.
-- Identity, Application, credentials, Space, Membership, Space Person, Data Grant, Model Registry administration and signing/security state are Kernel concepts, not user-defined ordinary models.
-- Cross-Space aggregate queries such as `/api/v1/me/...` are a Core capability. Do not force every client to rediscover and merge all accessible Spaces itself.
+### Identity
+
+- LifeSpace user identity is global: one natural person has one platform `usr_*` across applications and Spaces.
+- Application-specific external identities are not LifeSpace identities. WeChat `openid`, WeCom IDs, school-provider IDs and similar subjects remain mappings owned by the application adapter/BFF.
+- Cloudflare Access platform principals are the deliberate shared-Web exception: Identity owns verified `(iss, sub) -> usr_*` mapping and account linking.
+- Access `aud` identifies the protected application context and must be registered to the intended LifeSpace application; it is not part of the user key.
+- Access email/display claims are non-authoritative and must never silently merge accounts.
+- Unknown Access principals require explicit create-new-account or proof-backed link-existing-account flow.
+- A trusted application backend may assert an already-resolved `usr_*` only with its own revocable `lsa_*`; Identity derives `azp`, scope ceiling and token TTL from current registered application state.
+- Never trust browser/Mini Program input containing arbitrary `userId`, Access `sub`, email or decoded claims as authentication authority.
+- Identity remains a LifeSpace credential/principal service, not a parallel Google/Microsoft/email IdP while Cloudflare Access remains the approved Web SSO layer.
+
+### Space and data authorization
+
+- Space is the ownership/default authorization boundary for ordinary business data.
+- Every ordinary business record belongs to exactly one source Space.
+- Sharing never changes ownership or creates a second authoritative copy; use Data Grants/approved derived views.
+- Data authorization and application authorization are independent.
+- Effective ordinary-model permission is the intersection of verified principal, credential scope, Application × Model Access, current Space membership/Data Grant, published model capability and model policy/Capability restrictions.
+- The authenticated actor comes from verified credentials, never request `userId`.
+- Core owns current Space/Grant/model authorization. UI/BFF control hiding is usability only, never the security boundary.
+- Cross-Space aggregate `/api/v1/me/...` is a Core capability; clients should not be forced to rediscover/merge every Space themselves.
+
+### Metadata-driven models
+
+- Ordinary business models are metadata-driven. Adding one must not require a handwritten CRUD router/service/table set.
+- New source code should normally represent reusable Kernel, Runtime, Engine, Capability or deterministic physical-schema concerns.
+- If the DSL lacks a requirement, decide/document whether it belongs in a reusable Capability/Engine or is a genuine Kernel exception before implementing.
+- Metadata-driven logical schema does not imply universal JSON persistence. Ordinary scalar fields use deterministic generated typed model tables after performance convergence; common identity/audit/relations/Capability projections remain reusable platform structures.
+- Physical DDL is generated by fixed platform code from validated Model Definitions. AI/client input must never provide arbitrary SQL.
+- Model metadata must never contain arbitrary JavaScript, SQL, shell or unrestricted executable expressions.
+- Published Registry rows remain durable authority, but hot ordinary requests use the Worker-isolate Runtime Model Descriptor snapshot instead of re-reading/re-validating Registry rows each request.
+- Do not perform per-record D1 I/O during list/query mapping; batch shared relation/person/Space/Capability context.
+- Mutable authorization state such as memberships, Data Grants and Application × Model Access remains current-state and must not be hidden behind long-lived metadata cache.
+
+### Platform administration
+
+- LifeSpace platform administration is separate from Space roles and ordinary business permissions.
+- Cloudflare Access controls entry to owner-controlled Console/Admin Web applications but does not itself grant LifeSpace platform-admin authority.
+- Identity owns explicit `platform_administrators` assignments.
+- Privileged interactive Console operations require **both**:
+  - a dedicated <=5-minute signed human proof with `purpose=platform_admin_actor`, `scope=platform:admin`, and Console `azp`;
+  - a server-only operation-specific controlled executor credential belonging to the same LifeSpace application context.
+- Identity-owned admin uses Console `lsa_*` executor; Core-owned admin uses a service principal executor.
+- Raw `actorUserId`, email, Access `sub`, decoded JWT fields or unsigned headers are never accepted as operator authority.
+- The bootstrap secret remains provisioning/break-glass authority only and must not become normal Console runtime configuration.
+- No platform executor becomes a hidden member of every Space or receives broad data Grants merely to operate the control plane.
+- Platform-admin audit must distinguish human actor from backend/service executor and never persist credential plaintext/hashes/Authorization headers.
+- Existing non-interactive service automation such as service-only Model Admin remains supported where explicitly designed; Console-triggered privileged mutations add actor-aware audit rather than forcing all automation to become interactive.
 
 ## Identity and browser security
 
 - Unified Identity does not mean a shared parent-domain browser cookie.
-- Do not use `Domain=aisr.online` or another parent-domain session cookie to share sessions between applications.
-- For owner-controlled Web, PWA, Admin and internal-tool applications, Cloudflare Access is the long-term authentication and cross-application Web SSO layer. Do not implement a parallel LifeSpace Google/Microsoft/email IdP unless a future architecture decision explicitly replaces this model.
-- Cloudflare Access and LifeSpace Identity have different responsibilities: Access proves the Web user and enforces perimeter/application-entry policy; LifeSpace Identity independently verifies the Access assertion, resolves the Access platform principal to the global LifeSpace principal, manages Access-principal account linking, and issues LifeSpace credentials when LifeSpace access is required.
-- Access user identity is keyed by the verified `(iss, sub)` pair. `sub` is not a LifeSpace `user_id`; `email` is non-authoritative metadata and must not silently merge accounts. Multiple Access principals may link to the same `usr_*`.
-- Access application audience and user identity are distinct. `aud` identifies the protected Web application context and must be registered/bound to the intended LifeSpace application; it must not be part of the `(iss, sub)` user key.
-- An unknown Access principal must not silently create a second LifeSpace user. It must enter an explicit link-existing-account or create-new-account flow. Linking to an existing `usr_*` requires proof of control of that LifeSpace account, not email equality.
-- Individual Web applications may maintain their own host-only App Session through a same-origin BFF. Do not infer LifeSpace authorization from an Access session alone.
-- Web applications should prefer browser -> same-origin BFF -> approved Identity Access-principal exchange -> service binding/Core. BFFs must not become a second business-data store or independent source of truth for Access principal mapping.
-- Core must not rely on a browser-wide ambient session cookie as its primary authentication mechanism. Untrusted clients use appropriately scoped short-lived bearer credentials. Owner-controlled trusted services may instead use individually scoped, opaque, revocable Service API Tokens according to `docs/service-authentication.md`; OAuth `client_credentials` remains an optional service mode, not the only one.
-- Mini Programs, devices, Agents, and automation services use explicit app/device/service identities and scopes appropriate to their execution mode.
-- CORS is not authorization. If direct browser-to-Core access is supported, use an exact Origin allowlist and still enforce token, app-scope, data permissions and model policy in Core.
+- Never use `Domain=aisr.online` to share authentication authority across applications.
+- Owner-controlled Web/PWA/Admin/internal tools should use Cloudflare Access as the preferred long-term Web authentication/SSO layer within the same Zero Trust organization.
+- Applications unrelated to LifeSpace may use Access without LifeSpace Identity. LifeSpace-dependent Web apps use same-origin BFF -> verified Access assertion -> Identity exchange -> Core.
+- BFFs must not create a second Access-subject -> `usr_*` database or business-data source of truth.
+- Core does not use a browser-wide ambient cookie as its primary authentication mechanism.
+- Browser JavaScript/Mini Program/downloadable clients must never receive `lsa_*`, `lsp_pat_*`, bootstrap secrets or signing keys.
+- CORS is not authorization. If direct browser-to-Core access exists, use exact Origin allowlists and still enforce all credential/app/data/model checks.
+
+## Service/authentication rules
+
+- Owner-controlled trusted services may use opaque, individually scoped, revocable `lsp_pat_*` Service API Tokens.
+- OAuth `client_credentials` remains available for third-party/policy-controlled services; it is not mandatory for every owner-controlled integration.
+- `lsa_*` authenticates a trusted application backend to Identity; `lsp_pat_*`/service JWT authenticates a service principal to Core. Do not conflate them.
+- Service/device identities receive only explicit credential scopes, Application × Model Access and Data Grants.
+- Permanent personal-user API tokens are not a service-authentication substitute.
 
 ## Contract workflow
 
-For any public API or behavior change:
+LifeSpace intentionally separates product/runtime contracts from privileged control-plane contracts.
 
-1. Update explicit Kernel contract inputs and/or the published Model/Capability definition that owns the behavior.
-2. Update architecture or permission documentation when boundaries or authorization change.
-3. Update implementation.
-4. Update migrations or deterministic ordinary-model physical schema planning when persistence changes.
-5. Add or update automated tests and contract-generation checks.
-6. Regenerate canonical OpenAPI/JSON Schema and published contract/client artifacts instead of hand-editing generated model surfaces.
-7. Record compatibility and downstream application impact.
+Current code-owned contract layers:
 
-Applications must consume an explicit compatible contract version. They must not silently track an unversioned "latest" Core contract.
+```text
+Identity application/user/service:
+  apps/identity/openapi.yaml
+
+Identity Platform Admin:
+  apps/identity/platform-admin.openapi.yaml
+
+Core Kernel:
+  apps/core/openapi.yaml
+
+Core Platform Admin:
+  apps/core/platform-admin.openapi.yaml
+
+Ordinary models:
+  immutable generated mct_<sha256> Model Contract Revision
+```
+
+Do not add Console-only privileged APIs to the product-facing Identity/Core contracts solely because the same Worker serves them. Conversely, do not implement privileged endpoints outside the Platform Admin companion contracts/checks.
+
+For public behavior changes:
+
+1. update the contract/Model/Capability definition that owns the behavior;
+2. update architecture/permissions/auth docs when boundaries change;
+3. update implementation;
+4. update migrations/physical schema planning as appropriate;
+5. add positive + deny-path tests and contract checks;
+6. regenerate reproducible generated artifacts rather than hand-editing model-derived surfaces;
+7. record compatibility and downstream impact.
+
+Applications consume explicit compatible contract versions/revisions; they must not silently track an unversioned latest contract.
 
 ## Adding an ordinary business model
 
-Before publishing a model such as goals, assets, health records, credentials, growth records, school records or future ordinary domains, define through Model Definition / registered Capabilities:
+Before publishing an ordinary domain model define through Model Definition/registered Capabilities:
 
-- owning Space and subject/person semantics;
-- supported principals and model access capabilities;
-- read/write/manage policy and sensitive-data restrictions;
-- cross-Space sharing/grant behavior;
-- field schema and time/date semantics;
-- indexes/query/search/aggregate requirements;
-- lifecycle, soft deletion and concurrency behavior;
-- required reusable Capabilities;
-- actions/workflows and computed fields where supported;
-- notifications/webhooks/AI interpretation participation where enabled;
-- contract and downstream-app impact.
+- source Space and subject/person semantics;
+- supported principals and access capabilities;
+- read/write/manage and sensitive-data policy;
+- cross-Space Grant behavior;
+- field/time/date semantics;
+- indexes/query/search/aggregate needs;
+- lifecycle/deletion/concurrency;
+- reusable Capabilities;
+- actions/workflows/computed fields;
+- notification/webhook/AI interpretation participation where enabled;
+- contract/downstream impact.
 
-Do not create a new handwritten domain router/service simply because the DSL cannot yet express a requirement. Decide whether the missing behavior belongs in a reusable Capability/Engine or is truly a Kernel exception, document that decision, then implement the reusable abstraction.
+Do not create one-off domain source code merely because the DSL needs extension.
 
 ## Repository discipline
 
-- Keep platform code, contracts, Model Definitions, Kernel migrations and deployment configuration in this repository; keep application UI, application-specific external-provider identity mapping and app-specific BFF behavior in the application repositories. Cloudflare Access platform-principal mapping is platform Identity state and belongs in LifeSpace, not in application repositories.
-- Ordinary model publication after typed-storage convergence may mutate validated model physical schema at runtime without creating a repository migration for each model. This does not weaken the rule that Kernel/Identity deployment schema history remains repository-owned.
-- Do not copy HomeMew code mechanically. Preserve proven behavior as semantic tests/capability requirements where appropriate, but remove HomeMew/family-specific assumptions unless they are deliberate Space policies.
-- Do not introduce packages that have no concrete consumer or clearly documented near-term role.
-- Generated artifacts must be reproducible and clearly marked; never hand-edit them.
-- Preserve standard API success/error envelopes and request tracing once the canonical contract defines them.
-- Production and staging resources must be isolated. Never point staging at production D1/R2/Queue resources.
-- Do not commit credentials, JWT keys, OAuth secrets, Cloudflare tokens, application secrets, external-provider IDs, or user data.
+- Keep platform code, contracts, Kernel/Identity migrations and deployment configuration in this repository.
+- Keep product UI and application-specific external-provider mappings in application repos, except the LifeSpace platform Console itself, which belongs in this platform repo.
+- Cloudflare Access principal mapping is Identity state and belongs here, not in individual application repos.
+- Do not copy HomeMew code mechanically; preserve proven semantics while removing family/app assumptions that are not platform policy.
+- Do not introduce packages without a concrete consumer/near-term role.
+- Generated artifacts are reproducible outputs and must not be hand-edited.
+- Production/staging resources and credentials remain isolated.
+- Never commit credentials, JWT private keys, OAuth secrets, Cloudflare tokens, application/service secrets, provider IDs or user data.
 
 ## Change completion
 
-Before declaring a platform change complete, inspect all coupled surfaces: Identity, Space/Grant rules, Model Registry, Runtime Model Descriptor cache, physical schema planning, Generic Runtime, Capabilities, contracts/generation, migrations, tests, SDK/client generation, docs, infrastructure and downstream compatibility. Fix drift in the same change or explicitly record an approved follow-up while keeping unsupported functionality unavailable.
+Before declaring a platform change complete, inspect all coupled surfaces: Identity, Access/application auth, platform-admin actor/executor state, Space/Grant rules, Application × Model Access, Registry, runtime descriptor cache, physical schema, Generic Runtime, Capabilities, all applicable contract layers, migrations, tests, SDK/client generation, docs, infrastructure and downstream compatibility. Fix drift in the same change or record an explicit approved follow-up while keeping unsupported behavior unavailable.
