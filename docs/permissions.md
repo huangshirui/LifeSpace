@@ -6,7 +6,7 @@
 - **Principal**: authenticated actor such as user, delegated Agent, service, device, or application backend.
 - **Space**: source ownership and default authorization boundary for business data.
 - **Space membership**: role-based relationship between a user and a Space.
-- **Data Grant**: permission that exposes a Space, resource collection, approved view, or individual resource to another principal or Space without changing ownership.
+- **Data Grant**: permission that exposes a Space or approved resource target to another principal or Space without changing ownership. Kernel 0.13.0 implements whole-Space and model-collection targets; record/view targets remain future contract work.
 - **Credential scope**: stable permission carried by the current credential, such as `resources:read`, `resources:write`, `resources:manage`, or a Kernel-specific scope.
 - **Application × Model Access**: Core catalog entry declaring the maximum `read` / `write` / `manage` access one application may exercise for one published model.
 - **Model access capability**: `read`, `write`, or `manage` capability declared by the published Model Definition.
@@ -159,19 +159,23 @@ Example:
 
 ```text
 Service principal: svc_n8n_home
-Application context: homemew-external
+Application context: homemew-integrations
 Token scopes: resources:read resources:write
 
-Application × Model Access:
+Application × Model Access ceiling:
   event -> write
   task  -> write
+  day_record -> read
 
-Core Data Grants:
-  spc_family_xxx   -> write
-  spc_personal_xxx -> read
+Core Data Grants for spc_family_xxx:
+  model:event      -> write
+  model:task       -> write
+  model:day_record -> read
 ```
 
-The effective result is the intersection. The token cannot use a model absent from its application's catalog, and it cannot access a Space absent from current membership/Data Grant authority.
+A different service principal under the same application may receive a different set of model-collection Grants. This is how LifeSpace preserves the original HomeMew capability to authorize each external system independently without restoring model-specific credential scopes.
+
+The effective result is the intersection. The token cannot use a model absent from its application's catalog, and it cannot use a model/Space target absent from current membership/Data Grant authority.
 
 ## Space roles
 
@@ -184,10 +188,18 @@ Personal Spaces may apply stricter lifecycle rules than family/team Spaces, such
 - Source data keeps exactly one `space_id`.
 - Sharing must not duplicate the authoritative record.
 - Grants may target a user/principal or another Space when approved.
-- Grant resource scope may evolve from collection-level to record/view-level where a concrete requirement exists.
-- Permission levels should be explicit. Calendar sharing may need `free_busy` in addition to read/write/manage.
-- Revocation must take effect from current Core authorization state; do not encode long-lived mutable Space permissions solely into JWT claims.
-- Generic Runtime must evaluate Grants against the resolved model/resource, not merely against an arbitrary URL segment supplied by the client.
+- Kernel 0.13.0 implements two resource targets:
+  - whole Space: `resourceType=space`, `resourceId=null`;
+  - model collection: `resourceType=model`, `resourceId=<published modelKey>`.
+- Omitted `resourceType/resourceId` on Grant creation remains backwards-compatible with a whole-Space Grant.
+- A model-collection Grant authorizes only Generic Runtime operations for that model. It never authorizes Space detail, membership, invitation, or other Kernel Space-management surfaces.
+- When both a matching model Grant and a whole-Space Grant are active for the same principal, model authorization uses the higher current permission, still bounded by credential scope and Application × Model Access.
+- Permission levels are explicit. `free_busy` remains valid only at Space level; model-collection Grants use `read`, `write`, or `manage`.
+- Revocation, expiry and permission downgrade take effect from current Core authorization state; do not encode long-lived mutable Space/model permission solely into JWT claims.
+- Generic Runtime evaluates Grants against the resolved published `modelKey`, not merely against an arbitrary URL segment supplied by the client.
+- Record/view-level Grant targets remain future work and require a concrete contract before implementation.
+
+See `docs/model-scoped-data-grants.md` for the external-integration parity rationale and examples.
 
 ## Aggregate access
 
