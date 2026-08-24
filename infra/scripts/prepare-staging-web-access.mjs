@@ -10,7 +10,7 @@ const credentialOutput = (process.env.LIFESPACE_STAGING_WEB_CREDENTIAL_OUTPUT ??
 const githubEnv = (process.env.GITHUB_ENV ?? "").trim();
 
 const REQUIRED_CONTRACT = "0.5.0";
-const REQUIRED_SCHEMA = "5";
+const MINIMUM_SCHEMA = 5;
 const TOKEN_TTL_SECONDS = 900;
 const APPLICATION_SCOPES = [
   "profile:read",
@@ -110,9 +110,10 @@ async function requireIdentity05() {
   if (status.response.status !== 200) {
     throw new Error(`Identity staging status failed: ${status.response.status} ${JSON.stringify(status.payload)}`);
   }
-  if (String(data?.schemaVersion) !== REQUIRED_SCHEMA || data?.contractVersion !== REQUIRED_CONTRACT) {
+  const schemaVersion = Number(data?.schemaVersion);
+  if (!Number.isInteger(schemaVersion) || schemaVersion < MINIMUM_SCHEMA || data?.contractVersion !== REQUIRED_CONTRACT) {
     throw new Error(
-      `Identity staging must be schema v${REQUIRED_SCHEMA} / contract ${REQUIRED_CONTRACT} before Web Access provisioning; `
+      `Identity staging must be schema v${MINIMUM_SCHEMA}+ / contract ${REQUIRED_CONTRACT} before Web Access provisioning; `
       + `found schema ${String(data?.schemaVersion ?? "unknown")} / contract ${String(data?.contractVersion ?? "unknown")}`,
     );
   }

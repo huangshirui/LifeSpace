@@ -11,6 +11,12 @@ test("HomeMew Web application ceiling includes on-demand Data Grant management",
   assert.match(integrationScript, /const WEB_MANAGER_SCOPE = "grants:manage"/u);
 });
 
+test("Web Access provisioning accepts compatible Identity schema upgrades", () => {
+  assert.match(webAccessScript, /const MINIMUM_SCHEMA = 5/u);
+  assert.match(webAccessScript, /schemaVersion < MINIMUM_SCHEMA/u);
+  assert.doesNotMatch(webAccessScript, /String\(data\?\.schemaVersion\) !== REQUIRED_SCHEMA/u);
+});
+
 test("dedicated HomeMew integrations application is limited to resource read and write", () => {
   assert.match(integrationScript, /app_homemew_integrations_staging/u);
   assert.match(integrationScript, /const INTEGRATIONS_SCOPES = \["resources:read", "resources:write"\]/u);
