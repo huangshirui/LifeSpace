@@ -8,6 +8,7 @@ on:
     paths:
       - .github/workflows/homemew-web-staging-provision.yml
       - infra/scripts/prepare-staging-web-access.mjs
+      - infra/scripts/prepare-staging-homemew-web-model-access.mjs
       - infra/scripts/prepare-staging-homemew-web-integrations.mjs
 
 permissions:
@@ -84,6 +85,11 @@ jobs:
         run: |
           echo "identity-registration" > "$RUNNER_TEMP/homemew-web-provision-stage"
           node infra/scripts/prepare-staging-web-access.mjs
+
+      - name: Provision HomeMew Web model authority
+        run: |
+          echo "web-model-access" > "$RUNNER_TEMP/homemew-web-provision-stage"
+          node infra/scripts/prepare-staging-homemew-web-model-access.mjs
 
       - name: Ensure deployable LifeSpace application credential
         shell: bash
@@ -310,6 +316,7 @@ jobs:
 
           - Browser LifeSpace application: `app_homemew_web_staging`
           - Browser on-demand integration-manager scope: `grants:manage` enabled; normal ambient session remains unchanged
+          - Browser Application × Model Access: `event=write`, `task=write`, `day_record=write`, `wish=write`
           - Access AUD: `645c12c44fa8eb1229d7a2cfc0320913df4e852ecfd9a5407accc11b589084c8`
           - Integrations LifeSpace application: `app_homemew_integrations_staging`
           - Integrations application scopes: `resources:read`, `resources:write`
