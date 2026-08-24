@@ -7,7 +7,7 @@
     "node": ">=24"
   },
   "scripts": {
-    "check": "pnpm -r --if-present check && node --check infra/migration/homemew-one-shot.mjs && node --check infra/scripts/prepare-staging-web-access.mjs && node --check infra/scripts/prepare-staging-homemew-web-integrations.mjs && node --check infra/scripts/prepare-staging-console-shell.mjs && node --check infra/scripts/prepare-staging-console-admin.mjs && node --check infra/scripts/verify-staging-console-admin.mjs && node --test infra/scripts/console-admin-provisioning.test.mjs infra/scripts/production-cloudflare-shapes.test.mjs infra/scripts/production-probe-label.test.mjs && node infra/scripts/check-production-infra.mjs",
+    "check": "pnpm -r --if-present check && node --check infra/migration/homemew-one-shot.mjs && node --check infra/scripts/prepare-staging-web-access.mjs && node --check infra/scripts/prepare-staging-homemew-web-integrations.mjs && node --check infra/scripts/prepare-staging-console-shell.mjs && node --check infra/scripts/prepare-staging-console-admin.mjs && node --check infra/scripts/verify-staging-console-admin.mjs && node --test infra/scripts/console-admin-provisioning.test.mjs infra/scripts/homemew-web-integrations-provisioning.test.mjs infra/scripts/production-cloudflare-shapes.test.mjs infra/scripts/production-probe-label.test.mjs && node infra/scripts/check-production-infra.mjs",
     "test": "pnpm -r --if-present test",
     "typecheck": "pnpm -r --if-present typecheck",
     "build": "pnpm -r --if-present build"
