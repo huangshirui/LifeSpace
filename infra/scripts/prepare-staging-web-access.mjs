@@ -18,6 +18,7 @@ const APPLICATION_SCOPES = [
   "spaces:read",
   "spaces:write",
   "spaces:manage",
+  "grants:manage",
   "resources:read",
   "resources:write",
   "creation-drafts:read",
