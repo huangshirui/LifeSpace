@@ -1,0 +1,159 @@
+name: Provision HomeMew Web production
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: "Type PROVISION_HOMEMEW_WEB_PRODUCTION"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  statuses: write
+
+concurrency:
+  group: homemew-web-production-provision
+  cancel-in-progress: false
+
+jobs:
+  provision:
+    name: Provision HomeMew Web production authority
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: production
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID || secrets.CLOUDFLARE_ACCOUNT_ID }}
+      LIFESPACE_PRODUCTION_BOOTSTRAP_SECRET: ${{ secrets.LIFESPACE_PRODUCTION_BOOTSTRAP_SECRET }}
+      LIFESPACE_IDENTITY_PRODUCTION_URL: https://auth.aisr.online
+      LIFESPACE_CORE_PRODUCTION_URL: https://core.aisr.online
+      LIFESPACE_PRODUCTION_CORE_D1_NAME: lifespace-core
+      LIFESPACE_PRODUCTION_WEB_APPLICATION_ID: app_homemew_web_production
+      LIFESPACE_PRODUCTION_WEB_APPLICATION_NAME: HomeMew Web production
+      LIFESPACE_PRODUCTION_INTEGRATIONS_APPLICATION_ID: app_homemew_integrations_production
+      LIFESPACE_PRODUCTION_INTEGRATIONS_APPLICATION_NAME: HomeMew integrations production
+      HOMEMEW_WEB_PRODUCTION_WORKER_NAME: homemew-web-production
+      HOMEMEW_WEB_PRODUCTION_DOMAIN: homemew.aisr.online
+      HOMEMEW_WEB_PRODUCTION_CONFIRMATION: ${{ inputs.confirmation }}
+
+    steps:
+      - name: Checkout LifeSpace
+        uses: actions/checkout@v4
+
+      - name: Report provisioning started
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          echo "starting" > "$RUNNER_TEMP/homemew-web-production-provision-stage"
+          node --input-type=module <<'NODE'
+          const runUrl = `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`;
+          const response = await fetch(`${process.env.GITHUB_API_URL}/repos/${process.env.GITHUB_REPOSITORY}/statuses/${process.env.GITHUB_SHA}`, {
+            method: 'POST',
+            headers: { authorization: `Bearer ${process.env.GITHUB_TOKEN}`, accept: 'application/vnd.github+json', 'content-type': 'application/json' },
+            body: JSON.stringify({ state: 'pending', target_url: runUrl, description: 'HomeMew Web production provisioning started', context: 'homemew-web-production/provision' }),
+          });
+          if (!response.ok) throw new Error(`Could not publish pending status: ${response.status}`);
+          NODE
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install dependencies
+        run: |
+          echo "install" > "$RUNNER_TEMP/homemew-web-production-provision-stage"
+          corepack pnpm install --frozen-lockfile
+
+      - name: Validate explicit production authority
+        shell: bash
+        run: |
+          echo "validate-authority" > "$RUNNER_TEMP/homemew-web-production-provision-stage"
+          set -euo pipefail
+          test "${HOMEMEW_WEB_PRODUCTION_CONFIRMATION:-}" = "PROVISION_HOMEMEW_WEB_PRODUCTION" || { echo "confirmation must be PROVISION_HOMEMEW_WEB_PRODUCTION" >&2; exit 1; }
+          test -n "${CLOUDFLARE_API_TOKEN:-}" || { echo "CLOUDFLARE_API_TOKEN is not configured" >&2; exit 1; }
+          test -n "${CLOUDFLARE_ACCOUNT_ID:-}" || { echo "CLOUDFLARE_ACCOUNT_ID is not configured" >&2; exit 1; }
+          test ${#LIFESPACE_PRODUCTION_BOOTSTRAP_SECRET} -ge 32 || { echo "LIFESPACE_PRODUCTION_BOOTSTRAP_SECRET must be at least 32 characters" >&2; exit 1; }
+
+      - name: Validate repository
+        run: |
+          echo "repository-check" > "$RUNNER_TEMP/homemew-web-production-provision-stage"
+          corepack pnpm check
+
+      - name: Provision production Web and integrations authority
+        run: |
+          echo "provision" > "$RUNNER_TEMP/homemew-web-production-provision-stage"
+          node infra/scripts/prepare-production-homemew-web.mjs
+
+      - name: Verify production hostname remains on current backend before cutover
+        shell: bash
+        run: |
+          echo "verify-current-route" > "$RUNNER_TEMP/homemew-web-production-provision-stage"
+          set -euo pipefail
+          payload="$(curl --fail --silent --show-error https://homemew.aisr.online/health)"
+          PAYLOAD="$payload" node --input-type=module <<'NODE'
+          const payload = JSON.parse(process.env.PAYLOAD);
+          if (payload?.service !== 'homemew-backend' || payload?.environment !== 'production' || payload?.loginReady !== true) {
+            throw new Error('Production hostname must still be served by the ready HomeMew backend before Web cutover');
+          }
+          NODE
+
+      - name: Verify Mini Program login remains public
+        shell: bash
+        run: |
+          echo "verify-login" > "$RUNNER_TEMP/homemew-web-production-provision-stage"
+          set -euo pipefail
+          tmp="$(mktemp)"
+          code="$(curl --silent --show-error --output "$tmp" --write-out '%{http_code}' --connect-timeout 5 --max-time 15 \
+            -X POST -H 'content-type: application/json' --data '{}' https://homemew.aisr.online/api/v1/login/wechat)"
+          test "$code" = "400" || { echo "Expected public login validation HTTP 400, got $code" >&2; cat "$tmp" >&2; exit 1; }
+          TMP_PATH="$tmp" node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const payload = JSON.parse(fs.readFileSync(process.env.TMP_PATH, 'utf8'));
+          if (payload?.error?.code !== 'INVALID_REQUEST') throw new Error('Mini Program login no longer reaches HomeMew backend');
+          NODE
+
+      - name: Report provisioning result
+        if: ${{ always() }}
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const path = `${process.env.RUNNER_TEMP}/homemew-web-production-provision-stage`;
+          const stage = fs.existsSync(path) ? fs.readFileSync(path, 'utf8').trim() : 'unknown';
+          const ok = process.env.JOB_STATUS === 'success';
+          const runUrl = `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`;
+          const response = await fetch(`${process.env.GITHUB_API_URL}/repos/${process.env.GITHUB_REPOSITORY}/statuses/${process.env.GITHUB_SHA}`, {
+            method: 'POST', headers: { authorization: `Bearer ${process.env.GITHUB_TOKEN}`, accept: 'application/vnd.github+json', 'content-type': 'application/json' },
+            body: JSON.stringify({ state: ok ? 'success' : 'failure', target_url: runUrl, description: ok ? 'HomeMew Web production provisioning succeeded' : `HomeMew Web production provisioning failed at ${stage}`, context: 'homemew-web-production/provision' }),
+          });
+          if (!response.ok) throw new Error(`Could not publish final status: ${response.status}`);
+          NODE
+
+      - name: Summarize production provisioning
+        if: ${{ success() }}
+        shell: bash
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<'EOF'
+          ## HomeMew Web production provisioning
+
+          - Browser LifeSpace application: `app_homemew_web_production`
+          - Browser scope ceiling includes on-demand `grants:manage`; ambient browser session remains unchanged
+          - Browser Application × Model Access: `event=write`, `task=write`, `day_record=write`, `wish=write`
+          - Integrations LifeSpace application: `app_homemew_integrations_production`
+          - Integrations scopes: `resources:read`, `resources:write`
+          - Integrations Application × Model Access: `event=write`, `task=write`, `day_record=write` (no `wish`)
+          - Worker: `homemew-web-production`
+          - Required Worker secrets: installed and verified without printing values
+          - Mini Program login bypass: verified public
+          - Production hostname ownership: intentionally unchanged; still on `homemew-backend-production`
+          - Next gate: rollback-capable Custom Domain transfer to `homemew-web-production`
+          EOF
