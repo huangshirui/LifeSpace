@@ -4,6 +4,7 @@ import test from "node:test";
 
 const integrationScript = readFileSync(new URL("./prepare-staging-homemew-web-integrations.mjs", import.meta.url), "utf8");
 const webAccessScript = readFileSync(new URL("./prepare-staging-web-access.mjs", import.meta.url), "utf8");
+const webModelAccessScript = readFileSync(new URL("./prepare-staging-homemew-web-model-access.mjs", import.meta.url), "utf8");
 const workflow = readFileSync(new URL("../../.github/workflows/homemew-web-staging-provision.yml", import.meta.url), "utf8");
 
 test("HomeMew Web application ceiling includes on-demand Data Grant management", () => {
@@ -15,6 +16,17 @@ test("Web Access provisioning accepts compatible Identity schema upgrades", () =
   assert.match(webAccessScript, /const MINIMUM_SCHEMA = 5/u);
   assert.match(webAccessScript, /schemaVersion < MINIMUM_SCHEMA/u);
   assert.doesNotMatch(webAccessScript, /String\(data\?\.schemaVersion\) !== REQUIRED_SCHEMA/u);
+});
+
+test("HomeMew Web model ceiling includes all current browser product models", () => {
+  const modelBlock = webModelAccessScript.match(/const WEB_MODEL_ACCESS = new Map\(\[([\s\S]*?)\]\);/u)?.[1] ?? "";
+  assert.match(modelBlock, /\["event", "write"\]/u);
+  assert.match(modelBlock, /\["task", "write"\]/u);
+  assert.match(modelBlock, /\["day_record", "write"\]/u);
+  assert.match(modelBlock, /\["wish", "write"\]/u);
+  assert.match(webModelAccessScript, /model_key NOT IN \('event','task','day_record','wish'\)/u);
+  assert.match(webModelAccessScript, /environment !== "staging"/u);
+  assert.doesNotMatch(webModelAccessScript, /https:\/\/auth\.aisr\.online/u);
 });
 
 test("dedicated HomeMew integrations application is limited to resource read and write", () => {
@@ -42,7 +54,9 @@ test("provisioning targets staging resources and installs the dedicated Worker s
   assert.doesNotMatch(integrationScript, /lifespace-core"/u);
 });
 
-test("official HomeMew Web staging workflow runs W4 provisioning and verifies all three secrets", () => {
+test("official HomeMew Web staging workflow provisions browser and W4 model ceilings and verifies all three secrets", () => {
+  assert.match(workflow, /node infra\/scripts\/prepare-staging-homemew-web-model-access\.mjs/u);
+  assert.match(workflow, /Browser Application × Model Access: `event=write`, `task=write`, `day_record=write`, `wish=write`/u);
   assert.match(workflow, /node infra\/scripts\/prepare-staging-homemew-web-integrations\.mjs/u);
   assert.match(workflow, /LIFESPACE_INTEGRATIONS_APPLICATION_CREDENTIAL/u);
   assert.match(workflow, /LIFESPACE_APPLICATION_CREDENTIAL/u);
