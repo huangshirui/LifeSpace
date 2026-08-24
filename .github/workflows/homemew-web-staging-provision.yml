@@ -7,6 +7,8 @@ on:
       - main
     paths:
       - .github/workflows/homemew-web-staging-provision.yml
+      - infra/scripts/prepare-staging-web-access.mjs
+      - infra/scripts/prepare-staging-homemew-web-integrations.mjs
 
 permissions:
   contents: read
@@ -30,6 +32,8 @@ jobs:
       LIFESPACE_STAGING_ACCESS_AUD: 645c12c44fa8eb1229d7a2cfc0320913df4e852ecfd9a5407accc11b589084c8
       LIFESPACE_STAGING_WEB_APPLICATION_ID: app_homemew_web_staging
       LIFESPACE_STAGING_WEB_APPLICATION_NAME: HomeMew Web staging
+      LIFESPACE_STAGING_INTEGRATIONS_APPLICATION_ID: app_homemew_integrations_staging
+      LIFESPACE_STAGING_INTEGRATIONS_APPLICATION_NAME: HomeMew integrations staging
       HOMEMEW_WEB_STAGING_WORKER_NAME: homemew-web-staging
 
     steps:
@@ -146,7 +150,7 @@ jobs:
           fs.appendFileSync(process.env.GITHUB_ENV, `LIFESPACE_STAGING_WEB_OLD_CREDENTIAL_IDS=${previousIds}\n`, 'utf8');
           NODE
 
-      - name: Install HomeMew Web Worker secrets
+      - name: Install HomeMew Web Worker base secrets
         shell: bash
         run: |
           echo "install-worker-secrets" > "$RUNNER_TEMP/homemew-web-provision-stage"
@@ -189,6 +193,11 @@ jobs:
           await putSecret('WEB_SESSION_SECRET', sessionSecret);
           NODE
 
+      - name: Provision W4 external integrations authority
+        run: |
+          echo "integrations-provision" > "$RUNNER_TEMP/homemew-web-provision-stage"
+          node infra/scripts/prepare-staging-homemew-web-integrations.mjs
+
       - name: Verify HomeMew Web Worker secrets
         shell: bash
         run: |
@@ -207,7 +216,11 @@ jobs:
             throw new Error(`Could not verify HomeMew Web Worker secrets (HTTP ${response.status})`);
           }
           const names = new Set(payload.result.map((entry) => entry?.name).filter(Boolean));
-          for (const required of ['LIFESPACE_APPLICATION_CREDENTIAL', 'WEB_SESSION_SECRET']) {
+          for (const required of [
+            'LIFESPACE_APPLICATION_CREDENTIAL',
+            'WEB_SESSION_SECRET',
+            'LIFESPACE_INTEGRATIONS_APPLICATION_CREDENTIAL',
+          ]) {
             if (!names.has(required)) throw new Error(`Required HomeMew Web Worker secret is missing: ${required}`);
           }
           NODE
@@ -230,7 +243,7 @@ jobs:
           echo "HomeMew Web staging hostname did not become reachable" >&2
           exit 1
 
-      - name: Revoke superseded LifeSpace application credentials
+      - name: Revoke superseded LifeSpace Web application credentials
         shell: bash
         run: |
           echo "revoke-old-credentials" > "$RUNNER_TEMP/homemew-web-provision-stage"
@@ -295,14 +308,16 @@ jobs:
           cat >> "$GITHUB_STEP_SUMMARY" <<'EOF'
           ## HomeMew Web staging provisioning
 
-          - LifeSpace application: `app_homemew_web_staging`
+          - Browser LifeSpace application: `app_homemew_web_staging`
+          - Browser on-demand integration-manager scope: `grants:manage` enabled; normal ambient session remains unchanged
           - Access AUD: `645c12c44fa8eb1229d7a2cfc0320913df4e852ecfd9a5407accc11b589084c8`
+          - Integrations LifeSpace application: `app_homemew_integrations_staging`
+          - Integrations application scopes: `resources:read`, `resources:write`
+          - Integrations Application × Model Access: `event=write`, `task=write`, `day_record=write`
           - Worker: `homemew-web-staging`
           - Web hostname: `homemew-web-staging.aisr.online`
-          - LifeSpace application credential: rotated and installed directly through the Cloudflare Workers Secrets API
-          - Web session secret: generated in-run and installed directly through the Cloudflare Workers Secrets API
-          - Superseded active HomeMew Web application credentials: revoked only after Worker secret and hostname verification
-          - HomeMew source code: not read or deployed by LifeSpace
+          - Worker secrets: base LifeSpace application credential, Web session secret and dedicated integrations application credential installed
+          - Superseded active application credentials: revoked only after replacement installation and verification
           - Production resources/routes: untouched
-          - Next verification: real browser Cloudflare Access -> LifeSpace Identity -> HomeMew app-session E2E
+          - Next verification: authenticated HomeMew browser creates a service principal/token/Data Grants, then n8n/curl exercises read/write and deny paths
           EOF
