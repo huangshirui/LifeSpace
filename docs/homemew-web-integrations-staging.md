@@ -4,7 +4,7 @@ Updated: 2026-08-24
 
 ## Status
 
-W4 HomeMew Web external-integration runtime is provisioned through the existing LifeSpace-owned staging workflow:
+HomeMew Web browser authority and W4 external-integration runtime are provisioned through the existing LifeSpace-owned staging workflow:
 
 ```text
 .github/workflows/homemew-web-staging-provision.yml
@@ -36,6 +36,17 @@ profile:read grants:manage
 
 The ambient browser session does not receive `grants:manage`.
 
+The browser application also requires explicit Core Application × Model Access for the HomeMew models currently exposed by the Web product:
+
+| Model | Maximum access |
+| --- | --- |
+| `event` | `write` |
+| `task` | `write` |
+| `day_record` | `write` |
+| `wish` | `write` |
+
+`infra/scripts/prepare-staging-homemew-web-model-access.mjs` reconciles this exact staging catalog set. This is application authorization only; the current user still needs Space membership/Data Grant authority and the corresponding credential scopes.
+
 ### Dedicated integrations application
 
 ```text
@@ -61,9 +72,9 @@ LIFESPACE_INTEGRATIONS_APPLICATION_CREDENTIAL
 
 Browser JavaScript never receives this value.
 
-## Application × Model Access
+## Integrations Application × Model Access
 
-The dedicated integrations application has a platform ceiling of:
+The dedicated integrations application has a narrower platform ceiling of:
 
 | Model | Maximum access |
 | --- | --- |
@@ -92,18 +103,18 @@ HomeMew does not create hidden Space membership for external systems.
 
 ## Provisioning flow
 
-`infra/scripts/prepare-staging-homemew-web-integrations.mjs` is idempotent and staging-gated. It:
+The workflow is idempotent and staging-gated. It:
 
-1. verifies the target Identity environment is staging;
-2. ensures `app_homemew_web_staging` can request `grants:manage` on demand;
-3. creates/reconciles `app_homemew_integrations_staging` with only `resources:read/write`;
-4. rotates a one-time `lsa_*` application credential;
-5. reconciles Core Application × Model Access for `event`, `task` and `day_record` only;
-6. installs the credential directly into `homemew-web-staging` through the Cloudflare Worker Secrets API;
-7. proves the credential can reach its own Identity service-principal management surface;
-8. revokes superseded integrations application credentials only after replacement installation and verification.
-
-The workflow separately preserves the existing base HomeMew Web application credential and Web session-secret provisioning.
+1. verifies/registers the HomeMew Web application and Cloudflare Access audience;
+2. reconciles `app_homemew_web_staging` Core Application × Model Access to `event/task/day_record/wish = write`;
+3. preserves/rotates the base HomeMew Web `lsa_*` and installs the Worker base secrets;
+4. ensures `app_homemew_web_staging` can request `grants:manage` on demand;
+5. creates/reconciles `app_homemew_integrations_staging` with only `resources:read/write`;
+6. rotates a one-time integrations `lsa_*` application credential;
+7. reconciles integrations Core Application × Model Access for `event`, `task` and `day_record` only;
+8. installs the integrations credential directly into `homemew-web-staging` through the Cloudflare Worker Secrets API;
+9. proves the credential can reach its own Identity service-principal management surface;
+10. revokes superseded application credentials only after replacement installation and verification.
 
 ## Staging acceptance
 
@@ -113,6 +124,8 @@ Platform provisioning is complete when the LifeSpace staging workflow passes and
 Base runtime secrets: ready
 W4 integrations runtime: configured
 ```
+
+The authenticated browser must additionally be able to read/write the four current HomeMew Web models according to its Space role without an Application × Model Access denial.
 
 Full W4 product acceptance then additionally requires an authenticated HomeMew household administrator to:
 
