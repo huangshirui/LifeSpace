@@ -48,7 +48,7 @@ const id = (prefix: string) => `${prefix}_${crypto.randomUUID().replaceAll("-", 
 const now = () => new Date().toISOString();
 
 function validApplicationId(value: string): boolean {
-  return /^app_[A-Za-z0-9_-]{1,120}$/u.test(value);
+  return /^[A-Za-z0-9][A-Za-z0-9_-]{0,119}$/u.test(value);
 }
 
 function validPrincipalId(value: string): boolean {

@@ -102,7 +102,7 @@ async function loadApplication(db: D1Database, applicationId: string): Promise<A
 }
 
 function targetApplicationId(value: string): string {
-  if (!/^app_[A-Za-z0-9_-]{1,120}$/u.test(value)) throw new Error("applicationId is invalid");
+  if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,119}$/u.test(value)) throw new Error("applicationId is invalid");
   return value;
 }
 

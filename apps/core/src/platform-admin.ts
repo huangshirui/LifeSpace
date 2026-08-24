@@ -25,7 +25,7 @@ const now = () => new Date().toISOString();
 const createId = (prefix: string) => `${prefix}_${crypto.randomUUID().replaceAll("-", "")}`;
 
 function applicationId(value: string): string {
-  if (!/^app_[A-Za-z0-9_-]{1,120}$/u.test(value)) throw new ApiError("VALIDATION_ERROR", "applicationId is invalid", 422);
+  if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,119}$/u.test(value)) throw new ApiError("VALIDATION_ERROR", "applicationId is invalid", 422);
   return value;
 }
 

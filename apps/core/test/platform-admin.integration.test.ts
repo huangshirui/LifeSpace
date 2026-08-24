@@ -77,7 +77,7 @@ describe("Platform Admin API", () => {
   it("requires a service executor plus a purpose-bound same-application platform-admin user proof", async () => {
     const pair = await keys();
     const clientId = `app_console_${crypto.randomUUID().replaceAll("-", "")}`;
-    const target = `app_target_${crypto.randomUUID().replaceAll("-", "")}`;
+    const target = `legacy-target-${crypto.randomUUID().replaceAll("-", "")}`;
     const service = await token(pair.privateKey, "service", clientId, ["applications:manage"]);
 
     const missingActor = await call(pair.publicKey, service, `/api/v1/platform-admin/applications/${target}/model-access`);
@@ -101,10 +101,10 @@ describe("Platform Admin API", () => {
     expect(userExecutorResponse.status).toBe(403);
   });
 
-  it("replaces application model access and writes non-secret actor/executor audit evidence", async () => {
+  it("replaces application model access for an existing semantic application id and writes non-secret actor/executor audit evidence", async () => {
     const pair = await keys();
     const clientId = `app_console_${crypto.randomUUID().replaceAll("-", "")}`;
-    const target = `app_target_${crypto.randomUUID().replaceAll("-", "")}`;
+    const target = `legacy-target-${crypto.randomUUID().replaceAll("-", "")}`;
     const service = await token(pair.privateKey, "service", clientId, ["applications:manage", "audit:read"]);
     const actor = await adminActorToken(pair.privateKey, clientId);
 

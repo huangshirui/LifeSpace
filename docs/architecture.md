@@ -12,12 +12,12 @@ Historical extraction and phase evidence lives in the phase/status and migration
 
 ## Repository and service boundaries
 
-The platform remains a modular monolith split into two deployed services:
+The platform remains a modular monolith split into two authoritative deployed services:
 
 - `apps/identity`: global LifeSpace users, Cloudflare Access principals, registered applications and `lsa_*` application credentials, service principals and service credentials, signing/issuance, platform-administrator assignments, Identity-owned platform-admin audit.
 - `apps/core`: Spaces, memberships, Space People, Data Grants, Model Registry, Application × Model Access, Generic Runtime, typed model storage, reusable Capabilities, model administration, Core-owned platform-admin audit.
 
-`apps/console` is the planned LifeSpace platform console frontend/BFF. It is a client of the two services and must not become a third source of truth for Identity or Core state.
+`apps/console` is the LifeSpace platform operations/governance client and same-origin BFF. Its permanent frontend is React + TypeScript + Vite on a Cloudflare Worker/Static Assets deployment. It consumes Identity/Core control-plane contracts and must never become a third source of truth for Identity or Core state.
 
 ## Normal runtime flows
 
@@ -237,6 +237,22 @@ Actor and executor must resolve to the same LifeSpace application context. The C
 
 Identity re-checks the current platform-administrator assignment on Identity-owned privileged calls. Core independently verifies the signed, short-lived actor proof and does not duplicate the Identity administrator-assignment table.
 
+### Console BFF boundary
+
+The Console browser talks only to bounded same-origin `/api/*` operations. The Worker owns the complete privileged chain:
+
+```text
+raw Access assertion
+-> Identity exchange
+-> app-scoped LifeSpace user bearer
+-> <=5-minute actor proof
+-> fixed Identity/Core admin request
+```
+
+Raw Access JWTs, LifeSpace user bearers, actor proofs and executor credentials remain server-only. The BFF does not accept a browser-controlled upstream URL/path/Authorization header. Identifier formats, query names, duplicate query parameters and result limits are validated before an upstream request is constructed.
+
+The current React/Vite Console slice exposes only read-only governance/diagnostic operations plus one staging-only first-use registration for the current verified Access principal. Write-capable platform administration is a separate slice and must preserve the same actor/executor and audit boundary.
+
 ### Audit
 
 Privileged mutations record both identities:
@@ -258,7 +274,7 @@ The global bootstrap secret remains provisioning and break-glass authority. It i
 
 ## Contract layers
 
-LifeSpace now has separate contracts for product runtime and privileged control-plane consumers.
+LifeSpace has separate contracts for product runtime and privileged control-plane consumers.
 
 ### Identity
 
@@ -278,7 +294,7 @@ Platform Admin Control-Plane Contract
 Kernel Contract
   apps/core/openapi.yaml
   explicit product-facing Space / Grant / Creation Draft / Model Admin primitives
-  current Kernel contract: 0.12.0
+  current Kernel contract: 0.13.0
 
 Platform Admin Control-Plane Contract
   apps/core/platform-admin.openapi.yaml
@@ -295,25 +311,25 @@ Contract publication/versioning rules are normative in `docs/contracts.md`.
 
 ## Console topology
 
-Target production topology:
+Production topology:
 
 ```text
 lifespace.aisr.online
   -> Cloudflare Access
-  -> LifeSpace Console Worker/BFF + static assets
+  -> LifeSpace Console Worker/BFF + React/Vite static assets
        -> Identity control plane
        -> Core control plane
 ```
 
-Recommended staging hostname:
+Staging hostname:
 
 ```text
 lifespace-staging.aisr.online
 ```
 
-Production and staging must use separate Access Applications/audiences, Workers, D1/R2/Queue resources and environment-specific credentials.
+Production and staging use separate Access Applications/audiences, Console Workers, environment-specific credentials and corresponding Identity/Core runtime/data stores.
 
-The Console is expected to live in this monorepo as `apps/console`, using React + TypeScript + Vite/Cloudflare Worker static assets with a same-origin BFF. The UI is allowed to call only the documented platform-admin/control-plane surfaces it needs.
+The Console lives in this monorepo as `apps/console`. The Cloudflare Vite plugin owns the built client output and generated Worker deployment configuration. The target Cloudflare environment is selected at Vite build time (`CLOUDFLARE_ENV=staging|production`); the old dependency-light `public/` proving assets are no longer the permanent presentation path.
 
 ## Deployment topology
 
@@ -337,6 +353,6 @@ Publishing a compatible ordinary Model Definition does not itself require a Work
 - No application authority inferred from hostname.
 - No arbitrary executable code/SQL in Model metadata.
 - No service credential or platform-admin executor becomes a hidden Space member.
-- No browser receives backend/service/bootstrap secrets.
+- No browser receives Access/LifeSpace/actor/executor/backend/bootstrap bearer material.
 - No Cloudflare Access session alone equals LifeSpace platform-admin authority.
 - No privileged Console mutation may replace the signed human actor proof with an unsigned identity field.

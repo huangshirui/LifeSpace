@@ -1,20 +1,28 @@
 {
   "name": "@lifespace/console",
-  "version": "0.0.2",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "wrangler dev",
-    "static:check": "node --check public/app.js",
+    "dev": "vite dev",
     "typecheck": "tsc --noEmit",
-    "build": "wrangler deploy --dry-run --outdir dist",
-    "check": "pnpm static:check && pnpm typecheck && pnpm build",
-    "deploy:staging": "wrangler deploy --env staging",
-    "deploy:production": "wrangler deploy --env production"
+    "build": "vite build",
+    "check": "pnpm typecheck && pnpm build",
+    "deploy:staging": "CLOUDFLARE_ENV=staging vite build && wrangler deploy",
+    "deploy:production": "CLOUDFLARE_ENV=production vite build && wrangler deploy"
+  },
+  "dependencies": {
+    "react": "19.2.8",
+    "react-dom": "19.2.8"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "4.20260702.1",
+    "@cloudflare/vite-plugin": "1.53.1",
+    "@cloudflare/workers-types": "5.20260820.1",
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.4",
+    "@vitejs/plugin-react": "6.1.0",
     "typescript": "5.9.3",
-    "wrangler": "4.105.0"
+    "vite": "8.2.2",
+    "wrangler": "4.125.0"
   }
 }

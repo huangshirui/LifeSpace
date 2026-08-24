@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       platform_admin_user_id:
-        description: Optional staging usr_*; leave blank on first run to deploy session-only proving shell
+        description: Optional staging usr_*; leave blank only for first-use Access registration/session proving
         required: false
         default: ""
         type: string
@@ -300,10 +300,12 @@ jobs:
           fs.appendFileSync(process.env.GITHUB_ENV, `LIFESPACE_CONSOLE_STAGING_SECRETS_FILE=${output}\n`, 'utf8');
           NODE
 
-      - name: Deploy LifeSpace Console staging
+      - name: Build and deploy LifeSpace Console staging
         run: |
           echo "console-deploy" > "$RUNNER_TEMP/lifespace-console-provision-stage"
-          pnpm --dir apps/console exec wrangler deploy --env staging --secrets-file "$LIFESPACE_CONSOLE_STAGING_SECRETS_FILE"
+          cd apps/console
+          CLOUDFLARE_ENV=staging pnpm exec vite build
+          pnpm exec wrangler deploy --secrets-file "$LIFESPACE_CONSOLE_STAGING_SECRETS_FILE"
 
       - name: Verify staging hostname is live behind Access
         shell: bash
@@ -422,12 +424,13 @@ jobs:
           - Access AUD: \`1d42303137e808002273985855078230ce53fe18078b40c5b8cbc09dd3a62a36\`
           - Worker: \`lifespace-console-staging\`
           - Hostname: \`lifespace-staging.aisr.online\`
+          - React/Vite Console shell: deployed; platform pages require full platform-admin provisioning
           - Identity application credential: freshly rotated in-run and installed as Worker Secret; superseded credentials revoked after deployment verification
           - Platform administrator assignment: not changed
           - Core executor: not provisioned by this run
           - Bootstrap secret: provisioning-only; not installed in the Console Worker
           - Production resources/routes: untouched
-          - Next: open the staging Console through Cloudflare Access, read the resolved \`usr_*\` from \`/api/session\`, then rerun this workflow with that value
+          - Next: open the staging Console through Cloudflare Access, explicitly register/link the Access principal if necessary, then rerun this workflow with the resolved \`usr_*\`
           EOF
 
       - name: Summarize full platform-admin provisioning
@@ -443,10 +446,11 @@ jobs:
           - Access AUD: \`1d42303137e808002273985855078230ce53fe18078b40c5b8cbc09dd3a62a36\`
           - Worker: \`lifespace-console-staging\`
           - Hostname: \`lifespace-staging.aisr.online\`
+          - React/Vite Console + bounded same-origin BFF: deployed
           - Identity/Core Platform Admin companion contracts: \`0.1.0\`
           - Identity application credential + Core executor token: freshly rotated in-run, installed as Worker Secrets, superseded credentials revoked after deployment verification
           - Platform administrator assignment: reconciled to the supplied staging \`usr_*\`
           - Bootstrap secret: provisioning/recovery-only; not installed in the Console Worker
           - Production resources/routes: untouched
-          - Next: real browser Cloudflare Access -> \`/api/session\` -> \`/api/platform/probe\`
+          - Next: real browser Cloudflare Access -> Console Overview/Applications/Models/Users/Spaces/Audit/System plus \`/api/platform/probe\`
           EOF

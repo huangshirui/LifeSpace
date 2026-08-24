@@ -389,7 +389,7 @@ components:
       description: Initial provisioning and break-glass authority only; never a routine Console runtime credential.
   parameters:
     UserId: { name: userId, in: path, required: true, schema: { type: string, pattern: '^usr_[A-Za-z0-9_-]+$' } }
-    ApplicationId: { name: applicationId, in: path, required: true, schema: { type: string, pattern: '^app_[A-Za-z0-9_-]{1,120}$' } }
+    ApplicationId: { name: applicationId, in: path, required: true, schema: { type: string, pattern: '^[A-Za-z0-9][A-Za-z0-9_-]{0,119}$' } }
     ApplicationCredentialId: { name: credentialId, in: path, required: true, schema: { type: string, pattern: '^apc_' } }
     AccessAudienceId: { name: audienceId, in: path, required: true, schema: { type: string, pattern: '^aud_' } }
     PrincipalId: { name: principalId, in: path, required: true, schema: { type: string, pattern: '^svc_' } }
@@ -526,7 +526,7 @@ components:
       required: [id, applicationId, displayName, description, maxScopes, status, createdByUserId, createdAt, updatedAt, disabledAt]
       properties:
         id: { type: string, pattern: '^svc_' }
-        applicationId: { type: string, pattern: '^app_' }
+        applicationId: { type: string, pattern: '^[A-Za-z0-9][A-Za-z0-9_-]{0,119}$' }
         displayName: { type: string, minLength: 1, maxLength: 100 }
         description: { anyOf: [{ type: string, maxLength: 500 }, { type: 'null' }] }
         maxScopes: { type: array, uniqueItems: true, items: { type: string } }

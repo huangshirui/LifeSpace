@@ -187,4 +187,38 @@ describe("Identity Platform Admin API", () => {
     expect(createAudit).toMatchObject({ actorUserId: console.userId, executorApplicationId: console.applicationId, result: "success" });
     expect(JSON.stringify(createAudit)).not.toContain(created.clientSecret);
   });
+
+  it("reads and updates an existing semantic application id while new application creation remains app_*", async () => {
+    const pair = await keys();
+    const console = await provisionConsole(pair);
+    const applicationId = `legacy-web-${crypto.randomUUID().replaceAll("-", "")}`;
+    const existing = await request("/bootstrap/v1/applications", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-bootstrap-secret": "bootstrap-test" },
+      body: JSON.stringify({
+        id: applicationId,
+        name: "Legacy Semantic Web App",
+        clientType: "web",
+        trustedBackend: true,
+        allowedScopes: ["profile:read"],
+        accessTokenTtlSeconds: 900,
+      }),
+    }, pair);
+    expect(existing.status).toBe(201);
+
+    const read = await request(`/internal/v1/platform-admin/applications/${applicationId}`, {
+      method: "GET",
+      headers: adminHeaders(console.applicationSecret, console.actorToken),
+    }, pair);
+    expect(read.status).toBe(200);
+    expect((await read.json() as any).data.id).toBe(applicationId);
+
+    const updated = await request(`/internal/v1/platform-admin/applications/${applicationId}`, {
+      method: "PATCH",
+      headers: { ...adminHeaders(console.applicationSecret, console.actorToken), "content-type": "application/json" },
+      body: JSON.stringify({ name: "Legacy Semantic Web App Updated" }),
+    }, pair);
+    expect(updated.status).toBe(200);
+    expect((await updated.json() as any).data).toMatchObject({ id: applicationId, name: "Legacy Semantic Web App Updated" });
+  });
 });
