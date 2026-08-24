@@ -91,16 +91,22 @@ jobs:
           node infra/scripts/prepare-production-homemew-web.mjs
 
       - name: Verify production hostname remains on current backend before cutover
-        shell: bash
         run: |
           echo "verify-current-route" > "$RUNNER_TEMP/homemew-web-production-provision-stage"
-          set -euo pipefail
-          payload="$(curl --fail --silent --show-error https://homemew.aisr.online/health)"
-          PAYLOAD="$payload" node --input-type=module <<'NODE'
-          const payload = JSON.parse(process.env.PAYLOAD);
-          if (payload?.service !== 'homemew-backend' || payload?.environment !== 'production' || payload?.loginReady !== true) {
-            throw new Error('Production hostname must still be served by the ready HomeMew backend before Web cutover');
+          node --input-type=module <<'NODE'
+          const response = await fetch(
+            `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(process.env.CLOUDFLARE_ACCOUNT_ID)}/workers/domains`,
+            { headers: { authorization: `Bearer ${process.env.CLOUDFLARE_API_TOKEN}`, accept: 'application/json' } },
+          );
+          const payload = await response.json().catch(() => null);
+          if (!response.ok || payload?.success !== true || !Array.isArray(payload?.result)) {
+            throw new Error(`Could not inspect production Custom Domain ownership (HTTP ${response.status})`);
           }
+          const domain = payload.result.find((entry) => entry?.hostname === 'homemew.aisr.online');
+          if (!domain?.id || domain?.service !== 'homemew-backend-production') {
+            throw new Error(`Production hostname must still belong to homemew-backend-production before Web cutover; current=${domain?.service ?? 'missing'}`);
+          }
+          console.log(`Pre-cutover Custom Domain owner verified: ${domain.service}`);
           NODE
 
       - name: Verify Mini Program login remains public
