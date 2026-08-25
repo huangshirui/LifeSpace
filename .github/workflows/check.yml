@@ -20,4 +20,10 @@ jobs:
         with:
           node-version: 24
       - run: pnpm install --frozen-lockfile
+      - name: Regenerate Core bindings for draft verification
+        run: |
+          pnpm --filter @lifespace/core exec wrangler types src/worker-configuration.d.ts --env-interface CloudflareBindings --include-runtime false
+          echo '---BEGIN CORE BINDINGS---'
+          cat apps/core/src/worker-configuration.d.ts
+          echo '---END CORE BINDINGS---'
       - run: pnpm check
