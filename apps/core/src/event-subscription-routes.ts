@@ -97,7 +97,7 @@ async function ownedSubscription(env: Bindings, principal: Principal, subscripti
 }
 
 export function registerEventSubscriptionRoutes(app: App): void {
-  app.get("/api/v1/event-subscriptions", requireScope("grants:manage"), async (context) => {
+  app.get("/api/v1/event-subscriptions", requireScope("spaces:manage"), async (context) => {
     const principal = context.get("principal");
     requireUser(principal);
     const spaceId = new URL(context.req.url).searchParams.get("spaceId")?.trim();
@@ -112,7 +112,7 @@ export function registerEventSubscriptionRoutes(app: App): void {
     return context.json(success({ items: rows.results.map(dto) }));
   });
 
-  app.post("/api/v1/event-subscriptions", requireScope("grants:manage"), async (context) => {
+  app.post("/api/v1/event-subscriptions", requireScope("spaces:manage"), async (context) => {
     const principal = context.get("principal");
     requireUser(principal);
     const input = await body(context);
@@ -140,7 +140,7 @@ export function registerEventSubscriptionRoutes(app: App): void {
     }), 201);
   });
 
-  app.patch("/api/v1/event-subscriptions/:subscriptionId", requireScope("grants:manage"), async (context) => {
+  app.patch("/api/v1/event-subscriptions/:subscriptionId", requireScope("spaces:manage"), async (context) => {
     const principal = context.get("principal");
     requireUser(principal);
     const current = await ownedSubscription(context.env, principal, context.req.param("subscriptionId"));
@@ -165,7 +165,7 @@ export function registerEventSubscriptionRoutes(app: App): void {
     return context.json(success({ ...dto(updated), ...(rotatedSecret ? { signingSecret: rotatedSecret } : {}) }));
   });
 
-  app.delete("/api/v1/event-subscriptions/:subscriptionId", requireScope("grants:manage"), async (context) => {
+  app.delete("/api/v1/event-subscriptions/:subscriptionId", requireScope("spaces:manage"), async (context) => {
     const principal = context.get("principal");
     requireUser(principal);
     const current = await ownedSubscription(context.env, principal, context.req.param("subscriptionId"));
@@ -175,7 +175,7 @@ export function registerEventSubscriptionRoutes(app: App): void {
     return context.body(null, 204);
   });
 
-  app.get("/api/v1/event-subscriptions/:subscriptionId/deliveries", requireScope("grants:manage"), async (context) => {
+  app.get("/api/v1/event-subscriptions/:subscriptionId/deliveries", requireScope("spaces:manage"), async (context) => {
     const principal = context.get("principal");
     requireUser(principal);
     const current = await ownedSubscription(context.env, principal, context.req.param("subscriptionId"));
@@ -202,7 +202,7 @@ export function registerEventSubscriptionRoutes(app: App): void {
     })) }));
   });
 
-  app.post("/api/v1/event-subscriptions/:subscriptionId/test", requireScope("grants:manage"), async (context) => {
+  app.post("/api/v1/event-subscriptions/:subscriptionId/test", requireScope("spaces:manage"), async (context) => {
     const principal = context.get("principal");
     requireUser(principal);
     const current = await ownedSubscription(context.env, principal, context.req.param("subscriptionId"));
