@@ -4,6 +4,7 @@ CREATE TABLE event_subscriptions (
   id TEXT PRIMARY KEY,
   application_id TEXT NOT NULL,
   space_id TEXT NOT NULL REFERENCES spaces(id),
+  subscriber_service_principal_id TEXT NOT NULL,
   name TEXT NOT NULL,
   model_key TEXT NOT NULL,
   include_created INTEGER NOT NULL DEFAULT 1 CHECK(include_created IN (0,1)),
@@ -23,6 +24,9 @@ CREATE INDEX idx_event_subscriptions_match
   WHERE deleted_at IS NULL;
 CREATE INDEX idx_event_subscriptions_application
   ON event_subscriptions(application_id, space_id, created_at DESC)
+  WHERE deleted_at IS NULL;
+CREATE INDEX idx_event_subscriptions_subscriber
+  ON event_subscriptions(subscriber_service_principal_id, space_id, created_at DESC)
   WHERE deleted_at IS NULL;
 
 CREATE TABLE domain_event_outbox (
