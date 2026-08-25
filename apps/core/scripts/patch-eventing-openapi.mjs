@@ -6,6 +6,7 @@ const document = YAML.parse(fs.readFileSync(target, "utf8"));
 
 document.info.version = "0.14.0";
 document.info.description = `Stable LifeSpace Core Kernel contract for Space, membership, invitations, Data Grants, event subscriptions, model administration, assets and Registry-driven Creation Draft orchestration. Ordinary business-model routes are intentionally not declared here; each published Model Registry state produces an immutable Model Contract Revision (mct_<sha256>) containing its concrete CRUD/query/action/Capability OpenAPI and JSON Schema.`;
+document.components.schemas.StatusResponse.properties.data.properties.contractVersion.const = "0.14.0";
 
 if (!document.tags.some((tag) => tag?.name === "Event Subscriptions")) {
   const index = document.tags.findIndex((tag) => tag?.name === "Creation Drafts");
@@ -80,12 +81,14 @@ document.components.schemas.UpdateWebhookSubscriptionRequest = {
 
 document.components.schemas.WebhookSubscriptionResponse = {
   type: "object",
+  additionalProperties: false,
   required: ["data"],
   properties: { data: { $ref: "#/components/schemas/WebhookSubscription" } },
 };
 
 document.components.schemas.CreateWebhookSubscriptionResponse = {
   type: "object",
+  additionalProperties: false,
   required: ["data"],
   properties: {
     data: {
@@ -95,8 +98,32 @@ document.components.schemas.CreateWebhookSubscriptionResponse = {
           type: "object",
           required: ["signingSecret", "signature"],
           properties: {
-            signingSecret: { type: "string", minLength: 64, writeOnly: true, description: "Returned only on creation or explicit rotation." },
+            signingSecret: { type: "string", minLength: 64, writeOnly: true, description: "Returned only on creation." },
             signature: { type: "string" },
+          },
+        },
+      ],
+    },
+  },
+};
+
+document.components.schemas.UpdateWebhookSubscriptionResponse = {
+  type: "object",
+  additionalProperties: false,
+  required: ["data"],
+  properties: {
+    data: {
+      allOf: [
+        { $ref: "#/components/schemas/WebhookSubscription" },
+        {
+          type: "object",
+          properties: {
+            signingSecret: {
+              type: "string",
+              minLength: 64,
+              writeOnly: true,
+              description: "Present only when rotateSigningSecret=true and returned once.",
+            },
           },
         },
       ],
@@ -106,6 +133,7 @@ document.components.schemas.CreateWebhookSubscriptionResponse = {
 
 document.components.schemas.WebhookSubscriptionListResponse = {
   type: "object",
+  additionalProperties: false,
   required: ["data"],
   properties: {
     data: {
@@ -140,6 +168,7 @@ document.components.schemas.WebhookDelivery = {
 
 document.components.schemas.WebhookDeliveryListResponse = {
   type: "object",
+  additionalProperties: false,
   required: ["data"],
   properties: {
     data: {
@@ -153,6 +182,7 @@ document.components.schemas.WebhookDeliveryListResponse = {
 
 document.components.schemas.WebhookTestResponse = {
   type: "object",
+  additionalProperties: false,
   required: ["data"],
   properties: {
     data: {
@@ -199,7 +229,7 @@ document.paths["/api/v1/event-subscriptions/{subscriptionId}"] = {
     operationId: "updateEventSubscription",
     requestBody: { required: true, content: { "application/json": { schema: { $ref: "#/components/schemas/UpdateWebhookSubscriptionRequest" } } } },
     responses: {
-      "200": { description: "Subscription updated; a rotated signing secret is returned only when explicitly requested.", content: { "application/json": { schema: { $ref: "#/components/schemas/WebhookSubscriptionResponse" } } } },
+      "200": { description: "Subscription updated; a rotated signing secret is returned only when explicitly requested.", content: { "application/json": { schema: { $ref: "#/components/schemas/UpdateWebhookSubscriptionResponse" } } } },
       ...authErrors,
       "404": { $ref: "#/components/responses/NotFound" },
     },
