@@ -11,11 +11,11 @@ Identity now has two explicit contract surfaces:
 
 Core has three contract layers:
 
-1. **Kernel Contract** — explicit, code-owned APIs such as Space, Membership, Data Grant, Event Subscription, Registry-driven Creation Draft orchestration and service-only model administration. The checked-in contract is `apps/core/openapi.yaml` and is versioned independently from ordinary models.
+1. **Kernel Contract** — explicit, code-owned APIs such as Space, Membership, Data Grant, authorized Runtime Discovery, Event Subscription, Registry-driven Creation Draft orchestration and service-only model administration. The checked-in contract is `apps/core/openapi.yaml` and is versioned independently from ordinary models.
 2. **Platform Admin Contract** — `apps/core/platform-admin.openapi.yaml`, a privileged control-plane profile for Application × Model Access, global read-only Space inspection, platform audit and human-attributed Console model mutations. Its initial version is `0.1.0`.
 3. **Model Contract Revision** — immutable OpenAPI/JSON Schema snapshots generated from the published Model Registry plus registered Capability contract contributions.
 
-As of Core Kernel `0.14.0`, ordinary model paths/schemas remain deliberately absent from `apps/core/openapi.yaml`. They exist only in a concrete immutable Model Contract Revision. CI rejects Event/Task/Day Record/Wish or generic `{modelRoute}` paths if they are reintroduced into the Kernel OpenAPI. Kernel `0.13.0` introduced whole-Space and published-model collection Data Grant targeting; Kernel `0.14.0` adds the model-agnostic Event Subscription/Webhook control surface without duplicating ordinary-model CRUD schemas into the Kernel contract.
+As of Core Kernel `0.15.0`, ordinary model paths/schemas remain deliberately absent from `apps/core/openapi.yaml`. They exist only in a concrete immutable Model Contract Revision. CI rejects Event/Task/Day Record/Wish or generic `{modelRoute}` paths if they are reintroduced into the Kernel OpenAPI. Kernel `0.13.0` introduced whole-Space and published-model collection Data Grant targeting; Kernel `0.14.0` added the model-agnostic Event Subscription/Webhook control surface; Kernel `0.15.0` adds bounded Space-scoped Runtime Discovery filtered by the caller's current effective model authority without duplicating ordinary-model CRUD schemas into the Kernel contract.
 
 The effective ordinary application contract remains an explicit tuple such as:
 
@@ -106,6 +106,7 @@ The Kernel OpenAPI is intentionally explicit and comparatively stable. It curren
 - Space, Membership, Space Person-facing membership operations and invitations;
 - Space avatar replacement/public reads;
 - Data Grant lifecycle and target syntax;
+- authorized Space-scoped Runtime Discovery over the caller's effective ordinary-model authority;
 - Event Subscription lifecycle, signed Webhook test-send and delivery diagnostics;
 - Registry-driven Creation Draft orchestration;
 - service-only Model Admin and immutable Model Contract reads.
@@ -124,11 +125,21 @@ Omitting `resourceType/resourceId` when creating a Grant remains backwards compa
 
 Kernel 0.14.0 adds Event Subscription management as model-agnostic Kernel syntax. A subscription selects a published `modelKey` and generic `record.created` / `record.updated` / `record.deleted` event types, but it does not redefine that model's records. The Webhook payload is reference-only; consumers that need full record data must use the ordinary Model Contract route under their current service credential and Data Grant authority.
 
-The Kernel contract must never be used as a second hand-maintained description of ordinary business models. A new ordinary model must not require an edit to `apps/core/openapi.yaml`.
+Kernel 0.15.0 adds:
+
+```text
+GET /api/v1/spaces/{spaceId}/_discovery
+```
+
+This is a deliberate model-agnostic Kernel discovery surface for applications, integrations and Agents. It returns only bounded metadata for models that survive the caller's current effective-authority intersection: credential `resources:*` scopes, Application × Model Access, current Space membership/Data Grants, published model access and applicable model/Capability restrictions. The response may expose model key/route/version/schema hash, display/field/query metadata, effective access levels, authorized workflow/Capability actions and capability names. It must not expose the privileged full `ModelDefinition`, generated OpenAPI/JSON Schema contract payloads, Model Admin state or authorization data for models the caller cannot currently use.
+
+The `_discovery` segment is Kernel-owned and cannot collide with ordinary Model Definition routes because model routes must begin with a lowercase letter. The Space-scoped Connection Base URL used by clients is routing context only; it never replaces bearer authentication or current authorization evaluation.
+
+The Kernel contract must never be used as a second hand-maintained description of ordinary business models. A new ordinary model must not require an edit to `apps/core/openapi.yaml`; Runtime Discovery automatically reflects published metadata after the existing authorization intersection permits it.
 
 The Platform Admin split also means Console-only governance syntax does not automatically become downstream Kernel syntax. If a future admin capability genuinely becomes a normal application-facing Kernel feature, that transition must be explicit and versioned rather than achieved by merely pointing an application at the admin contract.
 
-A Kernel behavior change is versioned independently from model publication. The Phase-3 contract split moved Core from the Phase-2 `0.11.0` combined-domain contract to Kernel `0.12.0`; Kernel `0.13.0` added backwards-compatible model-collection Data Grant targeting for external integrations; Kernel `0.14.0` adds the generic Eventing subscription and Webhook-delivery management surface.
+A Kernel behavior change is versioned independently from model publication. The Phase-3 contract split moved Core from the Phase-2 `0.11.0` combined-domain contract to Kernel `0.12.0`; Kernel `0.13.0` added backwards-compatible model-collection Data Grant targeting for external integrations; Kernel `0.14.0` added generic Eventing subscription/Webhook-delivery management; Kernel `0.15.0` adds authorized Runtime Discovery for dynamic integration UX.
 
 ## Published artifacts
 
@@ -185,6 +196,8 @@ Where genuine simultaneous incompatible runtime versions are later required, tha
 
 ALOHA, HomeMew and vertical apps must depend on explicit compatible ordinary contract artifacts/revisions. They must not fetch an unversioned latest model contract during normal builds and must not consume Platform Admin contracts unless the application is explicitly an approved platform-operator surface.
 
+Runtime/integration clients may use the Kernel `/_discovery` endpoint for **current authorized UI/runtime capability discovery**, but that does not replace build/release contract pinning. A dynamic selector may refresh current authorized models/actions at runtime while the client package still declares which Kernel version/revision family it supports.
+
 For Coding Agents and repository-local development, an application may check in or generate a read-only snapshot containing the exact Kernel/model contract combination it consumes. Such snapshots are generated artifacts and must not be edited manually.
 
 LifeSpace Console is different: it is a platform-operator application. Its artifact set should include explicit pinned Identity/Core Platform Admin contract versions in addition to the ordinary Identity/Kernel contracts it uses for login/session/model reads.
@@ -207,6 +220,7 @@ Changes to public or control-plane API behavior should fail CI when canonical in
 Metadata-platform checks include:
 
 - Kernel OpenAPI contains only explicit Kernel surfaces and rejects ordinary/generic model paths;
+- authorized Runtime Discovery has a bounded Kernel schema, reflects only effective current model authority and never exposes privileged full Model Definition/contract payloads;
 - Identity/Core Platform Admin OpenAPI contains the implemented Console control-plane routes and explicitly requires the dual actor/executor boundary where applicable;
 - Platform User/Space Inspector contracts remain read-only and do not imply ordinary authorization;
 - platform-managed secret creation remains one-time/write-only and list/read contracts never expose plaintext or hashes;
