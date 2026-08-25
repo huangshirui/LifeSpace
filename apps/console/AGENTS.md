@@ -112,12 +112,16 @@ In particular:
 
 ## Parallel-work isolation
 
-Console work should be easy to develop and merge independently from Core/Identity feature branches.
+Console work should be easy to develop, deploy to staging and merge independently from Core/Identity feature branches.
 
 - Prefer consuming already-merged contracts before adding new downstream APIs.
 - If a required Core/Identity capability is missing, add the smallest separately reviewable contract/runtime change rather than coupling unrelated refactors into a Console branch.
 - Do not base Console UI work on an unrelated in-flight feature branch unless the dependency is intentional and documented.
 - Avoid touching Runtime Discovery, Eventing, HomeMew migration/application code or other active slices merely to implement Console presentation.
+- **Normal Console-only staging changes use `.github/workflows/lifespace-console-staging-deploy.yml`.** That workflow must remain manual-only and must not migrate/deploy Core or Identity, use bootstrap authority, rotate/install secrets, or target production.
+- `.github/workflows/lifespace-console-staging-provision.yml` is a platform/credential convergence workflow, not the default Console deploy path. Use it only when Core/Identity/platform-admin/application credential convergence is intentionally part of the task.
+- Never use a feature branch's full provisioning workflow merely to deploy Console if doing so could roll shared staging Core/Identity backward or overwrite another in-flight platform slice.
+- Keep `scripts/check-staging-deploy-isolation.mjs` and `scripts/check-control-plane-boundary.mjs` green; weakening or bypassing these guards requires an explicit architecture decision, not a convenience edit.
 - When temporary duplication in the BFF meaningfully reduces merge conflict, document it and schedule consolidation only after the parallel conflict window closes; do not weaken security invariants for convenience.
 
 ## Cloudflare Vite deployment
@@ -126,6 +130,7 @@ Console work should be easy to develop and merge independently from Core/Identit
 - Do not restore `assets.directory: ./public` or deploy the obsolete proving shell as the primary frontend.
 - Select staging/production at **build time** with `CLOUDFLARE_ENV` so the generated deployment configuration contains the intended Worker name, routes, variables and service bindings.
 - After a Vite-plugin build, deploy through the generated configuration; do not rely on a later `wrangler deploy --env ...` to switch environment.
+- Ordinary Console-only staging deployment preserves the already-installed Worker secrets; do not pass `--secrets-file` or bootstrap credentials to that workflow.
 - Keep Console-only frontend/tooling upgrades scoped to `apps/console` unless platform-wide alignment is separately justified.
 
 ## Environment isolation
@@ -142,6 +147,7 @@ A Console change is incomplete until the relevant items below are proven:
 
 - workspace install succeeds with the committed frozen lockfile;
 - React/Worker TypeScript typecheck and Vite build pass;
+- Console control-plane and staging-isolation guard scripts pass;
 - built client/static-asset and `/api/*` Worker routing remain deterministic;
 - missing Access assertion fails safely;
 - unlinked Access principal is surfaced explicitly and never auto-created/email-merged;
@@ -153,6 +159,7 @@ A Console change is incomplete until the relevant items below are proven:
 - destructive or whole-catalog replacement operations enforce their required confirmation server-side as well as in the UI;
 - Model validate/publish/retire preserve Core validation, compatibility and human/executor audit semantics;
 - Application × Model Access changes cannot exceed Core's published-model declared access capability and do not bypass normal credential/Data Grant checks;
+- normal Console staging deployment reads current Core/Identity compatibility only and does not mutate/deploy those services;
 - staging/prod Vite build/deployment configuration is isolated;
 - real staging browser verification covers both established read pages and every newly added mutation before the write slice is Ready;
 - production remains untouched unless production rollout was explicitly approved.
