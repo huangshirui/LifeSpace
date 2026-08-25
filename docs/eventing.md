@@ -18,7 +18,7 @@ External webhook payloads are reference-only and contain event ID/type, Space, m
 
 ## Subscription ownership and authorization
 
-A subscription is owned by the LifeSpace application context that creates it and targets exactly one Space and one model in v1. The authenticated user must have Space `manage` permission and the application/user context must have current read access to the selected model. The v1 management API additionally requires the existing `grants:manage` management scope used by application-side external-integration administration.
+A subscription is owned by the LifeSpace application context that creates it and targets exactly one Space and one model in v1. The authenticated user must have the `spaces:manage` credential scope, current Space `manage` permission and current read access to the selected model. Model read access continues to evaluate credential scope, Application × Model Access and Space/Data Grant authorization through the normal Core authorization path.
 
 Delivery re-checks current Application × Model Access. Disabling/deleting the subscription or revoking model access prevents queued deliveries from being sent.
 
