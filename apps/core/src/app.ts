@@ -10,6 +10,7 @@ import { registerModelAdminRoutes } from "./model-admin";
 import { registerModelAdminAiRoutes } from "./model-admin-ai";
 import { registerPlatformAdminRoutes } from "./platform-admin";
 import { registerPlatformInspectorRoutes } from "./platform-inspector";
+import { registerRuntimeDiscoveryRoutes } from "./runtime-discovery";
 import { registerSpaceRoutes } from "./spaces";
 import { registerSpaceAvatarRoutes } from "./space-avatars";
 import { registerGrantRoutes } from "./grants";
@@ -39,7 +40,7 @@ export function createApp() {
   app.get("/health", (context) => context.json(success({ status: "ok" })));
   app.get("/api/v1/status", async (context) => context.json(success({
     status: "ok", service: "core", environment: context.env.ENVIRONMENT ?? "local", database: "available",
-    schemaVersion: await schemaVersion(context.env), contractVersion: "0.14.0",
+    schemaVersion: await schemaVersion(context.env), contractVersion: "0.15.0",
   })));
   app.use("/api/v1/me", authenticate());
   app.use("/api/v1/me/*", authenticate());
@@ -61,6 +62,7 @@ export function createApp() {
   registerPlatformInspectorRoutes(app);
   registerRegistryCreationDraftRoutes(app);
   registerEventSubscriptionRoutes(app);
+  registerRuntimeDiscoveryRoutes(app);
   registerGenericResourceRoutes(app);
   app.notFound((context) => context.json(failure("NOT_FOUND", "Route not found", context.get("requestId")), 404));
   app.onError((error, context) => {
