@@ -192,9 +192,16 @@ function coreHeaders(context: AdminContext, jsonBody = false): HeadersInit {
   };
 }
 
-function normalizeModelAccessBody(body: JsonRecord, request: Request): { models: Array<{ modelKey: string; maxAccess: "read" | "write" | "manage" }> } | Response {
-  if (Object.keys(body).some((key) => key !== "models") || !Array.isArray(body.models)) {
-    return failure("INVALID_REQUEST", "Request must contain only models", 400, requestId(request));
+function normalizeModelAccessBody(
+  body: JsonRecord,
+  request: Request,
+  applicationId: string,
+): { models: Array<{ modelKey: string; maxAccess: "read" | "write" | "manage" }> } | Response {
+  if (Object.keys(body).some((key) => key !== "models" && key !== "confirmApplicationId") || !Array.isArray(body.models)) {
+    return failure("INVALID_REQUEST", "Request must contain only models and confirmApplicationId", 400, requestId(request));
+  }
+  if (body.confirmApplicationId !== applicationId) {
+    return failure("CONFIRMATION_REQUIRED", "Model Access replacement requires confirmApplicationId to exactly match the target application", 422, requestId(request));
   }
   if (body.models.length > MAX_MODEL_ACCESS_ENTRIES) {
     return failure("VALIDATION_ERROR", `At most ${MAX_MODEL_ACCESS_ENTRIES} model access entries are allowed`, 422, requestId(request));
@@ -222,7 +229,7 @@ async function replaceApplicationModelAccess(request: Request, env: Env, applica
   if (guard) return guard;
   const body = await readJsonObject(request);
   if (body instanceof Response) return body;
-  const normalized = normalizeModelAccessBody(body, request);
+  const normalized = normalizeModelAccessBody(body, request, applicationId);
   if (normalized instanceof Response) return normalized;
   const context = await requireAdminContext(request, env);
   if (context instanceof Response) return context;
@@ -261,12 +268,25 @@ async function publishModelDefinition(request: Request, env: Env): Promise<Respo
   if (guard) return guard;
   const body = await readJsonObject(request);
   if (body instanceof Response) return body;
-  if (Object.keys(body).some((key) => key !== "definition" && key !== "compatibility") || body.definition === undefined) {
-    return failure("INVALID_REQUEST", "Request must contain definition and compatibility", 400, requestId(request));
+  if (
+    Object.keys(body).some((key) => key !== "definition" && key !== "compatibility" && key !== "confirmModelKey" && key !== "breakingConfirmation")
+    || body.definition === undefined
+  ) {
+    return failure("INVALID_REQUEST", "Request must contain definition, compatibility and publish confirmation", 400, requestId(request));
   }
   const compatibility = body.compatibility;
   if (compatibility !== "initial" && compatibility !== "compatible" && compatibility !== "breaking") {
     return failure("VALIDATION_ERROR", "compatibility must be initial, compatible, or breaking", 422, requestId(request));
+  }
+  const definitionModelKey = isRecord(body.definition) ? stringValue(body.definition.key) : null;
+  if (!definitionModelKey || !validModelKey(definitionModelKey) || body.confirmModelKey !== definitionModelKey) {
+    return failure("CONFIRMATION_REQUIRED", "Publication requires confirmModelKey to exactly match definition.key", 422, requestId(request));
+  }
+  if (compatibility === "breaking" && body.breakingConfirmation !== "BREAKING") {
+    return failure("CONFIRMATION_REQUIRED", "Breaking publication requires breakingConfirmation=BREAKING", 422, requestId(request));
+  }
+  if (compatibility !== "breaking" && body.breakingConfirmation !== undefined) {
+    return failure("INVALID_REQUEST", "breakingConfirmation is allowed only for breaking publication", 400, requestId(request));
   }
   const context = await requireAdminContext(request, env);
   if (context instanceof Response) return context;
