@@ -8,7 +8,8 @@
     "typecheck": "tsc --noEmit",
     "build": "vite build",
     "check:staging-isolation": "node scripts/check-staging-deploy-isolation.mjs",
-    "check": "pnpm typecheck && pnpm check:staging-isolation && pnpm build",
+    "check:control-plane": "node scripts/check-control-plane-boundary.mjs",
+    "check": "pnpm typecheck && pnpm check:control-plane && pnpm check:staging-isolation && pnpm build",
     "deploy:staging": "CLOUDFLARE_ENV=staging vite build && wrangler deploy",
     "deploy:production": "CLOUDFLARE_ENV=production vite build && wrangler deploy"
   },
