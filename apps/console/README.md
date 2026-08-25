@@ -165,28 +165,55 @@ The global bootstrap secret is deliberately not a Console Worker secret.
 
 ## Cloudflare/Vite deployment
 
-The Console uses `@cloudflare/vite-plugin`; Vite owns client asset output and generated Worker deployment configuration.
+The Console uses `@cloudflare/vite-plugin`; Vite owns client asset output and generated Worker deployment configuration. Select the target environment at **build time** and deploy the generated configuration.
 
-Select target environment at build time:
+There are deliberately two different staging workflows with different authority boundaries.
+
+### Ordinary Console code/UI deployment
+
+Canonical workflow:
 
 ```text
-CLOUDFLARE_ENV=staging pnpm exec vite build
-pnpm exec wrangler deploy --secrets-file <ephemeral-secrets-file>
+.github/workflows/lifespace-console-staging-deploy.yml
 ```
 
-Production uses a separate build environment/configuration and requires explicit production rollout approval. Do not restore the historical `public/` proving shell as the deployment source.
+This is the default for normal Console-only changes. It is manual-only and must remain isolated:
 
-Canonical staging workflow:
+```text
+Console frozen install/check
+-> read current staging Identity/Core status only
+-> CLOUDFLARE_ENV=staging Vite build
+-> deploy lifespace-console-staging using existing Worker secrets
+-> verify lifespace-staging.aisr.online is reachable behind Access
+```
+
+It must **not** run D1 migrations, deploy Core/Identity, use the bootstrap secret, rotate/install secrets, or target production. This lets Console staging move independently while other LifeSpace branches are changing Core/Identity.
+
+Equivalent build/deploy shape:
+
+```text
+cd apps/console
+CLOUDFLARE_ENV=staging pnpm exec vite build
+pnpm exec wrangler deploy
+```
+
+### Platform/credential convergence
+
+Canonical workflow:
 
 ```text
 .github/workflows/lifespace-console-staging-provision.yml
 ```
 
+Use this only when staging platform convergence itself is intended: migrations/platform service deployment, Console application/AUD reconciliation, platform-administrator assignment, executor credential rotation or first-use provisioning. Because it can mutate/deploy Core and Identity, it must not be used merely to publish a Console feature branch while unrelated platform work is in flight.
+
+Production uses independent configuration/credentials and requires explicit production rollout approval. Do not restore the historical `public/` proving shell as the deployment source.
+
 ## Parallel development
 
-Console work should remain mergeable independently from unrelated Core/Identity feature work. Prefer already-merged control-plane contracts and isolate UI/BFF changes inside `apps/console`.
+Console work should remain mergeable and deployable independently from unrelated Core/Identity feature work. Prefer already-merged control-plane contracts and isolate UI/BFF changes inside `apps/console`.
 
-The current write slice was intentionally started independently of the parallel Runtime Discovery work. It does not modify Runtime Discovery, Eventing, HomeMew, Core migrations or Identity migrations.
+The current write slice was intentionally developed independently of the parallel Runtime Discovery work. It does not modify Runtime Discovery, Eventing, HomeMew, Core migrations or Identity migrations. The isolated staging workflow is protected by `scripts/check-staging-deploy-isolation.mjs`; the privileged BFF boundary is protected by `scripts/check-control-plane-boundary.mjs`.
 
 ## Verification gate
 
@@ -199,8 +226,9 @@ Before this write slice is Ready:
 5. browser source/network responses must contain no Access/LifeSpace/actor/executor bearer material;
 6. Model validate/publish/retire must preserve Core validation, compatibility and human/executor audit semantics;
 7. Application × Model Access replacement must remain inside published-model capability and normal runtime authorization intersections;
-8. real staging browser verification must cover existing read pages plus every new write workflow;
-9. staging and production bindings/credentials must remain isolated;
-10. production must remain untouched until explicitly approved.
+8. isolated staging deployment must not mutate/deploy Core/Identity or require bootstrap authority;
+9. real staging browser verification must cover existing read pages plus every new write workflow;
+10. staging and production bindings/credentials must remain isolated;
+11. production must remain untouched until explicitly approved.
 
 The accepted read-only foundation is documented in `docs/lifespace-console-mvp.md`; this configuration/publishing slice advances that foundation rather than replacing its security architecture.
