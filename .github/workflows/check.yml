@@ -20,22 +20,4 @@ jobs:
         with:
           node-version: 24
       - run: pnpm install --frozen-lockfile
-      - name: Regenerate draft Core artifacts
-        run: |
-          pnpm --filter @lifespace/core exec wrangler types src/worker-configuration.d.ts --env-interface CloudflareBindings --include-runtime false
-          node apps/core/scripts/patch-eventing-openapi.mjs
-      - name: Run pnpm check
-        shell: bash
-        run: |
-          set -o pipefail
-          pnpm check 2>&1 | tee check.log
-      - name: Upload draft diagnostics
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: core-eventing-diagnostics
-          path: |
-            check.log
-            apps/core/openapi.yaml
-            apps/core/src/worker-configuration.d.ts
-          if-no-files-found: error
+      - run: pnpm check
