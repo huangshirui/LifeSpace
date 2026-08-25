@@ -1,6 +1,6 @@
 # LifeSpace Console Agent Instructions
 
-`apps/console` is the LifeSpace platform operations/governance Web application for `lifespace.aisr.online`. It is a client/BFF over Identity and Core and must never become a third source of truth for platform state.
+`apps/console` is the LifeSpace platform operations/governance and configuration Web application for `lifespace.aisr.online`. It is a client/BFF over Identity and Core and must never become a third source of truth for platform state.
 
 ## Before changing Console
 
@@ -14,26 +14,29 @@ Read:
 6. `docs/service-authentication.md`;
 7. `docs/contracts.md`;
 8. `docs/lifespace-console-mvp.md`;
-9. Identity/Core Platform Admin companion contracts.
+9. the current Console configuration/publishing design notes in this repository;
+10. Identity/Core Platform Admin companion contracts and the canonical Model Admin contract before adding a mutation.
 
 ## Responsibilities
 
 Console owns:
 
 - platform-operator Web UI and navigation;
-- same-origin BFF endpoints used by that UI;
+- same-origin bounded BFF endpoints used by that UI;
 - Cloudflare Worker/static-assets deployment for the Console hostname;
 - server-side orchestration of Access -> LifeSpace user exchange -> short-lived actor proof -> Identity/Core platform-admin calls;
-- presentation/aggregation of Identity/Core control-plane responses.
+- presentation/aggregation of Identity/Core control-plane responses;
+- explicit operator workflows for approved platform configuration and publication actions.
 
 Console does not own:
 
 - global users, Access principal mappings or platform-administrator assignments;
-- Spaces, members, Grants or model records;
+- Spaces, members, Grants or model records as persistence;
 - Applications, Service Principals, Model Registry or Application × Model Access as persistence;
-- an independent audit database;
+- an independent model schema, policy language, contract generator or audit database;
 - Cloudflare Access identity verification as a replacement for Identity;
-- bootstrap authority in normal runtime.
+- bootstrap authority in normal runtime;
+- application-specific family/tenant administration merely because the platform can inspect a Space.
 
 ## Authentication and secrets
 
@@ -51,18 +54,19 @@ Console does not own:
 
 - Expose bounded purpose-specific endpoints, not an arbitrary Identity/Core reverse proxy or Swagger executor.
 - Never accept a client-controlled upstream URL/path/Authorization header.
-- Validate path identifiers, query names, query multiplicity and result limits before forming upstream requests.
+- Validate path identifiers, query names, query multiplicity, request shape/body size and result limits before forming upstream requests.
 - Return only the fields the UI needs; avoid relaying credential material or unnecessarily broad platform datasets.
-- Read-only inspector endpoints stay read-only.
-- Before adding cookie-backed or other browser mutations, enforce exact Origin/CSRF protections documented in platform architecture.
+- Read-only inspector endpoints stay read-only unless a separately specified control-plane mutation is intentionally introduced.
+- Every browser mutation must enforce exact Origin/Fetch-Metadata protections, JSON request shape, an operation-specific explicit intent and any destructive confirmation required by that operation.
+- A React confirmation dialog is UX only. Security-critical confirmation must also be represented in and validated by the BFF request when applicable.
 - Transport may use Cloudflare Service Bindings, but explicit LifeSpace credentials remain the authorization boundary.
 - Service Binding use must not create cross-app database coupling.
 
-## Current React/Vite MVP
+## Current React/Vite control plane
 
 The permanent Console presentation shell is React + TypeScript + Vite with the Cloudflare Vite plugin. The earlier `public/` proving page was staging bootstrap evidence and is no longer the implementation target.
 
-The current read-only MVP surfaces are:
+The established read/inspection surfaces are:
 
 - Overview;
 - Applications and application diagnostic detail;
@@ -72,15 +76,49 @@ The current read-only MVP surfaces are:
 - combined Identity/Core platform audit;
 - System status/security-boundary diagnostics.
 
+The first configuration/publishing write slice adds only these bounded capabilities on top of the existing authoritative control planes:
+
+- validate a canonical Model Definition through Core Model Admin;
+- publish a Model Definition with explicit compatibility classification;
+- retire a published model through Core Model Admin;
+- atomically replace one application's Application × Model Access catalog.
+
+These actions must not add new Core/Identity persistence or duplicate platform state in Console. Model publication remains Registry-driven and generates the canonical Model Contract Revision in Core; Application × Model Access remains Core-owned authorization policy.
+
 The browser calls only same-origin `/api/*` endpoints. The Worker resolves every privileged request through Access -> Identity user session -> dedicated actor proof -> fixed Identity/Core control-plane operation. Do not move that orchestration into React.
 
-The only browser mutation retained in this read-only slice is the staging-only first-use registration for the **current verified Access principal**. It must:
+A visual field/capability model designer may be added later, but it must only author the same canonical Model Definition consumed by Core's closed validator. It must never introduce a second model-definition format or direct DDL/SQL/JavaScript publication path.
+
+## First-use Access registration
+
+The staging-only first-use registration for the **current verified Access principal** remains a special bounded mutation. It must:
 
 - use Identity's canonical `/internal/v1/access/registrations` flow;
 - require exact same-origin browser context, explicit intent and explicit user confirmation;
 - never accept a target `usr_*`, email/sub mapping override or backend credential;
 - be unavailable in production;
 - never replace proof-backed existing-account linking or email auto-merge rules.
+
+## Platform vs application administration boundary
+
+LifeSpace Console configures platform-wide metadata and platform authorization ceilings. It is not the product administration UI for HomeMew, ALOHA or another vertical application.
+
+In particular:
+
+- Application × Model Access belongs in Console because it is platform application policy;
+- service principal/credential governance may be added as a bounded Console control-plane capability when explicitly implemented;
+- Space-specific Data Grants, family membership policy, webhook destinations and other tenant/product configuration should remain in the owning application administration surface unless a separate platform-governance use case is approved;
+- Console inspection of a Space never grants hidden membership or business-data editing authority.
+
+## Parallel-work isolation
+
+Console work should be easy to develop and merge independently from Core/Identity feature branches.
+
+- Prefer consuming already-merged contracts before adding new downstream APIs.
+- If a required Core/Identity capability is missing, add the smallest separately reviewable contract/runtime change rather than coupling unrelated refactors into a Console branch.
+- Do not base Console UI work on an unrelated in-flight feature branch unless the dependency is intentional and documented.
+- Avoid touching Runtime Discovery, Eventing, HomeMew migration/application code or other active slices merely to implement Console presentation.
+- When temporary duplication in the BFF meaningfully reduces merge conflict, document it and schedule consolidation only after the parallel conflict window closes; do not weaken security invariants for convenience.
 
 ## Cloudflare Vite deployment
 
@@ -96,10 +134,11 @@ The only browser mutation retained in this read-only slice is the staging-only f
 - Production: `lifespace.aisr.online` / `lifespace-console` with production Identity/Core and independent production credentials.
 - Never point staging Console bindings/secrets at production services or vice versa.
 - Do not deploy production from a staging change without explicit approval.
+- A model/configuration mutation tested in staging is not permission to repeat it against production data.
 
 ## Verification
 
-A Console change is incomplete until:
+A Console change is incomplete until the relevant items below are proven:
 
 - workspace install succeeds with the committed frozen lockfile;
 - React/Worker TypeScript typecheck and Vite build pass;
@@ -109,6 +148,11 @@ A Console change is incomplete until:
 - any staging first-use registration is explicit, exact-origin protected, Identity-owned, target-user-id-free and unavailable in production;
 - non-admin actor is denied;
 - Identity/Core executors, LifeSpace user bearer and actor proof remain server-only;
-- path/query bounds prevent a purpose-specific BFF endpoint from becoming an arbitrary proxy;
+- path/query/body bounds prevent a purpose-specific BFF endpoint from becoming an arbitrary proxy;
+- each mutation rejects missing/wrong Origin, Fetch Metadata, Content-Type and operation intent;
+- destructive or whole-catalog replacement operations enforce their required confirmation server-side as well as in the UI;
+- Model validate/publish/retire preserve Core validation, compatibility and human/executor audit semantics;
+- Application × Model Access changes cannot exceed Core's published-model declared access capability and do not bypass normal credential/Data Grant checks;
 - staging/prod Vite build/deployment configuration is isolated;
-- real staging browser verification covers the intended read-only Console pages before the slice is Ready.
+- real staging browser verification covers both established read pages and every newly added mutation before the write slice is Ready;
+- production remains untouched unless production rollout was explicitly approved.
