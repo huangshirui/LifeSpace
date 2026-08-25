@@ -20,15 +20,15 @@ Long-lived workflows are intentionally small:
 
 - `Check`: repository CI for pull requests and pushes to `main`.
 - `Deploy staging`: manual staging migration, Core/Identity deployment, convergence checks and authenticated platform regression.
-- `Deploy production`: guarded manual production deployment. Infrastructure provisioning is disabled by default and may only be enabled during an explicit Phase 6 bring-up run.
+- `Deploy production`: guarded manual production deployment. Infrastructure provisioning is disabled by default; when explicitly enabled it runs the idempotent create-if-missing production provisioner before migration/deployment. This supports both the original Phase 6 bring-up and later releases that add declared D1/R2/Queue resources without making every deployment create infrastructure.
 
-Phase-specific one-shot workflows should be removed after their closeout evidence is recorded rather than left as permanent operator entrypoints. The production workflow therefore uses a `phase6_bringup` input for the one-time empty-platform gate; normal production deployments after Phase 6 do not run empty-state or temporary-authority checks.
+Phase-specific one-shot workflows should be removed after their closeout evidence is recorded rather than left as permanent operator entrypoints. The production workflow therefore uses a `phase6_bringup` input only for the one-time empty-platform gate; normal production deployments after Phase 6 do not run empty-state or temporary-authority checks. A later release may independently use `provision=true` when its declared production resource manifest adds a missing create-if-missing resource.
 
 `Deploy staging` derives expected Core/Identity contract and schema versions from the repository (`package.json` plus the latest numbered migration) through `infra/scripts/staging-expectations.mjs`. `Deploy production` does the same through `infra/scripts/production-expectations.mjs`.
 
 The first production bring-up is intentionally Identity-first so that Core's Service Binding has a real target. Once both production Workers exist, normal production deployment returns to Core-first -> Identity ordering so a newer compatible Core verifier/runtime is live before Identity may issue against it.
 
-The Phase 6 production verification uses short-lived probe authority, removes the probe users/applications/service principals/tokens after verification, and leaves HomeMew with a registered production application but no active cutover credential. The real HomeMew production `lsa_*` credential is a Phase 7 concern and must be stored in the HomeMew production secret store when issued.
+The Phase 6 production verification uses short-lived probe authority, removes the probe users/applications/service principals/tokens after verification, and leaves HomeMew with a registered production application but no active cutover credential. The real HomeMew production `lsa_*` credential is a later application-cutover concern and must be stored in the HomeMew production secret store when issued.
 
 ## Staging scripts
 
@@ -99,17 +99,17 @@ If audience registration returns `ACCESS_NOT_CONFIGURED`, configure `ACCESS_TEAM
 
 ## Production scripts
 
-- `provision-production.mjs`: create-if-missing D1/R2/Queue provisioning; never deletes or renames production resources.
+- `provision-production.mjs`: create-if-missing D1/R2/Queue provisioning; never deletes or renames production resources. It may be explicitly used after Phase 6 when a release adds a resource already declared in the production manifest.
 - `resolve-production-d1.mjs`: resolves exact production D1 IDs only into the ephemeral deployment checkout.
 - `ensure-production-domains.mjs`: preflights and attaches only the two approved production Worker Custom Domains; refuses to move a hostname owned by another Worker.
 - `production-expectations.mjs`: derives production contract/schema expectations from the repository.
 - `initialize-production-runtime.mjs`: initializes first-use signing/shared secrets, preserves complete existing secret sets, and refuses partial automatic repair/rotation.
 - `verify-production-http.mjs`: verifies production health, environment, schema and contract versions.
-- `verify-production-cloudflare.mjs`: verifies D1/R2/Queue/Worker/domain/secret presence and staging isolation.
+- `verify-production-cloudflare.mjs`: verifies D1/R2/Queue/Worker/domain/secret presence, Queue attachment/policy, and staging isolation.
 - `verify-production-model-admin.mjs`: uses disposable service authority to verify `lsp_pat_*` introspection and initialize/verify the accepted active Model Contract.
 - `verify-production-homemew-auth.mjs`: registers the frozen HomeMew production application ID, verifies the JWT boundary, and leaves no active HomeMew credential after Phase 6.
 - `verify-production-db.mjs`: Phase 6-only empty-platform database and accepted-contract gate.
 
-Detailed operator prerequisites and the Phase 6 run mode are documented in `infra/production/README.md`.
+Detailed operator prerequisites, first bring-up, normal releases, and incremental resource provisioning are documented in `infra/production/README.md`.
 
 Historical phase plans/status documents remain audit evidence, but they are not deployment runbooks after their phase is closed.

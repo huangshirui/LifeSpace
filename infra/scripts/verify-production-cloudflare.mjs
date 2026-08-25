@@ -40,10 +40,14 @@ for (const desired of manifest.r2 ?? []) {
 }
 if (manifest.r2?.some((item) => item.name === "lifespace-staging-assets")) throw new Error("Production manifest references the staging R2 bucket");
 
+function workerName(consumer) {
+  return consumer?.script ?? consumer?.service ?? consumer?.script_name ?? null;
+}
+
 // Queue producer/consumer metadata can converge a few seconds after a successful
-// Worker deployment. Prove the attachment through both List Queues and the
-// dedicated consumer endpoint, but keep the gate fail-closed if neither view
-// converges to the expected Worker within the bounded retry window.
+// Worker deployment. Normal runtime queues must be attached to Core as producer
+// and consumer. A DLQ is intentionally only a dead-letter target, so it must
+// exist but must not be treated as a normal producer/consumer queue.
 const verifiedQueues = new Map();
 for (const desired of manifest.queues ?? []) {
   let lastObserved = null;
@@ -51,10 +55,30 @@ for (const desired of manifest.queues ?? []) {
     const queues = await cf(`/accounts/${accountId}/queues`);
     const queue = (queues ?? []).find((item) => item.queue_name === desired.name);
     if (!queue?.queue_id) throw new Error(`Production Queue ${desired.name} is missing`);
+
+    if (desired.name === "lifespace-event-deliveries-dlq") {
+      verifiedQueues.set(desired.name, queue);
+      break;
+    }
+
     const endpointConsumers = await cf(`/accounts/${accountId}/queues/${queue.queue_id}/consumers`);
     const snapshot = queueAttachmentSnapshot(queue, endpointConsumers, "lifespace-core");
     lastObserved = { attempt, queueId: queue.queue_id, ...snapshot.observed };
     if (snapshot.consumerAttached && snapshot.producerAttached) {
+      if (desired.name === "lifespace-event-deliveries") {
+        const consumers = [
+          ...(Array.isArray(queue?.consumers) ? queue.consumers : []),
+          ...(Array.isArray(endpointConsumers) ? endpointConsumers : []),
+        ];
+        const eventConsumer = consumers.find((consumer) => consumer?.type === "worker" && workerName(consumer) === "lifespace-core");
+        if (!eventConsumer) throw new Error("Production event-delivery Queue is missing the Core worker consumer");
+        if (eventConsumer.dead_letter_queue !== "lifespace-event-deliveries-dlq") {
+          throw new Error(`Production event-delivery Queue DLQ mismatch: ${eventConsumer.dead_letter_queue ?? "none"}`);
+        }
+        if (Number(eventConsumer.settings?.max_retries) !== 5) {
+          throw new Error(`Production event-delivery Queue max_retries must be 5, got ${eventConsumer.settings?.max_retries ?? "missing"}`);
+        }
+      }
       verifiedQueues.set(desired.name, queue);
       break;
     }
@@ -71,6 +95,16 @@ const productionQueue = queueByName.get("lifespace-creation-drafts");
 const stagingQueue = queueByName.get("lifespace-staging-creation-drafts");
 if (productionQueue && stagingQueue && productionQueue.queue_id === stagingQueue.queue_id) {
   throw new Error("Production creation-draft Queue unexpectedly reuses staging Queue ID");
+}
+for (const [productionName, stagingName] of [
+  ["lifespace-event-deliveries", "lifespace-staging-event-deliveries"],
+  ["lifespace-event-deliveries-dlq", "lifespace-staging-event-deliveries-dlq"],
+]) {
+  const production = queueByName.get(productionName);
+  const staging = queueByName.get(stagingName);
+  if (production && staging && production.queue_id === staging.queue_id) {
+    throw new Error(`${productionName} unexpectedly reuses staging Queue ${stagingName}`);
+  }
 }
 
 const workers = await cf(`/accounts/${accountId}/workers/scripts`);
@@ -100,6 +134,7 @@ requireBinding(coreBindings, { name: "DB", type: "d1", fields: { database_id: pr
 requireBinding(coreBindings, { name: "ASSETS", type: "r2_bucket", fields: { bucket_name: "lifespace-assets" } }, "lifespace-core");
 requireBinding(coreBindings, { name: "IDENTITY", type: "service", fields: { service: "lifespace-identity" } }, "lifespace-core");
 requireBinding(coreBindings, { name: "CREATION_DRAFT_QUEUE", type: "queue", fields: { queue_name: "lifespace-creation-drafts" } }, "lifespace-core");
+requireBinding(coreBindings, { name: "EVENT_DELIVERY_QUEUE", type: "queue", fields: { queue_name: "lifespace-event-deliveries" } }, "lifespace-core");
 
 const identityBindings = await workerBindings("lifespace-identity");
 requireBinding(identityBindings, { name: "DB", type: "d1", fields: { database_id: productionD1.get("lifespace-identity") } }, "lifespace-identity");
@@ -132,9 +167,10 @@ console.log(JSON.stringify({
   r2: manifest.r2?.map((item) => item.name) ?? [],
   queues: manifest.queues?.map((item) => item.name) ?? [],
   queueAttachmentsVerified: true,
+  eventDeliveryPolicyVerified: true,
   workers: ["lifespace-core", "lifespace-identity"],
   deployedBindingsVerified: {
-    core: ["DB", "ASSETS", "IDENTITY", "CREATION_DRAFT_QUEUE"],
+    core: ["DB", "ASSETS", "IDENTITY", "CREATION_DRAFT_QUEUE", "EVENT_DELIVERY_QUEUE"],
     identity: ["DB", "ASSETS"],
   },
   domains: Object.fromEntries((manifest.domains ?? []).map((item) => [item.hostname, item.service])),
