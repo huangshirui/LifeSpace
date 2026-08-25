@@ -236,3 +236,5 @@ text = text.replace(cleanupSubscription, `${cleanupSubscription}  if (endpointId
 
 fs.writeFileSync(path, text);
 console.log("Updated staging Eventing smoke for Core 0.15 Webhook Endpoint/filter split");
+
+// Temporary branch-only patch helper; remove after generating the verifier update.
