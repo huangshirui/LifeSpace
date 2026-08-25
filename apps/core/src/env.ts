@@ -15,6 +15,7 @@ export type Bindings = CloudflareBindings & {
   ASSETS: R2Bucket;
   CORS_ORIGINS?: string;
   CREATION_DRAFT_QUEUE: Queue;
+  EVENT_DELIVERY_QUEUE: Queue;
   AI_RATE_LIMITER: RateLimit;
   AI_BASE_URL?: string;
   AI_API_KEY?: string;

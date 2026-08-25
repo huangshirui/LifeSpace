@@ -4,6 +4,7 @@ import type { Bindings, Variables } from "./env";
 import { authenticate } from "./auth";
 import { registerRegistryCreationDraftRoutes } from "./registry-creation-draft-jobs";
 import { registerGenericResourceRoutes } from "./generic-resource-routes";
+import { registerEventSubscriptionRoutes } from "./event-subscription-routes";
 import { ApiError, failure, success } from "./http";
 import { registerModelAdminRoutes } from "./model-admin";
 import { registerModelAdminAiRoutes } from "./model-admin-ai";
@@ -45,6 +46,8 @@ export function createApp() {
   app.use("/api/v1/spaces", authenticate());
   app.use("/api/v1/spaces/*", authenticate());
   app.use("/api/v1/space-invites/*", authenticate());
+  app.use("/api/v1/event-subscriptions", authenticate());
+  app.use("/api/v1/event-subscriptions/*", authenticate());
   app.use("/api/v1/model-admin", authenticate());
   app.use("/api/v1/model-admin/*", authenticate());
   app.use("/api/v1/platform-admin", authenticate());
@@ -57,6 +60,7 @@ export function createApp() {
   registerPlatformAdminRoutes(app);
   registerPlatformInspectorRoutes(app);
   registerRegistryCreationDraftRoutes(app);
+  registerEventSubscriptionRoutes(app);
   registerGenericResourceRoutes(app);
   app.notFound((context) => context.json(failure("NOT_FOUND", "Route not found", context.get("requestId")), 404));
   app.onError((error, context) => {

@@ -4,13 +4,19 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-08-08",
   "observability": { "enabled": true },
-  "triggers": { "crons": ["0 * * * *"] },
+  "triggers": { "crons": ["* * * * *"] },
   "vars": { "ENVIRONMENT": "local", "AI_BASE_URL": "https://openrouter.ai/api/v1" },
   "d1_databases": [{ "binding": "DB", "database_name": "lifespace-core-local", "database_id": "00000000-0000-0000-0000-000000000001", "migrations_dir": "migrations" }],
   "r2_buckets": [{ "binding": "ASSETS", "bucket_name": "lifespace-local-assets" }],
   "queues": {
-    "producers": [{ "binding": "CREATION_DRAFT_QUEUE", "queue": "lifespace-local-creation-drafts" }],
-    "consumers": [{ "queue": "lifespace-local-creation-drafts", "max_batch_size": 1, "max_batch_timeout": 1, "max_retries": 2 }]
+    "producers": [
+      { "binding": "CREATION_DRAFT_QUEUE", "queue": "lifespace-local-creation-drafts" },
+      { "binding": "EVENT_DELIVERY_QUEUE", "queue": "lifespace-local-event-deliveries" }
+    ],
+    "consumers": [
+      { "queue": "lifespace-local-creation-drafts", "max_batch_size": 1, "max_batch_timeout": 1, "max_retries": 2 },
+      { "queue": "lifespace-local-event-deliveries", "max_batch_size": 10, "max_batch_timeout": 1, "max_retries": 5, "dead_letter_queue": "lifespace-local-event-deliveries-dlq" }
+    ]
   },
   "ratelimits": [{ "name": "AI_RATE_LIMITER", "namespace_id": "26001", "simple": { "limit": 10, "period": 60 } }],
   "env": {
@@ -23,8 +29,14 @@
       "r2_buckets": [{ "binding": "ASSETS", "bucket_name": "lifespace-staging-assets" }],
       "services": [{ "binding": "IDENTITY", "service": "lifespace-identity-staging" }],
       "queues": {
-        "producers": [{ "binding": "CREATION_DRAFT_QUEUE", "queue": "lifespace-staging-creation-drafts" }],
-        "consumers": [{ "queue": "lifespace-staging-creation-drafts", "max_batch_size": 1, "max_batch_timeout": 1, "max_retries": 2 }]
+        "producers": [
+          { "binding": "CREATION_DRAFT_QUEUE", "queue": "lifespace-staging-creation-drafts" },
+          { "binding": "EVENT_DELIVERY_QUEUE", "queue": "lifespace-staging-event-deliveries" }
+        ],
+        "consumers": [
+          { "queue": "lifespace-staging-creation-drafts", "max_batch_size": 1, "max_batch_timeout": 1, "max_retries": 2 },
+          { "queue": "lifespace-staging-event-deliveries", "max_batch_size": 10, "max_batch_timeout": 1, "max_retries": 5, "dead_letter_queue": "lifespace-staging-event-deliveries-dlq" }
+        ]
       },
       "ratelimits": [{ "name": "AI_RATE_LIMITER", "namespace_id": "26002", "simple": { "limit": 10, "period": 60 } }]
     },
@@ -37,8 +49,14 @@
       "r2_buckets": [{ "binding": "ASSETS", "bucket_name": "lifespace-assets" }],
       "services": [{ "binding": "IDENTITY", "service": "lifespace-identity" }],
       "queues": {
-        "producers": [{ "binding": "CREATION_DRAFT_QUEUE", "queue": "lifespace-creation-drafts" }],
-        "consumers": [{ "queue": "lifespace-creation-drafts", "max_batch_size": 1, "max_batch_timeout": 1, "max_retries": 2 }]
+        "producers": [
+          { "binding": "CREATION_DRAFT_QUEUE", "queue": "lifespace-creation-drafts" },
+          { "binding": "EVENT_DELIVERY_QUEUE", "queue": "lifespace-event-deliveries" }
+        ],
+        "consumers": [
+          { "queue": "lifespace-creation-drafts", "max_batch_size": 1, "max_batch_timeout": 1, "max_retries": 2 },
+          { "queue": "lifespace-event-deliveries", "max_batch_size": 10, "max_batch_timeout": 1, "max_retries": 5, "dead_letter_queue": "lifespace-event-deliveries-dlq" }
+        ]
       },
       "ratelimits": [{ "name": "AI_RATE_LIMITER", "namespace_id": "26003", "simple": { "limit": 10, "period": 60 } }]
     }
