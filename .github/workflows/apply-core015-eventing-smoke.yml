@@ -1,0 +1,37 @@
+name: Apply Core 0.15 Eventing smoke patch
+
+on:
+  push:
+    branches:
+      - fix/core-015-eventing-staging-smoke
+    paths:
+      - .github/workflows/apply-core015-eventing-smoke.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/core-015-eventing-staging-smoke
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: node infra/scripts/patch-core015-eventing-smoke.mjs
+      - name: Validate syntax
+        run: node --check infra/scripts/verify-staging-eventing.mjs
+      - name: Commit verifier
+        run: |
+          set -euo pipefail
+          if git diff --quiet; then
+            echo "No verifier changes"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add infra/scripts/verify-staging-eventing.mjs
+          git commit -m "fix: verify Core 0.15 shared Webhook Endpoint in staging"
+          git push origin HEAD:fix/core-015-eventing-staging-smoke
