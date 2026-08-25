@@ -21,7 +21,7 @@ Create or reconstruct isolated Cloudflare staging resources for LifeSpace. Produ
 - Identity Worker custom domain: `auth-staging.aisr.online`
 - Core Worker custom domain: `core-staging.aisr.online`
 
-The desired resource names live in `resources.json`. The Cloudflare account is supplied by GitHub Actions through `CLOUDFLARE_ACCOUNT_ID`; account-specific IDs are not part of the resource manifest.
+The desired shared resource names live in `resources.json`. The Cloudflare account is supplied by GitHub Actions through `CLOUDFLARE_ACCOUNT_ID`; account-specific IDs are not part of the resource manifest. Eventing smoke receivers are ephemeral verification resources and are therefore not shared manifest resources.
 
 ## GitHub configuration
 
@@ -31,7 +31,7 @@ Repository/`staging` Environment Actions must provide:
 - Variable or secret: `CLOUDFLARE_ACCOUNT_ID`
 - Staging Environment secret: `LIFESPACE_STAGING_BOOTSTRAP_SECRET` (at least 32 characters)
 
-The Cloudflare API token must have the account permissions required to manage Workers, D1, R2 and Queues used by staging. The staging Eventing verifier also creates and removes one ephemeral Workers.dev receiver through the Workers Scripts API; it does not require a permanent receiver hostname or third-party Webhook collector.
+The Cloudflare API token must have the account permissions required to manage Workers, Worker Custom Domains, D1, R2 and Queues used by staging. The staging Eventing verifier creates and removes one ephemeral Worker plus an ephemeral staging-only Custom Domain; it does not require a permanent receiver or third-party Webhook collector.
 
 `LIFESPACE_STAGING_BOOTSTRAP_SECRET` is the persistent platform-administration credential used by CI to register trusted staging applications through Identity. It must not be committed to the repository. The deploy workflow synchronizes it into the Identity Worker as `BOOTSTRAP_SECRET`.
 
@@ -46,7 +46,7 @@ The Phase 1 one-time **Provision staging infrastructure** GitHub Actions workflo
 3. Never deletes, renames, replaces or reuses a production resource.
 4. Reports the resolved resource identifiers for follow-up deployment work.
 
-Routine application/platform deployment must not reprovision shared infrastructure.
+Routine application/platform deployment must not reprovision shared infrastructure. The temporary Eventing smoke receiver is verification state rather than shared infrastructure and is created/deleted inside the smoke itself.
 
 ## D1 IDs
 
@@ -61,16 +61,18 @@ The staging deploy initializes and validates runtime secrets automatically.
 - `BOOTSTRAP_SECRET` is synchronized with `wrangler secret bulk` for Identity.
 - The smoke test validates the active Identity/Core RS256 signing relationship. If the signing key pair is missing or inconsistent, staging generates a new RSA key pair and activates `TOKEN_PRIVATE_KEY` on Identity and `IDENTITY_PUBLIC_KEY` on Core. If the active pair works, it is preserved.
 - Service authentication also uses a staging-only random `CORE_IDENTITY_SHARED_SECRET`, synchronized to both Core and Identity for internal opaque-token introspection. It is never exposed to service clients and is not committed.
-- The Eventing smoke receiver gets only the current subscription's one-time signing secret as an ephemeral Worker secret. That receiver is deleted before the verification step completes.
+- The Eventing smoke receiver gets only the current subscription's one-time signing secret as an ephemeral Worker `secret_text` binding in the same upload that creates the receiver Worker.
 - Secret values are never printed or stored in repository files.
 
 ## Custom domains
 
-The Wrangler staging configs declare both Worker Custom Domains. After deploying the Workers, `infra/scripts/ensure-staging-domains.mjs` verifies the account-level Custom Domain state through the Cloudflare Workers Domains API and attaches a missing domain explicitly.
+The Wrangler staging configs declare the long-lived Identity/Core Worker Custom Domains. After deploying those Workers, `infra/scripts/ensure-staging-domains.mjs` verifies the account-level Custom Domain state through the Cloudflare Workers Domains API and attaches a missing domain explicitly.
 
 The script is conservative: if a target hostname is already attached to a different Worker, deployment fails instead of silently moving that hostname. It never creates a manual A/CNAME record; Cloudflare Custom Domains create the DNS record and certificate on behalf of the Worker.
 
-Health/status convergence checks allow time for a newly deployed Worker or first-time Custom Domain attachment to become the version actually served by the staging hostname.
+The Eventing staging verifier independently creates a run-scoped hostname such as `eventing-smoke-staging-<run>.aisr.online`, attaches it to the temporary receiver Worker, waits until it is reachable, and removes the Custom Domain before deleting the Worker. The hostname is never a stable application endpoint.
+
+The Custom Domain is intentional rather than cosmetic. Cloudflare Worker-to-Worker `fetch()` has routing restrictions when another Worker is reached through workers.dev or a Route in the same zone. A Custom Domain is callable from another Worker and also represents the public HTTPS Webhook topology that Eventing is meant to support. Therefore canonical Eventing acceptance must not use a temporary workers.dev hostname as its asynchronous Webhook target.
 
 ## Deployment flow
 
@@ -86,16 +88,16 @@ Current flow:
 4. Apply Core migrations and deploy Core first.
 5. Wait until `core-staging.aisr.online` serves the expected schema/contract version.
 6. Apply Identity migrations and deploy Identity after the compatible Core verifier/runtime is live.
-7. Explicitly verify/attach both staging Worker Custom Domains.
+7. Explicitly verify/attach both long-lived staging Worker Custom Domains.
 8. Wait until `auth-staging.aisr.online` serves the expected Identity schema/contract version.
 9. Synchronize/validate staging runtime secrets and prepare bounded ephemeral smoke authority.
-10. Run the native staging end-to-end smoke suite, including a real Eventing mutation/outbox/Queue/signed-Webhook delivery.
-11. Export the pinned HomeMew handoff and clean up all ephemeral smoke authority/receivers.
+10. Run the native staging end-to-end smoke suite, including a real Eventing mutation/outbox/Queue/HMAC-signed Webhook delivery through an ephemeral staging Custom Domain.
+11. Export the pinned HomeMew handoff and clean up all ephemeral smoke authority/receiver resources.
 
 The Core-first ordering is intentional for changes where Identity may begin issuing credentials/tokens that require a newer Core verifier. A future change may alter deployment ordering only when its compatibility reasoning is explicit.
 
 The current smoke suite covers the deployed native platform surface required by the HomeMew migration, including user token exchange, profiles/avatars, Spaces and domain APIs, and service authentication. For service authentication it verifies direct `lsp_pat_*` -> Core access, optional OAuth `client_credentials`, current Data Grant enforcement, Grant revocation, and opaque-token revocation.
 
-Eventing verification goes beyond the direct subscription test endpoint. `infra/scripts/verify-staging-eventing.mjs` creates an ephemeral staging-only Workers.dev receiver, verifies the HMAC signature and exact reference-only payload shape, creates a real `event` record, waits for the scheduled outbox dispatcher and Cloudflare Queue consumer to produce a successful Webhook delivery, then proves subscriber Grant revocation is enforced. The receiver, subscription, test record, temporary authorization and subscriber state are cleaned up after the check. No webhook.site/httpbin-style third-party collector is part of staging acceptance.
+Eventing verification goes beyond the direct subscription test endpoint. `infra/scripts/verify-staging-eventing.mjs` creates an ephemeral staging-only Worker and Custom Domain, verifies the HMAC signature and exact reference-only payload shape, creates a real `event` record, waits for the scheduled outbox dispatcher and Cloudflare Queue consumer to produce a successful Webhook delivery, then proves subscriber Grant revocation is enforced. The subscription, test record, temporary authorization, subscriber state, Custom Domain and receiver Worker are cleaned up after the check. No workers.dev target and no webhook.site/httpbin-style third-party collector is part of canonical staging acceptance.
 
 Smoke data is staging-only and is identified by the GitHub Actions run ID/attempt. Production resources and HomeMew production traffic are not modified by the staging workflow.
