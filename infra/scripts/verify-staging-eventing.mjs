@@ -12,8 +12,10 @@ const spaceId = process.env.LIFESPACE_STAGING_SPACE_ID ?? "";
 const personId = process.env.LIFESPACE_STAGING_PERSON_ID ?? "";
 const runId = (process.env.GITHUB_RUN_ID ?? `${Date.now()}`).replace(/[^0-9A-Za-z_-]/gu, "_");
 const runAttempt = (process.env.GITHUB_RUN_ATTEMPT ?? "1").replace(/[^0-9A-Za-z_-]/gu, "_");
-const marker = `${runId}_${runAttempt}_${crypto.randomUUID().replaceAll("-", "").slice(0, 8)}`;
-const workerName = `lifespace-eventing-smoke-${runId}-${runAttempt}`.toLowerCase().replace(/[^a-z0-9-]/gu, "-").slice(0, 63);
+const suffix = `${runId}_${runAttempt}`.replace(/[^0-9A-Za-z]/gu, "").slice(-12).toLowerCase();
+const workerName = `lifespace-eventing-smoke-${suffix}`.slice(0, 63);
+const sinkHostname = `eventing-smoke-staging-${suffix}.aisr.online`;
+const sinkBase = `https://${sinkHostname}`;
 
 for (const [name, value] of Object.entries({
   CLOUDFLARE_API_TOKEN: apiToken,
@@ -145,34 +147,10 @@ async function cf(path, { method = "GET", body, form } = {}) {
   if (!response.ok || payload?.success === false) {
     throw new Error(`Cloudflare ${method} ${path} failed (${response.status}): ${JSON.stringify(payload?.errors ?? payload)}`);
   }
-  return payload;
+  return payload?.result;
 }
 
-async function deploySink() {
-  const form = new FormData();
-  form.set("metadata", new File([
-    JSON.stringify({ main_module: "worker.mjs", compatibility_date: "2026-08-08" }),
-  ], "metadata.json", { type: "application/json" }));
-  form.set("worker.mjs", new File([sinkSource], "worker.mjs", { type: "application/javascript+module" }));
-  await cf(`/accounts/${accountId}/workers/scripts/${encodeURIComponent(workerName)}`, { method: "PUT", form });
-  await cf(`/accounts/${accountId}/workers/scripts/${encodeURIComponent(workerName)}/subdomain`, {
-    method: "POST",
-    body: { enabled: true, previews_enabled: false },
-  });
-  const accountSubdomain = await cf(`/accounts/${accountId}/workers/subdomain`);
-  const subdomain = accountSubdomain?.result?.subdomain;
-  if (typeof subdomain !== "string" || !subdomain) throw new Error("Cloudflare account has no workers.dev subdomain");
-  return `https://${workerName}.${subdomain}.workers.dev`;
-}
-
-async function installSinkSecret(secret) {
-  await cf(`/accounts/${accountId}/workers/scripts/${encodeURIComponent(workerName)}/secrets`, {
-    method: "PUT",
-    body: { name: "EVENTING_SIGNING_SECRET", text: secret, type: "secret_text" },
-  });
-}
-
-async function poll(label, action, predicate, { attempts = 36, delayMs = 5000 } = {}) {
+async function poll(label, action, predicate, { attempts = 50, delayMs = 3000 } = {}) {
   let last;
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     try {
@@ -194,7 +172,44 @@ async function expectStatus(label, result, expectedStatus, expectedCode = null) 
   return result.payload?.data;
 }
 
-let sinkBase = "";
+let workerCreated = false;
+let customDomainAttached = false;
+
+async function deploySink(signingSecret) {
+  const form = new FormData();
+  form.set("metadata", new File([
+    JSON.stringify({
+      main_module: "worker.mjs",
+      compatibility_date: "2026-08-08",
+      bindings: [{ type: "secret_text", name: "EVENTING_SIGNING_SECRET", text: signingSecret }],
+    }),
+  ], "metadata.json", { type: "application/json" }));
+  form.set("worker.mjs", new File([sinkSource], "worker.mjs", { type: "application/javascript+module" }));
+  await cf(`/accounts/${accountId}/workers/scripts/${encodeURIComponent(workerName)}`, { method: "PUT", form });
+  workerCreated = true;
+
+  const existing = await cf(`/accounts/${accountId}/workers/domains`);
+  const current = (existing ?? []).find((item) => item.hostname === sinkHostname);
+  if (current && current.service !== workerName) {
+    throw new Error(`Staging Eventing smoke hostname ${sinkHostname} is already attached to ${current.service}`);
+  }
+  if (!current) {
+    await cf(`/accounts/${accountId}/workers/domains`, {
+      method: "PUT",
+      body: { hostname: sinkHostname, service: workerName, zone_name: "aisr.online" },
+    });
+  }
+  customDomainAttached = true;
+}
+
+async function detachSinkDomain() {
+  const domains = await cf(`/accounts/${accountId}/workers/domains`);
+  const current = (domains ?? []).find((item) => item.hostname === sinkHostname && item.service === workerName);
+  if (current) {
+    await cf(`/accounts/${accountId}/workers/domains/${encodeURIComponent(current.id)}`, { method: "DELETE" });
+  }
+}
+
 let originalApplicationScopes = null;
 let applicationScopesChanged = false;
 let managerBearer = "";
@@ -209,17 +224,6 @@ let primaryError = null;
 const cleanupErrors = [];
 
 try {
-  sinkBase = await deploySink();
-  await poll(
-    "staging Eventing smoke sink health",
-    async () => {
-      const response = await fetch(`${sinkBase}/health`);
-      return { response, payload: await response.text() };
-    },
-    ({ response }) => response.status === 200,
-    { attempts: 20, delayMs: 1000 },
-  );
-
   const applicationMetadata = await request(identityBase, `/bootstrap/v1/applications/${encodeURIComponent(applicationId)}`, {
     bootstrap: bootstrapSecret,
   });
@@ -253,7 +257,7 @@ try {
     method: "POST",
     bearer: applicationSecret,
     body: {
-      displayName: `Staging Eventing Subscriber ${marker}`.slice(0, 100),
+      displayName: `Staging Eventing Subscriber ${suffix}`.slice(0, 100),
       description: "Ephemeral staging-only subscriber used by the LifeSpace Eventing smoke test",
       maxScopes: ["resources:read"],
       createdByUserId: userId,
@@ -267,7 +271,7 @@ try {
   const subscriptionBody = {
     spaceId,
     subscriberServicePrincipalId: subscriberPrincipalId,
-    name: `Staging Eventing ${marker}`.slice(0, 80),
+    name: `Staging Eventing ${suffix}`.slice(0, 80),
     modelKey: "event",
     eventTypes: ["record.created"],
     webhookUrl,
@@ -318,15 +322,15 @@ try {
     throw new Error("Staging Eventing subscription read did not preserve one-time secret semantics");
   }
 
-  await installSinkSecret(signingSecret);
+  await deploySink(signingSecret);
   await poll(
-    "staging Eventing smoke sink secret binding",
+    "staging Eventing Custom Domain receiver readiness",
     async () => {
       const response = await fetch(`${sinkBase}/ready`);
       return { response, payload: await response.text() };
     },
     ({ response }) => response.status === 200,
-    { attempts: 20, delayMs: 1000 },
+    { attempts: 60, delayMs: 2000 },
   );
 
   const testSend = await request(coreBase, `/api/v1/event-subscriptions/${encodeURIComponent(subscriptionId)}/test`, {
@@ -345,7 +349,7 @@ try {
     method: "POST",
     bearer: managerBearer,
     body: {
-      summary: `Staging Eventing ${marker}`,
+      summary: `Staging Eventing ${suffix}`,
       isAllDay: false,
       startAt: start.toISOString(),
       endAt: end.toISOString(),
@@ -363,7 +367,7 @@ try {
     "real staging Eventing outbox/Queue/Webhook delivery",
     () => request(coreBase, `/api/v1/event-subscriptions/${encodeURIComponent(subscriptionId)}/deliveries`, { bearer: managerBearer }),
     ({ response, payload }) => response.status === 200 && payload?.data?.items?.some?.((item) => item.recordId === eventId && item.eventType === "record.created" && item.status === "succeeded" && item.lastStatusCode === 204),
-    { attempts: 36, delayMs: 5000 },
+    { attempts: 50, delayMs: 3000 },
   );
   const delivery = deliveryPoll.payload.data.items.find((item) => item.recordId === eventId && item.eventType === "record.created");
 
@@ -384,6 +388,7 @@ try {
   verification = {
     ok: true,
     worker: workerName,
+    customDomain: sinkHostname,
     subscriberServicePrincipalId: subscriberPrincipalId,
     subscriptionId,
     subscriberGrantRequired: true,
@@ -391,7 +396,7 @@ try {
     signedTestStatusCode: testData.statusCode,
     domainEvent: { modelKey: "event", recordId: eventId, version: eventVersion },
     delivery: { id: delivery.id, eventId: delivery.eventId, status: delivery.status, attemptCount: delivery.attemptCount, lastStatusCode: delivery.lastStatusCode },
-    realPath: "event mutation -> D1 outbox -> scheduled dispatcher -> Cloudflare Queue -> HMAC Webhook",
+    realPath: "event mutation -> D1 outbox -> scheduled dispatcher -> Cloudflare Queue -> HMAC Webhook Custom Domain",
     grantRevocationRechecked: true,
     referenceOnlyPayloadValidatedBySink: true,
   };
@@ -445,8 +450,11 @@ try {
       if (result.response.status !== 200) throw new Error(`HTTP ${result.response.status}`);
     });
   }
-  if (sinkBase) {
-    await cleanup("temporary workers.dev sink delete", async () => {
+  if (customDomainAttached) {
+    await cleanup("temporary staging Custom Domain detach", detachSinkDomain);
+  }
+  if (workerCreated) {
+    await cleanup("temporary Eventing sink Worker delete", async () => {
       await cf(`/accounts/${accountId}/workers/scripts/${encodeURIComponent(workerName)}`, { method: "DELETE" });
     });
   }
@@ -458,4 +466,4 @@ if (primaryError) {
 }
 if (cleanupErrors.length) throw new Error(`Staging Eventing smoke cleanup failed: ${cleanupErrors.join(" | ")}`);
 
-console.log(JSON.stringify({ ...verification, cleanup: { temporarySinkDeleted: true, subscriberDisabled: true, applicationScopeRestored: true } }, null, 2));
+console.log(JSON.stringify({ ...verification, cleanup: { temporaryCustomDomainDetached: true, temporarySinkDeleted: true, subscriberDisabled: true, applicationScopeRestored: true } }, null, 2));
