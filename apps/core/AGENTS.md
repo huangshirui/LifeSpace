@@ -27,6 +27,7 @@ Core owns:
 - Application × Model Access;
 - Model Definition validation, Registry/version lifecycle and Model Admin;
 - Generic Runtime/storage for ordinary Space-owned models;
+- effective-authority Runtime Discovery for applications/services without exposing privileged Model Admin payloads;
 - reusable Engines/Capabilities;
 - model-agnostic Domain Event outbox state, application/Space/model-scoped event subscriptions, signed Webhook delivery, retry state and delivery diagnostics;
 - cross-Space aggregate `/me` views;
@@ -93,6 +94,7 @@ Rules:
 - whole-Space Data Grants use `resource_type=space, resource_id=NULL`;
 - model-collection Data Grants use `resource_type=model, resource_id=<published model key>` and authorize only Generic Runtime access to that model in the source Space;
 - a model operation may use either a matching model-collection Grant or a whole-Space Grant, taking the highest current active permission; Kernel Space/membership APIs never treat a model-collection Grant as Space authority;
+- Runtime Discovery returns only model/field/query/action/capability metadata that survives the same current credential scope, Application × Model Access and Space membership/Data Grant intersection; it never exposes the privileged full Model Definition or immutable Model Contract payload;
 - event-subscription management is a user/Space-management operation: it requires `spaces:manage`, current Space `manage` permission and current read access to the selected model;
 - event delivery is reference-only and must not become a bypass around normal record-read authorization;
 - no service/platform executor becomes a hidden Space member.
@@ -154,7 +156,7 @@ Business-facing Core Kernel contract:
 
 ```text
 apps/core/openapi.yaml
-current Kernel version: 0.14.0
+current Kernel version: 0.15.0
 ```
 
 Privileged LifeSpace Console control-plane contract:
@@ -171,6 +173,8 @@ immutable Model Contract Revision: mct_<sha256>
 ```
 
 Do not put Console-only privileged APIs into the Kernel contract simply because they are served by the same Worker. Do not duplicate ordinary model routes into either code-owned contract.
+
+Authorized Runtime Discovery is a Kernel exception because it is model-agnostic integration syntax over the effective current model authority. Its response is deliberately bounded metadata, not a second Model Definition or Model Contract surface.
 
 Console Model publish/retire profiles may reference the existing Kernel Model Admin request/response schemas; they must not become a second hand-maintained Model Definition schema.
 
