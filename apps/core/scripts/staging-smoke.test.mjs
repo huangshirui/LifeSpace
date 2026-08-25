@@ -34,18 +34,27 @@ test("staging bootstrap masks ephemeral credentials before job export", () => {
   assert.match(source, /application_model_access/u, "smoke app model authorization must be explicit");
 });
 
-test("staging Eventing verifier proves the real signed delivery path through a temporary Custom Domain", () => {
+test("staging Eventing verifier proves the real signed delivery path through one shared Webhook Endpoint", () => {
   const source = readFileSync(fileURLToPath(eventingSmoke), "utf8");
 
-  assert.match(source, /EVENT_SUBSCRIBER_ACCESS_DENIED/u, "smoke must prove subscriber Data Grant denial before and after authorization");
-  assert.match(source, /record\.created/u, "smoke must exercise a real domain event rather than test-send only");
+  assert.match(source, /EVENT_SUBSCRIBER_ACCESS_DENIED/u, "smoke must prove subscriber Data Grant denial before authorization and after revocation");
+  assert.match(source, /record\.created/u, "smoke must exercise a real domain event rather than Endpoint test-send only");
   assert.match(source, /EVENTING_SIGNING_SECRET/u, "smoke sink must verify the LifeSpace HMAC signing secret");
+  assert.match(source, /\/api\/v1\/webhook-endpoints/u, "smoke must create and manage the shared Webhook Endpoint");
+  assert.match(source, /endpointId[\s\S]*modelKey:\s*"event"[\s\S]*eventTypes:\s*\["record\.created"\]/u, "subscription must be a model/event filter attached to the Endpoint");
+  assert.match(source, /\/api\/v1\/webhook-endpoints\/\$\{encodeURIComponent\(endpointId\)\}\/test/u, "test-send must be Endpoint-scoped");
+  assert.match(source, /\/api\/v1\/webhook-endpoints\/\$\{encodeURIComponent\(endpointId\)\}\/deliveries/u, "delivery diagnostics must be Endpoint-scoped");
+  assert.match(source, /endpoint\.test/u, "temporary sink must validate Endpoint test payload semantics");
+  assert.match(source, /x-lifespace-webhook-endpoint-id/u, "temporary sink must validate the Endpoint delivery header");
   assert.match(source, /workers\/scripts/u, "smoke must create an ephemeral Cloudflare Worker receiver");
   assert.match(source, /workers\/domains/u, "smoke must attach an ephemeral Worker Custom Domain for Worker-to-Worker fetch correctness");
   assert.match(source, /eventing-smoke-staging-/u, "smoke hostname must remain visibly staging-scoped");
   assert.match(source, /temporary staging Custom Domain detach/u, "smoke must detach its temporary Custom Domain during cleanup");
+  assert.match(source, /Webhook Endpoint delete/u, "smoke must delete its temporary Endpoint during cleanup");
   assert.match(source, /method:\s*"DELETE"/u, "smoke must delete temporary Cloudflare resources during cleanup");
-  assert.match(source, /event mutation -> D1 outbox -> scheduled dispatcher -> Cloudflare Queue -> HMAC Webhook Custom Domain/u);
+  assert.match(source, /event mutation -> D1 outbox -> subscription filter -> shared Webhook Endpoint -> Cloudflare Queue -> HMAC Webhook Custom Domain/u);
+  assert.match(source, /endpointTransportTestIndependentFromModelGrant:\s*true/u, "Endpoint transport/signature verification must remain independent from model Data Grants");
+  assert.doesNotMatch(source, /event-subscriptions\/\$\{encodeURIComponent\(subscriptionId\)\}\/test/u, "test-send must not regress to subscription-scoped transport");
   assert.doesNotMatch(source, /\.workers\.dev/iu, "canonical Eventing smoke must not use workers.dev as a Worker-to-Worker Webhook target");
   assert.doesNotMatch(source, /webhook\.site|httpbin/iu, "staging acceptance must not depend on third-party Webhook collectors");
 });
