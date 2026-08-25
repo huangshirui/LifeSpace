@@ -1,7 +1,7 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "lifespace-console-local",
-  "main": "worker/index.ts",
+  "main": "worker/control-plane.ts",
   "compatibility_date": "2026-08-23",
   "workers_dev": false,
   "observability": { "enabled": true },
