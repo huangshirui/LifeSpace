@@ -38,10 +38,27 @@ document.components.schemas.WebhookSubscriptionDestination = {
 document.components.schemas.WebhookSubscription = {
   type: "object",
   additionalProperties: false,
-  required: ["id", "spaceId", "name", "modelKey", "eventTypes", "destination", "enabled", "signingConfigured", "createdAt", "updatedAt"],
+  required: [
+    "id",
+    "spaceId",
+    "subscriberServicePrincipalId",
+    "name",
+    "modelKey",
+    "eventTypes",
+    "destination",
+    "enabled",
+    "signingConfigured",
+    "createdAt",
+    "updatedAt",
+  ],
   properties: {
     id: { type: "string", pattern: "^sub_[A-Za-z0-9_-]+$" },
     spaceId: { type: "string" },
+    subscriberServicePrincipalId: {
+      type: "string",
+      minLength: 1,
+      description: "Service principal that owns the external-system subscription and must retain current Data Grant access to the selected model.",
+    },
     name: { type: "string", minLength: 1, maxLength: 80 },
     modelKey: { type: "string" },
     eventTypes: { type: "array", minItems: 1, uniqueItems: true, items: { $ref: "#/components/schemas/DomainEventType" } },
@@ -56,9 +73,14 @@ document.components.schemas.WebhookSubscription = {
 document.components.schemas.CreateWebhookSubscriptionRequest = {
   type: "object",
   additionalProperties: false,
-  required: ["spaceId", "name", "modelKey", "eventTypes", "webhookUrl"],
+  required: ["spaceId", "subscriberServicePrincipalId", "name", "modelKey", "eventTypes", "webhookUrl"],
   properties: {
     spaceId: { type: "string" },
+    subscriberServicePrincipalId: {
+      type: "string",
+      minLength: 1,
+      description: "Service principal receiving this subscription. It must currently have read/write/manage Data Grant access to the selected model or whole Space.",
+    },
     name: { type: "string", minLength: 1, maxLength: 80 },
     modelKey: { type: "string" },
     eventTypes: { type: "array", minItems: 1, uniqueItems: true, items: { $ref: "#/components/schemas/DomainEventType" } },
@@ -203,8 +225,11 @@ document.paths["/api/v1/event-subscriptions"] = {
   get: {
     tags: ["Event Subscriptions"],
     operationId: "listEventSubscriptions",
-    description: "Lists subscriptions owned by the authenticated application context for one Space. Requires a user principal with `spaces:manage` and current Space manage permission.",
-    parameters: [{ name: "spaceId", in: "query", required: true, schema: { type: "string" } }],
+    description: "Lists subscriptions owned by the authenticated application context for one Space, optionally filtered to one subscriber service principal. Requires a user principal with `spaces:manage` and current Space manage permission.",
+    parameters: [
+      { name: "spaceId", in: "query", required: true, schema: { type: "string" } },
+      { name: "subscriberServicePrincipalId", in: "query", required: false, schema: { type: "string" } },
+    ],
     responses: {
       "200": { description: "Event subscriptions", content: { "application/json": { schema: { $ref: "#/components/schemas/WebhookSubscriptionListResponse" } } } },
       ...authErrors,
@@ -213,7 +238,7 @@ document.paths["/api/v1/event-subscriptions"] = {
   post: {
     tags: ["Event Subscriptions"],
     operationId: "createEventSubscription",
-    description: "Creates a Space/model-scoped reference-only Webhook subscription. Requires `spaces:manage`, Space manage permission and current read access to the selected published model.",
+    description: "Creates a Space/model-scoped reference-only Webhook subscription bound to a service principal. Requires `spaces:manage`, Space manage permission, current read access for the managing application, and a current Data Grant that lets the subscriber service read the selected model.",
     requestBody: { required: true, content: { "application/json": { schema: { $ref: "#/components/schemas/CreateWebhookSubscriptionRequest" } } } },
     responses: {
       "201": { description: "Subscription created; signing secret is returned only in this response.", content: { "application/json": { schema: { $ref: "#/components/schemas/CreateWebhookSubscriptionResponse" } } } },
@@ -264,7 +289,7 @@ document.paths["/api/v1/event-subscriptions/{subscriptionId}/test"] = {
   post: {
     tags: ["Event Subscriptions"],
     operationId: "testEventSubscription",
-    description: "Sends a signed `subscription.test` payload directly to the configured Webhook without creating a domain event.",
+    description: "Sends a signed `subscription.test` payload directly to the configured Webhook without creating a domain event. The subscriber service must still have a current Data Grant for the selected model.",
     responses: {
       "200": { description: "Webhook test result", content: { "application/json": { schema: { $ref: "#/components/schemas/WebhookTestResponse" } } } },
       ...authErrors,
