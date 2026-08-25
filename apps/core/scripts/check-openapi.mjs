@@ -3,7 +3,7 @@ import YAML from "yaml";
 
 const document = YAML.parse(fs.readFileSync(new URL("../openapi.yaml", import.meta.url), "utf8"));
 
-if (document.openapi !== "3.1.0" || document.info?.version !== "0.14.0") {
+if (document.openapi !== "3.1.0" || document.info?.version !== "0.15.0") {
   throw new Error("Core Kernel OpenAPI version metadata is invalid");
 }
 if (!document.info?.title?.includes("Kernel")) {
@@ -31,6 +31,7 @@ const requiredPaths = [
   "/api/v1/space-invites/{token}/join",
   "/api/v1/spaces/{spaceId}/grants",
   "/api/v1/spaces/{spaceId}/grants/{grantId}",
+  "/api/v1/spaces/{spaceId}/_discovery",
   "/api/v1/event-subscriptions",
   "/api/v1/event-subscriptions/{subscriptionId}",
   "/api/v1/event-subscriptions/{subscriptionId}/deliveries",
@@ -153,6 +154,35 @@ if (!grants.get.responses?.["200"]?.description?.includes("model-collection") ||
   throw new Error("Data Grant contract must document model-collection support");
 }
 
+const discovery = document.paths?.["/api/v1/spaces/{spaceId}/_discovery"]?.get;
+if (!discovery) {
+  throw new Error("Authorized Runtime Discovery read surface is missing");
+}
+if (!discovery.description?.includes("effective authority")) {
+  throw new Error("Runtime Discovery must document effective-authority filtering");
+}
+const discoveryResponseRef = discovery.responses?.["200"]?.content?.["application/json"]?.schema?.$ref;
+if (discoveryResponseRef !== "#/components/schemas/RuntimeDiscoveryResponse") {
+  throw new Error("Runtime Discovery must use its bounded Kernel response schema");
+}
+if (!schemas.RuntimeDiscoveryResponse || !schemas.RuntimeDiscoveryModel || !schemas.RuntimeDiscoveryAction) {
+  throw new Error("Runtime Discovery schemas are incomplete");
+}
+for (const required of ["key", "route", "version", "schemaHash", "display", "access", "fields", "query", "actions", "capabilities"]) {
+  if (!schemas.RuntimeDiscoveryModel?.required?.includes(required)) {
+    throw new Error(`Runtime Discovery model metadata missing required field: ${required}`);
+  }
+}
+if (schemas.RuntimeDiscoveryModel?.properties?.definition || schemas.RuntimeDiscoveryModel?.properties?.openapi) {
+  throw new Error("Runtime Discovery must not expose privileged full Model Definition/contract payloads");
+}
+if (schemas.RuntimeDiscoveryAccess?.enum?.join(",") !== "read,write,manage") {
+  throw new Error("Runtime Discovery access vocabulary drifted");
+}
+if (schemas.RuntimeDiscoveryActionKind?.enum?.join(",") !== "workflow,capability") {
+  throw new Error("Runtime Discovery action-kind vocabulary drifted");
+}
+
 const subscriptions = document.paths?.["/api/v1/event-subscriptions"];
 const subscription = document.paths?.["/api/v1/event-subscriptions/{subscriptionId}"];
 if (!subscriptions?.get || !subscriptions?.post || !subscription?.patch || !subscription?.delete) {
@@ -201,7 +231,7 @@ if (schemas.ModelContract?.properties?.id?.pattern !== "^mct_[a-f0-9]{64}$") {
   throw new Error("Model Contract revisions must be content-addressed mct_<sha256>");
 }
 
-if (schemas.StatusResponse?.properties?.data?.properties?.contractVersion?.const !== "0.14.0") {
+if (schemas.StatusResponse?.properties?.data?.properties?.contractVersion?.const !== "0.15.0") {
   throw new Error("Core Kernel status contract version drifted");
 }
 
