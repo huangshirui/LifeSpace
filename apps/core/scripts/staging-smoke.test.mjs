@@ -4,11 +4,11 @@ import { spawnSync } from "node:child_process";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
-const scripts = [
-  new URL("../../../infra/scripts/prepare-staging-smoke.mjs", import.meta.url),
-  new URL("../../../infra/scripts/cleanup-staging-smoke.mjs", import.meta.url),
-  new URL("../../../infra/scripts/wait-staging-apac-probe.mjs", import.meta.url),
-];
+const prepareSmoke = new URL("../../../infra/scripts/prepare-staging-smoke.mjs", import.meta.url);
+const cleanupSmoke = new URL("../../../infra/scripts/cleanup-staging-smoke.mjs", import.meta.url);
+const eventingSmoke = new URL("../../../infra/scripts/verify-staging-eventing.mjs", import.meta.url);
+const waitApacProbe = new URL("../../../infra/scripts/wait-staging-apac-probe.mjs", import.meta.url);
+const scripts = [prepareSmoke, cleanupSmoke, eventingSmoke, waitApacProbe];
 const apacWorkflow = new URL("../../../.github/workflows/apac-performance-gate.yml", import.meta.url);
 const apacProbeConfig = new URL("../../../infra/performance-probe/wrangler.jsonc", import.meta.url);
 
@@ -27,11 +27,23 @@ test("authenticated staging smoke scripts remain syntax-valid and staging-only",
 });
 
 test("staging bootstrap masks ephemeral credentials before job export", () => {
-  const source = readFileSync(fileURLToPath(scripts[0]), "utf8");
+  const source = readFileSync(fileURLToPath(prepareSmoke), "utf8");
   assert.match(source, /::add-mask::/u);
   assert.match(source, /GITHUB_ENV/u);
   assert.match(source, /15 \* 60 \* 1000/u, "service PAT should retain a bounded staging-only lifetime");
   assert.match(source, /application_model_access/u, "smoke app model authorization must be explicit");
+});
+
+test("staging Eventing verifier proves the real signed delivery path and cleans up its sink", () => {
+  const source = readFileSync(fileURLToPath(eventingSmoke), "utf8");
+
+  assert.match(source, /EVENT_SUBSCRIBER_ACCESS_DENIED/u, "smoke must prove subscriber Data Grant denial before and after authorization");
+  assert.match(source, /record\.created/u, "smoke must exercise a real domain event rather than test-send only");
+  assert.match(source, /EVENTING_SIGNING_SECRET/u, "smoke sink must verify the LifeSpace HMAC signing secret");
+  assert.match(source, /workers\/scripts/u, "smoke must create an ephemeral Cloudflare Worker receiver");
+  assert.match(source, /method:\s*"DELETE"/u, "smoke must delete the ephemeral receiver during cleanup");
+  assert.match(source, /event mutation -> D1 outbox -> scheduled dispatcher -> Cloudflare Queue -> HMAC Webhook/u);
+  assert.doesNotMatch(source, /webhook\.site|httpbin/iu, "staging acceptance must not depend on third-party Webhook collectors");
 });
 
 test("APAC performance gate resolves real staging D1 IDs before preparing smoke authority", () => {
@@ -53,7 +65,7 @@ test("APAC performance gate proves the real POST /run path before timed benchmar
   assert.notEqual(benchmarkIndex, -1, "APAC gate must run the timed benchmark");
   assert.ok(waitIndex < benchmarkIndex, "real APAC probe route readiness must converge before timed samples start");
 
-  const waitSource = readFileSync(fileURLToPath(scripts[2]), "utf8");
+  const waitSource = readFileSync(fileURLToPath(waitApacProbe), "utf8");
   assert.match(waitSource, /\/run/u, "readiness must exercise the same POST /run entry point used by the benchmark");
   assert.match(waitSource, /tasks\?limit=1/u, "readiness probe must use a read-only Core request");
 });
