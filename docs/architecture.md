@@ -15,7 +15,7 @@ Historical extraction and phase evidence lives in the phase/status and migration
 The platform remains a modular monolith split into two authoritative deployed services:
 
 - `apps/identity`: global LifeSpace users, Cloudflare Access principals, registered applications and `lsa_*` application credentials, service principals and service credentials, signing/issuance, platform-administrator assignments, Identity-owned platform-admin audit.
-- `apps/core`: Spaces, memberships, Space People, Data Grants, Model Registry, Application × Model Access, Generic Runtime, typed model storage, reusable Capabilities, model administration, Core-owned platform-admin audit.
+- `apps/core`: Spaces, memberships, Space People, Data Grants, Model Registry, Application × Model Access, authorized Runtime Discovery, Generic Runtime, typed model storage, reusable Capabilities, Eventing, model administration and Core-owned platform-admin audit.
 
 `apps/console` is the LifeSpace platform operations/governance client and same-origin BFF. Its permanent frontend is React + TypeScript + Vite on a Cloudflare Worker/Static Assets deployment. It consumes Identity/Core control-plane contracts and must never become a third source of truth for Identity or Core state.
 
@@ -76,7 +76,9 @@ Kernel concepts remain explicit platform concepts and cannot be created as ordin
 - Data Grant and authorization state;
 - Model Registry administration and publication state;
 - Application × Model Access;
+- authorized Runtime Discovery over published model metadata;
 - Registry-driven Creation Draft orchestration;
+- platform Eventing/subscription infrastructure;
 - platform administration and audit;
 - security/signing/deployment state.
 
@@ -95,6 +97,42 @@ mct_<sha256(canonical(manifest + openapi + jsonSchema))>
 ```
 
 AI Model Designer or another Agent may propose a Model Definition, but it has no implicit publication authority and no arbitrary DDL/code execution path. Publication always goes through the same validator, compatibility gate and Model Admin boundary.
+
+## Authorized Runtime Discovery
+
+Applications, integrations and Agents sometimes need to build runtime UX from the models that the current connection may actually use. Core therefore exposes a bounded Kernel discovery surface:
+
+```text
+GET /api/v1/spaces/{spaceId}/_discovery
+```
+
+Discovery returns only model metadata that survives the caller's current metadata-authority intersection:
+
+```text
+verified principal
+∩ credential resources:* scope
+∩ Application × Model Access
+∩ current Space membership / Data Grant
+∩ published model declared access
+```
+
+For each visible model, the response may include key/route/version/schema hash, display metadata, bounded field metadata, query capabilities, effective read/write/manage levels, currently eligible declared workflow/Capability actions and capability names.
+
+Discovery is deliberately **not** an execution authorization proof. Record/input-level policy, guard and Capability restrictions that depend on the actual record/input/current runtime context are still evaluated by the normal Generic Runtime when an operation executes. A client must never treat an option appearing in Discovery as authority to bypass the eventual operation check.
+
+Mutable authority such as Data Grants and Application × Model Access is evaluated from current state so revocation/downgrade is reflected on subsequent discovery requests. Discovery never returns the privileged full Model Definition, Model Admin state, generated Model Contract OpenAPI/JSON Schema, or metadata for models with no current usable access.
+
+The `_discovery` segment is Kernel-owned and cannot collide with ordinary model routes because Model Definition route segments must begin with a lowercase letter.
+
+An application-managed integration may expose a Space-bound Connection Base URL such as:
+
+```text
+https://core.aisr.online/api/v1/spaces/spc_...
+```
+
+Clients such as the official n8n Community Nodes then resolve `/_discovery` and model routes relative to that root. The URL carries routing context only; the bearer credential and current LifeSpace authorization state remain the security boundary.
+
+Runtime Discovery supports dynamic UX; it does not replace explicit Kernel/Model Contract version pinning for a released client implementation.
 
 ## Physical persistence
 
@@ -293,8 +331,8 @@ Platform Admin Control-Plane Contract
 ```text
 Kernel Contract
   apps/core/openapi.yaml
-  explicit product-facing Space / Grant / Creation Draft / Model Admin primitives
-  current Kernel contract: 0.13.0
+  explicit product-facing Space / Grant / Runtime Discovery / Event Subscription / Creation Draft / Model Admin primitives
+  current Kernel contract: 0.15.0
 
 Platform Admin Control-Plane Contract
   apps/core/platform-admin.openapi.yaml
@@ -353,6 +391,7 @@ Publishing a compatible ordinary Model Definition does not itself require a Work
 - No application authority inferred from hostname.
 - No arbitrary executable code/SQL in Model metadata.
 - No service credential or platform-admin executor becomes a hidden Space member.
+- Runtime Discovery may preview only current authorized metadata and never substitutes for execution-time authorization.
 - No browser receives Access/LifeSpace/actor/executor/backend/bootstrap bearer material.
 - No Cloudflare Access session alone equals LifeSpace platform-admin authority.
 - No privileged Console mutation may replace the signed human actor proof with an unsigned identity field.
