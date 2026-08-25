@@ -14,6 +14,7 @@ type SubscriptionRow = {
   id: string;
   application_id: string;
   space_id: string;
+  subscriber_service_principal_id: string;
   name: string;
   model_key: string;
   include_created: number;
@@ -43,6 +44,13 @@ function name(value: unknown): string {
   return value.trim();
 }
 
+function servicePrincipalId(value: unknown): string {
+  if (typeof value !== "string" || value.trim().length < 1 || value.trim().length > 200) {
+    throw new ApiError("INVALID_REQUEST", "subscriberServicePrincipalId is required", 400);
+  }
+  return value.trim();
+}
+
 function eventFlags(value: unknown): { created: number; updated: number; deleted: number; eventTypes: DomainEventType[] } {
   if (!Array.isArray(value) || value.length < 1 || value.some((item) => typeof item !== "string" || !allowedEvents.has(item as DomainEventType))) {
     throw new ApiError("INVALID_REQUEST", "eventTypes must contain one or more supported record events", 400);
@@ -64,6 +72,7 @@ function dto(row: SubscriptionRow) {
   return {
     id: row.id,
     spaceId: row.space_id,
+    subscriberServicePrincipalId: row.subscriber_service_principal_id,
     name: row.name,
     modelKey: row.model_key,
     eventTypes,
@@ -86,8 +95,33 @@ async function requireSubscribableModel(env: Bindings, principal: Principal, spa
   await requireModelAccess(env, principal, spaceId, model, "read");
 }
 
+async function requireSubscriberModelGrant(env: Bindings, spaceId: string, subscriberId: string, modelKey: string): Promise<void> {
+  const currentTime = new Date().toISOString();
+  const grant = await env.DB.prepare(`SELECT id FROM data_grants
+    WHERE source_space_id=?
+      AND grantee_type='service'
+      AND grantee_id=?
+      AND revoked_at IS NULL
+      AND (expires_at IS NULL OR expires_at>?)
+      AND permission IN ('read','write','manage')
+      AND (
+        (resource_type='model' AND resource_id=?)
+        OR (resource_type='space' AND resource_id IS NULL)
+      )
+    LIMIT 1`)
+    .bind(spaceId, subscriberId, currentTime, modelKey)
+    .first<{ id: string }>();
+  if (!grant) {
+    throw new ApiError(
+      "EVENT_SUBSCRIBER_ACCESS_DENIED",
+      "The subscriber service principal must have current read access to the selected model in this Space",
+      403,
+    );
+  }
+}
+
 async function ownedSubscription(env: Bindings, principal: Principal, subscriptionId: string): Promise<SubscriptionRow> {
-  const row = await env.DB.prepare(`SELECT id,application_id,space_id,name,model_key,include_created,include_updated,include_deleted,
+  const row = await env.DB.prepare(`SELECT id,application_id,space_id,subscriber_service_principal_id,name,model_key,include_created,include_updated,include_deleted,
       webhook_url,enabled,created_at,updated_at
     FROM event_subscriptions WHERE id=? AND application_id=? AND deleted_at IS NULL`)
     .bind(subscriptionId, principal.clientId).first<SubscriptionRow>();
@@ -100,15 +134,25 @@ export function registerEventSubscriptionRoutes(app: App): void {
   app.get("/api/v1/event-subscriptions", requireScope("spaces:manage"), async (context) => {
     const principal = context.get("principal");
     requireUser(principal);
-    const spaceId = new URL(context.req.url).searchParams.get("spaceId")?.trim();
+    const search = new URL(context.req.url).searchParams;
+    const spaceId = search.get("spaceId")?.trim();
+    const subscriberId = search.get("subscriberServicePrincipalId")?.trim() || null;
     if (!spaceId) throw new ApiError("INVALID_REQUEST", "spaceId is required", 400);
+    if (subscriberId && subscriberId.length > 200) throw new ApiError("INVALID_REQUEST", "subscriberServicePrincipalId is invalid", 400);
     await requireManager(context.env, principal, spaceId);
-    const rows = await context.env.DB.prepare(`SELECT id,application_id,space_id,name,model_key,include_created,include_updated,include_deleted,
-        webhook_url,enabled,created_at,updated_at
-      FROM event_subscriptions
-      WHERE application_id=? AND space_id=? AND deleted_at IS NULL
-      ORDER BY created_at DESC,id DESC`)
-      .bind(principal.clientId, spaceId).all<SubscriptionRow>();
+    const rows = subscriberId
+      ? await context.env.DB.prepare(`SELECT id,application_id,space_id,subscriber_service_principal_id,name,model_key,include_created,include_updated,include_deleted,
+          webhook_url,enabled,created_at,updated_at
+        FROM event_subscriptions
+        WHERE application_id=? AND space_id=? AND subscriber_service_principal_id=? AND deleted_at IS NULL
+        ORDER BY created_at DESC,id DESC`)
+        .bind(principal.clientId, spaceId, subscriberId).all<SubscriptionRow>()
+      : await context.env.DB.prepare(`SELECT id,application_id,space_id,subscriber_service_principal_id,name,model_key,include_created,include_updated,include_deleted,
+          webhook_url,enabled,created_at,updated_at
+        FROM event_subscriptions
+        WHERE application_id=? AND space_id=? AND deleted_at IS NULL
+        ORDER BY created_at DESC,id DESC`)
+        .bind(principal.clientId, spaceId).all<SubscriptionRow>();
     return context.json(success({ items: rows.results.map(dto) }));
   });
 
@@ -118,19 +162,21 @@ export function registerEventSubscriptionRoutes(app: App): void {
     const input = await body(context);
     const spaceId = typeof input.spaceId === "string" ? input.spaceId.trim() : "";
     const modelKey = typeof input.modelKey === "string" ? input.modelKey.trim() : "";
+    const subscriberId = servicePrincipalId(input.subscriberServicePrincipalId);
     if (!spaceId || !modelKey) throw new ApiError("INVALID_REQUEST", "spaceId and modelKey are required", 400);
     await requireManager(context.env, principal, spaceId);
     await requireSubscribableModel(context.env, principal, spaceId, modelKey);
+    await requireSubscriberModelGrant(context.env, spaceId, subscriberId, modelKey);
     const flags = eventFlags(input.eventTypes);
     const webhookUrl = validateWebhookUrl(input.webhookUrl);
     const signingSecret = createWebhookSigningSecret();
     const subscriptionId = createId();
     const timestamp = new Date().toISOString();
     await context.env.DB.prepare(`INSERT INTO event_subscriptions(
-      id,application_id,space_id,name,model_key,include_created,include_updated,include_deleted,
+      id,application_id,space_id,subscriber_service_principal_id,name,model_key,include_created,include_updated,include_deleted,
       webhook_url,signing_secret,enabled,created_by_user_id,created_at,updated_at
-    ) VALUES(?,?,?,?,?,?,?,?,?,?,1,?,?,?)`)
-      .bind(subscriptionId, principal.clientId, spaceId, name(input.name), modelKey, flags.created, flags.updated, flags.deleted,
+    ) VALUES(?,?,?,?,?,?,?,?,?,?,?,1,?,?,?)`)
+      .bind(subscriptionId, principal.clientId, spaceId, subscriberId, name(input.name), modelKey, flags.created, flags.updated, flags.deleted,
         webhookUrl, signingSecret, principal.id, timestamp, timestamp).run();
     const row = await ownedSubscription(context.env, principal, subscriptionId);
     return context.json(success({
@@ -150,7 +196,10 @@ export function registerEventSubscriptionRoutes(app: App): void {
     const nextUrl = input.webhookUrl === undefined ? current.webhook_url : validateWebhookUrl(input.webhookUrl);
     const enabled = input.enabled === undefined ? current.enabled : (typeof input.enabled === "boolean" ? Number(input.enabled) : NaN);
     if (!Number.isInteger(enabled)) throw new ApiError("INVALID_REQUEST", "enabled must be boolean", 400);
-    if (enabled || flags) await requireSubscribableModel(context.env, principal, current.space_id, current.model_key);
+    if (enabled || flags) {
+      await requireSubscribableModel(context.env, principal, current.space_id, current.model_key);
+      await requireSubscriberModelGrant(context.env, current.space_id, current.subscriber_service_principal_id, current.model_key);
+    }
     const rotate = input.rotateSigningSecret === true;
     if (input.rotateSigningSecret !== undefined && typeof input.rotateSigningSecret !== "boolean") throw new ApiError("INVALID_REQUEST", "rotateSigningSecret must be boolean", 400);
     const rotatedSecret = rotate ? createWebhookSigningSecret() : null;
@@ -206,11 +255,19 @@ export function registerEventSubscriptionRoutes(app: App): void {
     const principal = context.get("principal");
     requireUser(principal);
     const current = await ownedSubscription(context.env, principal, context.req.param("subscriptionId"));
+    await requireSubscriberModelGrant(context.env, current.space_id, current.subscriber_service_principal_id, current.model_key);
     const secret = await context.env.DB.prepare("SELECT signing_secret FROM event_subscriptions WHERE id=?")
       .bind(current.id).first<{ signing_secret: string }>();
     if (!secret) throw new ApiError("EVENT_SUBSCRIPTION_NOT_FOUND", "Event subscription not found", 404);
     try {
-      return context.json(success(await sendWebhookTest(current.webhook_url, secret.signing_secret, current.id, current.space_id, current.model_key)));
+      return context.json(success(await sendWebhookTest(
+        current.webhook_url,
+        secret.signing_secret,
+        current.id,
+        current.space_id,
+        current.model_key,
+        current.subscriber_service_principal_id,
+      )));
     } catch (error) {
       console.warn("Webhook test failed", { subscriptionId: current.id, error: error instanceof Error ? error.message : String(error) });
       throw new ApiError("WEBHOOK_TEST_FAILED", "Webhook test request failed", 502);
