@@ -1,43 +1,89 @@
 # LifeSpace Core
 
-Shared Cloudflare Worker business API for Space-owned life data.
+Shared Cloudflare Worker business platform for Space-owned life data.
 
-## Implemented platform foundation
+## Current architecture
 
-- Verified RS256 principal authentication and application scopes.
-- Space ownership with roles `owner`, `admin`, `editor`, and `viewer`.
-- Current Space membership and Data Grant authorization intersection.
-- Linked Space People for person-subject domain relationships.
-- Health/status diagnostics and standard success/error envelopes.
+LifeSpace Core owns the business-facing Kernel plus the metadata-driven ordinary-model Runtime. Ordinary models are published Model Definitions interpreted by one Generic Runtime; adding a normal model must not require a handwritten router/service/table implementation.
 
-## Phase 2 native HomeMew capability replacement
+Core currently provides:
 
-Core API contract version **0.8.0** is native-only. It contains the family Space policy and the Space-owned Events, Tasks, Day Records and Wishes needed by the frozen HomeMew migration baseline, but no longer exposes HomeMew `/api/v1/families/...` or `/api/v1/family-invites/...` runtime compatibility facades.
+- verified RS256 user/service principals and opaque `lsp_pat_*` Service API Token authentication;
+- Space ownership, memberships and linked Space People;
+- current Data Grant authorization and Application × Model Access;
+- Model Registry, immutable Model Contract Revisions and deterministic typed model persistence;
+- generic CRUD/query/action execution for published ordinary models;
+- effective-authority Runtime Discovery for integrations and Agents;
+- Registry-driven Creation Draft orchestration;
+- model-agnostic Domain Events, subscriptions, signed Webhook delivery and diagnostics;
+- explicit Platform Admin control-plane routes separate from the ordinary Kernel contract;
+- standard request tracing and success/error envelopes.
 
-HomeMew remains free to use product terms such as “家庭” and “家庭成员” in its UI. Its application layer maps those product concepts to the native LifeSpace contract:
+## Contract layers
+
+The business-facing Kernel contract is:
 
 ```text
-family            -> Space(kind=family)
-family member     -> Space membership + Space Person
-familyId          -> spaceId
-attendee/assignee -> Space Person ID
-day subject       -> Space Person ID
-wish people       -> Space Person ID
+apps/core/openapi.yaml
+Kernel version: 0.15.0
 ```
 
-The retired compatibility implementation from Phase 2.2–2.6 is migration history, not target architecture. Migration mapping tables and transform scripts remain because they are needed to deterministically transform HomeMew production data and preserve audit traceability; native request handling does not consult those mappings.
+Ordinary model CRUD/query/action syntax is not duplicated in the Kernel OpenAPI. Each published Registry state activates an immutable generated Model Contract Revision:
 
-## Native domain behavior
+```text
+mct_<sha256>
+```
 
-- Every Space stores an IANA `timezone`; creation defaults to `UTC` when omitted.
-- Space profile updates use optimistic-concurrency `version`.
-- Family Spaces allow at most eight active memberships and retain at least one active owner/admin.
-- Membership activation/deactivation keeps its linked Space Person consistent.
-- Core owns hashed, expiring, revocable Space invitations. Plaintext invitation tokens are returned exactly once at creation; redemption atomically creates/reactivates membership plus Space Person.
-- Events are stored against `space_id`. Attendees are active same-Space `space_person` references. Timed instants are canonical UTC with display timezones; all-day ranges use half-open dates; update/delete use optimistic versions and soft deletion.
-- Tasks are stored against `space_id`. Assignees are active same-Space `space_person` references. Status is `pending`, `completed`, or `cancelled`; `dueDate` is date-only; PATCH/DELETE/complete/reopen use optimistic versions. When a due-date range is supplied, omitted `includeNoDue` is explicitly `false`.
-- Day Records are Space-owned date-only records with `elapsed`, `countdown`, and `cycle` kinds. Computed state uses the owning Space timezone. Elapsed/cycle records preserve occurrence history; manual occurrences advance the anchor atomically. Archived records are readable but immutable until restored. Native subjects use Space Person IDs and historical subject references remain renderable after deactivation.
-- Wishes are Space-owned records with `open`, `claimed`, `fulfilled`, and `archived` lifecycle states. Owner, claimant, and fulfiller are durable same-Space Person references. Phase 2.6 lifecycle actions still require a current user principal with an active linked Space Person; service/Agent lifecycle semantics belong to the external-integrations slice.
+The privileged LifeSpace Console control plane is a separate canonical contract:
+
+```text
+apps/core/platform-admin.openapi.yaml
+```
+
+See `docs/contracts.md` for pinning and compatibility rules.
+
+## Authorized Runtime Discovery
+
+Integrations such as the official LifeSpace n8n Community Nodes use:
+
+```http
+GET /api/v1/spaces/{spaceId}/_discovery
+```
+
+The response contains only bounded model metadata that the current credential can actually use in that Space. Effective access is intersected from:
+
+```text
+credential resources:* scopes
+∩ Application × Model Access
+∩ current Space membership / Data Grant
+∩ published model access
+∩ applicable model/Capability restrictions
+```
+
+Discovery exposes model key/route/version/schema hash, display metadata, field metadata, query capabilities, currently callable actions and capability names. It does **not** expose the privileged full Model Definition or immutable Model Contract payload.
+
+For application-managed external integrations, the application Web UI may expose a Space-bound Connection Base URL such as:
+
+```text
+https://core.aisr.online/api/v1/spaces/spc_...
+```
+
+along with the one-time Service API Token. The URL is routing context only; all authorization remains current credential/application/Grant/model authority.
+
+## Generic ordinary-model routes
+
+Published ordinary models receive concrete routes backed by the Generic Runtime:
+
+```text
+GET    /api/v1/spaces/{spaceId}/{modelRoute}
+POST   /api/v1/spaces/{spaceId}/{modelRoute}
+GET    /api/v1/spaces/{spaceId}/{modelRoute}/{recordId}
+PATCH  /api/v1/spaces/{spaceId}/{modelRoute}/{recordId}
+DELETE /api/v1/spaces/{spaceId}/{modelRoute}/{recordId}
+POST   /api/v1/spaces/{spaceId}/{modelRoute}/{recordId}/actions/{actionKey}
+```
+
+The concrete model contract is generated from the published Registry and registered Capabilities. The Kernel OpenAPI intentionally does not contain generic `{modelRoute}` templates or hard-coded Event/Task/Day Record/Wish schemas.
 
 ## HomeMew migration transforms
 
@@ -97,8 +143,8 @@ node scripts/homemew-wish-transform.mjs \
 
 Preserves `wsh_*`, lifecycle, desired dates, actors, versions and historical owner/claimant/fulfiller relations as Space Person references.
 
-Canonical request and response syntax lives in `openapi.yaml`. D1 migrations live in `migrations/`. Migration maps under the compatibility-era schema remain migration/audit artifacts, not public runtime models.
+Canonical Kernel request/response syntax lives in `openapi.yaml`. D1 Kernel migrations live in `migrations/`. Ordinary model contracts are generated from published Model Definitions rather than maintained in this README.
 
 ## Verification
 
-`pnpm --filter @lifespace/core check` runs Wrangler binding drift checks, canonical OpenAPI checks, Workers-runtime D1 integration tests, Node migration-transform tests, TypeScript checking, and Wrangler dry-run build. Native-domain integration tests use only `/api/v1/spaces/...` and explicitly verify that retired HomeMew compatibility paths return `404`.
+`pnpm --filter @lifespace/core check` runs Wrangler binding drift checks, canonical OpenAPI checks, Workers-runtime D1 integration tests, migration-transform tests, TypeScript checking and Wrangler dry-run build. Runtime authorization changes require positive and deny-path coverage, and mutable Grant/Application access must remain current-state rather than long-lived cached authority.
