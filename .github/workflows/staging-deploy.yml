@@ -63,6 +63,7 @@ jobs:
         run: |
           node --check infra/scripts/verify-staging-application-admin.mjs
           node --check infra/scripts/verify-staging-homemew-integration.mjs
+          node --check infra/scripts/verify-staging-eventing.mjs
           node --check infra/scripts/baseline-model-semantics.mjs
           node --check infra/scripts/publish-staging-baseline-model-semantics.mjs
 
@@ -157,6 +158,9 @@ jobs:
       - name: Verify proving-model platform regression
         run: node infra/scripts/verify-staging-models.mjs
 
+      - name: Verify real Eventing outbox/Queue/Webhook
+        run: node infra/scripts/verify-staging-eventing.mjs
+
       - name: Measure typed-runtime staging performance
         run: node infra/scripts/verify-staging-performance.mjs
 
@@ -207,6 +211,7 @@ jobs:
           - Service-only Model Admin / AI Admin boundary: passed
           - Active immutable semantic Model Contract \`mct_*\`: passed
           - Proving models (Task/Wish/Day Record/Event): semantic baseline passed
+          - Eventing real mutation -> outbox -> Queue -> signed reference-only Webhook: passed
           - Baseline model AI semantic metadata: published/verified through Model Admin
           - Registry-driven Creation Draft Queue: task classification smoke passed or reached an allowed AI-configuration terminal state
           - Ephemeral smoke PAT: maximum 15-minute lifetime; cleanup attempted
