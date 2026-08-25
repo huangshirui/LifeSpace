@@ -2,6 +2,12 @@ name: Deploy LifeSpace Console staging (isolated)
 
 on:
   workflow_dispatch:
+  # Temporary proving trigger for the final PR #60 staging runtime. Remove after success.
+  push:
+    branches: [feat/console-control-plane-writes]
+    paths:
+      - "apps/console/**"
+      - ".github/workflows/lifespace-console-staging-deploy.yml"
 
 permissions:
   contents: read
@@ -52,7 +58,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Validate Console only
-        run: pnpm --filter @lifespace/console check
+        run: pnpm --filter @lifespace/console typecheck && pnpm --filter @lifespace/console check:control-plane && pnpm --filter @lifespace/console build
 
       - name: Verify current staging platform dependencies without mutation
         run: |
