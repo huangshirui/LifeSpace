@@ -14,7 +14,8 @@ type PublishedModel = {
   publishedAt: string | null;
 };
 
-type ModelAccess = { modelKey: string; maxAccess: "read" | "write" | "manage" };
+type AccessLevel = "read" | "write" | "manage";
+type ModelAccess = { modelKey: string; maxAccess: AccessLevel };
 type ApplicationDetail = {
   application: { id: string; name: string };
   modelAccess: Array<ModelAccess & { applicationId: string }>;
@@ -31,6 +32,14 @@ type Dialog =
 
 type ErrorEnvelope = { error?: { code?: string; message?: string; requestId?: string } };
 type DataEnvelope<T> = { data: T };
+
+const ACCESS_LEVELS: AccessLevel[] = ["read", "write", "manage"];
+
+function declaredAccess(model: PublishedModel): AccessLevel[] {
+  const value = model.definition.access;
+  if (!Array.isArray(value)) return [];
+  return ACCESS_LEVELS.filter((level) => value.includes(level));
+}
 
 class ControlPlaneError extends Error {
   constructor(message: string, readonly code?: string, readonly requestId?: string) {
@@ -216,7 +225,7 @@ function RetireDialog({ modelKey, onClose }: { modelKey: string; onClose: () => 
 function ModelAccessDialog({ applicationId, onClose }: { applicationId: string; onClose: () => void }) {
   const [application, setApplication] = useState<ApplicationDetail>();
   const [models, setModels] = useState<PublishedModel[]>([]);
-  const [access, setAccess] = useState<Record<string, "none" | "read" | "write" | "manage">>({});
+  const [access, setAccess] = useState<Record<string, "none" | AccessLevel>>({});
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [confirmed, setConfirmed] = useState(false);
@@ -229,7 +238,7 @@ function ModelAccessDialog({ applicationId, onClose }: { applicationId: string; 
       get<PublishedModel[]>("/api/models"),
     ]).then(([applicationData, modelRows]) => {
       if (!active) return;
-      const next: Record<string, "none" | "read" | "write" | "manage"> = {};
+      const next: Record<string, "none" | AccessLevel> = {};
       for (const model of modelRows) next[model.key] = "none";
       for (const item of applicationData.modelAccess) next[item.modelKey] = item.maxAccess;
       setApplication(applicationData);
@@ -243,8 +252,16 @@ function ModelAccessDialog({ applicationId, onClose }: { applicationId: string; 
   const changed = useMemo(() => {
     if (!application) return false;
     const before = new Map(application.modelAccess.map((item) => [item.modelKey, item.maxAccess]));
+    const publishedKeys = new Set(models.map((model) => model.key));
+    if (application.modelAccess.some((item) => !publishedKeys.has(item.modelKey))) return true;
     return models.some((model) => (before.get(model.key) ?? "none") !== (access[model.key] ?? "none"));
   }, [application, models, access]);
+
+  const staleAssignments = useMemo(() => {
+    if (!application) return [];
+    const publishedKeys = new Set(models.map((model) => model.key));
+    return application.modelAccess.filter((item) => !publishedKeys.has(item.modelKey));
+  }, [application, models]);
 
   async function save() {
     if (!confirmed || !changed) return;
@@ -268,9 +285,10 @@ function ModelAccessDialog({ applicationId, onClose }: { applicationId: string; 
         <div className="cp-app-summary"><strong>{application?.application.name ?? applicationId}</strong><code>{applicationId}</code></div>
         <div className="cp-access-table">
           <div className="cp-access-head"><span>Model</span><span>Route / version</span><span>Max access</span></div>
-          {models.map((model) => <div className="cp-access-row" key={model.key}><div><strong>{model.key}</strong><small>{model.state}</small></div><div><code>/{model.route}</code><small>v{model.version}</small></div><select value={access[model.key] ?? "none"} onChange={(event) => { setAccess((current) => ({ ...current, [model.key]: event.target.value as "none" | "read" | "write" | "manage" })); setConfirmed(false); }}><option value="none">No access</option><option value="read">read</option><option value="write">write</option><option value="manage">manage</option></select></div>)}
+          {models.map((model) => <div className="cp-access-row" key={model.key}><div><strong>{model.key}</strong><small>{model.state}</small></div><div><code>/{model.route}</code><small>v{model.version}</small></div><select value={access[model.key] ?? "none"} onChange={(event) => { setAccess((current) => ({ ...current, [model.key]: event.target.value as "none" | AccessLevel })); setConfirmed(false); }}><option value="none">No access</option>{declaredAccess(model).map((level) => <option value={level} key={level}>{level}</option>)}</select></div>)}
         </div>
         {!models.length && <div className="cp-loading">当前没有已发布模型。</div>}
+        {!!staleAssignments.length && <div className="cp-notice cp-error"><strong>发现 {staleAssignments.length} 条非活动模型授权</strong><span>保存会清理这些不再属于当前 Published Registry 的 Application × Model Access：{staleAssignments.map((item) => item.modelKey).join(", ")}</span></div>}
         <label className="cp-confirm"><input type="checkbox" checked={confirmed} disabled={!changed} onChange={(event) => setConfirmed(event.target.checked)} /><span>我确认原子替换此应用当前的 Model Access catalog；未选择的模型将失去应用级访问权限。</span></label>
         <ErrorNotice error={error} />
       </>}
