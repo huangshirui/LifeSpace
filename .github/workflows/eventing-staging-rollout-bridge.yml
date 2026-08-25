@@ -12,15 +12,13 @@ permissions:
   actions: write
 
 jobs:
-  provision-and-dispatch:
-    name: Provision Eventing staging resources and dispatch canonical deploy
+  dispatch:
+    name: Dispatch canonical staging verification
     if: github.repository == 'huangshirui/LifeSpace' && github.ref == 'refs/heads/ops/eventing-staging-rollout-20260825'
     runs-on: ubuntu-latest
     environment: staging
     env:
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID || secrets.CLOUDFLARE_ACCOUNT_ID }}
-      EXPECTED_MAIN_SHA: a8b822feb2f037540fd431a50c46f3ccc47849da
+      EXPECTED_MAIN_SHA: 58ee9776254fe2132a99d7573990d3fddf2ca54f
       GITHUB_TOKEN: ${{ github.token }}
     steps:
       - name: Checkout canonical main
@@ -36,24 +34,9 @@ jobs:
           ACTUAL_MAIN_SHA="$(git rev-parse HEAD)"
           echo "main=$ACTUAL_MAIN_SHA"
           test "$ACTUAL_MAIN_SHA" = "$EXPECTED_MAIN_SHA" || {
-            echo "main moved after Eventing PR merge; refusing one-time staging rollout" >&2
+            echo "main moved after Eventing staging-smoke merge; refusing one-time dispatch" >&2
             exit 1
           }
-
-      - name: Setup Node.js 24
-        uses: actions/setup-node@v4
-        with:
-          node-version: 24
-
-      - name: Validate staging Cloudflare credentials
-        shell: bash
-        run: |
-          set -euo pipefail
-          test -n "${CLOUDFLARE_API_TOKEN:-}" || { echo "CLOUDFLARE_API_TOKEN is not configured" >&2; exit 1; }
-          test -n "${CLOUDFLARE_ACCOUNT_ID:-}" || { echo "CLOUDFLARE_ACCOUNT_ID is not configured" >&2; exit 1; }
-
-      - name: Provision manifest-declared staging resources idempotently
-        run: node infra/scripts/provision-staging.mjs
 
       - name: Dispatch canonical Deploy staging workflow on main
         shell: bash
