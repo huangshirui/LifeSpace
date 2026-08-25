@@ -93,9 +93,9 @@ export default {
     catch { return bad("body invalid"); }
 
     if (request.headers.get("x-lifespace-test") === "true") {
-      if (!exactKeys(payload, ["id", "type", "subscriptionId", "spaceId", "subscriberServicePrincipalId", "modelKey", "occurredAt"])) return bad("test payload is not reference-only");
-      if (payload.type !== "subscription.test" || payload.modelKey !== "event") return bad("test payload semantics invalid");
-      if (request.headers.get("x-lifespace-subscription-id") !== payload.subscriptionId) return bad("test subscription header mismatch");
+      if (!exactKeys(payload, ["id", "type", "endpointId", "spaceId", "subscriberServicePrincipalId", "occurredAt"])) return bad("test payload is not reference-only");
+      if (payload.type !== "endpoint.test") return bad("test payload semantics invalid");
+      if (request.headers.get("x-lifespace-webhook-endpoint-id") !== payload.endpointId) return bad("test endpoint header mismatch");
       return new Response(null, { status: 204 });
     }
 
@@ -103,7 +103,7 @@ export default {
     if (payload.type !== "record.created" || payload.modelKey !== "event") return bad("domain payload semantics invalid");
     if (!Number.isInteger(payload.recordVersion) || payload.recordVersion < 1) return bad("record version invalid");
     if (request.headers.get("x-lifespace-event-id") !== payload.id) return bad("event header mismatch");
-    if (!request.headers.get("x-lifespace-delivery-id") || !request.headers.get("x-lifespace-subscription-id")) return bad("delivery headers missing");
+    if (!request.headers.get("x-lifespace-delivery-id") || !request.headers.get("x-lifespace-webhook-endpoint-id") || !request.headers.get("x-lifespace-subscription-id")) return bad("delivery headers missing");
     return new Response(null, { status: 204 });
   },
 };
@@ -216,6 +216,7 @@ let managerBearer = "";
 let subscriberPrincipalId = "";
 let grantId = "";
 let grantActive = false;
+let endpointId = "";
 let subscriptionId = "";
 let eventId = "";
 let eventVersion = 0;
@@ -268,13 +269,37 @@ try {
   if (!subscriberPrincipalId) throw new Error("Staging Eventing subscriber principal ID was not returned");
 
   const webhookUrl = `${sinkBase}/webhook`;
+  const endpoint = await request(coreBase, "/api/v1/webhook-endpoints", {
+    method: "POST",
+    bearer: managerBearer,
+    body: {
+      spaceId,
+      subscriberServicePrincipalId: subscriberPrincipalId,
+      name: `Staging Eventing ${suffix}`.slice(0, 80),
+      webhookUrl,
+    },
+  });
+  const endpointData = await expectStatus("staging Eventing Webhook Endpoint", endpoint, 201);
+  endpointId = endpointData?.id ?? "";
+  const signingSecret = endpointData?.signingSecret ?? "";
+  if (!endpointId || typeof signingSecret !== "string" || signingSecret.length < 64) {
+    throw new Error("Staging Eventing Webhook Endpoint did not return the one-time signing secret");
+  }
+  mask(signingSecret);
+
+  const listedEndpoints = await request(coreBase, `/api/v1/webhook-endpoints?spaceId=${encodeURIComponent(spaceId)}&subscriberServicePrincipalId=${encodeURIComponent(subscriberPrincipalId)}`, {
+    bearer: managerBearer,
+  });
+  const endpointListData = await expectStatus("staging Eventing Webhook Endpoint list", listedEndpoints, 200);
+  const listedEndpoint = endpointListData?.items?.find?.((item) => item.id === endpointId);
+  if (!listedEndpoint || listedEndpoint.signingSecret !== undefined || listedEndpoint.signingConfigured !== true) {
+    throw new Error("Staging Eventing Webhook Endpoint read did not preserve one-time secret semantics");
+  }
+
   const subscriptionBody = {
-    spaceId,
-    subscriberServicePrincipalId: subscriberPrincipalId,
-    name: `Staging Eventing ${suffix}`.slice(0, 80),
+    endpointId,
     modelKey: "event",
     eventTypes: ["record.created"],
-    webhookUrl,
   };
   const denied = await request(coreBase, "/api/v1/event-subscriptions", {
     method: "POST",
@@ -305,21 +330,18 @@ try {
     bearer: managerBearer,
     body: subscriptionBody,
   });
-  const subscriptionData = await expectStatus("staging Eventing subscription", subscription, 201);
+  const subscriptionData = await expectStatus("staging Eventing subscription filter", subscription, 201);
   subscriptionId = subscriptionData?.id ?? "";
-  const signingSecret = subscriptionData?.signingSecret ?? "";
-  if (!subscriptionId || typeof signingSecret !== "string" || signingSecret.length < 64) {
-    throw new Error("Staging Eventing subscription did not return the one-time signing secret");
+  if (!subscriptionId || subscriptionData?.endpointId !== endpointId || subscriptionData?.modelKey !== "event") {
+    throw new Error("Staging Eventing subscription filter did not bind to the shared Webhook Endpoint");
   }
-  mask(signingSecret);
 
-  const listed = await request(coreBase, `/api/v1/event-subscriptions?spaceId=${encodeURIComponent(spaceId)}&subscriberServicePrincipalId=${encodeURIComponent(subscriberPrincipalId)}`, {
+  const listedSubscriptions = await request(coreBase, `/api/v1/event-subscriptions?endpointId=${encodeURIComponent(endpointId)}`, {
     bearer: managerBearer,
   });
-  const listData = await expectStatus("staging Eventing subscription list", listed, 200);
-  const listedSubscription = listData?.items?.find?.((item) => item.id === subscriptionId);
-  if (!listedSubscription || listedSubscription.signingSecret !== undefined || listedSubscription.signingConfigured !== true) {
-    throw new Error("Staging Eventing subscription read did not preserve one-time secret semantics");
+  const subscriptionListData = await expectStatus("staging Eventing subscription-filter list", listedSubscriptions, 200);
+  if (!subscriptionListData?.items?.some?.((item) => item.id === subscriptionId && item.endpointId === endpointId && item.modelKey === "event")) {
+    throw new Error("Staging Eventing subscription filter was not listed under its Webhook Endpoint");
   }
 
   await deploySink(signingSecret);
@@ -333,14 +355,14 @@ try {
     { attempts: 60, delayMs: 2000 },
   );
 
-  const testSend = await request(coreBase, `/api/v1/event-subscriptions/${encodeURIComponent(subscriptionId)}/test`, {
+  const testSend = await request(coreBase, `/api/v1/webhook-endpoints/${encodeURIComponent(endpointId)}/test`, {
     method: "POST",
     bearer: managerBearer,
     body: {},
   });
-  const testData = await expectStatus("signed staging Webhook test", testSend, 200);
+  const testData = await expectStatus("signed staging Webhook Endpoint test", testSend, 200);
   if (testData?.ok !== true || testData?.statusCode !== 204) {
-    throw new Error(`Staging Webhook test sink rejected the signed request: ${JSON.stringify(testData)}`);
+    throw new Error(`Staging Webhook Endpoint test sink rejected the signed request: ${JSON.stringify(testData)}`);
   }
 
   const start = new Date(Date.now() + 60 * 60 * 1000);
@@ -364,12 +386,12 @@ try {
   if (!eventId || !Number.isInteger(eventVersion) || eventVersion < 1) throw new Error("Staging Eventing domain mutation returned an invalid record");
 
   const deliveryPoll = await poll(
-    "real staging Eventing outbox/Queue/Webhook delivery",
-    () => request(coreBase, `/api/v1/event-subscriptions/${encodeURIComponent(subscriptionId)}/deliveries`, { bearer: managerBearer }),
-    ({ response, payload }) => response.status === 200 && payload?.data?.items?.some?.((item) => item.recordId === eventId && item.eventType === "record.created" && item.status === "succeeded" && item.lastStatusCode === 204),
+    "real staging Eventing outbox/Queue/shared-Endpoint Webhook delivery",
+    () => request(coreBase, `/api/v1/webhook-endpoints/${encodeURIComponent(endpointId)}/deliveries`, { bearer: managerBearer }),
+    ({ response, payload }) => response.status === 200 && payload?.data?.items?.some?.((item) => item.recordId === eventId && item.modelKey === "event" && item.eventType === "record.created" && item.status === "succeeded" && item.lastStatusCode === 204),
     { attempts: 50, delayMs: 3000 },
   );
-  const delivery = deliveryPoll.payload.data.items.find((item) => item.recordId === eventId && item.eventType === "record.created");
+  const delivery = deliveryPoll.payload.data.items.find((item) => item.recordId === eventId && item.modelKey === "event" && item.eventType === "record.created");
 
   const revoked = await request(coreBase, `/api/v1/spaces/${encodeURIComponent(spaceId)}/grants/${encodeURIComponent(grantId)}`, {
     method: "DELETE",
@@ -378,26 +400,39 @@ try {
   await expectStatus("staging Eventing Grant revoke", revoked, 204);
   grantActive = false;
 
-  const deniedAfterRevoke = await request(coreBase, `/api/v1/event-subscriptions/${encodeURIComponent(subscriptionId)}/test`, {
+  const deniedAfterRevoke = await request(coreBase, `/api/v1/event-subscriptions/${encodeURIComponent(subscriptionId)}`, {
+    method: "PATCH",
+    bearer: managerBearer,
+    body: { eventTypes: ["record.created", "record.updated"] },
+  });
+  await expectStatus("subscription filter update after subscriber Grant revoke", deniedAfterRevoke, 403, "EVENT_SUBSCRIBER_ACCESS_DENIED");
+
+  const endpointTestAfterRevoke = await request(coreBase, `/api/v1/webhook-endpoints/${encodeURIComponent(endpointId)}/test`, {
     method: "POST",
     bearer: managerBearer,
     body: {},
   });
-  await expectStatus("subscription test after subscriber Grant revoke", deniedAfterRevoke, 403, "EVENT_SUBSCRIBER_ACCESS_DENIED");
+  const endpointTestAfterRevokeData = await expectStatus("Webhook Endpoint transport test after model Grant revoke", endpointTestAfterRevoke, 200);
+  if (endpointTestAfterRevokeData?.ok !== true || endpointTestAfterRevokeData?.statusCode !== 204) {
+    throw new Error("Webhook Endpoint transport/signature test should remain independent from model Data Grant state");
+  }
 
   verification = {
     ok: true,
     worker: workerName,
     customDomain: sinkHostname,
     subscriberServicePrincipalId: subscriberPrincipalId,
+    endpointId,
     subscriptionId,
-    subscriberGrantRequired: true,
+    endpointOwnsTransportAndSigning: true,
+    subscriberGrantRequiredForModelFilter: true,
     signingSecretOneTime: true,
-    signedTestStatusCode: testData.statusCode,
+    signedEndpointTestStatusCode: testData.statusCode,
+    endpointTransportTestIndependentFromModelGrant: true,
     domainEvent: { modelKey: "event", recordId: eventId, version: eventVersion },
-    delivery: { id: delivery.id, eventId: delivery.eventId, status: delivery.status, attemptCount: delivery.attemptCount, lastStatusCode: delivery.lastStatusCode },
-    realPath: "event mutation -> D1 outbox -> scheduled dispatcher -> Cloudflare Queue -> HMAC Webhook Custom Domain",
-    grantRevocationRechecked: true,
+    delivery: { id: delivery.id, eventId: delivery.eventId, modelKey: delivery.modelKey, status: delivery.status, attemptCount: delivery.attemptCount, lastStatusCode: delivery.lastStatusCode },
+    realPath: "event mutation -> D1 outbox -> subscription filter -> shared Webhook Endpoint -> Cloudflare Queue -> HMAC Webhook Custom Domain",
+    grantRevocationRecheckedOnSubscriptionMutation: true,
     referenceOnlyPayloadValidatedBySink: true,
   };
 } catch (error) {
@@ -411,6 +446,12 @@ try {
   if (subscriptionId && managerBearer) {
     await cleanup("subscription delete", async () => {
       const result = await request(coreBase, `/api/v1/event-subscriptions/${encodeURIComponent(subscriptionId)}`, { method: "DELETE", bearer: managerBearer });
+      if (![204, 404].includes(result.response.status)) throw new Error(`HTTP ${result.response.status}`);
+    });
+  }
+  if (endpointId && managerBearer) {
+    await cleanup("Webhook Endpoint delete", async () => {
+      const result = await request(coreBase, `/api/v1/webhook-endpoints/${encodeURIComponent(endpointId)}`, { method: "DELETE", bearer: managerBearer });
       if (![204, 404].includes(result.response.status)) throw new Error(`HTTP ${result.response.status}`);
     });
   }
