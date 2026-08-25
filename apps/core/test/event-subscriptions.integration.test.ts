@@ -59,8 +59,8 @@ async function createFamily(accessToken: string, publicKey: string) {
   return (await response.json<{ data: { id: string } }>()).data.id;
 }
 
-describe("Event subscription subscriber authorization", () => {
-  it("binds a subscription to one service principal and requires its current model grant", async () => {
+describe("Webhook endpoint and event subscription authorization", () => {
+  it("shares one destination and signing secret across event and task filters", async () => {
     const { privateKey, publicKey } = await keys();
     const userId = `usr_${crypto.randomUUID()}`;
     const subscriberId = `svc_${crypto.randomUUID()}`;
@@ -69,66 +69,107 @@ describe("Event subscription subscriber authorization", () => {
     const db = (env as unknown as TestEnv).DB;
     const now = new Date().toISOString();
 
-    await db.prepare(`INSERT OR REPLACE INTO application_model_access(
-      application_id,model_key,max_access,created_by_type,created_by_id,created_at,updated_at
-    ) VALUES(?,?,?,?,?,?,?)`)
-      .bind("test-app", "event", "read", "user", userId, now, now)
-      .run();
+    for (const modelKey of ["event", "task"]) {
+      await db.prepare(`INSERT OR REPLACE INTO application_model_access(
+        application_id,model_key,max_access,created_by_type,created_by_id,created_at,updated_at
+      ) VALUES(?,?,?,?,?,?,?)`)
+        .bind("test-app", modelKey, "read", "user", userId, now, now)
+        .run();
+    }
 
-    const body = {
-      spaceId,
-      subscriberServicePrincipalId: subscriberId,
-      name: "Calendar changes",
-      modelKey: "event",
-      eventTypes: ["record.created", "record.updated"],
-      webhookUrl: "https://example.com/hooks/calendar",
-    };
+    const endpointResponse = await request("/api/v1/webhook-endpoints", accessToken, publicKey, {
+      method: "POST",
+      body: JSON.stringify({
+        spaceId,
+        subscriberServicePrincipalId: subscriberId,
+        name: "Home automation",
+        webhookUrl: "https://example.com/hooks/homemew",
+      }),
+    });
+    expect(endpointResponse.status).toBe(201);
+    const endpoint = await endpointResponse.json<{ data: {
+      id: string;
+      destination: { url: string };
+      signingSecret: string;
+    } }>();
+    expect(endpoint.data.destination.url).toBe("https://example.com/hooks/homemew");
+    expect(endpoint.data.signingSecret).toHaveLength(64);
 
     const denied = await request("/api/v1/event-subscriptions", accessToken, publicKey, {
       method: "POST",
-      body: JSON.stringify(body),
+      body: JSON.stringify({
+        endpointId: endpoint.data.id,
+        modelKey: "event",
+        eventTypes: ["record.created", "record.updated"],
+      }),
     });
     expect(denied.status).toBe(403);
     expect((await denied.json<{ error: { code: string } }>()).error.code).toBe("EVENT_SUBSCRIBER_ACCESS_DENIED");
 
-    const grantId = `grt_${crypto.randomUUID().replaceAll("-", "")}`;
-    await db.prepare(`INSERT INTO data_grants(
-      id,source_space_id,grantee_type,grantee_id,resource_type,resource_id,permission,created_by_user_id,created_at
-    ) VALUES(?,?,?,?,?,?,?,?,?)`)
-      .bind(grantId, spaceId, "service", subscriberId, "model", "event", "read", userId, now)
-      .run();
+    const grants: Record<string, string> = {};
+    for (const modelKey of ["event", "task"]) {
+      const grantId = `grt_${crypto.randomUUID().replaceAll("-", "")}`;
+      grants[modelKey] = grantId;
+      await db.prepare(`INSERT INTO data_grants(
+        id,source_space_id,grantee_type,grantee_id,resource_type,resource_id,permission,created_by_user_id,created_at
+      ) VALUES(?,?,?,?,?,?,?,?,?)`)
+        .bind(grantId, spaceId, "service", subscriberId, "model", modelKey, "read", userId, now)
+        .run();
+    }
 
-    const created = await request("/api/v1/event-subscriptions", accessToken, publicKey, {
-      method: "POST",
-      body: JSON.stringify(body),
-    });
-    expect(created.status).toBe(201);
-    const createdPayload = await created.json<{ data: {
-      id: string;
-      subscriberServicePrincipalId: string;
-      modelKey: string;
-      signingSecret: string;
-    } }>();
-    expect(createdPayload.data.subscriberServicePrincipalId).toBe(subscriberId);
-    expect(createdPayload.data.modelKey).toBe("event");
-    expect(createdPayload.data.signingSecret).toHaveLength(64);
+    const createdSubscriptions: Array<{ id: string; endpointId: string; modelKey: string }> = [];
+    for (const modelKey of ["event", "task"]) {
+      const created = await request("/api/v1/event-subscriptions", accessToken, publicKey, {
+        method: "POST",
+        body: JSON.stringify({
+          endpointId: endpoint.data.id,
+          modelKey,
+          eventTypes: ["record.created", "record.updated", "record.deleted"],
+        }),
+      });
+      expect(created.status).toBe(201);
+      const payload = await created.json<{ data: { id: string; endpointId: string; modelKey: string } }>();
+      expect(payload.data.endpointId).toBe(endpoint.data.id);
+      expect(payload.data.modelKey).toBe(modelKey);
+      createdSubscriptions.push(payload.data);
+    }
 
     const listed = await request(
-      `/api/v1/event-subscriptions?spaceId=${encodeURIComponent(spaceId)}&subscriberServicePrincipalId=${encodeURIComponent(subscriberId)}`,
+      `/api/v1/event-subscriptions?endpointId=${encodeURIComponent(endpoint.data.id)}`,
       accessToken,
       publicKey,
     );
     expect(listed.status).toBe(200);
-    const listPayload = await listed.json<{ data: { items: Array<{ id: string; subscriberServicePrincipalId: string }> } }>();
-    expect(listPayload.data.items).toEqual([
-      expect.objectContaining({ id: createdPayload.data.id, subscriberServicePrincipalId: subscriberId }),
-    ]);
+    const listPayload = await listed.json<{ data: { items: Array<{ endpointId: string; modelKey: string }> } }>();
+    expect(listPayload.data.items).toHaveLength(2);
+    expect(listPayload.data.items.map((item) => item.modelKey).sort()).toEqual(["event", "task"]);
+    expect(listPayload.data.items.every((item) => item.endpointId === endpoint.data.id)).toBe(true);
+
+    const endpoints = await request(
+      `/api/v1/webhook-endpoints?spaceId=${encodeURIComponent(spaceId)}&subscriberServicePrincipalId=${encodeURIComponent(subscriberId)}`,
+      accessToken,
+      publicKey,
+    );
+    expect(endpoints.status).toBe(200);
+    const endpointList = await endpoints.json<{ data: { items: Array<Record<string, unknown>> } }>();
+    expect(endpointList.data.items).toHaveLength(1);
+    expect(endpointList.data.items[0]).not.toHaveProperty("signingSecret");
+
+    const rotated = await request(`/api/v1/webhook-endpoints/${encodeURIComponent(endpoint.data.id)}`, accessToken, publicKey, {
+      method: "PATCH",
+      body: JSON.stringify({ rotateSigningSecret: true }),
+    });
+    expect(rotated.status).toBe(200);
+    const rotatedPayload = await rotated.json<{ data: { signingSecret: string } }>();
+    expect(rotatedPayload.data.signingSecret).toHaveLength(64);
+    expect(rotatedPayload.data.signingSecret).not.toBe(endpoint.data.signingSecret);
 
     await db.prepare("UPDATE data_grants SET revoked_at=? WHERE id=?")
-      .bind(new Date().toISOString(), grantId)
+      .bind(new Date().toISOString(), grants.task)
       .run();
 
-    const deniedUpdate = await request(`/api/v1/event-subscriptions/${encodeURIComponent(createdPayload.data.id)}`, accessToken, publicKey, {
+    const taskSubscription = createdSubscriptions.find((item) => item.modelKey === "task")!;
+    const deniedUpdate = await request(`/api/v1/event-subscriptions/${encodeURIComponent(taskSubscription.id)}`, accessToken, publicKey, {
       method: "PATCH",
       body: JSON.stringify({ eventTypes: ["record.created"] }),
     });
