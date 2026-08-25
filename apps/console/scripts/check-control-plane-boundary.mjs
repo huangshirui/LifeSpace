@@ -17,9 +17,13 @@ const required = [
   ["server-only Identity executor", "IDENTITY_APPLICATION_CREDENTIAL"],
   ["server-only Core executor", "CORE_EXECUTOR_BEARER"],
   ["bounded Model Access replacement", "/model-access"],
+  ["whole-catalog target confirmation", "confirmApplicationId"],
   ["Model Definition validation", "/api/v1/model-admin/models/validate"],
   ["Model publication", "/api/v1/model-admin/models"],
-  ["typed retirement confirmation", "confirmModelKey"],
+  ["model publication target confirmation", "confirmModelKey"],
+  ["breaking publication typed confirmation", "breakingConfirmation"],
+  ["typed breaking sentinel", "BREAKING"],
+  ["typed retirement confirmation", "Retirement requires confirmModelKey"],
 ];
 
 for (const [label, token] of required) {
@@ -45,4 +49,6 @@ console.log(JSON.stringify({
   executorsServerOnly: true,
   bootstrapAuthorityAbsent: true,
   browserMutationGuardPresent: true,
+  publishConfirmationRequired: true,
+  modelAccessReplacementConfirmationRequired: true,
 }));
