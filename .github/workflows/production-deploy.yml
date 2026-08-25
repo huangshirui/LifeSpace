@@ -9,7 +9,7 @@ on:
         default: false
         type: boolean
       provision:
-        description: "Create missing production D1/R2/Queue resources (Phase 6 only)"
+        description: "Create missing declared production D1/R2/Queue resources (idempotent)"
         required: true
         default: false
         type: boolean
@@ -43,10 +43,6 @@ jobs:
         run: |
           set -euo pipefail
           test "${{ inputs.confirmation }}" = "DEPLOY_PRODUCTION" || { echo "confirmation must be DEPLOY_PRODUCTION" >&2; exit 1; }
-          if [ "${{ inputs.provision }}" = "true" ] && [ "${{ inputs.phase6_bringup }}" != "true" ]; then
-            echo "Production provisioning is restricted to explicit Phase 6 bring-up runs" >&2
-            exit 1
-          fi
 
       - name: Checkout
         uses: actions/checkout@v4
