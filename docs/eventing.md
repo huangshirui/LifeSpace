@@ -18,15 +18,26 @@ External webhook payloads are reference-only and contain event ID/type, Space, m
 
 ## Subscription ownership and authorization
 
-A subscription is owned by the LifeSpace application context that creates it and targets exactly one Space and one model in v1. The authenticated user must have the `spaces:manage` credential scope, current Space `manage` permission and current read access to the selected model. Model read access continues to evaluate credential scope, Application × Model Access and Space/Data Grant authorization through the normal Core authorization path.
+A v1 subscription has two distinct ownership dimensions:
 
-Delivery re-checks current Application × Model Access. Disabling/deleting the subscription or revoking model access prevents queued deliveries from being sent.
+- the **managing application context** that created/configures the subscription;
+- one **subscriber Service Principal** representing the external system that receives the notification.
 
-Application UIs may present domain-friendly names (for example HomeMew shows `event` as `日程`) but submit stable model keys to Core.
+The subscription targets exactly one Space and one model. The authenticated managing user must have the `spaces:manage` credential scope, current Space `manage` permission and current read access to the selected model.
+
+The subscriber Service Principal must separately have a current Data Grant from that Space that permits `read`, `write` or `manage` access to the selected model (or a current whole-Space Grant at that level). Core verifies this when a subscription is created, enabled, materially edited or test-sent.
+
+This binding is deliberate: a Webhook is one integration capability of a concrete external system, not an application-global callback with an informal UI-only association.
+
+Delivery re-checks both current managing Application × Model Access and the subscriber Service Principal's current Data Grant. Disabling/deleting the subscription, revoking the subscriber Grant, letting that Grant expire, or revoking the managing application's model access prevents queued deliveries from being sent.
+
+The subscriber Service Principal itself remains Identity-owned. Eventing stores only its stable principal ID as a platform reference; it does not duplicate service credentials or Identity state in Core.
+
+Application UIs may present domain-friendly names (for example HomeMew shows `event` as `日程`) but submit stable model keys and the actual subscriber Service Principal ID to Core.
 
 ## Delivery
 
-The D1 outbox is scanned by the Core scheduled handler and matched against active subscriptions. Matching produces one durable delivery row per `(event, subscription)` and enqueues the delivery to the environment-specific Cloudflare Queue.
+The D1 outbox is scanned by the Core scheduled handler and matched against active subscriptions whose subscriber still has a current Data Grant. Matching produces one durable delivery row per `(event, subscription)` and enqueues the delivery to the environment-specific Cloudflare Queue.
 
 Delivery semantics are at-least-once. Receivers should use `X-LifeSpace-Event-Id` and/or `X-LifeSpace-Delivery-Id` for idempotency.
 
@@ -34,6 +45,7 @@ Webhook requests are POST JSON and include:
 
 - `X-LifeSpace-Event-Id`
 - `X-LifeSpace-Delivery-Id`
+- `X-LifeSpace-Subscription-Id`
 - `X-LifeSpace-Timestamp`
 - `X-LifeSpace-Signature: v1=<hex HMAC-SHA256>`
 
@@ -43,6 +55,6 @@ Non-2xx responses and transport failures are retried by Cloudflare Queues. After
 
 ## Application boundary
 
-LifeSpace owns event creation, outbox, subscription state, matching, signing, queueing, retry state and delivery logs.
+LifeSpace owns event creation, outbox, subscriber binding, subscription state, matching, signing, queueing, retry state and delivery logs.
 
-Application Web/BFF layers own the user-facing configuration flow. HomeMew Web is the first consumer and initially exposes subscriptions for the `event` model (日程). HomeMew does not persist duplicate webhook/subscription state and never sends a LifeSpace service token or application credential to browser JavaScript.
+Application Web/BFF layers own the user-facing configuration flow. HomeMew Web is the first consumer and initially exposes subscriptions for the `event` model (日程) inside a specific external-system detail page. HomeMew does not persist duplicate webhook/subscription state and never sends a LifeSpace service token or application credential to browser JavaScript.
