@@ -34,15 +34,19 @@ test("staging bootstrap masks ephemeral credentials before job export", () => {
   assert.match(source, /application_model_access/u, "smoke app model authorization must be explicit");
 });
 
-test("staging Eventing verifier proves the real signed delivery path and cleans up its sink", () => {
+test("staging Eventing verifier proves the real signed delivery path through a temporary Custom Domain", () => {
   const source = readFileSync(fileURLToPath(eventingSmoke), "utf8");
 
   assert.match(source, /EVENT_SUBSCRIBER_ACCESS_DENIED/u, "smoke must prove subscriber Data Grant denial before and after authorization");
   assert.match(source, /record\.created/u, "smoke must exercise a real domain event rather than test-send only");
   assert.match(source, /EVENTING_SIGNING_SECRET/u, "smoke sink must verify the LifeSpace HMAC signing secret");
   assert.match(source, /workers\/scripts/u, "smoke must create an ephemeral Cloudflare Worker receiver");
-  assert.match(source, /method:\s*"DELETE"/u, "smoke must delete the ephemeral receiver during cleanup");
-  assert.match(source, /event mutation -> D1 outbox -> scheduled dispatcher -> Cloudflare Queue -> HMAC Webhook/u);
+  assert.match(source, /workers\/domains/u, "smoke must attach an ephemeral Worker Custom Domain for Worker-to-Worker fetch correctness");
+  assert.match(source, /eventing-smoke-staging-/u, "smoke hostname must remain visibly staging-scoped");
+  assert.match(source, /temporary staging Custom Domain detach/u, "smoke must detach its temporary Custom Domain during cleanup");
+  assert.match(source, /method:\s*"DELETE"/u, "smoke must delete temporary Cloudflare resources during cleanup");
+  assert.match(source, /event mutation -> D1 outbox -> scheduled dispatcher -> Cloudflare Queue -> HMAC Webhook Custom Domain/u);
+  assert.doesNotMatch(source, /\.workers\.dev/iu, "canonical Eventing smoke must not use workers.dev as a Worker-to-Worker Webhook target");
   assert.doesNotMatch(source, /webhook\.site|httpbin/iu, "staging acceptance must not depend on third-party Webhook collectors");
 });
 
