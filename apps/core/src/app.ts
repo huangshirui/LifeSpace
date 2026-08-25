@@ -4,6 +4,7 @@ import type { Bindings, Variables } from "./env";
 import { authenticate } from "./auth";
 import { registerRegistryCreationDraftRoutes } from "./registry-creation-draft-jobs";
 import { registerGenericResourceRoutes } from "./generic-resource-routes";
+import { registerEventSubscriptionRoutes } from "./event-subscription-routes";
 import { ApiError, failure, success } from "./http";
 import { registerModelAdminRoutes } from "./model-admin";
 import { registerModelAdminAiRoutes } from "./model-admin-ai";
@@ -38,13 +39,15 @@ export function createApp() {
   app.get("/health", (context) => context.json(success({ status: "ok" })));
   app.get("/api/v1/status", async (context) => context.json(success({
     status: "ok", service: "core", environment: context.env.ENVIRONMENT ?? "local", database: "available",
-    schemaVersion: await schemaVersion(context.env), contractVersion: "0.13.0",
+    schemaVersion: await schemaVersion(context.env), contractVersion: "0.14.0",
   })));
   app.use("/api/v1/me", authenticate());
   app.use("/api/v1/me/*", authenticate());
   app.use("/api/v1/spaces", authenticate());
   app.use("/api/v1/spaces/*", authenticate());
   app.use("/api/v1/space-invites/*", authenticate());
+  app.use("/api/v1/event-subscriptions", authenticate());
+  app.use("/api/v1/event-subscriptions/*", authenticate());
   app.use("/api/v1/model-admin", authenticate());
   app.use("/api/v1/model-admin/*", authenticate());
   app.use("/api/v1/platform-admin", authenticate());
@@ -57,6 +60,7 @@ export function createApp() {
   registerPlatformAdminRoutes(app);
   registerPlatformInspectorRoutes(app);
   registerRegistryCreationDraftRoutes(app);
+  registerEventSubscriptionRoutes(app);
   registerGenericResourceRoutes(app);
   app.notFound((context) => context.json(failure("NOT_FOUND", "Route not found", context.get("requestId")), 404));
   app.onError((error, context) => {

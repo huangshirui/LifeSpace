@@ -1,6 +1,6 @@
 # Core Agent Instructions
 
-LifeSpace Core is the shared business platform and source of truth for Spaces, Data Grants, Application × Model Access, the Model Registry, Generic Runtime and metadata-driven life-domain records. It also owns Core-side LifeSpace platform administration and audit for Core state.
+LifeSpace Core is the shared business platform and source of truth for Spaces, Data Grants, Application × Model Access, the Model Registry, Generic Runtime, metadata-driven life-domain records and platform Eventing. It also owns Core-side LifeSpace platform administration and audit for Core state.
 
 ## Before changing Core
 
@@ -12,10 +12,11 @@ Read:
 4. `docs/permissions.md`;
 5. `docs/service-authentication.md` when changing service/machine/platform executors;
 6. `docs/contracts.md`;
-7. `docs/phase3-metadata-platform-plan.md` when changing model/runtime architecture;
-8. `docs/phase3-performance-convergence-plan.md` for persistence/query/performance changes;
-9. `docs/migration-plan.md` when porting HomeMew behavior;
-10. the relevant Core contract, migrations, tests, Model Definitions and implementation.
+7. `docs/eventing.md` when changing Domain Events, subscriptions, Webhook delivery, queues or delivery diagnostics;
+8. `docs/phase3-metadata-platform-plan.md` when changing model/runtime architecture;
+9. `docs/phase3-performance-convergence-plan.md` for persistence/query/performance changes;
+10. `docs/migration-plan.md` when porting HomeMew behavior;
+11. the relevant Core contract, migrations, tests, Model Definitions and implementation.
 
 ## Core responsibilities
 
@@ -27,6 +28,7 @@ Core owns:
 - Model Definition validation, Registry/version lifecycle and Model Admin;
 - Generic Runtime/storage for ordinary Space-owned models;
 - reusable Engines/Capabilities;
+- model-agnostic Domain Event outbox state, application/Space/model-scoped event subscriptions, signed Webhook delivery, retry state and delivery diagnostics;
 - cross-Space aggregate `/me` views;
 - deterministic typed physical schema planning/publication;
 - runtime validation, concurrency, soft deletion, relations and business audit;
@@ -41,6 +43,7 @@ Core does not own:
 - LifeSpace application/service credential hashes;
 - platform-administrator assignment state;
 - application UI/session state;
+- application-specific event-subscription configuration UX;
 - arbitrary executable user/AI code or SQL in metadata.
 
 ## Metadata-driven domain rules
@@ -53,6 +56,7 @@ Core does not own:
 - Physical DDL is generated only from validated metadata by fixed platform code. Never execute AI/client-provided SQL.
 - Kernel/control-plane routes and model routes must never collide.
 - Metadata must not contain arbitrary JavaScript, SQL, shell code or unrestricted expressions.
+- Ordinary model mutations participate in platform Eventing generically; do not add model-specific event names or handwritten Webhook calls for new business models.
 
 ## Runtime performance rules
 
@@ -89,6 +93,8 @@ Rules:
 - whole-Space Data Grants use `resource_type=space, resource_id=NULL`;
 - model-collection Data Grants use `resource_type=model, resource_id=<published model key>` and authorize only Generic Runtime access to that model in the source Space;
 - a model operation may use either a matching model-collection Grant or a whole-Space Grant, taking the highest current active permission; Kernel Space/membership APIs never treat a model-collection Grant as Space authority;
+- event-subscription management is a user/Space-management operation: it requires `spaces:manage`, current Space `manage` permission and current read access to the selected model;
+- event delivery is reference-only and must not become a bypass around normal record-read authorization;
 - no service/platform executor becomes a hidden Space member.
 
 ## Platform administration
@@ -139,6 +145,7 @@ Do not make service automation depend on an interactive human solely to improve 
 - Ordinary model physical schema is produced by validated model publication/schema planning, not one repository migration per ordinary model.
 - Kernel/control-plane tables remain explicit.
 - Capability auxiliary tables/indexes are allowed when needed for correctness/performance.
+- Event outbox/subscription/delivery tables are explicit Kernel infrastructure, not ordinary business models.
 - Migration and Worker rollout order must remain compatible and documented.
 
 ## Contract ownership
@@ -147,7 +154,7 @@ Business-facing Core Kernel contract:
 
 ```text
 apps/core/openapi.yaml
-current Kernel version: 0.13.0
+current Kernel version: 0.14.0
 ```
 
 Privileged LifeSpace Console control-plane contract:
@@ -176,7 +183,8 @@ Do not mechanically preserve:
 - `family_id` ownership assumptions;
 - HomeMew-specific identity ownership;
 - family-only role checks where Space/Data Grant rules are required;
-- handwritten Event/Task/Day Record/Wish persistence/routers where Generic Runtime is now authoritative.
+- handwritten Event/Task/Day Record/Wish persistence/routers where Generic Runtime is now authoritative;
+- HomeMew-owned Webhook/outbox/retry state when the behavior belongs to LifeSpace Eventing.
 
 ## Verification
 
@@ -187,6 +195,7 @@ A Core change is incomplete until:
 - migrations/schema expectations are aligned;
 - metadata/runtime changes preserve Registry/contract reproducibility;
 - authorization changes include positive and deny paths;
+- Eventing changes cover event generation, subscription filtering, signing, retry/idempotency and revocation behavior appropriate to the slice;
 - Platform Admin changes cover service-only executor, missing/wrong-purpose/mismatched actor proof and no-hidden-Space-authority behavior;
 - performance-sensitive changes preserve D1 round-trip/N+1 rules;
 - downstream Kernel/model-contract impact is explicitly assessed.

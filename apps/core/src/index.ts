@@ -1,5 +1,6 @@
 import { createApp } from "./app";
 import { cleanupExpiredCreationDraftJobs } from "./creation-draft-cleanup";
+import { dispatchPendingDomainEvents, processWebhookDeliveryQueue, type WebhookDeliveryQueueMessage } from "./eventing";
 import {
   defaultRegistryCreationProvider,
   processRegistryCreationDraftQueue,
@@ -8,14 +9,31 @@ import {
 import type { Bindings } from "./env";
 
 const app = createApp();
+type CoreQueueMessage = RegistryCreationDraftQueueMessage | WebhookDeliveryQueueMessage;
+
+function isWebhookDelivery(message: CoreQueueMessage): message is WebhookDeliveryQueueMessage {
+  return "kind" in message && message.kind === "webhook-delivery";
+}
 
 export default {
   fetch: app.fetch.bind(app),
-  async queue(batch: MessageBatch<RegistryCreationDraftQueueMessage>, env: Bindings): Promise<void> {
-    await processRegistryCreationDraftQueue(batch, env, { now: () => new Date(), createProvider: defaultRegistryCreationProvider });
+  async queue(batch: MessageBatch<CoreQueueMessage>, env: Bindings): Promise<void> {
+    if (batch.messages.every((message) => isWebhookDelivery(message.body))) {
+      await processWebhookDeliveryQueue(batch as MessageBatch<WebhookDeliveryQueueMessage>, env);
+      return;
+    }
+    await processRegistryCreationDraftQueue(
+      batch as MessageBatch<RegistryCreationDraftQueueMessage>,
+      env,
+      { now: () => new Date(), createProvider: defaultRegistryCreationProvider },
+    );
   },
-  async scheduled(_controller: ScheduledController, env: Bindings): Promise<void> {
-    const result = await cleanupExpiredCreationDraftJobs(env);
-    if (result.deleted > 0) console.log("Expired creation draft jobs deleted", result);
+  async scheduled(controller: ScheduledController, env: Bindings): Promise<void> {
+    const dispatched = await dispatchPendingDomainEvents(env);
+    if (dispatched > 0) console.log("Domain events dispatched", { dispatched });
+    if (new Date(controller.scheduledTime).getUTCMinutes() === 0) {
+      const result = await cleanupExpiredCreationDraftJobs(env);
+      if (result.deleted > 0) console.log("Expired creation draft jobs deleted", result);
+    }
   },
 };

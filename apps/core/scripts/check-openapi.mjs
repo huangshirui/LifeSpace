@@ -3,7 +3,7 @@ import YAML from "yaml";
 
 const document = YAML.parse(fs.readFileSync(new URL("../openapi.yaml", import.meta.url), "utf8"));
 
-if (document.openapi !== "3.1.0" || document.info?.version !== "0.13.0") {
+if (document.openapi !== "3.1.0" || document.info?.version !== "0.14.0") {
   throw new Error("Core Kernel OpenAPI version metadata is invalid");
 }
 if (!document.info?.title?.includes("Kernel")) {
@@ -31,6 +31,10 @@ const requiredPaths = [
   "/api/v1/space-invites/{token}/join",
   "/api/v1/spaces/{spaceId}/grants",
   "/api/v1/spaces/{spaceId}/grants/{grantId}",
+  "/api/v1/event-subscriptions",
+  "/api/v1/event-subscriptions/{subscriptionId}",
+  "/api/v1/event-subscriptions/{subscriptionId}/deliveries",
+  "/api/v1/event-subscriptions/{subscriptionId}/test",
   "/api/v1/spaces/{spaceId}/creation-drafts",
   "/api/v1/spaces/{spaceId}/creation-drafts/{draftId}",
   "/api/v1/spaces/{spaceId}/creation-drafts/{draftId}/choose-model",
@@ -149,6 +153,26 @@ if (!grants.get.responses?.["200"]?.description?.includes("model-collection") ||
   throw new Error("Data Grant contract must document model-collection support");
 }
 
+const subscriptions = document.paths?.["/api/v1/event-subscriptions"];
+const subscription = document.paths?.["/api/v1/event-subscriptions/{subscriptionId}"];
+if (!subscriptions?.get || !subscriptions?.post || !subscription?.patch || !subscription?.delete) {
+  throw new Error("Event subscription management lifecycle is incomplete");
+}
+if (schemas.DomainEventType?.enum?.join(",") !== "record.created,record.updated,record.deleted") {
+  throw new Error("Domain event types drifted");
+}
+if (!schemas.CreateWebhookSubscriptionRequest?.required?.includes("modelKey") || !schemas.CreateWebhookSubscriptionRequest?.required?.includes("spaceId")) {
+  throw new Error("Event subscription creation must target one Space and model");
+}
+const signingSecret = schemas.CreateWebhookSubscriptionResponse?.properties?.data?.allOf?.[1]?.properties?.signingSecret;
+if (signingSecret?.writeOnly !== true) {
+  throw new Error("Webhook signing secret must be documented as one-time/write-only");
+}
+if (!document.paths?.["/api/v1/event-subscriptions/{subscriptionId}/deliveries"]?.get
+    || !document.paths?.["/api/v1/event-subscriptions/{subscriptionId}/test"]?.post) {
+  throw new Error("Event subscription delivery diagnostics are incomplete");
+}
+
 const creationDraft = document.paths?.["/api/v1/spaces/{spaceId}/creation-drafts"]?.post;
 if (!creationDraft?.description?.includes("active user Space member")) {
   throw new Error("Creation Drafts must document user-member-only access");
@@ -177,7 +201,7 @@ if (schemas.ModelContract?.properties?.id?.pattern !== "^mct_[a-f0-9]{64}$") {
   throw new Error("Model Contract revisions must be content-addressed mct_<sha256>");
 }
 
-if (schemas.StatusResponse?.properties?.data?.properties?.contractVersion?.const !== "0.13.0") {
+if (schemas.StatusResponse?.properties?.data?.properties?.contractVersion?.const !== "0.14.0") {
   throw new Error("Core Kernel status contract version drifted");
 }
 

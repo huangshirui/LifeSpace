@@ -19,6 +19,12 @@
   "queues": [
     {
       "name": "lifespace-creation-drafts"
+    },
+    {
+      "name": "lifespace-event-deliveries"
+    },
+    {
+      "name": "lifespace-event-deliveries-dlq"
     }
   ],
   "domains": [

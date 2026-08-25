@@ -25,7 +25,11 @@ const resources = JSON.parse(readFileSync(resolve(ROOT, "infra/production/resour
 const expected = {
   d1: new Set(["lifespace-identity", "lifespace-core"]),
   r2: new Set(["lifespace-assets"]),
-  queues: new Set(["lifespace-creation-drafts"]),
+  queues: new Set([
+    "lifespace-creation-drafts",
+    "lifespace-event-deliveries",
+    "lifespace-event-deliveries-dlq",
+  ]),
   domains: new Map([
     ["auth.aisr.online", "lifespace-identity"],
     ["core.aisr.online", "lifespace-core"],
@@ -50,7 +54,15 @@ if (actualDomains.size !== expected.domains.size || [...expected.domains].some((
 const coreWrangler = readFileSync(resolve(ROOT, "apps/core/wrangler.jsonc"), "utf8");
 const identityWrangler = readFileSync(resolve(ROOT, "apps/identity/wrangler.jsonc"), "utf8");
 for (const [label, source, required] of [
-  ["Core", coreWrangler, ["\"name\": \"lifespace-core\"", "\"database_name\": \"lifespace-core\"", "\"bucket_name\": \"lifespace-assets\"", "\"queue\": \"lifespace-creation-drafts\"", "\"pattern\": \"core.aisr.online\""]],
+  ["Core", coreWrangler, [
+    "\"name\": \"lifespace-core\"",
+    "\"database_name\": \"lifespace-core\"",
+    "\"bucket_name\": \"lifespace-assets\"",
+    "\"queue\": \"lifespace-creation-drafts\"",
+    "\"queue\": \"lifespace-event-deliveries\"",
+    "\"dead_letter_queue\": \"lifespace-event-deliveries-dlq\"",
+    "\"pattern\": \"core.aisr.online\"",
+  ]],
   ["Identity", identityWrangler, ["\"name\": \"lifespace-identity\"", "\"database_name\": \"lifespace-identity\"", "\"bucket_name\": \"lifespace-assets\"", "\"pattern\": \"auth.aisr.online\""]],
 ]) {
   for (const token of required) if (!source.includes(token)) throw new Error(`${label} production Wrangler config is missing ${token}`);
