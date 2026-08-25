@@ -85,7 +85,7 @@ function dto(model: PublishedModel, allowed: ModelAccess[]) {
 }
 
 export function registerRuntimeDiscoveryRoutes(app: App): void {
-  app.get("/api/v1/spaces/:spaceId/discovery", async (context) => {
+  app.get("/api/v1/spaces/:spaceId/_discovery", async (context) => {
     const principal = context.get("principal");
     const spaceId = context.req.param("spaceId");
 
