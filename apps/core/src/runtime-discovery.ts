@@ -1,10 +1,10 @@
 import type { Hono } from "hono";
 import type { Permission, SpaceRole } from "./authorization";
-import { success, ApiError } from "./http";
-import type { Bindings, Principal, Variables } from "./env";
-import type { ModelAccess } from "./model-definition";
-import { listRuntimeModels, type RuntimeModelDescriptor } from "./model-registry";
 import { capabilityActionAccess } from "./capability-runtime";
+import type { Bindings, Principal, Variables } from "./env";
+import { ApiError, success } from "./http";
+import type { ModelAccess } from "./model-definition";
+import { listPublishedModels, type PublishedModel } from "./model-registry";
 
 type AppEnv = { Bindings: Bindings; Variables: Variables };
 type App = Hono<AppEnv>;
@@ -41,7 +41,7 @@ function spaceAuthorityRank(principal: Principal, membership: MembershipRow | nu
 
 function effectiveAccess(
   principal: Principal,
-  model: RuntimeModelDescriptor,
+  model: PublishedModel,
   catalogAccess: ModelAccess,
   authorityRank: number,
 ): ModelAccess[] {
@@ -51,7 +51,7 @@ function effectiveAccess(
     && authorityRank >= accessRank[access]);
 }
 
-function actions(model: RuntimeModelDescriptor, allowed: ModelAccess[]): DiscoveryAction[] {
+function actions(model: PublishedModel, allowed: ModelAccess[]): DiscoveryAction[] {
   const allowedSet = new Set(allowed);
   const result: DiscoveryAction[] = Object.entries(model.definition.actions ?? {})
     .filter(([, action]) => allowedSet.has(action.access))
@@ -64,7 +64,7 @@ function actions(model: RuntimeModelDescriptor, allowed: ModelAccess[]): Discove
   return result.sort((left, right) => left.key.localeCompare(right.key));
 }
 
-function dto(model: RuntimeModelDescriptor, allowed: ModelAccess[]) {
+function dto(model: PublishedModel, allowed: ModelAccess[]) {
   return {
     key: model.key,
     route: model.route,
@@ -75,9 +75,9 @@ function dto(model: RuntimeModelDescriptor, allowed: ModelAccess[]) {
     access: allowed,
     fields: Object.entries(model.definition.fields).map(([key, field]) => ({ key, ...field })),
     query: {
-      searchable: [...model.runtime.searchable],
-      filterable: [...model.runtime.filterable],
-      sortable: [...model.runtime.sortable],
+      searchable: [...(model.definition.query?.searchable ?? [])],
+      filterable: [...(model.definition.query?.filterable ?? [])],
+      sortable: [...(model.definition.query?.sortable ?? [])],
     },
     actions: actions(model, allowed),
     capabilities: Object.keys(model.definition.capabilities ?? {}).sort(),
@@ -118,7 +118,7 @@ export function registerRuntimeDiscoveryRoutes(app: App): void {
       ? ((results[membershipIndex].results ?? [])[0] as MembershipRow | undefined) ?? null
       : null;
     const grants = (results[grantsIndex].results ?? []) as GrantRow[];
-    const models = await listRuntimeModels(context.env);
+    const models = await listPublishedModels(context.env);
 
     const visible = models.flatMap((model) => {
       const catalogAccess = catalogByModel.get(model.key);
