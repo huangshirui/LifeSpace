@@ -158,7 +158,14 @@ function PublishDialog({ modelKey, onClose }: { modelKey?: string; onClose: () =
     setBusy(true); setError(undefined);
     try {
       const definition = parseDefinition();
-      const published = await mutate<PublishedModel>("/api/models/publish", "POST", "publish-model-definition", { definition, compatibility });
+      const confirmModelKey = typeof definition.key === "string" ? definition.key : "";
+      if (!confirmModelKey) throw new ControlPlaneError("校验后的 Model Definition 缺少 key", "INVALID_MODEL_DEFINITION");
+      const published = await mutate<PublishedModel>("/api/models/publish", "POST", "publish-model-definition", {
+        definition,
+        compatibility,
+        confirmModelKey,
+        ...(compatibility === "breaking" ? { breakingConfirmation: breakingConfirm } : {}),
+      });
       window.location.assign(`/models/${encodeURIComponent(published.key)}`);
     } catch (cause) { setError(cause); setBusy(false); }
   }
@@ -168,7 +175,7 @@ function PublishDialog({ modelKey, onClose }: { modelKey?: string; onClose: () =
       {loading ? <div className="cp-loading">正在读取当前 Model Definition…</div> : <>
         <label className="cp-field"><span>Model Definition JSON</span><textarea className="cp-editor" spellCheck={false} value={source} onChange={(event) => { setSource(event.target.value); setValidation(undefined); setConfirmed(false); }} /></label>
         <div className="cp-row">
-          <label className="cp-field cp-compact"><span>Compatibility</span><select value={compatibility} onChange={(event) => { setCompatibility(event.target.value as typeof compatibility); setConfirmed(false); }}><option value="initial">initial</option><option value="compatible">compatible</option><option value="breaking">breaking</option></select></label>
+          <label className="cp-field cp-compact"><span>Compatibility</span><select value={compatibility} disabled={!modelKey} onChange={(event) => { setCompatibility(event.target.value as typeof compatibility); setBreakingConfirm(""); setConfirmed(false); }}>{!modelKey ? <option value="initial">initial</option> : <><option value="compatible">compatible</option><option value="breaking">breaking</option></>}</select></label>
           <div className="cp-validation-summary">
             {validation?.valid && <SuccessNotice><strong>校验通过</strong><span>schemaHash: {validation.schemaHash}</span></SuccessNotice>}
             {validation && !validation.valid && <div className="cp-notice cp-error"><strong>校验未通过</strong><span>{validation.issues.length} 个问题</span></div>}
@@ -247,7 +254,10 @@ function ModelAccessDialog({ applicationId, onClose }: { applicationId: string; 
         const maxAccess = access[model.key] ?? "none";
         return maxAccess === "none" ? [] : [{ modelKey: model.key, maxAccess }];
       });
-      await mutate<{ applicationId: string; models: ModelAccess[] }>(`/api/applications/${encodeURIComponent(applicationId)}/model-access`, "PUT", "replace-application-model-access", { models: selected });
+      await mutate<{ applicationId: string; models: ModelAccess[] }>(`/api/applications/${encodeURIComponent(applicationId)}/model-access`, "PUT", "replace-application-model-access", {
+        models: selected,
+        confirmApplicationId: applicationId,
+      });
       window.location.reload();
     } catch (cause) { setError(cause); setBusy(false); }
   }
