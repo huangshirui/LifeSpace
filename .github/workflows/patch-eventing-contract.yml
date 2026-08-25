@@ -5,6 +5,7 @@ on:
     branches: [feat/webhook-endpoints]
     paths:
       - apps/core/scripts/patch-openapi-v015.mjs
+      - apps/core/scripts/patch-eventing-docs.mjs
 
 permissions:
   contents: write
@@ -19,16 +20,20 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-      - name: Patch canonical Core OpenAPI
-        run: node apps/core/scripts/patch-openapi-v015.mjs
-      - name: Commit generated contract
+      - name: Patch canonical Core surfaces
         run: |
-          if git diff --quiet -- apps/core/openapi.yaml; then
-            echo "No contract changes"
+          node apps/core/scripts/patch-openapi-v015.mjs
+          if [ -f apps/core/scripts/patch-eventing-docs.mjs ]; then
+            node apps/core/scripts/patch-eventing-docs.mjs
+          fi
+      - name: Commit generated changes
+        run: |
+          if git diff --quiet; then
+            echo "No generated changes"
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add apps/core/openapi.yaml
-          git commit -m "chore(core): publish kernel contract 0.15.0"
+          git add apps/core/openapi.yaml apps/core/AGENTS.md docs/architecture.md docs/contracts.md
+          git commit -m "docs(core): align eventing endpoint architecture"
           git push origin HEAD:feat/webhook-endpoints
