@@ -2,20 +2,24 @@
 
 ## Scope
 
-This runbook covers LifeSpace **Phase 6**: bring up an empty production platform before the HomeMew production migration/cutover.
+This runbook covers the guarded LifeSpace production deployment path, including the original **Phase 6** empty-platform bring-up and later compatible production releases.
 
-It must not read or migrate HomeMew production business data and must not route HomeMew production traffic to LifeSpace.
+It must not read or migrate HomeMew production business data unless a separately approved migration workflow explicitly does so, and the LifeSpace deployment workflow must not route HomeMew application traffic.
 
 ## Production resources
 
 - Identity D1: `lifespace-identity`
 - Core D1: `lifespace-core`
 - R2: `lifespace-assets`
-- Queue: `lifespace-creation-drafts`
+- Creation Draft Queue: `lifespace-creation-drafts`
+- Event Delivery Queue: `lifespace-event-deliveries`
+- Event Delivery DLQ: `lifespace-event-deliveries-dlq`
 - Identity Worker: `lifespace-identity` -> `auth.aisr.online`
 - Core Worker: `lifespace-core` -> `core.aisr.online`
 
 Desired names live in `resources.json`. Staging names are never accepted as production substitutions.
+
+`provision-production.mjs` is deliberately create-if-missing and idempotent: it never deletes, renames, replaces or reuses staging resources. The `provision` workflow input remains `false` by default, but may be explicitly enabled on a later production release when the declared manifest adds a required production D1/R2/Queue resource.
 
 ## GitHub `production` environment
 
@@ -58,11 +62,11 @@ The workflow:
 
 The HomeMew production application registration is intentional metadata. Its actual cutover `lsa_*` credential is **not** retained by Phase 6. Phase 7 creates a new credential and places it directly in the HomeMew production secret store.
 
-If the first run fails after resources have already been created, rerun Phase 6 from `main` with `provision: false` unless a missing resource still needs create-if-missing provisioning.
+If the first run fails after resources have already been created, rerun Phase 6 from `main` with `provision: false` unless a missing declared resource still needs create-if-missing provisioning.
 
 ## Normal production deployments after Phase 6
 
-Use:
+For a code/schema release that needs no new Cloudflare resource, use:
 
 ```text
 phase6_bringup: false
@@ -70,11 +74,27 @@ provision: false
 confirmation: DEPLOY_PRODUCTION
 ```
 
-Normal production deployment uses Core-first -> Identity ordering and does not run the Phase 6 business-empty gate or create Phase 6 probe authority.
+When the release adds a resource already declared in `infra/production/resources.json`, use:
+
+```text
+phase6_bringup: false
+provision: true
+confirmation: DEPLOY_PRODUCTION
+```
+
+This only runs the idempotent create-if-missing provisioner before migration/deployment; it does not run the Phase 6 business-empty gate. Normal production deployment uses Core-first -> Identity ordering so the newer compatible Core verifier/runtime is live before Identity may issue against it.
+
+For Core 0.14.0 Eventing, `provision: true` is required on the first production rollout if `lifespace-event-deliveries` and `lifespace-event-deliveries-dlq` do not already exist. The post-deploy verifier requires:
+
+- the Event Delivery Queue to be both produced to and consumed by `lifespace-core`;
+- `max_retries=5`;
+- dead-letter target `lifespace-event-deliveries-dlq`;
+- the DLQ to exist as the dead-letter target without pretending it is a normal Core producer/consumer queue;
+- production Queue IDs to remain isolated from staging.
 
 ## Phase 6 prohibition
 
-Do not during this phase:
+Do not during the Phase 6 bring-up:
 
 - run `infra/migration/homemew-one-shot.mjs` against HomeMew production;
 - issue/store the final HomeMew production application credential;
@@ -82,4 +102,4 @@ Do not during this phase:
 - import HomeMew Spaces, people, Events, Tasks, Day Records, Wishes or avatars;
 - alter HomeMew production DNS/routes/clients to point at LifeSpace.
 
-Those actions belong to Phase 7 after the redesigned HomeMew release is ready.
+Those actions belong to later explicitly approved application migration/cutover work.
