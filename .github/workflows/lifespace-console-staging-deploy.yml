@@ -2,12 +2,6 @@ name: Deploy LifeSpace Console staging (isolated)
 
 on:
   workflow_dispatch:
-  # Temporary proving trigger for PR #60. Remove after the first successful isolated staging deploy.
-  push:
-    branches: [feat/console-control-plane-writes]
-    paths:
-      - "apps/console/**"
-      - ".github/workflows/lifespace-console-staging-deploy.yml"
 
 permissions:
   contents: read
