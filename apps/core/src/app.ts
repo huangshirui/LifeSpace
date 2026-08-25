@@ -39,13 +39,15 @@ export function createApp() {
   app.get("/health", (context) => context.json(success({ status: "ok" })));
   app.get("/api/v1/status", async (context) => context.json(success({
     status: "ok", service: "core", environment: context.env.ENVIRONMENT ?? "local", database: "available",
-    schemaVersion: await schemaVersion(context.env), contractVersion: "0.14.0",
+    schemaVersion: await schemaVersion(context.env), contractVersion: "0.15.0",
   })));
   app.use("/api/v1/me", authenticate());
   app.use("/api/v1/me/*", authenticate());
   app.use("/api/v1/spaces", authenticate());
   app.use("/api/v1/spaces/*", authenticate());
   app.use("/api/v1/space-invites/*", authenticate());
+  app.use("/api/v1/webhook-endpoints", authenticate());
+  app.use("/api/v1/webhook-endpoints/*", authenticate());
   app.use("/api/v1/event-subscriptions", authenticate());
   app.use("/api/v1/event-subscriptions/*", authenticate());
   app.use("/api/v1/model-admin", authenticate());

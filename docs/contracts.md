@@ -11,11 +11,11 @@ Identity now has two explicit contract surfaces:
 
 Core has three contract layers:
 
-1. **Kernel Contract** — explicit, code-owned APIs such as Space, Membership, Data Grant, Event Subscription, Registry-driven Creation Draft orchestration and service-only model administration. The checked-in contract is `apps/core/openapi.yaml` and is versioned independently from ordinary models.
+1. **Kernel Contract** — explicit, code-owned APIs such as Space, Membership, Data Grant, Webhook Endpoint/Event Subscription, Registry-driven Creation Draft orchestration and service-only model administration. The checked-in contract is `apps/core/openapi.yaml` and is versioned independently from ordinary models.
 2. **Platform Admin Contract** — `apps/core/platform-admin.openapi.yaml`, a privileged control-plane profile for Application × Model Access, global read-only Space inspection, platform audit and human-attributed Console model mutations. Its initial version is `0.1.0`.
 3. **Model Contract Revision** — immutable OpenAPI/JSON Schema snapshots generated from the published Model Registry plus registered Capability contract contributions.
 
-As of Core Kernel `0.14.0`, ordinary model paths/schemas remain deliberately absent from `apps/core/openapi.yaml`. They exist only in a concrete immutable Model Contract Revision. CI rejects Event/Task/Day Record/Wish or generic `{modelRoute}` paths if they are reintroduced into the Kernel OpenAPI. Kernel `0.13.0` introduced whole-Space and published-model collection Data Grant targeting; Kernel `0.14.0` adds the model-agnostic Event Subscription/Webhook control surface without duplicating ordinary-model CRUD schemas into the Kernel contract.
+As of Core Kernel `0.15.0`, ordinary model paths/schemas remain deliberately absent from `apps/core/openapi.yaml`. They exist only in a concrete immutable Model Contract Revision. CI rejects Event/Task/Day Record/Wish or generic `{modelRoute}` paths if they are reintroduced into the Kernel OpenAPI. Kernel `0.13.0` introduced whole-Space and published-model collection Data Grant targeting; Kernel `0.14.0` introduced model-agnostic Eventing; Kernel `0.15.0` separates reusable Webhook Endpoint transport/signing from model/event subscription filters so multiple models can share one callback and signing secret.
 
 The effective ordinary application contract remains an explicit tuple such as:
 
@@ -106,7 +106,7 @@ The Kernel OpenAPI is intentionally explicit and comparatively stable. It curren
 - Space, Membership, Space Person-facing membership operations and invitations;
 - Space avatar replacement/public reads;
 - Data Grant lifecycle and target syntax;
-- Event Subscription lifecycle, signed Webhook test-send and delivery diagnostics;
+- Webhook Endpoint lifecycle, one-time signing-secret rotation, endpoint-level test/delivery diagnostics and attached Event Subscription filters;
 - Registry-driven Creation Draft orchestration;
 - service-only Model Admin and immutable Model Contract reads.
 
@@ -122,13 +122,13 @@ resourceType=model, resourceId=<published modelKey>
 
 Omitting `resourceType/resourceId` when creating a Grant remains backwards compatible with the pre-0.13 whole-Space behavior. Model collection targets are Kernel syntax because they govern authorization around generated model routes; the generated model CRUD schemas themselves still belong exclusively to `mct_*`.
 
-Kernel 0.14.0 adds Event Subscription management as model-agnostic Kernel syntax. A subscription selects a published `modelKey` and generic `record.created` / `record.updated` / `record.deleted` event types, but it does not redefine that model's records. The Webhook payload is reference-only; consumers that need full record data must use the ordinary Model Contract route under their current service credential and Data Grant authority.
+Kernel 0.15.0 models Eventing as two Kernel resources. A Webhook Endpoint owns the Space/subscriber binding, callback URL and signing secret. Event Subscriptions attach one published `modelKey` plus generic `record.created` / `record.updated` / `record.deleted` filters to that endpoint. The Webhook payload remains reference-only; consumers that need full record data must use the ordinary Model Contract route under their current service credential and Data Grant authority. Endpoint creation itself grants no model authority; subscription creation/enabling requires current managing model access and current subscriber Data Grant access.
 
 The Kernel contract must never be used as a second hand-maintained description of ordinary business models. A new ordinary model must not require an edit to `apps/core/openapi.yaml`.
 
 The Platform Admin split also means Console-only governance syntax does not automatically become downstream Kernel syntax. If a future admin capability genuinely becomes a normal application-facing Kernel feature, that transition must be explicit and versioned rather than achieved by merely pointing an application at the admin contract.
 
-A Kernel behavior change is versioned independently from model publication. The Phase-3 contract split moved Core from the Phase-2 `0.11.0` combined-domain contract to Kernel `0.12.0`; Kernel `0.13.0` added backwards-compatible model-collection Data Grant targeting for external integrations; Kernel `0.14.0` adds the generic Eventing subscription and Webhook-delivery management surface.
+A Kernel behavior change is versioned independently from model publication. The Phase-3 contract split moved Core from the Phase-2 `0.11.0` combined-domain contract to Kernel `0.12.0`; Kernel `0.13.0` added backwards-compatible model-collection Data Grant targeting for external integrations; Kernel `0.14.0` introduced generic Eventing; Kernel `0.15.0` separates shared Webhook Endpoint transport/signing from model/event subscription filters.
 
 ## Published artifacts
 
@@ -211,7 +211,7 @@ Metadata-platform checks include:
 - Platform User/Space Inspector contracts remain read-only and do not imply ordinary authorization;
 - platform-managed secret creation remains one-time/write-only and list/read contracts never expose plaintext or hashes;
 - Data Grant contracts preserve whole-Space compatibility and explicitly validate model-collection target semantics;
-- Eventing contract checks preserve model-agnostic event types, subscriber Service Principal binding and one-time signing-secret behavior without copying ordinary record schemas;
+- Eventing contract checks preserve model-agnostic event types, Endpoint/subscriber binding, shared one-time signing-secret behavior, model/event filter separation and reference-only payloads without copying ordinary record schemas;
 - Model Definition validation;
 - deterministic schema hashing;
 - deterministic OpenAPI/JSON Schema generation;

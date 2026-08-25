@@ -78,6 +78,7 @@ Kernel concepts remain explicit platform concepts and cannot be created as ordin
 - Application × Model Access;
 - Registry-driven Creation Draft orchestration;
 - platform administration and audit;
+- Eventing Webhook Endpoint/subscription/delivery state;
 - security/signing/deployment state.
 
 The business-facing Core Kernel contract remains deliberately stable and separate from the privileged Console control plane; see **Contract layers** below.
@@ -294,7 +295,7 @@ Platform Admin Control-Plane Contract
 Kernel Contract
   apps/core/openapi.yaml
   explicit product-facing Space / Grant / Creation Draft / Model Admin primitives
-  current Kernel contract: 0.13.0
+  current Kernel contract: 0.15.0
 
 Platform Admin Control-Plane Contract
   apps/core/platform-admin.openapi.yaml
