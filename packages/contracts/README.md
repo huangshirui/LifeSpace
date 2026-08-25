@@ -17,12 +17,14 @@ The current repository HomeMew handoff pin is:
 
 ```text
 Identity:       0.5.0
-Core Kernel:    0.13.0
+Core Kernel:    0.15.0
 Model Contract: mct_a4cc6dad278204b08cd706f9abeb68107e229148f1cd9ccde0991382606a92b9
 Profile:        infra/homemew-integration-profile.json (profileVersion 1, accepted)
 ```
 
-Kernel 0.13.0 is backwards compatible for the existing HomeMew Mini Program surface and adds model-collection Data Grant syntax/semantics needed by external integrations. It does not change the Mini Program's existing Space/model routes or require model-specific credential scopes. The corresponding platform deployment remains staging-first before production rollout.
+Kernel 0.15.0 retains the existing HomeMew Mini Program Space/model surface while advancing platform Eventing from subscription-owned transport to reusable Webhook Endpoints plus model/event subscription filters. HomeMew Web can therefore configure one callback URL/signing secret for an external system and attach `event` and `task` filters to it without changing the ordinary model contract.
+
+The Eventing configuration-shape correction does not require a new Model Contract revision because Webhook Endpoint/subscription APIs are explicit Kernel resources rather than ordinary Registry models. The corresponding Core deployment remains staging-first before HomeMew Web consumes the new Endpoint/filter API.
 
 The pinned immutable model revision introduced Generic Resource audit actors (`createdBy` / `updatedBy`) in the generated ordinary-model response contract and remains the current HomeMew model-contract evidence. A compatible Registry publication does not automatically advance this application release pin; the pin is promoted only after the target production Registry state has been deployed and accepted.
 
@@ -39,7 +41,7 @@ The bundle contains:
 - `handoff.json` with the explicit contract/application-policy tuple;
 - `checksums.json` with SHA-256 file hashes and a deterministic `hmb_*` bundle id.
 
-The exporter requires a service-only `models:manage` bearer only to read the exact immutable `mct_*` revision from Core. That bearer is not written to the bundle. Application credentials, Service API Tokens, signing keys and other secret material are never handoff artifacts.
+The exporter requires a service-only `models:manage` bearer only to read the exact immutable `mct_*` revision from Core. That bearer is not written to the bundle. Application credentials, Service API Tokens, Webhook signing secrets, signing keys and other secret material are never handoff artifacts.
 
 ## Creation Draft semantic release candidate
 
