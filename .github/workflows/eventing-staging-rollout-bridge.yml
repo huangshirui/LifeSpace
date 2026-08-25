@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     environment: staging
     env:
-      EXPECTED_MAIN_SHA: 836e4f90fa1660bdf251a476b827753cef4ab6e9
+      EXPECTED_MAIN_SHA: 642f38b0af40b80cc384eb7cd83c0545f46a2f1e
       GITHUB_TOKEN: ${{ github.token }}
     steps:
       - name: Checkout canonical main
@@ -34,7 +34,7 @@ jobs:
           ACTUAL_MAIN_SHA="$(git rev-parse HEAD)"
           echo "main=$ACTUAL_MAIN_SHA"
           test "$ACTUAL_MAIN_SHA" = "$EXPECTED_MAIN_SHA" || {
-            echo "main moved after Core 0.15 Eventing merge; refusing one-time dispatch" >&2
+            echo "main moved after Core 0.15 Eventing verifier fix merge; refusing one-time dispatch" >&2
             exit 1
           }
 
