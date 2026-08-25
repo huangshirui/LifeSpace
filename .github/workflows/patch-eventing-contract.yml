@@ -1,0 +1,34 @@
+name: Patch eventing contract
+
+on:
+  push:
+    branches: [feat/webhook-endpoints]
+    paths:
+      - apps/core/scripts/patch-openapi-v015.mjs
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/webhook-endpoints
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Patch canonical Core OpenAPI
+        run: node apps/core/scripts/patch-openapi-v015.mjs
+      - name: Commit generated contract
+        run: |
+          if git diff --quiet -- apps/core/openapi.yaml; then
+            echo "No contract changes"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add apps/core/openapi.yaml
+          git commit -m "chore(core): publish kernel contract 0.15.0"
+          git push origin HEAD:feat/webhook-endpoints
