@@ -1,27 +1,29 @@
 # LifeSpace Agent Instructions
 
-LifeSpace is the shared life-data platform behind ALOHA, HomeMew and future vertical applications. It is the sole source of truth for global LifeSpace user identity, Space/Data Grant authorization, shared domain models, platform migrations, contracts and deployment configuration.
+LifeSpace is the platform for giving any Space a durable digital reality. ALOHA, HomeMew and future products are initial application experiences over the platform, not the boundary of the platform itself. LifeSpace is the sole source of truth for global LifeSpace user identity, Space/Data Grant authorization, shared domain models, platform migrations, contracts and deployment configuration.
 
 ## Read before making changes
 
 Read in this order:
 
-1. `docs/architecture.md`;
-2. `docs/permissions.md`;
-3. `docs/application-authentication.md` for Web/Access/application identity work;
-4. `docs/service-authentication.md` for service, Agent, automation, device or machine credentials;
-5. `docs/contracts.md`;
-6. `docs/phase3-metadata-platform-plan.md` for business-model/runtime architecture;
-7. `docs/phase3-performance-convergence-plan.md` for ordinary-model storage, Registry runtime lookup, query hydration, authorization I/O or performance-sensitive paths;
-8. `docs/migration-plan.md` when changing/moving HomeMew behavior;
-9. `apps/AGENTS.md` and the nearest nested `AGENTS.md` for every directory changed;
-10. relevant OpenAPI contracts, tests, migrations, implementation, Model Definitions and generated artifacts.
+1. `docs/north-star.md` for the evolving long-term direction and architecture decision lens;
+2. `docs/architecture.md` for the current target architecture and normative boundaries;
+3. `docs/permissions.md`;
+4. `docs/application-authentication.md` for Web/Access/application identity work;
+5. `docs/service-authentication.md` for service, Agent, automation, device or machine credentials;
+6. `docs/contracts.md`;
+7. `docs/phase3-metadata-platform-plan.md` for business-model/runtime architecture;
+8. `docs/phase3-performance-convergence-plan.md` for ordinary-model storage, Registry runtime lookup, query hydration, authorization I/O or performance-sensitive paths;
+9. `docs/migration-plan.md` when changing/moving HomeMew behavior;
+10. `apps/AGENTS.md` and the nearest nested `AGENTS.md` for every directory changed;
+11. relevant OpenAPI contracts, tests, migrations, implementation, Model Definitions and generated artifacts.
 
 If a required source does not yet exist during initial scaffold, create/update it before implementing behavior that depends on it.
 
 ## Sources of truth
 
-- Platform boundaries/topology: `docs/architecture.md`
+- Evolving long-term direction/architecture lens: `docs/north-star.md`
+- Current platform boundaries/topology: `docs/architecture.md`
 - Space ownership, Grants, principals and effective authorization: `docs/permissions.md`
 - Application/Cloudflare Access identity: `docs/application-authentication.md`
 - Service/machine credential policy: `docs/service-authentication.md`
@@ -37,7 +39,40 @@ If a required source does not yet exist during initial scaffold, create/update i
 - Verified behavior: automated tests
 - Implementation details: source code
 
-Do not silently reconcile disagreements between these sources. Preserve deployed behavior unless the task explicitly changes the contract/boundary.
+The North Star is directional rather than a claim of already-implemented behavior. Current architecture/contracts/tests remain authoritative for what exists now. Do not silently reconcile disagreements between these sources. Preserve deployed behavior unless the task explicitly changes the contract/boundary.
+
+## Long-term architecture lens
+
+For a platform-level abstraction, persistent state, public contract, protocol dependency or cross-cutting capability, first identify the durable concept and the replaceable implementation around it.
+
+Classify the change primarily as one or more of:
+
+- **Reality** — durable concept/state inside a Space;
+- **Semantics** — meaning, relations, capabilities or constraints;
+- **Authority** — identity, permission, delegation, consent or approval;
+- **Agency** — intent, action or world change;
+- **Context** — authorized/relevant projection of the world;
+- **History** — event, provenance, evidence or state evolution;
+- **Adapter** — protocol/external-system/transport integration;
+- **Experience** — application or UI behavior for a particular audience.
+
+Before committing to a platform design, ask:
+
+1. Are we modeling the real world, or merely today's application/UI?
+2. Does durable state belong to a Space/world, or are we accidentally making an application its owner?
+3. Would the concept still make sense if the current application disappeared?
+4. Would it still make sense if the current Agent framework, AI model, protocol or orchestration product disappeared?
+5. Is MCP/REST/OpenAI tooling/n8n/another protocol being treated as an adapter rather than domain truth?
+6. Are AI-derived observations/claims distinguishable from authoritative state where that distinction matters?
+7. Can an autonomous change be attributed to the relevant principal, Agent/delegation and intent?
+8. Is CRUD merely the transport for a more durable semantic Action/Change concept?
+9. Are we preserving the history/provenance needed to understand meaningful future decisions?
+10. Is a proposed Kernel rule genuinely universal, or is it a personal/family/organization/application assumption?
+11. Are we prematurely generalizing a temporary implementation rather than preserving a clean extension point?
+
+LifeSpace should be Agent-ready but AI-independent. Applications, Agents, models, protocols and orchestration systems are replaceable layers. Durable LifeSpace reality, semantics, authority and history must not depend on one of them.
+
+Do not silently redefine LifeSpace through a local feature implementation. If a requested change conflicts with `docs/north-star.md`, surface the conflict and preserve the current boundary unless the architectural direction is deliberately revised. The North Star itself may evolve when new evidence changes the long-term problem framing; such changes must be explicit and recorded rather than incidental.
 
 ## Mandatory platform rules
 
@@ -55,7 +90,8 @@ Do not silently reconcile disagreements between these sources. Preserve deployed
 
 ### Space and data authorization
 
-- Space is the ownership/default authorization boundary for ordinary business data.
+- Space is the ownership/default authorization boundary for ordinary business data and the primary durable world boundary in the long-term platform model; it is not synonymous with personal, family, organization, tenant or workspace.
+- Do not encode personal/family/organization/application-specific Space rules into the Kernel unless they are deliberately generalized as universal invariants.
 - Every ordinary business record belongs to exactly one source Space.
 - Sharing never changes ownership or creates a second authoritative copy; use Data Grants/approved derived views.
 - Data authorization and application authorization are independent.
@@ -171,6 +207,7 @@ Do not create one-off domain source code merely because the DSL needs extension.
 - Keep product UI and application-specific external-provider mappings in application repos, except the LifeSpace platform Console itself, which belongs in this platform repo.
 - Cloudflare Access principal mapping is Identity state and belongs here, not in individual application repos.
 - Do not copy HomeMew code mechanically; preserve proven semantics while removing family/app assumptions that are not platform policy.
+- Do not make current application, AI-provider, Agent-framework, orchestration or protocol concepts durable platform truth unless the underlying abstraction remains meaningful without that dependency.
 - Do not introduce packages without a concrete consumer/near-term role.
 - Generated artifacts are reproducible outputs and must not be hand-edited.
 - Production/staging resources and credentials remain isolated.
@@ -178,4 +215,4 @@ Do not create one-off domain source code merely because the DSL needs extension.
 
 ## Change completion
 
-Before declaring a platform change complete, inspect all coupled surfaces: Identity, Access/application auth, platform-admin actor/executor state, Space/Grant rules, Application × Model Access, Registry, runtime descriptor cache, physical schema, Generic Runtime, Capabilities, all applicable contract layers, migrations, tests, SDK/client generation, docs, infrastructure and downstream compatibility. Fix drift in the same change or record an explicit approved follow-up while keeping unsupported behavior unavailable.
+Before declaring a platform change complete, inspect all coupled surfaces: North Star impact, Identity, Access/application auth, platform-admin actor/executor state, Space/Grant rules, Application × Model Access, Registry, runtime descriptor cache, physical schema, Generic Runtime, Capabilities, all applicable contract layers, migrations, tests, SDK/client generation, docs, infrastructure and downstream compatibility. For platform-level work, explicitly state whether the durable abstraction belongs to Reality/Semantics/Authority/Agency/Context/History or is merely an Adapter/Experience concern. Fix drift in the same change or record an explicit approved follow-up while keeping unsupported behavior unavailable.
