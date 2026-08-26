@@ -1,0 +1,118 @@
+name: Deploy LifeSpace Console staging (isolated)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lifespace-console-staging-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy Console only to staging
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: staging
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID || secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+    steps:
+      - name: Checkout LifeSpace
+        uses: actions/checkout@v4
+
+      - name: Report deployment source
+        run: |
+          echo "ref=$GITHUB_REF"
+          echo "sha=$GITHUB_SHA"
+          echo "checkout=$(git rev-parse HEAD)"
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.13.1
+          run_install: false
+
+      - name: Setup Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Validate staging deployment authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${CLOUDFLARE_API_TOKEN:-}" || { echo "CLOUDFLARE_API_TOKEN is not configured" >&2; exit 1; }
+          test -n "${CLOUDFLARE_ACCOUNT_ID:-}" || { echo "CLOUDFLARE_ACCOUNT_ID is not configured" >&2; exit 1; }
+
+      - name: Install repository dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate Console only
+        run: pnpm --filter @lifespace/console check
+
+      - name: Verify current staging platform dependencies without mutation
+        run: |
+          node --input-type=module <<'NODE'
+          const services = [
+            ["Identity", "https://auth-staging.aisr.online/api/v1/status"],
+            ["Core", "https://core-staging.aisr.online/api/v1/status"],
+          ];
+          for (const [name, url] of services) {
+            const response = await fetch(url, { headers: { accept: "application/json" } });
+            const payload = await response.json().catch(() => null);
+            if (response.status !== 200 || payload?.data?.environment !== "staging") {
+              throw new Error(`${name} staging dependency is unavailable or not staging: ${response.status} ${JSON.stringify(payload)}`);
+            }
+            console.log(JSON.stringify({
+              service: name,
+              environment: payload.data.environment,
+              schemaVersion: payload.data.schemaVersion ?? null,
+              contractVersion: payload.data.contractVersion ?? null,
+              registryRevision: payload.data.registryRevision ?? null,
+            }));
+          }
+          NODE
+
+      - name: Build and deploy LifeSpace Console staging only
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd apps/console
+          CLOUDFLARE_ENV=staging pnpm exec vite build
+          pnpm exec wrangler deploy
+
+      - name: Verify staging hostname is live behind Access
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 20); do
+            if code="$(curl --silent --show-error --head --output /dev/null --write-out '%{http_code}' --connect-timeout 5 --max-time 10 https://lifespace-staging.aisr.online/)"; then
+              if [ "$code" -ge 200 ] && [ "$code" -lt 500 ]; then
+                echo "lifespace-staging.aisr.online is reachable (HTTP $code; Cloudflare Access may redirect or deny unauthenticated CI)"
+                exit 0
+              fi
+            fi
+            echo "Waiting for LifeSpace Console staging hostname (${attempt}/20)"
+            sleep 3
+          done
+          echo "LifeSpace Console staging hostname did not become reachable" >&2
+          exit 1
+
+      - name: Summarize isolated deployment
+        if: ${{ success() }}
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<'EOF'
+          ## LifeSpace Console staging — isolated deploy
+
+          - Only the LifeSpace Console staging Worker/client was built and deployed.
+          - Current staging Identity/Core were read for health/compatibility context only.
+          - No D1 migration ran.
+          - No Core or Identity Worker was deployed.
+          - No bootstrap secret was used.
+          - Existing Console Worker secrets were preserved rather than rotated.
+          - Next: verify the new model publish/retire and Application × Model Access flows through the real Cloudflare Access browser session.
+          EOF
