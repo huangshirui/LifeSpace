@@ -17,6 +17,7 @@ const adminBootstrap = readFileSync(adminBootstrapUrl, "utf8");
 const requiredWorkflow = [
   "workflow_dispatch:",
   "DEPLOY_LIFESPACE_CONSOLE_PRODUCTION",
+  'test "$GITHUB_EVENT_NAME" = "workflow_dispatch"',
   "environment: production",
   "statuses: write",
   "lifespace-console-production/deploy",
@@ -30,15 +31,14 @@ const requiredWorkflow = [
   "pnpm exec wrangler deploy --secrets-file",
   "https://lifespace.aisr.online/",
   "finalize-production-console-admin.mjs",
-  "release/lifespace-console-production-20260826",
   "GITHUB_SHA",
-  "MAIN_SHA",
 ];
 for (const token of requiredWorkflow) {
   if (!workflow.includes(token)) throw new Error(`${workflowPath} must include ${token}`);
 }
 
 const forbiddenWorkflow = [
+  ["push trigger", /^\s*push:\s*$/mu],
   ["staging service target", /auth-staging\.aisr\.online|core-staging\.aisr\.online|lifespace-console-staging|CLOUDFLARE_ENV=staging/iu],
   ["D1 migration", /db:migrate|d1\s+migrations\s+apply/iu],
   ["Core Worker deployment", /apps\/core[^\n]*wrangler deploy|core-deploy/iu],
@@ -48,6 +48,7 @@ const forbiddenWorkflow = [
   ["pull-request trigger", /^\s*pull_request(?:_target)?:\s*$/mu],
   ["scheduled trigger", /^\s*schedule:\s*$/mu],
   ["workflow_call trigger", /^\s*workflow_call:\s*$/mu],
+  ["first-release branch logic", /release\/lifespace-console-production-20260826|MAIN_SHA|git ls-remote origin refs\/heads\/main/iu],
 ];
 for (const [label, pattern] of forbiddenWorkflow) {
   if (pattern.test(workflow)) throw new Error(`${workflowPath} violates Console-only production isolation: ${label}`);
@@ -108,14 +109,6 @@ for (const [label, pattern] of forbiddenAdminBootstrap) {
   if (pattern.test(adminBootstrap)) throw new Error(`${adminBootstrapPath} violates platform-admin bootstrap isolation: ${label}`);
 }
 
-const pushBlock = /\n\s{2}push:\n\s{4}branches:\n\s{6}- release\/lifespace-console-production-20260826\n/u;
-if (!pushBlock.test(workflow)) {
-  throw new Error(`${workflowPath} temporary push trigger must be limited to the exact one-time release branch`);
-}
-if (!workflow.includes('test "$GITHUB_SHA" = "$MAIN_SHA"')) {
-  throw new Error(`${workflowPath} one-time release branch must be required to point exactly at current main`);
-}
-
 const requiredWrangler = [
   '"production": {',
   '"name": "lifespace-console"',
@@ -134,6 +127,8 @@ console.log(JSON.stringify({
   ok: true,
   workflow: ".github/workflows/lifespace-console-production-deploy.yml",
   productionConsoleOnly: true,
+  manualOnlyProductionDeploy: true,
+  typedProductionConfirmationRequired: true,
   productionAccessPreflightRequired: true,
   productionAccessBootstrapOwnerOnly: true,
   stagingAccessUsedAsConfigurationTemplateOnly: true,
@@ -145,6 +140,6 @@ console.log(JSON.stringify({
   coreIdentityMigrationAbsent: true,
   coreIdentityDeploymentAbsent: true,
   businessDataMutationAbsent: true,
-  temporaryPushRestrictedToExactMainSha: true,
+  firstReleasePushTriggerAbsent: true,
   productionBindingsIsolated: true,
 }));

@@ -1,12 +1,29 @@
 # LifeSpace Console — Production Rollout
 
-Status: **production rollout path implemented; first release pending**
+Status: **production active; permanent deployment path is manual-only**
 
-## Purpose
+## Production evidence
 
-This document defines the production deployment boundary for the LifeSpace platform Console at `https://lifespace.aisr.online`.
+The first isolated LifeSpace Console production rollout completed successfully on 2026-08-26.
 
-The Console is an Experience/Authority control-plane client over LifeSpace Identity/Core. Deploying the Console must not be treated as permission to migrate or redeploy the authoritative platform services or to mutate ordinary Space/business data.
+```text
+Source SHA:       977e44568f7637f237d763f86be116f4cb460bd5
+Actions run:      32946437701
+Worker:           lifespace-console
+Worker version:   1af8266b-4c98-4c73-942d-6219432fa025
+Hostname:         https://lifespace.aisr.online
+```
+
+The rollout verified `lifespace.aisr.online` as reachable with HTTP `302`, which is the expected unauthenticated Cloudflare Access redirect.
+
+Authoritative platform dependencies were verified, not redeployed:
+
+```text
+Identity: schema 7 / contract 0.5.0
+Core:     schema 28 / Kernel 0.15.0
+```
+
+The successful rollout did **not** run Core/Identity migrations, did **not** deploy Core/Identity, did **not** mutate ordinary Space/business records, and did **not** perform HomeMew production migration/cutover.
 
 ## Production topology
 
@@ -25,127 +42,97 @@ IDENTITY_APPLICATION_CREDENTIAL  # Console app lsa_*
 CORE_EXECUTOR_BEARER             # dedicated Console lsp_pat_*
 ```
 
-The production bootstrap secret is provisioning/break-glass authority only. It is available to the controlled GitHub Actions production environment during reconciliation but is never installed in the Console Worker and never enters browser code.
+The production bootstrap secret is provisioning/break-glass authority only. It is available to the controlled GitHub Actions `production` environment during reconciliation, but it is never installed in the Console Worker and never enters browser code.
 
-## Canonical deployment workflow
+## Permanent deployment workflow
+
+Canonical workflow:
 
 ```text
 .github/workflows/lifespace-console-production-deploy.yml
 ```
 
-Permanent use is explicit manual `workflow_dispatch` with the typed confirmation:
+Production deployment is **manual-only** through `workflow_dispatch` and requires the typed confirmation:
 
 ```text
 DEPLOY_LIFESPACE_CONSOLE_PRODUCTION
 ```
 
-For the first rollout only, the workflow temporarily also accepts the exact branch:
+The temporary first-release push trigger used on 2026-08-26 has been removed from the permanent workflow. Repository guard `apps/console/scripts/check-production-deploy-isolation.mjs` rejects any future push, pull-request, scheduled or `workflow_call` trigger for this production workflow.
+
+Every rollout publishes the commit status context:
 
 ```text
-release/lifespace-console-production-20260826
+lifespace-console-production/deploy
 ```
-
-That bootstrap trigger is additionally required to point at exactly the current `main` SHA. It exists only because the current GitHub connector cannot dispatch a workflow directly. It must be removed immediately after the first successful production rollout so the permanent path is manual-only.
 
 ## Fail-closed production preflight
 
-Before mutating LifeSpace Console authority or deploying the Worker, the workflow requires:
+Before Console authority is changed or the Worker is deployed, the workflow requires:
 
-1. committed repository and Console checks to pass;
-2. production Identity and Core to already match the repository's expected schema/contract versions;
-3. exactly the production service URLs `https://auth.aisr.online` and `https://core.aisr.online`;
-4. a verified Cloudflare Access application protecting `lifespace.aisr.online` and a resolvable Access `aud`;
-5. an active LifeSpace platform administrator, either explicitly configured, already assigned, or uniquely resolvable from Identity's existing verified Access-principal mapping during first-rollout break-glass provisioning;
-6. the production Console LifeSpace Application to have the approved immutable classification and exact control-plane scope ceiling.
+1. the committed repository and Console checks to pass;
+2. production Identity and Core to match repository-expected schema/contract versions;
+3. exact production service URLs `https://auth.aisr.online` and `https://core.aisr.online`;
+4. a verified Cloudflare Access application protecting `lifespace.aisr.online` with a resolvable audience;
+5. an active LifeSpace platform administrator that is explicit, already assigned, or uniquely resolvable from Identity's existing verified Access-principal mapping;
+6. the production Console LifeSpace Application to retain the approved classification and control-plane scope ceiling.
 
-If production Core/Identity are behind, the Console workflow stops. It does **not** silently invoke the full platform production deployment.
+If any condition is ambiguous or incompatible, deployment stops. The Console workflow never repairs that condition by silently invoking a full platform production deploy.
 
-If the platform administrator cannot be resolved without ambiguity, the workflow stops. Production first-use Access registration remains disabled.
+## Cloudflare Access boundary
 
-## First production Access bootstrap
+Cloudflare Access is an external perimeter adapter, not LifeSpace Identity authority.
 
-Cloudflare Access is an external security/perimeter adapter, not LifeSpace Identity state. The production Console must never be deployed publicly first and protected later.
+`infra/scripts/prepare-production-console-access.mjs` is idempotent. It verifies the existing production Access application. During the first rollout only, when no production application existed, it was allowed to clone the already-proven staging Access authentication policy into a **separate** production self-hosted application.
 
-The first rollout therefore runs:
-
-```text
-infra/scripts/prepare-production-console-access.mjs
-```
-
-before any LifeSpace Console Application/executor reconciliation.
-
-Behavior is intentionally narrow and idempotent:
-
-```text
-if exactly one production Access app already protects lifespace.aisr.online
-  -> verify it is self_hosted
-  -> verify its policies remain owner-only
-  -> resolve aud
-else if no production Access app exists
-  -> read exactly one accepted staging Console Access app
-  -> clone only its bounded authentication configuration
-  -> create a separate production self_hosted Access app atomically with policy
-  -> verify created production policy
-  -> resolve aud
-else
-  -> fail closed
-```
-
-The staging Access application is used only as a **one-time configuration template**. Production receives a separate Access application, separate audience and independent runtime state. No staging LifeSpace Identity/Core endpoint, credential or data is shared with production.
-
-The bootstrap accepts only the already-proven owner-only policy shape:
+Accepted policy shape is intentionally narrow:
 
 - decision must be `allow`;
-- every cloned policy must include an explicit individual email rule;
-- `everyone`, `any_valid_service_token`, `service_token`, `bypass` and other non-owner broadening paths are rejected;
-- application type must be `self_hosted`;
+- policy must include an explicit individual email rule at the Cloudflare perimeter;
+- `everyone`, `any_valid_service_token`, `service_token`, `bypass` and other broadening paths are rejected;
 - production hostname is fixed to `lifespace.aisr.online`;
-- policy IDs/account IDs are not reused; production policies are newly created from sanitized rule content.
+- production owns a separate Access application and audience.
 
-If the Cloudflare API token lacks the Access application/policy write capability, creation fails before LifeSpace authority or Worker deployment. The deployment does not weaken the policy to work around missing Cloudflare permission.
+The perimeter email rule controls Cloudflare admission only. It is **not** LifeSpace user-identity or platform-admin authority.
 
-After the first successful production rollout, the production Access application is verified/reused directly; normal Console runtime does not depend on the staging Access application.
+## Platform-administrator authority
 
-## First production platform-administrator bootstrap
+Identity owns explicit `platform_administrators` assignments. A Cloudflare Access session by itself is not platform-admin authority.
 
-Cloudflare Access admission is not platform-admin authority. Identity must still own an explicit `platform_administrators` assignment before Console can mint a human actor proof.
-
-The first rollout runs:
+`infra/scripts/resolve-production-console-admin.mjs` resolves authority in this order:
 
 ```text
-infra/scripts/resolve-production-console-admin.mjs
+explicit LIFESPACE_PRODUCTION_PLATFORM_ADMIN_USER_ID
+-> otherwise exactly one existing active platform administrator
+-> otherwise exactly one active usr_* already referenced by an active,
+   Identity-verified access_principals row
+-> otherwise fail closed
 ```
 
-before Console application/executor reconciliation.
+For first-rollout recovery, the resolver obtains the **real** production Identity D1 UUID by exact Cloudflare database name `lifespace-identity`, then performs only the bounded read-only Access-principal→user query. It never trusts the placeholder D1 ID committed in Wrangler configuration.
 
-Resolution is deliberately fail-closed and follows this order:
+The resolver does not select or merge users by email, display name, Access subject, Space membership or application-owned external identity. The successful production rollout reported:
 
 ```text
-if LIFESPACE_PRODUCTION_PLATFORM_ADMIN_USER_ID is explicitly configured
-  -> validate usr_* syntax and use it
-else if exactly one active platform_administrators assignment already exists
-  -> reuse it
-else if no active assignment exists
-  -> read production Identity's already-verified access_principals -> users mapping
-  -> require exactly one active usr_* candidate
-  -> create the explicit platform_administrators assignment through the canonical bootstrap API
-else
-  -> fail closed and require explicit operator selection
+source: unique-verified-access-principal
+assignmentCreated: true
+databaseResolvedByName: true
+emailUsedAsAuthority: false
+accessSubjectUsedAsAuthority: false
+candidateCount: 1
 ```
 
-The break-glass resolver does **not** select or merge a user by email, display name, Access subject or application-owned external identity. Its only automatic candidate source is Identity's existing verified `access_principals.user_id` relation, and exactly one candidate is required. The production D1 access is read-only; the assignment itself is created through Identity's canonical bootstrap endpoint.
-
-This automatic resolver is first-rollout/recovery infrastructure only. Normal Console runtime never reads Identity D1 directly and never holds bootstrap authority.
+The explicit assignment itself is created through Identity's canonical bootstrap API. Normal Console runtime never reads D1 directly and never holds bootstrap authority.
 
 ## Console authority reconciliation
 
-The production Console Application is:
+Production Console Application:
 
 ```text
 app_lifespace_console
 ```
 
-Approved application scopes:
+Application scope ceiling:
 
 ```text
 profile:read
@@ -158,7 +145,7 @@ spaces:inspect
 audit:read
 ```
 
-The dedicated Core executor is limited to:
+Dedicated Core executor scope ceiling:
 
 ```text
 applications:manage
@@ -167,22 +154,22 @@ spaces:inspect
 audit:read
 ```
 
-The workflow reconciles the Console Application, Access audience and platform-administrator assignment, then performs zero-downtime executor rotation:
+Reconciliation order:
 
 ```text
-verify/bootstrap Cloudflare Access first
--> resolve/assign production platform administrator
--> create new lsa_* + lsp_pat_*
--> verify new Core executor
--> build production Vite/Worker config
--> deploy lifespace-console with new secrets
--> verify lifespace.aisr.online is reachable behind Access
--> revoke superseded Console executor credentials
+verify Cloudflare Access
+-> resolve explicit platform administrator
+-> create/rotate Console lsa_* and lsp_pat_* executors
+-> verify the Core executor
+-> build and deploy lifespace-console
+-> verify production hostname behind Access
+-> revoke superseded executor credentials
+-> delete ephemeral local secrets file
 ```
 
-Old credentials are not revoked before the new Worker is deployed and the production hostname has passed its reachability gate.
+Credential plaintext is masked and exists only in the Actions process environment and an ephemeral `0600` secrets file. Plaintext is not committed, logged or written into audit/summary output.
 
-Credential plaintext is masked and held only in the Actions process environment / an ephemeral `0600` secrets file. The file is removed in an `always()` cleanup step. Plaintext is never committed or written to audit/output summaries.
+The first successful rollout created the initial executor set, so there were no superseded production credentials to revoke. The finalizer nevertheless completed successfully and the ephemeral secrets file was removed.
 
 ## Isolation invariants
 
@@ -196,43 +183,25 @@ The Console production workflow must never:
 - create ordinary Space records or business-model records;
 - enable production first-use Access registration;
 - install the bootstrap secret in the Console Worker;
-- point production Console bindings at staging services.
+- point production Console bindings at staging services;
+- use automatic push/PR/schedule/workflow-call production triggers.
 
-The first-release Access bootstrap may read the accepted staging **Cloudflare Access configuration** as a template. This is not permission to query staging LifeSpace services or reuse a staging audience/credential; a new production Access application and audience are created.
+`apps/console/scripts/check-production-deploy-isolation.mjs` enforces the repository-visible portion of these invariants as part of normal Console `check`.
 
-The first-release administrator resolver may perform a bounded read-only query against **production Identity D1** to identify unique active `access_principals.user_id` authority evidence. It may not inspect Core/business data, application-owned external identities, email/display-name equality or staging Identity.
+## First-rollout lessons
 
-`apps/console/scripts/check-production-deploy-isolation.mjs` enforces the repository-visible portion of this boundary as part of normal Console `check`.
+The first production rollout intentionally failed closed several times before the successful deployment. These failures are retained as engineering evidence rather than hidden:
 
-## Observability
+1. release-intent shell logic used a fragile heredoc/command-substitution form; it was replaced with a simpler validated path;
+2. no production Cloudflare Access application existed, so the bounded Access bootstrap was added;
+3. no explicit production platform administrator existed, so the unique verified Access-principal resolver was added instead of matching by email;
+4. one Core performance-budget test exceeded its 5-second CI timeout once and passed on an unchanged rerun, demonstrating runner variability rather than a production defect;
+5. the first admin resolver tried to use the intentional placeholder production D1 UUID from Wrangler; it was changed to resolve the real D1 by exact Cloudflare database name.
 
-Each production rollout publishes a GitHub commit status context:
+The resulting production preflight now checks these first-release assumptions before Worker deployment and remains fail-closed.
 
-```text
-lifespace-console-production/deploy
-```
+## Post-release verification boundary
 
-The status transitions from `pending` to `success` or `failure` and links to the exact Actions run. This makes rollout state independently observable even when the deployment was initiated through the temporary first-release branch trigger.
+The production workflow proves non-destructive release readiness and reachability. It deliberately does not repeat the disposable mutation lifecycle against production.
 
-## Post-release verification
-
-The workflow itself proves only non-destructive production readiness:
-
-- exact current Identity/Core compatibility;
-- Access application protection and audience registration;
-- explicit platform-administrator authority;
-- Console executor authentication;
-- production Worker/domain deployment;
-- old executor revocation after successful cutover.
-
-It deliberately does not repeat the staging disposable write acceptance against production. The A+B+C mutation lifecycle was already transaction-proven and browser-verified in staging. A production operator browser smoke may verify login/read/control visibility without manufacturing disposable platform/business state.
-
-## First-release cleanup
-
-After the first production rollout succeeds:
-
-1. remove the temporary `push` trigger and release-branch-specific logic;
-2. keep `workflow_dispatch` + typed production confirmation as the permanent release path;
-3. update the production-isolation guard to enforce manual-only production deployment;
-4. update this document from first-release pending to production-active evidence;
-5. record the deployed main SHA, rollout status evidence and production boundary in the engineering log.
+A+B+C mutation behavior was already transaction-proven and authenticated-browser-verified in staging before production promotion. Production verification therefore focuses on Access protection, authority reconciliation, executor authentication, Worker/domain deployment and secret cleanup without manufacturing disposable production business state.
