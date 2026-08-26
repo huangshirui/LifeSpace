@@ -79,14 +79,18 @@ for (const [label, pattern] of forbiddenAccessBootstrap) {
 
 const requiredAdminBootstrap = [
   'assertProductionServiceUrl(identityBase, "identity")',
+  'PRODUCTION_IDENTITY_DATABASE_NAME = "lifespace-identity"',
+  '"/d1/database?per_page=1000"',
+  '/d1/database/${encodeURIComponent(databaseId)}/query',
   'INNER JOIN access_principals ap ON ap.user_id = u.id',
   "u.status = 'active' AND ap.status = 'active'",
   '"LIMIT 2"',
   'selectUniqueAccessBackedUserId',
-  '"--remote", "--env", "production"',
+  'resolveUniqueDatabaseId',
   '/bootstrap/v1/platform-administrators',
   'method: "PUT"',
   'LIFESPACE_PRODUCTION_PLATFORM_ADMIN_USER_ID',
+  'databaseResolvedByName: true',
   'emailUsedAsAuthority: false',
   'accessSubjectUsedAsAuthority: false',
 ];
@@ -94,7 +98,8 @@ for (const token of requiredAdminBootstrap) {
   if (!adminBootstrap.includes(token)) throw new Error(`${adminBootstrapPath} must include ${token}`);
 }
 const forbiddenAdminBootstrap = [
-  ["staging environment", /--env["',\s]+staging|auth-staging\.aisr\.online/iu],
+  ["staging environment/service", /auth-staging\.aisr\.online|lifespace-identity-staging/iu],
+  ["placeholder production D1", /00000000-0000-0000-0000-000000000013/iu],
   ["business/Core data", /apps\/core|core\.aisr\.online|\/api\/v1\/spaces\//iu],
   ["application-owned external identity", /external_identities/iu],
   ["email matching expression", /email_snapshot\s*(?:=|LIKE)|display_name\s*(?:=|LIKE)/iu],
@@ -133,6 +138,7 @@ console.log(JSON.stringify({
   productionAccessBootstrapOwnerOnly: true,
   stagingAccessUsedAsConfigurationTemplateOnly: true,
   productionAdminBootstrapUsesVerifiedAccessMappingOnly: true,
+  productionAdminBootstrapResolvesRealD1ByName: true,
   productionAdminBootstrapRequiresUniqueCandidate: true,
   productionAdminBootstrapEmailAuthorityAbsent: true,
   rolloutStatusObservable: true,
