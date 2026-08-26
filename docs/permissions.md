@@ -3,23 +3,46 @@
 ## Core concepts
 
 - **User**: global human LifeSpace identity (`usr_*`) resolved by LifeSpace Identity after an approved authentication path. For owner-controlled Web/PWA applications, Cloudflare Access proves the Web user and Identity resolves the verified Access principal to the global LifeSpace user.
-- **Principal**: authenticated actor such as user, delegated Agent, service, device, or application backend.
-- **Space**: source ownership and default authorization boundary for business data.
+- **Authenticated principal context**: the current implementation's normalized authenticated identity context, such as a user or service identity carried by a verified credential. Existing contracts/code may use the shorter term `principal`; this is implementation vocabulary, not a claim that `Principal -> User | Agent | Application | Service` is the long-term entity ontology.
+- **Principal role**: in the North Star authority model, whose authority is being exercised for an operation.
+- **Actor role**: who/what actually executes or initiates an operation. Principal and Actor may be the same entity or different entities.
+- **Application context**: the registered LifeSpace application through which an operation occurs; this is distinct from saying an Application entity is automatically the Principal or Actor.
+- **Space**: source ownership, default authorization and durable Shared Reality boundary for business data.
 - **Space membership**: role-based relationship between a user and a Space.
-- **Data Grant**: permission that exposes a Space or approved resource target to another principal or Space without changing ownership. Kernel 0.13.0 implements whole-Space and model-collection targets; record/view targets remain future contract work.
+- **Data Grant**: permission that exposes a Space or approved resource target to another authenticated identity/principal target or Space without changing ownership. Kernel 0.13.0 implements whole-Space and model-collection targets; record/view targets remain future contract work.
 - **Credential scope**: stable permission carried by the current credential, such as `resources:read`, `resources:write`, `resources:manage`, or a Kernel-specific scope.
 - **Application × Model Access**: Core catalog entry declaring the maximum `read` / `write` / `manage` access one application may exercise for one published model.
 - **Model access capability**: `read`, `write`, or `manage` capability declared by the published Model Definition.
-- **Model policy**: optional record/input-level restriction evaluated after principal, credential/application and Space/Data Grant authority.
-- **Service API Token**: long-lived opaque bearer credential for one trusted service principal and client context; it is individually scoped, optionally expiring, and revocable.
+- **Model policy**: optional record/input-level restriction evaluated after authenticated identity, credential/application and Space/Data Grant authority.
+- **Service API Token**: long-lived opaque bearer credential for one trusted service principal representation and client context; it is individually scoped, optionally expiring, and revocable.
 
 Do not use `Data Grant` to mean OAuth authorization code/grant flow.
+
+## Entity type and operation role
+
+Long-term conceptual design keeps entity type and operation role orthogonal:
+
+```text
+Entity type
+  User | Agent | Application | Service | future identifiable entity types
+
+Operation
+  principal          = whose authority is exercised
+  actor              = who/what executes or initiates the operation
+  applicationContext = through which registered application context it occurs
+```
+
+A direct user action can have `principal == actor`. A user-delegated Agent action can have the user as Principal and the Agent as Actor. An Agent with explicitly granted independent authority may itself fill both roles.
+
+An Agent is therefore a possible first-class Actor and authority-bearing entity, but it never obtains user authority merely because it executes a user-requested operation. Delegation must be explicit and bounded.
+
+This clarification does not retroactively add a universal Agent/Actor persistence model or require an immediate rename of deployed `principal`, `principal_type`, service-principal or token claims. Those are current contract/implementation terms and remain authoritative for supported behavior.
 
 ## Effective permission
 
 Effective permission for an ordinary model is the intersection of:
 
-1. verified principal identity;
+1. verified authenticated principal identity/context;
 2. the current credential's stable `resources:*` scope required by the operation;
 3. the calling application's current Application × Model Access catalog entry;
 4. current Space membership / Data Grant authorization;
@@ -29,7 +52,7 @@ Effective permission for an ordinary model is the intersection of:
 In short:
 
 ```text
-verified principal
+verified authenticated principal context
 ∩ stable resources:* credential scope
 ∩ Application × Model Access
 ∩ current Space membership/Data Grant
@@ -53,7 +76,7 @@ resources:write
 resources:manage
 ```
 
-A credential with `resources:write` is still unable to write model `task` unless the calling application's Core catalog entry allows `task` at `write` or higher. Likewise, a catalog entry alone grants nothing when the credential lacks the stable resource scope or the principal lacks current Space/Data Grant authority.
+A credential with `resources:write` is still unable to write model `task` unless the calling application's Core catalog entry allows `task` at `write` or higher. Likewise, a catalog entry alone grants nothing when the credential lacks the stable resource scope or the authenticated identity lacks current Space/Data Grant authority.
 
 Example:
 
@@ -72,7 +95,7 @@ This split is deliberate. Publishing a new ordinary model does not require an Id
 
 Runtime route resolution derives the model key and required `read` / `write` / `manage` level from the published definition; it never trusts a client-provided model scope name.
 
-Model publication/retirement and Application × Model Access administration are platform administration, not ordinary Space `manage` permissions. Model-admin surfaces remain service-principal-only. Console-triggered model mutations preserve that service executor and add separately verified human actor evidence; they do not turn the human user into a Model Admin service principal.
+Model publication/retirement and Application × Model Access administration are platform administration, not ordinary Space `manage` permissions. Model-admin surfaces remain service-principal-only in the current contract. Console-triggered model mutations preserve that service executor and add separately verified human Actor evidence; they do not turn the human user into a Model Admin service principal.
 
 ## Platform administration
 
@@ -82,7 +105,7 @@ Platform administration is deliberately separate from Space roles and ordinary b
 
 Cloudflare Access is the Console perimeter/SSO layer, not the final LifeSpace platform-authorization source. LifeSpace Identity owns an explicit `platform_administrators` assignment for eligible global `usr_*` users. Assignment creation/revocation is bootstrap/break-glass administration; routine Console runtime does not hold the bootstrap secret.
 
-A privileged Console operation has two independently verified identities:
+A privileged Console operation has two independently verified identities/roles:
 
 ```text
 human actor
@@ -102,6 +125,8 @@ same LifeSpace application context (azp / clientId)
 platform-admin operation
 ```
 
+This deployed control-plane flow deliberately uses the terms human `actor` and controlled `executor`. The executor is not silently the human's Principal, and neither role obtains ordinary Space authority from the platform-admin relationship.
+
 Rules:
 
 - Cloudflare Access controls entry to `lifespace.aisr.online`, but an Access session, IdP email, or Access `sub` is not by itself LifeSpace platform-administration authority.
@@ -113,7 +138,7 @@ Rules:
 - Actor proof and executor must resolve to the same registered LifeSpace application context. A proof issued to another application cannot be paired with a Console executor credential.
 - Identity-owned Admin APIs verify the Console `lsa_*`, independently verify the actor proof, and re-check the actor's current `platform_administrators` assignment on every privileged request. Revoking the assignment therefore immediately denies subsequent Identity Admin calls even if an actor proof has not expired.
 - Core-owned Admin APIs independently verify the service executor and the Identity-signed purpose-bound actor proof. Core does not duplicate/read Identity's administrator table; its maximum authorization staleness is therefore bounded by the five-minute actor-proof lifetime.
-- Platform-admin operations emit audit evidence that distinguishes the human `usr_*` actor from the backend/service executor and never record credential plaintext, hashes, Access assertions, or actor-proof plaintext.
+- Platform-admin operations emit audit evidence that distinguishes the human `usr_*` Actor from the backend/service executor and never record credential plaintext, hashes, Access assertions, or actor-proof plaintext.
 - Console-triggered Model Admin mutations first persist a `pending` audit record before the Registry mutation starts, then transition it to `success` or `failure`. If audit persistence is unavailable before mutation, the mutation does not begin.
 - Existing non-interactive service automation using `models:manage` remains supported without a human actor proof. Supplying `X-LifeSpace-Actor-Token` on a mutation opts into the Console human-attribution path and the proof must then validate.
 - The global bootstrap secret remains provisioning/break-glass authority. It is not a normal Console runtime credential and must not be stored in the Console Worker/BFF.
@@ -149,9 +174,9 @@ The deployed service credential model remains authoritative. See `docs/service-a
 
 A service may authenticate either with an opaque `lsp_pat_*` Service API Token or with a short-lived service JWT obtained through OAuth `client_credentials`. OAuth is optional for owner-controlled trusted services.
 
-The credential authenticates a service principal; it does not itself confer Space membership or broad data access. Identity constrains the credential to the application's stable scope ceiling and the service principal's maximum scopes. Core then intersects those scopes with current Application × Model Access, current Data Grants and model rules on every request.
+The credential authenticates the current service-principal representation; it does not itself confer Space membership or broad data access. Identity constrains the credential to the application's stable scope ceiling and the service principal's maximum scopes. Core then intersects those scopes with current Application × Model Access, current Data Grants and model rules on every request.
 
-Revoking a Token, disabling its principal, reducing its scopes, reducing/removing Application × Model Access, or revoking a Data Grant removes the corresponding authority on subsequent requests.
+Revoking a Token, disabling its service principal, reducing its scopes, reducing/removing Application × Model Access, or revoking a Data Grant removes the corresponding authority on subsequent requests.
 
 Service API Tokens may have `expires_at = null`, but they remain individually revocable and must never be issued to browsers, Mini Programs, downloadable clients, or permanent personal-user identities.
 
@@ -186,14 +211,15 @@ Personal Spaces may apply stricter lifecycle rules than family/team Spaces, such
 ## Data Grant principles
 
 - Source data keeps exactly one `space_id`.
+- Spaces remain distinct under sharing; a Grant never merges source and target Space.
 - Sharing must not duplicate the authoritative record.
-- Grants may target a user/principal or another Space when approved.
+- Grants may target a supported authenticated identity/principal representation or another Space when approved.
 - Kernel 0.13.0 implements two resource targets:
   - whole Space: `resourceType=space`, `resourceId=null`;
   - model collection: `resourceType=model`, `resourceId=<published modelKey>`.
 - Omitted `resourceType/resourceId` on Grant creation remains backwards-compatible with a whole-Space Grant.
 - A model-collection Grant authorizes only Generic Runtime operations for that model. It never authorizes Space detail, membership, invitation, or other Kernel Space-management surfaces.
-- When both a matching model Grant and a whole-Space Grant are active for the same principal, model authorization uses the higher current permission, still bounded by credential scope and Application × Model Access.
+- When both a matching model Grant and a whole-Space Grant are active for the same authenticated principal target, model authorization uses the higher current permission, still bounded by credential scope and Application × Model Access.
 - Permission levels are explicit. `free_busy` remains valid only at Space level; model-collection Grants use `read`, `write`, or `manage`.
 - Revocation, expiry and permission downgrade take effect from current Core authorization state; do not encode long-lived mutable Space/model permission solely into JWT claims.
 - Generic Runtime evaluates Grants against the resolved published `modelKey`, not merely against an arbitrary URL segment supplied by the client.
@@ -207,13 +233,25 @@ Authenticated aggregate endpoints under `/api/v1/me/...` may return records from
 
 ## Actor safety
 
-- Current actor is derived from verified credentials, never request `userId`.
-- For Access-authenticated Web flows, Identity derives the current LifeSpace actor from a verified `(iss, sub)` mapping. A BFF-supplied `sub`, email or `userId` is not sufficient authority by itself.
+- Current authenticated identity/actor context is derived from verified credentials, never request `userId`.
+- Do not infer that the authenticated credential holder is always the conceptual Principal for every future delegated operation. Where Principal and Actor differ, the delegation/authority relationship must be explicit and auditable.
+- For Access-authenticated Web flows, Identity derives the current LifeSpace user identity from a verified `(iss, sub)` mapping. A BFF-supplied `sub`, email or `userId` is not sufficient authority by itself.
 - Access `aud` determines approved application context, not user identity. It must be checked against the registered LifeSpace application before credentials are issued.
 - Account linking is authentication state, not authorization. Linking multiple Access principals to one `usr_*` must not expand that user's Space/Data Grant authority; it only adds another approved way to reach the same global user.
-- User-initiated Agent operations preserve delegated user context.
-- Platform-admin operations preserve both a current authorized human actor and a separately authenticated controlled executor; neither identity may be replaced by an unsigned operator field.
+- User-initiated Agent operations preserve delegated user authority and Agent Actor attribution when the platform supports that delegation path.
+- An Agent is not a User and does not inherit user authority merely by executing the operation.
+- Platform-admin operations preserve both a current authorized human Actor and a separately authenticated controlled executor; neither identity may be replaced by an unsigned operator field.
 - Service and device identities receive only explicit stable scopes, Application × Model Access and Grants.
-- A Service API Token authenticates a service principal and never becomes an implicit Space membership or administrator role.
+- A Service API Token authenticates a service-principal representation and never becomes an implicit Space membership or administrator role.
 - A system identity does not become a Space member merely to gain API access.
 - AI Model Designer has no implicit data/model administration authority; its output is only a proposal until an authorized publisher validates and publishes it.
+
+## North Star relationship
+
+This document describes the **current permission architecture**. It intentionally keeps deployed authentication/contract terms stable while aligning future design with the North Star axioms:
+
+- **Space Boundary**: Space is the default ownership/authorization boundary; cross-Space sharing is explicit and revocable.
+- **Bounded Authority**: authority is explicit; entity type and Principal/Actor roles are not conflated.
+- **Governed Change**: authorization is evaluated before durable changes commit.
+
+A future implementation of richer Agent identity, delegation, consent or approval must extend these foundations deliberately and update contracts/tests before being described as supported behavior.

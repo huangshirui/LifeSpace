@@ -6,7 +6,7 @@
 - Identity application/user/service contract remains `0.5.0`.
 - Identity Platform Admin companion contract `0.1.0` and the platform-administrator/purpose-bound actor foundation are merged on `main`.
 - Access principal verification, audience registration, explicit registration/linking and trusted application credential lifecycle are implemented.
-- `apps/console` now has the permanent React/Vite same-origin BFF shell on PR #47. The current UI slice is read-only except for staging-only first-use registration; final acceptance still requires real staging full-admin/browser E2E before any production rollout.
+- `apps/console` has the permanent React/Vite same-origin BFF shell and uses the platform-admin control-plane boundary described here. Environment rollout/acceptance status belongs in current deployment/status documents rather than this authentication contract.
 
 ## Purpose
 

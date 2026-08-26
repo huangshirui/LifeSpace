@@ -1,0 +1,227 @@
+name: Deploy LifeSpace Console production
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: "Type DEPLOY_LIFESPACE_CONSOLE_PRODUCTION"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  statuses: write
+
+concurrency:
+  group: lifespace-console-production-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Provision and deploy Console only to production
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: production
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID || secrets.CLOUDFLARE_ACCOUNT_ID }}
+      LIFESPACE_PRODUCTION_BOOTSTRAP_SECRET: ${{ secrets.LIFESPACE_PRODUCTION_BOOTSTRAP_SECRET }}
+      LIFESPACE_IDENTITY_PRODUCTION_URL: https://auth.aisr.online
+      LIFESPACE_CORE_PRODUCTION_URL: https://core.aisr.online
+      LIFESPACE_PRODUCTION_CONSOLE_APPLICATION_ID: app_lifespace_console
+      LIFESPACE_PRODUCTION_CONSOLE_APPLICATION_NAME: LifeSpace Console
+      LIFESPACE_PRODUCTION_CONSOLE_ACCESS_AUD: ${{ vars.LIFESPACE_PRODUCTION_CONSOLE_ACCESS_AUD || secrets.LIFESPACE_PRODUCTION_CONSOLE_ACCESS_AUD }}
+      LIFESPACE_PRODUCTION_PLATFORM_ADMIN_USER_ID: ${{ vars.LIFESPACE_PRODUCTION_PLATFORM_ADMIN_USER_ID || secrets.LIFESPACE_PRODUCTION_PLATFORM_ADMIN_USER_ID }}
+
+    steps:
+      - name: Checkout LifeSpace
+        uses: actions/checkout@v4
+
+      - name: Report rollout pending
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          node --input-type=module <<'NODE'
+          const runUrl = `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`;
+          const response = await fetch(`${process.env.GITHUB_API_URL}/repos/${process.env.GITHUB_REPOSITORY}/statuses/${process.env.GITHUB_SHA}`, {
+            method: 'POST',
+            headers: {
+              authorization: `Bearer ${process.env.GITHUB_TOKEN}`,
+              accept: 'application/vnd.github+json',
+              'x-github-api-version': '2022-11-28',
+              'content-type': 'application/json',
+            },
+            body: JSON.stringify({
+              state: 'pending',
+              target_url: runUrl,
+              description: 'LifeSpace Console production rollout started',
+              context: 'lifespace-console-production/deploy',
+            }),
+          });
+          if (!response.ok) throw new Error(`Could not publish pending production status: ${response.status}`);
+          NODE
+
+      - name: Validate explicit production release intent
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_EVENT_NAME" = "workflow_dispatch" || {
+            echo "LifeSpace Console production deployment is manual-only" >&2
+            exit 1
+          }
+          test "${{ inputs.confirmation }}" = "DEPLOY_LIFESPACE_CONSOLE_PRODUCTION" || {
+            echo "confirmation must be DEPLOY_LIFESPACE_CONSOLE_PRODUCTION" >&2
+            exit 1
+          }
+          echo "Production Console release intent accepted for $GITHUB_SHA"
+
+      - name: Report deployment source
+        run: |
+          echo "event=$GITHUB_EVENT_NAME"
+          echo "ref=$GITHUB_REF"
+          echo "sha=$GITHUB_SHA"
+          echo "checkout=$(git rev-parse HEAD)"
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.13.1
+          run_install: false
+
+      - name: Setup Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Validate production deployment authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${CLOUDFLARE_API_TOKEN:-}" || { echo "CLOUDFLARE_API_TOKEN is not configured" >&2; exit 1; }
+          test -n "${CLOUDFLARE_ACCOUNT_ID:-}" || { echo "CLOUDFLARE_ACCOUNT_ID is not configured" >&2; exit 1; }
+          test ${#LIFESPACE_PRODUCTION_BOOTSTRAP_SECRET} -ge 32 || { echo "LIFESPACE_PRODUCTION_BOOTSTRAP_SECRET must be at least 32 characters" >&2; exit 1; }
+
+      - name: Install repository dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate repository and Console production isolation
+        run: |
+          pnpm check
+          node apps/console/scripts/check-production-deploy-isolation.mjs
+
+      - name: Resolve expected production versions
+        run: node infra/scripts/production-expectations.mjs
+
+      - name: Ensure production Console Access boundary
+        run: node infra/scripts/prepare-production-console-access.mjs
+
+      - name: Resolve production Console platform administrator
+        run: node infra/scripts/resolve-production-console-admin.mjs
+
+      - name: Prepare production Console application and executors
+        run: node infra/scripts/prepare-production-console-admin.mjs
+
+      - name: Prepare ephemeral Console Worker secrets file
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import path from 'node:path';
+
+          const identityCredential = process.env.LIFESPACE_PRODUCTION_CONSOLE_APPLICATION_CREDENTIAL;
+          const coreExecutor = process.env.LIFESPACE_PRODUCTION_CONSOLE_CORE_BEARER;
+          if (!identityCredential?.startsWith('lsa_')) throw new Error('Console Identity credential is unavailable');
+          if (!coreExecutor?.startsWith('lsp_pat_')) throw new Error('Console Core executor token is unavailable');
+          console.log(`::add-mask::${identityCredential}`);
+          console.log(`::add-mask::${coreExecutor}`);
+
+          const output = path.join(process.env.RUNNER_TEMP, 'lifespace-console-production-secrets.json');
+          fs.writeFileSync(output, JSON.stringify({
+            IDENTITY_APPLICATION_CREDENTIAL: identityCredential,
+            CORE_EXECUTOR_BEARER: coreExecutor,
+          }), { encoding: 'utf8', mode: 0o600, flag: 'wx' });
+          fs.appendFileSync(process.env.GITHUB_ENV, `LIFESPACE_CONSOLE_PRODUCTION_SECRETS_FILE=${output}\n`, 'utf8');
+          NODE
+
+      - name: Build and deploy LifeSpace Console production only
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd apps/console
+          CLOUDFLARE_ENV=production pnpm exec vite build
+          pnpm exec wrangler deploy --secrets-file "$LIFESPACE_CONSOLE_PRODUCTION_SECRETS_FILE"
+
+      - name: Verify production hostname is protected and reachable
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 20); do
+            if code="$(curl --silent --show-error --head --output /dev/null --write-out '%{http_code}' --connect-timeout 5 --max-time 10 https://lifespace.aisr.online/)"; then
+              if [ "$code" -ge 200 ] && [ "$code" -lt 500 ]; then
+                echo "lifespace.aisr.online is reachable (HTTP $code; Cloudflare Access may redirect or deny unauthenticated CI)"
+                exit 0
+              fi
+            fi
+            echo "Waiting for LifeSpace Console production hostname (${attempt}/20)"
+            sleep 3
+          done
+          echo "LifeSpace Console production hostname did not become reachable" >&2
+          exit 1
+
+      - name: Revoke superseded Console executor credentials
+        run: node infra/scripts/finalize-production-console-admin.mjs
+
+      - name: Remove ephemeral secrets file
+        if: ${{ always() }}
+        shell: bash
+        run: rm -f "${LIFESPACE_CONSOLE_PRODUCTION_SECRETS_FILE:-$RUNNER_TEMP/lifespace-console-production-secrets.json}"
+
+      - name: Summarize isolated production deployment
+        if: ${{ success() }}
+        shell: bash
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<EOF
+          ## LifeSpace Console production — isolated rollout
+
+          - Source SHA: \`${GITHUB_SHA}\`
+          - Worker: \`lifespace-console\`
+          - Hostname: \`lifespace.aisr.online\`
+          - Identity: schema v${LIFESPACE_EXPECTED_IDENTITY_SCHEMA_VERSION} / contract ${LIFESPACE_EXPECTED_IDENTITY_CONTRACT_VERSION}
+          - Core: schema v${LIFESPACE_EXPECTED_CORE_SCHEMA_VERSION} / Kernel ${LIFESPACE_EXPECTED_CORE_CONTRACT_VERSION}
+          - Cloudflare Access application: ${LIFESPACE_PRODUCTION_CONSOLE_ACCESS_STATE:-verified}; owner-only policy verified before deployment
+          - Platform administrator: explicit/existing or uniquely resolved from an already-verified Access principal mapping; no email matching
+          - Console LifeSpace application: \`app_lifespace_console\`
+          - Identity/Core executor credentials: zero-downtime rotated; superseded credentials revoked after hostname verification
+          - Core/Identity deployment or migration: **not performed**
+          - Space/business data mutation: **not performed**
+          - HomeMew production migration/cutover: **not performed by this workflow**
+          EOF
+
+      - name: Report rollout result
+        if: ${{ always() }}
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          node --input-type=module <<'NODE'
+          const succeeded = process.env.JOB_STATUS === 'success';
+          const runUrl = `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`;
+          const response = await fetch(`${process.env.GITHUB_API_URL}/repos/${process.env.GITHUB_REPOSITORY}/statuses/${process.env.GITHUB_SHA}`, {
+            method: 'POST',
+            headers: {
+              authorization: `Bearer ${process.env.GITHUB_TOKEN}`,
+              accept: 'application/vnd.github+json',
+              'x-github-api-version': '2022-11-28',
+              'content-type': 'application/json',
+            },
+            body: JSON.stringify({
+              state: succeeded ? 'success' : 'failure',
+              target_url: runUrl,
+              description: succeeded ? 'LifeSpace Console production rollout succeeded' : 'LifeSpace Console production rollout failed',
+              context: 'lifespace-console-production/deploy',
+            }),
+          });
+          if (!response.ok) throw new Error(`Could not publish final production status: ${response.status}`);
+          NODE

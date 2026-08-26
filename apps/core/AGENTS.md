@@ -27,9 +27,8 @@ Core owns:
 - Application × Model Access;
 - Model Definition validation, Registry/version lifecycle and Model Admin;
 - Generic Runtime/storage for ordinary Space-owned models;
-- effective-authority Runtime Discovery for applications/services without exposing privileged Model Admin payloads;
 - reusable Engines/Capabilities;
-- model-agnostic Domain Event outbox state, application/Space/model-scoped event subscriptions, signed Webhook delivery, retry state and delivery diagnostics;
+- model-agnostic Domain Event outbox state, Space/subscriber-scoped Webhook Endpoints, model/event subscription filters, signed Webhook delivery, retry state and endpoint-level delivery diagnostics;
 - cross-Space aggregate `/me` views;
 - deterministic typed physical schema planning/publication;
 - runtime validation, concurrency, soft deletion, relations and business audit;
@@ -94,8 +93,9 @@ Rules:
 - whole-Space Data Grants use `resource_type=space, resource_id=NULL`;
 - model-collection Data Grants use `resource_type=model, resource_id=<published model key>` and authorize only Generic Runtime access to that model in the source Space;
 - a model operation may use either a matching model-collection Grant or a whole-Space Grant, taking the highest current active permission; Kernel Space/membership APIs never treat a model-collection Grant as Space authority;
-- Runtime Discovery returns only model/field/query/action/capability metadata that survives the same current credential scope, Application × Model Access and Space membership/Data Grant intersection; it never exposes the privileged full Model Definition or immutable Model Contract payload;
-- event-subscription management is a user/Space-management operation: it requires `spaces:manage`, current Space `manage` permission and current read access to the selected model;
+- Webhook Endpoint management is a user/Space-management operation: it requires `spaces:manage` and current Space `manage` permission; creating an endpoint grants no model access;
+- adding/enabling/materially editing an Event Subscription filter additionally requires current managing-application read access and a current subscriber Data Grant for the selected model;
+- Webhook URL and signing secret belong to the Endpoint, never to an individual model subscription;
 - event delivery is reference-only and must not become a bypass around normal record-read authorization;
 - no service/platform executor becomes a hidden Space member.
 
@@ -147,7 +147,7 @@ Do not make service automation depend on an interactive human solely to improve 
 - Ordinary model physical schema is produced by validated model publication/schema planning, not one repository migration per ordinary model.
 - Kernel/control-plane tables remain explicit.
 - Capability auxiliary tables/indexes are allowed when needed for correctness/performance.
-- Event outbox/subscription/delivery tables are explicit Kernel infrastructure, not ordinary business models.
+- Event outbox/Webhook Endpoint/subscription/delivery tables are explicit Kernel infrastructure, not ordinary business models.
 - Migration and Worker rollout order must remain compatible and documented.
 
 ## Contract ownership
@@ -174,8 +174,6 @@ immutable Model Contract Revision: mct_<sha256>
 
 Do not put Console-only privileged APIs into the Kernel contract simply because they are served by the same Worker. Do not duplicate ordinary model routes into either code-owned contract.
 
-Authorized Runtime Discovery is a Kernel exception because it is model-agnostic integration syntax over the effective current model authority. Its response is deliberately bounded metadata, not a second Model Definition or Model Contract surface.
-
 Console Model publish/retire profiles may reference the existing Kernel Model Admin request/response schemas; they must not become a second hand-maintained Model Definition schema.
 
 ## HomeMew migration rules
@@ -199,7 +197,7 @@ A Core change is incomplete until:
 - migrations/schema expectations are aligned;
 - metadata/runtime changes preserve Registry/contract reproducibility;
 - authorization changes include positive and deny paths;
-- Eventing changes cover event generation, subscription filtering, signing, retry/idempotency and revocation behavior appropriate to the slice;
+- Eventing changes cover event generation, Endpoint transport/signing, subscription filtering, retry/idempotency and revocation behavior appropriate to the slice;
 - Platform Admin changes cover service-only executor, missing/wrong-purpose/mismatched actor proof and no-hidden-Space-authority behavior;
 - performance-sensitive changes preserve D1 round-trip/N+1 rules;
 - downstream Kernel/model-contract impact is explicitly assessed.

@@ -31,11 +31,12 @@ const requiredPaths = [
   "/api/v1/space-invites/{token}/join",
   "/api/v1/spaces/{spaceId}/grants",
   "/api/v1/spaces/{spaceId}/grants/{grantId}",
-  "/api/v1/spaces/{spaceId}/_discovery",
+  "/api/v1/webhook-endpoints",
+  "/api/v1/webhook-endpoints/{endpointId}",
+  "/api/v1/webhook-endpoints/{endpointId}/deliveries",
+  "/api/v1/webhook-endpoints/{endpointId}/test",
   "/api/v1/event-subscriptions",
   "/api/v1/event-subscriptions/{subscriptionId}",
-  "/api/v1/event-subscriptions/{subscriptionId}/deliveries",
-  "/api/v1/event-subscriptions/{subscriptionId}/test",
   "/api/v1/spaces/{spaceId}/creation-drafts",
   "/api/v1/spaces/{spaceId}/creation-drafts/{draftId}",
   "/api/v1/spaces/{spaceId}/creation-drafts/{draftId}/choose-model",
@@ -48,6 +49,13 @@ const requiredPaths = [
 ];
 for (const path of requiredPaths) {
   if (!document.paths?.[path]) throw new Error(`Core Kernel OpenAPI missing ${path}`);
+}
+
+for (const retired of [
+  "/api/v1/event-subscriptions/{subscriptionId}/deliveries",
+  "/api/v1/event-subscriptions/{subscriptionId}/test",
+]) {
+  if (document.paths?.[retired]) throw new Error(`Retired subscription-owned Webhook route remains: ${retired}`);
 }
 
 const retiredCompatibility = [
@@ -82,7 +90,8 @@ if (document.paths?.["/api/v1/spaces/{spaceId}/creation-drafts/{draftId}/choose-
 
 const schemas = document.components?.schemas ?? {};
 for (const name of Object.keys(schemas)) {
-  if (/^(Event|Task|DayRecord|Wish|CreationDraftEvent|CreationDraftTask|CreationDraftDayRecord|CreationDraftWish)/.test(name)) {
+  if (/^(Event|Task|DayRecord|Wish|CreationDraftEvent|CreationDraftTask|CreationDraftDayRecord|CreationDraftWish)/.test(name)
+      && !name.startsWith("EventSubscription")) {
     throw new Error(`Ordinary-model schema leaked into Kernel OpenAPI: ${name}`);
   }
   if (name.startsWith("Legacy")) {
@@ -154,53 +163,40 @@ if (!grants.get.responses?.["200"]?.description?.includes("model-collection") ||
   throw new Error("Data Grant contract must document model-collection support");
 }
 
-const discovery = document.paths?.["/api/v1/spaces/{spaceId}/_discovery"]?.get;
-if (!discovery) {
-  throw new Error("Authorized Runtime Discovery read surface is missing");
+const endpoints = document.paths?.["/api/v1/webhook-endpoints"];
+const endpoint = document.paths?.["/api/v1/webhook-endpoints/{endpointId}"];
+if (!endpoints?.get || !endpoints?.post || !endpoint?.patch || !endpoint?.delete) {
+  throw new Error("Webhook endpoint management lifecycle is incomplete");
 }
-if (!discovery.description?.includes("effective authority")) {
-  throw new Error("Runtime Discovery must document effective-authority filtering");
+const endpointSecret = schemas.CreateWebhookEndpointResponse?.properties?.data?.allOf?.[1]?.properties?.signingSecret;
+if (endpointSecret?.writeOnly !== true) {
+  throw new Error("Webhook endpoint signing secret must be one-time/write-only");
 }
-const discoveryResponseRef = discovery.responses?.["200"]?.content?.["application/json"]?.schema?.$ref;
-if (discoveryResponseRef !== "#/components/schemas/RuntimeDiscoveryResponse") {
-  throw new Error("Runtime Discovery must use its bounded Kernel response schema");
+if (schemas.WebhookEndpoint?.properties?.modelKey || schemas.WebhookEndpoint?.properties?.eventTypes) {
+  throw new Error("Webhook endpoint must own transport/signing only, not subscription filters");
 }
-if (!schemas.RuntimeDiscoveryResponse || !schemas.RuntimeDiscoveryModel || !schemas.RuntimeDiscoveryAction) {
-  throw new Error("Runtime Discovery schemas are incomplete");
-}
-for (const required of ["key", "route", "version", "schemaHash", "display", "access", "fields", "query", "actions", "capabilities"]) {
-  if (!schemas.RuntimeDiscoveryModel?.required?.includes(required)) {
-    throw new Error(`Runtime Discovery model metadata missing required field: ${required}`);
-  }
-}
-if (schemas.RuntimeDiscoveryModel?.properties?.definition || schemas.RuntimeDiscoveryModel?.properties?.openapi) {
-  throw new Error("Runtime Discovery must not expose privileged full Model Definition/contract payloads");
-}
-if (schemas.RuntimeDiscoveryAccess?.enum?.join(",") !== "read,write,manage") {
-  throw new Error("Runtime Discovery access vocabulary drifted");
-}
-if (schemas.RuntimeDiscoveryActionKind?.enum?.join(",") !== "workflow,capability") {
-  throw new Error("Runtime Discovery action-kind vocabulary drifted");
+if (!document.paths?.["/api/v1/webhook-endpoints/{endpointId}/deliveries"]?.get
+    || !document.paths?.["/api/v1/webhook-endpoints/{endpointId}/test"]?.post) {
+  throw new Error("Webhook endpoint diagnostics are incomplete");
 }
 
 const subscriptions = document.paths?.["/api/v1/event-subscriptions"];
 const subscription = document.paths?.["/api/v1/event-subscriptions/{subscriptionId}"];
 if (!subscriptions?.get || !subscriptions?.post || !subscription?.patch || !subscription?.delete) {
-  throw new Error("Event subscription management lifecycle is incomplete");
+  throw new Error("Event subscription filter lifecycle is incomplete");
 }
 if (schemas.DomainEventType?.enum?.join(",") !== "record.created,record.updated,record.deleted") {
   throw new Error("Domain event types drifted");
 }
-if (!schemas.CreateWebhookSubscriptionRequest?.required?.includes("modelKey") || !schemas.CreateWebhookSubscriptionRequest?.required?.includes("spaceId")) {
-  throw new Error("Event subscription creation must target one Space and model");
+if (!schemas.CreateEventSubscriptionRequest?.required?.includes("endpointId")
+    || !schemas.CreateEventSubscriptionRequest?.required?.includes("modelKey")) {
+  throw new Error("Event subscription creation must attach one model filter to one endpoint");
 }
-const signingSecret = schemas.CreateWebhookSubscriptionResponse?.properties?.data?.allOf?.[1]?.properties?.signingSecret;
-if (signingSecret?.writeOnly !== true) {
-  throw new Error("Webhook signing secret must be documented as one-time/write-only");
+if (schemas.CreateEventSubscriptionRequest?.properties?.webhookUrl || schemas.UpdateEventSubscriptionRequest?.properties?.rotateSigningSecret) {
+  throw new Error("Event subscription filters must not own Webhook transport/signing configuration");
 }
-if (!document.paths?.["/api/v1/event-subscriptions/{subscriptionId}/deliveries"]?.get
-    || !document.paths?.["/api/v1/event-subscriptions/{subscriptionId}/test"]?.post) {
-  throw new Error("Event subscription delivery diagnostics are incomplete");
+if (!schemas.WebhookDelivery?.required?.includes("modelKey")) {
+  throw new Error("Endpoint-level delivery diagnostics must identify the source model");
 }
 
 const creationDraft = document.paths?.["/api/v1/spaces/{spaceId}/creation-drafts"]?.post;

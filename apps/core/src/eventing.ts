@@ -19,8 +19,10 @@ type DeliveryRow = {
   event_id: string;
   subscription_id: string;
   status: "pending" | "queued" | "succeeded" | "failed" | "cancelled";
+  endpoint_id: string | null;
   webhook_url: string | null;
   signing_secret: string | null;
+  endpoint_enabled: number | null;
   subscription_enabled: number | null;
   application_id: string | null;
   subscriber_service_principal_id: string | null;
@@ -55,7 +57,7 @@ export function validateWebhookUrl(value: unknown): string {
   }
   const hostname = url.hostname.toLowerCase();
   if (url.protocol !== "https:" || url.username || url.password) throw new ApiError("INVALID_WEBHOOK_URL", "webhookUrl must be an HTTPS URL without embedded credentials", 400);
-  if (hostname === "localhost" || hostname.endsWith(".localhost") || hostname.endsWith(".local") || hostname.includes(":" ) || isPrivateIpv4(hostname)) {
+  if (hostname === "localhost" || hostname.endsWith(".localhost") || hostname.endsWith(".local") || hostname.includes(":") || isPrivateIpv4(hostname)) {
     throw new ApiError("INVALID_WEBHOOK_URL", "webhookUrl must target a public HTTPS host", 400);
   }
   return url.toString();
@@ -105,10 +107,12 @@ async function dispatchEvent(env: Bindings, event: OutboxRow): Promise<void> {
   const currentTime = now();
   const subscriptions = await env.DB.prepare(`SELECT s.id
     FROM event_subscriptions s
+    JOIN webhook_endpoints e ON e.id=s.endpoint_id
     JOIN application_model_access ama
-      ON ama.application_id=s.application_id AND ama.model_key=s.model_key
+      ON ama.application_id=e.application_id AND ama.model_key=s.model_key
     WHERE s.deleted_at IS NULL AND s.enabled=1
-      AND s.space_id=? AND s.model_key=?
+      AND e.deleted_at IS NULL AND e.enabled=1
+      AND e.space_id=? AND s.model_key=?
       AND (
         (?='record.created' AND s.include_created=1)
         OR (?='record.updated' AND s.include_updated=1)
@@ -116,9 +120,9 @@ async function dispatchEvent(env: Bindings, event: OutboxRow): Promise<void> {
       )
       AND EXISTS (
         SELECT 1 FROM data_grants g
-        WHERE g.source_space_id=s.space_id
+        WHERE g.source_space_id=e.space_id
           AND g.grantee_type='service'
-          AND g.grantee_id=s.subscriber_service_principal_id
+          AND g.grantee_id=e.subscriber_service_principal_id
           AND g.revoked_at IS NULL
           AND (g.expires_at IS NULL OR g.expires_at>?)
           AND g.permission IN ('read','write','manage')
@@ -179,9 +183,11 @@ export async function dispatchPendingDomainEvents(env: Bindings, limit = 50): Pr
 
 async function loadDelivery(env: Bindings, deliveryId: string): Promise<DeliveryRow | null> {
   return env.DB.prepare(`SELECT d.id,d.event_id,d.subscription_id,d.status,
-      s.webhook_url,s.signing_secret,s.enabled AS subscription_enabled,s.application_id,s.subscriber_service_principal_id,s.model_key
+      s.endpoint_id,s.enabled AS subscription_enabled,s.model_key,
+      e.webhook_url,e.signing_secret,e.enabled AS endpoint_enabled,e.application_id,e.subscriber_service_principal_id
     FROM webhook_deliveries d
     LEFT JOIN event_subscriptions s ON s.id=d.subscription_id AND s.deleted_at IS NULL
+    LEFT JOIN webhook_endpoints e ON e.id=s.endpoint_id AND e.deleted_at IS NULL
     WHERE d.id=?`)
     .bind(deliveryId).first<DeliveryRow>();
 }
@@ -213,10 +219,10 @@ async function subscriberCanReceive(env: Bindings, subscriberId: string, spaceId
 async function deliverOne(env: Bindings, deliveryId: string): Promise<"ack" | "retry"> {
   const delivery = await loadDelivery(env, deliveryId);
   if (!delivery || delivery.status === "succeeded" || delivery.status === "cancelled") return "ack";
-  if (!delivery.webhook_url || !delivery.signing_secret || !delivery.subscription_enabled || !delivery.application_id
-      || !delivery.subscriber_service_principal_id || !delivery.model_key
+  if (!delivery.endpoint_id || !delivery.webhook_url || !delivery.signing_secret || !delivery.endpoint_enabled || !delivery.subscription_enabled
+      || !delivery.application_id || !delivery.subscriber_service_principal_id || !delivery.model_key
       || !(await applicationCanReceive(env, delivery.application_id, delivery.model_key))) {
-    await env.DB.prepare(`UPDATE webhook_deliveries SET status='cancelled',updated_at=?,last_error='subscription unavailable or access revoked' WHERE id=?`)
+    await env.DB.prepare(`UPDATE webhook_deliveries SET status='cancelled',updated_at=?,last_error='endpoint/subscription unavailable or access revoked' WHERE id=?`)
       .bind(now(), deliveryId).run();
     return "ack";
   }
@@ -242,6 +248,7 @@ async function deliverOne(env: Bindings, deliveryId: string): Promise<"ack" | "r
     const response = await signedFetch(delivery.webhook_url, delivery.signing_secret, body, {
       "x-lifespace-event-id": event.id,
       "x-lifespace-delivery-id": delivery.id,
+      "x-lifespace-webhook-endpoint-id": delivery.endpoint_id,
       "x-lifespace-subscription-id": delivery.subscription_id,
     });
     if (response.ok) {
@@ -278,26 +285,24 @@ export async function processWebhookDeliveryQueue(
   }
 }
 
-export async function sendWebhookTest(
+export async function sendWebhookEndpointTest(
   url: string,
   secret: string,
-  subscriptionId: string,
+  endpointId: string,
   spaceId: string,
-  modelKey: string,
   subscriberServicePrincipalId: string,
 ) {
   const body = JSON.stringify({
     id: id("test"),
-    type: "subscription.test",
-    subscriptionId,
+    type: "endpoint.test",
+    endpointId,
     spaceId,
     subscriberServicePrincipalId,
-    modelKey,
     occurredAt: now(),
   });
   const response = await signedFetch(url, secret, body, {
     "x-lifespace-test": "true",
-    "x-lifespace-subscription-id": subscriptionId,
+    "x-lifespace-webhook-endpoint-id": endpointId,
   });
   return { ok: response.ok, statusCode: response.status };
 }

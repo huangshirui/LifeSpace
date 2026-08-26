@@ -1,0 +1,292 @@
+# LifeSpace Console — Configuration & Publishing Center
+
+Status: **MVP accepted in staging; Slices A+B+C are transaction-proven and authenticated browser-verified**
+
+The accepted read-only Console foundation remains documented in `docs/lifespace-console-mvp.md`. This document defines how that foundation evolves into the LifeSpace platform configuration and publishing center without turning Console into another platform runtime or another source of truth.
+
+## Target operator experience
+
+For ordinary model/platform configuration, the desired operating model is:
+
+```text
+LifeSpace Console
+  -> edit bounded platform metadata
+  -> validate against the authoritative service contract
+  -> review compatibility / impact / security boundary
+  -> explicitly publish or apply
+  -> authoritative Identity/Core state changes immediately
+  -> runtime / generated Model Contract / authorized discovery reflect the new state
+```
+
+A model-only publication or application-policy change must not require a Git commit, Worker deployment or handwritten Core CRUD implementation.
+
+Repository changes remain necessary when the **platform language/runtime itself** changes: for example a new Capability type, new Kernel feature, new authorization primitive or new Console control-plane capability.
+
+## Source-of-truth boundaries
+
+Console is always a client/BFF.
+
+Authoritative owners remain:
+
+```text
+Identity
+  Applications
+  application credentials
+  Access audiences
+  Service Principals
+  Service API Tokens
+  platform administrator assignment
+
+Core
+  Model Registry
+  Model Contract Revisions
+  Application × Model Access
+  Space / membership / Data Grant
+  Event Subscription runtime
+  platform audit
+
+Console
+  operator workflow + presentation only
+```
+
+Console must not persist duplicate copies of these objects as authoritative configuration.
+
+## Security invariant for every privileged write
+
+```text
+Cloudflare Access
+-> verified LifeSpace user session
+-> <=5 minute purpose=platform_admin_actor proof
+-> controlled Console executor for the same application context
+-> one fixed Identity/Core control-plane operation
+```
+
+Ordinary browser JavaScript never receives Access assertions, LifeSpace user bearer tokens, actor proofs, `lsa_*`, `lsp_pat_*`, bootstrap secrets or upstream Authorization headers.
+
+The only accepted target-credential exception is the dedicated operator reveal boundary in `docs/console-target-credential-reveal.md`: a newly created credential for another approved backend/service may be displayed only in a separately authenticated, short-lived, no-script/no-store reveal document. Console's own executors, actor/session credentials and bootstrap material are never revealable.
+
+Every browser mutation is purpose-specific and requires exact same-origin / Fetch Metadata validation plus an operation-specific intent. Destructive actions must also have an explicit confirmation workflow. Core/Identity remains responsible for authoritative validation and audit.
+
+## Current MVP boundary
+
+The platform Configuration & Publishing Center MVP is **Slices A + B + C** as one operator loop:
+
+```text
+Model definition + publish
+-> Application policy
+-> Application × Model Access
+-> external-system/service identity governance
+-> authoritative audit evidence
+```
+
+Slices D/E/F improve authoring, visibility and governance but do not block the first MVP. In particular, a visual Model Designer is not required before the JSON-first canonical Model Definition path is usable, and Runtime Discovery UI visibility must not make Console depend on an in-flight Core branch.
+
+## Rollout slices
+
+### Slice A — Model publishing + Application × Model Access
+
+Status: **merged and staging transaction-proven**
+
+PR: `#60 feat(console): add configuration and model publishing control plane`
+
+Scope:
+
+- Model Definition JSON authoring as the first low-complexity editor;
+- Core Model Definition validation;
+- explicit `initial` / `compatible` / `breaking` classification;
+- Model publish;
+- Model retire with typed target confirmation;
+- Application × Model Access atomic replacement.
+
+No Core/Identity migration is required because all authoritative APIs are already merged.
+
+The JSON-first editor is intentionally not the final UX. It proves the complete no-code publication path while preserving one canonical Model Definition.
+
+### Slice B — Application configuration
+
+Status: **merged, staging transaction-proven and authenticated browser-verified**
+
+PR: `#65 feat(console): add application configuration control plane`
+
+Scope:
+
+- create Application;
+- update name, allowed scopes, token TTL and active/disabled status;
+- preserve immutable client type / trusted-backend classification from the canonical Identity contract;
+- register/revoke Cloudflare Access audiences.
+
+Rules:
+
+- Console must not invent application policy fields outside Identity's canonical contract;
+- existing semantic Application IDs remain supported for existing resources;
+- new Application IDs continue to be generated by Identity;
+- changing an Application must not silently mutate Model Access or Service Principal state;
+- the Slice consumes the already-merged Identity Platform Admin API and does not require Identity/Core source or migration changes;
+- trusted-backend Application creation still revokes Identity's automatically created bootstrap credential server-side before sanitized metadata is returned; explicit operator-created replacement credentials use Slice C's reveal boundary.
+
+### Slice C — Credentials and external-system identities
+
+Status: **transaction-proven, deployed to staging and authenticated browser-verified**
+
+PR: `#66 feat(console): add credential and service identity governance`
+
+Scope:
+
+- create/revoke Application credentials;
+- create/update/disable Service Principal;
+- create/update/revoke Service API Token;
+- list/read credential/token metadata without plaintext or hashes;
+- provide an explicit safe operator handoff for newly created target credentials.
+
+Ordinary Console React/JavaScript never receives `lsa_*` or `lsp_pat_*` plaintext. The accepted handoff is defined in `docs/console-target-credential-reveal.md`:
+
+```text
+Identity one-time plaintext
+-> Console Configuration Center Worker only
+-> AES-GCM sealed <=60s reveal ticket
+-> sanitized JSON metadata + opaque reveal URL
+-> current platform-admin re-verification
+-> isolated no-script/no-store reveal document
+```
+
+Plaintext is never returned in the React JSON response, local/session storage, a browser cookie, query parameters, logs or audit. Slice C is implemented by one consolidated `worker/configuration-center.ts`; the earlier temporary Cookie-based handoff workers were removed before staging deployment.
+
+The MVP reveal ticket is stateless and short-lived, so it is replayable only during its brief validity window after successful admin re-verification; Console does not claim globally exactly-once display semantics. If stricter consumption semantics are later required, add an explicit ephemeral server-side primitive or direct authoritative secret-install destination rather than storing secrets in Console.
+
+The UI should make external-system authority legible as an intersection rather than presenting one token as unlimited authority:
+
+```text
+Service Principal / token scopes
+∩ Application × Model Access
+∩ Space/Data Grant authority
+∩ model capability/policy
+```
+
+Space-specific Data Grants are not automatically moved into Console merely because Service Principals are created here. Tenant/business authorization remains an application administration concern unless a distinct platform-governance workflow is approved.
+
+## Staging evidence for the MVP
+
+The Configuration Center has three distinct types of staging evidence.
+
+### Authoritative transaction acceptance
+
+The repeatable manual workflow `.github/workflows/lifespace-console-staging-acceptance.yml` covers both:
+
+- Slice A Model validate/publish/version/retire, Model Contract revision movement and Application × Model Access restore;
+- Slice B/C Application create/update, Access Audience register/revoke, Application credential rotation, Service Principal lifecycle and Service API Token create/reduce/re-expansion-deny/revoke.
+
+The Slice B/C proving run `32926401047` succeeded against real staging Identity/Core. It generated staging Application `app_00e7ea17907f4a6ab8206d67e8ce09d2`, revoked all revocable disposable credentials/resources and left that Application disabled because the canonical platform contract has no delete-Application lifecycle. Thirteen human-attributed audit entries were observed and checked for absence of credential plaintext. Production was not targeted.
+
+### Console staging deployment
+
+The consolidated B+C Console was deployed without Core/Identity deployment or migration. Staging remains:
+
+- Identity schema `7`, contract `0.5.0`;
+- Core schema `28`, contract `0.15.0`;
+- Console Worker `lifespace-console-staging` version `bdd0634d-5a7c-433a-a8f1-cae792634e3d`.
+
+A first deployment attempt exposed a Worker-runtime syntax incompatibility that TypeScript/Vite had not caught. The code was consolidated and `node --check` was added to the normal Console build/check gate before the successful deployment. This keeps edge-parser failures from being deferred to Cloudflare upload validation.
+
+### Authenticated browser acceptance
+
+On 2026-08-26 the platform operator completed the real Cloudflare Access-protected staging browser smoke for the Configuration Center. The verified path covered the newly added Application configuration, Access Audience, Application credential, Service Principal, Service API Token and Audit workflows, satisfying the `apps/console/AGENTS.md` Ready gate. Automated transaction acceptance remains a separate reproducible backend/control-plane proof and is not presented as browser evidence.
+
+### Slice D — Visual Model Designer
+
+Replace JSON-only authoring as the default experience with a structured designer for:
+
+- model identity / display names;
+- fields and constraints;
+- relations;
+- query/search/filter/sort declarations;
+- access capabilities;
+- lifecycle behavior;
+- registered Capabilities;
+- bounded Policy / Workflow definitions.
+
+Invariant:
+
+```text
+Visual Designer
+-> canonical Model Definition
+-> the same Core validator
+-> the same publish endpoint
+```
+
+There is never a second visual-only schema format and never direct DDL/SQL/JavaScript publication authority.
+
+Advanced users may retain a raw JSON view for inspection/import/export as long as the canonical validator remains authoritative.
+
+### Slice E — Impact, contract and discovery visibility
+
+After the independent Runtime Discovery work is merged and its contract is stable, Console may **consume** it to improve operator review without making the configuration-center MVP depend on that in-flight branch.
+
+Potential review information:
+
+- active Registry revision;
+- active immutable `mct_*` Model Contract Revision;
+- affected Application × Model Access entries;
+- generated paths/actions exposed by the candidate model;
+- whether a breaking publication has known pinned downstream dependencies;
+- runtime discovery visibility for selected applications/service identities.
+
+This is visibility and impact analysis. Runtime Discovery remains Core-owned.
+
+### Slice F — Publication governance hardening
+
+Before broad production use, add only evidence-driven controls such as:
+
+- explicit breaking-change dependency gate;
+- retire dependency gate;
+- structured before/after Model Definition diff;
+- publication result showing new Registry/model-contract identifiers;
+- bounded audit drill-down from the completed operation;
+- optional two-step approval only if actual operating risk justifies it.
+
+Do not add heavyweight release bureaucracy merely to imitate traditional enterprise consoles. Model metadata publication is intended to remain fast.
+
+## What is deliberately not part of the platform Console
+
+- arbitrary business-record editing;
+- hidden platform-admin impersonation of a Space member;
+- HomeMew family administration;
+- ALOHA product settings;
+- arbitrary Data Grant mutation across all Spaces;
+- arbitrary webhook/integration configuration owned by an application;
+- Cloudflare dashboard replacement;
+- GitHub CI/CD dashboard;
+- SQL/D1 console;
+- arbitrary Swagger/API executor;
+- AI autonomous publication.
+
+AI may help propose a Model Definition, diff or configuration change, but authoritative validation and explicit operator publication remain required.
+
+## Parallel-work strategy
+
+Console slices should normally branch from `main` and consume only merged contracts.
+
+When another feature such as Runtime Discovery is in flight:
+
+1. do not base unrelated Console work on that branch;
+2. keep changed-file sets isolated where practical;
+3. avoid opportunistic Core/Identity refactors;
+4. if a real missing backend capability is discovered, implement it as the smallest separately reviewable dependency;
+5. keep PRs Draft until their own checks and staging evidence are available;
+6. do not use a failing/unavailable CI runner as evidence that application code passed or failed.
+
+For temporary conflict minimization, a new Console slice may wrap/delegate to the previously accepted UI/BFF instead of immediately rewriting the same large files. That duplication is an integration tactic, not a new authority boundary, and should be consolidated when the slices stabilize.
+
+## Definition of the target state
+
+LifeSpace reaches the intended configuration-center experience when an operator can:
+
+1. define a normal model in Console;
+2. validate and publish it without changing Core source code;
+3. create/configure Applications and grant them appropriate model access;
+4. register the application's supported identity perimeter such as Cloudflare Access audiences;
+5. create/manage approved external-system service identities without exposing long-lived platform secrets to ordinary browser JavaScript/storage;
+6. inspect authoritative audit evidence for those changes;
+7. use the model immediately through Generic Runtime from authorized applications/Agents/integrations;
+8. perform model-only or policy-only changes without a code deployment.
+
+A traditional product UI may still require application code when it wants a bespoke presentation for the new model. Agentic/dynamic clients can instead discover and use the newly published model from platform metadata and contracts.

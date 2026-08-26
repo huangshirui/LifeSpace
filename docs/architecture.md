@@ -8,14 +8,14 @@ Applications are product experiences over the platform. They do not own parallel
 
 Ordinary business models are declarative Model Definitions interpreted by a fixed Generic Runtime. New Core source code should normally represent a reusable Runtime/Engine/Capability/physical-schema concern or an explicit Kernel/control-plane concern, not one more handwritten CRUD implementation.
 
-Historical extraction and phase evidence lives in the phase/status and migration documents. This document describes the current target architecture and normative boundaries.
+Historical extraction and phase evidence lives in the phase/status and migration documents. This document describes the current target architecture and normative boundaries. The long-term assumptions and axioms that justify these boundaries are defined in `docs/north-star.md`.
 
 ## Repository and service boundaries
 
 The platform remains a modular monolith split into two authoritative deployed services:
 
 - `apps/identity`: global LifeSpace users, Cloudflare Access principals, registered applications and `lsa_*` application credentials, service principals and service credentials, signing/issuance, platform-administrator assignments, Identity-owned platform-admin audit.
-- `apps/core`: Spaces, memberships, Space People, Data Grants, Model Registry, Application × Model Access, authorized Runtime Discovery, Generic Runtime, typed model storage, reusable Capabilities, Eventing, model administration and Core-owned platform-admin audit.
+- `apps/core`: Spaces, memberships, Space People, Data Grants, Model Registry, Application × Model Access, Generic Runtime, typed model storage, reusable Capabilities, model administration, Core-owned platform-admin audit.
 
 `apps/console` is the LifeSpace platform operations/governance client and same-origin BFF. Its permanent frontend is React + TypeScript + Vite on a Cloudflare Worker/Static Assets deployment. It consumes Identity/Core control-plane contracts and must never become a third source of truth for Identity or Core state.
 
@@ -48,7 +48,7 @@ Third-party or policy-controlled service
   -> LifeSpace Core
 ```
 
-Cloudflare Service Bindings may be used for same-account transport, but transport topology is never authorization. Explicit principal, application, scope and current-state authorization remain mandatory.
+Cloudflare Service Bindings may be used for same-account transport, but transport topology is never authorization. Explicit authenticated identity/principal context, application, scope and current-state authorization remain mandatory.
 
 ## Core request architecture
 
@@ -67,19 +67,38 @@ Request
 
 Stable model metadata may be compiled/cached in a Worker isolate. Mutable authority such as memberships, Grants, Application × Model Access and credential state must retain current-state revocation semantics.
 
+## Identity and operation-role terminology
+
+The current deployed architecture and contracts use established authentication terms such as `principal`, `principal_type` and `service principal`. Those names remain valid implementation vocabulary and are not renamed by the North Star refinement.
+
+For long-term conceptual design, keep two dimensions separate:
+
+```text
+Entity type
+  User | Agent | Application | Service | future identifiable entity types
+
+Operation roles/context
+  principal          = whose authority is exercised
+  actor              = who/what executes or initiates the operation
+  applicationContext = through which application context it occurs
+```
+
+Therefore the platform must not treat `Principal -> User | Agent | Application | Service` as the durable ontology merely because a normalized authenticated identity is currently called a principal in code or contracts. A direct user operation may have the same user as Principal and Actor; a delegated Agent operation may use the user's authority while the Agent is the Actor. An Agent with explicitly granted independent authority may itself fill both roles.
+
+This distinction is currently an architectural interpretation rule, not a declaration that a universal Agent/Actor persistence model or new public contract fields already exist.
+
 ## Kernel
 
 Kernel concepts remain explicit platform concepts and cannot be created as ordinary user-defined models:
 
-- Identity/Application/Principal and credential state;
+- Identity/Application/current authenticated principal and credential state;
 - Space, Membership and Space Person;
 - Data Grant and authorization state;
 - Model Registry administration and publication state;
 - Application × Model Access;
-- authorized Runtime Discovery over published model metadata;
 - Registry-driven Creation Draft orchestration;
-- platform Eventing/subscription infrastructure;
 - platform administration and audit;
+- Eventing Webhook Endpoint/subscription/delivery state;
 - security/signing/deployment state.
 
 The business-facing Core Kernel contract remains deliberately stable and separate from the privileged Console control plane; see **Contract layers** below.
@@ -97,42 +116,6 @@ mct_<sha256(canonical(manifest + openapi + jsonSchema))>
 ```
 
 AI Model Designer or another Agent may propose a Model Definition, but it has no implicit publication authority and no arbitrary DDL/code execution path. Publication always goes through the same validator, compatibility gate and Model Admin boundary.
-
-## Authorized Runtime Discovery
-
-Applications, integrations and Agents sometimes need to build runtime UX from the models that the current connection may actually use. Core therefore exposes a bounded Kernel discovery surface:
-
-```text
-GET /api/v1/spaces/{spaceId}/_discovery
-```
-
-Discovery returns only model metadata that survives the caller's current metadata-authority intersection:
-
-```text
-verified principal
-∩ credential resources:* scope
-∩ Application × Model Access
-∩ current Space membership / Data Grant
-∩ published model declared access
-```
-
-For each visible model, the response may include key/route/version/schema hash, display metadata, bounded field metadata, query capabilities, effective read/write/manage levels, currently eligible declared workflow/Capability actions and capability names.
-
-Discovery is deliberately **not** an execution authorization proof. Record/input-level policy, guard and Capability restrictions that depend on the actual record/input/current runtime context are still evaluated by the normal Generic Runtime when an operation executes. A client must never treat an option appearing in Discovery as authority to bypass the eventual operation check.
-
-Mutable authority such as Data Grants and Application × Model Access is evaluated from current state so revocation/downgrade is reflected on subsequent discovery requests. Discovery never returns the privileged full Model Definition, Model Admin state, generated Model Contract OpenAPI/JSON Schema, or metadata for models with no current usable access.
-
-The `_discovery` segment is Kernel-owned and cannot collide with ordinary model routes because Model Definition route segments must begin with a lowercase letter.
-
-An application-managed integration may expose a Space-bound Connection Base URL such as:
-
-```text
-https://core.aisr.online/api/v1/spaces/spc_...
-```
-
-Clients such as the official n8n Community Nodes then resolve `/_discovery` and model routes relative to that root. The URL carries routing context only; the bearer credential and current LifeSpace authorization state remain the security boundary.
-
-Runtime Discovery supports dynamic UX; it does not replace explicit Kernel/Model Contract version pinning for a released client implementation.
 
 ## Physical persistence
 
@@ -167,7 +150,7 @@ The Physical Schema Compiler is fixed platform code. It derives bounded DDL only
 For an ordinary model operation, effective permission is the intersection of:
 
 ```text
-verified principal
+verified authenticated principal context
 ∩ stable credential scope
 ∩ Application × Model Access
 ∩ current Space membership / Data Grant
@@ -215,7 +198,7 @@ LifeSpace supports two service modes:
 - opaque, revocable `lsp_pat_*` Service API Tokens for owner-controlled trusted workloads;
 - OAuth `client_credentials` for short-lived service JWTs when required by third-party or policy constraints.
 
-Both authenticate a `service` principal and are bounded by application/service scope ceilings, Application × Model Access, current Data Grants and model policy.
+Both authenticate the current `service` principal representation and are bounded by application/service scope ceilings, Application × Model Access, current Data Grants and model policy.
 
 `lsa_*` is a different credential: it authenticates a trusted application backend to Identity and does not itself represent a service principal to Core.
 
@@ -293,7 +276,7 @@ The current React/Vite Console slice exposes only read-only governance/diagnosti
 
 ### Audit
 
-Privileged mutations record both identities:
+Privileged mutations record both identities/roles:
 
 - human `usr_*` actor;
 - backend/service executor;
@@ -331,7 +314,7 @@ Platform Admin Control-Plane Contract
 ```text
 Kernel Contract
   apps/core/openapi.yaml
-  explicit product-facing Space / Grant / Runtime Discovery / Event Subscription / Creation Draft / Model Admin primitives
+  explicit product-facing Space / Grant / Creation Draft / Model Admin primitives
   current Kernel contract: 0.15.0
 
 Platform Admin Control-Plane Contract
@@ -385,13 +368,14 @@ Publishing a compatible ordinary Model Definition does not itself require a Work
 ## Non-negotiable invariants
 
 - One global `usr_*` per LifeSpace person; application-specific external IDs remain app-owned except Cloudflare Access platform principals.
+- Entity type and operation role must not be conflated: Principal authority and Actor execution remain distinguishable when they differ.
+- An Agent does not inherit a user's authority merely by executing an operation for that user.
 - Every ordinary record has exactly one source Space.
-- Grants share authority without changing ownership.
+- Spaces remain distinct under sharing; Grants share authority without changing ownership.
 - No shared parent-domain authentication cookie.
 - No application authority inferred from hostname.
 - No arbitrary executable code/SQL in Model metadata.
 - No service credential or platform-admin executor becomes a hidden Space member.
-- Runtime Discovery may preview only current authorized metadata and never substitutes for execution-time authorization.
 - No browser receives Access/LifeSpace/actor/executor/backend/bootstrap bearer material.
 - No Cloudflare Access session alone equals LifeSpace platform-admin authority.
 - No privileged Console mutation may replace the signed human actor proof with an unsigned identity field.
