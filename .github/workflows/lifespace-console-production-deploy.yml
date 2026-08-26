@@ -130,6 +130,9 @@ jobs:
       - name: Ensure production Console Access boundary
         run: node infra/scripts/prepare-production-console-access.mjs
 
+      - name: Resolve production Console platform administrator
+        run: node infra/scripts/resolve-production-console-admin.mjs
+
       - name: Prepare production Console application and executors
         run: node infra/scripts/prepare-production-console-admin.mjs
 
@@ -202,6 +205,7 @@ jobs:
           - Identity: schema v${LIFESPACE_EXPECTED_IDENTITY_SCHEMA_VERSION} / contract ${LIFESPACE_EXPECTED_IDENTITY_CONTRACT_VERSION}
           - Core: schema v${LIFESPACE_EXPECTED_CORE_SCHEMA_VERSION} / Kernel ${LIFESPACE_EXPECTED_CORE_CONTRACT_VERSION}
           - Cloudflare Access application: ${LIFESPACE_PRODUCTION_CONSOLE_ACCESS_STATE:-verified}; owner-only policy verified before deployment
+          - Platform administrator: explicit/existing or uniquely resolved from an already-verified Access principal mapping; no email matching
           - Console LifeSpace application: \`app_lifespace_console\`
           - Identity/Core executor credentials: zero-downtime rotated; superseded credentials revoked after hostname verification
           - Core/Identity deployment or migration: **not performed**
