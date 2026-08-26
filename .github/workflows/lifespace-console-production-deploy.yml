@@ -7,9 +7,6 @@ on:
         description: "Type DEPLOY_LIFESPACE_CONSOLE_PRODUCTION"
         required: true
         type: string
-  push:
-    branches:
-      - release/lifespace-console-production-20260826
 
 permissions:
   contents: read
@@ -68,26 +65,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
-            test "${{ inputs.confirmation }}" = "DEPLOY_LIFESPACE_CONSOLE_PRODUCTION" || {
-              echo "confirmation must be DEPLOY_LIFESPACE_CONSOLE_PRODUCTION" >&2
-              exit 1
-            }
-          else
-            test "$GITHUB_REF" = "refs/heads/release/lifespace-console-production-20260826" || {
-              echo "unexpected automatic release ref: $GITHUB_REF" >&2
-              exit 1
-            }
-            MAIN_SHA="$(git ls-remote origin refs/heads/main | awk '{print $1}')"
-            test -n "$MAIN_SHA" || {
-              echo "could not resolve current main SHA" >&2
-              exit 1
-            }
-            test "$GITHUB_SHA" = "$MAIN_SHA" || {
-              echo "release branch must point exactly at current main; release=$GITHUB_SHA main=$MAIN_SHA" >&2
-              exit 1
-            }
-          fi
+          test "$GITHUB_EVENT_NAME" = "workflow_dispatch" || {
+            echo "LifeSpace Console production deployment is manual-only" >&2
+            exit 1
+          }
+          test "${{ inputs.confirmation }}" = "DEPLOY_LIFESPACE_CONSOLE_PRODUCTION" || {
+            echo "confirmation must be DEPLOY_LIFESPACE_CONSOLE_PRODUCTION" >&2
+            exit 1
+          }
           echo "Production Console release intent accepted for $GITHUB_SHA"
 
       - name: Report deployment source
