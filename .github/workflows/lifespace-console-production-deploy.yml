@@ -65,8 +65,6 @@ jobs:
           NODE
 
       - name: Validate explicit production release intent
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
@@ -80,15 +78,11 @@ jobs:
               echo "unexpected automatic release ref: $GITHUB_REF" >&2
               exit 1
             }
-            MAIN_SHA="$(node --input-type=module <<'NODE'
-            const response = await fetch(`${process.env.GITHUB_API_URL}/repos/${process.env.GITHUB_REPOSITORY}/git/ref/heads/main`, {
-              headers: { authorization: `Bearer ${process.env.GITHUB_TOKEN}`, accept: 'application/vnd.github+json' },
-            });
-            const payload = await response.json();
-            if (!response.ok || !payload?.object?.sha) throw new Error(`Could not resolve main: ${response.status}`);
-            process.stdout.write(payload.object.sha);
-            NODE
-            )"
+            MAIN_SHA="$(git ls-remote origin refs/heads/main | awk '{print $1}')"
+            test -n "$MAIN_SHA" || {
+              echo "could not resolve current main SHA" >&2
+              exit 1
+            }
             test "$GITHUB_SHA" = "$MAIN_SHA" || {
               echo "release branch must point exactly at current main; release=$GITHUB_SHA main=$MAIN_SHA" >&2
               exit 1
