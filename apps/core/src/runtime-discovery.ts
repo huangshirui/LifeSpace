@@ -13,10 +13,24 @@ type CatalogRow = { model_key: string; max_access: ModelAccess };
 type MembershipRow = { role: SpaceRole };
 type GrantRow = { resource_type: "space" | "model"; resource_id: string | null; permission: Permission };
 
+type DiscoveryActionInputField = {
+  key: string;
+  type: "string" | "text" | "integer" | "number" | "boolean" | "date" | "datetime" | "timezone" | "enum" | "person" | "person_list" | "record" | "record_list";
+  description?: string;
+  required?: boolean;
+  nullable?: boolean;
+  minLength?: number;
+  maxLength?: number;
+  minimum?: number;
+  maximum?: number;
+  values?: string[];
+};
+
 type DiscoveryAction = {
   key: string;
   access: ModelAccess;
   kind: "workflow" | "capability";
+  input: { fields: DiscoveryActionInputField[] };
 };
 
 const accessRank: Record<ModelAccess, number> = { read: 1, write: 2, manage: 3 };
@@ -28,6 +42,13 @@ const scopeForAccess: Record<ModelAccess, string> = {
   manage: "resources:manage",
 };
 const accessOrder: ModelAccess[] = ["read", "write", "manage"];
+const versionInput: DiscoveryActionInputField = {
+  key: "version",
+  type: "integer",
+  required: true,
+  minimum: 1,
+  description: "Current record version used for optimistic concurrency.",
+};
 
 function spaceAuthorityRank(principal: Principal, membership: MembershipRow | null, grants: GrantRow[], modelKey: string): number {
   const membershipLevel = principal.type === "user" && membership ? roleRank[membership.role] : 0;
@@ -55,10 +76,37 @@ function actions(model: PublishedModel, allowed: ModelAccess[]): DiscoveryAction
   const allowedSet = new Set(allowed);
   const result: DiscoveryAction[] = Object.entries(model.definition.actions ?? {})
     .filter(([, action]) => allowedSet.has(action.access))
-    .map(([key, action]) => ({ key, access: action.access, kind: "workflow" as const }));
+    .map(([key, action]) => ({
+      key,
+      access: action.access,
+      kind: "workflow" as const,
+      input: { fields: [{ ...versionInput }] },
+    }));
 
   if (capabilityActionAccess(model, "record-occurrence") === "write" && allowedSet.has("write")) {
-    result.push({ key: "record-occurrence", access: "write", kind: "capability" });
+    result.push({
+      key: "record-occurrence",
+      access: "write",
+      kind: "capability",
+      input: {
+        fields: [
+          { ...versionInput },
+          {
+            key: "occurredOn",
+            type: "date",
+            required: true,
+            description: "Occurrence date in YYYY-MM-DD form. Runtime rules still validate it against the current anchor and Space date.",
+          },
+          {
+            key: "note",
+            type: "text",
+            nullable: true,
+            maxLength: 1000,
+            description: "Optional occurrence note.",
+          },
+        ],
+      },
+    });
   }
 
   return result.sort((left, right) => left.key.localeCompare(right.key));
