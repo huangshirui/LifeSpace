@@ -4,6 +4,7 @@ import type { Bindings, Variables } from "./env";
 import { authenticate } from "./auth";
 import { registerRegistryCreationDraftRoutes } from "./registry-creation-draft-jobs";
 import { registerGenericResourceRoutes } from "./generic-resource-routes";
+import { registerRuntimeDiscoveryRoutes } from "./runtime-discovery";
 import { registerEventSubscriptionRoutes } from "./event-subscription-routes";
 import { ApiError, failure, success } from "./http";
 import { registerModelAdminRoutes } from "./model-admin";
@@ -63,6 +64,7 @@ export function createApp() {
   registerPlatformInspectorRoutes(app);
   registerRegistryCreationDraftRoutes(app);
   registerEventSubscriptionRoutes(app);
+  registerRuntimeDiscoveryRoutes(app);
   registerGenericResourceRoutes(app);
   app.notFound((context) => context.json(failure("NOT_FOUND", "Route not found", context.get("requestId")), 404));
   app.onError((error, context) => {

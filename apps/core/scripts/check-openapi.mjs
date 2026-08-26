@@ -31,6 +31,7 @@ const requiredPaths = [
   "/api/v1/space-invites/{token}/join",
   "/api/v1/spaces/{spaceId}/grants",
   "/api/v1/spaces/{spaceId}/grants/{grantId}",
+  "/api/v1/spaces/{spaceId}/_discovery",
   "/api/v1/webhook-endpoints",
   "/api/v1/webhook-endpoints/{endpointId}",
   "/api/v1/webhook-endpoints/{endpointId}/deliveries",
@@ -103,6 +104,9 @@ const tagNames = (document.tags ?? []).map((tag) => tag?.name);
 for (const forbidden of ["Events", "Tasks", "Day Records", "Wishes"]) {
   if (tagNames.includes(forbidden)) throw new Error(`Ordinary-model tag leaked into Kernel OpenAPI: ${forbidden}`);
 }
+if (!tagNames.includes("Runtime Discovery")) {
+  throw new Error("Runtime Discovery tag is missing from the Kernel contract");
+}
 
 if (JSON.stringify(schemas.SpaceRole?.enum) !== JSON.stringify(["owner", "admin", "editor", "viewer"])) {
   throw new Error("Space roles drifted");
@@ -161,6 +165,23 @@ if (!grants?.get || !grants?.post || !grant?.patch || !grant?.delete) {
 }
 if (!grants.get.responses?.["200"]?.description?.includes("model-collection") || !grants.post.responses?.["201"]?.description?.includes("model-collection")) {
   throw new Error("Data Grant contract must document model-collection support");
+}
+
+const discovery = document.paths?.["/api/v1/spaces/{spaceId}/_discovery"]?.get;
+if (!discovery?.description?.includes("capability preview") || !discovery?.description?.includes("execution")) {
+  throw new Error("Runtime Discovery must be documented as a preview whose authority is rechecked at execution time");
+}
+if (schemas.RuntimeDiscoveryAction?.additionalProperties !== false
+    || !schemas.RuntimeDiscoveryAction?.required?.includes("input")) {
+  throw new Error("Runtime Discovery actions must expose bounded input metadata");
+}
+if (schemas.RuntimeDiscoveryActionInput?.properties?.fields?.type !== "array"
+    || schemas.RuntimeDiscoveryActionInput?.properties?.fields?.items?.$ref !== "#/components/schemas/RuntimeDiscoveryField") {
+  throw new Error("Runtime Discovery action inputs must use bounded field metadata");
+}
+if (!schemas.RuntimeDiscoveryFieldType?.enum?.includes("date")
+    || !schemas.RuntimeDiscoveryFieldType?.enum?.includes("record_list")) {
+  throw new Error("Runtime Discovery field type vocabulary drifted");
 }
 
 const endpoints = document.paths?.["/api/v1/webhook-endpoints"];
