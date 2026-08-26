@@ -55,12 +55,12 @@ Before mutating LifeSpace Console authority or deploying the Worker, the workflo
 2. production Identity and Core to already match the repository's expected schema/contract versions;
 3. exactly the production service URLs `https://auth.aisr.online` and `https://core.aisr.online`;
 4. a verified Cloudflare Access application protecting `lifespace.aisr.online` and a resolvable Access `aud`;
-5. an existing active LifeSpace platform administrator, either explicitly configured or uniquely resolvable from production Identity;
+5. an active LifeSpace platform administrator, either explicitly configured, already assigned, or uniquely resolvable from Identity's existing verified Access-principal mapping during first-rollout break-glass provisioning;
 6. the production Console LifeSpace Application to have the approved immutable classification and exact control-plane scope ceiling.
 
 If production Core/Identity are behind, the Console workflow stops. It does **not** silently invoke the full platform production deployment.
 
-If an existing production platform administrator cannot be resolved, the workflow stops. Production first-use Access registration remains disabled.
+If the platform administrator cannot be resolved without ambiguity, the workflow stops. Production first-use Access registration remains disabled.
 
 ## First production Access bootstrap
 
@@ -106,6 +106,37 @@ If the Cloudflare API token lacks the Access application/policy write capability
 
 After the first successful production rollout, the production Access application is verified/reused directly; normal Console runtime does not depend on the staging Access application.
 
+## First production platform-administrator bootstrap
+
+Cloudflare Access admission is not platform-admin authority. Identity must still own an explicit `platform_administrators` assignment before Console can mint a human actor proof.
+
+The first rollout runs:
+
+```text
+infra/scripts/resolve-production-console-admin.mjs
+```
+
+before Console application/executor reconciliation.
+
+Resolution is deliberately fail-closed and follows this order:
+
+```text
+if LIFESPACE_PRODUCTION_PLATFORM_ADMIN_USER_ID is explicitly configured
+  -> validate usr_* syntax and use it
+else if exactly one active platform_administrators assignment already exists
+  -> reuse it
+else if no active assignment exists
+  -> read production Identity's already-verified access_principals -> users mapping
+  -> require exactly one active usr_* candidate
+  -> create the explicit platform_administrators assignment through the canonical bootstrap API
+else
+  -> fail closed and require explicit operator selection
+```
+
+The break-glass resolver does **not** select or merge a user by email, display name, Access subject or application-owned external identity. Its only automatic candidate source is Identity's existing verified `access_principals.user_id` relation, and exactly one candidate is required. The production D1 access is read-only; the assignment itself is created through Identity's canonical bootstrap endpoint.
+
+This automatic resolver is first-rollout/recovery infrastructure only. Normal Console runtime never reads Identity D1 directly and never holds bootstrap authority.
+
 ## Console authority reconciliation
 
 The production Console Application is:
@@ -140,6 +171,7 @@ The workflow reconciles the Console Application, Access audience and platform-ad
 
 ```text
 verify/bootstrap Cloudflare Access first
+-> resolve/assign production platform administrator
 -> create new lsa_* + lsp_pat_*
 -> verify new Core executor
 -> build production Vite/Worker config
@@ -168,6 +200,8 @@ The Console production workflow must never:
 
 The first-release Access bootstrap may read the accepted staging **Cloudflare Access configuration** as a template. This is not permission to query staging LifeSpace services or reuse a staging audience/credential; a new production Access application and audience are created.
 
+The first-release administrator resolver may perform a bounded read-only query against **production Identity D1** to identify unique active `access_principals.user_id` authority evidence. It may not inspect Core/business data, application-owned external identities, email/display-name equality or staging Identity.
+
 `apps/console/scripts/check-production-deploy-isolation.mjs` enforces the repository-visible portion of this boundary as part of normal Console `check`.
 
 ## Observability
@@ -186,6 +220,7 @@ The workflow itself proves only non-destructive production readiness:
 
 - exact current Identity/Core compatibility;
 - Access application protection and audience registration;
+- explicit platform-administrator authority;
 - Console executor authentication;
 - production Worker/domain deployment;
 - old executor revocation after successful cutover.
