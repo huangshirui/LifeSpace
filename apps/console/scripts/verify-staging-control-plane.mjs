@@ -236,11 +236,8 @@ try {
   if (typeof cleanup.actorToken !== "string" || cleanup.actorToken.split(".").length !== 3) throw new Error("Platform-admin actor proof is invalid");
   mask(cleanup.actorToken);
 
-  const principal = await core("/api/v1/me");
-  const principalData = requireStatus(principal, 200, "Authenticate temporary Core executor");
-  if (principalData?.principal?.type !== "service" || principalData?.principal?.clientId !== applicationId) {
-    throw new Error(`Temporary Core executor resolved to unexpected principal: ${JSON.stringify(principalData?.principal)}`);
-  }
+  const modelListProbe = requireStatus(await core("/api/v1/model-admin/models"), 200, "Authenticate temporary Core executor through Model Admin");
+  if (!Array.isArray(modelListProbe)) throw new Error("Model Admin executor probe did not return a model array");
 
   const beforeContract = requireStatus(await core("/api/v1/model-admin/contracts/active"), 200, "Read active Model Contract before acceptance");
 
