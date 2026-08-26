@@ -3,7 +3,7 @@
 ## Status
 
 - Cloudflare Access is the long-term Web/PWA authentication and SSO layer.
-- Identity application/user/service contract remains `0.5.0`.
+- Identity application/user/service contract is `0.6.0`; this revision adds a short opaque scan token as an alternate transport for the existing proof-backed Access account-link challenge.
 - Identity Platform Admin companion contract `0.1.0` and the platform-administrator/purpose-bound actor foundation are merged on `main`.
 - Access principal verification, audience registration, explicit registration/linking and trusted application credential lifecycle are implemented.
 - `apps/console` now has the permanent React/Vite same-origin BFF shell on PR #47. The current UI slice is read-only except for staging-only first-use registration; final acceptance still requires real staging full-admin/browser E2E before any production rollout.
@@ -56,6 +56,8 @@ Identity never receives or persists the WeChat `openid`. The same ownership rule
 
 The application may assert an already-resolved LifeSpace user only after authenticating with an active trusted application credential. Identity derives `azp`, allowed scope ceiling and token TTL from current registered application state; the caller cannot choose another application or exceed that ceiling.
 
+A Mini Program code, QR code, deep link or other application-specific launch mechanism is an **adapter/experience transport**, not a new LifeSpace identity. The owning application is responsible for its provider credentials, code generation and provider-subject resolution. LifeSpace owns only the durable proof/challenge and principal-link authority described below.
+
 ## Cloudflare Access platform identity
 
 Cloudflare Access is intentionally different because it is shared across owner-controlled LifeSpace Web/PWA applications.
@@ -98,7 +100,7 @@ Normative rules:
 - email is non-authoritative metadata and never auto-merges accounts;
 - one `usr_*` may intentionally own multiple Access principals.
 
-Identity persistence for Access platform identity is already implemented by schema v5 using dedicated `access_audiences`, `access_principals` and one-time `access_link_challenges` state. Application-owned provider IDs do not belong in those tables.
+Identity persistence for Access platform identity uses dedicated `access_audiences`, `access_principals` and one-time `access_link_challenges` state. Application-owned provider IDs do not belong in those tables.
 
 ## Normal Web token exchange
 
@@ -132,10 +134,12 @@ The BFF may perform its own perimeter/session validation, but BFF-supplied `sub`
 
 A valid but unknown Access principal does not silently create or merge a LifeSpace user.
 
-There are only two supported paths:
+At the platform level there are two explicit capabilities:
 
-1. explicitly create a new `usr_*` and bind the verified principal;
+1. explicitly create a new `usr_*` and bind the verified principal where the application product policy allows registration;
 2. prove control of an existing LifeSpace account and link the principal to that user.
+
+An application may deliberately expose only the second capability. For example, HomeMew Web is existing-user-link-only and must not expose Access registration even though Identity retains the platform capability for other approved applications.
 
 ### Explicit registration
 
@@ -155,18 +159,60 @@ POST /internal/v1/access/link-challenges
 Authorization: Bearer <lsa_*>
 ```
 
-An already authenticated LifeSpace user confirms it with their current LifeSpace user token:
+Identity returns:
+
+```text
+challengeId = alc_<high-entropy long id>
+scanToken   = als_<short opaque random token>
+expiresAt   = <timestamp>
+```
+
+Both values refer to the same application/audience/Access-principal-bound challenge. The long `challengeId` remains a compatibility/debug transport. The short `scanToken` exists so an application adapter can fit the challenge into transports with strict payload limits, such as a WeChat Mini Program code `scene`.
+
+The scan token is deliberately not another principal identifier:
+
+- its plaintext is returned only to the trusted application backend/BFF that created the challenge;
+- Identity persists only `SHA-256(scanToken)`;
+- it is short-lived and one-time because the underlying challenge is short-lived and one-time;
+- it contains no `usr_*`, Access `sub`, email, WeChat `openid` or provider credential;
+- browser or Mini Program input can never use it to choose a target `usr_*`.
+
+An application may transform the short token into its own launch transport. Example HomeMew flow:
+
+```text
+HomeMew Web BFF
+  -> create LifeSpace link challenge
+  -> receive server-only scanToken
+  -> HomeMew backend uses its own WeChat AppID/AppSecret
+  -> generate HomeMew Mini Program code with scene=<scanToken>
+  -> browser receives only the rendered Mini Program code
+  -> WeChat launches HomeMew
+  -> HomeMew resolves its own openid -> usr_123
+  -> user explicitly approves the link
+  -> current LifeSpace user bearer confirms scanToken
+```
+
+The original long-ID confirmation remains:
 
 ```text
 POST /api/v1/me/access-link-challenges/{challengeId}/confirm
 Authorization: Bearer <LifeSpace user JWT>
 ```
 
-The target `usr_*` is derived only from the verified LifeSpace bearer token. The challenge is high-entropy, application/audience/principal-bound, expires after ten minutes and is single-use. Consumption and principal-link insertion are atomic.
+The short-token confirmation is equivalent authority:
 
-This allows an existing HomeMew Mini Program user to link Web Access identity without exposing WeChat `openid` to Identity.
+```text
+POST /api/v1/me/access-link-scan-tokens/{scanToken}/confirm
+Authorization: Bearer <LifeSpace user JWT>
+```
 
-## Multiple Access principals
+In both cases the target `usr_*` is derived only from the verified LifeSpace bearer token. The challenge is high-entropy, application/audience/principal-bound, expires after ten minutes and is single-use. Consumption and principal-link insertion are atomic.
+
+Scanning must not itself complete the link. The authenticator application must obtain an explicit user confirmation before submitting the LifeSpace confirmation request; this prevents an arbitrary displayed code from silently adding a login method to a user account.
+
+This allows an existing HomeMew Mini Program user to link Web Access identity without exposing WeChat `openid` to Identity and without LifeSpace storing HomeMew's WeChat credentials.
+
+## Link conflicts and multiple Access principals
 
 LifeSpace explicitly supports:
 
@@ -176,9 +222,28 @@ Access principal A ----+
 Access principal B ----+
 ```
 
+Therefore an existing HomeMew/LifeSpace user having already used a different email, Google login or other Cloudflare Access path is not itself a conflict. A newly verified, currently unlinked `(iss, sub)` may be explicitly added to the same `usr_123` after proof of control.
+
+Conflict is defined by principal ownership, not email text:
+
+```text
+new Access principal is unlinked
+  -> proof-backed LINK to usr_123 is allowed
+
+Access principal already belongs to usr_123
+  -> treat as already-linked/idempotent session state; do not create another user
+
+Access principal already belongs to usr_456
+  + a new proof attempts to link it to usr_123
+  -> reject; never overwrite or transfer the principal implicitly
+  -> explicit user-merge/recovery capability is required before reconciliation
+```
+
+Two outstanding challenges for the same unlinked Access principal do not weaken this rule. Whichever valid proof wins the atomic principal insertion establishes ownership; a later confirmation by another `usr_*` must fail and must not replace the first mapping.
+
 Cloudflare may normalize some upstream identities itself, but LifeSpace does not depend on that behavior. A distinct verified Access `sub` remains unlinked until explicit proof succeeds.
 
-Automatic merge by email, display name or other mutable claim is forbidden.
+Automatic merge by email, display name or other mutable claim is forbidden. A verified/contact email recorded by an application is not permission to manufacture an Access `(iss, sub)` mapping before that actual Access principal has been observed and verified.
 
 ## Platform-admin human proof
 
@@ -274,6 +339,7 @@ See `docs/service-authentication.md`.
 ## Web/BFF requirements
 
 - Browser JavaScript never receives raw Access assertions, LifeSpace user bearers, platform-admin actor proofs, `lsa_*`, `lsp_pat_*`, bootstrap secrets or equivalent executor credentials.
+- Short link `scanToken` plaintext is application-backend material. When an adapter can render the provider-specific code server-side, the browser should receive only the rendered artifact plus non-secret challenge metadata rather than the raw scan token.
 - Each Web app uses a same-origin BFF and host-only application/session cookies where cookies are needed.
 - Do not use a parent-domain `Domain=aisr.online` session cookie for SSO/authority sharing.
 - Cloudflare Access provides Web SSO; Identity exchange resolves LifeSpace identity/authority.
@@ -287,7 +353,7 @@ Normal application authentication/user/service syntax is owned by:
 
 ```text
 apps/identity/openapi.yaml
-Identity contract 0.5.0
+Identity contract 0.6.0
 ```
 
 Privileged LifeSpace Console syntax is separately owned by:
@@ -317,8 +383,10 @@ Platform-administrator assignment/revocation remains a provisioning/recovery act
 
 ## Non-goals
 
-- LifeSpace-managed Google/Microsoft OAuth provider accounts for Web SSO.
+- LifeSpace-managed Google/Microsoft/email provider accounts for Web SSO in this phase.
+- Treating the P1 Mini Program scan-link transport as LifeSpace becoming a WeChat IdP or as the later Cloudflare Access OIDC scan-login feature.
 - Email-based automatic account merging.
+- Implicit principal transfer between two different `usr_*` users; this requires an explicit future merge/recovery capability.
 - A generic external-provider identity table containing application-owned subjects.
 - Shared parent-domain authentication cookies.
 - Bootstrap secret as a normal Console runtime credential.

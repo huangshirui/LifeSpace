@@ -2,7 +2,7 @@ import fs from "node:fs";
 import YAML from "yaml";
 
 const doc = YAML.parse(fs.readFileSync(new URL("../openapi.yaml",import.meta.url),"utf8"));
-if (doc.openapi !== "3.1.0" || doc.info?.version !== "0.5.0") {
+if (doc.openapi !== "3.1.0" || doc.info?.version !== "0.6.0") {
   throw new Error("Identity OpenAPI version metadata is invalid");
 }
 
@@ -13,6 +13,7 @@ for (const path of [
   "/api/v1/me",
   "/api/v1/me/avatar",
   "/api/v1/me/access-link-challenges/{challengeId}/confirm",
+  "/api/v1/me/access-link-scan-tokens/{scanToken}/confirm",
   "/bootstrap/v1/applications",
   "/bootstrap/v1/applications/{applicationId}",
   "/bootstrap/v1/applications/{applicationId}/credentials",
@@ -86,6 +87,17 @@ if (!String(doc.paths?.["/internal/v1/access/registrations"]?.post?.description 
 const confirmSecurity = doc.paths?.["/api/v1/me/access-link-challenges/{challengeId}/confirm"]?.post?.security ?? [];
 if (!confirmSecurity.some((entry) => entry?.userBearer)) {
   throw new Error("Access link confirmation must derive proof of control from a LifeSpace user bearer token");
+}
+const scanConfirmSecurity = doc.paths?.["/api/v1/me/access-link-scan-tokens/{scanToken}/confirm"]?.post?.security ?? [];
+if (!scanConfirmSecurity.some((entry) => entry?.userBearer)) {
+  throw new Error("Scan-link confirmation must derive proof of control from a LifeSpace user bearer token");
+}
+const scanToken = doc.components?.schemas?.AccessLinkChallengeResponse?.properties?.data?.properties?.scanToken;
+if (scanToken?.writeOnly !== true || scanToken?.maxLength > 32 || !String(scanToken?.pattern ?? "").includes("als_")) {
+  throw new Error("Access link scan token must be short, opaque and write-only");
+}
+if (!String(doc.paths?.["/internal/v1/access/link-challenges"]?.post?.description ?? "").includes("SHA-256")) {
+  throw new Error("Access link challenge contract must document hashed scan-token persistence");
 }
 
 const serviceToken = doc.components?.schemas?.ServiceToken;

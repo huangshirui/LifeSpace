@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: LifeSpace Identity API
-  version: 0.5.0
+  version: 0.6.0
   description: Global LifeSpace user identity, profile, trusted application exchange, Cloudflare Access principal resolution/linking, application credential lifecycle, service principals and credential issuance API.
 paths:
   /health:
@@ -87,12 +87,22 @@ paths:
     parameters:
       - $ref: '#/components/parameters/AccessLinkChallengeId'
     post:
-      description: Confirm a one-time Cloudflare Access link challenge using the authenticated LifeSpace user as proof of control. The user is derived only from the verified LifeSpace bearer token; no userId is accepted in the request.
+      description: Confirm a one-time Cloudflare Access link challenge using the authenticated LifeSpace user as proof of control. The user is derived only from the verified LifeSpace bearer token; no userId is accepted in the request. This long challenge-ID route remains for compatibility and operator/debug fallback.
       security: [{ userBearer: [] }]
       responses:
         '204': { description: Access principal linked to the authenticated LifeSpace user }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '409': { description: Challenge expired/consumed, audience was revoked, or the Access principal became linked concurrently }
+  /api/v1/me/access-link-scan-tokens/{scanToken}/confirm:
+    parameters:
+      - $ref: '#/components/parameters/AccessLinkScanToken'
+    post:
+      description: Confirm the same one-time Cloudflare Access link challenge through its short opaque scan token. The token is suitable for trusted authenticator adapters such as a WeChat Mini Program code. Identity stores only a SHA-256 hash of this token; the authenticated LifeSpace user is still derived only from the verified user bearer and no userId is accepted.
+      security: [{ userBearer: [] }]
+      responses:
+        '204': { description: Access principal linked to the authenticated LifeSpace user }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { description: Scan token/challenge expired or consumed, audience was revoked, or the Access principal became linked concurrently }
   /bootstrap/v1/applications:
     post:
       description: Platform-admin bootstrap endpoint. Registers an application, configures its access-token TTL (300-3600 seconds), and returns a backend credential once when trustedBackend is true.
@@ -220,13 +230,13 @@ paths:
         '503': { description: Cloudflare Access signing keys are temporarily unavailable }
   /internal/v1/access/link-challenges:
     post:
-      description: Create a high-entropy, short-lived, one-time challenge bound to the independently verified Access (iss, sub), the calling LifeSpace application and the matched registered audience. This does not accept a LifeSpace userId.
+      description: Create a high-entropy, short-lived, one-time challenge bound to the independently verified Access (iss, sub), the calling LifeSpace application and the matched registered audience. This does not accept a LifeSpace userId. The response also returns one short opaque scan token for trusted authenticator adapters; its plaintext is returned only to the trusted application backend and Identity persists only its SHA-256 hash.
       security: [{ applicationCredential: [] }]
       requestBody:
         required: true
         content: { application/json: { schema: { $ref: '#/components/schemas/AccessLinkChallengeRequest' } } }
       responses:
-        '201': { description: Link challenge created, content: { application/json: { schema: { $ref: '#/components/schemas/AccessLinkChallengeResponse' } } } }
+        '201': { description: Link challenge and scan token created, content: { application/json: { schema: { $ref: '#/components/schemas/AccessLinkChallengeResponse' } } } }
         '401': { description: Trusted application authentication failed or Access assertion is invalid }
         '403': { description: Access audience does not belong to the calling application }
         '409': { description: Access principal is already linked }
@@ -368,7 +378,8 @@ components:
     ApplicationId: { name: applicationId, in: path, required: true, schema: { type: string, minLength: 1 } }
     ApplicationCredentialId: { name: credentialId, in: path, required: true, schema: { type: string, pattern: ^apc_ } }
     AccessAudienceId: { name: audienceId, in: path, required: true, schema: { type: string, pattern: ^aud_ } }
-    AccessLinkChallengeId: { name: challengeId, in: path, required: true, schema: { type: string, pattern: ^alc_ } }
+    AccessLinkChallengeId: { name: challengeId, in: path, required: true, schema: { type: string, pattern: '^alc_[0-9a-f]{64}$' } }
+    AccessLinkScanToken: { name: scanToken, in: path, required: true, schema: { type: string, pattern: '^als_[A-Za-z0-9_-]{24}$', maxLength: 32 } }
     PrincipalId: { name: principalId, in: path, required: true, schema: { type: string, pattern: ^svc_ } }
     ServiceTokenId: { name: tokenId, in: path, required: true, schema: { type: string, pattern: ^sat_ } }
     OAuthCredentialId: { name: credentialId, in: path, required: true, schema: { type: string, pattern: ^soc_ } }
@@ -479,7 +490,7 @@ components:
       additionalProperties: false
       required: [audience]
       properties:
-        audience: { type: string, minLength: 1, maxLength: 256, pattern: '^\\S+$' }
+        audience: { type: string, minLength: 1, maxLength: 256, pattern: '^\S+$' }
     AccessAudienceResponse: { type: object, required: [data], properties: { data: { $ref: '#/components/schemas/AccessAudience' } } }
     AccessAudienceListResponse: { type: object, required: [data], properties: { data: { type: array, items: { $ref: '#/components/schemas/AccessAudience' } } } }
     AccessTokenExchangeRequest:
@@ -543,9 +554,10 @@ components:
         data:
           type: object
           additionalProperties: false
-          required: [challengeId, expiresAt]
+          required: [challengeId, scanToken, expiresAt]
           properties:
-            challengeId: { type: string, pattern: ^alc_ }
+            challengeId: { type: string, pattern: '^alc_[0-9a-f]{64}$' }
+            scanToken: { type: string, pattern: '^als_[A-Za-z0-9_-]{24}$', maxLength: 32, writeOnly: true }
             expiresAt: { type: string, format: date-time }
     ServicePrincipal:
       type: object

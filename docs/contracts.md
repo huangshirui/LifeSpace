@@ -6,7 +6,7 @@ Canonical service contracts live with the service implementation in this reposit
 
 Identity now has two explicit contract surfaces:
 
-1. **Identity Application Contract** — `apps/identity/openapi.yaml`, used by ordinary user/application authentication, profile, trusted application exchange, Cloudflare Access principal linking and application-owned service authentication. Its current version remains `0.5.0`.
+1. **Identity Application Contract** — `apps/identity/openapi.yaml`, used by ordinary user/application authentication, profile, trusted application exchange, Cloudflare Access principal linking and application-owned service authentication. Its current version is `0.6.0`; the `0.6.0` additive revision adds a short opaque hashed scan-token transport for the existing proof-backed Access principal link challenge while retaining the long challenge-ID confirmation route.
 2. **Identity Platform Admin Contract** — `apps/identity/platform-admin.openapi.yaml`, used only by the LifeSpace Console and approved break-glass/platform-control workflows. Its initial version is `0.1.0`.
 
 Core has three contract layers:

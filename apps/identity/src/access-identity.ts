@@ -14,6 +14,7 @@ type AppEnv = { Bindings: Bindings; Variables: Variables };
 const TOKEN_ISSUER = "lifespace-identity";
 const TOKEN_AUDIENCES = ["lifespace-core", "lifespace-identity"] as const;
 const LINK_CHALLENGE_TTL_MS = 10 * 60 * 1000;
+const ACCESS_LINK_SCAN_TOKEN_PATTERN = /^als_[A-Za-z0-9_-]{24}$/u;
 
 type AccessAudienceRow = {
   id: string;
@@ -68,6 +69,22 @@ const ok = <T>(data: T) => ({ data });
 const fail = (code: string, message: string, requestId: string) => ({ error: { code, message, requestId } });
 const id = (prefix: string) => `${prefix}_${crypto.randomUUID().replaceAll("-", "")}`;
 const newChallengeId = () => `alc_${crypto.randomUUID().replaceAll("-", "")}${crypto.randomUUID().replaceAll("-", "")}`;
+
+function bytesToBase64Url(bytes: Uint8Array): string {
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/u, "");
+}
+
+function newAccessLinkScanToken(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(18));
+  return `als_${bytesToBase64Url(bytes)}`;
+}
+
+async function hashAccessLinkScanToken(scanToken: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(scanToken));
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
 
 function audienceDto(row: AccessAudienceRow) {
   return {
@@ -191,6 +208,33 @@ async function findPrincipal(db: D1Database, issuer: string, subject: string): P
     JOIN users u ON u.id=p.user_id
     WHERE p.issuer=? AND p.subject=?
   `).bind(issuer, subject).first<AccessPrincipalRow>();
+}
+
+async function confirmAccessLinkChallenge(c: Context<AppEnv>, challenge: AccessLinkChallengeRow) {
+  const now = new Date().toISOString();
+  const userId = c.get("principal").id;
+  const principalId = id("acp");
+  try {
+    const results = await c.env.DB.batch([
+      c.env.DB.prepare(`
+        UPDATE access_link_challenges
+        SET consumed_at=?,linked_user_id=?
+        WHERE id=? AND consumed_at IS NULL AND expires_at>?
+      `).bind(now, userId, challenge.id, now),
+      c.env.DB.prepare(`
+        INSERT INTO access_principals(id,issuer,subject,user_id,email_snapshot,status,linked_at,last_seen_at,created_at,updated_at)
+        SELECT ?,issuer,subject,?,email_snapshot,'active',?,?,?,?
+        FROM access_link_challenges
+        WHERE id=? AND consumed_at=? AND linked_user_id=?
+      `).bind(principalId, userId, now, now, now, now, challenge.id, now, userId),
+    ]);
+    if (results[0].meta.changes !== 1 || results[1].meta.changes !== 1) {
+      return c.json(fail("ACCESS_LINK_CHALLENGE_INVALID", "Access link challenge was consumed concurrently", c.get("requestId")), 409);
+    }
+  } catch {
+    return c.json(fail("ACCESS_PRINCIPAL_ALREADY_LINKED", "Access principal became linked concurrently", c.get("requestId")), 409);
+  }
+  return c.body(null, 204);
 }
 
 export function registerAccessIdentityRoutes(app: Hono<AppEnv>, options: AccessRouteOptions = {}) {
@@ -357,9 +401,12 @@ export function registerAccessIdentityRoutes(app: Hono<AppEnv>, options: AccessR
     const createdAt = new Date();
     const expiresAt = new Date(createdAt.getTime() + LINK_CHALLENGE_TTL_MS);
     const linkId = newChallengeId();
+    const scanToken = newAccessLinkScanToken();
+    const scanTokenHash = await hashAccessLinkScanToken(scanToken);
     await c.env.DB.prepare(`
-      INSERT INTO access_link_challenges(id,application_id,issuer,subject,audience,email_snapshot,expires_at,created_at)
-      VALUES(?,?,?,?,?,?,?,?)
+      INSERT INTO access_link_challenges(
+        id,application_id,issuer,subject,audience,email_snapshot,expires_at,created_at,scan_token_hash
+      ) VALUES(?,?,?,?,?,?,?,?,?)
     `).bind(
       linkId,
       c.get("currentApplicationId"),
@@ -369,8 +416,9 @@ export function registerAccessIdentityRoutes(app: Hono<AppEnv>, options: AccessR
       verified.email,
       expiresAt.toISOString(),
       createdAt.toISOString(),
+      scanTokenHash,
     ).run();
-    return c.json(ok({ challengeId: linkId, expiresAt: expiresAt.toISOString() }), 201);
+    return c.json(ok({ challengeId: linkId, scanToken, expiresAt: expiresAt.toISOString() }), 201);
   });
 
   app.post("/api/v1/me/access-link-challenges/:challengeId/confirm", async (c) => {
@@ -389,29 +437,30 @@ export function registerAccessIdentityRoutes(app: Hono<AppEnv>, options: AccessR
     if (!challenge) {
       return c.json(fail("ACCESS_LINK_CHALLENGE_INVALID", "Access link challenge is expired, consumed or unavailable", c.get("requestId")), 409);
     }
+    return confirmAccessLinkChallenge(c, challenge);
+  });
 
-    const userId = c.get("principal").id;
-    const principalId = id("acp");
-    try {
-      const results = await c.env.DB.batch([
-        c.env.DB.prepare(`
-          UPDATE access_link_challenges
-          SET consumed_at=?,linked_user_id=?
-          WHERE id=? AND consumed_at IS NULL AND expires_at>?
-        `).bind(now, userId, linkId, now),
-        c.env.DB.prepare(`
-          INSERT INTO access_principals(id,issuer,subject,user_id,email_snapshot,status,linked_at,last_seen_at,created_at,updated_at)
-          SELECT ?,issuer,subject,?,email_snapshot,'active',?,?,?,?
-          FROM access_link_challenges
-          WHERE id=? AND consumed_at=? AND linked_user_id=?
-        `).bind(principalId, userId, now, now, now, now, linkId, now, userId),
-      ]);
-      if (results[0].meta.changes !== 1 || results[1].meta.changes !== 1) {
-        return c.json(fail("ACCESS_LINK_CHALLENGE_INVALID", "Access link challenge was consumed concurrently", c.get("requestId")), 409);
-      }
-    } catch {
-      return c.json(fail("ACCESS_PRINCIPAL_ALREADY_LINKED", "Access principal became linked concurrently", c.get("requestId")), 409);
+  app.post("/api/v1/me/access-link-scan-tokens/:scanToken/confirm", async (c) => {
+    const scanToken = c.req.param("scanToken");
+    if (!ACCESS_LINK_SCAN_TOKEN_PATTERN.test(scanToken)) {
+      return c.json(fail("ACCESS_LINK_CHALLENGE_INVALID", "Access link challenge is expired, consumed or unavailable", c.get("requestId")), 409);
     }
-    return c.body(null, 204);
+
+    const now = new Date().toISOString();
+    const scanTokenHash = await hashAccessLinkScanToken(scanToken);
+    const challenge = await c.env.DB.prepare(`
+      SELECT ch.id,ch.application_id,ch.issuer,ch.subject,ch.audience,ch.email_snapshot,ch.expires_at
+      FROM access_link_challenges ch
+      JOIN access_audiences a
+        ON a.application_id=ch.application_id
+       AND a.issuer=ch.issuer
+       AND a.audience=ch.audience
+       AND a.status='active'
+      WHERE ch.scan_token_hash=? AND ch.consumed_at IS NULL AND ch.expires_at>?
+    `).bind(scanTokenHash, now).first<AccessLinkChallengeRow>();
+    if (!challenge) {
+      return c.json(fail("ACCESS_LINK_CHALLENGE_INVALID", "Access link challenge is expired, consumed or unavailable", c.get("requestId")), 409);
+    }
+    return confirmAccessLinkChallenge(c, challenge);
   });
 }

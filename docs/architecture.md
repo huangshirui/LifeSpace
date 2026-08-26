@@ -159,13 +159,40 @@ Cloudflare Access is the deliberate platform exception because it is the shared 
 
 The identity key is `(iss, sub)`. `aud` identifies application context, not the user. Email is non-authoritative metadata and must never auto-merge accounts.
 
-Unknown Access principals require an explicit choice: link to an existing LifeSpace account after proof of control, or explicitly create a new LifeSpace user and bind the current principal. Multiple Access principals may intentionally link to one `usr_*`.
+Unknown Access principals require an explicit platform operation: link to an existing LifeSpace account after proof of control, or explicitly create a new LifeSpace user and bind the current principal where that application's product policy permits registration. HomeMew Web deliberately exposes only the link-existing path. Multiple Access principals may intentionally link to one `usr_*`.
+
+### Access account-link challenge and authenticator adapters
+
+The durable authority is the LifeSpace Access principal-link challenge, not the UI transport used to present it. Identity may return both:
+
+```text
+alc_<long high-entropy challenge id>
+als_<short opaque scan token>
+```
+
+The short `als_*` value is an alternate one-time reference to the same application/audience/principal-bound challenge. Its plaintext is returned only to a trusted application backend and Identity persists only its SHA-256 hash. It contains no user ID, Access subject, email or application-provider identity.
+
+An application-specific authenticator adapter may transform the short token into a provider-native launch artifact. For HomeMew P1 this means:
+
+```text
+LifeSpace Identity challenge
+  -> HomeMew trusted backend receives als_* scan token
+  -> HomeMew backend uses HomeMew WeChat AppID/AppSecret
+  -> WeChat Mini Program code scene=<als_*>
+  -> HomeMew Mini Program resolves its own openid -> usr_*
+  -> user explicitly confirms
+  -> LifeSpace user bearer confirms the scan token
+```
+
+LifeSpace does not store HomeMew's WeChat `openid`, AppID secret or provider-specific code state. Scanning alone never links an account; the current authenticated LifeSpace user must explicitly approve and confirm the challenge. If two users race to confirm challenges for the same Access principal, the first atomic principal insertion wins and any later attempt must fail rather than transfer/overwrite the principal.
+
+This P1 scan-link transport does **not** make LifeSpace a WeChat or email IdP and does not yet implement LifeSpace-as-OIDC-provider scan login for Cloudflare Access. That later authentication protocol, if implemented, remains a separate adapter over LifeSpace Identity authority.
 
 Identity is not a general-purpose Google/Microsoft/email IdP. Those upstream login methods remain configured in Cloudflare Access.
 
 ## Web/BFF and cookie boundary
 
-Each Web application owns its own same-origin BFF boundary. Browser JavaScript must not receive `lsa_*`, `lsp_pat_*`, bootstrap secrets or equivalent backend credentials.
+Each Web application owns its own same-origin BFF boundary. Browser JavaScript must not receive `lsa_*`, `lsp_pat_*`, bootstrap secrets or equivalent backend credentials. Application-backend-only scan token plaintext should also remain server-side when the BFF can render the provider-specific launch artifact and return only that artifact to the browser.
 
 Identity/session cookies are host-only; LifeSpace does not use a parent-domain `Domain=aisr.online` cookie to share authority between applications. SSO is established by Cloudflare Access and explicit Identity exchange rather than by a shared parent cookie.
 
@@ -282,7 +309,7 @@ LifeSpace has separate contracts for product runtime and privileged control-plan
 ```text
 Application / user / service contract
   apps/identity/openapi.yaml
-  current business-facing contract: 0.5.0
+  current business-facing contract: 0.6.0
 
 Platform Admin Control-Plane Contract
   apps/identity/platform-admin.openapi.yaml
@@ -348,6 +375,9 @@ Publishing a compatible ordinary Model Definition does not itself require a Work
 ## Non-negotiable invariants
 
 - One global `usr_*` per LifeSpace person; application-specific external IDs remain app-owned except Cloudflare Access platform principals.
+- Access email/display claims are never account-merge authority; multiple verified Access principals may intentionally resolve to one `usr_*`.
+- A principal already owned by another `usr_*` is never implicitly transferred or overwritten by a later link proof.
+- Provider-native QR/deep-link transports are adapters; they cannot choose a LifeSpace user and do not become durable Identity truth.
 - Every ordinary record has exactly one source Space.
 - Grants share authority without changing ownership.
 - No shared parent-domain authentication cookie.

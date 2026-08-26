@@ -76,7 +76,7 @@ async function accessToken(
 }
 
 describe("Cloudflare Access Identity integration", () => {
-  it("binds audiences, links existing users, supports multiple principals, and never merges by email", async () => {
+  it("links by short scan token, keeps tokens hashed, rejects cross-user races, supports multiple principals, and never merges by email", async () => {
     const db = (env as unknown as TestEnv).DB;
     const issuer = "https://access-integration.cloudflareaccess.com";
     const access = await accessKey();
@@ -125,6 +125,26 @@ describe("Cloudflare Access Identity integration", () => {
       return ((await response.json()) as any).data.id as string;
     }
 
+    async function createMiniUser(displayName: string) {
+      const createUser = await request("/internal/v1/users", {
+        method: "POST",
+        headers: { ...jsonHeaders, authorization: `Bearer ${miniSecret}` },
+        body: JSON.stringify({ displayName }),
+      });
+      expect(createUser.status).toBe(201);
+      const userId = ((await createUser.json()) as any).data.id as string;
+      const tokenResponse = await request("/internal/v1/tokens", {
+        method: "POST",
+        headers: { ...jsonHeaders, authorization: `Bearer ${miniSecret}` },
+        body: JSON.stringify({ subjectId: userId, scopes: [] }),
+      });
+      expect(tokenResponse.status).toBe(200);
+      return {
+        userId,
+        token: ((await tokenResponse.json()) as any).data.accessToken as string,
+      };
+    }
+
     const suffix = crypto.randomUUID();
     const webAppId = `homemew-web-${suffix}`;
     const otherWebAppId = `aloha-web-${suffix}`;
@@ -144,6 +164,39 @@ describe("Cloudflare Access Identity integration", () => {
     });
     expect(duplicateAudience.status).toBe(409);
 
+    const existingMiniUser = await createMiniUser("Existing Mini User");
+    const rivalMiniUser = await createMiniUser("Rival Mini User");
+
+    const raceSubject = `access-race-${suffix}`;
+    const raceAssertion = await accessToken(access.pair.privateKey, access.kid, issuer, raceSubject, homeAudience, "race@example.com");
+    const raceChallengeA = await request("/internal/v1/access/link-challenges", {
+      method: "POST",
+      headers: { ...jsonHeaders, authorization: `Bearer ${webSecret}` },
+      body: JSON.stringify({ accessAssertion: raceAssertion }),
+    });
+    const raceChallengeB = await request("/internal/v1/access/link-challenges", {
+      method: "POST",
+      headers: { ...jsonHeaders, authorization: `Bearer ${webSecret}` },
+      body: JSON.stringify({ accessAssertion: raceAssertion }),
+    });
+    expect(raceChallengeA.status).toBe(201);
+    expect(raceChallengeB.status).toBe(201);
+    const raceScanA = ((await raceChallengeA.json()) as any).data.scanToken as string;
+    const raceScanB = ((await raceChallengeB.json()) as any).data.scanToken as string;
+    expect((await request(`/api/v1/me/access-link-scan-tokens/${encodeURIComponent(raceScanA)}/confirm`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${existingMiniUser.token}` },
+    })).status).toBe(204);
+    const losingRace = await request(`/api/v1/me/access-link-scan-tokens/${encodeURIComponent(raceScanB)}/confirm`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${rivalMiniUser.token}` },
+    });
+    expect(losingRace.status).toBe(409);
+    expect(((await losingRace.json()) as any).error.code).toBe("ACCESS_PRINCIPAL_ALREADY_LINKED");
+    const racePrincipal = await db.prepare("SELECT user_id userId FROM access_principals WHERE issuer=? AND subject=?")
+      .bind(issuer, raceSubject).first<{ userId: string }>();
+    expect(racePrincipal?.userId).toBe(existingMiniUser.userId);
+
     const subject1 = `access-existing-${suffix}`;
     const assertion1 = await accessToken(access.pair.privateKey, access.kid, issuer, subject1, homeAudience);
     const unlinked = await request("/internal/v1/access/tokens", {
@@ -154,36 +207,33 @@ describe("Cloudflare Access Identity integration", () => {
     expect(unlinked.status).toBe(409);
     expect(((await unlinked.json()) as any).error.code).toBe("ACCESS_PRINCIPAL_UNLINKED");
 
-    const createUser = await request("/internal/v1/users", {
-      method: "POST",
-      headers: { ...jsonHeaders, authorization: `Bearer ${miniSecret}` },
-      body: JSON.stringify({ displayName: "Existing Mini User" }),
-    });
-    expect(createUser.status).toBe(201);
-    const existingUserId = ((await createUser.json()) as any).data.id as string;
-    const miniTokenResponse = await request("/internal/v1/tokens", {
-      method: "POST",
-      headers: { ...jsonHeaders, authorization: `Bearer ${miniSecret}` },
-      body: JSON.stringify({ subjectId: existingUserId, scopes: [] }),
-    });
-    const miniUserToken = ((await miniTokenResponse.json()) as any).data.accessToken as string;
-
     const challenge = await request("/internal/v1/access/link-challenges", {
       method: "POST",
       headers: { ...jsonHeaders, authorization: `Bearer ${webSecret}` },
       body: JSON.stringify({ accessAssertion: assertion1 }),
     });
     expect(challenge.status).toBe(201);
-    const linkId = ((await challenge.json()) as any).data.challengeId as string;
-    const confirm = await request(`/api/v1/me/access-link-challenges/${linkId}/confirm`, {
+    const challengeData = ((await challenge.json()) as any).data;
+    const linkId = challengeData.challengeId as string;
+    const scanToken = challengeData.scanToken as string;
+    expect(linkId).toMatch(/^alc_[0-9a-f]{64}$/u);
+    expect(scanToken).toMatch(/^als_[A-Za-z0-9_-]{24}$/u);
+    expect(scanToken.length).toBeLessThanOrEqual(32);
+
+    const persistedScan = await db.prepare("SELECT scan_token_hash scanTokenHash FROM access_link_challenges WHERE id=?")
+      .bind(linkId).first<{ scanTokenHash: string | null }>();
+    expect(persistedScan?.scanTokenHash).toMatch(/^[0-9a-f]{64}$/u);
+    expect(persistedScan?.scanTokenHash).not.toContain(scanToken);
+
+    const confirm = await request(`/api/v1/me/access-link-scan-tokens/${encodeURIComponent(scanToken)}/confirm`, {
       method: "POST",
-      headers: { authorization: `Bearer ${miniUserToken}` },
+      headers: { authorization: `Bearer ${existingMiniUser.token}` },
     });
     expect(confirm.status).toBe(204);
 
-    const secondConfirm = await request(`/api/v1/me/access-link-challenges/${linkId}/confirm`, {
+    const secondConfirm = await request(`/api/v1/me/access-link-scan-tokens/${encodeURIComponent(scanToken)}/confirm`, {
       method: "POST",
-      headers: { authorization: `Bearer ${miniUserToken}` },
+      headers: { authorization: `Bearer ${existingMiniUser.token}` },
     });
     expect(secondConfirm.status).toBe(409);
 
@@ -194,7 +244,7 @@ describe("Cloudflare Access Identity integration", () => {
     });
     expect(linkedExchange.status).toBe(200);
     const linkedToken = ((await linkedExchange.json()) as any).data.accessToken as string;
-    expect(decodePayload(linkedToken)).toMatchObject({ sub: existingUserId, azp: webAppId, principal_type: "user" });
+    expect(decodePayload(linkedToken)).toMatchObject({ sub: existingMiniUser.userId, azp: webAppId, principal_type: "user" });
 
     const mismatchedApp = await request("/internal/v1/access/tokens", {
       method: "POST",
@@ -212,7 +262,7 @@ describe("Cloudflare Access Identity integration", () => {
     });
     expect(samePrincipalOtherAudience.status).toBe(200);
     expect(decodePayload(((await samePrincipalOtherAudience.json()) as any).data.accessToken)).toMatchObject({
-      sub: existingUserId,
+      sub: existingMiniUser.userId,
       azp: otherWebAppId,
     });
 
@@ -235,8 +285,9 @@ describe("Cloudflare Access Identity integration", () => {
       }),
     });
     expect(registration.status).toBe(201);
-    const newUserId = ((await registration.json()) as any).data.user.id as string;
-    expect(newUserId).not.toBe(existingUserId);
+    const registrationData = ((await registration.json()) as any).data;
+    const newUserId = registrationData.user.id as string;
+    expect(newUserId).not.toBe(existingMiniUser.userId);
 
     const subject3 = `access-second-principal-${suffix}`;
     const secondPrincipalAssertion = await accessToken(access.pair.privateKey, access.kid, issuer, subject3, homeAudience, "other@example.com");
@@ -248,7 +299,7 @@ describe("Cloudflare Access Identity integration", () => {
     const secondChallengeId = ((await secondChallenge.json()) as any).data.challengeId as string;
     expect((await request(`/api/v1/me/access-link-challenges/${secondChallengeId}/confirm`, {
       method: "POST",
-      headers: { authorization: `Bearer ${miniUserToken}` },
+      headers: { authorization: `Bearer ${existingMiniUser.token}` },
     })).status).toBe(204);
 
     const linkedRows = await db.prepare(`
@@ -256,7 +307,7 @@ describe("Cloudflare Access Identity integration", () => {
       FROM access_principals WHERE issuer=? AND subject IN (?,?,?) ORDER BY subject
     `).bind(issuer, subject1, subject2, subject3).all<{ subject: string; userId: string; email: string | null }>();
     expect(linkedRows.results).toHaveLength(3);
-    expect(linkedRows.results.filter((row) => row.userId === existingUserId)).toHaveLength(2);
+    expect(linkedRows.results.filter((row) => row.userId === existingMiniUser.userId)).toHaveLength(2);
     expect(linkedRows.results.find((row) => row.subject === subject2)?.userId).toBe(newUserId);
 
     const expiringSubject = `access-expiring-${suffix}`;
@@ -266,12 +317,14 @@ describe("Cloudflare Access Identity integration", () => {
       headers: { ...jsonHeaders, authorization: `Bearer ${webSecret}` },
       body: JSON.stringify({ accessAssertion: expiringAssertion }),
     });
-    const expiringId = ((await expiringChallenge.json()) as any).data.challengeId as string;
+    const expiringData = ((await expiringChallenge.json()) as any).data;
+    const expiringId = expiringData.challengeId as string;
+    const expiringScanToken = expiringData.scanToken as string;
     await db.prepare("UPDATE access_link_challenges SET expires_at=? WHERE id=?")
       .bind("2000-01-01T00:00:00.000Z", expiringId).run();
-    const expiredConfirm = await request(`/api/v1/me/access-link-challenges/${expiringId}/confirm`, {
+    const expiredConfirm = await request(`/api/v1/me/access-link-scan-tokens/${encodeURIComponent(expiringScanToken)}/confirm`, {
       method: "POST",
-      headers: { authorization: `Bearer ${miniUserToken}` },
+      headers: { authorization: `Bearer ${existingMiniUser.token}` },
     });
     expect(expiredConfirm.status).toBe(409);
   });
