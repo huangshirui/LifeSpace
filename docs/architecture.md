@@ -83,6 +83,48 @@ Kernel concepts remain explicit platform concepts and cannot be created as ordin
 
 The business-facing Core Kernel contract remains deliberately stable and separate from the privileged Console control plane; see **Contract layers** below.
 
+## Principal, actor and delegated authority
+
+LifeSpace distinguishes the entity that can hold authority from the entity that actually executed one operation.
+
+- **Principal（主体）**: an identifiable authorization subject. The long-term model may include distinct `user`, `agent`, `application`, `service` and other machine principal kinds.
+- **User（用户）**: a human LifeSpace principal represented by the global `usr_*` identity.
+- **Agent（智能体）**: a non-human principal/actor that may act under explicit authority of its own or on behalf of another principal. An Agent is not modeled as a human user merely to reuse user authorization.
+- **Actor（行为主体）**: the principal that actually executes or causes a particular operation.
+- **On-behalf-of Principal（被代表主体）**: an optional principal whose delegated authority or represented intent is being exercised by the actor.
+- **Application（应用）**: the registered application context through which authority is exercised; application context remains independently bounded by credential scope and Application × Model Access.
+
+The target attribution envelope is conceptually:
+
+```text
+principal / authority holder
+actor
+on_behalf_of?          optional
+application / azp
+authority source       membership / Grant / delegation / consent / policy
+source                  origin of information/action when distinct
+```
+
+Three semantic cases must remain distinguishable:
+
+```text
+Human direct action
+  actor = user
+  on_behalf_of = null
+
+Agent delegated action
+  actor = agent
+  on_behalf_of = user or another principal
+  authority includes explicit delegation/consent when required
+
+Agent autonomous action
+  actor = agent
+  on_behalf_of = null
+  authority comes from explicit Agent-held Grant/capability/policy
+```
+
+The currently deployed Kernel does not yet imply a universal Agent registry or delegation contract. Until those contracts exist, existing user/service principal behavior remains authoritative. New Agent capabilities must extend this model rather than silently impersonating users or relying on Agent-local memory as permission state.
+
 ## Model Registry and Generic Runtime
 
 Published Model Definitions are the logical source of truth for ordinary business-model schema. They are validated, immutable by version, schema-hashed and compatibility classified.
@@ -140,7 +182,9 @@ verified principal
 
 A hostname, Access session, application name, service credential or model publication grants nothing by itself.
 
-Every ordinary business record belongs to exactly one source Space. Sharing uses Data Grants or approved derived views and does not copy or move the authoritative record.
+Every ordinary business record belongs to exactly one **source/authoritative Space（源/权威空间）**. Sharing uses Data Grants or approved references/derived views and does not copy or move the authoritative record. Cross-Space visibility or mutation authority must therefore be explicit; participation by the same user, Agent, application or service in two Spaces never implicitly joins their worlds.
+
+A shared projection must preserve enough source ownership/provenance to identify the authoritative record and its Space. If a downstream Space creates genuinely new derived knowledge or a new domain fact, that new object may have its own source Space, but it must not masquerade as a second authoritative copy of the original.
 
 Normative authorization details are in `docs/permissions.md`.
 
@@ -349,7 +393,10 @@ Publishing a compatible ordinary Model Definition does not itself require a Work
 
 - One global `usr_*` per LifeSpace person; application-specific external IDs remain app-owned except Cloudflare Access platform principals.
 - Every ordinary record has exactly one source Space.
-- Grants share authority without changing ownership.
+- Grants share authority without changing ownership or creating a second authoritative copy.
+- Cross-Space access is explicit; common membership/identity/application participation never implicitly merges Spaces.
+- Agent and User are not interchangeable principal types; delegated Agent actions preserve actor and represented-principal attribution where the distinction matters.
+- Agent-held autonomous authority must be explicit platform authority, not Agent-local remembered permission.
 - No shared parent-domain authentication cookie.
 - No application authority inferred from hostname.
 - No arbitrary executable code/SQL in Model metadata.
