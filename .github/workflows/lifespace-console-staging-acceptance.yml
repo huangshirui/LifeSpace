@@ -1,0 +1,76 @@
+name: Verify LifeSpace Console staging control plane
+
+on:
+  workflow_dispatch:
+  # Temporary proving trigger for PR #60. Remove after the first successful real staging acceptance.
+  push:
+    branches: [feat/console-control-plane-writes]
+    paths:
+      - "apps/console/scripts/verify-staging-control-plane.mjs"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lifespace-console-staging-acceptance
+  cancel-in-progress: false
+
+jobs:
+  acceptance:
+    name: Exercise staging control-plane writes and cleanup
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: staging
+    env:
+      LIFESPACE_STAGING_BOOTSTRAP_SECRET: ${{ secrets.LIFESPACE_STAGING_BOOTSTRAP_SECRET }}
+      LIFESPACE_IDENTITY_STAGING_URL: https://auth-staging.aisr.online
+      LIFESPACE_CORE_STAGING_URL: https://core-staging.aisr.online
+      LIFESPACE_STAGING_CONSOLE_APPLICATION_ID: app_lifespace_console_staging
+
+    steps:
+      - name: Checkout LifeSpace
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.13.1
+          run_install: false
+
+      - name: Setup Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Validate staging-only authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          test ${#LIFESPACE_STAGING_BOOTSTRAP_SECRET} -ge 32 || { echo "LIFESPACE_STAGING_BOOTSTRAP_SECRET is not configured" >&2; exit 1; }
+          [[ "$LIFESPACE_IDENTITY_STAGING_URL" == *staging* ]]
+          [[ "$LIFESPACE_CORE_STAGING_URL" == *staging* ]]
+
+      - name: Install repository dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate Console before acceptance
+        run: pnpm --filter @lifespace/console check
+
+      - name: Exercise real staging control-plane writes
+        run: node apps/console/scripts/verify-staging-control-plane.mjs
+
+      - name: Summarize acceptance
+        if: ${{ success() }}
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<'EOF'
+          ## LifeSpace Console staging control-plane acceptance
+
+          - Used the current active LifeSpace staging platform administrator as the human actor.
+          - Created temporary Console application/Core executor credentials and revoked them during cleanup.
+          - Validated and published an ephemeral model v1 (`initial`).
+          - Published an additive v2 (`compatible`) and observed Model Contract revision advancement.
+          - Added then restored Console Application × Model Access for the ephemeral model.
+          - Retired the ephemeral model and verified it disappeared from the published registry.
+          - Verified platform-admin audit evidence for publish, model-access replacement and retire.
+          - Production was not targeted.
+          EOF
