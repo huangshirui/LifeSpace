@@ -2,11 +2,15 @@
 
 ## Core concepts
 
-- **User**: global human LifeSpace identity (`usr_*`) resolved by LifeSpace Identity after an approved authentication path. For owner-controlled Web/PWA applications, Cloudflare Access proves the Web user and Identity resolves the verified Access principal to the global LifeSpace user.
-- **Principal**: authenticated actor such as user, delegated Agent, service, device, or application backend.
-- **Space**: source ownership and default authorization boundary for business data.
-- **Space membership**: role-based relationship between a user and a Space.
-- **Data Grant**: permission that exposes a Space or approved resource target to another principal or Space without changing ownership. Kernel 0.13.0 implements whole-Space and model-collection targets; record/view targets remain future contract work.
+- **User（用户）**: global human LifeSpace identity (`usr_*`) resolved by LifeSpace Identity after an approved authentication path. For owner-controlled Web/PWA applications, Cloudflare Access proves the Web user and Identity resolves the verified Access principal to the global LifeSpace user.
+- **Principal（主体）**: identifiable authorization subject. Current implementations include user/service/application-side authenticated subjects; the long-term model allows distinct Agent and other machine principal kinds without treating them as human users.
+- **Actor（行为主体）**: the principal that actually executes or causes one operation.
+- **On-behalf-of Principal（被代表主体）**: optional principal whose delegated authority or represented intent is exercised by the actor.
+- **Agent（智能体）**: non-human actor/principal that may act under explicit authority of its own or on behalf of another principal. An Agent is not a human `usr_*` merely to reuse user permissions.
+- **Space（空间）**: source ownership and default authorization boundary for business data.
+- **Space membership（空间成员关系）**: role-based relationship between a user and a Space.
+- **Data Grant（数据授权）**: permission that exposes a Space or approved resource target to another principal or Space without changing ownership. Kernel 0.13.0 implements whole-Space and model-collection targets; record/view targets remain future contract work.
+- **Delegation（委托）**: durable authority allowing one principal, such as an Agent, to exercise a bounded subset of another principal's authority under explicit constraints. A universal delegation contract is future work unless otherwise stated by a concrete contract.
 - **Credential scope**: stable permission carried by the current credential, such as `resources:read`, `resources:write`, `resources:manage`, or a Kernel-specific scope.
 - **Application × Model Access**: Core catalog entry declaring the maximum `read` / `write` / `manage` access one application may exercise for one published model.
 - **Model access capability**: `read`, `write`, or `manage` capability declared by the published Model Definition.
@@ -24,7 +28,8 @@ Effective permission for an ordinary model is the intersection of:
 3. the calling application's current Application × Model Access catalog entry;
 4. current Space membership / Data Grant authorization;
 5. the published model's declared access capability;
-6. model policy / Capability-specific restrictions.
+6. model policy / Capability-specific restrictions;
+7. where delegated/on-behalf-of authority is used, the applicable delegation/consent/purpose/time/approval constraints once such a contract exists.
 
 In short:
 
@@ -35,11 +40,12 @@ verified principal
 ∩ current Space membership/Data Grant
 ∩ published model access capability
 ∩ model policy/Capability restrictions
+∩ delegated-authority constraints when applicable
 ```
 
 No application is trusted merely because of its hostname or product name. Publishing a model does not automatically grant every application or service access to it.
 
-For Access-authenticated Web requests, Cloudflare authentication alone satisfies none of items 2-6. Identity must first validate the Access assertion, resolve `(iss, sub)` to a LifeSpace `usr_*`, bind the Access `aud` to the intended LifeSpace application context and issue/authorize the appropriate LifeSpace credential. Core authorization then proceeds exactly as for the same `usr_*` reached through any other approved authentication path.
+For Access-authenticated Web requests, Cloudflare authentication alone satisfies none of items 2-7. Identity must first validate the Access assertion, resolve `(iss, sub)` to a LifeSpace `usr_*`, bind the Access `aud` to the intended LifeSpace application context and issue/authorize the appropriate LifeSpace credential. Core authorization then proceeds exactly as for the same `usr_*` reached through any other approved authentication path.
 
 ## Model authorization
 
@@ -135,6 +141,42 @@ executor capabilities:
 
 These scopes do not grant ordinary Generic Runtime business-data authority. In particular, `spaces:inspect` is a dedicated read-only platform Inspector capability; it does not create Space membership or authorize ordinary record mutations.
 
+## Agent authority semantics
+
+Agent participation must preserve the difference between **who executed an operation** and **whose authority or intent is represented**.
+
+The target semantic cases are:
+
+```text
+1. Direct human action
+actor = user
+on_behalf_of = null
+authority = user's own membership / Grant / policy
+
+2. Delegated Agent action
+actor = agent
+on_behalf_of = user or another principal
+authority = explicit bounded delegation + all normal credential/app/Space/model checks
+
+3. Autonomous Agent action
+actor = agent
+on_behalf_of = null
+authority = explicit Agent-held Grant/capability/policy + all normal checks
+```
+
+Rules:
+
+- An Agent must not receive a human `usr_*` identity merely so that it can reuse human authorization.
+- An Agent must not silently impersonate a user by replacing the actor with that user's ID.
+- A delegated Agent may never exercise more authority than both the represented principal and the delegation allow; delegation is a reducing/bounding layer, not an authority-expansion mechanism.
+- An autonomous Agent may act only under explicit durable platform authority assigned to that Agent principal. Agent-local memory, a prompt, conversation history or an application configuration flag is not authorization.
+- On-behalf-of context is not equivalent to authentication. Both the actual actor and the represented principal/delegation must be verifiable through an approved contract when delegated Agent execution is implemented.
+- Delegation should be able to carry purpose, resource/model/Space boundary, capability ceiling, expiry, consent and approval requirements where concrete use cases justify them.
+- Revocation and downgrade of Agent-held Grants or delegations must take effect through current authorization state rather than remaining valid solely because an old Agent session remembers them.
+- Audit/provenance should preserve actor, represented principal, application context, authority source and relevant source information when the distinction matters.
+
+Current implementation note: the repository already supports user and service principals plus user-initiated Agent flows that preserve delegated user context, but it does **not** yet declare a universal first-class Agent principal registry or general delegation persistence contract. Those require explicit contract/migration work before runtime code relies on them.
+
 ## Model policy safety
 
 Policy is deny-capable refinement, never a way to expand authority beyond credential/application and current data authorization.
@@ -187,6 +229,8 @@ Personal Spaces may apply stricter lifecycle rules than family/team Spaces, such
 
 - Source data keeps exactly one `space_id`.
 - Sharing must not duplicate the authoritative record.
+- Sharing must not silently move the authoritative/source Space.
+- Cross-Space visibility or mutation authority is explicit; participation by the same user, Agent, application or service in multiple Spaces does not merge those Spaces.
 - Grants may target a user/principal or another Space when approved.
 - Kernel 0.13.0 implements two resource targets:
   - whole Space: `resourceType=space`, `resourceId=null`;
@@ -203,7 +247,7 @@ See `docs/model-scoped-data-grants.md` for the external-integration parity ratio
 
 ## Aggregate access
 
-Authenticated aggregate endpoints under `/api/v1/me/...` may return records from multiple source Spaces when the model/capability explicitly supports aggregation. Each result must preserve source ownership and the caller's effective capabilities so clients can render read-only/shared data correctly.
+Authenticated aggregate endpoints under `/api/v1/me/...` may return records from multiple source Spaces when the model/capability explicitly supports aggregation. Each result must preserve source ownership and the caller's effective capabilities so clients can render read-only/shared data correctly. Aggregation is a projection across authorized Space boundaries; it does not merge those Spaces or create duplicate authoritative records.
 
 ## Actor safety
 
@@ -211,7 +255,7 @@ Authenticated aggregate endpoints under `/api/v1/me/...` may return records from
 - For Access-authenticated Web flows, Identity derives the current LifeSpace actor from a verified `(iss, sub)` mapping. A BFF-supplied `sub`, email or `userId` is not sufficient authority by itself.
 - Access `aud` determines approved application context, not user identity. It must be checked against the registered LifeSpace application before credentials are issued.
 - Account linking is authentication state, not authorization. Linking multiple Access principals to one `usr_*` must not expand that user's Space/Data Grant authority; it only adds another approved way to reach the same global user.
-- User-initiated Agent operations preserve delegated user context.
+- User-initiated Agent operations preserve both the actual Agent actor when first-class Agent execution is available and the delegated/represented user context; they must not collapse the two identities when that distinction matters.
 - Platform-admin operations preserve both a current authorized human actor and a separately authenticated controlled executor; neither identity may be replaced by an unsigned operator field.
 - Service and device identities receive only explicit stable scopes, Application × Model Access and Grants.
 - A Service API Token authenticates a service principal and never becomes an implicit Space membership or administrator role.
