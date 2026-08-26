@@ -1,6 +1,6 @@
 # LifeSpace Agent Instructions
 
-LifeSpace is the platform for giving any Space a durable digital reality. ALOHA, HomeMew and future products are initial application experiences over the platform, not the boundary of the platform itself. LifeSpace is the sole source of truth for global LifeSpace user identity, Space/Data Grant authorization, shared domain models, platform migrations, contracts and deployment configuration.
+LifeSpace is the platform for giving any Space a durable shared digital reality and governed way to act on it. ALOHA, HomeMew and future products are initial application experiences over the platform, not the boundary of the platform itself. LifeSpace is the sole source of truth for global LifeSpace user identity, Space/Data Grant authorization, shared domain models, platform migrations, contracts and deployment configuration.
 
 ## Read before making changes
 
@@ -24,7 +24,7 @@ If a required source does not yet exist during initial scaffold, create/update i
 
 - Evolving long-term direction/architecture lens: `docs/north-star.md`
 - Current platform boundaries/topology: `docs/architecture.md`
-- Space ownership, Grants, principals and effective authorization: `docs/permissions.md`
+- Space ownership, Grants, principals, actors and effective authorization: `docs/permissions.md`
 - Application/Cloudflare Access identity: `docs/application-authentication.md`
 - Service/machine credential policy: `docs/service-authentication.md`
 - Contract ownership/versioning/publication/downstream consumption: `docs/contracts.md`
@@ -45,32 +45,48 @@ The North Star is directional rather than a claim of already-implemented behavio
 
 For a platform-level abstraction, persistent state, public contract, protocol dependency or cross-cutting capability, first identify the durable concept and the replaceable implementation around it.
 
+The long-term hierarchy is:
+
+```text
+SPACE
+├── Shared Reality
+│   ├── Shared World
+│   └── Shared Knowledge
+├── Authority
+└── Change
+```
+
 Classify the change primarily as one or more of:
 
-- **Reality** — durable concept/state inside a Space;
-- **Semantics** — meaning, relations, capabilities or constraints;
-- **Authority** — identity, permission, delegation, consent or approval;
-- **Agency** — intent, action or world change;
-- **Context** — authorized/relevant projection of the world;
-- **History** — event, provenance, evidence or state evolution;
+- **Shared World** — durable domain entity, relationship, state, occurrence, plan or commitment;
+- **Shared Knowledge** — durable cross-application/Agent preference, rule, observation, assertion, assessment or other cognition worth sharing;
+- **Authority** — identity, permission, grant, delegation, consent or approval;
+- **Change** — intent, action, proposal, commit, compensation or durable state transition;
+- **Semantics** — meaning, relations, capabilities, constraints or policy that define the above;
+- **Context Projection** — authorized/relevant runtime selection for a consumer/task;
+- **History / Provenance** — attribution, evidence, source and state evolution across the above;
 - **Adapter** — protocol/external-system/transport integration;
 - **Experience** — application or UI behavior for a particular audience.
 
+Do not treat `User / Agent / Application / Service` as children of a universal `Principal` entity type. Entity type and operation role are separate dimensions. In a particular operation, `principal` means whose authority is being exercised, `actor` means who/what initiated or executed the operation, and application context identifies through which registered product/integration context it occurred. Principal and actor may be the same or different.
+
 Before committing to a platform design, ask:
 
-1. Are we modeling the real world, or merely today's application/UI?
+1. Are we modeling durable Shared World/Knowledge, or merely today's application/UI/Agent context?
 2. Does durable state belong to a Space/world, or are we accidentally making an application its owner?
 3. Would the concept still make sense if the current application disappeared?
 4. Would it still make sense if the current Agent framework, AI model, protocol or orchestration product disappeared?
 5. Is MCP/REST/OpenAI tooling/n8n/another protocol being treated as an adapter rather than domain truth?
-6. Are AI-derived observations/claims distinguishable from authoritative state where that distinction matters?
-7. Can an autonomous change be attributed to the relevant principal, Agent/delegation and intent?
-8. Is CRUD merely the transport for a more durable semantic Action/Change concept?
-9. Are we preserving the history/provenance needed to understand meaningful future decisions?
-10. Is a proposed Kernel rule genuinely universal, or is it a personal/family/organization/application assumption?
-11. Are we prematurely generalizing a temporary implementation rather than preserving a clean extension point?
+6. Are AI-derived observations/claims distinguishable from direct or authoritative state where that distinction matters?
+7. Is Space isolation preserved, with cross-Space sharing explicit, bounded and revocable?
+8. Can an autonomous change distinguish the relevant principal, actor, application context, delegation and source?
+9. Is an Agent being granted only explicit own/delegated authority rather than inheriting user-equivalent authority merely because it can act?
+10. Is CRUD merely the transport for a more durable semantic Action/Change concept?
+11. Are we preserving the history/provenance needed to understand meaningful future decisions?
+12. Is a proposed Kernel rule genuinely universal, or is it a personal/family/organization/application assumption?
+13. Are we prematurely generalizing a temporary implementation rather than preserving a clean extension point?
 
-LifeSpace should be Agent-ready but AI-independent. Applications, Agents, models, protocols and orchestration systems are replaceable layers. Durable LifeSpace reality, semantics, authority and history must not depend on one of them.
+LifeSpace should be Agent-ready but AI-independent. Applications, Agents, models, protocols and orchestration systems are replaceable layers. Durable Shared Reality, Authority and Change must not depend on one of them.
 
 Do not silently redefine LifeSpace through a local feature implementation. If a requested change conflicts with `docs/north-star.md`, surface the conflict and preserve the current boundary unless the architectural direction is deliberately revised. The North Star itself may evolve when new evidence changes the long-term problem framing; such changes must be explicit and recorded rather than incidental.
 
@@ -79,6 +95,9 @@ Do not silently redefine LifeSpace through a local feature implementation. If a 
 ### Identity
 
 - LifeSpace user identity is global: one natural person has one platform `usr_*` across applications and Spaces.
+- Entity type and operation role are distinct. Current contract terms such as user principal and service principal remain valid implementation vocabulary, but `Principal` must not be treated as the permanent parent type of every User/Agent/Application/Service entity.
+- `principal` identifies whose authority is being exercised for an operation; `actor` identifies who/what actually initiates or executes it when that distinction matters. They may be equal or different.
+- An Agent may become a first-class identifiable/auditable actor when a concrete contract exists, but acting does not itself make the Agent a User or grant the User's authority. User-initiated Agent operations preserve explicit delegated user context.
 - Application-specific external identities are not LifeSpace identities. WeChat `openid`, WeCom IDs, school-provider IDs and similar subjects remain mappings owned by the application adapter/BFF.
 - Cloudflare Access platform principals are the deliberate shared-Web exception: Identity owns verified `(iss, sub) -> usr_*` mapping and account linking.
 - Access `aud` identifies the protected application context and must be registered to the intended LifeSpace application; it is not part of the user key.
@@ -91,12 +110,13 @@ Do not silently redefine LifeSpace through a local feature implementation. If a 
 ### Space and data authorization
 
 - Space is the ownership/default authorization boundary for ordinary business data and the primary durable world boundary in the long-term platform model; it is not synonymous with personal, family, organization, tenant or workspace.
+- Spaces are isolated by default. Cross-Space sharing must be explicit, bounded and revocable; sharing does not merge Spaces or create a second authoritative copy.
 - Do not encode personal/family/organization/application-specific Space rules into the Kernel unless they are deliberately generalized as universal invariants.
 - Every ordinary business record belongs to exactly one source Space.
 - Sharing never changes ownership or creates a second authoritative copy; use Data Grants/approved derived views.
 - Data authorization and application authorization are independent.
 - Effective ordinary-model permission is the intersection of verified principal, credential scope, Application × Model Access, current Space membership/Data Grant, published model capability and model policy/Capability restrictions.
-- The authenticated actor comes from verified credentials, never request `userId`.
+- The authenticated actor comes from verified credentials, never request `userId`; mediated/delegated flows that distinguish principal from actor must use an explicit verified contract rather than unsigned attribution fields.
 - Core owns current Space/Grant/model authorization. UI/BFF control hiding is usability only, never the security boundary.
 - Cross-Space aggregate `/api/v1/me/...` is a Core capability; clients should not be forced to rediscover/merge every Space themselves.
 
@@ -215,4 +235,4 @@ Do not create one-off domain source code merely because the DSL needs extension.
 
 ## Change completion
 
-Before declaring a platform change complete, inspect all coupled surfaces: North Star impact, Identity, Access/application auth, platform-admin actor/executor state, Space/Grant rules, Application × Model Access, Registry, runtime descriptor cache, physical schema, Generic Runtime, Capabilities, all applicable contract layers, migrations, tests, SDK/client generation, docs, infrastructure and downstream compatibility. For platform-level work, explicitly state whether the durable abstraction belongs to Reality/Semantics/Authority/Agency/Context/History or is merely an Adapter/Experience concern. Fix drift in the same change or record an explicit approved follow-up while keeping unsupported behavior unavailable.
+Before declaring a platform change complete, inspect all coupled surfaces: North Star impact, Identity, Access/application auth, principal/actor/application-context attribution, platform-admin actor/executor state, Space/Grant rules, Application × Model Access, Registry, runtime descriptor cache, physical schema, Generic Runtime, Capabilities, all applicable contract layers, migrations, tests, SDK/client generation, docs, infrastructure and downstream compatibility. For platform-level work, explicitly state whether the durable abstraction belongs to Shared World, Shared Knowledge, Authority or Change; whether Semantics/Context Projection/History-Provenance are supporting mechanisms; or whether it is merely an Adapter/Experience concern. Fix drift in the same change or record an explicit approved follow-up while keeping unsupported behavior unavailable.
