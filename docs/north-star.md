@@ -43,9 +43,54 @@ This refinement does not invalidate the current Model Registry, Generic Runtime,
 
 LifeSpace is not fundamentally a personal-data platform or a family-data platform. Personal and family Spaces are initial proving contexts. A Space may represent a person, family, team, class, school, organization, project, home, vehicle, trip, community, temporary event, Agent collective or another bounded world not yet anticipated.
 
-A **Space** is therefore not merely a SaaS tenant, workspace or data-isolation container. It is a durable boundary within which participants can share a digital representation of a world, shared knowledge about that world, authority over it and permitted ways to change it.
+A **Space（空间）** is therefore not merely a SaaS tenant, workspace or data-isolation container. It is a durable boundary within which participants can share a digital representation of a world, shared knowledge about that world, authority over it and permitted ways to change it.
 
 Applications and Agents are consumers and actors over this shared world. They are not its owners.
+
+### Space boundary and cross-Space sharing
+
+> **Space defines the boundary of a shared world; Grants define how that world crosses boundaries.**  
+> **空间（Space）定义共享世界的边界；授权（Grant）定义世界如何跨越边界。**
+
+Isolation is the default. A fact, record or durable knowledge item has an authoritative/source Space unless a more specific external-authority relationship is explicitly modeled. Another Space does not gain visibility or mutation authority merely because the same person, application or Agent participates in both Spaces.
+
+Cross-Space use must therefore be explicit through an authorized mechanism such as a Data Grant, approved reference or derived view. Sharing is not equivalent to copying:
+
+- sharing must not silently create a second authoritative fact;
+- sharing must not silently move the authoritative/source Space;
+- a consuming Space may receive visibility or bounded capability while the original authority remains intact;
+- provenance and source ownership must remain recoverable when information crosses a Space boundary.
+
+This principle applies beyond ordinary records. Durable Shared Knowledge, future semantic Actions and other LifeSpace concepts should preserve the same distinction between **where authority originates** and **where authorized consumers may use it**.
+
+### Principals and Agents
+
+LifeSpace must treat non-human participants as first-class without pretending that they are human users.
+
+A **Principal（主体）** is an entity that can be identified and participate in authorization. A **User（用户）**, **Agent（智能体）**, **Application（应用）** or **Service（服务）** may be represented as distinct kinds of principal when the architecture requires it.
+
+> **Agents are first-class actors, but not human users. They may act under their own authority or on behalf of another principal.**  
+> **智能体（Agent）是一等行为参与者，但不是人类用户（User）；它既可以依据自身授权行动，也可以代表其他主体（Principal）行动。**
+
+An Agent therefore must not be collapsed into either of these shortcuts:
+
+- silently impersonating a human user for every operation; or
+- becoming an unconstrained backend service account whose authority is detached from people, Spaces and purpose.
+
+Where the distinction matters, LifeSpace should be able to preserve:
+
+```text
+principal      = whose authority/assertion is represented
+actor          = who/what actually executed the operation
+onBehalfOf     = optional principal being represented
+application    = application context through which it occurred
+authority      = grant/delegation/consent/policy that allowed it
+source         = where the information or action originated
+```
+
+A user-directed Agent action may therefore have an Agent as **Actor（行为主体）** and a user as **On-behalf-of Principal（被代表主体）**. An autonomous Agent may instead act under an explicit Grant or other durable authority assigned to the Agent itself. The authorization and provenance model must preserve that difference rather than relying on Agent-local memory.
+
+This is a long-term semantic direction. It does not declare that every principal type, Agent registration flow or delegation contract is already implemented.
 
 ## Ten-year assumptions
 
@@ -199,6 +244,7 @@ Where relevant, LifeSpace should preserve distinctions such as:
 ```text
 principal     = whose authority or assertion is represented
 actor         = who/what executed the operation
+onBehalfOf    = optional principal being represented
 application   = through which application context
 source        = where the information originated
 sourceRef     = reference to original material/system
@@ -207,7 +253,7 @@ derivedFrom   = inputs used to derive information
 
 Information quality should not be determined merely by "human vs AI". A user statement entered through an Agent may be a direct user assertion, while an AI-generated conclusion from video may be inference. The underlying source and derivation matter.
 
-History, events, audit and provenance should allow meaningful questions such as "what changed?", "who caused it?", "under whose authority?" and, where important, "why do we believe this?".
+History, events, audit and provenance should allow meaningful questions such as "what changed?", "who caused it?", "under whose authority?", "on whose behalf?" and, where important, "why do we believe this?".
 
 ## LifeSpace is not the universal source of truth
 
@@ -274,14 +320,14 @@ This test should also be applied in reverse: if a concept is useful only inside 
 
 For each new platform abstraction, persistent state or contract, first classify the durable concern as one or more of:
 
-- **Shared World** — durable domain entity, relationship, state, occurrence, plan or commitment shared within a Space;
-- **Shared Knowledge** — durable cross-application/Agent knowledge, rule, preference, observation, assertion, assessment or provenance that is worth sharing;
-- **Authority** — identity, permission, grant, delegation, consent or approval;
-- **Change** — intent, action, proposal, commit, compensation or change history;
-- **Semantics** — model/schema/capability/constraint/policy mechanism that defines the above;
-- **Context Projection** — runtime selection of relevant authorized information for a consumer/task;
-- **Adapter** — protocol, external-system or transport integration;
-- **Experience** — product/UI behavior for a particular audience.
+- **Shared World（共享世界）** — durable domain entity, relationship, state, occurrence, plan or commitment shared within a Space;
+- **Shared Knowledge（共享知识）** — durable cross-application/Agent knowledge, rule, preference, observation, assertion, assessment or provenance that is worth sharing;
+- **Authority（权威/授权）** — identity, permission, grant, delegation, consent or approval;
+- **Change（变化）** — intent, action, proposal, commit, compensation or change history;
+- **Semantics（语义）** — model/schema/capability/constraint/policy mechanism that defines the above;
+- **Context Projection（上下文投影）** — runtime selection of relevant authorized information for a consumer/task;
+- **Adapter（适配器）** — protocol, external-system or transport integration;
+- **Experience（体验）** — product/UI behavior for a particular audience.
 
 Then ask:
 
@@ -295,6 +341,8 @@ Then ask:
 8. Are we exposing only CRUD where a stable semantic Action/Change is the better abstraction, while still allowing simple CRUD to stay simple?
 9. Is a proposed Kernel abstraction genuinely universal, or a product/personal/family/organization assumption?
 10. Are we prematurely generalizing an implementation instead of preserving an extension point until concrete cases justify it?
+11. What is the authoritative/source Space for this durable fact or knowledge item, and is any cross-Space use explicit rather than copied?
+12. If an Agent acts, is it acting under its own authority or on behalf of another principal, and can that distinction be authorized and audited?
 
 A conflict with this North Star must be surfaced explicitly. Do not silently redefine the platform through a local feature implementation.
 
@@ -317,8 +365,10 @@ LifeSpace should not drift into being merely:
 - a no-code application builder;
 - a universal schemaless JSON store;
 - a system where application-specific or Agent-specific copies become parallel sources of truth;
+- a system where cross-Space sharing silently creates a second authoritative copy;
 - a system where inferred information is silently treated as direct/authoritative information when the distinction matters;
-- a system where broad service credentials substitute for bounded authority.
+- a system where broad service credentials substitute for bounded authority;
+- a system where Agents silently impersonate users or accumulate broad authority without durable grants/delegation and attribution.
 
 These anti-goals do not prohibit integrations or adapters. They prohibit making a replaceable layer the conceptual center of LifeSpace.
 
@@ -337,9 +387,9 @@ Eventing / audit                  -> Change/history plumbing
 service/user principals           -> actors under Authority
 ```
 
-Future work may add richer provenance, shared preferences/rules/knowledge, delegated authority, semantic Change/ChangeSet, approval and Context Projection when concrete product or platform needs justify them.
+Future work may add richer provenance, shared preferences/rules/knowledge, explicit Agent principals, delegated authority, semantic Change/ChangeSet, approval and Context Projection when concrete product or platform needs justify them.
 
-This document does **not** declare Observation, Claim, Context, graph storage, Agent memory or other speculative concepts as already implemented Kernel features.
+This document does **not** declare Observation, Claim, Context, graph storage, Agent memory, universal Agent registration or delegation contracts as already implemented Kernel features.
 
 The North Star is a compass for choosing direction, not a backlog requiring speculative implementation.
 
