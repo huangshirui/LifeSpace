@@ -3,10 +3,13 @@ import { fileURLToPath } from "node:url";
 
 const workflowUrl = new URL("../../../.github/workflows/lifespace-console-production-deploy.yml", import.meta.url);
 const wranglerUrl = new URL("../wrangler.jsonc", import.meta.url);
+const accessBootstrapUrl = new URL("../../../infra/scripts/prepare-production-console-access.mjs", import.meta.url);
 const workflowPath = fileURLToPath(workflowUrl);
 const wranglerPath = fileURLToPath(wranglerUrl);
+const accessBootstrapPath = fileURLToPath(accessBootstrapUrl);
 const workflow = readFileSync(workflowUrl, "utf8");
 const wrangler = readFileSync(wranglerUrl, "utf8");
+const accessBootstrap = readFileSync(accessBootstrapUrl, "utf8");
 
 const requiredWorkflow = [
   "workflow_dispatch:",
@@ -17,6 +20,7 @@ const requiredWorkflow = [
   "LIFESPACE_PRODUCTION_BOOTSTRAP_SECRET",
   "https://auth.aisr.online",
   "https://core.aisr.online",
+  "prepare-production-console-access.mjs",
   "prepare-production-console-admin.mjs",
   "CLOUDFLARE_ENV=production pnpm exec vite build",
   "pnpm exec wrangler deploy --secrets-file",
@@ -31,7 +35,7 @@ for (const token of requiredWorkflow) {
 }
 
 const forbiddenWorkflow = [
-  ["staging target", /auth-staging\.aisr\.online|core-staging\.aisr\.online|lifespace-staging\.aisr\.online|lifespace-console-staging|CLOUDFLARE_ENV=staging/iu],
+  ["staging service target", /auth-staging\.aisr\.online|core-staging\.aisr\.online|lifespace-console-staging|CLOUDFLARE_ENV=staging/iu],
   ["D1 migration", /db:migrate|d1\s+migrations\s+apply/iu],
   ["Core Worker deployment", /apps\/core[^\n]*wrangler deploy|core-deploy/iu],
   ["Identity Worker deployment", /apps\/identity[^\n]*wrangler deploy|identity-deploy/iu],
@@ -43,6 +47,30 @@ const forbiddenWorkflow = [
 ];
 for (const [label, pattern] of forbiddenWorkflow) {
   if (pattern.test(workflow)) throw new Error(`${workflowPath} violates Console-only production isolation: ${label}`);
+}
+
+const requiredAccessBootstrap = [
+  'PRODUCTION_ACCESS_DOMAIN = "lifespace.aisr.online"',
+  'STAGING_ACCESS_DOMAIN = "lifespace-staging.aisr.online"',
+  'type: "self_hosted"',
+  'policy.decision !== "allow"',
+  '"everyone"',
+  '"any_valid_service_token"',
+  '"service_token"',
+  'explicit email include rule',
+  'method: "POST"',
+  'LIFESPACE_PRODUCTION_CONSOLE_ACCESS_AUD',
+];
+for (const token of requiredAccessBootstrap) {
+  if (!accessBootstrap.includes(token)) throw new Error(`${accessBootstrapPath} must include ${token}`);
+}
+const forbiddenAccessBootstrap = [
+  ["staging LifeSpace service access", /auth-staging\.aisr\.online|core-staging\.aisr\.online/iu],
+  ["bootstrap secret", /LIFESPACE_(?:STAGING|PRODUCTION)_BOOTSTRAP_SECRET/iu],
+  ["business data mutation", /\/api\/v1\/spaces\//iu],
+];
+for (const [label, pattern] of forbiddenAccessBootstrap) {
+  if (pattern.test(accessBootstrap)) throw new Error(`${accessBootstrapPath} violates Access-bootstrap isolation: ${label}`);
 }
 
 const pushBlock = /\n\s{2}push:\n\s{4}branches:\n\s{6}- release\/lifespace-console-production-20260826\n/u;
@@ -72,6 +100,8 @@ console.log(JSON.stringify({
   workflow: ".github/workflows/lifespace-console-production-deploy.yml",
   productionConsoleOnly: true,
   productionAccessPreflightRequired: true,
+  productionAccessBootstrapOwnerOnly: true,
+  stagingAccessUsedAsConfigurationTemplateOnly: true,
   rolloutStatusObservable: true,
   coreIdentityMigrationAbsent: true,
   coreIdentityDeploymentAbsent: true,
