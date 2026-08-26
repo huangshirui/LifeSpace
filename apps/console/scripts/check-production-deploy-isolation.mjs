@@ -4,12 +4,15 @@ import { fileURLToPath } from "node:url";
 const workflowUrl = new URL("../../../.github/workflows/lifespace-console-production-deploy.yml", import.meta.url);
 const wranglerUrl = new URL("../wrangler.jsonc", import.meta.url);
 const accessBootstrapUrl = new URL("../../../infra/scripts/prepare-production-console-access.mjs", import.meta.url);
+const adminBootstrapUrl = new URL("../../../infra/scripts/resolve-production-console-admin.mjs", import.meta.url);
 const workflowPath = fileURLToPath(workflowUrl);
 const wranglerPath = fileURLToPath(wranglerUrl);
 const accessBootstrapPath = fileURLToPath(accessBootstrapUrl);
+const adminBootstrapPath = fileURLToPath(adminBootstrapUrl);
 const workflow = readFileSync(workflowUrl, "utf8");
 const wrangler = readFileSync(wranglerUrl, "utf8");
 const accessBootstrap = readFileSync(accessBootstrapUrl, "utf8");
+const adminBootstrap = readFileSync(adminBootstrapUrl, "utf8");
 
 const requiredWorkflow = [
   "workflow_dispatch:",
@@ -21,6 +24,7 @@ const requiredWorkflow = [
   "https://auth.aisr.online",
   "https://core.aisr.online",
   "prepare-production-console-access.mjs",
+  "resolve-production-console-admin.mjs",
   "prepare-production-console-admin.mjs",
   "CLOUDFLARE_ENV=production pnpm exec vite build",
   "pnpm exec wrangler deploy --secrets-file",
@@ -73,6 +77,32 @@ for (const [label, pattern] of forbiddenAccessBootstrap) {
   if (pattern.test(accessBootstrap)) throw new Error(`${accessBootstrapPath} violates Access-bootstrap isolation: ${label}`);
 }
 
+const requiredAdminBootstrap = [
+  'assertProductionServiceUrl(identityBase, "identity")',
+  'INNER JOIN access_principals ap ON ap.user_id = u.id',
+  "u.status = 'active' AND ap.status = 'active'",
+  '"LIMIT 2"',
+  'selectUniqueAccessBackedUserId',
+  '"--remote", "--env", "production"',
+  '/bootstrap/v1/platform-administrators',
+  'method: "PUT"',
+  'LIFESPACE_PRODUCTION_PLATFORM_ADMIN_USER_ID',
+  'emailUsedAsAuthority: false',
+  'accessSubjectUsedAsAuthority: false',
+];
+for (const token of requiredAdminBootstrap) {
+  if (!adminBootstrap.includes(token)) throw new Error(`${adminBootstrapPath} must include ${token}`);
+}
+const forbiddenAdminBootstrap = [
+  ["staging environment", /--env["',\s]+staging|auth-staging\.aisr\.online/iu],
+  ["business/Core data", /apps\/core|core\.aisr\.online|\/api\/v1\/spaces\//iu],
+  ["application-owned external identity", /external_identities/iu],
+  ["email matching expression", /email_snapshot\s*(?:=|LIKE)|display_name\s*(?:=|LIKE)/iu],
+];
+for (const [label, pattern] of forbiddenAdminBootstrap) {
+  if (pattern.test(adminBootstrap)) throw new Error(`${adminBootstrapPath} violates platform-admin bootstrap isolation: ${label}`);
+}
+
 const pushBlock = /\n\s{2}push:\n\s{4}branches:\n\s{6}- release\/lifespace-console-production-20260826\n/u;
 if (!pushBlock.test(workflow)) {
   throw new Error(`${workflowPath} temporary push trigger must be limited to the exact one-time release branch`);
@@ -102,6 +132,9 @@ console.log(JSON.stringify({
   productionAccessPreflightRequired: true,
   productionAccessBootstrapOwnerOnly: true,
   stagingAccessUsedAsConfigurationTemplateOnly: true,
+  productionAdminBootstrapUsesVerifiedAccessMappingOnly: true,
+  productionAdminBootstrapRequiresUniqueCandidate: true,
+  productionAdminBootstrapEmailAuthorityAbsent: true,
   rolloutStatusObservable: true,
   coreIdentityMigrationAbsent: true,
   coreIdentityDeploymentAbsent: true,
