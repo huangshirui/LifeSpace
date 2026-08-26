@@ -47,30 +47,34 @@ For a platform-level abstraction, persistent state, public contract, protocol de
 
 Classify the change primarily as one or more of:
 
-- **Reality** — durable concept/state inside a Space;
-- **Semantics** — meaning, relations, capabilities or constraints;
-- **Authority** — identity, permission, delegation, consent or approval;
-- **Agency** — intent, action or world change;
-- **Context** — authorized/relevant projection of the world;
-- **History** — event, provenance, evidence or state evolution;
-- **Adapter** — protocol/external-system/transport integration;
-- **Experience** — application or UI behavior for a particular audience.
+- **Shared World（共享世界）** — durable domain entity, relationship, state, occurrence, plan or commitment shared within a Space;
+- **Shared Knowledge（共享知识）** — durable cross-application/Agent knowledge, rule, preference, observation, assertion, assessment or provenance that is worth sharing;
+- **Authority（权威/授权）** — identity, permission, Grant, delegation, consent or approval;
+- **Change（变化）** — intent, action, proposal, commit, compensation or meaningful change history;
+- **Semantics（语义）** — model/schema/capability/constraint/policy mechanism that defines the above;
+- **Context Projection（上下文投影）** — runtime selection of relevant authorized information for a consumer/task;
+- **Adapter（适配器）** — protocol/external-system/transport integration;
+- **Experience（体验）** — application or UI behavior for a particular audience.
+
+Treat **Provenance & History（溯源与历史）** as cross-cutting properties of important Shared World, Shared Knowledge and Change rather than a separate durable world. Context Projection is a runtime result, not a mandate to persist all Agent context or memory.
 
 Before committing to a platform design, ask:
 
-1. Are we modeling the real world, or merely today's application/UI?
-2. Does durable state belong to a Space/world, or are we accidentally making an application its owner?
-3. Would the concept still make sense if the current application disappeared?
-4. Would it still make sense if the current Agent framework, AI model, protocol or orchestration product disappeared?
-5. Is MCP/REST/OpenAI tooling/n8n/another protocol being treated as an adapter rather than domain truth?
-6. Are AI-derived observations/claims distinguishable from authoritative state where that distinction matters?
-7. Can an autonomous change be attributed to the relevant principal, Agent/delegation and intent?
-8. Is CRUD merely the transport for a more durable semantic Action/Change concept?
-9. Are we preserving the history/provenance needed to understand meaningful future decisions?
-10. Is a proposed Kernel rule genuinely universal, or is it a personal/family/organization/application assumption?
-11. Are we prematurely generalizing a temporary implementation rather than preserving a clean extension point?
+1. Are we modeling durable Shared World/Shared Knowledge, or merely today's application/UI/Agent context?
+2. What is the authoritative/source Space for this durable fact or knowledge item?
+3. If information crosses a Space boundary, is it shared through an explicit Grant/reference/derived view rather than copied into a second authoritative record?
+4. Would the concept still make sense if the current application disappeared?
+5. Would it still make sense if the current Agent framework, AI model, protocol or orchestration product disappeared?
+6. Is MCP/REST/OpenAI tooling/n8n/another protocol being treated as an Adapter rather than domain truth?
+7. Are application-created and Agent-created records converging on the same domain model?
+8. Can an autonomous or delegated change be attributed to the relevant Principal（主体）, Actor（行为主体）, represented/on-behalf-of principal, application/delegation and source?
+9. If an Agent acts, is it acting under explicit authority of its own or on behalf of another principal, and is that distinction preserved rather than silently impersonating a user?
+10. Is CRUD merely the transport for a more durable semantic Action/Change concept where one is needed, while still allowing simple CRUD to stay simple?
+11. Are we preserving the provenance/history needed to understand meaningful future decisions?
+12. Is a proposed Kernel rule genuinely universal, or is it a personal/family/organization/application assumption?
+13. Are we prematurely generalizing a temporary implementation rather than preserving a clean extension point?
 
-LifeSpace should be Agent-ready but AI-independent. Applications, Agents, models, protocols and orchestration systems are replaceable layers. Durable LifeSpace reality, semantics, authority and history must not depend on one of them.
+LifeSpace should be Agent-ready but AI-independent. Applications, Agents, models, protocols and orchestration systems are replaceable layers. Durable Shared World, Shared Knowledge, Authority, Change, semantics and provenance must not depend on one of them.
 
 Do not silently redefine LifeSpace through a local feature implementation. If a requested change conflicts with `docs/north-star.md`, surface the conflict and preserve the current boundary unless the architectural direction is deliberately revised. The North Star itself may evolve when new evidence changes the long-term problem framing; such changes must be explicit and recorded rather than incidental.
 
@@ -92,13 +96,23 @@ Do not silently redefine LifeSpace through a local feature implementation. If a 
 
 - Space is the ownership/default authorization boundary for ordinary business data and the primary durable world boundary in the long-term platform model; it is not synonymous with personal, family, organization, tenant or workspace.
 - Do not encode personal/family/organization/application-specific Space rules into the Kernel unless they are deliberately generalized as universal invariants.
-- Every ordinary business record belongs to exactly one source Space.
-- Sharing never changes ownership or creates a second authoritative copy; use Data Grants/approved derived views.
+- Every ordinary business record belongs to exactly one source/authoritative Space.
+- Sharing never changes ownership or creates a second authoritative copy; use Data Grants/approved references/derived views.
+- Cross-Space visibility or mutation authority must be explicit; the same user, Agent, application or service participating in multiple Spaces never implicitly merges those Spaces.
 - Data authorization and application authorization are independent.
-- Effective ordinary-model permission is the intersection of verified principal, credential scope, Application × Model Access, current Space membership/Data Grant, published model capability and model policy/Capability restrictions.
+- Effective ordinary-model permission is the intersection of verified principal, credential scope, Application × Model Access, current Space membership/Data Grant, published model capability, model policy/Capability restrictions and any applicable delegation constraints.
 - The authenticated actor comes from verified credentials, never request `userId`.
 - Core owns current Space/Grant/model authorization. UI/BFF control hiding is usability only, never the security boundary.
-- Cross-Space aggregate `/api/v1/me/...` is a Core capability; clients should not be forced to rediscover/merge every Space themselves.
+- Cross-Space aggregate `/api/v1/me/...` is a Core capability; clients should not be forced to rediscover/merge every Space themselves, and aggregation must preserve source ownership.
+
+### Agent and principal authority
+
+- Principal（主体） and Actor（行为主体） are not interchangeable concepts: a principal may hold/represent authority, while actor identifies who/what executed one operation.
+- User（用户） and Agent（智能体） are not interchangeable principal types. Do not assign a human `usr_*` identity to an Agent merely to reuse user permissions.
+- A delegated Agent action must preserve the actual Agent actor and the represented/on-behalf-of principal when that distinction matters.
+- An autonomous Agent may act only under explicit durable platform authority assigned to that Agent principal; prompts, Agent-local memory, conversation history or application flags are not authorization.
+- Delegation is authority-bounding, never authority-expanding. An Agent acting on behalf of another principal cannot exceed either the represented principal's current authority or the delegation's constraints.
+- Do not invent a universal Agent registry/delegation runtime merely because the North Star allows it. Until an explicit contract/migration exists, preserve currently implemented user/service principal behavior and mark future Agent semantics as planned.
 
 ### Metadata-driven models
 
@@ -215,4 +229,4 @@ Do not create one-off domain source code merely because the DSL needs extension.
 
 ## Change completion
 
-Before declaring a platform change complete, inspect all coupled surfaces: North Star impact, Identity, Access/application auth, platform-admin actor/executor state, Space/Grant rules, Application × Model Access, Registry, runtime descriptor cache, physical schema, Generic Runtime, Capabilities, all applicable contract layers, migrations, tests, SDK/client generation, docs, infrastructure and downstream compatibility. For platform-level work, explicitly state whether the durable abstraction belongs to Reality/Semantics/Authority/Agency/Context/History or is merely an Adapter/Experience concern. Fix drift in the same change or record an explicit approved follow-up while keeping unsupported behavior unavailable.
+Before declaring a platform change complete, inspect all coupled surfaces: North Star impact, Identity, Access/application auth, Principal/Actor/delegation semantics, platform-admin actor/executor state, Space/Grant rules, Application × Model Access, Registry, runtime descriptor cache, physical schema, Generic Runtime, Capabilities, all applicable contract layers, migrations, tests, SDK/client generation, docs, infrastructure and downstream compatibility. For platform-level work, explicitly classify the durable abstraction as Shared World（共享世界）, Shared Knowledge（共享知识）, Authority（权威/授权）, Change（变化） or a Semantics（语义） mechanism, Context Projection（上下文投影）, Adapter（适配器） or Experience（体验） concern; treat Provenance & History（溯源与历史） as cross-cutting. Fix drift in the same change or record an explicit approved follow-up while keeping unsupported behavior unavailable.
