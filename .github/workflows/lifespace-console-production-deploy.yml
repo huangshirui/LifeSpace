@@ -127,6 +127,9 @@ jobs:
       - name: Resolve expected production versions
         run: node infra/scripts/production-expectations.mjs
 
+      - name: Ensure production Console Access boundary
+        run: node infra/scripts/prepare-production-console-access.mjs
+
       - name: Prepare production Console application and executors
         run: node infra/scripts/prepare-production-console-admin.mjs
 
@@ -198,7 +201,7 @@ jobs:
           - Hostname: \`lifespace.aisr.online\`
           - Identity: schema v${LIFESPACE_EXPECTED_IDENTITY_SCHEMA_VERSION} / contract ${LIFESPACE_EXPECTED_IDENTITY_CONTRACT_VERSION}
           - Core: schema v${LIFESPACE_EXPECTED_CORE_SCHEMA_VERSION} / Kernel ${LIFESPACE_EXPECTED_CORE_CONTRACT_VERSION}
-          - Cloudflare Access application: preflighted before deployment
+          - Cloudflare Access application: ${LIFESPACE_PRODUCTION_CONSOLE_ACCESS_STATE:-verified}; owner-only policy verified before deployment
           - Console LifeSpace application: \`app_lifespace_console\`
           - Identity/Core executor credentials: zero-downtime rotated; superseded credentials revoked after hostname verification
           - Core/Identity deployment or migration: **not performed**
