@@ -1,0 +1,55 @@
+name: One-time Console Slice B staging bridge
+
+on:
+  push:
+    branches: [feat/console-application-configuration]
+    paths:
+      - .github/workflows/console-slice-b-staging-bridge.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lifespace-console-staging-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: staging
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID || secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.13.1
+          run_install: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: pnpm install --frozen-lockfile
+      - name: Validate Console
+        run: pnpm --filter @lifespace/console check
+      - name: Verify staging dependencies read-only
+        run: |
+          node --input-type=module <<'NODE'
+          for (const [name, url] of [["Identity", "https://auth-staging.aisr.online/api/v1/status"], ["Core", "https://core-staging.aisr.online/api/v1/status"]]) {
+            const response = await fetch(url, { headers: { accept: "application/json" } });
+            const payload = await response.json().catch(() => null);
+            if (response.status !== 200 || payload?.data?.environment !== "staging") throw new Error(`${name} dependency invalid: ${response.status}`);
+            console.log(JSON.stringify({ service: name, schemaVersion: payload.data.schemaVersion, contractVersion: payload.data.contractVersion }));
+          }
+          NODE
+      - name: Deploy Console staging only
+        run: |
+          cd apps/console
+          CLOUDFLARE_ENV=staging pnpm exec vite build
+          pnpm exec wrangler deploy
+      - name: Verify hostname behind Access
+        run: |
+          code="$(curl --silent --show-error --head --output /dev/null --write-out '%{http_code}' --connect-timeout 5 --max-time 10 https://lifespace-staging.aisr.online/)"
+          test "$code" -ge 200 -a "$code" -lt 500
+          echo "lifespace-staging.aisr.online HTTP $code"
