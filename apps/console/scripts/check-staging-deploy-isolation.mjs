@@ -46,6 +46,7 @@ const acceptanceRequired = [
   "https://auth-staging.aisr.online",
   "https://core-staging.aisr.online",
   "node apps/console/scripts/verify-staging-control-plane.mjs",
+  "node apps/console/scripts/verify-staging-configuration-center.mjs",
 ];
 
 for (const token of acceptanceRequired) {
@@ -57,6 +58,10 @@ const acceptanceForbidden = [
   ["pull-request-triggered acceptance", /^\s*pull_request(?:_target)?:\s*$/mu],
   ["scheduled acceptance", /^\s*schedule:\s*$/mu],
   ["reusable automatic acceptance", /^\s*workflow_call:\s*$/mu],
+  ["Worker deployment during acceptance", /wrangler deploy/iu],
+  ["platform migration during acceptance", /db:migrate|core-migrations|identity-migrations/iu],
+  ["Core deployment during acceptance", /core-deploy/iu],
+  ["Identity deployment during acceptance", /identity-deploy/iu],
   ["production Console target", /CLOUDFLARE_ENV=production|lifespace-console-production|https:\/\/lifespace\.aisr\.online/iu],
   ["production Core target", /https:\/\/core\.aisr\.online/iu],
   ["production Identity target", /https:\/\/auth\.aisr\.online/iu],
@@ -73,6 +78,9 @@ console.log(JSON.stringify({
   manualOnly: true,
   coreIdentityMutationAbsentFromDeploy: true,
   bootstrapAuthorityAbsentFromDeploy: true,
+  acceptanceCoversModelPublishing: true,
+  acceptanceCoversApplicationCredentialGovernance: true,
+  acceptanceDoesNotDeployPlatformServices: true,
   acceptanceStagingOnly: true,
   productionTargetAbsent: true,
 }));
