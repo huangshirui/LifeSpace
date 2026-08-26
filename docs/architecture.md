@@ -8,7 +8,7 @@ Applications are product experiences over the platform. They do not own parallel
 
 Ordinary business models are declarative Model Definitions interpreted by a fixed Generic Runtime. New Core source code should normally represent a reusable Runtime/Engine/Capability/physical-schema concern or an explicit Kernel/control-plane concern, not one more handwritten CRUD implementation.
 
-Historical extraction and phase evidence lives in the phase/status and migration documents. This document describes the current target architecture and normative boundaries.
+Historical extraction and phase evidence lives in the phase/status and migration documents. This document describes the current target architecture and normative boundaries. The long-term assumptions and axioms that justify these boundaries are defined in `docs/north-star.md`.
 
 ## Repository and service boundaries
 
@@ -48,7 +48,7 @@ Third-party or policy-controlled service
   -> LifeSpace Core
 ```
 
-Cloudflare Service Bindings may be used for same-account transport, but transport topology is never authorization. Explicit principal, application, scope and current-state authorization remain mandatory.
+Cloudflare Service Bindings may be used for same-account transport, but transport topology is never authorization. Explicit authenticated identity/principal context, application, scope and current-state authorization remain mandatory.
 
 ## Core request architecture
 
@@ -67,11 +67,31 @@ Request
 
 Stable model metadata may be compiled/cached in a Worker isolate. Mutable authority such as memberships, Grants, Application × Model Access and credential state must retain current-state revocation semantics.
 
+## Identity and operation-role terminology
+
+The current deployed architecture and contracts use established authentication terms such as `principal`, `principal_type` and `service principal`. Those names remain valid implementation vocabulary and are not renamed by the North Star refinement.
+
+For long-term conceptual design, keep two dimensions separate:
+
+```text
+Entity type
+  User | Agent | Application | Service | future identifiable entity types
+
+Operation roles/context
+  principal          = whose authority is exercised
+  actor              = who/what executes or initiates the operation
+  applicationContext = through which application context it occurs
+```
+
+Therefore the platform must not treat `Principal -> User | Agent | Application | Service` as the durable ontology merely because a normalized authenticated identity is currently called a principal in code or contracts. A direct user operation may have the same user as Principal and Actor; a delegated Agent operation may use the user's authority while the Agent is the Actor. An Agent with explicitly granted independent authority may itself fill both roles.
+
+This distinction is currently an architectural interpretation rule, not a declaration that a universal Agent/Actor persistence model or new public contract fields already exist.
+
 ## Kernel
 
 Kernel concepts remain explicit platform concepts and cannot be created as ordinary user-defined models:
 
-- Identity/Application/Principal and credential state;
+- Identity/Application/current authenticated principal and credential state;
 - Space, Membership and Space Person;
 - Data Grant and authorization state;
 - Model Registry administration and publication state;
@@ -130,7 +150,7 @@ The Physical Schema Compiler is fixed platform code. It derives bounded DDL only
 For an ordinary model operation, effective permission is the intersection of:
 
 ```text
-verified principal
+verified authenticated principal context
 ∩ stable credential scope
 ∩ Application × Model Access
 ∩ current Space membership / Data Grant
@@ -178,7 +198,7 @@ LifeSpace supports two service modes:
 - opaque, revocable `lsp_pat_*` Service API Tokens for owner-controlled trusted workloads;
 - OAuth `client_credentials` for short-lived service JWTs when required by third-party or policy constraints.
 
-Both authenticate a `service` principal and are bounded by application/service scope ceilings, Application × Model Access, current Data Grants and model policy.
+Both authenticate the current `service` principal representation and are bounded by application/service scope ceilings, Application × Model Access, current Data Grants and model policy.
 
 `lsa_*` is a different credential: it authenticates a trusted application backend to Identity and does not itself represent a service principal to Core.
 
@@ -256,7 +276,7 @@ The current React/Vite Console slice exposes only read-only governance/diagnosti
 
 ### Audit
 
-Privileged mutations record both identities:
+Privileged mutations record both identities/roles:
 
 - human `usr_*` actor;
 - backend/service executor;
@@ -348,8 +368,10 @@ Publishing a compatible ordinary Model Definition does not itself require a Work
 ## Non-negotiable invariants
 
 - One global `usr_*` per LifeSpace person; application-specific external IDs remain app-owned except Cloudflare Access platform principals.
+- Entity type and operation role must not be conflated: Principal authority and Actor execution remain distinguishable when they differ.
+- An Agent does not inherit a user's authority merely by executing an operation for that user.
 - Every ordinary record has exactly one source Space.
-- Grants share authority without changing ownership.
+- Spaces remain distinct under sharing; Grants share authority without changing ownership.
 - No shared parent-domain authentication cookie.
 - No application authority inferred from hostname.
 - No arbitrary executable code/SQL in Model metadata.
