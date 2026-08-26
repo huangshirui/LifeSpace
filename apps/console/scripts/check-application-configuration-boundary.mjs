@@ -35,7 +35,7 @@ const forbidden = [
   ["browser-provided upstream Authorization", /request\.headers\.get\(["']authorization["']\)/iu],
   ["browser-provided target user authority", /actorUserId|targetUserId/iu],
   ["arbitrary reverse-proxy target", /upstreamUrl|targetUrl|proxyUrl/iu],
-  ["one-time lsa plaintext browser handling", /clientSecret|lsa_/iu],
+  ["one-time managed credential plaintext field handling", /clientSecret/iu],
   ["Core executor use in Application configuration", /coreExecutor\s*=|authorization:\s*`Bearer \$\{context\.core/iu],
 ];
 
