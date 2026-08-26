@@ -5,8 +5,6 @@ on:
   # Temporary proving trigger for PR #60. Remove after the first successful real staging acceptance.
   push:
     branches: [feat/console-control-plane-writes]
-    paths:
-      - "apps/console/scripts/verify-staging-control-plane.mjs"
 
 permissions:
   contents: read
