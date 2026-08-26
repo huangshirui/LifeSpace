@@ -8,9 +8,11 @@ This directory defines stable platform decisions. Documentation here is normativ
 - Treat the North Star as deliberate but evolvable. Do not change it implicitly to justify a local implementation; when evidence changes the long-term direction, update it explicitly, describe consequences, and record the decision in the engineering log.
 - Keep architecture, permission, contract, and migration documents separate enough that each has one clear purpose.
 - Record decisions, invariants, and boundaries; do not turn these files into transient task logs.
-- Use platform terminology consistently: Shared Reality, Shared World, Shared Knowledge, Identity, Space, Data Grant, Authority, Change, principal, actor and application context.
-- Keep entity type and operation role distinct: `User / Agent / Application / Service` are identity-capable entity concepts; `principal / actor / application context` are roles or context within an operation. Do not document `Principal` as the universal parent type of those entities.
-- Preserve the distinction between operation attribution (`principal`, `actor`, application context) and information provenance (`source`, `sourceRef`, `derivedFrom`) even when one audit/history envelope records both.
+- Use platform terminology consistently: Shared Reality, Shared World, Shared Knowledge, Identity, Space, Data Grant, Authority, Change, Principal, actor, executor, delegation and application context.
+- Treat **Principal** as the security-subject abstraction. Current deployed Principal types include `user`, `service` and `device`; a first-class Agent Principal is a future extension when deliberately specified.
+- Keep a registered **Application** distinct from a Principal by default: Application represents product/client/integration context, identity/configuration and authority ceilings. If an application needs independent runtime authority, represent that through an explicit Principal rather than silently making every Application registration an acting subject.
+- Keep Principal type distinct from operation roles: `actor`, `executor` and `delegator/on-behalf-of` are roles that reference Principals; `application context` references the registered Application.
+- Preserve the distinction between operation attribution (`actor`, `executor`, delegation, application context) and information provenance (`source`, `sourceRef`, `derivedFrom`) even when one audit/history envelope records both.
 - Distinguish source-of-truth behavior from planned behavior. Mark planned sections explicitly.
 - Do not document HomeMew-specific, ALOHA-specific, personal-only, family-only, organization-only or other product-specific assumptions as platform rules unless they have been generalized and intentionally approved.
 - When changing a security or authorization rule, update `permissions.md` and the relevant service contract/tests in the same change.
