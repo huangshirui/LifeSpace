@@ -113,7 +113,7 @@ async function fixture() {
 }
 
 describe("Runtime discovery", () => {
-  it("returns only effective user-authorized model metadata and actions", async () => {
+  it("returns only effective user-authorized model metadata and bounded action input", async () => {
     const f = await fixture();
     const accessToken = await token(
       f.privateKey,
@@ -130,7 +130,12 @@ describe("Runtime discovery", () => {
       route: string;
       access: string[];
       fields: Array<{ key: string; type: string }>;
-      actions: Array<{ key: string; access: string; kind: string }>;
+      actions: Array<{
+        key: string;
+        access: string;
+        kind: string;
+        input: { fields: Array<{ key: string; type: string; required?: boolean; minimum?: number }> };
+      }>;
     }> } }>();
     const model = payload.data.models.find((entry) => entry.key === f.modelKey);
     expect(model).toMatchObject({ key: f.modelKey, route: f.route, access: ["read", "write"] });
@@ -138,7 +143,14 @@ describe("Runtime discovery", () => {
       expect.objectContaining({ key: "title", type: "string" }),
       expect.objectContaining({ key: "status", type: "enum" }),
     ]));
-    expect(model?.actions).toContainEqual({ key: "complete", access: "write", kind: "workflow" });
+    expect(model?.actions).toContainEqual({
+      key: "complete",
+      access: "write",
+      kind: "workflow",
+      input: {
+        fields: [expect.objectContaining({ key: "version", type: "integer", required: true, minimum: 1 })],
+      },
+    });
   });
 
   it("removes write-only actions when the credential has read scope only", async () => {
