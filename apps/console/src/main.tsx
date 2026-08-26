@@ -2,6 +2,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import ControlPlaneApp from "./ControlPlaneApp";
 import ApplicationConfigurationOverlay from "./ApplicationConfigurationOverlay";
+import CredentialGovernanceOverlay from "./CredentialGovernanceOverlay";
 import "./styles.css";
 
 const root = document.getElementById("root");
@@ -11,5 +12,6 @@ createRoot(root).render(
   <StrictMode>
     <ControlPlaneApp />
     <ApplicationConfigurationOverlay />
+    <CredentialGovernanceOverlay />
   </StrictMode>,
 );
