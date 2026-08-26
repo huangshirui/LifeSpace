@@ -24,7 +24,7 @@ If a required source does not yet exist during initial scaffold, create/update i
 
 - Evolving long-term direction/architecture lens: `docs/north-star.md`
 - Current platform boundaries/topology: `docs/architecture.md`
-- Space ownership, Grants, principals, actors and effective authorization: `docs/permissions.md`
+- Space ownership, Grants, Principals, operation attribution and effective authorization: `docs/permissions.md`
 - Application/Cloudflare Access identity: `docs/application-authentication.md`
 - Service/machine credential policy: `docs/service-authentication.md`
 - Contract ownership/versioning/publication/downstream consumption: `docs/contracts.md`
@@ -60,7 +60,7 @@ Classify the change primarily as one or more of:
 
 - **Shared World** — durable domain entity, relationship, state, occurrence, plan or commitment;
 - **Shared Knowledge** — durable cross-application/Agent preference, rule, observation, assertion, assessment or other cognition worth sharing;
-- **Authority** — identity, permission, grant, delegation, consent or approval;
+- **Authority** — Principal identity, permission, grant, delegation, consent or approval;
 - **Change** — intent, action, proposal, commit, compensation or durable state transition;
 - **Semantics** — meaning, relations, capabilities, constraints or policy that define the above;
 - **Context Projection** — authorized/relevant runtime selection for a consumer/task;
@@ -68,7 +68,7 @@ Classify the change primarily as one or more of:
 - **Adapter** — protocol/external-system/transport integration;
 - **Experience** — application or UI behavior for a particular audience.
 
-Do not treat `User / Agent / Application / Service` as children of a universal `Principal` entity type. Entity type and operation role are separate dimensions. In a particular operation, `principal` means whose authority is being exercised, `actor` means who/what initiated or executed the operation, and application context identifies through which registered product/integration context it occurred. Principal and actor may be the same or different.
+A **Principal** is an authenticated/authorizable security subject. Current Core principal types are `user`, `service` and `device`; a first-class `Agent` Principal is a future extension when justified. A registered **Application** is a separate product/client context and authority ceiling, not automatically a Principal. Within an operation, roles such as `actor`, `executor` and `delegator/on-behalf-of` reference Principals, while `application context` references the Application.
 
 Before committing to a platform design, ask:
 
@@ -79,12 +79,13 @@ Before committing to a platform design, ask:
 5. Is MCP/REST/OpenAI tooling/n8n/another protocol being treated as an adapter rather than domain truth?
 6. Are AI-derived observations/claims distinguishable from direct or authoritative state where that distinction matters?
 7. Is Space isolation preserved, with cross-Space sharing explicit, bounded and revocable?
-8. Can an autonomous change distinguish the relevant principal, actor, application context, delegation and source?
-9. Is an Agent being granted only explicit own/delegated authority rather than inheriting user-equivalent authority merely because it can act?
-10. Is CRUD merely the transport for a more durable semantic Action/Change concept?
-11. Are we preserving the history/provenance needed to understand meaningful future decisions?
-12. Is a proposed Kernel rule genuinely universal, or is it a personal/family/organization/application assumption?
-13. Are we prematurely generalizing a temporary implementation rather than preserving a clean extension point?
+8. Are Principal types, operation roles and Application context kept distinct?
+9. Can an autonomous change identify actor, executor and delegation/authority chain where they differ?
+10. Is an Agent granted only explicit own/delegated authority rather than inheriting User-equivalent authority merely because it can act?
+11. Is CRUD merely the transport for a more durable semantic Action/Change concept?
+12. Are we preserving the history/provenance needed to understand meaningful future decisions?
+13. Is a proposed Kernel rule genuinely universal, or is it a personal/family/organization/application assumption?
+14. Are we prematurely generalizing a temporary implementation rather than preserving a clean extension point?
 
 LifeSpace should be Agent-ready but AI-independent. Applications, Agents, models, protocols and orchestration systems are replaceable layers. Durable Shared Reality, Authority and Change must not depend on one of them.
 
@@ -95,9 +96,10 @@ Do not silently redefine LifeSpace through a local feature implementation. If a 
 ### Identity
 
 - LifeSpace user identity is global: one natural person has one platform `usr_*` across applications and Spaces.
-- Entity type and operation role are distinct. Current contract terms such as user principal and service principal remain valid implementation vocabulary, but `Principal` must not be treated as the permanent parent type of every User/Agent/Application/Service entity.
-- `principal` identifies whose authority is being exercised for an operation; `actor` identifies who/what actually initiates or executes it when that distinction matters. They may be equal or different.
-- An Agent may become a first-class identifiable/auditable actor when a concrete contract exists, but acting does not itself make the Agent a User or grant the User's authority. User-initiated Agent operations preserve explicit delegated user context.
+- `Principal` is the security-subject abstraction. Current deployed Principal types are `user`, `service` and `device`; future Agent identity/delegation must extend this deliberately rather than overloading an unrelated field.
+- A registered Application is not automatically a Principal. `azp` / application registration identifies product/client context and authority ceilings; independent machine authority uses an explicit Principal such as a Service.
+- Operation attribution is separate from Principal type. `actor`, `executor` and `delegator/on-behalf-of` are operation roles that may reference one or more Principals.
+- An Agent may become a first-class Principal/Actor when a concrete contract exists, but Principal status does not make it a User or grant User-equivalent authority. User-initiated Agent operations require explicit delegated authority.
 - Application-specific external identities are not LifeSpace identities. WeChat `openid`, WeCom IDs, school-provider IDs and similar subjects remain mappings owned by the application adapter/BFF.
 - Cloudflare Access platform principals are the deliberate shared-Web exception: Identity owns verified `(iss, sub) -> usr_*` mapping and account linking.
 - Access `aud` identifies the protected application context and must be registered to the intended LifeSpace application; it is not part of the user key.
@@ -115,8 +117,8 @@ Do not silently redefine LifeSpace through a local feature implementation. If a 
 - Every ordinary business record belongs to exactly one source Space.
 - Sharing never changes ownership or creates a second authoritative copy; use Data Grants/approved derived views.
 - Data authorization and application authorization are independent.
-- Effective ordinary-model permission is the intersection of verified principal, credential scope, Application × Model Access, current Space membership/Data Grant, published model capability and model policy/Capability restrictions.
-- The authenticated actor comes from verified credentials, never request `userId`; mediated/delegated flows that distinguish principal from actor must use an explicit verified contract rather than unsigned attribution fields.
+- Effective ordinary-model permission is the intersection of verified Principal, credential scope, Application × Model Access, current Space membership/Data Grant, published model capability and model policy/Capability restrictions.
+- The authenticated Principal comes from verified credentials, never request `userId`. Mediated/delegated flows that add separate actor/executor/delegator roles must use an explicit verified contract rather than unsigned attribution fields.
 - Core owns current Space/Grant/model authorization. UI/BFF control hiding is usability only, never the security boundary.
 - Cross-Space aggregate `/api/v1/me/...` is a Core capability; clients should not be forced to rediscover/merge every Space themselves.
 
@@ -235,4 +237,4 @@ Do not create one-off domain source code merely because the DSL needs extension.
 
 ## Change completion
 
-Before declaring a platform change complete, inspect all coupled surfaces: North Star impact, Identity, Access/application auth, principal/actor/application-context attribution, platform-admin actor/executor state, Space/Grant rules, Application × Model Access, Registry, runtime descriptor cache, physical schema, Generic Runtime, Capabilities, all applicable contract layers, migrations, tests, SDK/client generation, docs, infrastructure and downstream compatibility. For platform-level work, explicitly state whether the durable abstraction belongs to Shared World, Shared Knowledge, Authority or Change; whether Semantics/Context Projection/History-Provenance are supporting mechanisms; or whether it is merely an Adapter/Experience concern. Fix drift in the same change or record an explicit approved follow-up while keeping unsupported behavior unavailable.
+Before declaring a platform change complete, inspect all coupled surfaces: North Star impact, Identity, Access/application auth, Principal types, actor/executor/delegation attribution, Application context, platform-admin actor/executor state, Space/Grant rules, Application × Model Access, Registry, runtime descriptor cache, physical schema, Generic Runtime, Capabilities, all applicable contract layers, migrations, tests, SDK/client generation, docs, infrastructure and downstream compatibility. For platform-level work, explicitly state whether the durable abstraction belongs to Shared World, Shared Knowledge, Authority or Change; whether Semantics/Context Projection/History-Provenance are supporting mechanisms; or whether it is merely an Adapter/Experience concern. Fix drift in the same change or record an explicit approved follow-up while keeping unsupported behavior unavailable.
