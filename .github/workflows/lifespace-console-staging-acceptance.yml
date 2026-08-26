@@ -2,9 +2,6 @@ name: Verify LifeSpace Console staging control plane
 
 on:
   workflow_dispatch:
-  # Temporary proving trigger for PR #60. Remove after the first successful real staging acceptance.
-  push:
-    branches: [feat/console-control-plane-writes]
 
 permissions:
   contents: read
