@@ -1,7 +1,7 @@
 # LifeSpace North Star
 
 Status: **Evolving strategic direction**  
-Updated: **2026-08-25**
+Updated: **2026-08-26**
 
 ## Purpose
 
@@ -15,139 +15,286 @@ It is intentionally more durable and more abstract than `docs/architecture.md`.
 
 The North Star is not immutable doctrine. It is expected to evolve as the AI era, product experience and our understanding of the problem evolve. Changes should be deliberate, explicit and recorded rather than emerging accidentally from a local implementation decision.
 
+## 2026-08-26 refinement
+
+The previous North Star described LifeSpace primarily as a durable digital reality composed of `Reality / Semantics / Authority / Agency / Context / History`. That framing was directionally useful but mixed together durable things, explanatory mechanisms and runtime projections at the same conceptual level.
+
+Scenario-based review across traditional applications, Agent interaction, family schedules, sports records, external systems, automation, preferences and conflicting sources led to a more stable framing:
+
+> **LifeSpace is the long-lived digital world and action foundation that people, applications and AI Agents within a Space can jointly rely on.**
+
+Its enduring responsibilities are:
+
+```text
+SPACE
+├── Shared World
+├── Shared Knowledge
+├── Authority
+└── Change
+```
+
+`Semantics` is the mechanism that makes those concepts structured, meaningful and computable. `Context` is an authorized and relevant projection assembled for a particular consumer and task. `History` and provenance are cross-cutting properties required to understand important World, Knowledge and Change over time.
+
+This refinement does not invalidate the current Model Registry, Generic Runtime, typed persistence, Identity, Space/Data Grant, Capability or Eventing architecture. It clarifies what those mechanisms should ultimately serve.
+
 ## Core thesis
 
-> **LifeSpace gives any Space a durable digital reality.**
+> **LifeSpace gives any Space a durable shared digital world that survives changes in applications, Agents, models and protocols.**
 
-LifeSpace is not fundamentally a personal-data platform or a family-data platform. Personal and family Spaces are initial proving contexts. The platform should remain capable of representing any bounded world that needs durable state, semantics, authority, agency, context and history: a person, family, team, class, school, organization, project, home, vehicle, trip, community, temporary event, agent collective or a future Space type not yet anticipated.
+LifeSpace is not fundamentally a personal-data platform or a family-data platform. Personal and family Spaces are initial proving contexts. A Space may represent a person, family, team, class, school, organization, project, home, vehicle, trip, community, temporary event, Agent collective or another bounded world not yet anticipated.
 
-A **Space** is therefore not merely a SaaS tenant, workspace or data-isolation container. It is a bounded digital world with participants, things, relationships, state, rules, history and permitted ways to change that world.
+A **Space** is therefore not merely a SaaS tenant, workspace or data-isolation container. It is a durable boundary within which participants can share a digital representation of a world, shared knowledge about that world, authority over it and permitted ways to change it.
+
+Applications and Agents are consumers and actors over this shared world. They are not its owners.
 
 ## Ten-year assumptions
 
-LifeSpace should be designed under several assumptions that are more durable than today's software stack:
+LifeSpace should be designed under assumptions more durable than today's software stack:
 
 - application interfaces will become increasingly adaptive, generated and replaceable;
+- traditional Web, Mini Program and mobile experiences will continue to coexist with Agent-driven experiences for a long time;
 - AI models, Agent frameworks and reasoning systems will change repeatedly;
 - protocols such as REST, MCP, tool schemas and future Agent protocols are adapters, not domain truth;
 - people will increasingly express intent while software and Agents plan and execute changes;
 - non-human actors will become normal participants in digital systems;
-- much more data will be interpreted or inferred by AI rather than entered directly into structured forms;
+- much more information will be extracted, interpreted or inferred rather than entered directly through structured forms;
 - trustworthy automation will become more valuable than merely capable automation;
-- durable world state, meaning, authority, provenance and history must survive changes in applications and intelligence providers.
+- external systems will continue to own important sources of truth; LifeSpace must interoperate with them without trying to copy the whole world;
+- shared state, knowledge, authority, provenance and meaningful change must survive replacement of applications and intelligence providers.
 
-Therefore LifeSpace should be **Agent-ready but AI-independent**. AI should be able to understand, discover and operate LifeSpace easily, while LifeSpace itself must not depend on a particular model provider, prompt format, Agent framework or protocol to remain coherent.
+Therefore LifeSpace should be **Agent-ready but AI-independent**. AI should be able to understand, discover and operate LifeSpace easily, while LifeSpace itself must remain coherent without a particular model provider, prompt format, Agent framework or protocol.
 
-## The enduring layers of a Space
+## The four enduring responsibilities
 
-The long-term conceptual model is:
+### Shared World
 
-```text
-SPACE
-├── Reality
-├── Semantics
-├── Authority
-├── Agency
-├── Context
-└── History
-```
+**Shared World answers: what world are participants jointly operating on?**
 
-These are directional concepts, not a mandate to create six immediate subsystems.
+It includes durable domain records, entities, relationships, state, occurrences, plans and commitments that should continue to exist when a particular UI or Agent disappears.
 
-### Space
+Examples include people, Spaces, events, tasks, goals, match records, trips, assets and relationships between them.
 
-Space is the primary world boundary. It should not encode personal, family, organization or other product-specific assumptions in the Kernel unless they are genuinely universal platform invariants.
+A traditional UI and an Agent must operate on the same World object. For example, a football match entered through a Mini Program form and the same match created by an Agent acting for the user must result in the same domain record type, subject to the same authorization and validation rules. LifeSpace must not create separate "AI data" and "application data" worlds.
 
-A Space may be long-lived or temporary, human-centered or object/project-centered, and may relate to other Spaces. The platform must not assume all Spaces are flat, permanent, isolated tenants.
+The current metadata-driven ordinary Model system is an important way to structure Shared World. The North Star does **not** require replacing relational storage with a graph database, RDF, a universal entity table or another speculative persistence model.
 
-### Reality
+### Shared Knowledge
 
-LifeSpace represents the durable state of a world: entities, relationships, observations, claims, commitments and other facts meaningful inside a Space.
+**Shared Knowledge answers: what should participants continue to know about the shared world?**
 
-Applications should not own parallel authoritative copies of LifeSpace reality. An application is an experience and authority context over the world, not the owner of that world.
+Not everything useful to an Agent belongs here. Agent working context, scratch reasoning, temporary conversation summaries and Agent-specific interaction heuristics are normally local to the Agent/runtime.
 
-The long-term logical model may become richer than today's ordinary `Model` abstraction. This does **not** imply a graph database or any specific physical-storage technology. Logical world semantics and physical persistence should remain separable.
+Information belongs in Shared Knowledge when it has durable, cross-application or cross-Agent value and an authorized future consumer should reasonably be able to rely on it.
 
-### Semantics
+Examples may include:
 
-Agents and applications need to know not just field names and endpoints, but what concepts mean, how they relate, what capabilities exist and what constraints apply.
+- explicit user or Space preferences;
+- standing rules and conventions;
+- important observations;
+- durable assessments or conclusions that affect later decisions;
+- relevant assertions whose source matters;
+- provenance about where important information came from;
+- selected derived knowledge whose long-term value justifies persistence.
 
-Stable semantic concepts should belong to LifeSpace. REST paths, MCP tools, OpenAI tool schemas, SDKs, n8n nodes and future protocols should be projections/adapters over those semantics rather than becoming the source of truth.
+Observation, Claim, Assessment and similar concepts are **possible semantic forms of Shared Knowledge**, not a mandate to create AI-specific Kernel tables. A statement produced during reasoning may remain temporary; only information with durable shared value should be promoted into LifeSpace.
+
+A useful promotion test is:
+
+1. If the current Agent were replaced, should this information still exist?
+2. Should another authorized application or Agent be able to rely on it?
+3. Is it likely to influence future state, decisions, policy or action?
+
+If the answer is no, it normally belongs in Agent context or Agent-local memory rather than LifeSpace.
 
 ### Authority
+
+**Authority answers: who may know, decide or change what?**
 
 The important question in an Agent world is not only "who are you?" but also:
 
 - whom are you acting for;
+- within which Space;
+- under which application or service context;
 - for what purpose;
-- under what delegation;
-- within what Space and capability boundary;
+- under what delegation or consent;
+- within what capability and data boundary;
 - under what constraints and expiry;
-- whether human or multi-party approval is required.
+- whether approval is required.
 
-Identity, Space membership, Grants and current authorization are the existing foundation. Future delegated Agent authority, consent and approval should extend that foundation rather than bypass it with broad permanent service authority.
+Global Identity, Space membership, Data Grants, Application × Model Access, credential scope and current model policy are the existing foundation.
 
-### Agency
+Future delegated Agent authority, consent and approval should extend that foundation rather than allowing each Agent to remember or invent its own permission boundary. Authorization is durable platform state, not Agent memory.
 
-AI systems operate toward goals, not toward CRUD endpoints. LifeSpace should increasingly model meaningful actions and changes to a world rather than exposing only low-level record mutation.
+### Change
 
-Long-term concepts may include Action, Intent, Proposal, Change/ChangeSet, validation, risk, approval, commit and compensation. These should remain deterministic platform semantics where possible; Agent reasoning chooses or proposes actions, but platform rules determine whether and how world state can change.
+**Change answers: how may the shared world be altered reliably?**
 
-### Context
+CRUD remains useful and should continue to work for traditional software, but CRUD is the simplest transport/execution form of a more general concept: an authorized change to Shared World or Shared Knowledge.
 
-A large durable world cannot be placed wholesale into an Agent context window. LifeSpace should eventually be able to project the correct authorized, relevant and timely slice of a Space for a given principal, intent and moment.
-
-Context is therefore more than database query. It may incorporate authority, relationships, time, provenance, relevance and freshness while remaining separate from Agent reasoning itself.
-
-### History
-
-A trusted digital world needs to explain how it reached its current state.
-
-History includes events, provenance, evidence, actor/delegation attribution, decisions and state evolution. Time should not be treated merely as a collection of timestamp fields.
-
-AI-derived information makes provenance especially important. LifeSpace should preserve the distinction between, for example:
+A simple user edit may reduce to:
 
 ```text
-observation -> interpretation -> claim -> confirmation -> authoritative state
+Action -> Authority Check -> Commit
 ```
 
-The platform should be able to answer not only "what is the value?" but also, where important, "why do we believe this?" and "who or what caused this change?"
+A complex or higher-risk Agent operation may require:
+
+```text
+Intent -> Proposal/Plan -> Validation -> Approval -> Commit
+```
+
+Long-term concepts may include Action, Intent, Proposal, Change/ChangeSet, validation, risk, approval, commit and compensation. These are not requirements to route every edit through a heavyweight workflow. The model must allow simple changes to remain simple while giving autonomous or high-impact changes stronger controls when needed.
+
+Reasoning systems may choose or propose changes. LifeSpace determines whether the current actor is authorized and performs the durable commit under deterministic platform rules where possible.
+
+## Semantics is a mechanism, not a fifth world
+
+LifeSpace needs machine-readable meaning so that humans, traditional applications and Agents can operate on the same world.
+
+The semantic system may include:
+
+- Model and schema definitions;
+- concepts and relations;
+- capability definitions;
+- constraints and validation;
+- policy semantics;
+- lifecycle and temporal semantics.
+
+The current Model Registry and Model Definitions are therefore not obsolete. They are a foundational semantic mechanism for defining Shared World and, where appropriate, Shared Knowledge.
+
+REST paths, MCP tools, OpenAI tool schemas, SDKs, n8n nodes, generated forms and future protocols should be projections/adapters over stable semantics rather than becoming the semantic source of truth.
+
+## Context is a projection, not the database
+
+LifeSpace should not become a giant Agent context store.
+
+For a particular task, the final context available to an Agent is conceptually:
+
+```text
+Agent Context
+=
+relevant authorized LifeSpace Shared World
++
+relevant authorized LifeSpace Shared Knowledge
++
+Agent-local memory
++
+current conversation/task state
++
+live external context
+```
+
+LifeSpace may eventually provide Context Projection capabilities that select the correct authorized, relevant and timely slice of the shared world for a principal, intent and moment.
+
+That projection is a runtime result. It should not imply that all Agent context, prompts, intermediate reasoning, embeddings, conversations or scratch memory become permanent LifeSpace data.
+
+## Provenance and history are cross-cutting
+
+A shared digital world must be able to explain important state and changes when provenance matters.
+
+A domain record may be created through a Web form, Mini Program, Agent acting for a user, service integration, external authoritative system or AI extraction. These are different entry paths into the same World model, not different data models.
+
+Where relevant, LifeSpace should preserve distinctions such as:
+
+```text
+principal     = whose authority or assertion is represented
+actor         = who/what executed the operation
+application   = through which application context
+source        = where the information originated
+sourceRef     = reference to original material/system
+derivedFrom   = inputs used to derive information
+```
+
+Information quality should not be determined merely by "human vs AI". A user statement entered through an Agent may be a direct user assertion, while an AI-generated conclusion from video may be inference. The underlying source and derivation matter.
+
+History, events, audit and provenance should allow meaningful questions such as "what changed?", "who caused it?", "under whose authority?" and, where important, "why do we believe this?".
+
+## LifeSpace is not the universal source of truth
+
+LifeSpace must not become a central copy of every external system.
+
+For each external information domain, choose deliberately among four relationships:
+
+- **Own** — LifeSpace is the authoritative owner of the shared representation.
+- **Mirror** — another system is authoritative; LifeSpace persists an appropriate synchronized representation.
+- **Reference** — LifeSpace keeps identity/metadata/linkage while the original data remains elsewhere.
+- **Query** — data remains external and is fetched when needed rather than persisted as durable LifeSpace state.
+
+Examples might include a LifeSpace-owned family task, a mirrored bank-bill summary, a referenced large video, or queried live weather.
+
+The goal is not to ingest all reality. It is to maintain the portion of a Space's digital world and knowledge that multiple participants need to share and rely on.
+
+## Traditional software and Agents must share the same platform
+
+LifeSpace is not an AI-only architecture.
+
+Traditional Mini Programs, Web Apps and mobile clients should remain able to use familiar query, CRUD and Action APIs without understanding Agent-specific concepts.
+
+Different consumers may use different projections of the same platform:
+
+```text
+Traditional UI -> Query / CRUD / Actions
+Automation      -> Events / Actions / service authority
+Agent           -> Discovery / Context / Capabilities / delegated authority
+```
+
+They must converge on the same Shared World, Shared Knowledge, Authority and Change semantics.
+
+A useful compatibility test for a new abstraction is:
+
+1. Can a normal Web/Mini Program client use the underlying capability without becoming an Agent system?
+2. Can an Agent use the same domain capability without bypassing authorization, semantics or audit?
+
+If only one side works, the abstraction is probably either over-AI-specific or too tightly coupled to traditional UI/API assumptions.
+
+## Relationship to orchestration and intelligence
+
+LifeSpace should keep these responsibilities separate:
+
+```text
+Application / generated UI = Experience
+Agent / model              = Reasoning
+n8n / workflow systems     = Orchestration
+LifeSpace                  = Shared World + Shared Knowledge + Authority + Change
+```
+
+LifeSpace may integrate deeply with orchestration and Agent systems, but it should not become a competing workflow builder, reasoning framework or model runtime.
 
 ## Replaceability test
 
-For long-lived platform abstractions, ask:
+For every long-lived platform abstraction or durable state, ask:
 
-> **If the current application, Agent framework, AI model, orchestration system or protocol disappeared, would this concept and its durable state still make sense?**
+> **If the current application, Agent, AI model, orchestration system or protocol disappeared, would this concept and its durable state still make sense?**
 
 LifeSpace should remain coherent if HomeMew, ALOHA, n8n, MCP, a model vendor or another current integration is removed or replaced.
 
-Replaceable layers may depend on those technologies. Durable LifeSpace truth should not.
+This test should also be applied in reverse: if a concept is useful only inside one Agent's reasoning process, one UI flow or one protocol, it probably belongs in that replaceable layer rather than the LifeSpace Kernel.
 
 ## Architecture lens for new platform work
 
-Before introducing a new platform abstraction, persistent state, public contract or protocol dependency, classify the change primarily as one or more of:
+For each new platform abstraction, persistent state or contract, first classify the durable concern as one or more of:
 
-- **Reality** — a durable concept/state in a Space;
-- **Semantics** — meaning, relations, capabilities or constraints;
-- **Authority** — identity, permission, delegation, consent or approval;
-- **Agency** — intent, action or world change;
-- **Context** — an authorized/relevant projection of the world;
-- **History** — event, provenance, evidence or state evolution;
+- **Shared World** — durable domain entity, relationship, state, occurrence, plan or commitment shared within a Space;
+- **Shared Knowledge** — durable cross-application/Agent knowledge, rule, preference, observation, assertion, assessment or provenance that is worth sharing;
+- **Authority** — identity, permission, grant, delegation, consent or approval;
+- **Change** — intent, action, proposal, commit, compensation or change history;
+- **Semantics** — model/schema/capability/constraint/policy mechanism that defines the above;
+- **Context Projection** — runtime selection of relevant authorized information for a consumer/task;
 - **Adapter** — protocol, external-system or transport integration;
 - **Experience** — product/UI behavior for a particular audience.
 
 Then ask:
 
-1. Are we modeling the real world or merely today's UI?
-2. Does this state belong to a Space/world, or are we accidentally making it application-owned?
-3. Is a current protocol or vendor being promoted into a durable domain abstraction?
-4. Would the design survive replacement of the current App, Agent, AI model and protocol?
-5. Are AI-derived claims distinguishable from authoritative facts where that distinction matters?
-6. Can autonomous changes be attributed to the relevant principal, Agent/delegation and intent?
-7. Are we exposing only CRUD where a stable semantic action/change is the real concept?
-8. Are we preserving enough history and provenance to understand meaningful future decisions?
-9. Is a proposed Kernel abstraction truly universal, or is it a family/personal/organization/product assumption?
-10. Are we prematurely generalizing a temporary implementation instead of preserving a clean extension point?
+1. Does this information need to survive replacement of the current App or Agent?
+2. Should another authorized consumer be able to rely on it?
+3. Are we modeling a shared world/knowledge concept, or merely preserving transient Agent context?
+4. Does durable data belong to LifeSpace, or should the external system remain authoritative under Own/Mirror/Reference/Query?
+5. Are application-created and Agent-created records converging on the same domain model?
+6. Is a current protocol/vendor/framework being promoted into durable truth?
+7. Can an autonomous change be attributed to the relevant principal, actor, application/delegation and source?
+8. Are we exposing only CRUD where a stable semantic Action/Change is the better abstraction, while still allowing simple CRUD to stay simple?
+9. Is a proposed Kernel abstraction genuinely universal, or a product/personal/family/organization assumption?
+10. Are we prematurely generalizing an implementation instead of preserving an extension point until concrete cases justify it?
 
 A conflict with this North Star must be surfaced explicitly. Do not silently redefine the platform through a local feature implementation.
 
@@ -157,6 +304,10 @@ LifeSpace should not drift into being merely:
 
 - a generic CRUD backend;
 - a database shared by several frontends;
+- an AI-only data platform;
+- a giant Agent memory/context store;
+- a universal knowledge graph or graph database project;
+- a central Data Lake copying every external source of truth;
 - a personal-only or family-only data platform;
 - a traditional SaaS tenant/workspace abstraction;
 - an MCP server with storage behind it;
@@ -165,19 +316,32 @@ LifeSpace should not drift into being merely:
 - a workflow/orchestration product competing with systems such as n8n;
 - a no-code application builder;
 - a universal schemaless JSON store;
-- a system where application-specific copies become parallel sources of truth;
-- a system where AI inference is indistinguishable from observed or confirmed reality;
-- a system where broad service credentials substitute for bounded delegated authority.
+- a system where application-specific or Agent-specific copies become parallel sources of truth;
+- a system where inferred information is silently treated as direct/authoritative information when the distinction matters;
+- a system where broad service credentials substitute for bounded authority.
 
-These anti-goals do not prohibit integrations or adapters for these technologies. They prohibit making a replaceable layer the conceptual center of LifeSpace.
+These anti-goals do not prohibit integrations or adapters. They prohibit making a replaceable layer the conceptual center of LifeSpace.
 
 ## Relationship to current architecture
 
-Current Identity, Space/Data Grant, metadata-driven Model Registry/Generic Runtime, typed persistence, Capabilities, Eventing, contracts and service boundaries are valuable foundations because they already separate durable platform truth from application-specific implementation.
+Current Identity, Space/Data Grant, metadata-driven Model Registry/Generic Runtime, typed persistence, Capabilities, Eventing, contracts and service boundaries are valuable foundations and remain the current architecture.
 
-They are not assumed to be the final ten-year abstractions. In particular, future work may enrich today's concepts toward stronger world relations, provenance/evidence, semantic Action/Change, delegated authority, context projection and temporal history.
+They map naturally toward the refined North Star:
 
-Such evolution should occur only when concrete needs justify it. The North Star is a compass for choosing direction, not a backlog requiring speculative implementation.
+```text
+Identity / Space / Grant          -> Authority
+ordinary Models / records         -> Shared World
+Model Registry / definitions      -> Semantics
+CRUD / Capabilities               -> simple forms of Change
+Eventing / audit                  -> Change/history plumbing
+service/user principals           -> actors under Authority
+```
+
+Future work may add richer provenance, shared preferences/rules/knowledge, delegated authority, semantic Change/ChangeSet, approval and Context Projection when concrete product or platform needs justify them.
+
+This document does **not** declare Observation, Claim, Context, graph storage, Agent memory or other speculative concepts as already implemented Kernel features.
+
+The North Star is a compass for choosing direction, not a backlog requiring speculative implementation.
 
 ## Evolution policy
 
