@@ -3,9 +3,11 @@
 ## Core concepts
 
 - **User**: global human LifeSpace identity (`usr_*`) resolved by LifeSpace Identity after an approved authentication path. For owner-controlled Web/PWA applications, Cloudflare Access proves the Web user and Identity resolves the verified Access principal to the global LifeSpace user.
-- **Principal**: an authorization role for the entity whose authority is being exercised by the current credential/operation. In the currently deployed ordinary runtime, Core authenticates concrete user or service principals. `Principal` is not the conceptual parent type of every User, Agent, Application or Service entity.
-- **Actor**: the entity that actually initiates or executes an operation when that distinction is material. For a direct ordinary request, principal and actor normally coincide. Mediated/delegated flows may distinguish them only through an explicit verified contract; platform administration already distinguishes a human actor from a controlled service executor.
-- **Application context**: the registered LifeSpace application/integration context (`azp` / application id) through which authority is exercised. An Application may itself have credentials or controlled executors in specific flows, but application context is not automatically the principal or actor of every request.
+- **Principal**: authenticated/authorizable security subject. The currently deployed Core supports concrete `user`, `service` and `device` principal types. A first-class Agent Principal is a future extension when deliberately specified; Principal status never implies User-equivalent authority.
+- **Actor**: operation role for the Principal that caused or initiated an operation when attribution matters.
+- **Executor**: operation role for the Principal that actually performs an operation when distinct from the actor. Platform administration already uses a human actor plus a controlled service/application executor.
+- **Delegator / on-behalf-of**: operation role for the Principal whose authority is explicitly delegated to another Principal, when a concrete delegation contract exists.
+- **Application context**: the registered LifeSpace application/integration context (`azp` / application id) through which authority is exercised. A registered Application is not automatically a Principal. If independent application runtime authority is required, it must be represented by an explicit Principal such as a Service rather than inferred from application registration alone.
 - **Space**: source ownership and default authorization boundary for business data. Spaces are isolated by default; cross-Space sharing is explicit, bounded and revocable.
 - **Space membership**: role-based relationship between a user and a Space.
 - **Data Grant**: permission that exposes a Space or approved resource target to another principal or Space without changing ownership. Kernel 0.13.0 implements whole-Space and model-collection targets; record/view targets remain future contract work.
@@ -17,27 +19,63 @@
 
 Do not use `Data Grant` to mean OAuth authorization code/grant flow.
 
-### Entity type versus operation role
+### Principal type versus operation role
 
-The long-term North Star deliberately keeps identity-capable entity types separate from operation roles.
+The North Star keeps the security-subject type system separate from roles inside one operation.
 
-Conceptually, entities may include User, Agent, Application, Service and other explicitly modeled identities such as Device when justified. A particular operation may then refer to:
+Conceptually:
 
 ```text
-principal           -> whose authority is being exercised
-actor               -> who/what initiates or executes the operation
-application context -> through which registered application/integration it occurs
+Principal
+├── User
+├── Agent        (future first-class type)
+├── Service
+├── Device
+└── future explicitly modeled security-principal types
+
+Application
+└── registered product/client/integration context
 ```
 
-Principal and actor may be the same or different. For example, a user directly changing a Task has the user as both principal and actor. A future explicitly modeled Agent acting under delegated user authority may have the user as principal and the Agent as actor. An Agent must not receive user-equivalent authority merely because it can act.
+A specific operation may then attribute multiple roles:
 
-This is a conceptual boundary, not a claim that first-class Agent identity/delegation is already implemented. Current deployed contracts continue to use their concrete user/service-principal vocabulary until a deliberately versioned Agent/delegation contract exists.
+```text
+actor                -> Principal that caused/initiated the operation
+executor             -> Principal that executes it, when distinct
+delegator/onBehalfOf -> Principal whose authority is delegated, when applicable
+application context  -> Application through which the operation occurs
+```
+
+Examples:
+
+```text
+Direct user action:
+  actor              = User: usr_123
+  executor           = User: usr_123
+  applicationContext = HomeMew
+
+Future delegated Agent action:
+  actor              = Agent: aloha-agent
+  delegator          = User: usr_123
+  delegation         = bounded usr_123 -> aloha-agent authority
+  applicationContext = ALOHA
+
+Current platform-admin action:
+  actor              = User: usr_admin
+  executor           = Service/application-controlled backend executor
+  authority          = intersection of actor proof and executor capability
+  applicationContext = LifeSpace Console
+```
+
+There is therefore not necessarily one single Principal that explains every aspect of a mediated operation. Authority may be direct, delegated or the intersection of multiple independently verified Principals and policy constraints.
+
+This is a conceptual boundary, not a claim that first-class Agent identity/delegation is already implemented. Current deployed contracts continue to use concrete user/service/device-principal vocabulary and the existing specialized platform-admin actor/executor contract until deliberately versioned extensions exist.
 
 ## Effective permission
 
 Effective permission for an ordinary model is the intersection of:
 
-1. verified principal identity/authority;
+1. verified principal identity and current authority;
 2. the current credential's stable `resources:*` scope required by the operation;
 3. the calling application's current Application × Model Access catalog entry;
 4. current Space membership / Data Grant authorization;
@@ -120,7 +158,7 @@ same LifeSpace application context (azp / clientId)
 platform-admin operation
 ```
 
-In this specialized control-plane flow, the human actor is the attributable human authority/initiator while the controlled backend/service executor performs the privileged server operation. This is an explicit mediated contract and must not be generalized into an unsigned `actor` field on ordinary requests.
+This existing control-plane flow is a concrete example of why operation role must not be collapsed into Principal type: the human User Principal is the attributable actor/authority holder while a separate controlled backend or Service Principal executes the privileged operation. Both proofs matter.
 
 Rules:
 
@@ -161,7 +199,7 @@ Policy is deny-capable refinement, never a way to expand authority beyond creden
 
 The policy language is closed and deterministic. It may inspect approved context such as `$actor`, `$space`, `$record`, `$input`, `$now`, but must not execute arbitrary JavaScript/SQL or call external services during authorization.
 
-`$actor` is existing policy-language vocabulary for the verified current calling identity/context. It must not be interpreted as a license for a client to inject an arbitrary long-term North Star actor identity.
+`$actor` is existing policy-language vocabulary for the verified current calling identity/context. It is implementation terminology and does not mean a client may inject an arbitrary actor Principal or delegation chain.
 
 Any policy evaluation error fails closed.
 
@@ -232,15 +270,15 @@ Aggregation never changes the source Space or turns the caller's aggregate view 
 
 ## Actor safety
 
-- Current authenticated identity/authority is derived from verified credentials, never request `userId`.
-- For ordinary direct user/service requests, the authenticated principal and execution actor normally coincide in the deployed runtime. A future distinction must be carried by an explicit authenticated/delegated contract rather than a client-supplied field.
-- For Access-authenticated Web flows, Identity derives the current LifeSpace user principal from a verified `(iss, sub)` mapping. A BFF-supplied `sub`, email or `userId` is not sufficient authority by itself.
-- Access `aud` determines approved application context, not user identity. It must be checked against the registered LifeSpace application before credentials are issued.
+- Current authenticated Principal is derived from verified credentials, never request `userId`.
+- In an ordinary direct user/service/device request, the authenticated Principal is also the effective execution actor unless a more specific mediated/delegated contract explicitly supplies separately verified roles.
+- A future Agent Principal must authenticate through an explicit Principal type/credential path. Its authority must come from explicit own grants or verified delegation, never from the fact that the Agent is capable of acting or remembers a prior instruction.
+- For Access-authenticated Web flows, Identity derives the current LifeSpace User Principal from a verified `(iss, sub)` mapping. A BFF-supplied `sub`, email or `userId` is not sufficient authority by itself.
+- Access `aud` determines approved Application context, not Principal identity. It must be checked against the registered LifeSpace Application before credentials are issued.
 - Account linking is authentication state, not authorization. Linking multiple Access principals to one `usr_*` must not expand that user's Space/Data Grant authority; it only adds another approved way to reach the same global user.
-- User-initiated Agent operations preserve delegated user authority. If a future Agent is separately identifiable as actor, that does not make it the user principal or grant additional authority unless an explicit Agent-owned grant/delegation exists.
-- Platform-admin operations preserve both a current authorized human actor and a separately authenticated controlled executor; neither identity may be replaced by an unsigned operator field.
-- Service and device identities receive only explicit stable scopes, Application × Model Access and Grants.
-- A Service API Token authenticates a service principal and never becomes an implicit Space membership or administrator role.
-- An Application context does not itself become a Space member or principal merely because a request is routed through that application.
+- Platform-admin operations preserve both a current authorized human User Principal as actor and a separately authenticated controlled executor; neither identity may be replaced by an unsigned operator field.
+- Service and Device Principals receive only explicit stable scopes, Application × Model Access and Grants.
+- A Service API Token authenticates a Service Principal and never becomes an implicit Space membership or administrator role.
+- A registered Application does not itself become a Space member or Principal merely because a request is routed through that application.
 - A system identity does not become a Space member merely to gain API access.
 - AI Model Designer has no implicit data/model administration authority; its output is only a proposal until an authorized publisher validates and publishes it.
