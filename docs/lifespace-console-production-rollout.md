@@ -49,20 +49,62 @@ That bootstrap trigger is additionally required to point at exactly the current 
 
 ## Fail-closed production preflight
 
-Before mutating Console authority or deploying the Worker, the workflow requires:
+Before mutating LifeSpace Console authority or deploying the Worker, the workflow requires:
 
 1. committed repository and Console checks to pass;
 2. production Identity and Core to already match the repository's expected schema/contract versions;
 3. exactly the production service URLs `https://auth.aisr.online` and `https://core.aisr.online`;
-4. a Cloudflare Access application protecting `lifespace.aisr.online` and a resolvable Access `aud`;
+4. a verified Cloudflare Access application protecting `lifespace.aisr.online` and a resolvable Access `aud`;
 5. an existing active LifeSpace platform administrator, either explicitly configured or uniquely resolvable from production Identity;
 6. the production Console LifeSpace Application to have the approved immutable classification and exact control-plane scope ceiling.
 
 If production Core/Identity are behind, the Console workflow stops. It does **not** silently invoke the full platform production deployment.
 
-If the Access application is absent/ambiguous, the workflow stops before exposing the Console.
-
 If an existing production platform administrator cannot be resolved, the workflow stops. Production first-use Access registration remains disabled.
+
+## First production Access bootstrap
+
+Cloudflare Access is an external security/perimeter adapter, not LifeSpace Identity state. The production Console must never be deployed publicly first and protected later.
+
+The first rollout therefore runs:
+
+```text
+infra/scripts/prepare-production-console-access.mjs
+```
+
+before any LifeSpace Console Application/executor reconciliation.
+
+Behavior is intentionally narrow and idempotent:
+
+```text
+if exactly one production Access app already protects lifespace.aisr.online
+  -> verify it is self_hosted
+  -> verify its policies remain owner-only
+  -> resolve aud
+else if no production Access app exists
+  -> read exactly one accepted staging Console Access app
+  -> clone only its bounded authentication configuration
+  -> create a separate production self_hosted Access app atomically with policy
+  -> verify created production policy
+  -> resolve aud
+else
+  -> fail closed
+```
+
+The staging Access application is used only as a **one-time configuration template**. Production receives a separate Access application, separate audience and independent runtime state. No staging LifeSpace Identity/Core endpoint, credential or data is shared with production.
+
+The bootstrap accepts only the already-proven owner-only policy shape:
+
+- decision must be `allow`;
+- every cloned policy must include an explicit individual email rule;
+- `everyone`, `any_valid_service_token`, `service_token`, `bypass` and other non-owner broadening paths are rejected;
+- application type must be `self_hosted`;
+- production hostname is fixed to `lifespace.aisr.online`;
+- policy IDs/account IDs are not reused; production policies are newly created from sanitized rule content.
+
+If the Cloudflare API token lacks the Access application/policy write capability, creation fails before LifeSpace authority or Worker deployment. The deployment does not weaken the policy to work around missing Cloudflare permission.
+
+After the first successful production rollout, the production Access application is verified/reused directly; normal Console runtime does not depend on the staging Access application.
 
 ## Console authority reconciliation
 
@@ -97,7 +139,8 @@ audit:read
 The workflow reconciles the Console Application, Access audience and platform-administrator assignment, then performs zero-downtime executor rotation:
 
 ```text
-create new lsa_* + lsp_pat_*
+verify/bootstrap Cloudflare Access first
+-> create new lsa_* + lsp_pat_*
 -> verify new Core executor
 -> build production Vite/Worker config
 -> deploy lifespace-console with new secrets
@@ -123,6 +166,8 @@ The Console production workflow must never:
 - install the bootstrap secret in the Console Worker;
 - point production Console bindings at staging services.
 
+The first-release Access bootstrap may read the accepted staging **Cloudflare Access configuration** as a template. This is not permission to query staging LifeSpace services or reuse a staging audience/credential; a new production Access application and audience are created.
+
 `apps/console/scripts/check-production-deploy-isolation.mjs` enforces the repository-visible portion of this boundary as part of normal Console `check`.
 
 ## Observability
@@ -140,7 +185,7 @@ The status transitions from `pending` to `success` or `failure` and links to the
 The workflow itself proves only non-destructive production readiness:
 
 - exact current Identity/Core compatibility;
-- Access application presence and audience registration;
+- Access application protection and audience registration;
 - Console executor authentication;
 - production Worker/domain deployment;
 - old executor revocation after successful cutover.
@@ -154,4 +199,5 @@ After the first production rollout succeeds:
 1. remove the temporary `push` trigger and release-branch-specific logic;
 2. keep `workflow_dispatch` + typed production confirmation as the permanent release path;
 3. update the production-isolation guard to enforce manual-only production deployment;
-4. record the deployed main SHA, rollout status evidence and production boundary in the engineering log.
+4. update this document from first-release pending to production-active evidence;
+5. record the deployed main SHA, rollout status evidence and production boundary in the engineering log.
