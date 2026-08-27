@@ -135,19 +135,34 @@ async function request(base, path, { method = "GET", bearer, bootstrap, body } =
 }
 
 async function cf(path, { method = "GET", body, form } = {}) {
-  const headers = { Authorization: `Bearer ${apiToken}` };
-  let requestBody;
-  if (form) requestBody = form;
-  else if (body !== undefined) {
-    headers["content-type"] = "application/json";
-    requestBody = JSON.stringify(body);
+  const attempts = 4;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    const headers = { Authorization: `Bearer ${apiToken}` };
+    let requestBody;
+    if (form) requestBody = form;
+    else if (body !== undefined) {
+      headers["content-type"] = "application/json";
+      requestBody = JSON.stringify(body);
+    }
+
+    const response = await fetch(`https://api.cloudflare.com/client/v4${path}`, { method, headers, body: requestBody });
+    const payload = await readResponse(response);
+    if (response.ok && payload?.success !== false) return payload?.result;
+
+    const detail = JSON.stringify(payload?.errors ?? payload);
+    const retryable = response.status === 429 || response.status >= 500;
+    if (!retryable || attempt === attempts) {
+      throw new Error(`Cloudflare ${method} ${path} failed (${response.status}): ${detail}`);
+    }
+
+    const retryAfterSeconds = Number(response.headers.get("retry-after"));
+    const delayMs = Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0
+      ? Math.min(retryAfterSeconds * 1000, 10_000)
+      : attempt * 2000;
+    console.warn(`Cloudflare ${method} ${path} returned ${response.status}; retrying in ${delayMs}ms (${attempt}/${attempts})`);
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
   }
-  const response = await fetch(`https://api.cloudflare.com/client/v4${path}`, { method, headers, body: requestBody });
-  const payload = await readResponse(response);
-  if (!response.ok || payload?.success === false) {
-    throw new Error(`Cloudflare ${method} ${path} failed (${response.status}): ${JSON.stringify(payload?.errors ?? payload)}`);
-  }
-  return payload?.result;
+  throw new Error(`Cloudflare ${method} ${path} retry loop exited unexpectedly`);
 }
 
 async function poll(label, action, predicate, { attempts = 50, delayMs = 3000 } = {}) {
