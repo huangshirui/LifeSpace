@@ -31,6 +31,8 @@ async function fixture(timezone = "America/Los_Angeles") {
   const now = new Date().toISOString();
   await db.prepare("INSERT INTO spaces(id,kind,name,created_by_user_id,created_at,updated_at,timezone) VALUES(?,?,?,?,?,?,?)")
     .bind(spaceId, "family", "Temporal Test", actor.id, now, now, timezone).run();
+  await db.prepare("INSERT INTO space_people(id,space_id,linked_user_id,display_name,created_at,updated_at) VALUES(?,?,?,?,?,?)")
+    .bind(`per_${suffix}`, spaceId, actor.id, "Temporal User", now, now).run();
   const published = await model();
   const space = await loadSpaceTemporalContext(bindings(), spaceId);
   return { db, spaceId, space, published, today: spaceToday(timezone) };
@@ -58,7 +60,12 @@ describe("Temporal capability", () => {
     const cycle = await createTemporalResource(bindings(), actor, f.space, f.published, { name: "Car maintenance", kind: "cycle", anchorDate: anchor, cycleDays: 30 });
     const initial = await listTemporalOccurrences(bindings(), f.spaceId, f.published, cycle.id, 100);
     expect(initial.items).toHaveLength(1);
-    expect(initial.items[0]).toMatchObject({ occurredOn: anchor, source: "initial", intervalDays: null });
+    expect(initial.items[0]).toMatchObject({
+      occurredOn: anchor,
+      source: "initial",
+      intervalDays: null,
+      recordedBy: { type: "user", id: actor.id, displayName: "Temporal User" },
+    });
 
     const occurredOn = addDateDays(f.today, -1);
     const advanced = await recordTemporalOccurrence(bindings(), actor, f.space, f.published, cycle.id, 1, occurredOn, "changed oil");
@@ -71,7 +78,19 @@ describe("Temporal capability", () => {
 
     const history = await listTemporalOccurrences(bindings(), f.spaceId, f.published, cycle.id, 100);
     expect(history.items).toHaveLength(2);
-    expect(history.items[0]).toMatchObject({ occurredOn, source: "manual", intervalDays: 5, note: "changed oil" });
+    expect(history.items[0]).toMatchObject({
+      occurredOn,
+      source: "manual",
+      intervalDays: 5,
+      note: "changed oil",
+      recordedBy: { type: "user", id: actor.id, displayName: "Temporal User" },
+    });
+    expect(history.items[1].recordedBy).toMatchObject({ type: "user", id: actor.id, displayName: "Temporal User" });
+
+    const snapshots = await f.db.prepare("SELECT recorded_by_name_snapshot FROM temporal_occurrences WHERE record_id=? ORDER BY occurred_on,id")
+      .bind(cycle.id).all<{ recorded_by_name_snapshot: string }>();
+    expect(snapshots.results.map(row => row.recorded_by_name_snapshot)).toEqual(["Temporal User", "Temporal User"]);
+
     await expect(recordTemporalOccurrence(bindings(), actor, f.space, f.published, cycle.id, 2, occurredOn, null)).rejects.toMatchObject({ code: "DUPLICATE_TEMPORAL_OCCURRENCE", status: 409 });
   });
 
