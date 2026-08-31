@@ -12,8 +12,9 @@ const eventingSmoke = new URL("../../../infra/scripts/verify-staging-eventing.mj
 const creationDraftSmoke = new URL("../../../infra/scripts/verify-staging-creation-draft.mjs", import.meta.url);
 const stagingDbVerifier = new URL("../../../infra/scripts/verify-staging-db.mjs", import.meta.url);
 const stagingHttpVerifier = new URL("../../../infra/scripts/verify-staging-http.mjs", import.meta.url);
+const modelRegressionSmoke = new URL("../../../infra/scripts/verify-staging-models.mjs", import.meta.url);
 const waitApacProbe = new URL("../../../infra/scripts/wait-staging-apac-probe.mjs", import.meta.url);
-const scripts = [prepareSmoke, cleanupSmoke, eventingSmoke, creationDraftSmoke, stagingHttpVerifier, waitApacProbe];
+const scripts = [prepareSmoke, cleanupSmoke, eventingSmoke, creationDraftSmoke, stagingHttpVerifier, modelRegressionSmoke, waitApacProbe];
 const stagingWorkflow = new URL("../../../.github/workflows/staging-deploy.yml", import.meta.url);
 const apacWorkflow = new URL("../../../.github/workflows/apac-performance-gate.yml", import.meta.url);
 const apacProbeConfig = new URL("../../../infra/performance-probe/wrangler.jsonc", import.meta.url);
@@ -70,6 +71,19 @@ test("staging proving-model checks pin semantic identity without assuming enviro
   assert.match(creationSource, /actualVersion < expected\.minimumVersion/u, "pinned contract verification must accept environment-local versions above the release floor");
   assert.match(creationSource, /pinnedBaselineModels/u, "Creation Draft must retain the exact models from its pinned contract");
   assert.match(creationSource, /Number\(terminal\.modelVersion\) !== Number\(pinnedReadyModel\.version\)/u, "Creation Draft output must match the exact version inside its pinned contract");
+});
+
+test("staging Wish regression smoke proves the authoritative two-state lifecycle", () => {
+  const source = readFileSync(fileURLToPath(modelRegressionSmoke), "utf8");
+
+  assert.match(source, /retiredWishActions = \["claim", "unclaim", "archive", "restore"\]/u, "staging must prove retired Wish workflow actions stay absent");
+  assert.match(source, /ACTION_NOT_FOUND/u, "retired Wish actions must be rejected as undefined rather than exercised as live workflow");
+  assert.match(source, /actions\/fulfill/u, "an authorized user must be able to fulfill a Wish directly");
+  assert.match(source, /actions\/reopen/u, "the correction path must be exercised after fulfillment");
+  assert.match(source, /secondaryUserFulfill:\s*true/u, "staging must prove an authorized non-owner can fulfill directly");
+  assert.match(source, /secondaryUserReopen:\s*true/u, "staging must prove an authorized non-owner can reopen for correction");
+  assert.match(source, /ownerFulfill:\s*true/u, "staging must prove the Wish owner can fulfill directly");
+  assert.doesNotMatch(source, /status !== "claimed"|claimantPersonId|ownerSelfClaimDenied|workflow:\s*"claim\/unclaim"/u, "staging regression must not retain the retired claimed-state lifecycle");
 });
 
 test("staging Creation Draft verifier tolerates only bounded transient Model Admin authentication failures", () => {
