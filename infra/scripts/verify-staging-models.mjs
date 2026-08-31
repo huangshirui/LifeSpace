@@ -113,7 +113,7 @@ try {
     method: "POST", body: { ownerPersonId: personId, title: `Staging wish ${marker}` },
   }, 201);
   cleanup.push({ route: "wishes", id: wish.id, version: wish.version });
-  if (wish.status !== "open" || wish.ownerPersonId !== personId || wish.fulfilledAt !== null) {
+  if (wish.status !== "open" || wish.ownerPersonId !== personId || wish.fulfilledAt != null) {
     throw new Error(`Wish default/owner mismatch: ${JSON.stringify(wish)}`);
   }
 
@@ -149,7 +149,7 @@ try {
     method: "POST", bearer: secondaryBearer, body: { version: fulfilledBySecondary.version },
   });
   cleanup.at(-1).version = reopenedBySecondary.version;
-  if (reopenedBySecondary.status !== "open" || reopenedBySecondary.fulfilledAt !== null) {
+  if (reopenedBySecondary.status !== "open" || reopenedBySecondary.fulfilledAt != null) {
     throw new Error(`Wish reopen Workflow mismatch for authorized non-owner: ${JSON.stringify(reopenedBySecondary)}`);
   }
 
