@@ -2,19 +2,17 @@ import process from "node:process";
 
 const coreBaseUrl = (process.env.LIFESPACE_CORE_STAGING_URL ?? "").replace(/\/+$/u, "");
 const bearer = process.env.LIFESPACE_STAGING_USER_BEARER ?? "";
-const claimantBearer = process.env.LIFESPACE_STAGING_CLAIMANT_USER_BEARER ?? "";
+const secondaryBearer = process.env.LIFESPACE_STAGING_CLAIMANT_USER_BEARER ?? "";
 const spaceId = process.env.LIFESPACE_STAGING_SPACE_ID ?? "";
 const personId = process.env.LIFESPACE_STAGING_PERSON_ID ?? "";
-const claimantPersonId = process.env.LIFESPACE_STAGING_CLAIMANT_PERSON_ID ?? "";
 const spaceTimezone = process.env.LIFESPACE_STAGING_SPACE_TIMEZONE ?? "UTC";
 
 for (const [name, value] of Object.entries({
   LIFESPACE_CORE_STAGING_URL: coreBaseUrl,
   LIFESPACE_STAGING_USER_BEARER: bearer,
-  LIFESPACE_STAGING_CLAIMANT_USER_BEARER: claimantBearer,
+  LIFESPACE_STAGING_CLAIMANT_USER_BEARER: secondaryBearer,
   LIFESPACE_STAGING_SPACE_ID: spaceId,
   LIFESPACE_STAGING_PERSON_ID: personId,
-  LIFESPACE_STAGING_CLAIMANT_PERSON_ID: claimantPersonId,
 })) {
   if (!value) throw new Error(`${name} is required`);
 }
@@ -115,22 +113,53 @@ try {
     method: "POST", body: { ownerPersonId: personId, title: `Staging wish ${marker}` },
   }, 201);
   cleanup.push({ route: "wishes", id: wish.id, version: wish.version });
-  if (wish.status !== "open" || wish.ownerPersonId !== personId) throw new Error(`Wish default/owner mismatch: ${JSON.stringify(wish)}`);
-
-  const ownerClaim = await request(`/api/v1/spaces/${spaceId}/wishes/${wish.id}/actions/claim`, { method: "POST", body: { version: wish.version } });
-  if (ownerClaim.status !== 403 || ownerClaim.payload?.error?.code !== "POLICY_DENIED") {
-    throw new Error(`Wish owner self-claim policy mismatch: expected 403 POLICY_DENIED, got ${ownerClaim.status}: ${JSON.stringify(ownerClaim.payload)}`);
+  if (wish.status !== "open" || wish.ownerPersonId !== personId || wish.fulfilledAt !== null) {
+    throw new Error(`Wish default/owner mismatch: ${JSON.stringify(wish)}`);
   }
-  const claimed = await expectData(`/api/v1/spaces/${spaceId}/wishes/${wish.id}/actions/claim`, {
-    method: "POST", bearer: claimantBearer, body: { version: wish.version },
+
+  const retiredWishActions = ["claim", "unclaim", "archive", "restore"];
+  for (const retiredAction of retiredWishActions) {
+    const retired = await request(`/api/v1/spaces/${spaceId}/wishes/${wish.id}/actions/${retiredAction}`, {
+      method: "POST",
+      body: { version: wish.version },
+    });
+    if (retired.status !== 404 || retired.payload?.error?.code !== "ACTION_NOT_FOUND") {
+      throw new Error(`Retired Wish action ${retiredAction} unexpectedly remains available: expected 404 ACTION_NOT_FOUND, got ${retired.status}: ${JSON.stringify(retired.payload)}`);
+    }
+  }
+
+  const secondaryEdit = await request(`/api/v1/spaces/${spaceId}/wishes/${wish.id}`, {
+    method: "PATCH",
+    bearer: secondaryBearer,
+    body: { version: wish.version, title: `Unauthorized edit ${marker}` },
   });
-  cleanup.at(-1).version = claimed.version;
-  if (claimed.status !== "claimed" || claimed.claimantPersonId !== claimantPersonId) throw new Error(`Wish claim Workflow mismatch: ${JSON.stringify(claimed)}`);
-  const unclaimed = await expectData(`/api/v1/spaces/${spaceId}/wishes/${wish.id}/actions/unclaim`, {
-    method: "POST", bearer: claimantBearer, body: { version: claimed.version },
+  if (secondaryEdit.status !== 403 || secondaryEdit.payload?.error?.code !== "POLICY_DENIED") {
+    throw new Error(`Wish owner-only content edit policy mismatch: expected 403 POLICY_DENIED, got ${secondaryEdit.status}: ${JSON.stringify(secondaryEdit.payload)}`);
+  }
+
+  const fulfilledBySecondary = await expectData(`/api/v1/spaces/${spaceId}/wishes/${wish.id}/actions/fulfill`, {
+    method: "POST", bearer: secondaryBearer, body: { version: wish.version },
   });
-  cleanup.at(-1).version = unclaimed.version;
-  if (unclaimed.status !== "open" || unclaimed.claimantPersonId !== null) throw new Error(`Wish unclaim Workflow mismatch: ${JSON.stringify(unclaimed)}`);
+  cleanup.at(-1).version = fulfilledBySecondary.version;
+  if (fulfilledBySecondary.status !== "fulfilled" || !fulfilledBySecondary.fulfilledAt) {
+    throw new Error(`Wish direct fulfill Workflow mismatch for authorized non-owner: ${JSON.stringify(fulfilledBySecondary)}`);
+  }
+
+  const reopenedBySecondary = await expectData(`/api/v1/spaces/${spaceId}/wishes/${wish.id}/actions/reopen`, {
+    method: "POST", bearer: secondaryBearer, body: { version: fulfilledBySecondary.version },
+  });
+  cleanup.at(-1).version = reopenedBySecondary.version;
+  if (reopenedBySecondary.status !== "open" || reopenedBySecondary.fulfilledAt !== null) {
+    throw new Error(`Wish reopen Workflow mismatch for authorized non-owner: ${JSON.stringify(reopenedBySecondary)}`);
+  }
+
+  const fulfilledByOwner = await expectData(`/api/v1/spaces/${spaceId}/wishes/${wish.id}/actions/fulfill`, {
+    method: "POST", body: { version: reopenedBySecondary.version },
+  });
+  cleanup.at(-1).version = fulfilledByOwner.version;
+  if (fulfilledByOwner.status !== "fulfilled" || !fulfilledByOwner.fulfilledAt) {
+    throw new Error(`Wish direct fulfill Workflow mismatch for owner: ${JSON.stringify(fulfilledByOwner)}`);
+  }
 
   console.log(JSON.stringify({
     ok: true,
@@ -138,7 +167,15 @@ try {
     task: { id: task.id, workflow: "complete/reopen" },
     event: { id: event.id, calendarOverlap: true },
     dayRecord: { id: day.id, temporalOccurrence: true },
-    wish: { id: wish.id, ownerSelfClaimDenied: true, claimantPersonId, workflow: "claim/unclaim" },
+    wish: {
+      id: wish.id,
+      retiredActionsAbsent: retiredWishActions,
+      ownerOnlyContentEdit: true,
+      secondaryUserFulfill: true,
+      secondaryUserReopen: true,
+      ownerFulfill: true,
+      workflow: "fulfill/reopen",
+    },
   }, null, 2));
 } finally {
   for (const record of cleanup.reverse()) await deleteRecord(record.route, record.id, record.version);
