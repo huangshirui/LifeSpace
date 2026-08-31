@@ -46,9 +46,9 @@ test("staging Creation Draft verifier tolerates only bounded transient Model Adm
 
 test("staging Creation Draft verifier runs before long-lived Eventing and performance diagnostics", () => {
   const source = readFileSync(fileURLToPath(stagingWorkflow), "utf8");
-  const creationDraftIndex = source.indexOf("node infra/scripts/verify-staging-creation-draft.mjs");
-  const eventingIndex = source.indexOf("node infra/scripts/verify-staging-eventing.mjs");
-  const performanceIndex = source.indexOf("node infra/scripts/verify-staging-performance.mjs");
+  const creationDraftIndex = source.indexOf("- name: Verify Registry-driven Creation Draft Queue");
+  const eventingIndex = source.indexOf("- name: Verify real Eventing outbox/Queue/Webhook");
+  const performanceIndex = source.indexOf("- name: Measure typed-runtime staging performance");
 
   assert.notEqual(creationDraftIndex, -1, "staging deploy must verify the Registry-driven Creation Draft queue");
   assert.notEqual(eventingIndex, -1, "staging deploy must verify Eventing");
