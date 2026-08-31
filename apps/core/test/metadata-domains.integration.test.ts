@@ -376,7 +376,7 @@ describe("metadata-driven built-in domains", () => {
     expect(inactive.status).toBe(400);
   });
 
-  it("runs Wish ownership and lifecycle through Policy + Workflow", async () => {
+  it("runs the two-state Wish lifecycle through Policy + Workflow", async () => {
     const { privateKey, publicKey } = await keys();
     const family = await createFamily(privateKey, publicKey);
     const member = await addMember(family, privateKey, publicKey);
@@ -395,108 +395,74 @@ describe("metadata-driven built-in domains", () => {
       modelVersion: number;
       status: string;
       ownerPersonId: string;
+      fulfilledAt: string | null;
       version: number;
     }>(created);
     expect(wish).toMatchObject({
-      modelVersion: 3,
+      modelVersion: 4,
       status: "open",
       ownerPersonId: family.ownerPersonId,
+      fulfilledAt: null,
       version: 1,
     });
 
-    const ownClaim = await request(`/api/v1/spaces/${family.spaceId}/wishes/${wish.id}/actions/claim`, family.ownerToken, publicKey, {
-      method: "POST",
-      body: JSON.stringify({ version: 1 }),
+    const memberEdit = await request(`/api/v1/spaces/${family.spaceId}/wishes/${wish.id}`, member.accessToken, publicKey, {
+      method: "PATCH",
+      body: JSON.stringify({ version: 1, title: "Not mine to edit" }),
     });
-    expect(ownClaim.status).toBe(403);
-
-    const claimed = await request(`/api/v1/spaces/${family.spaceId}/wishes/${wish.id}/actions/claim`, member.accessToken, publicKey, {
-      method: "POST",
-      body: JSON.stringify({ version: 1 }),
-    });
-    expect(await data<{ status: string; claimantPersonId: string; version: number }>(claimed))
-      .toMatchObject({ status: "claimed", claimantPersonId: member.personId, version: 2 });
+    expect(memberEdit.status).toBe(403);
 
     const fulfilled = await request(`/api/v1/spaces/${family.spaceId}/wishes/${wish.id}/actions/fulfill`, member.accessToken, publicKey, {
       method: "POST",
+      body: JSON.stringify({ version: 1 }),
+    });
+    expect(fulfilled.status).toBe(200);
+    const fulfilledWish = await data<{ status: string; fulfilledAt: string | null; version: number }>(fulfilled);
+    expect(fulfilledWish).toMatchObject({ status: "fulfilled", version: 2 });
+    expect(fulfilledWish.fulfilledAt).toMatch(/T/);
+
+    const reopened = await request(`/api/v1/spaces/${family.spaceId}/wishes/${wish.id}/actions/reopen`, member.accessToken, publicKey, {
+      method: "POST",
       body: JSON.stringify({ version: 2 }),
     });
-    expect(await data<{ status: string; fulfilledByPersonId: string; version: number }>(fulfilled))
-      .toMatchObject({ status: "fulfilled", fulfilledByPersonId: member.personId, version: 3 });
+    expect(reopened.status).toBe(200);
+    expect(await data<{ status: string; fulfilledAt: string | null; version: number }>(reopened))
+      .toMatchObject({ status: "open", fulfilledAt: null, version: 3 });
 
-    const reopened = await request(`/api/v1/spaces/${family.spaceId}/wishes/${wish.id}/actions/reopen`, family.ownerToken, publicKey, {
-      method: "POST",
-      body: JSON.stringify({ version: 3 }),
+    const ownerEdit = await request(`/api/v1/spaces/${family.spaceId}/wishes/${wish.id}`, family.ownerToken, publicKey, {
+      method: "PATCH",
+      body: JSON.stringify({ version: 3, title: "New hiking boots" }),
     });
-    expect(await data<{ status: string; version: number }>(reopened))
-      .toMatchObject({ status: "open", version: 4 });
-
-    const archived = await request(`/api/v1/spaces/${family.spaceId}/wishes/${wish.id}/actions/archive`, family.ownerToken, publicKey, {
-      method: "POST",
-      body: JSON.stringify({ version: 4 }),
-    });
-    expect(await data<{ status: string; archivedFromStatus: string; version: number }>(archived))
-      .toMatchObject({ status: "archived", archivedFromStatus: "open", version: 5 });
-
-    const restored = await request(`/api/v1/spaces/${family.spaceId}/wishes/${wish.id}/actions/restore`, family.ownerToken, publicKey, {
-      method: "POST",
-      body: JSON.stringify({ version: 5 }),
-    });
-    expect(await data<{ status: string; version: number }>(restored))
-      .toMatchObject({ status: "open", version: 6 });
+    expect(ownerEdit.status).toBe(200);
+    expect(await data<{ title: string; version: number }>(ownerEdit))
+      .toMatchObject({ title: "New hiking boots", version: 4 });
   });
 
-  it("falls back to open when an archived Wish claimant is no longer active", async () => {
+  it("does not couple fulfilled Wish state to later family-member removal", async () => {
     const { privateKey, publicKey } = await keys();
-    const family = await createFamily(privateKey, publicKey, "Wish fallback");
-    const member = await addMember(family, privateKey, publicKey, "Claimant");
+    const family = await createFamily(privateKey, publicKey, "Wish independence");
+    const member = await addMember(family, privateKey, publicKey, "Helper");
 
     const created = await request(`/api/v1/spaces/${family.spaceId}/wishes`, family.ownerToken, publicKey, {
       method: "POST",
-      body: JSON.stringify({ title: "Archived claim", ownerPersonId: family.ownerPersonId }),
+      body: JSON.stringify({ title: "Family memory", ownerPersonId: family.ownerPersonId }),
     });
     const wish = await data<{ id: string }>(created);
 
-    const claimed = await request(`/api/v1/spaces/${family.spaceId}/wishes/${wish.id}/actions/claim`, member.accessToken, publicKey, {
+    const fulfilled = await request(`/api/v1/spaces/${family.spaceId}/wishes/${wish.id}/actions/fulfill`, member.accessToken, publicKey, {
       method: "POST",
       body: JSON.stringify({ version: 1 }),
     });
-    expect(await data<{ status: string; claimantPersonId: string; version: number }>(claimed))
-      .toMatchObject({ status: "claimed", claimantPersonId: member.personId, version: 2 });
-
-    const archived = await request(`/api/v1/spaces/${family.spaceId}/wishes/${wish.id}/actions/archive`, family.ownerToken, publicKey, {
-      method: "POST",
-      body: JSON.stringify({ version: 2 }),
-    });
-    expect(await data<{ status: string; archivedFromStatus: string; claimantPersonId: string; version: number }>(archived))
-      .toMatchObject({
-        status: "archived",
-        archivedFromStatus: "claimed",
-        claimantPersonId: member.personId,
-        version: 3,
-      });
+    expect(await data<{ status: string; version: number }>(fulfilled))
+      .toMatchObject({ status: "fulfilled", version: 2 });
 
     expect((await request(`/api/v1/spaces/${family.spaceId}/members/${member.userId}`, family.ownerToken, publicKey, {
       method: "DELETE",
     })).status).toBe(204);
 
-    const restored = await request(`/api/v1/spaces/${family.spaceId}/wishes/${wish.id}/actions/restore`, family.ownerToken, publicKey, {
-      method: "POST",
-      body: JSON.stringify({ version: 3 }),
-    });
-    expect(restored.status).toBe(200);
-    expect(await data<{
-      status: string;
-      claimantPersonId: string | null;
-      claimedAt: string | null;
-      archivedFromStatus: string | null;
-      version: number;
-    }>(restored)).toMatchObject({
-      status: "open",
-      claimantPersonId: null,
-      claimedAt: null,
-      archivedFromStatus: null,
-      version: 4,
-    });
+    const current = await request(`/api/v1/spaces/${family.spaceId}/wishes/${wish.id}`, family.ownerToken, publicKey);
+    expect(current.status).toBe(200);
+    expect(await data<{ status: string; version: number }>(current))
+      .toMatchObject({ status: "fulfilled", version: 2 });
   });
 });
