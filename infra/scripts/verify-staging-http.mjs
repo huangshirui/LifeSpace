@@ -9,7 +9,7 @@ if (!coreBaseUrl) throw new Error("LIFESPACE_CORE_STAGING_URL is required");
 assertStagingServiceUrl(coreBaseUrl, "core");
 if (!serviceBearer) throw new Error("LIFESPACE_STAGING_MODEL_ADMIN_BEARER is required");
 
-const EXPECTED_MODELS = new Map(PROVING_MODELS.map((model) => [model.key, model.version]));
+const EXPECTED_MODELS = new Map(PROVING_MODELS.map((model) => [model.key, model]));
 
 async function jsonRequest(path, { bearer, method = "GET", body } = {}) {
   const response = await fetch(`${coreBaseUrl}${path}`, {
@@ -51,20 +51,37 @@ if (Number(status?.schemaVersion) !== STAGING_EXPECTATIONS.core.schemaVersion) {
 const models = requireStatus(await jsonRequest("/api/v1/model-admin/models", { bearer: serviceBearer }), 200, "Model Admin list");
 if (!Array.isArray(models)) throw new Error("Model Admin list did not return an array");
 const modelMap = new Map(models.map((model) => [model.key, model]));
-for (const [key, version] of EXPECTED_MODELS) {
+const currentPublishedModels = new Map();
+for (const [key, expected] of EXPECTED_MODELS) {
   const model = modelMap.get(key);
   if (!model) throw new Error(`Published proving model ${key} missing from Model Admin`);
-  if (Number(model.version) !== version) throw new Error(`Published model ${key} version mismatch: expected ${version}, got ${model.version}`);
+  const actualVersion = Number(model.version);
+  if (!Number.isInteger(actualVersion) || actualVersion < expected.minimumVersion) {
+    throw new Error(`Published model ${key} version is below release floor: expected >= ${expected.minimumVersion}, got ${model.version}`);
+  }
+  if (model.route !== expected.route) throw new Error(`Published model ${key} route mismatch: expected ${expected.route}, got ${model.route}`);
+  if (model.schemaHash !== expected.hash) throw new Error(`Published model ${key} schema hash mismatch: expected ${expected.hash}, got ${model.schemaHash}`);
   if (model.state !== "published") throw new Error(`Published model ${key} returned unexpected state ${model.state}`);
+  currentPublishedModels.set(key, {
+    version: actualVersion,
+    route: model.route,
+    schemaHash: model.schemaHash,
+  });
 }
 
 const contract = requireStatus(await jsonRequest("/api/v1/model-admin/contracts/active", { bearer: serviceBearer }), 200, "Active Model Contract");
 if (!/^mct_[a-f0-9]{64}$/u.test(contract?.id ?? "")) throw new Error(`Active Model Contract ID is invalid: ${contract?.id}`);
 const manifestModels = new Map((contract?.manifest?.models ?? []).map((model) => [model.key, model]));
-for (const [key, version] of EXPECTED_MODELS) {
+for (const [key, expected] of EXPECTED_MODELS) {
   const model = manifestModels.get(key);
+  const published = currentPublishedModels.get(key);
   if (!model) throw new Error(`Active Model Contract manifest missing ${key}`);
-  if (Number(model.version) !== version) throw new Error(`Active Model Contract ${key} version mismatch: expected ${version}, got ${model.version}`);
+  if (!published) throw new Error(`Published proving model ${key} was not captured for contract verification`);
+  if (model.route !== expected.route) throw new Error(`Active Model Contract ${key} route mismatch: expected ${expected.route}, got ${model.route}`);
+  if (model.schemaHash !== expected.hash) throw new Error(`Active Model Contract ${key} schema hash mismatch: expected ${expected.hash}, got ${model.schemaHash}`);
+  if (Number(model.version) !== published.version) {
+    throw new Error(`Active Model Contract ${key} version mismatch with current Registry: expected ${published.version}, got ${model.version}`);
+  }
 }
 
 requireStatus(await jsonRequest("/api/v1/model-admin/ai/proposals", { bearer: serviceBearer }), 200, "AI Model Admin proposal list");
@@ -78,7 +95,7 @@ console.log(JSON.stringify({
   kernelContract: status.contractVersion,
   schemaVersion: Number(status.schemaVersion),
   activeModelContract: contract.id,
-  models: Object.fromEntries([...EXPECTED_MODELS]),
+  models: Object.fromEntries([...currentPublishedModels].map(([key, model]) => [key, model.version])),
   aiModelAdminServiceBoundary: true,
   aiModelAdminUserBoundaryChecked: Boolean(userBearer),
 }, null, 2));
