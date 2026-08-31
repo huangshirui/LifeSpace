@@ -22,11 +22,15 @@ function latestMigrationVersion(service) {
   return Math.max(...migrations);
 }
 
+// Published model versions are monotonic inside each environment and therefore
+// can legitimately be higher than a clean-install release version. Production
+// acceptance pins semantic identity with route + schema hash, while requiring
+// only a release floor for the environment-local Registry version.
 export const PRODUCTION_PROVING_MODELS = Object.freeze([
-  Object.freeze({ key: "task", route: "tasks", version: 3, hash: "3c56f1448340162279be544e16ac82e06c1aefe66a08e428b7f95ba319ab1ed2" }),
-  Object.freeze({ key: "wish", route: "wishes", version: 4, hash: "6a5ccd9b6c30bcf3fc012b6e2aac6e4de53972a5d588a4ccd0f3300c7287b8f4" }),
-  Object.freeze({ key: "day_record", route: "day-records", version: 2, hash: "4b2f241958aeca05e396eea7e6719a3f030cef3ea7dfd3c57d426c086fe4cf56" }),
-  Object.freeze({ key: "event", route: "events", version: 3, hash: "6a23eb2f25463ce55d7ed75d64f0afa020d7aab25149badf28fdd77abc2d1aad" }),
+  Object.freeze({ key: "task", route: "tasks", minimumVersion: 3, hash: "3c56f1448340162279be544e16ac82e06c1aefe66a08e428b7f95ba319ab1ed2" }),
+  Object.freeze({ key: "wish", route: "wishes", minimumVersion: 4, hash: "6b7d10124504a08bc906bba5915a1ba050e09865039b991dfd470019be879f56" }),
+  Object.freeze({ key: "day_record", route: "day-records", minimumVersion: 2, hash: "4b2f241958aeca05e396eea7e6719a3f030cef3ea7dfd3c57d426c086fe4cf56" }),
+  Object.freeze({ key: "event", route: "events", minimumVersion: 3, hash: "6a23eb2f25463ce55d7ed75d64f0afa020d7aab25149badf28fdd77abc2d1aad" }),
 ]);
 
 export const PRODUCTION_EXPECTATIONS = Object.freeze({
