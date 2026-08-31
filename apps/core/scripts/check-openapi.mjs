@@ -3,7 +3,7 @@ import YAML from "yaml";
 
 const document = YAML.parse(fs.readFileSync(new URL("../openapi.yaml", import.meta.url), "utf8"));
 
-if (document.openapi !== "3.1.0" || document.info?.version !== "0.15.0") {
+if (document.openapi !== "3.1.0" || document.info?.version !== "0.16.0") {
   throw new Error("Core Kernel OpenAPI version metadata is invalid");
 }
 if (!document.info?.title?.includes("Kernel")) {
@@ -21,6 +21,7 @@ const requiredPaths = [
   "/api/v1/me/spaces",
   "/api/v1/spaces",
   "/api/v1/spaces/{spaceId}",
+  "/api/v1/spaces/{spaceId}/close",
   "/api/v1/spaces/{spaceId}/avatar",
   "/api/v1/spaces/{spaceId}/members",
   "/api/v1/spaces/{spaceId}/members/{userId}",
@@ -119,6 +120,13 @@ if (schemas.Space?.properties?.avatarKey) {
 }
 if (schemas.UpdateSpaceRequest?.required?.[0] !== "version" || schemas.UpdateSpaceRequest?.minProperties !== 2) {
   throw new Error("Space updates must use optimistic concurrency");
+}
+const closeSpace = document.paths?.["/api/v1/spaces/{spaceId}/close"]?.post;
+const closeSpaceSchema = closeSpace?.requestBody?.content?.["application/json"]?.schema;
+if (!closeSpace?.description?.includes("current user membership role owner")
+    || closeSpaceSchema?.additionalProperties !== false
+    || !closeSpaceSchema?.required?.includes("version")) {
+  throw new Error("Space close must be owner-only and use optimistic concurrency");
 }
 const avatarPut = document.paths?.["/api/v1/spaces/{spaceId}/avatar"]?.put;
 if (!avatarPut?.requestBody?.content?.["multipart/form-data"]?.schema?.required?.includes("version")) {
@@ -248,7 +256,7 @@ if (schemas.ModelContract?.properties?.id?.pattern !== "^mct_[a-f0-9]{64}$") {
   throw new Error("Model Contract revisions must be content-addressed mct_<sha256>");
 }
 
-if (schemas.StatusResponse?.properties?.data?.properties?.contractVersion?.const !== "0.15.0") {
+if (schemas.StatusResponse?.properties?.data?.properties?.contractVersion?.const !== "0.16.0") {
   throw new Error("Core Kernel status contract version drifted");
 }
 

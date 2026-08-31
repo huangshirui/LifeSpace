@@ -208,6 +208,25 @@ Initial role vocabulary remains small: `owner`, `admin`, `editor`, `viewer`. Pub
 
 Personal Spaces may apply stricter lifecycle rules than family/team Spaces, such as one immutable owner and no ownership transfer, but such rules must be explicit Kernel policy rather than client assumptions.
 
+### Space lifecycle authority
+
+Kernel 0.16.0 adds an owner-only logical Space closure path:
+
+```http
+POST /api/v1/spaces/{spaceId}/close
+```
+
+The operation is intentionally stricter than ordinary Space `manage`:
+
+- the caller must be a current authenticated `user` with credential scope `spaces:manage`;
+- the caller's current active Space Membership role must be exactly `owner`;
+- `admin`, whole-Space `manage` Data Grants, service/device principals and platform-admin authority do not imply Space-close authority;
+- the caller must submit the current Space `version`; stale lifecycle changes fail with optimistic-concurrency conflict.
+
+Closing is a governed logical termination, not physical deletion. Core marks the Space closed, records a lifecycle audit event, deactivates active Memberships and linked Space People, revokes active invitations and every Data Grant issued by that Space, and disables its Webhook/Event Subscription configuration. Ordinary Space-owned Shared Reality remains stored for history/retention instead of being deleted record by record.
+
+All ordinary authorization paths must treat a closed Space as outside active Space authority even if stale relationship rows exist. Restore, purge/physical deletion and ownership transfer are separate future lifecycle contracts and must not be inferred from `close`.
+
 ## Data Grant principles
 
 - Source data keeps exactly one `space_id`.
