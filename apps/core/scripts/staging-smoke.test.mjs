@@ -11,8 +11,9 @@ const cleanupSmoke = new URL("../../../infra/scripts/cleanup-staging-smoke.mjs",
 const eventingSmoke = new URL("../../../infra/scripts/verify-staging-eventing.mjs", import.meta.url);
 const creationDraftSmoke = new URL("../../../infra/scripts/verify-staging-creation-draft.mjs", import.meta.url);
 const stagingDbVerifier = new URL("../../../infra/scripts/verify-staging-db.mjs", import.meta.url);
+const stagingHttpVerifier = new URL("../../../infra/scripts/verify-staging-http.mjs", import.meta.url);
 const waitApacProbe = new URL("../../../infra/scripts/wait-staging-apac-probe.mjs", import.meta.url);
-const scripts = [prepareSmoke, cleanupSmoke, eventingSmoke, creationDraftSmoke, waitApacProbe];
+const scripts = [prepareSmoke, cleanupSmoke, eventingSmoke, creationDraftSmoke, stagingHttpVerifier, waitApacProbe];
 const stagingWorkflow = new URL("../../../.github/workflows/staging-deploy.yml", import.meta.url);
 const apacWorkflow = new URL("../../../.github/workflows/apac-performance-gate.yml", import.meta.url);
 const apacProbeConfig = new URL("../../../infra/performance-probe/wrangler.jsonc", import.meta.url);
@@ -57,6 +58,13 @@ test("staging proving-model checks pin semantic identity without assuming enviro
   const wishColumns = /\["mdl_wish", \[([^\]]+)\]\]/u.exec(dbSource)?.[1] ?? "";
   assert.match(wishColumns, /"fulfilledAt"/u, "Wish typed storage must retain fulfilledAt");
   assert.doesNotMatch(wishColumns, /archivedFromStatus|claimedAt/u, "Wish typed storage requirements must not retain removed workflow columns");
+
+  const httpSource = readFileSync(fileURLToPath(stagingHttpVerifier), "utf8");
+  assert.match(httpSource, /actualVersion < expected\.minimumVersion/u, "HTTP Registry verification must accept monotonic environment-local model versions");
+  assert.match(httpSource, /model\.route !== expected\.route/u, "HTTP Registry verification must pin the exact route");
+  assert.match(httpSource, /model\.schemaHash !== expected\.hash/u, "HTTP Registry verification must pin the exact schema hash");
+  assert.match(httpSource, /currentPublishedModels/u, "HTTP verification must retain the actual current published model identity for contract comparison");
+  assert.match(httpSource, /Number\(model\.version\) !== published\.version/u, "active Model Contract verification must match the exact current Registry version");
 
   const creationSource = readFileSync(fileURLToPath(creationDraftSmoke), "utf8");
   assert.match(creationSource, /actualVersion < expected\.minimumVersion/u, "pinned contract verification must accept environment-local versions above the release floor");
