@@ -64,6 +64,7 @@ jobs:
           node --check infra/scripts/verify-staging-application-admin.mjs
           node --check infra/scripts/verify-staging-homemew-integration.mjs
           node --check infra/scripts/verify-staging-eventing.mjs
+          node --check infra/scripts/verify-staging-creation-draft.mjs
           node --check infra/scripts/baseline-model-semantics.mjs
           node --check infra/scripts/publish-staging-baseline-model-semantics.mjs
 
@@ -158,14 +159,14 @@ jobs:
       - name: Verify proving-model platform regression
         run: node infra/scripts/verify-staging-models.mjs
 
+      - name: Verify Registry-driven Creation Draft Queue
+        run: node infra/scripts/verify-staging-creation-draft.mjs
+
       - name: Verify real Eventing outbox/Queue/Webhook
         run: node infra/scripts/verify-staging-eventing.mjs
 
       - name: Measure typed-runtime staging performance
         run: node infra/scripts/verify-staging-performance.mjs
-
-      - name: Verify Registry-driven Creation Draft Queue
-        run: node infra/scripts/verify-staging-creation-draft.mjs
 
       - name: Export and prove pinned HomeMew handoff reproducibility
         env:
