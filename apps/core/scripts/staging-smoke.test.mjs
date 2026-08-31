@@ -7,8 +7,10 @@ import { fileURLToPath } from "node:url";
 const prepareSmoke = new URL("../../../infra/scripts/prepare-staging-smoke.mjs", import.meta.url);
 const cleanupSmoke = new URL("../../../infra/scripts/cleanup-staging-smoke.mjs", import.meta.url);
 const eventingSmoke = new URL("../../../infra/scripts/verify-staging-eventing.mjs", import.meta.url);
+const creationDraftSmoke = new URL("../../../infra/scripts/verify-staging-creation-draft.mjs", import.meta.url);
 const waitApacProbe = new URL("../../../infra/scripts/wait-staging-apac-probe.mjs", import.meta.url);
-const scripts = [prepareSmoke, cleanupSmoke, eventingSmoke, waitApacProbe];
+const scripts = [prepareSmoke, cleanupSmoke, eventingSmoke, creationDraftSmoke, waitApacProbe];
+const stagingWorkflow = new URL("../../../.github/workflows/staging-deploy.yml", import.meta.url);
 const apacWorkflow = new URL("../../../.github/workflows/apac-performance-gate.yml", import.meta.url);
 const apacProbeConfig = new URL("../../../infra/performance-probe/wrangler.jsonc", import.meta.url);
 
@@ -32,6 +34,27 @@ test("staging bootstrap masks ephemeral credentials before job export", () => {
   assert.match(source, /GITHUB_ENV/u);
   assert.match(source, /15 \* 60 \* 1000/u, "service PAT should retain a bounded staging-only lifetime");
   assert.match(source, /application_model_access/u, "smoke app model authorization must be explicit");
+});
+
+test("staging Creation Draft verifier tolerates only bounded transient Model Admin authentication failures", () => {
+  const source = readFileSync(fileURLToPath(creationDraftSmoke), "utf8");
+  assert.match(source, /modelAdminAuthAttempts = 4/u, "Creation Draft Model Admin authentication retries must remain bounded");
+  assert.match(source, /last\.status === 401 \|\| last\.status >= 500/u, "only authentication and server failures should be retried");
+  assert.match(source, /attempt === modelAdminAuthAttempts/u, "persistent Model Admin authentication failures must still fail the smoke");
+  assert.doesNotMatch(source, /last\.status === 403/u, "authorization denials must never be retried as transient authentication");
+});
+
+test("staging Creation Draft verifier runs before long-lived Eventing and performance diagnostics", () => {
+  const source = readFileSync(fileURLToPath(stagingWorkflow), "utf8");
+  const creationDraftIndex = source.indexOf("- name: Verify Registry-driven Creation Draft Queue");
+  const eventingIndex = source.indexOf("- name: Verify real Eventing outbox/Queue/Webhook");
+  const performanceIndex = source.indexOf("- name: Measure typed-runtime staging performance");
+
+  assert.notEqual(creationDraftIndex, -1, "staging deploy must verify the Registry-driven Creation Draft queue");
+  assert.notEqual(eventingIndex, -1, "staging deploy must verify Eventing");
+  assert.notEqual(performanceIndex, -1, "staging deploy must record the diagnostic performance benchmark");
+  assert.ok(creationDraftIndex < eventingIndex, "Creation Draft must consume ephemeral Model Admin authority before Eventing smoke mutates temporary authority");
+  assert.ok(creationDraftIndex < performanceIndex, "Creation Draft must run before the long diagnostic performance benchmark");
 });
 
 test("staging Eventing verifier proves the real signed delivery path through one shared Webhook Endpoint", () => {

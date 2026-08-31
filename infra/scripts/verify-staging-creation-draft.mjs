@@ -11,6 +11,7 @@ const text = process.env.LIFESPACE_STAGING_CREATION_TEXT ?? "明天记得交电�
 const expectedModel = process.env.LIFESPACE_STAGING_CREATION_EXPECT_MODEL ?? "task";
 const allowAiUnconfigured = process.env.ALLOW_AI_UNCONFIGURED === "1";
 const timeoutMs = Number(process.env.LIFESPACE_STAGING_CREATION_TIMEOUT_MS ?? 75_000);
+const modelAdminAuthAttempts = 4;
 
 for (const [name, value] of Object.entries({
   LIFESPACE_CORE_STAGING_URL: coreBaseUrl,
@@ -37,6 +38,19 @@ async function request(path, { method = "GET", body, bearer: requestBearer = bea
     catch { throw new Error(`${method} ${path} returned non-JSON ${response.status}: ${raw.slice(0, 500)}`); }
   }
   return { status: response.status, payload };
+}
+
+async function requestModelAdmin(path) {
+  let last = null;
+  for (let attempt = 1; attempt <= modelAdminAuthAttempts; attempt += 1) {
+    last = await request(path, { bearer: modelAdminBearer });
+    const retryable = last.status === 401 || last.status >= 500;
+    if (!retryable || attempt === modelAdminAuthAttempts) return last;
+    const delayMs = attempt * 1_000;
+    console.warn(`Model Admin staging probe returned HTTP ${last.status}; retrying in ${delayMs}ms (${attempt}/${modelAdminAuthAttempts})`);
+    await delay(delayMs);
+  }
+  return last;
 }
 
 function data(result, expectedStatus, label) {
@@ -82,9 +96,11 @@ if (!created?.draftId || created.status !== "processing") throw new Error(`Creat
 if (!validContract(created.modelContractRevision)) throw new Error(`Creation Draft did not pin a valid Model Contract Revision: ${JSON.stringify(created)}`);
 
 const pinnedContract = created.modelContractRevision;
-const contract = data(await request(`/api/v1/model-admin/contracts/${encodeURIComponent(pinnedContract)}`, {
-  bearer: modelAdminBearer,
-}), 200, "Pinned Creation Draft Model Contract");
+// Opaque service PATs are current-state introspected through the Core -> Identity
+// binding. The same bearer is proved earlier in this staging job; bounded retries
+// absorb a transient internal auth/rollout failure without weakening a persistent
+// authentication or authorization failure into success.
+const contract = data(await requestModelAdmin(`/api/v1/model-admin/contracts/${encodeURIComponent(pinnedContract)}`), 200, "Pinned Creation Draft Model Contract");
 const additionalPublishedModels = verifyPinnedContract(contract, pinnedContract);
 
 const draftId = created.draftId;
