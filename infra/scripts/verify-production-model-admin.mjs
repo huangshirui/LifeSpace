@@ -142,10 +142,8 @@ try {
       throw new Error(`Production model ${key} is not safe to reconcile: ${JSON.stringify(current)}`);
     }
     if (baselineModelSemanticsMatch(current.definition, semantic)) continue;
-    if (Number(current.version) !== expected.version - 1) {
-      throw new Error(`Refusing to publish ${key}: expected predecessor v${expected.version - 1}, got v${current.version}`);
-    }
 
+    const currentVersion = Number(current.version);
     const result = await jsonRequest(coreBase, "/api/v1/model-admin/models", {
       method: "POST",
       bearer: serviceBearer,
@@ -155,15 +153,22 @@ try {
       },
     });
     const published = result.payload?.data;
+    const publishedVersion = Number(published?.version);
     if (
       result.response.status !== 201
       || published?.key !== key
-      || Number(published.version) !== expected.version
+      || publishedVersion <= currentVersion
+      || publishedVersion < expected.minimumVersion
       || published.schemaHash !== expected.hash
     ) {
-      throw new Error(`Production semantic publication for ${key} did not match the pinned target: ${result.response.status} ${JSON.stringify(result.payload)}`);
+      throw new Error(`Production semantic publication for ${key} did not converge on the accepted schema: ${result.response.status} ${JSON.stringify(result.payload)}`);
     }
-    publishedSemanticModels.push({ key, version: published.version, schemaHash: published.schemaHash });
+    publishedSemanticModels.push({
+      key,
+      previousVersion: current.version,
+      version: published.version,
+      schemaHash: published.schemaHash,
+    });
   }
 
   models = await jsonRequest(coreBase, "/api/v1/model-admin/models", { bearer: serviceBearer });
@@ -171,19 +176,27 @@ try {
     throw new Error(`Production Model Admin verification list failed: ${models.response.status} ${JSON.stringify(models.payload)}`);
   }
   const actualModels = new Map(models.payload.data.map((model) => [model.key, model]));
+  const currentPublishedModels = new Map();
   for (const expected of PRODUCTION_PROVING_MODELS) {
     const actual = actualModels.get(expected.key);
     const semantic = BASELINE_MODEL_SEMANTICS[expected.key];
+    const actualVersion = Number(actual?.version);
     if (
       !actual
       || actual.state !== "published"
-      || Number(actual.version) !== expected.version
+      || actual.route !== expected.route
+      || actualVersion < expected.minimumVersion
       || actual.schemaHash !== expected.hash
       || !semantic
       || !baselineModelSemanticsMatch(actual.definition, semantic)
     ) {
       throw new Error(`Production published model ${expected.key} does not match the accepted semantic baseline: ${JSON.stringify(actual)}`);
     }
+    currentPublishedModels.set(expected.key, {
+      route: actual.route,
+      version: actualVersion,
+      schemaHash: actual.schemaHash,
+    });
   }
 
   const contract = await jsonRequest(coreBase, "/api/v1/model-admin/contracts/active", { bearer: serviceBearer });
@@ -193,9 +206,16 @@ try {
   }
   const contractModels = new Map((active?.manifest?.models ?? []).map((model) => [model.key, model]));
   for (const expected of PRODUCTION_PROVING_MODELS) {
+    const published = currentPublishedModels.get(expected.key);
     const model = contractModels.get(expected.key);
-    if (!model || model.route !== expected.route || Number(model.version) !== expected.version || model.schemaHash !== expected.hash) {
-      throw new Error(`Production active Model Contract is missing accepted semantic ${expected.key} v${expected.version}`);
+    if (
+      !published
+      || !model
+      || model.route !== published.route
+      || Number(model.version) !== published.version
+      || model.schemaHash !== published.schemaHash
+    ) {
+      throw new Error(`Production active Model Contract does not match current published ${expected.key}: ${JSON.stringify(model)}`);
     }
   }
   const baselineKeys = new Set(PRODUCTION_PROVING_MODELS.map((model) => model.key));
@@ -211,7 +231,7 @@ try {
     activeModelContract: active.id,
     activeManifestModelCount: active.manifest.models.length,
     additionalPublishedModels,
-    models: Object.fromEntries(PRODUCTION_PROVING_MODELS.map((model) => [model.key, model.version])),
+    models: Object.fromEntries(PRODUCTION_PROVING_MODELS.map((model) => [model.key, currentPublishedModels.get(model.key)?.version])),
     probeAuthorityEphemeral: true,
   }, null, 2));
 } finally {
