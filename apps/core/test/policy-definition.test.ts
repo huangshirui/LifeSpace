@@ -13,7 +13,9 @@ describe("Policy Model Definition", () => {
     expect(result.valid).toBe(true);
     if (!result.valid) return;
     expect(result.definition.policies?.create).toBeTruthy();
-    expect(result.definition.actions?.claim.policy).toBeTruthy();
+    expect(result.definition.policies?.update).toBeTruthy();
+    expect(result.definition.actions?.fulfill.policy).toBeTruthy();
+    expect(result.definition.actions?.reopen.policy).toBeTruthy();
   });
 
   it("rejects arbitrary policy references", () => {

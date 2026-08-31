@@ -1,6 +1,35 @@
 import { describe, expect, it } from "vitest";
-import { TASK_MODEL_DEFINITION, WISH_MODEL_DEFINITION } from "../src/builtin-models";
-import { validateModelDefinition } from "../src/model-definition";
+import { TASK_MODEL_DEFINITION } from "../src/builtin-models";
+import { validateModelDefinition, type ModelDefinition } from "../src/model-definition";
+
+const RELATION_WORKFLOW_MODEL_DEFINITION: ModelDefinition = {
+  definitionVersion: 1,
+  key: "relation_workflow_fixture",
+  route: "relation-workflow-fixtures",
+  display: { singular: "Relation Workflow Fixture", plural: "Relation Workflow Fixtures" },
+  fields: {
+    status: { type: "enum", required: true, values: ["held", "open"] },
+    holderPersonId: { type: "person", nullable: true, readOnly: true },
+  },
+  defaults: { status: "held" },
+  access: ["read", "write"],
+  actions: {
+    restore: {
+      access: "write",
+      guards: [{ field: "status", op: "eq", value: "held", errorCode: "NOT_HELD", message: "Fixture must be held" }],
+      branches: [{
+        when: {
+          all: [
+            { field: "status", op: "eq", value: "held" },
+            { personRelation: "holderPersonId", active: false },
+          ],
+        },
+        set: { status: "open", holderPersonId: null },
+      }],
+      set: { status: "open" },
+    },
+  },
+};
 
 function codes(input: unknown): string[] {
   const result = validateModelDefinition(input);
@@ -17,31 +46,31 @@ describe("Workflow Model Definition", () => {
     expect(result.definition.actions?.reopen.set.completedAt).toBeNull();
   });
 
-  it("accepts a bounded Person-relation branch for Wish restore", () => {
-    const result = validateModelDefinition(WISH_MODEL_DEFINITION);
+  it("accepts a bounded Person-relation branch independently of any product model", () => {
+    const result = validateModelDefinition(RELATION_WORKFLOW_MODEL_DEFINITION);
     expect(result.valid).toBe(true);
     if (!result.valid) return;
     expect(result.definition.actions?.restore.branches?.[0]).toMatchObject({
       when: {
         all: [
-          { field: "archivedFromStatus", op: "eq", value: "claimed" },
-          { personRelation: "claimantPersonId", active: false },
+          { field: "status", op: "eq", value: "held" },
+          { personRelation: "holderPersonId", active: false },
         ],
       },
-      set: { status: "open", claimantPersonId: null },
+      set: { status: "open", holderPersonId: null },
     });
   });
 
   it("rejects relation branches on non-Person fields", () => {
-    const input = structuredClone(WISH_MODEL_DEFINITION) as typeof WISH_MODEL_DEFINITION;
+    const input = structuredClone(RELATION_WORKFLOW_MODEL_DEFINITION);
     input.actions!.restore.branches![0]!.when = { personRelation: "status", active: false } as never;
     expect(codes(input)).toContain("INVALID_PERSON_RELATION_CONDITION");
   });
 
   it("rejects overly deep workflow branch conditions", () => {
-    const input = structuredClone(WISH_MODEL_DEFINITION) as typeof WISH_MODEL_DEFINITION;
+    const input = structuredClone(RELATION_WORKFLOW_MODEL_DEFINITION);
     input.actions!.restore.branches![0]!.when = {
-      not: { not: { not: { not: { not: { personRelation: "claimantPersonId", active: false } } } } },
+      not: { not: { not: { not: { not: { personRelation: "holderPersonId", active: false } } } } },
     } as never;
     expect(codes(input)).toContain("WORKFLOW_CONDITION_TOO_COMPLEX");
   });
