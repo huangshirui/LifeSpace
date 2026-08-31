@@ -23,7 +23,7 @@ function published(key: Key): PublishedModel {
     id: `mdl_${key}`,
     key,
     route: definition.route,
-    version: key === "wish" ? 3 : key === "task" || key === "event" ? 2 : 1,
+    version: key === "wish" ? 4 : key === "task" || key === "event" ? 2 : 1,
     state: "published",
     schemaHash: ({ task: "1", wish: "2", day_record: "3", event: "4" } as const)[key].repeat(64),
     compatibility: "initial",
@@ -61,8 +61,8 @@ describe("Model Contract Generator", () => {
     expect(generatedPaths["/api/v1/spaces/{spaceId}/tasks"]?.post).toBeTruthy();
     expect(generatedPaths["/api/v1/spaces/{spaceId}/tasks/{recordId}"]?.patch).toBeTruthy();
     expect(generatedPaths["/api/v1/spaces/{spaceId}/tasks/{recordId}/actions/complete"]?.post).toBeTruthy();
-    expect(generatedPaths["/api/v1/spaces/{spaceId}/wishes/{recordId}/actions/claim"]?.post).toBeTruthy();
-    expect(generatedPaths["/api/v1/spaces/{spaceId}/wishes/{recordId}/actions/restore"]?.post).toBeTruthy();
+    expect(generatedPaths["/api/v1/spaces/{spaceId}/wishes/{recordId}/actions/fulfill"]?.post).toBeTruthy();
+    expect(generatedPaths["/api/v1/spaces/{spaceId}/wishes/{recordId}/actions/reopen"]?.post).toBeTruthy();
   });
 
   it("derives server defaults without making defaulted required fields client-required", async () => {
@@ -90,7 +90,7 @@ describe("Model Contract Generator", () => {
 
     const wishUpdate = generatedSchemas.WishUpdate as { properties: Record<string, unknown> };
     expect(wishUpdate.properties.ownerPersonId).toBeUndefined();
-    expect(wishUpdate.properties.claimantPersonId).toBeUndefined();
+    expect(wishUpdate.properties.fulfilledAt).toBeUndefined();
     expect(wishUpdate.properties.title).toBeTruthy();
   });
 
