@@ -83,6 +83,9 @@ test("staging Wish regression smoke proves the authoritative two-state lifecycle
   assert.match(source, /secondaryUserFulfill:\s*true/u, "staging must prove an authorized non-owner can fulfill directly");
   assert.match(source, /secondaryUserReopen:\s*true/u, "staging must prove an authorized non-owner can reopen for correction");
   assert.match(source, /ownerFulfill:\s*true/u, "staging must prove the Wish owner can fulfill directly");
+  assert.match(source, /wish\.fulfilledAt != null/u, "open Wish smoke must accept either null or omitted nullable fulfilledAt while rejecting a real timestamp");
+  assert.match(source, /reopenedBySecondary\.fulfilledAt != null/u, "reopened Wish smoke must accept either null or omitted nullable fulfilledAt while rejecting a real timestamp");
+  assert.doesNotMatch(source, /wish\.fulfilledAt !== null|reopenedBySecondary\.fulfilledAt !== null/u, "staging must not require nullable output fields to be serialized explicitly as null");
   assert.doesNotMatch(source, /status !== "claimed"|claimantPersonId|ownerSelfClaimDenied|workflow:\s*"claim\/unclaim"/u, "staging regression must not retain the retired claimed-state lifecycle");
 });
 
