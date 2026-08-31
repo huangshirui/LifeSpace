@@ -17,7 +17,7 @@ export const BASELINE_MODEL_SEMANTICS = Object.freeze({
       title: "A concise statement of the aspiration or desired outcome.",
       description: "Optional detail about the aspiration and why it is desired.",
       desiredDate: "A hoped-for date, not a committed task deadline or scheduled event time.",
-      status: "Current lifecycle state of the wish.",
+      status: "Whether the wish is still waiting to happen or has been fulfilled.",
       ownerPersonId: "The person whose aspiration this is.",
     }),
   }),
