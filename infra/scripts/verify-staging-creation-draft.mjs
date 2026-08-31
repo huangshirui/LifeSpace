@@ -73,20 +73,31 @@ function verifyPinnedContract(contract, contractId) {
     throw new Error(`Pinned Model Contract manifest is invalid: ${JSON.stringify(contract?.manifest)}`);
   }
   const byKey = new Map(models.map((model) => [model.key, model]));
+  const pinnedBaselineModels = new Map();
   for (const expected of PROVING_MODELS) {
     const actual = byKey.get(expected.key);
     if (!actual) throw new Error(`Pinned Model Contract is missing required baseline model ${expected.key}`);
-    if (actual.route !== expected.route || Number(actual.version) !== expected.version || actual.schemaHash !== expected.hash) {
+    const actualVersion = Number(actual.version);
+    if (
+      actual.route !== expected.route
+      || !Number.isInteger(actualVersion)
+      || actualVersion < expected.minimumVersion
+      || actual.schemaHash !== expected.hash
+    ) {
       throw new Error(`Pinned Model Contract baseline mismatch for ${expected.key}: expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
     }
+    pinnedBaselineModels.set(expected.key, actual);
   }
   const baselineKeys = new Set(PROVING_MODELS.map((model) => model.key));
-  return models.filter((model) => !baselineKeys.has(model.key)).map((model) => ({
-    key: model.key,
-    route: model.route,
-    version: model.version,
-    schemaHash: model.schemaHash,
-  }));
+  return {
+    pinnedBaselineModels,
+    additionalPublishedModels: models.filter((model) => !baselineKeys.has(model.key)).map((model) => ({
+      key: model.key,
+      route: model.route,
+      version: model.version,
+      schemaHash: model.schemaHash,
+    })),
+  };
 }
 
 const created = data(await request(`/api/v1/spaces/${spaceId}/creation-drafts`, {
@@ -101,7 +112,7 @@ const pinnedContract = created.modelContractRevision;
 // absorb a transient internal auth/rollout failure without weakening a persistent
 // authentication or authorization failure into success.
 const contract = data(await requestModelAdmin(`/api/v1/model-admin/contracts/${encodeURIComponent(pinnedContract)}`), 200, "Pinned Creation Draft Model Contract");
-const additionalPublishedModels = verifyPinnedContract(contract, pinnedContract);
+const { pinnedBaselineModels, additionalPublishedModels } = verifyPinnedContract(contract, pinnedContract);
 
 const draftId = created.draftId;
 const started = Date.now();
@@ -155,9 +166,9 @@ if (!terminal.modelKey || !terminal.draft || !Array.isArray(terminal.missingFiel
   throw new Error(`Ready Creation Draft shape mismatch: ${JSON.stringify(terminal)}`);
 }
 if (expectedModel && terminal.modelKey !== expectedModel) throw new Error(`Creation Draft model mismatch: expected ${expectedModel}, got ${terminal.modelKey}`);
-const expectedReadyModel = PROVING_MODELS.find((model) => model.key === terminal.modelKey);
-if (expectedReadyModel && Number(terminal.modelVersion) !== expectedReadyModel.version) {
-  throw new Error(`Creation Draft model version mismatch for ${terminal.modelKey}: expected ${expectedReadyModel.version}, got ${terminal.modelVersion}`);
+const pinnedReadyModel = pinnedBaselineModels.get(terminal.modelKey);
+if (pinnedReadyModel && Number(terminal.modelVersion) !== Number(pinnedReadyModel.version)) {
+  throw new Error(`Creation Draft model version mismatch for ${terminal.modelKey}: pinned contract has ${pinnedReadyModel.version}, got ${terminal.modelVersion}`);
 }
 
 console.log(JSON.stringify({

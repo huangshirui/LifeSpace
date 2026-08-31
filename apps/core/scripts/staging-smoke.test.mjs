@@ -3,11 +3,14 @@ import { readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import { BASELINE_MODEL_SEMANTICS } from "../../../infra/scripts/baseline-model-semantics.mjs";
+import { PROVING_MODELS } from "../../../infra/scripts/staging-expectations.mjs";
 
 const prepareSmoke = new URL("../../../infra/scripts/prepare-staging-smoke.mjs", import.meta.url);
 const cleanupSmoke = new URL("../../../infra/scripts/cleanup-staging-smoke.mjs", import.meta.url);
 const eventingSmoke = new URL("../../../infra/scripts/verify-staging-eventing.mjs", import.meta.url);
 const creationDraftSmoke = new URL("../../../infra/scripts/verify-staging-creation-draft.mjs", import.meta.url);
+const stagingDbVerifier = new URL("../../../infra/scripts/verify-staging-db.mjs", import.meta.url);
 const waitApacProbe = new URL("../../../infra/scripts/wait-staging-apac-probe.mjs", import.meta.url);
 const scripts = [prepareSmoke, cleanupSmoke, eventingSmoke, creationDraftSmoke, waitApacProbe];
 const stagingWorkflow = new URL("../../../.github/workflows/staging-deploy.yml", import.meta.url);
@@ -34,6 +37,31 @@ test("staging bootstrap masks ephemeral credentials before job export", () => {
   assert.match(source, /GITHUB_ENV/u);
   assert.match(source, /15 \* 60 \* 1000/u, "service PAT should retain a bounded staging-only lifetime");
   assert.match(source, /application_model_access/u, "smoke app model authorization must be explicit");
+});
+
+test("staging proving-model checks pin semantic identity without assuming environment-local model versions", () => {
+  const wish = PROVING_MODELS.find((model) => model.key === "wish");
+  assert.ok(wish, "Wish must remain a staging proving model");
+  assert.equal(wish.minimumVersion, 4, "Wish clean-release version remains the minimum accepted Registry version");
+  assert.equal(wish.hash, "6b7d10124504a08bc906bba5915a1ba050e09865039b991dfd470019be879f56", "Wish staging expectation must pin the authoritative two-state schema hash");
+  assert.equal("version" in wish, false, "staging must not assume one exact environment-local Registry version");
+  assert.equal(
+    BASELINE_MODEL_SEMANTICS.wish.fields.status,
+    "Whether the wish is still waiting to happen or has been fulfilled.",
+    "staging semantic convergence must not republish Wish with the retired lifecycle description",
+  );
+
+  const dbSource = readFileSync(fileURLToPath(stagingDbVerifier), "utf8");
+  assert.match(dbSource, /assertAtLeast\(row\.version, expected\.minimumVersion/u, "D1 convergence must accept monotonic environment-local model versions");
+  assert.match(dbSource, /assertEqual\(row\.schema_hash, expected\.hash/u, "D1 convergence must still pin the exact model schema hash");
+  const wishColumns = /\["mdl_wish", \[([^\]]+)\]\]/u.exec(dbSource)?.[1] ?? "";
+  assert.match(wishColumns, /"fulfilledAt"/u, "Wish typed storage must retain fulfilledAt");
+  assert.doesNotMatch(wishColumns, /archivedFromStatus|claimedAt/u, "Wish typed storage requirements must not retain removed workflow columns");
+
+  const creationSource = readFileSync(fileURLToPath(creationDraftSmoke), "utf8");
+  assert.match(creationSource, /actualVersion < expected\.minimumVersion/u, "pinned contract verification must accept environment-local versions above the release floor");
+  assert.match(creationSource, /pinnedBaselineModels/u, "Creation Draft must retain the exact models from its pinned contract");
+  assert.match(creationSource, /Number\(terminal\.modelVersion\) !== Number\(pinnedReadyModel\.version\)/u, "Creation Draft output must match the exact version inside its pinned contract");
 });
 
 test("staging Creation Draft verifier tolerates only bounded transient Model Admin authentication failures", () => {

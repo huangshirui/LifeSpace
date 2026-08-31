@@ -22,9 +22,13 @@ const REQUIRED_PLATFORM_TABLES = [
 
 const REQUIRED_TYPED_COLUMNS = new Map([
   ["mdl_task", ["record_id", "space_id", "completedAt", "completedById", "completedByType", "description", "dueDate", "name", "status"]],
-  ["mdl_wish", ["record_id", "space_id", "archivedFromStatus", "claimedAt", "description", "desiredDate", "fulfilledAt", "status", "title"]],
+  ["mdl_wish", ["record_id", "space_id", "description", "desiredDate", "fulfilledAt", "status", "title"]],
   ["mdl_day_record", ["record_id", "space_id", "anchorDate", "attentionAfterDays", "attentionBeforeDays", "cycleDays", "description", "icon", "kind", "name", "status"]],
   ["mdl_event", ["record_id", "space_id", "description", "endAt", "endDateExclusive", "endTimezone", "isAllDay", "location", "startAt", "startDate", "startTimezone", "status", "summary"]],
+]);
+
+const FORBIDDEN_TYPED_COLUMNS = new Map([
+  ["mdl_wish", ["archivedFromStatus", "claimedAt"]],
 ]);
 
 const MODEL_TABLES = new Map([
@@ -81,6 +85,13 @@ function assertEqual(actual, expected, label) {
   if (String(actual) !== String(expected)) fail(`${label}: expected ${expected}, got ${actual}`);
 }
 
+function assertAtLeast(actual, minimum, label) {
+  const numeric = Number(actual);
+  if (!Number.isInteger(numeric) || numeric < minimum) {
+    fail(`${label}: expected integer >= ${minimum}, got ${actual}`);
+  }
+}
+
 function assertTruthy(value, label) {
   if (!value) fail(label);
 }
@@ -91,12 +102,14 @@ assertEqual(schema.value, STAGING_EXPECTATIONS.core.schemaVersion, "Core staging
 const modelRows = runSql(`SELECT model_key,route_segment,version,schema_hash,state
   FROM model_definitions WHERE state='published' ORDER BY model_key`);
 const actualModels = new Map(modelRows.map((row) => [row.model_key, row]));
+const verifiedModelVersions = {};
 for (const [key, expected] of EXPECTED_MODELS) {
   const row = actualModels.get(key);
   assertTruthy(row, `Published proving model ${key} is missing from staging Registry`);
   assertEqual(row.route_segment, expected.route, `${key} route`);
-  assertEqual(row.version, expected.version, `${key} version`);
+  assertAtLeast(row.version, expected.minimumVersion, `${key} version`);
   assertEqual(row.schema_hash, expected.hash, `${key} schema hash`);
+  verifiedModelVersions[key] = Number(row.version);
 }
 
 const accessRows = runSql(`SELECT model_key,max_access
@@ -117,6 +130,9 @@ if (resourceColumns.has("data_json")) fail("Legacy resource_records.data_json co
 for (const [table, expectedColumns] of REQUIRED_TYPED_COLUMNS) {
   const actualColumns = new Set(runSql(`SELECT name FROM pragma_table_info('${table}')`).map((row) => row.name));
   for (const column of expectedColumns) assertTruthy(actualColumns.has(column), `Typed model table ${table} is missing column ${column}`);
+  for (const column of FORBIDDEN_TYPED_COLUMNS.get(table) ?? []) {
+    if (actualColumns.has(column)) fail(`Typed model table ${table} still contains retired column ${column}`);
+  }
 }
 
 for (const [modelKey, table] of MODEL_TABLES) {
@@ -157,7 +173,7 @@ if (process.env.REQUIRE_ACTIVE_MODEL_CONTRACT === "1") {
 console.log(JSON.stringify({
   ok: true,
   schemaVersion: STAGING_EXPECTATIONS.core.schemaVersion,
-  models: Object.fromEntries(PROVING_MODELS.map((model) => [model.key, model.version])),
+  models: verifiedModelVersions,
   typedModelTables: [...REQUIRED_TYPED_COLUMNS.keys()],
   typedEnvelopeConsistency: true,
   legacyGenericStorageRemoved: true,
