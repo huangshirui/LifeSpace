@@ -12,6 +12,7 @@ import { registerModelAdminAiRoutes } from "./model-admin-ai";
 import { registerPlatformAdminRoutes } from "./platform-admin";
 import { registerPlatformInspectorRoutes } from "./platform-inspector";
 import { registerSpaceRoutes } from "./spaces";
+import { registerSpaceLifecycleRoutes } from "./space-lifecycle";
 import { registerSpaceAvatarRoutes } from "./space-avatars";
 import { registerGrantRoutes } from "./grants";
 
@@ -40,7 +41,7 @@ export function createApp() {
   app.get("/health", (context) => context.json(success({ status: "ok" })));
   app.get("/api/v1/status", async (context) => context.json(success({
     status: "ok", service: "core", environment: context.env.ENVIRONMENT ?? "local", database: "available",
-    schemaVersion: await schemaVersion(context.env), contractVersion: "0.15.0",
+    schemaVersion: await schemaVersion(context.env), contractVersion: "0.16.0",
   })));
   app.use("/api/v1/me", authenticate());
   app.use("/api/v1/me/*", authenticate());
@@ -57,6 +58,7 @@ export function createApp() {
   app.use("/api/v1/platform-admin/*", authenticate());
   registerSpaceAvatarRoutes(app);
   registerGrantRoutes(app);
+  registerSpaceLifecycleRoutes(app);
   registerSpaceRoutes(app);
   registerModelAdminRoutes(app);
   registerModelAdminAiRoutes(app);

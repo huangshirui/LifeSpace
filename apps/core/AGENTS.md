@@ -88,6 +88,7 @@ Rules:
 - `space_id` existence is never proof of access;
 - request `userId` is never current actor identity;
 - revoking membership/Grant/model access must take effect from current state;
+- closed Spaces are never ordinary authorization targets, even if stale membership or Grant rows remain;
 - Core normalizes verified RS256 JWTs and Identity-introspected opaque `lsp_pat_*` tokens into one principal context;
 - service credentials still require explicit application/Data Grant/model authority;
 - whole-Space Data Grants use `resource_type=space, resource_id=NULL`;
@@ -156,7 +157,7 @@ Business-facing Core Kernel contract:
 
 ```text
 apps/core/openapi.yaml
-current Kernel version: 0.15.0
+current Kernel version: 0.16.0
 ```
 
 Privileged LifeSpace Console control-plane contract:
