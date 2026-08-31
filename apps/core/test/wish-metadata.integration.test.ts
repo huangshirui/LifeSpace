@@ -50,18 +50,30 @@ async function fixture() {
   const model = await getPublishedModel(bindings(), "wish")
     ?? await publishModelDefinition(bindings(), publisher, WISH_MODEL_DEFINITION, "initial");
   return {
-    db,
     spaceId,
     owner: principal(ownerId),
     helper: principal(helperId),
     ownerPersonId,
-    helperPersonId,
     model,
   };
 }
 
 describe("Wish as Model Definition + Policy + Workflow", () => {
-  it("enforces ownership and claimant/fulfiller actions without a Wish runtime service", async () => {
+  it("publishes only the open/fulfilled lifecycle and fulfill/reopen actions", () => {
+    expect(WISH_MODEL_DEFINITION.fields.status).toMatchObject({ values: ["open", "fulfilled"] });
+    expect(Object.keys(WISH_MODEL_DEFINITION.fields).sort()).toEqual([
+      "description",
+      "desiredDate",
+      "fulfilledAt",
+      "ownerPersonId",
+      "status",
+      "title",
+    ]);
+    expect(Object.keys(WISH_MODEL_DEFINITION.actions ?? {}).sort()).toEqual(["fulfill", "reopen"]);
+    expect(WISH_MODEL_DEFINITION.query?.filterable).toEqual(["status", "ownerPersonId", "desiredDate"]);
+  });
+
+  it("lets any authorized Person fulfill or reopen while keeping content ownership", async () => {
     const f = await fixture();
     const createInput = {
       title: "Weekend hike",
@@ -76,42 +88,17 @@ describe("Wish as Model Definition + Policy + Workflow", () => {
 
     const wish = await createGenericResource(bindings(), f.owner, f.spaceId, f.model, createInput);
 
-    await expect(executeWorkflowAction(bindings(), f.owner, f.spaceId, f.model, wish.id, "claim", 1))
+    const fulfilled = await executeWorkflowAction(bindings(), f.helper, f.spaceId, f.model, wish.id, "fulfill", 1);
+    expect(fulfilled.data.status).toBe("fulfilled");
+    expect(typeof fulfilled.data.fulfilledAt).toBe("string");
+    expect(fulfilled.data).not.toHaveProperty("claimantPersonId");
+    expect(fulfilled.data).not.toHaveProperty("fulfilledByPersonId");
+
+    const reopened = await executeWorkflowAction(bindings(), f.helper, f.spaceId, f.model, wish.id, "reopen", 2);
+    expect(reopened.data).toMatchObject({ status: "open", fulfilledAt: null });
+
+    await expect(requireModelPolicy(bindings(), f.helper, f.spaceId, f.model, "update", reopened, { title: "Changed" }))
       .rejects.toMatchObject({ code: "POLICY_DENIED", status: 403 });
-
-    const claimed = await executeWorkflowAction(bindings(), f.helper, f.spaceId, f.model, wish.id, "claim", 1);
-    expect(claimed.data).toMatchObject({ status: "claimed", claimantPersonId: f.helperPersonId });
-    expect(typeof claimed.data.claimedAt).toBe("string");
-
-    const fulfilled = await executeWorkflowAction(bindings(), f.helper, f.spaceId, f.model, wish.id, "fulfill", 2);
-    expect(fulfilled.data).toMatchObject({ status: "fulfilled", fulfilledByPersonId: f.helperPersonId });
-
-    await expect(executeWorkflowAction(bindings(), f.helper, f.spaceId, f.model, wish.id, "reopen", 3))
-      .rejects.toMatchObject({ code: "POLICY_DENIED", status: 403 });
-
-    const reopened = await executeWorkflowAction(bindings(), f.owner, f.spaceId, f.model, wish.id, "reopen", 3);
-    expect(reopened.data).toMatchObject({
-      status: "open",
-      claimantPersonId: null,
-      claimedAt: null,
-      fulfilledByPersonId: null,
-      fulfilledAt: null,
-    });
-  });
-
-  it("archives and restores the prior state with a bounded record-field workflow reference", async () => {
-    const f = await fixture();
-    const wish = await createGenericResource(bindings(), f.owner, f.spaceId, f.model, {
-      title: "Archive proof",
-      status: "open",
-      ownerPersonId: f.ownerPersonId,
-    });
-
-    const archived = await executeWorkflowAction(bindings(), f.owner, f.spaceId, f.model, wish.id, "archive", 1);
-    expect(archived.data).toMatchObject({ status: "archived", archivedFromStatus: "open" });
-
-    const restored = await executeWorkflowAction(bindings(), f.owner, f.spaceId, f.model, wish.id, "restore", 2);
-    expect(restored.data).toMatchObject({ status: "open", archivedFromStatus: null });
   });
 
   it("denies non-Person principals at the Wish policy boundary", async () => {
