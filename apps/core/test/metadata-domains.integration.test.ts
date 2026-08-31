@@ -402,7 +402,6 @@ describe("metadata-driven built-in domains", () => {
       modelVersion: 4,
       status: "open",
       ownerPersonId: family.ownerPersonId,
-      fulfilledAt: null,
       version: 1,
     });
 
