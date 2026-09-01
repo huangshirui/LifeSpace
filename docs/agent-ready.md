@@ -1,6 +1,6 @@
 # Agent-ready Authority and Change
 
-Status: target contract for `feature/agent-delegation-foundation`.
+Status: **Complete** on `feature/agent-delegation-foundation` after automated and staging acceptance.
 
 ## Purpose
 
@@ -191,4 +191,50 @@ A user can delegate Event/Task authority in the HomeMew family Space to ALOHA. A
 - Agent cannot self-create Delegation;
 - Agent adapter cannot bypass normal model validation, policy or optimistic concurrency.
 
-The branch is merge-ready only after these paths pass automated and staging verification while existing direct-user/service/n8n behavior remains regression-safe.
+## Staging acceptance evidence
+
+The Agent-ready staging gate passed on 2026-09-01:
+
+```text
+workflow:   Agent-ready staging gate
+run ID:     33507669643
+commit:     9591777b176f3084f9586e24d2b3927aa979c50e
+Core:       contract 0.17.0 / schema 32
+Identity:   contract 0.6.0 / schema 8
+```
+
+The M4 verifier proved two independent Agent products over one temporary family Space:
+
+- HomeMew Agent application: `app_homemew_agent_staging`; Delegation `event=write`, `task=read`;
+- ALOHA Assistant application: `app_aloha_assistant_staging`; Delegation `event=read`, `task=write`;
+- both used the same Generic Runtime and published Event/Task models;
+- HomeMew Agent committed a real Event and ALOHA committed a real Task;
+- both committed Changes preserved User Principal + Agent Actor + Application + Delegation attribution;
+- Domain Event evidence correlated with governed Change by record/version while Webhook actor identity remained reference-only;
+- revoking ALOHA Delegation blocked a still-valid Agent token immediately;
+- live current-state checks also denied access after temporarily narrowing Application × Model Access and the user's Space membership;
+- no-Delegation, wrong-Space, wrong-Application, Delegation ceiling, Agent self-grant and semantic-validation bypass paths were denied;
+- temporary records, Spaces, credentials and Delegations were cleaned up; production was untouched.
+
+The full staging gate also passed existing model regression, Registry-driven Creation Draft, signed reference-only Eventing, D1 hot-path checks and the reproducible HomeMew handoff export.
+
+The accepted HomeMew compatibility tuple after this gate is:
+
+```text
+Identity Contract:    0.6.0
+Core Kernel Contract: 0.17.0
+Model Contract:       mct_a4cc6dad278204b08cd706f9abeb68107e229148f1cd9ccde0991382606a92b9
+```
+
+The reproducible staging handoff evidence is:
+
+```text
+bundle ID:     hmb_717d91aae0fb0c0b5a79f939050dfb8b4ad2af0abca80fd5bc76198aa7b8a770
+artifact ID:   9800565590
+artifact name: homemew-contract-handoff-9591777b176f3084f9586e24d2b3927aa979c50e
+artifact SHA:  bc8b7179f4976f0e9817f0be5528eec85f0c45de1b01e2abd71a0b8af6b30f23
+```
+
+The GitHub-hosted HTTP performance sample from this run is diagnostic only because runner geography is uncontrolled; it is not an acceptance gate. Deterministic D1 hot-path/round-trip budgets remain enforced by Core tests.
+
+With automated tests and this staging evidence passing, the Agent-ready architecture gate is complete and the branch is merge-ready subject to normal final CI/review.
