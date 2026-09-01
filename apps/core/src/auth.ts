@@ -32,8 +32,10 @@ export async function verifyAccessToken(rawToken: string, publicKey: string): Pr
     if (payload.principal_type !== "user" && payload.principal_type !== "service" && payload.principal_type !== "device") throw unauthorized();
     const scopes = typeof payload.scope === "string" ? payload.scope.split(/\s+/).filter(Boolean) : [];
 
-    const hasActorClaims = payload.actor_type !== undefined || payload.actor_id !== undefined || payload.purpose !== undefined;
-    if (hasActorClaims) {
+    const hasDelegatedAgentClaims = payload.actor_type !== undefined
+      || payload.actor_id !== undefined
+      || payload.purpose === "delegated_agent";
+    if (hasDelegatedAgentClaims) {
       if (
         payload.principal_type !== "user"
         || payload.purpose !== "delegated_agent"
