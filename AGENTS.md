@@ -12,12 +12,13 @@ Read in this order:
 4. `docs/application-authentication.md` for Web/Access/application identity work;
 5. `docs/service-authentication.md` for service, Agent, automation, device or machine credentials;
 6. `docs/contracts.md`;
-7. `docs/model-definition-spec.md` for the normative human-readable Model Definition / Policy / Workflow / Capability DSL semantics;
-8. `docs/phase3-metadata-platform-plan.md` for business-model/runtime architecture;
-9. `docs/phase3-performance-convergence-plan.md` for ordinary-model storage, Registry runtime lookup, query hydration, authorization I/O or performance-sensitive paths;
-10. `docs/migration-plan.md` when changing/moving HomeMew behavior;
-11. `apps/AGENTS.md` and the nearest nested `AGENTS.md` for every directory changed;
-12. relevant OpenAPI contracts, tests, migrations, implementation, Model Definitions and generated artifacts.
+7. `docs/agent-ready.md` for Principal / Actor / Delegation / governed Change rules when changing Agent-facing authority;
+8. `docs/model-definition-spec.md` for the normative human-readable Model Definition / Policy / Workflow / Capability DSL semantics;
+9. `docs/phase3-metadata-platform-plan.md` for business-model/runtime architecture;
+10. `docs/phase3-performance-convergence-plan.md` for ordinary-model storage, Registry runtime lookup, query hydration, authorization I/O or performance-sensitive paths;
+11. `docs/migration-plan.md` when changing/moving HomeMew behavior;
+12. `apps/AGENTS.md` and the nearest nested `AGENTS.md` for every directory changed;
+13. relevant OpenAPI contracts, tests, migrations, implementation, Model Definitions and generated artifacts.
 
 If a required source does not yet exist during initial scaffold, create/update it before implementing behavior that depends on it.
 
@@ -29,6 +30,7 @@ If a required source does not yet exist during initial scaffold, create/update i
 - Application/Cloudflare Access identity: `docs/application-authentication.md`
 - Service/machine credential policy: `docs/service-authentication.md`
 - Contract ownership/versioning/publication/downstream consumption: `docs/contracts.md`
+- Agent execution-context, Delegation and governed Change invariants: `docs/agent-ready.md`
 - Model Definition / Policy / Workflow / Capability DSL semantics: `docs/model-definition-spec.md`
 - Metadata business-model architecture: `docs/phase3-metadata-platform-plan.md`
 - Runtime performance/typed persistence: `docs/phase3-performance-convergence-plan.md`

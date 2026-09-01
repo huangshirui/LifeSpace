@@ -20,6 +20,8 @@ Read:
 Identity owns:
 
 - global LifeSpace users (`usr_*`);
+- stable Agent identities (`agt_*`) and their application binding;
+- Core-only short-lived delegated Agent execution-token issuance;
 - Cloudflare Access platform-principal mapping `(iss, sub) -> usr_*` for LifeSpace Web/PWA applications;
 - Access audience registration `(iss, aud) -> LifeSpace application context`;
 - explicit Access new-account registration and existing-account link challenges;
@@ -155,7 +157,7 @@ Normal application/user/service contract:
 
 ```text
 apps/identity/openapi.yaml
-current version: 0.5.0
+current version: 0.6.0
 ```
 
 Privileged LifeSpace Console control-plane contract:
