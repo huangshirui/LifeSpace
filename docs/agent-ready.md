@@ -151,6 +151,24 @@ Operation Attribution and Information Provenance remain distinct:
 - **Operation Attribution**: Principal, Actor, Application, Delegation — who exercised authority and executed the Change.
 - **Information Provenance**: source, sourceRef, derivedFrom — where the information itself came from. Information Provenance can be expanded separately where the domain/use case requires it.
 
+## Event evidence boundary
+
+Domain Event / Webhook delivery remains **reference-only**. Agent readiness does not copy User/Agent identity or full Change attribution into every outbound Webhook.
+
+The durable correlation key is the committed resource version:
+
+```text
+Domain Event
+  Space + model + record + recordVersion
+        ↓
+Governed Change
+  Space + model + record + versionAfter
+```
+
+For Agent-originated mutations, the legacy outbox `actor_type` / `actor_id` continues to reflect the authority-bearing Principal for compatibility, while `resource_changes` is authoritative for the separated User Principal + Agent Actor + Application + Delegation attribution.
+
+An authorized subscriber that needs operation attribution can use the Event's record/version reference and read Change History through normal LifeSpace authorization. This keeps Eventing minimal and avoids broadcasting identity metadata to subscribers that only need a change notification.
+
 ## Agent-ready acceptance gate
 
 ### HomeMew Agent

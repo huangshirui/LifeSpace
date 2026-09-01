@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "profileVersion": 1,
-  "status": "accepted",
+  "status": "phase4-candidate",
   "application": {
     "key": "homemew",
     "stagingId": "app_homemew_staging",
@@ -40,9 +40,9 @@
     "event": "write"
   },
   "contracts": {
-    "coreKernel": "0.16.0",
-    "identity": "0.5.0",
+    "coreKernel": "0.17.0",
+    "identity": "0.6.0",
     "modelContract": "mct_a4cc6dad278204b08cd706f9abeb68107e229148f1cd9ccde0991382606a92b9",
-    "pinStatus": "accepted"
+    "pinStatus": "proving-not-frozen"
   }
 }
