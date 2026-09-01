@@ -10,6 +10,7 @@ import {
   registerApplicationAdminRoutes,
   validApplicationTokenTtl,
 } from "./application-admin";
+import { registerAgentAuthenticationRoutes } from "./agent-auth";
 import { registerPlatformAdminRoutes } from "./platform-admin";
 import { registerServiceAuthenticationRoutes } from "./service-auth";
 import type { Bindings, Variables } from "./env";
@@ -337,6 +338,7 @@ export function createApp() {
     return c.json(ok({ accessToken: token, tokenType: "Bearer", expiresIn: tokenTtlSeconds, scope: requested.join(" ") }));
   });
 
+  registerAgentAuthenticationRoutes(app);
   registerServiceAuthenticationRoutes(app);
 
   app.notFound((c) => c.json(fail("NOT_FOUND", "Route not found", c.get("requestId")), 404));
