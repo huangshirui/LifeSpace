@@ -17,7 +17,7 @@ type AgentRow = {
 };
 
 const TOKEN_ISSUER = "lifespace-identity";
-const TOKEN_AUDIENCES = ["lifespace-core", "lifespace-identity"] as const;
+const TOKEN_AUDIENCE = "lifespace-core";
 const MAX_DELEGATED_AGENT_TOKEN_TTL_SECONDS = 900;
 const ok = <T>(data: T) => ({ data });
 const fail = (code: string, message: string, requestId: string) => ({ error: { code, message, requestId } });
@@ -126,7 +126,7 @@ export function registerAgentAuthenticationRoutes(app: App): void {
     const jti = id("tok");
     const token = await sign({
       iss: TOKEN_ISSUER,
-      aud: [...TOKEN_AUDIENCES],
+      aud: TOKEN_AUDIENCE,
       sub: body.subjectId,
       azp: applicationId,
       principal_type: "user",
