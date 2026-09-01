@@ -22,17 +22,17 @@ jobs:
         with:
           node-version: 24
       - run: pnpm install --frozen-lockfile
-      - name: Synchronize Agent contracts
+      - name: Finalize Agent contracts
         working-directory: apps/core
-        run: node scripts/sync-agent-contracts.mjs
-      - name: Commit synchronized contracts
+        run: node scripts/fix-agent-contract-sync.mjs
+      - name: Commit finalized contracts
         run: |
           if git diff --quiet; then
-            echo "No contract synchronization changes"
+            echo "No contract finalization changes"
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add AGENTS.md apps/core apps/identity docs packages/contracts/scripts/check-homemew-handoff.mjs
-          git commit -m "chore: synchronize Agent-ready contracts"
+          git add AGENTS.md apps/core/AGENTS.md apps/identity/AGENTS.md apps/core/scripts/check-openapi.mjs packages/contracts/scripts/export-homemew-handoff.mjs
+          git commit -m "chore: finalize Agent-ready contract boundaries"
           git push origin HEAD:feature/agent-delegation-foundation
