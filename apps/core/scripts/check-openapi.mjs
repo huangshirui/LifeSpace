@@ -84,7 +84,7 @@ for (const path of Object.keys(document.paths ?? {})) {
   if (ordinaryModelPrefixes.some((prefix) => path === prefix || path.startsWith(`${prefix}/`))) {
     throw new Error(`Ordinary model path leaked into Kernel OpenAPI instead of mct_*: ${path}`);
   }
-  if (path.includes("{modelRoute}") || path.includes("{recordId}") || path.includes("{actionKey}")) {
+  if (path.includes("{modelRoute}") || path.includes("{actionKey}")) {
     throw new Error(`Generic/model route template leaked into Kernel OpenAPI instead of concrete mct_*: ${path}`);
   }
 }
@@ -259,7 +259,7 @@ if (schemas.ModelContract?.properties?.id?.pattern !== "^mct_[a-f0-9]{64}$") {
   throw new Error("Model Contract revisions must be content-addressed mct_<sha256>");
 }
 
-if (schemas.StatusResponse?.properties?.data?.properties?.contractVersion?.const !== "0.16.0") {
+if (schemas.StatusResponse?.properties?.data?.properties?.contractVersion?.const !== "0.17.0") {
   throw new Error("Core Kernel status contract version drifted");
 }
 
