@@ -1,0 +1,38 @@
+name: Agent Contract Sync
+
+on:
+  push:
+    branches: [feature/agent-delegation-foundation]
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/agent-delegation-foundation
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.13.1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: pnpm install --frozen-lockfile
+      - name: Synchronize Agent contracts
+        working-directory: apps/core
+        run: node scripts/sync-agent-contracts.mjs
+      - name: Commit synchronized contracts
+        run: |
+          if git diff --quiet; then
+            echo "No contract synchronization changes"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add AGENTS.md apps/core apps/identity docs packages/contracts/scripts/check-homemew-handoff.mjs
+          git commit -m "chore: synchronize Agent-ready contracts"
+          git push origin HEAD:feature/agent-delegation-foundation
