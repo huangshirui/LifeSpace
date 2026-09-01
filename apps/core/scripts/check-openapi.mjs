@@ -3,7 +3,7 @@ import YAML from "yaml";
 
 const document = YAML.parse(fs.readFileSync(new URL("../openapi.yaml", import.meta.url), "utf8"));
 
-if (document.openapi !== "3.1.0" || document.info?.version !== "0.16.0") {
+if (document.openapi !== "3.1.0" || document.info?.version !== "0.17.0") {
   throw new Error("Core Kernel OpenAPI version metadata is invalid");
 }
 if (!document.info?.title?.includes("Kernel")) {
@@ -33,6 +33,9 @@ const requiredPaths = [
   "/api/v1/spaces/{spaceId}/grants",
   "/api/v1/spaces/{spaceId}/grants/{grantId}",
   "/api/v1/spaces/{spaceId}/_discovery",
+  "/api/v1/spaces/{spaceId}/agent-delegations",
+  "/api/v1/spaces/{spaceId}/agent-delegations/{delegationId}",
+  "/api/v1/spaces/{spaceId}/changes/{recordId}",
   "/api/v1/webhook-endpoints",
   "/api/v1/webhook-endpoints/{endpointId}",
   "/api/v1/webhook-endpoints/{endpointId}/deliveries",
@@ -81,7 +84,7 @@ for (const path of Object.keys(document.paths ?? {})) {
   if (ordinaryModelPrefixes.some((prefix) => path === prefix || path.startsWith(`${prefix}/`))) {
     throw new Error(`Ordinary model path leaked into Kernel OpenAPI instead of mct_*: ${path}`);
   }
-  if (path.includes("{modelRoute}") || path.includes("{recordId}") || path.includes("{actionKey}")) {
+  if (path.includes("{modelRoute}") || path.includes("{actionKey}")) {
     throw new Error(`Generic/model route template leaked into Kernel OpenAPI instead of concrete mct_*: ${path}`);
   }
 }
@@ -256,8 +259,19 @@ if (schemas.ModelContract?.properties?.id?.pattern !== "^mct_[a-f0-9]{64}$") {
   throw new Error("Model Contract revisions must be content-addressed mct_<sha256>");
 }
 
-if (schemas.StatusResponse?.properties?.data?.properties?.contractVersion?.const !== "0.16.0") {
+if (schemas.StatusResponse?.properties?.data?.properties?.contractVersion?.const !== "0.17.0") {
   throw new Error("Core Kernel status contract version drifted");
 }
 
 console.log("Core Kernel OpenAPI contract sanity check passed");
+
+const agentDelegations = document.paths?.["/api/v1/spaces/{spaceId}/agent-delegations"];
+if (!agentDelegations?.get || !agentDelegations?.post || !document.paths?.["/api/v1/spaces/{spaceId}/agent-delegations/{delegationId}"]?.delete) {
+  throw new Error("Agent Delegation lifecycle is incomplete");
+}
+if (JSON.stringify(schemas.AgentDelegationModelAccess?.properties?.maxAccess?.enum) !== JSON.stringify(["read", "write", "manage"])) {
+  throw new Error("Agent Delegation must use the stable read/write/manage ceiling");
+}
+if (!schemas.ResourceChangeActor?.properties?.type?.enum?.includes("agent") || !schemas.ResourceChange?.required?.includes("delegationId")) {
+  throw new Error("Governed Change contract must preserve Agent actor and Delegation attribution");
+}

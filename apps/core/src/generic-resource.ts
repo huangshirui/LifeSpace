@@ -10,6 +10,7 @@ import {
 } from "./typed-resource-storage";
 
 type JsonObject = Record<string, unknown>;
+type ChangeOperation = "create" | "update" | "action" | "delete";
 
 export type GenericResource = {
   id: string;
@@ -44,9 +45,62 @@ type RelationProjection = {
 };
 
 const createId = () => `rec_${crypto.randomUUID().replaceAll("-", "")}`;
+const changeId = () => `chg_${crypto.randomUUID().replaceAll("-", "")}`;
 
 function isObject(value: unknown): value is JsonObject {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function operationActor(principal: Principal) {
+  return principal.actor ?? { type: principal.type, id: principal.id };
+}
+
+function changeStatement(
+  env: Bindings,
+  principal: Principal,
+  recordId: string,
+  spaceId: string,
+  modelKey: string,
+  operation: ChangeOperation,
+  versionBefore: number | null,
+  versionAfter: number,
+  changedFields: string[],
+  timestamp: string,
+  mutationToken?: string,
+): D1PreparedStatement {
+  if (principal.actor?.type === "agent" && !principal.activeDelegationId) {
+    throw new ApiError("FORBIDDEN", "Delegated Agent mutation requires current delegation authority", 403);
+  }
+  const actor = operationActor(principal);
+  const values = [
+    changeId(),
+    recordId,
+    spaceId,
+    modelKey,
+    operation,
+    versionBefore,
+    versionAfter,
+    principal.type,
+    principal.id,
+    actor.type,
+    actor.id,
+    principal.clientId,
+    principal.activeDelegationId ?? null,
+    JSON.stringify([...new Set(changedFields)].sort()),
+    timestamp,
+  ];
+  if (!mutationToken) {
+    return env.DB.prepare(`INSERT INTO resource_changes(
+      id,record_id,space_id,model_key,operation,version_before,version_after,
+      principal_type,principal_id,actor_type,actor_id,application_id,delegation_id,changed_fields_json,occurred_at
+    ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(...values);
+  }
+  return env.DB.prepare(`INSERT INTO resource_changes(
+      id,record_id,space_id,model_key,operation,version_before,version_after,
+      principal_type,principal_id,actor_type,actor_id,application_id,delegation_id,changed_fields_json,occurred_at
+    ) SELECT ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
+      WHERE EXISTS(SELECT 1 FROM resource_records WHERE id=? AND mutation_token=?)`)
+    .bind(...values, recordId, mutationToken);
 }
 
 function parseDate(value: unknown, fieldKey: string): string {
@@ -279,6 +333,7 @@ export async function createGenericResource(
     ),
     typedInsertStatement(env, model, id, spaceId, data),
     ...relationStatements(env, id, spaceId, model, relations),
+    changeStatement(env, principal, id, spaceId, model.key, "create", null, 1, Object.keys(data), timestamp),
   ];
   if (extension) statements.push(...await extension({ env, principal, recordId: id, spaceId, model, timestamp }));
   await env.DB.batch(statements);
@@ -328,6 +383,7 @@ export async function updateGenericResource(
   const timestamp = new Date().toISOString();
   const mutationToken = crypto.randomUUID();
   const nextVersion = previous.version + 1;
+  const changedFields = isObject(input) ? Object.keys(input) : [];
   const statements: D1PreparedStatement[] = [
     env.DB.prepare(`UPDATE resource_records SET
       model_version=?,updated_by_type=?,updated_by_id=?,updated_by_name_snapshot=?,version=?,updated_at=?,mutation_token=?
@@ -337,6 +393,19 @@ export async function updateGenericResource(
     ...relationStatements(env, recordId, spaceId, model, relations, mutationToken),
   ];
   if (extension) statements.push(...await extension({ env, principal, recordId, spaceId, model, timestamp, mutationToken }));
+  statements.push(changeStatement(
+    env,
+    principal,
+    recordId,
+    spaceId,
+    model.key,
+    mutationMode === "action" ? "action" : "update",
+    expectedVersion,
+    nextVersion,
+    changedFields,
+    timestamp,
+    mutationToken,
+  ));
   statements.push(env.DB.prepare("UPDATE resource_records SET mutation_token=NULL WHERE id=? AND mutation_token=?").bind(recordId, mutationToken));
   const results = await env.DB.batch(statements);
   if (!results[0].meta.changes) throw new ApiError("VERSION_CONFLICT", "Resource version is stale", 409);
@@ -361,16 +430,24 @@ export async function deleteGenericResource(
   expectedVersion: number,
 ): Promise<void> {
   const timestamp = new Date().toISOString();
-  const result = await env.DB.prepare(`UPDATE resource_records SET
-    deleted_at=?,updated_at=?,updated_by_type=?,updated_by_id=?,updated_by_name_snapshot=?,version=version+1
-    WHERE id=? AND space_id=? AND model_key=? AND deleted_at IS NULL AND version=?`)
-    .bind(timestamp, timestamp, principal.type, principal.id, principal.id, recordId, spaceId, model.key, expectedVersion).run();
-  if (!result.meta.changes) {
+  const mutationToken = crypto.randomUUID();
+  const nextVersion = expectedVersion + 1;
+  const results = await env.DB.batch([
+    env.DB.prepare(`UPDATE resource_records SET
+      deleted_at=?,updated_at=?,updated_by_type=?,updated_by_id=?,updated_by_name_snapshot=?,version=version+1,mutation_token=?
+      WHERE id=? AND space_id=? AND model_key=? AND deleted_at IS NULL AND version=?`)
+      .bind(timestamp, timestamp, principal.type, principal.id, principal.id, mutationToken, recordId, spaceId, model.key, expectedVersion),
+    changeStatement(env, principal, recordId, spaceId, model.key, "delete", expectedVersion, nextVersion, [], timestamp, mutationToken),
+    env.DB.prepare(`DELETE FROM resource_relations WHERE source_record_id=?
+      AND EXISTS(SELECT 1 FROM resource_records WHERE id=? AND mutation_token=?)`)
+      .bind(recordId, recordId, mutationToken),
+    env.DB.prepare("UPDATE resource_records SET mutation_token=NULL WHERE id=? AND mutation_token=?").bind(recordId, mutationToken),
+  ]);
+  if (!results[0].meta.changes) {
     const existing = await getTypedResource(env, spaceId, model, recordId);
     if (!existing) throw new ApiError("RESOURCE_NOT_FOUND", "Resource not found", 404);
     throw new ApiError("VERSION_CONFLICT", "Resource version is stale", 409);
   }
-  await env.DB.prepare("DELETE FROM resource_relations WHERE source_record_id=?").bind(recordId).run();
 }
 
 export async function listGenericResources(

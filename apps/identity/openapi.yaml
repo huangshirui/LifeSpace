@@ -1,8 +1,8 @@
 openapi: 3.1.0
 info:
   title: LifeSpace Identity API
-  version: 0.5.0
-  description: Global LifeSpace user identity, profile, trusted application exchange, Cloudflare Access principal resolution/linking, application credential lifecycle, service principals and credential issuance API.
+  version: 0.6.0
+  description: Global LifeSpace user identity, profile, trusted application exchange, Cloudflare Access principal resolution/linking, application credential lifecycle, Agent identity/execution-token issuance, service principals and credential issuance API.
 paths:
   /health:
     get:
@@ -232,6 +232,37 @@ paths:
         '409': { description: Access principal is already linked }
         '422': { $ref: '#/components/responses/ValidationError' }
         '503': { description: Cloudflare Access signing keys are temporarily unavailable }
+  /internal/v1/agents:
+    get:
+      description: List active Agent identities bound to the authenticated trusted application. Agent identity is distinct from user Principal authority.
+      security: [{ applicationCredential: [] }]
+      responses:
+        '200': { description: Application Agent identities, content: { application/json: { schema: { $ref: '#/components/schemas/AgentListResponse' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      description: Create an Agent identity and bind it to the authenticated trusted application. This creates identity only and grants no Space/model authority.
+      security: [{ applicationCredential: [] }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/CreateAgentRequest' } } }
+      responses:
+        '201': { description: Agent identity created, content: { application/json: { schema: { $ref: '#/components/schemas/AgentResponse' } } } }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /internal/v1/agent-tokens:
+    post:
+      description: Issue a short-lived Core-only delegated Agent execution JWT for an active user and an active Agent bound to the calling application. Identity authenticates the application and Agent identity, but Core remains authoritative for current User -> Agent Delegation and Space/model authorization on every execution. The token uses purpose=delegated_agent and never carries lifespace-identity audience.
+      security: [{ applicationCredential: [] }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/AgentTokenRequest' } } }
+      responses:
+        '200': { description: Core-only delegated Agent execution token, content: { application/json: { schema: { $ref: '#/components/schemas/AgentTokenResponse' } } } }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
   /api/v1/service-principals:
     get:
       description: Trusted application backend lists service principals in its own application context. Optional createdByUserId narrows the operator view.
@@ -373,6 +404,70 @@ components:
     ServiceTokenId: { name: tokenId, in: path, required: true, schema: { type: string, pattern: ^sat_ } }
     OAuthCredentialId: { name: credentialId, in: path, required: true, schema: { type: string, pattern: ^soc_ } }
   schemas:
+    Agent:
+      type: object
+      additionalProperties: false
+      required: [id, displayName, status, createdAt, updatedAt]
+      properties:
+        id: { type: string, pattern: ^agt_ }
+        displayName: { type: string, minLength: 1, maxLength: 100 }
+        status: { type: string, enum: [active, disabled] }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    CreateAgentRequest:
+      type: object
+      additionalProperties: false
+      required: [displayName]
+      properties:
+        displayName: { type: string, minLength: 1, maxLength: 100 }
+    AgentResponse:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data: { $ref: '#/components/schemas/Agent' }
+    AgentListResponse:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data:
+          type: object
+          additionalProperties: false
+          required: [items]
+          properties:
+            items: { type: array, items: { $ref: '#/components/schemas/Agent' } }
+    AgentTokenRequest:
+      type: object
+      additionalProperties: false
+      required: [subjectId, agentId]
+      properties:
+        subjectId: { type: string, pattern: ^usr_ }
+        agentId: { type: string, pattern: ^agt_ }
+        scopes: { type: array, uniqueItems: true, items: { type: string, minLength: 1, maxLength: 100 }, default: [] }
+    AgentTokenResponse:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data:
+          type: object
+          additionalProperties: false
+          required: [accessToken, tokenType, expiresIn, scope, principalId, actor, applicationId]
+          properties:
+            accessToken: { type: string, writeOnly: true }
+            tokenType: { const: Bearer }
+            expiresIn: { type: integer, minimum: 1, maximum: 900 }
+            scope: { type: string }
+            principalId: { type: string, pattern: ^usr_ }
+            actor:
+              type: object
+              additionalProperties: false
+              required: [type, id]
+              properties:
+                type: { const: agent }
+                id: { type: string, pattern: ^agt_ }
+            applicationId: { type: string, minLength: 1 }
     ErrorResponse:
       type: object
       additionalProperties: false

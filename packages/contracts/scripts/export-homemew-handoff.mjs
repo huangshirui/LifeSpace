@@ -49,8 +49,9 @@ const expectedEnvironment = process.env.LIFESPACE_HANDOFF_ENVIRONMENT ?? "stagin
 const modelAdminBearer = process.env.LIFESPACE_MODEL_ADMIN_BEARER ?? process.env.LIFESPACE_STAGING_MODEL_ADMIN_BEARER ?? "";
 
 if (!modelAdminBearer) throw new Error("LIFESPACE_MODEL_ADMIN_BEARER or LIFESPACE_STAGING_MODEL_ADMIN_BEARER is required");
-if (profile.contracts?.coreKernel !== corePackage.version) throw new Error("HomeMew Core contract pin does not match repository Core version");
-if (profile.contracts?.identity !== identityPackage.version) throw new Error("HomeMew Identity contract pin does not match repository Identity version");
+if (profile.contracts?.coreKernel !== corePackage.version || profile.contracts?.identity !== identityPackage.version) {
+  throw new Error(`HomeMew accepted handoff remains pinned to Core ${profile.contracts?.coreKernel} / Identity ${profile.contracts?.identity}, while repository current contracts are Core ${corePackage.version} / Identity ${identityPackage.version}. Do not export newer source OpenAPI under the older accepted tuple; complete an explicit downstream compatibility/staging decision and repin first.`);
+}
 if (!/^mct_[a-f0-9]{64}$/u.test(profile.contracts?.modelContract ?? "")) throw new Error("HomeMew Model Contract pin is invalid");
 
 const [coreStatus, identityStatus] = await Promise.all([

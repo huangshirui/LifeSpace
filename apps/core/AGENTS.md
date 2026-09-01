@@ -23,7 +23,7 @@ Read:
 Core owns:
 
 - Spaces, memberships and Space People;
-- Data Grants and current authorization evaluation;
+- Data Grants, User -> Agent Delegations and current authorization evaluation;
 - Application × Model Access;
 - Model Definition validation, Registry/version lifecycle and Model Admin;
 - Generic Runtime/storage for ordinary Space-owned models;
@@ -31,7 +31,7 @@ Core owns:
 - model-agnostic Domain Event outbox state, Space/subscriber-scoped Webhook Endpoints, model/event subscription filters, signed Webhook delivery, retry state and endpoint-level delivery diagnostics;
 - cross-Space aggregate `/me` views;
 - deterministic typed physical schema planning/publication;
-- runtime validation, concurrency, soft deletion, relations and business audit;
+- runtime validation, concurrency, soft deletion, relations, governed Change History and business audit;
 - Core-side Platform Admin Application × Model Access, read-only Space inspection and platform-admin audit;
 - reproducible business-facing Kernel and privileged Platform Admin contracts.
 
@@ -78,6 +78,7 @@ verified principal
 ∩ stable credential scope
 ∩ Application × Model Access
 ∩ current Space membership / Data Grant
+∩ current User -> Agent Delegation when Actor is an Agent
 ∩ published model access capability
 ∩ model policy / Capability restrictions
 ```
@@ -157,7 +158,7 @@ Business-facing Core Kernel contract:
 
 ```text
 apps/core/openapi.yaml
-current Kernel version: 0.16.0
+current Kernel version: 0.17.0
 ```
 
 Privileged LifeSpace Console control-plane contract:

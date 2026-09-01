@@ -1,4 +1,10 @@
 export type PrincipalType = "user" | "service" | "device";
+export type ActorType = PrincipalType | "agent";
+
+export type Actor = {
+  type: ActorType;
+  id: string;
+};
 
 export type Principal = {
   type: PrincipalType;
@@ -6,6 +12,9 @@ export type Principal = {
   clientId: string;
   scopes: string[];
   tokenId: string;
+  actor?: Actor;
+  purpose?: "delegated_agent";
+  activeDelegationId?: string;
 };
 
 export type Bindings = CloudflareBindings & {

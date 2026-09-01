@@ -2,7 +2,7 @@ import fs from "node:fs";
 import YAML from "yaml";
 
 const doc = YAML.parse(fs.readFileSync(new URL("../openapi.yaml",import.meta.url),"utf8"));
-if (doc.openapi !== "3.1.0" || doc.info?.version !== "0.5.0") {
+if (doc.openapi !== "3.1.0" || doc.info?.version !== "0.6.0") {
   throw new Error("Identity OpenAPI version metadata is invalid");
 }
 
@@ -24,6 +24,8 @@ for (const path of [
   "/internal/v1/access/tokens",
   "/internal/v1/access/registrations",
   "/internal/v1/access/link-challenges",
+  "/internal/v1/agents",
+  "/internal/v1/agent-tokens",
   "/api/v1/service-principals",
   "/api/v1/service-principals/{principalId}",
   "/api/v1/service-principals/{principalId}/tokens",
@@ -108,3 +110,11 @@ if (!introspectionSecurity.some((entry) => entry?.internalServiceSecret && entry
 if (doc.components?.securitySchemes?.serviceToken?.bearerFormat !== "lsp_pat_ opaque token") throw new Error("Identity contract must distinguish opaque Service API Tokens from JWTs");
 
 console.log("Identity OpenAPI contract sanity check passed");
+
+const agentTokenPost = doc.paths?.["/internal/v1/agent-tokens"]?.post;
+if (!String(agentTokenPost?.description ?? "").includes("Core-only") || !String(agentTokenPost?.description ?? "").includes("Delegation")) {
+  throw new Error("Agent token contract must remain Core-only and delegate current authority to Core");
+}
+if (doc.components?.schemas?.Agent?.properties?.id?.pattern !== "^agt_" || doc.components?.schemas?.AgentTokenResponse?.properties?.data?.properties?.actor?.properties?.type?.const !== "agent") {
+  throw new Error("Identity Agent contract must expose stable agt_* identity and actor semantics");
+}

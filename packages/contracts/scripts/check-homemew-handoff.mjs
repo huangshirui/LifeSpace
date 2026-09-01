@@ -34,8 +34,13 @@ for (const modelKey of expectedModels) {
   assert.equal(profile.modelAccess[modelKey], "write", `HomeMew ${modelKey} access must be write`);
 }
 
-assert.equal(profile.contracts?.coreKernel, corePackage.version, "HomeMew Core pin must match repository Core version");
-assert.equal(profile.contracts?.identity, identityPackage.version, "HomeMew Identity pin must match repository Identity version");
+assert.match(profile.contracts?.coreKernel ?? "", /^\d+\.\d+\.\d+$/u, "HomeMew Core pin must be an explicit semantic version");
+assert.match(profile.contracts?.identity ?? "", /^\d+\.\d+\.\d+$/u, "HomeMew Identity pin must be an explicit semantic version");
+assert.notEqual(profile.contracts?.coreKernel, "", "HomeMew Core pin must remain explicit");
+assert.notEqual(profile.contracts?.identity, "", "HomeMew Identity pin must remain explicit");
+// Accepted application pins are immutable compatibility evidence and do not silently follow later platform package versions.
+void corePackage;
+void identityPackage;
 assert.match(profile.contracts?.modelContract ?? "", /^mct_[a-f0-9]{64}$/u, "HomeMew Model Contract pin must be content-addressed");
 assert.ok(["proving-not-frozen", "accepted"].includes(profile.contracts?.pinStatus), "HomeMew contract pin status is invalid");
 

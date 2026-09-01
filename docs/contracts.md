@@ -6,7 +6,7 @@ Canonical service contracts live with the service implementation in this reposit
 
 Identity now has two explicit contract surfaces:
 
-1. **Identity Application Contract** — `apps/identity/openapi.yaml`, used by ordinary user/application authentication, profile, trusted application exchange, Cloudflare Access principal linking and application-owned service authentication. Its current version remains `0.5.0`.
+1. **Identity Application Contract** — `apps/identity/openapi.yaml`, used by ordinary user/application authentication, profile, trusted application exchange, Cloudflare Access principal linking and application-owned service authentication. Its current version is `0.6.0`; 0.6.0 adds first-class Agent identity and Core-only delegated Agent execution-token issuance.
 2. **Identity Platform Admin Contract** — `apps/identity/platform-admin.openapi.yaml`, used only by the LifeSpace Console and approved break-glass/platform-control workflows. Its initial version is `0.1.0`.
 
 Core has three contract layers:
@@ -15,7 +15,7 @@ Core has three contract layers:
 2. **Platform Admin Contract** — `apps/core/platform-admin.openapi.yaml`, a privileged control-plane profile for Application × Model Access, global read-only Space inspection, platform audit and human-attributed Console model mutations. Its initial version is `0.1.0`.
 3. **Model Contract Revision** — immutable OpenAPI/JSON Schema snapshots generated from the published Model Registry plus registered Capability contract contributions.
 
-As of Core Kernel `0.15.0`, ordinary model paths/schemas remain deliberately absent from `apps/core/openapi.yaml`. They exist only in a concrete immutable Model Contract Revision. CI rejects Event/Task/Day Record/Wish or generic `{modelRoute}` paths if they are reintroduced into the Kernel OpenAPI. Kernel `0.13.0` introduced whole-Space and published-model collection Data Grant targeting; Kernel `0.14.0` introduced model-agnostic Eventing; Kernel `0.15.0` separates reusable Webhook Endpoint transport/signing from model/event subscription filters so multiple models can share one callback and signing secret.
+As of Core Kernel `0.17.0`, ordinary model paths/schemas remain deliberately absent from `apps/core/openapi.yaml`. They exist only in a concrete immutable Model Contract Revision. CI rejects Event/Task/Day Record/Wish or generic `{modelRoute}` paths if they are reintroduced into the Kernel OpenAPI. Kernel `0.13.0` introduced whole-Space and published-model collection Data Grant targeting; Kernel `0.14.0` introduced model-agnostic Eventing; Kernel `0.15.0` separates reusable Webhook Endpoint transport/signing from model/event subscription filters so multiple models can share one callback and signing secret. Kernel `0.16.0` adds owner-only logical Space close. Kernel `0.17.0` adds User -> Agent Delegation management and governed Change History while leaving ordinary model CRUD/action syntax in immutable `mct_*` contracts.
 
 The effective ordinary application contract remains an explicit tuple such as:
 
@@ -103,6 +103,7 @@ If a migrated environment has a Registry state but no active contract pointer, f
 The Kernel OpenAPI is intentionally explicit and comparatively stable. It currently covers:
 
 - health/status and authentication-facing Core principal behavior;
+- User -> Agent Delegation lifecycle and governed Change History;
 - Space, Membership, Space Person-facing membership operations and invitations;
 - Space avatar replacement/public reads;
 - Data Grant lifecycle and target syntax;
@@ -225,3 +226,7 @@ Metadata-platform checks include:
 - compatibility/retirement dependency gates before production use.
 
 HomeMew's former handwritten OpenAPI contract-check pattern remains a behavioral reference for strict drift detection, not the ordinary-model source-authoring model.
+
+### Agent-ready contract split — 0.6.0 / 0.17.0
+
+Identity Application Contract `0.6.0` owns Agent identity (`agt_*`) and trusted-application issuance of short-lived `purpose=delegated_agent` execution JWTs whose audience is Core only. Core Kernel `0.17.0` owns User -> Agent Delegation current state, Delegation-bounded Runtime Discovery/authorization and governed Change History. Identity does not read Core Delegations; a valid Agent JWT is therefore necessary but never sufficient authority. Core rechecks the mutable Delegation and all existing authorization layers at execution time. Existing accepted downstream tuples remain pinned evidence and must not be silently rewritten merely because the platform publishes a newer compatible contract.

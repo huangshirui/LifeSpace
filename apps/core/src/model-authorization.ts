@@ -33,6 +33,7 @@ type CatalogRow = { max_access: ModelAccess };
 type MembershipRow = { role: SpaceRole };
 type GrantRow = { permission: Permission };
 type PersonRow = { id: string };
+type DelegationRow = { id: string; max_access: ModelAccess };
 
 export type ModelAccessDecision = {
   applicationId: string;
@@ -41,6 +42,7 @@ export type ModelAccessDecision = {
   catalogAccess: ModelAccess;
   spaceAuthority: SpaceRole | "grant";
   actorPersonId: string | null;
+  delegationId: string | null;
 };
 
 function firstResult<T>(result: D1Result<unknown>): T | null {
@@ -54,6 +56,8 @@ export async function requireModelAccess(
   model: PublishedModel,
   required: ModelAccess,
 ): Promise<ModelAccessDecision> {
+  principal.activeDelegationId = undefined;
+
   if (!model.definition.access.includes(required)) {
     throw new ApiError("MODEL_ACCESS_UNSUPPORTED", `Model ${model.key} does not expose ${required} access`, 405);
   }
@@ -88,6 +92,19 @@ export async function requireModelAccess(
     statements.push(env.DB.prepare(`SELECT id FROM space_people
       WHERE space_id=? AND linked_user_id=? AND deleted_at IS NULL LIMIT 1`).bind(spaceId, principal.id));
   }
+  const delegatedAgent = principal.actor?.type === "agent";
+  const delegationIndex = delegatedAgent ? statements.length : -1;
+  if (delegatedAgent) {
+    statements.push(env.DB.prepare(`SELECT d.id,m.max_access
+      FROM agent_delegations d
+      JOIN agent_delegation_models m ON m.delegation_id=d.id
+      WHERE d.principal_user_id=? AND d.agent_id=? AND d.application_id=? AND d.source_space_id=?
+        AND m.model_key=?
+        AND d.revoked_at IS NULL
+        AND (d.expires_at IS NULL OR julianday(d.expires_at)>julianday('now'))
+      ORDER BY CASE m.max_access WHEN 'manage' THEN 3 WHEN 'write' THEN 2 ELSE 1 END DESC,d.created_at DESC
+      LIMIT 1`).bind(principal.id, principal.actor!.id, principal.clientId, spaceId, model.key));
+  }
 
   const results = await env.DB.batch(statements);
   const space = firstResult<SpaceRow>(results[0]);
@@ -108,6 +125,16 @@ export async function requireModelAccess(
     throw new ApiError("FORBIDDEN", `Space ${spacePermissions[required]} permission is required`, 403);
   }
 
+  let delegationId: string | null = null;
+  if (delegatedAgent) {
+    const delegation = firstResult<DelegationRow>(results[delegationIndex]);
+    if (!delegation || accessRank[delegation.max_access] < accessRank[required]) {
+      throw new ApiError("FORBIDDEN", `Agent delegation does not allow ${required} access to model ${model.key} in this Space`, 403);
+    }
+    delegationId = delegation.id;
+    principal.activeDelegationId = delegation.id;
+  }
+
   const person = personIndex >= 0 ? firstResult<PersonRow>(results[personIndex]) : null;
   return {
     applicationId: principal.clientId,
@@ -116,5 +143,6 @@ export async function requireModelAccess(
     catalogAccess: catalog.max_access,
     spaceAuthority: membershipAllowed ? membership!.role : "grant",
     actorPersonId: person?.id ?? null,
+    delegationId,
   };
 }

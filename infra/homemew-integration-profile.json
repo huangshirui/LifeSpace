@@ -40,8 +40,8 @@
     "event": "write"
   },
   "contracts": {
-    "coreKernel": "0.16.0",
-    "identity": "0.5.0",
+    "coreKernel": "0.17.0",
+    "identity": "0.6.0",
     "modelContract": "mct_a4cc6dad278204b08cd706f9abeb68107e229148f1cd9ccde0991382606a92b9",
     "pinStatus": "accepted"
   }

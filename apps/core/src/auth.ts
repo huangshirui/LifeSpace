@@ -31,6 +31,29 @@ export async function verifyAccessToken(rawToken: string, publicKey: string): Pr
     if (typeof payload.iat !== "number" || typeof payload.exp !== "number" || payload.iat > now || payload.exp <= now || payload.exp <= payload.iat || payload.exp - payload.iat > MAX_ACCESS_TOKEN_TTL_SECONDS) throw unauthorized();
     if (payload.principal_type !== "user" && payload.principal_type !== "service" && payload.principal_type !== "device") throw unauthorized();
     const scopes = typeof payload.scope === "string" ? payload.scope.split(/\s+/).filter(Boolean) : [];
+
+    const hasDelegatedAgentClaims = payload.actor_type !== undefined
+      || payload.actor_id !== undefined
+      || payload.purpose === "delegated_agent";
+    if (hasDelegatedAgentClaims) {
+      if (
+        payload.principal_type !== "user"
+        || payload.purpose !== "delegated_agent"
+        || payload.actor_type !== "agent"
+        || typeof payload.actor_id !== "string"
+        || !/^agt_[A-Za-z0-9]+$/.test(payload.actor_id)
+      ) throw unauthorized();
+      return {
+        type: "user",
+        id: payload.sub,
+        clientId: payload.azp,
+        scopes,
+        tokenId: payload.jti,
+        actor: { type: "agent", id: payload.actor_id },
+        purpose: "delegated_agent",
+      };
+    }
+
     return { type: payload.principal_type, id: payload.sub, clientId: payload.azp, scopes, tokenId: payload.jti };
   } catch (error) {
     if (error instanceof ApiError) throw error;
@@ -68,7 +91,13 @@ export async function introspectServiceToken(rawToken: string, env: Bindings): P
     || !Array.isArray(principal.scopes)
     || principal.scopes.some((scope) => typeof scope !== "string")
   ) throw unauthorized();
-  return principal;
+  return {
+    type: "service",
+    id: principal.id,
+    clientId: principal.clientId,
+    scopes: [...principal.scopes],
+    tokenId: principal.tokenId,
+  };
 }
 
 export function authenticate(): MiddlewareHandler<AppEnv> {
