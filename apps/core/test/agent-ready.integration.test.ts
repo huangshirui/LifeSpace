@@ -83,7 +83,10 @@ async function seedSpaceAndCatalog(userId: string, spaceId: string) {
     VALUES(?,?,?,?,?,?)`).bind(`per_${crypto.randomUUID()}`, spaceId, userId, "Owner", now, now).run();
   for (const modelKey of ["event", "task"]) {
     await db.prepare(`INSERT INTO application_model_access(application_id,model_key,max_access,created_by_type,created_by_id)
-      VALUES(?,?,?,?,?)`).bind("test-app", modelKey, "write", "user", userId).run();
+      VALUES(?,?,?,?,?)
+      ON CONFLICT(application_id,model_key) DO UPDATE SET
+        max_access=excluded.max_access,created_by_type=excluded.created_by_type,created_by_id=excluded.created_by_id`)
+      .bind("test-app", modelKey, "write", "user", userId).run();
   }
 }
 
