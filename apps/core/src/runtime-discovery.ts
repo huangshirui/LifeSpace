@@ -12,6 +12,7 @@ type App = Hono<AppEnv>;
 type CatalogRow = { model_key: string; max_access: ModelAccess };
 type MembershipRow = { role: SpaceRole };
 type GrantRow = { resource_type: "space" | "model"; resource_id: string | null; permission: Permission };
+type DelegationAccessRow = { model_key: string; max_access: ModelAccess };
 
 type DiscoveryActionInputField = {
   key: string;
@@ -65,11 +66,13 @@ function effectiveAccess(
   model: PublishedModel,
   catalogAccess: ModelAccess,
   authorityRank: number,
+  delegationAccess?: ModelAccess | null,
 ): ModelAccess[] {
   return accessOrder.filter((access) => model.definition.access.includes(access)
     && principal.scopes.includes(scopeForAccess[access])
     && accessRank[catalogAccess] >= accessRank[access]
-    && authorityRank >= accessRank[access]);
+    && authorityRank >= accessRank[access]
+    && (delegationAccess === undefined || (delegationAccess !== null && accessRank[delegationAccess] >= accessRank[access])));
 }
 
 function actions(model: PublishedModel, allowed: ModelAccess[]): DiscoveryAction[] {
@@ -156,6 +159,18 @@ export function registerRuntimeDiscoveryRoutes(app: App): void {
         AND revoked_at IS NULL AND (expires_at IS NULL OR julianday(expires_at)>julianday('now'))`)
       .bind(spaceId, principal.type, principal.id));
 
+    const delegatedAgent = principal.actor?.type === "agent";
+    const delegationIndex = delegatedAgent ? statements.length : -1;
+    if (delegatedAgent) {
+      statements.push(context.env.DB.prepare(`SELECT m.model_key,m.max_access
+        FROM agent_delegations d
+        JOIN agent_delegation_models m ON m.delegation_id=d.id
+        WHERE d.principal_user_id=? AND d.agent_id=? AND d.application_id=? AND d.source_space_id=?
+          AND d.revoked_at IS NULL
+          AND (d.expires_at IS NULL OR julianday(d.expires_at)>julianday('now'))`)
+        .bind(principal.id, principal.actor!.id, principal.clientId, spaceId));
+    }
+
     const results = await context.env.DB.batch(statements);
     const space = (results[0].results ?? [])[0] as { id: string } | undefined;
     if (!space) throw new ApiError("SPACE_NOT_FOUND", "Space not found", 404);
@@ -166,6 +181,13 @@ export function registerRuntimeDiscoveryRoutes(app: App): void {
       ? ((results[membershipIndex].results ?? [])[0] as MembershipRow | undefined) ?? null
       : null;
     const grants = (results[grantsIndex].results ?? []) as GrantRow[];
+    const delegatedByModel = new Map<string, ModelAccess>();
+    if (delegatedAgent) {
+      for (const row of (results[delegationIndex].results ?? []) as DelegationAccessRow[]) {
+        const current = delegatedByModel.get(row.model_key);
+        if (!current || accessRank[row.max_access] > accessRank[current]) delegatedByModel.set(row.model_key, row.max_access);
+      }
+    }
     const models = await listPublishedModels(context.env);
 
     const visible = models.flatMap((model) => {
@@ -176,6 +198,7 @@ export function registerRuntimeDiscoveryRoutes(app: App): void {
         model,
         catalogAccess,
         spaceAuthorityRank(principal, membership, grants, model.key),
+        delegatedAgent ? (delegatedByModel.get(model.key) ?? null) : undefined,
       );
       return allowed.length ? [dto(model, allowed)] : [];
     });
