@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import type { Bindings, Variables } from "./env";
 import { authenticate } from "./auth";
+import { registerAgentDelegationRoutes } from "./agent-delegation";
 import { registerRegistryCreationDraftRoutes } from "./registry-creation-draft-jobs";
 import { registerGenericResourceRoutes } from "./generic-resource-routes";
 import { registerRuntimeDiscoveryRoutes } from "./runtime-discovery";
@@ -41,7 +42,7 @@ export function createApp() {
   app.get("/health", (context) => context.json(success({ status: "ok" })));
   app.get("/api/v1/status", async (context) => context.json(success({
     status: "ok", service: "core", environment: context.env.ENVIRONMENT ?? "local", database: "available",
-    schemaVersion: await schemaVersion(context.env), contractVersion: "0.16.0",
+    schemaVersion: await schemaVersion(context.env), contractVersion: "0.17.0",
   })));
   app.use("/api/v1/me", authenticate());
   app.use("/api/v1/me/*", authenticate());
@@ -66,6 +67,7 @@ export function createApp() {
   registerPlatformInspectorRoutes(app);
   registerRegistryCreationDraftRoutes(app);
   registerEventSubscriptionRoutes(app);
+  registerAgentDelegationRoutes(app);
   registerRuntimeDiscoveryRoutes(app);
   registerGenericResourceRoutes(app);
   app.notFound((context) => context.json(failure("NOT_FOUND", "Route not found", context.get("requestId")), 404));
