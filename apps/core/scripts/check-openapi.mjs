@@ -3,7 +3,7 @@ import YAML from "yaml";
 
 const document = YAML.parse(fs.readFileSync(new URL("../openapi.yaml", import.meta.url), "utf8"));
 
-if (document.openapi !== "3.1.0" || document.info?.version !== "0.17.0") {
+if (document.openapi !== "3.1.0" || document.info?.version !== "0.18.0") {
   throw new Error("Core Kernel OpenAPI version metadata is invalid");
 }
 if (!document.info?.title?.includes("Kernel")) {
@@ -19,6 +19,7 @@ const requiredPaths = [
   "/assets/spaces/{spaceId}/avatar",
   "/api/v1/me",
   "/api/v1/me/spaces",
+  "/api/v1/me/_discovery",
   "/api/v1/spaces",
   "/api/v1/spaces/{spaceId}",
   "/api/v1/spaces/{spaceId}/close",
@@ -179,8 +180,22 @@ if (!grants.get.responses?.["200"]?.description?.includes("model-collection") ||
 }
 
 const discovery = document.paths?.["/api/v1/spaces/{spaceId}/_discovery"]?.get;
+const aggregateDiscovery = document.paths?.["/api/v1/me/_discovery"]?.get;
 if (!discovery?.description?.includes("capability preview") || !discovery?.description?.includes("execution")) {
   throw new Error("Runtime Discovery must be documented as a preview whose authority is rechecked at execution time");
+}
+if (!aggregateDiscovery?.description?.includes("cross-Space")
+    || !aggregateDiscovery?.description?.includes("capability preview")
+    || !aggregateDiscovery?.description?.includes("execution")) {
+  throw new Error("Current-principal Runtime Discovery must document cross-Space preview and execution-time rechecks");
+}
+if (aggregateDiscovery?.responses?.["200"]?.content?.["application/json"]?.schema?.$ref !== "#/components/schemas/RuntimeDiscoveryAggregateResponse") {
+  throw new Error("Current-principal Runtime Discovery must use its aggregate response schema");
+}
+if (schemas.RuntimeDiscoverySpace?.additionalProperties !== false
+    || JSON.stringify(schemas.RuntimeDiscoverySpace?.required) !== JSON.stringify(["spaceId", "models"])
+    || Object.keys(schemas.RuntimeDiscoverySpace?.properties ?? {}).some((key) => !["spaceId", "models"].includes(key))) {
+  throw new Error("Cross-Space discovery must expose only Space identity and effective model metadata");
 }
 if (schemas.RuntimeDiscoveryAction?.additionalProperties !== false
     || !schemas.RuntimeDiscoveryAction?.required?.includes("input")) {
@@ -259,7 +274,7 @@ if (schemas.ModelContract?.properties?.id?.pattern !== "^mct_[a-f0-9]{64}$") {
   throw new Error("Model Contract revisions must be content-addressed mct_<sha256>");
 }
 
-if (schemas.StatusResponse?.properties?.data?.properties?.contractVersion?.const !== "0.17.0") {
+if (schemas.StatusResponse?.properties?.data?.properties?.contractVersion?.const !== "0.18.0") {
   throw new Error("Core Kernel status contract version drifted");
 }
 
