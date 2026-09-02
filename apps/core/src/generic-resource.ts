@@ -1,5 +1,6 @@
 import type { Bindings, Principal } from "./env";
 import { ApiError } from "./http";
+import { applyModelDefaults } from "./model-defaults";
 import type { FieldDefinition, ModelDefinition } from "./model-definition";
 import { getRuntimeModel, type PublishedModel } from "./model-registry";
 import {
@@ -192,23 +193,26 @@ export function validateResourceData(
   previous?: JsonObject,
 ): JsonObject {
   if (!isObject(input)) throw new ApiError("INVALID_RESOURCE", "Resource body must be an object", 400);
-  const unknown = Object.keys(input).find((key) => !definition.fields[key]);
-  if (unknown) throw new ApiError("INVALID_RESOURCE", `Field ${unknown} is not declared by model ${definition.key}`, 400);
 
   const creating = mode === "create" || mode === "create_internal";
   const trusted = mode === "create_internal" || mode === "action";
+  const effectiveInput = creating ? applyModelDefaults(definition, input) : input;
+  const unknown = Object.keys(input).find((key) => !definition.fields[key]);
+  if (unknown) throw new ApiError("INVALID_RESOURCE", `Field ${unknown} is not declared by model ${definition.key}`, 400);
+
   const result: JsonObject = creating ? {} : { ...(previous ?? {}) };
   for (const [fieldKey, field] of Object.entries(definition.fields)) {
-    const supplied = Object.prototype.hasOwnProperty.call(input, fieldKey);
-    if (field.readOnly && supplied && !trusted) throw new ApiError("INVALID_RESOURCE", `Field ${fieldKey} is read-only`, 400);
-    if (!creating && field.immutable && supplied && previous?.[fieldKey] !== input[fieldKey]) {
+    const supplied = Object.prototype.hasOwnProperty.call(effectiveInput, fieldKey);
+    const clientSupplied = Object.prototype.hasOwnProperty.call(input, fieldKey);
+    if (field.readOnly && clientSupplied && !trusted) throw new ApiError("INVALID_RESOURCE", `Field ${fieldKey} is read-only`, 400);
+    if (!creating && field.immutable && supplied && previous?.[fieldKey] !== effectiveInput[fieldKey]) {
       throw new ApiError("INVALID_RESOURCE", `Field ${fieldKey} is immutable`, 400);
     }
     if (!supplied) {
       if (creating && field.required && !field.readOnly) throw new ApiError("INVALID_RESOURCE", `Field ${fieldKey} is required`, 400);
       continue;
     }
-    result[fieldKey] = validateFieldValue(fieldKey, field, input[fieldKey]);
+    result[fieldKey] = validateFieldValue(fieldKey, field, effectiveInput[fieldKey]);
   }
   return result;
 }

@@ -113,7 +113,7 @@ async function fixture() {
 }
 
 describe("Runtime discovery", () => {
-  it("returns only effective user-authorized model metadata and bounded action input", async () => {
+  it("returns effective user-authorized model metadata including server defaults and bounded action input", async () => {
     const f = await fixture();
     const accessToken = await token(
       f.privateKey,
@@ -129,6 +129,7 @@ describe("Runtime discovery", () => {
       key: string;
       route: string;
       access: string[];
+      defaults: Record<string, unknown>;
       fields: Array<{ key: string; type: string }>;
       actions: Array<{
         key: string;
@@ -138,7 +139,12 @@ describe("Runtime discovery", () => {
       }>;
     }> } }>();
     const model = payload.data.models.find((entry) => entry.key === f.modelKey);
-    expect(model).toMatchObject({ key: f.modelKey, route: f.route, access: ["read", "write"] });
+    expect(model).toMatchObject({
+      key: f.modelKey,
+      route: f.route,
+      access: ["read", "write"],
+      defaults: { status: "open" },
+    });
     expect(model?.fields).toEqual(expect.arrayContaining([
       expect.objectContaining({ key: "title", type: "string" }),
       expect.objectContaining({ key: "status", type: "enum" }),
@@ -151,6 +157,26 @@ describe("Runtime discovery", () => {
         fields: [expect.objectContaining({ key: "version", type: "integer", required: true, minimum: 1 })],
       },
     });
+  });
+
+  it("exposes the same model defaults through cross-Space discovery", async () => {
+    const f = await fixture();
+    const accessToken = await token(
+      f.privateKey,
+      "user",
+      f.userId,
+      f.clientId,
+      ["resources:read", "resources:write"],
+    );
+
+    const response = await request(f.publicKey, accessToken, "/api/v1/me/_discovery");
+    expect(response.status).toBe(200);
+    const payload = await response.json<{ data: { spaces: Array<{
+      spaceId: string;
+      models: Array<{ key: string; defaults: Record<string, unknown> }>;
+    }> } }>();
+    const space = payload.data.spaces.find((entry) => entry.spaceId === f.spaceId);
+    expect(space?.models.find((entry) => entry.key === f.modelKey)?.defaults).toEqual({ status: "open" });
   });
 
   it("removes write-only actions when the credential has read scope only", async () => {
