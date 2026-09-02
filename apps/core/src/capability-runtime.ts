@@ -25,13 +25,16 @@ export function prepareCapabilityCreateInput(model: PublishedModel, input: unkno
 }
 
 export async function createCapabilityAwareResource(env: Bindings, principal: Principal, spaceId: string, model: PublishedModel, input: unknown): Promise<GenericResource> {
-  const prepared = prepareCapabilityCreateInput(model, input);
   if (hasTemporalCapability(model)) {
+    const prepared = prepareCapabilityCreateInput(model, input);
     const space = await loadSpaceTemporalContext(env, spaceId);
     return createTemporalResource(env, principal, space, model, prepared);
   }
-  if (hasCalendarCapability(model)) return createCalendarResource(env, principal, spaceId, model, prepared);
-  return createGenericResource(env, principal, spaceId, model, prepared);
+  if (hasCalendarCapability(model)) {
+    const prepared = prepareCapabilityCreateInput(model, input);
+    return createCalendarResource(env, principal, spaceId, model, prepared);
+  }
+  return createGenericResource(env, principal, spaceId, model, input);
 }
 
 export async function updateCapabilityAwareResource(
