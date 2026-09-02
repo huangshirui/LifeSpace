@@ -550,10 +550,12 @@ export function validateModelDefinition(input: unknown): ModelValidationResult {
   if (input.lifecycle !== undefined && !lifecycleInput) {
     issue(issues, "lifecycle", "INVALID_LIFECYCLE", "lifecycle must be an object");
   }
-  const lifecycle = {
-    optimisticConcurrency: true as const,
-    softDelete: true as const,
-  };
+  const lifecycle = lifecycleInput
+    ? {
+        ...(lifecycleInput.optimisticConcurrency === true ? { optimisticConcurrency: true as const } : {}),
+        ...(lifecycleInput.softDelete === true ? { softDelete: true as const } : {}),
+      }
+    : undefined;
   if (lifecycleInput) {
     for (const property of Object.keys(lifecycleInput)) {
       if (property !== "optimisticConcurrency" && property !== "softDelete") {
@@ -622,7 +624,7 @@ export function validateModelDefinition(input: unknown): ModelValidationResult {
     ...(Object.keys(defaults).length ? { defaults } : {}),
     ...(query ? { query } : {}),
     access: accessInput as ModelAccess[],
-    lifecycle,
+    ...(lifecycle ? { lifecycle } : {}),
     ...(capabilityResult.capabilities ? { capabilities: capabilityResult.capabilities } : {}),
     ...(modelPolicies.policies ? { policies: modelPolicies.policies } : {}),
     ...(workflow.actions ? { actions: workflow.actions } : {}),
