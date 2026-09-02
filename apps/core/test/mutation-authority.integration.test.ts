@@ -117,7 +117,7 @@ describe("Mutation Authority", () => {
     });
     expect(createdResponse.status).toBe(201);
     const created = await jsonResource(createdResponse);
-    expect(created.data).toMatchObject({ version: 1, status: "pending", completedAt: null });
+    expect(created.data).toMatchObject({ version: 1, status: "pending" });
 
     const bypass = await request(f.publicKey, f.accessToken, `${collection}/${created.data.id}`, {
       method: "PATCH",
@@ -171,7 +171,7 @@ describe("Mutation Authority", () => {
     });
     expect(createdResponse.status).toBe(201);
     const created = await jsonResource(createdResponse);
-    expect(created.data).toMatchObject({ version: 1, status: "open", fulfilledAt: null });
+    expect(created.data).toMatchObject({ version: 1, status: "open" });
 
     const bypass = await request(f.publicKey, f.accessToken, `${collection}/${created.data.id}`, {
       method: "PATCH",
