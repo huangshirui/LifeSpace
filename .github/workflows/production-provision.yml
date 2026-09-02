@@ -1,0 +1,60 @@
+name: Provision production resources
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: "Type PROVISION_PRODUCTION"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lifespace-production-change
+  cancel-in-progress: false
+
+jobs:
+  provision:
+    name: Reconcile declared production resources
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID || secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - name: Validate production provisioning intent
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${{ inputs.confirmation }}" = "PROVISION_PRODUCTION" || { echo "confirmation must be PROVISION_PRODUCTION" >&2; exit 1; }
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+
+      - name: Report provisioning source
+        run: |
+          echo "ref=$GITHUB_REF"
+          echo "sha=$GITHUB_SHA"
+          echo "checkout=$(git rev-parse HEAD)"
+
+      - name: Setup Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Validate production credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${CLOUDFLARE_API_TOKEN:-}" || { echo "CLOUDFLARE_API_TOKEN is not configured" >&2; exit 1; }
+          test -n "${CLOUDFLARE_ACCOUNT_ID:-}" || { echo "CLOUDFLARE_ACCOUNT_ID is not configured" >&2; exit 1; }
+
+      - name: Validate production infrastructure contract
+        run: node infra/scripts/check-production-infra.mjs
+
+      - name: Provision missing declared production resources
+        run: node infra/scripts/provision-production.mjs
