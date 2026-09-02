@@ -111,6 +111,15 @@ describe("Mutation Authority", () => {
     const f = await fixture();
     const collection = `/api/v1/spaces/${f.spaceId}/tasks`;
 
+    const createBypass = await request(f.publicKey, f.accessToken, collection, {
+      method: "POST",
+      body: JSON.stringify({ name: "Client-selected state", status: "pending" }),
+    });
+    expect(createBypass.status).toBe(400);
+    expect(await createBypass.json<ErrorPayload>()).toMatchObject({
+      error: { code: "INVALID_RESOURCE", message: "Field status is read-only" },
+    });
+
     const createdResponse = await request(f.publicKey, f.accessToken, collection, {
       method: "POST",
       body: JSON.stringify({ name: "Protect semantic completion" }),
@@ -164,6 +173,15 @@ describe("Mutation Authority", () => {
   it("denies direct Wish lifecycle writes while preserving ordinary edits and fulfill/reopen Actions", async () => {
     const f = await fixture();
     const collection = `/api/v1/spaces/${f.spaceId}/wishes`;
+
+    const createBypass = await request(f.publicKey, f.accessToken, collection, {
+      method: "POST",
+      body: JSON.stringify({ title: "Client-selected wish state", ownerPersonId: f.personId, status: "open" }),
+    });
+    expect(createBypass.status).toBe(400);
+    expect(await createBypass.json<ErrorPayload>()).toMatchObject({
+      error: { code: "INVALID_RESOURCE", message: "Field status is read-only" },
+    });
 
     const createdResponse = await request(f.publicKey, f.accessToken, collection, {
       method: "POST",
