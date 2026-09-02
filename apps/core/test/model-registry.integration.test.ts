@@ -2,6 +2,7 @@ import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
 import { TASK_MODEL_DEFINITION } from "../src/builtin-models";
 import type { Bindings, Principal } from "../src/env";
+import { getActiveModelContract } from "../src/model-contract-store";
 import { getPublishedModel, getPublishedModelByRoute, publishModelDefinition, retireModel, validateDefinition } from "../src/model-registry";
 import { physicalTableName } from "../src/physical-schema";
 
@@ -70,6 +71,20 @@ describe("Model Registry", () => {
       ["title", "TEXT"],
       ["body", "TEXT"],
     ]);
+  });
+
+  it("rejects Kernel Space routes before Registry or Model Contract mutation", async () => {
+    const definition = noteDefinition("members");
+    const before = await getActiveModelContract(bindings());
+
+    await expect(publishModelDefinition(bindings(), publisher, definition, "initial"))
+      .rejects.toMatchObject({ code: "INVALID_MODEL_DEFINITION" });
+
+    expect(await getPublishedModel(bindings(), definition.key)).toBeNull();
+    const after = await getActiveModelContract(bindings());
+    expect(after?.id).toBe(before?.id);
+    const paths = (after?.openapi as { paths?: Record<string, unknown> } | undefined)?.paths ?? {};
+    expect(paths["/api/v1/spaces/{spaceId}/members"]).toBeUndefined();
   });
 
   it("supersedes an immutable published version and applies compatible additive DDL", async () => {

@@ -49,9 +49,24 @@ describe("Model Definition v1", () => {
     expect(issueCodes(result)).toContain("INVALID_DEFAULT");
   });
 
-  it("rejects Kernel route collisions", () => {
-    const result = validateModelDefinition({ ...TASK_MODEL_DEFINITION, key: "custom_space", route: "spaces" });
-    expect(issueCodes(result)).toContain("RESERVED_ROUTE");
+  it("rejects routes owned by the Kernel Space namespace", () => {
+    for (const route of ["members", "changes", "agent-delegations", "creation-drafts"]) {
+      const result = validateModelDefinition({
+        ...TASK_MODEL_DEFINITION,
+        key: `custom_${route.replaceAll("-", "_")}`,
+        route,
+      });
+      expect(issueCodes(result), route).toContain("RESERVED_ROUTE");
+    }
+  });
+
+  it("does not reserve unrelated top-level Kernel route names inside a Space", () => {
+    const result = validateModelDefinition({
+      ...TASK_MODEL_DEFINITION,
+      key: "custom_spaces",
+      route: "spaces",
+    });
+    expect(result.valid).toBe(true);
   });
 
   it("rejects undeclared query fields", () => {

@@ -136,7 +136,17 @@ day-records
 football-matches
 ```
 
-Kernel-reserved routes such as `health`, `status`, `me`, `spaces`, `space-invites`, `grants`, `creation-drafts`, `models` and `model-admin` cannot be used.
+A model route occupies this exact namespace position:
+
+```text
+/api/v1/spaces/{spaceId}/{route}
+```
+
+Therefore a model may not use a first segment already owned by the Core Kernel at `/api/v1/spaces/{spaceId}/...`. Representative reserved segments include `members`, `invites`, `grants`, `creation-drafts`, `agent-delegations` and `changes`.
+
+The machine-authoritative Kernel Space namespace is `apps/core/kernel-space-route-segments.json`. Core contract CI mechanically derives the current first segments from `apps/core/openapi.yaml` and requires exact parity with that manifest. Model Definition validation consumes the same manifest, so a new Kernel Space route cannot silently become publishable as an ordinary model route.
+
+A Kernel name used at a different path level is not reserved merely because the name exists elsewhere. For example, a top-level route such as `/api/v1/spaces` does not by itself collide with a model route `/api/v1/spaces/{spaceId}/spaces`.
 
 A published route may be owned by only one model key.
 
