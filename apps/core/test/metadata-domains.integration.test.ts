@@ -120,6 +120,14 @@ async function data<T>(response: Response): Promise<T> {
   return payload.data;
 }
 
+async function publishedModelVersion(modelKey: string): Promise<number> {
+  const row = await (env as unknown as TestEnv).DB.prepare(
+    "SELECT version FROM model_definitions WHERE model_key=? AND state='published'",
+  ).bind(modelKey).first<{ version: number }>();
+  if (!row) throw new Error(`Published model ${modelKey} is missing`);
+  return row.version;
+}
+
 describe("metadata-driven built-in domains", () => {
   it("keeps the retired HomeMew family facade absent", async () => {
     const { privateKey, publicKey } = await keys();
@@ -172,7 +180,7 @@ describe("metadata-driven built-in domains", () => {
     }>(created);
     expect(event).toMatchObject({
       modelKey: "event",
-      modelVersion: 2,
+      modelVersion: await publishedModelVersion("event"),
       status: "active",
       attendeePersonIds: [member.personId],
       version: 1,
@@ -238,7 +246,7 @@ describe("metadata-driven built-in domains", () => {
     }>(created);
     expect(task).toMatchObject({
       modelKey: "task",
-      modelVersion: 2,
+      modelVersion: await publishedModelVersion("task"),
       status: "pending",
       assigneePersonIds: [member.personId],
       version: 1,
@@ -399,7 +407,7 @@ describe("metadata-driven built-in domains", () => {
       version: number;
     }>(created);
     expect(wish).toMatchObject({
-      modelVersion: 4,
+      modelVersion: await publishedModelVersion("wish"),
       status: "open",
       ownerPersonId: family.ownerPersonId,
       version: 1,
