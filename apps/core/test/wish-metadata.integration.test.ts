@@ -2,7 +2,7 @@ import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
 import { WISH_MODEL_DEFINITION } from "../src/builtin-models";
 import type { Bindings, Principal } from "../src/env";
-import { createGenericResource } from "../src/generic-resource";
+import { createGenericResource, updateGenericResource } from "../src/generic-resource";
 import { getPublishedModel, publishModelDefinition } from "../src/model-registry";
 import { requireModelPolicy } from "../src/policy";
 import { executeWorkflowAction } from "../src/workflow";
@@ -59,8 +59,11 @@ async function fixture() {
 }
 
 describe("Wish as Model Definition + Policy + Workflow", () => {
-  it("publishes only the open/fulfilled lifecycle and fulfill/reopen actions", () => {
-    expect(WISH_MODEL_DEFINITION.fields.status).toMatchObject({ values: ["open", "fulfilled"] });
+  it("publishes only the open/fulfilled lifecycle and fulfill/reopen Actions with Action-owned status", () => {
+    expect(WISH_MODEL_DEFINITION.fields.status).toMatchObject({
+      values: ["open", "fulfilled"],
+      readOnly: true,
+    });
     expect(Object.keys(WISH_MODEL_DEFINITION.fields).sort()).toEqual([
       "description",
       "desiredDate",
@@ -79,7 +82,6 @@ describe("Wish as Model Definition + Policy + Workflow", () => {
       title: "Weekend hike",
       description: "Go together",
       desiredDate: "2026-08-30",
-      status: "open",
       ownerPersonId: f.ownerPersonId,
     };
     await requireModelPolicy(bindings(), f.owner, f.spaceId, f.model, "create", undefined, createInput);
@@ -87,6 +89,10 @@ describe("Wish as Model Definition + Policy + Workflow", () => {
       .rejects.toMatchObject({ code: "POLICY_DENIED", status: 403 });
 
     const wish = await createGenericResource(bindings(), f.owner, f.spaceId, f.model, createInput);
+    expect(wish.data.status).toBe("open");
+
+    await expect(updateGenericResource(bindings(), f.owner, f.spaceId, f.model, wish.id, 1, { status: "fulfilled" }))
+      .rejects.toMatchObject({ code: "INVALID_RESOURCE", status: 400 });
 
     const fulfilled = await executeWorkflowAction(bindings(), f.helper, f.spaceId, f.model, wish.id, "fulfill", 1);
     expect(fulfilled.data.status).toBe("fulfilled");
