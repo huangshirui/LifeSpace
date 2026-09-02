@@ -158,7 +158,7 @@ Business-facing Core Kernel contract:
 
 ```text
 apps/core/openapi.yaml
-current Kernel version: 0.17.0
+current Kernel version: 0.18.0
 ```
 
 Privileged LifeSpace Console control-plane contract:
