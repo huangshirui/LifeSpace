@@ -37,13 +37,20 @@ function codes(input: unknown): string[] {
 }
 
 describe("Workflow Model Definition", () => {
-  it("accepts declarative Task complete/reopen actions", () => {
+  it("accepts declarative Task complete/reopen actions with the full Actor vocabulary", () => {
     const result = validateModelDefinition(TASK_MODEL_DEFINITION);
     expect(result.valid).toBe(true);
     if (!result.valid) return;
+    expect(result.definition.fields.completedByType.values).toEqual(["user", "service", "device", "agent"]);
     expect(result.definition.actions?.complete.set.completedAt).toEqual({ $ref: "now" });
     expect(result.definition.actions?.complete.set.completedByType).toEqual({ $ref: "actor.type" });
     expect(result.definition.actions?.reopen.set.completedAt).toBeNull();
+  });
+
+  it("rejects actor.type assignments whose target enum omits a supported Actor type", () => {
+    const input = structuredClone(TASK_MODEL_DEFINITION) as typeof TASK_MODEL_DEFINITION;
+    input.fields.completedByType.values = ["user", "service", "device"];
+    expect(codes(input)).toContain("INCOMPATIBLE_ACTION_REFERENCE");
   });
 
   it("accepts a bounded Person-relation branch independently of any product model", () => {
