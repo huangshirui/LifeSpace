@@ -11,8 +11,11 @@ type App = Hono<AppEnv>;
 
 type CatalogRow = { model_key: string; max_access: ModelAccess };
 type MembershipRow = { role: SpaceRole };
+type MembershipAccessRow = MembershipRow & { space_id: string };
 type GrantRow = { resource_type: "space" | "model"; resource_id: string | null; permission: Permission };
+type GrantAccessRow = GrantRow & { source_space_id: string };
 type DelegationAccessRow = { model_key: string; max_access: ModelAccess };
+type DelegationSpaceAccessRow = DelegationAccessRow & { source_space_id: string };
 
 type DiscoveryActionInputField = {
   key: string;
@@ -135,7 +138,118 @@ function dto(model: PublishedModel, allowed: ModelAccess[]) {
   };
 }
 
+function visibleModels(
+  principal: Principal,
+  models: PublishedModel[],
+  catalogByModel: Map<string, ModelAccess>,
+  membership: MembershipRow | null,
+  grants: GrantRow[],
+  delegatedByModel?: Map<string, ModelAccess>,
+) {
+  return models.flatMap((model) => {
+    const catalogAccess = catalogByModel.get(model.key);
+    if (!catalogAccess) return [];
+    const allowed = effectiveAccess(
+      principal,
+      model,
+      catalogAccess,
+      spaceAuthorityRank(principal, membership, grants, model.key),
+      delegatedByModel === undefined ? undefined : (delegatedByModel.get(model.key) ?? null),
+    );
+    return allowed.length ? [dto(model, allowed)] : [];
+  });
+}
+
+function pushGrant(grantsBySpace: Map<string, GrantRow[]>, row: GrantAccessRow): void {
+  const grants = grantsBySpace.get(row.source_space_id) ?? [];
+  grants.push({ resource_type: row.resource_type, resource_id: row.resource_id, permission: row.permission });
+  grantsBySpace.set(row.source_space_id, grants);
+}
+
+function pushDelegation(
+  delegatedBySpace: Map<string, Map<string, ModelAccess>>,
+  row: DelegationSpaceAccessRow,
+): void {
+  const delegatedByModel = delegatedBySpace.get(row.source_space_id) ?? new Map<string, ModelAccess>();
+  const current = delegatedByModel.get(row.model_key);
+  if (!current || accessRank[row.max_access] > accessRank[current]) delegatedByModel.set(row.model_key, row.max_access);
+  delegatedBySpace.set(row.source_space_id, delegatedByModel);
+}
+
 export function registerRuntimeDiscoveryRoutes(app: App): void {
+  app.get("/api/v1/me/_discovery", async (context) => {
+    const principal = context.get("principal");
+    const statements: D1PreparedStatement[] = [
+      context.env.DB.prepare(`SELECT model_key,max_access FROM application_model_access
+        WHERE application_id=?`).bind(principal.clientId),
+    ];
+
+    const membershipIndex = principal.type === "user" ? statements.length : -1;
+    if (principal.type === "user") {
+      statements.push(context.env.DB.prepare(`SELECT m.space_id,m.role
+        FROM space_memberships m
+        JOIN spaces s ON s.id=m.space_id
+        WHERE m.user_id=? AND m.deleted_at IS NULL AND s.deleted_at IS NULL`).bind(principal.id));
+    }
+
+    const grantsIndex = statements.length;
+    statements.push(context.env.DB.prepare(`SELECT g.source_space_id,g.resource_type,g.resource_id,g.permission
+      FROM data_grants g
+      JOIN spaces s ON s.id=g.source_space_id
+      WHERE g.grantee_type=? AND g.grantee_id=?
+        AND g.resource_type IN ('space','model')
+        AND g.revoked_at IS NULL AND (g.expires_at IS NULL OR julianday(g.expires_at)>julianday('now'))
+        AND s.deleted_at IS NULL`).bind(principal.type, principal.id));
+
+    const delegatedAgent = principal.actor?.type === "agent";
+    const delegationIndex = delegatedAgent ? statements.length : -1;
+    if (delegatedAgent) {
+      statements.push(context.env.DB.prepare(`SELECT d.source_space_id,m.model_key,m.max_access
+        FROM agent_delegations d
+        JOIN agent_delegation_models m ON m.delegation_id=d.id
+        JOIN spaces s ON s.id=d.source_space_id
+        WHERE d.principal_user_id=? AND d.agent_id=? AND d.application_id=?
+          AND d.revoked_at IS NULL
+          AND (d.expires_at IS NULL OR julianday(d.expires_at)>julianday('now'))
+          AND s.deleted_at IS NULL`)
+        .bind(principal.id, principal.actor!.id, principal.clientId));
+    }
+
+    const results = await context.env.DB.batch(statements);
+    const catalogs = (results[0].results ?? []) as CatalogRow[];
+    const catalogByModel = new Map(catalogs.map((row) => [row.model_key, row.max_access]));
+    const memberships = membershipIndex >= 0 ? (results[membershipIndex].results ?? []) as MembershipAccessRow[] : [];
+    const membershipsBySpace = new Map(memberships.map((row) => [row.space_id, { role: row.role }]));
+    const grantsBySpace = new Map<string, GrantRow[]>();
+    for (const row of (results[grantsIndex].results ?? []) as GrantAccessRow[]) pushGrant(grantsBySpace, row);
+
+    const delegatedBySpace = new Map<string, Map<string, ModelAccess>>();
+    if (delegatedAgent) {
+      for (const row of (results[delegationIndex].results ?? []) as DelegationSpaceAccessRow[]) pushDelegation(delegatedBySpace, row);
+    }
+
+    const candidateSpaceIds = new Set<string>([
+      ...membershipsBySpace.keys(),
+      ...grantsBySpace.keys(),
+    ]);
+    const models = await listPublishedModels(context.env);
+    const spaces = [...candidateSpaceIds]
+      .sort((left, right) => left.localeCompare(right))
+      .flatMap((spaceId) => {
+        const visible = visibleModels(
+          principal,
+          models,
+          catalogByModel,
+          membershipsBySpace.get(spaceId) ?? null,
+          grantsBySpace.get(spaceId) ?? [],
+          delegatedAgent ? (delegatedBySpace.get(spaceId) ?? new Map<string, ModelAccess>()) : undefined,
+        );
+        return visible.length ? [{ spaceId, models: visible }] : [];
+      });
+
+    return context.json(success({ spaces }));
+  });
+
   app.get("/api/v1/spaces/:spaceId/_discovery", async (context) => {
     const principal = context.get("principal");
     const spaceId = context.req.param("spaceId");
@@ -189,19 +303,14 @@ export function registerRuntimeDiscoveryRoutes(app: App): void {
       }
     }
     const models = await listPublishedModels(context.env);
-
-    const visible = models.flatMap((model) => {
-      const catalogAccess = catalogByModel.get(model.key);
-      if (!catalogAccess) return [];
-      const allowed = effectiveAccess(
-        principal,
-        model,
-        catalogAccess,
-        spaceAuthorityRank(principal, membership, grants, model.key),
-        delegatedAgent ? (delegatedByModel.get(model.key) ?? null) : undefined,
-      );
-      return allowed.length ? [dto(model, allowed)] : [];
-    });
+    const visible = visibleModels(
+      principal,
+      models,
+      catalogByModel,
+      membership,
+      grants,
+      delegatedAgent ? delegatedByModel : undefined,
+    );
 
     return context.json(success({ spaceId, models: visible }));
   });
