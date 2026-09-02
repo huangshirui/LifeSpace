@@ -1,3 +1,4 @@
+import { ACTOR_TYPES } from "./env";
 import type { FieldDefinition, ModelAccess, ModelValidationIssue } from "./model-definition";
 import { validatePolicyExpression, type PolicyExpression } from "./policy-definition";
 
@@ -108,7 +109,7 @@ function referenceCompatible(
   }
   if (reference === "actor.type") {
     return target.type === "enum"
-      && ["user", "service", "device"].every((value) => target.values?.includes(value));
+      && ACTOR_TYPES.every((value) => target.values?.includes(value));
   }
   const match = RECORD_REFERENCE.exec(reference);
   const source = match ? fields[match[1]] : undefined;
