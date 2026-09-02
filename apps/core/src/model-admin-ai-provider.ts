@@ -66,7 +66,7 @@ Allowed top-level keys:
 - defaults: optional object of static create defaults
 - query: optional { searchable, filterable, sortable }
 - access: array containing read/write/manage in increasing authority; ordinary editable models normally use ["read","write"]
-- lifecycle: optional { optimisticConcurrency, softDelete }
+- lifecycle: optional invariant assertion object { optimisticConcurrency?: true, softDelete?: true }; false is never valid and omission does not disable either Runtime invariant
 - capabilities: optional registered Capability configuration only
 - policies: optional bounded declarative Policy AST only
 - actions: optional bounded declarative Workflow actions only
@@ -81,7 +81,7 @@ DESIGN RULES
 - Use static defaults for initial states such as status=open/pending/active when appropriate instead of forcing clients to send them.
 - Person relations use person/person_list; do not store user IDs as strings.
 - Cross-model relations use record/record_list with targetModel.
-- Prefer optimisticConcurrency=true and softDelete=true for normal user-managed records.
+- Optimistic concurrency and soft deletion are Generic Runtime invariants for every ordinary model. Do not propose false or alternative lifecycle strategies in Model Definition v1.
 - Query declarations only reference declared fields.
 - Descriptions should explain semantics well enough for AI interpretation and future administrators.
 

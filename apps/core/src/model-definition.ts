@@ -60,8 +60,8 @@ export type ModelDefinition = {
   query?: QueryDefinition;
   access: ModelAccess[];
   lifecycle?: {
-    optimisticConcurrency?: boolean;
-    softDelete?: boolean;
+    optimisticConcurrency?: true;
+    softDelete?: true;
   };
   capabilities?: CapabilityDefinitions;
   policies?: ModelPoliciesDefinition;
@@ -552,8 +552,8 @@ export function validateModelDefinition(input: unknown): ModelValidationResult {
   }
   const lifecycle = lifecycleInput
     ? {
-        optimisticConcurrency: lifecycleInput.optimisticConcurrency === true,
-        softDelete: lifecycleInput.softDelete === true,
+        ...(lifecycleInput.optimisticConcurrency === true ? { optimisticConcurrency: true as const } : {}),
+        ...(lifecycleInput.softDelete === true ? { softDelete: true as const } : {}),
       }
     : undefined;
   if (lifecycleInput) {
@@ -568,8 +568,14 @@ export function validateModelDefinition(input: unknown): ModelValidationResult {
       }
     }
     for (const property of ["optimisticConcurrency", "softDelete"] as const) {
-      if (lifecycleInput[property] !== undefined && typeof lifecycleInput[property] !== "boolean") {
-        issue(issues, `lifecycle.${property}`, "INVALID_BOOLEAN", `${property} must be boolean`);
+      const value = lifecycleInput[property];
+      if (value !== undefined && value !== true) {
+        issue(
+          issues,
+          `lifecycle.${property}`,
+          "UNSUPPORTED_LIFECYCLE_OVERRIDE",
+          `${property} is a Generic Runtime invariant and may only be true in Model Definition v1`,
+        );
       }
     }
   }

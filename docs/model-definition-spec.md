@@ -81,8 +81,8 @@ The v1 top-level shape is:
   },
   access: ("read" | "write" | "manage")[],
   lifecycle?: {
-    optimisticConcurrency?: boolean,
-    softDelete?: boolean
+    optimisticConcurrency?: true,
+    softDelete?: true
   },
   capabilities?: CapabilityDefinitions,
   policies?: ModelPolicies,
@@ -347,24 +347,29 @@ Therefore declaring `write` does not grant anyone write authority by itself.
 
 ## 8. Lifecycle Metadata
 
-v1 declares:
+Optimistic concurrency（乐观并发） and soft deletion（软删除） are **Generic Runtime invariants（通用运行时不变量）** for every ordinary Model Definition v1. They are not per-model lifecycle strategies.
+
+For historical/explicit representation, v1 may contain the optional assertion object:
 
 ```ts
-lifecycle: {
-  optimisticConcurrency?: boolean,
-  softDelete?: boolean
+lifecycle?: {
+  optimisticConcurrency?: true,
+  softDelete?: true
 }
 ```
 
-These fields describe ordinary resource lifecycle intent.
+Rules:
 
-### Current v1 runtime note
+- omission never disables either invariant;
+- an explicitly present value may only be `true`;
+- `false` is invalid and publication must reject it;
+- ordinary update/delete/action mutations continue to use the record `version` concurrency boundary;
+- ordinary deletion remains logical deletion through `deleted_at`, never a per-model hard-delete switch;
+- adding or removing these redundant `true` assertions is a representation change, not a domain-semantic breaking change.
 
-The current Generic Runtime always uses record `version` for mutations and performs deletion through `deleted_at` soft deletion for ordinary resources. Therefore callers must not treat `false` as a supported switch that disables concurrency checking or turns deletion into hard delete.
+The validator preserves whether the optional assertion metadata was present so existing canonical Model Definition hashes are not rewritten merely to restate a Runtime invariant.
 
-Current built-in models explicitly declare both as `true`.
-
-If lifecycle flags later become genuine behavior switches, that change requires coordinated specification, validator, runtime and contract changes.
+If a future use case genuinely requires another concurrency or deletion strategy, it must be introduced deliberately as new Model Definition semantics with coordinated specification, validator, Runtime, contract and compatibility design. Model Definition v1 must not encode that future possibility as a fake boolean switch.
 
 ## 9. Policy DSL
 
