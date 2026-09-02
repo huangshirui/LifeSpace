@@ -43,6 +43,18 @@ function exactSet(label, values, wanted) {
   }
 }
 
+function requireTokens(label, source, tokens) {
+  for (const token of tokens) {
+    if (!source.includes(token)) throw new Error(`${label} is missing required guard/step: ${token}`);
+  }
+}
+
+function forbidTokens(label, source, tokens) {
+  for (const token of tokens) {
+    if (source.includes(token)) throw new Error(`${label} contains forbidden retired/cross-purpose behavior: ${token}`);
+  }
+}
+
 exactSet("production D1", (resources.d1 ?? []).map((item) => item.name), expected.d1);
 exactSet("production R2", (resources.r2 ?? []).map((item) => item.name), expected.r2);
 exactSet("production Queue", (resources.queues ?? []).map((item) => item.name), expected.queues);
@@ -65,22 +77,53 @@ for (const [label, source, required] of [
   ]],
   ["Identity", identityWrangler, ["\"name\": \"lifespace-identity\"", "\"database_name\": \"lifespace-identity\"", "\"bucket_name\": \"lifespace-assets\"", "\"pattern\": \"auth.aisr.online\""]],
 ]) {
-  for (const token of required) if (!source.includes(token)) throw new Error(`${label} production Wrangler config is missing ${token}`);
+  requireTokens(`${label} production Wrangler config`, source, required);
 }
 
-const workflow = readFileSync(resolve(ROOT, ".github/workflows/production-deploy.yml"), "utf8");
-for (const required of [
+const productionDeploy = readFileSync(resolve(ROOT, ".github/workflows/production-deploy.yml"), "utf8");
+requireTokens("Production deployment workflow", productionDeploy, [
   "environment: production",
-  "phase6_bringup:",
-  "provision:",
   "confirmation:",
   "DEPLOY_PRODUCTION",
+  "group: lifespace-production-change",
   "LIFESPACE_PRODUCTION_BOOTSTRAP_SECRET",
-  "node infra/scripts/verify-production-db.mjs",
-]) {
-  if (!workflow.includes(required)) throw new Error(`Production deployment workflow is missing guard/step: ${required}`);
+  "db:migrate:production",
+  "wrangler deploy --env production",
+  "node infra/scripts/verify-production-model-admin.mjs",
+]);
+forbidTokens("Production deployment workflow", productionDeploy, [
+  "phase6_bringup",
+  "provision-production.mjs",
+  "verify-production-homemew-auth.mjs",
+  "verify-production-db.mjs",
+  "homemew-one-shot.mjs",
+]);
+
+const productionProvision = readFileSync(resolve(ROOT, ".github/workflows/production-provision.yml"), "utf8");
+requireTokens("Production provisioning workflow", productionProvision, [
+  "environment: production",
+  "confirmation:",
+  "PROVISION_PRODUCTION",
+  "group: lifespace-production-change",
+  "node infra/scripts/provision-production.mjs",
+]);
+forbidTokens("Production provisioning workflow", productionProvision, [
+  "db:migrate:production",
+  "wrangler deploy --env production",
+  "LIFESPACE_PRODUCTION_BOOTSTRAP_SECRET",
+]);
+
+const stagingDeploy = readFileSync(resolve(ROOT, ".github/workflows/staging-deploy.yml"), "utf8");
+const stagingProvision = readFileSync(resolve(ROOT, ".github/workflows/staging-provision.yml"), "utf8");
+requireTokens("Staging provisioning workflow", stagingProvision, [
+  "environment: staging",
+  "confirmation:",
+  "PROVISION_STAGING",
+  "node infra/scripts/provision-staging.mjs",
+]);
+if (!stagingDeploy.includes("group: lifespace-staging-deploy") || !stagingProvision.includes("group: lifespace-staging-deploy")) {
+  throw new Error("Staging deploy and provision workflows must share one concurrency lock");
 }
-if (workflow.includes("homemew-one-shot.mjs")) throw new Error("Production deployment workflow must not invoke HomeMew migration during Phase 6");
 
 const profile = JSON.parse(readFileSync(resolve(ROOT, "infra/homemew-integration-profile.json"), "utf8"));
 if (profile.application?.productionId !== "homemew-miniprogram") {
@@ -100,5 +143,7 @@ console.log(JSON.stringify({
     domains: Object.fromEntries(expected.domains),
   },
   homemewProductionApplicationId: profile.application.productionId,
-  phase6MigrationInvocationAbsent: true,
+  phase6ActiveEntrypointAbsent: true,
+  deploymentProvisioningSeparated: true,
+  stagingProvisioningSeparated: true,
 }, null, 2));
