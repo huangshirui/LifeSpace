@@ -25,7 +25,7 @@ const releaseFingerprint = Object.freeze({
 // This is the deterministic contract for an isolated Registry containing exactly
 // the four baseline models above. A deployed Registry may legitimately have a
 // different active mct_* when additional ordinary models are published.
-const isolatedBaselineModelContract = "mct_5ac2bbceb3baf7aeed9aa06188049c44d92ab3c641b10a02df2168c3b7c122ac";
+const isolatedBaselineModelContract = "mct_cd79cc07956344aa8c36a056bfad4e9f37937f864b25fe0132ec314677c89305";
 
 function published(definition: ModelDefinition): PublishedModel {
   return {
