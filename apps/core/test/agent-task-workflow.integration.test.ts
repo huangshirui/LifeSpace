@@ -105,8 +105,8 @@ describe("Delegated Agent Task Workflow", () => {
       body: JSON.stringify({ name: "Agent-completable task" }),
     });
     expect(created.status).toBe(201);
-    const task = await data<{ id: string; version: number; data: { status: string } }>(created);
-    expect(task.data.status).toBe("pending");
+    const task = await data<{ id: string; version: number; status: string }>(created);
+    expect(task.status).toBe("pending");
 
     const delegated = await request(publicKey, `/api/v1/spaces/${spaceId}/agent-delegations`, {
       method: "POST",
@@ -125,9 +125,11 @@ describe("Delegated Agent Task Workflow", () => {
     expect(completed.status).toBe(200);
     const completedTask = await data<{
       version: number;
-      data: { status: string; completedByType: string; completedById: string };
+      status: string;
+      completedByType: string;
+      completedById: string;
     }>(completed);
-    expect(completedTask.data).toMatchObject({
+    expect(completedTask).toMatchObject({
       status: "completed",
       completedByType: "agent",
       completedById: agentId,
