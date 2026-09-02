@@ -24,6 +24,7 @@
     "@types/node": "^24.0.0",
     "typescript": "^5.9.0",
     "vitest": "^4.1.0",
-    "wrangler": "4.105.0"
+    "wrangler": "4.105.0",
+    "yaml": "^2.9.0"
   }
 }
