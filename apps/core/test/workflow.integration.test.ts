@@ -38,14 +38,13 @@ async function fixture() {
   if (!model) throw new Error("bootstrap Task model is missing");
   const resource = await createGenericResource(bindings(), creator, spaceId, model, {
     name: "Ship workflow",
-    status: "pending",
     assigneePersonIds: [],
   });
   return { db, spaceId, model, resource };
 }
 
 describe("Generic Workflow Engine", () => {
-  it("executes Task complete/reopen from published metadata for a service Actor", async () => {
+  it("executes Task complete/reopen/cancel from published metadata for authorized Actors", async () => {
     const { db, spaceId, model, resource } = await fixture();
 
     const completed = await executeWorkflowAction(bindings(), serviceActor, spaceId, model, resource.id, "complete", 1);
@@ -72,6 +71,17 @@ describe("Generic Workflow Engine", () => {
     expect(reopened.data.completedAt).toBeNull();
     expect(reopened.data.completedByType).toBeNull();
     expect(reopened.data.completedById).toBeNull();
+
+    const cancelled = await executeWorkflowAction(bindings(), creator, spaceId, model, resource.id, "cancel", 3);
+    expect(cancelled.version).toBe(4);
+    expect(cancelled.data).toMatchObject({
+      status: "cancelled",
+      completedAt: null,
+      completedByType: null,
+      completedById: null,
+    });
+    await expect(executeWorkflowAction(bindings(), creator, spaceId, model, resource.id, "cancel", 4))
+      .rejects.toMatchObject({ code: "TASK_ALREADY_CANCELLED", status: 409 });
   });
 
   it("records a direct user as the Task completion Actor", async () => {
