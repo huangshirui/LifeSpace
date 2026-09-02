@@ -60,8 +60,8 @@ export type ModelDefinition = {
   query?: QueryDefinition;
   access: ModelAccess[];
   lifecycle?: {
-    optimisticConcurrency?: boolean;
-    softDelete?: boolean;
+    optimisticConcurrency?: true;
+    softDelete?: true;
   };
   capabilities?: CapabilityDefinitions;
   policies?: ModelPoliciesDefinition;
@@ -550,12 +550,10 @@ export function validateModelDefinition(input: unknown): ModelValidationResult {
   if (input.lifecycle !== undefined && !lifecycleInput) {
     issue(issues, "lifecycle", "INVALID_LIFECYCLE", "lifecycle must be an object");
   }
-  const lifecycle = lifecycleInput
-    ? {
-        optimisticConcurrency: lifecycleInput.optimisticConcurrency === true,
-        softDelete: lifecycleInput.softDelete === true,
-      }
-    : undefined;
+  const lifecycle = {
+    optimisticConcurrency: true as const,
+    softDelete: true as const,
+  };
   if (lifecycleInput) {
     for (const property of Object.keys(lifecycleInput)) {
       if (property !== "optimisticConcurrency" && property !== "softDelete") {
@@ -568,8 +566,14 @@ export function validateModelDefinition(input: unknown): ModelValidationResult {
       }
     }
     for (const property of ["optimisticConcurrency", "softDelete"] as const) {
-      if (lifecycleInput[property] !== undefined && typeof lifecycleInput[property] !== "boolean") {
-        issue(issues, `lifecycle.${property}`, "INVALID_BOOLEAN", `${property} must be boolean`);
+      const value = lifecycleInput[property];
+      if (value !== undefined && value !== true) {
+        issue(
+          issues,
+          `lifecycle.${property}`,
+          "UNSUPPORTED_LIFECYCLE_OVERRIDE",
+          `${property} is a Generic Runtime invariant and may only be true in Model Definition v1`,
+        );
       }
     }
   }
@@ -618,7 +622,7 @@ export function validateModelDefinition(input: unknown): ModelValidationResult {
     ...(Object.keys(defaults).length ? { defaults } : {}),
     ...(query ? { query } : {}),
     access: accessInput as ModelAccess[],
-    ...(lifecycle ? { lifecycle } : {}),
+    lifecycle,
     ...(capabilityResult.capabilities ? { capabilities: capabilityResult.capabilities } : {}),
     ...(modelPolicies.policies ? { policies: modelPolicies.policies } : {}),
     ...(workflow.actions ? { actions: workflow.actions } : {}),
