@@ -12,7 +12,7 @@
       "status": { "type": "enum", "description": "Current lifecycle state of the task.", "required": true, "values": ["pending", "completed", "cancelled"] },
       "assigneePersonIds": { "type": "person_list", "description": "People responsible for completing the task." },
       "completedAt": { "type": "datetime", "nullable": true, "readOnly": true },
-      "completedByType": { "type": "enum", "nullable": true, "readOnly": true, "values": ["user", "service", "device"] },
+      "completedByType": { "type": "enum", "nullable": true, "readOnly": true, "values": ["user", "service", "device", "agent"] },
       "completedById": { "type": "string", "nullable": true, "readOnly": true, "maxLength": 100 }
     },
     "defaults": { "status": "pending" },
