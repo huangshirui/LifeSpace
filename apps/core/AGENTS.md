@@ -49,6 +49,9 @@ Core does not own:
 ## Metadata-driven domain rules
 
 - Ordinary models are declared through the closed Model Definition DSL and interpreted by fixed Runtime code.
+- The shipped baseline Model Definitions are edited only in `apps/core/model-catalog/baseline-models.json`. `src/builtin-models.ts`, deployment semantic projections and tests must derive from that catalog rather than maintain parallel editable definitions.
+- Historical SQL migrations are immutable publication snapshots, not a second current Model Definition source. When the shipped catalog changes, add an explicit compatibility-classified convergence migration and preserve historical rows.
+- Fresh-migration tests must prove the final published Registry definitions and schema hashes equal the canonical shipped catalog. Do not hard-code environment-local Registry version numbers as semantic identity when a current published version or schema hash can be used instead.
 - Do not add handwritten CRUD/router/table sets for ordinary models when Model Definition + reusable Capability can represent the requirement.
 - Missing behavior should be evaluated as a reusable Engine/Capability or true Kernel exception before adding source code.
 - Published Model Definition versions are immutable and compatibility-classified.
