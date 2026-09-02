@@ -77,15 +77,28 @@ A subscription adds a model filter to that endpoint. Creating, enabling or mater
 - current read access to the selected model for the managing application/user context;
 - a current Data Grant that lets the endpoint's subscriber Service Principal read, write or manage that model in the endpoint Space, or an equivalent whole-Space Grant.
 
-Delivery re-checks both current managing Application × Model Access and the subscriber Service Principal's current Data Grant. Disabling/deleting the endpoint or subscription, revoking/expiring the subscriber Grant, or revoking the managing application's model access prevents queued deliveries from being sent.
+Delivery re-checks current managing Application × Model Access, the subscriber Service Principal's current Data Grant and the subscriber's current Identity eligibility before the outbound Webhook request begins. Disabling/deleting the endpoint or subscription, revoking/expiring the subscriber Grant, revoking the managing application's model access, disabling the subscriber Service Principal or disabling its owning registered application therefore prevents a queued delivery from crossing the outbound boundary.
 
-The subscriber Service Principal itself remains Identity-owned. Eventing stores only its stable principal ID as a platform reference; it does not duplicate service credentials or Identity state in Core.
+The subscriber Service Principal itself remains Identity-owned. Eventing stores only its stable principal ID as a platform reference; it does not duplicate service credentials or Identity state in Core. The final Queue consumer asks Identity over the authenticated Core -> Identity Service Binding for the current principal/application eligibility immediately before delivery. This current-state check is the security boundary for passive Eventing delivery; application-side Grant cleanup is useful hygiene but is not the kill switch.
+
+Re-enabling a Service Principal restores only Identity eligibility. It does not recreate a revoked/expired Data Grant, a disabled/deleted Endpoint or Subscription, or removed Application × Model Access. All of those independent current-state checks must still pass.
 
 Application UIs may present domain-friendly names (for example HomeMew shows `event` as `日程`) but submit stable model keys and the actual subscriber Service Principal ID to Core.
 
 ## Delivery
 
 The D1 outbox is scanned by the Core scheduled handler and matched against active subscription filters whose endpoint is active and whose subscriber still has a current Data Grant. Matching produces one durable delivery row per `(event, subscription)` and enqueues the delivery to the environment-specific Cloudflare Queue.
+
+Outbox matching intentionally does not copy or cache Identity principal state. The Queue consumer is the final authority gate: after re-checking the Core-owned endpoint/subscription, Application × Model Access and Data Grant state, it queries Identity current state by stable `svc_*` ID before any outbound HTTP attempt or delivery-attempt increment.
+
+The resulting behavior is fail-closed:
+
+- active Service Principal + active owning application + all Core authority still current -> delivery may proceed;
+- disabled/missing Service Principal or disabled owning application -> mark the delivery `cancelled`, acknowledge the Queue message and send no Webhook;
+- Identity current state cannot be confirmed because the Service Binding is unavailable, returns non-success, or returns an invalid response -> send no Webhook, mark the delivery `failed` and retry the Queue message;
+- a prolonged Identity outage may eventually exhaust the configured Queue retries and move the message to the environment-specific dead-letter queue, but it must never degrade into delivery based on stale positive Identity state.
+
+This design deliberately accepts one authenticated Service Binding + Identity current-state read for each delivery that survives the Core-owned authority checks. Positive caching or replicated principal eligibility is not part of the correctness boundary unless a future design supplies explicit revocation-safe freshness semantics.
 
 Delivery semantics are at-least-once. Receivers should use `X-LifeSpace-Event-Id` and/or `X-LifeSpace-Delivery-Id` for idempotency.
 
@@ -106,7 +119,7 @@ Delivery diagnostics are endpoint-level so an operator can see all model notific
 
 ## Test send
 
-A Webhook Endpoint can send a signed `endpoint.test` payload without reading any ordinary model record. Test send proves transport and signature verification only; it does not prove that every selected model currently has a valid Data Grant.
+A Webhook Endpoint can send a signed `endpoint.test` payload without reading any ordinary model record. Test send proves transport and signature verification only; it does not prove that every selected model currently has a valid Data Grant. It is intentionally not the normal domain-event delivery authority path and therefore does not substitute for the send-time subscriber eligibility check described above.
 
 ## Application boundary
 
