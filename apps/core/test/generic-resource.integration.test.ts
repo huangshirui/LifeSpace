@@ -59,7 +59,7 @@ describe("Generic Resource Runtime", () => {
     });
 
     expect(resource.modelKey).toBe("task");
-    expect(resource.modelVersion).toBe(2);
+    expect(resource.modelVersion).toBe(model.version);
     expect(resource.version).toBe(1);
     expect(resource.data).toMatchObject({ name: "Buy milk", status: "pending", assigneePersonIds: [personId] });
 
@@ -73,7 +73,7 @@ describe("Generic Resource Runtime", () => {
 
     const envelope = await db.prepare("SELECT model_key,model_version,version FROM resource_records WHERE id=?")
       .bind(resource.id).first<{ model_key: string; model_version: number; version: number }>();
-    expect(envelope).toEqual({ model_key: "task", model_version: 2, version: 1 });
+    expect(envelope).toEqual({ model_key: "task", model_version: model.version, version: 1 });
   });
 
   it("enforces declared schema and read-only fields", async () => {
