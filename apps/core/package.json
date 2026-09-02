@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "wrangler dev",
     "bindings:check": "wrangler types src/worker-configuration.d.ts --env-interface CloudflareBindings --include-runtime false --check",
-    "contract": "node scripts/check-openapi.mjs && node scripts/check-platform-admin-openapi.mjs",
+    "contract": "node scripts/check-openapi.mjs && node scripts/check-kernel-route-namespace.mjs && node scripts/check-platform-admin-openapi.mjs",
     "test": "vitest run --passWithNoTests && node --test scripts/*.test.mjs",
     "typecheck": "tsc --noEmit",
     "build": "wrangler deploy --dry-run --outdir dist",
