@@ -3,7 +3,7 @@ import YAML from "yaml";
 
 const document = YAML.parse(fs.readFileSync(new URL("../openapi.yaml", import.meta.url), "utf8"));
 
-if (document.openapi !== "3.1.0" || document.info?.version !== "0.18.0") {
+if (document.openapi !== "3.1.0" || document.info?.version !== "0.19.0") {
   throw new Error("Core Kernel OpenAPI version metadata is invalid");
 }
 if (!document.info?.title?.includes("Kernel")) {
@@ -209,6 +209,10 @@ if (!schemas.RuntimeDiscoveryFieldType?.enum?.includes("date")
     || !schemas.RuntimeDiscoveryFieldType?.enum?.includes("record_list")) {
   throw new Error("Runtime Discovery field type vocabulary drifted");
 }
+if (!schemas.RuntimeDiscoveryModel?.required?.includes("defaults")
+    || schemas.RuntimeDiscoveryModel?.properties?.defaults?.type !== "object") {
+  throw new Error("Runtime Discovery must expose authoritative model server defaults");
+}
 
 const endpoints = document.paths?.["/api/v1/webhook-endpoints"];
 const endpoint = document.paths?.["/api/v1/webhook-endpoints/{endpointId}"];
@@ -274,7 +278,7 @@ if (schemas.ModelContract?.properties?.id?.pattern !== "^mct_[a-f0-9]{64}$") {
   throw new Error("Model Contract revisions must be content-addressed mct_<sha256>");
 }
 
-if (schemas.StatusResponse?.properties?.data?.properties?.contractVersion?.const !== "0.18.0") {
+if (schemas.StatusResponse?.properties?.data?.properties?.contractVersion?.const !== "0.19.0") {
   throw new Error("Core Kernel status contract version drifted");
 }
 
