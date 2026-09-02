@@ -12,7 +12,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: lifespace-staging-change
+  group: lifespace-staging-deploy
   cancel-in-progress: false
 
 jobs:
