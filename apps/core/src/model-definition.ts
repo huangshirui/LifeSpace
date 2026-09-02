@@ -1,3 +1,4 @@
+import kernelSpaceRouteSegments from "../kernel-space-route-segments.json";
 import { validateCapabilities, type CapabilityDefinitions } from "./capability-definition";
 import { validateModelPolicies, type ModelPoliciesDefinition } from "./policy-definition";
 import { validateWorkflowActions, type WorkflowActionsDefinition } from "./workflow-definition";
@@ -80,17 +81,7 @@ export type ModelValidationResult =
 const MODEL_KEY = /^[a-z][a-z0-9_]{1,62}$/;
 const ROUTE_SEGMENT = /^[a-z][a-z0-9-]{1,62}$/;
 const FIELD_KEY = /^[a-z][A-Za-z0-9]{0,62}$/;
-const RESERVED_ROUTES = new Set([
-  "health",
-  "status",
-  "me",
-  "spaces",
-  "space-invites",
-  "grants",
-  "creation-drafts",
-  "models",
-  "model-admin",
-]);
+const RESERVED_ROUTES = new Set<string>(kernelSpaceRouteSegments);
 const RESERVED_FIELDS = new Set([
   "id",
   "spaceId",
