@@ -15,6 +15,7 @@ describe("Model Definition v1", () => {
     expect(result.definition.route).toBe("tasks");
     expect(result.definition.fields.assigneePersonIds.type).toBe("person_list");
     expect(result.definition.defaults).toEqual({ status: "pending" });
+    expect(result.definition.lifecycle).toEqual({ optimisticConcurrency: true, softDelete: true });
     expect(result.hashInput).toBe(canonicalModelDefinition(result.definition));
   });
 
@@ -25,6 +26,29 @@ describe("Model Definition v1", () => {
       fields: Object.fromEntries(Object.entries(TASK_MODEL_DEFINITION.fields).reverse()),
     };
     expect(canonicalModelDefinition(reordered)).toBe(first);
+  });
+
+  it("normalizes omitted lifecycle metadata to the same Runtime invariants", () => {
+    const { lifecycle: _lifecycle, ...withoutLifecycle } = TASK_MODEL_DEFINITION;
+    const explicit = validateModelDefinition(TASK_MODEL_DEFINITION);
+    const omitted = validateModelDefinition(withoutLifecycle);
+
+    expect(explicit.valid).toBe(true);
+    expect(omitted.valid).toBe(true);
+    if (!explicit.valid || !omitted.valid) return;
+
+    expect(omitted.definition.lifecycle).toEqual({ optimisticConcurrency: true, softDelete: true });
+    expect(omitted.hashInput).toBe(explicit.hashInput);
+  });
+
+  it("rejects attempts to disable Generic Runtime lifecycle invariants", () => {
+    for (const lifecycle of [
+      { optimisticConcurrency: false, softDelete: true },
+      { optimisticConcurrency: true, softDelete: false },
+    ]) {
+      const result = validateModelDefinition({ ...TASK_MODEL_DEFINITION, lifecycle });
+      expect(issueCodes(result)).toContain("UNSUPPORTED_LIFECYCLE_OVERRIDE");
+    }
   });
 
   it("rejects defaults for undeclared or incompatible fields", () => {
