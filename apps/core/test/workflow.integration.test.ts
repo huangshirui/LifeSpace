@@ -45,7 +45,7 @@ async function fixture() {
 }
 
 describe("Generic Workflow Engine", () => {
-  it("executes Task complete/reopen from published metadata and preserves principal actor semantics", async () => {
+  it("executes Task complete/reopen from published metadata for a service Actor", async () => {
     const { db, spaceId, model, resource } = await fixture();
 
     const completed = await executeWorkflowAction(bindings(), serviceActor, spaceId, model, resource.id, "complete", 1);
@@ -72,6 +72,16 @@ describe("Generic Workflow Engine", () => {
     expect(reopened.data.completedAt).toBeNull();
     expect(reopened.data.completedByType).toBeNull();
     expect(reopened.data.completedById).toBeNull();
+  });
+
+  it("records a direct user as the Task completion Actor", async () => {
+    const { spaceId, model, resource } = await fixture();
+    const completed = await executeWorkflowAction(bindings(), creator, spaceId, model, resource.id, "complete", 1);
+    expect(completed.data).toMatchObject({
+      status: "completed",
+      completedByType: "user",
+      completedById: creator.id,
+    });
   });
 
   it("rejects stale versions before evaluating workflow guards", async () => {
