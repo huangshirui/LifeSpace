@@ -136,7 +136,7 @@ jobs:
           - Ref: \`${GITHUB_REF}\`
           - SHA: \`${GITHUB_SHA}\`
           - Core: schema v${LIFESPACE_EXPECTED_CORE_SCHEMA_VERSION} / Kernel contract ${LIFESPACE_EXPECTED_CORE_CONTRACT_VERSION}
-          - Identity: schema v${LIFESPACE_EXPECTED_IDENTITY_CONTRACT_VERSION} / contract ${LIFESPACE_EXPECTED_IDENTITY_CONTRACT_VERSION}
+          - Identity: schema v${LIFESPACE_EXPECTED_IDENTITY_SCHEMA_VERSION} / contract ${LIFESPACE_EXPECTED_IDENTITY_CONTRACT_VERSION}
           - Active pinned Model Contract: passed
           - Custom domains: \`core.aisr.online\`, \`auth.aisr.online\`
           - Production D1/R2/Queue/Worker isolation: passed
