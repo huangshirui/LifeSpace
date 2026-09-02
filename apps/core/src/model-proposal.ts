@@ -114,7 +114,6 @@ function obviousCompatibilityReasons(base: ModelDefinition, next: ModelDefinitio
     reasons.push("model access removed an existing access capability");
   }
 
-  if (!equal(base.lifecycle, next.lifecycle)) reasons.push("lifecycle semantics changed");
   if (!equal(base.capabilities, next.capabilities)) reasons.push("Capability configuration changed");
   if (!equal(base.policies, next.policies)) reasons.push("Policy semantics changed");
 
