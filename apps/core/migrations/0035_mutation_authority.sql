@@ -9,6 +9,13 @@
 -- Model Contract evolution because status is removed from ordinary create/update
 -- request schemas. Existing records remain valid and are only advanced to the new
 -- published Model Definition version.
+--
+-- Downstream compatibility reviewed for the current HomeMew client: ordinary Task
+-- and Wish edit payloads do not write status; Task complete/reopen and Wish
+-- fulfill/reopen already use semantic Action endpoints. No HomeMew code change is
+-- required for those paths. Any other consumer that writes Task/Wish status
+-- directly must migrate to the declared Actions; Task cancellation now uses
+-- actions/cancel.
 
 UPDATE model_definitions
 SET state='superseded',superseded_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
