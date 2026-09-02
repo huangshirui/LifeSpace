@@ -1,5 +1,6 @@
 import type { Bindings } from "./env";
 import { ApiError } from "./http";
+import { servicePrincipalIsActive } from "./service-principal-authority";
 
 export type DomainEventType = "record.created" | "record.updated" | "record.deleted";
 export type WebhookDeliveryQueueMessage = { kind: "webhook-delivery"; deliveryId: string };
@@ -236,6 +237,22 @@ async function deliverOne(env: Bindings, deliveryId: string): Promise<"ack" | "r
   }
   if (!(await subscriberCanReceive(env, delivery.subscriber_service_principal_id, event.space_id, event.model_key))) {
     await env.DB.prepare(`UPDATE webhook_deliveries SET status='cancelled',updated_at=?,last_error='subscriber grant revoked or expired' WHERE id=?`)
+      .bind(now(), deliveryId).run();
+    return "ack";
+  }
+
+  let subscriberActive: boolean;
+  try {
+    subscriberActive = await servicePrincipalIsActive(env, delivery.subscriber_service_principal_id);
+  } catch (error) {
+    const message = error instanceof Error ? error.message.slice(0, 240) : "subscriber identity status unavailable";
+    await env.DB.prepare(`UPDATE webhook_deliveries SET status='failed',updated_at=?,last_error=? WHERE id=?`)
+      .bind(now(), `subscriber identity status unavailable: ${message}`, deliveryId).run();
+    console.error("Webhook subscriber identity check failed", { deliveryId, subscriberId: delivery.subscriber_service_principal_id, error: message });
+    return "retry";
+  }
+  if (!subscriberActive) {
+    await env.DB.prepare(`UPDATE webhook_deliveries SET status='cancelled',updated_at=?,last_error='subscriber service principal inactive' WHERE id=?`)
       .bind(now(), deliveryId).run();
     return "ack";
   }

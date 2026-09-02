@@ -67,6 +67,8 @@ Request
 
 Stable model metadata may be compiled/cached in a Worker isolate. Mutable authority such as memberships, Grants, Application × Model Access and credential state must retain current-state revocation semantics.
 
+Passive delivery paths must preserve the same rule even when there is no inbound subscriber credential on the current invocation. In particular, Eventing stores only the stable subscriber `svc_*` reference in Core. The Queue consumer re-checks Core-owned authorization and then asks Identity, through the authenticated same-account Service Binding, whether the referenced Service Principal and its owning application are currently active immediately before any outbound Webhook request begins. Core does not replicate/cache that Identity status as durable authority. If Identity current state cannot be confirmed, delivery fails closed and retries rather than sending from stale positive state.
+
 ## Identity and operation-role terminology
 
 The current deployed architecture and contracts use established authentication terms such as `principal`, `principal_type` and `service principal`. Those names remain valid implementation vocabulary and are not renamed by the North Star refinement.
@@ -201,6 +203,10 @@ LifeSpace supports two service modes:
 Both authenticate the current `service` principal representation and are bounded by application/service scope ceilings, Application × Model Access, current Data Grants and model policy.
 
 `lsa_*` is a different credential: it authenticates a trusted application backend to Identity and does not itself represent a service principal to Core.
+
+The same Identity/Core ownership applies to passive Eventing subscribers. Identity remains authoritative for whether the subscriber Service Principal and owning application are active; Core remains authoritative for Eventing Endpoint/Subscription state, Application × Model Access and Data Grants. The final Webhook delivery gate composes those two sources through an authenticated Core -> Identity Service Binding read rather than copying Identity status into Core. Principal disablement therefore remains effective even if an application partially fails to revoke its Core Grant during cleanup.
+
+The Core-only current-principal eligibility read is an internal runtime interface used to enforce already-declared revocation semantics. It is not application-callable business syntax and does not by itself broaden the Identity Application Contract consumed by HomeMew/ALOHA.
 
 Normative details are in `docs/service-authentication.md`.
 

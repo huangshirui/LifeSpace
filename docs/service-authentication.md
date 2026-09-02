@@ -104,6 +104,29 @@ opaque lsp_pat_*
 
 Positive opaque-token caching is not part of the correctness boundary unless future measured performance work introduces a revocation-safe design.
 
+### Passive Eventing subscriber eligibility
+
+Normal Eventing Webhook delivery is different from an inbound Core API request: the subscriber does not present its `lsp_pat_*` or service JWT to LifeSpace for every outgoing notification. A stale Data Grant or subscription must therefore never become a substitute for current service identity state.
+
+Core keeps only the stable subscriber `svc_*` reference. After current Core-owned Endpoint/Subscription, Application × Model Access and Data Grant checks pass, the Queue consumer performs a final current-state eligibility read against Identity through the existing authenticated Core -> Identity Service Binding immediately before any outbound Webhook attempt. The internal implementation route is:
+
+```text
+GET /introspection/v1/service-principals/{principalId}
+X-LifeSpace-Internal-Secret: <Core/Identity internal secret>
+```
+
+Identity returns only whether the stable Service Principal is currently eligible. Eligibility requires both the Service Principal and its owning registered application to be active. Missing/malformed principals are ineligible.
+
+This endpoint is a private Core↔Identity runtime boundary, not ordinary application/service client syntax. It is not exposed as a new HomeMew/ALOHA-consumable API and does not by itself change the pinned Identity Application Contract. The externally observable authority result was already part of the service-disable semantics: a disabled Service Principal must not continue receiving platform-authorized work merely because another service retains stale cleanup state.
+
+Failure semantics are deliberately asymmetric:
+
+- explicit inactive/missing -> Core cancels and acknowledges that Eventing delivery without sending the Webhook;
+- Identity unavailable/non-success/invalid response -> Core sends nothing, records a failed delivery attempt state without crossing the outbound boundary, and asks Cloudflare Queue to retry;
+- no positive subscriber-eligibility cache or replicated Identity status is part of the correctness boundary.
+
+The extra Service Binding + Identity current-state read applies only to deliveries that survive Core's own current authority checks. This preserves Identity as the status source of truth while avoiding a second service-principal-state store in Core.
+
 ## Delegated Agent execution is not service automation
 
 An Agent acting under a user's authority uses a distinct execution context from a `service` principal. Identity registers a stable Agent identity (`agt_*`) inside an application context and may issue a short-lived Core-only JWT carrying `principal_type=user`, `actor_type=agent`, `actor_id=agt_*` and `purpose=delegated_agent`. Core then intersects that credential with the user's current Space/model authority and an explicit current User -> Agent Delegation.
@@ -257,6 +280,10 @@ The following remove authority on subsequent requests:
 
 OAuth service JWT lifetime defines the bounded delay for credential-state changes that are encoded into an already-issued short-lived JWT. Opaque tokens use current introspection state on the next request.
 
+For passive Eventing, Service Principal/application status is re-checked at the final queued delivery boundary rather than inferred from a previously created Data Grant or subscription. Principal disablement therefore stops subsequent normal Webhook delivery even if Grant cleanup partially fails. The revocation window is bounded by reaching that send-time gate; it is not extended by credential TTL or a positive Identity-status cache. If Identity cannot confirm current status, delivery fails closed and follows the Queue retry/DLQ policy instead of sending.
+
+Re-enabling a Service Principal restores only Identity eligibility. It does not recreate a revoked token, Data Grant, Application × Model Access entry, Endpoint or Subscription; those independent authorities remain current-state requirements.
+
 For the Console human actor, administrator assignment revocation prevents new actor proofs and Identity-owned admin calls re-check current assignment. Core does not duplicate that table; already-issued purpose-bound actor proofs expire within five minutes.
 
 ## Audit and secret handling
@@ -288,7 +315,7 @@ Identity migrations establish:
 - platform-admin audit;
 - platform-administrator assignments.
 
-Core migration `0026_platform_admin_audit.sql` adds Core-side platform-admin audit storage. Core continues to reference stable service principal IDs in Data Grants rather than individual token IDs.
+Core migration `0026_platform_admin_audit.sql` adds Core-side platform-admin audit storage. Core continues to reference stable service principal IDs in Data Grants rather than individual token IDs. Eventing follows the same ownership rule: Core stores the subscriber `svc_*` reference but not a replicated Identity status column/table.
 
 ## Contract ownership
 
@@ -313,7 +340,7 @@ apps/core/platform-admin.openapi.yaml
 Core Platform Admin contract 0.1.0
 ```
 
-Product applications such as HomeMew do not need to repin their business contract merely because the platform Console gains a new privileged administration endpoint.
+Product applications such as HomeMew do not need to repin their business contract merely because the platform Console gains a new privileged administration endpoint. The Core-only Service Principal eligibility read used to enforce already-declared Eventing revocation semantics is likewise not application-callable syntax and does not by itself require a business-application Identity repin.
 
 ## Non-goals
 

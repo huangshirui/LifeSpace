@@ -178,6 +178,10 @@ The credential authenticates the current service-principal representation; it do
 
 Revoking a Token, disabling its service principal, reducing its scopes, reducing/removing Application × Model Access, or revoking a Data Grant removes the corresponding authority on subsequent requests.
 
+Passive Eventing delivery is subject to the same current-state Service Principal rule even though the subscriber is not presenting a credential on each outgoing Webhook. Core stores only the stable `svc_*` subscriber reference and, immediately before a normal queued Webhook is sent, confirms with Identity that both the Service Principal and its owning registered application are still active. A disabled/missing principal fails closed and receives no delivery even while an old Data Grant and subscription remain. If current Identity state cannot be confirmed, the Webhook is not sent and the Queue delivery is retried rather than being authorized from stale positive state.
+
+This makes Service Principal disablement a platform Authority kill switch for both active Core requests and passive Eventing delivery. Application cleanup may still revoke Grants and delete/disable Eventing configuration, but successful cleanup is not required for the disablement itself to stop new normal event delivery.
+
 Service API Tokens may have `expires_at = null`, but they remain individually revocable and must never be issued to browsers, Mini Programs, downloadable clients, or permanent personal-user identities.
 
 Example:
