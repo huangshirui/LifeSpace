@@ -636,10 +636,12 @@ Current references:
 | Reference | Meaning | Compatible target |
 |---|---|---|
 | `now` | Action execution timestamp | `datetime` |
-| `actor.id` | current authenticated actor/principal ID in the deployed runtime vocabulary | `string` / `text` |
-| `actor.type` | current runtime actor type | enum containing `user`, `service`, `device` |
+| `actor.id` | current operation Actor ID | `string` / `text` |
+| `actor.type` | current operation Actor type | enum containing `user`, `service`, `device`, `agent` |
 | `actor.personId` | current actor's active Space Person, if one exists | `person`, `string`, `text` |
 | `record.<field>` | current record field value | same field type; `string` / `text` are mutually compatible |
+
+`actor.*` describes the **Actor（执行者）** of the current operation. For direct execution the Actor is the Principal（主体）; for delegated Agent execution the Principal remains the authority-bearing user while `actor.type=agent` and `actor.id` identifies the delegated Agent. Model fields assigned from `actor.type` must therefore represent the full current Actor vocabulary, not only Principal types.
 
 If `actor.personId` is required by an assignment but no active Space Person can be resolved, the Action fails with `POLICY_CONTEXT_MISSING` (403).
 
@@ -825,7 +827,7 @@ The current Task model demonstrates the core v1 pattern:
       type: "enum",
       nullable: true,
       readOnly: true,
-      values: ["user", "service", "device"]
+      values: ["user", "service", "device", "agent"]
     },
     completedById: { type: "string", nullable: true, readOnly: true }
   },

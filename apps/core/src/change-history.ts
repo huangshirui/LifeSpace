@@ -1,5 +1,5 @@
 import type { Hono } from "hono";
-import type { Bindings, Variables } from "./env";
+import type { ActorType, Bindings, PrincipalType, Variables } from "./env";
 import { ApiError, success } from "./http";
 import { requireModelAccess } from "./model-authorization";
 import { getRuntimeModel } from "./model-registry";
@@ -16,9 +16,9 @@ type ChangeRow = {
   operation: "create" | "update" | "action" | "delete";
   version_before: number | null;
   version_after: number;
-  principal_type: "user" | "service" | "device";
+  principal_type: PrincipalType;
   principal_id: string;
-  actor_type: "user" | "service" | "device" | "agent";
+  actor_type: ActorType;
   actor_id: string;
   application_id: string;
   delegation_id: string | null;

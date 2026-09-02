@@ -1,4 +1,4 @@
-import type { Bindings, Principal } from "./env";
+import type { ActorType, Bindings, Principal } from "./env";
 import type { GenericResource } from "./generic-resource";
 import { ApiError } from "./http";
 import type { ModelPoliciesDefinition, PolicyExpression, PolicyOperand } from "./policy-definition";
@@ -6,7 +6,7 @@ import type { PublishedModel } from "./model-registry";
 
 export type PolicyContext = {
   actor: {
-    type: Principal["type"];
+    type: ActorType;
     id: string;
     personId: string | null;
   };
@@ -33,11 +33,12 @@ export async function resolvePolicyContext(
       .bind(spaceId, principal.id).first<{ id: string }>();
     personId = person?.id ?? null;
   }
+  const actor = principal.actor ?? { type: principal.type, id: principal.id };
   const recordData = record && "data" in record && typeof record.data === "object"
     ? (record as GenericResource).data
     : record as Record<string, unknown> | undefined;
   return {
-    actor: { type: principal.type, id: principal.id, personId },
+    actor: { type: actor.type, id: actor.id, personId },
     ...(recordData ? { record: recordData } : {}),
     ...(input ? { input } : {}),
   };

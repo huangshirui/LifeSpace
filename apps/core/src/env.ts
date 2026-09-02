@@ -1,5 +1,16 @@
-export type PrincipalType = "user" | "service" | "device";
-export type ActorType = PrincipalType | "agent";
+export const PRINCIPAL_TYPES = ["user", "service", "device"] as const;
+export type PrincipalType = typeof PRINCIPAL_TYPES[number];
+
+export const ACTOR_TYPES = [...PRINCIPAL_TYPES, "agent"] as const;
+export type ActorType = typeof ACTOR_TYPES[number];
+
+export function isPrincipalType(value: unknown): value is PrincipalType {
+  return typeof value === "string" && (PRINCIPAL_TYPES as readonly string[]).includes(value);
+}
+
+export function isActorType(value: unknown): value is ActorType {
+  return typeof value === "string" && (ACTOR_TYPES as readonly string[]).includes(value);
+}
 
 export type Actor = {
   type: ActorType;

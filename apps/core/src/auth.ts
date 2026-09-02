@@ -1,6 +1,6 @@
 import type { MiddlewareHandler } from "hono";
 import { verify } from "hono/jwt";
-import type { Bindings, Principal, Variables } from "./env";
+import { isPrincipalType, type Bindings, type Principal, type Variables } from "./env";
 import { ApiError } from "./http";
 
 type AppEnv = { Bindings: Bindings; Variables: Variables };
@@ -29,7 +29,7 @@ export async function verifyAccessToken(rawToken: string, publicKey: string): Pr
     if (typeof payload.azp !== "string" || !payload.azp) throw unauthorized();
     if (typeof payload.jti !== "string" || !payload.jti) throw unauthorized();
     if (typeof payload.iat !== "number" || typeof payload.exp !== "number" || payload.iat > now || payload.exp <= now || payload.exp <= payload.iat || payload.exp - payload.iat > MAX_ACCESS_TOKEN_TTL_SECONDS) throw unauthorized();
-    if (payload.principal_type !== "user" && payload.principal_type !== "service" && payload.principal_type !== "device") throw unauthorized();
+    if (!isPrincipalType(payload.principal_type)) throw unauthorized();
     const scopes = typeof payload.scope === "string" ? payload.scope.split(/\s+/).filter(Boolean) : [];
 
     const hasDelegatedAgentClaims = payload.actor_type !== undefined
