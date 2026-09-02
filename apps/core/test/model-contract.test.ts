@@ -77,6 +77,15 @@ describe("Model Contract Generator", () => {
     expect(taskCreate.required).not.toContain("status");
   });
 
+  it("publishes the full Actor vocabulary for Task completion attribution", async () => {
+    const snapshot = await generateModelContract([published("task")]);
+    const resource = schemas(snapshot).TaskResource as {
+      properties: { data: { properties: { completedByType: { enum?: string[] } } } };
+    };
+    expect(resource.properties.data.properties.completedByType.enum)
+      .toEqual(["user", "service", "device", "agent"]);
+  });
+
   it("derives writable/create/update schemas without exposing read-only or immutable mutations", async () => {
     const snapshot = await generateModelContract([published("task"), published("wish")]);
     const generatedSchemas = schemas(snapshot);
