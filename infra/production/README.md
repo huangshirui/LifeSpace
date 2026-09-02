@@ -1,10 +1,15 @@
-# LifeSpace production bring-up
+# LifeSpace production operations
 
 ## Scope
 
-This runbook covers the guarded LifeSpace production deployment path, including the original **Phase 6** empty-platform bring-up and later compatible production releases.
+This runbook covers the long-lived LifeSpace production operation paths after the platform has already been established:
 
-It must not read or migrate HomeMew production business data. The completed HomeMew one-shot migration implementation was retired from the active repository in Phase 8; normal LifeSpace deployment must not revive historical migration code or route HomeMew application traffic.
+- **Deploy production**: database migration, Core/Identity deployment and verification.
+- **Provision production resources**: low-frequency, create-if-missing reconciliation of declared D1/R2/Queue resources.
+
+The historical Phase 6 empty-platform bring-up is complete and is no longer an active workflow mode. Its evidence remains in the phase status/history documents, but normal operators must not repeat the empty-platform path on an established production database.
+
+Neither operation may read or migrate HomeMew production business data as a side effect. The completed HomeMew one-shot migration implementation was retired from the active repository in Phase 8; normal LifeSpace operations must not revive historical migration code or route HomeMew application traffic.
 
 ## Production resources
 
@@ -19,53 +24,91 @@ It must not read or migrate HomeMew production business data. The completed Home
 
 Desired names live in `resources.json`. Staging names are never accepted as production substitutions.
 
-`provision-production.mjs` is deliberately create-if-missing and idempotent: it never deletes, renames, replaces or reuses staging resources. The `provision` workflow input remains `false` by default, but may be explicitly enabled on a later production release when the declared manifest adds a required production D1/R2/Queue resource.
+`provision-production.mjs` is deliberately create-if-missing and idempotent: it never deletes, renames, replaces or reuses staging resources.
 
 ## GitHub `production` environment
 
-The `Deploy production` workflow runs in the GitHub `production` Environment. Configure:
+Production workflows run in the GitHub `production` Environment.
+
+For deployment, configure:
 
 - secret `CLOUDFLARE_API_TOKEN` with the approved LifeSpace production deployment permissions;
 - variable or secret `CLOUDFLARE_ACCOUNT_ID`;
 - secret `LIFESPACE_PRODUCTION_BOOTSTRAP_SECRET`, at least 32 characters and distinct from the staging bootstrap secret.
 
-The workflow never writes generated secrets to repository files or artifacts.
+For resource provisioning, only the Cloudflare API token and account ID are required; the bootstrap secret is deliberately not part of that workflow.
 
-`LIFESPACE_PRODUCTION_BOOTSTRAP_SECRET` is synchronized into the production Identity Worker. First bring-up generates RS256 signing material and the Core↔Identity shared authentication secret only when the complete corresponding secret sets are absent. Later runs preserve complete existing sets. A partially present set is treated as an error and is **not** automatically repaired or rotated in production.
+The workflows never write generated secrets to repository files or artifacts.
 
-## First Phase 6 run (historical)
+`LIFESPACE_PRODUCTION_BOOTSTRAP_SECRET` is synchronized into the production Identity Worker by the deployment path. Runtime initialization generates signing/shared material only when a complete corresponding secret set is absent, preserves complete existing sets, and refuses partial automatic repair/rotation.
 
-GitHub only dispatches a `workflow_dispatch` workflow after that workflow file exists on the repository default branch. The original Phase 6 bring-up therefore merged the implementation to `main` before the first production run.
+## Deploy production
 
-The historical first-run inputs were:
+Routine releases use the **Deploy production** workflow.
+
+Input:
 
 ```text
-phase6_bringup: true
-provision: true
 confirmation: DEPLOY_PRODUCTION
 ```
 
-That path established the platform and is not a normal release mode. Do not intentionally repeat the empty-platform bring-up on an established production database.
+There are no Phase 6 or provisioning checkboxes. The deployment workflow intentionally does not create D1/R2/Queue resources.
 
-## Normal production deployments after Phase 6
+Current deployment ordering is:
 
-For a code/schema release that needs no new Cloudflare resource, use:
+1. validate repository and production infrastructure contract;
+2. resolve expected Core/Identity schema and contract versions;
+3. resolve existing production D1 IDs;
+4. preflight approved production Custom Domains;
+5. apply Core migrations;
+6. deploy Core;
+7. apply Identity migrations;
+8. deploy Identity after the compatible Core runtime is live;
+9. reconcile Custom Domains and runtime secrets;
+10. wait for production HTTP/schema/contract convergence;
+11. verify Cloudflare isolation/bindings and active immutable Model Contract.
+
+Core-first -> Identity ordering matches the compatibility-preserving normal release path used by staging: a newer verifier/runtime is live before Identity may issue credentials that depend on it.
+
+## Provision production resources
+
+Use **Provision production resources** only when `infra/production/resources.json` introduces a required D1/R2/Queue resource that does not already exist, or when explicitly reconstructing a declared missing resource.
+
+Input:
 
 ```text
-phase6_bringup: false
-provision: false
-confirmation: DEPLOY_PRODUCTION
+confirmation: PROVISION_PRODUCTION
 ```
 
-When the release adds a resource already declared in `infra/production/resources.json`, use:
+The workflow:
+
+- runs in the GitHub `production` Environment;
+- calls only the idempotent create-if-missing provisioner;
+- does not run migrations;
+- does not deploy Workers;
+- does not initialize runtime/bootstrap secrets;
+- never deletes, renames or replaces resources.
+
+Provisioning and deployment share one production concurrency lock, so they cannot mutate production concurrently.
+
+For a release that adds infrastructure, the intended promotion sequence is:
 
 ```text
-phase6_bringup: false
-provision: true
-confirmation: DEPLOY_PRODUCTION
+Provision staging resources
+-> Deploy staging and pass acceptance
+-> Provision production resources
+-> Deploy production
 ```
 
-This only runs the idempotent create-if-missing provisioner before migration/deployment; it does not run the Phase 6 business-empty gate. Normal production deployment uses Core-first -> Identity ordering so the newer compatible Core verifier/runtime is live before Identity may issue against it.
+Do not use provisioning merely because a deployment is being performed; it is a separate low-frequency infrastructure operation.
+
+## Historical Phase 6 bring-up
+
+The first empty-platform bring-up previously used special Identity-first ordering, empty-database checks and HomeMew application-boundary bootstrap verification. That path established production and is now retired from active workflow inputs.
+
+Historical evidence is intentionally preserved in `docs/phase6-status.md` and Git history. The historical verifier scripts may remain as audit/test evidence, but they are not invoked by the long-lived production deployment workflow.
+
+## Eventing production verification
 
 The Eventing production verifier requires:
 
@@ -77,11 +120,11 @@ The Eventing production verifier requires:
 
 ## Migration and application-cutover boundary
 
-Normal LifeSpace production deployment must not:
+Normal LifeSpace production operations must not:
 
 - run a retired HomeMew one-shot migration from Git history;
-- create HomeMew provider mappings or import application business data as a side effect of platform deployment;
+- create HomeMew provider mappings or import application business data as a side effect of platform deployment/provisioning;
 - alter HomeMew production DNS/routes/clients;
-- delete legacy HomeMew runtime resources merely because the repository-side migration implementation has been retired.
+- delete legacy HomeMew runtime resources merely because repository-side migration implementation has been retired.
 
 The completed Phase 7 migration/cutover remains historical evidence. Any future migration or destructive runtime-resource retirement requires a new, explicitly approved plan based on the then-current contracts and rollback conditions.
