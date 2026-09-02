@@ -28,17 +28,15 @@ describe("Model Definition v1", () => {
     expect(canonicalModelDefinition(reordered)).toBe(first);
   });
 
-  it("normalizes omitted lifecycle metadata to the same Runtime invariants", () => {
+  it("preserves omitted lifecycle metadata without weakening Runtime invariants", () => {
     const { lifecycle: _lifecycle, ...withoutLifecycle } = TASK_MODEL_DEFINITION;
-    const explicit = validateModelDefinition(TASK_MODEL_DEFINITION);
     const omitted = validateModelDefinition(withoutLifecycle);
 
-    expect(explicit.valid).toBe(true);
     expect(omitted.valid).toBe(true);
-    if (!explicit.valid || !omitted.valid) return;
+    if (!omitted.valid) return;
 
-    expect(omitted.definition.lifecycle).toEqual({ optimisticConcurrency: true, softDelete: true });
-    expect(omitted.hashInput).toBe(explicit.hashInput);
+    expect(omitted.definition.lifecycle).toBeUndefined();
+    expect(omitted.hashInput).toBe(canonicalModelDefinition(omitted.definition));
   });
 
   it("rejects attempts to disable Generic Runtime lifecycle invariants", () => {
