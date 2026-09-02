@@ -17,7 +17,7 @@ const baselineDefinitions = [
   EVENT_MODEL_DEFINITION,
 ];
 const releaseFingerprint = Object.freeze({
-  task: Object.freeze({ version: 3, schemaHash: "3c56f1448340162279be544e16ac82e06c1aefe66a08e428b7f95ba319ab1ed2" }),
+  task: Object.freeze({ version: 4, schemaHash: "2e23f3b41d4eab3e6c896579e1271352f078fb98cc390bb8f9dadb7719a26d1f" }),
   wish: Object.freeze({ version: 4, schemaHash: "6b7d10124504a08bc906bba5915a1ba050e09865039b991dfd470019be879f56" }),
   day_record: Object.freeze({ version: 2, schemaHash: "4b2f241958aeca05e396eea7e6719a3f030cef3ea7dfd3c57d426c086fe4cf56" }),
   event: Object.freeze({ version: 3, schemaHash: "6a23eb2f25463ce55d7ed75d64f0afa020d7aab25149badf28fdd77abc2d1aad" }),
