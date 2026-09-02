@@ -57,6 +57,10 @@ for (const path of requiredPaths) {
   if (!document.paths?.[path]) throw new Error(`Core Kernel OpenAPI missing ${path}`);
 }
 
+if (document.paths?.["/api/v1/spaces/{spaceId}/members/{userId}"]?.delete?.responses?.["409"]?.$ref !== "#/components/responses/Conflict") {
+  throw new Error("removeSpaceMember must preserve its 409 Conflict response");
+}
+
 for (const retired of [
   "/api/v1/event-subscriptions/{subscriptionId}/deliveries",
   "/api/v1/event-subscriptions/{subscriptionId}/test",
