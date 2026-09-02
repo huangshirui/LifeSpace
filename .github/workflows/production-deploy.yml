@@ -3,16 +3,6 @@ name: Deploy production
 on:
   workflow_dispatch:
     inputs:
-      phase6_bringup:
-        description: "Run the Phase 6 empty-platform bring-up gate"
-        required: true
-        default: false
-        type: boolean
-      provision:
-        description: "Create missing declared production D1/R2/Queue resources (idempotent)"
-        required: true
-        default: false
-        type: boolean
       confirmation:
         description: "Type DEPLOY_PRODUCTION"
         required: true
@@ -22,7 +12,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: lifespace-production-deploy
+  group: lifespace-production-change
   cancel-in-progress: false
 
 jobs:
@@ -54,8 +44,6 @@ jobs:
           echo "ref=$GITHUB_REF"
           echo "sha=$GITHUB_SHA"
           echo "checkout=$(git rev-parse HEAD)"
-          echo "phase6_bringup=${{ inputs.phase6_bringup }}"
-          echo "provision=${{ inputs.provision }}"
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -89,10 +77,6 @@ jobs:
       - name: Resolve expected production versions
         run: node infra/scripts/production-expectations.mjs
 
-      - name: Provision missing production resources
-        if: ${{ inputs.provision }}
-        run: node infra/scripts/provision-production.mjs
-
       - name: Resolve production D1 IDs
         run: node infra/scripts/resolve-production-d1.mjs
 
@@ -101,41 +85,18 @@ jobs:
           PRODUCTION_DOMAIN_PREFLIGHT_ONLY: "1"
         run: node infra/scripts/ensure-production-domains.mjs
 
-      # First bring-up is intentionally Identity-first because Core's Service Binding
-      # requires the target Identity Worker to exist. No production application traffic
-      # exists during Phase 6, so there is no compatibility window to protect yet.
-      - name: Apply Identity migrations for first bring-up
-        if: ${{ inputs.phase6_bringup }}
-        run: pnpm --filter @lifespace/identity db:migrate:production
-
-      - name: Deploy Identity foundation first
-        if: ${{ inputs.phase6_bringup }}
-        run: pnpm --dir apps/identity exec wrangler deploy --env production
-
-      - name: Apply Core migrations for first bring-up
-        if: ${{ inputs.phase6_bringup }}
-        run: pnpm --filter @lifespace/core db:migrate:production
-
-      - name: Deploy Core after Identity foundation
-        if: ${{ inputs.phase6_bringup }}
-        run: pnpm --dir apps/core exec wrangler deploy --env production
-
-      # After Phase 6, use the same compatibility-preserving ordering as staging:
+      # Normal releases use the same compatibility-preserving ordering as staging:
       # newer Core verifier/runtime first, then Identity may issue against it.
       - name: Apply Core migrations
-        if: ${{ inputs.phase6_bringup == false }}
         run: pnpm --filter @lifespace/core db:migrate:production
 
       - name: Deploy Core first
-        if: ${{ inputs.phase6_bringup == false }}
         run: pnpm --dir apps/core exec wrangler deploy --env production
 
       - name: Apply Identity migrations
-        if: ${{ inputs.phase6_bringup == false }}
         run: pnpm --filter @lifespace/identity db:migrate:production
 
       - name: Deploy Identity after compatible Core
-        if: ${{ inputs.phase6_bringup == false }}
         run: pnpm --dir apps/identity exec wrangler deploy --env production
 
       - name: Ensure production custom domains
@@ -165,14 +126,6 @@ jobs:
       - name: Initialize and verify Model Contract through service authentication
         run: node infra/scripts/verify-production-model-admin.mjs
 
-      - name: Register and verify HomeMew production application boundary
-        if: ${{ inputs.phase6_bringup }}
-        run: node infra/scripts/verify-production-homemew-auth.mjs
-
-      - name: Verify Phase 6 production databases remain business-empty
-        if: ${{ inputs.phase6_bringup }}
-        run: node infra/scripts/verify-production-db.mjs
-
       - name: Summarize production deployment
         if: ${{ success() }}
         shell: bash
@@ -183,12 +136,12 @@ jobs:
           - Ref: \`${GITHUB_REF}\`
           - SHA: \`${GITHUB_SHA}\`
           - Core: schema v${LIFESPACE_EXPECTED_CORE_SCHEMA_VERSION} / Kernel contract ${LIFESPACE_EXPECTED_CORE_CONTRACT_VERSION}
-          - Identity: schema v${LIFESPACE_EXPECTED_IDENTITY_SCHEMA_VERSION} / contract ${LIFESPACE_EXPECTED_IDENTITY_CONTRACT_VERSION}
+          - Identity: schema v${LIFESPACE_EXPECTED_IDENTITY_CONTRACT_VERSION} / contract ${LIFESPACE_EXPECTED_IDENTITY_CONTRACT_VERSION}
           - Active pinned Model Contract: passed
           - Custom domains: \`core.aisr.online\`, \`auth.aisr.online\`
           - Production D1/R2/Queue/Worker isolation: passed
           - Production runtime signing/shared-secret presence: passed
-          - Phase 6 empty-platform gate: ${{ inputs.phase6_bringup }}
+          - Infrastructure provisioning: **not performed by this workflow**
           - HomeMew production data migration: **not performed**
           - HomeMew production traffic cutover: **not performed**
           EOF
