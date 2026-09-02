@@ -128,6 +128,7 @@ function dto(model: PublishedModel, allowed: ModelAccess[]) {
     description: model.definition.description ?? null,
     access: allowed,
     fields: Object.entries(model.definition.fields).map(([key, field]) => ({ key, ...field })),
+    defaults: structuredClone(model.definition.defaults ?? {}),
     query: {
       searchable: [...(model.definition.query?.searchable ?? [])],
       filterable: [...(model.definition.query?.filterable ?? [])],
