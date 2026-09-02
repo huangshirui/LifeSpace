@@ -243,6 +243,18 @@ Do not create one-off domain source code merely because the DSL needs extension.
 - Production/staging resources and credentials remain isolated.
 - Never commit credentials, JWT private keys, OAuth secrets, Cloudflare tokens, application/service secrets, provider IDs or user data.
 
+## Problem discovery and durable tracking
+
+GitHub Issues are the durable engineering backlog for discovered repository problems that may need to survive the current chat, branch or work session.
+
+- Every newly discovered bug, architecture drift, security risk, contract mismatch, flaky test, technical debt item or unresolved boundary problem must be recorded in a GitHub Issue **before it is fixed, deferred or the conversation moves on**, unless an existing Issue already represents the same problem.
+- Search existing open Issues first. Update the existing Issue instead of creating a duplicate when the finding shares the same root cause or decision.
+- If a new finding is only a different symptom of the current Issue, append the evidence there. If it has an independent root cause, risk, decision or completion condition, create a separate Issue so another conversation can resume it without hidden context.
+- Record enough durable context to resume later: observed/current behavior, evidence or relevant paths, impact/risk, whether the proposed fix is decided or still under review, and a concrete next step or acceptance condition when known.
+- Do not leave a discovered problem only in chat history, a PR review/comment, source TODO, local notes or the Notion architecture decision log. Those may reference the Issue, but they do not replace it.
+- The Notion `99 · 架构演进与决策日志` records decisions after architectural/product/engineering conclusions are made; GitHub Issues record unresolved problems and follow-up work before the decision or implementation is complete.
+- Close an Issue only after the problem is actually resolved and the relevant merged/verified evidence exists, or after an explicit decision that no change is required with the rationale recorded on the Issue.
+
 ## Change completion
 
 Before declaring a platform change complete, inspect all coupled surfaces: North Star assumptions/axioms, Identity, Access/application auth, Principal/Actor attribution, platform-admin actor/executor state, Space/Grant rules, Application × Model Access, Registry, runtime descriptor cache, physical schema, Generic Runtime, Capabilities, all applicable contract layers, migrations, tests, SDK/client generation, docs, infrastructure and downstream compatibility.
