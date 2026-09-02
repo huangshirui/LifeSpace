@@ -105,7 +105,7 @@ export function registerGenericResourceRoutes(app: App): void {
     const input = await body(context);
     const prepared = prepareCapabilityCreateInput(resolved, input);
     await requireModelPolicy(context.env, principal, spaceId, resolved, "create", undefined, prepared, { personId: access.actorPersonId });
-    const created = await createCapabilityAwareResource(context.env, principal, spaceId, resolved, prepared);
+    const created = await createCapabilityAwareResource(context.env, principal, spaceId, resolved, input);
     return context.json(success(await dto(context.env, spaceId, resolved, created)), 201);
   });
 
