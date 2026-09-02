@@ -48,13 +48,12 @@ async function fixture() {
 }
 
 describe("Generic Resource Runtime", () => {
-  it("creates and reads a Task from its generated typed table", async () => {
+  it("applies declared server defaults in the lowest-level create path", async () => {
     const { db, spaceId, personId, model } = await fixture();
     const resource = await createGenericResource(bindings(), actor, spaceId, model, {
       name: "Buy milk",
       description: "2 bottles",
       dueDate: "2026-08-12",
-      status: "pending",
       assigneePersonIds: [personId],
     });
 
@@ -76,17 +75,28 @@ describe("Generic Resource Runtime", () => {
     expect(envelope).toEqual({ model_key: "task", model_version: model.version, version: 1 });
   });
 
-  it("enforces declared schema and read-only fields", async () => {
+  it("lets explicit caller values override declared defaults", async () => {
+    const { spaceId, model } = await fixture();
+    const resource = await createGenericResource(bindings(), actor, spaceId, model, {
+      name: "Cancelled immediately",
+      status: "cancelled",
+    });
+    expect(resource.data).toMatchObject({ name: "Cancelled immediately", status: "cancelled" });
+  });
+
+  it("enforces declared schema, non-defaulted required fields, and read-only fields", async () => {
     const { spaceId, model } = await fixture();
     await expect(createGenericResource(bindings(), actor, spaceId, model, {
-      name: "Invalid",
       status: "pending",
+    })).rejects.toMatchObject({ code: "INVALID_RESOURCE" });
+
+    await expect(createGenericResource(bindings(), actor, spaceId, model, {
+      name: "Invalid",
       unknownField: true,
     })).rejects.toMatchObject({ code: "INVALID_RESOURCE" });
 
     await expect(createGenericResource(bindings(), actor, spaceId, model, {
       name: "Invalid",
-      status: "pending",
       completedAt: new Date().toISOString(),
     })).rejects.toMatchObject({ code: "INVALID_RESOURCE" });
   });
@@ -95,7 +105,6 @@ describe("Generic Resource Runtime", () => {
     const { spaceId, otherPersonId, model } = await fixture();
     await expect(createGenericResource(bindings(), actor, spaceId, model, {
       name: "Cross-space relation",
-      status: "pending",
       assigneePersonIds: [otherPersonId],
     })).rejects.toMatchObject({ code: "INVALID_RESOURCE_RELATION" });
   });
@@ -104,7 +113,6 @@ describe("Generic Resource Runtime", () => {
     const { db, spaceId, personId, model } = await fixture();
     const resource = await createGenericResource(bindings(), actor, spaceId, model, {
       name: "Initial",
-      status: "pending",
       assigneePersonIds: [personId],
     });
 
@@ -133,7 +141,6 @@ describe("Generic Resource Runtime", () => {
     const resource = await createGenericResource(bindings(), actor, spaceId, model, {
       name: "Delete me",
       dueDate: "2026-08-13",
-      status: "pending",
       assigneePersonIds: [personId],
     });
 
