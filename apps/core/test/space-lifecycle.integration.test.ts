@@ -146,7 +146,10 @@ describe("Space lifecycle", () => {
     expect(oldSpace.status).toBe(403);
 
     const memberToken = await token(privateKey, memberId, ["spaces:read", "spaces:write"]);
-    const preview = await request(`/api/v1/space-invites/${invite.data.token}`, memberToken, publicKey);
+    const preview = await request("/api/v1/space-invites/preview", memberToken, publicKey, {
+      method: "POST",
+      body: JSON.stringify({ token: invite.data.token }),
+    });
     expect(preview.status).toBe(404);
   });
 });

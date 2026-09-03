@@ -400,9 +400,12 @@ export function registerSpaceRoutes(app: App): void {
     return c.body(null, 204);
   });
 
-  app.get("/api/v1/space-invites/:token", requireScope("spaces:read"), async (c) => {
+  app.post("/api/v1/space-invites/preview", requireScope("spaces:read"), async (c) => {
     requireUser(c.get("principal"));
-    const invite = await findInvite(c.env, c.req.param("token"));
+    const input = await body(c);
+    fields(input, ["token"]);
+    const token = text(input.token, "token");
+    const invite = await findInvite(c.env, token);
     const count = await memberCount(c.env, invite.space_id);
     const status = inviteStatus(invite);
     return c.json(success({
@@ -411,18 +414,19 @@ export function registerSpaceRoutes(app: App): void {
     }));
   });
 
-  app.post("/api/v1/space-invites/:token/join", requireScope("spaces:write"), async (c) => {
+  app.post("/api/v1/space-invites/join", requireScope("spaces:write"), async (c) => {
     const principal = c.get("principal");
     requireUser(principal);
-    const invite = await findInvite(c.env, c.req.param("token"));
+    const input = await body(c);
+    fields(input, ["token", "displayName"]);
+    const token = text(input.token, "token");
+    const displayName = text(input.displayName, "displayName");
+    const invite = await findInvite(c.env, token);
     assertInvite(invite);
     if (await findMembership(c.env, invite.space_id, principal.id)) throw new ApiError("ALREADY_SPACE_MEMBER", "User is already a Space member", 409);
     if (invite.space_kind === "family" && await memberCount(c.env, invite.space_id) >= FAMILY_MEMBER_LIMIT) {
       throw new ApiError("FAMILY_MEMBER_LIMIT_REACHED", "Family Space member limit reached", 409);
     }
-    const input = await body(c);
-    fields(input, ["displayName"]);
-    const displayName = text(input.displayName, "displayName");
     const previousMembership = await findMembership(c.env, invite.space_id, principal.id, false);
     const previousPerson = await c.env.DB.prepare(`SELECT id,deleted_at FROM space_people WHERE space_id=? AND linked_user_id=? ORDER BY created_at DESC LIMIT 1`)
       .bind(invite.space_id, principal.id).first<PersonRow>();
@@ -453,7 +457,7 @@ export function registerSpaceRoutes(app: App): void {
         .bind(personId, invite.space_id, principal.id, displayName, redeemedAt, redeemedAt, redemptionId);
     const results = await c.env.DB.batch([redemption, membership, person]);
     if (!results[0].meta.changes) {
-      const current = await findInvite(c.env, c.req.param("token"));
+      const current = await findInvite(c.env, token);
       assertInvite(current);
       if (current.space_kind === "family" && await memberCount(c.env, current.space_id) >= FAMILY_MEMBER_LIMIT) {
         throw new ApiError("FAMILY_MEMBER_LIMIT_REACHED", "Family Space member limit reached", 409);

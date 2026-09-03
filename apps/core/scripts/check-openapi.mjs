@@ -3,7 +3,7 @@ import YAML from "yaml";
 
 const document = YAML.parse(fs.readFileSync(new URL("../openapi.yaml", import.meta.url), "utf8"));
 
-if (document.openapi !== "3.1.0" || document.info?.version !== "0.20.0") {
+if (document.openapi !== "3.1.0" || document.info?.version !== "0.21.0") {
   throw new Error("Core Kernel OpenAPI version metadata is invalid");
 }
 if (!document.info?.title?.includes("Kernel")) {
@@ -29,8 +29,8 @@ const requiredPaths = [
   "/api/v1/spaces/{spaceId}/leave",
   "/api/v1/spaces/{spaceId}/invites",
   "/api/v1/spaces/{spaceId}/invites/{inviteId}/revoke",
-  "/api/v1/space-invites/{token}",
-  "/api/v1/space-invites/{token}/join",
+  "/api/v1/space-invites/preview",
+  "/api/v1/space-invites/join",
   "/api/v1/spaces/{spaceId}/grants",
   "/api/v1/spaces/{spaceId}/grants/{grantId}",
   "/api/v1/spaces/{spaceId}/_discovery",
@@ -152,8 +152,24 @@ const tokenSchema = createInviteData?.allOf?.[1]?.properties?.token;
 if (tokenSchema?.writeOnly !== true) {
   throw new Error("Invitation plaintext token must be one-time/write-only");
 }
-if (schemas.JoinInviteRequest?.additionalProperties !== false || !schemas.JoinInviteRequest?.required?.includes("displayName")) {
-  throw new Error("Invitation join must create/reactivate a Space Person");
+const previewInvite = document.paths?.["/api/v1/space-invites/preview"]?.post;
+const joinInvite = document.paths?.["/api/v1/space-invites/join"]?.post;
+if (document.paths?.["/api/v1/space-invites/{token}"] || document.paths?.["/api/v1/space-invites/{token}/join"]) {
+  throw new Error("Invitation bearer tokens must not appear in API URL paths");
+}
+if (document.components?.parameters?.InviteToken) {
+  throw new Error("Invitation bearer token must not remain a path parameter");
+}
+if (previewInvite?.requestBody?.content?.["application/json"]?.schema?.$ref !== "#/components/schemas/PreviewInviteRequest"
+    || schemas.PreviewInviteRequest?.additionalProperties !== false
+    || !schemas.PreviewInviteRequest?.required?.includes("token")) {
+  throw new Error("Invitation preview must accept the possession token only through its bounded JSON body");
+}
+if (joinInvite?.requestBody?.content?.["application/json"]?.schema?.$ref !== "#/components/schemas/JoinInviteRequest"
+    || schemas.JoinInviteRequest?.additionalProperties !== false
+    || !schemas.JoinInviteRequest?.required?.includes("token")
+    || !schemas.JoinInviteRequest?.required?.includes("displayName")) {
+  throw new Error("Invitation join must accept token/displayName through its bounded JSON body and create/reactivate a Space Person");
 }
 
 if (document.components?.securitySchemes?.bearerAuth?.bearerFormat !== "JWT or lsp_pat_") {
@@ -300,7 +316,7 @@ if (schemas.ModelContract?.properties?.id?.pattern !== "^mct_[a-f0-9]{64}$") {
   throw new Error("Model Contract revisions must be content-addressed mct_<sha256>");
 }
 
-if (schemas.StatusResponse?.properties?.data?.properties?.contractVersion?.const !== "0.20.0") {
+if (schemas.StatusResponse?.properties?.data?.properties?.contractVersion?.const !== "0.21.0") {
   throw new Error("Core Kernel status contract version drifted");
 }
 
