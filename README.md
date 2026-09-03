@@ -111,9 +111,9 @@ See `docs/migration-plan.md` and `docs/phase7-status.md` for the migration/cutov
 
 ## Current contracts and Identity × Cloudflare Access work
 
-The current Core Kernel contract is **0.13.0**. It retains stable `resources:*` credential scopes and adds explicit model-collection Data Grants (`resourceType=model`, `resourceId=<modelKey>`) while preserving backwards-compatible whole-Space Grants. This restores the original HomeMew external-integration ability to give different service principals different per-model read/write authority without returning to model-specific token scopes. The active ordinary-model surface remains pinned through an immutable `mct_*` revision.
+The current repository Core Kernel contract is **0.20.0**. Ordinary business-model routes remain outside the Kernel OpenAPI and are pinned through immutable `mct_*` Model Contract revisions. Kernel evolution since 0.13.0 has added Agent Delegation/governed Change, cross-Space Runtime Discovery, authoritative server defaults and explicit Action semantic-input/concurrency metadata while preserving the Stable Spine invariants.
 
-The repository Identity contract is **0.5.0 / schema v5**. It implements the accepted Cloudflare Access platform-identity architecture:
+The current repository Identity Application Contract is **0.6.0**. It extends the accepted Cloudflare Access platform-identity architecture with first-class Agent identity and short-lived Core-only delegated Agent execution credentials. The Access architecture includes:
 
 - independently verified Access RS256 JWTs and JWKS key rotation;
 - environment-pinned Access issuer;
@@ -124,7 +124,7 @@ The repository Identity contract is **0.5.0 / schema v5**. It implements the acc
 - short-lived, high-entropy, single-use existing-account link challenges;
 - multiple verified Access principals may link to one LifeSpace user.
 
-Identity 0.5.0 is deployed and the real HomeMew Web staging Access path has been proven end-to-end through Cloudflare Access -> HomeMew same-origin BFF -> LifeSpace Identity -> global `usr_*` -> LifeSpace Core. The existing HomeMew Mini Program production identity path continues to use its application-owned WeChat mapping and trusted application exchange.
+The earlier Identity 0.5.0 HomeMew Web staging Access proof remains historical acceptance evidence; it is not the current repository contract label. The existing HomeMew Mini Program production identity path continues to use its application-owned WeChat mapping and trusted application exchange.
 
 ## Environments
 
