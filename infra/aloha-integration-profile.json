@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "profileVersion": 1,
+  "status": "candidate",
+  "application": {
+    "key": "aloha-assistant",
+    "stagingId": "app_aloha_assistant_staging",
+    "productionId": "aloha-assistant",
+    "clientType": "web",
+    "trustedBackend": true,
+    "accessTokenTtlSeconds": 900,
+    "allowedUserScopes": [
+      "profile:read"
+    ]
+  },
+  "trustedBackend": {
+    "credentialType": "lsa_application_credential",
+    "credentialLocation": "server_only",
+    "identityExchangePath": "/internal/v1/access/tokens",
+    "transportPolicy": "https_or_same_account_service_binding_with_explicit_application_authentication",
+    "providerIdentityOwner": "lifespace-identity",
+    "providerIdentityMapping": "cloudflare_access_issuer_subject_to_lifespace_user_id"
+  },
+  "cloudflareAccess": {
+    "required": true,
+    "audienceRegistration": "required",
+    "audienceValueLocation": "deployment_only"
+  },
+  "agentIdentity": {
+    "required": true,
+    "displayName": "ALOHA Assistant",
+    "applicationBinding": "same_application",
+    "activeAgentCardinality": 1,
+    "executionTokenPurpose": "delegated_agent",
+    "m3RequestedScopes": []
+  },
+  "coreAuthority": {
+    "m3ModelAccess": {},
+    "m3DelegationRequired": false,
+    "futureExpansion": "Add Core model access and User -> Agent Delegation only with the first concrete Runtime Tool milestone."
+  },
+  "contracts": {
+    "identity": "0.6.0",
+    "coreKernel": null,
+    "modelContract": null,
+    "pinStatus": "candidate"
+  }
+}
