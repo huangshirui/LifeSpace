@@ -23,7 +23,7 @@ function published(key: Key): PublishedModel {
     id: `mdl_${key}`,
     key,
     route: definition.route,
-    version: key === "wish" ? 4 : key === "task" || key === "event" ? 2 : 1,
+    version: key === "task" || key === "wish" ? 5 : key === "event" ? 3 : 2,
     state: "published",
     schemaHash: ({ task: "1", wish: "2", day_record: "3", event: "4" } as const)[key].repeat(64),
     compatibility: "initial",
@@ -60,19 +60,20 @@ describe("Model Contract Generator", () => {
     expect(generatedPaths["/api/v1/spaces/{spaceId}/tasks"]?.get).toBeTruthy();
     expect(generatedPaths["/api/v1/spaces/{spaceId}/tasks"]?.post).toBeTruthy();
     expect(generatedPaths["/api/v1/spaces/{spaceId}/tasks/{recordId}"]?.patch).toBeTruthy();
+    expect(generatedPaths["/api/v1/spaces/{spaceId}/tasks/{recordId}/actions/cancel"]?.post).toBeTruthy();
     expect(generatedPaths["/api/v1/spaces/{spaceId}/tasks/{recordId}/actions/complete"]?.post).toBeTruthy();
     expect(generatedPaths["/api/v1/spaces/{spaceId}/wishes/{recordId}/actions/fulfill"]?.post).toBeTruthy();
     expect(generatedPaths["/api/v1/spaces/{spaceId}/wishes/{recordId}/actions/reopen"]?.post).toBeTruthy();
   });
 
-  it("derives server defaults without making defaulted required fields client-required", async () => {
+  it("keeps read-only server defaults out of the writable create schema", async () => {
     const snapshot = await generateModelContract([published("task")]);
     const taskCreate = schemas(snapshot).TaskCreate as {
       properties: Record<string, { default?: unknown }>;
       required: string[];
     };
 
-    expect(taskCreate.properties.status?.default).toBe("pending");
+    expect(taskCreate.properties.status).toBeUndefined();
     expect(taskCreate.required).toContain("name");
     expect(taskCreate.required).not.toContain("status");
   });
@@ -93,12 +94,17 @@ describe("Model Contract Generator", () => {
 
     const taskCreate = generatedSchemas.TaskCreate as { properties: Record<string, unknown> };
     const taskUpdate = generatedSchemas.TaskUpdate as { properties: Record<string, unknown>; required: string[] };
+    expect(taskCreate.properties.status).toBeUndefined();
     expect(taskCreate.properties.completedAt).toBeUndefined();
     expect(taskCreate.properties.completedByType).toBeUndefined();
+    expect(taskUpdate.properties.status).toBeUndefined();
     expect(taskUpdate.properties.completedAt).toBeUndefined();
     expect(taskUpdate.required).toEqual(["version"]);
 
+    const wishCreate = generatedSchemas.WishCreate as { properties: Record<string, unknown> };
     const wishUpdate = generatedSchemas.WishUpdate as { properties: Record<string, unknown> };
+    expect(wishCreate.properties.status).toBeUndefined();
+    expect(wishUpdate.properties.status).toBeUndefined();
     expect(wishUpdate.properties.ownerPersonId).toBeUndefined();
     expect(wishUpdate.properties.fulfilledAt).toBeUndefined();
     expect(wishUpdate.properties.title).toBeTruthy();
@@ -167,6 +173,6 @@ describe("Model Contract Generator", () => {
 
     const metadata = snapshot.jsonSchema["x-lifespace-models"] as Record<string, { route: string; actions: string[] }>;
     expect(metadata.task.route).toBe("tasks");
-    expect(metadata.task.actions).toEqual(["complete", "reopen"]);
+    expect(metadata.task.actions).toEqual(["cancel", "complete", "reopen"]);
   });
 });

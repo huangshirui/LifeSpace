@@ -4,6 +4,7 @@ import type { Bindings, Principal } from "../src/env";
 import { createGenericResource } from "../src/generic-resource";
 import { queryGenericResources } from "../src/generic-query";
 import { getPublishedModel } from "../src/model-registry";
+import { executeWorkflowAction } from "../src/workflow";
 
 type TestEnv = { DB: D1Database };
 
@@ -40,28 +41,26 @@ async function fixture() {
     name: "Buy milk",
     description: "Remember oat milk",
     dueDate: "2026-08-12",
-    status: "pending",
     assigneePersonIds: [personId],
   });
-  const second = await createGenericResource(bindings(), actor, spaceId, model, {
+  const secondCreated = await createGenericResource(bindings(), actor, spaceId, model, {
     name: "Book field",
     description: "Saturday football",
     dueDate: "2026-08-13",
-    status: "completed",
     assigneePersonIds: [otherPersonId],
   });
+  const second = await executeWorkflowAction(bindings(), actor, spaceId, model, secondCreated.id, "complete", 1);
   const third = await createGenericResource(bindings(), actor, spaceId, model, {
     name: "Call school",
     description: "Ask about timetable",
     dueDate: "2026-08-14",
-    status: "pending",
     assigneePersonIds: [personId],
   });
-  const noDue = await createGenericResource(bindings(), actor, spaceId, model, {
+  const noDueCreated = await createGenericResource(bindings(), actor, spaceId, model, {
     name: "Someday",
-    status: "cancelled",
     assigneePersonIds: [],
   });
+  const noDue = await executeWorkflowAction(bindings(), actor, spaceId, model, noDueCreated.id, "cancel", 1);
   return { spaceId, personId, model, first, second, third, noDue };
 }
 

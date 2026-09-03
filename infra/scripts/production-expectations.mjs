@@ -27,8 +27,8 @@ function latestMigrationVersion(service) {
 // acceptance pins semantic identity with route + schema hash, while requiring
 // only a release floor for the environment-local Registry version.
 export const PRODUCTION_PROVING_MODELS = Object.freeze([
-  Object.freeze({ key: "task", route: "tasks", minimumVersion: 4, hash: "2e23f3b41d4eab3e6c896579e1271352f078fb98cc390bb8f9dadb7719a26d1f" }),
-  Object.freeze({ key: "wish", route: "wishes", minimumVersion: 4, hash: "6b7d10124504a08bc906bba5915a1ba050e09865039b991dfd470019be879f56" }),
+  Object.freeze({ key: "task", route: "tasks", minimumVersion: 5, hash: "aaa6317b3810a20e6c4622736ec8e39e96edcd5079c6189fb5892ac54397b145" }),
+  Object.freeze({ key: "wish", route: "wishes", minimumVersion: 5, hash: "ec4f99f238e44c756905d30a97f6bb5c063b783eca159dfe39f518ea58ff64b6" }),
   Object.freeze({ key: "day_record", route: "day-records", minimumVersion: 2, hash: "4b2f241958aeca05e396eea7e6719a3f030cef3ea7dfd3c57d426c086fe4cf56" }),
   Object.freeze({ key: "event", route: "events", minimumVersion: 3, hash: "6a23eb2f25463ce55d7ed75d64f0afa020d7aab25149badf28fdd77abc2d1aad" }),
 ]);

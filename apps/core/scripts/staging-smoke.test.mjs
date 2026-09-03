@@ -44,8 +44,8 @@ test("staging bootstrap masks ephemeral credentials before job export", () => {
 test("staging proving-model checks pin semantic identity without assuming environment-local model versions", () => {
   const wish = PROVING_MODELS.find((model) => model.key === "wish");
   assert.ok(wish, "Wish must remain a staging proving model");
-  assert.equal(wish.minimumVersion, 4, "Wish clean-release version remains the minimum accepted Registry version");
-  assert.equal(wish.hash, "6b7d10124504a08bc906bba5915a1ba050e09865039b991dfd470019be879f56", "Wish staging expectation must pin the authoritative two-state schema hash");
+  assert.equal(wish.minimumVersion, 5, "Wish clean-release version remains the minimum accepted Registry version");
+  assert.equal(wish.hash, "ec4f99f238e44c756905d30a97f6bb5c063b783eca159dfe39f518ea58ff64b6", "Wish staging expectation must pin the authoritative mutation-authority schema hash");
   assert.equal("version" in wish, false, "staging must not assume one exact environment-local Registry version");
   assert.equal(
     BASELINE_MODEL_SEMANTICS.wish.fields.status,

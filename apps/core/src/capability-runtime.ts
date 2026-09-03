@@ -24,14 +24,27 @@ export function prepareCapabilityCreateInput(model: PublishedModel, input: unkno
   return applyModelDefaults(model.definition, input);
 }
 
+function rejectClientReadOnlyCreateFields(model: PublishedModel, input: unknown): void {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return;
+  const readOnlyField = Object.keys(input as Record<string, unknown>)
+    .find((key) => model.definition.fields[key]?.readOnly === true);
+  if (readOnlyField) throw new ApiError("INVALID_RESOURCE", `Field ${readOnlyField} is read-only`, 400);
+}
+
 export async function createCapabilityAwareResource(env: Bindings, principal: Principal, spaceId: string, model: PublishedModel, input: unknown): Promise<GenericResource> {
-  const prepared = prepareCapabilityCreateInput(model, input);
+  // Capability preparation may derive trusted read-only values. Preserve the
+  // original client authority boundary before any defaults or capability-owned
+  // fields are added so trusted preparation cannot turn a client-supplied
+  // read-only field into an authorized internal mutation.
+  rejectClientReadOnlyCreateFields(model, input);
   if (hasTemporalCapability(model)) {
     const space = await loadSpaceTemporalContext(env, spaceId);
-    return createTemporalResource(env, principal, space, model, prepared);
+    return createTemporalResource(env, principal, space, model, input);
   }
-  if (hasCalendarCapability(model)) return createCalendarResource(env, principal, spaceId, model, prepared);
-  return createGenericResource(env, principal, spaceId, model, prepared);
+  if (hasCalendarCapability(model)) {
+    return createCalendarResource(env, principal, spaceId, model, input);
+  }
+  return createGenericResource(env, principal, spaceId, model, input);
 }
 
 export async function updateCapabilityAwareResource(

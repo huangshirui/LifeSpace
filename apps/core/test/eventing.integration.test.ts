@@ -35,7 +35,6 @@ describe("Domain Event outbox", () => {
     const { db, spaceId, model } = await fixture();
     const created = await createGenericResource(bindings(), actor, spaceId, model, {
       name: "Eventing task",
-      status: "pending",
     });
     await updateGenericResource(bindings(), actor, spaceId, model, created.id, 1, {
       name: "Updated eventing task",

@@ -122,7 +122,6 @@ async function fixture() {
   for (let index = 0; index < 200; index += 1) {
     records.push(await createGenericResource({ DB: database } as Bindings, actor, spaceId, taskModel, {
       name: `Budget task ${String(index).padStart(3, "0")}`,
-      status: "pending",
       assigneePersonIds: [],
     }));
   }

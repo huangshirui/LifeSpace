@@ -75,20 +75,22 @@ describe("Generic Resource Runtime", () => {
     expect(envelope).toEqual({ model_key: "task", model_version: model.version, version: 1 });
   });
 
-  it("lets explicit caller values override declared defaults", async () => {
+  it("rejects caller values for Action-owned server state", async () => {
     const { spaceId, model } = await fixture();
-    const resource = await createGenericResource(bindings(), actor, spaceId, model, {
-      name: "Cancelled immediately",
+    await expect(createGenericResource(bindings(), actor, spaceId, model, {
+      name: "Cannot start completed",
+      status: "completed",
+    })).rejects.toMatchObject({ code: "INVALID_RESOURCE", status: 400 });
+    await expect(createGenericResource(bindings(), actor, spaceId, model, {
+      name: "Cannot start cancelled",
       status: "cancelled",
-    });
-    expect(resource.data).toMatchObject({ name: "Cancelled immediately", status: "cancelled" });
+    })).rejects.toMatchObject({ code: "INVALID_RESOURCE", status: 400 });
   });
 
   it("enforces declared schema, non-defaulted required fields, and read-only fields", async () => {
     const { spaceId, model } = await fixture();
-    await expect(createGenericResource(bindings(), actor, spaceId, model, {
-      status: "pending",
-    })).rejects.toMatchObject({ code: "INVALID_RESOURCE" });
+    await expect(createGenericResource(bindings(), actor, spaceId, model, {}))
+      .rejects.toMatchObject({ code: "INVALID_RESOURCE" });
 
     await expect(createGenericResource(bindings(), actor, spaceId, model, {
       name: "Invalid",
@@ -109,7 +111,7 @@ describe("Generic Resource Runtime", () => {
     })).rejects.toMatchObject({ code: "INVALID_RESOURCE_RELATION" });
   });
 
-  it("updates typed fields with optimistic concurrency and refreshes relations", async () => {
+  it("updates ordinary typed fields with optimistic concurrency while denying Action-owned state", async () => {
     const { db, spaceId, personId, model } = await fixture();
     const resource = await createGenericResource(bindings(), actor, spaceId, model, {
       name: "Initial",
@@ -118,19 +120,21 @@ describe("Generic Resource Runtime", () => {
 
     const updated = await updateGenericResource(bindings(), actor, spaceId, model, resource.id, 1, {
       name: "Updated",
-      status: "cancelled",
       assigneePersonIds: [],
     });
     expect(updated.version).toBe(2);
-    expect(updated.data).toMatchObject({ name: "Updated", status: "cancelled", assigneePersonIds: [] });
+    expect(updated.data).toMatchObject({ name: "Updated", status: "pending", assigneePersonIds: [] });
 
     const typed = await db.prepare("SELECT name,status FROM mdl_task WHERE record_id=?")
       .bind(resource.id).first<{ name: string; status: string }>();
-    expect(typed).toEqual({ name: "Updated", status: "cancelled" });
+    expect(typed).toEqual({ name: "Updated", status: "pending" });
 
     const relationCount = await db.prepare("SELECT count(*) AS count FROM resource_relations WHERE source_record_id=?")
       .bind(resource.id).first<{ count: number }>();
     expect(relationCount?.count).toBe(0);
+
+    await expect(updateGenericResource(bindings(), actor, spaceId, model, resource.id, 2, { status: "cancelled" }))
+      .rejects.toMatchObject({ code: "INVALID_RESOURCE", status: 400 });
 
     await expect(updateGenericResource(bindings(), actor, spaceId, model, resource.id, 1, { name: "Stale" }))
       .rejects.toMatchObject({ code: "VERSION_CONFLICT" });

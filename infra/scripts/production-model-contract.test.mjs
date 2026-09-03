@@ -9,11 +9,11 @@ const modelAdminVerifier = new URL("./verify-production-model-admin.mjs", import
 test("production proving models pin semantic identity without assuming environment-local Registry versions", () => {
   const wish = PRODUCTION_PROVING_MODELS.find((model) => model.key === "wish");
   assert.ok(wish, "Wish must remain a production proving model");
-  assert.equal(wish.minimumVersion, 4, "Wish clean-release version remains the production Registry floor");
+  assert.equal(wish.minimumVersion, 5, "Wish clean-release version remains the production Registry floor");
   assert.equal(
     wish.hash,
-    "6b7d10124504a08bc906bba5915a1ba050e09865039b991dfd470019be879f56",
-    "production must pin the authoritative two-state Wish schema hash",
+    "ec4f99f238e44c756905d30a97f6bb5c063b783eca159dfe39f518ea58ff64b6",
+    "production must pin the authoritative Mutation Authority Wish schema hash",
   );
   assert.equal("version" in wish, false, "production must not assume one exact environment-local Wish Registry version");
 });

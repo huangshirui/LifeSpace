@@ -6,7 +6,7 @@ Scope: ordinary metadata-driven business models in LifeSpace Core
 
 ## 1. Purpose and authority
 
-This document is the human-readable specification for LifeSpace **模型定义（Model Definition）v1** and its embedded **策略（Policy）**、**动作 / 工作流（Action / Workflow）** and **能力（Capability）** declarations.
+This document is the human-readable specification for LifeSpace **模型定义（Model Definition）v1** and its embedded **策略（Policy）**、**记录动作 / 转换（Record Action / Transition）** and **能力（Capability）** declarations.
 
 The purpose of the DSL is to let LifeSpace describe ordinary Shared Reality semantics without adding one handwritten router/service/table implementation per domain model.
 
@@ -50,7 +50,8 @@ Do not collapse these concepts:
 
 - **字段（Field）** describes state.
 - **CRUD** is the generic transport for ordinary state access/change.
-- **动作（Action）** is a named semantic command specific to a model, such as `Task.complete`.
+- **记录动作 / 转换（Record Action / Transition）** is a named, single-record semantic command specific to a model, such as `Task.complete`.
+- **变更权限（Mutation Authority）** declares which mutation surface owns a field change: ordinary CRUD, or trusted model semantics such as an Action/Capability.
 - **策略（Policy）** is a deny-capable authorization refinement.
 - **守卫（Guard）** decides whether an Action is valid in the current business state.
 - **分支（Branch）** chooses the effect of an Action from current record state.
@@ -244,19 +245,35 @@ Rules:
 - `values` is required for `enum`, must be unique and may contain at most 50 entries;
 - `targetModel` is required only for `record` / `record_list`.
 
-### 4.3 `readOnly` vs `immutable`
+### 4.3 `readOnly`, Mutation Authority, and `immutable`
 
-These two flags mean different things.
+These flags answer different questions.
 
-**`readOnly: true`** means ordinary clients cannot supply the field during create/update. Trusted platform behavior such as Action or Capability execution may still write it.
+**`readOnly: true`** means ordinary clients cannot supply the field during create/update. Trusted platform behavior such as Action or Capability execution may still write it. In Model Definition v1 this is also the declarative mechanism for **变更权限（Mutation Authority）** when a field's valid changes are owned by semantic platform behavior rather than generic CRUD.
 
-Example:
+Examples:
 
 ```ts
+status: {
+  type: "enum",
+  required: true,
+  readOnly: true,
+  values: ["pending", "completed", "cancelled"]
+}
 completedAt: { type: "datetime", nullable: true, readOnly: true }
 ```
 
-This is why `Task.complete` can set `completedAt` while a normal `PATCH` cannot.
+This means a normal `POST`/`PATCH` cannot choose Task lifecycle state or completion bookkeeping, while `Task.complete`, `Task.cancel` and `Task.reopen` can change those fields through the trusted Action path.
+
+Normative Mutation Authority rules in v1:
+
+- if direct client mutation of a field would bypass an Action/Capability guard, policy, companion-field update, or declared semantic invariant, that field must be `readOnly: true`;
+- a server `default` may initialize a `readOnly` field when the client omits it; `readOnly` prevents client assignment, not server initialization;
+- `readOnly` does not make a field hidden or unqueryable: it may still appear in resource output, filters, sorts and Runtime Discovery;
+- generated create/update schemas omit `readOnly` fields, generated resource schemas mark them `readOnly`, and Runtime Discovery exposes the field declaration;
+- Actions/Capabilities may write a `readOnly` field because they are trusted model semantics and still pass the normal model validation/persistence boundary;
+- do **not** mark a field `readOnly` merely because an Action also happens to assign it. Ordinary CRUD and Actions may legitimately coexist for a field when no invariant requires exclusive semantic ownership;
+- therefore Mutation Authority is explicit, not inferred from field names such as `status` and not hard-coded for Task/Wish in Runtime.
 
 **`immutable: true`** means the value cannot be changed after creation. Workflow Action assignments to immutable fields are rejected at definition validation time.
 
@@ -466,21 +483,21 @@ Likewise, current Policy v1 does **not** expose `now` or `space.*` references ev
 
 Policy is a closed deterministic DSL: no JavaScript, SQL, shell, network call or arbitrary function execution.
 
-## 10. Action / Workflow DSL
+## 10. Record Action / Transition DSL
 
-An Action is a model-specific semantic command.
+A **记录动作 / 转换（Record Action / Transition）** is a model-specific semantic command over one record. The implementation modules retain the historical `workflow-*` naming, but **Workflow v1 is not a general workflow/orchestration system**.
 
 Examples:
 
 ```text
 Task.complete
+Task.cancel
 Task.reopen
-Wish.claim
 Wish.fulfill
 DayRecord.archive
 ```
 
-An Action is declared in the model; it does not require a model-specific handler when its behavior fits Workflow v1.
+An Action is declared in the model; it does not require a model-specific handler when its behavior fits the bounded Workflow v1 engine.
 
 ### 10.1 Action shape
 
@@ -505,7 +522,7 @@ Current limits:
 
 ### 10.2 Execution order
 
-Conceptually, a normal Workflow Action executes as:
+Conceptually, a normal Record Action executes as:
 
 ```text
 resolve model + action
@@ -537,6 +554,31 @@ The public Action request body currently accepts only:
 Custom Action input parameters are not part of Model Definition v1.
 
 If an Action needs arbitrary caller input beyond the optimistic version, Workflow v1 is insufficient and the DSL/runtime contract must be extended deliberately rather than hiding ad-hoc request fields in one model.
+
+### 10.4 CRUD vs Record Action/Transition vs external orchestration
+
+The three mutation surfaces have different responsibilities:
+
+```text
+CRUD
+  ordinary client-controlled field editing
+  -> PATCH writable model fields
+
+Record Action / Transition
+  one-record atomic semantic change
+  -> named Action + version + Policy + Guard/Branch + deterministic assignments
+  -> may own readOnly fields when direct CRUD would bypass semantics
+
+External orchestration / governed Change
+  multi-record, multi-service, long-running, asynchronous or externally coordinated work
+  -> outside Workflow v1
+```
+
+A Record Action becomes **authoritative** for a protected state transition only when the fields that would otherwise bypass its semantics are removed from the ordinary CRUD write surface, normally with `readOnly: true`.
+
+Do not solve semantic authority with model-specific Runtime conditionals such as “Task.status is special”. The authority must be visible in the Model Definition and therefore flow into Runtime validation, generated contract and Discovery.
+
+Likewise, do not expand Workflow v1 into a process engine merely because a use case needs several steps or external calls. Such work belongs to an orchestration/Change layer that can coordinate LifeSpace mutations through stable contracts.
 
 ## 11. Guards
 
@@ -780,6 +822,8 @@ Model-derived contract content includes:
 - Capability contract contributions;
 - model version/schema-hash evidence.
 
+For Mutation Authority specifically, a `readOnly` field is present in resource schemas with `readOnly: true` but absent from ordinary create/update request schemas. Runtime Discovery carries the same field metadata plus the authorized Action set, allowing consumers and Agents to discover the valid semantic mutation surface instead of guessing from field names.
+
 The contract identity is content-addressed as `mct_<sha256(...)>`.
 
 The Kernel OpenAPI deliberately does not duplicate ordinary model paths.
@@ -818,11 +862,13 @@ Rules already enforced by the Registry include:
 - route conflicts are rejected;
 - model versions advance monotonically per model key.
 
+Changing an existing field from CRUD-writable to `readOnly` is a **breaking request-contract change** because generated create/update schemas no longer accept that field, even when stored rows and response shapes remain compatible. Such a change requires a normal compatibility-classified convergence migration and downstream impact review.
+
 A model-only publication is designed not to require a Worker deployment when no Kernel/Capability/runtime implementation changes.
 
 ## 18. Complete Task example
 
-The current Task model demonstrates the core v1 pattern:
+The current Task model demonstrates the core v1 Mutation Authority pattern:
 
 ```ts
 {
@@ -835,6 +881,7 @@ The current Task model demonstrates the core v1 pattern:
     status: {
       type: "enum",
       required: true,
+      readOnly: true,
       values: ["pending", "completed", "cancelled"]
     },
     completedAt: { type: "datetime", nullable: true, readOnly: true },
@@ -876,8 +923,35 @@ The current Task model demonstrates the core v1 pattern:
         completedById: { $ref: "actor.id" }
       }
     },
+    cancel: {
+      access: "write",
+      guards: [
+        {
+          field: "status",
+          op: "neq",
+          value: "cancelled",
+          errorCode: "TASK_ALREADY_CANCELLED",
+          message: "Task is already cancelled"
+        }
+      ],
+      set: {
+        status: "cancelled",
+        completedAt: null,
+        completedByType: null,
+        completedById: null
+      }
+    },
     reopen: {
       access: "write",
+      guards: [
+        {
+          field: "status",
+          op: "neq",
+          value: "pending",
+          errorCode: "TASK_ALREADY_PENDING",
+          message: "Task is already pending"
+        }
+      ],
       set: {
         status: "pending",
         completedAt: null,
@@ -892,12 +966,12 @@ The current Task model demonstrates the core v1 pattern:
 What this means in plain language:
 
 ```text
-Task is a model with generic CRUD/query behavior.
-Task additionally exposes a semantic `complete` command.
-`complete` is allowed only when the Task is not already completed.
-The command, not the client, owns completed timestamp/actor bookkeeping.
-The same generic Workflow engine executes it for every model.
-The Action route and OpenAPI operation are derived automatically.
+Task is a model with generic CRUD/query behavior for ordinary editable fields.
+Task.status is not part of the client CRUD write surface; the server default initializes it to pending.
+Task additionally exposes authoritative semantic complete/cancel/reopen commands.
+Those Actions, not PATCH, own lifecycle transitions and completion bookkeeping.
+The same generic Workflow engine executes them without Task-specific Runtime code.
+The Action routes, readOnly field contract and Discovery metadata are derived automatically.
 ```
 
 ## 19. Why Action, Policy and Capability are separate
@@ -908,10 +982,11 @@ A useful decision rule is:
 |---|---|
 | store a model-specific value | Field |
 | expose generic create/read/update/delete | Generic Runtime |
+| protect a field whose legitimate changes are owned by model semantics | `readOnly` + Action/Capability Mutation Authority |
 | restrict who may perform an operation | Policy |
 | reject a semantic command in an invalid current state | Guard |
 | choose different effects from current state | Branch |
-| expose a model-specific semantic command | Action |
+| expose a model-specific semantic command | Record Action / Transition |
 | reuse a stable semantic/runtime package across unrelated models | Capability |
 | coordinate multiple records/services/long-running work | external Orchestration / future governed Change mechanism, not Workflow v1 |
 

@@ -17,15 +17,15 @@ const baselineDefinitions = [
   EVENT_MODEL_DEFINITION,
 ];
 const releaseFingerprint = Object.freeze({
-  task: Object.freeze({ version: 4, schemaHash: "2e23f3b41d4eab3e6c896579e1271352f078fb98cc390bb8f9dadb7719a26d1f" }),
-  wish: Object.freeze({ version: 4, schemaHash: "6b7d10124504a08bc906bba5915a1ba050e09865039b991dfd470019be879f56" }),
+  task: Object.freeze({ version: 5, schemaHash: "aaa6317b3810a20e6c4622736ec8e39e96edcd5079c6189fb5892ac54397b145" }),
+  wish: Object.freeze({ version: 5, schemaHash: "ec4f99f238e44c756905d30a97f6bb5c063b783eca159dfe39f518ea58ff64b6" }),
   day_record: Object.freeze({ version: 2, schemaHash: "4b2f241958aeca05e396eea7e6719a3f030cef3ea7dfd3c57d426c086fe4cf56" }),
   event: Object.freeze({ version: 3, schemaHash: "6a23eb2f25463ce55d7ed75d64f0afa020d7aab25149badf28fdd77abc2d1aad" }),
 });
 // This is the deterministic contract for an isolated Registry containing exactly
 // the four baseline models above. A deployed Registry may legitimately have a
 // different active mct_* when additional ordinary models are published.
-const isolatedBaselineModelContract = "mct_5ac2bbceb3baf7aeed9aa06188049c44d92ab3c641b10a02df2168c3b7c122ac";
+const isolatedBaselineModelContract = "mct_cd79cc07956344aa8c36a056bfad4e9f37937f864b25fe0132ec314677c89305";
 
 function published(definition: ModelDefinition): PublishedModel {
   return {

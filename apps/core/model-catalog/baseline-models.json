@@ -9,7 +9,7 @@
       "name": { "type": "string", "description": "The concrete action or to-do to complete.", "required": true, "minLength": 1, "maxLength": 100 },
       "description": { "type": "text", "description": "Supporting details about how or why to complete the task.", "nullable": true, "maxLength": 5000 },
       "dueDate": { "type": "date", "description": "The deadline date for completing the task, not a calendar time block.", "nullable": true },
-      "status": { "type": "enum", "description": "Current lifecycle state of the task.", "required": true, "values": ["pending", "completed", "cancelled"] },
+      "status": { "type": "enum", "description": "Current lifecycle state of the task.", "required": true, "readOnly": true, "values": ["pending", "completed", "cancelled"] },
       "assigneePersonIds": { "type": "person_list", "description": "People responsible for completing the task." },
       "completedAt": { "type": "datetime", "nullable": true, "readOnly": true },
       "completedByType": { "type": "enum", "nullable": true, "readOnly": true, "values": ["user", "service", "device", "agent"] },
@@ -24,6 +24,11 @@
         "access": "write",
         "guards": [{ "field": "status", "op": "neq", "value": "completed", "errorCode": "TASK_ALREADY_COMPLETED", "message": "Task is already completed" }],
         "set": { "status": "completed", "completedAt": { "$ref": "now" }, "completedByType": { "$ref": "actor.type" }, "completedById": { "$ref": "actor.id" } }
+      },
+      "cancel": {
+        "access": "write",
+        "guards": [{ "field": "status", "op": "neq", "value": "cancelled", "errorCode": "TASK_ALREADY_CANCELLED", "message": "Task is already cancelled" }],
+        "set": { "status": "cancelled", "completedAt": null, "completedByType": null, "completedById": null }
       },
       "reopen": {
         "access": "write",
@@ -42,7 +47,7 @@
       "title": { "type": "string", "description": "A concise statement of the aspiration or desired outcome.", "required": true, "minLength": 1, "maxLength": 100 },
       "description": { "type": "text", "description": "Optional detail about the aspiration and why it is desired.", "nullable": true, "maxLength": 5000 },
       "desiredDate": { "type": "date", "description": "A hoped-for date, not a committed task deadline or scheduled event time.", "nullable": true },
-      "status": { "type": "enum", "description": "Whether the wish is still waiting to happen or has been fulfilled.", "required": true, "values": ["open", "fulfilled"] },
+      "status": { "type": "enum", "description": "Whether the wish is still waiting to happen or has been fulfilled.", "required": true, "readOnly": true, "values": ["open", "fulfilled"] },
       "ownerPersonId": { "type": "person", "description": "The person whose aspiration this is.", "required": true, "immutable": true },
       "fulfilledAt": { "type": "datetime", "description": "When the wish was marked fulfilled.", "nullable": true, "readOnly": true }
     },
