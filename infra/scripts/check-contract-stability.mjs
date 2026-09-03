@@ -61,7 +61,7 @@ function parseOperations(text, source) {
 }
 
 function operationDigest(operations) {
-  return `sha256:${createHash("sha256").update(operations.join("\n")).digest("hex")}`;
+  return `sha256:${createHash("sha256").update([...operations].sort().join("\n")).digest("hex")}`;
 }
 
 function requireEnum(value, allowed, label) {
@@ -90,6 +90,7 @@ for (const invariant of baseline.semanticInvariants ?? []) {
 if (semanticIds.size === 0) fail("at least one semantic invariant is required");
 
 const sourceIds = new Set();
+const operationGroups = new Map();
 let totalOperations = 0;
 let totalPublicOperations = 0;
 const actualDigests = [];
@@ -121,7 +122,9 @@ for (const contract of baseline.contractSources ?? []) {
     } catch (error) {
       fail(`${contract.id}/${group.id} has invalid operationPattern: ${error instanceof Error ? error.message : String(error)}`);
     }
-    return { ...group, regex };
+    const reference = `${contract.id}/${group.id}`;
+    operationGroups.set(reference, { source: contract, group, operations: [] });
+    return { ...group, regex, reference };
   });
 
   for (const operation of operations) {
@@ -129,6 +132,7 @@ for (const contract of baseline.contractSources ?? []) {
     if (matches.length !== 1) {
       fail(`${contract.id} operation ${operation} must match exactly one classification group; matched ${matches.map((group) => group.id).join(", ") || "none"}`);
     }
+    operationGroups.get(matches[0].reference).operations.push(operation);
     if (matches[0].visibility === "public") totalPublicOperations += 1;
   }
 
@@ -146,19 +150,34 @@ for (const invariantId of stableLocks.semanticInvariants ?? []) {
   if (!invariant) fail(`stable lock references missing semantic invariant ${invariantId}`);
   if (invariant.maturity !== "stable") fail(`stable semantic invariant ${invariantId} cannot be downgraded while its stable lock remains`);
 }
+
+const actualStableGroupDigests = [];
 for (const reference of stableLocks.operationGroups ?? []) {
-  const [sourceId, groupId] = String(reference).split("/");
-  const source = (baseline.contractSources ?? []).find((entry) => entry.id === sourceId);
-  const group = source?.groups?.find((entry) => entry.id === groupId);
-  if (!group) fail(`stable lock references missing operation group ${reference}`);
-  if (group.maturity !== "stable") fail(`stable operation group ${reference} cannot be downgraded while its stable lock remains`);
+  const entry = operationGroups.get(reference);
+  if (!entry) fail(`stable lock references missing operation group ${reference}`);
+  if (entry.group.maturity !== "stable") fail(`stable operation group ${reference} cannot be downgraded while its stable lock remains`);
+  if (entry.operations.length === 0) fail(`stable operation group ${reference} unexpectedly matches zero operations`);
+
+  const digest = operationDigest(entry.operations);
+  actualStableGroupDigests.push(`${reference}=${digest}`);
+  const expected = stableLocks.operationGroupSha256?.[reference];
+  if (expected !== digest) {
+    digestMismatches.push(`stable group ${reference}: expected ${JSON.stringify(expected)}, actual ${digest}`);
+  }
+}
+
+for (const reference of Object.keys(stableLocks.operationGroupSha256 ?? {})) {
+  if (!(stableLocks.operationGroups ?? []).includes(reference)) {
+    fail(`stable operation digest references unlocked group ${reference}`);
+  }
 }
 
 console.log(`[contract-stability] inspected ${semanticIds.size} semantic invariants, ${sourceIds.size} contract sources, ${totalOperations} operations (${totalPublicOperations} public)`);
 for (const digest of actualDigests) console.log(`[contract-stability] ${digest}`);
+for (const digest of actualStableGroupDigests) console.log(`[contract-stability] stable-group ${digest}`);
 
 if (digestMismatches.length > 0) {
-  fail(`operation set changed or is not initialized:\n- ${digestMismatches.join("\n- ")}\nReview operation/classification changes, then update baseline digests deliberately.`);
+  fail(`operation baseline changed or is not initialized:\n- ${digestMismatches.join("\n- ")}\nReview operation/classification changes, then update baseline digests deliberately.`);
 }
 
 console.log("[contract-stability] baseline verified");
