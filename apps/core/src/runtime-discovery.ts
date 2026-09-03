@@ -30,11 +30,18 @@ type DiscoveryActionInputField = {
   values?: string[];
 };
 
+type DiscoveryActionConcurrency = {
+  strategy: "record-version";
+  required: true;
+  transport: { in: "body"; name: "version" };
+};
+
 type DiscoveryAction = {
   key: string;
   access: ModelAccess;
   kind: "workflow" | "capability";
   input: { fields: DiscoveryActionInputField[] };
+  concurrency: DiscoveryActionConcurrency;
 };
 
 const accessRank: Record<ModelAccess, number> = { read: 1, write: 2, manage: 3 };
@@ -46,13 +53,15 @@ const scopeForAccess: Record<ModelAccess, string> = {
   manage: "resources:manage",
 };
 const accessOrder: ModelAccess[] = ["read", "write", "manage"];
-const versionInput: DiscoveryActionInputField = {
-  key: "version",
-  type: "integer",
+const recordVersionConcurrency: DiscoveryActionConcurrency = {
+  strategy: "record-version",
   required: true,
-  minimum: 1,
-  description: "Current record version used for optimistic concurrency.",
+  transport: { in: "body", name: "version" },
 };
+
+function actionConcurrency(): DiscoveryActionConcurrency {
+  return structuredClone(recordVersionConcurrency);
+}
 
 function spaceAuthorityRank(principal: Principal, membership: MembershipRow | null, grants: GrantRow[], modelKey: string): number {
   const membershipLevel = principal.type === "user" && membership ? roleRank[membership.role] : 0;
@@ -86,7 +95,8 @@ function actions(model: PublishedModel, allowed: ModelAccess[]): DiscoveryAction
       key,
       access: action.access,
       kind: "workflow" as const,
-      input: { fields: [{ ...versionInput }] },
+      input: { fields: [] },
+      concurrency: actionConcurrency(),
     }));
 
   if (capabilityActionAccess(model, "record-occurrence") === "write" && allowedSet.has("write")) {
@@ -96,7 +106,6 @@ function actions(model: PublishedModel, allowed: ModelAccess[]): DiscoveryAction
       kind: "capability",
       input: {
         fields: [
-          { ...versionInput },
           {
             key: "occurredOn",
             type: "date",
@@ -112,6 +121,7 @@ function actions(model: PublishedModel, allowed: ModelAccess[]): DiscoveryAction
           },
         ],
       },
+      concurrency: actionConcurrency(),
     });
   }
 
