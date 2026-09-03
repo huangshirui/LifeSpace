@@ -195,6 +195,8 @@ A semantic compatibility break and a representation version bump are related but
 
 Ordinary model semantics remain owned by canonical Model Definitions / Registry and the existing Model publication compatibility gate.
 
+For the first Contract Baseline, the **generated ordinary Model Contract representation family is explicitly `Candidate / Public`**. A newly published model therefore enters an already-declared evolution class rather than bypassing stability classification. This family-level classification avoids copying every generated Task/Event/future-model operation into a second handwritten list.
+
 M4 does **not** create a second handwritten list of every generated model operation. Instead:
 
 - Model Definition compatibility remains authoritative for logical model evolution;
@@ -202,6 +204,8 @@ M4 does **not** create a second handwritten list of every generated model operat
 - generated OpenAPI/JSON Schema remains reproducible output;
 - server defaults, Action semantic input/concurrency annotations and Runtime behavior must remain aligned;
 - model retirement/breaking publication requires downstream dependency/migration evidence.
+
+Promoting a particular generated representation family or model semantic promise to Stable later requires explicit evidence and classification; immutability of one `mct_*` snapshot alone is not such a promotion.
 
 ## 11. Adapter rule
 
@@ -224,10 +228,12 @@ It must not:
 
 ## 12. Mechanical baseline
 
-`docs/contract-stability-baseline.json` is the machine-readable baseline for code-owned OpenAPI surfaces and Stable semantic commitments.
+`docs/contract-stability-baseline.json` is the machine-readable baseline for code-owned OpenAPI surfaces, generated contract-family classifications and Stable semantic commitments.
 
 `infra/scripts/check-contract-stability.mjs` validates it during normal `pnpm check`.
 
-The check intentionally fingerprints the complete OpenAPI operation set. Adding/removing an operation therefore requires an explicit baseline update even if the new operation happens to match an existing path family. This is the review trigger that prevents public capabilities entering silently.
+The check intentionally fingerprints the complete code-owned OpenAPI operation set. Adding/removing an operation therefore requires an explicit baseline update even if the new operation happens to match an existing path family. Stable operation groups are fingerprinted separately, so refreshing a whole-contract fingerprint cannot silently remove an already-Stable operation.
+
+Generated ordinary Model Contract surfaces are not copied into this operation inventory; their family classification is validated separately while Model Definition / Registry publication remains authoritative for their contents and compatibility.
 
 The machine file is not a replacement for canonical OpenAPI, Model Definitions or this policy. It only records classification and guards evolution boundaries.
