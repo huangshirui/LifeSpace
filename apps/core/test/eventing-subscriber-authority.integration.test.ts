@@ -84,7 +84,7 @@ async function fixture(identityState: "active" | "inactive" | "unavailable") {
     CORE_IDENTITY_SHARED_SECRET: "test-core-identity-shared-secret-at-least-32",
   } as Bindings;
 
-  return { db, bindings, deliveryId, grantId, subscriberId, identityCalls };
+  return { db, bindings, deliveryId, grantId, subscriberId, endpointId, subscriptionId, identityCalls };
 }
 
 async function processOne(bindings: Bindings, deliveryId: string) {
@@ -151,5 +151,43 @@ describe("Eventing subscriber current authority", () => {
     expect(webhookFetch).not.toHaveBeenCalled();
     expect(await deliveryState(f.db, f.deliveryId)).toMatchObject({ status: "failed", attempt_count: 0 });
     expect((await deliveryState(f.db, f.deliveryId))?.last_error).toContain("subscriber identity status unavailable");
+  });
+
+  it("cancels a queued delivery before Identity lookup when its Webhook Endpoint is disabled", async () => {
+    const f = await fixture("active");
+    await f.db.prepare("UPDATE webhook_endpoints SET enabled=0,updated_at=? WHERE id=?")
+      .bind(new Date().toISOString(), f.endpointId).run();
+    const webhookFetch = vi.fn(async () => new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", webhookFetch);
+
+    const result = await processOne(f.bindings, f.deliveryId);
+
+    expect(result).toEqual({ acked: true, retried: false });
+    expect(webhookFetch).not.toHaveBeenCalled();
+    expect(f.identityCalls).toHaveLength(0);
+    expect(await deliveryState(f.db, f.deliveryId)).toMatchObject({
+      status: "cancelled",
+      attempt_count: 0,
+      last_error: "endpoint/subscription unavailable or access revoked",
+    });
+  });
+
+  it("cancels a queued delivery before Identity lookup when its Event Subscription is disabled", async () => {
+    const f = await fixture("active");
+    await f.db.prepare("UPDATE event_subscriptions SET enabled=0,updated_at=? WHERE id=?")
+      .bind(new Date().toISOString(), f.subscriptionId).run();
+    const webhookFetch = vi.fn(async () => new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", webhookFetch);
+
+    const result = await processOne(f.bindings, f.deliveryId);
+
+    expect(result).toEqual({ acked: true, retried: false });
+    expect(webhookFetch).not.toHaveBeenCalled();
+    expect(f.identityCalls).toHaveLength(0);
+    expect(await deliveryState(f.db, f.deliveryId)).toMatchObject({
+      status: "cancelled",
+      attempt_count: 0,
+      last_error: "endpoint/subscription unavailable or access revoked",
+    });
   });
 });
