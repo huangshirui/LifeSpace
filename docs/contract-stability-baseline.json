@@ -1,0 +1,223 @@
+{
+  "schemaVersion": 1,
+  "maturityValues": ["stable", "candidate", "experimental"],
+  "visibilityValues": ["public", "internal"],
+  "semanticInvariants": [
+    {
+      "id": "space-boundary",
+      "maturity": "stable",
+      "visibility": "public",
+      "commitment": "Every ordinary record has one source Space; Spaces are isolated by default and cross-Space sharing is explicit, bounded, revocable and ownership-preserving."
+    },
+    {
+      "id": "global-user-identity",
+      "maturity": "stable",
+      "visibility": "public",
+      "commitment": "A LifeSpace user identity is global across applications; application/provider identities are mappings rather than parallel LifeSpace users."
+    },
+    {
+      "id": "principal-actor-application-attribution",
+      "maturity": "stable",
+      "visibility": "public",
+      "commitment": "Principal authority, executing Actor and Application Context remain distinguishable and attributable when they differ."
+    },
+    {
+      "id": "effective-authority-intersection",
+      "maturity": "stable",
+      "visibility": "public",
+      "commitment": "Effective authority never exceeds verified credential scope, Application × Model Access, current Space membership/Data Grant, published model capability/policy and current Delegation when acting as a delegated Agent."
+    },
+    {
+      "id": "model-semantic-ownership",
+      "maturity": "stable",
+      "visibility": "public",
+      "commitment": "Canonical Model Definitions/Registry own ordinary model semantics; generated Model Contracts and protocol adapters are projections rather than second semantic sources."
+    },
+    {
+      "id": "generic-runtime-fundamentals",
+      "maturity": "stable",
+      "visibility": "public",
+      "commitment": "Validation, declared server defaults, optimistic concurrency, Action semantic input and Mutation Authority are enforced by the Runtime rather than left to clients."
+    },
+    {
+      "id": "governed-change-attribution",
+      "maturity": "stable",
+      "visibility": "public",
+      "commitment": "Committed ordinary-model mutations preserve governed Change evidence including operation/resource/version and Principal, Actor, Application and Delegation attribution where applicable."
+    },
+    {
+      "id": "current-state-revocation",
+      "maturity": "stable",
+      "visibility": "public",
+      "commitment": "Mutable Membership, Data Grant, Application × Model Access, Service Principal and Agent Delegation authority is checked from current state so stale credentials do not preserve revoked authority."
+    },
+    {
+      "id": "agent-protocol-independence",
+      "maturity": "stable",
+      "visibility": "public",
+      "commitment": "Agent readiness is protocol/product independent; REST, MCP, API Tool, n8n, SDK, ALOHA and future adapters must project the same authority and model semantics."
+    }
+  ],
+  "contractSources": [
+    {
+      "id": "identity-application",
+      "source": "apps/identity/openapi.yaml",
+      "operationSetSha256": "PENDING",
+      "groups": [
+        {
+          "id": "identity-operational",
+          "maturity": "candidate",
+          "visibility": "internal",
+          "operationPattern": "^(GET /health|GET /api/v1/status)$"
+        },
+        {
+          "id": "identity-profile",
+          "maturity": "stable",
+          "visibility": "public",
+          "operationPattern": "^(GET /assets/users/\\{userId\\}/avatar|(GET|PATCH) /api/v1/me|PUT /api/v1/me/avatar)$"
+        },
+        {
+          "id": "identity-access-linking",
+          "maturity": "candidate",
+          "visibility": "public",
+          "operationPattern": "^(POST /api/v1/me/access-link-challenges/\\{challengeId\\}/confirm|POST /internal/v1/access/(tokens|registrations|link-challenges))$"
+        },
+        {
+          "id": "identity-trusted-application-exchange",
+          "maturity": "stable",
+          "visibility": "public",
+          "operationPattern": "^POST /internal/v1/(users|tokens)$"
+        },
+        {
+          "id": "identity-agent-execution",
+          "maturity": "candidate",
+          "visibility": "public",
+          "operationPattern": "^(GET|POST) /internal/v1/agents$|^POST /internal/v1/agent-tokens$"
+        },
+        {
+          "id": "identity-service-authentication",
+          "maturity": "stable",
+          "visibility": "public",
+          "operationPattern": "^(GET|POST) /api/v1/service-principals$|^(PATCH) /api/v1/service-principals/\\{principalId\\}$|^(GET|POST) /api/v1/service-principals/\\{principalId\\}/(tokens|oauth-credentials)$|^(PATCH|DELETE) /api/v1/service-principals/\\{principalId\\}/tokens/\\{tokenId\\}$|^DELETE /api/v1/service-principals/\\{principalId\\}/oauth-credentials/\\{credentialId\\}$|^POST /oauth/token$"
+        },
+        {
+          "id": "identity-core-introspection",
+          "maturity": "stable",
+          "visibility": "internal",
+          "operationPattern": "^POST /introspection/v1/.*$"
+        },
+        {
+          "id": "identity-platform-admin-elevation",
+          "maturity": "candidate",
+          "visibility": "internal",
+          "operationPattern": "^POST /api/v1/me/platform-admin-actor-token$"
+        },
+        {
+          "id": "identity-bootstrap",
+          "maturity": "experimental",
+          "visibility": "internal",
+          "operationPattern": "^(GET|POST|PATCH|PUT|DELETE) /bootstrap/v1/.*$"
+        }
+      ]
+    },
+    {
+      "id": "core-kernel",
+      "source": "apps/core/openapi.yaml",
+      "operationSetSha256": "PENDING",
+      "groups": [
+        {
+          "id": "core-operational",
+          "maturity": "candidate",
+          "visibility": "internal",
+          "operationPattern": "^(GET /health|GET /api/v1/status)$"
+        },
+        {
+          "id": "core-principal-space-context",
+          "maturity": "stable",
+          "visibility": "public",
+          "operationPattern": "^(GET /assets/spaces/\\{spaceId\\}/avatar|GET /api/v1/me|GET /api/v1/me/spaces)$"
+        },
+        {
+          "id": "core-space-membership",
+          "maturity": "stable",
+          "visibility": "public",
+          "operationPattern": "^POST /api/v1/spaces$|^(GET|PATCH) /api/v1/spaces/\\{spaceId\\}$|^(POST) /api/v1/spaces/\\{spaceId\\}/close$|^PUT /api/v1/spaces/\\{spaceId\\}/avatar$|^(GET|POST) /api/v1/spaces/\\{spaceId\\}/members$|^(PATCH|DELETE) /api/v1/spaces/\\{spaceId\\}/members/\\{userId\\}$|^POST /api/v1/spaces/\\{spaceId\\}/leave$"
+        },
+        {
+          "id": "core-invitations",
+          "maturity": "candidate",
+          "visibility": "public",
+          "operationPattern": "^(GET|POST) /api/v1/spaces/\\{spaceId\\}/invites$|^POST /api/v1/spaces/\\{spaceId\\}/invites/\\{inviteId\\}/revoke$|^GET /api/v1/space-invites/\\{token\\}$|^POST /api/v1/space-invites/\\{token\\}/join$"
+        },
+        {
+          "id": "core-data-grants",
+          "maturity": "stable",
+          "visibility": "public",
+          "operationPattern": "^(GET|POST) /api/v1/spaces/\\{spaceId\\}/grants$|^(PATCH|DELETE) /api/v1/spaces/\\{spaceId\\}/grants/\\{grantId\\}$"
+        },
+        {
+          "id": "core-runtime-discovery",
+          "maturity": "candidate",
+          "visibility": "public",
+          "operationPattern": "^GET /api/v1/(me|spaces/\\{spaceId\\})/_discovery$"
+        },
+        {
+          "id": "core-agent-delegation",
+          "maturity": "candidate",
+          "visibility": "public",
+          "operationPattern": "^(GET|POST) /api/v1/spaces/\\{spaceId\\}/agent-delegations$|^(GET|PATCH|DELETE) /api/v1/spaces/\\{spaceId\\}/agent-delegations/\\{delegationId\\}$"
+        },
+        {
+          "id": "core-change-history",
+          "maturity": "candidate",
+          "visibility": "public",
+          "operationPattern": "^GET /api/v1/spaces/\\{spaceId\\}/changes(?:/\\{recordId\\})?$"
+        },
+        {
+          "id": "core-integration-eventing",
+          "maturity": "candidate",
+          "visibility": "public",
+          "operationPattern": "^(GET|POST|PATCH|DELETE) /api/v1/spaces/\\{spaceId\\}/(webhook-endpoints|event-subscriptions)(?:/.*)?$"
+        },
+        {
+          "id": "core-creation-drafts",
+          "maturity": "experimental",
+          "visibility": "public",
+          "operationPattern": "^(GET|POST|PATCH|DELETE) /api/v1/spaces/\\{spaceId\\}/creation-drafts(?:/.*)?$"
+        },
+        {
+          "id": "core-model-control",
+          "maturity": "candidate",
+          "visibility": "internal",
+          "operationPattern": "^(GET|POST|PATCH|PUT|DELETE) /(api|internal)/v1/(models|model-contracts|applications)(?:/.*)?$"
+        }
+      ]
+    },
+    {
+      "id": "identity-platform-admin",
+      "source": "apps/identity/platform-admin.openapi.yaml",
+      "operationSetSha256": "PENDING",
+      "groups": [
+        {
+          "id": "identity-platform-admin",
+          "maturity": "candidate",
+          "visibility": "internal",
+          "operationPattern": "^(GET|POST|PATCH|PUT|DELETE) /.*$"
+        }
+      ]
+    },
+    {
+      "id": "core-platform-admin",
+      "source": "apps/core/platform-admin.openapi.yaml",
+      "operationSetSha256": "PENDING",
+      "groups": [
+        {
+          "id": "core-platform-admin",
+          "maturity": "candidate",
+          "visibility": "internal",
+          "operationPattern": "^(GET|POST|PATCH|PUT|DELETE) /.*$"
+        }
+      ]
+    }
+  ]
+}
