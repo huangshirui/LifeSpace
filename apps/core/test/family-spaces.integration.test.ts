@@ -97,9 +97,17 @@ describe("Phase 2 family Space management", () => {
     expect(JSON.stringify(await listed.json())).not.toContain(invitation.data.token);
 
     const joiningToken = await token(privateKey, joiningId, ["spaces:read", "spaces:write"]);
-    const joined = await request(`/api/v1/space-invites/${invitation.data.token}/join`, joiningToken, publicKey, {
+    const preview = await request("/api/v1/space-invites/preview", joiningToken, publicKey, {
       method: "POST",
-      body: JSON.stringify({ displayName: "New member" }),
+      body: JSON.stringify({ token: invitation.data.token }),
+    });
+    expect(preview.status).toBe(200);
+    expect((await preview.json<{ data: { space: { id: string }; canJoin: boolean } }>()).data)
+      .toMatchObject({ space: { id: family.spaceId }, canJoin: true });
+
+    const joined = await request("/api/v1/space-invites/join", joiningToken, publicKey, {
+      method: "POST",
+      body: JSON.stringify({ token: invitation.data.token, displayName: "New member" }),
     });
     expect(joined.status).toBe(201);
     const membership = await db.prepare("SELECT role FROM space_memberships WHERE space_id=? AND user_id=? AND deleted_at IS NULL")
@@ -109,9 +117,9 @@ describe("Phase 2 family Space management", () => {
     expect(membership?.role).toBe("editor");
     expect(person?.display_name).toBe("New member");
 
-    const replay = await request(`/api/v1/space-invites/${invitation.data.token}/join`, joiningToken, publicKey, {
+    const replay = await request("/api/v1/space-invites/join", joiningToken, publicKey, {
       method: "POST",
-      body: JSON.stringify({ displayName: "Again" }),
+      body: JSON.stringify({ token: invitation.data.token, displayName: "Again" }),
     });
     expect(replay.status).toBe(409);
   });
@@ -211,9 +219,9 @@ describe("Phase 2 family Space management", () => {
     });
     const invitation = await created.json<{ data: { token: string } }>();
     const joiningToken = await token(privateKey, joiningId, ["spaces:read", "spaces:write"]);
-    const first = await request(`/api/v1/space-invites/${invitation.data.token}/join`, joiningToken, publicKey, {
+    const first = await request("/api/v1/space-invites/join", joiningToken, publicKey, {
       method: "POST",
-      body: JSON.stringify({ displayName: "First name" }),
+      body: JSON.stringify({ token: invitation.data.token, displayName: "First name" }),
     });
     const firstJoin = await first.json<{ data: { personId: string } }>();
     const db = (env as unknown as TestEnv).DB;
@@ -225,9 +233,9 @@ describe("Phase 2 family Space management", () => {
       body: JSON.stringify({ maxUses: 1, expiresInMinutes: 60 }),
     });
     const secondInvitation = await secondCreated.json<{ data: { token: string } }>();
-    const second = await request(`/api/v1/space-invites/${secondInvitation.data.token}/join`, joiningToken, publicKey, {
+    const second = await request("/api/v1/space-invites/join", joiningToken, publicKey, {
       method: "POST",
-      body: JSON.stringify({ displayName: "Updated name" }),
+      body: JSON.stringify({ token: secondInvitation.data.token, displayName: "Updated name" }),
     });
     expect(second.status).toBe(201);
     expect((await second.json<{ data: { personId: string } }>()).data.personId).toBe(firstJoin.data.personId);
@@ -248,14 +256,14 @@ describe("Phase 2 family Space management", () => {
     });
     const invitation = await created.json<{ data: { token: string } }>();
     const joiningToken = await token(privateKey, joiningId, ["spaces:read", "spaces:write"]);
-    expect((await request(`/api/v1/space-invites/${invitation.data.token}/join`, joiningToken, publicKey, {
+    expect((await request("/api/v1/space-invites/join", joiningToken, publicKey, {
       method: "POST",
-      body: JSON.stringify({ displayName: "Member" }),
+      body: JSON.stringify({ token: invitation.data.token, displayName: "Member" }),
     })).status).toBe(201);
     expect((await request(`/api/v1/spaces/${family.spaceId}/leave`, joiningToken, publicKey, { method: "POST" })).status).toBe(204);
-    const replay = await request(`/api/v1/space-invites/${invitation.data.token}/join`, joiningToken, publicKey, {
+    const replay = await request("/api/v1/space-invites/join", joiningToken, publicKey, {
       method: "POST",
-      body: JSON.stringify({ displayName: "Member again" }),
+      body: JSON.stringify({ token: invitation.data.token, displayName: "Member again" }),
     });
     expect(replay.status).toBe(409);
     expect((await replay.json<{ error: { code: string } }>()).error.code).toBe("INVITE_ALREADY_REDEEMED");
@@ -272,9 +280,9 @@ describe("Phase 2 family Space management", () => {
     const invitation = await created.json<{ data: { token: string } }>();
     const candidates = await Promise.all([0, 1].map(async (index) => {
       const candidateToken = await token(privateKey, `usr_${crypto.randomUUID()}`, ["spaces:read", "spaces:write"]);
-      return request(`/api/v1/space-invites/${invitation.data.token}/join`, candidateToken, publicKey, {
+      return request("/api/v1/space-invites/join", candidateToken, publicKey, {
         method: "POST",
-        body: JSON.stringify({ displayName: `Candidate ${index}` }),
+        body: JSON.stringify({ token: invitation.data.token, displayName: `Candidate ${index}` }),
       });
     }));
     expect(candidates.map((response) => response.status).sort()).toEqual([201, 409]);

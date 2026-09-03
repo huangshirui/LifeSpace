@@ -1,7 +1,14 @@
 {
   "schemaVersion": 1,
-  "maturityValues": ["stable", "candidate", "experimental"],
-  "visibilityValues": ["public", "internal"],
+  "maturityValues": [
+    "stable",
+    "candidate",
+    "experimental"
+  ],
+  "visibilityValues": [
+    "public",
+    "internal"
+  ],
   "semanticInvariants": [
     {
       "id": "space-boundary",
@@ -169,7 +176,7 @@
     {
       "id": "core-kernel",
       "source": "apps/core/openapi.yaml",
-      "operationSetSha256": "sha256:d222d08cad24b62f1d371950990023591e950552cbfd45feb7ecd866218b8295",
+      "operationSetSha256": "sha256:4eed5b517f4fd8586fee9498977387da814db63a76ac63ae3680b63e39686904",
       "groups": [
         {
           "id": "core-operational",
@@ -193,7 +200,7 @@
           "id": "core-invitations",
           "maturity": "candidate",
           "visibility": "public",
-          "operationPattern": "^(GET|POST) /api/v1/spaces/\\{spaceId\\}/invites$|^POST /api/v1/spaces/\\{spaceId\\}/invites/\\{inviteId\\}/revoke$|^GET /api/v1/space-invites/\\{token\\}$|^POST /api/v1/space-invites/\\{token\\}/join$"
+          "operationPattern": "^(GET|POST) /api/v1/spaces/\\{spaceId\\}/invites$|^POST /api/v1/spaces/\\{spaceId\\}/invites/\\{inviteId\\}/revoke$|^POST /api/v1/space-invites/(preview|join)$"
         },
         {
           "id": "core-data-grants",

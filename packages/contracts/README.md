@@ -16,15 +16,13 @@ Generated/exported artifacts are read-only handoff material. They must never bec
 The current repository HomeMew handoff pin is:
 
 ```text
-Identity:       0.5.0
-Core Kernel:    0.15.0
+Identity:       0.6.0
+Core Kernel:    0.20.0
 Model Contract: mct_a4cc6dad278204b08cd706f9abeb68107e229148f1cd9ccde0991382606a92b9
 Profile:        infra/homemew-integration-profile.json (profileVersion 1, accepted)
 ```
 
-Kernel 0.15.0 retains the existing HomeMew Mini Program Space/model surface while advancing platform Eventing from subscription-owned transport to reusable Webhook Endpoints plus model/event subscription filters. HomeMew Web can therefore configure one callback URL/signing secret for an external system and attach `event` and `task` filters to it without changing the ordinary model contract.
-
-The Eventing configuration-shape correction does not require a new Model Contract revision because Webhook Endpoint/subscription APIs are explicit Kernel resources rather than ordinary Registry models. The corresponding Core deployment remains staging-first before HomeMew Web consumes the new Endpoint/filter API.
+The accepted HomeMew profile currently pins Core Kernel 0.20.0 / Identity 0.6.0. Kernel 0.21.0 is a Candidate/Public invitation-transport security migration: future invite preview/join callers must send the possession token in the JSON body instead of the URL path. Repository search found no current HomeMew application dependency on the invite preview/join routes, so no HomeMew code migration is required before validating the new Kernel in staging. The accepted integration profile remains on 0.20.0 until that downstream compatibility/staging decision is explicitly promoted; the exporter intentionally refuses to package newer Kernel source under the older accepted tuple.
 
 The pinned immutable model revision introduced Generic Resource audit actors (`createdBy` / `updatedBy`) in the generated ordinary-model response contract and remains the current HomeMew model-contract evidence. A compatible Registry publication does not automatically advance this application release pin; the pin is promoted only after the target production Registry state has been deployed and accepted.
 
