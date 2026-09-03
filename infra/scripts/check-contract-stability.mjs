@@ -89,6 +89,25 @@ for (const invariant of baseline.semanticInvariants ?? []) {
 }
 if (semanticIds.size === 0) fail("at least one semantic invariant is required");
 
+const generatedClassIds = new Set();
+for (const contractClass of baseline.generatedContractClasses ?? []) {
+  if (!contractClass?.id || generatedClassIds.has(contractClass.id)) {
+    fail(`generated contract class id is missing or duplicated: ${JSON.stringify(contractClass?.id)}`);
+  }
+  generatedClassIds.add(contractClass.id);
+  requireEnum(contractClass.maturity, baseline.maturityValues, `generated contract class ${contractClass.id} maturity`);
+  requireEnum(contractClass.visibility, baseline.visibilityValues, `generated contract class ${contractClass.id} visibility`);
+  if (typeof contractClass.source !== "string" || !contractClass.source.trim()) {
+    fail(`generated contract class ${contractClass.id} must identify its canonical source`);
+  }
+  if (typeof contractClass.commitment !== "string" || contractClass.commitment.trim().length < 20) {
+    fail(`generated contract class ${contractClass.id} must contain a meaningful commitment`);
+  }
+}
+if (!generatedClassIds.has("ordinary-model-contract")) {
+  fail("ordinary generated Model Contract surfaces must have an explicit stability classification");
+}
+
 const sourceIds = new Set();
 const operationGroups = new Map();
 let totalOperations = 0;
@@ -172,7 +191,7 @@ for (const reference of Object.keys(stableLocks.operationGroupSha256 ?? {})) {
   }
 }
 
-console.log(`[contract-stability] inspected ${semanticIds.size} semantic invariants, ${sourceIds.size} contract sources, ${totalOperations} operations (${totalPublicOperations} public)`);
+console.log(`[contract-stability] inspected ${semanticIds.size} semantic invariants, ${generatedClassIds.size} generated contract classes, ${sourceIds.size} code-owned contract sources, ${totalOperations} operations (${totalPublicOperations} public)`);
 for (const digest of actualDigests) console.log(`[contract-stability] ${digest}`);
 for (const digest of actualStableGroupDigests) console.log(`[contract-stability] stable-group ${digest}`);
 
