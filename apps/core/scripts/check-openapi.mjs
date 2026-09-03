@@ -3,7 +3,7 @@ import YAML from "yaml";
 
 const document = YAML.parse(fs.readFileSync(new URL("../openapi.yaml", import.meta.url), "utf8"));
 
-if (document.openapi !== "3.1.0" || document.info?.version !== "0.19.0") {
+if (document.openapi !== "3.1.0" || document.info?.version !== "0.20.0") {
   throw new Error("Core Kernel OpenAPI version metadata is invalid");
 }
 if (!document.info?.title?.includes("Kernel")) {
@@ -193,6 +193,10 @@ if (!aggregateDiscovery?.description?.includes("cross-Space")
     || !aggregateDiscovery?.description?.includes("execution")) {
   throw new Error("Current-principal Runtime Discovery must document cross-Space preview and execution-time rechecks");
 }
+if (!discovery?.description?.includes("semantic/domain input")
+    || !aggregateDiscovery?.description?.includes("semantic/domain input")) {
+  throw new Error("Runtime Discovery must document semantic Action input separately from concurrency metadata");
+}
 if (aggregateDiscovery?.responses?.["200"]?.content?.["application/json"]?.schema?.$ref !== "#/components/schemas/RuntimeDiscoveryAggregateResponse") {
   throw new Error("Current-principal Runtime Discovery must use its aggregate response schema");
 }
@@ -202,12 +206,26 @@ if (schemas.RuntimeDiscoverySpace?.additionalProperties !== false
   throw new Error("Cross-Space discovery must expose only Space identity and effective model metadata");
 }
 if (schemas.RuntimeDiscoveryAction?.additionalProperties !== false
-    || !schemas.RuntimeDiscoveryAction?.required?.includes("input")) {
-  throw new Error("Runtime Discovery actions must expose bounded input metadata");
+    || !schemas.RuntimeDiscoveryAction?.required?.includes("input")
+    || !schemas.RuntimeDiscoveryAction?.required?.includes("concurrency")) {
+  throw new Error("Runtime Discovery actions must expose bounded semantic input and concurrency metadata");
 }
 if (schemas.RuntimeDiscoveryActionInput?.properties?.fields?.type !== "array"
     || schemas.RuntimeDiscoveryActionInput?.properties?.fields?.items?.$ref !== "#/components/schemas/RuntimeDiscoveryField") {
   throw new Error("Runtime Discovery action inputs must use bounded field metadata");
+}
+if (!schemas.RuntimeDiscoveryActionInput?.description?.includes("Semantic/domain inputs")
+    || !schemas.RuntimeDiscoveryActionInput?.description?.includes("concurrency")) {
+  throw new Error("Runtime Discovery action input must be explicitly semantic rather than technical mutation metadata");
+}
+const actionConcurrency = schemas.RuntimeDiscoveryAction?.properties?.concurrency;
+if (actionConcurrency?.additionalProperties !== false
+    || actionConcurrency?.properties?.strategy?.const !== "record-version"
+    || actionConcurrency?.properties?.required?.const !== true
+    || actionConcurrency?.properties?.transport?.additionalProperties !== false
+    || actionConcurrency?.properties?.transport?.properties?.in?.const !== "body"
+    || actionConcurrency?.properties?.transport?.properties?.name?.const !== "version") {
+  throw new Error("Runtime Discovery record-version concurrency contract drifted");
 }
 if (!schemas.RuntimeDiscoveryFieldType?.enum?.includes("date")
     || !schemas.RuntimeDiscoveryFieldType?.enum?.includes("record_list")) {
@@ -282,7 +300,7 @@ if (schemas.ModelContract?.properties?.id?.pattern !== "^mct_[a-f0-9]{64}$") {
   throw new Error("Model Contract revisions must be content-addressed mct_<sha256>");
 }
 
-if (schemas.StatusResponse?.properties?.data?.properties?.contractVersion?.const !== "0.19.0") {
+if (schemas.StatusResponse?.properties?.data?.properties?.contractVersion?.const !== "0.20.0") {
   throw new Error("Core Kernel status contract version drifted");
 }
 
