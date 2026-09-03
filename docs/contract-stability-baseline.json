@@ -78,7 +78,16 @@
       "core-kernel/core-principal-space-context",
       "core-kernel/core-space-membership",
       "core-kernel/core-data-grants"
-    ]
+    ],
+    "operationGroupSha256": {
+      "identity-application/identity-profile": "sha256:621df866dc21e8e3026519a5ecb7d2c614da3f517b06dbb8332a3d7e7334efaf",
+      "identity-application/identity-trusted-application-exchange": "sha256:fb6a0b5f599987b4b65d82a24941fb2f9a35aaa6f6d55351ffbb7a9833b1a94d",
+      "identity-application/identity-service-token-runtime": "sha256:cbf414a51762ea7cca0b39f9336daab1784019a2706a91f4f6cadc105ed8175e",
+      "identity-application/identity-core-introspection": "sha256:e70dd47973ae42b8c34cc23a00d091efc25d079b1dd34f9132684f03fe7cc9d3",
+      "core-kernel/core-principal-space-context": "sha256:1bbbd88fa8cdddc174883c089f5a3aead9921ab708051433538f557c99475295",
+      "core-kernel/core-space-membership": "sha256:94ad6e93d71f920b9f58b58faefa78de2587bc66f5600763f1a6df413c972036",
+      "core-kernel/core-data-grants": "sha256:95b1801526d4a8b49040414ae1edb5ee7aace5348a06e1630310e6323d95cd1d"
+    }
   },
   "contractSources": [
     {
