@@ -58,11 +58,33 @@
       "commitment": "Agent readiness is protocol/product independent; REST, MCP, API Tool, n8n, SDK, ALOHA and future adapters must project the same authority and model semantics."
     }
   ],
+  "stableLocks": {
+    "semanticInvariants": [
+      "space-boundary",
+      "global-user-identity",
+      "principal-actor-application-attribution",
+      "effective-authority-intersection",
+      "model-semantic-ownership",
+      "generic-runtime-fundamentals",
+      "governed-change-attribution",
+      "current-state-revocation",
+      "agent-protocol-independence"
+    ],
+    "operationGroups": [
+      "identity-application/identity-profile",
+      "identity-application/identity-trusted-application-exchange",
+      "identity-application/identity-service-authentication",
+      "identity-application/identity-core-introspection",
+      "core-kernel/core-principal-space-context",
+      "core-kernel/core-space-membership",
+      "core-kernel/core-data-grants"
+    ]
+  },
   "contractSources": [
     {
       "id": "identity-application",
       "source": "apps/identity/openapi.yaml",
-      "operationSetSha256": "PENDING",
+      "operationSetSha256": "sha256:faadef24a4ed047a13a4c9413774b3e56a83ae3850e1ade00bf4af99954539c5",
       "groups": [
         {
           "id": "identity-operational",
@@ -98,7 +120,7 @@
           "id": "identity-service-authentication",
           "maturity": "stable",
           "visibility": "public",
-          "operationPattern": "^(GET|POST) /api/v1/service-principals$|^(PATCH) /api/v1/service-principals/\\{principalId\\}$|^(GET|POST) /api/v1/service-principals/\\{principalId\\}/(tokens|oauth-credentials)$|^(PATCH|DELETE) /api/v1/service-principals/\\{principalId\\}/tokens/\\{tokenId\\}$|^DELETE /api/v1/service-principals/\\{principalId\\}/oauth-credentials/\\{credentialId\\}$|^POST /oauth/token$"
+          "operationPattern": "^(GET|POST) /api/v1/service-principals$|^PATCH /api/v1/service-principals/\\{principalId\\}$|^(GET|POST) /api/v1/service-principals/\\{principalId\\}/(tokens|oauth-credentials)$|^(PATCH|DELETE) /api/v1/service-principals/\\{principalId\\}/tokens/\\{tokenId\\}$|^DELETE /api/v1/service-principals/\\{principalId\\}/oauth-credentials/\\{credentialId\\}$|^POST /oauth/token$"
         },
         {
           "id": "identity-core-introspection",
@@ -141,7 +163,7 @@
           "id": "core-space-membership",
           "maturity": "stable",
           "visibility": "public",
-          "operationPattern": "^POST /api/v1/spaces$|^(GET|PATCH) /api/v1/spaces/\\{spaceId\\}$|^(POST) /api/v1/spaces/\\{spaceId\\}/close$|^PUT /api/v1/spaces/\\{spaceId\\}/avatar$|^(GET|POST) /api/v1/spaces/\\{spaceId\\}/members$|^(PATCH|DELETE) /api/v1/spaces/\\{spaceId\\}/members/\\{userId\\}$|^POST /api/v1/spaces/\\{spaceId\\}/leave$"
+          "operationPattern": "^POST /api/v1/spaces$|^(GET|PATCH) /api/v1/spaces/\\{spaceId\\}$|^POST /api/v1/spaces/\\{spaceId\\}/close$|^PUT /api/v1/spaces/\\{spaceId\\}/avatar$|^(GET|POST) /api/v1/spaces/\\{spaceId\\}/members$|^(PATCH|DELETE) /api/v1/spaces/\\{spaceId\\}/members/\\{userId\\}$|^POST /api/v1/spaces/\\{spaceId\\}/leave$"
         },
         {
           "id": "core-invitations",
@@ -177,7 +199,7 @@
           "id": "core-integration-eventing",
           "maturity": "candidate",
           "visibility": "public",
-          "operationPattern": "^(GET|POST|PATCH|DELETE) /api/v1/spaces/\\{spaceId\\}/(webhook-endpoints|event-subscriptions)(?:/.*)?$"
+          "operationPattern": "^(GET|POST) /api/v1/(event-subscriptions|webhook-endpoints)$|^(PATCH|DELETE) /api/v1/event-subscriptions/\\{subscriptionId\\}$|^(PATCH|DELETE) /api/v1/webhook-endpoints/\\{endpointId\\}$|^GET /api/v1/webhook-endpoints/\\{endpointId\\}/deliveries$|^POST /api/v1/webhook-endpoints/\\{endpointId\\}/test$"
         },
         {
           "id": "core-creation-drafts",
@@ -189,7 +211,7 @@
           "id": "core-model-control",
           "maturity": "candidate",
           "visibility": "internal",
-          "operationPattern": "^(GET|POST|PATCH|PUT|DELETE) /(api|internal)/v1/(models|model-contracts|applications)(?:/.*)?$"
+          "operationPattern": "^(GET|POST) /api/v1/model-admin/models$|^POST /api/v1/model-admin/models/validate$|^GET /api/v1/model-admin/models/\\{modelKey\\}$|^POST /api/v1/model-admin/models/\\{modelKey\\}/retire$|^GET /api/v1/model-admin/contracts/(active|\\{contractId\\})$"
         }
       ]
     },
