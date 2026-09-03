@@ -308,7 +308,7 @@ LifeSpace has separate contracts for product runtime and privileged control-plan
 ```text
 Application / user / service contract
   apps/identity/openapi.yaml
-  current business-facing contract: 0.5.0
+  current business-facing contract: 0.6.0
 
 Platform Admin Control-Plane Contract
   apps/identity/platform-admin.openapi.yaml
@@ -321,7 +321,7 @@ Platform Admin Control-Plane Contract
 Kernel Contract
   apps/core/openapi.yaml
   explicit product-facing Space / Grant / Creation Draft / Model Admin primitives
-  current Kernel contract: 0.15.0
+  current Kernel contract: 0.20.0
 
 Platform Admin Control-Plane Contract
   apps/core/platform-admin.openapi.yaml
