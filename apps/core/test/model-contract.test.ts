@@ -40,6 +40,12 @@ function paths(snapshot: Awaited<ReturnType<typeof generateModelContract>>) {
   return snapshot.openapi.paths as Record<string, Record<string, unknown>>;
 }
 
+const concurrency = {
+  strategy: "record-version",
+  required: true,
+  transport: { in: "body", name: "version" },
+};
+
 describe("Model Contract Generator", () => {
   it("is deterministic regardless of registry row order", async () => {
     const task = published("task");
@@ -64,6 +70,28 @@ describe("Model Contract Generator", () => {
     expect(generatedPaths["/api/v1/spaces/{spaceId}/tasks/{recordId}/actions/complete"]?.post).toBeTruthy();
     expect(generatedPaths["/api/v1/spaces/{spaceId}/wishes/{recordId}/actions/fulfill"]?.post).toBeTruthy();
     expect(generatedPaths["/api/v1/spaces/{spaceId}/wishes/{recordId}/actions/reopen"]?.post).toBeTruthy();
+  });
+
+  it("marks record version as technical concurrency metadata instead of Action semantic input", async () => {
+    const snapshot = await generateModelContract([published("task")]);
+    const generatedPaths = paths(snapshot);
+    const complete = generatedPaths["/api/v1/spaces/{spaceId}/tasks/{recordId}/actions/complete"]?.post as {
+      requestBody: { content: { "application/json": { schema: { $ref: string } } } };
+      "x-lifespace-concurrency": unknown;
+    };
+    expect(complete["x-lifespace-concurrency"]).toEqual(concurrency);
+    expect(complete.requestBody.content["application/json"].schema.$ref).toBe("#/components/schemas/TaskVersionRequest");
+
+    const versionRequest = schemas(snapshot).TaskVersionRequest as {
+      properties: { version: Record<string, unknown> };
+      required: string[];
+    };
+    expect(versionRequest.required).toEqual(["version"]);
+    expect(versionRequest.properties.version).toMatchObject({
+      type: "integer",
+      minimum: 1,
+      "x-lifespace-input-role": "concurrency",
+    });
   });
 
   it("keeps read-only server defaults out of the writable create schema", async () => {
@@ -93,13 +121,14 @@ describe("Model Contract Generator", () => {
     const generatedSchemas = schemas(snapshot);
 
     const taskCreate = generatedSchemas.TaskCreate as { properties: Record<string, unknown> };
-    const taskUpdate = generatedSchemas.TaskUpdate as { properties: Record<string, unknown>; required: string[] };
+    const taskUpdate = generatedSchemas.TaskUpdate as { properties: Record<string, Record<string, unknown>>; required: string[] };
     expect(taskCreate.properties.status).toBeUndefined();
     expect(taskCreate.properties.completedAt).toBeUndefined();
     expect(taskCreate.properties.completedByType).toBeUndefined();
     expect(taskUpdate.properties.status).toBeUndefined();
     expect(taskUpdate.properties.completedAt).toBeUndefined();
     expect(taskUpdate.required).toEqual(["version"]);
+    expect(taskUpdate.properties.version["x-lifespace-input-role"]).toBe("concurrency");
 
     const wishCreate = generatedSchemas.WishCreate as { properties: Record<string, unknown> };
     const wishUpdate = generatedSchemas.WishUpdate as { properties: Record<string, unknown> };
@@ -110,7 +139,7 @@ describe("Model Contract Generator", () => {
     expect(wishUpdate.properties.title).toBeTruthy();
   });
 
-  it("contributes Temporal computed/query/occurrence contracts", async () => {
+  it("contributes Temporal computed/query/occurrence contracts with semantic input distinct from concurrency", async () => {
     const snapshot = await generateModelContract([published("day_record")]);
     const generatedPaths = paths(snapshot);
     const generatedSchemas = schemas(snapshot);
@@ -124,7 +153,17 @@ describe("Model Contract Generator", () => {
     expect(sort).toContain("attention:desc");
     expect(sort).toContain("effectiveDate:asc");
     expect(generatedPaths["/api/v1/spaces/{spaceId}/day-records/{recordId}/occurrences"]?.get).toBeTruthy();
-    expect(generatedPaths["/api/v1/spaces/{spaceId}/day-records/{recordId}/actions/record-occurrence"]?.post).toBeTruthy();
+    const occurrenceAction = generatedPaths["/api/v1/spaces/{spaceId}/day-records/{recordId}/actions/record-occurrence"]?.post as {
+      "x-lifespace-concurrency": unknown;
+    };
+    expect(occurrenceAction["x-lifespace-concurrency"]).toEqual(concurrency);
+
+    const occurrenceRequest = generatedSchemas.DayRecordRecordOccurrenceRequest as {
+      properties: Record<string, Record<string, unknown>>;
+    };
+    expect(occurrenceRequest.properties.version["x-lifespace-input-role"]).toBe("concurrency");
+    expect(occurrenceRequest.properties.occurredOn["x-lifespace-input-role"]).toBeUndefined();
+    expect(occurrenceRequest.properties.note["x-lifespace-input-role"]).toBeUndefined();
 
     const resource = generatedSchemas.DayRecordResource as {
       properties: { computed?: { properties?: { temporal?: unknown } } };
