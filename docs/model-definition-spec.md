@@ -541,9 +541,11 @@ resolve model + action
 
 Authorization checks outside the Action DSL still run normally.
 
-### 10.3 Action input in v1
+### 10.3 Action semantic input and concurrency metadata in v1
 
-The public Action request body currently accepts only:
+Workflow v1 currently defines **no custom caller-owned semantic Action parameters**. A Workflow Action such as `Task.complete` therefore has an empty semantic input set.
+
+Optimistic-concurrency evidence is a separate Generic Runtime mutation concern. The current HTTP wire representation still carries the record version in the Action request body for compatibility:
 
 ```json
 {
@@ -551,9 +553,9 @@ The public Action request body currently accepts only:
 }
 ```
 
-Custom Action input parameters are not part of Model Definition v1.
+That `version` property is **并发元数据（concurrency metadata）**, not Action semantic input. Runtime Discovery exposes it separately from `action.input.fields`, and generated Model Contract operations mark the same distinction. Generic clients must not render it as a model/domain Action field or infer semantics from the literal key `version`.
 
-If an Action needs arbitrary caller input beyond the optimistic version, Workflow v1 is insufficient and the DSL/runtime contract must be extended deliberately rather than hiding ad-hoc request fields in one model.
+If a future Workflow Action needs caller-owned domain parameters, Workflow v1 must be extended deliberately with a bounded semantic-input contract. Such an extension is independent from where optimistic-concurrency evidence is transported. Likewise, a future transport change such as moving concurrency evidence to an HTTP header must not redefine the Action's semantic input.
 
 ### 10.4 CRUD vs Record Action/Transition vs external orchestration
 
@@ -566,7 +568,8 @@ CRUD
 
 Record Action / Transition
   one-record atomic semantic change
-  -> named Action + version + Policy + Guard/Branch + deterministic assignments
+  -> named Action + Policy + Guard/Branch + deterministic assignments
+  -> optimistic-concurrency evidence is enforced separately by Generic Runtime
   -> may own readOnly fields when direct CRUD would bypass semantics
 
 External orchestration / governed Change
@@ -818,11 +821,13 @@ Model-derived contract content includes:
 - concrete collection/item paths;
 - create/update/resource schemas;
 - query parameters;
-- Action paths;
+- Action paths and semantic-input/concurrency metadata;
 - Capability contract contributions;
 - model version/schema-hash evidence.
 
 For Mutation Authority specifically, a `readOnly` field is present in resource schemas with `readOnly: true` but absent from ordinary create/update request schemas. Runtime Discovery carries the same field metadata plus the authorized Action set, allowing consumers and Agents to discover the valid semantic mutation surface instead of guessing from field names.
+
+For Action concurrency specifically, generated request schemas may retain the current wire-level record-version property, but it is explicitly identified as technical concurrency metadata rather than semantic Action input. The generated Action operation and Runtime Discovery must expose the same concurrency strategy/transport semantics, while execution remains authoritative for stale-write rejection.
 
 The contract identity is content-addressed as `mct_<sha256(...)>`.
 
@@ -1000,7 +1005,7 @@ Not supported by current Workflow/Policy v1:
 
 - arbitrary JavaScript, SQL, shell or user-supplied executable code;
 - external HTTP/service calls inside Policy or Workflow;
-- arbitrary Action input beyond `version`;
+- custom caller-owned Workflow Action semantic input parameters;
 - cross-resource Action mutations;
 - long-running orchestration;
 - loops;
@@ -1009,6 +1014,8 @@ Not supported by current Workflow/Policy v1:
 - record-aware `read` Policy filtering;
 - `now` / `space.*` in Policy expressions;
 - arbitrary unregistered Capability names.
+
+Technical optimistic-concurrency evidence is not a Workflow Action semantic input parameter; it is a Generic Runtime mutation invariant carried by the current transport contract.
 
 When an ordinary model requirement cannot be expressed, first decide whether the missing concept is:
 

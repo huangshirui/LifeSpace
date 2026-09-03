@@ -15,7 +15,7 @@ Core has three contract layers:
 2. **Platform Admin Contract** — `apps/core/platform-admin.openapi.yaml`, a privileged control-plane profile for Application × Model Access, global read-only Space inspection, platform audit and human-attributed Console model mutations. Its initial version is `0.1.0`.
 3. **Model Contract Revision** — immutable OpenAPI/JSON Schema snapshots generated from the published Model Registry plus registered Capability contract contributions.
 
-As of Core Kernel `0.19.0`, ordinary model paths/schemas remain deliberately absent from `apps/core/openapi.yaml`. They exist only in a concrete immutable Model Contract Revision. CI rejects Event/Task/Day Record/Wish or generic `{modelRoute}` paths if they are reintroduced into the Kernel OpenAPI. Kernel `0.13.0` introduced whole-Space and published-model collection Data Grant targeting; Kernel `0.14.0` introduced model-agnostic Eventing; Kernel `0.15.0` separates reusable Webhook Endpoint transport/signing from model/event subscription filters so multiple models can share one callback and signing secret. Kernel `0.16.0` adds owner-only logical Space close. Kernel `0.17.0` adds User -> Agent Delegation management and governed Change History. Kernel `0.18.0` adds cross-Space current-principal Runtime Discovery through `GET /api/v1/me/_discovery` while leaving ordinary model CRUD/action syntax in immutable `mct_*` contracts. Kernel `0.19.0` makes declared Model server defaults an explicit Runtime Discovery contract while preserving the same defaults as a Generic Runtime create invariant.
+As of Core Kernel `0.20.0`, ordinary model paths/schemas remain deliberately absent from `apps/core/openapi.yaml`. They exist only in a concrete immutable Model Contract Revision. CI rejects Event/Task/Day Record/Wish or generic `{modelRoute}` paths if they are reintroduced into the Kernel OpenAPI. Kernel `0.13.0` introduced whole-Space and published-model collection Data Grant targeting; Kernel `0.14.0` introduced model-agnostic Eventing; Kernel `0.15.0` separates reusable Webhook Endpoint transport/signing from model/event subscription filters so multiple models can share one callback and signing secret. Kernel `0.16.0` adds owner-only logical Space close. Kernel `0.17.0` adds User -> Agent Delegation management and governed Change History. Kernel `0.18.0` adds cross-Space current-principal Runtime Discovery through `GET /api/v1/me/_discovery` while leaving ordinary model CRUD/action syntax in immutable `mct_*` contracts. Kernel `0.19.0` makes declared Model server defaults an explicit Runtime Discovery contract while preserving the same defaults as a Generic Runtime create invariant. Kernel `0.20.0` makes Action semantic input and optimistic-concurrency metadata mechanically distinct in Runtime Discovery while keeping the current Action wire transport compatible.
 
 The effective ordinary application contract remains an explicit tuple such as:
 
@@ -69,6 +69,7 @@ The generator owns model-derived:
 - declared search/filter/range/sort/cursor parameters;
 - lifecycle/version fields;
 - workflow action paths;
+- Action semantic-input schemas plus technical mutation/concurrency annotations;
 - Capability-specific additions registered deterministically by the Capability.
 
 Current Capability contributions include Temporal computed/query/occurrence/action surfaces and Calendar timed/all-day/dual-window query semantics.
@@ -97,6 +98,8 @@ The content hash does **not** include the mutable Registry revision counter. If 
 Registry mutation and contract activation are one D1 transaction guarded by the global Registry revision/mutation token. Core must never commit a model publication while leaving the active contract on the previous model set.
 
 If a migrated environment has a Registry state but no active contract pointer, first contract read may initialize the matching revision. Initialization is Registry-revision guarded and cannot overwrite a concurrent publication.
+
+A code-owned Model Contract generator change may also change the contract bytes while the published Model Registry itself is unchanged. In that case `getOrCreateActiveModelContract()` deterministically regenerates the snapshot, preserves the current stable Registry revision, inserts/reuses the new immutable `mct_*` revision, and atomically reconciles the active pointer. Historical `mct_*` revisions remain immutable. A generator-only contract evolution therefore does not require a fake Model Definition publication or schema migration merely to refresh the active contract evidence.
 
 ## Kernel Contract
 
@@ -142,13 +145,30 @@ Both surfaces use the same live authority intersection: verified principal conte
 
 Kernel `0.19.0` additionally exposes each visible model's declared static `defaults` in the same discovery projection. These values describe server-owned create semantics: when a caller omits a field with a declared default, Generic Runtime applies and validates that default before required-field validation; an explicit caller value wins and is validated normally. Dynamic clients can therefore distinguish `required with server default` from `required and caller must supply` without hard-coded Task/Event/Wish knowledge.
 
+Kernel `0.20.0` separates **Action semantic input（动作语义输入）** from **concurrency metadata（并发元数据）**. `action.input.fields` contains only caller-owned domain/semantic inputs. An Action with no domain input therefore exposes an empty field list even though execution still requires optimistic-concurrency evidence. Technical mutation evidence is declared separately:
+
+```json
+{
+  "input": { "fields": [] },
+  "concurrency": {
+    "strategy": "record-version",
+    "required": true,
+    "transport": { "in": "body", "name": "version" }
+  }
+}
+```
+
+`record-version` means the caller must execute against the current common resource-envelope version and stale evidence remains a `VERSION_CONFLICT` deny path. The `transport` object tells generic clients where that evidence is carried on the current HTTP wire representation; it is not a business field and must not be rendered as ordinary Action input. A client may resolve the current record version from the normal record read surface immediately before execution, or bind an already-known current version from its own state. Future transport cleanup may move this evidence to another HTTP location without redefining the Action's semantic input.
+
+Generated Model Contract revisions carry the same distinction. Action request schemas may still include the current body `version` for wire compatibility, but that property is marked `x-lifespace-input-role: concurrency`, and the Action operation exposes the corresponding `x-lifespace-concurrency` annotation. Runtime Discovery, generated `mct_*` evidence and execution-time stale-write protection must remain aligned.
+
 The cross-Space response is deliberately minimal: each Space entry contains only `spaceId` and effective model metadata. A model-collection Data Grant can therefore make a source Space discoverable as an authorization target without granting Space-detail metadata such as name, kind, timezone or membership data. Clients that are separately authorized for Space details use the normal Space APIs.
 
 The Kernel contract must never be used as a second hand-maintained description of ordinary business models. A new ordinary model must not require an edit to `apps/core/openapi.yaml`.
 
 The Platform Admin split also means Console-only governance syntax does not automatically become downstream Kernel syntax. If a future admin capability genuinely becomes a normal application-facing Kernel feature, that transition must be explicit and versioned rather than achieved by merely pointing an application at the admin contract.
 
-A Kernel behavior change is versioned independently from model publication. The Phase-3 contract split moved Core from the Phase-2 `0.11.0` combined-domain contract to Kernel `0.12.0`; Kernel `0.13.0` added backwards-compatible model-collection Data Grant targeting for external integrations; Kernel `0.14.0` introduced generic Eventing; Kernel `0.15.0` separates shared Webhook Endpoint transport/signing from model/event subscription filters; Kernel `0.16.0` adds owner-only logical Space close; Kernel `0.17.0` adds Agent Delegation/governed Change; Kernel `0.18.0` adds cross-Space current-principal Runtime Discovery; Kernel `0.19.0` exposes authoritative Model server defaults through Runtime Discovery while keeping default application in Generic Runtime semantics.
+A Kernel behavior change is versioned independently from model publication. The Phase-3 contract split moved Core from the Phase-2 `0.11.0` combined-domain contract to Kernel `0.12.0`; Kernel `0.13.0` added backwards-compatible model-collection Data Grant targeting for external integrations; Kernel `0.14.0` introduced generic Eventing; Kernel `0.15.0` separates shared Webhook Endpoint transport/signing from model/event subscription filters; Kernel `0.16.0` adds owner-only logical Space close; Kernel `0.17.0` adds Agent Delegation/governed Change; Kernel `0.18.0` adds cross-Space current-principal Runtime Discovery; Kernel `0.19.0` exposes authoritative Model server defaults through Runtime Discovery while keeping default application in Generic Runtime semantics; Kernel `0.20.0` separates Action semantic input from optimistic-concurrency metadata without changing the current body-based concurrency transport.
 
 ## Published artifacts
 
@@ -217,6 +237,7 @@ LifeSpace Console is different: it is a platform-operator application. Its artif
 - Breaking request/response or behavior changes require an approved downstream migration/versioning strategy before activation.
 - Model retirement is an explicit lifecycle action and does not delete historical Model Definitions or Model Contract Revisions.
 - Kernel deployment and package publication are coordinated where Kernel behavior changes, while model-only publication can create a new `mct_*` revision without a Worker code deployment.
+- A deterministic Model Contract generator change may reconcile a new active immutable `mct_*` revision against the same stable Registry revision; this is contract evolution, not a reason to synthesize a fake model publication.
 - Platform Admin contract compatibility is evaluated separately from ordinary downstream contracts; admin-only additive syntax does not itself require a Kernel/Identity application-contract version bump.
 - Planned models/endpoints/fields must be clearly distinguishable from published/active ones before clients are allowed to call them.
 
@@ -231,12 +252,13 @@ Metadata-platform checks include:
 - Platform User/Space Inspector contracts remain read-only and do not imply ordinary authorization;
 - platform-managed secret creation remains one-time/write-only and list/read contracts never expose plaintext or hashes;
 - Data Grant contracts preserve whole-Space compatibility and explicitly validate model-collection target semantics;
-- Runtime Discovery checks preserve current authority intersection, preview-only semantics, Agent Delegation narrowing, authoritative Model defaults and the cross-Space no-detail-leak boundary;
+- Runtime Discovery checks preserve current authority intersection, preview-only semantics, Agent Delegation narrowing, authoritative Model defaults, Action semantic-input/concurrency separation and the cross-Space no-detail-leak boundary;
 - Eventing contract checks preserve model-agnostic event types, Endpoint/subscriber binding, shared one-time signing-secret behavior, model/event filter separation and reference-only payloads without copying ordinary record schemas;
 - Model Definition validation;
 - deterministic schema hashing;
 - deterministic OpenAPI/JSON Schema generation;
 - server defaults remain aligned between Runtime, AI draft generation, Runtime Discovery and generated model contract;
+- Action request schemas/annotations remain aligned with Runtime Discovery concurrency metadata and execution-time stale-write protection;
 - Capability contract contributions remain aligned with Capability Runtime/query semantics;
 - no Kernel/model route collisions;
 - no duplicate model-derived operation IDs/schema names;

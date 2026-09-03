@@ -161,6 +161,23 @@ function createSchema(model: PublishedModel): JsonSchema {
   return calendar ? { ...base, allOf: [calendar] } : base;
 }
 
+function concurrencyVersionSchema(): JsonSchema {
+  return {
+    type: "integer",
+    minimum: 1,
+    description: "Current record version used for optimistic concurrency. This is technical mutation metadata, not semantic Action input.",
+    "x-lifespace-input-role": "concurrency",
+  };
+}
+
+function actionConcurrencyMetadata(): JsonSchema {
+  return {
+    strategy: "record-version",
+    required: true,
+    transport: { in: "body", name: "version" },
+  };
+}
+
 function updateSchema(model: PublishedModel): JsonSchema {
   const fields = writableFields(model.definition, "update");
   return {
@@ -168,7 +185,7 @@ function updateSchema(model: PublishedModel): JsonSchema {
     additionalProperties: false,
     minProperties: 2,
     properties: {
-      version: { type: "integer", minimum: 1 },
+      version: concurrencyVersionSchema(),
       ...Object.fromEntries(fields.map(([key, field]) => [key, fieldSchema(field)])),
     },
     required: ["version"],
@@ -256,7 +273,7 @@ function versionRequestSchema(): JsonSchema {
   return {
     type: "object",
     additionalProperties: false,
-    properties: { version: { type: "integer", minimum: 1 } },
+    properties: { version: concurrencyVersionSchema() },
     required: ["version"],
   };
 }
@@ -266,7 +283,7 @@ function temporalOccurrenceRequestSchema(): JsonSchema {
     type: "object",
     additionalProperties: false,
     properties: {
-      version: { type: "integer", minimum: 1 },
+      version: concurrencyVersionSchema(),
       occurredOn: { type: "string", format: "date" },
       note: { anyOf: [{ type: "string", maxLength: 1000 }, { type: "null" }] },
     },
@@ -448,6 +465,7 @@ function addTemporalContract(
     post: {
       operationId: `record_occurrence_${model.key}`,
       tags: [model.definition.display.plural],
+      "x-lifespace-concurrency": actionConcurrencyMetadata(),
       requestBody: {
         required: true,
         content: { "application/json": { schema: { $ref: `#/components/schemas/${occurrenceRequestName}` } } },
@@ -568,6 +586,7 @@ function modelOpenApi(model: PublishedModel, schemas: Record<string, JsonSchema>
       post: {
         operationId: `${actionKey}_${model.key}`,
         tags: [model.definition.display.plural],
+        "x-lifespace-concurrency": actionConcurrencyMetadata(),
         requestBody: {
           required: true,
           content: { "application/json": { schema: { $ref: `#/components/schemas/${versionName}` } } },
