@@ -58,6 +58,15 @@
       "commitment": "Agent readiness is protocol/product independent; REST, MCP, API Tool, n8n, SDK, ALOHA and future adapters must project the same authority and model semantics."
     }
   ],
+  "generatedContractClasses": [
+    {
+      "id": "ordinary-model-contract",
+      "source": "validated Model Definitions / Model Registry / immutable mct_* revisions",
+      "maturity": "candidate",
+      "visibility": "public",
+      "commitment": "All generated ordinary-model CRUD, query, Action and Capability wire representations are Candidate Public contracts for the first Baseline; new models inherit this declared class while canonical Model Definition publication remains the semantic and compatibility authority."
+    }
+  ],
   "stableLocks": {
     "semanticInvariants": [
       "space-boundary",
