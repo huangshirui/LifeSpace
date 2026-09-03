@@ -158,15 +158,28 @@ async function reconcileApplication(existing) {
   return true;
 }
 
-async function resolveApplicationCredential(initialCredential) {
-  if (initialCredential) return { clientSecret: initialCredential, created: true };
-  if (suppliedCredential) return { clientSecret: suppliedCredential, created: false };
-
+async function activeCredentialMetadata() {
   const listed = await jsonRequest(`/bootstrap/v1/applications/${encodeURIComponent(applicationId)}/credentials`, { bootstrap: true });
   if (listed.response.status !== 200 || !Array.isArray(listed.payload?.data)) {
     throw new Error(`ALOHA application credential listing failed with HTTP ${listed.response.status}`);
   }
-  const active = listed.payload.data.filter((entry) => entry?.status === "active" && entry?.revokedAt == null);
+  return listed.payload.data.filter((entry) => entry?.status === "active" && entry?.revokedAt == null);
+}
+
+async function resolveApplicationCredential(initialCredential) {
+  if (initialCredential) return { clientSecret: initialCredential, created: true };
+
+  const active = await activeCredentialMetadata();
+  if (suppliedCredential) {
+    const suffix = suppliedCredential.slice(-8);
+    if (!active.some((entry) => entry?.secretSuffix === suffix)) {
+      throw new Error(
+        `LIFESPACE_PRODUCTION_ALOHA_APPLICATION_CREDENTIAL does not match an active credential for ${applicationId}; refusing cross-application use.`,
+      );
+    }
+    return { clientSecret: suppliedCredential, created: false };
+  }
+
   if (active.length > 0) {
     throw new Error(
       `Application ${applicationId} already has ${active.length} active credential(s), but plaintext cannot be recovered. `
@@ -224,7 +237,7 @@ async function ensureSingleAgent(applicationCredential) {
   if (active.length > 1) {
     throw new Error(`ALOHA requires exactly one active Agent for ${applicationId}; found ${active.length}. Resolve the ambiguity explicitly.`);
   }
-  if (active.length === 1) return { created: false, agentId: active[0]?.id };
+  if (active.length === 1) return { created: false };
 
   const created = await jsonRequest("/internal/v1/agents", {
     method: "POST",
@@ -234,7 +247,7 @@ async function ensureSingleAgent(applicationCredential) {
   if (created.response.status !== 201 || typeof created.payload?.data?.id !== "string") {
     throw new Error(`ALOHA Agent creation failed with HTTP ${created.response.status}`);
   }
-  return { created: true, agentId: created.payload.data.id };
+  return { created: true };
 }
 
 const identity = await requireProductionIdentity06();
@@ -287,7 +300,6 @@ console.log(JSON.stringify({
   agent: {
     configured: true,
     created: agent.created,
-    id: agent.agentId,
   },
   next: "Install the lsa_* from the secure sink as ALOHA Agent Control LIFESPACE_APPLICATION_CREDENTIAL, then run the M3 Access-authenticated deployment verifier.",
 }, null, 2));
