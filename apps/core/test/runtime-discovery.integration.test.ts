@@ -112,8 +112,20 @@ async function fixture() {
   return { db, privateKey, publicKey, userId, serviceId, clientId, spaceId, modelKey, route, now };
 }
 
+type DiscoveredAction = {
+  key: string;
+  access: string;
+  kind: string;
+  input: { fields: Array<{ key: string; type: string; required?: boolean; minimum?: number }> };
+  concurrency: {
+    strategy: string;
+    required: boolean;
+    transport: { in: string; name: string };
+  };
+};
+
 describe("Runtime discovery", () => {
-  it("returns effective user-authorized model metadata including server defaults and bounded action input", async () => {
+  it("returns effective user-authorized model metadata with semantic action input separated from concurrency", async () => {
     const f = await fixture();
     const accessToken = await token(
       f.privateKey,
@@ -131,12 +143,7 @@ describe("Runtime discovery", () => {
       access: string[];
       defaults: Record<string, unknown>;
       fields: Array<{ key: string; type: string }>;
-      actions: Array<{
-        key: string;
-        access: string;
-        kind: string;
-        input: { fields: Array<{ key: string; type: string; required?: boolean; minimum?: number }> };
-      }>;
+      actions: DiscoveredAction[];
     }> } }>();
     const model = payload.data.models.find((entry) => entry.key === f.modelKey);
     expect(model).toMatchObject({
@@ -153,9 +160,45 @@ describe("Runtime discovery", () => {
       key: "complete",
       access: "write",
       kind: "workflow",
-      input: {
-        fields: [expect.objectContaining({ key: "version", type: "integer", required: true, minimum: 1 })],
+      input: { fields: [] },
+      concurrency: {
+        strategy: "record-version",
+        required: true,
+        transport: { in: "body", name: "version" },
       },
+    });
+  });
+
+  it("exposes capability domain input separately from the same record-version concurrency metadata", async () => {
+    const db = (env as unknown as TestEnv).DB;
+    const { privateKey, publicKey } = await keys();
+    const suffix = crypto.randomUUID().replaceAll("-", "");
+    const userId = `usr_${suffix}`;
+    const clientId = `app_temporal_discovery_${suffix}`;
+    const spaceId = `spc_${suffix}`;
+    const now = new Date().toISOString();
+    await db.batch([
+      db.prepare(`INSERT INTO spaces(id,kind,name,created_by_user_id,created_at,updated_at,timezone)
+        VALUES(?,?,?,?,?,?,?)`).bind(spaceId, "personal", "Temporal Discovery", userId, now, now, "UTC"),
+      db.prepare(`INSERT INTO space_memberships(id,space_id,user_id,role,created_at,updated_at)
+        VALUES(?,?,?,?,?,?)`).bind(`mem_${suffix}`, spaceId, userId, "owner", now, now),
+      db.prepare(`INSERT INTO space_people(id,space_id,linked_user_id,display_name,created_at,updated_at)
+        VALUES(?,?,?,?,?,?)`).bind(`per_${suffix}`, spaceId, userId, "Temporal Tester", now, now),
+      db.prepare(`INSERT INTO application_model_access(application_id,model_key,max_access,created_by_type,created_by_id)
+        VALUES(?,?,?,?,?)`).bind(clientId, "day_record", "write", "service", "svc_test_admin"),
+    ]);
+    const accessToken = await token(privateKey, "user", userId, clientId, ["resources:read", "resources:write"]);
+    const response = await request(publicKey, accessToken, `/api/v1/spaces/${spaceId}/_discovery`);
+    expect(response.status).toBe(200);
+    const payload = await response.json<{ data: { models: Array<{ key: string; actions: DiscoveredAction[] }> } }>();
+    const action = payload.data.models.find((entry) => entry.key === "day_record")?.actions
+      .find((entry) => entry.key === "record-occurrence");
+    expect(action?.input.fields.map((field) => field.key)).toEqual(["occurredOn", "note"]);
+    expect(action?.input.fields.some((field) => field.key === "version")).toBe(false);
+    expect(action?.concurrency).toEqual({
+      strategy: "record-version",
+      required: true,
+      transport: { in: "body", name: "version" },
     });
   });
 
