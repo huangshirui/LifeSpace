@@ -9,6 +9,7 @@ const userId = process.env.LIFESPACE_STAGING_SMOKE_USER_ID ?? "";
 const spaceId = process.env.LIFESPACE_STAGING_SPACE_ID ?? "";
 const CORE_DIR = new URL("../../apps/core/", import.meta.url);
 const profile = JSON.parse(readFileSync(new URL("../homemew-integration-profile.json", import.meta.url), "utf8"));
+const verifierSuffix = (process.env.GITHUB_RUN_ID ?? `${Date.now()}`).replace(/[^0-9A-Za-z]/gu, "").slice(-12);
 
 for (const [name, value] of Object.entries({
   CLOUDFLARE_API_TOKEN: process.env.CLOUDFLARE_API_TOKEN ?? "",
@@ -97,10 +98,27 @@ function sameSet(left, right) {
   return left.length === right.length && left.every((value) => right.includes(value));
 }
 
+function expectStatus(label, result, expectedStatus, expectedCode = null) {
+  if (
+    result.response.status !== expectedStatus
+    || (expectedCode && result.payload?.error?.code !== expectedCode)
+  ) {
+    throw new Error(`${label}: expected ${expectedStatus}${expectedCode ? ` ${expectedCode}` : ""}, got ${result.response.status} ${JSON.stringify(result.payload)}`);
+  }
+  return result.payload?.data;
+}
+
 const applicationPath = `/bootstrap/v1/applications/${encodeURIComponent(applicationId)}`;
 let metadata = await jsonRequest(identityBase, applicationPath, { bootstrap: bootstrapSecret });
 let credentialId = "";
 let applicationSecret = "";
+let userBearer = "";
+let taskId = "";
+let taskVersion = 0;
+let eventId = "";
+let eventVersion = 0;
+let verificationSucceeded = false;
+const cleanupErrors = [];
 
 if (metadata.response.status === 404) {
   const created = await jsonRequest(identityBase, "/bootstrap/v1/applications", {
@@ -183,7 +201,7 @@ try {
     bearer: applicationSecret,
     body: { subjectId: userId, scopes: allowedScopes },
   });
-  const userBearer = tokenResult.payload?.data?.accessToken ?? "";
+  userBearer = tokenResult.payload?.data?.accessToken ?? "";
   if (tokenResult.response.status !== 200 || !userBearer) {
     throw new Error(`HomeMew user-token exchange failed: ${tokenResult.response.status} ${JSON.stringify(tokenResult.payload)}`);
   }
@@ -233,6 +251,12 @@ try {
     throw new Error(`HomeMew-scoped token could not reach Core /me: ${coreMe.response.status} ${JSON.stringify(coreMe.payload)}`);
   }
 
+  const familySpace = await jsonRequest(coreBase, `/api/v1/spaces/${encodeURIComponent(spaceId)}`, { bearer: userBearer });
+  const familySpaceData = expectStatus("HomeMew family Space", familySpace, 200);
+  if (familySpaceData?.id !== spaceId || familySpaceData?.kind !== "family") {
+    throw new Error(`HomeMew staging Space is not the expected family Space: ${JSON.stringify(familySpaceData)}`);
+  }
+
   const modelResults = {};
   for (const [modelKey, maxAccess] of Object.entries(modelAccess)) {
     const route = modelRoutes[modelKey];
@@ -243,6 +267,126 @@ try {
     modelResults[modelKey] = maxAccess;
   }
 
+  const eventCreated = await jsonRequest(coreBase, `/api/v1/spaces/${encodeURIComponent(spaceId)}/events`, {
+    method: "POST",
+    bearer: userBearer,
+    body: {
+      summary: `M3 HomeMew event ${verifierSuffix}`,
+      isAllDay: true,
+      startDate: "2099-01-01",
+      endDateExclusive: "2099-01-02",
+    },
+  });
+  const eventCreatedData = expectStatus("HomeMew Event create", eventCreated, 201);
+  eventId = eventCreatedData?.id ?? "";
+  eventVersion = eventCreatedData?.version ?? 0;
+  if (!eventId || eventVersion !== 1 || eventCreatedData?.status !== "active") {
+    throw new Error(`HomeMew Event create returned unexpected semantics: ${JSON.stringify(eventCreatedData)}`);
+  }
+
+  const eventRead = await jsonRequest(coreBase, `/api/v1/spaces/${encodeURIComponent(spaceId)}/events/${encodeURIComponent(eventId)}`, { bearer: userBearer });
+  const eventReadData = expectStatus("HomeMew Event read", eventRead, 200);
+  if (eventReadData?.id !== eventId || eventReadData?.summary !== `M3 HomeMew event ${verifierSuffix}`) {
+    throw new Error(`HomeMew Event read did not return the created record: ${JSON.stringify(eventReadData)}`);
+  }
+
+  const eventUpdated = await jsonRequest(coreBase, `/api/v1/spaces/${encodeURIComponent(spaceId)}/events/${encodeURIComponent(eventId)}`, {
+    method: "PATCH",
+    bearer: userBearer,
+    body: { version: eventVersion, summary: `M3 HomeMew event updated ${verifierSuffix}`, location: "staging-only" },
+  });
+  const eventUpdatedData = expectStatus("HomeMew Event update", eventUpdated, 200);
+  eventVersion = eventUpdatedData?.version ?? 0;
+  if (eventVersion !== 2 || eventUpdatedData?.summary !== `M3 HomeMew event updated ${verifierSuffix}`) {
+    throw new Error(`HomeMew Event update returned unexpected semantics: ${JSON.stringify(eventUpdatedData)}`);
+  }
+
+  const taskCreated = await jsonRequest(coreBase, `/api/v1/spaces/${encodeURIComponent(spaceId)}/tasks`, {
+    method: "POST",
+    bearer: userBearer,
+    body: { name: `M3 HomeMew task ${verifierSuffix}` },
+  });
+  const taskCreatedData = expectStatus("HomeMew Task create", taskCreated, 201);
+  taskId = taskCreatedData?.id ?? "";
+  taskVersion = taskCreatedData?.version ?? 0;
+  if (!taskId || taskVersion !== 1 || taskCreatedData?.status !== "pending") {
+    throw new Error(`HomeMew Task create did not apply authoritative pending default: ${JSON.stringify(taskCreatedData)}`);
+  }
+
+  const taskRead = await jsonRequest(coreBase, `/api/v1/spaces/${encodeURIComponent(spaceId)}/tasks/${encodeURIComponent(taskId)}`, { bearer: userBearer });
+  const taskReadData = expectStatus("HomeMew Task read", taskRead, 200);
+  if (taskReadData?.id !== taskId || taskReadData?.status !== "pending") {
+    throw new Error(`HomeMew Task read did not return the created record: ${JSON.stringify(taskReadData)}`);
+  }
+
+  const taskUpdated = await jsonRequest(coreBase, `/api/v1/spaces/${encodeURIComponent(spaceId)}/tasks/${encodeURIComponent(taskId)}`, {
+    method: "PATCH",
+    bearer: userBearer,
+    body: { version: taskVersion, name: `M3 HomeMew task updated ${verifierSuffix}`, dueDate: "2099-01-03" },
+  });
+  const taskUpdatedData = expectStatus("HomeMew Task update", taskUpdated, 200);
+  taskVersion = taskUpdatedData?.version ?? 0;
+  if (taskVersion !== 2 || taskUpdatedData?.name !== `M3 HomeMew task updated ${verifierSuffix}`) {
+    throw new Error(`HomeMew Task update returned unexpected semantics: ${JSON.stringify(taskUpdatedData)}`);
+  }
+
+  const staleComplete = await jsonRequest(coreBase, `/api/v1/spaces/${encodeURIComponent(spaceId)}/tasks/${encodeURIComponent(taskId)}/actions/complete`, {
+    method: "POST",
+    bearer: userBearer,
+    body: { version: 1 },
+  });
+  expectStatus("HomeMew Task stale Action", staleComplete, 409, "VERSION_CONFLICT");
+
+  const taskCompleted = await jsonRequest(coreBase, `/api/v1/spaces/${encodeURIComponent(spaceId)}/tasks/${encodeURIComponent(taskId)}/actions/complete`, {
+    method: "POST",
+    bearer: userBearer,
+    body: { version: taskVersion },
+  });
+  const taskCompletedData = expectStatus("HomeMew Task complete Action", taskCompleted, 200);
+  taskVersion = taskCompletedData?.version ?? 0;
+  if (
+    taskVersion !== 3
+    || taskCompletedData?.status !== "completed"
+    || taskCompletedData?.completedByType !== "user"
+    || taskCompletedData?.completedById !== userId
+  ) {
+    throw new Error(`HomeMew Task complete Action returned unexpected attribution: ${JSON.stringify(taskCompletedData)}`);
+  }
+
+  const taskChanges = await jsonRequest(coreBase, `/api/v1/spaces/${encodeURIComponent(spaceId)}/changes/${encodeURIComponent(taskId)}`, { bearer: userBearer });
+  const taskChangesData = expectStatus("HomeMew Task Change History", taskChanges, 200);
+  const actionChange = taskChangesData?.items?.find?.((change) => change.operation === "action" && change.versionAfter === taskVersion);
+  if (
+    !actionChange
+    || actionChange.applicationId !== applicationId
+    || actionChange.principal?.type !== "user"
+    || actionChange.principal?.id !== userId
+    || actionChange.actor?.type !== "user"
+    || actionChange.actor?.id !== userId
+    || actionChange.delegationId !== null
+  ) {
+    throw new Error(`HomeMew Task Change attribution is not explainable: ${JSON.stringify(taskChangesData)}`);
+  }
+
+  const eventDeleted = await jsonRequest(coreBase, `/api/v1/spaces/${encodeURIComponent(spaceId)}/events/${encodeURIComponent(eventId)}`, {
+    method: "DELETE",
+    bearer: userBearer,
+    body: { version: eventVersion },
+  });
+  expectStatus("HomeMew Event delete", eventDeleted, 204);
+  eventId = "";
+  eventVersion = 0;
+
+  const taskDeleted = await jsonRequest(coreBase, `/api/v1/spaces/${encodeURIComponent(spaceId)}/tasks/${encodeURIComponent(taskId)}`, {
+    method: "DELETE",
+    bearer: userBearer,
+    body: { version: taskVersion },
+  });
+  expectStatus("HomeMew Task delete", taskDeleted, 204);
+  taskId = "";
+  taskVersion = 0;
+
+  verificationSucceeded = true;
   console.log(JSON.stringify({
     ok: true,
     applicationId,
@@ -254,17 +398,57 @@ try {
     modelAccess: modelResults,
     identityProfileRead: true,
     coreMembershipContextRead: true,
+    familySpaceKindVerified: true,
+    goldenFlow: {
+      eventCrud: true,
+      taskCrud: true,
+      taskSemanticAction: true,
+      staleVersionDenied: true,
+      governedChangeAttribution: true,
+    },
     credentialMetadataRedacted: true,
     productionUntouched: true,
   }, null, 2));
 } finally {
-  if (credentialId) {
-    const revoke = await jsonRequest(identityBase, `${applicationPath}/credentials/${encodeURIComponent(credentialId)}`, {
-      method: "DELETE",
-      bootstrap: bootstrapSecret,
+  async function cleanup(label, action) {
+    try { await action(); }
+    catch (error) { cleanupErrors.push(`${label}: ${error instanceof Error ? error.message : String(error)}`); }
+  }
+
+  if (taskId && taskVersion && userBearer) {
+    await cleanup("Task cleanup", async () => {
+      const result = await jsonRequest(coreBase, `/api/v1/spaces/${encodeURIComponent(spaceId)}/tasks/${encodeURIComponent(taskId)}`, {
+        method: "DELETE",
+        bearer: userBearer,
+        body: { version: taskVersion },
+      });
+      if (![204, 404].includes(result.response.status)) throw new Error(`HTTP ${result.response.status} ${JSON.stringify(result.payload)}`);
     });
-    if (revoke.response.status !== 204 && revoke.response.status !== 404) {
-      throw new Error(`HomeMew staging verifier credential cleanup failed: ${revoke.response.status} ${JSON.stringify(revoke.payload)}`);
-    }
+  }
+  if (eventId && eventVersion && userBearer) {
+    await cleanup("Event cleanup", async () => {
+      const result = await jsonRequest(coreBase, `/api/v1/spaces/${encodeURIComponent(spaceId)}/events/${encodeURIComponent(eventId)}`, {
+        method: "DELETE",
+        bearer: userBearer,
+        body: { version: eventVersion },
+      });
+      if (![204, 404].includes(result.response.status)) throw new Error(`HTTP ${result.response.status} ${JSON.stringify(result.payload)}`);
+    });
+  }
+  if (credentialId) {
+    await cleanup("HomeMew staging verifier credential cleanup", async () => {
+      const revoke = await jsonRequest(identityBase, `${applicationPath}/credentials/${encodeURIComponent(credentialId)}`, {
+        method: "DELETE",
+        bootstrap: bootstrapSecret,
+      });
+      if (revoke.response.status !== 204 && revoke.response.status !== 404) {
+        throw new Error(`HTTP ${revoke.response.status} ${JSON.stringify(revoke.payload)}`);
+      }
+    });
+  }
+
+  if (cleanupErrors.length) {
+    if (verificationSucceeded) throw new Error(`HomeMew staging verifier cleanup failed: ${cleanupErrors.join(" | ")}`);
+    console.error(`HomeMew staging verifier cleanup warnings: ${cleanupErrors.join(" | ")}`);
   }
 }
