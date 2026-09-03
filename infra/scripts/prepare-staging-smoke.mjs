@@ -2,6 +2,7 @@ import { appendFileSync } from "node:fs";
 import { generateKeyPairSync, randomBytes } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import process from "node:process";
+import { executeStagingD1Sql } from "./staging-d1-retry.mjs";
 
 const identityBase = (process.env.LIFESPACE_IDENTITY_STAGING_URL ?? "https://auth-staging.aisr.online").replace(/\/+$/u, "");
 const coreBase = (process.env.LIFESPACE_CORE_STAGING_URL ?? "https://core-staging.aisr.online").replace(/\/+$/u, "");
@@ -61,15 +62,8 @@ function wranglerSecretBulk(cwd, secrets) {
   });
 }
 
-function runCoreSql(sql) {
-  const output = execFileSync(
-    "pnpm",
-    ["exec", "wrangler", "d1", "execute", "DB", "--remote", "--env", "staging", "--json", `--command=${sql}`],
-    { cwd: CORE_DIR, env: process.env, encoding: "utf8", stdio: ["ignore", "pipe", "inherit"] },
-  );
-  const parsed = JSON.parse(output);
-  const entries = Array.isArray(parsed) ? parsed : [parsed];
-  if (entries.some((entry) => entry?.success === false)) throw new Error(`Staging D1 mutation failed: ${output}`);
+async function runCoreSql(sql) {
+  await executeStagingD1Sql({ cwd: CORE_DIR, sql });
 }
 
 async function fetchJson(url, init = {}) {
@@ -277,7 +271,7 @@ const now = new Date().toISOString();
 const accessValues = modelKeys
   .map((key) => `(${sqlString(applicationId)},${sqlString(key)},'write','service',${sqlString(servicePrincipalId)},${sqlString(now)},${sqlString(now)})`)
   .join(",");
-runCoreSql(`INSERT INTO application_model_access(
+await runCoreSql(`INSERT INTO application_model_access(
   application_id,model_key,max_access,created_by_type,created_by_id,created_at,updated_at
 ) VALUES ${accessValues}
 ON CONFLICT(application_id,model_key) DO UPDATE SET max_access=excluded.max_access,updated_at=excluded.updated_at`);
