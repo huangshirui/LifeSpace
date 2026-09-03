@@ -1,7 +1,6 @@
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import process from "node:process";
 
 const root = resolve(import.meta.dirname, "../..");
 const baselinePath = resolve(root, "docs/contract-stability-baseline.json");
@@ -94,6 +93,7 @@ const sourceIds = new Set();
 let totalOperations = 0;
 let totalPublicOperations = 0;
 const actualDigests = [];
+const digestMismatches = [];
 
 for (const contract of baseline.contractSources ?? []) {
   if (!contract?.id || sourceIds.has(contract.id)) fail(`contract source id is missing or duplicated: ${JSON.stringify(contract?.id)}`);
@@ -133,7 +133,7 @@ for (const contract of baseline.contractSources ?? []) {
   }
 
   if (contract.operationSetSha256 !== digest) {
-    fail(`${contract.id} operation set changed or is not initialized. Expected ${JSON.stringify(contract.operationSetSha256)}, actual ${digest}. Review the operation/classification diff, then update the baseline digest deliberately.`);
+    digestMismatches.push(`${contract.id}: expected ${JSON.stringify(contract.operationSetSha256)}, actual ${digest}`);
   }
 }
 
@@ -154,5 +154,11 @@ for (const reference of stableLocks.operationGroups ?? []) {
   if (group.maturity !== "stable") fail(`stable operation group ${reference} cannot be downgraded while its stable lock remains`);
 }
 
-console.log(`[contract-stability] verified ${semanticIds.size} semantic invariants, ${sourceIds.size} contract sources, ${totalOperations} operations (${totalPublicOperations} public)`);
+console.log(`[contract-stability] inspected ${semanticIds.size} semantic invariants, ${sourceIds.size} contract sources, ${totalOperations} operations (${totalPublicOperations} public)`);
 for (const digest of actualDigests) console.log(`[contract-stability] ${digest}`);
+
+if (digestMismatches.length > 0) {
+  fail(`operation set changed or is not initialized:\n- ${digestMismatches.join("\n- ")}\nReview operation/classification changes, then update baseline digests deliberately.`);
+}
+
+console.log("[contract-stability] baseline verified");
