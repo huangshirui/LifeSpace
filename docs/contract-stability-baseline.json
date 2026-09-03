@@ -73,7 +73,7 @@
     "operationGroups": [
       "identity-application/identity-profile",
       "identity-application/identity-trusted-application-exchange",
-      "identity-application/identity-service-authentication",
+      "identity-application/identity-service-token-runtime",
       "identity-application/identity-core-introspection",
       "core-kernel/core-principal-space-context",
       "core-kernel/core-space-membership",
@@ -117,10 +117,16 @@
           "operationPattern": "^(GET|POST) /internal/v1/agents$|^POST /internal/v1/agent-tokens$"
         },
         {
-          "id": "identity-service-authentication",
+          "id": "identity-service-principal-administration",
+          "maturity": "candidate",
+          "visibility": "public",
+          "operationPattern": "^(GET|POST) /api/v1/service-principals$|^PATCH /api/v1/service-principals/\\{principalId\\}$|^(GET|POST) /api/v1/service-principals/\\{principalId\\}/(tokens|oauth-credentials)$|^(PATCH|DELETE) /api/v1/service-principals/\\{principalId\\}/tokens/\\{tokenId\\}$|^DELETE /api/v1/service-principals/\\{principalId\\}/oauth-credentials/\\{credentialId\\}$"
+        },
+        {
+          "id": "identity-service-token-runtime",
           "maturity": "stable",
           "visibility": "public",
-          "operationPattern": "^(GET|POST) /api/v1/service-principals$|^PATCH /api/v1/service-principals/\\{principalId\\}$|^(GET|POST) /api/v1/service-principals/\\{principalId\\}/(tokens|oauth-credentials)$|^(PATCH|DELETE) /api/v1/service-principals/\\{principalId\\}/tokens/\\{tokenId\\}$|^DELETE /api/v1/service-principals/\\{principalId\\}/oauth-credentials/\\{credentialId\\}$|^POST /oauth/token$"
+          "operationPattern": "^POST /oauth/token$"
         },
         {
           "id": "identity-core-introspection",
@@ -145,7 +151,7 @@
     {
       "id": "core-kernel",
       "source": "apps/core/openapi.yaml",
-      "operationSetSha256": "PENDING",
+      "operationSetSha256": "sha256:d222d08cad24b62f1d371950990023591e950552cbfd45feb7ecd866218b8295",
       "groups": [
         {
           "id": "core-operational",
@@ -218,7 +224,7 @@
     {
       "id": "identity-platform-admin",
       "source": "apps/identity/platform-admin.openapi.yaml",
-      "operationSetSha256": "PENDING",
+      "operationSetSha256": "sha256:1b08c19cfe178a969366dec122374291e22454695f778605c8e2e471ef0717b5",
       "groups": [
         {
           "id": "identity-platform-admin",
@@ -231,7 +237,7 @@
     {
       "id": "core-platform-admin",
       "source": "apps/core/platform-admin.openapi.yaml",
-      "operationSetSha256": "PENDING",
+      "operationSetSha256": "sha256:d52c5b881f75e9c94b0e1f124ce0362d86f6fee9d1c25b5c6ea0a21909da8ea8",
       "groups": [
         {
           "id": "core-platform-admin",
