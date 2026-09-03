@@ -10,6 +10,10 @@ type TestEnv = { DB: D1Database };
 type Counter = { roundTrips: number; maxBindings: number };
 
 const statementTargets = new WeakMap<object, D1PreparedStatement>();
+// Fixture setup intentionally creates hundreds of records and an RSA key pair. The
+// semantic performance gate below is the D1 round-trip/binding budget, not the
+// hosted runner's total wall-clock time for setup plus assertions.
+const PERFORMANCE_TEST_TIMEOUT_MS = 20_000;
 
 function countedStatement(statement: D1PreparedStatement, counter: Counter): D1PreparedStatement {
   const proxy = new Proxy(statement as object, {
@@ -253,5 +257,5 @@ describe("Core D1 round-trip budgets", () => {
       201,
       6,
     );
-  });
+  }, PERFORMANCE_TEST_TIMEOUT_MS);
 });
