@@ -323,7 +323,7 @@ Normal service/application syntax:
 
 ```text
 apps/identity/openapi.yaml
-Identity contract 0.5.0
+Identity contract 0.6.0
 ```
 
 LifeSpace Console privileged service administration:
