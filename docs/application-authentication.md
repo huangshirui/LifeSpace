@@ -3,7 +3,7 @@
 ## Status
 
 - Cloudflare Access is the long-term Web/PWA authentication and SSO layer.
-- Identity application/user/service contract remains `0.5.0`.
+- Identity application/user/service contract remains `0.6.0`.
 - Identity Platform Admin companion contract `0.1.0` and the platform-administrator/purpose-bound actor foundation are merged on `main`.
 - Access principal verification, audience registration, explicit registration/linking and trusted application credential lifecycle are implemented.
 - `apps/console` has the permanent React/Vite same-origin BFF shell and uses the platform-admin control-plane boundary described here. Environment rollout/acceptance status belongs in current deployment/status documents rather than this authentication contract.
@@ -287,7 +287,7 @@ Normal application authentication/user/service syntax is owned by:
 
 ```text
 apps/identity/openapi.yaml
-Identity contract 0.5.0
+Identity contract 0.6.0
 ```
 
 Privileged LifeSpace Console syntax is separately owned by:
