@@ -6,7 +6,7 @@ const identityBase = (process.env.LIFESPACE_IDENTITY_STAGING_URL ?? "https://aut
 const coreBase = (process.env.LIFESPACE_CORE_STAGING_URL ?? "https://core-staging.aisr.online").replace(/\/+$/u, "");
 const bootstrapSecret = process.env.LIFESPACE_STAGING_BOOTSTRAP_SECRET ?? "";
 const userId = process.env.LIFESPACE_STAGING_SMOKE_USER_ID ?? "";
-const spaceId = process.env.LIFESPACE_STAGING_SPACE_ID ?? "";
+const smokeSpaceId = process.env.LIFESPACE_STAGING_SPACE_ID ?? "";
 const CORE_DIR = new URL("../../apps/core/", import.meta.url);
 const profile = JSON.parse(readFileSync(new URL("../homemew-integration-profile.json", import.meta.url), "utf8"));
 const verifierSuffix = (process.env.GITHUB_RUN_ID ?? `${Date.now()}`).replace(/[^0-9A-Za-z]/gu, "").slice(-12);
@@ -16,7 +16,7 @@ for (const [name, value] of Object.entries({
   CLOUDFLARE_ACCOUNT_ID: process.env.CLOUDFLARE_ACCOUNT_ID ?? "",
   LIFESPACE_STAGING_BOOTSTRAP_SECRET: bootstrapSecret,
   LIFESPACE_STAGING_SMOKE_USER_ID: userId,
-  LIFESPACE_STAGING_SPACE_ID: spaceId,
+  LIFESPACE_STAGING_SPACE_ID: smokeSpaceId,
 })) {
   if (!value) throw new Error(`${name} is required`);
 }
@@ -113,6 +113,8 @@ let metadata = await jsonRequest(identityBase, applicationPath, { bootstrap: boo
 let credentialId = "";
 let applicationSecret = "";
 let userBearer = "";
+let spaceId = "";
+let familySpaceVersion = 0;
 let taskId = "";
 let taskVersion = 0;
 let eventId = "";
@@ -251,10 +253,45 @@ try {
     throw new Error(`HomeMew-scoped token could not reach Core /me: ${coreMe.response.status} ${JSON.stringify(coreMe.payload)}`);
   }
 
-  const familySpace = await jsonRequest(coreBase, `/api/v1/spaces/${encodeURIComponent(spaceId)}`, { bearer: userBearer });
-  const familySpaceData = expectStatus("HomeMew family Space", familySpace, 200);
-  if (familySpaceData?.id !== spaceId || familySpaceData?.kind !== "family") {
-    throw new Error(`HomeMew staging Space is not the expected family Space: ${JSON.stringify(familySpaceData)}`);
+  const familyCreated = await jsonRequest(coreBase, "/api/v1/spaces", {
+    method: "POST",
+    bearer: userBearer,
+    body: {
+      kind: "family",
+      name: `M3 HomeMew family ${verifierSuffix}`,
+      ownerDisplayName: "M3 HomeMew Owner",
+      timezone: "UTC",
+    },
+  });
+  const familySpaceData = expectStatus("HomeMew family Space create", familyCreated, 201);
+  spaceId = familySpaceData?.id ?? "";
+  familySpaceVersion = familySpaceData?.version ?? 0;
+  if (
+    !spaceId
+    || familySpaceData?.kind !== "family"
+    || familySpaceData?.role !== "owner"
+    || !familySpaceData?.ownerPersonId
+    || familySpaceVersion !== 1
+  ) {
+    throw new Error(`HomeMew family Space create returned unexpected semantics: ${JSON.stringify(familySpaceData)}`);
+  }
+
+  const members = await jsonRequest(coreBase, `/api/v1/spaces/${encodeURIComponent(spaceId)}/members`, { bearer: userBearer });
+  const memberData = expectStatus("HomeMew family member resolution", members, 200);
+  const ownerMember = Array.isArray(memberData) ? memberData.find((member) => member.userId === userId) : null;
+  if (
+    !ownerMember
+    || ownerMember.role !== "owner"
+    || ownerMember.personId !== familySpaceData.ownerPersonId
+    || ownerMember.displayName !== "M3 HomeMew Owner"
+  ) {
+    throw new Error(`HomeMew family owner membership/person mapping is not explainable: ${JSON.stringify(memberData)}`);
+  }
+
+  const familyRead = await jsonRequest(coreBase, `/api/v1/spaces/${encodeURIComponent(spaceId)}`, { bearer: userBearer });
+  const familyReadData = expectStatus("HomeMew family Space read", familyRead, 200);
+  if (familyReadData?.id !== spaceId || familyReadData?.kind !== "family" || familyReadData?.access !== "owner") {
+    throw new Error(`HomeMew family Space read returned unexpected authority: ${JSON.stringify(familyReadData)}`);
   }
 
   const modelResults = {};
@@ -398,7 +435,9 @@ try {
     modelAccess: modelResults,
     identityProfileRead: true,
     coreMembershipContextRead: true,
+    genericSmokeSpaceKindNotAssumed: smokeSpaceId !== spaceId,
     familySpaceKindVerified: true,
+    familyOwnerMembershipResolved: true,
     goldenFlow: {
       eventCrud: true,
       taskCrud: true,
@@ -415,7 +454,7 @@ try {
     catch (error) { cleanupErrors.push(`${label}: ${error instanceof Error ? error.message : String(error)}`); }
   }
 
-  if (taskId && taskVersion && userBearer) {
+  if (taskId && taskVersion && userBearer && spaceId) {
     await cleanup("Task cleanup", async () => {
       const result = await jsonRequest(coreBase, `/api/v1/spaces/${encodeURIComponent(spaceId)}/tasks/${encodeURIComponent(taskId)}`, {
         method: "DELETE",
@@ -425,12 +464,22 @@ try {
       if (![204, 404].includes(result.response.status)) throw new Error(`HTTP ${result.response.status} ${JSON.stringify(result.payload)}`);
     });
   }
-  if (eventId && eventVersion && userBearer) {
+  if (eventId && eventVersion && userBearer && spaceId) {
     await cleanup("Event cleanup", async () => {
       const result = await jsonRequest(coreBase, `/api/v1/spaces/${encodeURIComponent(spaceId)}/events/${encodeURIComponent(eventId)}`, {
         method: "DELETE",
         bearer: userBearer,
         body: { version: eventVersion },
+      });
+      if (![204, 404].includes(result.response.status)) throw new Error(`HTTP ${result.response.status} ${JSON.stringify(result.payload)}`);
+    });
+  }
+  if (spaceId && familySpaceVersion && userBearer) {
+    await cleanup("HomeMew family Space close", async () => {
+      const result = await jsonRequest(coreBase, `/api/v1/spaces/${encodeURIComponent(spaceId)}/close`, {
+        method: "POST",
+        bearer: userBearer,
+        body: { version: familySpaceVersion },
       });
       if (![204, 404].includes(result.response.status)) throw new Error(`HTTP ${result.response.status} ${JSON.stringify(result.payload)}`);
     });
