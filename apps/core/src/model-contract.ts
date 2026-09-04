@@ -88,6 +88,7 @@ function fieldSchema(field: FieldDefinition): JsonSchema {
       break;
   }
   const result = nullable(schema, field);
+  if (field.title) result.title = field.title;
   if (field.description) result.description = field.description;
   if (field.readOnly) result.readOnly = true;
   return result;
@@ -346,13 +347,17 @@ function parameterMap(model: PublishedModel): Map<string, Record<string, unknown
     if (!field) continue;
     let schema = fieldSchema({ ...field, nullable: false, readOnly: false });
     if (field.type === "enum") {
-      schema = { type: "string", description: "One enum value, or a comma-separated set of enum values" };
+      schema = { type: "string", ...(field.title ? { title: field.title } : {}), description: "One enum value, or a comma-separated set of enum values" };
     }
     if (
       (temporal?.subjectPersonField === fieldKey || calendar?.attendeePersonField === fieldKey)
       && (field.type === "person" || field.type === "person_list")
     ) {
-      schema = { anyOf: [{ type: "string", pattern: "^per_" }, { const: "me" }] };
+      schema = {
+        anyOf: [{ type: "string", pattern: "^per_" }, { const: "me" }],
+        ...(field.title ? { title: field.title } : {}),
+        ...(field.description ? { description: field.description } : {}),
+      };
     }
     put({ name: fieldKey, in: "query", schema });
     if (["date", "datetime", "integer", "number"].includes(field.type)) {
@@ -361,22 +366,23 @@ function parameterMap(model: PublishedModel): Map<string, Record<string, unknown
     }
   }
 
-  const sortValues = new Set([
+  const genericSortValues = new Set([
     "createdAt:asc",
     "createdAt:desc",
     "updatedAt:asc",
     "updatedAt:desc",
   ]);
   for (const fieldKey of model.definition.query?.sortable ?? []) {
-    sortValues.add(`${fieldKey}:asc`);
-    sortValues.add(`${fieldKey}:desc`);
+    genericSortValues.add(`${fieldKey}:asc`);
+    genericSortValues.add(`${fieldKey}:desc`);
   }
+  const semanticSortValues = new Set<string>();
 
   if (temporal) {
     put({ name: "attentionOnly", in: "query", schema: { type: "boolean", default: false } });
-    sortValues.add("attention:desc");
-    sortValues.add("effectiveDate:asc");
-    sortValues.add("effectiveDate:desc");
+    semanticSortValues.add("attention:desc");
+    semanticSortValues.add("effectiveDate:asc");
+    semanticSortValues.add("effectiveDate:desc");
   }
 
   if (calendar) {
@@ -384,18 +390,38 @@ function parameterMap(model: PublishedModel): Map<string, Record<string, unknown
     put({ name: "rangeEnd", in: "query", schema: { type: "string", format: "date-time" }, "x-lifespace-paired-with": "rangeStart" });
     put({ name: "dateStart", in: "query", schema: { type: "string", format: "date" }, "x-lifespace-paired-with": "dateEndExclusive" });
     put({ name: "dateEndExclusive", in: "query", schema: { type: "string", format: "date" }, "x-lifespace-paired-with": "dateStart" });
-    sortValues.add("calendarStart:asc");
-    sortValues.add("calendarStart:desc");
+    semanticSortValues.add("calendarStart:asc");
+    semanticSortValues.add("calendarStart:desc");
   }
 
+  const genericSortSchema: JsonSchema = {
+    type: "array",
+    minItems: 1,
+    maxItems: 8,
+    items: { type: "string", enum: [...genericSortValues] },
+    ...(semanticSortValues.size ? {} : { default: ["createdAt:desc"] }),
+  };
   put({
     name: "sort",
     in: "query",
-    schema: {
-      type: "string",
-      enum: [...sortValues],
-      default: temporal ? "effectiveDate:asc" : calendar ? "calendarStart:asc" : "createdAt:desc",
-    },
+    style: "form",
+    explode: true,
+    description: semanticSortValues.size
+      ? "Ordered Generic Query sort criteria may be supplied by repeating sort=field:direction up to 8 times. Capability semantic sort values are standalone and cannot be combined with Generic Query sort criteria."
+      : "Ordered sort criteria. Repeat sort=field:direction up to 8 times; criterion order is significant.",
+    schema: semanticSortValues.size
+      ? {
+          oneOf: [
+            genericSortSchema,
+            { type: "string", enum: [...semanticSortValues] },
+          ],
+          "x-lifespace-defaults": {
+            generic: ["createdAt:desc"],
+            ...(temporal ? { temporal: "effectiveDate:asc" } : {}),
+            ...(calendar ? { calendar: "calendarStart:asc" } : {}),
+          },
+        }
+      : genericSortSchema,
   });
   put({ name: "limit", in: "query", schema: { type: "integer", minimum: 1, maximum: 200, default: 100 } });
   put({ name: "cursor", in: "query", schema: { type: "string" } });
