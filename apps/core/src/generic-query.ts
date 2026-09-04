@@ -11,14 +11,34 @@ import {
   type TypedResourceRow,
 } from "./typed-resource-storage";
 
-type Cursor = {
+type CursorScalar = string | number | null;
+type LegacyCursor = {
   v: 1;
   model: string;
   sort: string;
-  key: string | number | null;
+  key: CursorScalar;
   id: string;
   signature: string;
 };
+type Cursor = {
+  v: 2;
+  model: string;
+  sorts: string[];
+  keys: CursorScalar[];
+  id: string;
+  signature: string;
+};
+type DecodedCursor = LegacyCursor | Cursor;
+type SortCriterion = {
+  raw: string;
+  field: string;
+  direction: "asc" | "desc";
+  expression: string;
+  nullable: boolean;
+};
+type QueryRow = TypedResourceRow & Record<string, string | number | null | undefined>;
+
+const MAX_SORT_CRITERIA = 8;
 
 export type GenericQueryResult = {
   items: GenericResource[];
@@ -30,20 +50,42 @@ function encodeCursor(cursor: Cursor): string {
   return btoa(String.fromCharCode(...bytes)).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/u, "");
 }
 
-function decodeCursor(raw: string): Cursor {
+function isCursorScalar(value: unknown): value is CursorScalar {
+  return value === null || typeof value === "string" || typeof value === "number";
+}
+
+function decodeCursor(raw: string): DecodedCursor {
   try {
     const base64 = raw.replaceAll("-", "+").replaceAll("_", "/");
     const bytes = Uint8Array.from(atob(base64), (character) => character.charCodeAt(0));
-    const value = JSON.parse(new TextDecoder().decode(bytes)) as Partial<Cursor>;
-    if (
-      value.v !== 1
-      || typeof value.model !== "string"
-      || typeof value.sort !== "string"
-      || (value.key !== null && typeof value.key !== "string" && typeof value.key !== "number")
-      || typeof value.id !== "string"
-      || typeof value.signature !== "string"
-    ) throw new Error("invalid cursor");
-    return value as Cursor;
+    const value = JSON.parse(new TextDecoder().decode(bytes)) as Partial<DecodedCursor>;
+    if (value.v === 1) {
+      const legacy = value as Partial<LegacyCursor>;
+      if (
+        typeof legacy.model !== "string"
+        || typeof legacy.sort !== "string"
+        || !isCursorScalar(legacy.key)
+        || typeof legacy.id !== "string"
+        || typeof legacy.signature !== "string"
+      ) throw new Error("invalid cursor");
+      return legacy as LegacyCursor;
+    }
+    if (value.v === 2) {
+      const current = value as Partial<Cursor>;
+      if (
+        typeof current.model !== "string"
+        || !Array.isArray(current.sorts)
+        || current.sorts.length < 1
+        || current.sorts.some((sort) => typeof sort !== "string")
+        || !Array.isArray(current.keys)
+        || current.keys.length !== current.sorts.length
+        || current.keys.some((key) => !isCursorScalar(key))
+        || typeof current.id !== "string"
+        || typeof current.signature !== "string"
+      ) throw new Error("invalid cursor");
+      return current as Cursor;
+    }
+    throw new Error("invalid cursor");
   } catch {
     throw new ApiError("INVALID_QUERY", "cursor is invalid", 400);
   }
@@ -143,8 +185,7 @@ function allowedQueryKeys(model: PublishedModel): Set<string> {
   return allowed;
 }
 
-function parseSort(model: PublishedModel, params: URLSearchParams): { raw: string; field: string; direction: "asc" | "desc"; expression: string; nullable: boolean } {
-  const raw = one(params, "sort") ?? "createdAt:desc";
+function parseSortCriterion(model: PublishedModel, raw: string): SortCriterion {
   const [field, direction, ...rest] = raw.split(":");
   if (rest.length || !field || (direction !== "asc" && direction !== "desc")) throw new ApiError("INVALID_QUERY", "sort must use field:asc or field:desc", 400);
   if (field === "createdAt") return { raw, field, direction, expression: "r.created_at", nullable: false };
@@ -159,6 +200,50 @@ function parseSort(model: PublishedModel, params: URLSearchParams): { raw: strin
   };
 }
 
+function parseSorts(model: PublishedModel, params: URLSearchParams): SortCriterion[] {
+  const rawSorts = params.getAll("sort");
+  const values = rawSorts.length ? rawSorts : ["createdAt:desc"];
+  if (values.length > MAX_SORT_CRITERIA) {
+    throw new ApiError("INVALID_QUERY", `sort may contain at most ${MAX_SORT_CRITERIA} ordered criteria`, 400);
+  }
+  const sorts = values.map((raw) => parseSortCriterion(model, raw));
+  const seen = new Set<string>();
+  for (const sort of sorts) {
+    if (seen.has(sort.field)) throw new ApiError("INVALID_QUERY", `sort field ${sort.field} may be supplied only once`, 400);
+    seen.add(sort.field);
+  }
+  return sorts;
+}
+
+function sameStrings(left: string[], right: string[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
+function cursorPredicate(sorts: SortCriterion[], keys: CursorScalar[], id: string): { sql: string; args: unknown[] } {
+  const build = (index: number): { sql: string; args: unknown[] } => {
+    if (index >= sorts.length) return { sql: "r.id>?", args: [id] };
+    const sort = sorts[index];
+    const key = keys[index];
+    const rest = build(index + 1);
+    if (key === null) {
+      if (!sort.nullable) throw new ApiError("INVALID_QUERY", "cursor contains null for a non-nullable sort field", 400);
+      return { sql: `(${sort.expression} IS NULL AND ${rest.sql})`, args: rest.args };
+    }
+    const operator = sort.direction === "asc" ? ">" : "<";
+    if (sort.nullable) {
+      return {
+        sql: `((${sort.expression} IS NULL) OR (${sort.expression} IS NOT NULL AND ${sort.expression}${operator}?) OR (${sort.expression}=? AND ${rest.sql}))`,
+        args: [key, key, ...rest.args],
+      };
+    }
+    return {
+      sql: `(${sort.expression}${operator}? OR (${sort.expression}=? AND ${rest.sql}))`,
+      args: [key, key, ...rest.args],
+    };
+  };
+  return build(0);
+}
+
 export async function queryGenericResources(
   env: Bindings,
   spaceId: string,
@@ -169,11 +254,13 @@ export async function queryGenericResources(
   for (const key of new Set(params.keys())) if (!allowed.has(key)) throw new ApiError("INVALID_QUERY", `Unsupported query parameter ${key}`, 400);
 
   const limit = parseLimit(params);
-  const sort = parseSort(model, params);
+  const sorts = parseSorts(model, params);
+  const rawSorts = sorts.map((sort) => sort.raw);
   const signature = querySignature(params);
   const args: unknown[] = [spaceId, model.key];
   const scalarSelect = typedSelectColumns(model);
-  let sql = `SELECT r.id,r.space_id,r.model_key,r.model_version,r.version,r.created_at,r.updated_at${scalarSelect ? `,${scalarSelect}` : ""},${sort.expression} AS sort_value
+  const sortSelect = sorts.map((sort, index) => `${sort.expression} AS sort_value_${index}`).join(",");
+  let sql = `SELECT r.id,r.space_id,r.model_key,r.model_version,r.version,r.created_at,r.updated_at${scalarSelect ? `,${scalarSelect}` : ""},${sortSelect}
     FROM resource_records r JOIN ${typedTableSql(model)} m ON m.record_id=r.id AND m.space_id=r.space_id
     WHERE r.space_id=? AND r.model_key=? AND r.deleted_at IS NULL`;
 
@@ -234,32 +321,41 @@ export async function queryGenericResources(
   const rawCursor = one(params, "cursor");
   if (rawCursor) {
     const cursor = decodeCursor(rawCursor);
-    if (cursor.model !== model.key || cursor.sort !== sort.raw || cursor.signature !== signature) throw new ApiError("INVALID_QUERY", "cursor does not match this model/query", 400);
-    const operator = sort.direction === "asc" ? ">" : "<";
-    if (sort.nullable && cursor.key === null) {
-      sql += ` AND ${sort.expression} IS NULL AND r.id>?`;
-      args.push(cursor.id);
-    } else if (sort.nullable) {
-      sql += ` AND ((${sort.expression} IS NOT NULL AND (${sort.expression}${operator}? OR (${sort.expression}=? AND r.id>?))) OR ${sort.expression} IS NULL)`;
-      args.push(cursor.key, cursor.key, cursor.id);
-    } else {
-      sql += ` AND (${sort.expression}${operator}? OR (${sort.expression}=? AND r.id>?))`;
-      args.push(cursor.key, cursor.key, cursor.id);
-    }
+    const cursorSorts = cursor.v === 1 ? [cursor.sort] : cursor.sorts;
+    const cursorKeys = cursor.v === 1 ? [cursor.key] : cursor.keys;
+    if (
+      cursor.model !== model.key
+      || !sameStrings(cursorSorts, rawSorts)
+      || cursorKeys.length !== sorts.length
+      || cursor.signature !== signature
+    ) throw new ApiError("INVALID_QUERY", "cursor does not match this model/query", 400);
+    const predicate = cursorPredicate(sorts, cursorKeys, cursor.id);
+    sql += ` AND ${predicate.sql}`;
+    args.push(...predicate.args);
   }
 
-  sql += sort.nullable
-    ? ` ORDER BY ${sort.expression} IS NULL ASC,${sort.expression} ${sort.direction.toUpperCase()},r.id ASC`
-    : ` ORDER BY ${sort.expression} ${sort.direction.toUpperCase()},r.id ASC`;
+  const order = sorts.flatMap((sort) => [
+    ...(sort.nullable ? [`${sort.expression} IS NULL ASC`] : []),
+    `${sort.expression} ${sort.direction.toUpperCase()}`,
+  ]);
+  order.push("r.id ASC");
+  sql += ` ORDER BY ${order.join(",")}`;
   sql += " LIMIT ?";
   args.push(limit + 1);
 
-  const rows = await env.DB.prepare(sql).bind(...args).all<TypedResourceRow>();
+  const rows = await env.DB.prepare(sql).bind(...args).all<QueryRow>();
   const page = rows.results.slice(0, limit);
   const items = await hydrateTypedResourceRows(env, model, page);
   const last = page.at(-1);
   const nextCursor = rows.results.length > limit && last
-    ? encodeCursor({ v: 1, model: model.key, sort: sort.raw, key: last.sort_value ?? null, id: last.id, signature })
+    ? encodeCursor({
+        v: 2,
+        model: model.key,
+        sorts: rawSorts,
+        keys: sorts.map((_sort, index) => last[`sort_value_${index}`] ?? null),
+        id: last.id,
+        signature,
+      })
     : null;
   return { items, nextCursor };
 }
