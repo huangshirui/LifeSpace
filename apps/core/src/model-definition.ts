@@ -27,6 +27,7 @@ export type ModelDefaultValue = string | number | boolean | null | string[];
 
 export type FieldDefinition = {
   type: FieldType;
+  title?: string;
   description?: string;
   required?: boolean;
   nullable?: boolean;
@@ -317,6 +318,7 @@ export function validateModelDefinition(input: unknown): ModelValidationResult {
 
       const allowed = new Set([
         "type",
+        "title",
         "description",
         "required",
         "nullable",
@@ -351,6 +353,7 @@ export function validateModelDefinition(input: unknown): ModelValidationResult {
         continue;
       }
 
+      const fieldTitle = boundedText(issues, raw.title, `${path}.title`, 80);
       const fieldDescription = boundedText(issues, raw.description, `${path}.description`, 300);
       const required = raw.required === undefined ? undefined : raw.required === true;
       const nullable = raw.nullable === undefined ? undefined : raw.nullable === true;
@@ -452,6 +455,7 @@ export function validateModelDefinition(input: unknown): ModelValidationResult {
 
       fields[fieldKey] = {
         type: type as FieldType,
+        ...(fieldTitle ? { title: fieldTitle } : {}),
         ...(fieldDescription ? { description: fieldDescription } : {}),
         ...(required === undefined ? {} : { required }),
         ...(nullable === undefined ? {} : { nullable }),
