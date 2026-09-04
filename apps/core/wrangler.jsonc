@@ -3,6 +3,7 @@
   "name": "lifespace-core-local",
   "main": "src/index.ts",
   "compatibility_date": "2026-08-08",
+  "compatibility_flags": ["global_fetch_strictly_public"],
   "observability": { "enabled": true },
   "triggers": { "crons": ["* * * * *"] },
   "vars": { "ENVIRONMENT": "local", "AI_BASE_URL": "https://openrouter.ai/api/v1" },

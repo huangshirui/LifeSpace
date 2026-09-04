@@ -113,6 +113,8 @@ Webhook requests are POST JSON and include:
 
 The signature input is `timestamp + "." + rawBody` using the endpoint signing secret.
 
+Webhook transport is deliberately **public HTTPS egress**, including when a valid callback happens to use a Cloudflare Custom Domain in the same DNS zone as Core. Core therefore configures the Workers global `fetch()` runtime with `global_fetch_strictly_public`, so a same-zone callback traverses Cloudflare's public front door instead of being resolved as a private origin lookup. Trusted same-account internal calls such as Core -> Identity continue to use explicit Service Bindings; Eventing must not silently replace a configured public Webhook URL with a Service Binding because that would test and execute a different transport contract.
+
 Non-2xx responses and transport failures are retried by Cloudflare Queues. After configured retries the message moves to the environment-specific dead-letter queue. Delivery logs retain status, attempt count, last HTTP status/error and timestamps; response bodies are not persisted.
 
 Delivery diagnostics are endpoint-level so an operator can see all model notifications using the shared destination in one history view. Each delivery still exposes its source `modelKey` and subscription ID for diagnosis.
