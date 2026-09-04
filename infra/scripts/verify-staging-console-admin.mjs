@@ -217,7 +217,7 @@ console.log(JSON.stringify({
   contracts: {
     identity: convergence.identity.contractVersion,
     coreKernel: convergence.core.contractVersion,
-    identityPlatformAdmin: "0.1.0",
+    identityPlatformAdmin: "0.2.0",
     corePlatformAdmin: "0.1.0",
   },
   actor: {
