@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { acceptedHomeMewModelSemantics } from "../../../infra/scripts/homemew-contract-identity.mjs";
 
 const ROOT = new URL("../../../", import.meta.url);
 
@@ -11,7 +12,7 @@ const profile = readJson("infra/homemew-integration-profile.json");
 const corePackage = readJson("apps/core/package.json");
 const identityPackage = readJson("apps/identity/package.json");
 
-assert.equal(profile.profileVersion, 1, "HomeMew integration profile version must remain explicit");
+assert.equal(profile.profileVersion, 2, "HomeMew integration profile version must remain explicit");
 assert.ok(["phase4-candidate", "accepted"].includes(profile.status), "HomeMew integration profile status is invalid");
 assert.equal(profile.application?.key, "homemew");
 assert.equal(profile.application?.clientType, "mini_program");
@@ -38,11 +39,14 @@ assert.match(profile.contracts?.coreKernel ?? "", /^\d+\.\d+\.\d+$/u, "HomeMew C
 assert.match(profile.contracts?.identity ?? "", /^\d+\.\d+\.\d+$/u, "HomeMew Identity pin must be an explicit semantic version");
 assert.notEqual(profile.contracts?.coreKernel, "", "HomeMew Core pin must remain explicit");
 assert.notEqual(profile.contracts?.identity, "", "HomeMew Identity pin must remain explicit");
-// Accepted application pins are immutable compatibility evidence and do not silently follow later platform package versions.
+// Accepted application pins are compatibility evidence and do not silently follow later platform package versions.
 void corePackage;
 void identityPackage;
-assert.match(profile.contracts?.modelContract ?? "", /^mct_[a-f0-9]{64}$/u, "HomeMew Model Contract pin must be content-addressed");
+const modelSemantics = acceptedHomeMewModelSemantics(profile);
+assert.deepEqual(modelSemantics.models.map((model) => model.key), expectedModels);
 assert.ok(["proving-not-frozen", "accepted"].includes(profile.contracts?.pinStatus), "HomeMew contract pin status is invalid");
+assert.match(profile.evidence?.acceptedStagingModelContract ?? "", /^mct_[a-f0-9]{64}$/u, "HomeMew accepted staging Model Contract evidence must remain immutable and content-addressed");
+assert.equal("modelContract" in (profile.contracts ?? {}), false, "Environment-local mct_* must not be represented as the cross-environment HomeMew contract identity");
 
 const serialized = JSON.stringify(profile);
 for (const pattern of [/lsa_[a-f0-9]{64}/u, /lsp_pat_[A-Za-z0-9_-]{8,}/u, /"clientSecret"/u, /"secretHash"/u, /"privateKey"/u]) {
@@ -54,7 +58,8 @@ console.log(JSON.stringify({
   application: profile.application.key,
   coreKernel: profile.contracts.coreKernel,
   identity: profile.contracts.identity,
-  modelContract: profile.contracts.modelContract,
+  modelSemanticFingerprint: modelSemantics.fingerprint,
+  acceptedStagingModelContractEvidence: profile.evidence.acceptedStagingModelContract,
   tokenTtlSeconds: profile.application.accessTokenTtlSeconds,
   modelAccess: profile.modelAccess,
   platformAdminScopeExcluded: true,
