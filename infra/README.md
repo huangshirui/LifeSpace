@@ -109,11 +109,13 @@ If audience registration returns `ACCESS_NOT_CONFIGURED`, configure `ACCESS_TEAM
 - `provision-production.mjs`: create-if-missing D1/R2/Queue provisioning from the production manifest; never deletes, renames, replaces or reuses staging resources. It is invoked only by **Provision production resources**.
 - `resolve-production-d1.mjs`: resolves exact production D1 IDs only into the ephemeral deployment checkout.
 - `ensure-production-domains.mjs`: preflights and attaches only the two approved production Worker Custom Domains; refuses to move a hostname owned by another Worker.
-- `production-expectations.mjs`: derives production contract/schema expectations from the repository.
+- `production-expectations.mjs`: derives production contract/schema expectations from the repository and pins semantic model hashes while treating Registry model versions as environment-local monotonic values.
 - `initialize-production-runtime.mjs`: initializes first-use signing/shared secrets, preserves complete existing secret sets, and refuses partial automatic repair/rotation.
+- `homemew-contract-identity.mjs`: defines the canonical HomeMew cross-environment Model Semantic Fingerprint from model `key + route + schemaHash`; it deliberately excludes environment-local Registry versions and `mct_*` revision IDs.
 - `verify-production-http.mjs`: verifies production health, environment, schema and contract versions.
 - `verify-production-cloudflare.mjs`: verifies D1/R2/Queue/Worker/domain/secret presence, Queue attachment/policy, and staging isolation.
-- `verify-production-model-admin.mjs`: uses disposable service authority to verify `lsp_pat_*` introspection and initialize/verify the accepted active Model Contract.
-- `verify-production-homemew-auth.mjs` and `verify-production-db.mjs`: retained historical Phase 6 evidence helpers; they are not invoked by normal production deployment.
+- `verify-production-model-admin.mjs`: uses disposable service authority to verify `lsp_pat_*` introspection, reconcile required model semantics when safe, and prove that the production active immutable `mct_*` exactly represents the current production Registry snapshot.
+- `verify-production-homemew-contract.mjs`: proves that the production Core/Identity versions and the HomeMew-selected models inside production's own active `mct_*` match the accepted cross-environment Model Semantic Fingerprint. It does not require production to reuse staging's `mct_*` ID.
+- `verify-production-homemew-auth.mjs` and `verify-production-db.mjs`: retained historical Phase 6 evidence helpers; they are not invoked by normal production deployment. The DB helper follows the same semantic-fingerprint rule so historical verification does not reintroduce cross-environment `mct_*` equality.
 
 Detailed operator rules are documented in `infra/staging/README.md` and `infra/production/README.md`. Historical phase plans/status documents remain audit evidence, not current deployment runbooks.
