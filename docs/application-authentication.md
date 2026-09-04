@@ -4,7 +4,7 @@
 
 - Cloudflare Access is the long-term Web/PWA authentication and SSO layer.
 - Identity application/user/service contract remains `0.6.0`.
-- Identity Platform Admin companion contract `0.1.0` and the platform-administrator/purpose-bound actor foundation are merged on `main`.
+- Identity Platform Admin companion contract is `0.2.0`; it includes the platform-administrator/purpose-bound actor foundation plus Application-scoped Agent identity governance for Console.
 - Access principal verification, audience registration, explicit registration/linking and trusted application credential lifecycle are implemented.
 - `apps/console` has the permanent React/Vite same-origin BFF shell and uses the platform-admin control-plane boundary described here. Environment rollout/acceptance status belongs in current deployment/status documents rather than this authentication contract.
 
@@ -255,9 +255,12 @@ This control plane supports:
 - list/create/read/update applications;
 - create/list/revoke `lsa_*` credentials;
 - register/list/revoke Cloudflare Access audiences;
+- list/create/update stable Agent identities bound to target trusted Applications;
 - cross-application Service Principal/Service API Token management;
 - read-only global user/Access-principal inspection;
 - platform-admin audit reads.
+
+Agent identity governance reuses `applications:manage`. Console uses its own executor and must never borrow the target Application's `lsa_*`. Creating an `agt_*` grants no Space/Data/Model authority, creates no Delegation and mints no Agent execution token. Agent `status` is global across all Application bindings, so operator tooling must present disable/reactivate as a global identity action rather than a local binding toggle.
 
 Credential plaintext remains one-time-only and is never returned by metadata/list APIs.
 
@@ -294,7 +297,7 @@ Privileged LifeSpace Console syntax is separately owned by:
 
 ```text
 apps/identity/platform-admin.openapi.yaml
-Platform Admin contract 0.1.0
+Platform Admin contract 0.2.0
 ```
 
 Adding privileged Console surfaces must not silently broaden the business application contract consumed by HomeMew/ALOHA.
