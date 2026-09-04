@@ -121,10 +121,16 @@ jobs:
       - name: Verify production Cloudflare isolation and bindings
         run: node infra/scripts/verify-production-cloudflare.mjs
 
-      # Every production deployment must reconcile/read the active immutable Model Contract
-      # and prove that it exactly matches the HomeMew pinned contract before release proceeds.
+      # Model Admin verification proves service authentication plus exact agreement
+      # between the production active mct_* snapshot and the current production Registry.
       - name: Initialize and verify Model Contract through service authentication
         run: node infra/scripts/verify-production-model-admin.mjs
+
+      # HomeMew release compatibility is cross-environment semantic identity:
+      # Kernel + Identity versions + model key/route/schemaHash fingerprint. The
+      # production mct_* remains immutable environment-local deployment evidence.
+      - name: Verify HomeMew production semantic contract
+        run: node infra/scripts/verify-production-homemew-contract.mjs
 
       - name: Summarize production deployment
         if: ${{ success() }}
@@ -137,7 +143,8 @@ jobs:
           - SHA: \`${GITHUB_SHA}\`
           - Core: schema v${LIFESPACE_EXPECTED_CORE_SCHEMA_VERSION} / Kernel contract ${LIFESPACE_EXPECTED_CORE_CONTRACT_VERSION}
           - Identity: schema v${LIFESPACE_EXPECTED_IDENTITY_SCHEMA_VERSION} / contract ${LIFESPACE_EXPECTED_IDENTITY_CONTRACT_VERSION}
-          - Active pinned Model Contract: passed
+          - Production active Model Contract consistency: passed
+          - HomeMew cross-environment semantic contract fingerprint: passed
           - Custom domains: \`core.aisr.online\`, \`auth.aisr.online\`
           - Production D1/R2/Queue/Worker isolation: passed
           - Production runtime signing/shared-secret presence: passed
