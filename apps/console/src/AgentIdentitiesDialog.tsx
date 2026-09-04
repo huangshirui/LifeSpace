@@ -111,10 +111,9 @@ export default function AgentIdentitiesDialog({ applicationId, onClose }: { appl
     try {
       await mutate<AgentIdentity>(`/api/agent-governance/applications/${encodeURIComponent(applicationId)}/agents/${encodeURIComponent(editing.id)}`, "PATCH", "update-agent-identity", {
         displayName: editName.trim(),
-        status: editStatus,
+        ...(statusChanged ? { status: editStatus, confirmGlobalStatus: true } : {}),
         confirmApplicationId: applicationId,
         confirmAgentId: editing.id,
-        confirmGlobalStatus: statusChanged ? globalConfirmed : undefined,
       });
       setEditing(undefined);
       setGlobalConfirmed(false);
