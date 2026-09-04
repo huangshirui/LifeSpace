@@ -245,7 +245,7 @@ Rules:
 - `minLength` / `maxLength` apply only to `string` / `text`;
 - `minimum` / `maximum` apply only to `integer` / `number`;
 - `values` is required for `enum`, must be unique and may contain at most 50 entries;
-- `targetModel` is required only for `record` / `record_list`.
+- `targetModel` is required only for `record` / `record_list`; it remains structural relation semantics and is not encoded into `title`. Generated contracts may project relation target/cardinality metadata separately so human-readable naming and machine relation semantics remain orthogonal.
 
 ### 4.3 `readOnly`, Mutation Authority, and `immutable`
 
