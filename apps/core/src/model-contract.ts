@@ -36,6 +36,21 @@ function nullable(schema: JsonSchema, field: FieldDefinition): JsonSchema {
   return { anyOf: [schema, { type: "null" }] };
 }
 
+function relationMetadata(field: FieldDefinition): JsonSchema | null {
+  switch (field.type) {
+    case "person":
+      return { targetModel: "person", cardinality: "one" };
+    case "person_list":
+      return { targetModel: "person", cardinality: "many" };
+    case "record":
+      return { targetModel: field.targetModel, cardinality: "one" };
+    case "record_list":
+      return { targetModel: field.targetModel, cardinality: "many" };
+    default:
+      return null;
+  }
+}
+
 function fieldSchema(field: FieldDefinition): JsonSchema {
   let schema: JsonSchema;
   switch (field.type) {
@@ -88,6 +103,8 @@ function fieldSchema(field: FieldDefinition): JsonSchema {
       break;
   }
   const result = nullable(schema, field);
+  const relation = relationMetadata(field);
+  if (relation) result["x-lifespace-relation"] = relation;
   if (field.title) result.title = field.title;
   if (field.description) result.description = field.description;
   if (field.readOnly) result.readOnly = true;
@@ -357,6 +374,7 @@ function parameterMap(model: PublishedModel): Map<string, Record<string, unknown
         anyOf: [{ type: "string", pattern: "^per_" }, { const: "me" }],
         ...(field.title ? { title: field.title } : {}),
         ...(field.description ? { description: field.description } : {}),
+        "x-lifespace-relation": relationMetadata(field),
       };
     }
     put({ name: fieldKey, in: "query", schema });
