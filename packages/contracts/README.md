@@ -17,14 +17,14 @@ The current repository HomeMew handoff pin is:
 
 ```text
 Identity:       0.6.0
-Core Kernel:    0.20.0
-Model Contract: mct_a4cc6dad278204b08cd706f9abeb68107e229148f1cd9ccde0991382606a92b9
+Core Kernel:    0.21.0
+Model Contract: mct_723249464e3b7c2f53c4ef63edd53cfc17edb57205afa63a56ba7d0bd21209bf
 Profile:        infra/homemew-integration-profile.json (profileVersion 1, accepted)
 ```
 
-The accepted HomeMew profile currently pins Core Kernel 0.20.0 / Identity 0.6.0. Kernel 0.21.0 is a Candidate/Public invitation-transport security migration: future invite preview/join callers must send the possession token in the JSON body instead of the URL path. Repository search found no current HomeMew application dependency on the invite preview/join routes, so no HomeMew code migration is required before validating the new Kernel in staging. The accepted integration profile remains on 0.20.0 until that downstream compatibility/staging decision is explicitly promoted; the exporter intentionally refuses to package newer Kernel source under the older accepted tuple.
+The accepted HomeMew profile was promoted to Core Kernel 0.21.0 / Identity 0.6.0 after `Deploy staging` run #67 (`33842249069`) proved the HomeMew integration Golden Flow on that Kernel, including Event/Task CRUD, Task semantic Action, stale-version denial, governed Change attribution, real public Eventing delivery, disabled-subscriber revocation and the typed-runtime performance gate. Kernel 0.21.0 is a Candidate/Public invitation-transport security migration: invite preview/join callers carry the possession token in the JSON body instead of the URL path. Repository search found no current HomeMew application dependency on those invite preview/join routes, so this promotion requires no HomeMew application code migration.
 
-The pinned immutable model revision introduced Generic Resource audit actors (`createdBy` / `updatedBy`) in the generated ordinary-model response contract and remains the current HomeMew model-contract evidence. A compatible Registry publication does not automatically advance this application release pin; the pin is promoted only after the target production Registry state has been deployed and accepted.
+The accepted immutable Model Contract revision is the exact staging-proven release pin and includes the HomeMew baseline Task v5, Wish v8, Day Record v2 and Event v3 semantics verified by the same deployment. A compatible Registry publication does not automatically advance this application release pin. The target release state is first deployed and validated in staging, then the explicit immutable pin is promoted and the reproducible handoff is re-proved before production deployment; production does not silently select an active/latest Model Contract.
 
 `pnpm --filter @lifespace/contracts export:homemew` exports `dist/homemew/` after verifying the configured deployment and exact pinned Model Contract revision.
 
@@ -56,7 +56,7 @@ These versions add explicit domain-selection and field semantics consumed by Reg
 
 The four-model semantic fingerprint is **not** itself an environment-wide active Model Contract pin. `mct_*` revisions snapshot the entire published Registry, so staging or production may legitimately produce a different active `mct_*` when other ordinary models are also published. Creation Draft verification therefore proves that its pinned immutable Registry revision contains the exact four baseline versions/hashes above, while allowing unrelated published models to coexist.
 
-HomeMew's accepted model-contract pin will be advanced separately only after compatible semantic versions are deployed and accepted in production.
+HomeMew's accepted model-contract pin advances only through an explicit downstream compatibility decision after the target release state has been deployed and accepted in staging. The promoted immutable pin must then pass deterministic handoff export/upload before production deployment; it never follows active/latest Registry state implicitly.
 
 ## Historical Phase-4 accepted handoff
 
