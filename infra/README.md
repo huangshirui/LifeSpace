@@ -22,7 +22,7 @@ Long-lived workflows are intentionally explicit about operation type:
 - `Provision staging resources`: low-frequency, create-if-missing reconciliation of D1/R2/Queue resources declared in the staging manifest.
 - `Deploy staging`: manual staging migration, Core/Identity deployment, convergence checks and authenticated platform regression. It never provisions shared infrastructure.
 - `Provision production resources`: guarded, low-frequency, create-if-missing reconciliation of D1/R2/Queue resources declared in the production manifest. It never migrates databases or deploys Workers.
-- `Deploy production`: guarded normal production migration/deployment/verification. It never provisions infrastructure and contains no historical first-bring-up mode.
+- `Deploy production`: guarded normal production migration/deployment/verification. It never provisions infrastructure and contains no historical first-bring-up mode. Before any production migration, it requires the accepted downstream release identity to match the repository production Kernel/Identity/model semantics.
 
 Phase-specific one-shot workflow modes are not permanent operator entrypoints. The historical Phase 6 empty-platform bring-up is complete and remains only as audit evidence in phase documents/Git history; `phase6_bringup` is not part of the long-lived production workflow.
 
@@ -110,6 +110,7 @@ If audience registration returns `ACCESS_NOT_CONFIGURED`, configure `ACCESS_TEAM
 - `resolve-production-d1.mjs`: resolves exact production D1 IDs only into the ephemeral deployment checkout.
 - `ensure-production-domains.mjs`: preflights and attaches only the two approved production Worker Custom Domains; refuses to move a hostname owned by another Worker.
 - `production-expectations.mjs`: derives production contract/schema expectations from the repository and pins semantic model hashes while treating Registry model versions as environment-local monotonic values.
+- `check-production-release-readiness.mjs`: fail-closed pre-mutation gate that requires the accepted HomeMew Core/Identity pins and Model Semantic Fingerprint to match the repository production release. Platform code may enter `main` and be proven in staging before this downstream promotion occurs; production remains blocked until the accepted release identity is explicitly advanced.
 - `initialize-production-runtime.mjs`: initializes first-use signing/shared secrets, preserves complete existing secret sets, and refuses partial automatic repair/rotation.
 - `homemew-contract-identity.mjs`: defines the canonical HomeMew cross-environment Model Semantic Fingerprint from model `key + route + schemaHash`; it deliberately excludes environment-local Registry versions and `mct_*` revision IDs.
 - `verify-production-http.mjs`: verifies production health, environment, schema and contract versions.
