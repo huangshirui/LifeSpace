@@ -82,13 +82,13 @@ function orderedParams(entries: Array<[string, string]>): URLSearchParams {
 
 describe("Generic Query Engine", () => {
   it("searches declared text fields and filters enum/date/relation metadata", async () => {
-    const { spaceId, personId, model, first, third } = await fixture();
+    const { spaceId, personId, model, first, sameDue, third, noDueOther } = await fixture();
 
     const search = await queryGenericResources(bindings(), spaceId, model, new URLSearchParams({ q: "oat milk" }));
     expect(search.items.map((item) => item.id)).toEqual([first.id]);
 
     const pending = await queryGenericResources(bindings(), spaceId, model, new URLSearchParams({ status: "pending" }));
-    expect(new Set(pending.items.map((item) => item.id))).toEqual(expect.objectContaining(new Set([first.id, third.id])));
+    expect(new Set(pending.items.map((item) => item.id))).toEqual(new Set([first.id, sameDue.id, third.id, noDueOther.id]));
 
     const range = await queryGenericResources(bindings(), spaceId, model, new URLSearchParams({ dueDateFrom: "2026-08-13", dueDateTo: "2026-08-14" }));
     expect(range.items).toHaveLength(3);
@@ -99,12 +99,13 @@ describe("Generic Query Engine", () => {
 
   it("paginates single-field declared sorts with stable cursor binding and nulls last", async () => {
     const { spaceId, model, first, second, sameDue, third, noDue, noDueOther } = await fixture();
-    const page1 = await queryGenericResources(bindings(), spaceId, model, new URLSearchParams({ sort: "dueDate:asc", limit: "3" }));
-    expect(page1.items.map((item) => item.id)).toEqual([first.id, second.id, sameDue.id]);
+    const page1 = await queryGenericResources(bindings(), spaceId, model, new URLSearchParams({ sort: "dueDate:asc", limit: "1" }));
+    expect(page1.items.map((item) => item.id)).toEqual([first.id]);
     expect(page1.nextCursor).toBeTruthy();
 
-    const page2 = await queryGenericResources(bindings(), spaceId, model, new URLSearchParams({ sort: "dueDate:asc", limit: "3", cursor: page1.nextCursor! }));
-    expect(page2.items.map((item) => item.id)).toEqual([third.id, noDue.id, noDueOther.id]);
+    const page2 = await queryGenericResources(bindings(), spaceId, model, new URLSearchParams({ sort: "dueDate:asc", limit: "5", cursor: page1.nextCursor! }));
+    expect(new Set(page2.items.map((item) => item.id))).toEqual(new Set([second.id, sameDue.id, third.id, noDue.id, noDueOther.id]));
+    expect(page2.items.slice(-2).every((item) => item.data.dueDate == null)).toBe(true);
     expect(page2.nextCursor).toBeNull();
 
     await expect(queryGenericResources(bindings(), spaceId, model, new URLSearchParams({ sort: "name:asc", cursor: page1.nextCursor! })))
