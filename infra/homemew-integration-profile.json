@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "profileVersion": 1,
+  "profileVersion": 2,
   "status": "accepted",
   "application": {
     "key": "homemew",
@@ -42,7 +42,30 @@
   "contracts": {
     "coreKernel": "0.21.0",
     "identity": "0.6.0",
-    "modelContract": "mct_723249464e3b7c2f53c4ef63edd53cfc17edb57205afa63a56ba7d0bd21209bf",
+    "modelSemantics": {
+      "fingerprint": "msf_498674114e2e312c926f733ba939b49d85020a1ee14a4729b27be62bf1f774dc",
+      "models": {
+        "task": {
+          "route": "tasks",
+          "schemaHash": "aaa6317b3810a20e6c4622736ec8e39e96edcd5079c6189fb5892ac54397b145"
+        },
+        "wish": {
+          "route": "wishes",
+          "schemaHash": "ec4f99f238e44c756905d30a97f6bb5c063b783eca159dfe39f518ea58ff64b6"
+        },
+        "day_record": {
+          "route": "day-records",
+          "schemaHash": "4b2f241958aeca05e396eea7e6719a3f030cef3ea7dfd3c57d426c086fe4cf56"
+        },
+        "event": {
+          "route": "events",
+          "schemaHash": "6a23eb2f25463ce55d7ed75d64f0afa020d7aab25149badf28fdd77abc2d1aad"
+        }
+      }
+    },
     "pinStatus": "accepted"
+  },
+  "evidence": {
+    "acceptedStagingModelContract": "mct_723249464e3b7c2f53c4ef63edd53cfc17edb57205afa63a56ba7d0bd21209bf"
   }
 }

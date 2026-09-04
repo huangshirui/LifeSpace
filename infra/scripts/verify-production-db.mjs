@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import process from "node:process";
+import { assertHomeMewModelSemanticCompatibility } from "./homemew-contract-identity.mjs";
 import { PRODUCTION_EXPECTATIONS, PRODUCTION_PROVING_MODELS } from "./production-expectations.mjs";
 
 // Repository Wrangler configs intentionally keep placeholder production D1 UUIDs.
@@ -89,7 +90,7 @@ for (const expected of PRODUCTION_PROVING_MODELS) {
   const actual = published.get(expected.key);
   if (!actual) fail(`Published production model ${expected.key} is missing`);
   assertEqual(actual.route_segment, expected.route, `${expected.key} route`);
-  assertEqual(actual.version, expected.version, `${expected.key} version`);
+  if (Number(actual.version) < expected.minimumVersion) fail(`${expected.key} version: expected >= ${expected.minimumVersion}, got ${actual.version}`);
   assertEqual(actual.schema_hash, expected.hash, `${expected.key} schema hash`);
 }
 
@@ -99,12 +100,16 @@ const accessRows = coreSql(`SELECT model_key,max_access FROM application_model_a
 const access = new Map(accessRows.map((row) => [row.model_key, row.max_access]));
 for (const expected of PRODUCTION_PROVING_MODELS) assertEqual(access.get(expected.key), "write", `${productionApplicationId} ${expected.key} access`);
 
-const contract = single(coreSql(`SELECT s.active_contract_id,s.registry_revision,r.contract_hash
+const contract = single(coreSql(`SELECT s.active_contract_id,s.registry_revision,r.contract_hash,r.manifest_json
   FROM model_contract_state s JOIN model_contract_revisions r ON r.id=s.active_contract_id
   WHERE s.singleton=1`), "Active production Model Contract");
-assertEqual(contract.active_contract_id, profile.contracts.modelContract, "Accepted production Model Contract");
-assertEqual(contract.contract_hash, profile.contracts.modelContract.slice(4), "Production Model Contract content hash");
+if (!/^mct_[a-f0-9]{64}$/u.test(contract.active_contract_id ?? "")) fail("Production Model Contract id is invalid", contract);
+assertEqual(contract.contract_hash, contract.active_contract_id.slice(4), "Production Model Contract content hash");
 if (Number(contract.registry_revision) < 1) fail("Production Model Contract registry revision is invalid");
+let contractManifest;
+try { contractManifest = JSON.parse(contract.manifest_json); }
+catch { fail("Production Model Contract manifest is invalid JSON"); }
+assertHomeMewModelSemanticCompatibility(profile, contractManifest?.models, "Historical Phase 6 production Model Contract");
 
 const tableSet = new Set(coreSql("SELECT name FROM sqlite_master WHERE type='table'").map((row) => row.name));
 for (const table of REQUIRED_PLATFORM_TABLES) if (!tableSet.has(table)) fail(`Required production platform table ${table} is missing`);
@@ -150,6 +155,7 @@ console.log(JSON.stringify({
   coreSchemaVersion: PRODUCTION_EXPECTATIONS.core.schemaVersion,
   identitySchemaVersion: PRODUCTION_EXPECTATIONS.identity.schemaVersion,
   activeModelContract: contract.active_contract_id,
+  modelSemanticFingerprint: profile.contracts.modelSemantics.fingerprint,
   homemewApplicationId: productionApplicationId,
   homemewActiveCredentials: 0,
   businessState: "empty",

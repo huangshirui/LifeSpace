@@ -10,9 +10,11 @@ const scripts = [
   "infra/scripts/resolve-production-d1.mjs",
   "infra/scripts/ensure-production-domains.mjs",
   "infra/scripts/initialize-production-runtime.mjs",
+  "infra/scripts/homemew-contract-identity.mjs",
   "infra/scripts/verify-production-http.mjs",
   "infra/scripts/verify-production-cloudflare.mjs",
   "infra/scripts/verify-production-model-admin.mjs",
+  "infra/scripts/verify-production-homemew-contract.mjs",
   "infra/scripts/verify-production-homemew-auth.mjs",
   "infra/scripts/verify-production-db.mjs",
 ];
@@ -90,6 +92,7 @@ requireTokens("Production deployment workflow", productionDeploy, [
   "db:migrate:production",
   "wrangler deploy --env production",
   "node infra/scripts/verify-production-model-admin.mjs",
+  "node infra/scripts/verify-production-homemew-contract.mjs",
 ]);
 forbidTokens("Production deployment workflow", productionDeploy, [
   "phase6_bringup",

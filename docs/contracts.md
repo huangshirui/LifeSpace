@@ -17,13 +17,25 @@ Core has three contract layers:
 
 As of Core Kernel `0.21.0`, ordinary model paths/schemas remain deliberately absent from `apps/core/openapi.yaml`. They exist only in a concrete immutable Model Contract Revision. CI rejects Event/Task/Day Record/Wish or generic `{modelRoute}` paths if they are reintroduced into the Kernel OpenAPI. Kernel `0.13.0` introduced whole-Space and published-model collection Data Grant targeting; Kernel `0.14.0` introduced model-agnostic Eventing; Kernel `0.15.0` separates reusable Webhook Endpoint transport/signing from model/event subscription filters so multiple models can share one callback and signing secret. Kernel `0.16.0` adds owner-only logical Space close. Kernel `0.17.0` adds User -> Agent Delegation management and governed Change History. Kernel `0.18.0` adds cross-Space current-principal Runtime Discovery through `GET /api/v1/me/_discovery` while leaving ordinary model CRUD/action syntax in immutable `mct_*` contracts. Kernel `0.19.0` makes declared Model server defaults an explicit Runtime Discovery contract while preserving the same defaults as a Generic Runtime create invariant. Kernel `0.20.0` makes Action semantic input and optimistic-concurrency metadata mechanically distinct in Runtime Discovery while keeping the current Action wire transport compatible. Kernel `0.21.0` removes Space invitation possession bearer tokens from API URL paths and carries them only in bounded JSON request bodies for preview/join; invitation authorization, expiry, exhaustion and replay semantics are unchanged.
 
-The effective ordinary application contract remains an explicit tuple such as:
+A concrete environment/build handoff may include one immutable Model Contract Revision as exact generated API/schema evidence:
 
 ```text
 Identity Application Contract: <pinned version>
 Kernel Contract:               <pinned version>
-Model Contract:                mct_<hash>
+Model Contract evidence:       mct_<hash>
 ```
+
+That `mct_*` is not automatically the cross-environment application compatibility identity. Model Registry versions are monotonic **inside one environment**, and an `mct_*` manifest contains those environment-local versions plus the complete published Registry snapshot. Staging and production may therefore have different valid `mct_*` IDs while exposing the same application-relevant model semantics.
+
+When an application release must be compared across environments, the stable compatibility identity must pin semantic identity rather than accidentally pinning environment-local representation. For HomeMew the accepted cross-environment release identity is:
+
+```text
+Identity Application Contract version
++ Kernel Contract version
++ Model Semantic Fingerprint
+```
+
+The Model Semantic Fingerprint is content-addressed over the selected application models' stable `key + route + schemaHash`, sorted by model key. Environment-local Model Registry `version` and the environment-wide `mct_*` revision ID are deliberately excluded. Each environment still retains its own immutable `mct_*` as exact deployment/code-generation evidence, and that environment-local contract must contain model identities matching the accepted semantic fingerprint.
 
 A platform operator surface such as LifeSpace Console additionally pins the two Platform Admin companion contracts:
 
@@ -94,6 +106,8 @@ mct_<sha256(canonical(manifest + openapi + jsonSchema))>
 ```
 
 The content hash does **not** include the mutable Registry revision counter. If the active model contract later returns to exactly the same content, the same immutable `mct_*` artifact is reused. `model_contract_state.registry_revision` separately records which Registry mutation currently activates that artifact.
+
+Because the manifest includes environment-local Model Registry versions and the complete published model set, `mct_*` is exact immutable **environment contract evidence**, not by itself a promise of one globally identical revision ID across staging, production or other independently evolved registries. Stable cross-environment compatibility must be expressed using the semantic identity that actually needs to remain invariant.
 
 Registry mutation and contract activation are one D1 transaction guarded by the global Registry revision/mutation token. Core must never commit a model publication while leaving the active contract on the previous model set.
 
@@ -178,9 +192,9 @@ Generated output must be reproducible from canonical inputs and must never becom
 
 A repository commit is **not** required merely to make a newly published Model Definition have a contract revision. Repository publication/export is needed when an application or release wants a checked-in/package artifact for a selected revision.
 
-Application-specific handoff artifacts are generated from an explicit integration profile rather than from the currently active/unversioned Model Contract. The exporter must verify the deployed Kernel/Identity versions, read the exact configured immutable `mct_*` revision, and include only non-secret contract/application-policy material. A service-only credential used to read the immutable revision is an export-time implementation detail and must never be written into the handoff.
+Application-specific handoff artifacts are generated from an explicit integration profile rather than from an unversioned latest Model Contract. For a cross-environment release profile, the profile pins the application-relevant semantic identity; the exporter then reads an explicit immutable environment-local `mct_*` evidence revision and proves that its selected model identities match that semantic fingerprint before exporting generated OpenAPI/JSON Schema. A service-only credential used to read the immutable revision is an export-time implementation detail and must never be written into the handoff.
 
-The HomeMew handoff under `packages/contracts` contains the pinned Identity OpenAPI, Core Kernel OpenAPI, Model Contract OpenAPI/JSON Schema/manifest, HomeMew integration profile, a handoff manifest and SHA-256 checksums with a deterministic bundle id. The normal staging workflow uploads this generated directory as a read-only workflow artifact after the HomeMew integration and platform regression gates pass.
+The HomeMew handoff under `packages/contracts` contains the pinned Identity OpenAPI, Core Kernel OpenAPI, one staging Model Contract OpenAPI/JSON Schema/manifest as immutable code-generation evidence, HomeMew integration profile, a handoff manifest and SHA-256 checksums with a deterministic bundle id. The handoff manifest identifies the cross-environment Model Semantic Fingerprint separately from the environment-local `mct_*` evidence ID. The normal staging workflow uploads this generated directory as a read-only workflow artifact after the HomeMew integration and platform regression gates pass.
 
 Platform Admin contracts are **not** added to the HomeMew handoff merely because they exist in the platform repository. They belong only in Console/platform-operator artifacts. This preserves least-privilege discovery and keeps the accepted HomeMew evidence independent from Console evolution.
 
@@ -201,20 +215,31 @@ HomeMew and its Coding Agents must treat the Phase-2 Core `0.11.0` / Identity `0
 
 ## Runtime and downstream pinning
 
-Production Core resolves the active Model Registry at runtime. Applications do not silently consume that moving Registry as their build contract.
+Production Core resolves the active Model Registry at runtime. Applications do not silently consume that moving Registry as their build or release compatibility contract.
 
-An application release pins, directly or through a generated package, an explicit compatible pair such as:
+A concrete generated client/handoff may pin an immutable environment contract revision as a reproducible build input:
 
 ```text
-Kernel Contract: <version>
-Model Contract:  mct_<hash>
+Kernel Contract:        <version>
+Model Contract evidence: mct_<hash>
 ```
+
+For a release that must move across independently evolved environments, compatibility is instead pinned to the stable application-relevant semantics, for example:
+
+```text
+Identity Contract:          <version>
+Kernel Contract:            <version>
+Model Semantic Fingerprint: msf_<hash>
+```
+
+The target environment must then prove that its own active immutable `mct_*` contains the selected models with exactly that semantic identity. Equality with another environment's `mct_*` is required only if the release deliberately defines global Registry/version identity as part of its contract; it is not the default assumption.
 
 Pinning an old Model Contract Revision is contract evidence and a reproducible code-generation input; it is **not** a promise that arbitrary future breaking active-model changes remain runtime-compatible forever.
 
 Therefore:
 
 - additive compatible model versions must preserve clients built against the compatible earlier revision;
+- a semantic fingerprint change for an application-consumed model requires an explicit downstream compatibility decision before production promotion;
 - a breaking model publication requires an explicit downstream migration/rollout strategy before activation;
 - model retirement requires confirmation that dependent applications/integrations no longer rely on that model route;
 - future AI Admin diff/publish gates must surface affected Application × Model access and pinned dependency evidence before destructive activation.
@@ -223,9 +248,9 @@ Where genuine simultaneous incompatible runtime versions are later required, tha
 
 ## Downstream applications
 
-ALOHA, HomeMew and vertical apps must depend on explicit compatible ordinary contract artifacts/revisions. They must not fetch an unversioned latest model contract during normal builds and must not consume Platform Admin contracts unless the application is explicitly an approved platform-operator surface.
+ALOHA, HomeMew and vertical apps must depend on explicit compatible ordinary contract artifacts/semantic release identities. They must not fetch an unversioned latest model contract during normal builds and must not consume Platform Admin contracts unless the application is explicitly an approved platform-operator surface.
 
-For Coding Agents and repository-local development, an application may check in or generate a read-only snapshot containing the exact Kernel/model contract combination it consumes. Such snapshots are generated artifacts and must not be edited manually.
+For Coding Agents and repository-local development, an application may check in or generate a read-only snapshot containing the exact Kernel/model contract evidence it consumes. Such snapshots are generated artifacts and must not be edited manually.
 
 LifeSpace Console is different: it is a platform-operator application. Its artifact set should include explicit pinned Identity/Core Platform Admin contract versions in addition to the ordinary Identity/Kernel contracts it uses for login/session/model reads.
 
@@ -264,6 +289,7 @@ Metadata-platform checks include:
 - no duplicate model-derived operation IDs/schema names;
 - content-addressed contract snapshot reproducibility;
 - atomic Registry revision + active contract mutation;
+- application semantic fingerprint reproducibility and target-environment semantic compatibility where a cross-environment release identity is declared;
 - Generic Runtime behavior matching generated constraints;
 - compatibility/retirement dependency gates before production use.
 
