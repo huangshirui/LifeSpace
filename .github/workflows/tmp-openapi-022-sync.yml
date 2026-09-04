@@ -1,0 +1,98 @@
+name: Temporary Core OpenAPI 0.22 sync
+
+on:
+  push:
+    branches:
+      - feature/resolve-100-101-query-schema
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    if: ${{ !contains(github.event.head_commit.message, '[skip openapi-sync]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@v4
+        with:
+          ref: feature/resolve-100-101-query-schema
+
+      - name: Setup Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Synchronize Core 0.22 contract and normative docs
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'EOF'
+          const fs = require('node:fs');
+
+          const openapiPath = 'apps/core/openapi.yaml';
+          const document = JSON.parse(fs.readFileSync(openapiPath, 'utf8'));
+          document.info.version = '0.22.0';
+          document.components.schemas.StatusResponse.properties.data.properties.contractVersion.const = '0.22.0';
+
+          const field = document.components.schemas.RuntimeDiscoveryField;
+          field.properties.title = { type: 'string', minLength: 1, maxLength: 80 };
+
+          const query = document.components.schemas.RuntimeDiscoveryQuery;
+          if (!query.required.includes('sort')) query.required.push('sort');
+          query.properties.sort = {
+            type: 'object',
+            additionalProperties: false,
+            required: ['parameter', 'syntax', 'repeatable', 'ordered', 'maxCriteria', 'default', 'envelopeFields'],
+            properties: {
+              parameter: { const: 'sort' },
+              syntax: { const: 'field:direction' },
+              repeatable: { const: true },
+              ordered: { const: true },
+              maxCriteria: { const: 8 },
+              default: { const: ['createdAt:desc'] },
+              envelopeFields: { const: ['createdAt', 'updatedAt'] },
+            },
+          };
+          fs.writeFileSync(openapiPath, `${JSON.stringify(document)}\n`);
+
+          const specPath = 'docs/model-definition-spec.md';
+          let spec = fs.readFileSync(specPath, 'utf8');
+          const fieldNeedle = '  type: FieldType,\n  description?: string,';
+          if (!spec.includes(fieldNeedle)) throw new Error('Field Definition specification anchor not found');
+          spec = spec.replace(fieldNeedle, '  type: FieldType,\n  title?: string,\n  description?: string,');
+
+          const rulesNeedle = 'Rules:\n\n- field `description` is optional and limited to 300 characters;';
+          if (!spec.includes(rulesNeedle)) throw new Error('Field rules specification anchor not found');
+          spec = spec.replace(
+            rulesNeedle,
+            'Rules:\n\n- field `title` is optional, human-facing, trimmed, and limited to 1–80 characters; it is readable semantic metadata, not stable field identity;\n- field `description` is optional and limited to 300 characters;'
+          );
+
+          const queryNeedle = 'sortable   -> explicit field sort options\n```';
+          if (!spec.includes(queryNeedle)) throw new Error('Query specification anchor not found');
+          spec = spec.replace(
+            queryNeedle,
+            'sortable   -> explicit field sort options\n```\n\nGeneric Query sorting is an ordered tuple. Clients may repeat `sort=field:direction` up to eight times, preserving criterion order. Envelope fields `createdAt` and `updatedAt` are always sortable; model fields must be declared in `query.sortable`. Omitted sort defaults deterministically to `createdAt:desc`. Cursor pagination binds the complete sort tuple and uses stable record identity as the final tie-breaker. Nullable sortable fields use null-last semantics for both ascending and descending directions. Capability-specific computed semantic sorts such as Calendar or Temporal remain standalone modes and are not mixed with the Generic Query tuple.'
+          );
+          fs.writeFileSync(specPath, spec);
+
+          const agentsPath = 'apps/core/AGENTS.md';
+          let agents = fs.readFileSync(agentsPath, 'utf8');
+          if (!agents.includes('current Kernel version: 0.21.0')) throw new Error('Core AGENTS Kernel version anchor not found');
+          agents = agents.replace('current Kernel version: 0.21.0', 'current Kernel version: 0.22.0');
+          fs.writeFileSync(agentsPath, agents);
+          EOF
+
+      - name: Commit synchronized contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add apps/core/openapi.yaml docs/model-definition-spec.md apps/core/AGENTS.md
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m "docs(core): align Kernel 0.22 contract [skip openapi-sync]"
+          git push origin HEAD:feature/resolve-100-101-query-schema
