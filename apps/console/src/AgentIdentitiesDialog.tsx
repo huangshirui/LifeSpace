@@ -128,7 +128,7 @@ export default function AgentIdentitiesDialog({ applicationId, onClose }: { appl
   return <div className="cp-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
     <section className="cp-dialog" role="dialog" aria-modal="true" aria-label="Agent identities">
       <header className="cp-dialog-header">
-        <div><div className="cp-eyebrow">Application control plane</div><h2>Agent identities</h2><p>管理 Identity 权威的稳定 Agent 身份。创建 Agent 不会自动授予 Space / Model 权限，也不会创建 Delegation。</p></div>
+        <div><div className="cp-eyebrow">Application control plane</div><h2>Agent identities</h2><p>管理 Identity 权威的稳定 Agent 身份。display name 与 status 属于全局 agt_* identity；Application binding 是独立关系。创建 Agent 不会自动授予 Space / Model 权限，也不会创建 Delegation。</p></div>
         <button className="cp-icon-button" onClick={onClose} aria-label="关闭">×</button>
       </header>
       <div className="cp-dialog-body">
@@ -141,7 +141,7 @@ export default function AgentIdentitiesDialog({ applicationId, onClose }: { appl
         {editing && <div className="acp-section">
           <div className="acp-section-title"><strong>Edit Agent</strong><span>{editing.id}</span></div>
           <div className="acp-form-grid">
-            <label className="cp-field"><span>Display name</span><input value={editName} maxLength={100} onChange={(event) => setEditName(event.target.value)} /></label>
+            <label className="cp-field"><span>Global display name</span><input value={editName} maxLength={100} onChange={(event) => setEditName(event.target.value)} /><small>修改名称会更新此 agt_* identity，在其它 Application binding 中也会看到同一名称。</small></label>
             <label className="cp-field cp-compact"><span>Global status</span><select value={editStatus} onChange={(event) => { setEditStatus(event.target.value as "active" | "disabled"); setGlobalConfirmed(false); }}><option value="active">active</option><option value="disabled">disabled</option></select></label>
           </div>
           {editStatus !== editing.status && <div className="cp-danger-box"><strong>Global Agent status</strong><span>这不是当前 Application 的局部开关。disable/reactivate 会影响此 agt_* 的所有 Application bindings。</span></div>}
