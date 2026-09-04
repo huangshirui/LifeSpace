@@ -135,6 +135,8 @@ X-LifeSpace-Actor-Token: <purpose-bound actor proof>
 
 The executor requires the specific capability (`applications:manage`, `services:manage`, `identities:read`, `audit:read`, etc.). Actor `azp` and executor application ID must match. Identity re-checks current platform-administrator assignment on each Identity-owned privileged request.
 
+Agent identity governance is application configuration and therefore uses `applications:manage`. It may create, rename, disable or reactivate a stable `agt_*` identity bound to a target trusted Application, but it must not create Delegation, Space/Data Grant, Model Access or Agent execution tokens as an implicit side effect. Agent `status` is global across all Application bindings and must be presented as such by operator tooling.
+
 Bootstrap administrator assignment/revocation remains initial provisioning and recovery authority only.
 
 ## Persistence
@@ -164,7 +166,7 @@ Privileged LifeSpace Console control-plane contract:
 
 ```text
 apps/identity/platform-admin.openapi.yaml
-current version: 0.1.0
+current version: 0.2.0
 ```
 
 Do not place a Console-only privileged endpoint into the product-facing Identity OpenAPI merely because both are implemented by the same Worker. Conversely, do not implement a privileged route without adding it to the Platform Admin companion contract and its contract checks.
