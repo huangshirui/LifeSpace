@@ -1,0 +1,89 @@
+name: Temporary Core 0.22 finalizer
+
+on:
+  push:
+    branches:
+      - feature/resolve-100-101-query-schema
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    if: ${{ !contains(github.event.head_commit.message, '[skip-core-022-finalize]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@v4
+        with:
+          ref: feature/resolve-100-101-query-schema
+
+      - name: Finalize 0.22 evidence and current documentation
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'EOF'
+          const fs = require('node:fs');
+
+          function replaceOnce(path, oldText, newText) {
+            let value = fs.readFileSync(path, 'utf8');
+            if (!value.includes(oldText)) throw new Error(`${path}: expected anchor not found: ${oldText}`);
+            value = value.replace(oldText, newText);
+            fs.writeFileSync(path, value);
+          }
+
+          replaceOnce(
+            'apps/core/test/creation-draft-model-semantics.test.ts',
+            'mct_05d9fe6c45b46e709beec180b8ace279b9886b4ca2fce9457ef410c630bad6c3',
+            'mct_cf70b630be8f308ca6a2a24893af3d1ae1ca0d8b7aa6d0e7326f440b37f9307e'
+          );
+
+          replaceOnce(
+            'README.md',
+            'The current repository Core Kernel contract is **0.21.0**. Ordinary business-model routes remain outside the Kernel OpenAPI and are pinned through immutable `mct_*` Model Contract revisions. Kernel evolution since 0.13.0 has added Agent Delegation/governed Change, cross-Space Runtime Discovery, authoritative server defaults and explicit Action semantic-input/concurrency metadata while preserving the Stable Spine invariants.',
+            'The current repository Core Kernel contract is **0.22.0**. Ordinary business-model routes remain outside the Kernel OpenAPI and are pinned through immutable `mct_*` Model Contract revisions. Kernel evolution since 0.13.0 has added Agent Delegation/governed Change, cross-Space Runtime Discovery, authoritative server defaults, explicit Action semantic-input/concurrency metadata, ordered multi-field Generic Query sorting, and canonical human-facing field titles while preserving the Stable Spine invariants.'
+          );
+
+          replaceOnce(
+            'docs/architecture.md',
+            'current Kernel contract: 0.21.0',
+            'current Kernel contract: 0.22.0'
+          );
+
+          replaceOnce(
+            'docs/contracts.md',
+            'As of Core Kernel `0.21.0`, ordinary model paths/schemas remain deliberately absent from `apps/core/openapi.yaml`.',
+            'As of Core Kernel `0.22.0`, ordinary model paths/schemas remain deliberately absent from `apps/core/openapi.yaml`.'
+          );
+
+          replaceOnce(
+            'docs/contracts.md',
+            'Kernel `0.21.0` removes Space invitation possession bearer tokens from API URL paths and carries them only in bounded JSON request bodies for preview/join; invitation authorization, expiry, exhaustion and replay semantics are unchanged.',
+            'Kernel `0.21.0` removes Space invitation possession bearer tokens from API URL paths and carries them only in bounded JSON request bodies for preview/join; invitation authorization, expiry, exhaustion and replay semantics are unchanged. Kernel `0.22.0` adds ordered repeatable Generic Query sort metadata and canonical human-facing field `title` metadata to Runtime Discovery while preserving stable machine field keys; generated Model Contracts project the same titles and keep relation target/cardinality metadata structurally separate.'
+          );
+
+          replaceOnce(
+            'docs/contracts.md',
+            'Kernel `0.21.0` moves Space invitation bearer tokens from URL paths to JSON request bodies as a Candidate/Public security migration without changing invitation lifecycle semantics.',
+            'Kernel `0.21.0` moves Space invitation bearer tokens from URL paths to JSON request bodies as a Candidate/Public security migration without changing invitation lifecycle semantics; Kernel `0.22.0` adds ordered multi-field Generic Query sorting and Agent-readable canonical field titles across Runtime Discovery and generated model contracts.'
+          );
+
+          replaceOnce(
+            'docs/model-definition-spec.md',
+            '- `targetModel` is required only for `record` / `record_list`.',
+            '- `targetModel` is required only for `record` / `record_list`; it remains structural relation semantics and is not encoded into `title`. Generated contracts may project relation target/cardinality metadata separately so human-readable naming and machine relation semantics remain orthogonal.'
+          );
+          EOF
+
+      - name: Commit finalization
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add README.md docs/architecture.md docs/contracts.md docs/model-definition-spec.md apps/core/test/creation-draft-model-semantics.test.ts
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m "docs(core): finalize Kernel 0.22 contract evidence [skip-core-022-finalize]"
+          git push origin HEAD:feature/resolve-100-101-query-schema
