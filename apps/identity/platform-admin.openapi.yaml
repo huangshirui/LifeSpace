@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: LifeSpace Identity Platform Admin API
-  version: 0.1.0
+  version: 0.2.0
   description: >-
     Privileged LifeSpace Identity control-plane contract for the LifeSpace Console and break-glass
     platform provisioning. It is intentionally versioned separately from the downstream Identity
@@ -12,6 +12,7 @@ tags:
   - name: Admin Actor
   - name: Administrator Assignment
   - name: Application Admin
+  - name: Agent Admin
   - name: Identity Inspector
   - name: Service Admin
   - name: Platform Audit
@@ -157,7 +158,7 @@ paths:
       description: Create a replacement lsa_* credential and return plaintext exactly once.
       security: [{ applicationCredential: [], platformAdminActor: [] }]
       responses:
-        '201': { description: One-time application credential, content: { application/json: { schema: { $ref: './openapi.yaml#/components/schemas/CreateApplicationCredentialResponse' } } } }
+        '201': { description: One-time application credential, content: { application/json: { schema: { $ref: '#/components/schemas/CreateApplicationCredentialResponse' } } } }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
@@ -216,6 +217,56 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+  /internal/v1/platform-admin/applications/{applicationId}/agents:
+    parameters:
+      - $ref: '#/components/parameters/ApplicationId'
+    get:
+      tags: [Agent Admin]
+      operationId: listPlatformAgents
+      description: List stable Agent identities bound to the target Application, including binding lifecycle metadata. Requires applications:manage plus current human actor proof.
+      security: [{ applicationCredential: [], platformAdminActor: [] }]
+      responses:
+        '200': { description: Agent identities for the target Application, content: { application/json: { schema: { $ref: '#/components/schemas/PlatformAgentListResponse' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+    post:
+      tags: [Agent Admin]
+      operationId: createPlatformAgent
+      description: Create one stable Agent identity and bind it to an active trusted-backend Application. This grants no Space/model authority and creates no Delegation.
+      security: [{ applicationCredential: [], platformAdminActor: [] }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/CreatePlatformAgentRequest' } } }
+      responses:
+        '201': { description: Agent identity created and bound, content: { application/json: { schema: { $ref: '#/components/schemas/PlatformAgentResponse' } } } }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { description: Target Application is disabled or not a trusted backend }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /internal/v1/platform-admin/applications/{applicationId}/agents/{agentId}:
+    parameters:
+      - $ref: '#/components/parameters/ApplicationId'
+      - $ref: '#/components/parameters/AgentId'
+    patch:
+      tags: [Agent Admin]
+      operationId: updatePlatformAgent
+      description: Update Agent display name or global active/disabled status. Global status affects every Application binding; this route does not create/revoke bindings, Delegations, Space memberships, Data Grants, or model authority.
+      security: [{ applicationCredential: [], platformAdminActor: [] }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/UpdatePlatformAgentRequest' } } }
+      responses:
+        '200': { description: Agent identity updated, content: { application/json: { schema: { $ref: '#/components/schemas/PlatformAgentResponse' } } } }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { description: Agent binding is revoked or target Application cannot reactivate the Agent }
+        '422': { $ref: '#/components/responses/ValidationError' }
   /internal/v1/platform-admin/users:
     get:
       tags: [Identity Inspector]
@@ -392,6 +443,7 @@ components:
     ApplicationId: { name: applicationId, in: path, required: true, schema: { type: string, pattern: '^[A-Za-z0-9][A-Za-z0-9_-]{0,119}$' } }
     ApplicationCredentialId: { name: credentialId, in: path, required: true, schema: { type: string, pattern: '^apc_' } }
     AccessAudienceId: { name: audienceId, in: path, required: true, schema: { type: string, pattern: '^aud_' } }
+    AgentId: { name: agentId, in: path, required: true, schema: { type: string, pattern: '^agt_[A-Za-z0-9_-]+$' } }
     PrincipalId: { name: principalId, in: path, required: true, schema: { type: string, pattern: '^svc_' } }
     ServiceTokenId: { name: tokenId, in: path, required: true, schema: { type: string, pattern: '^sat_' } }
     Limit: { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 200, default: 50 } }
@@ -480,6 +532,41 @@ components:
               properties:
                 credential: { $ref: './openapi.yaml#/components/schemas/ApplicationCredential' }
                 clientSecret: { type: string, pattern: '^lsa_', writeOnly: true }
+    PlatformAgentBinding:
+      type: object
+      additionalProperties: false
+      required: [status, createdAt, revokedAt]
+      properties:
+        status: { type: string, enum: [active, revoked] }
+        createdAt: { type: string, format: date-time }
+        revokedAt: { anyOf: [{ type: string, format: date-time }, { type: 'null' }] }
+    PlatformAgent:
+      type: object
+      additionalProperties: false
+      required: [id, applicationId, displayName, status, createdAt, updatedAt, binding]
+      properties:
+        id: { type: string, pattern: '^agt_' }
+        applicationId: { type: string, pattern: '^[A-Za-z0-9][A-Za-z0-9_-]{0,119}$' }
+        displayName: { type: string, minLength: 1, maxLength: 100 }
+        status: { type: string, enum: [active, disabled], description: Global Agent identity status across every Application binding. }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        binding: { $ref: '#/components/schemas/PlatformAgentBinding' }
+    PlatformAgentResponse: { type: object, required: [data], properties: { data: { $ref: '#/components/schemas/PlatformAgent' } } }
+    PlatformAgentListResponse: { type: object, required: [data], properties: { data: { type: array, items: { $ref: '#/components/schemas/PlatformAgent' } } } }
+    CreatePlatformAgentRequest:
+      type: object
+      additionalProperties: false
+      required: [displayName]
+      properties:
+        displayName: { type: string, minLength: 1, maxLength: 100 }
+    UpdatePlatformAgentRequest:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        displayName: { type: string, minLength: 1, maxLength: 100 }
+        status: { type: string, enum: [active, disabled], description: Global Agent identity status; disabling affects all Application bindings. }
     PlatformUser:
       type: object
       additionalProperties: false
