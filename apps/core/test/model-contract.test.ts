@@ -17,6 +17,23 @@ const definitions = {
 
 type Key = keyof typeof definitions;
 
+type SortSchema = {
+  type?: string;
+  minItems?: number;
+  maxItems?: number;
+  default?: string[];
+  items?: { enum?: string[] };
+  oneOf?: Array<{
+    type?: string;
+    enum?: string[];
+    minItems?: number;
+    maxItems?: number;
+    default?: string[];
+    items?: { enum?: string[] };
+  }>;
+  "x-lifespace-defaults"?: Record<string, unknown>;
+};
+
 function published(key: Key): PublishedModel {
   const definition = definitions[key];
   return {
@@ -38,6 +55,19 @@ function schemas(snapshot: Awaited<ReturnType<typeof generateModelContract>>) {
 
 function paths(snapshot: Awaited<ReturnType<typeof generateModelContract>>) {
   return snapshot.openapi.paths as Record<string, Record<string, unknown>>;
+}
+
+function sortParameter(snapshot: Awaited<ReturnType<typeof generateModelContract>>, path: string) {
+  const list = paths(snapshot)[path]?.get as {
+    parameters: Array<{
+      name: string;
+      style?: string;
+      explode?: boolean;
+      description?: string;
+      schema?: SortSchema;
+    }>;
+  };
+  return list.parameters.find((parameter) => parameter.name === "sort");
 }
 
 const concurrency = {
@@ -70,6 +100,27 @@ describe("Model Contract Generator", () => {
     expect(generatedPaths["/api/v1/spaces/{spaceId}/tasks/{recordId}/actions/complete"]?.post).toBeTruthy();
     expect(generatedPaths["/api/v1/spaces/{spaceId}/wishes/{recordId}/actions/fulfill"]?.post).toBeTruthy();
     expect(generatedPaths["/api/v1/spaces/{spaceId}/wishes/{recordId}/actions/reopen"]?.post).toBeTruthy();
+  });
+
+  it("projects canonical field title/description metadata into OpenAPI and JSON Schema 2020-12", async () => {
+    const snapshot = await generateModelContract([published("task")]);
+    const taskCreate = schemas(snapshot).TaskCreate as {
+      properties: Record<string, { title?: string; description?: string }>;
+    };
+    const taskResource = schemas(snapshot).TaskResource as {
+      properties: Record<string, { title?: string; description?: string }>;
+    };
+    expect(taskCreate.properties.name).toMatchObject({
+      title: "Name",
+      description: "The concrete action or to-do to complete.",
+    });
+    expect(taskResource.properties.assigneePersonIds).toMatchObject({
+      title: "Assignees",
+      description: "People responsible for completing the task.",
+    });
+    expect(snapshot.jsonSchema.$schema).toBe("https://json-schema.org/draft/2020-12/schema");
+    const defs = snapshot.jsonSchema.$defs as Record<string, { properties: Record<string, { title?: string }> }>;
+    expect(defs.TaskResource.properties.dueDate.title).toBe("Due Date");
   });
 
   it("marks record version as technical concurrency metadata instead of Action semantic input", async () => {
@@ -139,19 +190,44 @@ describe("Model Contract Generator", () => {
     expect(wishUpdate.properties.title).toBeTruthy();
   });
 
+  it("describes repeatable ordered generic sort parameters", async () => {
+    const snapshot = await generateModelContract([published("task")]);
+    const sort = sortParameter(snapshot, "/api/v1/spaces/{spaceId}/tasks");
+    expect(sort?.style).toBe("form");
+    expect(sort?.explode).toBe(true);
+    expect(sort?.schema).toMatchObject({
+      type: "array",
+      minItems: 1,
+      maxItems: 8,
+      default: ["createdAt:desc"],
+    });
+    expect(sort?.schema?.items?.enum).toEqual(expect.arrayContaining([
+      "createdAt:asc",
+      "updatedAt:desc",
+      "dueDate:asc",
+      "name:desc",
+    ]));
+  });
+
   it("contributes Temporal computed/query/occurrence contracts with semantic input distinct from concurrency", async () => {
     const snapshot = await generateModelContract([published("day_record")]);
     const generatedPaths = paths(snapshot);
     const generatedSchemas = schemas(snapshot);
     const list = generatedPaths["/api/v1/spaces/{spaceId}/day-records"]?.get as {
-      parameters: Array<{ name: string; schema?: { enum?: string[] } }>;
+      parameters: Array<{ name: string }>;
     };
     const names = list.parameters.map((parameter) => parameter.name);
-    const sort = list.parameters.find((parameter) => parameter.name === "sort")?.schema?.enum ?? [];
+    const sort = sortParameter(snapshot, "/api/v1/spaces/{spaceId}/day-records")?.schema;
+    const semanticSort = sort?.oneOf?.find((branch) => branch.type === "string");
+    const genericSort = sort?.oneOf?.find((branch) => branch.type === "array");
 
     expect(names).toContain("attentionOnly");
-    expect(sort).toContain("attention:desc");
-    expect(sort).toContain("effectiveDate:asc");
+    expect(semanticSort?.enum).toEqual(expect.arrayContaining(["attention:desc", "effectiveDate:asc"]));
+    expect(genericSort?.items?.enum).toContain("anchorDate:asc");
+    expect(sort?.["x-lifespace-defaults"]).toMatchObject({
+      generic: ["createdAt:desc"],
+      temporal: "effectiveDate:asc",
+    });
     expect(generatedPaths["/api/v1/spaces/{spaceId}/day-records/{recordId}/occurrences"]?.get).toBeTruthy();
     const occurrenceAction = generatedPaths["/api/v1/spaces/{spaceId}/day-records/{recordId}/actions/record-occurrence"]?.post as {
       "x-lifespace-concurrency": unknown;
@@ -180,14 +256,20 @@ describe("Model Contract Generator", () => {
     const generatedPaths = paths(snapshot);
     const generatedSchemas = schemas(snapshot);
     const list = generatedPaths["/api/v1/spaces/{spaceId}/events"]?.get as {
-      parameters: Array<{ name: string; schema?: { enum?: string[] } }>;
+      parameters: Array<{ name: string }>;
     };
     const names = list.parameters.map((parameter) => parameter.name);
-    const sort = list.parameters.find((parameter) => parameter.name === "sort")?.schema?.enum ?? [];
+    const sort = sortParameter(snapshot, "/api/v1/spaces/{spaceId}/events")?.schema;
+    const semanticSort = sort?.oneOf?.find((branch) => branch.type === "string");
+    const genericSort = sort?.oneOf?.find((branch) => branch.type === "array");
 
     expect(names).toEqual(expect.arrayContaining(["rangeStart", "rangeEnd", "dateStart", "dateEndExclusive"]));
-    expect(sort).toContain("calendarStart:asc");
-    expect(sort).toContain("calendarStart:desc");
+    expect(semanticSort?.enum).toEqual(expect.arrayContaining(["calendarStart:asc", "calendarStart:desc"]));
+    expect(genericSort?.items?.enum).toEqual(expect.arrayContaining(["startAt:asc", "summary:desc"]));
+    expect(sort?.["x-lifespace-defaults"]).toMatchObject({
+      generic: ["createdAt:desc"],
+      calendar: "calendarStart:asc",
+    });
 
     const create = generatedSchemas.EventCreate as { allOf?: Array<{ oneOf?: unknown[] }> };
     expect(create.allOf?.[0]?.oneOf).toHaveLength(2);

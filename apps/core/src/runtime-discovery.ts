@@ -20,6 +20,7 @@ type DelegationSpaceAccessRow = DelegationAccessRow & { source_space_id: string 
 type DiscoveryActionInputField = {
   key: string;
   type: "string" | "text" | "integer" | "number" | "boolean" | "date" | "datetime" | "timezone" | "enum" | "person" | "person_list" | "record" | "record_list";
+  title?: string;
   description?: string;
   required?: boolean;
   nullable?: boolean;
@@ -109,12 +110,14 @@ function actions(model: PublishedModel, allowed: ModelAccess[]): DiscoveryAction
           {
             key: "occurredOn",
             type: "date",
+            title: "Occurrence Date",
             required: true,
             description: "Occurrence date in YYYY-MM-DD form. Runtime rules still validate it against the current anchor and Space date.",
           },
           {
             key: "note",
             type: "text",
+            title: "Note",
             nullable: true,
             maxLength: 1000,
             description: "Optional occurrence note.",
@@ -143,6 +146,15 @@ function dto(model: PublishedModel, allowed: ModelAccess[]) {
       searchable: [...(model.definition.query?.searchable ?? [])],
       filterable: [...(model.definition.query?.filterable ?? [])],
       sortable: [...(model.definition.query?.sortable ?? [])],
+      sort: {
+        parameter: "sort" as const,
+        syntax: "field:direction" as const,
+        repeatable: true as const,
+        ordered: true as const,
+        maxCriteria: 8,
+        default: ["createdAt:desc"] as const,
+        envelopeFields: ["createdAt", "updatedAt"] as const,
+      },
     },
     actions: actions(model, allowed),
     capabilities: Object.keys(model.definition.capabilities ?? {}).sort(),

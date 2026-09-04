@@ -74,6 +74,9 @@ jobs:
       - name: Validate production scripts
         run: node infra/scripts/check-production-infra.mjs
 
+      - name: Validate production release readiness
+        run: node infra/scripts/check-production-release-readiness.mjs
+
       - name: Resolve expected production versions
         run: node infra/scripts/production-expectations.mjs
 

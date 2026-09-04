@@ -10,33 +10,39 @@ import { PRODUCTION_PROVING_MODELS } from "./production-expectations.mjs";
 
 const modelAdminVerifier = new URL("./verify-production-model-admin.mjs", import.meta.url);
 const homemewReleaseVerifier = new URL("./verify-production-homemew-contract.mjs", import.meta.url);
+const releaseReadiness = new URL("./check-production-release-readiness.mjs", import.meta.url);
+const productionWorkflow = new URL("../../.github/workflows/production-deploy.yml", import.meta.url);
 const profile = JSON.parse(readFileSync(new URL("../homemew-integration-profile.json", import.meta.url), "utf8"));
 
 test("production proving models pin semantic identity without assuming environment-local Registry versions", () => {
   const wish = PRODUCTION_PROVING_MODELS.find((model) => model.key === "wish");
   assert.ok(wish, "Wish must remain a production proving model");
-  assert.equal(wish.minimumVersion, 5, "Wish clean-release version remains the production Registry floor");
+  assert.equal(wish.minimumVersion, 6, "Wish clean-release version remains the production Registry floor");
   assert.equal(
     wish.hash,
-    "ec4f99f238e44c756905d30a97f6bb5c063b783eca159dfe39f518ea58ff64b6",
-    "production must pin the authoritative Mutation Authority Wish schema hash",
+    "4d34e89df332b9b2c34549699e4210a3166db6eaddabe0ac59de5d4770c206c3",
+    "production proving semantics must pin the authoritative field-title Wish schema hash",
   );
   assert.equal("version" in wish, false, "production must not assume one exact environment-local Wish Registry version");
 });
 
-test("HomeMew semantic release identity matches production proving route and schema hashes", () => {
-  const accepted = acceptedHomeMewModelSemantics(profile);
-  assert.equal(accepted.fingerprint, "msf_498674114e2e312c926f733ba939b49d85020a1ee14a4729b27be62bf1f774dc");
+test("production release readiness blocks mutation until accepted application semantics are promoted", () => {
+  const source = readFileSync(fileURLToPath(releaseReadiness), "utf8");
+  assert.match(source, /profile\.contracts\?\.coreKernel !== PRODUCTION_EXPECTATIONS\.core\.contractVersion/u, "release readiness must compare the accepted HomeMew Kernel pin to the production release");
+  assert.match(source, /profile\.contracts\?\.identity !== PRODUCTION_EXPECTATIONS\.identity\.contractVersion/u, "release readiness must compare the accepted Identity pin to the production release");
+  assert.match(source, /assertHomeMewModelSemanticCompatibility/u, "release readiness must compare accepted model semantics to production proving semantics");
 
-  const proving = new Map(PRODUCTION_PROVING_MODELS.map((model) => [model.key, model]));
-  for (const model of accepted.models) {
-    assert.equal(proving.get(model.key)?.route, model.route, `${model.key} route identity must stay aligned`);
-    assert.equal(proving.get(model.key)?.hash, model.schemaHash, `${model.key} schema identity must stay aligned`);
-  }
+  const workflow = readFileSync(fileURLToPath(productionWorkflow), "utf8");
+  const readinessIndex = workflow.indexOf("node infra/scripts/check-production-release-readiness.mjs");
+  const migrationIndex = workflow.indexOf("pnpm --filter @lifespace/core db:migrate:production");
+  assert.notEqual(readinessIndex, -1, "production deploy must run the release-readiness guard");
+  assert.notEqual(migrationIndex, -1, "production deploy must retain the Core migration step");
+  assert.ok(readinessIndex < migrationIndex, "release readiness must fail closed before any production Core migration");
 });
 
 test("different environment-local model versions preserve one HomeMew semantic fingerprint", () => {
   const accepted = acceptedHomeMewModelSemantics(profile);
+  assert.equal(accepted.fingerprint, "msf_498674114e2e312c926f733ba939b49d85020a1ee14a4729b27be62bf1f774dc");
   const stagingManifest = accepted.models.map((model) => ({ ...model, version: model.key === "wish" ? 8 : model.key === "task" ? 5 : model.key === "day_record" ? 2 : 3 }));
   const productionManifest = accepted.models.map((model) => ({ ...model, version: model.key === "wish" ? 6 : model.key === "task" ? 5 : model.key === "day_record" ? 2 : 3 }));
 

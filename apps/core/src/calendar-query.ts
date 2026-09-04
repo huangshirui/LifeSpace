@@ -47,12 +47,14 @@ async function mePerson(env: Bindings, principal: Principal, spaceId: string) {
   return row.id;
 }
 
+const CALENDAR_SORTS = new Set(["calendarStart:asc", "calendarStart:desc"]);
+
 export function isCalendarSpecialQuery(model: PublishedModel, params: URLSearchParams) {
   if (!model.definition.capabilities?.calendar) return false;
-  const sort = params.get("sort");
+  const sorts = params.getAll("sort");
   const attendee = model.definition.capabilities.calendar.attendeePersonField;
   return params.has("rangeStart") || params.has("rangeEnd") || params.has("dateStart") || params.has("dateEndExclusive")
-    || (attendee ? params.get(attendee) === "me" : false) || sort === "calendarStart:asc" || sort === "calendarStart:desc";
+    || (attendee ? params.get(attendee) === "me" : false) || sorts.some((sort) => CALENDAR_SORTS.has(sort));
 }
 
 export async function queryCalendarResources(env: Bindings, principal: Principal, spaceId: string, model: PublishedModel, params: URLSearchParams): Promise<{ items: GenericResource[]; nextCursor: string | null }> {
@@ -71,8 +73,10 @@ export async function queryCalendarResources(env: Bindings, principal: Principal
   if (dateStart && dateEnd && dateEnd <= dateStart) throw new ApiError("INVALID_QUERY", "dateEndExclusive must be later than dateStart", 400);
   let attendee = c.attendeePersonField ? params.get(c.attendeePersonField) : null;
   if (attendee === "me") attendee = await mePerson(env, principal, spaceId);
-  const sort = params.get("sort") ?? "calendarStart:asc";
-  if (!["calendarStart:asc", "calendarStart:desc"].includes(sort)) throw new ApiError("INVALID_QUERY", "Unsupported Calendar sort", 400);
+  const sorts = params.getAll("sort");
+  if (sorts.length > 1) throw new ApiError("INVALID_QUERY", "Calendar semantic query accepts exactly one standalone sort criterion", 400);
+  const sort = sorts[0] ?? "calendarStart:asc";
+  if (!CALENDAR_SORTS.has(sort)) throw new ApiError("INVALID_QUERY", "Unsupported Calendar sort", 400);
   const s = (field: string) => typedScalarExpression(model, field, "m");
   const allDay = s(c.allDayField);
   const startAt = s(c.timedStartField);

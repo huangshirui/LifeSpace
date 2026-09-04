@@ -90,8 +90,8 @@ async function fixture() {
     route,
     display: { singular: "Discovery Note", plural: "Discovery Notes" },
     fields: {
-      title: { type: "string", required: true, minLength: 1, maxLength: 120 },
-      status: { type: "enum", required: true, values: ["open", "done"] },
+      title: { type: "string", title: "Title", description: "Note title", required: true, minLength: 1, maxLength: 120 },
+      status: { type: "enum", title: "Status", description: "Note state", required: true, values: ["open", "done"] },
     },
     defaults: { status: "open" },
     query: { searchable: ["title"], filterable: ["status"], sortable: ["title"] },
@@ -116,7 +116,7 @@ type DiscoveredAction = {
   key: string;
   access: string;
   kind: string;
-  input: { fields: Array<{ key: string; type: string; required?: boolean; minimum?: number }> };
+  input: { fields: Array<{ key: string; type: string; title?: string; required?: boolean; minimum?: number }> };
   concurrency: {
     strategy: string;
     required: boolean;
@@ -124,8 +124,23 @@ type DiscoveredAction = {
   };
 };
 
+type DiscoveredQuery = {
+  searchable: string[];
+  filterable: string[];
+  sortable: string[];
+  sort: {
+    parameter: string;
+    syntax: string;
+    repeatable: boolean;
+    ordered: boolean;
+    maxCriteria: number;
+    default: string[];
+    envelopeFields: string[];
+  };
+};
+
 describe("Runtime discovery", () => {
-  it("returns effective user-authorized model metadata with semantic action input separated from concurrency", async () => {
+  it("returns effective user-authorized model metadata with canonical field titles, ordered sort semantics and separated concurrency", async () => {
     const f = await fixture();
     const accessToken = await token(
       f.privateKey,
@@ -142,7 +157,8 @@ describe("Runtime discovery", () => {
       route: string;
       access: string[];
       defaults: Record<string, unknown>;
-      fields: Array<{ key: string; type: string }>;
+      fields: Array<{ key: string; type: string; title?: string; description?: string }>;
+      query: DiscoveredQuery;
       actions: DiscoveredAction[];
     }> } }>();
     const model = payload.data.models.find((entry) => entry.key === f.modelKey);
@@ -153,9 +169,18 @@ describe("Runtime discovery", () => {
       defaults: { status: "open" },
     });
     expect(model?.fields).toEqual(expect.arrayContaining([
-      expect.objectContaining({ key: "title", type: "string" }),
-      expect.objectContaining({ key: "status", type: "enum" }),
+      expect.objectContaining({ key: "title", type: "string", title: "Title", description: "Note title" }),
+      expect.objectContaining({ key: "status", type: "enum", title: "Status", description: "Note state" }),
     ]));
+    expect(model?.query.sort).toEqual({
+      parameter: "sort",
+      syntax: "field:direction",
+      repeatable: true,
+      ordered: true,
+      maxCriteria: 8,
+      default: ["createdAt:desc"],
+      envelopeFields: ["createdAt", "updatedAt"],
+    });
     expect(model?.actions).toContainEqual({
       key: "complete",
       access: "write",
@@ -169,7 +194,7 @@ describe("Runtime discovery", () => {
     });
   });
 
-  it("exposes capability domain input separately from the same record-version concurrency metadata", async () => {
+  it("exposes capability domain input titles separately from the same record-version concurrency metadata", async () => {
     const db = (env as unknown as TestEnv).DB;
     const { privateKey, publicKey } = await keys();
     const suffix = crypto.randomUUID().replaceAll("-", "");
@@ -193,7 +218,10 @@ describe("Runtime discovery", () => {
     const payload = await response.json<{ data: { models: Array<{ key: string; actions: DiscoveredAction[] }> } }>();
     const action = payload.data.models.find((entry) => entry.key === "day_record")?.actions
       .find((entry) => entry.key === "record-occurrence");
-    expect(action?.input.fields.map((field) => field.key)).toEqual(["occurredOn", "note"]);
+    expect(action?.input.fields).toEqual(expect.arrayContaining([
+      expect.objectContaining({ key: "occurredOn", title: "Occurrence Date" }),
+      expect.objectContaining({ key: "note", title: "Note" }),
+    ]));
     expect(action?.input.fields.some((field) => field.key === "version")).toBe(false);
     expect(action?.concurrency).toEqual({
       strategy: "record-version",
@@ -202,7 +230,7 @@ describe("Runtime discovery", () => {
     });
   });
 
-  it("exposes the same model defaults through cross-Space discovery", async () => {
+  it("exposes the same field titles, defaults and sort metadata through cross-Space discovery", async () => {
     const f = await fixture();
     const accessToken = await token(
       f.privateKey,
@@ -216,10 +244,19 @@ describe("Runtime discovery", () => {
     expect(response.status).toBe(200);
     const payload = await response.json<{ data: { spaces: Array<{
       spaceId: string;
-      models: Array<{ key: string; defaults: Record<string, unknown> }>;
+      models: Array<{
+        key: string;
+        defaults: Record<string, unknown>;
+        fields: Array<{ key: string; title?: string }>;
+        query: DiscoveredQuery;
+      }>;
     }> } }>();
     const space = payload.data.spaces.find((entry) => entry.spaceId === f.spaceId);
-    expect(space?.models.find((entry) => entry.key === f.modelKey)?.defaults).toEqual({ status: "open" });
+    const model = space?.models.find((entry) => entry.key === f.modelKey);
+    expect(model?.defaults).toEqual({ status: "open" });
+    expect(model?.fields.find((field) => field.key === "title")?.title).toBe("Title");
+    expect(model?.query.sort.repeatable).toBe(true);
+    expect(model?.query.sort.ordered).toBe(true);
   });
 
   it("removes write-only actions when the credential has read scope only", async () => {

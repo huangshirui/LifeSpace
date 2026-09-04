@@ -3,7 +3,7 @@ import YAML from "yaml";
 
 const document = YAML.parse(fs.readFileSync(new URL("../openapi.yaml", import.meta.url), "utf8"));
 
-if (document.openapi !== "3.1.0" || document.info?.version !== "0.21.0") {
+if (document.openapi !== "3.1.0" || document.info?.version !== "0.22.0") {
   throw new Error("Core Kernel OpenAPI version metadata is invalid");
 }
 if (!document.info?.title?.includes("Kernel")) {
@@ -247,6 +247,22 @@ if (!schemas.RuntimeDiscoveryFieldType?.enum?.includes("date")
     || !schemas.RuntimeDiscoveryFieldType?.enum?.includes("record_list")) {
   throw new Error("Runtime Discovery field type vocabulary drifted");
 }
+if (schemas.RuntimeDiscoveryField?.properties?.title?.type !== "string"
+    || schemas.RuntimeDiscoveryField?.properties?.title?.maxLength !== 80) {
+  throw new Error("Runtime Discovery fields must expose bounded JSON Schema-aligned title metadata");
+}
+const discoverySort = schemas.RuntimeDiscoveryQuery?.properties?.sort;
+if (!schemas.RuntimeDiscoveryQuery?.required?.includes("sort")
+    || discoverySort?.additionalProperties !== false
+    || discoverySort?.properties?.parameter?.const !== "sort"
+    || discoverySort?.properties?.syntax?.const !== "field:direction"
+    || discoverySort?.properties?.repeatable?.const !== true
+    || discoverySort?.properties?.ordered?.const !== true
+    || discoverySort?.properties?.maxCriteria?.const !== 8
+    || JSON.stringify(discoverySort?.properties?.default?.const) !== JSON.stringify(["createdAt:desc"])
+    || JSON.stringify(discoverySort?.properties?.envelopeFields?.const) !== JSON.stringify(["createdAt", "updatedAt"])) {
+  throw new Error("Runtime Discovery ordered Generic Query sort metadata drifted");
+}
 if (!schemas.RuntimeDiscoveryModel?.required?.includes("defaults")
     || schemas.RuntimeDiscoveryModel?.properties?.defaults?.type !== "object") {
   throw new Error("Runtime Discovery must expose authoritative model server defaults");
@@ -316,7 +332,7 @@ if (schemas.ModelContract?.properties?.id?.pattern !== "^mct_[a-f0-9]{64}$") {
   throw new Error("Model Contract revisions must be content-addressed mct_<sha256>");
 }
 
-if (schemas.StatusResponse?.properties?.data?.properties?.contractVersion?.const !== "0.21.0") {
+if (schemas.StatusResponse?.properties?.data?.properties?.contractVersion?.const !== "0.22.0") {
   throw new Error("Core Kernel status contract version drifted");
 }
 

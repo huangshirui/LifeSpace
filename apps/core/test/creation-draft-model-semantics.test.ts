@@ -17,15 +17,15 @@ const baselineDefinitions = [
   EVENT_MODEL_DEFINITION,
 ];
 const releaseFingerprint = Object.freeze({
-  task: Object.freeze({ version: 5, schemaHash: "aaa6317b3810a20e6c4622736ec8e39e96edcd5079c6189fb5892ac54397b145" }),
-  wish: Object.freeze({ version: 5, schemaHash: "ec4f99f238e44c756905d30a97f6bb5c063b783eca159dfe39f518ea58ff64b6" }),
-  day_record: Object.freeze({ version: 2, schemaHash: "4b2f241958aeca05e396eea7e6719a3f030cef3ea7dfd3c57d426c086fe4cf56" }),
-  event: Object.freeze({ version: 3, schemaHash: "6a23eb2f25463ce55d7ed75d64f0afa020d7aab25149badf28fdd77abc2d1aad" }),
+  task: Object.freeze({ version: 6, schemaHash: "1fdfb9eb954382f3509cdca14431a7235cb1a954b8a6d425670a4150c8402837" }),
+  wish: Object.freeze({ version: 6, schemaHash: "4d34e89df332b9b2c34549699e4210a3166db6eaddabe0ac59de5d4770c206c3" }),
+  day_record: Object.freeze({ version: 3, schemaHash: "7793d9959277e45d9af52c6c71820040034f9c84ee487d8f0e6b00320e5c10aa" }),
+  event: Object.freeze({ version: 4, schemaHash: "66832c4dae9fd9f99b1f4f49cfdb53e7c91a55512c0b3cf8b8cddaee2111f6c4" }),
 });
 // This is the deterministic contract for an isolated Registry containing exactly
 // the four baseline models above. A deployed Registry may legitimately have a
 // different active mct_* when additional ordinary models are published.
-const isolatedBaselineModelContract = "mct_05d9fe6c45b46e709beec180b8ace279b9886b4ca2fce9457ef410c630bad6c3";
+const isolatedBaselineModelContract = "mct_cf70b630be8f308ca6a2a24893af3d1ae1ca0d8b7aa6d0e7326f440b37f9307e";
 
 function published(definition: ModelDefinition): PublishedModel {
   return {

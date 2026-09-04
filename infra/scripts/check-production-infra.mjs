@@ -7,6 +7,7 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const scripts = [
   "infra/scripts/provision-production.mjs",
   "infra/scripts/production-expectations.mjs",
+  "infra/scripts/check-production-release-readiness.mjs",
   "infra/scripts/resolve-production-d1.mjs",
   "infra/scripts/ensure-production-domains.mjs",
   "infra/scripts/initialize-production-runtime.mjs",
@@ -89,6 +90,7 @@ requireTokens("Production deployment workflow", productionDeploy, [
   "DEPLOY_PRODUCTION",
   "group: lifespace-production-change",
   "LIFESPACE_PRODUCTION_BOOTSTRAP_SECRET",
+  "node infra/scripts/check-production-release-readiness.mjs",
   "db:migrate:production",
   "wrangler deploy --env production",
   "node infra/scripts/verify-production-model-admin.mjs",

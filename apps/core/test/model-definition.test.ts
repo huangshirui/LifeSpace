@@ -14,9 +14,36 @@ describe("Model Definition v1", () => {
     expect(result.definition.key).toBe("task");
     expect(result.definition.route).toBe("tasks");
     expect(result.definition.fields.assigneePersonIds.type).toBe("person_list");
+    expect(result.definition.fields.assigneePersonIds.title).toBe("Assignees");
     expect(result.definition.defaults).toEqual({ status: "pending" });
     expect(result.definition.lifecycle).toEqual({ optimisticConcurrency: true, softDelete: true });
     expect(result.hashInput).toBe(canonicalModelDefinition(result.definition));
+  });
+
+  it("accepts and normalizes JSON Schema-aligned field titles", () => {
+    const result = validateModelDefinition({
+      ...TASK_MODEL_DEFINITION,
+      fields: {
+        ...TASK_MODEL_DEFINITION.fields,
+        name: { ...TASK_MODEL_DEFINITION.fields.name, title: "  Task Name  " },
+      },
+    });
+    expect(result.valid).toBe(true);
+    if (!result.valid) return;
+    expect(result.definition.fields.name.title).toBe("Task Name");
+  });
+
+  it("rejects invalid field titles", () => {
+    for (const title of ["", " ", "x".repeat(81)]) {
+      const result = validateModelDefinition({
+        ...TASK_MODEL_DEFINITION,
+        fields: {
+          ...TASK_MODEL_DEFINITION.fields,
+          name: { ...TASK_MODEL_DEFINITION.fields.name, title },
+        },
+      });
+      expect(issueCodes(result), JSON.stringify(title)).toContain("INVALID_TEXT");
+    }
   });
 
   it("canonicalizes definitions independently of object insertion order", () => {
