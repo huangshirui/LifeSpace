@@ -222,6 +222,7 @@ v1 supports:
 ```ts
 {
   type: FieldType,
+  title?: string,
   description?: string,
   required?: boolean,
   nullable?: boolean,
@@ -238,6 +239,7 @@ v1 supports:
 
 Rules:
 
+- field `title` is optional, human-facing, trimmed, and limited to 1–80 characters; it is readable semantic metadata, not stable field identity;
 - field `description` is optional and limited to 300 characters;
 - `required: true` and `nullable: true` cannot be combined in v1;
 - `minLength` / `maxLength` apply only to `string` / `text`;
@@ -328,6 +330,8 @@ searchable -> free-text query participation
 filterable -> exact / supported range filtering
 sortable   -> explicit field sort options
 ```
+
+Generic Query sorting is an ordered tuple. Clients may repeat `sort=field:direction` up to eight times, preserving criterion order. Envelope fields `createdAt` and `updatedAt` are always sortable; model fields must be declared in `query.sortable`. Omitted sort defaults deterministically to `createdAt:desc`. Cursor pagination binds the complete sort tuple and uses stable record identity as the final tie-breaker. Nullable sortable fields use null-last semantics for both ascending and descending directions. Capability-specific computed semantic sorts such as Calendar or Temporal remain standalone modes and are not mixed with the Generic Query tuple.
 
 For filterable `date`, `datetime`, `integer` and `number` fields, the generated query surface also supports `FieldFrom` / `FieldTo` style range parameters.
 
