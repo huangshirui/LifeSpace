@@ -40,9 +40,9 @@
     "event": "write"
   },
   "contracts": {
-    "coreKernel": "0.20.0",
+    "coreKernel": "0.21.0",
     "identity": "0.6.0",
-    "modelContract": "mct_a4cc6dad278204b08cd706f9abeb68107e229148f1cd9ccde0991382606a92b9",
+    "modelContract": "mct_723249464e3b7c2f53c4ef63edd53cfc17edb57205afa63a56ba7d0bd21209bf",
     "pinStatus": "accepted"
   }
 }
