@@ -38,11 +38,13 @@ async function mePerson(env: Bindings, principal: Principal, spaceId: string) {
   return row.id;
 }
 
+const TEMPORAL_SORTS = new Set(["attention:desc", "effectiveDate:asc", "effectiveDate:desc"]);
+
 export function isTemporalSpecialQuery(model: PublishedModel, params: URLSearchParams) {
   if (!model.definition.capabilities?.temporal) return false;
-  const sort = params.get("sort");
+  const sorts = params.getAll("sort");
   return params.has("attentionOnly") || params.get(model.definition.capabilities.temporal.subjectPersonField ?? "") === "me"
-    || sort === "attention:desc" || sort === "effectiveDate:asc" || sort === "effectiveDate:desc";
+    || sorts.some((sort) => TEMPORAL_SORTS.has(sort));
 }
 
 export async function queryTemporalResources(env: Bindings, principal: Principal, spaceId: string, model: PublishedModel, params: URLSearchParams): Promise<{ items: GenericResource[]; nextCursor: string | null }> {
@@ -50,8 +52,10 @@ export async function queryTemporalResources(env: Bindings, principal: Principal
   if (!t) throw new ApiError("TEMPORAL_CAPABILITY_NOT_ENABLED", "Temporal capability is required", 400);
   const allowed = new Set(["q", "kind", "status", "anchorDateFrom", "anchorDateTo", "attentionOnly", "sort", "limit", "cursor", ...(t.subjectPersonField ? [t.subjectPersonField] : [])]);
   for (const key of params.keys()) if (!allowed.has(key)) throw new ApiError("INVALID_QUERY", `Query parameter ${key} is not supported by Temporal query`, 400);
-  const sort = params.get("sort") ?? "effectiveDate:asc";
-  if (!["attention:desc", "effectiveDate:asc", "effectiveDate:desc"].includes(sort)) throw new ApiError("INVALID_QUERY", "Unsupported Temporal sort", 400);
+  const sorts = params.getAll("sort");
+  if (sorts.length > 1) throw new ApiError("INVALID_QUERY", "Temporal semantic query accepts exactly one standalone sort criterion", 400);
+  const sort = sorts[0] ?? "effectiveDate:asc";
+  if (!TEMPORAL_SORTS.has(sort)) throw new ApiError("INVALID_QUERY", "Unsupported Temporal sort", 400);
   const attentionOnly = params.get("attentionOnly") === "true";
   if (params.has("attentionOnly") && !["true", "false"].includes(params.get("attentionOnly")!)) throw new ApiError("INVALID_QUERY", "attentionOnly must be true or false", 400);
   let subject = t.subjectPersonField ? params.get(t.subjectPersonField) : null;
