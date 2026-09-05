@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "check": "node scripts/check-homemew-handoff.mjs && node --check scripts/export-homemew-handoff.mjs",
-    "export:homemew": "node scripts/export-homemew-handoff.mjs"
+    "check": "node scripts/check-homemew-handoff.mjs && node scripts/check-homemew-candidate-handoff.mjs && node --check scripts/export-homemew-handoff.mjs && node --check scripts/export-homemew-staging-candidate.mjs",
+    "export:homemew": "node scripts/export-homemew-handoff.mjs",
+    "export:homemew:candidate": "node scripts/export-homemew-staging-candidate.mjs"
   }
 }
