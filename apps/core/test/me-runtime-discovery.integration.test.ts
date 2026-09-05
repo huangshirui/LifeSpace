@@ -124,7 +124,7 @@ async function fixture() {
 }
 
 describe("Current-principal Runtime Discovery", () => {
-  it("discovers effective models across membership and grant-only Spaces without leaking Space detail", async () => {
+  it("discovers effective models across membership and grant-only Spaces with minimal labels but no Space administration detail", async () => {
     const f = await fixture();
     await f.db.prepare(`INSERT INTO data_grants(
       id,source_space_id,grantee_type,grantee_id,resource_type,resource_id,permission,created_by_user_id,created_at,expires_at
@@ -150,17 +150,24 @@ describe("Current-principal Runtime Discovery", () => {
     );
     const response = await request(f.publicKey, accessToken, "/api/v1/me/_discovery");
     expect(response.status).toBe(200);
-    const payload = await response.json<{ data: { spaces: Array<{ spaceId: string; models: Array<{ key: string; access: string[] }>; name?: string }> } }>();
+    const payload = await response.json<{ data: { spaces: Array<{ spaceId: string; spaceName: string; models: Array<{ key: string; access: string[] }>; name?: string; kind?: string; timezone?: string; role?: string }> } }>();
 
     expect(payload.data.spaces.map((space) => space.spaceId).sort()).toEqual([
       f.memberSpaceId,
       f.sharedSpaceId,
     ].sort());
+    expect(Object.fromEntries(payload.data.spaces.map((space) => [space.spaceId, space.spaceName]))).toEqual({
+      [f.memberSpaceId]: "Member Space",
+      [f.sharedSpaceId]: "Shared Space",
+    });
     for (const space of payload.data.spaces) {
       expect(space.models).toEqual(expect.arrayContaining([
         expect.objectContaining({ key: f.modelKey, access: ["read", "write"] }),
       ]));
       expect(space).not.toHaveProperty("name");
+      expect(space).not.toHaveProperty("kind");
+      expect(space).not.toHaveProperty("timezone");
+      expect(space).not.toHaveProperty("role");
     }
 
     const membershipSpaces = await request(f.publicKey, accessToken, "/api/v1/me/spaces");
@@ -189,10 +196,11 @@ describe("Current-principal Runtime Discovery", () => {
 
     const accessToken = await token(f.privateKey, "service", f.serviceId, f.clientId, ["resources:read", "resources:write"]);
     const first = await request(f.publicKey, accessToken, "/api/v1/me/_discovery");
-    const firstPayload = await first.json<{ data: { spaces: Array<{ spaceId: string; models: Array<{ key: string; access: string[] }> }> } }>();
+    const firstPayload = await first.json<{ data: { spaces: Array<{ spaceId: string; spaceName: string; models: Array<{ key: string; access: string[] }> }> } }>();
     expect(firstPayload.data.spaces).toEqual([
       expect.objectContaining({
         spaceId: f.sharedSpaceId,
+        spaceName: "Shared Space",
         models: expect.arrayContaining([expect.objectContaining({ key: f.modelKey, access: ["read"] })]),
       }),
     ]);
@@ -240,6 +248,7 @@ describe("Current-principal Runtime Discovery", () => {
     expect(firstPayload.data.spaces).toEqual([
       expect.objectContaining({
         spaceId: f.sharedSpaceId,
+        spaceName: "Shared Space",
         models: expect.arrayContaining([expect.objectContaining({ key: f.modelKey, access: ["read"] })]),
       }),
     ]);

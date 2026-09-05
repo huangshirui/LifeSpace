@@ -111,7 +111,7 @@ Published Model Definitions are the logical source of truth for ordinary busines
 
 A Worker isolate loads the published model set and compiles Runtime Model Descriptors indexed by model key and route. Those descriptors precompute stable field/query/relation/access metadata. Normal hot-path model requests do not need a Registry D1 read for every request.
 
-Relation structure and relation instances deliberately live at different layers. Model Definition / generated JSON Schema owns stable relation target/cardinality semantics; Runtime Context Projection resolves current relation targets under live authority. Kernel `0.23.0` provides source-field-aware Person target lookup as minimal `{id,label}` references for generated clients without exposing Space membership-management data. This lookup is not a UI widget contract and is not mutation authority; adapters decide presentation, while create/update Policy and relation integrity are rechecked at execution. Record-relation lookup remains explicitly unavailable until LifeSpace has canonical record reference-label semantics instead of adapter heuristics such as guessing `name`, `title` or `summary`.
+Relation structure and relation instances deliberately live at different layers. Model Definition / generated JSON Schema owns stable relation target/cardinality semantics; Runtime Context Projection resolves current relation targets under live authority. Kernel `0.23.0` provides source-field-aware Person target lookup as minimal `{id,label}` references for generated clients without exposing Space membership-management data. This lookup is not a UI widget contract and is not mutation authority; adapters decide presentation, while create/update Policy and relation integrity are rechecked at execution. Record-relation lookup remains explicitly unavailable until LifeSpace has canonical record reference-label semantics instead of adapter heuristics such as guessing `name`, `title` or `summary`. Kernel `0.24.0` also projects a minimal current human-readable Space label alongside an already-authorized Runtime Discovery Space reference, so n8n, MCP, Agents and generated UI can present the same Space without acquiring Space membership-management metadata or authority.
 
 Each successful model publish/retire activates an immutable content-addressed Model Contract Revision:
 
@@ -323,7 +323,7 @@ Platform Admin Control-Plane Contract
 Kernel Contract
   apps/core/openapi.yaml
   explicit product-facing Space / Grant / Creation Draft / Model Admin primitives
-  current Kernel contract: 0.23.0
+  current Kernel contract: 0.24.0
 
 Platform Admin Control-Plane Contract
   apps/core/platform-admin.openapi.yaml

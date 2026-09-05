@@ -152,7 +152,7 @@ describe("Runtime discovery", () => {
 
     const response = await request(f.publicKey, accessToken, `/api/v1/spaces/${f.spaceId}/_discovery`);
     expect(response.status).toBe(200);
-    const payload = await response.json<{ data: { models: Array<{
+    const payload = await response.json<{ data: { spaceName: string | null; models: Array<{
       key: string;
       route: string;
       access: string[];
@@ -161,6 +161,7 @@ describe("Runtime discovery", () => {
       query: DiscoveredQuery;
       actions: DiscoveredAction[];
     }> } }>();
+    expect(payload.data.spaceName).toBe("Discovery Test");
     const model = payload.data.models.find((entry) => entry.key === f.modelKey);
     expect(model).toMatchObject({
       key: f.modelKey,
@@ -295,12 +296,14 @@ describe("Runtime discovery", () => {
       ["resources:read", "resources:write"],
     );
     const first = await request(f.publicKey, accessToken, `/api/v1/spaces/${f.spaceId}/_discovery`);
-    const firstPayload = await first.json<{ data: { models: Array<{ key: string }> } }>();
+    const firstPayload = await first.json<{ data: { spaceName: string | null; models: Array<{ key: string }> } }>();
+    expect(firstPayload.data.spaceName).toBe("Discovery Test");
     expect(firstPayload.data.models.some((model) => model.key === f.modelKey)).toBe(true);
 
     await f.db.prepare("UPDATE data_grants SET revoked_at=? WHERE id=?").bind(new Date().toISOString(), grantId).run();
     const second = await request(f.publicKey, accessToken, `/api/v1/spaces/${f.spaceId}/_discovery`);
-    const secondPayload = await second.json<{ data: { models: Array<{ key: string }> } }>();
+    const secondPayload = await second.json<{ data: { spaceName: string | null; models: Array<{ key: string }> } }>();
+    expect(secondPayload.data.spaceName).toBeNull();
     expect(secondPayload.data.models.some((model) => model.key === f.modelKey)).toBe(false);
   });
 });
