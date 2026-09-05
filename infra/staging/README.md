@@ -109,9 +109,19 @@ Current flow:
 8. Wait until `auth-staging.aisr.online` serves the expected Identity schema/contract version.
 9. Synchronize/validate staging runtime secrets and prepare bounded ephemeral smoke authority.
 10. Run the native staging end-to-end smoke suite, including a real Eventing mutation/outbox/Queue/HMAC-signed Webhook delivery through an ephemeral staging Custom Domain.
-11. Export the pinned HomeMew handoff and clean up all ephemeral smoke authority/receiver resources.
+11. Export a reproducible **HomeMew staging candidate handoff** from the currently deployed Core/Identity versions plus the active environment-local `mct_*`, then clean up all ephemeral smoke authority/receiver resources.
 
 The Core-first ordering is intentional for changes where Identity may begin issuing credentials/tokens that require a newer Core verifier. A future change may alter deployment ordering only when its compatibility reasoning is explicit.
+
+### Candidate evidence vs accepted downstream pin
+
+Staging proof and downstream release acceptance are separate lifecycle states.
+
+`Deploy staging` proves the platform version that is actually deployed in staging and exports `packages/contracts/dist/homemew-candidate` as read-only **Candidate Handoff（候选交接证据）**. The candidate bundle records the current Core Kernel version, current Identity contract version, HomeMew-selected models' current Model Semantic Fingerprint and the staging environment's active immutable `mct_*` evidence. It also records the currently accepted HomeMew profile as comparison metadata and explicitly states whether downstream promotion is still required.
+
+The candidate exporter does **not** mutate `infra/homemew-integration-profile.json`, does not declare a newer tuple accepted and does not authorize production. The accepted HomeMew handoff exporter remains fail-closed when repository source contracts differ from the accepted profile; this prevents newer OpenAPI from being mislabeled under an older accepted tuple.
+
+After application/downstream validation, advancing the accepted HomeMew tuple is a separate reviewed promotion change. `Deploy production` remains blocked before any production mutation until `check-production-release-readiness.mjs` confirms that the accepted Core/Identity pins and Model Semantic Fingerprint match the repository production target.
 
 The current smoke suite covers the deployed native platform surface required by HomeMew and other consumers, including user token exchange, profiles/avatars, Spaces and domain APIs, service authentication, Model Contract behavior, Creation Draft and Eventing.
 
