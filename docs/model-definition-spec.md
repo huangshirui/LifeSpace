@@ -143,7 +143,7 @@ A model route occupies this exact namespace position:
 /api/v1/spaces/{spaceId}/{route}
 ```
 
-Therefore a model may not use a first segment already owned by the Core Kernel at `/api/v1/spaces/{spaceId}/...`. Representative reserved segments include `members`, `invites`, `grants`, `creation-drafts`, `agent-delegations` and `changes`.
+Therefore a model may not use a first segment already owned by the Core Kernel at `/api/v1/spaces/{spaceId}/...`. Representative reserved segments include `_discovery`, `_relation-targets`, `members`, `invites`, `grants`, `creation-drafts`, `agent-delegations` and `changes`.
 
 The machine-authoritative Kernel Space namespace is `apps/core/kernel-space-route-segments.json`. Core contract CI mechanically derives the current first segments from `apps/core/openapi.yaml` and requires exact parity with that manifest. Model Definition validation consumes the same manifest, so a new Kernel Space route cannot silently become publishable as an ordinary model route.
 
@@ -246,6 +246,8 @@ Rules:
 - `minimum` / `maximum` apply only to `integer` / `number`;
 - `values` is required for `enum`, must be unique and may contain at most 50 entries;
 - `targetModel` is required only for `record` / `record_list`; it remains structural relation semantics and is not encoded into `title`. Generated contracts may project relation target/cardinality metadata separately so human-readable naming and machine relation semantics remain orthogonal.
+
+Relation metadata defines **what may be referenced structurally**, not a static list of current target instances. Generated JSON Schema therefore projects stable relation target/cardinality through `x-lifespace-relation` and must not encode mutable Space-specific targets as `enum`. Runtime Discovery / Relation Target Lookup may resolve current targets under current authorization for clients such as n8n, Agents/MCP and generated UI. A lookup result is a capability/reference projection only: it does not bypass create/update Policy or mutation-time relation validation. `person` / `person_list` have canonical Space Person labels (`displayName`) and can be resolved generically; `record` / `record_list` remain lookup-unsupported until a canonical record reference-label semantic is defined rather than guessed from model-specific field names.
 
 ### 4.3 `readOnly`, Mutation Authority, and `immutable`
 
