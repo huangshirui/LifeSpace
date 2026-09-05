@@ -1,0 +1,34 @@
+name: Bootstrap issue 160
+
+on:
+  push:
+    branches:
+      - feature/160-space-discovery-label
+    paths:
+      - .github/issue-160-bootstrap.mjs
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Apply issue 160 patch
+        run: node .github/issue-160-bootstrap.mjs
+      - name: Commit generated patch and remove bootstrap files
+        run: |
+          rm .github/issue-160-bootstrap.mjs
+          rm .github/workflows/issue-160-bootstrap.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet && exit 0
+          git commit -m "feat(core): expose authorized Space labels in Runtime Discovery"
+          git push
