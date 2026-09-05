@@ -68,6 +68,7 @@ jobs:
           node --check infra/scripts/verify-staging-creation-draft.mjs
           node --check infra/scripts/baseline-model-semantics.mjs
           node --check infra/scripts/publish-staging-baseline-model-semantics.mjs
+          node --check packages/contracts/scripts/export-homemew-staging-candidate.mjs
 
       - name: Resolve expected staging versions
         run: node infra/scripts/staging-expectations.mjs
@@ -172,22 +173,22 @@ jobs:
       - name: Measure typed-runtime staging performance
         run: node infra/scripts/verify-staging-performance.mjs
 
-      - name: Export and prove pinned HomeMew handoff reproducibility
+      - name: Export and prove HomeMew staging candidate handoff reproducibility
         env:
           LIFESPACE_HANDOFF_ENVIRONMENT: staging
         shell: bash
         run: |
           set -euo pipefail
-          pnpm --filter @lifespace/contracts export:homemew
-          cp packages/contracts/dist/homemew/checksums.json "$RUNNER_TEMP/homemew-checksums-first.json"
-          pnpm --filter @lifespace/contracts export:homemew
-          cmp "$RUNNER_TEMP/homemew-checksums-first.json" packages/contracts/dist/homemew/checksums.json
+          pnpm --filter @lifespace/contracts export:homemew:candidate
+          cp packages/contracts/dist/homemew-candidate/checksums.json "$RUNNER_TEMP/homemew-candidate-checksums-first.json"
+          pnpm --filter @lifespace/contracts export:homemew:candidate
+          cmp "$RUNNER_TEMP/homemew-candidate-checksums-first.json" packages/contracts/dist/homemew-candidate/checksums.json
 
-      - name: Upload HomeMew contract handoff
+      - name: Upload HomeMew staging candidate contract evidence
         uses: actions/upload-artifact@v4
         with:
-          name: homemew-contract-handoff-${{ github.sha }}
-          path: packages/contracts/dist/homemew
+          name: homemew-staging-candidate-${{ github.sha }}
+          path: packages/contracts/dist/homemew-candidate
           if-no-files-found: error
           retention-days: 30
 
@@ -209,7 +210,7 @@ jobs:
           - HomeMew integration profile / app-scoped user-token boundary: passed
           - HomeMew user-token platform-admin scope exclusion: passed
           - HomeMew Application x Model Access (Task/Wish/Day Record/Event): passed
-          - HomeMew pinned semantic contract handoff bundle: reproducible, exported and uploaded
+          - HomeMew staging candidate semantic contract bundle: reproducible, exported and uploaded; accepted downstream pin was not mutated
           - Typed model storage / legacy JSON cleanup: passed
           - D1 hot-path budgets: passed in repository validation
           - Staging HTTP performance benchmark: recorded in workflow logs
