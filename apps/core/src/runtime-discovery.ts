@@ -5,6 +5,7 @@ import type { Bindings, Principal, Variables } from "./env";
 import { ApiError, success } from "./http";
 import type { ModelAccess } from "./model-definition";
 import { listPublishedModels, type PublishedModel } from "./model-registry";
+import { relationDiscoveryMetadata } from "./relation-targets";
 
 type AppEnv = { Bindings: Bindings; Variables: Variables };
 type App = Hono<AppEnv>;
@@ -140,7 +141,10 @@ function dto(model: PublishedModel, allowed: ModelAccess[]) {
     display: model.definition.display,
     description: model.definition.description ?? null,
     access: allowed,
-    fields: Object.entries(model.definition.fields).map(([key, field]) => ({ key, ...field })),
+    fields: Object.entries(model.definition.fields).map(([key, field]) => {
+      const relation = relationDiscoveryMetadata(field);
+      return { key, ...field, ...(relation ? { relation } : {}) };
+    }),
     defaults: structuredClone(model.definition.defaults ?? {}),
     query: {
       searchable: [...(model.definition.query?.searchable ?? [])],

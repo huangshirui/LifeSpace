@@ -3,7 +3,7 @@ import YAML from "yaml";
 
 const document = YAML.parse(fs.readFileSync(new URL("../openapi.yaml", import.meta.url), "utf8"));
 
-if (document.openapi !== "3.1.0" || document.info?.version !== "0.22.0") {
+if (document.openapi !== "3.1.0" || document.info?.version !== "0.23.0") {
   throw new Error("Core Kernel OpenAPI version metadata is invalid");
 }
 if (!document.info?.title?.includes("Kernel")) {
@@ -34,6 +34,7 @@ const requiredPaths = [
   "/api/v1/spaces/{spaceId}/grants",
   "/api/v1/spaces/{spaceId}/grants/{grantId}",
   "/api/v1/spaces/{spaceId}/_discovery",
+  "/api/v1/spaces/{spaceId}/_relation-targets/{modelKey}/{fieldKey}",
   "/api/v1/spaces/{spaceId}/agent-delegations",
   "/api/v1/spaces/{spaceId}/agent-delegations/{delegationId}",
   "/api/v1/spaces/{spaceId}/changes/{recordId}",
@@ -251,6 +252,32 @@ if (schemas.RuntimeDiscoveryField?.properties?.title?.type !== "string"
     || schemas.RuntimeDiscoveryField?.properties?.title?.maxLength !== 80) {
   throw new Error("Runtime Discovery fields must expose bounded JSON Schema-aligned title metadata");
 }
+if (schemas.RuntimeDiscoveryField?.properties?.relation?.$ref !== "#/components/schemas/RuntimeDiscoveryRelation"
+    || schemas.RuntimeDiscoveryRelation?.additionalProperties !== false
+    || JSON.stringify(schemas.RuntimeDiscoveryRelation?.properties?.cardinality?.enum) !== JSON.stringify(["one", "many"])) {
+  throw new Error("Runtime Discovery relation metadata must expose bounded target/cardinality semantics");
+}
+const relationLookup = document.paths?.["/api/v1/spaces/{spaceId}/_relation-targets/{modelKey}/{fieldKey}"]?.get;
+const relationLookupSupported = schemas.RuntimeDiscoveryRelationLookupSupported;
+const relationLookupUnsupported = schemas.RuntimeDiscoveryRelationLookupUnsupported;
+if (!relationLookup?.description?.includes("source-field-aware")
+    || !relationLookup?.description?.includes("not proof of mutation authority")
+    || relationLookup?.responses?.["200"]?.content?.["application/json"]?.schema?.$ref !== "#/components/schemas/RelationTargetLookupResponse"
+    || relationLookupSupported?.properties?.supported?.const !== true
+    || relationLookupSupported?.properties?.method?.const !== "GET"
+    || relationLookupSupported?.properties?.pathTemplate?.const !== "/api/v1/spaces/{spaceId}/_relation-targets/{modelKey}/{fieldKey}"
+    || relationLookupSupported?.properties?.searchParameter?.const !== "q"
+    || relationLookupSupported?.properties?.cursorParameter?.const !== "cursor"
+    || relationLookupSupported?.properties?.limitParameter?.const !== "limit"
+    || relationLookupUnsupported?.properties?.supported?.const !== false
+    || relationLookupUnsupported?.properties?.reason?.const !== "reference-label-unavailable") {
+  throw new Error("Relation target lookup contract drifted");
+}
+if (schemas.RelationTarget?.additionalProperties !== false
+    || JSON.stringify(schemas.RelationTarget?.required) !== JSON.stringify(["id", "label"])
+    || schemas.RelationTargetPage?.properties?.items?.items?.$ref !== "#/components/schemas/RelationTarget") {
+  throw new Error("Relation target projection must remain minimal id/label data");
+}
 const discoverySort = schemas.RuntimeDiscoveryQuery?.properties?.sort;
 if (!schemas.RuntimeDiscoveryQuery?.required?.includes("sort")
     || discoverySort?.additionalProperties !== false
@@ -332,7 +359,7 @@ if (schemas.ModelContract?.properties?.id?.pattern !== "^mct_[a-f0-9]{64}$") {
   throw new Error("Model Contract revisions must be content-addressed mct_<sha256>");
 }
 
-if (schemas.StatusResponse?.properties?.data?.properties?.contractVersion?.const !== "0.22.0") {
+if (schemas.StatusResponse?.properties?.data?.properties?.contractVersion?.const !== "0.23.0") {
   throw new Error("Core Kernel status contract version drifted");
 }
 
