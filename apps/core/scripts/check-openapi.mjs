@@ -3,7 +3,7 @@ import YAML from "yaml";
 
 const document = YAML.parse(fs.readFileSync(new URL("../openapi.yaml", import.meta.url), "utf8"));
 
-if (document.openapi !== "3.1.0" || document.info?.version !== "0.23.0") {
+if (document.openapi !== "3.1.0" || document.info?.version !== "0.24.0") {
   throw new Error("Core Kernel OpenAPI version metadata is invalid");
 }
 if (!document.info?.title?.includes("Kernel")) {
@@ -206,11 +206,13 @@ if (!discovery?.description?.includes("capability preview") || !discovery?.descr
   throw new Error("Runtime Discovery must be documented as a preview whose authority is rechecked at execution time");
 }
 if (!aggregateDiscovery?.description?.includes("cross-Space")
+    || !aggregateDiscovery?.description?.includes("spaceName")
     || !aggregateDiscovery?.description?.includes("capability preview")
     || !aggregateDiscovery?.description?.includes("execution")) {
   throw new Error("Current-principal Runtime Discovery must document cross-Space preview and execution-time rechecks");
 }
-if (!discovery?.description?.includes("semantic/domain input")
+if (!discovery?.description?.includes("spaceName")
+    || !discovery?.description?.includes("semantic/domain input")
     || !aggregateDiscovery?.description?.includes("semantic/domain input")) {
   throw new Error("Runtime Discovery must document semantic Action input separately from concurrency metadata");
 }
@@ -218,9 +220,17 @@ if (aggregateDiscovery?.responses?.["200"]?.content?.["application/json"]?.schem
   throw new Error("Current-principal Runtime Discovery must use its aggregate response schema");
 }
 if (schemas.RuntimeDiscoverySpace?.additionalProperties !== false
-    || JSON.stringify(schemas.RuntimeDiscoverySpace?.required) !== JSON.stringify(["spaceId", "models"])
-    || Object.keys(schemas.RuntimeDiscoverySpace?.properties ?? {}).some((key) => !["spaceId", "models"].includes(key))) {
-  throw new Error("Cross-Space discovery must expose only Space identity and effective model metadata");
+    || JSON.stringify(schemas.RuntimeDiscoverySpace?.required) !== JSON.stringify(["spaceId", "spaceName", "models"])
+    || schemas.RuntimeDiscoverySpace?.properties?.spaceName?.type !== "string"
+    || schemas.RuntimeDiscoverySpace?.properties?.spaceName?.maxLength !== 100
+    || Object.keys(schemas.RuntimeDiscoverySpace?.properties ?? {}).some((key) => !["spaceId", "spaceName", "models"].includes(key))) {
+  throw new Error("Cross-Space discovery must expose only stable Space identity, minimal label and effective model metadata");
+}
+const singleDiscoveryData = schemas.RuntimeDiscoveryResponse?.properties?.data;
+if (!singleDiscoveryData?.required?.includes("spaceName")
+    || JSON.stringify(singleDiscoveryData?.properties?.spaceName?.type) !== JSON.stringify(["string", "null"])
+    || singleDiscoveryData?.properties?.spaceName?.maxLength !== 100) {
+  throw new Error("Single-Space discovery must expose a nullable bounded Space label without creating a Space-detail side channel");
 }
 if (schemas.RuntimeDiscoveryAction?.additionalProperties !== false
     || !schemas.RuntimeDiscoveryAction?.required?.includes("input")
@@ -359,7 +369,7 @@ if (schemas.ModelContract?.properties?.id?.pattern !== "^mct_[a-f0-9]{64}$") {
   throw new Error("Model Contract revisions must be content-addressed mct_<sha256>");
 }
 
-if (schemas.StatusResponse?.properties?.data?.properties?.contractVersion?.const !== "0.23.0") {
+if (schemas.StatusResponse?.properties?.data?.properties?.contractVersion?.const !== "0.24.0") {
   throw new Error("Core Kernel status contract version drifted");
 }
 

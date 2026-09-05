@@ -12,9 +12,9 @@ type App = Hono<AppEnv>;
 
 type CatalogRow = { model_key: string; max_access: ModelAccess };
 type MembershipRow = { role: SpaceRole };
-type MembershipAccessRow = MembershipRow & { space_id: string };
+type MembershipAccessRow = MembershipRow & { space_id: string; space_name: string };
 type GrantRow = { resource_type: "space" | "model"; resource_id: string | null; permission: Permission };
-type GrantAccessRow = GrantRow & { source_space_id: string };
+type GrantAccessRow = GrantRow & { source_space_id: string; space_name: string };
 type DelegationAccessRow = { model_key: string; max_access: ModelAccess };
 type DelegationSpaceAccessRow = DelegationAccessRow & { source_space_id: string };
 
@@ -213,14 +213,14 @@ export function registerRuntimeDiscoveryRoutes(app: App): void {
 
     const membershipIndex = principal.type === "user" ? statements.length : -1;
     if (principal.type === "user") {
-      statements.push(context.env.DB.prepare(`SELECT m.space_id,m.role
+      statements.push(context.env.DB.prepare(`SELECT m.space_id,m.role,s.name space_name
         FROM space_memberships m
         JOIN spaces s ON s.id=m.space_id
         WHERE m.user_id=? AND m.deleted_at IS NULL AND s.deleted_at IS NULL`).bind(principal.id));
     }
 
     const grantsIndex = statements.length;
-    statements.push(context.env.DB.prepare(`SELECT g.source_space_id,g.resource_type,g.resource_id,g.permission
+    statements.push(context.env.DB.prepare(`SELECT g.source_space_id,g.resource_type,g.resource_id,g.permission,s.name space_name
       FROM data_grants g
       JOIN spaces s ON s.id=g.source_space_id
       WHERE g.grantee_type=? AND g.grantee_id=?
@@ -247,8 +247,12 @@ export function registerRuntimeDiscoveryRoutes(app: App): void {
     const catalogByModel = new Map(catalogs.map((row) => [row.model_key, row.max_access]));
     const memberships = membershipIndex >= 0 ? (results[membershipIndex].results ?? []) as MembershipAccessRow[] : [];
     const membershipsBySpace = new Map(memberships.map((row) => [row.space_id, { role: row.role }]));
+    const spaceNamesById = new Map(memberships.map((row) => [row.space_id, row.space_name]));
     const grantsBySpace = new Map<string, GrantRow[]>();
-    for (const row of (results[grantsIndex].results ?? []) as GrantAccessRow[]) pushGrant(grantsBySpace, row);
+    for (const row of (results[grantsIndex].results ?? []) as GrantAccessRow[]) {
+      pushGrant(grantsBySpace, row);
+      if (!spaceNamesById.has(row.source_space_id)) spaceNamesById.set(row.source_space_id, row.space_name);
+    }
 
     const delegatedBySpace = new Map<string, Map<string, ModelAccess>>();
     if (delegatedAgent) {
@@ -271,7 +275,7 @@ export function registerRuntimeDiscoveryRoutes(app: App): void {
           grantsBySpace.get(spaceId) ?? [],
           delegatedAgent ? (delegatedBySpace.get(spaceId) ?? new Map<string, ModelAccess>()) : undefined,
         );
-        return visible.length ? [{ spaceId, models: visible }] : [];
+        return visible.length ? [{ spaceId, spaceName: spaceNamesById.get(spaceId)!, models: visible }] : [];
       });
 
     return context.json(success({ spaces }));
@@ -282,7 +286,7 @@ export function registerRuntimeDiscoveryRoutes(app: App): void {
     const spaceId = context.req.param("spaceId");
 
     const statements: D1PreparedStatement[] = [
-      context.env.DB.prepare("SELECT id FROM spaces WHERE id=? AND deleted_at IS NULL LIMIT 1").bind(spaceId),
+      context.env.DB.prepare("SELECT id,name FROM spaces WHERE id=? AND deleted_at IS NULL LIMIT 1").bind(spaceId),
       context.env.DB.prepare(`SELECT model_key,max_access FROM application_model_access
         WHERE application_id=?`).bind(principal.clientId),
     ];
@@ -313,7 +317,7 @@ export function registerRuntimeDiscoveryRoutes(app: App): void {
     }
 
     const results = await context.env.DB.batch(statements);
-    const space = (results[0].results ?? [])[0] as { id: string } | undefined;
+    const space = (results[0].results ?? [])[0] as { id: string; name: string } | undefined;
     if (!space) throw new ApiError("SPACE_NOT_FOUND", "Space not found", 404);
 
     const catalogs = (results[1].results ?? []) as CatalogRow[];
@@ -339,6 +343,6 @@ export function registerRuntimeDiscoveryRoutes(app: App): void {
       delegatedAgent ? delegatedByModel : undefined,
     );
 
-    return context.json(success({ spaceId, models: visible }));
+    return context.json(success({ spaceId, spaceName: visible.length ? space.name : null, models: visible }));
   });
 }
