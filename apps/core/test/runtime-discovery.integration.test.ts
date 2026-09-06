@@ -231,6 +231,55 @@ describe("Runtime discovery", () => {
     });
   });
 
+  it("projects canonical Calendar Capability field roles without exposing UI semantics", async () => {
+    const db = (env as unknown as TestEnv).DB;
+    const { privateKey, publicKey } = await keys();
+    const suffix = crypto.randomUUID().replaceAll("-", "");
+    const userId = `usr_${suffix}`;
+    const clientId = `app_calendar_discovery_${suffix}`;
+    const spaceId = `spc_${suffix}`;
+    const now = new Date().toISOString();
+    await db.batch([
+      db.prepare(`INSERT INTO spaces(id,kind,name,created_by_user_id,created_at,updated_at,timezone)
+        VALUES(?,?,?,?,?,?,?)`).bind(spaceId, "personal", "Calendar Discovery", userId, now, now, "UTC"),
+      db.prepare(`INSERT INTO space_memberships(id,space_id,user_id,role,created_at,updated_at)
+        VALUES(?,?,?,?,?,?)`).bind(`mem_${suffix}`, spaceId, userId, "owner", now, now),
+      db.prepare(`INSERT INTO space_people(id,space_id,linked_user_id,display_name,created_at,updated_at)
+        VALUES(?,?,?,?,?,?)`).bind(`per_${suffix}`, spaceId, userId, "Calendar Tester", now, now),
+      db.prepare(`INSERT INTO application_model_access(application_id,model_key,max_access,created_by_type,created_by_id)
+        VALUES(?,?,?,?,?)`).bind(clientId, "event", "write", "service", "svc_test_admin"),
+    ]);
+    const accessToken = await token(privateKey, "user", userId, clientId, ["resources:read", "resources:write"]);
+    const expectedCalendar = {
+      allDayField: "isAllDay",
+      timedStartField: "startAt",
+      timedEndField: "endAt",
+      startTimezoneField: "startTimezone",
+      endTimezoneField: "endTimezone",
+      allDayStartField: "startDate",
+      allDayEndExclusiveField: "endDateExclusive",
+      attendeePersonField: "attendeePersonIds",
+    };
+
+    const single = await request(publicKey, accessToken, `/api/v1/spaces/${spaceId}/_discovery`);
+    expect(single.status).toBe(200);
+    const singlePayload = await single.json<{ data: { models: Array<{
+      key: string; capabilities: string[]; capabilityBindings: { calendar?: Record<string, string> };
+    }> } }>();
+    const singleEvent = singlePayload.data.models.find((entry) => entry.key === "event");
+    expect(singleEvent?.capabilities).toContain("calendar");
+    expect(singleEvent?.capabilityBindings).toEqual({ calendar: expectedCalendar });
+
+    const aggregate = await request(publicKey, accessToken, "/api/v1/me/_discovery");
+    expect(aggregate.status).toBe(200);
+    const aggregatePayload = await aggregate.json<{ data: { spaces: Array<{
+      spaceId: string; models: Array<{ key: string; capabilityBindings: { calendar?: Record<string, string> } }>;
+    }> } }>();
+    const aggregateEvent = aggregatePayload.data.spaces
+      .find((entry) => entry.spaceId === spaceId)?.models.find((entry) => entry.key === "event");
+    expect(aggregateEvent?.capabilityBindings).toEqual({ calendar: expectedCalendar });
+  });
+
   it("exposes the same field titles, defaults and sort metadata through cross-Space discovery", async () => {
     const f = await fixture();
     const accessToken = await token(

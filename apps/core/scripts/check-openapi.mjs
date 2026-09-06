@@ -3,7 +3,7 @@ import YAML from "yaml";
 
 const document = YAML.parse(fs.readFileSync(new URL("../openapi.yaml", import.meta.url), "utf8"));
 
-if (document.openapi !== "3.1.0" || document.info?.version !== "0.24.0") {
+if (document.openapi !== "3.1.0" || document.info?.version !== "0.25.0") {
   throw new Error("Core Kernel OpenAPI version metadata is invalid");
 }
 if (!document.info?.title?.includes("Kernel")) {
@@ -304,6 +304,25 @@ if (!schemas.RuntimeDiscoveryModel?.required?.includes("defaults")
     || schemas.RuntimeDiscoveryModel?.properties?.defaults?.type !== "object") {
   throw new Error("Runtime Discovery must expose authoritative model server defaults");
 }
+const capabilityBindings = schemas.RuntimeDiscoveryModel?.properties?.capabilityBindings;
+const calendarBinding = schemas.RuntimeDiscoveryCalendarCapabilityBinding;
+if (!schemas.RuntimeDiscoveryModel?.required?.includes("capabilityBindings")
+    || capabilityBindings?.$ref !== "#/components/schemas/RuntimeDiscoveryCapabilityBindings"
+    || schemas.RuntimeDiscoveryCapabilityBindings?.additionalProperties !== false
+    || schemas.RuntimeDiscoveryCapabilityBindings?.properties?.calendar?.$ref !== "#/components/schemas/RuntimeDiscoveryCalendarCapabilityBinding"
+    || schemas.RuntimeDiscoveryModel?.properties?.capabilities?.type !== "array") {
+  throw new Error("Runtime Discovery Capability binding/inventory contract drifted");
+}
+const calendarRequired = [
+  "allDayField", "timedStartField", "timedEndField", "startTimezoneField",
+  "endTimezoneField", "allDayStartField", "allDayEndExclusiveField",
+];
+if (calendarBinding?.additionalProperties !== false
+    || JSON.stringify(calendarBinding?.required) !== JSON.stringify(calendarRequired)
+    || calendarRequired.some((key) => calendarBinding?.properties?.[key]?.pattern !== "^[a-z][A-Za-z0-9]{0,62}$")
+    || calendarBinding?.properties?.attendeePersonField?.pattern !== "^[a-z][A-Za-z0-9]{0,62}$") {
+  throw new Error("Runtime Discovery Calendar Capability field-role binding drifted");
+}
 
 const endpoints = document.paths?.["/api/v1/webhook-endpoints"];
 const endpoint = document.paths?.["/api/v1/webhook-endpoints/{endpointId}"];
@@ -369,7 +388,7 @@ if (schemas.ModelContract?.properties?.id?.pattern !== "^mct_[a-f0-9]{64}$") {
   throw new Error("Model Contract revisions must be content-addressed mct_<sha256>");
 }
 
-if (schemas.StatusResponse?.properties?.data?.properties?.contractVersion?.const !== "0.24.0") {
+if (schemas.StatusResponse?.properties?.data?.properties?.contractVersion?.const !== "0.25.0") {
   throw new Error("Core Kernel status contract version drifted");
 }
 

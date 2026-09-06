@@ -796,6 +796,8 @@ Field contracts:
 
 Calendar contributes timed/all-day shape validation and semantic time-window query behavior. It does not currently contribute a model-specific Workflow Action.
 
+Runtime Discovery may project these canonical Calendar field roles through a bounded Capability binding so generic clients can distinguish timed from all-day inputs without inferring field names. That projection is derived from this Model Definition mapping, contains no UI layout semantics and does not replace execution-time Calendar validation.
+
 ## 15. Generated Runtime API
 
 Ordinary models do not receive handwritten route implementations.
