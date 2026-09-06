@@ -207,9 +207,9 @@ describe("#165 M0-B Generic Consumer performance feasibility", () => {
     const DB = countedDatabase(database, counter);
     const bindings = { DB, IDENTITY_PUBLIC_KEY: keyPair.publicKey, ENVIRONMENT: "test" };
 
-    // Warm the stable Registry snapshot on the measured binding; all assertions below
-    // then describe current-main hot-cache behavior rather than cold Registry loading.
-    expect(await getRuntimeModelByRoute({ DB } as Bindings, "tasks")).not.toBeNull();
+    // Warm the stable Registry snapshot on the exact measured binding; all assertions
+    // below then describe current-main hot-cache behavior rather than cold Registry loading.
+    expect(await getRuntimeModelByRoute(bindings as Bindings, "tasks")).not.toBeNull();
     reset(counter);
 
     async function request(path: string, bearer: string, init: RequestInit = {}) {
