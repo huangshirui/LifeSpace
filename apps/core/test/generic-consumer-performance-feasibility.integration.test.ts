@@ -8,13 +8,7 @@ import { getRuntimeModelByRoute } from "../src/model-registry";
 type TestEnv = { DB: D1Database };
 type Counter = { roundTrips: number; maxBindings: number };
 type KeyPair = { privateKey: string; publicKey: string };
-type Scenario = {
-  name: string;
-  userId: string;
-  clientId: string;
-  spaceIds: string[];
-  modelKeys: string[];
-};
+type Scenario = { name: string; userId: string; clientId: string; spaceIds: string[]; modelKeys: string[] };
 type Sample = { elapsedMs: number; bytes: number; roundTrips: number; modelDtos: number };
 
 const statementTargets = new WeakMap<object, D1PreparedStatement>();
@@ -153,9 +147,9 @@ async function seedPeople(database: D1Database, spaceId: string, count: number, 
   await database.batch(statements);
 }
 
-function percentile(values: number[], percentileValue: number): number {
+function percentile(values: number[], p: number): number {
   const sorted = [...values].sort((left, right) => left - right);
-  const index = Math.min(sorted.length - 1, Math.ceil(percentileValue * sorted.length) - 1);
+  const index = Math.min(sorted.length - 1, Math.ceil(p * sorted.length) - 1);
   return Number((sorted[Math.max(0, index)] ?? 0).toFixed(3));
 }
 
@@ -200,15 +194,15 @@ function summarize(samples: Sample[]) {
 }
 
 describe("#165 M0-B Generic Consumer performance feasibility", () => {
-  it("proves current projection paths are opt-in, structurally bounded in D1, and exposes S x M payload growth", async () => {
+  it("records current projection cost and enforces structural bounds before Runtime redesign", async () => {
     const database = (env as unknown as TestEnv).DB;
     const keyPair = await keys();
     const counter: Counter = { roundTrips: 0, maxBindings: 0 };
     const DB = countedDatabase(database, counter);
     const bindings = { DB, IDENTITY_PUBLIC_KEY: keyPair.publicKey, ENVIRONMENT: "test" };
 
-    // Warm the stable Registry snapshot on the exact measured binding; all assertions
-    // below then describe current-main hot-cache behavior rather than cold Registry loading.
+    // Prime the ordinary Runtime Descriptor snapshot. Discovery currently does not use
+    // this snapshot: it performs one direct Registry read plus one authority batch.
     expect(await getRuntimeModelByRoute(bindings as Bindings, "tasks")).not.toBeNull();
     reset(counter);
 
@@ -244,7 +238,7 @@ describe("#165 M0-B Generic Consumer performance feasibility", () => {
       const samples: Sample[] = [];
       for (let run = 0; run < 5; run += 1) {
         samples.push(await measuredRequest(request, counter, "/api/v1/me/_discovery", bearer));
-        expect(counter.roundTrips).toBe(1);
+        expect(counter.roundTrips).toBe(2);
         expect(counter.maxBindings).toBeLessThanOrEqual(100);
       }
       const summary = summarize(samples);
@@ -267,25 +261,19 @@ describe("#165 M0-B Generic Consumer performance feasibility", () => {
         `/api/v1/spaces/${fullScenario.spaceIds[0]}/_discovery`,
         fullBearer,
       ));
-      expect(counter.roundTrips).toBe(1);
+      expect(counter.roundTrips).toBe(2);
       expect(counter.maxBindings).toBeLessThanOrEqual(100);
     }
 
-    // Ordinary CRUD/query does not need Discovery to run. Compare the same hot list
-    // path before and after an explicit Discovery call; neither path gains an extra
-    // D1 round trip or HTTP dependency from Generic Consumer Readiness work.
+    // Ordinary CRUD/query does not need Discovery to run. The same hot list path before
+    // and after an explicit Discovery call must retain its existing D1 budget.
     reset(counter);
     const beforeDiscovery = await request(`/api/v1/spaces/${fullScenario.spaceIds[0]}/tasks?limit=10`, fullBearer);
     expect(beforeDiscovery.status).toBe(200);
     const ordinaryBeforeTrips = counter.roundTrips;
     expect(ordinaryBeforeTrips).toBeLessThanOrEqual(5);
 
-    await measuredRequest(
-      request,
-      counter,
-      `/api/v1/spaces/${fullScenario.spaceIds[0]}/_discovery`,
-      fullBearer,
-    );
+    await measuredRequest(request, counter, `/api/v1/spaces/${fullScenario.spaceIds[0]}/_discovery`, fullBearer);
 
     reset(counter);
     const afterDiscovery = await request(`/api/v1/spaces/${fullScenario.spaceIds[0]}/tasks?limit=10`, fullBearer);
@@ -294,8 +282,8 @@ describe("#165 M0-B Generic Consumer performance feasibility", () => {
     expect(ordinaryAfterTrips).toBe(ordinaryBeforeTrips);
     expect(ordinaryAfterTrips).toBeLessThanOrEqual(5);
 
-    // Relation Target Lookup is page-bounded and its D1 round trips do not grow with
-    // result count. This is the current implemented reference-selection primitive.
+    // Relation target lookup stays page-bounded; increasing the result page from one
+    // item to the current maximum of 100 must not add a D1 round trip.
     await seedPeople(database, fullScenario.spaceIds[0]!, 250, crypto.randomUUID().slice(0, 8));
     reset(counter);
     const target1 = await request(
@@ -321,8 +309,8 @@ describe("#165 M0-B Generic Consumer performance feasibility", () => {
     expect(target100Trips).toBeLessThanOrEqual(3);
     expect(counter.maxBindings).toBeLessThanOrEqual(100);
 
-    // Delegated-Agent Discovery adds one authority statement inside the same D1 batch;
-    // it must not add a second Worker->D1 round trip on the hot Registry path.
+    // Delegated-agent authority adds a statement inside the same authority batch. The
+    // current Discovery path still has the same two total D1 round trips.
     const delegatedScenario = await seedScenario(database, 1, ["task", "event"], "agent");
     const directBearer = await token(keyPair.privateKey, delegatedScenario.userId, delegatedScenario.clientId);
     const agentId = `agt_m0b_${crypto.randomUUID().replaceAll("-", "")}`;
@@ -350,10 +338,11 @@ describe("#165 M0-B Generic Consumer performance feasibility", () => {
     const delegatedSamples: Sample[] = [];
     for (let run = 0; run < 5; run += 1) {
       delegatedSamples.push(await measuredRequest(request, counter, "/api/v1/me/_discovery", delegatedBearer));
-      expect(counter.roundTrips).toBe(1);
+      expect(counter.roundTrips).toBe(2);
     }
 
     const metrics = {
+      baseline: "current-main behavior; no Runtime implementation change",
       environment: "Cloudflare Vitest local D1; wall time is diagnostic, not APAC acceptance latency",
       currentPublishedModelCount: CURRENT_MODEL_KEYS.length,
       meDiscovery: discoveryMetrics,
