@@ -46,6 +46,21 @@ type DiscoveryAction = {
   concurrency: DiscoveryActionConcurrency;
 };
 
+type DiscoveryCalendarCapabilityBinding = {
+  allDayField: string;
+  timedStartField: string;
+  timedEndField: string;
+  startTimezoneField: string;
+  endTimezoneField: string;
+  allDayStartField: string;
+  allDayEndExclusiveField: string;
+  attendeePersonField?: string;
+};
+
+type DiscoveryCapabilityBindings = {
+  calendar?: DiscoveryCalendarCapabilityBinding;
+};
+
 const accessRank: Record<ModelAccess, number> = { read: 1, write: 2, manage: 3 };
 const permissionRank: Record<Permission, number> = { free_busy: 0, read: 1, write: 2, manage: 3 };
 const roleRank: Record<SpaceRole, number> = { viewer: 1, editor: 2, admin: 3, owner: 3 };
@@ -132,6 +147,11 @@ function actions(model: PublishedModel, allowed: ModelAccess[]): DiscoveryAction
   return result.sort((left, right) => left.key.localeCompare(right.key));
 }
 
+function capabilityBindings(model: PublishedModel): DiscoveryCapabilityBindings {
+  const calendar = model.definition.capabilities?.calendar;
+  return calendar ? { calendar: structuredClone(calendar) } : {};
+}
+
 function dto(model: PublishedModel, allowed: ModelAccess[]) {
   return {
     key: model.key,
@@ -161,6 +181,7 @@ function dto(model: PublishedModel, allowed: ModelAccess[]) {
       },
     },
     actions: actions(model, allowed),
+    capabilityBindings: capabilityBindings(model),
     capabilities: Object.keys(model.definition.capabilities ?? {}).sort(),
   };
 }
