@@ -128,4 +128,45 @@ describe("Model Admin API", () => {
     const missingResponse = await call(pair.publicKey, serviceToken, `/api/v1/model-admin/models/${model.key}`);
     expect(missingResponse.status).toBe(404);
   });
+
+  it("cannot understate a breaking Model Definition change through direct Model Admin", async () => {
+    const pair = await keys();
+    const serviceToken = await token(pair.privateKey, "service", ["models:manage"]);
+    const model = definition();
+
+    const initial = await call(pair.publicKey, serviceToken, "/api/v1/model-admin/models", {
+      method: "POST",
+      body: JSON.stringify({ definition: model, compatibility: "initial" }),
+    });
+    expect(initial.status).toBe(201);
+
+    const breaking = {
+      ...model,
+      fields: {
+        ...model.fields,
+        title: { ...model.fields.title, maxLength: 40 },
+      },
+    };
+
+    const understated = await call(pair.publicKey, serviceToken, "/api/v1/model-admin/models", {
+      method: "POST",
+      body: JSON.stringify({ definition: breaking, compatibility: "compatible" }),
+    });
+    expect(understated.status).toBe(409);
+    const error = await understated.json<{ error: { code: string } }>();
+    expect(error.error.code).toBe("MODEL_COMPATIBILITY_UNDERSTATED");
+
+    const unchangedVersion = await call(pair.publicKey, serviceToken, `/api/v1/model-admin/models/${model.key}`);
+    expect(unchangedVersion.status).toBe(200);
+    const current = await unchangedVersion.json<{ data: { version: number; compatibility: string } }>();
+    expect(current.data).toMatchObject({ version: 1, compatibility: "initial" });
+
+    const explicitBreaking = await call(pair.publicKey, serviceToken, "/api/v1/model-admin/models", {
+      method: "POST",
+      body: JSON.stringify({ definition: breaking, compatibility: "breaking" }),
+    });
+    expect(explicitBreaking.status).toBe(201);
+    const published = await explicitBreaking.json<{ data: { version: number; compatibility: string } }>();
+    expect(published.data).toMatchObject({ version: 2, compatibility: "breaking" });
+  });
 });
