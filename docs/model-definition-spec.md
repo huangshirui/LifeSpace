@@ -867,13 +867,20 @@ compatible
 breaking
 ```
 
-Rules already enforced by the Registry include:
+The Registry derives an **automatic minimum compatibility classification** from the currently published Model Definition and the validated candidate. Caller-supplied compatibility is an explicit publication decision, but it may only be equally or more conservative than that minimum; it is never trusted to weaken the classifier.
+
+Normative rules:
 
 - first publication must use `initial`;
 - later publications cannot use `initial`;
+- if the automatic minimum is `breaking`, publication with caller-supplied `compatible` must be rejected before Registry/physical-contract mutation;
+- if the automatic minimum is `compatible`, caller-supplied `breaking` is allowed as conservative over-classification;
+- conservative over-classification does not bypass physical schema/migration safety, dependency review or any other publication gate;
 - an unchanged schema hash is rejected;
 - route conflicts are rejected;
 - model versions advance monotonically per model key.
+
+The minimum-classification rule belongs to the authoritative Registry publication boundary. AI proposal/Console clients may preflight the same result for clearer UX, but a caller-specific precheck must never be the only enforcement path.
 
 Changing an existing field from CRUD-writable to `readOnly` is a **breaking request-contract change** because generated create/update schemas no longer accept that field, even when stored rows and response shapes remain compatible. Such a change requires a normal compatibility-classified convergence migration and downstream impact review.
 

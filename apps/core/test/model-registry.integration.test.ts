@@ -111,6 +111,47 @@ describe("Model Registry", () => {
     expect(columns.results.some((column) => column.name === "pinned" && column.type === "INTEGER")).toBe(true);
   });
 
+  it("enforces the automatic minimum compatibility at the Registry publication boundary", async () => {
+    const definition = noteDefinition(`notes-${crypto.randomUUID().slice(0, 8)}`);
+
+    await expect(publishModelDefinition(bindings(), publisher, definition, "compatible"))
+      .rejects.toMatchObject({ code: "INVALID_MODEL_COMPATIBILITY", status: 400 });
+    await expect(publishModelDefinition(bindings(), publisher, definition, "breaking"))
+      .rejects.toMatchObject({ code: "INVALID_MODEL_COMPATIBILITY", status: 400 });
+
+    const first = await publishModelDefinition(bindings(), publisher, definition, "initial");
+    const conservative = {
+      ...definition,
+      fields: {
+        ...definition.fields,
+        pinned: { type: "boolean" },
+      },
+    };
+    const second = await publishModelDefinition(bindings(), publisher, conservative, "breaking");
+    expect(second).toMatchObject({ version: 2, compatibility: "breaking" });
+
+    const breaking = {
+      ...conservative,
+      fields: {
+        ...conservative.fields,
+        title: { ...conservative.fields.title, maxLength: 40 },
+      },
+    };
+    const beforeRejectedContract = await getActiveModelContract(bindings());
+
+    await expect(publishModelDefinition(bindings(), publisher, breaking, "compatible"))
+      .rejects.toMatchObject({ code: "MODEL_COMPATIBILITY_UNDERSTATED", status: 409 });
+
+    const stillPublished = await getPublishedModel(bindings(), definition.key);
+    expect(stillPublished?.id).toBe(second.id);
+    expect(stillPublished?.version).toBe(2);
+    expect((await getActiveModelContract(bindings()))?.id).toBe(beforeRejectedContract?.id);
+
+    const third = await publishModelDefinition(bindings(), publisher, breaking, "breaking");
+    expect(third).toMatchObject({ version: 3, compatibility: "breaking" });
+    expect(first.version).toBe(1);
+  });
+
   it("rejects physical rewrites before changing the active Registry version", async () => {
     const definition = noteDefinition(`notes-${crypto.randomUUID().slice(0, 8)}`);
     const first = await publishModelDefinition(bindings(), publisher, definition, "initial");

@@ -10,6 +10,7 @@ import {
   validateModelDefinition,
 } from "./model-definition";
 import { physicalPublicationStatements, registryMutationGuardStatement } from "./model-physical-publication";
+import { diffModelDefinition } from "./model-proposal";
 
 export type ModelCompatibility = "initial" | "compatible" | "breaking";
 
@@ -223,6 +224,14 @@ export async function publishModelDefinition(
   }
   if (current?.schemaHash === validation.schemaHash) {
     throw new ApiError("MODEL_DEFINITION_UNCHANGED", "The published model definition is unchanged", 409);
+  }
+  const compatibilityDiff = diffModelDefinition(current, validation.definition);
+  if (compatibilityDiff.recommendedCompatibility === "breaking" && compatibility !== "breaking") {
+    throw new ApiError(
+      "MODEL_COMPATIBILITY_UNDERSTATED",
+      "The Model Definition change requires compatibility=breaking",
+      409,
+    );
   }
 
   const routeOwner = currentModels.find((model) => model.route === validation.definition.route) ?? null;
