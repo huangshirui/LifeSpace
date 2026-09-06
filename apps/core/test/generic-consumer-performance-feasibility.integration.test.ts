@@ -313,7 +313,7 @@ describe("#165 M0-B Generic Consumer performance feasibility", () => {
     // current Discovery path still has the same two total D1 round trips.
     const delegatedScenario = await seedScenario(database, 1, ["task", "event"], "agent");
     const directBearer = await token(keyPair.privateKey, delegatedScenario.userId, delegatedScenario.clientId);
-    const agentId = `agt_m0b_${crypto.randomUUID().replaceAll("-", "")}`;
+    const agentId = `agt_m0b${crypto.randomUUID().replaceAll("-", "")}`;
     const delegationResponse = await rawRequest(
       `/api/v1/spaces/${delegatedScenario.spaceIds[0]}/agent-delegations`,
       directBearer,
