@@ -1,0 +1,176 @@
+name: Bootstrap Runtime Discovery capability bindings
+
+on:
+  push:
+    branches: [feat/runtime-capability-bindings]
+    paths:
+      - '.github/workflows/capability-bindings-bootstrap.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/runtime-capability-bindings
+      - name: Apply Core 0.25 Capability binding contract
+        shell: bash
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+          import json
+
+          def replace_once(path, old, new):
+              p = Path(path)
+              text = p.read_text()
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{path}: expected exactly one match, found {count}: {old[:80]!r}')
+              p.write_text(text.replace(old, new, 1))
+
+          # Runtime Discovery: bounded semantic field-role projection.
+          p = Path('apps/core/src/runtime-discovery.ts')
+          text = p.read_text()
+          marker = 'const accessRank: Record<ModelAccess, number> = { read: 1, write: 2, manage: 3 };'
+          if marker not in text:
+              raise SystemExit('runtime-discovery accessRank marker missing')
+          types = '''type DiscoveryCalendarCapabilityBinding = {\n  allDayField: string;\n  timedStartField: string;\n  timedEndField: string;\n  startTimezoneField: string;\n  endTimezoneField: string;\n  allDayStartField: string;\n  allDayEndExclusiveField: string;\n  attendeePersonField?: string;\n};\n\ntype DiscoveryCapabilityBindings = {\n  calendar?: DiscoveryCalendarCapabilityBinding;\n};\n\n'''
+          text = text.replace(marker, types + marker, 1)
+          dto_marker = 'function dto(model: PublishedModel, allowed: ModelAccess[]) {'
+          if dto_marker not in text:
+              raise SystemExit('runtime-discovery dto marker missing')
+          helper = '''function capabilityBindings(model: PublishedModel): DiscoveryCapabilityBindings {\n  const calendar = model.definition.capabilities?.calendar;\n  return calendar ? { calendar: structuredClone(calendar) } : {};\n}\n\n'''
+          text = text.replace(dto_marker, helper + dto_marker, 1)
+          old = '    actions: actions(model, allowed),\n    capabilities: Object.keys(model.definition.capabilities ?? {}).sort(),'
+          new = '    actions: actions(model, allowed),\n    capabilityBindings: capabilityBindings(model),\n    capabilities: Object.keys(model.definition.capabilities ?? {}).sort(),'
+          if text.count(old) != 1:
+              raise SystemExit('runtime-discovery dto capability marker missing')
+          p.write_text(text.replace(old, new, 1))
+
+          # Runtime status + package version.
+          replace_once('apps/core/src/app.ts', 'contractVersion: "0.24.0"', 'contractVersion: "0.25.0"')
+          pkg_path = Path('apps/core/package.json')
+          pkg = json.loads(pkg_path.read_text())
+          if pkg.get('version') != '0.24.0':
+              raise SystemExit(f'unexpected Core package version {pkg.get("version")}')
+          pkg['version'] = '0.25.0'
+          pkg_path.write_text(json.dumps(pkg, indent=2, ensure_ascii=False) + '\n')
+
+          # Kernel OpenAPI is stored as canonical compact JSON in openapi.yaml.
+          api_path = Path('apps/core/openapi.yaml')
+          api = json.loads(api_path.read_text())
+          if api['info']['version'] != '0.24.0':
+              raise SystemExit(f'unexpected Kernel OpenAPI version {api["info"]["version"]}')
+          api['info']['version'] = '0.25.0'
+          api['info']['description'] = api['info']['description'].replace(
+              'authorized Runtime Discovery,',
+              'authorized Runtime Discovery with bounded Capability field-role bindings,',
+          )
+          api['components']['schemas']['StatusResponse']['properties']['data']['properties']['contractVersion']['const'] = '0.25.0'
+          semantic_sentence = (' Standard Capability field-role bindings such as Calendar are exposed through '
+                               'capabilityBindings; these bindings are semantic metadata, not UI layout or mutation authority.')
+          for route in ['/api/v1/me/_discovery', '/api/v1/spaces/{spaceId}/_discovery']:
+              desc = api['paths'][route]['get']['description']
+              if 'capabilityBindings' not in desc:
+                  api['paths'][route]['get']['description'] = desc + semantic_sentence
+
+          field_key = {'type': 'string', 'pattern': '^[a-z][A-Za-z0-9]{0,62}$'}
+          schemas = api['components']['schemas']
+          schemas['RuntimeDiscoveryCalendarCapabilityBinding'] = {
+              'type': 'object',
+              'description': ('Canonical model-field roles for the Calendar Capability. Generic clients may use these '
+                              'bindings to understand timed vs all-day semantics; execution-time Calendar validation remains authoritative.'),
+              'additionalProperties': False,
+              'required': [
+                  'allDayField', 'timedStartField', 'timedEndField', 'startTimezoneField',
+                  'endTimezoneField', 'allDayStartField', 'allDayEndExclusiveField',
+              ],
+              'properties': {
+                  'allDayField': dict(field_key),
+                  'timedStartField': dict(field_key),
+                  'timedEndField': dict(field_key),
+                  'startTimezoneField': dict(field_key),
+                  'endTimezoneField': dict(field_key),
+                  'allDayStartField': dict(field_key),
+                  'allDayEndExclusiveField': dict(field_key),
+                  'attendeePersonField': dict(field_key),
+              },
+          }
+          schemas['RuntimeDiscoveryCapabilityBindings'] = {
+              'type': 'object',
+              'description': ('Bounded client-safe field-role bindings for standard LifeSpace Capabilities. '
+                              'This is a semantic Runtime Context Projection, not full Model Definition or UI metadata.'),
+              'additionalProperties': False,
+              'properties': {
+                  'calendar': {'$ref': '#/components/schemas/RuntimeDiscoveryCalendarCapabilityBinding'},
+              },
+          }
+          model_schema = schemas['RuntimeDiscoveryModel']
+          if 'capabilityBindings' not in model_schema['required']:
+              insert_at = model_schema['required'].index('capabilities')
+              model_schema['required'].insert(insert_at, 'capabilityBindings')
+          model_schema['properties']['capabilityBindings'] = {'$ref': '#/components/schemas/RuntimeDiscoveryCapabilityBindings'}
+          api_path.write_text(json.dumps(api, ensure_ascii=False, separators=(',', ':')))
+
+          # Contract checks: version + bounded Calendar binding + existing inventory.
+          check_path = Path('apps/core/scripts/check-openapi.mjs')
+          check = check_path.read_text().replace('"0.24.0"', '"0.25.0"')
+          marker = '''if (!schemas.RuntimeDiscoveryModel?.required?.includes("defaults")\n    || schemas.RuntimeDiscoveryModel?.properties?.defaults?.type !== "object") {\n  throw new Error("Runtime Discovery must expose authoritative model server defaults");\n}\n'''
+          if check.count(marker) != 1:
+              raise SystemExit('check-openapi RuntimeDiscoveryModel defaults marker missing')
+          addition = marker + '''const capabilityBindings = schemas.RuntimeDiscoveryModel?.properties?.capabilityBindings;\nconst calendarBinding = schemas.RuntimeDiscoveryCalendarCapabilityBinding;\nif (!schemas.RuntimeDiscoveryModel?.required?.includes("capabilityBindings")\n    || capabilityBindings?.$ref !== "#/components/schemas/RuntimeDiscoveryCapabilityBindings"\n    || schemas.RuntimeDiscoveryCapabilityBindings?.additionalProperties !== false\n    || schemas.RuntimeDiscoveryCapabilityBindings?.properties?.calendar?.$ref !== "#/components/schemas/RuntimeDiscoveryCalendarCapabilityBinding"\n    || schemas.RuntimeDiscoveryModel?.properties?.capabilities?.type !== "array") {\n  throw new Error("Runtime Discovery Capability binding/inventory contract drifted");\n}\nconst calendarRequired = [\n  "allDayField", "timedStartField", "timedEndField", "startTimezoneField",\n  "endTimezoneField", "allDayStartField", "allDayEndExclusiveField",\n];\nif (calendarBinding?.additionalProperties !== false\n    || JSON.stringify(calendarBinding?.required) !== JSON.stringify(calendarRequired)\n    || calendarRequired.some((key) => calendarBinding?.properties?.[key]?.pattern !== "^[a-z][A-Za-z0-9]{0,62}$")\n    || calendarBinding?.properties?.attendeePersonField?.pattern !== "^[a-z][A-Za-z0-9]{0,62}$") {\n  throw new Error("Runtime Discovery Calendar Capability field-role binding drifted");\n}\n'''
+          check_path.write_text(check.replace(marker, addition, 1))
+
+          # Runtime integration proof for both discovery surfaces.
+          test_path = Path('apps/core/test/runtime-discovery.integration.test.ts')
+          test = test_path.read_text()
+          marker = '  it("exposes the same field titles, defaults and sort metadata through cross-Space discovery", async () => {'
+          if test.count(marker) != 1:
+              raise SystemExit('runtime-discovery test insertion marker missing')
+          calendar_test = '''  it("projects canonical Calendar Capability field roles without exposing UI semantics", async () => {\n    const db = (env as unknown as TestEnv).DB;\n    const { privateKey, publicKey } = await keys();\n    const suffix = crypto.randomUUID().replaceAll("-", "");\n    const userId = `usr_${suffix}`;\n    const clientId = `app_calendar_discovery_${suffix}`;\n    const spaceId = `spc_${suffix}`;\n    const now = new Date().toISOString();\n    await db.batch([\n      db.prepare(`INSERT INTO spaces(id,kind,name,created_by_user_id,created_at,updated_at,timezone)\n        VALUES(?,?,?,?,?,?,?)`).bind(spaceId, "personal", "Calendar Discovery", userId, now, now, "UTC"),\n      db.prepare(`INSERT INTO space_memberships(id,space_id,user_id,role,created_at,updated_at)\n        VALUES(?,?,?,?,?,?)`).bind(`mem_${suffix}`, spaceId, userId, "owner", now, now),\n      db.prepare(`INSERT INTO space_people(id,space_id,linked_user_id,display_name,created_at,updated_at)\n        VALUES(?,?,?,?,?,?)`).bind(`per_${suffix}`, spaceId, userId, "Calendar Tester", now, now),\n      db.prepare(`INSERT INTO application_model_access(application_id,model_key,max_access,created_by_type,created_by_id)\n        VALUES(?,?,?,?,?)`).bind(clientId, "event", "write", "service", "svc_test_admin"),\n    ]);\n    const accessToken = await token(privateKey, "user", userId, clientId, ["resources:read", "resources:write"]);\n    const expectedCalendar = {\n      allDayField: "isAllDay",\n      timedStartField: "startAt",\n      timedEndField: "endAt",\n      startTimezoneField: "startTimezone",\n      endTimezoneField: "endTimezone",\n      allDayStartField: "startDate",\n      allDayEndExclusiveField: "endDateExclusive",\n      attendeePersonField: "attendeePersonIds",\n    };\n\n    const single = await request(publicKey, accessToken, `/api/v1/spaces/${spaceId}/_discovery`);\n    expect(single.status).toBe(200);\n    const singlePayload = await single.json<{ data: { models: Array<{\n      key: string; capabilities: string[]; capabilityBindings: { calendar?: Record<string, string> };\n    }> } }>();\n    const singleEvent = singlePayload.data.models.find((entry) => entry.key === "event");\n    expect(singleEvent?.capabilities).toContain("calendar");\n    expect(singleEvent?.capabilityBindings).toEqual({ calendar: expectedCalendar });\n\n    const aggregate = await request(publicKey, accessToken, "/api/v1/me/_discovery");\n    expect(aggregate.status).toBe(200);\n    const aggregatePayload = await aggregate.json<{ data: { spaces: Array<{\n      spaceId: string; models: Array<{ key: string; capabilityBindings: { calendar?: Record<string, string> } }>;\n    }> } }>();\n    const aggregateEvent = aggregatePayload.data.spaces\n      .find((entry) => entry.spaceId === spaceId)?.models.find((entry) => entry.key === "event");\n    expect(aggregateEvent?.capabilityBindings).toEqual({ calendar: expectedCalendar });\n  });\n\n'''
+          test_path.write_text(test.replace(marker, calendar_test + marker, 1))
+
+          # Human-readable contract/spec alignment.
+          replace_once('apps/core/AGENTS.md', 'current Kernel version: 0.24.0', 'current Kernel version: 0.25.0')
+          replace_once('README.md', 'The current repository Core Kernel contract is **0.24.0**.', 'The current repository Core Kernel contract is **0.25.0**.')
+          replace_once('docs/architecture.md', '  current Kernel contract: 0.24.0', '  current Kernel contract: 0.25.0')
+          arch_path = Path('docs/architecture.md')
+          arch = arch_path.read_text()
+          arch_marker = 'Kernel `0.24.0` also projects a minimal current human-readable Space label alongside an already-authorized Runtime Discovery Space reference, so n8n, MCP, Agents and generated UI can present the same Space without acquiring Space membership-management metadata or authority.'
+          if arch.count(arch_marker) != 1:
+              raise SystemExit('architecture 0.24 marker missing')
+          arch_add = arch_marker + ' Kernel `0.25.0` adds bounded standard Capability field-role bindings to the same projection, beginning with Calendar timed/all-day field roles; these bindings expose reusable semantics without promoting adapter UI layout into platform truth.'
+          arch_path.write_text(arch.replace(arch_marker, arch_add, 1))
+
+          contracts_path = Path('docs/contracts.md')
+          contracts = contracts_path.read_text()
+          contracts = contracts.replace('As of Core Kernel `0.24.0`, ordinary model paths/schemas', 'As of Core Kernel `0.25.0`, ordinary model paths/schemas', 1)
+          cmarker = 'Kernel `0.24.0` adds a minimal current `spaceName` label to already-authorized Runtime Discovery Space references; the label is Context Projection, not Space-detail or membership-management authority.'
+          if contracts.count(cmarker) != 1:
+              raise SystemExit('contracts 0.24 history marker missing')
+          contracts = contracts.replace(cmarker, cmarker + ' Kernel `0.25.0` adds bounded `capabilityBindings` for standard Capability field roles, beginning with Calendar, while preserving the existing `capabilities` inventory; the bindings are semantic Context Projection, not UI layout or mutation authority.', 1)
+          rmarker = 'Dynamic relation targets are therefore never serialized as static JSON Schema `enum` values.'
+          if contracts.count(rmarker) != 1:
+              raise SystemExit('contracts Runtime Discovery relation marker missing')
+          contracts = contracts.replace(rmarker, rmarker + '\n\nKernel `0.25.0` also exposes a bounded `capabilityBindings` object on each discovered model. `capabilities` remains the backwards-compatible inventory of enabled standard Capability names. `capabilityBindings.calendar` carries only the canonical model-field roles already declared by the published Calendar Capability mapping (all-day marker, timed start/end, timezone fields, all-day date range and optional attendee field). Generic clients may use those roles to understand mutually exclusive timed/all-day shapes without guessing Event field names. Core execution remains authoritative for Calendar validation, and the projection deliberately contains no renderer/widget/layout instructions.', 1)
+          contracts_path.write_text(contracts)
+
+          spec_path = Path('docs/model-definition-spec.md')
+          spec = spec_path.read_text()
+          smarker = 'Calendar contributes timed/all-day shape validation and semantic time-window query behavior. It does not currently contribute a model-specific Workflow Action.'
+          if spec.count(smarker) != 1:
+              raise SystemExit('model-definition-spec Calendar marker missing')
+          spec_path.write_text(spec.replace(smarker, smarker + '\n\nRuntime Discovery may project these canonical Calendar field roles through a bounded Capability binding so generic clients can distinguish timed from all-day inputs without inferring field names. That projection is derived from this Model Definition mapping, contains no UI layout semantics and does not replace execution-time Calendar validation.', 1))
+          PY
+      - name: Commit generated patch and remove bootstrap workflow
+        shell: bash
+        run: |
+          rm .github/workflows/capability-bindings-bootstrap.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'feat(core): expose Capability field roles in Runtime Discovery'
+          git push origin HEAD:feat/runtime-capability-bindings
