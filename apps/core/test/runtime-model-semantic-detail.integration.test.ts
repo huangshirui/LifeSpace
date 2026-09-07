@@ -183,6 +183,12 @@ describe("Progressive single-model semantic detail", () => {
     expect(data.fields.find((field: { key: string }) => field.key === "ownerPersonId")?.relation).toEqual({
       targetModel: "person",
       cardinality: "one",
+      resolution: {
+        supported: true,
+        method: "POST",
+        pathTemplate: "/api/v1/spaces/{spaceId}/_reference-resolutions/{modelKey}/{fieldKey}",
+        maxIds: 50,
+      },
     });
     expect(data.query.search).toEqual({ parameter: "q", minLength: 1, maxLength: 100 });
     expect(data.query.filters).toEqual(expect.arrayContaining([

@@ -171,7 +171,7 @@ describe("shared Model semantic projection", () => {
     expect(temporalPaths[occurrence.invocation.pathTemplate]?.post?.["x-lifespace-concurrency"]).toEqual(occurrence.concurrency);
   });
 
-  it("matches generated field relation/default evidence", async () => {
+  it("matches generated structural field relation/default evidence without leaking Kernel hydration operations into mct_*", async () => {
     const event = published(EVENT_MODEL_DEFINITION);
     const facts = projectModelSemanticFacts(event);
     const contract = await generateModelContract([event]);
@@ -180,7 +180,19 @@ describe("shared Model semantic projection", () => {
     const resource = jsonSchema.$defs.EventResource;
 
     const attendee = facts.fields.find((field) => field.key === "attendeePersonIds")!;
-    expect(resource.properties?.attendeePersonIds?.["x-lifespace-relation"]).toEqual(attendee.relation);
+    const generatedRelation = resource.properties?.attendeePersonIds?.["x-lifespace-relation"] as Record<string, unknown>;
+    expect(generatedRelation).toEqual({
+      targetModel: attendee.relation?.targetModel,
+      cardinality: attendee.relation?.cardinality,
+    });
+    expect(generatedRelation).not.toHaveProperty("lookup");
+    expect(generatedRelation).not.toHaveProperty("resolution");
+    expect(attendee.relation?.resolution).toEqual({
+      supported: true,
+      method: "POST",
+      pathTemplate: "/api/v1/spaces/{spaceId}/_reference-resolutions/{modelKey}/{fieldKey}",
+      maxIds: 50,
+    });
     for (const [key, value] of Object.entries(facts.defaults)) {
       if (create.properties?.[key]) expect(create.properties[key].default).toEqual(value);
     }

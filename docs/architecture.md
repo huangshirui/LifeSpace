@@ -323,7 +323,7 @@ Platform Admin Control-Plane Contract
 Kernel Contract
   apps/core/openapi.yaml
   explicit product-facing Space / Grant / Creation Draft / Model Admin primitives
-  current Kernel contract: 0.27.0
+  current Kernel contract: 0.28.0
 
 Platform Admin Control-Plane Contract
   apps/core/platform-admin.openapi.yaml

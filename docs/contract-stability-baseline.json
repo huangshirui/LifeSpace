@@ -176,7 +176,7 @@
     {
       "id": "core-kernel",
       "source": "apps/core/openapi.yaml",
-      "operationSetSha256": "sha256:ad36574efe47dcd7b251dc2d6b2e1919c38a4261a873a2668275e76b875a1b55",
+      "operationSetSha256": "sha256:cf12831b46e5edcb527aa892845dd0ca537176dc075e819a7d91072ac1348fca",
       "groups": [
         {
           "id": "core-operational",
@@ -219,6 +219,12 @@
           "maturity": "candidate",
           "visibility": "public",
           "operationPattern": "^GET /api/v1/spaces/\\{spaceId\\}/_relation-targets/\\{modelKey\\}/\\{fieldKey\\}$"
+        },
+        {
+          "id": "core-reference-resolution",
+          "maturity": "candidate",
+          "visibility": "public",
+          "operationPattern": "^POST /api/v1/spaces/\\{spaceId\\}/_reference-resolutions/\\{modelKey\\}/\\{fieldKey\\}$"
         },
         {
           "id": "core-agent-delegation",

@@ -1,10 +1,12 @@
 import type { CalendarCapabilityDefinition, TemporalCapabilityDefinition } from "./capability-definition";
 import type { FieldDefinition, ModelAccess } from "./model-definition";
 import type { PublishedModel } from "./model-registry";
+import { relationSemanticMetadata, type RelationResolutionDescriptor } from "./relation-semantic";
 
 export type ModelRelationSemantic = {
   targetModel: string;
   cardinality: "one" | "many";
+  resolution: RelationResolutionDescriptor;
 };
 
 export type ModelSemanticField = FieldDefinition & {
@@ -127,18 +129,7 @@ export function modelActionConcurrency(): ModelSemanticActionConcurrency {
 }
 
 export function relationSemantic(field: FieldDefinition): ModelRelationSemantic | null {
-  switch (field.type) {
-    case "person":
-      return { targetModel: "person", cardinality: "one" };
-    case "person_list":
-      return { targetModel: "person", cardinality: "many" };
-    case "record":
-      return { targetModel: field.targetModel!, cardinality: "one" };
-    case "record_list":
-      return { targetModel: field.targetModel!, cardinality: "many" };
-    default:
-      return null;
-  }
+  return relationSemanticMetadata(field);
 }
 
 export function modelFieldSemanticFacts(model: PublishedModel): ModelSemanticField[] {

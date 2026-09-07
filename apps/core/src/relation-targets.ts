@@ -1,15 +1,31 @@
-import type { Hono } from "hono";
+import type { Context, Hono } from "hono";
 import type { Bindings, Variables } from "./env";
 import { ApiError, success } from "./http";
-import type { FieldDefinition } from "./model-definition";
 import { requireModelAccess } from "./model-authorization";
 import { getRuntimeModel } from "./model-registry";
 import { requireModelPolicy } from "./policy";
+import {
+  REFERENCE_RESOLUTION_MAX_IDS,
+  relationDiscoveryMetadata,
+  type RelationDiscoveryMetadata,
+} from "./relation-semantic";
+
+export {
+  REFERENCE_RESOLUTION_MAX_IDS,
+  REFERENCE_RESOLUTION_PATH,
+  RELATION_TARGET_LOOKUP_PATH,
+  relationDiscoveryMetadata,
+  type RelationDiscoveryMetadata,
+} from "./relation-semantic";
 
 type AppEnv = { Bindings: Bindings; Variables: Variables };
 type App = Hono<AppEnv>;
+type AppContext = Context<AppEnv>;
 
 type PersonTarget = { id: string; label: string };
+type ReferenceResolutionItem =
+  | { id: string; status: "resolved"; label: string }
+  | { id: string; status: "unavailable" };
 type PersonCursor = {
   v: 1;
   kind: "person";
@@ -20,71 +36,6 @@ type PersonCursor = {
   label: string;
   id: string;
 };
-
-export const RELATION_TARGET_LOOKUP_PATH = "/api/v1/spaces/{spaceId}/_relation-targets/{modelKey}/{fieldKey}";
-
-export type RelationDiscoveryMetadata = {
-  targetModel: string;
-  cardinality: "one" | "many";
-  lookup:
-    | {
-      supported: true;
-      method: "GET";
-      pathTemplate: typeof RELATION_TARGET_LOOKUP_PATH;
-      searchParameter: "q";
-      cursorParameter: "cursor";
-      limitParameter: "limit";
-    }
-    | {
-      supported: false;
-      reason: "reference-label-unavailable";
-    };
-};
-
-export function relationDiscoveryMetadata(field: FieldDefinition): RelationDiscoveryMetadata | null {
-  switch (field.type) {
-    case "person":
-      return {
-        targetModel: "person",
-        cardinality: "one",
-        lookup: {
-          supported: true,
-          method: "GET",
-          pathTemplate: RELATION_TARGET_LOOKUP_PATH,
-          searchParameter: "q",
-          cursorParameter: "cursor",
-          limitParameter: "limit",
-        },
-      };
-    case "person_list":
-      return {
-        targetModel: "person",
-        cardinality: "many",
-        lookup: {
-          supported: true,
-          method: "GET",
-          pathTemplate: RELATION_TARGET_LOOKUP_PATH,
-          searchParameter: "q",
-          cursorParameter: "cursor",
-          limitParameter: "limit",
-        },
-      };
-    case "record":
-      return {
-        targetModel: field.targetModel!,
-        cardinality: "one",
-        lookup: { supported: false, reason: "reference-label-unavailable" },
-      };
-    case "record_list":
-      return {
-        targetModel: field.targetModel!,
-        cardinality: "many",
-        lookup: { supported: false, reason: "reference-label-unavailable" },
-      };
-    default:
-      return null;
-  }
-}
 
 function encodeCursor(cursor: PersonCursor): string {
   const bytes = new TextEncoder().encode(JSON.stringify(cursor));
@@ -208,32 +159,100 @@ async function listPersonTargets(
   return { items: page, nextCursor };
 }
 
+async function parseReferenceIds(request: Request): Promise<string[]> {
+  const body = await request.json<unknown>().catch(() => null);
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    throw new ApiError("INVALID_REQUEST", "Request body must be a JSON object", 400);
+  }
+  const input = body as Record<string, unknown>;
+  if (Object.keys(input).length !== 1 || !Object.hasOwn(input, "ids")) {
+    throw new ApiError("INVALID_REQUEST", "Request body must contain only ids", 400);
+  }
+  if (!Array.isArray(input.ids) || input.ids.length < 1 || input.ids.length > REFERENCE_RESOLUTION_MAX_IDS) {
+    throw new ApiError(
+      "INVALID_REQUEST",
+      `ids must contain 1-${REFERENCE_RESOLUTION_MAX_IDS} reference IDs`,
+      400,
+    );
+  }
+  return input.ids.map((value) => {
+    if (typeof value !== "string" || value.length > 200 || !/^per_[A-Za-z0-9_-]+$/u.test(value)) {
+      throw new ApiError("INVALID_REQUEST", "Person reference IDs must match ^per_ and contain at most 200 characters", 400);
+    }
+    return value;
+  });
+}
+
+async function resolvePersonReferences(env: Bindings, spaceId: string, ids: string[]): Promise<ReferenceResolutionItem[]> {
+  const uniqueIds = [...new Set(ids)];
+  const placeholders = uniqueIds.map(() => "?").join(",");
+  const rows = await env.DB.prepare(`SELECT id,display_name label
+    FROM space_people
+    WHERE space_id=? AND deleted_at IS NULL AND id IN (${placeholders})`)
+    .bind(spaceId, ...uniqueIds)
+    .all<PersonTarget>();
+  const byId = new Map(rows.results.map((row) => [row.id, row.label]));
+  return ids.map((id) => {
+    const label = byId.get(id);
+    return label === undefined
+      ? { id, status: "unavailable" as const }
+      : { id, status: "resolved" as const, label };
+  });
+}
+
+async function authorizeSourceRelation(
+  context: AppContext,
+  spaceId: string,
+  modelKey: string,
+  fieldKey: string,
+): Promise<{ fieldType: string; relation: RelationDiscoveryMetadata }> {
+  const model = modelKey ? await getRuntimeModel(context.env, modelKey) : null;
+  if (!model) throw new ApiError("MODEL_NOT_FOUND", "Published model not found", 404);
+  const field = fieldKey ? model.definition.fields[fieldKey] : undefined;
+  if (!field) throw new ApiError("FIELD_NOT_FOUND", `Field ${fieldKey || "<missing>"} is not declared by model ${model.key}`, 404);
+  const relation = relationDiscoveryMetadata(field);
+  if (!relation) throw new ApiError("FIELD_NOT_RELATION", `Field ${fieldKey} is not a relation field`, 400);
+
+  const principal = context.get("principal");
+  const access = await requireModelAccess(context.env, principal, spaceId, model, "read");
+  await requireModelPolicy(context.env, principal, spaceId, model, "read", undefined, undefined, { personId: access.actorPersonId });
+  return { fieldType: field.type, relation };
+}
+
 export function registerRelationTargetRoutes(app: App): void {
   app.get("/api/v1/spaces/:spaceId/_relation-targets/:modelKey/:fieldKey", async (context) => {
     const spaceId = context.req.param("spaceId");
     const modelKey = context.req.param("modelKey");
     const fieldKey = context.req.param("fieldKey");
-    const model = modelKey ? await getRuntimeModel(context.env, modelKey) : null;
-    if (!model) throw new ApiError("MODEL_NOT_FOUND", "Published model not found", 404);
-    const field = fieldKey ? model.definition.fields[fieldKey] : undefined;
-    if (!field) throw new ApiError("FIELD_NOT_FOUND", `Field ${fieldKey || "<missing>"} is not declared by model ${model.key}`, 404);
-
-    const relation = relationDiscoveryMetadata(field);
-    if (!relation) throw new ApiError("FIELD_NOT_RELATION", `Field ${fieldKey} is not a relation field`, 400);
-
-    const principal = context.get("principal");
-    const access = await requireModelAccess(context.env, principal, spaceId, model, "read");
-    await requireModelPolicy(context.env, principal, spaceId, model, "read", undefined, undefined, { personId: access.actorPersonId });
+    const { fieldType, relation } = await authorizeSourceRelation(context, spaceId, modelKey, fieldKey);
 
     if (!relation.lookup.supported) {
       throw new ApiError(
         "RELATION_TARGET_LOOKUP_UNSUPPORTED",
-        `Relation target lookup for ${field.type} requires canonical record reference-label semantics`,
+        `Relation target lookup for ${fieldType} requires canonical record reference-label semantics`,
         409,
       );
     }
 
-    const result = await listPersonTargets(context.env, spaceId, model.key, fieldKey, new URL(context.req.url).searchParams);
+    const result = await listPersonTargets(context.env, spaceId, modelKey, fieldKey, new URL(context.req.url).searchParams);
     return context.json(success(result));
+  });
+
+  app.post("/api/v1/spaces/:spaceId/_reference-resolutions/:modelKey/:fieldKey", async (context) => {
+    const spaceId = context.req.param("spaceId");
+    const modelKey = context.req.param("modelKey");
+    const fieldKey = context.req.param("fieldKey");
+    const { fieldType, relation } = await authorizeSourceRelation(context, spaceId, modelKey, fieldKey);
+
+    if (!relation.resolution.supported) {
+      throw new ApiError(
+        "REFERENCE_RESOLUTION_UNSUPPORTED",
+        `Reference resolution for ${fieldType} requires canonical record reference-label semantics`,
+        409,
+      );
+    }
+
+    const ids = await parseReferenceIds(context.req.raw);
+    return context.json(success({ items: await resolvePersonReferences(context.env, spaceId, ids) }));
   });
 }
