@@ -39,6 +39,9 @@ assert.match(profile.contracts?.coreKernel ?? "", /^\d+\.\d+\.\d+$/u, "HomeMew C
 assert.match(profile.contracts?.identity ?? "", /^\d+\.\d+\.\d+$/u, "HomeMew Identity pin must be an explicit semantic version");
 assert.notEqual(profile.contracts?.coreKernel, "", "HomeMew Core pin must remain explicit");
 assert.notEqual(profile.contracts?.identity, "", "HomeMew Identity pin must remain explicit");
+if (profile.contracts?.integrationEventing != null) {
+  assert.match(profile.contracts.integrationEventing, /^\d+\.\d+\.\d+$/u, "HomeMew Eventing pin must be an explicit semantic version when present");
+}
 // Accepted application pins are compatibility evidence and do not silently follow later platform package versions.
 void corePackage;
 void identityPackage;

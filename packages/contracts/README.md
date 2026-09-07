@@ -6,6 +6,7 @@ Canonical API syntax remains owned by the services and Model Registry:
 
 - `apps/identity/openapi.yaml` — Identity contract;
 - `apps/core/openapi.yaml` — Core Kernel contract;
+- `apps/core/integration-eventing.openapi.yaml` — Integration/Eventing contract for consumers that use Eventing;
 - immutable `mct_*` Model Contract revisions — environment-local ordinary-model OpenAPI/JSON Schema evidence;
 - application integration policy such as `infra/homemew-integration-profile.json`.
 
@@ -26,6 +27,8 @@ Accepted staging mct evidence:
 ```
 
 The accepted HomeMew profile was promoted to Core Kernel 0.21.0 / Identity 0.6.0 after `Deploy staging` run #67 (`33842249069`) proved the HomeMew integration Golden Flow on that Kernel, including Event/Task CRUD, Task semantic Action, stale-version denial, governed Change attribution, real public Eventing delivery, disabled-subscriber revocation and the typed-runtime performance gate. Kernel 0.21.0 is a Candidate/Public invitation-transport security migration: invite preview/join callers carry the possession token in the JSON body instead of the URL path. Repository search found no current HomeMew application dependency on those invite preview/join routes, so this promotion requires no HomeMew application code migration.
+
+The current accepted HomeMew tuple predates the #109 split, so its historical Core pin still contains Eventing representation. It is not silently rewritten. The next HomeMew promotion on Core 0.31.0 or later must add an explicit Integration/Eventing pin; the staging-candidate exporter includes that version and contract file so staging evidence can prove the migration before the accepted profile changes.
 
 ### Cross-environment model identity
 
@@ -56,6 +59,7 @@ The release rule is therefore:
 Identity version
 + Core Kernel version
 + HomeMew Model Semantic Fingerprint
++ Integration/Eventing version (for post-split HomeMew releases that use Eventing)
 = cross-environment application compatibility identity
 
 mct_* = immutable environment-local contract/deployment evidence
@@ -71,6 +75,7 @@ The bundle contains:
 
 - `identity.openapi.yaml`;
 - `core-kernel.openapi.yaml`;
+- `integration-eventing.openapi.yaml` when the accepted profile pins Eventing;
 - `model-contract.openapi.json`;
 - `model-contract.schema.json`;
 - `model-contract.manifest.json`;

@@ -47,6 +47,8 @@ async function fetchJson(url, { bearer } = {}) {
 const profile = readJson("infra/homemew-integration-profile.json");
 const corePackage = readJson("apps/core/package.json");
 const identityPackage = readJson("apps/identity/package.json");
+const integrationEventingContract = readJson("apps/core/integration-eventing.openapi.yaml");
+const integrationEventingVersion = integrationEventingContract.info?.version;
 const coreBase = (process.env.LIFESPACE_CORE_STAGING_URL ?? "https://core-staging.aisr.online").replace(/\/+$/u, "");
 const identityBase = (process.env.LIFESPACE_IDENTITY_STAGING_URL ?? "https://auth-staging.aisr.online").replace(/\/+$/u, "");
 const expectedEnvironment = process.env.LIFESPACE_HANDOFF_ENVIRONMENT ?? "staging";
@@ -54,8 +56,8 @@ const modelAdminBearer = process.env.LIFESPACE_MODEL_ADMIN_BEARER ?? process.env
 const modelContractEvidenceId = process.env.LIFESPACE_HANDOFF_MODEL_CONTRACT ?? profile.evidence?.acceptedStagingModelContract ?? "";
 
 if (!modelAdminBearer) throw new Error("LIFESPACE_MODEL_ADMIN_BEARER or LIFESPACE_STAGING_MODEL_ADMIN_BEARER is required");
-if (profile.contracts?.coreKernel !== corePackage.version || profile.contracts?.identity !== identityPackage.version) {
-  throw new Error(`HomeMew accepted handoff remains pinned to Core ${profile.contracts?.coreKernel} / Identity ${profile.contracts?.identity}, while repository current contracts are Core ${corePackage.version} / Identity ${identityPackage.version}. Do not export newer source OpenAPI under the older accepted tuple; complete an explicit downstream compatibility/staging decision and repin first.`);
+if (profile.contracts?.coreKernel !== corePackage.version || profile.contracts?.identity !== identityPackage.version || profile.contracts?.integrationEventing !== integrationEventingVersion) {
+  throw new Error(`HomeMew accepted handoff remains pinned to Core ${profile.contracts?.coreKernel} / Identity ${profile.contracts?.identity} / Eventing ${profile.contracts?.integrationEventing ?? "pre-split"}, while repository current contracts are Core ${corePackage.version} / Identity ${identityPackage.version} / Eventing ${integrationEventingVersion}. Do not export newer source OpenAPI under the older accepted tuple; complete an explicit downstream compatibility/staging decision and repin first.`);
 }
 const acceptedModelSemantics = acceptedHomeMewModelSemantics(profile);
 if (!/^mct_[a-f0-9]{64}$/u.test(modelContractEvidenceId)) throw new Error("HomeMew Model Contract evidence id is invalid");
@@ -99,6 +101,7 @@ assertHomeMewModelSemanticCompatibility(profile, modelContract.manifest.models, 
 
 const files = new Map([
   ["core-kernel.openapi.yaml", readFileSync(new URL("apps/core/openapi.yaml", ROOT), "utf8")],
+  ["integration-eventing.openapi.yaml", readFileSync(new URL("apps/core/integration-eventing.openapi.yaml", ROOT), "utf8")],
   ["identity.openapi.yaml", readFileSync(new URL("apps/identity/openapi.yaml", ROOT), "utf8")],
   ["model-contract.openapi.json", json(modelContract.openapi)],
   ["model-contract.schema.json", json(modelContract.jsonSchema)],
@@ -115,6 +118,7 @@ const handoff = {
   contracts: {
     identity: profile.contracts.identity,
     coreKernel: profile.contracts.coreKernel,
+    integrationEventing: profile.contracts.integrationEventing,
     modelSemanticFingerprint: acceptedModelSemantics.fingerprint,
   },
   evidence: {

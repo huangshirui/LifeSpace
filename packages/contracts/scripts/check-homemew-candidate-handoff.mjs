@@ -17,9 +17,12 @@ assert.match(candidateExporter, /identityData\?\.contractVersion !== identityPac
 assert.match(candidateExporter, /calculateModelSemanticFingerprint/u, "candidate export must calculate current model semantic identity");
 assert.match(candidateExporter, /promotionRequired/u, "candidate export must state whether explicit downstream promotion is still required");
 assert.match(candidateExporter, /acceptedBaseline/u, "candidate evidence must preserve the accepted baseline as comparison metadata");
+assert.match(candidateExporter, /integrationEventing: integrationEventingVersion/u, "candidate export must pin the independent Integration/Eventing version");
+assert.match(candidateExporter, /integration-eventing\.openapi\.yaml/u, "candidate export must include the independent Integration/Eventing contract file");
 
 assert.match(acceptedExporter, /HomeMew accepted handoff remains pinned/u, "accepted exporter must remain fail-closed on current/accepted contract drift");
 assert.match(acceptedExporter, /profile\.contracts\?\.coreKernel !== corePackage\.version/u, "accepted exporter must still reject newer Core source contracts under an older pin");
+assert.match(acceptedExporter, /profile\.contracts\?\.integrationEventing !== integrationEventingVersion/u, "accepted exporter must reject an unpinned or stale Eventing contract after the split");
 
 assert.match(workflow, /export:homemew:candidate/u, "staging deploy must export current candidate evidence");
 assert.match(workflow, /packages\/contracts\/dist\/homemew-candidate/u, "staging deploy must upload the candidate directory");

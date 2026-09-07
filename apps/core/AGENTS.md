@@ -161,7 +161,14 @@ Business-facing Core Kernel contract:
 
 ```text
 apps/core/openapi.yaml
-current Kernel version: 0.30.0
+current Kernel version: 0.31.0
+```
+
+Integration/Eventing public contract (same Worker, independent lifecycle):
+
+```text
+apps/core/integration-eventing.openapi.yaml
+current Integration/Eventing version: 0.1.0
 ```
 
 Model Registry / Model Contract governance contract:
@@ -186,7 +193,7 @@ immutable Model Contract Revision: mct_<sha256>
 
 Do not put Console-only privileged APIs into the Kernel contract simply because they are served by the same Worker. Do not duplicate ordinary model routes into either code-owned contract.
 
-Console Model publish/retire profiles may reference the existing Kernel Model Admin request/response schemas; they must not become a second hand-maintained Model Definition schema.
+Console Model publish/retire profiles reuse the Model Control Plane request/response schemas; they must not become a second hand-maintained Model Definition schema.
 
 ## HomeMew migration rules
 

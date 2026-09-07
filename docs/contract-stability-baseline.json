@@ -176,7 +176,7 @@
     {
       "id": "core-kernel",
       "source": "apps/core/openapi.yaml",
-      "operationSetSha256": "sha256:18c2d94bae01924749ec6bae26cabfad5aa7f0e262f4f5248310f9c406b048b1",
+      "operationSetSha256": "sha256:812c6505f514641e0df580148b19da594ecc648495f65fb1ddc70a8c29c2980c",
       "groups": [
         {
           "id": "core-operational",
@@ -239,16 +239,23 @@
           "operationPattern": "^GET /api/v1/spaces/\\{spaceId\\}/changes(?:/\\{recordId\\})?$"
         },
         {
-          "id": "core-integration-eventing",
-          "maturity": "candidate",
-          "visibility": "public",
-          "operationPattern": "^(GET|POST) /api/v1/(event-subscriptions|webhook-endpoints)$|^(PATCH|DELETE) /api/v1/event-subscriptions/\\{subscriptionId\\}$|^(PATCH|DELETE) /api/v1/webhook-endpoints/\\{endpointId\\}$|^GET /api/v1/webhook-endpoints/\\{endpointId\\}/deliveries$|^POST /api/v1/webhook-endpoints/\\{endpointId\\}/test$"
-        },
-        {
           "id": "core-creation-drafts",
           "maturity": "experimental",
           "visibility": "public",
           "operationPattern": "^(GET|POST|PATCH|DELETE) /api/v1/spaces/\\{spaceId\\}/creation-drafts(?:/.*)?$"
+        }
+      ]
+    },
+    {
+      "id": "integration-eventing",
+      "source": "apps/core/integration-eventing.openapi.yaml",
+      "operationSetSha256": "sha256:4889cc695c5ec46eb8fd5d41e4f136a44b40aef33e4b5e4c24db876e4eaa4d86",
+      "groups": [
+        {
+          "id": "integration-eventing-public",
+          "maturity": "candidate",
+          "visibility": "public",
+          "operationPattern": "^(GET|POST) /api/v1/(event-subscriptions|webhook-endpoints)$|^(PATCH|DELETE) /api/v1/event-subscriptions/\\{subscriptionId\\}$|^(PATCH|DELETE) /api/v1/webhook-endpoints/\\{endpointId\\}$|^GET /api/v1/webhook-endpoints/\\{endpointId\\}/deliveries$|^POST /api/v1/webhook-endpoints/\\{endpointId\\}/test$"
         }
       ]
     },

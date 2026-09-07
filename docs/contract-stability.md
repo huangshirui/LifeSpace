@@ -184,8 +184,10 @@ LifeSpace keeps coarse contract families:
 - **Identity Application Contract** — ordinary user/application/service/Agent identity and credential consumer syntax;
 - **Reality Runtime / Core Kernel Contract** — Space/Authority/Runtime-facing Kernel syntax;
 - **Model Contract Revision** — immutable generated ordinary-model OpenAPI/JSON Schema at `mct_*` content identity;
-- **Integration surface** — LifeSpace-owned integration/event semantics, currently physically represented in the Core Kernel contract but classified independently;
+- **Integration / Eventing Contract** — LifeSpace-owned integration/event semantics in `apps/core/integration-eventing.openapi.yaml`, independently versioned and compatibility-checked even while executed by the same Core Worker;
 - Platform Admin / Bootstrap / provisioning remain specialized/Internal for this Baseline.
+
+A consumer that does not use Eventing must not be forced to pin or repin the Integration/Eventing contract. A consumer that configures Webhook Endpoints/Event Subscriptions or receives signed Eventing deliveries pins the Integration/Eventing version in addition to the Runtime/Model contracts it actually consumes.
 
 Do not create a new version family merely because an implementation module or Worker exists.
 
