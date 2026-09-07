@@ -62,16 +62,16 @@ jobs:
           node-version: 24
       - run: pnpm install --frozen-lockfile
         if: steps.validation.outputs.run_full == 'true'
+      - name: Finalize Core Kernel 0.29 candidate in checkout
+        if: steps.validation.outputs.run_full == 'true'
+        run: node apps/core/scripts/finalize-kernel-029.mjs /tmp/lifespace-kernel-029-final
       - run: pnpm check
         if: steps.validation.outputs.run_full == 'true'
-      - name: Materialize Core Kernel 0.29 contract candidate
-        if: steps.validation.outputs.run_full == 'true'
-        run: node apps/core/scripts/materialize-kernel-029.mjs /tmp/core-openapi-029.yaml
-      - name: Upload Core Kernel 0.29 contract candidate
+      - name: Upload tested Core Kernel 0.29 final files
         if: steps.validation.outputs.run_full == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: core-openapi-029
-          path: /tmp/core-openapi-029.yaml
+          name: core-kernel-029-finalized
+          path: /tmp/lifespace-kernel-029-final
           if-no-files-found: error
           retention-days: 1
