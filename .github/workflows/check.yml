@@ -64,3 +64,14 @@ jobs:
         if: steps.validation.outputs.run_full == 'true'
       - run: pnpm check
         if: steps.validation.outputs.run_full == 'true'
+      - name: Materialize Core Kernel 0.29 contract candidate
+        if: steps.validation.outputs.run_full == 'true'
+        run: node apps/core/scripts/materialize-kernel-029.mjs /tmp/core-openapi-029.yaml
+      - name: Upload Core Kernel 0.29 contract candidate
+        if: steps.validation.outputs.run_full == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: core-openapi-029
+          path: /tmp/core-openapi-029.yaml
+          if-no-files-found: error
+          retention-days: 1
