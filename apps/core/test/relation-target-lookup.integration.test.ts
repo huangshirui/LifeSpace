@@ -191,7 +191,7 @@ describe("Relation target lookup", () => {
     expect(revoked.status).toBe(403);
   });
 
-  it("rejects non-relation fields and advertises record lookup as an explicit unsupported boundary", async () => {
+  it("rejects non-relation fields and advertises record lookup/resolution as an explicit unsupported boundary", async () => {
     const f = await fixture();
     const accessToken = await token(f.privateKey, "user", f.userId, f.clientId, ["resources:read"]);
     const response = await request(
@@ -205,10 +205,11 @@ describe("Relation target lookup", () => {
       targetModel: "task",
       cardinality: "one",
       lookup: { supported: false, reason: "reference-label-unavailable" },
+      resolution: { supported: false, reason: "reference-label-unavailable" },
     });
   });
 
-  it("exposes the generic Person lookup contract through Runtime Discovery", async () => {
+  it("exposes distinct generic Person lookup and held-ID resolution contracts through Runtime Discovery", async () => {
     const f = await fixture();
     const accessToken = await token(f.privateKey, "user", f.userId, f.clientId, ["resources:read"]);
     const response = await request(f.publicKey, accessToken, `/api/v1/spaces/${f.spaceId}/_discovery`);
@@ -228,6 +229,12 @@ describe("Relation target lookup", () => {
         searchParameter: "q",
         cursorParameter: "cursor",
         limitParameter: "limit",
+      },
+      resolution: {
+        supported: true,
+        method: "POST",
+        pathTemplate: "/api/v1/spaces/{spaceId}/_reference-resolutions/{modelKey}/{fieldKey}",
+        maxIds: 50,
       },
     });
   });
