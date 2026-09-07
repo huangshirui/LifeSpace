@@ -34,10 +34,14 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Validate finalizer syntax
-        run: node --check infra/scripts/finalize-public-contract-completeness-94-95.mjs
+        run: |
+          node --check infra/scripts/finalize-public-contract-completeness-94-95.mjs
+          node --check infra/scripts/post-finalize-public-contract-completeness-94-95.mjs
 
       - name: Materialize final contracts and docs
-        run: node infra/scripts/finalize-public-contract-completeness-94-95.mjs
+        run: |
+          node infra/scripts/finalize-public-contract-completeness-94-95.mjs
+          node infra/scripts/post-finalize-public-contract-completeness-94-95.mjs
 
       - name: Validate finalized repository
         run: pnpm check
@@ -47,6 +51,7 @@ jobs:
         run: |
           set -euo pipefail
           rm infra/scripts/finalize-public-contract-completeness-94-95.mjs
+          rm infra/scripts/post-finalize-public-contract-completeness-94-95.mjs
           rm .github/workflows/temporary-finalize-public-contract-94-95.yml
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
