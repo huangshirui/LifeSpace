@@ -85,7 +85,7 @@ async function fixture(): Promise<Fixture> {
   const suffix = crypto.randomUUID().replaceAll("-", "");
   const userId = `usr_inventory_${suffix}`;
   const serviceId = `svc_inventory_${suffix}`;
-  const agentId = `agt_inventory_${suffix}`;
+  const agentId = `agt_${suffix}`;
   const clientId = `app_inventory_${suffix}`;
   const firstSpaceId = `spc_inventory_a_${suffix}`;
   const secondSpaceId = `spc_inventory_b_${suffix}`;
