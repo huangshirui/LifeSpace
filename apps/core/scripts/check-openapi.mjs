@@ -3,7 +3,7 @@ import YAML from "yaml";
 
 const document = YAML.parse(fs.readFileSync(new URL("../openapi.yaml", import.meta.url), "utf8"));
 
-if (document.openapi !== "3.1.0" || document.info?.version !== "0.27.0") {
+if (document.openapi !== "3.1.0" || document.info?.version !== "0.28.0") {
   throw new Error("Core Kernel OpenAPI version metadata is invalid");
 }
 if (!document.info?.title?.includes("Kernel")) {
@@ -37,6 +37,7 @@ const requiredPaths = [
   "/api/v1/spaces/{spaceId}/_discovery",
   "/api/v1/spaces/{spaceId}/_discovery/models/{modelKey}",
   "/api/v1/spaces/{spaceId}/_relation-targets/{modelKey}/{fieldKey}",
+  "/api/v1/spaces/{spaceId}/_reference-resolutions/{modelKey}/{fieldKey}",
   "/api/v1/spaces/{spaceId}/agent-delegations",
   "/api/v1/spaces/{spaceId}/agent-delegations/{delegationId}",
   "/api/v1/spaces/{spaceId}/changes/{recordId}",
@@ -270,6 +271,34 @@ if (schemas.RuntimeDiscoveryField?.properties?.relation?.$ref !== "#/components/
     || JSON.stringify(schemas.RuntimeDiscoveryRelation?.properties?.cardinality?.enum) !== JSON.stringify(["one", "many"])) {
   throw new Error("Runtime Discovery relation metadata must expose bounded target/cardinality semantics");
 }
+const referenceResolution = document.paths?.["/api/v1/spaces/{spaceId}/_reference-resolutions/{modelKey}/{fieldKey}"]?.post;
+if (referenceResolution?.requestBody?.content?.["application/json"]?.schema?.$ref !== "#/components/schemas/ReferenceResolutionRequest"
+    || referenceResolution?.responses?.["200"]?.content?.["application/json"]?.schema?.$ref !== "#/components/schemas/ReferenceResolutionResponse"
+    || !referenceResolution?.description?.includes("opaque unavailable")
+    || !referenceResolution?.description?.includes("never proves mutation authority")) {
+  throw new Error("Reference Resolution must remain bounded, opaque and non-authoritative");
+}
+if (schemas.ReferenceResolutionRequest?.additionalProperties !== false
+    || schemas.ReferenceResolutionRequest?.properties?.ids?.minItems !== 1
+    || schemas.ReferenceResolutionRequest?.properties?.ids?.maxItems !== 50
+    || schemas.RuntimeRelationResolutionSupported?.properties?.method?.const !== "POST"
+    || schemas.RuntimeRelationResolutionSupported?.properties?.pathTemplate?.const !== "/api/v1/spaces/{spaceId}/_reference-resolutions/{modelKey}/{fieldKey}"
+    || schemas.RuntimeRelationResolutionSupported?.properties?.maxIds?.const !== 50
+    || schemas.RuntimeRelationResolutionUnsupported?.properties?.reason?.const !== "reference-label-unavailable") {
+  throw new Error("Reference Resolution request/descriptor bounds drifted");
+}
+if (!schemas.RuntimeDiscoveryRelation?.required?.includes("resolution")
+    || schemas.RuntimeDiscoveryRelation?.properties?.resolution?.oneOf?.length !== 2
+    || !schemas.RuntimeModelSemanticRelation?.required?.includes("resolution")
+    || schemas.RuntimeModelSemanticRelation?.properties?.resolution?.oneOf?.length !== 2) {
+  throw new Error("Discovery and static semantic detail must expose Reference Resolution capability structurally");
+}
+if (schemas.ReferenceResolutionResolved?.properties?.status?.const !== "resolved"
+    || schemas.ReferenceResolutionUnavailable?.properties?.status?.const !== "unavailable"
+    || schemas.ReferenceResolutionUnavailable?.properties?.label) {
+  throw new Error("Reference Resolution per-item opacity contract drifted");
+}
+
 const relationLookup = document.paths?.["/api/v1/spaces/{spaceId}/_relation-targets/{modelKey}/{fieldKey}"]?.get;
 const relationLookupSupported = schemas.RuntimeDiscoveryRelationLookupSupported;
 const relationLookupUnsupported = schemas.RuntimeDiscoveryRelationLookupUnsupported;
@@ -474,7 +503,7 @@ if (schemas.ModelContract?.properties?.id?.pattern !== "^mct_[a-f0-9]{64}$") {
   throw new Error("Model Contract revisions must be content-addressed mct_<sha256>");
 }
 
-if (schemas.StatusResponse?.properties?.data?.properties?.contractVersion?.const !== "0.27.0") {
+if (schemas.StatusResponse?.properties?.data?.properties?.contractVersion?.const !== "0.28.0") {
   throw new Error("Core Kernel status contract version drifted");
 }
 
