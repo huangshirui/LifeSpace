@@ -61,12 +61,25 @@ function decodeCursor(raw: string): RelationCursor {
       || typeof value.spaceId !== "string"
       || typeof value.modelKey !== "string"
       || typeof value.fieldKey !== "string"
-      || typeof value.targetModel !== "string"
+      || (value.kind === "record" && typeof value.targetModel !== "string")
+      || (value.kind === "person" && value.targetModel !== undefined && typeof value.targetModel !== "string")
       || (value.q !== null && typeof value.q !== "string")
       || typeof value.label !== "string"
       || typeof value.id !== "string"
     ) throw new Error("invalid cursor");
-    return value as RelationCursor;
+    return {
+      v: 1,
+      kind: value.kind,
+      spaceId: value.spaceId,
+      modelKey: value.modelKey,
+      fieldKey: value.fieldKey,
+      // Kernel 0.23 Person cursors did not carry targetModel. Preserve them by
+      // normalizing that legacy shape to the canonical Person target.
+      targetModel: value.kind === "person" ? (value.targetModel ?? "person") : value.targetModel!,
+      q: value.q,
+      label: value.label,
+      id: value.id,
+    };
   } catch {
     throw new ApiError("INVALID_QUERY", "cursor is invalid", 400);
   }
