@@ -1,0 +1,1255 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "LifeSpace Core Model Control Plane API",
+    "version": "0.1.0",
+    "description": "Canonical independently versioned control-plane contract for Model Registry validation/publication/retirement, immutable Model Contract evidence, and the optional AI-assisted proposal lifecycle. Every operation is service-principal-only and requires models:manage. Model Definition DSL semantics remain owned by the normative specification and Core validator; this contract defines control-plane wire representation and does not become a second semantic source. LifeSpace Console may apply a separate Platform Admin human-actor/audit profile over selected mutations without changing service-automation authority."
+  },
+  "security": [
+    {
+      "bearerAuth": []
+    }
+  ],
+  "tags": [
+    {
+      "name": "Model Registry"
+    },
+    {
+      "name": "Model Contract Revisions"
+    },
+    {
+      "name": "AI Model Proposals"
+    }
+  ],
+  "paths": {
+    "/api/v1/model-admin/models": {
+      "get": {
+        "tags": [
+          "Model Registry"
+        ],
+        "operationId": "listPublishedModels",
+        "description": "Service-principal-only model administration. Requires models:manage.",
+        "responses": {
+          "200": {
+            "description": "Published Model Registry entries",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublishedModelListResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Model Registry"
+        ],
+        "operationId": "publishModelDefinition",
+        "description": "Service-principal-only validated publication. Successful mutation atomically activates a new Model Contract Revision.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PublishModelRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Model version published",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublishedModelResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          }
+        }
+      }
+    },
+    "/api/v1/model-admin/models/validate": {
+      "post": {
+        "tags": [
+          "Model Registry"
+        ],
+        "operationId": "validateModelDefinition",
+        "description": "Service-principal-only validation without publication.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ValidateModelRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Validation result and deterministic schema hash when valid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelValidationResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        }
+      }
+    },
+    "/api/v1/model-admin/models/{modelKey}": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/ModelKey"
+        }
+      ],
+      "get": {
+        "tags": [
+          "Model Registry"
+        ],
+        "operationId": "getPublishedModel",
+        "description": "Service-principal-only model administration. Requires models:manage.",
+        "responses": {
+          "200": {
+            "description": "Current published model version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublishedModelResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/api/v1/model-admin/models/{modelKey}/retire": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/ModelKey"
+        }
+      ],
+      "post": {
+        "tags": [
+          "Model Registry"
+        ],
+        "operationId": "retirePublishedModel",
+        "description": "Service-principal-only explicit retirement; version history and immutable contract evidence are retained.",
+        "responses": {
+          "204": {
+            "description": "Model retired and active Model Contract Revision changed atomically"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        }
+      }
+    },
+    "/api/v1/model-admin/contracts/active": {
+      "get": {
+        "tags": [
+          "Model Contract Revisions"
+        ],
+        "operationId": "getActiveModelContract",
+        "description": "Service-principal-only current immutable Model Contract Revision.",
+        "responses": {
+          "200": {
+            "description": "Active Model Contract Revision and Registry revision pointer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActiveModelContractResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        }
+      }
+    },
+    "/api/v1/model-admin/contracts/{contractId}": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/ContractId"
+        }
+      ],
+      "get": {
+        "tags": [
+          "Model Contract Revisions"
+        ],
+        "operationId": "getModelContractRevision",
+        "description": "Service-principal-only read of an immutable historical Model Contract Revision.",
+        "responses": {
+          "200": {
+            "description": "Immutable Model Contract Revision",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelContractResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/api/v1/model-admin/ai/proposals": {
+      "get": {
+        "tags": [
+          "AI Model Proposals"
+        ],
+        "operationId": "listAiModelProposals",
+        "description": "Service-principal-only AI-assisted Model Definition proposal list. Requires models:manage. Proposal generation is optional intelligence; Model Definition validation/publication remains authoritative in Core.",
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/AiModelProposalStatus"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AiModelProposalListResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "AI Model Proposals"
+        ],
+        "operationId": "createAiModelProposal",
+        "description": "Service-principal-only optional AI proposal generation. Requires models:manage and is rate-limited. The generated definition is validated by the same canonical Model Definition validator before it can become proposed/publishable.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateAiModelProposalRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Proposal created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AiModelProposalResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "429": {
+            "description": "AI model proposal rate limit reached",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "AI provider failed or returned an invalid response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "AI provider is not configured",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "AI provider timed out",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/model-admin/ai/proposals/{proposalId}": {
+      "parameters": [
+        {
+          "name": "proposalId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "pattern": "^mdr_ai_[A-Za-z0-9_-]+$"
+          }
+        }
+      ],
+      "get": {
+        "tags": [
+          "AI Model Proposals"
+        ],
+        "operationId": "getAiModelProposal",
+        "description": "Service-principal-only read of one AI Model Definition proposal. Requires models:manage.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AiModelProposalResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/api/v1/model-admin/ai/proposals/{proposalId}/publish": {
+      "parameters": [
+        {
+          "name": "proposalId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "pattern": "^mdr_ai_[A-Za-z0-9_-]+$"
+          }
+        }
+      ],
+      "post": {
+        "tags": [
+          "AI Model Proposals"
+        ],
+        "operationId": "publishAiModelProposal",
+        "description": "Service-principal-only publication of a validated proposal through the canonical Model Registry publication path. Requires models:manage; compatibility under-classification remains rejected by Core.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PublishAiModelProposalRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Proposal published through the canonical Model Registry",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublishAiModelProposalResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        }
+      }
+    },
+    "/api/v1/model-admin/ai/proposals/{proposalId}/discard": {
+      "parameters": [
+        {
+          "name": "proposalId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "pattern": "^mdr_ai_[A-Za-z0-9_-]+$"
+          }
+        }
+      ],
+      "post": {
+        "tags": [
+          "AI Model Proposals"
+        ],
+        "operationId": "discardAiModelProposal",
+        "description": "Service-principal-only discard of a non-published AI Model Definition proposal. Requires models:manage. The request body must be an empty JSON object.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "maxProperties": 0
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Proposal discarded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AiModelProposalResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT or lsp_pat_"
+      }
+    },
+    "parameters": {
+      "ModelKey": {
+        "name": "modelKey",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]{1,62}$"
+        }
+      },
+      "ContractId": {
+        "name": "contractId",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "pattern": "^mct_[a-f0-9]{64}$"
+        }
+      }
+    },
+    "responses": {
+      "Unauthorized": {
+        "description": "Authentication failed",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            }
+          }
+        }
+      },
+      "Forbidden": {
+        "description": "Scope, Space permission, principal type or model-admin boundary denied access",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            }
+          }
+        }
+      },
+      "InvalidRequest": {
+        "description": "Invalid request shape",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            }
+          }
+        }
+      },
+      "Conflict": {
+        "description": "Optimistic concurrency, state or Registry mutation conflict",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            }
+          }
+        }
+      },
+      "ValidationError": {
+        "description": "Validation failed",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            }
+          }
+        }
+      },
+      "NotFound": {
+        "description": "Resource not found",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "schemas": {
+      "CreateAiModelProposalRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "instruction"
+        ],
+        "properties": {
+          "instruction": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 5000
+          },
+          "targetModelKey": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]{1,62}$"
+          }
+        }
+      },
+      "AiModelProposalStatus": {
+        "type": "string",
+        "enum": [
+          "draft",
+          "proposed",
+          "published",
+          "discarded"
+        ]
+      },
+      "AiModelProposal": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "status",
+          "modelKey",
+          "baseModelVersion",
+          "instruction",
+          "definition",
+          "validation",
+          "schemaHash",
+          "diff",
+          "recommendedCompatibility",
+          "publicationInProgress",
+          "ai",
+          "publishedModelId",
+          "createdBy",
+          "createdAt",
+          "updatedAt",
+          "publishedAt",
+          "discardedAt"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^mdr_ai_"
+          },
+          "status": {
+            "$ref": "#/components/schemas/AiModelProposalStatus"
+          },
+          "modelKey": {
+            "type": "string"
+          },
+          "baseModelVersion": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1
+          },
+          "instruction": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "definition": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Proposed Model Definition payload. Detailed DSL semantics remain governed by the normative Model Definition specification and Core validator; this control-plane contract is not a second DSL source."
+          },
+          "validation": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "schemaHash": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "diff": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": true
+          },
+          "recommendedCompatibility": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ModelCompatibility"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "publicationInProgress": {
+            "type": "boolean"
+          },
+          "ai": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "summary",
+              "warnings"
+            ],
+            "properties": {
+              "summary": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "warnings": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "publishedModelId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "createdBy": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "type",
+              "id",
+              "displayName"
+            ],
+            "properties": {
+              "type": {
+                "const": "service"
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "displayName": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "publishedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "discardedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        }
+      },
+      "AiModelProposalResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/AiModelProposal"
+          }
+        }
+      },
+      "AiModelProposalListResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AiModelProposal"
+            }
+          }
+        }
+      },
+      "PublishAiModelProposalRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "compatibility"
+        ],
+        "properties": {
+          "compatibility": {
+            "$ref": "#/components/schemas/ModelCompatibility"
+          }
+        }
+      },
+      "PublishAiModelProposalResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "proposal",
+          "publishedModel"
+        ],
+        "properties": {
+          "proposal": {
+            "$ref": "#/components/schemas/AiModelProposal"
+          },
+          "publishedModel": {
+            "$ref": "#/components/schemas/PublishedModel"
+          }
+        }
+      },
+      "PublishAiModelProposalResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/PublishAiModelProposalResult"
+          }
+        }
+      },
+      "PublishedModelListResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PublishedModel"
+            }
+          }
+        }
+      },
+      "PublishedModel": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "key",
+          "route",
+          "version",
+          "state",
+          "schemaHash",
+          "compatibility",
+          "definition",
+          "publishedAt"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^mdl_"
+          },
+          "key": {
+            "type": "string"
+          },
+          "route": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "state": {
+            "const": "published"
+          },
+          "schemaHash": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "compatibility": {
+            "$ref": "#/components/schemas/ModelCompatibility"
+          },
+          "definition": {
+            "$ref": "#/components/schemas/ModelDefinition"
+          },
+          "publishedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ModelCompatibility": {
+        "type": "string",
+        "enum": [
+          "initial",
+          "compatible",
+          "breaking"
+        ]
+      },
+      "ModelDefinition": {
+        "type": "object",
+        "description": "Closed declarative Model Definition v1 validated by Core. The full shape is governed by the Model Definition validator and generated model-contract schemas; arbitrary executable code, SQL or shell fragments are not supported.",
+        "additionalProperties": true
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "error"
+        ],
+        "properties": {
+          "error": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "code",
+              "message",
+              "requestId"
+            ],
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              },
+              "requestId": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      },
+      "PublishModelRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "definition",
+          "compatibility"
+        ],
+        "properties": {
+          "definition": {
+            "$ref": "#/components/schemas/ModelDefinition"
+          },
+          "compatibility": {
+            "$ref": "#/components/schemas/ModelCompatibility"
+          }
+        }
+      },
+      "PublishedModelResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/PublishedModel"
+          }
+        }
+      },
+      "ValidateModelRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "definition"
+        ],
+        "properties": {
+          "definition": {
+            "$ref": "#/components/schemas/ModelDefinition"
+          }
+        }
+      },
+      "ModelValidationResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "oneOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "valid",
+                  "definition",
+                  "schemaHash"
+                ],
+                "properties": {
+                  "valid": {
+                    "const": true
+                  },
+                  "definition": {
+                    "$ref": "#/components/schemas/ModelDefinition"
+                  },
+                  "schemaHash": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "valid",
+                  "issues"
+                ],
+                "properties": {
+                  "valid": {
+                    "const": false
+                  },
+                  "issues": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/components/schemas/ModelValidationIssue"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        }
+      },
+      "ModelValidationIssue": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "path",
+          "code",
+          "message"
+        ],
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "ActiveModelContractResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ModelContract"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "registryRevision"
+                ],
+                "properties": {
+                  "registryRevision": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                }
+              }
+            ]
+          }
+        }
+      },
+      "ModelContract": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "hash",
+          "manifest",
+          "openapi",
+          "jsonSchema",
+          "createdBy",
+          "createdAt"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^mct_[a-f0-9]{64}$"
+          },
+          "hash": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "manifest": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "models"
+            ],
+            "properties": {
+              "kind": {
+                "const": "lifespace-model-contract"
+              },
+              "models": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ModelContractManifestEntry"
+                }
+              }
+            }
+          },
+          "openapi": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "jsonSchema": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "createdBy": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "type",
+              "id",
+              "displayName"
+            ],
+            "properties": {
+              "type": {
+                "$ref": "#/components/schemas/PrincipalType"
+              },
+              "id": {
+                "type": "string"
+              },
+              "displayName": {
+                "type": "string"
+              }
+            }
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ModelContractManifestEntry": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "key",
+          "route",
+          "version",
+          "schemaHash"
+        ],
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "route": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "schemaHash": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          }
+        }
+      },
+      "PrincipalType": {
+        "type": "string",
+        "enum": [
+          "user",
+          "service",
+          "device"
+        ]
+      },
+      "ModelContractResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/ModelContract"
+          }
+        }
+      }
+    }
+  }
+}

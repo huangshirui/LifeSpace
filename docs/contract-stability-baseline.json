@@ -176,7 +176,7 @@
     {
       "id": "core-kernel",
       "source": "apps/core/openapi.yaml",
-      "operationSetSha256": "sha256:cf12831b46e5edcb527aa892845dd0ca537176dc075e819a7d91072ac1348fca",
+      "operationSetSha256": "sha256:18c2d94bae01924749ec6bae26cabfad5aa7f0e262f4f5248310f9c406b048b1",
       "groups": [
         {
           "id": "core-operational",
@@ -249,12 +249,6 @@
           "maturity": "experimental",
           "visibility": "public",
           "operationPattern": "^(GET|POST|PATCH|DELETE) /api/v1/spaces/\\{spaceId\\}/creation-drafts(?:/.*)?$"
-        },
-        {
-          "id": "core-model-control",
-          "maturity": "candidate",
-          "visibility": "internal",
-          "operationPattern": "^(GET|POST) /api/v1/model-admin/models$|^POST /api/v1/model-admin/models/validate$|^GET /api/v1/model-admin/models/\\{modelKey\\}$|^POST /api/v1/model-admin/models/\\{modelKey\\}/retire$|^GET /api/v1/model-admin/contracts/(active|\\{contractId\\})$"
         }
       ]
     },
@@ -268,6 +262,25 @@
           "maturity": "candidate",
           "visibility": "internal",
           "operationPattern": "^(GET|POST|PATCH|PUT|DELETE) /.*$"
+        }
+      ]
+    },
+    {
+      "id": "core-model-control-plane",
+      "source": "apps/core/model-control-plane.openapi.yaml",
+      "operationSetSha256": "sha256:07ff6fb5cb3e3dc8b0b2993420f708288610aa3e80a1fd5cd393c65c4bf5e09f",
+      "groups": [
+        {
+          "id": "core-model-registry-control",
+          "maturity": "candidate",
+          "visibility": "internal",
+          "operationPattern": "^(GET|POST) /api/v1/model-admin/models$|^POST /api/v1/model-admin/models/validate$|^GET /api/v1/model-admin/models/\\{modelKey\\}$|^POST /api/v1/model-admin/models/\\{modelKey\\}/retire$|^GET /api/v1/model-admin/contracts/(active|\\{contractId\\})$"
+        },
+        {
+          "id": "core-model-ai-proposals",
+          "maturity": "experimental",
+          "visibility": "internal",
+          "operationPattern": "^(GET|POST) /api/v1/model-admin/ai/proposals(?:/.*)?$"
         }
       ]
     },

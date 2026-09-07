@@ -1,10 +1,10 @@
 openapi: 3.1.0
 info:
   title: LifeSpace Core Platform Admin API
-  version: 0.1.0
+  version: 0.2.0
   description: >-
     Privileged LifeSpace Core control-plane contract for the LifeSpace Console and approved
-    platform automation. This contract is separate from the downstream Core Kernel Contract:
+    platform automation. This contract is separate from both the downstream Core Kernel Contract and the service-automation Model Control Plane Contract:
     adding or changing Console administration must not silently change an application's pinned
     Kernel contract. Unless explicitly documented otherwise, every operation requires a verified
     service-principal executor plus a dedicated Identity-signed platform-admin actor proof from
@@ -135,13 +135,13 @@ paths:
         required: true
         content:
           application/json:
-            schema: { $ref: './openapi.yaml#/components/schemas/PublishModelRequest' }
+            schema: { $ref: './model-control-plane.openapi.yaml#/components/schemas/PublishModelRequest' }
       responses:
         '201':
           description: Model version published
           content:
             application/json:
-              schema: { $ref: './openapi.yaml#/components/schemas/PublishedModelResponse' }
+              schema: { $ref: './model-control-plane.openapi.yaml#/components/schemas/PublishedModelResponse' }
         '400': { $ref: '#/components/responses/InvalidRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
