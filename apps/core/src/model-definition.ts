@@ -1,7 +1,14 @@
 import kernelSpaceRouteSegments from "../kernel-space-route-segments.json";
 import { validateCapabilities, type CapabilityDefinitions } from "./capability-definition";
 import { validateModelPolicies, type ModelPoliciesDefinition } from "./policy-definition";
+import {
+  parseReferenceLabelTemplate,
+  REFERENCE_LABEL_TEMPLATE_MAX_LENGTH,
+  type ReferenceLabelDefinition,
+} from "./reference-label-syntax";
 import { validateWorkflowActions, type WorkflowActionsDefinition } from "./workflow-definition";
+
+export type { ReferenceLabelDefinition } from "./reference-label-syntax";
 
 export const MODEL_DEFINITION_VERSION = 1 as const;
 
@@ -57,6 +64,7 @@ export type ModelDefinition = {
     plural: string;
   };
   fields: Record<string, FieldDefinition>;
+  referenceLabel?: ReferenceLabelDefinition;
   defaults?: Record<string, ModelDefaultValue>;
   query?: QueryDefinition;
   access: ModelAccess[];
@@ -97,6 +105,17 @@ const RESERVED_FIELDS = new Set([
 ]);
 const FIELD_TYPE_SET = new Set<string>(FIELD_TYPES);
 const ACCESS_SET = new Set<string>(["read", "write", "manage"]);
+const REFERENCE_LABEL_FIELD_TYPES = new Set<FieldType>([
+  "string",
+  "text",
+  "integer",
+  "number",
+  "boolean",
+  "date",
+  "datetime",
+  "timezone",
+  "enum",
+]);
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -213,6 +232,98 @@ function validDefault(field: FieldDefinition, value: unknown): value is ModelDef
   return false;
 }
 
+function validateReferenceLabel(
+  raw: unknown,
+  fields: Record<string, FieldDefinition>,
+  issues: ModelValidationIssue[],
+): ReferenceLabelDefinition | undefined {
+  if (raw === undefined) return undefined;
+  if (!isObject(raw)) {
+    issue(issues, "referenceLabel", "INVALID_REFERENCE_LABEL", "referenceLabel must be an object");
+    return undefined;
+  }
+
+  const startIssueCount = issues.length;
+  const allowed = new Set(["field", "template"]);
+  for (const property of Object.keys(raw)) {
+    if (!allowed.has(property)) {
+      issue(issues, `referenceLabel.${property}`, "UNKNOWN_PROPERTY", `Unsupported referenceLabel property ${property}`);
+    }
+  }
+
+  const hasField = Object.prototype.hasOwnProperty.call(raw, "field");
+  const hasTemplate = Object.prototype.hasOwnProperty.call(raw, "template");
+  if (hasField === hasTemplate) {
+    issue(
+      issues,
+      "referenceLabel",
+      "INVALID_REFERENCE_LABEL",
+      "referenceLabel must contain exactly one of field or template",
+    );
+    return undefined;
+  }
+
+  if (hasField) {
+    const fieldKey = typeof raw.field === "string" ? raw.field : "";
+    if (!FIELD_KEY.test(fieldKey)) {
+      issue(issues, "referenceLabel.field", "INVALID_REFERENCE_LABEL_FIELD", "referenceLabel.field must be a valid field key");
+      return undefined;
+    }
+    const field = fields[fieldKey];
+    if (!field) {
+      issue(issues, "referenceLabel.field", "UNKNOWN_REFERENCE_LABEL_FIELD", `${fieldKey} is not a declared field`);
+    } else if (!REFERENCE_LABEL_FIELD_TYPES.has(field.type)) {
+      issue(
+        issues,
+        "referenceLabel.field",
+        "INVALID_REFERENCE_LABEL_FIELD_TYPE",
+        "referenceLabel may reference only scalar fields",
+      );
+    }
+    return issues.length === startIssueCount ? { field: fieldKey } : undefined;
+  }
+
+  const template = typeof raw.template === "string" ? raw.template.trim() : "";
+  if (!template || template.length > REFERENCE_LABEL_TEMPLATE_MAX_LENGTH) {
+    issue(
+      issues,
+      "referenceLabel.template",
+      "INVALID_REFERENCE_LABEL_TEMPLATE",
+      `referenceLabel.template must contain 1-${REFERENCE_LABEL_TEMPLATE_MAX_LENGTH} characters`,
+    );
+    return undefined;
+  }
+  const parsed = parseReferenceLabelTemplate(template);
+  if (!parsed) {
+    issue(
+      issues,
+      "referenceLabel.template",
+      "INVALID_REFERENCE_LABEL_TEMPLATE",
+      "referenceLabel.template must use only simple {field} placeholders and at most 8 placeholders",
+    );
+    return undefined;
+  }
+  for (const fieldKey of parsed.fields) {
+    const field = fields[fieldKey];
+    if (!field) {
+      issue(
+        issues,
+        "referenceLabel.template",
+        "UNKNOWN_REFERENCE_LABEL_FIELD",
+        `${fieldKey} is not a declared field`,
+      );
+    } else if (!REFERENCE_LABEL_FIELD_TYPES.has(field.type)) {
+      issue(
+        issues,
+        "referenceLabel.template",
+        "INVALID_REFERENCE_LABEL_FIELD_TYPE",
+        `${fieldKey} is not a scalar field and cannot be used in a reference label`,
+      );
+    }
+  }
+  return issues.length === startIssueCount ? { template } : undefined;
+}
+
 export function validateModelDefinition(input: unknown): ModelValidationResult {
   const issues: ModelValidationIssue[] = [];
   if (!isObject(input)) {
@@ -229,6 +340,7 @@ export function validateModelDefinition(input: unknown): ModelValidationResult {
     "description",
     "display",
     "fields",
+    "referenceLabel",
     "defaults",
     "query",
     "access",
@@ -471,6 +583,8 @@ export function validateModelDefinition(input: unknown): ModelValidationResult {
     }
   }
 
+  const referenceLabel = validateReferenceLabel(input.referenceLabel, fields, issues);
+
   const defaultsInput = input.defaults === undefined
     ? undefined
     : isObject(input.defaults)
@@ -625,6 +739,7 @@ export function validateModelDefinition(input: unknown): ModelValidationResult {
     ...(description ? { description } : {}),
     display: { singular, plural },
     fields,
+    ...(referenceLabel ? { referenceLabel } : {}),
     ...(Object.keys(defaults).length ? { defaults } : {}),
     ...(query ? { query } : {}),
     access: accessInput as ModelAccess[],
