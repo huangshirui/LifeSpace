@@ -1,4 +1,4 @@
-import type { Hono } from "hono";
+import type { Context, Hono } from "hono";
 import type { Bindings, Variables } from "./env";
 import { ApiError, success } from "./http";
 import { requireModelAccess } from "./model-authorization";
@@ -6,7 +6,6 @@ import { getRuntimeModel } from "./model-registry";
 import { requireModelPolicy } from "./policy";
 import {
   REFERENCE_RESOLUTION_MAX_IDS,
-  RELATION_TARGET_LOOKUP_PATH,
   relationDiscoveryMetadata,
   type RelationDiscoveryMetadata,
 } from "./relation-semantic";
@@ -21,6 +20,7 @@ export {
 
 type AppEnv = { Bindings: Bindings; Variables: Variables };
 type App = Hono<AppEnv>;
+type AppContext = Context<AppEnv>;
 
 type PersonTarget = { id: string; label: string };
 type ReferenceResolutionItem =
@@ -175,13 +175,12 @@ async function parseReferenceIds(request: Request): Promise<string[]> {
       400,
     );
   }
-  const ids = input.ids.map((value) => {
+  return input.ids.map((value) => {
     if (typeof value !== "string" || value.length > 200 || !/^per_[A-Za-z0-9_-]+$/u.test(value)) {
       throw new ApiError("INVALID_REQUEST", "Person reference IDs must match ^per_ and contain at most 200 characters", 400);
     }
     return value;
   });
-  return ids;
 }
 
 async function resolvePersonReferences(env: Bindings, spaceId: string, ids: string[]): Promise<ReferenceResolutionItem[]> {
@@ -202,7 +201,7 @@ async function resolvePersonReferences(env: Bindings, spaceId: string, ids: stri
 }
 
 async function authorizeSourceRelation(
-  context: Parameters<Parameters<App["get"]>[1]>[0],
+  context: AppContext,
   spaceId: string,
   modelKey: string,
   fieldKey: string,
