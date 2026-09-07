@@ -47,6 +47,9 @@ async function fetchJson(url, { bearer } = {}) {
 const profile = readJson("infra/homemew-integration-profile.json");
 const corePackage = readJson("apps/core/package.json");
 const identityPackage = readJson("apps/identity/package.json");
+const integrationEventingContract = readJson("apps/core/integration-eventing.openapi.yaml");
+const integrationEventingVersion = integrationEventingContract.info?.version;
+if (!/^\d+\.\d+\.\d+$/u.test(integrationEventingVersion ?? "")) throw new Error("Integration/Eventing contract version is invalid");
 const coreBase = (process.env.LIFESPACE_CORE_STAGING_URL ?? "https://core-staging.aisr.online").replace(/\/+$/u, "");
 const identityBase = (process.env.LIFESPACE_IDENTITY_STAGING_URL ?? "https://auth-staging.aisr.online").replace(/\/+$/u, "");
 const expectedEnvironment = process.env.LIFESPACE_HANDOFF_ENVIRONMENT ?? "staging";
@@ -106,11 +109,13 @@ const candidateFingerprint = calculateModelSemanticFingerprint(candidateModels);
 const matchesAcceptedTuple = (
   corePackage.version === profile.contracts?.coreKernel
   && identityPackage.version === profile.contracts?.identity
+  && integrationEventingVersion === profile.contracts?.integrationEventing
   && candidateFingerprint === acceptedModelSemantics.fingerprint
 );
 
 const files = new Map([
   ["core-kernel.openapi.yaml", readFileSync(new URL("apps/core/openapi.yaml", ROOT), "utf8")],
+  ["integration-eventing.openapi.yaml", readFileSync(new URL("apps/core/integration-eventing.openapi.yaml", ROOT), "utf8")],
   ["identity.openapi.yaml", readFileSync(new URL("apps/identity/openapi.yaml", ROOT), "utf8")],
   ["model-contract.openapi.json", json(modelContract.openapi)],
   ["model-contract.schema.json", json(modelContract.jsonSchema)],
@@ -126,6 +131,7 @@ const candidate = {
   contracts: {
     identity: identityPackage.version,
     coreKernel: corePackage.version,
+    integrationEventing: integrationEventingVersion,
     modelSemanticFingerprint: candidateFingerprint,
   },
   evidence: {
@@ -139,6 +145,7 @@ const candidate = {
     pinStatus: profile.contracts?.pinStatus,
     identity: profile.contracts?.identity,
     coreKernel: profile.contracts?.coreKernel,
+    integrationEventing: profile.contracts?.integrationEventing ?? null,
     modelSemanticFingerprint: acceptedModelSemantics.fingerprint,
     modelContractEvidence: profile.evidence?.acceptedStagingModelContract,
   },

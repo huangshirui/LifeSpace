@@ -322,8 +322,14 @@ Platform Admin Control-Plane Contract
 ```text
 Kernel Contract
   apps/core/openapi.yaml
-  explicit product-facing Space / Grant / Creation Draft / Model Admin primitives
-  current Kernel contract: 0.30.0
+  explicit product-facing Space / Grant / Runtime Discovery / Change History / Creation Draft primitives
+  current Kernel contract: 0.31.0
+
+Integration / Eventing Contract
+  apps/core/integration-eventing.openapi.yaml
+  Webhook Endpoint / Event Subscription / delivery + signed outbound Webhook representation
+  independent public companion contract: 0.1.0
+  executed by the same Core Worker; not part of the Kernel version/fingerprint
 
 Model Control Plane Contract
   apps/core/model-control-plane.openapi.yaml
@@ -338,7 +344,7 @@ Model Contract Revision
   concrete published ordinary-model CRUD/query/action/Capability contract
 ```
 
-The separate Model Control Plane prevents Model Registry governance and optional AI proposal syntax from being pinned by ordinary Runtime consumers. The separate Platform Admin contract prevents adding Console-only privileged APIs from forcing unrelated HomeMew/ALOHA business-contract pin changes. HomeMew handoff artifacts therefore continue to pin Identity/Core Kernel/Model Contract and do not automatically include the Platform Admin contract.
+The separate Model Control Plane prevents Model Registry governance and optional AI proposal syntax from being pinned by ordinary Runtime consumers. The independent Integration/Eventing contract does the same for Webhook/Eventing representation: Runtime-only consumers pin Identity/Core Kernel/Model semantics without Eventing, while consumers that use Eventing add its version. The separate Platform Admin contract prevents Console-only privileged APIs from forcing unrelated HomeMew/ALOHA business-contract pin changes. All three contract families may still execute through the same Core Worker without sharing a compatibility lifecycle.
 
 Contract publication/versioning rules are normative in `docs/contracts.md`.
 
