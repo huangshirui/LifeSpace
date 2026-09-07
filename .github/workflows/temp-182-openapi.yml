@@ -1,0 +1,31 @@
+name: Temp 182 OpenAPI materialize
+
+on:
+  push:
+    branches: [feat/182-compact-runtime-inventory]
+    paths:
+      - .github/workflows/temp-182-openapi.yml
+
+permissions:
+  contents: write
+
+jobs:
+  materialize:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/182-compact-runtime-inventory
+      - run: node infra/scripts/temp-182-openapi.mjs
+      - name: Commit generated contract
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add apps/core/openapi.yaml
+          if git diff --cached --quiet; then
+            echo "OpenAPI already materialized"
+            exit 0
+          fi
+          git commit -m "docs(core): publish Kernel 0.27.0 contract"
+          git push origin HEAD:feat/182-compact-runtime-inventory
