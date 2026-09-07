@@ -95,7 +95,7 @@ function auth(token: string) {
 }
 
 describe("Agent-ready Authority + Change", () => {
-  it("bounds an Agent by delegation, narrows Discovery, records Change attribution and revokes immediately", async () => {
+  it("bounds an Agent by delegation, paginates Change History, records attribution and revokes immediately", async () => {
     const { privateKey, publicKey } = await keys();
     const userId = `usr_${crypto.randomUUID().replaceAll("-", "")}`;
     const agentId = `agt_${crypto.randomUUID().replaceAll("-", "")}`;
@@ -142,6 +142,16 @@ describe("Agent-ready Authority + Change", () => {
     expect(eventResponse.status).toBe(201);
     const createdEvent = await jsonData(eventResponse);
 
+    const updatedResponse = await request(`/api/v1/spaces/${spaceId}/events/${createdEvent.id}`, {
+      method: "PATCH",
+      headers: auth(delegated),
+      body: JSON.stringify({
+        version: createdEvent.version,
+        summary: "Agent-updated family event",
+      }),
+    }, publicKey);
+    expect(updatedResponse.status).toBe(200);
+
     const taskDenied = await request(`/api/v1/spaces/${spaceId}/tasks`, {
       method: "POST",
       headers: auth(delegated),
@@ -149,13 +159,34 @@ describe("Agent-ready Authority + Change", () => {
     }, publicKey);
     expect(taskDenied.status).toBe(403);
 
-    const changesResponse = await request(`/api/v1/spaces/${spaceId}/changes/${createdEvent.id}`, {
-      headers: { authorization: `Bearer ${delegated}` },
-    }, publicKey);
-    expect(changesResponse.status).toBe(200);
-    const changes = await jsonData(changesResponse);
-    expect(changes.items).toHaveLength(1);
-    expect(changes.items[0]).toMatchObject({
+    const firstPageResponse = await request(
+      `/api/v1/spaces/${spaceId}/changes?recordId=${createdEvent.id}&limit=1`,
+      { headers: { authorization: `Bearer ${delegated}` } },
+      publicKey,
+    );
+    expect(firstPageResponse.status).toBe(200);
+    const firstPage = await jsonData(firstPageResponse);
+    expect(firstPage.items).toHaveLength(1);
+    expect(typeof firstPage.nextCursor).toBe("string");
+    expect(firstPage.items[0]).toMatchObject({
+      operation: "update",
+      principal: { type: "user", id: userId },
+      actor: { type: "agent", id: agentId },
+      applicationId: "test-app",
+      delegationId: delegation.id,
+      versionBefore: 1,
+      versionAfter: 2,
+    });
+
+    const secondPageResponse = await request(
+      `/api/v1/spaces/${spaceId}/changes?recordId=${createdEvent.id}&limit=1&cursor=${encodeURIComponent(firstPage.nextCursor)}`,
+      { headers: { authorization: `Bearer ${delegated}` } },
+      publicKey,
+    );
+    expect(secondPageResponse.status).toBe(200);
+    const secondPage = await jsonData(secondPageResponse);
+    expect(secondPage.nextCursor).toBeNull();
+    expect(secondPage.items[0]).toMatchObject({
       operation: "create",
       principal: { type: "user", id: userId },
       actor: { type: "agent", id: agentId },
@@ -164,6 +195,21 @@ describe("Agent-ready Authority + Change", () => {
       versionBefore: null,
       versionAfter: 1,
     });
+
+    const wrongRecordCursor = await request(
+      `/api/v1/spaces/${spaceId}/changes?recordId=rec_other&cursor=${encodeURIComponent(firstPage.nextCursor)}`,
+      { headers: { authorization: `Bearer ${delegated}` } },
+      publicKey,
+    );
+    expect(wrongRecordCursor.status).toBe(400);
+
+    const legacyResponse = await request(`/api/v1/spaces/${spaceId}/changes/${createdEvent.id}`, {
+      headers: { authorization: `Bearer ${delegated}` },
+    }, publicKey);
+    expect(legacyResponse.status).toBe(200);
+    const legacy = await jsonData(legacyResponse);
+    expect(legacy.items).toHaveLength(2);
+    expect(legacy.nextCursor).toBeUndefined();
 
     const agentCannotSelfGrant = await request(`/api/v1/spaces/${spaceId}/agent-delegations`, {
       method: "POST",
@@ -213,11 +259,12 @@ describe("Agent-ready Authority + Change", () => {
     }, publicKey);
     expect(response.status).toBe(201);
     const created = await jsonData(response);
-    const changesResponse = await request(`/api/v1/spaces/${spaceId}/changes/${created.id}`, {
+    const changesResponse = await request(`/api/v1/spaces/${spaceId}/changes?recordId=${created.id}`, {
       headers: { authorization: `Bearer ${direct}` },
     }, publicKey);
     const changes = await jsonData(changesResponse);
     expect(changes.items[0].actor).toEqual({ type: "user", id: userId });
     expect(changes.items[0].delegationId).toBeNull();
+    expect(changes.nextCursor).toBeNull();
   });
 });
