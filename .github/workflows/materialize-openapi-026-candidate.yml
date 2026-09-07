@@ -5,13 +5,19 @@ on:
     branches: [main]
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   materialize:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.head_ref == 'feat/175-progressive-model-detail' &&
+      github.actor == 'huangshirui'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
       - name: Materialize candidate
         shell: bash
         run: |
@@ -96,7 +102,7 @@ jobs:
               capabilityParameters: { type: 'array', items: { $ref: '#/components/schemas/RuntimeModelSemanticQueryParameter' } },
             },
           };
-          schemas.RuntimeModelSemanticActionConcurrency = schemas.RuntimeDiscoveryAction.properties.concurrency;
+          schemas.RuntimeModelSemanticActionConcurrency = structuredClone(schemas.RuntimeDiscoveryAction.properties.concurrency);
           schemas.RuntimeModelSemanticAction = {
             type: 'object', additionalProperties: false, required: ['key','access','kind','input','concurrency','invocation'],
             properties: {
@@ -136,12 +142,24 @@ jobs:
             type: 'object', additionalProperties: false, required: ['data'], properties: { data: { $ref: '#/components/schemas/RuntimeModelSemanticDetail' } },
           };
 
-          fs.writeFileSync('/tmp/openapi.yaml', JSON.stringify(doc));
+          fs.writeFileSync(path, JSON.stringify(doc));
           console.log(JSON.stringify({ version: doc.info.version, path: Boolean(doc.paths['/api/v1/spaces/{spaceId}/_discovery/models/{modelKey}']), schemas: Object.keys(schemas).filter((name) => name.startsWith('RuntimeModelSemantic')).length }));
           NODE
+      - name: Commit generated contract to the isolated feature branch
+        shell: bash
+        run: |
+          if git diff --quiet -- apps/core/openapi.yaml; then
+            echo "Core OpenAPI candidate already materialized"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add apps/core/openapi.yaml
+          git commit -m "contract(core): add progressive model semantic detail"
+          git push origin "HEAD:${{ github.head_ref }}"
       - uses: actions/upload-artifact@v4
         with:
           name: core-openapi-026-candidate
-          path: /tmp/openapi.yaml
+          path: apps/core/openapi.yaml
           if-no-files-found: error
           retention-days: 1
