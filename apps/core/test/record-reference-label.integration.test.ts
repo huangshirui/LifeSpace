@@ -6,21 +6,8 @@ import type { Bindings, Principal } from "../src/env";
 import { publishModelDefinition } from "../src/model-registry";
 
 type TestEnv = { DB: D1Database };
-
-type ResourcePayload = {
-  data: {
-    id: string;
-    version: number;
-  };
-};
-
-type LookupPayload = {
-  data: {
-    items: Array<{ id: string; label: string }>;
-    nextCursor: string | null;
-  };
-};
-
+type ResourcePayload = { data: { id: string; version: number } };
+type LookupPayload = { data: { items: Array<{ id: string; label: string }>; nextCursor: string | null } };
 type ResolutionPayload = {
   data: {
     items: Array<
@@ -91,7 +78,6 @@ async function fixture() {
   const userId = `usr_record_ref_${suffix}`;
   const clientId = `app_record_ref_${suffix}`;
   const spaceId = `spc_record_ref_${suffix}`;
-  const personId = `per_record_ref_${suffix}`;
   const now = new Date().toISOString();
 
   await db.batch([
@@ -100,7 +86,7 @@ async function fixture() {
     db.prepare(`INSERT INTO space_memberships(id,space_id,user_id,role,created_at,updated_at)
       VALUES(?,?,?,?,?,?)`).bind(`mem_record_ref_${suffix}`, spaceId, userId, "owner", now, now),
     db.prepare(`INSERT INTO space_people(id,space_id,linked_user_id,display_name,created_at,updated_at)
-      VALUES(?,?,?,?,?,?)`).bind(personId, spaceId, userId, "Reference Label Tester", now, now),
+      VALUES(?,?,?,?,?,?)`).bind(`per_record_ref_${suffix}`, spaceId, userId, "Reference Label Tester", now, now),
   ]);
 
   const publisher: Principal = {
@@ -110,77 +96,31 @@ async function fixture() {
     scopes: ["models:manage"],
     tokenId: `tok_record_ref_admin_${suffix}`,
   };
-
-  const accessToken = await token(privateKey, userId, clientId);
-  return { db, privateKey, publicKey, suffix, userId, clientId, spaceId, now, publisher, accessToken };
+  return {
+    db,
+    privateKey,
+    publicKey,
+    suffix,
+    userId,
+    clientId,
+    spaceId,
+    publisher,
+    accessToken: await token(privateKey, userId, clientId),
+  };
 }
 
-async function grantAppModel(
-  db: D1Database,
-  clientId: string,
-  modelKey: string,
-  maxAccess: "read" | "write",
-) {
+async function grantAppModel(db: D1Database, clientId: string, modelKey: string, maxAccess: "read" | "write") {
   await db.prepare(`INSERT INTO application_model_access(application_id,model_key,max_access,created_by_type,created_by_id)
     VALUES(?,?,?,?,?)`).bind(clientId, modelKey, maxAccess, "service", "svc_record_ref_test").run();
 }
 
 async function publishPair(
   f: Awaited<ReturnType<typeof fixture>>,
-  options: { referenceLabel?: { field: string } | { template: string } },
-) {
-  const targetKey = `ref_target_${f.suffix}`;
-  const targetRoute = `ref-target-${f.suffix}`;
-  const sourceKey = `ref_source_${f.suffix}`;
-  const sourceRoute = `ref-source-${f.suffix}`;
-
-  await publishModelDefinition({ DB: f.db } as Bindings, f.publisher, {
-    definitionVersion: 1,
-    key: targetKey,
-    route: targetRoute,
-    display: { singular: "Reference Target", plural: "Reference Targets" },
-    fields: {
-      name: { type: "string", required: true, minLength: 1, maxLength: 80 },
-      date: { type: "date", nullable: true },
-    },
-    ...(options.referenceLabel ? { referenceLabel: options.referenceLabel } : {}),
-    query: { searchable: ["name"], sortable: ["name"] },
-    access: ["read", "write"],
-    lifecycle: { optimisticConcurrency: true, softDelete: true },
-  }, "initial");
-
-  await publishModelDefinition({ DB: f.db } as Bindings, f.publisher, {
-    definitionVersion: 1,
-    key: sourceKey,
-    route: sourceRoute,
-    display: { singular: "Reference Source", plural: "Reference Sources" },
-    fields: {
-      title: { type: "string", required: true, minLength: 1, maxLength: 80 },
-      targetRecordId: { type: "record", targetModel: targetKey, nullable: true },
-      targetRecordIds: { type: "record_list" },
-    },
-    access: ["read", "write"],
-    lifecycle: { optimisticConcurrency: true, softDelete: true },
-  }, "initial");
-
-  // record_list needs the same explicit target model as record.
-  const source = await f.db.prepare(`SELECT definition_json FROM model_registry WHERE model_key=? AND state='published' LIMIT 1`)
-    .bind(sourceKey).first<{ definition_json: string }>();
-  expect(source).toBeTruthy();
-
-  await grantAppModel(f.db, f.clientId, targetKey, "write");
-  await grantAppModel(f.db, f.clientId, sourceKey, "read");
-  return { targetKey, targetRoute, sourceKey, sourceRoute };
-}
-
-async function publishValidPair(
-  f: Awaited<ReturnType<typeof fixture>>,
   referenceLabel?: { field: string } | { template: string },
 ) {
   const targetKey = `ref_target_${f.suffix}`;
   const targetRoute = `ref-target-${f.suffix}`;
   const sourceKey = `ref_source_${f.suffix}`;
-  const sourceRoute = `ref-source-${f.suffix}`;
 
   await publishModelDefinition({ DB: f.db } as Bindings, f.publisher, {
     definitionVersion: 1,
@@ -200,7 +140,7 @@ async function publishValidPair(
   await publishModelDefinition({ DB: f.db } as Bindings, f.publisher, {
     definitionVersion: 1,
     key: sourceKey,
-    route: sourceRoute,
+    route: `ref-source-${f.suffix}`,
     display: { singular: "Reference Source", plural: "Reference Sources" },
     fields: {
       title: { type: "string", required: true, minLength: 1, maxLength: 80 },
@@ -213,7 +153,7 @@ async function publishValidPair(
 
   await grantAppModel(f.db, f.clientId, targetKey, "write");
   await grantAppModel(f.db, f.clientId, sourceKey, "read");
-  return { targetKey, targetRoute, sourceKey, sourceRoute };
+  return { targetKey, targetRoute, sourceKey };
 }
 
 async function createTarget(
@@ -235,7 +175,7 @@ async function createTarget(
 describe("ordinary-record reference projection", () => {
   it("uses one model-owned template for lookup, search, pagination and batch resolution", async () => {
     const f = await fixture();
-    const { targetKey, targetRoute, sourceKey } = await publishValidPair(f, { template: "{name} · {date}" });
+    const { targetKey, targetRoute, sourceKey } = await publishPair(f, { template: "{name} · {date}" });
 
     const alpha = await createTarget(f, targetRoute, { name: "Alpha", date: "2026-09-07" });
     const beta = await createTarget(f, targetRoute, { name: "Beta", date: "2026-09-08" });
@@ -321,7 +261,7 @@ describe("ordinary-record reference projection", () => {
 
   it("uses the stable record ID when the target model does not declare an explicit referenceLabel", async () => {
     const f = await fixture();
-    const { targetRoute, sourceKey } = await publishValidPair(f);
+    const { targetRoute, sourceKey } = await publishPair(f);
     const target = await createTarget(f, targetRoute, { name: "No Heuristic Guess" });
 
     const lookup = await request(
