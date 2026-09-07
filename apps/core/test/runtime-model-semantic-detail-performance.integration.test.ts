@@ -130,6 +130,9 @@ describe("Progressive model semantic detail performance", () => {
       ENVIRONMENT: "test",
     });
 
+    const warm = await call(`/api/v1/spaces/${spaceId}/tasks`);
+    expect(warm.status).toBe(200);
+
     reset(counter);
     const before = await call(`/api/v1/spaces/${spaceId}/tasks`);
     expect(before.status).toBe(200);
@@ -151,8 +154,8 @@ describe("Progressive model semantic detail performance", () => {
     expect(detailRoundTrips).toBe(1);
     expect(detailMaxBindings).toBeLessThanOrEqual(100);
     expect(detailBytes).toBeLessThan(64 * 1024);
+    expect(ordinaryBefore).toBe(2);
     expect(ordinaryAfter).toBe(ordinaryBefore);
-    expect(ordinaryAfter).toBe(2);
 
     console.log("M3S2_MODEL_DETAIL_PERFORMANCE", JSON.stringify({
       environment: "Cloudflare Vitest local D1; wall time omitted as non-APAC diagnostic",
