@@ -1,6 +1,7 @@
 # Generic Consumer Reference Resolution v1
 
 Status: **Candidate / Public representation**  
+Kernel contract: **0.28.0**  
 Semantic owner: `docs/generic-consumer-m2-dynamic-authority-audit.md` §4–5, §10–12  
 Owning implementation: #191 under #165  
 Ordinary-record label dependency: #155
