@@ -1,6 +1,7 @@
 import type { CalendarCapabilityDefinition, TemporalCapabilityDefinition } from "./capability-definition";
 import type { FieldDefinition, ModelAccess } from "./model-definition";
 import type { PublishedModel } from "./model-registry";
+import { referenceLabelSemantic, type ReferenceLabelSemantic } from "./reference-label";
 import { relationSemanticMetadata, type RelationResolutionDescriptor } from "./relation-semantic";
 
 export type ModelRelationSemantic = {
@@ -109,6 +110,7 @@ export type ModelSemanticProjection = {
   schemaHash: string;
   display: { singular: string; plural: string };
   description: string | null;
+  referenceLabel: ReferenceLabelSemantic;
   declaredAccess: ModelAccess[];
   fields: ModelSemanticField[];
   defaults: Record<string, unknown>;
@@ -301,6 +303,7 @@ export function projectModelSemanticFacts(model: PublishedModel): ModelSemanticP
     schemaHash: model.schemaHash,
     display: structuredClone(model.definition.display),
     description: model.definition.description ?? null,
+    referenceLabel: referenceLabelSemantic(model.definition),
     declaredAccess: [...model.definition.access],
     fields: modelFieldSemanticFacts(model),
     defaults: structuredClone(model.definition.defaults ?? {}),
