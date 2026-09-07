@@ -4,6 +4,8 @@ import { describe, expect, it } from "vitest";
 import { createApp } from "../src/app";
 
 type TestEnv = { DB: D1Database };
+type IdentityCall = { url: string; method: string; secret: string | null };
+type IdentityState = "active" | "inactive" | "unavailable";
 
 function pem(label: "PRIVATE KEY" | "PUBLIC KEY", bytes: ArrayBuffer): string {
   const binary = String.fromCharCode(...new Uint8Array(bytes));
@@ -38,18 +40,51 @@ async function userToken(privateKey: string, userId: string) {
   }, privateKey, "RS256");
 }
 
-function identityBinding(principalId: string, scopes: string[], active = true): Fetcher {
+async function serviceJwt(privateKey: string, principalId: string, clientId = "homemew-external") {
+  const iat = Math.floor(Date.now() / 1000);
+  return sign({
+    iss: "lifespace-identity",
+    aud: "lifespace-core",
+    sub: principalId,
+    azp: clientId,
+    principal_type: "service",
+    scope: "spaces:read",
+    iat,
+    exp: iat + 900,
+    jti: `tok_${crypto.randomUUID()}`,
+  }, privateKey, "RS256");
+}
+
+function identityBinding(
+  principalId: string,
+  scopes: string[],
+  state: IdentityState = "active",
+  calls: IdentityCall[] = [],
+): Fetcher {
   return {
-    fetch: async (_input: RequestInfo | URL, init?: RequestInit) => {
-      const headers = new Headers(init?.headers);
-      if (headers.get("x-lifespace-internal-secret") !== "core-identity-test-secret-at-least-32-chars") {
+    fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
+      const request = new Request(input, init);
+      calls.push({
+        url: request.url,
+        method: request.method,
+        secret: request.headers.get("x-lifespace-internal-secret"),
+      });
+      if (request.headers.get("x-lifespace-internal-secret") !== "core-identity-test-secret-at-least-32-chars") {
         return new Response(JSON.stringify({ error: { code: "UNAUTHORIZED" } }), { status: 401, headers: { "content-type": "application/json" } });
       }
-      return new Response(JSON.stringify({
-        data: active
-          ? { active: true, audience: "lifespace-core", principal: { type: "service", id: principalId, clientId: "homemew-external", scopes, tokenId: "sat_test" } }
-          : { active: false },
-      }), { status: 200, headers: { "content-type": "application/json" } });
+      if (state === "unavailable") return new Response("unavailable", { status: 503 });
+
+      if (request.url.endsWith(`/introspection/v1/service-principals/${principalId}`)) {
+        return Response.json({ data: { active: state === "active" } });
+      }
+      if (request.url.endsWith("/introspection/v1/service-tokens")) {
+        return Response.json({
+          data: state === "active"
+            ? { active: true, audience: "lifespace-core", principal: { type: "service", id: principalId, clientId: "homemew-external", scopes, tokenId: "sat_test" } }
+            : { active: false },
+        });
+      }
+      return new Response("not found", { status: 404 });
     },
     connect: () => { throw new Error("not implemented"); },
   } as unknown as Fetcher;
@@ -80,19 +115,23 @@ async function createSpace(privateKey: string, publicKey: string, name: string) 
   return { ownerId, token, spaceId: body.data.id };
 }
 
-describe("Core Service API Token authentication", () => {
+async function grantSpaceRead(home: { token: string; spaceId: string }, principalId: string, publicKey: string) {
+  const response = await request(`/api/v1/spaces/${home.spaceId}/grants`, home.token, publicKey, undefined, {
+    method: "POST",
+    body: JSON.stringify({ granteeType: "service", granteeId: principalId, permission: "read", expiresAt: null }),
+  });
+  expect(response.status).toBe(201);
+  return (await response.json() as { data: { id: string } }).data.id;
+}
+
+describe("Core service authentication", () => {
   it("normalizes opaque tokens and intersects scope with current service Data Grant", async () => {
     const { privateKey, publicKey } = await keys();
     const home = await createSpace(privateKey, publicKey, "Home");
     const other = await createSpace(privateKey, publicKey, "Other");
     const principalId = `svc_${crypto.randomUUID().replaceAll("-", "")}`;
 
-    const grantResponse = await request(`/api/v1/spaces/${home.spaceId}/grants`, home.token, publicKey, undefined, {
-      method: "POST",
-      body: JSON.stringify({ granteeType: "service", granteeId: principalId, permission: "read", expiresAt: null }),
-    });
-    expect(grantResponse.status).toBe(201);
-    const grantId = (await grantResponse.json() as { data: { id: string } }).data.id;
+    const grantId = await grantSpaceRead(home, principalId, publicKey);
 
     const serviceToken = "lsp_pat_test_secret_that_is_long_enough_for_core_authentication";
     const identity = identityBinding(principalId, ["spaces:read"]);
@@ -116,14 +155,68 @@ describe("Core Service API Token authentication", () => {
     expect(afterRevoke.status).toBe(403);
   });
 
-  it("rejects inactive introspection and keeps RS256 user authentication working", async () => {
+  it("rejects inactive opaque-token introspection and keeps RS256 user authentication working", async () => {
     const { privateKey, publicKey } = await keys();
     const home = await createSpace(privateKey, publicKey, "Home");
     const principalId = `svc_${crypto.randomUUID().replaceAll("-", "")}`;
-    const denied = await request(`/api/v1/spaces/${home.spaceId}`, "lsp_pat_inactive_token_that_is_long_enough_for_auth", publicKey, identityBinding(principalId, ["spaces:read"], false));
+    const denied = await request(
+      `/api/v1/spaces/${home.spaceId}`,
+      "lsp_pat_inactive_token_that_is_long_enough_for_auth",
+      publicKey,
+      identityBinding(principalId, ["spaces:read"], "inactive"),
+    );
     expect(denied.status).toBe(401);
 
     const userRead = await request(`/api/v1/spaces/${home.spaceId}`, home.token, publicKey, undefined);
     expect(userRead.status).toBe(200);
+  });
+
+  it("rechecks current Service Principal eligibility exactly once for each already-issued service JWT request", async () => {
+    const { privateKey, publicKey } = await keys();
+    const home = await createSpace(privateKey, publicKey, "JWT Home");
+    const principalId = `svc_${crypto.randomUUID().replaceAll("-", "")}`;
+    await grantSpaceRead(home, principalId, publicKey);
+    const bearer = await serviceJwt(privateKey, principalId);
+    const calls: IdentityCall[] = [];
+    const activeIdentity = identityBinding(principalId, ["spaces:read"], "active", calls);
+
+    const allowed = await request(`/api/v1/spaces/${home.spaceId}`, bearer, publicKey, activeIdentity);
+    expect(allowed.status).toBe(200);
+    expect(calls).toEqual([{
+      url: `https://identity.internal/introspection/v1/service-principals/${principalId}`,
+      method: "GET",
+      secret: "core-identity-test-secret-at-least-32-chars",
+    }]);
+
+    // The same cryptographically valid JWT must not preserve authority after Identity
+    // reports the principal/application inactive. Identity's own contract tests prove
+    // that either Service Principal disablement or owning Application disablement
+    // produces this same current active=false result.
+    const denied = await request(
+      `/api/v1/spaces/${home.spaceId}`,
+      bearer,
+      publicKey,
+      identityBinding(principalId, ["spaces:read"], "inactive"),
+    );
+    expect(denied.status).toBe(401);
+
+    const unavailable = await request(
+      `/api/v1/spaces/${home.spaceId}`,
+      bearer,
+      publicKey,
+      identityBinding(principalId, ["spaces:read"], "unavailable"),
+    );
+    expect(unavailable.status).toBe(401);
+  });
+
+  it("does not add a Service Principal eligibility read to ordinary user JWT requests", async () => {
+    const { privateKey, publicKey } = await keys();
+    const home = await createSpace(privateKey, publicKey, "User Home");
+    const calls: IdentityCall[] = [];
+    const identity = identityBinding(`svc_${crypto.randomUUID().replaceAll("-", "")}`, ["spaces:read"], "active", calls);
+
+    const response = await request(`/api/v1/spaces/${home.spaceId}`, home.token, publicKey, identity);
+    expect(response.status).toBe(200);
+    expect(calls).toHaveLength(0);
   });
 });
