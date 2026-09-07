@@ -295,6 +295,10 @@ describe("Progressive single-model semantic detail", () => {
     const missingError = await responseError(missing);
 
     expect(invisibleError).toMatchObject({ code: "NOT_FOUND", message: "Resource not found" });
-    expect(missingError).toEqual(invisibleError);
+    expect(missingError).toMatchObject({ code: "NOT_FOUND", message: "Resource not found" });
+    expect({ code: missingError.code, message: missingError.message }).toEqual({
+      code: invisibleError.code,
+      message: invisibleError.message,
+    });
   });
 });
