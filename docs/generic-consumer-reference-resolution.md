@@ -139,3 +139,13 @@ For Person v1 the target-resolution work must remain bounded O(1) in Worker→D1
 3. in-memory mapping back to input positions.
 
 No per-ID Worker→D1 or HTTP waterfall, positive authority cache, KV, Durable Object, TTL or push invalidation belongs in this representation.
+
+Verified in the full repository Check on 2026-09-07 after excluding the one-time Runtime Model snapshot warm-up:
+
+| Input | Worker→D1 round trips | max bindings | response bytes |
+|---|---:|---:|---:|
+| 1 ID | 2 | 4 | 127 |
+| 9 positions (8 resolvable + 1 unavailable) | 2 | 10 | 962 |
+| 50 IDs | 2 | 51 | 5,410 |
+
+This evidence proves the hot request shape is independent of input cardinality within the v1 bound and that the 50-ID case remains below the repository's 100-binding budget. Wall-clock values from local Cloudflare Vitest D1 are intentionally not treated as APAC acceptance latency.
