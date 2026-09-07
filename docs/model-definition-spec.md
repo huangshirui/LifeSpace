@@ -217,6 +217,8 @@ v1 supports:
 | `record` | one active record of the declared target model in the same Space |
 | `record_list` | unique list of active records of the declared target model in the same Space |
 
+Conformance-ID: MDV1-FIELD-TYPES-01
+
 ### 4.2 Field properties
 
 ```ts
@@ -246,6 +248,10 @@ Rules:
 - `minimum` / `maximum` apply only to `integer` / `number`;
 - `values` is required for `enum`, must be unique and may contain at most 50 entries;
 - `targetModel` is required only for `record` / `record_list`; it remains structural relation semantics and is not encoded into `title`. Generated contracts may project relation target/cardinality metadata separately so human-readable naming and machine relation semantics remain orthogonal.
+
+Conformance-ID: MDV1-FIELD-REQUIRED-NULLABLE-01
+Conformance-ID: MDV1-FIELD-CONSTRAINTS-01
+Conformance-ID: MDV1-RELATION-STRUCTURE-01
 
 Relation metadata defines **what may be referenced structurally**, not a static list of current target instances. Generated JSON Schema therefore projects stable relation target/cardinality through `x-lifespace-relation` and must not encode mutable Space-specific targets as `enum`. Runtime Discovery / Relation Target Lookup may resolve current targets under current authorization for clients such as n8n, Agents/MCP and generated UI. A lookup result is a capability/reference projection only: it does not bypass create/update Policy or mutation-time relation validation. `person` / `person_list` have canonical Space Person labels (`displayName`) and can be resolved generically; `record` / `record_list` remain lookup-unsupported until a canonical record reference-label semantic is defined rather than guessed from model-specific field names.
 
@@ -279,6 +285,8 @@ Normative Mutation Authority rules in v1:
 - do **not** mark a field `readOnly` merely because an Action also happens to assign it. Ordinary CRUD and Actions may legitimately coexist for a field when no invariant requires exclusive semantic ownership;
 - therefore Mutation Authority is explicit, not inferred from field names such as `status` and not hard-coded for Task/Wish in Runtime.
 
+Conformance-ID: MDV1-FIELD-READONLY-01
+
 **`immutable: true`** means the value cannot be changed after creation. Workflow Action assignments to immutable fields are rejected at definition validation time.
 
 Example:
@@ -286,6 +294,8 @@ Example:
 ```ts
 ownerPersonId: { type: "person", required: true, immutable: true }
 ```
+
+Conformance-ID: MDV1-FIELD-IMMUTABLE-01
 
 ## 5. Defaults
 
@@ -308,6 +318,8 @@ Important v1 rules:
 - `person_list` / `record_list` may only use an empty list `[]` as a default;
 - enum defaults must be one of the declared values;
 - numeric/string defaults must satisfy their declared ranges/lengths.
+
+Conformance-ID: MDV1-DEFAULTS-01
 
 ## 6. Query Definition
 
@@ -341,6 +353,8 @@ Capabilities may add their own semantic query parameters. For example, Calendar 
 
 Only `searchable`, `filterable` and `sortable` are defined query properties in v1. Other query metadata must not be relied on as protocol semantics.
 
+Conformance-ID: MDV1-QUERY-GENERIC-01
+
 ## 7. Model Access
 
 `access` declares which generic operation levels the model exposes:
@@ -354,6 +368,8 @@ Rules:
 - at least one access level is required;
 - `write` requires `read`;
 - `manage` requires `write`.
+
+Conformance-ID: MDV1-ACCESS-HIERARCHY-01
 
 This declaration is only one part of authorization. Effective permission is the intersection of:
 
@@ -389,6 +405,8 @@ Rules:
 - ordinary update/delete/action mutations continue to use the record `version` concurrency boundary;
 - ordinary deletion remains logical deletion through `deleted_at`, never a per-model hard-delete switch;
 - adding or removing these redundant `true` assertions is a representation change, not a domain-semantic breaking change.
+
+Conformance-ID: MDV1-LIFECYCLE-INVARIANTS-01
 
 The validator preserves whether the optional assertion metadata was present so existing canonical Model Definition hashes are not rewritten merely to restate a Runtime invariant.
 
@@ -489,6 +507,8 @@ Likewise, current Policy v1 does **not** expose `now` or `space.*` references ev
 
 Policy is a closed deterministic DSL: no JavaScript, SQL, shell, network call or arbitrary function execution.
 
+Conformance-ID: MDV1-POLICY-BOUNDARY-01
+
 ## 10. Record Action / Transition DSL
 
 A **记录动作 / 转换（Record Action / Transition）** is a model-specific semantic command over one record. The implementation modules retain the historical `workflow-*` naming, but **Workflow v1 is not a general workflow/orchestration system**.
@@ -526,6 +546,8 @@ Current limits:
 - Action access must be `write` or `manage`;
 - the model itself must expose that access level.
 
+Conformance-ID: MDV1-ACTION-ACCESS-01
+
 ### 10.2 Execution order
 
 Conceptually, a normal Record Action executes as:
@@ -562,6 +584,8 @@ Optimistic-concurrency evidence is a separate Generic Runtime mutation concern. 
 That `version` property is **并发元数据（concurrency metadata）**, not Action semantic input. Runtime Discovery exposes it separately from `action.input.fields`, and generated Model Contract operations mark the same distinction. Generic clients must not render it as a model/domain Action field or infer semantics from the literal key `version`.
 
 If a future Workflow Action needs caller-owned domain parameters, Workflow v1 must be extended deliberately with a bounded semantic-input contract. Such an extension is independent from where optimistic-concurrency evidence is transported. Likewise, a future transport change such as moving concurrency evidence to an HTTP header must not redefine the Action's semantic input.
+
+Conformance-ID: MDV1-ACTION-CONCURRENCY-01
 
 ### 10.4 CRUD vs Record Action/Transition vs external orchestration
 
@@ -697,6 +721,8 @@ set: {
 }
 ```
 
+Conformance-ID: MDV1-ACTION-TRANSITION-01
+
 Current references:
 
 | Reference | Meaning | Compatible target |
@@ -708,6 +734,8 @@ Current references:
 | `record.<field>` | current record field value | same field type; `string` / `text` are mutually compatible |
 
 `actor.*` describes the **Actor（执行者）** of the current operation. For direct execution the Actor is the Principal（主体）; for delegated Agent execution the Principal remains the authority-bearing user while `actor.type=agent` and `actor.id` identifies the delegated Agent. Model fields assigned from `actor.type` must therefore represent the full current Actor vocabulary, not only Principal types.
+
+Conformance-ID: MDV1-ACTOR-REFERENCES-01
 
 If `actor.personId` is required by an assignment but no active Space Person can be resolved, the Action fails with `POLICY_CONTEXT_MISSING` (403).
 
@@ -766,6 +794,8 @@ Temporal contributes reusable date/cycle validation, derived `computed.temporal`
 
 A model may not also declare a Workflow Action named `record-occurrence` when Temporal owns that Action.
 
+Conformance-ID: MDV1-CAPABILITY-TEMPORAL-01
+
 ### 14.2 Calendar Capability
 
 Configuration:
@@ -797,6 +827,8 @@ Field contracts:
 Calendar contributes timed/all-day shape validation and semantic time-window query behavior. It does not currently contribute a model-specific Workflow Action.
 
 Runtime Discovery may project these canonical Calendar field roles through a bounded Capability binding so generic clients can distinguish timed from all-day inputs without inferring field names. That projection is derived from this Model Definition mapping, contains no UI layout semantics and does not replace execution-time Calendar validation.
+
+Conformance-ID: MDV1-CAPABILITY-CALENDAR-01
 
 ## 15. Generated Runtime API
 
@@ -881,6 +913,8 @@ Normative rules:
 - model versions advance monotonically per model key.
 
 The minimum-classification rule belongs to the authoritative Registry publication boundary. AI proposal/Console clients may preflight the same result for clearer UX, but a caller-specific precheck must never be the only enforcement path.
+
+Conformance-ID: MDV1-PUBLICATION-COMPATIBILITY-01
 
 Changing an existing field from CRUD-writable to `readOnly` is a **breaking request-contract change** because generated create/update schemas no longer accept that field, even when stored rows and response shapes remain compatible. Such a change requires a normal compatibility-classified convergence migration and downstream impact review.
 
