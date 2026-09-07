@@ -270,7 +270,7 @@ async function verifyDiscovery(context, spaceId) {
 }
 
 async function verifyChange(context, spaceId, recordId, expectedOperation = "create") {
-  const result = await request(coreBase, `/api/v1/spaces/${encodeURIComponent(spaceId)}/changes/${encodeURIComponent(recordId)}`, { bearer: context.agentBearer });
+  const result = await request(coreBase, `/api/v1/spaces/${encodeURIComponent(spaceId)}/changes?recordId=${encodeURIComponent(recordId)}`, { bearer: context.agentBearer });
   const data = expectStatus(`${context.key} Change History`, result, 200);
   const change = data?.items?.find?.((item) => item.operation === expectedOperation && item.recordId === recordId);
   if (!change

@@ -35,6 +35,7 @@ If a required source does not yet exist during initial scaffold, create/update i
 - Metadata business-model architecture: `docs/phase3-metadata-platform-plan.md`
 - Runtime performance/typed persistence: `docs/phase3-performance-convergence-plan.md`
 - Core business-facing Kernel API: `apps/core/openapi.yaml`
+- Core Model Registry / Model Contract governance API: `apps/core/model-control-plane.openapi.yaml`
 - Core privileged Platform Admin API: `apps/core/platform-admin.openapi.yaml`
 - Identity application/user/service API: `apps/identity/openapi.yaml`
 - Identity privileged Platform Admin API: `apps/identity/platform-admin.openapi.yaml`
@@ -191,6 +192,9 @@ Identity Platform Admin:
 
 Core Kernel:
   apps/core/openapi.yaml
+
+Core Model Control Plane:
+  apps/core/model-control-plane.openapi.yaml
 
 Core Platform Admin:
   apps/core/platform-admin.openapi.yaml

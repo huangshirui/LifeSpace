@@ -229,9 +229,9 @@ It is paired with the same five-minute human actor proof used by the Identity co
 
 This executor is platform-control authority only. It must not receive broad Space Data Grants or become a hidden member of every Space.
 
-## Model Admin automation compatibility
+## Model Control Plane automation compatibility
 
-Existing service automation with `models:manage` remains valid for non-interactive platform workflows.
+Existing service automation with `models:manage` remains valid for non-interactive platform workflows and pins the independently versioned Core Model Control Plane contract rather than the ordinary Kernel contract.
 
 When LifeSpace Console triggers model publish/retire, the Console additionally supplies the purpose-bound human actor proof so Core can attribute the operation to both:
 

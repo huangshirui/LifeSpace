@@ -95,7 +95,7 @@ This split is deliberate. Publishing a new ordinary model does not require an Id
 
 Runtime route resolution derives the model key and required `read` / `write` / `manage` level from the published definition; it never trusts a client-provided model scope name.
 
-Model publication/retirement and Application × Model Access administration are platform administration, not ordinary Space `manage` permissions. Model-admin surfaces remain service-principal-only in the current contract. Console-triggered model mutations preserve that service executor and add separately verified human Actor evidence; they do not turn the human user into a Model Admin service principal.
+Model publication/retirement and Application × Model Access administration are platform administration, not ordinary Space `manage` permissions. Model Registry governance surfaces remain service-principal-only with `models:manage` in the independently versioned Core Model Control Plane contract. Console-triggered model mutations preserve that service executor and add separately verified human Actor evidence; they do not turn the human user into a Model Admin service principal.
 
 ## Platform administration
 

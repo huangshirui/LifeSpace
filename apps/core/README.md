@@ -10,9 +10,13 @@ Shared Cloudflare Worker business API for Space-owned life data.
 - Linked Space People for person-subject domain relationships.
 - Health/status diagnostics and standard success/error envelopes.
 
+## Model Control Plane
+
+Model Registry validation/publication/retirement, immutable Model Contract governance and optional AI Model Proposal APIs are declared separately in `model-control-plane.openapi.yaml` **0.1.0**. Ordinary Runtime consumers do not need to pin this contract. Service automation keeps `models:manage`; Console model mutations add the Platform Admin human-actor/audit overlay.
+
 ## Current Kernel Runtime Discovery
 
-The current business-facing Core Kernel contract is **0.29.0**. Generic consumers may choose the projection size appropriate to the task:
+The current business-facing Core Kernel contract is **0.30.0**. Generic consumers may choose the projection size appropriate to the task:
 
 - `GET /api/v1/spaces/{spaceId}/_discovery` — full current capability metadata for one known Space;
 - `GET /api/v1/me/_discovery` — full aggregate current capability metadata across reachable Spaces;

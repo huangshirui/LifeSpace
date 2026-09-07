@@ -390,7 +390,7 @@ try {
     throw new Error(`HomeMew Task complete Action returned unexpected attribution: ${JSON.stringify(taskCompletedData)}`);
   }
 
-  const taskChanges = await jsonRequest(coreBase, `/api/v1/spaces/${encodeURIComponent(spaceId)}/changes/${encodeURIComponent(taskId)}`, { bearer: userBearer });
+  const taskChanges = await jsonRequest(coreBase, `/api/v1/spaces/${encodeURIComponent(spaceId)}/changes?recordId=${encodeURIComponent(taskId)}`, { bearer: userBearer });
   const taskChangesData = expectStatus("HomeMew Task Change History", taskChanges, 200);
   const actionChange = taskChangesData?.items?.find?.((change) => change.operation === "action" && change.versionAfter === taskVersion);
   if (

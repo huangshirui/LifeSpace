@@ -3,7 +3,7 @@ import YAML from "yaml";
 
 const document = YAML.parse(fs.readFileSync(new URL("../openapi.yaml", import.meta.url), "utf8"));
 
-if (document.openapi !== "3.1.0" || document.info?.version !== "0.29.0") {
+if (document.openapi !== "3.1.0" || document.info?.version !== "0.30.0") {
   throw new Error("Core Kernel OpenAPI version metadata is invalid");
 }
 if (!document.info?.title?.includes("Kernel")) {
@@ -11,6 +11,9 @@ if (!document.info?.title?.includes("Kernel")) {
 }
 if (!document.info?.description?.includes("Model Contract Revision")) {
   throw new Error("Kernel OpenAPI must explain the separate immutable Model Contract surface");
+}
+if (!document.info?.description?.includes("Model Control Plane")) {
+  throw new Error("Kernel OpenAPI must document the separate Model Control Plane contract");
 }
 
 const requiredPaths = [
@@ -40,6 +43,7 @@ const requiredPaths = [
   "/api/v1/spaces/{spaceId}/_reference-resolutions/{modelKey}/{fieldKey}",
   "/api/v1/spaces/{spaceId}/agent-delegations",
   "/api/v1/spaces/{spaceId}/agent-delegations/{delegationId}",
+  "/api/v1/spaces/{spaceId}/changes",
   "/api/v1/spaces/{spaceId}/changes/{recordId}",
   "/api/v1/webhook-endpoints",
   "/api/v1/webhook-endpoints/{endpointId}",
@@ -50,15 +54,27 @@ const requiredPaths = [
   "/api/v1/spaces/{spaceId}/creation-drafts",
   "/api/v1/spaces/{spaceId}/creation-drafts/{draftId}",
   "/api/v1/spaces/{spaceId}/creation-drafts/{draftId}/choose-model",
-  "/api/v1/model-admin/models",
-  "/api/v1/model-admin/models/validate",
-  "/api/v1/model-admin/models/{modelKey}",
-  "/api/v1/model-admin/models/{modelKey}/retire",
-  "/api/v1/model-admin/contracts/active",
-  "/api/v1/model-admin/contracts/{contractId}",
 ];
 for (const path of requiredPaths) {
   if (!document.paths?.[path]) throw new Error(`Core Kernel OpenAPI missing ${path}`);
+}
+for (const path of Object.keys(document.paths ?? {})) {
+  if (path.startsWith("/api/v1/model-admin")) throw new Error(`Model Control Plane route leaked into Kernel OpenAPI: ${path}`);
+}
+const canonicalChanges = document.paths?.["/api/v1/spaces/{spaceId}/changes"]?.get;
+const legacyChanges = document.paths?.["/api/v1/spaces/{spaceId}/changes/{recordId}"]?.get;
+const changeParams = new Map((canonicalChanges?.parameters ?? []).map((entry) => [entry.name, entry]));
+if (canonicalChanges?.operationId !== "listRecordChangeHistory"
+    || changeParams.get("recordId")?.required !== true
+    || changeParams.get("limit")?.schema?.default !== 50
+    || changeParams.get("limit")?.schema?.maximum !== 100
+    || !changeParams.has("cursor")
+    || canonicalChanges?.responses?.["200"]?.content?.["application/json"]?.schema?.$ref !== "#/components/schemas/ResourceChangePageResponse") {
+  throw new Error("Canonical Change History collection semantics drifted");
+}
+if (legacyChanges?.deprecated !== true
+    || legacyChanges?.responses?.["200"]?.content?.["application/json"]?.schema?.$ref !== "#/components/schemas/ResourceChangeListResponse") {
+  throw new Error("Legacy Change History alias must remain explicitly deprecated and wire-compatible");
 }
 
 if (document.paths?.["/api/v1/spaces/{spaceId}/members/{userId}"]?.delete?.responses?.["409"]?.$ref !== "#/components/responses/Conflict") {
@@ -519,21 +535,7 @@ if (!schemas.CreationDraftProcessing?.required?.includes("modelContractRevision"
   throw new Error("Creation Draft jobs must expose their pinned Model Contract Revision");
 }
 
-const adminModels = document.paths?.["/api/v1/model-admin/models"];
-if (!adminModels?.get?.description?.includes("Service-principal-only") || !adminModels?.post?.description?.includes("Service-principal-only")) {
-  throw new Error("Model Admin must be documented as service-principal-only");
-}
-if (!document.paths?.["/api/v1/model-admin/contracts/active"]?.get) {
-  throw new Error("Active Model Contract Revision read surface is missing");
-}
-if (schemas.ModelCompatibility?.enum?.join(",") !== "initial,compatible,breaking") {
-  throw new Error("Model compatibility values drifted");
-}
-if (schemas.ModelContract?.properties?.id?.pattern !== "^mct_[a-f0-9]{64}$") {
-  throw new Error("Model Contract revisions must be content-addressed mct_<sha256>");
-}
-
-if (schemas.StatusResponse?.properties?.data?.properties?.contractVersion?.const !== "0.29.0") {
+if (schemas.StatusResponse?.properties?.data?.properties?.contractVersion?.const !== "0.30.0") {
   throw new Error("Core Kernel status contract version drifted");
 }
 

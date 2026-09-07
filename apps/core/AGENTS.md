@@ -161,14 +161,21 @@ Business-facing Core Kernel contract:
 
 ```text
 apps/core/openapi.yaml
-current Kernel version: 0.29.0
+current Kernel version: 0.30.0
+```
+
+Model Registry / Model Contract governance contract:
+
+```text
+apps/core/model-control-plane.openapi.yaml
+current Model Control Plane version: 0.1.0
 ```
 
 Privileged LifeSpace Console control-plane contract:
 
 ```text
 apps/core/platform-admin.openapi.yaml
-current Platform Admin version: 0.1.0
+current Platform Admin version: 0.2.0
 ```
 
 Ordinary model contract:

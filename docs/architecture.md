@@ -323,18 +323,22 @@ Platform Admin Control-Plane Contract
 Kernel Contract
   apps/core/openapi.yaml
   explicit product-facing Space / Grant / Creation Draft / Model Admin primitives
-  current Kernel contract: 0.29.0
+  current Kernel contract: 0.30.0
+
+Model Control Plane Contract
+  apps/core/model-control-plane.openapi.yaml
+  independent governance contract: 0.1.0
 
 Platform Admin Control-Plane Contract
   apps/core/platform-admin.openapi.yaml
-  independent companion contract: 0.1.0
+  independent companion contract: 0.2.0
 
 Model Contract Revision
   mct_<sha256>
   concrete published ordinary-model CRUD/query/action/Capability contract
 ```
 
-The separate Platform Admin contract prevents adding Console-only privileged APIs from forcing unrelated HomeMew/ALOHA business-contract pin changes. HomeMew handoff artifacts therefore continue to pin Identity/Core Kernel/Model Contract and do not automatically include the Platform Admin contract.
+The separate Model Control Plane prevents Model Registry governance and optional AI proposal syntax from being pinned by ordinary Runtime consumers. The separate Platform Admin contract prevents adding Console-only privileged APIs from forcing unrelated HomeMew/ALOHA business-contract pin changes. HomeMew handoff artifacts therefore continue to pin Identity/Core Kernel/Model Contract and do not automatically include the Platform Admin contract.
 
 Contract publication/versioning rules are normative in `docs/contracts.md`.
 

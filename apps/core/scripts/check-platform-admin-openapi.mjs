@@ -3,7 +3,7 @@ import YAML from "yaml";
 
 const document = YAML.parse(fs.readFileSync(new URL("../platform-admin.openapi.yaml", import.meta.url), "utf8"));
 
-if (document.openapi !== "3.1.0" || document.info?.version !== "0.1.0") {
+if (document.openapi !== "3.1.0" || document.info?.version !== "0.2.0") {
   throw new Error("Core Platform Admin OpenAPI version metadata is invalid");
 }
 if (!document.info?.title?.includes("Platform Admin")) {
@@ -52,6 +52,10 @@ for (const path of ["/api/v1/model-admin/models", "/api/v1/model-admin/models/{m
   }
 }
 
+const publishSchemaRef = document.paths?.["/api/v1/model-admin/models"]?.post?.requestBody?.content?.["application/json"]?.schema?.$ref;
+if (publishSchemaRef !== "./model-control-plane.openapi.yaml#/components/schemas/PublishModelRequest") {
+  throw new Error("Platform Admin Console publish profile must reuse the Model Control Plane request schema");
+}
 const auditResult = document.components?.schemas?.PlatformAuditEntry?.properties?.result?.enum ?? [];
 if (auditResult.join(",") !== "pending,success,failure") {
   throw new Error("Core Platform Admin audit states must preserve pending/success/failure evidence");
