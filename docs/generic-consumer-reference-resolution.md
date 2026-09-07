@@ -124,6 +124,8 @@ Relation metadata keeps selection and held-ID hydration distinct:
 
 For `record` / `record_list`, `resolution.supported=false` with `reason=reference-label-unavailable` until #155. This projection is discoverable semantic/context information, not authorization proof.
 
+The progressive Static Semantic Detail may expose the authority-independent `resolution` descriptor because it is stable for the model/field semantic identity, but it MUST NOT carry dynamic Relation Target Lookup results, current Membership/Grant/Delegation state or any effective authorization lease.
+
 ## Mutation independence
 
 A successful resolved item is never an authority lease, selector token or durable proof that a later relation assignment is permitted. Create/update/action execution continues to re-check current authority, Policy and relation integrity independently.
