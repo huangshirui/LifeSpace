@@ -140,7 +140,7 @@ describe("Delegated Agent Task Workflow", () => {
     ).bind(task.id).first<{ completedByType: string; completedById: string }>();
     expect(typed).toEqual({ completedByType: "agent", completedById: agentId });
 
-    const history = await request(publicKey, `/api/v1/spaces/${spaceId}/changes/${task.id}`, {
+    const history = await request(publicKey, `/api/v1/spaces/${spaceId}/changes?recordId=${task.id}`, {
       headers: { authorization: `Bearer ${agent}` },
     });
     expect(history.status).toBe(200);
@@ -151,7 +151,7 @@ describe("Delegated Agent Task Workflow", () => {
       actor: { type: string; id: string };
       applicationId: string;
       delegationId: string | null;
-    }> }>(history);
+    }>; nextCursor: string | null }>(history);
     const completionChange = changes.items.find((change) => change.operation === "action");
     expect(completionChange).toMatchObject({
       versionAfter: completedTask.version,
@@ -160,5 +160,6 @@ describe("Delegated Agent Task Workflow", () => {
       applicationId: "test-app",
       delegationId: delegation.id,
     });
+    expect(changes.nextCursor).toBeNull();
   });
 });
