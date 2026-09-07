@@ -1,12 +1,12 @@
 # Generic Consumer Reference Resolution v1
 
 Status: **Candidate / Public representation**  
-Kernel contract: **0.28.0**  
+Kernel contract: **0.29.0**  
 Semantic owner: `docs/generic-consumer-m2-dynamic-authority-audit.md` §4–5, §10–12  
 Owning implementation: #191 under #165  
-Ordinary-record label dependency: #155
+Ordinary-record label semantics: #155 (implemented by Kernel 0.29.0)
 
-This document fixes the first HTTP representation for the already-accepted M2 Batch Reference Resolution / Hydration semantic. It does not redefine Relation Target Lookup, Model Definition semantics, reference-label semantics or mutation authority.
+This document fixes the HTTP representation for the already-accepted M2 Batch Reference Resolution / Hydration semantic and records the Kernel 0.29 composition with #155 canonical ordinary-record reference-label semantics. It does not redefine mutation authority: lookup/resolution remain Context Projection only.
 
 ## Operation
 
@@ -43,7 +43,7 @@ Rules:
 - `ids` is required and must be an array;
 - minimum 1 item;
 - maximum **50** input positions;
-- each item is a non-empty string valid for the source relation kind (`^per_` for Person v1);
+- each item is a non-empty string valid for the source relation kind (`per_*` for `person` / `person_list`, `rec_*` for `record` / `record_list`);
 - duplicate IDs are allowed;
 - input order and duplicate multiplicity are preserved in the response;
 - implementation may de-duplicate IDs internally before the set-based target read.
@@ -87,15 +87,15 @@ The target read is restricted to active `space_people` in the source Space. It r
 
 ## Ordinary record relations
 
-`record` and `record_list` resolution remain field-level unsupported until #155 defines canonical ordinary-record reference-label semantics.
+`record` and `record_list` are supported in Kernel 0.29.0. The source relation declares the target Model; Core resolves target records only in the same Space and only while the caller has current read authority to both the source Model projection and the target Model.
 
-The stable reason is:
+The target Model owns the canonical label through Model Definition `referenceLabel`:
 
-```text
-reference-label-unavailable
-```
+- `{ field: "name" }` projects one declared scalar field;
+- `{ template: "{code} · {name}" }` projects a bounded simple template;
+- omitted `referenceLabel`, or an empty projection because all referenced values are null/blank, falls back to the stable `rec_*` record ID.
 
-Core and adapters MUST NOT infer a record label from conventional fields such as `title`, `name` or `summary`.
+Lookup search/pagination and Batch Reference Resolution use the same canonical label. Core and adapters MUST NOT infer or override labels from conventional field names such as `title`, `name` or `summary`.
 
 ## Discovery projection
 
@@ -122,7 +122,7 @@ Relation metadata keeps selection and held-ID hydration distinct:
 }
 ```
 
-For `record` / `record_list`, `resolution.supported=false` with `reason=reference-label-unavailable` until #155. This projection is discoverable semantic/context information, not authorization proof.
+For `record` / `record_list`, lookup and resolution are supported and use the target Model's canonical `referenceLabel` semantic or stable record-ID fallback. The descriptors remain discoverable semantic/context information, not authorization proof; each request independently rechecks current source authority and current target-model read authority.
 
 The progressive Static Semantic Detail may expose the authority-independent `resolution` descriptor because it is stable for the model/field semantic identity, but it MUST NOT carry dynamic Relation Target Lookup results, current Membership/Grant/Delegation state or any effective authorization lease.
 

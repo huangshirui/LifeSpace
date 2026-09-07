@@ -6,7 +6,7 @@ on:
     branches: [main]
 
 permissions:
-  contents: write
+  contents: read
   pull-requests: read
 
 jobs:
@@ -52,8 +52,6 @@ jobs:
 
       - uses: actions/checkout@v4
         if: steps.validation.outputs.run_full == 'true'
-        with:
-          ref: ${{ github.event.pull_request.head.ref }}
       - uses: pnpm/action-setup@v4
         if: steps.validation.outputs.run_full == 'true'
         with:
@@ -64,25 +62,5 @@ jobs:
           node-version: 24
       - run: pnpm install --frozen-lockfile
         if: steps.validation.outputs.run_full == 'true'
-      - name: Finalize Core Kernel 0.29 candidate in checkout
-        if: steps.validation.outputs.run_full == 'true'
-        run: node apps/core/scripts/finalize-kernel-029.mjs /tmp/lifespace-kernel-029-final
       - run: pnpm check
         if: steps.validation.outputs.run_full == 'true'
-      - name: Persist tested Kernel 0.29 and remove temporary finalizers
-        if: steps.validation.outputs.run_full == 'true' && github.event_name == 'pull_request'
-        shell: bash
-        run: |
-          set -euo pipefail
-          git fetch origin main:refs/remotes/origin/main --depth=1
-          git show origin/main:.github/workflows/check.yml > .github/workflows/check.yml
-          rm -f apps/core/scripts/finalize-kernel-029.mjs apps/core/scripts/materialize-kernel-029.mjs
-          git add .github/workflows/check.yml apps/core docs
-          if git diff --cached --quiet; then
-            echo "No finalization changes to persist."
-            exit 0
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -m "chore(core): finalize Kernel 0.29 contract"
-          git push origin "HEAD:${{ github.event.pull_request.head.ref }}"
