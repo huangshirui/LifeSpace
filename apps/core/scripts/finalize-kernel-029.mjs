@@ -128,6 +128,11 @@ replaceOnce(
 replaceOnce("apps/core/scripts/check-openapi.mjs", 'document.info?.version !== "0.28.0"', 'document.info?.version !== "0.29.0"');
 replaceOnce(
   "apps/core/scripts/check-openapi.mjs",
+  'schemas.StatusResponse?.properties?.data?.properties?.contractVersion?.const !== "0.28.0"',
+  'schemas.StatusResponse?.properties?.data?.properties?.contractVersion?.const !== "0.29.0"',
+);
+replaceOnce(
+  "apps/core/scripts/check-openapi.mjs",
   '  "fields", "key", "query", "route", "schemaHash", "version",',
   '  "fields", "key", "query", "referenceLabel", "route", "schemaHash", "version",',
 );
