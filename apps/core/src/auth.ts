@@ -2,6 +2,7 @@ import type { MiddlewareHandler } from "hono";
 import { verify } from "hono/jwt";
 import { isPrincipalType, type Bindings, type Principal, type Variables } from "./env";
 import { ApiError } from "./http";
+import { servicePrincipalIsActive } from "./service-principal-authority";
 
 type AppEnv = { Bindings: Bindings; Variables: Variables };
 const MAX_ACCESS_TOKEN_TTL_SECONDS = 3600;
@@ -61,6 +62,18 @@ export async function verifyAccessToken(rawToken: string, publicKey: string): Pr
   }
 }
 
+async function requireCurrentServicePrincipal(env: Bindings, principalId: string): Promise<void> {
+  if (!env.IDENTITY || !env.CORE_IDENTITY_SHARED_SECRET) {
+    throw notConfigured("Identity service principal introspection binding is not configured");
+  }
+  try {
+    if (!await servicePrincipalIsActive(env, principalId)) throw unauthorized();
+  } catch (error) {
+    if (error instanceof ApiError) throw error;
+    throw unauthorized();
+  }
+}
+
 export async function introspectServiceToken(rawToken: string, env: Bindings): Promise<Principal> {
   if (!env.IDENTITY || !env.CORE_IDENTITY_SHARED_SECRET) {
     throw notConfigured("Identity introspection binding is not configured");
@@ -106,11 +119,17 @@ export function authenticate(): MiddlewareHandler<AppEnv> {
     if (!authorization?.startsWith("Bearer ")) throw unauthorized();
     const rawToken = authorization.slice(7).trim();
     if (!rawToken) throw unauthorized();
-    const principal = rawToken.startsWith(SERVICE_TOKEN_PREFIX)
-      ? await introspectServiceToken(rawToken, context.env)
-      : context.env.IDENTITY_PUBLIC_KEY
-        ? await verifyAccessToken(rawToken, context.env.IDENTITY_PUBLIC_KEY)
-        : (() => { throw notConfigured("Identity public verification key is not configured"); })();
+
+    let principal: Principal;
+    if (rawToken.startsWith(SERVICE_TOKEN_PREFIX)) {
+      principal = await introspectServiceToken(rawToken, context.env);
+    } else if (context.env.IDENTITY_PUBLIC_KEY) {
+      principal = await verifyAccessToken(rawToken, context.env.IDENTITY_PUBLIC_KEY);
+      if (principal.type === "service") await requireCurrentServicePrincipal(context.env, principal.id);
+    } else {
+      throw notConfigured("Identity public verification key is not configured");
+    }
+
     context.set("principal", principal);
     await next();
   };
