@@ -10,6 +10,17 @@ Shared Cloudflare Worker business API for Space-owned life data.
 - Linked Space People for person-subject domain relationships.
 - Health/status diagnostics and standard success/error envelopes.
 
+## Current Kernel Runtime Discovery
+
+The current business-facing Core Kernel contract is **0.27.0**. Generic consumers may choose the projection size appropriate to the task:
+
+- `GET /api/v1/spaces/{spaceId}/_discovery` — full current capability metadata for one known Space;
+- `GET /api/v1/me/_discovery` — full aggregate current capability metadata across reachable Spaces;
+- `GET /api/v1/me/_discovery/inventory` — compact current capability inventory with de-duplicated coarse model facts and minimal per-Space visibility/access edges;
+- `GET /api/v1/spaces/{spaceId}/_discovery/models/{modelKey}` — progressive static semantic detail for one currently visible model.
+
+The progressive Runtime Discovery representations are Candidate/Public Context Projections. They reflect current visibility when requested but never authorize execution; every CRUD/query/Action rechecks current authority and model/Capability rules.
+
 ## Phase 2 native HomeMew capability replacement
 
 Core API contract version **0.8.0** is native-only. It contains the family Space policy and the Space-owned Events, Tasks, Day Records and Wishes needed by the frozen HomeMew migration baseline, but no longer exposes HomeMew `/api/v1/families/...` or `/api/v1/family-invites/...` runtime compatibility facades.

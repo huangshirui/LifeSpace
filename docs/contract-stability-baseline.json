@@ -176,7 +176,7 @@
     {
       "id": "core-kernel",
       "source": "apps/core/openapi.yaml",
-      "operationSetSha256": "sha256:5d09bb29685e269da92e8cee70b9f79b3fabed70c187f4abedfe0f5d6f89d2ec",
+      "operationSetSha256": "sha256:ad36574efe47dcd7b251dc2d6b2e1919c38a4261a873a2668275e76b875a1b55",
       "groups": [
         {
           "id": "core-operational",
@@ -212,7 +212,7 @@
           "id": "core-runtime-discovery",
           "maturity": "candidate",
           "visibility": "public",
-          "operationPattern": "^GET /api/v1/(me|spaces/\\{spaceId\\})/_discovery$|^GET /api/v1/spaces/\\{spaceId\\}/_discovery/models/\\{modelKey\\}$"
+          "operationPattern": "^GET /api/v1/me/_discovery(?:/inventory)?$|^GET /api/v1/spaces/\\{spaceId\\}/_discovery$|^GET /api/v1/spaces/\\{spaceId\\}/_discovery/models/\\{modelKey\\}$"
         },
         {
           "id": "core-relation-target-lookup",
