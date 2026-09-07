@@ -3,7 +3,7 @@ import YAML from "yaml";
 
 const document = YAML.parse(fs.readFileSync(new URL("../openapi.yaml", import.meta.url), "utf8"));
 
-if (document.openapi !== "3.1.0" || document.info?.version !== "0.26.0") {
+if (document.openapi !== "3.1.0" || document.info?.version !== "0.27.0") {
   throw new Error("Core Kernel OpenAPI version metadata is invalid");
 }
 if (!document.info?.title?.includes("Kernel")) {
@@ -20,6 +20,7 @@ const requiredPaths = [
   "/api/v1/me",
   "/api/v1/me/spaces",
   "/api/v1/me/_discovery",
+  "/api/v1/me/_discovery/inventory",
   "/api/v1/spaces",
   "/api/v1/spaces/{spaceId}",
   "/api/v1/spaces/{spaceId}/close",
@@ -203,6 +204,7 @@ if (!grants.get.responses?.["200"]?.description?.includes("model-collection") ||
 
 const discovery = document.paths?.["/api/v1/spaces/{spaceId}/_discovery"]?.get;
 const aggregateDiscovery = document.paths?.["/api/v1/me/_discovery"]?.get;
+const inventoryDiscovery = document.paths?.["/api/v1/me/_discovery/inventory"]?.get;
 if (!discovery?.description?.includes("capability preview") || !discovery?.description?.includes("execution")) {
   throw new Error("Runtime Discovery must be documented as a preview whose authority is rechecked at execution time");
 }
@@ -370,6 +372,44 @@ if (schemas.RuntimeModelSemanticCapabilityBindings?.additionalProperties !== fal
   throw new Error("Single-model semantic detail must expose registered Calendar and Temporal semantic bindings");
 }
 
+if (inventoryDiscovery?.responses?.["200"]?.content?.["application/json"]?.schema?.$ref !== "#/components/schemas/RuntimeDiscoveryInventoryResponse"
+    || !inventoryDiscovery?.description?.includes("compact cross-Space")
+    || !inventoryDiscovery?.description?.includes("request-current capability preview")
+    || !inventoryDiscovery?.description?.includes("execution")) {
+  throw new Error("Compact current capability inventory must remain a request-current preview with execution-time rechecks");
+}
+const inventoryAction = schemas.RuntimeDiscoveryInventoryAction;
+const inventoryModel = schemas.RuntimeDiscoveryInventoryModel;
+const inventoryEdge = schemas.RuntimeDiscoveryInventoryModelEdge;
+const inventorySpace = schemas.RuntimeDiscoveryInventorySpace;
+const inventoryData = schemas.RuntimeDiscoveryInventoryResponse?.properties?.data;
+const exactProperties = (schema, expected) => schema?.additionalProperties === false
+  && JSON.stringify(Object.keys(schema?.properties ?? {}).sort()) === JSON.stringify([...expected].sort());
+if (!exactProperties(inventoryAction, ["key", "access", "kind"])
+    || inventoryAction?.properties?.input
+    || inventoryAction?.properties?.concurrency) {
+  throw new Error("Compact capability inventory actions must expose only coarse key/access/kind facts");
+}
+if (!exactProperties(inventoryModel, ["key", "route", "version", "schemaHash", "display", "capabilities", "actions"])
+    || inventoryModel?.properties?.fields
+    || inventoryModel?.properties?.defaults
+    || inventoryModel?.properties?.query
+    || inventoryModel?.properties?.capabilityBindings
+    || inventoryModel?.properties?.access) {
+  throw new Error("Compact capability inventory models must de-duplicate only coarse static model facts");
+}
+if (!exactProperties(inventoryEdge, ["modelKey", "access"])
+    || !exactProperties(inventorySpace, ["spaceId", "spaceName", "models"])) {
+  throw new Error("Compact capability inventory Space entries must remain minimal dynamic visibility edges");
+}
+if (inventoryData?.additionalProperties !== false
+    || JSON.stringify(inventoryData?.required) !== JSON.stringify(["semanticDetailPathTemplate", "models", "spaces"])
+    || inventoryData?.properties?.semanticDetailPathTemplate?.const !== "/api/v1/spaces/{spaceId}/_discovery/models/{modelKey}"
+    || inventoryData?.properties?.models?.items?.$ref !== "#/components/schemas/RuntimeDiscoveryInventoryModel"
+    || inventoryData?.properties?.spaces?.items?.$ref !== "#/components/schemas/RuntimeDiscoveryInventorySpace") {
+  throw new Error("Compact capability inventory must point deterministically to progressive single-model semantic detail");
+}
+
 const endpoints = document.paths?.["/api/v1/webhook-endpoints"];
 const endpoint = document.paths?.["/api/v1/webhook-endpoints/{endpointId}"];
 if (!endpoints?.get || !endpoints?.post || !endpoint?.patch || !endpoint?.delete) {
@@ -434,7 +474,7 @@ if (schemas.ModelContract?.properties?.id?.pattern !== "^mct_[a-f0-9]{64}$") {
   throw new Error("Model Contract revisions must be content-addressed mct_<sha256>");
 }
 
-if (schemas.StatusResponse?.properties?.data?.properties?.contractVersion?.const !== "0.26.0") {
+if (schemas.StatusResponse?.properties?.data?.properties?.contractVersion?.const !== "0.27.0") {
   throw new Error("Core Kernel status contract version drifted");
 }
 
