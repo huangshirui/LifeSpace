@@ -142,14 +142,16 @@ export function relationSemantic(field: FieldDefinition): ModelRelationSemantic 
 }
 
 export function modelFieldSemanticFacts(model: PublishedModel): ModelSemanticField[] {
-  return Object.entries(model.definition.fields).map(([key, field]) => {
-    const relation = relationSemantic(field);
-    return {
-      key,
-      ...structuredClone(field),
-      ...(relation ? { relation } : {}),
-    };
-  });
+  return Object.entries(model.definition.fields)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, field]) => {
+      const relation = relationSemantic(field);
+      return {
+        key,
+        ...structuredClone(field),
+        ...(relation ? { relation } : {}),
+      };
+    });
 }
 
 function supportsRange(field: FieldDefinition): boolean {
