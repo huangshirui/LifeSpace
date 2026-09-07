@@ -108,6 +108,7 @@ Required model metadata:
 - display singular/plural names;
 - model definition version;
 - field definitions;
+- optional canonical ordinary-record reference-label semantics for generic relation projection;
 - query/search definitions;
 - authorization/scopes;
 - lifecycle features such as optimistic concurrency and soft deletion;

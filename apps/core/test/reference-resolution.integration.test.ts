@@ -182,7 +182,7 @@ describe("Batch Reference Resolution", () => {
     expect(payload.error.code).toBe("FORBIDDEN");
   });
 
-  it("keeps ordinary record relations explicitly unsupported until canonical record reference labels exist", async () => {
+  it("uses the target record ID as the canonical fallback when no explicit record referenceLabel is declared", async () => {
     const f = await fixture();
     const suffix = crypto.randomUUID().replaceAll("-", "").slice(0, 10);
     const modelKey = `ref_link_${suffix}`;
@@ -209,16 +209,24 @@ describe("Batch Reference Resolution", () => {
     await f.db.prepare(`INSERT INTO application_model_access(application_id,model_key,max_access,created_by_type,created_by_id)
       VALUES(?,?,?,?,?)`).bind(f.clientId, modelKey, "read", "service", "svc_test_admin").run();
 
+    const created = await request(f.publicKey, f.accessToken, `/api/v1/spaces/${f.spaceId}/tasks`, "POST", {
+      name: "Canonical fallback task",
+    });
+    expect(created.status).toBe(201);
+    const task = await created.json<{ data: { id: string } }>();
+
     const response = await request(
       f.publicKey,
       f.accessToken,
       `/api/v1/spaces/${f.spaceId}/_reference-resolutions/${modelKey}/targetRecordId`,
       "POST",
-      { ids: ["rec_caller_supplied"] },
+      { ids: [task.data.id, task.data.id] },
     );
-    expect(response.status).toBe(409);
-    const payload = await response.json<{ error: { code: string } }>();
-    expect(payload.error.code).toBe("REFERENCE_RESOLUTION_UNSUPPORTED");
+    expect(response.status).toBe(200);
+    expect(await items(response)).toEqual([
+      { id: task.data.id, status: "resolved", label: task.data.id },
+      { id: task.data.id, status: "resolved", label: task.data.id },
+    ]);
   });
 
   it("enforces the closed 1-50 Person-ID request shape", async () => {

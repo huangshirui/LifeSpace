@@ -6,6 +6,7 @@ import { ApiError, success } from "./http";
 import type { ModelAccess } from "./model-definition";
 import { listPublishedModels, type PublishedModel } from "./model-registry";
 import { projectModelSemanticFacts } from "./model-semantic-projection";
+import { referenceLabelSemantic } from "./reference-label";
 import { relationDiscoveryMetadata } from "./relation-targets";
 
 type AppEnv = { Bindings: Bindings; Variables: Variables };
@@ -176,6 +177,7 @@ function dto(model: PublishedModel, allowed: ModelAccess[]) {
     schemaHash: model.schemaHash,
     display: model.definition.display,
     description: model.definition.description ?? null,
+    referenceLabel: referenceLabelSemantic(model.definition),
     access: allowed,
     fields: Object.entries(model.definition.fields).map(([key, field]) => {
       const relation = relationDiscoveryMetadata(field);

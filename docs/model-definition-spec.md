@@ -74,6 +74,7 @@ The v1 top-level shape is:
     plural: string
   },
   fields: Record<string, FieldDefinition>,
+  referenceLabel?: { field: string } | { template: string },
   defaults?: Record<string, DefaultValue>,
   query?: {
     searchable?: string[],
@@ -253,7 +254,32 @@ Conformance-ID: MDV1-FIELD-REQUIRED-NULLABLE-01
 Conformance-ID: MDV1-FIELD-CONSTRAINTS-01
 Conformance-ID: MDV1-RELATION-STRUCTURE-01
 
-Relation metadata defines **what may be referenced structurally**, not a static list of current target instances. Generated JSON Schema therefore projects stable relation target/cardinality through `x-lifespace-relation` and must not encode mutable Space-specific targets as `enum`. Runtime Discovery / Relation Target Lookup may resolve current targets under current authorization for clients such as n8n, Agents/MCP and generated UI. A lookup result is a capability/reference projection only: it does not bypass create/update Policy or mutation-time relation validation. `person` / `person_list` have canonical Space Person labels (`displayName`) and can be resolved generically; `record` / `record_list` remain lookup-unsupported until a canonical record reference-label semantic is defined rather than guessed from model-specific field names.
+### 4.2.1 `referenceLabel`
+
+`referenceLabel` defines the model-owned minimal human-readable label used when an ordinary record is referenced by another model. It is semantic Reference Projection for generic clients, not record identity, UI layout, search ranking or mutation authority.
+
+V1 supports exactly one of:
+
+```ts
+referenceLabel: { field: "name" }
+
+referenceLabel: { template: "{code} · {name}" }
+```
+
+Rules:
+
+- the object must contain exactly one of `field` or `template`;
+- referenced fields must exist and must be scalar `string`, `text`, `integer`, `number`, `boolean`, `date`, `datetime`, `timezone` or `enum` fields; relation fields are not valid label inputs;
+- a template is trimmed, contains 1–200 characters, uses only simple `{field}` placeholders and contains at most eight placeholders; at least one placeholder is required;
+- rendered output is trimmed and limited to 200 characters; boolean values render as `true` / `false`;
+- when `referenceLabel` is omitted, or when every referenced value is null/blank so the projected label is empty, the stable record ID is the canonical fallback;
+- Relation Target Lookup search/pagination and Batch Reference Resolution must use the same canonical label projection;
+- changing, adding or removing `referenceLabel` on an already-published model is a breaking semantic compatibility change because generic consumers may observe different labels/search ordering;
+- adapters must not override this semantic by guessing conventional fields such as `name`, `title` or `summary`.
+
+Conformance-ID: MDV1-REFERENCE-LABEL-01
+
+Relation metadata defines **what may be referenced structurally**, not a static list of current target instances. Generated JSON Schema therefore projects stable relation target/cardinality through `x-lifespace-relation` and must not encode mutable Space-specific targets as `enum`. Runtime Discovery / Relation Target Lookup may resolve current targets under current authorization for clients such as n8n, Agents/MCP and generated UI. A lookup result is a capability/reference projection only: it does not bypass create/update Policy or mutation-time relation validation. `person` / `person_list` use the canonical Space Person `displayName`. `record` / `record_list` use the target Model's canonical `referenceLabel` semantics defined below, with stable record ID fallback. Record lookup/resolution additionally requires current read authority to the target Model; adapters must never infer labels from conventional field names such as `name`, `title` or `summary`.
 
 ### 4.3 `readOnly`, Mutation Authority, and `immutable`
 

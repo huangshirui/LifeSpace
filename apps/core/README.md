@@ -12,13 +12,14 @@ Shared Cloudflare Worker business API for Space-owned life data.
 
 ## Current Kernel Runtime Discovery
 
-The current business-facing Core Kernel contract is **0.28.0**. Generic consumers may choose the projection size appropriate to the task:
+The current business-facing Core Kernel contract is **0.29.0**. Generic consumers may choose the projection size appropriate to the task:
 
 - `GET /api/v1/spaces/{spaceId}/_discovery` — full current capability metadata for one known Space;
 - `GET /api/v1/me/_discovery` — full aggregate current capability metadata across reachable Spaces;
 - `GET /api/v1/me/_discovery/inventory` — compact current capability inventory with de-duplicated coarse model facts and minimal per-Space visibility/access edges;
 - `GET /api/v1/spaces/{spaceId}/_discovery/models/{modelKey}` — progressive static semantic detail for one currently visible model;
-- `POST /api/v1/spaces/{spaceId}/_reference-resolutions/{modelKey}/{fieldKey}` — bounded source-field-aware hydration of existing relation IDs into minimal current labels with opaque per-item unavailable results.
+- `GET /api/v1/spaces/{spaceId}/_relation-targets/{modelKey}/{fieldKey}` — bounded current relation target selection using canonical Person `displayName` or ordinary-record `referenceLabel` semantics under current source/target Model authority;
+- `POST /api/v1/spaces/{spaceId}/_reference-resolutions/{modelKey}/{fieldKey}` — bounded source-field-aware hydration of existing Person or ordinary-record relation IDs into minimal current labels with opaque per-item unavailable results.
 
 The progressive Runtime Discovery representations are Candidate/Public Context Projections. They reflect current visibility when requested but never authorize execution; every CRUD/query/Action rechecks current authority and model/Capability rules.
 

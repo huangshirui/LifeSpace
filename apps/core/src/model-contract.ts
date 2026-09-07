@@ -1,5 +1,6 @@
 import type { FieldDefinition, ModelDefinition } from "./model-definition";
 import type { PublishedModel } from "./model-registry";
+import { referenceLabelSemantic } from "./reference-label";
 
 export type JsonSchema = Record<string, unknown>;
 export type OpenApiDocument = Record<string, unknown>;
@@ -284,7 +285,13 @@ function resourceSchema(model: PublishedModel): JsonSchema {
     };
     required.push("computed");
   }
-  return { type: "object", additionalProperties: false, properties, required };
+  return {
+    type: "object",
+    additionalProperties: false,
+    properties,
+    required,
+    "x-lifespace-reference-label": referenceLabelSemantic(definition),
+  };
 }
 
 function versionRequestSchema(): JsonSchema {
@@ -662,6 +669,7 @@ function jsonSchemaBundle(models: PublishedModel[]): JsonSchema {
       route: model.route,
       version: model.version,
       schemaHash: model.schemaHash,
+      referenceLabel: referenceLabelSemantic(model.definition),
       createSchema: `#/$defs/${prefix}Create`,
       updateSchema: `#/$defs/${prefix}Update`,
       resourceSchema: `#/$defs/${prefix}Resource`,

@@ -193,11 +193,12 @@ The project-level principle remains:
 
 > **Discoverable does not mean injected into every LLM context.**
 
-## 7. Remaining work outside #165
+## 7. Follow-up status outside #165
 
-The following remain intentionally separate and do not reopen Generic Consumer Readiness v1:
+**#155 is resolved by Kernel 0.29.0.** Ordinary-record canonical reference labels are now model-owned and `record` / `record_list` generic lookup/resolution is supported without field-name guessing. This closes the cross-consumer semantic gap identified after M4 without reopening #165.
 
-- **#155** — canonical ordinary-record reference label semantics. Until it lands, `record` / `record_list` generic label lookup/resolution remains explicitly unsupported rather than guessed from fields such as `name` or `title`.
+The following remain intentionally separate:
+
 - **#130** — stronger schema-aware Stable Public OpenAPI compatibility diff gate.
 - **lifespace-n8n-nodes#22** — adopt compact inventory + selected model detail.
 - **lifespace-adapters#4** — make progressive inventory/detail the default MCP discovery input when MCP implementation proceeds.

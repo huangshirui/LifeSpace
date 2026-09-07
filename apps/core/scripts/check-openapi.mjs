@@ -3,7 +3,7 @@ import YAML from "yaml";
 
 const document = YAML.parse(fs.readFileSync(new URL("../openapi.yaml", import.meta.url), "utf8"));
 
-if (document.openapi !== "3.1.0" || document.info?.version !== "0.28.0") {
+if (document.openapi !== "3.1.0" || document.info?.version !== "0.29.0") {
   throw new Error("Core Kernel OpenAPI version metadata is invalid");
 }
 if (!document.info?.title?.includes("Kernel")) {
@@ -271,12 +271,37 @@ if (schemas.RuntimeDiscoveryField?.properties?.relation?.$ref !== "#/components/
     || JSON.stringify(schemas.RuntimeDiscoveryRelation?.properties?.cardinality?.enum) !== JSON.stringify(["one", "many"])) {
   throw new Error("Runtime Discovery relation metadata must expose bounded target/cardinality semantics");
 }
+const referenceLabelSemantic = schemas.RuntimeReferenceLabelSemantic;
+if (referenceLabelSemantic?.oneOf?.length !== 3
+    || referenceLabelSemantic.oneOf[0]?.properties?.mode?.const !== "id"
+    || referenceLabelSemantic.oneOf[1]?.properties?.mode?.const !== "field"
+    || referenceLabelSemantic.oneOf[2]?.properties?.mode?.const !== "template"
+    || referenceLabelSemantic.oneOf[2]?.properties?.fields?.maxItems !== 8
+    || referenceLabelSemantic.oneOf[2]?.properties?.template?.maxLength !== 200) {
+  throw new Error("Runtime reference-label semantic contract drifted");
+}
+for (const schemaName of ["RuntimeDiscoveryModel", "RuntimeModelSemanticDetail"]) {
+  const schema = schemas[schemaName];
+  if (!schema?.required?.includes("referenceLabel")
+      || schema?.properties?.referenceLabel?.$ref !== "#/components/schemas/RuntimeReferenceLabelSemantic") {
+    throw new Error(schemaName + " must expose canonical reference-label semantics");
+  }
+}
 const referenceResolution = document.paths?.["/api/v1/spaces/{spaceId}/_reference-resolutions/{modelKey}/{fieldKey}"]?.post;
+const referenceResolutionId = schemas.ReferenceResolutionRequest?.properties?.ids?.items;
+if (referenceResolutionId?.pattern !== "^(?:per|rec)_[A-Za-z0-9_-]+$"
+    || referenceResolutionId?.maxLength !== 200) {
+  throw new Error("Reference Resolution must accept bounded Person and ordinary-record IDs according to the source relation kind");
+}
 if (referenceResolution?.requestBody?.content?.["application/json"]?.schema?.$ref !== "#/components/schemas/ReferenceResolutionRequest"
     || referenceResolution?.responses?.["200"]?.content?.["application/json"]?.schema?.$ref !== "#/components/schemas/ReferenceResolutionResponse"
     || !referenceResolution?.description?.includes("opaque unavailable")
     || !referenceResolution?.description?.includes("never proves mutation authority")) {
   throw new Error("Reference Resolution must remain bounded, opaque and non-authoritative");
+}
+if (!referenceResolution?.description?.includes("record/record_list")
+    || !referenceResolution?.description?.includes("target-model read authority")) {
+  throw new Error("Reference Resolution must document canonical ordinary-record projection and target Model authority");
 }
 if (schemas.ReferenceResolutionRequest?.additionalProperties !== false
     || schemas.ReferenceResolutionRequest?.properties?.ids?.minItems !== 1
@@ -314,6 +339,10 @@ if (!relationLookup?.description?.includes("source-field-aware")
     || relationLookupUnsupported?.properties?.supported?.const !== false
     || relationLookupUnsupported?.properties?.reason?.const !== "reference-label-unavailable") {
   throw new Error("Relation target lookup contract drifted");
+}
+if (!relationLookup?.description?.includes("record/record_list")
+    || !relationLookup?.description?.includes("target Model")) {
+  throw new Error("Relation Target Lookup must document canonical ordinary-record projection and target Model authority");
 }
 if (schemas.RelationTarget?.additionalProperties !== false
     || JSON.stringify(schemas.RelationTarget?.required) !== JSON.stringify(["id", "label"])
@@ -371,7 +400,7 @@ const semanticDetail = schemas.RuntimeModelSemanticDetail;
 const semanticDetailProperties = Object.keys(semanticDetail?.properties ?? {}).sort();
 const expectedSemanticDetailProperties = [
   "actions", "capabilities", "capabilityBindings", "declaredAccess", "defaults", "description", "display",
-  "fields", "key", "query", "route", "schemaHash", "version",
+  "fields", "key", "query", "referenceLabel", "route", "schemaHash", "version",
 ].sort();
 if (semanticDetail?.additionalProperties !== false
     || JSON.stringify(semanticDetailProperties) !== JSON.stringify(expectedSemanticDetailProperties)
@@ -504,7 +533,7 @@ if (schemas.ModelContract?.properties?.id?.pattern !== "^mct_[a-f0-9]{64}$") {
   throw new Error("Model Contract revisions must be content-addressed mct_<sha256>");
 }
 
-if (schemas.StatusResponse?.properties?.data?.properties?.contractVersion?.const !== "0.28.0") {
+if (schemas.StatusResponse?.properties?.data?.properties?.contractVersion?.const !== "0.29.0") {
   throw new Error("Core Kernel status contract version drifted");
 }
 
