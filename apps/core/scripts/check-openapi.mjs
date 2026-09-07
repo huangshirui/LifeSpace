@@ -382,8 +382,9 @@ if (semanticDetail?.additionalProperties !== false
   throw new Error("Single-model semantic detail must expose only static model semantics without effective Space authority state");
 }
 if (schemas.RuntimeModelSemanticField?.properties?.relation?.$ref !== "#/components/schemas/RuntimeModelSemanticRelation"
-    || Object.keys(schemas.RuntimeModelSemanticRelation?.properties ?? {}).sort().join(",") !== "cardinality,targetModel") {
-  throw new Error("Single-model semantic detail relation facts must remain static target/cardinality semantics");
+    || Object.keys(schemas.RuntimeModelSemanticRelation?.properties ?? {}).sort().join(",") !== "cardinality,resolution,targetModel"
+    || schemas.RuntimeModelSemanticRelation?.properties?.lookup) {
+  throw new Error("Single-model semantic detail relation facts must remain static target/cardinality/resolution semantics without dynamic lookup state");
 }
 if (!schemas.RuntimeModelSemanticQuery?.required?.includes("filters")
     || !schemas.RuntimeModelSemanticQuery?.required?.includes("pagination")
