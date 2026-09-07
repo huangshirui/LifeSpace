@@ -36,6 +36,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Align finalizer with current stability-baseline shape
+        run: sed -i 's/baseline\.contracts/baseline.contractSources/g' infra/scripts/finalize-eventing-after-94-95.mjs
+
       - name: Validate finalizer syntax
         run: node --check infra/scripts/finalize-eventing-after-94-95.mjs
 
