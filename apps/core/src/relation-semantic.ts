@@ -4,31 +4,21 @@ export const RELATION_TARGET_LOOKUP_PATH = "/api/v1/spaces/{spaceId}/_relation-t
 export const REFERENCE_RESOLUTION_PATH = "/api/v1/spaces/{spaceId}/_reference-resolutions/{modelKey}/{fieldKey}" as const;
 export const REFERENCE_RESOLUTION_MAX_IDS = 50 as const;
 
-export type RelationLookupDescriptor =
-  | {
-    supported: true;
-    method: "GET";
-    pathTemplate: typeof RELATION_TARGET_LOOKUP_PATH;
-    searchParameter: "q";
-    cursorParameter: "cursor";
-    limitParameter: "limit";
-  }
-  | {
-    supported: false;
-    reason: "reference-label-unavailable";
-  };
+export type RelationLookupDescriptor = {
+  supported: true;
+  method: "GET";
+  pathTemplate: typeof RELATION_TARGET_LOOKUP_PATH;
+  searchParameter: "q";
+  cursorParameter: "cursor";
+  limitParameter: "limit";
+};
 
-export type RelationResolutionDescriptor =
-  | {
-    supported: true;
-    method: "POST";
-    pathTemplate: typeof REFERENCE_RESOLUTION_PATH;
-    maxIds: typeof REFERENCE_RESOLUTION_MAX_IDS;
-  }
-  | {
-    supported: false;
-    reason: "reference-label-unavailable";
-  };
+export type RelationResolutionDescriptor = {
+  supported: true;
+  method: "POST";
+  pathTemplate: typeof REFERENCE_RESOLUTION_PATH;
+  maxIds: typeof REFERENCE_RESOLUTION_MAX_IDS;
+};
 
 export type RelationDiscoveryMetadata = {
   targetModel: string;
@@ -37,7 +27,7 @@ export type RelationDiscoveryMetadata = {
   resolution: RelationResolutionDescriptor;
 };
 
-const personLookup: RelationLookupDescriptor = {
+const genericLookup: RelationLookupDescriptor = {
   supported: true,
   method: "GET",
   pathTemplate: RELATION_TARGET_LOOKUP_PATH,
@@ -46,17 +36,12 @@ const personLookup: RelationLookupDescriptor = {
   limitParameter: "limit",
 };
 
-const personResolution: RelationResolutionDescriptor = {
+const genericResolution: RelationResolutionDescriptor = {
   supported: true,
   method: "POST",
   pathTemplate: REFERENCE_RESOLUTION_PATH,
   maxIds: REFERENCE_RESOLUTION_MAX_IDS,
 };
-
-const unavailable = (): { supported: false; reason: "reference-label-unavailable" } => ({
-  supported: false,
-  reason: "reference-label-unavailable",
-});
 
 export function relationDiscoveryMetadata(field: FieldDefinition): RelationDiscoveryMetadata | null {
   switch (field.type) {
@@ -64,29 +49,29 @@ export function relationDiscoveryMetadata(field: FieldDefinition): RelationDisco
       return {
         targetModel: "person",
         cardinality: "one",
-        lookup: structuredClone(personLookup),
-        resolution: structuredClone(personResolution),
+        lookup: structuredClone(genericLookup),
+        resolution: structuredClone(genericResolution),
       };
     case "person_list":
       return {
         targetModel: "person",
         cardinality: "many",
-        lookup: structuredClone(personLookup),
-        resolution: structuredClone(personResolution),
+        lookup: structuredClone(genericLookup),
+        resolution: structuredClone(genericResolution),
       };
     case "record":
       return {
         targetModel: field.targetModel!,
         cardinality: "one",
-        lookup: unavailable(),
-        resolution: unavailable(),
+        lookup: structuredClone(genericLookup),
+        resolution: structuredClone(genericResolution),
       };
     case "record_list":
       return {
         targetModel: field.targetModel!,
         cardinality: "many",
-        lookup: unavailable(),
-        resolution: unavailable(),
+        lookup: structuredClone(genericLookup),
+        resolution: structuredClone(genericResolution),
       };
     default:
       return null;
