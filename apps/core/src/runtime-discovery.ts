@@ -1,14 +1,16 @@
-import type { Hono } from "hono";
+import type { Context, Hono } from "hono";
 import type { Permission, SpaceRole } from "./authorization";
 import { capabilityActionAccess } from "./capability-runtime";
 import type { Bindings, Principal, Variables } from "./env";
 import { ApiError, success } from "./http";
 import type { ModelAccess } from "./model-definition";
 import { listPublishedModels, type PublishedModel } from "./model-registry";
+import { projectModelSemanticFacts } from "./model-semantic-projection";
 import { relationDiscoveryMetadata } from "./relation-targets";
 
 type AppEnv = { Bindings: Bindings; Variables: Variables };
 type App = Hono<AppEnv>;
+type AppContext = Context<AppEnv>;
 
 type CatalogRow = { model_key: string; max_access: ModelAccess };
 type MembershipRow = { role: SpaceRole };
@@ -61,6 +63,19 @@ type DiscoveryCapabilityBindings = {
   calendar?: DiscoveryCalendarCapabilityBinding;
 };
 
+type VisibleModel = { model: PublishedModel; access: ModelAccess[] };
+type AggregateDiscoveryState = {
+  principal: Principal;
+  models: PublishedModel[];
+  catalogByModel: Map<string, ModelAccess>;
+  membershipsBySpace: Map<string, MembershipRow>;
+  spaceNamesById: Map<string, string>;
+  grantsBySpace: Map<string, GrantRow[]>;
+  delegatedAgent: boolean;
+  delegatedBySpace: Map<string, Map<string, ModelAccess>>;
+  candidateSpaceIds: string[];
+};
+
 const accessRank: Record<ModelAccess, number> = { read: 1, write: 2, manage: 3 };
 const permissionRank: Record<Permission, number> = { free_busy: 0, read: 1, write: 2, manage: 3 };
 const roleRank: Record<SpaceRole, number> = { viewer: 1, editor: 2, admin: 3, owner: 3 };
@@ -70,6 +85,7 @@ const scopeForAccess: Record<ModelAccess, string> = {
   manage: "resources:manage",
 };
 const accessOrder: ModelAccess[] = ["read", "write", "manage"];
+const semanticDetailPathTemplate = "/api/v1/spaces/{spaceId}/_discovery/models/{modelKey}" as const;
 const recordVersionConcurrency: DiscoveryActionConcurrency = {
   strategy: "record-version",
   required: true,
@@ -186,14 +202,14 @@ function dto(model: PublishedModel, allowed: ModelAccess[]) {
   };
 }
 
-function visibleModels(
+function visibleModelAccess(
   principal: Principal,
   models: PublishedModel[],
   catalogByModel: Map<string, ModelAccess>,
   membership: MembershipRow | null,
   grants: GrantRow[],
   delegatedByModel?: Map<string, ModelAccess>,
-) {
+): VisibleModel[] {
   return models.flatMap((model) => {
     const catalogAccess = catalogByModel.get(model.key);
     if (!catalogAccess) return [];
@@ -204,8 +220,33 @@ function visibleModels(
       spaceAuthorityRank(principal, membership, grants, model.key),
       delegatedByModel === undefined ? undefined : (delegatedByModel.get(model.key) ?? null),
     );
-    return allowed.length ? [dto(model, allowed)] : [];
+    return allowed.length ? [{ model, access: allowed }] : [];
   });
+}
+
+function visibleModels(
+  principal: Principal,
+  models: PublishedModel[],
+  catalogByModel: Map<string, ModelAccess>,
+  membership: MembershipRow | null,
+  grants: GrantRow[],
+  delegatedByModel?: Map<string, ModelAccess>,
+) {
+  return visibleModelAccess(principal, models, catalogByModel, membership, grants, delegatedByModel)
+    .map(({ model, access }) => dto(model, access));
+}
+
+function inventoryModel(model: PublishedModel) {
+  const semantic = projectModelSemanticFacts(model);
+  return {
+    key: semantic.key,
+    route: semantic.route,
+    version: semantic.version,
+    schemaHash: semantic.schemaHash,
+    display: semantic.display,
+    capabilities: semantic.capabilities,
+    actions: semantic.actions.map(({ key, access, kind }) => ({ key, access, kind })),
+  };
 }
 
 function pushGrant(grantsBySpace: Map<string, GrantRow[]>, row: GrantAccessRow): void {
@@ -224,82 +265,120 @@ function pushDelegation(
   delegatedBySpace.set(row.source_space_id, delegatedByModel);
 }
 
-export function registerRuntimeDiscoveryRoutes(app: App): void {
-  app.get("/api/v1/me/_discovery", async (context) => {
-    const principal = context.get("principal");
-    const statements: D1PreparedStatement[] = [
-      context.env.DB.prepare(`SELECT model_key,max_access FROM application_model_access
-        WHERE application_id=?`).bind(principal.clientId),
-    ];
+async function aggregateDiscoveryState(context: AppContext): Promise<AggregateDiscoveryState> {
+  const principal = context.get("principal");
+  const statements: D1PreparedStatement[] = [
+    context.env.DB.prepare(`SELECT model_key,max_access FROM application_model_access
+      WHERE application_id=?`).bind(principal.clientId),
+  ];
 
-    const membershipIndex = principal.type === "user" ? statements.length : -1;
-    if (principal.type === "user") {
-      statements.push(context.env.DB.prepare(`SELECT m.space_id,m.role,s.name space_name
-        FROM space_memberships m
-        JOIN spaces s ON s.id=m.space_id
-        WHERE m.user_id=? AND m.deleted_at IS NULL AND s.deleted_at IS NULL`).bind(principal.id));
-    }
+  const membershipIndex = principal.type === "user" ? statements.length : -1;
+  if (principal.type === "user") {
+    statements.push(context.env.DB.prepare(`SELECT m.space_id,m.role,s.name space_name
+      FROM space_memberships m
+      JOIN spaces s ON s.id=m.space_id
+      WHERE m.user_id=? AND m.deleted_at IS NULL AND s.deleted_at IS NULL`).bind(principal.id));
+  }
 
-    const grantsIndex = statements.length;
-    statements.push(context.env.DB.prepare(`SELECT g.source_space_id,g.resource_type,g.resource_id,g.permission,s.name space_name
-      FROM data_grants g
-      JOIN spaces s ON s.id=g.source_space_id
-      WHERE g.grantee_type=? AND g.grantee_id=?
-        AND g.resource_type IN ('space','model')
-        AND g.revoked_at IS NULL AND (g.expires_at IS NULL OR julianday(g.expires_at)>julianday('now'))
-        AND s.deleted_at IS NULL`).bind(principal.type, principal.id));
+  const grantsIndex = statements.length;
+  statements.push(context.env.DB.prepare(`SELECT g.source_space_id,g.resource_type,g.resource_id,g.permission,s.name space_name
+    FROM data_grants g
+    JOIN spaces s ON s.id=g.source_space_id
+    WHERE g.grantee_type=? AND g.grantee_id=?
+      AND g.resource_type IN ('space','model')
+      AND g.revoked_at IS NULL AND (g.expires_at IS NULL OR julianday(g.expires_at)>julianday('now'))
+      AND s.deleted_at IS NULL`).bind(principal.type, principal.id));
 
-    const delegatedAgent = principal.actor?.type === "agent";
-    const delegationIndex = delegatedAgent ? statements.length : -1;
-    if (delegatedAgent) {
-      statements.push(context.env.DB.prepare(`SELECT d.source_space_id,m.model_key,m.max_access
-        FROM agent_delegations d
-        JOIN agent_delegation_models m ON m.delegation_id=d.id
-        JOIN spaces s ON s.id=d.source_space_id
-        WHERE d.principal_user_id=? AND d.agent_id=? AND d.application_id=?
-          AND d.revoked_at IS NULL
-          AND (d.expires_at IS NULL OR julianday(d.expires_at)>julianday('now'))
-          AND s.deleted_at IS NULL`)
-        .bind(principal.id, principal.actor!.id, principal.clientId));
-    }
+  const delegatedAgent = principal.actor?.type === "agent";
+  const delegationIndex = delegatedAgent ? statements.length : -1;
+  if (delegatedAgent) {
+    statements.push(context.env.DB.prepare(`SELECT d.source_space_id,m.model_key,m.max_access
+      FROM agent_delegations d
+      JOIN agent_delegation_models m ON m.delegation_id=d.id
+      JOIN spaces s ON s.id=d.source_space_id
+      WHERE d.principal_user_id=? AND d.agent_id=? AND d.application_id=?
+        AND d.revoked_at IS NULL
+        AND (d.expires_at IS NULL OR julianday(d.expires_at)>julianday('now'))
+        AND s.deleted_at IS NULL`)
+      .bind(principal.id, principal.actor!.id, principal.clientId));
+  }
 
-    const results = await context.env.DB.batch(statements);
-    const catalogs = (results[0].results ?? []) as CatalogRow[];
-    const catalogByModel = new Map(catalogs.map((row) => [row.model_key, row.max_access]));
-    const memberships = membershipIndex >= 0 ? (results[membershipIndex].results ?? []) as MembershipAccessRow[] : [];
-    const membershipsBySpace = new Map(memberships.map((row) => [row.space_id, { role: row.role }]));
-    const spaceNamesById = new Map(memberships.map((row) => [row.space_id, row.space_name]));
-    const grantsBySpace = new Map<string, GrantRow[]>();
-    for (const row of (results[grantsIndex].results ?? []) as GrantAccessRow[]) {
-      pushGrant(grantsBySpace, row);
-      if (!spaceNamesById.has(row.source_space_id)) spaceNamesById.set(row.source_space_id, row.space_name);
-    }
+  const results = await context.env.DB.batch(statements);
+  const catalogs = (results[0].results ?? []) as CatalogRow[];
+  const catalogByModel = new Map(catalogs.map((row) => [row.model_key, row.max_access]));
+  const memberships = membershipIndex >= 0 ? (results[membershipIndex].results ?? []) as MembershipAccessRow[] : [];
+  const membershipsBySpace = new Map(memberships.map((row) => [row.space_id, { role: row.role }]));
+  const spaceNamesById = new Map(memberships.map((row) => [row.space_id, row.space_name]));
+  const grantsBySpace = new Map<string, GrantRow[]>();
+  for (const row of (results[grantsIndex].results ?? []) as GrantAccessRow[]) {
+    pushGrant(grantsBySpace, row);
+    if (!spaceNamesById.has(row.source_space_id)) spaceNamesById.set(row.source_space_id, row.space_name);
+  }
 
-    const delegatedBySpace = new Map<string, Map<string, ModelAccess>>();
-    if (delegatedAgent) {
-      for (const row of (results[delegationIndex].results ?? []) as DelegationSpaceAccessRow[]) pushDelegation(delegatedBySpace, row);
-    }
+  const delegatedBySpace = new Map<string, Map<string, ModelAccess>>();
+  if (delegatedAgent) {
+    for (const row of (results[delegationIndex].results ?? []) as DelegationSpaceAccessRow[]) pushDelegation(delegatedBySpace, row);
+  }
 
-    const candidateSpaceIds = new Set<string>([
+  return {
+    principal,
+    models: await listPublishedModels(context.env),
+    catalogByModel,
+    membershipsBySpace,
+    spaceNamesById,
+    grantsBySpace,
+    delegatedAgent,
+    delegatedBySpace,
+    candidateSpaceIds: [...new Set<string>([
       ...membershipsBySpace.keys(),
       ...grantsBySpace.keys(),
-    ]);
-    const models = await listPublishedModels(context.env);
-    const spaces = [...candidateSpaceIds]
-      .sort((left, right) => left.localeCompare(right))
-      .flatMap((spaceId) => {
-        const visible = visibleModels(
-          principal,
-          models,
-          catalogByModel,
-          membershipsBySpace.get(spaceId) ?? null,
-          grantsBySpace.get(spaceId) ?? [],
-          delegatedAgent ? (delegatedBySpace.get(spaceId) ?? new Map<string, ModelAccess>()) : undefined,
-        );
-        return visible.length ? [{ spaceId, spaceName: spaceNamesById.get(spaceId)!, models: visible }] : [];
-      });
+    ])].sort((left, right) => left.localeCompare(right)),
+  };
+}
+
+export function registerRuntimeDiscoveryRoutes(app: App): void {
+  app.get("/api/v1/me/_discovery", async (context) => {
+    const state = await aggregateDiscoveryState(context);
+    const spaces = state.candidateSpaceIds.flatMap((spaceId) => {
+      const visible = visibleModels(
+        state.principal,
+        state.models,
+        state.catalogByModel,
+        state.membershipsBySpace.get(spaceId) ?? null,
+        state.grantsBySpace.get(spaceId) ?? [],
+        state.delegatedAgent ? (state.delegatedBySpace.get(spaceId) ?? new Map<string, ModelAccess>()) : undefined,
+      );
+      return visible.length ? [{ spaceId, spaceName: state.spaceNamesById.get(spaceId)!, models: visible }] : [];
+    });
 
     return context.json(success({ spaces }));
+  });
+
+  app.get("/api/v1/me/_discovery/inventory", async (context) => {
+    const state = await aggregateDiscoveryState(context);
+    const visibleModelKeys = new Set<string>();
+    const spaces = state.candidateSpaceIds.flatMap((spaceId) => {
+      const visible = visibleModelAccess(
+        state.principal,
+        state.models,
+        state.catalogByModel,
+        state.membershipsBySpace.get(spaceId) ?? null,
+        state.grantsBySpace.get(spaceId) ?? [],
+        state.delegatedAgent ? (state.delegatedBySpace.get(spaceId) ?? new Map<string, ModelAccess>()) : undefined,
+      );
+      for (const entry of visible) visibleModelKeys.add(entry.model.key);
+      return visible.length ? [{
+        spaceId,
+        spaceName: state.spaceNamesById.get(spaceId)!,
+        models: visible.map(({ model, access }) => ({ modelKey: model.key, access })),
+      }] : [];
+    });
+    const models = state.models
+      .filter((model) => visibleModelKeys.has(model.key))
+      .sort((left, right) => left.key.localeCompare(right.key))
+      .map(inventoryModel);
+
+    return context.json(success({ semanticDetailPathTemplate, models, spaces }));
   });
 
   app.get("/api/v1/spaces/:spaceId/_discovery", async (context) => {
