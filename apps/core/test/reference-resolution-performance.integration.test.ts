@@ -92,7 +92,7 @@ function reset(counter: Counter) {
 }
 
 describe("Batch Reference Resolution performance", () => {
-  it("keeps 1, small and max=50 Person hydration set-based with bounded bindings", async () => {
+  it("keeps hot 1, small and max=50 Person hydration set-based with bounded bindings", async () => {
     const realDb = (env as unknown as TestEnv).DB;
     const suffix = crypto.randomUUID().replaceAll("-", "");
     const userId = `usr_ref_perf_${suffix}`;
@@ -118,17 +118,25 @@ describe("Batch Reference Resolution performance", () => {
     const { privateKey, publicKey } = await keys();
     const accessToken = await bearer(privateKey, userId, clientId);
     const app = createApp();
+    const url = `http://localhost/api/v1/spaces/${spaceId}/_reference-resolutions/task/assigneePersonIds`;
+    const post = (ids: string[]) => app.request(
+      url,
+      {
+        method: "POST",
+        headers: { authorization: `Bearer ${accessToken}`, "content-type": "application/json" },
+        body: JSON.stringify({ ids }),
+      },
+      { DB: countedDb, IDENTITY_PUBLIC_KEY: publicKey, ENVIRONMENT: "test" },
+    );
+
+    // Exclude the one-time Runtime Model snapshot warm-up. D1's acceptance target is the
+    // hot request shape after the isolate has compiled its stable Registry descriptor.
+    const warm = await post(personIds.slice(0, 1));
+    expect(warm.status).toBe(200);
+
     const call = async (ids: string[]) => {
       reset(counter);
-      const response = await app.request(
-        `http://localhost/api/v1/spaces/${spaceId}/_reference-resolutions/task/assigneePersonIds`,
-        {
-          method: "POST",
-          headers: { authorization: `Bearer ${accessToken}`, "content-type": "application/json" },
-          body: JSON.stringify({ ids }),
-        },
-        { DB: countedDb, IDENTITY_PUBLIC_KEY: publicKey, ENVIRONMENT: "test" },
-      );
+      const response = await post(ids);
       expect(response.status).toBe(200);
       const text = await response.text();
       return {
@@ -152,6 +160,7 @@ describe("Batch Reference Resolution performance", () => {
     console.log("M3D1_REFERENCE_RESOLUTION_PERFORMANCE", JSON.stringify({
       environment: "Cloudflare Vitest local D1; wall time omitted as non-APAC diagnostic",
       maxIds: 50,
+      warmupExcluded: true,
       one,
       small,
       max,
