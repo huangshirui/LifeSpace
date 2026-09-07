@@ -126,6 +126,11 @@ replaceOnce(
 );
 
 replaceOnce("apps/core/scripts/check-openapi.mjs", 'document.info?.version !== "0.28.0"', 'document.info?.version !== "0.29.0"');
+replaceOnce(
+  "apps/core/scripts/check-openapi.mjs",
+  '  "fields", "key", "query", "route", "schemaHash", "version",',
+  '  "fields", "key", "query", "referenceLabel", "route", "schemaHash", "version",',
+);
 insertAfter(
   "apps/core/scripts/check-openapi.mjs",
   `if (schemas.RuntimeDiscoveryField?.properties?.relation?.$ref !== "#/components/schemas/RuntimeDiscoveryRelation"\n    || schemas.RuntimeDiscoveryRelation?.additionalProperties !== false\n    || JSON.stringify(schemas.RuntimeDiscoveryRelation?.properties?.cardinality?.enum) !== JSON.stringify(["one", "many"])) {\n  throw new Error("Runtime Discovery relation metadata must expose bounded target/cardinality semantics");\n}\n`,
