@@ -91,18 +91,24 @@ A long-lived token is opaque rather than a long-lived JWT so revocation and scop
 
 ## Core verification paths
 
-Core has two explicit authentication adapters that produce the same normalized principal context:
+Core has explicit authentication adapters that produce the same normalized principal context:
 
 ```text
-RS256 user/service JWT
-  -> local signature/claim verification
+RS256 user JWT
+  -> local signature/claim/lifetime verification
+
+RS256 service JWT
+  -> local signature/claim/lifetime verification
+  -> current Service Principal + owning Application eligibility through the internal Service Binding
 
 opaque lsp_pat_*
   -> Identity introspection through internal Service Binding
   -> current token + principal state
 ```
 
-Positive opaque-token caching is not part of the correctness boundary unless future measured performance work introduces a revocation-safe design.
+For an already-issued service JWT, the locally verified token remains the signed source of its token-bounded claims, but it is not an authority lease for Service Principal or owning Application active state. Core must confirm those two current states with Identity before accepting the normalized service principal. Missing/inactive status denies the request; inability to establish required current status fails closed rather than falling back to the locally valid JWT.
+
+Positive opaque-token or service-principal-eligibility caching is not part of the correctness boundary unless future measured performance work introduces a revocation-safe design.
 
 ### Passive Eventing subscriber eligibility
 
@@ -278,7 +284,9 @@ The following remove authority on subsequent requests:
 - revoke/reduce a Data Grant;
 - disable the registered application.
 
-OAuth service JWT lifetime defines the bounded delay for credential-state changes that are encoded into an already-issued short-lived JWT. Opaque tokens use current introspection state on the next request.
+For OAuth service JWTs, **Service Principal and owning Application active status are current-state Authority**, not claims leased until JWT expiry. After either disablement commits, the next Core request authenticated by an already-issued service JWT must fail the Identity eligibility check even when the JWT remains cryptographically valid.
+
+JWT lifetime may still bound changes to credential claims that are intentionally encoded into an already-issued short-lived JWT and are not separately classified as current-state Authority. This token-bounded behavior must never be interpreted to preserve a disabled Service Principal/application. Opaque tokens continue to use full current token/principal introspection on the next request.
 
 For passive Eventing, Service Principal/application status is re-checked at the final queued delivery boundary rather than inferred from a previously created Data Grant or subscription. Principal disablement therefore stops subsequent normal Webhook delivery even if Grant cleanup partially fails. The revocation window is bounded by reaching that send-time gate; it is not extended by credential TTL or a positive Identity-status cache. If Identity cannot confirm current status, delivery fails closed and follows the Queue retry/DLQ policy instead of sending.
 
