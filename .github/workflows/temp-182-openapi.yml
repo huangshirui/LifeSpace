@@ -1,4 +1,4 @@
-name: Temp 182 OpenAPI materialize
+name: Temp 182 finalization
 
 on:
   push:
@@ -10,22 +10,29 @@ permissions:
   contents: write
 
 jobs:
-  materialize:
+  finalize:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           ref: feat/182-compact-runtime-inventory
-      - run: node infra/scripts/temp-182-openapi.mjs
-      - name: Commit generated contract
+      - name: Normalize embedded regex literals
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('infra/scripts/temp-182-openapi.mjs')
+          s = p.read_text()
+          s = s.replace('\\\\\\\\', '\\\\')
+          p.write_text(s)
+          PY
+      - name: Finalize contract, gates and docs
+        run: node infra/scripts/temp-182-openapi.mjs
+      - name: Commit final feature branch
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add apps/core/openapi.yaml
-          if git diff --cached --quiet; then
-            echo "OpenAPI already materialized"
-            exit 0
-          fi
-          git commit -m "docs(core): publish Kernel 0.27.0 contract"
+          git add -A
+          git diff --cached --check
+          git commit -m "docs(core): finalize Kernel 0.27 Runtime inventory contract"
           git push origin HEAD:feat/182-compact-runtime-inventory
