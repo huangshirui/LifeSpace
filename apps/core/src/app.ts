@@ -7,6 +7,7 @@ import { registerChangeHistoryRoutes } from "./change-history";
 import { registerRegistryCreationDraftRoutes } from "./registry-creation-draft-jobs";
 import { registerGenericResourceRoutes } from "./generic-resource-routes";
 import { registerRuntimeDiscoveryRoutes } from "./runtime-discovery";
+import { registerRuntimeModelSemanticDetailRoutes } from "./runtime-model-semantic-detail";
 import { registerRelationTargetRoutes } from "./relation-targets";
 import { registerEventSubscriptionRoutes } from "./event-subscription-routes";
 import { ApiError, failure, success } from "./http";
@@ -44,7 +45,7 @@ export function createApp() {
   app.get("/health", (context) => context.json(success({ status: "ok" })));
   app.get("/api/v1/status", async (context) => context.json(success({
     status: "ok", service: "core", environment: context.env.ENVIRONMENT ?? "local", database: "available",
-    schemaVersion: await schemaVersion(context.env), contractVersion: "0.25.0",
+    schemaVersion: await schemaVersion(context.env), contractVersion: "0.26.0",
   })));
   app.use("/api/v1/me", authenticate());
   app.use("/api/v1/me/*", authenticate());
@@ -72,6 +73,7 @@ export function createApp() {
   registerAgentDelegationRoutes(app);
   registerChangeHistoryRoutes(app);
   registerRuntimeDiscoveryRoutes(app);
+  registerRuntimeModelSemanticDetailRoutes(app);
   registerRelationTargetRoutes(app);
   registerGenericResourceRoutes(app);
   app.notFound((context) => context.json(failure("NOT_FOUND", "Route not found", context.get("requestId")), 404));
