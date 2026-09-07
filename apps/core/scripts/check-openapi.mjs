@@ -3,7 +3,7 @@ import YAML from "yaml";
 
 const document = YAML.parse(fs.readFileSync(new URL("../openapi.yaml", import.meta.url), "utf8"));
 
-if (document.openapi !== "3.1.0" || document.info?.version !== "0.25.0") {
+if (document.openapi !== "3.1.0" || document.info?.version !== "0.26.0") {
   throw new Error("Core Kernel OpenAPI version metadata is invalid");
 }
 if (!document.info?.title?.includes("Kernel")) {
@@ -34,6 +34,7 @@ const requiredPaths = [
   "/api/v1/spaces/{spaceId}/grants",
   "/api/v1/spaces/{spaceId}/grants/{grantId}",
   "/api/v1/spaces/{spaceId}/_discovery",
+  "/api/v1/spaces/{spaceId}/_discovery/models/{modelKey}",
   "/api/v1/spaces/{spaceId}/_relation-targets/{modelKey}/{fieldKey}",
   "/api/v1/spaces/{spaceId}/agent-delegations",
   "/api/v1/spaces/{spaceId}/agent-delegations/{delegationId}",
@@ -324,6 +325,51 @@ if (calendarBinding?.additionalProperties !== false
   throw new Error("Runtime Discovery Calendar Capability field-role binding drifted");
 }
 
+const semanticDetailRoute = document.paths?.["/api/v1/spaces/{spaceId}/_discovery/models/{modelKey}"]?.get;
+if (semanticDetailRoute?.responses?.["200"]?.content?.["application/json"]?.schema?.$ref !== "#/components/schemas/RuntimeModelSemanticDetailResponse"
+    || !semanticDetailRoute?.description?.includes("static semantic detail")
+    || !semanticDetailRoute?.description?.includes("current visibility gate")
+    || !semanticDetailRoute?.description?.includes("opaque 404")
+    || !semanticDetailRoute?.description?.includes("execution")) {
+  throw new Error("Single-model semantic detail must document progressive static projection and current authority gating");
+}
+if (JSON.stringify(Object.keys(semanticDetailRoute?.responses ?? {}).sort()) !== JSON.stringify(["200", "401", "404"])) {
+  throw new Error("Single-model semantic detail must use one opaque 404 for missing and currently invisible models");
+}
+const semanticDetail = schemas.RuntimeModelSemanticDetail;
+const semanticDetailProperties = Object.keys(semanticDetail?.properties ?? {}).sort();
+const expectedSemanticDetailProperties = [
+  "actions", "capabilities", "capabilityBindings", "declaredAccess", "defaults", "description", "display",
+  "fields", "key", "query", "route", "schemaHash", "version",
+].sort();
+if (semanticDetail?.additionalProperties !== false
+    || JSON.stringify(semanticDetailProperties) !== JSON.stringify(expectedSemanticDetailProperties)
+    || !semanticDetail?.required?.includes("declaredAccess")
+    || semanticDetail?.properties?.access
+    || semanticDetail?.properties?.spaceId
+    || semanticDetail?.properties?.spaceName) {
+  throw new Error("Single-model semantic detail must expose only static model semantics without effective Space authority state");
+}
+if (schemas.RuntimeModelSemanticField?.properties?.relation?.$ref !== "#/components/schemas/RuntimeModelSemanticRelation"
+    || Object.keys(schemas.RuntimeModelSemanticRelation?.properties ?? {}).sort().join(",") !== "cardinality,targetModel") {
+  throw new Error("Single-model semantic detail relation facts must remain static target/cardinality semantics");
+}
+if (!schemas.RuntimeModelSemanticQuery?.required?.includes("filters")
+    || !schemas.RuntimeModelSemanticQuery?.required?.includes("pagination")
+    || !schemas.RuntimeModelSemanticQuery?.required?.includes("capabilityParameters")
+    || schemas.RuntimeModelSemanticQuery?.properties?.sort?.properties?.nullPlacement?.const !== "last") {
+  throw new Error("Single-model semantic detail must expose complete shared query facts");
+}
+if (!schemas.RuntimeModelSemanticAction?.required?.includes("invocation")
+    || schemas.RuntimeModelSemanticAction?.properties?.concurrency?.$ref !== "#/components/schemas/RuntimeModelSemanticActionConcurrency") {
+  throw new Error("Single-model semantic detail actions must expose shared invocation and concurrency facts");
+}
+if (schemas.RuntimeModelSemanticCapabilityBindings?.additionalProperties !== false
+    || !schemas.RuntimeModelSemanticCapabilityBindings?.properties?.calendar
+    || !schemas.RuntimeModelSemanticCapabilityBindings?.properties?.temporal) {
+  throw new Error("Single-model semantic detail must expose registered Calendar and Temporal semantic bindings");
+}
+
 const endpoints = document.paths?.["/api/v1/webhook-endpoints"];
 const endpoint = document.paths?.["/api/v1/webhook-endpoints/{endpointId}"];
 if (!endpoints?.get || !endpoints?.post || !endpoint?.patch || !endpoint?.delete) {
@@ -388,7 +434,7 @@ if (schemas.ModelContract?.properties?.id?.pattern !== "^mct_[a-f0-9]{64}$") {
   throw new Error("Model Contract revisions must be content-addressed mct_<sha256>");
 }
 
-if (schemas.StatusResponse?.properties?.data?.properties?.contractVersion?.const !== "0.25.0") {
+if (schemas.StatusResponse?.properties?.data?.properties?.contractVersion?.const !== "0.26.0") {
   throw new Error("Core Kernel status contract version drifted");
 }
 
