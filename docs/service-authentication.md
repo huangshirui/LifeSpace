@@ -89,6 +89,8 @@ Service API Token requirements:
 
 A long-lived token is opaque rather than a long-lived JWT so revocation and scope reduction remain current-state decisions.
 
+Credential `lastUsedAt` is operational usage metadata, not authorization or revocation evidence. Successful opaque-token introspection and OAuth token issuance may record it as best-effort asynchronous work after the authentication result is established; failure or delay of that metadata write must not change the authentication decision or keep the business request on a synchronous D1 write path.
+
 ## Core verification paths
 
 Core has explicit authentication adapters that produce the same normalized principal context:
