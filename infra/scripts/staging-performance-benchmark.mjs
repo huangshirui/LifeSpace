@@ -109,7 +109,7 @@ export async function runStagingPerformanceBenchmark({
   try {
     const tasks = [];
     for (let index = 0; index < 10; index += 1) {
-      const created = await expectData(`/api/v1/spaces/${spaceId}/tasks`, {
+      const created = await expectData(`/api/v1/spaces/${spaceId}/models/task/records`, {
         method: "POST",
         body: { name: `Performance task ${marker} ${index}`, assigneePersonIds: index === 0 ? [personId] : [] },
       }, 201);
@@ -119,7 +119,7 @@ export async function runStagingPerformanceBenchmark({
 
     const eventStart = new Date(Date.now() + 2 * 60 * 60 * 1000);
     const eventEnd = new Date(eventStart.getTime() + 45 * 60 * 1000);
-    const event = await expectData(`/api/v1/spaces/${spaceId}/events`, {
+    const event = await expectData(`/api/v1/spaces/${spaceId}/models/event/records`, {
       method: "POST",
       body: {
         summary: `Performance event ${marker}`,
@@ -134,13 +134,13 @@ export async function runStagingPerformanceBenchmark({
     cleanup.push({ route: "events", id: event.data.id, version: event.data.version });
 
     const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-    const day = await expectData(`/api/v1/spaces/${spaceId}/day-records`, {
+    const day = await expectData(`/api/v1/spaces/${spaceId}/models/day_record/records`, {
       method: "POST",
       body: { name: `Performance day ${marker}`, kind: "elapsed", anchorDate: yesterday, subjectPersonId: personId },
     }, 201);
     cleanup.push({ route: "day-records", id: day.data.id, version: day.data.version });
 
-    const wish = await expectData(`/api/v1/spaces/${spaceId}/wishes`, {
+    const wish = await expectData(`/api/v1/spaces/${spaceId}/models/wish/records`, {
       method: "POST",
       body: { ownerPersonId: personId, title: `Performance wish ${marker}` },
     }, 201);
@@ -150,17 +150,17 @@ export async function runStagingPerformanceBenchmark({
     const eventRangeEnd = encodeURIComponent(new Date(eventEnd.getTime() + 60_000).toISOString());
 
     const entries = [];
-    entries.push(await measure("taskGet", () => expectData(`/api/v1/spaces/${spaceId}/tasks/${tasks[0].id}`)));
-    entries.push(await measure("taskList10", () => expectData(`/api/v1/spaces/${spaceId}/tasks?limit=10`)));
-    entries.push(await measure("eventWindow", () => expectData(`/api/v1/spaces/${spaceId}/events?rangeStart=${eventRangeStart}&rangeEnd=${eventRangeEnd}&limit=20`)));
-    entries.push(await measure("dayRecordList", () => expectData(`/api/v1/spaces/${spaceId}/day-records?sort=effectiveDate:asc&limit=20`)));
-    entries.push(await measure("wishList", () => expectData(`/api/v1/spaces/${spaceId}/wishes?limit=20`)));
+    entries.push(await measure("taskGet", () => expectData(`/api/v1/spaces/${spaceId}/models/task/records/${tasks[0].id}`)));
+    entries.push(await measure("taskList10", () => expectData(`/api/v1/spaces/${spaceId}/models/task/records?limit=10`)));
+    entries.push(await measure("eventWindow", () => expectData(`/api/v1/spaces/${spaceId}/models/event/records?rangeStart=${eventRangeStart}&rangeEnd=${eventRangeEnd}&limit=20`)));
+    entries.push(await measure("dayRecordList", () => expectData(`/api/v1/spaces/${spaceId}/models/day_record/records?sort=effectiveDate:asc&limit=20`)));
+    entries.push(await measure("wishList", () => expectData(`/api/v1/spaces/${spaceId}/models/wish/records?limit=20`)));
     const reads = Object.fromEntries(entries);
 
     let patchVersion = tasks[1].version;
     const patchSamples = [];
     for (let index = 0; index < 8; index += 1) {
-      const patched = await expectData(`/api/v1/spaces/${spaceId}/tasks/${tasks[1].id}`, {
+      const patched = await expectData(`/api/v1/spaces/${spaceId}/models/task/records/${tasks[1].id}`, {
         method: "PATCH",
         body: { version: patchVersion, name: `Performance task ${marker} patch ${index}` },
       });
@@ -173,7 +173,7 @@ export async function runStagingPerformanceBenchmark({
     const actionSamples = [];
     for (let index = 0; index < 8; index += 1) {
       const action = index % 2 === 0 ? "complete" : "reopen";
-      const changed = await expectData(`/api/v1/spaces/${spaceId}/tasks/${tasks[2].id}/actions/${action}`, {
+      const changed = await expectData(`/api/v1/spaces/${spaceId}/models/task/records/${tasks[2].id}/actions/${action}`, {
         method: "POST",
         body: { version: actionVersion },
       });
