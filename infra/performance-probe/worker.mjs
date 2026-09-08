@@ -43,7 +43,7 @@ function isAllowedBenchmarkRequest(path, method, spaceId) {
 
 export default {
   async fetch(request, env) {
-    if (!env.PROBE_TOKEN || !env.USER_BEARER || !env.SPACE_ID) {
+    if (!env.PROBE_TOKEN || !env.USER_BEARER || !env.SERVICE_BEARER || !env.SPACE_ID) {
       return json({ error: "probe_not_configured" }, 503);
     }
 
@@ -72,11 +72,17 @@ export default {
       return json({ error: "benchmark_request_not_allowed" }, 403);
     }
 
+    const credentialMode = input?.credentialMode ?? "user";
+    if (credentialMode !== "user" && credentialMode !== "service") {
+      return json({ error: "benchmark_credential_mode_not_allowed" }, 403);
+    }
+    const bearer = credentialMode === "service" ? env.SERVICE_BEARER : env.USER_BEARER;
+
     const started = performance.now();
     const response = await fetch(`${CORE_BASE_URL}${path}`, {
       method,
       headers: {
-        authorization: `Bearer ${env.USER_BEARER}`,
+        authorization: `Bearer ${bearer}`,
         ...(input.body === undefined ? {} : { "content-type": "application/json" }),
       },
       ...(input.body === undefined ? {} : { body: JSON.stringify(input.body) }),
@@ -92,6 +98,6 @@ export default {
       }
     }
 
-    return json({ status: response.status, payload, elapsedMs });
+    return json({ status: response.status, payload, elapsedMs, credentialMode });
   },
 };
