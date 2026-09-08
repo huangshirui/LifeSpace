@@ -257,11 +257,14 @@ export async function publishModelDefinition(
       .bind(publishedAt, current.id, targetRevision, mutationToken));
   }
   statements.push(env.DB.prepare(`INSERT INTO model_definitions(
-      id,model_key,version,state,definition_version,definition_json,schema_hash,compatibility,
+      id,model_key,route_segment,version,state,definition_version,definition_json,schema_hash,compatibility,
       published_by_type,published_by_id,published_by_name_snapshot,published_at
-    ) SELECT ?,?,?,'published',1,?,?,?,?,?,?,? WHERE ${registryGuardSql()}`)
+    ) SELECT ?,?,?,?,'published',1,?,?,?,?,?,?,? WHERE ${registryGuardSql()}`)
     .bind(
       id,
+      validation.definition.key,
+      // Deprecated physical compatibility column retained by the D1-safe 0037
+      // migration. Runtime addressing and collision rules use model_key only.
       validation.definition.key,
       nextVersion,
       definitionJson,

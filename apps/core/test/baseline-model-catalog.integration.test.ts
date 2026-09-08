@@ -12,6 +12,7 @@ type TestEnv = { DB: D1Database };
 
 type PublishedDefinitionRow = {
   model_key: string;
+  route_segment: string;
   version: number;
   definition_json: string;
   schema_hash: string;
@@ -43,7 +44,7 @@ describe("canonical baseline Model Catalog", () => {
   it("matches the published Registry produced by a fresh migration chain", async () => {
     const db = (env as unknown as TestEnv).DB;
     const columns = await db.prepare("SELECT name FROM pragma_table_info('model_definitions')").all<{ name: string }>();
-    expect(columns.results.map((column) => column.name)).not.toContain("route_segment");
+    expect(columns.results.map((column) => column.name)).toContain("route_segment");
 
     for (const canonical of BASELINE_MODELS) {
       const expected = await validateDefinition(canonical);
@@ -51,7 +52,7 @@ describe("canonical baseline Model Catalog", () => {
       if (!expected.valid) continue;
 
       const release = RELEASE_HISTORY[canonical.key as keyof typeof RELEASE_HISTORY];
-      const row = await db.prepare(`SELECT model_key,version,definition_json,schema_hash,compatibility
+      const row = await db.prepare(`SELECT model_key,route_segment,version,definition_json,schema_hash,compatibility
           FROM model_definitions
           WHERE model_key=? AND state='published'`)
         .bind(canonical.key)
@@ -61,6 +62,7 @@ describe("canonical baseline Model Catalog", () => {
       if (!row) continue;
 
       expect(row.model_key).toBe(canonical.key);
+      expect(row.route_segment).toBe(canonical.key);
       expect(row.version).toBe(release.currentVersion);
       expect(row.schema_hash).toBe(expected.schemaHash);
       expect(row.compatibility).toBe("breaking");
