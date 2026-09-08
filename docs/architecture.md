@@ -109,7 +109,9 @@ The business-facing Core Kernel contract remains deliberately stable and separat
 
 Published Model Definitions are the logical source of truth for ordinary business-model schema. They are validated, immutable by version, schema-hashed and compatibility classified.
 
-A Worker isolate loads the published model set and compiles Runtime Model Descriptors indexed only by stable `modelKey`. Canonical ordinary Runtime paths are `/api/v1/spaces/{spaceId}/models/{modelKey}/records/...`; a caller that knows `spaceId + modelKey` needs no Discovery. Descriptors precompute stable field/query/relation/access metadata, so normal hot-path model requests do not need a Registry D1 read for every request. The four pre-#200 paths for Task, Wish, Day Record and Event are explicit time-bounded compatibility aliases, not Definition or Registry identities, and newly published models never receive aliases.
+A Worker isolate loads the published model set and compiles Runtime Model Descriptors indexed only by stable `modelKey`. Canonical ordinary Runtime paths are `/api/v1/spaces/{spaceId}/models/{modelKey}/records/...`; a caller that knows `spaceId + modelKey` needs no Discovery. Descriptors precompute stable field/query/relation/access metadata, so normal hot-path model requests do not need a Registry D1 read for every request.
+
+The four paths published before #200 remain fixed `/api/v1` legacy compatibility aliases for the lifetime of v1, or until an explicit major API-version boundary: `/tasks -> task`, `/wishes -> wish`, `/events -> event`, and `/day-records -> day_record`. They dispatch in-process to the same Generic Runtime handlers as the canonical modelKey paths and add no Discovery, internal HTTP request, extra D1 lookup or second Worker hop. These aliases are not Model Definition, Registry or semantic identities; no newly published model receives a legacy alias. New consumers must use canonical modelKey paths.
 
 Relation structure and relation instances deliberately live at different layers. Model Definition / generated JSON Schema owns stable relation target/cardinality semantics; Runtime Context Projection resolves current relation targets under live authority. Kernel `0.23.0` provides source-field-aware Person target lookup as minimal `{id,label}` references for generated clients without exposing Space membership-management data. This lookup is not a UI widget contract and is not mutation authority; adapters decide presentation, while create/update Policy and relation integrity are rechecked at execution. Kernel `0.29.0` adds model-owned canonical record `referenceLabel` semantics so `record` / `record_list` lookup and hydration no longer depend on adapter heuristics such as guessing `name`, `title` or `summary`. The same projection is used for lookup search/pagination and batch resolution, falls back to stable record ID when no usable label value exists, and additionally requires current target-model read authority to prevent cross-model label disclosure. Kernel `0.24.0` also projects a minimal current human-readable Space label alongside an already-authorized Runtime Discovery Space reference, so n8n, MCP, Agents and generated UI can present the same Space without acquiring Space membership-management metadata or authority. Kernel `0.25.0` adds bounded standard Capability field-role bindings to the same projection, beginning with Calendar timed/all-day field roles; these bindings expose reusable semantics without promoting adapter UI layout into platform truth. Kernel `0.26.0` separates the Static Semantic Plane from dynamic visibility by adding `GET /api/v1/spaces/{spaceId}/_discovery/models/{modelKey}`: Space is only a current visibility gate, while a successful semantic body is authority-independent and cacheable by `(key, version, schemaHash)`; missing and currently invisible models share an opaque 404, and execution still rechecks current authority. Kernel `0.27.0` adds `GET /api/v1/me/_discovery/inventory` as the compact Dynamic Visibility Plane: coarse static Model/Action/Capability facts are de-duplicated once, each reachable Space carries only minimal `modelKey + effective access` edges, and heavyweight field/default/query/action-input/Capability-binding semantics are loaded progressively through the 0.26 detail route. The older full Discovery surfaces remain available for compatibility and are never authorization proof.
 
@@ -177,7 +179,7 @@ Application-specific provider identifiers remain application-owned. Examples inc
 Cloudflare Access is the deliberate platform exception because it is the shared long-term Web/PWA authentication and SSO layer. Identity owns:
 
 ```text
-(Access iss, Access sub) -> LifeSpace usr_*
+(Access iss, Access sub) -> global usr_*
 (Access iss, Access aud) -> registered LifeSpace application context
 ```
 
@@ -323,7 +325,7 @@ Platform Admin Control-Plane Contract
 Kernel Contract
   apps/core/openapi.yaml
   explicit product-facing Space / Grant / Runtime Discovery / Change History / Creation Draft primitives
-  current Kernel contract: 0.31.0
+  current Kernel contract: 0.32.0
 
 Integration / Eventing Contract
   apps/core/integration-eventing.openapi.yaml
@@ -333,7 +335,7 @@ Integration / Eventing Contract
 
 Model Control Plane Contract
   apps/core/model-control-plane.openapi.yaml
-  independent governance contract: 0.1.0
+  independent governance contract: 0.2.0
 
 Platform Admin Control-Plane Contract
   apps/core/platform-admin.openapi.yaml
