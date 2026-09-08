@@ -17,67 +17,101 @@ const baselineDefinitions = [
   EVENT_MODEL_DEFINITION,
 ];
 const releaseFingerprint = Object.freeze({
-  task: Object.freeze({ version: 6, schemaHash: "e79798bcadefad021ca86c1577c3fa3bc8fd0627f46557193aeca9b62acabb8e" }),
-  wish: Object.freeze({ version: 6, schemaHash: "7dc6c079916a967c8bcd93f8cbe082c98157ceaeb30ce782ef3f2eb035d370df" }),
-  day_record: Object.freeze({ version: 3, schemaHash: "9297a2f87fdd0718bfb74a362a0c451cf25309f4975099772f76e8a485fd0852" }),
-  event: Object.freeze({ version: 4, schemaHash: "35106ecb38a7d33cee083b285a62001d64234d0a86890b8a51094e1dd3b58e8f" }),
+  task: Object.freeze({ version: 7, schemaHash: "e79798bcadefad021ca86c1577c3fa3bc8fd0627f46557193aeca9b62acabb8e" }),
+  wish: Object.freeze({ version: 7, schemaHash: "7dc6c079916a967c8bcd93f8cbe082c98157ceaeb30ce782ef3f2eb035d370df" }),
+  day_record: Object.freeze({ version: 4, schemaHash: "9297a2f87fdd0718bfb74a362a0c451cf25309f4975099772f76e8a485fd0852" }),
+  event: Object.freeze({ version: 5, schemaHash: "35106ecb38a7d33cee083b285a62001d64234d0a86890b8a51094e1dd3b58e8f" }),
 });
-// This is the deterministic contract for an isolated Registry containing exactly
-// the four baseline models above. A deployed Registry may legitimately have a
-// different activeÛ¿uëVòµë(š+myÛˆH™\ÛÝ\˜ÙKœ›Ü\Y\ÏË˜][™YT\œÛÛ’YÏË–Èž[Y™\ÜXÙK\™[][Ûˆ—H\È™XÛÜ™Ýš[™Ë[šÛ›ÝÛŽÂˆ^XÝ
-Ù[™\˜]Y™[][ÛŠKÑ\]X[
-Âˆ\™Ù][Ù[ˆ][™YKœ™[][ÛË\™Ù][Ù[ˆØ\™[˜[]Nˆ][™YKœ™[][ÛË˜Ø\™[˜[]KˆJNÂˆ^XÝ
-Ù[™\˜]Y™[][ÛŠK››ÝÒ]™T›Ü\J›ÛÚÝ\ŠNÂˆ^XÝ
-Ù[™\˜]Y™[][ÛŠK››ÝÒ]™T›Ü\Jœ™\ÛÛ][ÛˆŠNÂˆ^XÝ
-][™YKœ™[][ÛËœ™\ÛÛ][ÛŠKÑ\]X[
-ÂˆÝ\ÜYˆYKˆY]Ùˆ”ÔÕ‹ˆ][\]Nˆ‹Ø\KÝŒKÜÜXÙ\ËÞÜÜXÙRYK×Ü™Y™\™[˜ÙK\™\ÛÛ][ÛœËÞÛ[Ù[Ù^_KÞÙšY[Ù^_H‹ˆX^YÎˆLˆJNÂˆ›Üˆ
-ÛÛœÝÚÙ^K˜[YWHÙˆØš™XÝ™[šY\Ê˜XÝË™Y˜][ÊJHÂˆYˆ
-Ü™X]Kœ›Ü\Y\ÏË–ÚÙ^WJH^XÝ
-Ü™X]Kœ›Ü\Y\ÖÚÙ^WK™Y˜][
-KÑ\]X[
-˜[YJNÂˆBˆJNÂ‚ˆ]
-›X]Ú\È™\™\Ù[]]™HÝ\œ™[[[YH\ØÛÝ™\žHÝ]]Ú]Ý]Ý\œ™[]]Üš]HXZÚ[™È[ÈÝ]XÈ˜XÝÈ‹\Þ[˜È
 
-HOˆÂˆÛÛœÝ^[ØYH]ØZ][[YQ\ØÛÝ™\žQš^\™J
-NÂˆÛÛœÝ\ÚÔ[[YHH^[ØY™]K›[Ù[Ë™š[™
+function published(definition: ModelDefinition): PublishedModel {
+  return {
+    id: `mdl_${definition.key}`,
+    key: definition.key,
+    version: 1,
+    state: "published",
+    schemaHash: `hash_${definition.key}`,
+    compatibility: "initial",
+    definition,
+    publishedAt: "2026-08-21T00:00:00.000Z",
+  };
+}
 
-[žJHOˆ[žKšÙ^HOOH\ÚÈŠHNÂˆÛÛœÝ]™[[[YHH^[ØY™]K›[Ù[Ë™š[™
+describe("Creation Draft baseline model semantics", () => {
+  const descriptors = creationDraftModelDescriptors(baselineDefinitions.map(published));
+  const byKey = new Map(descriptors.map((descriptor) => [descriptor.key, descriptor]));
 
-[žJHOˆ[žKšÙ^HOOH™]™[ŠHNÂˆÛÛœÝ\ÚÑ˜XÝÈH›Ú™XÝ[Ù[Ù[X[XÑ˜XÝÊX›\ÚY
-TÒ×ÓSÑSÑQ’S’USÓŠJNÂˆÛÛœÝ]™[˜XÝÈH›Ú™XÝ[Ù[Ù[X[XÑ˜XÝÊX›\ÚY
-U‘S•ÓSÑSÑQ’S’USÓŠJNÂ‚ˆ^XÝ
-\ÚÔ[[YK™Y˜][ÊKÑ\]X[
-\ÚÑ˜XÝË™Y˜][ÊNÂˆ^XÝ
+  it("keeps all four semantic baseline definitions valid", () => {
+    for (const definition of baselineDefinitions) {
+      const result = validateModelDefinition(definition);
+      expect(result.valid, definition.key).toBe(true);
+    }
+  });
 
-\ÚÔ[[YK™šY[È\È\œ˜^O™XÛÜ™Ýš[™Ë[šÛ›ÝÛŠK›X\
+  it("gives every HomeMew baseline model an explicit semantic description", () => {
+    for (const key of ["task", "wish", "day_record", "event"]) {
+      const descriptor = byKey.get(key);
+      expect(descriptor).toBeDefined();
+      expect(descriptor?.description).toBeTruthy();
+      expect(descriptor?.description).not.toBe(`${descriptor?.name} LifeSpace record`);
+      expect(descriptor?.description.length).toBeGreaterThan(80);
+    }
+  });
 
-ÈÙ^K\K]K\ØÜš\[Û‹™\]Z\™Y[X›K[[]]X›K™XYÛ›HJHOˆ
-ÂˆÙ^K\K]K\ØÜš\[Û‹™\]Z\™Y[X›K[[]]X›K™XYÛ›KˆJJJKÑ\]X[
-\ÚÑ˜XÝË™šY[Ë›X\
+  it("distinguishes concrete work, scheduled occurrences, date trackers, and aspirations", () => {
+    expect(byKey.get("task")?.description).toContain("concrete to-dos");
+    expect(byKey.get("task")?.description).toContain("deadline");
 
-ÈÙ^K\K]K\ØÜš\[Û‹™\]Z\™Y[X›K[[]]X›K™XYÛ›HJHOˆ
-ÂˆÙ^K\K]K\ØÜš\[Û‹™\]Z\™Y[X›K[[]]X›K™XYÛ›KˆJJJNÂ‚ˆÛÛœÝ[[YT]Y\žHH\ÚÔ[[YKœ]Y\žH\ÈÂˆÙX\˜ÚX›NˆÝš[™Ö×NÈš[\˜X›NˆÝš[™Ö×NÈÛÜX›NˆÝš[™Ö×NÂˆÛÜˆ™XÛÜ™Ýš[™Ë[šÛ›ÝÛŽÂˆNÂˆ^XÝ
-[[YT]Y\žKœÙX\˜ÚX›JKÑ\]X[
-\ÚÑ˜XÝËœ]Y\žKœÙX\˜ÚX›JNÂˆ^XÝ
-[[YT]Y\žK™š[\˜X›JKÑ\]X[
-\ÚÑ˜XÝËœ]Y\žK™š[\˜X›JNÂˆ^XÝ
-[[YT]Y\žKœÛÜX›JKÑ\]X[
-\ÚÑ˜XÝËœ]Y\žKœÛÜX›JNÂˆ^XÝ
-[[YT]Y\žKœÛÜ
-KÑ\]X[
-Âˆ\˜[Y]\Žˆ\ÚÑ˜XÝËœ]Y\žKœÛÜœ\˜[Y]\‹ˆÞ[^ˆ\ÚÑ˜XÝËœ]Y\žKœÛÜœÞ[^ˆ™\X]X›Nˆ\ÚÑ˜XÝËœ]Y\žKœÛÜœ™\X]X›KˆÜ™\™Yˆ\ÚÑ˜XÝËœ]Y\žKœÛÜ›Ü™\™YˆX^Üš]\šXNˆ\ÚÑ˜XÝËœ]Y\žKœÛÜ›X^Üš]\šXKˆY˜][ˆ\ÚÑ˜XÝËœ]Y\žKœÛÜ™Ù[™\šXÑY˜][ˆ[™[ÜQšY[Îˆ\ÚÑ˜XÝËœ]Y\žKœÛÜ™[™[ÜQšY[ËˆJNÂ‚ˆÛÛœÝ[[YPXÝ[ÛœÈH\ÚÔ[[YK˜XÝ[ÛœÈ\È\œ˜^O™XÛÜ™Ýš[™Ë[šÛ›ÝÛŽÂˆ›Üˆ
-ÛÛœÝXÝ[ÛˆÙˆ[[YPXÝ[ÛœÊHÂˆÛÛœÝÚ\™YH\ÚÑ˜XÝË˜XÝ[ÛœË™š[™
+    expect(byKey.get("event")?.description).toContain("calendar occurrence");
+    expect(byKey.get("event")?.description).toContain("specific date or time");
 
-[žJHOˆ[žKšÙ^HOOHXÝ[Û‹šÙ^JHNÂˆ^XÝ
-XÝ[ÛŠKÑ\]X[
-ÂˆÙ^NˆÚ\™YšÙ^KˆXØÙ\ÜÎˆÚ\™Y˜XØÙ\ÜËˆÚ[™ˆÚ\™YšÚ[™ˆ[œ]ˆÚ\™Yš[œ]ˆÛÛ˜Ý\œ™[˜ÞNˆÚ\™Y˜ÛÛ˜Ý\œ™[˜ÞKˆJNÂˆB‚ˆ^XÝ
-]™[[[YK˜Ø\Xš[]Y\ÊKÑ\]X[
-]™[˜XÝË˜Ø\Xš[]Y\ÊNÂˆÛÛœÝ[[YPš[™[™ÜÈH]™[[[YK˜Ø\Xš[]Pš[™[™ÜÈ\ÈÈØ[[™\Îˆ[šÛ›ÝÛˆNÂˆ^XÝ
-[[YPš[™[™ÜË˜Ø[[™\ŠKÑ\]X[
-]™[˜XÝË˜Ø\Xš[]Pš[™[™ÜË˜Ø[[™\ŠNÂˆ^XÝ
-\ÚÔ[[YK˜XØÙ\ÜÊKÑ\]X[
-Èœ™XY‹Üš]H—JNÂˆ^XÝ
-\ÚÑ˜XÝË™XÛ\™YXØÙ\ÜÊKÑ\]X[
-TÒ×ÓSÑSÑQ’S’USÓ‹˜XØÙ\ÜÊNÂˆ^XÝ
-\ÚÑ˜XÝÊK››ÝÒ]™T›Ü\JœÜXÙRYŠNÂˆ^XÝ
-\ÚÑ˜XÝÊK››ÝÒ]™T›Ü\J™[YØ][Û’YŠNÂˆJNÂŸJNÂ‚
+    expect(byKey.get("day_record")?.description).toContain("date-anchored tracker");
+    expect(byKey.get("day_record")?.description).toContain("counting down");
+
+    expect(byKey.get("wish")?.description).toContain("aspiration");
+    expect(byKey.get("wish")?.description).toContain("Never use Wish as a fallback");
+  });
+
+  it("exposes discriminating field semantics to the AI provider", () => {
+    const taskFields = new Map(byKey.get("task")?.fields.map((field) => [field.key, field]));
+    expect(taskFields.get("dueDate")?.description).toContain("deadline");
+
+    const eventFields = new Map(byKey.get("event")?.fields.map((field) => [field.key, field]));
+    expect(eventFields.get("startAt")?.description).toContain("timed occurrence");
+
+    const dayFields = new Map(byKey.get("day_record")?.fields.map((field) => [field.key, field]));
+    expect(dayFields.get("anchorDate")?.description).toContain("anchors");
+
+    const wishFields = new Map(byKey.get("wish")?.fields.map((field) => [field.key, field]));
+    expect(wishFields.get("desiredDate")?.description).toContain("hoped-for date");
+  });
+
+  it("pins the route-free release hashes and deterministic four-model contract", async () => {
+    const models: PublishedModel[] = [];
+    for (const definition of baselineDefinitions) {
+      const expected = releaseFingerprint[definition.key as keyof typeof releaseFingerprint];
+      const validated = await validateDefinition(definition);
+      expect(validated.valid, definition.key).toBe(true);
+      if (!validated.valid) continue;
+      expect(validated.schemaHash, definition.key).toBe(expected.schemaHash);
+      models.push({
+        id: `mdl_${definition.key}_semantic`,
+        key: definition.key,
+        version: expected.version,
+        state: "published",
+        schemaHash: validated.schemaHash,
+        compatibility: "breaking",
+        definition: validated.definition,
+        publishedAt: "2026-09-08T00:00:00.000Z",
+      });
+    }
+
+    const first = await generateModelContract(models);
+    const second = await generateModelContract(models);
+    expect(first.id).toBe(second.id);
+    expect(first.id).toMatch(/^mct_[a-f0-9]{64}$/u);
+    expect(Object.fromEntries(first.manifest.models.map((model) => [model.key, {
+      version: model.version,
+      schemaHash: model.schemaHash,
+    }]))).toEqual(releaseFingerprint);
+  });
+});
