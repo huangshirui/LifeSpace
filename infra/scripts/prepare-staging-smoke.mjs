@@ -311,7 +311,13 @@ if (serviceGrant.response.status !== 201 || !serviceGrant.payload?.data?.id) {
 }
 const serviceGrantId = serviceGrant.payload.data.id;
 
-const serviceRuntimeProbe = await jsonRequest(coreBase, `/api/v1/spaces/${spaceId}/models/task/records?limit=1`, { bearer: serviceBearer });
+const serviceRuntimeProbe = await requestUntil(
+  "Core Runtime service-token verification",
+  () => jsonRequest(coreBase, `/api/v1/spaces/${spaceId}/models/task/records?limit=1`, { bearer: serviceBearer }),
+  ({ response }) => response.status === 200,
+  20,
+  2500,
+);
 if (serviceRuntimeProbe.response.status !== 200) {
   throw new Error(`Core Runtime service-token verification failed: ${serviceRuntimeProbe.response.status} ${JSON.stringify(serviceRuntimeProbe.payload)}`);
 }
