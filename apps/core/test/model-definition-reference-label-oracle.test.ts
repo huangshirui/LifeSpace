@@ -7,7 +7,6 @@ function definition(): ModelDefinition {
   return {
     definitionVersion: 1,
     key: "oracle_reference_label",
-    route: "oracle-reference-labels",
     display: { singular: "Reference Label Oracle", plural: "Reference Label Oracles" },
     fields: {
       code: { type: "string", required: true },
@@ -29,7 +28,6 @@ function published(model: ModelDefinition): PublishedModel {
   return {
     id: "mdl_oracle_reference_label",
     key: model.key,
-    route: model.route,
     version: 1,
     state: "published",
     schemaHash: "a".repeat(64),

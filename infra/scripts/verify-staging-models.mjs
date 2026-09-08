@@ -54,9 +54,9 @@ async function expectData(path, options, expectedStatus = 200) {
   return result.payload?.data;
 }
 
-async function deleteRecord(route, id, version) {
-  const result = await request(`/api/v1/spaces/${spaceId}/${route}/${id}`, { method: "DELETE", body: { version } });
-  if (result.status !== 204 && result.status !== 404) console.warn(`Cleanup ${route}/${id} failed with ${result.status}: ${JSON.stringify(result.payload)}`);
+async function deleteRecord(modelKey, id, version) {
+  const result = await request(`/api/v1/spaces/${spaceId}/models/${modelKey}/records/${id}`, { method: "DELETE", body: { version } });
+  if (result.status !== 204 && result.status !== 404) console.warn(`Cleanup ${modelKey}/${id} failed with ${result.status}: ${JSON.stringify(result.payload)}`);
 }
 
 const marker = `staging-${crypto.randomUUID().replaceAll("-", "").slice(0, 10)}`;
@@ -64,21 +64,21 @@ const cleanup = [];
 const today = localDate(spaceTimezone);
 
 try {
-  const task = await expectData(`/api/v1/spaces/${spaceId}/tasks`, {
+  const task = await expectData(`/api/v1/spaces/${spaceId}/models/task/records`, {
     method: "POST", body: { name: `Staging task ${marker}`, assigneePersonIds: [personId] },
   }, 201);
-  cleanup.push({ route: "tasks", id: task.id, version: task.version });
+  cleanup.push({ modelKey: "task", id: task.id, version: task.version });
   if (task.status !== "pending" || task.version !== 1) throw new Error(`Task default/runtime mismatch: ${JSON.stringify(task)}`);
-  const completed = await expectData(`/api/v1/spaces/${spaceId}/tasks/${task.id}/actions/complete`, { method: "POST", body: { version: task.version } });
+  const completed = await expectData(`/api/v1/spaces/${spaceId}/models/task/records/${task.id}/actions/complete`, { method: "POST", body: { version: task.version } });
   cleanup.at(-1).version = completed.version;
   if (completed.status !== "completed" || !completed.completedAt) throw new Error(`Task complete Workflow mismatch: ${JSON.stringify(completed)}`);
-  const reopened = await expectData(`/api/v1/spaces/${spaceId}/tasks/${task.id}/actions/reopen`, { method: "POST", body: { version: completed.version } });
+  const reopened = await expectData(`/api/v1/spaces/${spaceId}/models/task/records/${task.id}/actions/reopen`, { method: "POST", body: { version: completed.version } });
   cleanup.at(-1).version = reopened.version;
   if (reopened.status !== "pending" || reopened.completedAt !== null) throw new Error(`Task reopen Workflow mismatch: ${JSON.stringify(reopened)}`);
 
   const start = new Date(Date.now() + 60 * 60 * 1000);
   const end = new Date(start.getTime() + 45 * 60 * 1000);
-  const event = await expectData(`/api/v1/spaces/${spaceId}/events`, {
+  const event = await expectData(`/api/v1/spaces/${spaceId}/models/event/records`, {
     method: "POST",
     body: {
       summary: `Staging event ${marker}`,
@@ -90,36 +90,36 @@ try {
       attendeePersonIds: [personId],
     },
   }, 201);
-  cleanup.push({ route: "events", id: event.id, version: event.version });
+  cleanup.push({ modelKey: "event", id: event.id, version: event.version });
   if (event.status !== "active" || event.isAllDay !== false) throw new Error(`Event Calendar/default mismatch: ${JSON.stringify(event)}`);
-  const events = await expectData(`/api/v1/spaces/${spaceId}/events?rangeStart=${encodeURIComponent(new Date(start.getTime() - 60_000).toISOString())}&rangeEnd=${encodeURIComponent(new Date(end.getTime() + 60_000).toISOString())}&limit=20`);
+  const events = await expectData(`/api/v1/spaces/${spaceId}/models/event/records?rangeStart=${encodeURIComponent(new Date(start.getTime() - 60_000).toISOString())}&rangeEnd=${encodeURIComponent(new Date(end.getTime() + 60_000).toISOString())}&limit=20`);
   if (!Array.isArray(events?.items) || !events.items.some((item) => item.id === event.id)) throw new Error(`Calendar overlap query did not return the created Event: ${JSON.stringify(events)}`);
 
   const anchor = addDays(today, -1);
-  const day = await expectData(`/api/v1/spaces/${spaceId}/day-records`, {
+  const day = await expectData(`/api/v1/spaces/${spaceId}/models/day_record/records`, {
     method: "POST", body: { name: `Staging day ${marker}`, kind: "elapsed", anchorDate: anchor, subjectPersonId: personId },
   }, 201);
-  cleanup.push({ route: "day-records", id: day.id, version: day.version });
+  cleanup.push({ modelKey: "day_record", id: day.id, version: day.version });
   if (day.status !== "active" || day.computed?.temporal?.elapsedDays !== 1) throw new Error(`Temporal computed mismatch: ${JSON.stringify(day)}`);
-  const advanced = await expectData(`/api/v1/spaces/${spaceId}/day-records/${day.id}/actions/record-occurrence`, {
+  const advanced = await expectData(`/api/v1/spaces/${spaceId}/models/day_record/records/${day.id}/actions/record-occurrence`, {
     method: "POST", body: { version: day.version, occurredOn: today, note: marker },
   });
   cleanup.at(-1).version = advanced.version;
   if (advanced.anchorDate !== today) throw new Error(`Temporal occurrence did not advance anchor: ${JSON.stringify(advanced)}`);
-  const occurrences = await expectData(`/api/v1/spaces/${spaceId}/day-records/${day.id}/occurrences?limit=20`);
+  const occurrences = await expectData(`/api/v1/spaces/${spaceId}/models/day_record/records/${day.id}/occurrences?limit=20`);
   if (!Array.isArray(occurrences?.items) || occurrences.items.length < 2) throw new Error(`Temporal occurrence history mismatch: ${JSON.stringify(occurrences)}`);
 
-  const wish = await expectData(`/api/v1/spaces/${spaceId}/wishes`, {
+  const wish = await expectData(`/api/v1/spaces/${spaceId}/models/wish/records`, {
     method: "POST", body: { ownerPersonId: personId, title: `Staging wish ${marker}` },
   }, 201);
-  cleanup.push({ route: "wishes", id: wish.id, version: wish.version });
+  cleanup.push({ modelKey: "wish", id: wish.id, version: wish.version });
   if (wish.status !== "open" || wish.ownerPersonId !== personId || wish.fulfilledAt != null) {
     throw new Error(`Wish default/owner mismatch: ${JSON.stringify(wish)}`);
   }
 
   const retiredWishActions = ["claim", "unclaim", "archive", "restore"];
   for (const retiredAction of retiredWishActions) {
-    const retired = await request(`/api/v1/spaces/${spaceId}/wishes/${wish.id}/actions/${retiredAction}`, {
+    const retired = await request(`/api/v1/spaces/${spaceId}/models/wish/records/${wish.id}/actions/${retiredAction}`, {
       method: "POST",
       body: { version: wish.version },
     });
@@ -128,7 +128,7 @@ try {
     }
   }
 
-  const secondaryEdit = await request(`/api/v1/spaces/${spaceId}/wishes/${wish.id}`, {
+  const secondaryEdit = await request(`/api/v1/spaces/${spaceId}/models/wish/records/${wish.id}`, {
     method: "PATCH",
     bearer: secondaryBearer,
     body: { version: wish.version, title: `Unauthorized edit ${marker}` },
@@ -137,7 +137,7 @@ try {
     throw new Error(`Wish owner-only content edit policy mismatch: expected 403 POLICY_DENIED, got ${secondaryEdit.status}: ${JSON.stringify(secondaryEdit.payload)}`);
   }
 
-  const fulfilledBySecondary = await expectData(`/api/v1/spaces/${spaceId}/wishes/${wish.id}/actions/fulfill`, {
+  const fulfilledBySecondary = await expectData(`/api/v1/spaces/${spaceId}/models/wish/records/${wish.id}/actions/fulfill`, {
     method: "POST", bearer: secondaryBearer, body: { version: wish.version },
   });
   cleanup.at(-1).version = fulfilledBySecondary.version;
@@ -145,7 +145,7 @@ try {
     throw new Error(`Wish direct fulfill Workflow mismatch for authorized non-owner: ${JSON.stringify(fulfilledBySecondary)}`);
   }
 
-  const reopenedBySecondary = await expectData(`/api/v1/spaces/${spaceId}/wishes/${wish.id}/actions/reopen`, {
+  const reopenedBySecondary = await expectData(`/api/v1/spaces/${spaceId}/models/wish/records/${wish.id}/actions/reopen`, {
     method: "POST", bearer: secondaryBearer, body: { version: fulfilledBySecondary.version },
   });
   cleanup.at(-1).version = reopenedBySecondary.version;
@@ -153,7 +153,7 @@ try {
     throw new Error(`Wish reopen Workflow mismatch for authorized non-owner: ${JSON.stringify(reopenedBySecondary)}`);
   }
 
-  const fulfilledByOwner = await expectData(`/api/v1/spaces/${spaceId}/wishes/${wish.id}/actions/fulfill`, {
+  const fulfilledByOwner = await expectData(`/api/v1/spaces/${spaceId}/models/wish/records/${wish.id}/actions/fulfill`, {
     method: "POST", body: { version: reopenedBySecondary.version },
   });
   cleanup.at(-1).version = fulfilledByOwner.version;
@@ -178,5 +178,5 @@ try {
     },
   }, null, 2));
 } finally {
-  for (const record of cleanup.reverse()) await deleteRecord(record.route, record.id, record.version);
+  for (const record of cleanup.reverse()) await deleteRecord(record.modelKey, record.id, record.version);
 }

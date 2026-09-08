@@ -119,13 +119,11 @@ async function publishPair(
   referenceLabel?: { field: string } | { template: string },
 ) {
   const targetKey = `ref_target_${f.suffix}`;
-  const targetRoute = `ref-target-${f.suffix}`;
   const sourceKey = `ref_source_${f.suffix}`;
 
   await publishModelDefinition({ DB: f.db } as Bindings, f.publisher, {
     definitionVersion: 1,
     key: targetKey,
-    route: targetRoute,
     display: { singular: "Reference Target", plural: "Reference Targets" },
     fields: {
       name: { type: "string", required: true, minLength: 1, maxLength: 80 },
@@ -140,7 +138,6 @@ async function publishPair(
   await publishModelDefinition({ DB: f.db } as Bindings, f.publisher, {
     definitionVersion: 1,
     key: sourceKey,
-    route: `ref-source-${f.suffix}`,
     display: { singular: "Reference Source", plural: "Reference Sources" },
     fields: {
       title: { type: "string", required: true, minLength: 1, maxLength: 80 },
@@ -153,18 +150,18 @@ async function publishPair(
 
   await grantAppModel(f.db, f.clientId, targetKey, "write");
   await grantAppModel(f.db, f.clientId, sourceKey, "read");
-  return { targetKey, targetRoute, sourceKey };
+  return { targetKey, sourceKey };
 }
 
 async function createTarget(
   f: Awaited<ReturnType<typeof fixture>>,
-  targetRoute: string,
+  targetKey: string,
   body: { name: string; date?: string | null },
 ) {
   const response = await request(
     f.publicKey,
     f.accessToken,
-    `/api/v1/spaces/${f.spaceId}/${targetRoute}`,
+    `/api/v1/spaces/${f.spaceId}/models/${targetKey}/records`,
     "POST",
     body,
   );
@@ -175,11 +172,11 @@ async function createTarget(
 describe("ordinary-record reference projection", () => {
   it("uses one model-owned template for lookup, search, pagination and batch resolution", async () => {
     const f = await fixture();
-    const { targetKey, targetRoute, sourceKey } = await publishPair(f, { template: "{name} · {date}" });
+    const { targetKey, sourceKey } = await publishPair(f, { template: "{name} · {date}" });
 
-    const alpha = await createTarget(f, targetRoute, { name: "Alpha", date: "2026-09-07" });
-    const beta = await createTarget(f, targetRoute, { name: "Beta", date: "2026-09-08" });
-    const gamma = await createTarget(f, targetRoute, { name: "Gamma", date: "2026-09-09" });
+    const alpha = await createTarget(f, targetKey, { name: "Alpha", date: "2026-09-07" });
+    const beta = await createTarget(f, targetKey, { name: "Beta", date: "2026-09-08" });
+    const gamma = await createTarget(f, targetKey, { name: "Gamma", date: "2026-09-09" });
 
     const first = await request(
       f.publicKey,
@@ -232,7 +229,7 @@ describe("ordinary-record reference projection", () => {
     const deleted = await request(
       f.publicKey,
       f.accessToken,
-      `/api/v1/spaces/${f.spaceId}/${targetRoute}/${beta.data.id}`,
+      `/api/v1/spaces/${f.spaceId}/models/${targetKey}/records/${beta.data.id}`,
       "DELETE",
       { version: beta.data.version },
     );
@@ -261,8 +258,8 @@ describe("ordinary-record reference projection", () => {
 
   it("uses the stable record ID when the target model does not declare an explicit referenceLabel", async () => {
     const f = await fixture();
-    const { targetRoute, sourceKey } = await publishPair(f);
-    const target = await createTarget(f, targetRoute, { name: "No Heuristic Guess" });
+    const { targetKey, sourceKey } = await publishPair(f);
+    const target = await createTarget(f, targetKey, { name: "No Heuristic Guess" });
 
     const lookup = await request(
       f.publicKey,

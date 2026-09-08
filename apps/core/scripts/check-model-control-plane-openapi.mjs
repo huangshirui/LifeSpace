@@ -2,7 +2,7 @@ import fs from "node:fs";
 import YAML from "yaml";
 
 const document = YAML.parse(fs.readFileSync(new URL("../model-control-plane.openapi.yaml", import.meta.url), "utf8"));
-if (document.openapi !== "3.1.0" || document.info?.version !== "0.1.0" || !document.info?.title?.includes("Model Control Plane")) {
+if (document.openapi !== "3.1.0" || document.info?.version !== "0.2.0" || !document.info?.title?.includes("Model Control Plane")) {
   throw new Error("Core Model Control Plane OpenAPI metadata is invalid");
 }
 const required = ["/api/v1/model-admin/models","/api/v1/model-admin/models/validate","/api/v1/model-admin/models/{modelKey}","/api/v1/model-admin/models/{modelKey}/retire","/api/v1/model-admin/contracts/active","/api/v1/model-admin/contracts/{contractId}","/api/v1/model-admin/ai/proposals","/api/v1/model-admin/ai/proposals/{proposalId}","/api/v1/model-admin/ai/proposals/{proposalId}/publish","/api/v1/model-admin/ai/proposals/{proposalId}/discard"];

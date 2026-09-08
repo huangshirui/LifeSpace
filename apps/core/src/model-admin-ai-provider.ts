@@ -4,7 +4,6 @@ export type ModelAdminAiInput = {
   instruction: string;
   existingModels: ReadonlyArray<{
     key: string;
-    route: string;
     version: number;
     displayName: string;
     description: string | null;
@@ -59,7 +58,6 @@ MODEL DEFINITION V1
 Allowed top-level keys:
 - definitionVersion: exactly 1
 - key: snake_case model key
-- route: one lowercase kebab-case URL segment, normally plural
 - description: optional semantic description, max 500 characters
 - display: { singular, plural }
 - fields: object keyed by camelCase field names
@@ -94,8 +92,8 @@ Do not invent any other capability key.
 
 UPDATES
 - If targetModel is supplied, propose a new version of exactly that model key. Start from the supplied current definition and change only what the administrator requested or what is strictly necessary for validity.
-- Preserve route and existing semantics unless the instruction explicitly requires a breaking redesign.
-- If targetModel is absent, propose a new model. Do not reuse any existing model key/route.
+- Preserve the model key and existing semantics unless the instruction explicitly requires a breaking redesign.
+- If targetModel is absent, propose a new model. Do not reuse any existing model key.
 
 WORKFLOW/POLICY
 - Use them only when the requirement clearly needs state transition or actor/record authorization.

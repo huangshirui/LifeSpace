@@ -99,7 +99,7 @@ describe("Delegated Agent Task Workflow", () => {
     await seed(userId, spaceId);
 
     const direct = await userToken(privateKey, userId);
-    const created = await request(publicKey, `/api/v1/spaces/${spaceId}/tasks`, {
+    const created = await request(publicKey, `/api/v1/spaces/${spaceId}/models/task/records`, {
       method: "POST",
       headers: auth(direct),
       body: JSON.stringify({ name: "Agent-completable task" }),
@@ -117,7 +117,7 @@ describe("Delegated Agent Task Workflow", () => {
     const delegation = await data<{ id: string }>(delegated);
 
     const agent = await agentToken(privateKey, userId, agentId);
-    const completed = await request(publicKey, `/api/v1/spaces/${spaceId}/tasks/${task.id}/actions/complete`, {
+    const completed = await request(publicKey, `/api/v1/spaces/${spaceId}/models/task/records/${task.id}/actions/complete`, {
       method: "POST",
       headers: auth(agent),
       body: JSON.stringify({ version: task.version }),

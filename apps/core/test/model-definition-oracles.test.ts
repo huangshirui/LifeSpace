@@ -13,7 +13,6 @@ function baseDefinition(key = "oracle_record"): ModelDefinition {
   return {
     definitionVersion: 1,
     key,
-    route: key.replaceAll("_", "-") + "s",
     display: { singular: "Oracle Record", plural: "Oracle Records" },
     fields: {
       title: { type: "string", required: true, minLength: 1, maxLength: 120 },
@@ -45,7 +44,6 @@ function published(definition: ModelDefinition, version = 1): PublishedModel {
   return {
     id: `mdl_oracle_${version}`,
     key: definition.key,
-    route: definition.route,
     version,
     state: "published",
     schemaHash: "a".repeat(64),
@@ -61,6 +59,14 @@ function schema(contract: Awaited<ReturnType<typeof generateModelContract>>, nam
 
 function openApiPath(contract: Awaited<ReturnType<typeof generateModelContract>>, path: string): Record<string, any> {
   return (contract.openapi.paths as Record<string, Record<string, any>>)[path];
+}
+
+function collectionPath(key: string): string {
+  return `/api/v1/spaces/{spaceId}/models/${key}/records`;
+}
+
+function recordPath(key: string): string {
+  return `${collectionPath(key)}/{recordId}`;
 }
 
 describe("Model Definition v1 independent Oracle fixtures", () => {
@@ -116,7 +122,7 @@ describe("Model Definition v1 independent Oracle fixtures", () => {
     expect(update.properties.version["x-lifespace-input-role"]).toBe("concurrency");
     expect(resource.properties.status.readOnly).toBe(true);
 
-    const collection = openApiPath(contract, "/api/v1/spaces/{spaceId}/oracle-records");
+    const collection = openApiPath(contract, collectionPath("oracle_record"));
     const parameterNames = collection.get.parameters.map((parameter: any) => parameter.name);
     expect(parameterNames).toEqual(expect.arrayContaining([
       "q", "status", "count", "countFrom", "countTo", "dueDate", "dueDateFrom", "dueDateTo", "sort", "limit", "cursor",
@@ -177,7 +183,7 @@ describe("Model Definition v1 independent Oracle fixtures", () => {
     expect(validateModelDefinition(definition).valid).toBe(true);
 
     const contract = await generateModelContract([published(definition)]);
-    const actionPath = openApiPath(contract, "/api/v1/spaces/{spaceId}/oracle-actions/{recordId}/actions/close");
+    const actionPath = openApiPath(contract, `${recordPath("oracle_action")}/actions/close`);
     expect(actionPath.post["x-lifespace-concurrency"]).toEqual({
       strategy: "record-version",
       required: true,
@@ -204,7 +210,6 @@ describe("Model Definition v1 independent Oracle fixtures", () => {
     const definition: ModelDefinition = {
       definitionVersion: 1,
       key: "oracle_temporal",
-      route: "oracle-temporals",
       display: { singular: "Temporal Oracle", plural: "Temporal Oracles" },
       fields: {
         name: { type: "string", required: true },
@@ -233,7 +238,7 @@ describe("Model Definition v1 independent Oracle fixtures", () => {
     const contract = await generateModelContract([published(definition)]);
     const resource = schema(contract, "OracleTemporalResource") as any;
     expect(resource.properties.computed.properties.temporal.required).toEqual(["today", "state", "attentionLevel", "isAttentionRequired"]);
-    const occurrence = openApiPath(contract, "/api/v1/spaces/{spaceId}/oracle-temporals/{recordId}/actions/record-occurrence");
+    const occurrence = openApiPath(contract, `${recordPath("oracle_temporal")}/actions/record-occurrence`);
     expect(occurrence.post["x-lifespace-concurrency"].strategy).toBe("record-version");
 
     const wrongMapping = structuredClone(definition) as any;
@@ -247,7 +252,6 @@ describe("Model Definition v1 independent Oracle fixtures", () => {
     const definition: ModelDefinition = {
       definitionVersion: 1,
       key: "oracle_calendar",
-      route: "oracle-calendars",
       display: { singular: "Calendar Oracle", plural: "Calendar Oracles" },
       fields: {
         title: { type: "string", required: true },
@@ -275,7 +279,7 @@ describe("Model Definition v1 independent Oracle fixtures", () => {
     };
     expect(validateModelDefinition(definition).valid).toBe(true);
     const contract = await generateModelContract([published(definition)]);
-    const collection = openApiPath(contract, "/api/v1/spaces/{spaceId}/oracle-calendars");
+    const collection = openApiPath(contract, collectionPath("oracle_calendar"));
     const names = collection.get.parameters.map((parameter: any) => parameter.name);
     expect(names).toEqual(expect.arrayContaining(["rangeStart", "rangeEnd", "dateStart", "dateEndExclusive", "sort"]));
     const create = schema(contract, "OracleCalendarCreate") as any;

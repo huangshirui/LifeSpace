@@ -2,7 +2,6 @@
   "task": {
     "definitionVersion": 1,
     "key": "task",
-    "route": "tasks",
     "description": "Actionable work that someone intends or needs to complete. Use for chores, errands, reminders, follow-ups, purchases, submissions, calls, and other concrete to-dos. A due date is a deadline, not a scheduled time block. Do not use for an event merely because it has a date, or for a future aspiration with no concrete commitment. Examples: 明天交电费；提醒我买牛奶；周五前提交报告。",
     "display": { "singular": "Task", "plural": "Tasks" },
     "fields": {
@@ -40,7 +39,6 @@
   "wish": {
     "definitionVersion": 1,
     "key": "wish",
-    "route": "wishes",
     "description": "An aspiration, desire, or hoped-for future experience or thing that the user wants but has not committed to as a concrete task or scheduled event. Use for bucket-list items, dreams, desired purchases, and hoped-for experiences. Never use Wish as a fallback merely because its schema is broad or another model has missing fields. Examples: 想去冰岛看极光；希望以后有一台房车；想学会潜水。",
     "display": { "singular": "Wish", "plural": "Wishes" },
     "fields": {
@@ -79,7 +77,6 @@
   "day_record": {
     "definitionVersion": 1,
     "key": "day_record",
-    "route": "day-records",
     "description": "A date-anchored tracker for counting elapsed days, counting down to a date, or representing a recurring/cycle interval. Use for since/until counters, milestones anchored to a date, streaks, and cycle tracking. Do not use for ordinary appointments, one-off calendar occurrences, or concrete to-dos. Examples: 从今天开始戒糖；距离生日还有多少天；每28天一个周期。",
     "display": { "singular": "Day Record", "plural": "Day Records" },
     "fields": {
@@ -117,7 +114,6 @@
   "event": {
     "definitionVersion": 1,
     "key": "event",
-    "route": "events",
     "description": "A calendar occurrence that happens or is planned for a specific date or time and may occupy time or involve attendance or a location. Use for meetings, appointments, classes, matches, meals, celebrations, and other things that occur. Do not use merely because a task has a deadline. Examples: 周六上午十点足球比赛；明晚七点和王老师吃饭；8月30日体检。",
     "display": { "singular": "Event", "plural": "Events" },
     "fields": {

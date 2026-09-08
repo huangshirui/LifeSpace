@@ -59,12 +59,11 @@ for (const [key, expected] of EXPECTED_MODELS) {
   if (!Number.isInteger(actualVersion) || actualVersion < expected.minimumVersion) {
     throw new Error(`Published model ${key} version is below release floor: expected >= ${expected.minimumVersion}, got ${model.version}`);
   }
-  if (model.route !== expected.route) throw new Error(`Published model ${key} route mismatch: expected ${expected.route}, got ${model.route}`);
+  if ("route" in model) throw new Error(`Published model ${key} still exposes removed route identity`);
   if (model.schemaHash !== expected.hash) throw new Error(`Published model ${key} schema hash mismatch: expected ${expected.hash}, got ${model.schemaHash}`);
   if (model.state !== "published") throw new Error(`Published model ${key} returned unexpected state ${model.state}`);
   currentPublishedModels.set(key, {
     version: actualVersion,
-    route: model.route,
     schemaHash: model.schemaHash,
   });
 }
@@ -77,7 +76,7 @@ for (const [key, expected] of EXPECTED_MODELS) {
   const published = currentPublishedModels.get(key);
   if (!model) throw new Error(`Active Model Contract manifest missing ${key}`);
   if (!published) throw new Error(`Published proving model ${key} was not captured for contract verification`);
-  if (model.route !== expected.route) throw new Error(`Active Model Contract ${key} route mismatch: expected ${expected.route}, got ${model.route}`);
+  if ("route" in model) throw new Error(`Active Model Contract ${key} still exposes removed route identity`);
   if (model.schemaHash !== expected.hash) throw new Error(`Active Model Contract ${key} schema hash mismatch: expected ${expected.hash}, got ${model.schemaHash}`);
   if (Number(model.version) !== published.version) {
     throw new Error(`Active Model Contract ${key} version mismatch with current Registry: expected ${published.version}, got ${model.version}`);

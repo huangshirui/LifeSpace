@@ -382,7 +382,7 @@ try {
 
   const start = new Date(Date.now() + 60 * 60 * 1000);
   const end = new Date(start.getTime() + 30 * 60 * 1000);
-  const created = await request(coreBase, `/api/v1/spaces/${encodeURIComponent(spaceId)}/events`, {
+  const created = await request(coreBase, `/api/v1/spaces/${encodeURIComponent(spaceId)}/models/event/records`, {
     method: "POST",
     bearer: managerBearer,
     body: {
@@ -478,7 +478,7 @@ try {
   }
   if (eventId && eventVersion && managerBearer) {
     await cleanup("event delete", async () => {
-      const result = await request(coreBase, `/api/v1/spaces/${encodeURIComponent(spaceId)}/events/${encodeURIComponent(eventId)}`, {
+      const result = await request(coreBase, `/api/v1/spaces/${encodeURIComponent(spaceId)}/models/event/records/${encodeURIComponent(eventId)}`, {
         method: "DELETE",
         bearer: managerBearer,
         body: { version: eventVersion },
@@ -523,3 +523,4 @@ if (primaryError) {
 if (cleanupErrors.length) throw new Error(`Staging Eventing smoke cleanup failed: ${cleanupErrors.join(" | ")}`);
 
 console.log(JSON.stringify({ ...verification, cleanup: { temporaryCustomDomainDetached: true, temporarySinkDeleted: true, subscriberDisabled: true, applicationScopeRestored: true } }, null, 2));
+

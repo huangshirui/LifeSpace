@@ -62,7 +62,6 @@ async function fixture() {
   const spaceId = `spc_${suffix}`;
   const ownerPersonId = `per_owner_${suffix}`;
   const otherPersonId = `per_other_${suffix}`;
-  const route = `owned-notes-${suffix.slice(0, 8)}`;
   const modelKey = `owned_note_${suffix.slice(0, 8)}`;
   const now = new Date().toISOString();
 
@@ -91,7 +90,6 @@ async function fixture() {
   await publishModelDefinition({ DB: db } as Bindings, publisher, {
     definitionVersion: 1,
     key: modelKey,
-    route,
     display: { singular: "Owned Note", plural: "Owned Notes" },
     fields: {
       title: { type: "string", required: true, minLength: 1, maxLength: 120 },
@@ -122,7 +120,6 @@ async function fixture() {
     publicKey,
     privateKey,
     spaceId,
-    route,
     modelKey,
     clientId,
     ownerPersonId,
@@ -137,29 +134,29 @@ describe("Generic Policy Engine", () => {
   it("prevents owner spoofing and enforces record ownership inside the same writable Space", async () => {
     const f = await fixture();
 
-    const spoof = await request(f.publicKey, f.otherToken, `/api/v1/spaces/${f.spaceId}/${f.route}`, {
+    const spoof = await request(f.publicKey, f.otherToken, `/api/v1/spaces/${f.spaceId}/models/${f.modelKey}/records`, {
       method: "POST",
       body: JSON.stringify({ title: "Spoof", ownerPersonId: f.ownerPersonId }),
     });
     expect(spoof.status).toBe(403);
 
-    const createdResponse = await request(f.publicKey, f.ownerToken, `/api/v1/spaces/${f.spaceId}/${f.route}`, {
+    const createdResponse = await request(f.publicKey, f.ownerToken, `/api/v1/spaces/${f.spaceId}/models/${f.modelKey}/records`, {
       method: "POST",
       body: JSON.stringify({ title: "Owner note", ownerPersonId: f.ownerPersonId }),
     });
     expect(createdResponse.status).toBe(201);
     const created = await createdResponse.json<{ data: { id: string; version: number } }>();
 
-    const otherRead = await request(f.publicKey, f.otherToken, `/api/v1/spaces/${f.spaceId}/${f.route}/${created.data.id}`);
+    const otherRead = await request(f.publicKey, f.otherToken, `/api/v1/spaces/${f.spaceId}/models/${f.modelKey}/records/${created.data.id}`);
     expect(otherRead.status).toBe(200);
 
-    const otherUpdate = await request(f.publicKey, f.otherToken, `/api/v1/spaces/${f.spaceId}/${f.route}/${created.data.id}`, {
+    const otherUpdate = await request(f.publicKey, f.otherToken, `/api/v1/spaces/${f.spaceId}/models/${f.modelKey}/records/${created.data.id}`, {
       method: "PATCH",
       body: JSON.stringify({ version: 1, title: "Hijacked" }),
     });
     expect(otherUpdate.status).toBe(403);
 
-    const ownerUpdate = await request(f.publicKey, f.ownerToken, `/api/v1/spaces/${f.spaceId}/${f.route}/${created.data.id}`, {
+    const ownerUpdate = await request(f.publicKey, f.ownerToken, `/api/v1/spaces/${f.spaceId}/models/${f.modelKey}/records/${created.data.id}`, {
       method: "PATCH",
       body: JSON.stringify({ version: 1, title: "Updated by owner" }),
     });
@@ -168,7 +165,7 @@ describe("Generic Policy Engine", () => {
 
   it("denies service principals when a model requires an active actor Space Person even if Data Grant allows write", async () => {
     const f = await fixture();
-    const response = await request(f.publicKey, f.serviceToken, `/api/v1/spaces/${f.spaceId}/${f.route}`);
+    const response = await request(f.publicKey, f.serviceToken, `/api/v1/spaces/${f.spaceId}/models/${f.modelKey}/records`);
     expect(response.status).toBe(403);
   });
 });

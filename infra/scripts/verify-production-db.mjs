@@ -85,11 +85,10 @@ function assertZeroCount(rows, label) {
 assertEqual(single(coreSql("SELECT value FROM schema_metadata WHERE key='schema_version'"), "Core schema").value, PRODUCTION_EXPECTATIONS.core.schemaVersion, "Core production schema version");
 assertEqual(single(identitySql("SELECT value FROM schema_metadata WHERE key='schema_version'"), "Identity schema").value, PRODUCTION_EXPECTATIONS.identity.schemaVersion, "Identity production schema version");
 
-const published = new Map(coreSql(`SELECT model_key,route_segment,version,schema_hash,state FROM model_definitions WHERE state='published'`).map((row) => [row.model_key, row]));
+const published = new Map(coreSql(`SELECT model_key,version,schema_hash,state FROM model_definitions WHERE state='published'`).map((row) => [row.model_key, row]));
 for (const expected of PRODUCTION_PROVING_MODELS) {
   const actual = published.get(expected.key);
   if (!actual) fail(`Published production model ${expected.key} is missing`);
-  assertEqual(actual.route_segment, expected.route, `${expected.key} route`);
   if (Number(actual.version) < expected.minimumVersion) fail(`${expected.key} version: expected >= ${expected.minimumVersion}, got ${actual.version}`);
   assertEqual(actual.schema_hash, expected.hash, `${expected.key} schema hash`);
 }

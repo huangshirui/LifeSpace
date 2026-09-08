@@ -17,11 +17,11 @@ const profile = JSON.parse(readFileSync(new URL("../homemew-integration-profile.
 test("production proving models pin semantic identity without assuming environment-local Registry versions", () => {
   const wish = PRODUCTION_PROVING_MODELS.find((model) => model.key === "wish");
   assert.ok(wish, "Wish must remain a production proving model");
-  assert.equal(wish.minimumVersion, 6, "Wish clean-release version remains the production Registry floor");
+  assert.equal(wish.minimumVersion, 7, "Wish modelKey-addressed release version remains the production Registry floor");
   assert.equal(
     wish.hash,
-    "4d34e89df332b9b2c34549699e4210a3166db6eaddabe0ac59de5d4770c206c3",
-    "production proving semantics must pin the authoritative field-title Wish schema hash",
+    "7dc6c079916a967c8bcd93f8cbe082c98157ceaeb30ce782ef3f2eb035d370df",
+    "production proving semantics must pin the modelKey-addressed Wish schema hash",
   );
   assert.equal("version" in wish, false, "production must not assume one exact environment-local Wish Registry version");
 });

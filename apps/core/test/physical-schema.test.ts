@@ -6,7 +6,6 @@ function taskDefinition(): ModelDefinition {
   return {
     definitionVersion: 1,
     key: "task",
-    route: "tasks",
     display: { singular: "Task", plural: "Tasks" },
     access: ["read", "write"],
     lifecycle: { optimisticConcurrency: true, softDelete: true },
@@ -77,3 +76,4 @@ describe("Physical Schema Compiler", () => {
     })).toThrow(/data-rewriting physical migration/);
   });
 });
+

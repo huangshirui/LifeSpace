@@ -105,7 +105,6 @@ export type ModelSemanticCapabilityBindings = {
 
 export type ModelSemanticProjection = {
   key: string;
-  route: string;
   version: number;
   schemaHash: string;
   display: { singular: string; plural: string };
@@ -254,7 +253,7 @@ function temporalOccurrenceInputs(): ModelSemanticActionInputField[] {
 }
 
 function actionPath(model: PublishedModel, actionKey: string): string {
-  return `/api/v1/spaces/{spaceId}/${model.route}/{recordId}/actions/${actionKey}`;
+  return `/api/v1/spaces/{spaceId}/models/${model.key}/records/{recordId}/actions/${actionKey}`;
 }
 
 export function modelActionSemanticFacts(model: PublishedModel): ModelSemanticAction[] {
@@ -298,7 +297,6 @@ export function projectModelSemanticFacts(model: PublishedModel): ModelSemanticP
   const capability = modelCapabilitySemanticFacts(model);
   return {
     key: model.key,
-    route: model.route,
     version: model.version,
     schemaHash: model.schemaHash,
     display: structuredClone(model.definition.display),

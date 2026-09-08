@@ -46,7 +46,7 @@ async function probeBenchmarkRoute() {
     },
     body: JSON.stringify({
       method: "GET",
-      path: `/api/v1/spaces/${spaceId}/tasks?limit=1`,
+      path: `/api/v1/spaces/${spaceId}/models/task/records?limit=1`,
     }),
   });
   const { text, payload } = await readResponse(response);
@@ -84,3 +84,4 @@ for (let attempt = 1; attempt <= attempts; attempt += 1) {
 }
 
 throw new Error(`APAC probe did not converge for the real benchmark route: ${JSON.stringify(last)}`);
+

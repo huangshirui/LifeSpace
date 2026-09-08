@@ -17,7 +17,6 @@ export type ModelCompatibility = "initial" | "compatible" | "breaking";
 export type PublishedModel = {
   id: string;
   key: string;
-  route: string;
   version: number;
   state: "published" | "superseded" | "retired";
   schemaHash: string;
@@ -40,7 +39,6 @@ export type RuntimeModelDescriptor = PublishedModel & {
 type ModelRow = {
   id: string;
   model_key: string;
-  route_segment: string;
   version: number;
   state: PublishedModel["state"];
   definition_json: string;
@@ -57,7 +55,6 @@ type RegistryStateRow = {
 type RuntimeRegistrySnapshot = {
   expiresAt: number;
   byKey: Map<string, RuntimeModelDescriptor>;
-  byRoute: Map<string, RuntimeModelDescriptor>;
 };
 
 const RUNTIME_REGISTRY_TTL_MS = 60_000;
@@ -76,7 +73,11 @@ async function sha256Hex(input: string): Promise<string> {
 function rowToPublished(row: ModelRow): PublishedModel {
   let definition: ModelDefinition;
   try {
-    definition = JSON.parse(row.definition_json) as ModelDefinition;
+    const stored = JSON.parse(row.definition_json) as ModelDefinition & { route?: unknown };
+    // Schema 37 removes route from current definitions. Stripping it here also
+    // keeps historical immutable rows readable during rolling deployment.
+    const { route: _legacyRoute, ...current } = stored;
+    definition = current as ModelDefinition;
   } catch {
     throw new ApiError("MODEL_REGISTRY_CORRUPT", `Stored definition for ${row.model_key} is invalid JSON`, 500);
   }
@@ -87,7 +88,6 @@ function rowToPublished(row: ModelRow): PublishedModel {
   return {
     id: row.id,
     key: row.model_key,
-    route: row.route_segment,
     version: row.version,
     state: row.state,
     schemaHash: row.schema_hash,
@@ -132,7 +132,6 @@ async function loadRuntimeRegistrySnapshot(env: Bindings): Promise<RuntimeRegist
   const snapshot: RuntimeRegistrySnapshot = {
     expiresAt: Date.now() + RUNTIME_REGISTRY_TTL_MS,
     byKey: new Map(descriptors.map((model) => [model.key, model])),
-    byRoute: new Map(descriptors.map((model) => [model.route, model])),
   };
   runtimeRegistrySnapshots.set(env.DB as unknown as object, snapshot);
   return snapshot;
@@ -153,10 +152,6 @@ export async function getRuntimeModel(env: Bindings, key: string): Promise<Runti
   return (await runtimeRegistrySnapshot(env)).byKey.get(key) ?? null;
 }
 
-export async function getRuntimeModelByRoute(env: Bindings, route: string): Promise<RuntimeModelDescriptor | null> {
-  return (await runtimeRegistrySnapshot(env)).byRoute.get(route) ?? null;
-}
-
 export async function validateDefinition(input: unknown): Promise<
   | { valid: true; definition: ModelDefinition; schemaHash: string }
   | { valid: false; issues: ModelValidationIssue[] }
@@ -171,21 +166,14 @@ export async function validateDefinition(input: unknown): Promise<
 }
 
 export async function getPublishedModel(env: Bindings, key: string): Promise<PublishedModel | null> {
-  const row = await env.DB.prepare(`SELECT id,model_key,route_segment,version,state,definition_json,schema_hash,compatibility,published_at
+  const row = await env.DB.prepare(`SELECT id,model_key,version,state,definition_json,schema_hash,compatibility,published_at
     FROM model_definitions WHERE model_key=? AND state='published' LIMIT 1`)
     .bind(key).first<ModelRow>();
   return row ? rowToPublished(row) : null;
 }
 
-export async function getPublishedModelByRoute(env: Bindings, route: string): Promise<PublishedModel | null> {
-  const row = await env.DB.prepare(`SELECT id,model_key,route_segment,version,state,definition_json,schema_hash,compatibility,published_at
-    FROM model_definitions WHERE route_segment=? AND state='published' LIMIT 1`)
-    .bind(route).first<ModelRow>();
-  return row ? rowToPublished(row) : null;
-}
-
 export async function listPublishedModels(env: Bindings): Promise<PublishedModel[]> {
-  const rows = await env.DB.prepare(`SELECT id,model_key,route_segment,version,state,definition_json,schema_hash,compatibility,published_at
+  const rows = await env.DB.prepare(`SELECT id,model_key,version,state,definition_json,schema_hash,compatibility,published_at
     FROM model_definitions WHERE state='published' ORDER BY model_key ASC`).all<ModelRow>();
   return rows.results.map(rowToPublished);
 }
@@ -234,11 +222,6 @@ export async function publishModelDefinition(
     );
   }
 
-  const routeOwner = currentModels.find((model) => model.route === validation.definition.route) ?? null;
-  if (routeOwner && routeOwner.key !== validation.definition.key) {
-    throw new ApiError("MODEL_ROUTE_CONFLICT", `Route ${validation.definition.route} is already owned by model ${routeOwner.key}`, 409);
-  }
-
   const physicalStatements = physicalPublicationStatements(env, current?.definition ?? null, validation.definition);
   const nextVersion = (current?.version ?? 0) + 1;
   const id = createId("mdl");
@@ -249,7 +232,6 @@ export async function publishModelDefinition(
   const candidate: PublishedModel = {
     id,
     key: validation.definition.key,
-    route: validation.definition.route,
     version: nextVersion,
     state: "published",
     schemaHash: validation.schemaHash,
@@ -275,13 +257,12 @@ export async function publishModelDefinition(
       .bind(publishedAt, current.id, targetRevision, mutationToken));
   }
   statements.push(env.DB.prepare(`INSERT INTO model_definitions(
-      id,model_key,route_segment,version,state,definition_version,definition_json,schema_hash,compatibility,
+      id,model_key,version,state,definition_version,definition_json,schema_hash,compatibility,
       published_by_type,published_by_id,published_by_name_snapshot,published_at
-    ) SELECT ?,?,?,?,'published',1,?,?,?,?,?,?,? WHERE ${registryGuardSql()}`)
+    ) SELECT ?,?,?,'published',1,?,?,?,?,?,?,? WHERE ${registryGuardSql()}`)
     .bind(
       id,
       validation.definition.key,
-      validation.definition.route,
       nextVersion,
       definitionJson,
       validation.schemaHash,

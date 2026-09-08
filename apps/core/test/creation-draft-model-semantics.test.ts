@@ -17,21 +17,16 @@ const baselineDefinitions = [
   EVENT_MODEL_DEFINITION,
 ];
 const releaseFingerprint = Object.freeze({
-  task: Object.freeze({ version: 6, schemaHash: "1fdfb9eb954382f3509cdca14431a7235cb1a954b8a6d425670a4150c8402837" }),
-  wish: Object.freeze({ version: 6, schemaHash: "4d34e89df332b9b2c34549699e4210a3166db6eaddabe0ac59de5d4770c206c3" }),
-  day_record: Object.freeze({ version: 3, schemaHash: "7793d9959277e45d9af52c6c71820040034f9c84ee487d8f0e6b00320e5c10aa" }),
-  event: Object.freeze({ version: 4, schemaHash: "66832c4dae9fd9f99b1f4f49cfdb53e7c91a55512c0b3cf8b8cddaee2111f6c4" }),
+  task: Object.freeze({ version: 7, schemaHash: "e79798bcadefad021ca86c1577c3fa3bc8fd0627f46557193aeca9b62acabb8e" }),
+  wish: Object.freeze({ version: 7, schemaHash: "7dc6c079916a967c8bcd93f8cbe082c98157ceaeb30ce782ef3f2eb035d370df" }),
+  day_record: Object.freeze({ version: 4, schemaHash: "9297a2f87fdd0718bfb74a362a0c451cf25309f4975099772f76e8a485fd0852" }),
+  event: Object.freeze({ version: 5, schemaHash: "35106ecb38a7d33cee083b285a62001d64234d0a86890b8a51094e1dd3b58e8f" }),
 });
-// This is the deterministic contract for an isolated Registry containing exactly
-// the four baseline models above. A deployed Registry may legitimately have a
-// different active mct_* when additional ordinary models are published.
-const isolatedBaselineModelContract = "mct_322ae8926b5daade7db0dd667a1933d20d3e391838fd1e8c7aecc7e1f19cd4bd";
 
 function published(definition: ModelDefinition): PublishedModel {
   return {
     id: `mdl_${definition.key}`,
     key: definition.key,
-    route: definition.route,
     version: 1,
     state: "published",
     schemaHash: `hash_${definition.key}`,
@@ -90,7 +85,7 @@ describe("Creation Draft baseline model semantics", () => {
     expect(wishFields.get("desiredDate")?.description).toContain("hoped-for date");
   });
 
-  it("pins the exact release hashes and isolated four-model contract fingerprint", async () => {
+  it("pins the route-free release hashes and deterministic four-model contract", async () => {
     const models: PublishedModel[] = [];
     for (const definition of baselineDefinitions) {
       const expected = releaseFingerprint[definition.key as keyof typeof releaseFingerprint];
@@ -101,16 +96,22 @@ describe("Creation Draft baseline model semantics", () => {
       models.push({
         id: `mdl_${definition.key}_semantic`,
         key: definition.key,
-        route: definition.route,
         version: expected.version,
         state: "published",
         schemaHash: validated.schemaHash,
-        compatibility: "compatible",
+        compatibility: "breaking",
         definition: validated.definition,
-        publishedAt: "2026-08-21T00:00:00.000Z",
+        publishedAt: "2026-09-08T00:00:00.000Z",
       });
     }
-    const contract = await generateModelContract(models);
-    expect(contract.id).toBe(isolatedBaselineModelContract);
+
+    const first = await generateModelContract(models);
+    const second = await generateModelContract(models);
+    expect(first.id).toBe(second.id);
+    expect(first.id).toMatch(/^mct_[a-f0-9]{64}$/u);
+    expect(Object.fromEntries(first.manifest.models.map((model) => [model.key, {
+      version: model.version,
+      schemaHash: model.schemaHash,
+    }]))).toEqual(releaseFingerprint);
   });
 });

@@ -4,6 +4,8 @@ Status: **Complete**
 
 Updated: 2026-08-13
 
+> Evolution note: LifeSpace #200 removes the former route index; the current isolate snapshot is keyed only by `modelKey`, with no additional Discovery or D1 hot-path lookup.
+
 ## 1. Purpose
 
 Phase 3 proved the metadata-driven direction: ordinary business models are described by Model Definitions and executed by a fixed Generic Runtime instead of handwritten per-domain routers/services.
@@ -93,11 +95,11 @@ Ordinary business requests use a Worker-isolate runtime snapshot:
 D1 Published Registry
   -> load / validate
   -> compile Runtime Model Descriptors
-  -> isolate-memory maps by route and model key
+  -> isolate-memory map by model key
   -> Generic Runtime
 ```
 
-A compiled descriptor precomputes stable model key/route/version/schema hash, declared access capabilities, field/query/relation plans and policy/workflow/capability references required by runtime dispatch.
+A compiled descriptor precomputes stable model key/version/schema hash, declared access capabilities, field/query/relation plans and policy/workflow/capability references required by runtime dispatch.
 
 Normal cache hits perform no Registry D1 query and no repeated `definition_json` parse/validation. Cache loss is safe because D1 repopulates the snapshot. Publication/retirement invalidates the current isolate snapshot; bounded TTL handles cross-isolate refresh.
 
@@ -187,7 +189,7 @@ Status: **Complete**.
 
 Status: **Complete**.
 
-- Isolate-memory Registry snapshot keyed by model route/key.
+- Isolate-memory Registry snapshot keyed only by model key.
 - Published definitions loaded/validated/compiled together on cold refresh.
 - Bounded TTL and publication/retirement invalidation.
 - Tests prove hot-cache and invalidation behavior.

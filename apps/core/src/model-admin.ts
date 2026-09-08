@@ -47,7 +47,6 @@ function dto(model: Awaited<ReturnType<typeof getPublishedModel>>) {
   return {
     id: model.id,
     key: model.key,
-    route: model.route,
     version: model.version,
     state: model.state,
     schemaHash: model.schemaHash,

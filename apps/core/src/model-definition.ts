@@ -1,4 +1,3 @@
-import kernelSpaceRouteSegments from "../kernel-space-route-segments.json";
 import { validateCapabilities, type CapabilityDefinitions } from "./capability-definition";
 import { validateModelPolicies, type ModelPoliciesDefinition } from "./policy-definition";
 import {
@@ -57,7 +56,6 @@ export type QueryDefinition = {
 export type ModelDefinition = {
   definitionVersion: typeof MODEL_DEFINITION_VERSION;
   key: string;
-  route: string;
   description?: string;
   display: {
     singular: string;
@@ -88,9 +86,7 @@ export type ModelValidationResult =
   | { valid: false; issues: ModelValidationIssue[] };
 
 const MODEL_KEY = /^[a-z][a-z0-9_]{1,62}$/;
-const ROUTE_SEGMENT = /^[a-z][a-z0-9-]{1,62}$/;
 const FIELD_KEY = /^[a-z][A-Za-z0-9]{0,62}$/;
-const RESERVED_ROUTES = new Set<string>(kernelSpaceRouteSegments);
 const RESERVED_FIELDS = new Set([
   "id",
   "spaceId",
@@ -336,7 +332,6 @@ export function validateModelDefinition(input: unknown): ModelValidationResult {
   const allowedTopLevel = new Set([
     "definitionVersion",
     "key",
-    "route",
     "description",
     "display",
     "fields",
@@ -367,14 +362,6 @@ export function validateModelDefinition(input: unknown): ModelValidationResult {
   const key = typeof input.key === "string" ? input.key : "";
   if (!MODEL_KEY.test(key)) {
     issue(issues, "key", "INVALID_MODEL_KEY", "key must match /^[a-z][a-z0-9_]{1,62}$/");
-  }
-
-  const route = typeof input.route === "string" ? input.route : "";
-  if (!ROUTE_SEGMENT.test(route)) {
-    issue(issues, "route", "INVALID_ROUTE", "route must be one lowercase URL segment");
-  }
-  if (RESERVED_ROUTES.has(route)) {
-    issue(issues, "route", "RESERVED_ROUTE", `${route} is reserved by the LifeSpace Kernel`);
   }
 
   const description = boundedText(issues, input.description, "description", 500);
@@ -735,7 +722,6 @@ export function validateModelDefinition(input: unknown): ModelValidationResult {
   const definition: ModelDefinition = {
     definitionVersion: MODEL_DEFINITION_VERSION,
     key,
-    route,
     ...(description ? { description } : {}),
     display: { singular, plural },
     fields,

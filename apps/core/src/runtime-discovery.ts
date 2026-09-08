@@ -172,7 +172,6 @@ function capabilityBindings(model: PublishedModel): DiscoveryCapabilityBindings 
 function dto(model: PublishedModel, allowed: ModelAccess[]) {
   return {
     key: model.key,
-    route: model.route,
     version: model.version,
     schemaHash: model.schemaHash,
     display: model.definition.display,
@@ -242,7 +241,6 @@ function inventoryModel(model: PublishedModel) {
   const semantic = projectModelSemanticFacts(model);
   return {
     key: semantic.key,
-    route: semantic.route,
     version: semantic.version,
     schemaHash: semantic.schemaHash,
     display: semantic.display,

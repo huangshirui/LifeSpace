@@ -12,3 +12,4 @@
 - Infrastructure-as-code or Wrangler configuration must not contain secrets.
 - Resource provisioning must be idempotent. Do not make every application deployment responsible for creating shared platform resources.
 - Any destructive infrastructure or production data change requires explicit migration/rollback reasoning and environment verification.
+
