@@ -39,6 +39,11 @@ test("staging bootstrap masks ephemeral credentials before job export", () => {
   assert.match(source, /GITHUB_ENV/u);
   assert.match(source, /15 \* 60 \* 1000/u, "service PAT should retain a bounded staging-only lifetime");
   assert.match(source, /application_model_access/u, "smoke app model authorization must be explicit");
+  assert.match(
+    source,
+    /requestUntil\([\s\S]{0,200}"Core Runtime service-token verification"[\s\S]{0,300}\n\s*20,\n\s*2500,/u,
+    "the canonical Runtime probe must tolerate bounded edge deployment convergence",
+  );
 });
 
 test("staging proving-model checks pin semantic identity without assuming environment-local model versions", () => {
