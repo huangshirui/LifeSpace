@@ -368,7 +368,7 @@ try {
     await revokeActiveDelegations(context, spaceId);
     context.agentBearer = await issueAgentToken(context);
 
-    const noDelegation = await request(coreBase, `/api/v1/spaces/${encodeURIComponent(spaceId)}/events?limit=1`, { bearer: context.agentBearer });
+    const noDelegation = await request(coreBase, `/api/v1/spaces/${encodeURIComponent(spaceId)}/models/event/records?limit=1`, { bearer: context.agentBearer });
     if (noDelegation.response.status !== 403) {
       throw new Error(`${context.key} Agent inherited user authority without Delegation: HTTP ${noDelegation.response.status}`);
     }
@@ -396,7 +396,7 @@ try {
     body: { kind: "personal", name: `Agent M4 wrong-space ${suffix}`, ownerDisplayName: `M4 Owner ${suffix}`, timezone: "UTC" },
   });
   wrongSpace = expectStatus("M4 wrong-Space fixture create", tempSpace, 201);
-  const wrongSpaceProbe = await request(coreBase, `/api/v1/spaces/${encodeURIComponent(wrongSpace.id)}/events?limit=1`, { bearer: homemew.agentBearer });
+  const wrongSpaceProbe = await request(coreBase, `/api/v1/spaces/${encodeURIComponent(wrongSpace.id)}/models/event/records?limit=1`, { bearer: homemew.agentBearer });
   if (wrongSpaceProbe.response.status !== 403) {
     throw new Error(`HomeMew Agent crossed Space Delegation boundary: HTTP ${wrongSpaceProbe.response.status}`);
   }
@@ -406,7 +406,7 @@ try {
   });
   if (selfGrant.response.status !== 403) throw new Error(`Agent self-Delegation was not denied: HTTP ${selfGrant.response.status}`);
 
-  const invalidEvent = await request(coreBase, `/api/v1/spaces/${encodeURIComponent(spaceId)}/events`, {
+  const invalidEvent = await request(coreBase, `/api/v1/spaces/${encodeURIComponent(spaceId)}/models/event/records`, {
     method: "POST",
     bearer: homemew.agentBearer,
     body: {
@@ -422,7 +422,7 @@ try {
 
   const start = new Date(Date.now() + 24 * 60 * 60 * 1000);
   const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
-  const createdEvent = await request(coreBase, `/api/v1/spaces/${encodeURIComponent(spaceId)}/events`, {
+  const createdEvent = await request(coreBase, `/api/v1/spaces/${encodeURIComponent(spaceId)}/models/event/records`, {
     method: "POST",
     bearer: homemew.agentBearer,
     body: {
@@ -435,7 +435,7 @@ try {
   homemewEvent = expectStatus("HomeMew Agent Event create", createdEvent, 201);
   if (!homemewEvent?.id || homemewEvent.version !== 1) throw new Error("HomeMew Agent Event response is invalid");
 
-  const homemewTaskDenied = await request(coreBase, `/api/v1/spaces/${encodeURIComponent(spaceId)}/tasks`, {
+  const homemewTaskDenied = await request(coreBase, `/api/v1/spaces/${encodeURIComponent(spaceId)}/models/task/records`, {
     method: "POST", bearer: homemew.agentBearer, body: { name: `HomeMew Agent must not create task ${suffix}` },
   });
   if (homemewTaskDenied.response.status !== 403) {
@@ -445,7 +445,7 @@ try {
   const homemewChange = await verifyChange(homemew, spaceId, homemewEvent.id);
   const homemewEvidence = verifyEventEvidence(homemew, spaceId, homemewEvent.id, homemewEvent.version);
 
-  const alohaEventDenied = await request(coreBase, `/api/v1/spaces/${encodeURIComponent(spaceId)}/events`, {
+  const alohaEventDenied = await request(coreBase, `/api/v1/spaces/${encodeURIComponent(spaceId)}/models/event/records`, {
     method: "POST",
     bearer: aloha.agentBearer,
     body: {
@@ -459,7 +459,7 @@ try {
     throw new Error(`ALOHA exceeded Event read Delegation: HTTP ${alohaEventDenied.response.status}`);
   }
 
-  const createdTask = await request(coreBase, `/api/v1/spaces/${encodeURIComponent(spaceId)}/tasks`, {
+  const createdTask = await request(coreBase, `/api/v1/spaces/${encodeURIComponent(spaceId)}/models/task/records`, {
     method: "POST", bearer: aloha.agentBearer, body: { name: `ALOHA Assistant M4 ${suffix}` },
   });
   alohaTask = expectStatus("ALOHA Task create", createdTask, 201);
@@ -471,7 +471,7 @@ try {
   coreSql(`UPDATE application_model_access SET max_access='read',updated_at=${sqlString(new Date().toISOString())}
     WHERE application_id=${sqlString(aloha.applicationId)} AND model_key='task'`);
   alohaTaskCatalogLowered = true;
-  const applicationCeilingDenied = await request(coreBase, `/api/v1/spaces/${encodeURIComponent(spaceId)}/tasks`, {
+  const applicationCeilingDenied = await request(coreBase, `/api/v1/spaces/${encodeURIComponent(spaceId)}/models/task/records`, {
     method: "POST", bearer: aloha.agentBearer, body: { name: `ALOHA app ceiling must deny ${suffix}` },
   });
   if (applicationCeilingDenied.response.status !== 403) {
@@ -484,7 +484,7 @@ try {
   coreSql(`UPDATE space_memberships SET role='viewer',updated_at=${sqlString(new Date().toISOString())}
     WHERE space_id=${sqlString(spaceId)} AND user_id=${sqlString(userId)} AND deleted_at IS NULL`);
   familyMembershipLowered = true;
-  const userAuthorityDenied = await request(coreBase, `/api/v1/spaces/${encodeURIComponent(spaceId)}/tasks`, {
+  const userAuthorityDenied = await request(coreBase, `/api/v1/spaces/${encodeURIComponent(spaceId)}/models/task/records`, {
     method: "POST", bearer: aloha.agentBearer, body: { name: `ALOHA user authority must deny ${suffix}` },
   });
   if (userAuthorityDenied.response.status !== 403) {
@@ -495,7 +495,7 @@ try {
   familyMembershipLowered = false;
 
   await revokeDelegation(aloha, spaceId);
-  const afterRevoke = await request(coreBase, `/api/v1/spaces/${encodeURIComponent(spaceId)}/tasks`, {
+  const afterRevoke = await request(coreBase, `/api/v1/spaces/${encodeURIComponent(spaceId)}/models/task/records`, {
     method: "POST", bearer: aloha.agentBearer, body: { name: `ALOHA stale token must fail ${suffix}` },
   });
   if (afterRevoke.response.status !== 403) {
