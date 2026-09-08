@@ -36,6 +36,15 @@ function bindings(privateKey: string, publicKey: string) {
   };
 }
 
+async function waitForLastUsedAt(db: D1Database, table: "service_api_tokens" | "service_oauth_credentials", id: string): Promise<string | null> {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const row = await db.prepare(`SELECT last_used_at lastUsedAt FROM ${table} WHERE id=?`).bind(id).first<{ lastUsedAt: string | null }>();
+    if (row?.lastUsedAt) return row.lastUsedAt;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+  return null;
+}
+
 async function setup(allowedScopes = ["spaces:read", "events:read", "events:write", "tasks:read"]) {
   const pair = await keys();
   const app = createApp();
@@ -96,6 +105,7 @@ describe("Identity service authentication", () => {
     }, b);
     expect(introspected.status).toBe(200);
     expect(await introspected.json()).toMatchObject({ data: { active: true, audience: "lifespace-core", principal: { type: "service", id: principalId, scopes: ["events:read", "events:write"] } } });
+    expect(await waitForLastUsedAt(b.DB, "service_api_tokens", createdBody.data.id)).not.toBeNull();
 
     const reduced = await app.request(`http://identity.test/api/v1/service-principals/${principalId}/tokens/${createdBody.data.id}`, {
       method: "PATCH",
@@ -183,6 +193,7 @@ describe("Identity service authentication", () => {
     expect(tokenBody.expires_in).toBe(300);
     const payload = await verify(tokenBody.access_token, pair.publicKey, "RS256");
     expect(payload).toMatchObject({ iss: "lifespace-identity", aud: "lifespace-core", sub: principalId, azp: appId, principal_type: "service", scope: "events:read" });
+    expect(await waitForLastUsedAt(b.DB, "service_oauth_credentials", credential.data.id)).not.toBeNull();
 
     const wrongClient = new URLSearchParams({ grant_type: "client_credentials", client_id: `svc_${crypto.randomUUID().replaceAll("-", "")}`, client_secret: credential.data.clientSecret, scope: "events:read" });
     const denied = await app.request("http://identity.test/oauth/token", {
