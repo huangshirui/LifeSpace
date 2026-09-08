@@ -26,12 +26,7 @@ const applicationId = application.stagingId;
 const allowedScopes = application.allowedUserScopes;
 const forbiddenScopes = application.forbiddenUserScopes;
 const modelAccess = profile.modelAccess;
-const modelRoutes = {
-  task: "tasks",
-  wish: "wishes",
-  day_record: "day-records",
-  event: "events",
-};
+const supportedModelKeys = new Set(["task", "wish", "day_record", "event"]);
 
 if (!applicationId || application.clientType !== "mini_program" || application.trustedBackend !== true) {
   throw new Error("HomeMew integration profile contains an invalid staging application definition");
@@ -42,7 +37,7 @@ if (!Array.isArray(allowedScopes) || !allowedScopes.length || allowedScopes.incl
 if (!Array.isArray(forbiddenScopes) || !forbiddenScopes.includes("models:manage")) {
   throw new Error("HomeMew integration profile must explicitly forbid models:manage");
 }
-if (Object.keys(modelAccess).some((key) => !(key in modelRoutes))) {
+if (Object.keys(modelAccess).some((key) => !supportedModelKeys.has(key))) {
   throw new Error("HomeMew integration profile contains an unknown proving model key");
 }
 if (Object.values(modelAccess).some((access) => access !== "write")) {
@@ -86,6 +81,11 @@ async function jsonRequest(base, path, { method = "GET", bootstrap, bearer, body
     catch { payload = raw; }
   }
   return { response, payload };
+}
+
+function modelRecordsPath(spaceId, modelKey, recordId = "") {
+  const collection = `/api/v1/spaces/${encodeURIComponent(spaceId)}/models/${encodeURIComponent(modelKey)}/records`;
+  return recordId ? `${collection}/${encodeURIComponent(recordId)}` : collection;
 }
 
 function decodeJwtPayload(token) {
@@ -296,15 +296,14 @@ try {
 
   const modelResults = {};
   for (const [modelKey, maxAccess] of Object.entries(modelAccess)) {
-    const route = modelRoutes[modelKey];
-    const result = await jsonRequest(coreBase, `/api/v1/spaces/${encodeURIComponent(spaceId)}/${route}?limit=1`, { bearer: userBearer });
+    const result = await jsonRequest(coreBase, `${modelRecordsPath(spaceId, modelKey)}?limit=1`, { bearer: userBearer });
     if (result.response.status !== 200 || !Array.isArray(result.payload?.data?.items)) {
       throw new Error(`HomeMew model access failed for ${modelKey}: ${result.response.status} ${JSON.stringify(result.payload)}`);
     }
     modelResults[modelKey] = maxAccess;
   }
 
-  const eventCreated = await jsonRequest(coreBase, `/api/v1/spaces/${encodeURIComponent(spaceId)}/events`, {
+  const eventCreated = await jsonRequest(coreBase, modelRecordsPath(spaceId, "event"), {
     method: "POST",
     bearer: userBearer,
     body: {
@@ -321,13 +320,13 @@ try {
     throw new Error(`HomeMew Event create returned unexpected semantics: ${JSON.stringify(eventCreatedData)}`);
   }
 
-  const eventRead = await jsonRequest(coreBase, `/api/v1/spaces/${encodeURIComponent(spaceId)}/events/${encodeURIComponent(eventId)}`, { bearer: userBearer });
+  const eventRead = await jsonRequest(coreBase, modelRecordsPath(spaceId, "event", eventId), { bearer: userBearer });
   const eventReadData = expectStatus("HomeMew Event read", eventRead, 200);
   if (eventReadData?.id !== eventId || eventReadData?.summary !== `M3 HomeMew event ${verifierSuffix}`) {
     throw new Error(`HomeMew Event read did not return the created record: ${JSON.stringify(eventReadData)}`);
   }
 
-  const eventUpdated = await jsonRequest(coreBase, `/api/v1/spaces/${encodeURIComponent(spaceId)}/events/${encodeURIComponent(eventId)}`, {
+  const eventUpdated = await jsonRequest(coreBase, modelRecordsPath(spaceId, "event", eventId), {
     method: "PATCH",
     bearer: userBearer,
     body: { version: eventVersion, summary: `M3 HomeMew event updated ${verifierSuffix}`, location: "staging-only" },
@@ -338,7 +337,7 @@ try {
     throw new Error(`HomeMew Event update returned unexpected semantics: ${JSON.stringify(eventUpdatedData)}`);
   }
 
-  const taskCreated = await jsonRequest(coreBase, `/api/v1/spaces/${encodeURIComponent(spaceId)}/tasks`, {
+  const taskCreated = await jsonRequest(coreBase, modelRecordsPath(spaceId, "task"), {
     method: "POST",
     bearer: userBearer,
     body: { name: `M3 HomeMew task ${verifierSuffix}` },
@@ -350,13 +349,13 @@ try {
     throw new Error(`HomeMew Task create did not apply authoritative pending default: ${JSON.stringify(taskCreatedData)}`);
   }
 
-  const taskRead = await jsonRequest(coreBase, `/api/v1/spaces/${encodeURIComponent(spaceId)}/tasks/${encodeURIComponent(taskId)}`, { bearer: userBearer });
+  const taskRead = await jsonRequest(coreBase, modelRecordsPath(spaceId, "task", taskId), { bearer: userBearer });
   const taskReadData = expectStatus("HomeMew Task read", taskRead, 200);
   if (taskReadData?.id !== taskId || taskReadData?.status !== "pending") {
     throw new Error(`HomeMew Task read did not return the created record: ${JSON.stringify(taskReadData)}`);
   }
 
-  const taskUpdated = await jsonRequest(coreBase, `/api/v1/spaces/${encodeURIComponent(spaceId)}/tasks/${encodeURIComponent(taskId)}`, {
+  const taskUpdated = await jsonRequest(coreBase, modelRecordsPath(spaceId, "task", taskId), {
     method: "PATCH",
     bearer: userBearer,
     body: { version: taskVersion, name: `M3 HomeMew task updated ${verifierSuffix}`, dueDate: "2099-01-03" },
@@ -367,14 +366,14 @@ try {
     throw new Error(`HomeMew Task update returned unexpected semantics: ${JSON.stringify(taskUpdatedData)}`);
   }
 
-  const staleComplete = await jsonRequest(coreBase, `/api/v1/spaces/${encodeURIComponent(spaceId)}/tasks/${encodeURIComponent(taskId)}/actions/complete`, {
+  const staleComplete = await jsonRequest(coreBase, `${modelRecordsPath(spaceId, "task", taskId)}/actions/complete`, {
     method: "POST",
     bearer: userBearer,
     body: { version: 1 },
   });
   expectStatus("HomeMew Task stale Action", staleComplete, 409, "VERSION_CONFLICT");
 
-  const taskCompleted = await jsonRequest(coreBase, `/api/v1/spaces/${encodeURIComponent(spaceId)}/tasks/${encodeURIComponent(taskId)}/actions/complete`, {
+  const taskCompleted = await jsonRequest(coreBase, `${modelRecordsPath(spaceId, "task", taskId)}/actions/complete`, {
     method: "POST",
     bearer: userBearer,
     body: { version: taskVersion },
@@ -405,7 +404,7 @@ try {
     throw new Error(`HomeMew Task Change attribution is not explainable: ${JSON.stringify(taskChangesData)}`);
   }
 
-  const eventDeleted = await jsonRequest(coreBase, `/api/v1/spaces/${encodeURIComponent(spaceId)}/events/${encodeURIComponent(eventId)}`, {
+  const eventDeleted = await jsonRequest(coreBase, modelRecordsPath(spaceId, "event", eventId), {
     method: "DELETE",
     bearer: userBearer,
     body: { version: eventVersion },
@@ -414,7 +413,7 @@ try {
   eventId = "";
   eventVersion = 0;
 
-  const taskDeleted = await jsonRequest(coreBase, `/api/v1/spaces/${encodeURIComponent(spaceId)}/tasks/${encodeURIComponent(taskId)}`, {
+  const taskDeleted = await jsonRequest(coreBase, modelRecordsPath(spaceId, "task", taskId), {
     method: "DELETE",
     bearer: userBearer,
     body: { version: taskVersion },
@@ -456,7 +455,7 @@ try {
 
   if (taskId && taskVersion && userBearer && spaceId) {
     await cleanup("Task cleanup", async () => {
-      const result = await jsonRequest(coreBase, `/api/v1/spaces/${encodeURIComponent(spaceId)}/tasks/${encodeURIComponent(taskId)}`, {
+      const result = await jsonRequest(coreBase, modelRecordsPath(spaceId, "task", taskId), {
         method: "DELETE",
         bearer: userBearer,
         body: { version: taskVersion },
@@ -466,7 +465,7 @@ try {
   }
   if (eventId && eventVersion && userBearer && spaceId) {
     await cleanup("Event cleanup", async () => {
-      const result = await jsonRequest(coreBase, `/api/v1/spaces/${encodeURIComponent(spaceId)}/events/${encodeURIComponent(eventId)}`, {
+      const result = await jsonRequest(coreBase, modelRecordsPath(spaceId, "event", eventId), {
         method: "DELETE",
         bearer: userBearer,
         body: { version: eventVersion },

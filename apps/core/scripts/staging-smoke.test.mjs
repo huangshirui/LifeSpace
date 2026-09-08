@@ -13,8 +13,9 @@ const creationDraftSmoke = new URL("../../../infra/scripts/verify-staging-creati
 const stagingDbVerifier = new URL("../../../infra/scripts/verify-staging-db.mjs", import.meta.url);
 const stagingHttpVerifier = new URL("../../../infra/scripts/verify-staging-http.mjs", import.meta.url);
 const modelRegressionSmoke = new URL("../../../infra/scripts/verify-staging-models.mjs", import.meta.url);
+const homemewIntegrationSmoke = new URL("../../../infra/scripts/verify-staging-homemew-integration.mjs", import.meta.url);
 const waitApacProbe = new URL("../../../infra/scripts/wait-staging-apac-probe.mjs", import.meta.url);
-const scripts = [prepareSmoke, cleanupSmoke, eventingSmoke, creationDraftSmoke, stagingHttpVerifier, modelRegressionSmoke, waitApacProbe];
+const scripts = [prepareSmoke, cleanupSmoke, eventingSmoke, creationDraftSmoke, stagingHttpVerifier, modelRegressionSmoke, homemewIntegrationSmoke, waitApacProbe];
 const stagingWorkflow = new URL("../../../.github/workflows/staging-deploy.yml", import.meta.url);
 const apacWorkflow = new URL("../../../.github/workflows/apac-performance-gate.yml", import.meta.url);
 const apacProbeConfig = new URL("../../../infra/performance-probe/wrangler.jsonc", import.meta.url);
@@ -44,6 +45,17 @@ test("staging bootstrap masks ephemeral credentials before job export", () => {
     /requestUntil\([\s\S]{0,200}"Core Runtime service-token verification"[\s\S]{0,300}\n\s*20,\n\s*2500,/u,
     "the canonical Runtime probe must tolerate bounded edge deployment convergence",
   );
+});
+
+test("HomeMew staging verification uses only canonical modelKey Runtime addresses", () => {
+  const source = readFileSync(fileURLToPath(homemewIntegrationSmoke), "utf8");
+  assert.match(
+    source,
+    /\/models\/\$\{encodeURIComponent\(modelKey\)\}\/records/u,
+    "HomeMew model access must address Runtime directly by modelKey",
+  );
+  assert.doesNotMatch(source, /task:\s*"tasks"|wish:\s*"wishes"|day_record:\s*"day-records"|event:\s*"events"/u);
+  assert.doesNotMatch(source, /\/tasks|\/wishes|\/day-records|\/events/u);
 });
 
 test("staging proving-model checks pin semantic identity without assuming environment-local model versions", () => {
