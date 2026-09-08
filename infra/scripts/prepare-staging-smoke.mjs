@@ -30,6 +30,7 @@ const applicationScopes = [
   "spaces:read",
   "spaces:write",
   "spaces:manage",
+  "grants:manage",
   "resources:read",
   "resources:write",
   "creation-drafts:read",
@@ -37,6 +38,7 @@ const applicationScopes = [
   "models:manage",
 ];
 const userScopes = [...applicationScopes];
+const serviceScopes = ["models:manage", "resources:read", "resources:write"];
 const modelKeys = ["task", "wish", "day_record", "event"];
 
 function mask(value) {
@@ -224,14 +226,14 @@ const servicePrincipal = await jsonRequest(identityBase, "/api/v1/service-princi
   method: "POST",
   bearer: clientSecret,
   body: {
-    displayName: `Staging Model Admin ${smokeId}`,
-    description: "Ephemeral staging-only platform regression principal",
-    maxScopes: ["models:manage"],
+    displayName: `Staging Service ${smokeId}`,
+    description: "Ephemeral staging-only model-admin and Runtime performance principal",
+    maxScopes: serviceScopes,
     createdByUserId: userId,
   },
 });
 if (servicePrincipal.response.status !== 201 || !servicePrincipal.payload?.data?.id) {
-  throw new Error(`Staging Model Admin principal creation failed: ${servicePrincipal.response.status} ${JSON.stringify(servicePrincipal.payload)}`);
+  throw new Error(`Staging service principal creation failed: ${servicePrincipal.response.status} ${JSON.stringify(servicePrincipal.payload)}`);
 }
 const servicePrincipalId = servicePrincipal.payload.data.id;
 const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
@@ -240,7 +242,7 @@ const serviceTokenResult = await jsonRequest(identityBase, `/api/v1/service-prin
   bearer: clientSecret,
   body: {
     label: `LifeSpace staging smoke ${smokeId}`,
-    scopes: ["models:manage"],
+    scopes: serviceScopes,
     expiresAt,
     createdByUserId: userId,
   },
@@ -248,7 +250,7 @@ const serviceTokenResult = await jsonRequest(identityBase, `/api/v1/service-prin
 const serviceBearer = serviceTokenResult.payload?.data?.token ?? "";
 const serviceTokenId = serviceTokenResult.payload?.data?.id ?? "";
 if (serviceTokenResult.response.status !== 201 || !serviceBearer || !serviceTokenId) {
-  throw new Error(`Staging Model Admin token creation failed: ${serviceTokenResult.response.status} ${JSON.stringify(serviceTokenResult.payload)}`);
+  throw new Error(`Staging service token creation failed: ${serviceTokenResult.response.status} ${JSON.stringify(serviceTokenResult.payload)}`);
 }
 mask(serviceBearer);
 
@@ -292,6 +294,28 @@ if (space.response.status !== 201 || !space.payload?.data?.id || !space.payload?
 const spaceId = space.payload.data.id;
 const personId = space.payload.data.ownerPersonId;
 
+const serviceGrant = await jsonRequest(coreBase, `/api/v1/spaces/${spaceId}/grants`, {
+  method: "POST",
+  bearer: userBearer,
+  body: {
+    granteeType: "service",
+    granteeId: servicePrincipalId,
+    resourceType: "space",
+    resourceId: null,
+    permission: "write",
+    expiresAt,
+  },
+});
+if (serviceGrant.response.status !== 201 || !serviceGrant.payload?.data?.id) {
+  throw new Error(`Staging Runtime service grant creation failed: ${serviceGrant.response.status} ${JSON.stringify(serviceGrant.payload)}`);
+}
+const serviceGrantId = serviceGrant.payload.data.id;
+
+const serviceRuntimeProbe = await jsonRequest(coreBase, `/api/v1/spaces/${spaceId}/tasks?limit=1`, { bearer: serviceBearer });
+if (serviceRuntimeProbe.response.status !== 200) {
+  throw new Error(`Core Runtime service-token verification failed: ${serviceRuntimeProbe.response.status} ${JSON.stringify(serviceRuntimeProbe.payload)}`);
+}
+
 const claimantMembership = await jsonRequest(coreBase, `/api/v1/spaces/${spaceId}/members`, {
   method: "POST",
   bearer: userBearer,
@@ -305,6 +329,7 @@ const claimantPersonId = claimantMembership.payload.data.personId;
 exportEnv("LIFESPACE_CORE_STAGING_URL", coreBase);
 exportEnv("LIFESPACE_IDENTITY_STAGING_URL", identityBase);
 exportEnv("LIFESPACE_STAGING_MODEL_ADMIN_BEARER", serviceBearer, { secret: true });
+exportEnv("LIFESPACE_STAGING_SERVICE_BEARER", serviceBearer, { secret: true });
 exportEnv("LIFESPACE_STAGING_USER_BEARER", userBearer, { secret: true });
 exportEnv("LIFESPACE_STAGING_CLAIMANT_USER_BEARER", claimantBearer, { secret: true });
 exportEnv("LIFESPACE_STAGING_SPACE_ID", spaceId);
@@ -318,6 +343,7 @@ exportEnv("LIFESPACE_STAGING_SMOKE_USER_ID", userId);
 exportEnv("LIFESPACE_STAGING_SMOKE_CLAIMANT_USER_ID", claimantUserId);
 exportEnv("LIFESPACE_STAGING_SMOKE_SERVICE_PRINCIPAL_ID", servicePrincipalId);
 exportEnv("LIFESPACE_STAGING_SMOKE_SERVICE_TOKEN_ID", serviceTokenId);
+exportEnv("LIFESPACE_STAGING_SMOKE_SERVICE_GRANT_ID", serviceGrantId);
 exportEnv("ALLOW_AI_UNCONFIGURED", "1");
 
 console.log(JSON.stringify({
@@ -327,10 +353,12 @@ console.log(JSON.stringify({
   claimantUserId,
   servicePrincipalId,
   serviceTokenExpiresAt: expiresAt,
+  serviceRuntimeGrantId: serviceGrantId,
   spaceId,
   personId,
   claimantPersonId,
   modelAccess: Object.fromEntries(modelKeys.map((key) => [key, "write"])),
   wishPolicyActorsPrepared: { owner: personId, claimant: claimantPersonId },
+  serviceRuntimePerformanceReady: true,
   secretsMaskedAndExportedToCurrentJob: true,
 }, null, 2));
