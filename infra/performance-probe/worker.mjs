@@ -7,7 +7,7 @@ function json(data, status = 200) {
   });
 }
 
-function isAllowedBenchmarkRequest(path, method, spaceId) {
+export function isAllowedBenchmarkRequest(path, method, spaceId) {
   let url;
   try {
     url = new URL(path, CORE_BASE_URL);
