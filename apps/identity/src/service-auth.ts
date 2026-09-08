@@ -210,6 +210,17 @@ function oauthError(c: Context<AppEnv>, status: 400 | 401, error: string, descri
   return c.json({ error, error_description: description }, status);
 }
 
+function deferOperationalWrite(c: Context<AppEnv>, operation: Promise<unknown>): void {
+  const guarded = operation.catch(() => undefined);
+  try {
+    c.executionCtx.waitUntil(guarded);
+  } catch {
+    // Direct Hono app.request() tests do not provide a Worker ExecutionContext.
+    // The best-effort write still runs without delaying the response.
+    void guarded;
+  }
+}
+
 export function registerServiceAuthenticationRoutes(app: App): void {
   app.post("/api/v1/service-principals", async (c) => {
     const application = await requireTrustedApplication(c);
@@ -459,11 +470,10 @@ export function registerServiceAuthenticationRoutes(app: App): void {
       exp: iat + credential.ttl,
       jti,
     }, c.env.TOKEN_PRIVATE_KEY, "RS256");
-    try {
-      await c.env.DB.prepare("UPDATE service_oauth_credentials SET last_used_at=? WHERE id=?").bind(now(), credential.credentialId).run();
-    } catch {
-      // last-used metadata is operational only and must not make authentication fail.
-    }
+    deferOperationalWrite(
+      c,
+      c.env.DB.prepare("UPDATE service_oauth_credentials SET last_used_at=? WHERE id=?").bind(now(), credential.credentialId).run(),
+    );
     return c.json({ access_token: accessToken, token_type: "Bearer", expires_in: credential.ttl, scope: requested.join(" ") });
   });
 
@@ -488,11 +498,10 @@ export function registerServiceAuthenticationRoutes(app: App): void {
     }
     const scopes = parseJsonArray(row.scopes);
     if (!scopeSubset(scopes, parseJsonArray(row.maxScopes)) || !scopeSubset(scopes, parseJsonArray(row.allowedScopes))) return c.json(ok({ active: false }));
-    try {
-      await c.env.DB.prepare("UPDATE service_api_tokens SET last_used_at=? WHERE id=?").bind(now(), row.tokenId).run();
-    } catch {
-      // last-used metadata is operational only and must not make authentication fail.
-    }
+    deferOperationalWrite(
+      c,
+      c.env.DB.prepare("UPDATE service_api_tokens SET last_used_at=? WHERE id=?").bind(now(), row.tokenId).run(),
+    );
     return c.json(ok({
       active: true,
       principal: { type: "service", id: row.principalId, clientId: row.applicationId, scopes, tokenId: row.tokenId },
