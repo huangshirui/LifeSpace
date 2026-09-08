@@ -42,35 +42,16 @@ function pathParam(context: Context<AppEnv>, name: string): string {
   return value;
 }
 async function model(context: Context<AppEnv>): Promise<PublishedModel> {
-  const modelKey = context.req.param("modelKey");
-  const legacyRoute = context.req.param("legacyModelRoute");
-  const legacyModelKey = legacyRoute ? LEGACY_MODEL_ROUTE_ALIASES[legacyRoute] : undefined;
-  const resolved = await getRuntimeModel(context.env, modelKey || legacyModelKey || "");
+  const resolved = await getRuntimeModel(context.env, context.req.param("modelKey") || "");
   if (!resolved) throw new ApiError("MODEL_NOT_FOUND", "Published model not found", 404);
   return resolved;
 }
-
-// Time-bounded compatibility for the four deployed pre-#200 model routes.
-// New models never receive aliases; modelKey is the only Runtime address identity.
-const LEGACY_MODEL_ROUTE_ALIASES: Readonly<Record<string, string>> = Object.freeze({
-  tasks: "task",
-  wishes: "wish",
-  "day-records": "day_record",
-  events: "event",
-});
 
 const canonical = {
   collection: "/api/v1/spaces/:spaceId/models/:modelKey/records",
   record: "/api/v1/spaces/:spaceId/models/:modelKey/records/:recordId",
   occurrences: "/api/v1/spaces/:spaceId/models/:modelKey/records/:recordId/occurrences",
   action: "/api/v1/spaces/:spaceId/models/:modelKey/records/:recordId/actions/:actionKey",
-} as const;
-
-const legacy = {
-  collection: "/api/v1/spaces/:spaceId/:legacyModelRoute",
-  record: "/api/v1/spaces/:spaceId/:legacyModelRoute/:recordId",
-  occurrences: "/api/v1/spaces/:spaceId/:legacyModelRoute/:recordId/occurrences",
-  action: "/api/v1/spaces/:spaceId/:legacyModelRoute/:recordId/actions/:actionKey",
 } as const;
 async function dto(
   env: Bindings,
@@ -127,7 +108,6 @@ export function registerGenericResourceRoutes(app: App): void {
     return context.json(success({ items, nextCursor: result.nextCursor }));
   };
   app.get(canonical.collection, list);
-  app.get(legacy.collection, list);
 
   const create = async (context: Context<AppEnv>) => {
     const spaceId = pathParam(context, "spaceId");
@@ -141,7 +121,6 @@ export function registerGenericResourceRoutes(app: App): void {
     return context.json(success(await dto(context.env, spaceId, resolved, created)), 201);
   };
   app.post(canonical.collection, create);
-  app.post(legacy.collection, create);
 
   const get = async (context: Context<AppEnv>) => {
     const spaceId = pathParam(context, "spaceId");
@@ -154,7 +133,6 @@ export function registerGenericResourceRoutes(app: App): void {
     return context.json(success(await dto(context.env, spaceId, resolved, resource)));
   };
   app.get(canonical.record, get);
-  app.get(legacy.record, get);
 
   const update = async (context: Context<AppEnv>) => {
     const spaceId = pathParam(context, "spaceId");
@@ -171,7 +149,6 @@ export function registerGenericResourceRoutes(app: App): void {
     return context.json(success(await dto(context.env, spaceId, resolved, updated)));
   };
   app.patch(canonical.record, update);
-  app.patch(legacy.record, update);
 
   const remove = async (context: Context<AppEnv>) => {
     const spaceId = pathParam(context, "spaceId");
@@ -187,7 +164,6 @@ export function registerGenericResourceRoutes(app: App): void {
     return context.body(null, 204);
   };
   app.delete(canonical.record, remove);
-  app.delete(legacy.record, remove);
 
   const occurrences = async (context: Context<AppEnv>) => {
     const spaceId = pathParam(context, "spaceId");
@@ -204,7 +180,6 @@ export function registerGenericResourceRoutes(app: App): void {
     return context.json(success(result));
   };
   app.get(canonical.occurrences, occurrences);
-  app.get(legacy.occurrences, occurrences);
 
   const action = async (context: Context<AppEnv>) => {
     const spaceId = pathParam(context, "spaceId");
@@ -232,5 +207,4 @@ export function registerGenericResourceRoutes(app: App): void {
     return context.json(success(await dto(context.env, spaceId, resolved, updated)));
   };
   app.post(canonical.action, action);
-  app.post(legacy.action, action);
 }
