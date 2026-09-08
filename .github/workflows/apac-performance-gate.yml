@@ -67,6 +67,7 @@ jobs:
         run: |
           set -euo pipefail
           node --check infra/scripts/staging-performance-benchmark.mjs
+          node --check infra/scripts/staging-service-performance-benchmark.mjs
           node --check infra/scripts/verify-staging-apac-performance.mjs
           node --check infra/scripts/wait-staging-apac-probe.mjs
           node --check infra/performance-probe/worker.mjs
@@ -94,6 +95,7 @@ jobs:
             process.stdout.write(JSON.stringify({
               PROBE_TOKEN: process.env.LIFESPACE_APAC_PROBE_TOKEN,
               USER_BEARER: process.env.LIFESPACE_STAGING_USER_BEARER,
+              SERVICE_BEARER: process.env.LIFESPACE_STAGING_SERVICE_BEARER,
               SPACE_ID: process.env.LIFESPACE_STAGING_SPACE_ID,
             }));
           ' | pnpm --dir apps/core exec wrangler secret bulk --config ../../infra/performance-probe/wrangler.jsonc
@@ -135,13 +137,14 @@ jobs:
         if: ${{ success() }}
         run: |
           cat >> "$GITHUB_STEP_SUMMARY" <<'EOF'
-          ## LifeSpace Phase 3 APAC performance gate
+          ## LifeSpace APAC performance gate
 
           - Probe placement: explicitly targeted near `aws:ap-southeast-1`.
-          - Probe access: ephemeral random credential; staging user bearer stored only as a temporary Worker secret.
+          - Probe access: ephemeral random credential; staging user JWT and opaque Service API Token are stored only as temporary Worker secrets.
           - Readiness: both `/health` and the real `POST /run -> Core` read path must converge before timed samples start.
           - Benchmark profile: `apac`, acceptance eligible.
-          - Common read target: P50 <= 220 ms and P90 <= 500 ms.
+          - User JWT common-read target: P50 <= 220 ms and P90 <= 500 ms.
+          - Opaque `lsp_pat_*` Task GET/list target: P50 <= 220 ms and P90 <= 500 ms; Task create/PATCH/Action timings are recorded for #198 convergence.
           - D1 round-trip budgets: independently enforced by repository integration tests.
           - Temporary probe Worker: deletion attempted on every outcome.
           - Production and HomeMew traffic/data were not touched.
