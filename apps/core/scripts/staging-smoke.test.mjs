@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
@@ -31,6 +31,16 @@ test("authenticated staging smoke scripts remain syntax-valid and staging-only",
     assert.doesNotMatch(source, /--env[\s"',]+production/u, `${filename} must never target Wrangler production`);
     assert.doesNotMatch(source, /core\.aisr\.online/u, `${filename} must never target the production Core hostname`);
     assert.doesNotMatch(source, /auth\.aisr\.online/u, `${filename} must never target the production Identity hostname`);
+  }
+});
+
+test("staging scripts do not call removed domain Runtime routes", () => {
+  const infraScriptsDir = new URL("../../../infra/scripts/", import.meta.url);
+  const removedRuntimeRoute = /\/spaces\/\$\{[^}]+\}\/(?:tasks|events|wishes|day-records)(?:[/?`])/u;
+
+  for (const filename of readdirSync(infraScriptsDir).filter((name) => name.endsWith(".mjs"))) {
+    const source = readFileSync(new URL(filename, infraScriptsDir), "utf8");
+    assert.doesNotMatch(source, removedRuntimeRoute, `${filename} must use /models/{modelKey}/records`);
   }
 });
 

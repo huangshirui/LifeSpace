@@ -16,7 +16,7 @@ function benchmarkAdapter() {
     async request(path, { method = "GET", body } = {}) {
       requests.push({ path, method, body });
       const url = new URL(path, "https://core-staging.example.test");
-      const collection = "/api/v1/spaces/spc_test/tasks";
+      const collection = "/api/v1/spaces/spc_test/models/task/records";
 
       if (url.pathname === collection && method === "POST") {
         sequence += 1;
@@ -87,7 +87,7 @@ test("Service PAT benchmark covers bounded Task read/create/update/action reques
   assert.equal(result.mutations.taskPatch.samples, 2);
   assert.equal(result.mutations.taskWorkflow.samples, 2);
 
-  assert.equal(adapter.requests.filter((entry) => entry.method === "POST" && /\/tasks$/u.test(new URL(entry.path, "https://x.test").pathname)).length, 5);
+  assert.equal(adapter.requests.filter((entry) => entry.method === "POST" && /\/models\/task\/records$/u.test(new URL(entry.path, "https://x.test").pathname)).length, 5);
   assert.equal(adapter.requests.filter((entry) => entry.method === "PATCH").length, 2);
   assert.equal(adapter.requests.filter((entry) => /\/actions\/(complete|reopen)$/u.test(entry.path)).length, 2);
   assert.equal(adapter.requests.filter((entry) => entry.method === "DELETE").length, 5);

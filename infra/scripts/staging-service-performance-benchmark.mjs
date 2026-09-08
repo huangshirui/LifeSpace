@@ -92,14 +92,14 @@ export async function runStagingServicePerformanceBenchmark({
   }
 
   async function deleteRecord(record) {
-    const result = await request(`/api/v1/spaces/${spaceId}/tasks/${record.id}`, { method: "DELETE", body: { version: record.version } });
+    const result = await request(`/api/v1/spaces/${spaceId}/models/task/records/${record.id}`, { method: "DELETE", body: { version: record.version } });
     if (result.status !== 204 && result.status !== 404) {
       console.warn(`Service performance cleanup tasks/${record.id} failed with ${result.status}: ${JSON.stringify(result.payload)}`);
     }
   }
 
   async function createTask(name) {
-    const created = await expectData(`/api/v1/spaces/${spaceId}/tasks`, {
+    const created = await expectData(`/api/v1/spaces/${spaceId}/models/task/records`, {
       method: "POST",
       body: { name },
     }, 201);
@@ -124,8 +124,8 @@ export async function runStagingServicePerformanceBenchmark({
     const actionSeed = await createTask(`Service performance Action ${marker}`);
 
     const reads = {
-      taskGet: await measure(() => expectData(`/api/v1/spaces/${spaceId}/tasks/${getSeed.data.id}`)),
-      taskList10: await measure(() => expectData(`/api/v1/spaces/${spaceId}/tasks?limit=10`)),
+      taskGet: await measure(() => expectData(`/api/v1/spaces/${spaceId}/models/task/records/${getSeed.data.id}`)),
+      taskList10: await measure(() => expectData(`/api/v1/spaces/${spaceId}/models/task/records?limit=10`)),
     };
 
     const createSamples = [];
@@ -137,7 +137,7 @@ export async function runStagingServicePerformanceBenchmark({
     let patchVersion = patchSeed.data.version;
     const patchSamples = [];
     for (let index = 0; index < mutationSampleCount; index += 1) {
-      const patched = await expectData(`/api/v1/spaces/${spaceId}/tasks/${patchSeed.data.id}`, {
+      const patched = await expectData(`/api/v1/spaces/${spaceId}/models/task/records/${patchSeed.data.id}`, {
         method: "PATCH",
         body: { version: patchVersion, name: `Service performance PATCH ${marker} ${index}` },
       });
@@ -150,7 +150,7 @@ export async function runStagingServicePerformanceBenchmark({
     const actionSamples = [];
     for (let index = 0; index < mutationSampleCount; index += 1) {
       const action = index % 2 === 0 ? "complete" : "reopen";
-      const changed = await expectData(`/api/v1/spaces/${spaceId}/tasks/${actionSeed.data.id}/actions/${action}`, {
+      const changed = await expectData(`/api/v1/spaces/${spaceId}/models/task/records/${actionSeed.data.id}/actions/${action}`, {
         method: "POST",
         body: { version: actionVersion },
       });
