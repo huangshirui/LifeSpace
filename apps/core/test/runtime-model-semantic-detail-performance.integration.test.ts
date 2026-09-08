@@ -130,11 +130,11 @@ describe("Progressive model semantic detail performance", () => {
       ENVIRONMENT: "test",
     });
 
-    const warm = await call(`/api/v1/spaces/${spaceId}/tasks`);
+    const warm = await call(`/api/v1/spaces/${spaceId}/models/task/records`);
     expect(warm.status).toBe(200);
 
     reset(counter);
-    const before = await call(`/api/v1/spaces/${spaceId}/tasks`);
+    const before = await call(`/api/v1/spaces/${spaceId}/models/task/records`);
     expect(before.status).toBe(200);
     const ordinaryBefore = counter.roundTrips;
 
@@ -147,7 +147,7 @@ describe("Progressive model semantic detail performance", () => {
     const detailMaxBindings = counter.maxBindings;
 
     reset(counter);
-    const after = await call(`/api/v1/spaces/${spaceId}/tasks`);
+    const after = await call(`/api/v1/spaces/${spaceId}/models/task/records`);
     expect(after.status).toBe(200);
     const ordinaryAfter = counter.roundTrips;
 
@@ -170,3 +170,4 @@ describe("Progressive model semantic detail performance", () => {
     }));
   }, 20_000);
 });
+

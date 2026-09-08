@@ -99,14 +99,13 @@ function assertTruthy(value, label) {
 const schema = single("SELECT value FROM schema_metadata WHERE key='schema_version'", "schema_metadata");
 assertEqual(schema.value, STAGING_EXPECTATIONS.core.schemaVersion, "Core staging schema version");
 
-const modelRows = runSql(`SELECT model_key,route_segment,version,schema_hash,state
+const modelRows = runSql(`SELECT model_key,version,schema_hash,state
   FROM model_definitions WHERE state='published' ORDER BY model_key`);
 const actualModels = new Map(modelRows.map((row) => [row.model_key, row]));
 const verifiedModelVersions = {};
 for (const [key, expected] of EXPECTED_MODELS) {
   const row = actualModels.get(key);
   assertTruthy(row, `Published proving model ${key} is missing from staging Registry`);
-  assertEqual(row.route_segment, expected.route, `${key} route`);
   assertAtLeast(row.version, expected.minimumVersion, `${key} version`);
   assertEqual(row.schema_hash, expected.hash, `${key} schema hash`);
   verifiedModelVersions[key] = Number(row.version);

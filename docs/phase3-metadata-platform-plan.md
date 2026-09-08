@@ -2,6 +2,8 @@
 
 Updated: 2026-08-12
 
+> Evolution note: LifeSpace #200 supersedes the original independent route identity: `modelKey` is now the sole stable machine identity and canonical Runtime paths are `/api/v1/spaces/{spaceId}/models/{modelKey}/records/...`. The domain semantics and metadata-driven Runtime conclusions of this plan remain valid.
+
 ## 1. Decision
 
 Phase 2 is complete. Before HomeMew migrates any client or production data to LifeSpace, LifeSpace will change its business-domain architecture from one handwritten implementation per domain to a metadata-driven platform runtime.
@@ -104,7 +106,6 @@ The first DSL is intentionally small. It must be powerful enough to express ordi
 Required model metadata:
 
 - stable `key`;
-- `route` segment;
 - display singular/plural names;
 - model definition version;
 - field definitions;
@@ -142,12 +143,11 @@ Published definitions are immutable. A change creates a new version.
 
 Validation/publication must reject at least:
 
-- invalid/reserved model keys or route segments;
+- invalid/reserved model keys;
 - duplicate fields;
 - unsupported field/capability types;
 - incompatible relation targets;
 - unsafe or unknown policy/workflow operators;
-- route collisions with Kernel APIs;
 - destructive physical schema changes without an explicit safe migration plan;
 - contract generation collisions.
 
@@ -159,23 +159,23 @@ Ordinary model publication must not require a GitHub commit, GitHub Action or Wo
 
 Kernel routes remain explicit.
 
-Published ordinary models receive generated domain-shaped routes backed by one runtime implementation:
+Published ordinary models receive generated modelKey-addressed paths backed by one runtime implementation:
 
 ```text
-GET    /api/v1/spaces/{spaceId}/{modelRoute}
-POST   /api/v1/spaces/{spaceId}/{modelRoute}
-GET    /api/v1/spaces/{spaceId}/{modelRoute}/{recordId}
-PATCH  /api/v1/spaces/{spaceId}/{modelRoute}/{recordId}
-DELETE /api/v1/spaces/{spaceId}/{modelRoute}/{recordId}
+GET    /api/v1/spaces/{spaceId}/models/{modelKey}/records
+POST   /api/v1/spaces/{spaceId}/models/{modelKey}/records
+GET    /api/v1/spaces/{spaceId}/models/{modelKey}/records/{recordId}
+PATCH  /api/v1/spaces/{spaceId}/models/{modelKey}/records/{recordId}
+DELETE /api/v1/spaces/{spaceId}/models/{modelKey}/records/{recordId}
 ```
 
 Workflow actions later use:
 
 ```text
-POST /api/v1/spaces/{spaceId}/{modelRoute}/{recordId}/actions/{actionKey}
+POST /api/v1/spaces/{spaceId}/models/{modelKey}/records/{recordId}/actions/{actionKey}
 ```
 
-The route is resolved to a published Runtime Model Descriptor; the runtime never dispatches to generated per-model source files.
+The `modelKey` is resolved directly to a published Runtime Model Descriptor; the runtime never dispatches to generated per-model source files and does not require Discovery translation.
 
 Cross-Space `/api/v1/me/...` aggregate support is model metadata/capability driven and is added after the single-Space runtime is stable.
 

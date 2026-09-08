@@ -19,7 +19,6 @@ type Fixture = {
   firstSpaceId: string;
   secondSpaceId: string;
   modelKey: string;
-  route: string;
   now: string;
 };
 
@@ -90,7 +89,6 @@ async function fixture(): Promise<Fixture> {
   const firstSpaceId = `spc_inventory_a_${suffix}`;
   const secondSpaceId = `spc_inventory_b_${suffix}`;
   const modelKey = `inventory_note_${suffix.slice(0, 8)}`;
-  const route = `inventory-notes-${suffix.slice(0, 8)}`;
   const now = new Date().toISOString();
 
   await db.batch([
@@ -118,7 +116,6 @@ async function fixture(): Promise<Fixture> {
   await publishModelDefinition({ DB: db } as Bindings, publisher, {
     definitionVersion: 1,
     key: modelKey,
-    route,
     display: { singular: "Inventory Note", plural: "Inventory Notes" },
     description: "Heavy semantic detail that must stay outside the compact inventory.",
     fields: {
@@ -152,7 +149,6 @@ async function fixture(): Promise<Fixture> {
     firstSpaceId,
     secondSpaceId,
     modelKey,
-    route,
     now,
   };
 }
@@ -173,7 +169,6 @@ describe("Compact current Runtime capability inventory", () => {
     expect(inventory.models).toHaveLength(1);
     expect(inventory.models[0]).toMatchObject({
       key: f.modelKey,
-      route: f.route,
       display: { singular: "Inventory Note", plural: "Inventory Notes" },
       capabilities: [],
       actions: [{ key: "complete", access: "write", kind: "workflow" }],
@@ -199,9 +194,8 @@ describe("Compact current Runtime capability inventory", () => {
       bearer,
       `/api/v1/spaces/${f.firstSpaceId}/_discovery/models/${f.modelKey}`,
     ));
-    expect({ key: detail.key, route: detail.route, version: detail.version, schemaHash: detail.schemaHash }).toEqual({
+    expect({ key: detail.key, version: detail.version, schemaHash: detail.schemaHash }).toEqual({
       key: inventory.models[0].key,
-      route: inventory.models[0].route,
       version: inventory.models[0].version,
       schemaHash: inventory.models[0].schemaHash,
     });

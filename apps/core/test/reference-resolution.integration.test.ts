@@ -166,7 +166,7 @@ describe("Batch Reference Resolution", () => {
     const removed = await resolve(f, [f.alphaPersonId]);
     expect(await items(removed)).toEqual([{ id: f.alphaPersonId, status: "unavailable" }]);
 
-    const mutation = await request(f.publicKey, f.accessToken, `/api/v1/spaces/${f.spaceId}/tasks`, "POST", {
+    const mutation = await request(f.publicKey, f.accessToken, `/api/v1/spaces/${f.spaceId}/models/task/records`, "POST", {
       name: "Must recheck relation integrity",
       assigneePersonIds: [f.alphaPersonId],
     });
@@ -186,7 +186,6 @@ describe("Batch Reference Resolution", () => {
     const f = await fixture();
     const suffix = crypto.randomUUID().replaceAll("-", "").slice(0, 10);
     const modelKey = `ref_link_${suffix}`;
-    const route = `ref-links-${suffix}`;
     const publisher: Principal = {
       type: "service",
       id: `svc_ref_publisher_${suffix}`,
@@ -197,7 +196,6 @@ describe("Batch Reference Resolution", () => {
     await publishModelDefinition({ DB: f.db } as Bindings, publisher, {
       definitionVersion: 1,
       key: modelKey,
-      route,
       display: { singular: "Reference Link", plural: "Reference Links" },
       fields: {
         title: { type: "string", required: true, minLength: 1, maxLength: 80 },
@@ -209,7 +207,7 @@ describe("Batch Reference Resolution", () => {
     await f.db.prepare(`INSERT INTO application_model_access(application_id,model_key,max_access,created_by_type,created_by_id)
       VALUES(?,?,?,?,?)`).bind(f.clientId, modelKey, "read", "service", "svc_test_admin").run();
 
-    const created = await request(f.publicKey, f.accessToken, `/api/v1/spaces/${f.spaceId}/tasks`, "POST", {
+    const created = await request(f.publicKey, f.accessToken, `/api/v1/spaces/${f.spaceId}/models/task/records`, "POST", {
       name: "Canonical fallback task",
     });
     expect(created.status).toBe(201);

@@ -34,17 +34,16 @@ The current accepted HomeMew tuple predates the #109 split, so its historical Co
 
 A Model Contract Revision (`mct_*`) is a content-addressed snapshot of one environment's complete published Registry. Its manifest contains environment-local monotonic Model Registry versions. Staging and production can therefore have different valid `mct_*` IDs even when the HomeMew-visible model semantics are identical.
 
-HomeMew release compatibility across environments is consequently pinned by the canonical semantic fingerprint over the exact models HomeMew consumes. The fingerprint is SHA-256 over the model entries sorted by `key`, where each entry contains only:
+HomeMew release compatibility across environments is pinned by a semantic fingerprint over the exact models HomeMew consumes. The accepted profile v2 below is immutable pre-#200 evidence and historically hashed `key + route + schemaHash`. LifeSpace #200 removes `route` from all new candidate identities; profile v3 and later hash the model entries sorted by `key`, where each entry contains only:
 
 ```text
 key
-route
 schemaHash
 ```
 
 Environment-local model `version` and the environment-wide `mct_*` ID are deliberately excluded.
 
-The current fingerprint covers:
+The currently accepted historical profile v2 fingerprint covers:
 
 ```text
 day_record  day-records  4b2f241958aeca05e396eea7e6719a3f030cef3ea7dfd3c57d426c086fe4cf56
@@ -65,7 +64,9 @@ Identity version
 mct_* = immutable environment-local contract/deployment evidence
 ```
 
-A schema/route semantic change requires an explicit HomeMew compatibility decision and a new fingerprint. A merely higher environment-local Registry version does not.
+A schema semantic change requires an explicit HomeMew compatibility decision and a new fingerprint. A merely higher environment-local Registry version does not. New staging candidates and promoted profiles must use only `key + schemaHash`; the legacy v2 calculation exists solely to verify its already accepted artifact and must not be used to generate new identity.
+
+The #200 modelKey-addressed four-model staging candidate computes to `msf_27f2a733d8a40f84035e909d73d328adce6782ab83f4a7b50d78697900e5a705`. This is candidate evidence only until HomeMew path migration and staging acceptance complete; it does not silently replace the accepted profile v2 fingerprint.
 
 ### Reproducible staging handoff
 

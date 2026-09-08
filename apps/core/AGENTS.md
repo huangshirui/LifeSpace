@@ -57,7 +57,7 @@ Core does not own:
 - Published Model Definition versions are immutable and compatibility-classified.
 - Logical metadata is authoritative; physical persistence uses deterministic generated typed model tables plus shared record/relation/capability structures.
 - Physical DDL is generated only from validated metadata by fixed platform code. Never execute AI/client-provided SQL.
-- Kernel/control-plane routes and model routes must never collide.
+- Ordinary model Runtime paths stay isolated under `/api/v1/spaces/{spaceId}/models/{modelKey}/records/...`; `modelKey` is the only stable model address and must resolve from the isolate snapshot without Discovery or a D1 hot-path lookup.
 - Metadata must not contain arbitrary JavaScript, SQL, shell code or unrestricted expressions.
 - Ordinary model mutations participate in platform Eventing generically; do not add model-specific event names or handwritten Webhook calls for new business models.
 

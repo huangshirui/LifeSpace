@@ -129,7 +129,7 @@ describe("Agent-ready Authority + Change", () => {
     expect(event.access).toEqual(["read", "write"]);
     expect(task.access).toEqual(["read"]);
 
-    const eventResponse = await request(`/api/v1/spaces/${spaceId}/events`, {
+    const eventResponse = await request(`/api/v1/spaces/${spaceId}/models/event/records`, {
       method: "POST",
       headers: auth(delegated),
       body: JSON.stringify({
@@ -142,7 +142,7 @@ describe("Agent-ready Authority + Change", () => {
     expect(eventResponse.status).toBe(201);
     const createdEvent = await jsonData(eventResponse);
 
-    const updatedResponse = await request(`/api/v1/spaces/${spaceId}/events/${createdEvent.id}`, {
+    const updatedResponse = await request(`/api/v1/spaces/${spaceId}/models/event/records/${createdEvent.id}`, {
       method: "PATCH",
       headers: auth(delegated),
       body: JSON.stringify({
@@ -152,7 +152,7 @@ describe("Agent-ready Authority + Change", () => {
     }, publicKey);
     expect(updatedResponse.status).toBe(200);
 
-    const taskDenied = await request(`/api/v1/spaces/${spaceId}/tasks`, {
+    const taskDenied = await request(`/api/v1/spaces/${spaceId}/models/task/records`, {
       method: "POST",
       headers: auth(delegated),
       body: JSON.stringify({ name: "Must not be created" }),
@@ -224,7 +224,7 @@ describe("Agent-ready Authority + Change", () => {
     }, publicKey);
     expect(revoked.status).toBe(204);
 
-    const afterRevocation = await request(`/api/v1/spaces/${spaceId}/events`, {
+    const afterRevocation = await request(`/api/v1/spaces/${spaceId}/models/event/records`, {
       method: "POST",
       headers: auth(delegated),
       body: JSON.stringify({
@@ -244,7 +244,7 @@ describe("Agent-ready Authority + Change", () => {
     await seedSpaceAndCatalog(userId, spaceId);
     const direct = await userToken(privateKey, userId, ["resources:read", "resources:write"]);
 
-    const response = await request(`/api/v1/spaces/${spaceId}/events`, {
+    const response = await request(`/api/v1/spaces/${spaceId}/models/event/records`, {
       method: "POST",
       headers: {
         ...auth(direct),

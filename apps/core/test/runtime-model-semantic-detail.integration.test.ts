@@ -17,7 +17,6 @@ type Fixture = {
   clientId: string;
   spaceId: string;
   modelKey: string;
-  route: string;
   now: string;
 };
 
@@ -86,7 +85,6 @@ async function fixture(): Promise<Fixture> {
   const clientId = `app_semantic_detail_${suffix}`;
   const spaceId = `spc_${suffix}`;
   const modelKey = `semantic_note_${suffix.slice(0, 8)}`;
-  const route = `semantic-notes-${suffix.slice(0, 8)}`;
   const now = new Date().toISOString();
 
   await db.batch([
@@ -108,7 +106,6 @@ async function fixture(): Promise<Fixture> {
   await publishModelDefinition({ DB: db } as Bindings, publisher, {
     definitionVersion: 1,
     key: modelKey,
-    route,
     display: { singular: "Semantic Note", plural: "Semantic Notes" },
     description: "Model used to prove progressive static semantic projection.",
     fields: {
@@ -133,7 +130,7 @@ async function fixture(): Promise<Fixture> {
   await db.prepare(`INSERT INTO application_model_access(application_id,model_key,max_access,created_by_type,created_by_id)
     VALUES(?,?,?,?,?)`).bind(clientId, modelKey, "write", "service", "svc_test_admin").run();
 
-  return { db, privateKey, publicKey, userId, serviceId, clientId, spaceId, modelKey, route, now };
+  return { db, privateKey, publicKey, userId, serviceId, clientId, spaceId, modelKey, now };
 }
 
 async function detail(f: Fixture, accessToken: string): Promise<Response> {
@@ -162,7 +159,6 @@ describe("Progressive single-model semantic detail", () => {
 
     expect(data).toMatchObject({
       key: f.modelKey,
-      route: f.route,
       display: { singular: "Semantic Note", plural: "Semantic Notes" },
       description: "Model used to prove progressive static semantic projection.",
       declaredAccess: ["read", "write"],
@@ -222,7 +218,7 @@ describe("Progressive single-model semantic detail", () => {
       },
       invocation: {
         method: "POST",
-        pathTemplate: `/api/v1/spaces/{spaceId}/${f.route}/{recordId}/actions/complete`,
+        pathTemplate: `/api/v1/spaces/{spaceId}/models/${f.modelKey}/records/{recordId}/actions/complete`,
       },
     });
   });

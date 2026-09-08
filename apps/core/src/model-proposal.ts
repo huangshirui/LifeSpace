@@ -79,7 +79,6 @@ function obviousCompatibilityReasons(base: ModelDefinition, next: ModelDefinitio
   const reasons: string[] = [];
   if (base.definitionVersion !== next.definitionVersion) reasons.push("definitionVersion changed");
   if (base.key !== next.key) reasons.push("model key changed");
-  if (base.route !== next.route) reasons.push("model route changed");
   if (!equal(base.referenceLabel, next.referenceLabel)) reasons.push("record reference-label semantics changed");
 
   for (const [fieldKey, oldField] of Object.entries(base.fields)) {

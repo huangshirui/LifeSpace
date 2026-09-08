@@ -6,7 +6,6 @@ import type { ModelCompatibility } from "./model-registry";
 export type ProposalPublicationEvidence = {
   id: string;
   key: string;
-  route: string;
   version: number;
   schemaHash: string;
   compatibility: ModelCompatibility;
@@ -24,7 +23,6 @@ type ClaimRow = {
 type ModelRow = {
   id: string;
   model_key: string;
-  route_segment: string;
   version: number;
   definition_json: string;
   schema_hash: string;
@@ -48,7 +46,6 @@ function evidence(row: ModelRow): ProposalPublicationEvidence {
   return {
     id: row.id,
     key: row.model_key,
-    route: row.route_segment,
     version: row.version,
     schemaHash: row.schema_hash,
     compatibility: row.compatibility,
@@ -65,7 +62,7 @@ export async function findProposalPublicationEvidence(
 ): Promise<ProposalPublicationEvidence | null> {
   if (!schemaHash) return null;
   const row = await env.DB.prepare(`SELECT
-      id,model_key,route_segment,version,definition_json,schema_hash,compatibility,published_at
+      id,model_key,version,definition_json,schema_hash,compatibility,published_at
     FROM model_definitions
     WHERE model_key=? AND version=? AND schema_hash=?
     LIMIT 1`)

@@ -6,7 +6,6 @@ function baseDefinition() {
   return {
     definitionVersion: 1 as const,
     key: "reference_label_test",
-    route: "reference-label-tests",
     display: { singular: "Reference Label Test", plural: "Reference Label Tests" },
     fields: {
       name: { type: "string" as const, nullable: true },
@@ -115,3 +114,4 @@ describe("ordinary-record reference labels", () => {
     expect(renderReferenceLabel(result.definition, "rec_long", { name: "x".repeat(500) })).toHaveLength(200);
   });
 });
+

@@ -224,7 +224,6 @@ function providerError(error: unknown): ApiError {
 function modelCatalog(models: PublishedModel[]) {
   return models.map((model) => ({
     key: model.key,
-    route: model.route,
     version: model.version,
     displayName: model.definition.display.singular,
     description: model.definition.description ?? null,
@@ -235,7 +234,6 @@ function publicationEvidence(model: PublishedModel): ProposalPublicationEvidence
   return {
     id: model.id,
     key: model.key,
-    route: model.route,
     version: model.version,
     schemaHash: model.schemaHash,
     compatibility: model.compatibility,
@@ -248,7 +246,6 @@ function publishedDto(published: ProposalPublicationEvidence) {
   return {
     id: published.id,
     key: published.key,
-    route: published.route,
     version: published.version,
     state: "published" as const,
     schemaHash: published.schemaHash,

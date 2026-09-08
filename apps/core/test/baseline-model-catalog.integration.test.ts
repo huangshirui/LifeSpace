@@ -12,7 +12,6 @@ type TestEnv = { DB: D1Database };
 
 type PublishedDefinitionRow = {
   model_key: string;
-  route_segment: string;
   definition_json: string;
   schema_hash: string;
 };
@@ -27,13 +26,15 @@ const BASELINE_MODELS = [
 describe("canonical baseline Model Catalog", () => {
   it("matches the published Registry produced by a fresh migration chain", async () => {
     const db = (env as unknown as TestEnv).DB;
+    const columns = await db.prepare("SELECT name FROM pragma_table_info('model_definitions')").all<{ name: string }>();
+    expect(columns.results.map((column) => column.name)).not.toContain("route_segment");
 
     for (const canonical of BASELINE_MODELS) {
       const expected = await validateDefinition(canonical);
       expect(expected.valid, `${canonical.key} canonical definition must validate`).toBe(true);
       if (!expected.valid) continue;
 
-      const row = await db.prepare(`SELECT model_key,route_segment,definition_json,schema_hash
+      const row = await db.prepare(`SELECT model_key,definition_json,schema_hash
           FROM model_definitions
           WHERE model_key=? AND state='published'`)
         .bind(canonical.key)
@@ -43,7 +44,6 @@ describe("canonical baseline Model Catalog", () => {
       if (!row) continue;
 
       expect(row.model_key).toBe(canonical.key);
-      expect(row.route_segment).toBe(canonical.route);
       expect(row.schema_hash).toBe(expected.schemaHash);
       expect(JSON.parse(row.definition_json)).toEqual(expected.definition);
     }

@@ -6,3 +6,4 @@
   "workers_dev": true,
   "placement": { "region": "aws:ap-southeast-1" }
 }
+

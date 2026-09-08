@@ -10,7 +10,7 @@ export type ModelContractSnapshot = {
   hash: string;
   manifest: {
     kind: "lifespace-model-contract";
-    models: Array<{ key: string; route: string; version: number; schemaHash: string }>;
+    models: Array<{ key: string; version: number; schemaHash: string }>;
   };
   openapi: OpenApiDocument;
   jsonSchema: JsonSchema;
@@ -557,7 +557,7 @@ function modelOpenApi(model: PublishedModel, schemas: Record<string, JsonSchema>
     },
   };
 
-  const collectionPath = `/api/v1/spaces/{spaceId}/${model.route}`;
+  const collectionPath = `/api/v1/spaces/{spaceId}/models/${model.key}/records`;
   const recordPath = `${collectionPath}/{recordId}`;
   paths[collectionPath] = {
     parameters: [{ $ref: "#/components/parameters/SpaceId" }],
@@ -666,7 +666,6 @@ function jsonSchemaBundle(models: PublishedModel[]): JsonSchema {
     defs[`${prefix}VersionRequest`] = versionRequestSchema();
     const capabilityActions = model.definition.capabilities?.temporal?.occurrences ? ["record-occurrence"] : [];
     metadata[model.key] = {
-      route: model.route,
       version: model.version,
       schemaHash: model.schemaHash,
       referenceLabel: referenceLabelSemantic(model.definition),
@@ -691,7 +690,6 @@ export async function generateModelContract(input: PublishedModel[]): Promise<Mo
     kind: "lifespace-model-contract" as const,
     models: models.map((model) => ({
       key: model.key,
-      route: model.route,
       version: model.version,
       schemaHash: model.schemaHash,
     })),
@@ -705,7 +703,7 @@ export async function generateModelContract(input: PublishedModel[]): Promise<Mo
     info: {
       title: "LifeSpace Model Registry API Snapshot",
       version: "registry",
-      description: "Concrete model routes generated from an immutable LifeSpace Model Registry snapshot. Kernel APIs are versioned separately.",
+      description: "Concrete modelKey-addressed paths generated from an immutable LifeSpace Model Registry snapshot. Kernel APIs are versioned separately.",
     },
     security: [{ bearerAuth: [] }],
     paths,

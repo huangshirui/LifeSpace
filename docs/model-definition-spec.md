@@ -67,7 +67,6 @@ The v1 top-level shape is:
 {
   definitionVersion: 1,
   key: string,
-  route: string,
   description?: string,
   display: {
     singular: string,
@@ -120,45 +119,13 @@ football_match
 
 The key is not a UI label and should not change merely for presentation reasons.
 
-### 3.3 `route`
-
-One lowercase URL segment used by the Generic Runtime.
-
-Current syntax:
-
-```text
-^[a-z][a-z0-9-]{1,62}$
-```
-
-Examples:
-
-```text
-tasks
-day-records
-football-matches
-```
-
-A model route occupies this exact namespace position:
-
-```text
-/api/v1/spaces/{spaceId}/{route}
-```
-
-Therefore a model may not use a first segment already owned by the Core Kernel at `/api/v1/spaces/{spaceId}/...`. Representative reserved segments include `_discovery`, `_relation-targets`, `members`, `invites`, `grants`, `creation-drafts`, `agent-delegations` and `changes`.
-
-The machine-authoritative Kernel Space namespace is `apps/core/kernel-space-route-segments.json`. Core contract CI mechanically derives the current first segments from `apps/core/openapi.yaml` and requires exact parity with that manifest. Model Definition validation consumes the same manifest, so a new Kernel Space route cannot silently become publishable as an ordinary model route.
-
-A Kernel name used at a different path level is not reserved merely because the name exists elsewhere. For example, a top-level route such as `/api/v1/spaces` does not by itself collide with a model route `/api/v1/spaces/{spaceId}/spaces`.
-
-A published route may be owned by only one model key.
-
-### 3.4 `description`
+### 3.3 `description`
 
 Optional semantic description, maximum 500 characters after trimming.
 
 The description should explain **what the model means and when to use it**, not only restate its display name. It is useful to humans, generated clients and AI interpretation/discovery.
 
-### 3.5 `display`
+### 3.4 `display`
 
 Human-facing singular and plural labels. Both are required and limited to 1–80 characters after trimming.
 
@@ -860,23 +827,23 @@ Conformance-ID: MDV1-CAPABILITY-CALENDAR-01
 
 Ordinary models do not receive handwritten route implementations.
 
-For a published model with route `tasks`, the Generic Runtime exposes the model through the common route pattern:
+For a published model with key `task`, the Generic Runtime exposes the model through the common modelKey-addressed route pattern:
 
 ```text
-GET    /api/v1/spaces/{spaceId}/tasks
-POST   /api/v1/spaces/{spaceId}/tasks
-GET    /api/v1/spaces/{spaceId}/tasks/{recordId}
-PATCH  /api/v1/spaces/{spaceId}/tasks/{recordId}
-DELETE /api/v1/spaces/{spaceId}/tasks/{recordId}
+GET    /api/v1/spaces/{spaceId}/models/task/records
+POST   /api/v1/spaces/{spaceId}/models/task/records
+GET    /api/v1/spaces/{spaceId}/models/task/records/{recordId}
+PATCH  /api/v1/spaces/{spaceId}/models/task/records/{recordId}
+DELETE /api/v1/spaces/{spaceId}/models/task/records/{recordId}
 ```
 
 A declared Action such as `complete` becomes:
 
 ```text
-POST /api/v1/spaces/{spaceId}/tasks/{recordId}/actions/complete
+POST /api/v1/spaces/{spaceId}/models/task/records/{recordId}/actions/complete
 ```
 
-This is **runtime projection**, not per-model API code generation. One Generic Runtime route resolves `modelRoute` and `actionKey` against the published Registry.
+This is **runtime projection**, not per-model API code generation. One Generic Runtime resolves `modelKey` directly from its isolate-memory Registry descriptor and resolves `actionKey` within that model. Callers that already know `spaceId + modelKey` perform CRUD and Actions with zero Discovery and no Registry D1 query on the hot path.
 
 ## 16. Generated Model Contract
 
@@ -935,7 +902,6 @@ Normative rules:
 - if the automatic minimum is `compatible`, caller-supplied `breaking` is allowed as conservative over-classification;
 - conservative over-classification does not bypass physical schema/migration safety, dependency review or any other publication gate;
 - an unchanged schema hash is rejected;
-- route conflicts are rejected;
 - model versions advance monotonically per model key.
 
 The minimum-classification rule belongs to the authoritative Registry publication boundary. AI proposal/Console clients may preflight the same result for clearer UX, but a caller-specific precheck must never be the only enforcement path.
@@ -954,7 +920,6 @@ The current Task model demonstrates the core v1 Mutation Authority pattern:
 {
   definitionVersion: 1,
   key: "task",
-  route: "tasks",
   display: { singular: "Task", plural: "Tasks" },
   fields: {
     name: { type: "string", required: true, minLength: 1, maxLength: 100 },

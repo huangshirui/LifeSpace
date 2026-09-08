@@ -5,7 +5,6 @@ import { validateModelDefinition, type ModelDefinition } from "../src/model-defi
 const RELATION_WORKFLOW_MODEL_DEFINITION: ModelDefinition = {
   definitionVersion: 1,
   key: "relation_workflow_fixture",
-  route: "relation-workflow-fixtures",
   display: { singular: "Relation Workflow Fixture", plural: "Relation Workflow Fixtures" },
   fields: {
     status: { type: "enum", required: true, values: ["held", "open"] },
@@ -106,3 +105,4 @@ describe("Workflow Model Definition", () => {
     expect(codes(input)).toContain("INCOMPATIBLE_ACTION_REFERENCE");
   });
 });
+

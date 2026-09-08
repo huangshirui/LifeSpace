@@ -101,7 +101,6 @@ const candidateModels = acceptedModelSemantics.models.map(({ key }) => {
   if (!model) throw new Error(`Active staging Model Contract is missing HomeMew model ${key}`);
   return {
     key,
-    route: model.route,
     schemaHash: model.schemaHash,
   };
 });

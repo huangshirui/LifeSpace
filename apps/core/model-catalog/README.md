@@ -23,7 +23,7 @@ When the shipped catalog changes:
 2. classify compatibility explicitly;
 3. add a forward convergence migration when deployed/fresh Registry state must advance;
 4. never rewrite an already-shipped historical Model Definition row;
-5. keep the fresh-migration catalog integration test green so the final current `published` Registry state exactly matches this catalog by route, definition and schema hash.
+5. keep the fresh-migration catalog integration test green so the final current `published` Registry state exactly matches this catalog by model key, definition and schema hash.
 
 ## Model version versus semantic identity
 

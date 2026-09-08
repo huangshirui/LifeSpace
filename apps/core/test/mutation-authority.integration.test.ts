@@ -109,7 +109,7 @@ async function jsonResource(response: Response) {
 describe("Mutation Authority", () => {
   it("denies direct Task lifecycle writes while preserving ordinary edits and authoritative Actions", async () => {
     const f = await fixture();
-    const collection = `/api/v1/spaces/${f.spaceId}/tasks`;
+    const collection = `/api/v1/spaces/${f.spaceId}/models/task/records`;
 
     const createBypass = await request(f.publicKey, f.accessToken, collection, {
       method: "POST",
@@ -172,7 +172,7 @@ describe("Mutation Authority", () => {
 
   it("denies direct Wish lifecycle writes while preserving ordinary edits and fulfill/reopen Actions", async () => {
     const f = await fixture();
-    const collection = `/api/v1/spaces/${f.spaceId}/wishes`;
+    const collection = `/api/v1/spaces/${f.spaceId}/models/wish/records`;
 
     const createBypass = await request(f.publicKey, f.accessToken, collection, {
       method: "POST",
@@ -254,3 +254,4 @@ describe("Mutation Authority", () => {
     expect(wish?.actions.map((action) => action.key).sort()).toEqual(["fulfill", "reopen"]);
   });
 });
+

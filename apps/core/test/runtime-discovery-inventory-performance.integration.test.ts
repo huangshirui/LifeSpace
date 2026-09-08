@@ -3,7 +3,7 @@ import { sign } from "hono/jwt";
 import { describe, expect, it } from "vitest";
 import { createApp } from "../src/app";
 import type { Bindings } from "../src/env";
-import { getRuntimeModelByRoute } from "../src/model-registry";
+import { getRuntimeModel } from "../src/model-registry";
 
 type TestEnv = { DB: D1Database };
 type Counter = { roundTrips: number; maxBindings: number };
@@ -131,7 +131,7 @@ describe("#165 M3-S2 compact inventory performance", () => {
     const DB = countedDatabase(database, counter);
     const bindings = { DB, IDENTITY_PUBLIC_KEY: keyPair.publicKey, ENVIRONMENT: "test" };
 
-    expect(await getRuntimeModelByRoute(bindings as Bindings, "tasks")).not.toBeNull();
+    expect(await getRuntimeModel(bindings as Bindings, "task")).not.toBeNull();
     reset(counter);
 
     const scenario = await seed(database);
@@ -173,7 +173,7 @@ describe("#165 M3-S2 compact inventory performance", () => {
     expect(inventoryBytes).toBeLessThan(fullBytes * 0.15);
 
     reset(counter);
-    const before = await request(`/api/v1/spaces/${scenario.spaceIds[0]}/tasks?limit=10`);
+    const before = await request(`/api/v1/spaces/${scenario.spaceIds[0]}/models/task/records?limit=10`);
     expect(before.status).toBe(200);
     const beforeTrips = counter.roundTrips;
     expect(beforeTrips).toBeLessThanOrEqual(5);
@@ -184,7 +184,7 @@ describe("#165 M3-S2 compact inventory performance", () => {
     expect(counter.roundTrips).toBe(2);
 
     reset(counter);
-    const after = await request(`/api/v1/spaces/${scenario.spaceIds[0]}/tasks?limit=10`);
+    const after = await request(`/api/v1/spaces/${scenario.spaceIds[0]}/models/task/records?limit=10`);
     expect(after.status).toBe(200);
     const afterTrips = counter.roundTrips;
     expect(afterTrips).toBe(beforeTrips);
@@ -208,3 +208,4 @@ describe("#165 M3-S2 compact inventory performance", () => {
     })}`);
   }, TEST_TIMEOUT_MS);
 });
+

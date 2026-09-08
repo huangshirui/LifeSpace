@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "LifeSpace Core Model Control Plane API",
-    "version": "0.1.0",
+    "version": "0.2.0",
     "description": "Canonical independently versioned control-plane contract for Model Registry validation/publication/retirement, immutable Model Contract evidence, and the optional AI-assisted proposal lifecycle. Every operation is service-principal-only and requires models:manage. Model Definition DSL semantics remain owned by the normative specification and Core validator; this contract defines control-plane wire representation and does not become a second semantic source. LifeSpace Console may apply a separate Platform Admin human-actor/audit profile over selected mutations without changing service-automation authority."
   },
   "security": [
@@ -905,7 +905,6 @@
         "required": [
           "id",
           "key",
-          "route",
           "version",
           "state",
           "schemaHash",
@@ -919,9 +918,6 @@
             "pattern": "^mdl_"
           },
           "key": {
-            "type": "string"
-          },
-          "route": {
             "type": "string"
           },
           "version": {
@@ -1209,15 +1205,11 @@
         "additionalProperties": false,
         "required": [
           "key",
-          "route",
           "version",
           "schemaHash"
         ],
         "properties": {
           "key": {
-            "type": "string"
-          },
-          "route": {
             "type": "string"
           },
           "version": {

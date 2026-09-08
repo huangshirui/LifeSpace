@@ -3,7 +3,7 @@ import YAML from "yaml";
 
 const document = YAML.parse(fs.readFileSync(new URL("../openapi.yaml", import.meta.url), "utf8"));
 
-if (document.openapi !== "3.1.0" || document.info?.version !== "0.31.0") {
+if (document.openapi !== "3.1.0" || document.info?.version !== "0.32.0") {
   throw new Error("Core Kernel OpenAPI version metadata is invalid");
 }
 if (!document.info?.title?.includes("Kernel")) {
@@ -378,7 +378,8 @@ if (!schemas.RuntimeDiscoveryQuery?.required?.includes("sort")
   throw new Error("Runtime Discovery ordered Generic Query sort metadata drifted");
 }
 if (!schemas.RuntimeDiscoveryModel?.required?.includes("defaults")
-    || schemas.RuntimeDiscoveryModel?.properties?.defaults?.type !== "object") {
+    || schemas.RuntimeDiscoveryModel?.properties?.defaults?.type !== "object"
+    || schemas.RuntimeDiscoveryModel?.properties?.route) {
   throw new Error("Runtime Discovery must expose authoritative model server defaults");
 }
 const capabilityBindings = schemas.RuntimeDiscoveryModel?.properties?.capabilityBindings;
@@ -416,7 +417,7 @@ const semanticDetail = schemas.RuntimeModelSemanticDetail;
 const semanticDetailProperties = Object.keys(semanticDetail?.properties ?? {}).sort();
 const expectedSemanticDetailProperties = [
   "actions", "capabilities", "capabilityBindings", "declaredAccess", "defaults", "description", "display",
-  "fields", "key", "query", "referenceLabel", "route", "schemaHash", "version",
+  "fields", "key", "query", "referenceLabel", "schemaHash", "version",
 ].sort();
 if (semanticDetail?.additionalProperties !== false
     || JSON.stringify(semanticDetailProperties) !== JSON.stringify(expectedSemanticDetailProperties)
@@ -465,7 +466,7 @@ if (!exactProperties(inventoryAction, ["key", "access", "kind"])
     || inventoryAction?.properties?.concurrency) {
   throw new Error("Compact capability inventory actions must expose only coarse key/access/kind facts");
 }
-if (!exactProperties(inventoryModel, ["key", "route", "version", "schemaHash", "display", "capabilities", "actions"])
+if (!exactProperties(inventoryModel, ["key", "version", "schemaHash", "display", "capabilities", "actions"])
     || inventoryModel?.properties?.fields
     || inventoryModel?.properties?.defaults
     || inventoryModel?.properties?.query
@@ -499,7 +500,7 @@ if (!schemas.CreationDraftProcessing?.required?.includes("modelContractRevision"
   throw new Error("Creation Draft jobs must expose their pinned Model Contract Revision");
 }
 
-if (schemas.StatusResponse?.properties?.data?.properties?.contractVersion?.const !== "0.31.0") {
+if (schemas.StatusResponse?.properties?.data?.properties?.contractVersion?.const !== "0.32.0") {
   throw new Error("Core Kernel status contract version drifted");
 }
 

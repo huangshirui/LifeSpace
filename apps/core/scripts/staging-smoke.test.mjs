@@ -45,7 +45,7 @@ test("staging proving-model checks pin semantic identity without assuming enviro
   const wish = PROVING_MODELS.find((model) => model.key === "wish");
   assert.ok(wish, "Wish must remain a staging proving model");
   assert.equal(wish.minimumVersion, 6, "Wish clean-release version remains the minimum accepted Registry version");
-  assert.equal(wish.hash, "4d34e89df332b9b2c34549699e4210a3166db6eaddabe0ac59de5d4770c206c3", "Wish staging expectation must pin the authoritative field-title schema hash");
+  assert.equal(wish.hash, "7dc6c079916a967c8bcd93f8cbe082c98157ceaeb30ce782ef3f2eb035d370df", "Wish staging expectation must pin the modelKey-addressed schema hash");
   assert.equal("version" in wish, false, "staging must not assume one exact environment-local Registry version");
   assert.equal(
     BASELINE_MODEL_SEMANTICS.wish.fields.status,
@@ -62,7 +62,7 @@ test("staging proving-model checks pin semantic identity without assuming enviro
 
   const httpSource = readFileSync(fileURLToPath(stagingHttpVerifier), "utf8");
   assert.match(httpSource, /actualVersion < expected\.minimumVersion/u, "HTTP Registry verification must accept monotonic environment-local model versions");
-  assert.match(httpSource, /model\.route !== expected\.route/u, "HTTP Registry verification must pin the exact route");
+  assert.match(httpSource, /"route" in model/u, "HTTP Registry verification must reject the removed route identity");
   assert.match(httpSource, /model\.schemaHash !== expected\.hash/u, "HTTP Registry verification must pin the exact schema hash");
   assert.match(httpSource, /currentPublishedModels/u, "HTTP verification must retain the actual current published model identity for contract comparison");
   assert.match(httpSource, /Number\(model\.version\) !== published\.version/u, "active Model Contract verification must match the exact current Registry version");
@@ -156,7 +156,7 @@ test("APAC performance gate proves the real POST /run path before timed benchmar
 
   const waitSource = readFileSync(fileURLToPath(waitApacProbe), "utf8");
   assert.match(waitSource, /\/run/u, "readiness must exercise the same POST /run entry point used by the benchmark");
-  assert.match(waitSource, /tasks\?limit=1/u, "readiness probe must use a read-only Core request");
+  assert.match(waitSource, /models\/task\/records\?limit=1/u, "readiness probe must use the canonical modelKey-addressed read-only request");
 });
 
 test("APAC performance probe remains deployable on Workers Free", () => {

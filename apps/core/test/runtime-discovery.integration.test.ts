@@ -65,7 +65,6 @@ async function fixture() {
   const clientId = `app_discovery_${suffix}`;
   const spaceId = `spc_${suffix}`;
   const modelKey = `discovery_note_${suffix.slice(0, 8)}`;
-  const route = `discovery-notes-${suffix.slice(0, 8)}`;
   const now = new Date().toISOString();
 
   await db.batch([
@@ -87,7 +86,6 @@ async function fixture() {
   await publishModelDefinition({ DB: db } as Bindings, publisher, {
     definitionVersion: 1,
     key: modelKey,
-    route,
     display: { singular: "Discovery Note", plural: "Discovery Notes" },
     fields: {
       title: { type: "string", title: "Title", description: "Note title", required: true, minLength: 1, maxLength: 120 },
@@ -109,7 +107,7 @@ async function fixture() {
   await db.prepare(`INSERT INTO application_model_access(application_id,model_key,max_access,created_by_type,created_by_id)
     VALUES(?,?,?,?,?)`).bind(clientId, modelKey, "write", "service", "svc_test_admin").run();
 
-  return { db, privateKey, publicKey, userId, serviceId, clientId, spaceId, modelKey, route, now };
+  return { db, privateKey, publicKey, userId, serviceId, clientId, spaceId, modelKey, now };
 }
 
 type DiscoveredAction = {
@@ -154,7 +152,6 @@ describe("Runtime discovery", () => {
     expect(response.status).toBe(200);
     const payload = await response.json<{ data: { spaceName: string | null; models: Array<{
       key: string;
-      route: string;
       access: string[];
       defaults: Record<string, unknown>;
       fields: Array<{ key: string; type: string; title?: string; description?: string }>;
@@ -165,7 +162,6 @@ describe("Runtime discovery", () => {
     const model = payload.data.models.find((entry) => entry.key === f.modelKey);
     expect(model).toMatchObject({
       key: f.modelKey,
-      route: f.route,
       access: ["read", "write"],
       defaults: { status: "open" },
     });

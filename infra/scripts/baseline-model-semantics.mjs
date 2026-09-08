@@ -5,7 +5,6 @@ const baselineCatalog = JSON.parse(readFileSync(catalogUrl, "utf8"));
 
 function semanticProjection(definition) {
   return Object.freeze({
-    route: definition.route,
     description: definition.description,
     fields: Object.freeze(Object.fromEntries(
       Object.entries(definition.fields)

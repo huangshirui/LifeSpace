@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { createApp } from "../src/app";
 import type { Bindings, Principal } from "../src/env";
 import { createGenericResource } from "../src/generic-resource";
-import { getPublishedModel, getRuntimeModelByRoute } from "../src/model-registry";
+import { getPublishedModel, getRuntimeModel } from "../src/model-registry";
 
 type TestEnv = { DB: D1Database };
 type Counter = { roundTrips: number; maxBindings: number };
@@ -152,7 +152,7 @@ async function fixture() {
 
   // Prime the isolate-local Registry snapshot on the same wrapped binding, then
   // reset the counter so the assertions below measure the hot path only.
-  expect(await getRuntimeModelByRoute({ DB } as Bindings, "tasks")).not.toBeNull();
+  expect(await getRuntimeModel({ DB } as Bindings, "task")).not.toBeNull();
   counter.roundTrips = 0;
   counter.maxBindings = 0;
 
@@ -187,12 +187,12 @@ describe("Core D1 round-trip budgets", () => {
 
     f.counter.roundTrips = 0;
     f.counter.maxBindings = 0;
-    expect(await getRuntimeModelByRoute({ DB: f.DB } as Bindings, "tasks")).not.toBeNull();
+    expect(await getRuntimeModel({ DB: f.DB } as Bindings, "task")).not.toBeNull();
     expect(f.counter.roundTrips).toBe(0);
 
     const list = await measured(
       f.counter,
-      () => f.request(`/api/v1/spaces/${f.spaceId}/tasks?limit=200`),
+      () => f.request(`/api/v1/spaces/${f.spaceId}/models/task/records?limit=200`),
       200,
       5,
     );
@@ -201,7 +201,7 @@ describe("Core D1 round-trip budgets", () => {
 
     const calendar100 = await measured(
       f.counter,
-      () => f.request(`/api/v1/spaces/${f.spaceId}/events?rangeStart=2026-07-31T00%3A00%3A00.000Z&rangeEnd=2026-08-02T00%3A00%3A00.000Z&dateStart=2026-07-31&dateEndExclusive=2026-08-02&sort=calendarStart%3Aasc&limit=100`),
+      () => f.request(`/api/v1/spaces/${f.spaceId}/models/event/records?rangeStart=2026-07-31T00%3A00%3A00.000Z&rangeEnd=2026-08-02T00%3A00%3A00.000Z&dateStart=2026-07-31&dateEndExclusive=2026-08-02&sort=calendarStart%3Aasc&limit=100`),
       200,
       4,
     );
@@ -211,7 +211,7 @@ describe("Core D1 round-trip budgets", () => {
 
     const calendar200 = await measured(
       f.counter,
-      () => f.request(`/api/v1/spaces/${f.spaceId}/events?rangeStart=2026-07-31T00%3A00%3A00.000Z&rangeEnd=2026-08-02T00%3A00%3A00.000Z&dateStart=2026-07-31&dateEndExclusive=2026-08-02&sort=calendarStart%3Aasc&limit=200`),
+      () => f.request(`/api/v1/spaces/${f.spaceId}/models/event/records?rangeStart=2026-07-31T00%3A00%3A00.000Z&rangeEnd=2026-08-02T00%3A00%3A00.000Z&dateStart=2026-07-31&dateEndExclusive=2026-08-02&sort=calendarStart%3Aasc&limit=200`),
       200,
       4,
     );
@@ -222,14 +222,14 @@ describe("Core D1 round-trip budgets", () => {
     const target = f.records[0];
     await measured(
       f.counter,
-      () => f.request(`/api/v1/spaces/${f.spaceId}/tasks/${target.id}`),
+      () => f.request(`/api/v1/spaces/${f.spaceId}/models/task/records/${target.id}`),
       200,
       4,
     );
 
     const patched = await measured(
       f.counter,
-      () => f.request(`/api/v1/spaces/${f.spaceId}/tasks/${target.id}`, {
+      () => f.request(`/api/v1/spaces/${f.spaceId}/models/task/records/${target.id}`, {
         method: "PATCH",
         body: JSON.stringify({ version: target.version, name: "Budget task updated" }),
       }),
@@ -240,7 +240,7 @@ describe("Core D1 round-trip budgets", () => {
 
     await measured(
       f.counter,
-      () => f.request(`/api/v1/spaces/${f.spaceId}/tasks/${target.id}/actions/complete`, {
+      () => f.request(`/api/v1/spaces/${f.spaceId}/models/task/records/${target.id}/actions/complete`, {
         method: "POST",
         body: JSON.stringify({ version: patchedPayload.data.version }),
       }),
@@ -250,7 +250,7 @@ describe("Core D1 round-trip budgets", () => {
 
     await measured(
       f.counter,
-      () => f.request(`/api/v1/spaces/${f.spaceId}/tasks`, {
+      () => f.request(`/api/v1/spaces/${f.spaceId}/models/task/records`, {
         method: "POST",
         body: JSON.stringify({ name: "Budget created task", assigneePersonIds: [] }),
       }),
@@ -259,3 +259,4 @@ describe("Core D1 round-trip budgets", () => {
     );
   }, PERFORMANCE_TEST_TIMEOUT_MS);
 });
+

@@ -79,7 +79,7 @@ function verifyPinnedContract(contract, contractId) {
     if (!actual) throw new Error(`Pinned Model Contract is missing required baseline model ${expected.key}`);
     const actualVersion = Number(actual.version);
     if (
-      actual.route !== expected.route
+      "route" in actual
       || !Number.isInteger(actualVersion)
       || actualVersion < expected.minimumVersion
       || actual.schemaHash !== expected.hash
@@ -93,7 +93,6 @@ function verifyPinnedContract(contract, contractId) {
     pinnedBaselineModels,
     additionalPublishedModels: models.filter((model) => !baselineKeys.has(model.key)).map((model) => ({
       key: model.key,
-      route: model.route,
       version: model.version,
       schemaHash: model.schemaHash,
     })),
