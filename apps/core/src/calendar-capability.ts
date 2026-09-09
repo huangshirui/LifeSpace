@@ -94,9 +94,28 @@ export function prepareCalendarCreate(model: PublishedModel, input: unknown): Js
 }
 
 export function prepareCalendarUpdate(model: PublishedModel, resource: GenericResource, input: unknown): JsonObject {
-  const candidate = normalize(model, { ...resource.data, ...object(input) });
+  const calendar = config(model);
+  const patch = object(input);
+  const candidate: JsonObject = { ...resource.data, ...patch };
+  const currentAllDay = resource.data[calendar.allDayField];
+  const requestedAllDay = patch[calendar.allDayField];
+
+  // A Calendar mode switch is one semantic update. Clear only opposite-mode values
+  // inherited from the stored record; explicitly supplied conflicting values still
+  // flow into normalize() and are rejected as malformed input.
+  if (currentAllDay === true && requestedAllDay === false) {
+    if (patch[calendar.allDayStartField] === undefined) candidate[calendar.allDayStartField] = null;
+    if (patch[calendar.allDayEndExclusiveField] === undefined) candidate[calendar.allDayEndExclusiveField] = null;
+  } else if (currentAllDay === false && requestedAllDay === true) {
+    if (patch[calendar.timedStartField] === undefined) candidate[calendar.timedStartField] = null;
+    if (patch[calendar.timedEndField] === undefined) candidate[calendar.timedEndField] = null;
+    if (patch[calendar.startTimezoneField] === undefined) candidate[calendar.startTimezoneField] = null;
+    if (patch[calendar.endTimezoneField] === undefined) candidate[calendar.endTimezoneField] = null;
+  }
+
+  const normalized = normalize(model, candidate);
   const changes: JsonObject = {};
-  for (const [key, value] of Object.entries(candidate)) if (resource.data[key] !== value) changes[key] = value;
+  for (const [key, value] of Object.entries(normalized)) if (resource.data[key] !== value) changes[key] = value;
   if (!Object.keys(changes).length) throw new ApiError("INVALID_REQUEST", "Calendar update does not change any field", 400);
   return changes;
 }
