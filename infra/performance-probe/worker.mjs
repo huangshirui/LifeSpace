@@ -79,14 +79,25 @@ export default {
     const bearer = credentialMode === "service" ? env.SERVICE_BEARER : env.USER_BEARER;
 
     const started = performance.now();
-    const response = await fetch(`${CORE_BASE_URL}${path}`, {
-      method,
-      headers: {
-        authorization: `Bearer ${bearer}`,
-        ...(input.body === undefined ? {} : { "content-type": "application/json" }),
-      },
-      ...(input.body === undefined ? {} : { body: JSON.stringify(input.body) }),
-    });
+    let response;
+    try {
+      response = await fetch(`${CORE_BASE_URL}${path}`, {
+        method,
+        headers: {
+          authorization: `Bearer ${bearer}`,
+          ...(input.body === undefined ? {} : { "content-type": "application/json" }),
+        },
+        ...(input.body === undefined ? {} : { body: JSON.stringify(input.body) }),
+      });
+    } catch (error) {
+      return json({
+        error: "core_fetch_failed",
+        message: error instanceof Error ? error.message : String(error),
+        method,
+        path,
+      }, 502);
+    }
+
     const elapsedMs = performance.now() - started;
     const text = await response.text();
     let payload = null;
