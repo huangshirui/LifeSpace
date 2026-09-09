@@ -7,7 +7,7 @@ function json(data, status = 200) {
   });
 }
 
-function isAllowedBenchmarkRequest(path, method, spaceId) {
+export function isAllowedBenchmarkRequest(path, method, spaceId) {
   let url;
   try {
     url = new URL(path, CORE_BASE_URL);
@@ -21,21 +21,21 @@ function isAllowedBenchmarkRequest(path, method, spaceId) {
   const record = "rec_[A-Za-z0-9]+";
 
   const rules = [
-    ["POST", new RegExp(`^${base}/tasks$`, "u")],
-    ["GET", new RegExp(`^${base}/tasks$`, "u")],
-    ["GET", new RegExp(`^${base}/tasks/${record}$`, "u")],
-    ["PATCH", new RegExp(`^${base}/tasks/${record}$`, "u")],
-    ["DELETE", new RegExp(`^${base}/tasks/${record}$`, "u")],
-    ["POST", new RegExp(`^${base}/tasks/${record}/actions/(complete|reopen)$`, "u")],
-    ["POST", new RegExp(`^${base}/events$`, "u")],
-    ["GET", new RegExp(`^${base}/events$`, "u")],
-    ["DELETE", new RegExp(`^${base}/events/${record}$`, "u")],
-    ["POST", new RegExp(`^${base}/day-records$`, "u")],
-    ["GET", new RegExp(`^${base}/day-records$`, "u")],
-    ["DELETE", new RegExp(`^${base}/day-records/${record}$`, "u")],
-    ["POST", new RegExp(`^${base}/wishes$`, "u")],
-    ["GET", new RegExp(`^${base}/wishes$`, "u")],
-    ["DELETE", new RegExp(`^${base}/wishes/${record}$`, "u")],
+    ["POST", new RegExp(`^${base}/models/task/records$`, "u")],
+    ["GET", new RegExp(`^${base}/models/task/records$`, "u")],
+    ["GET", new RegExp(`^${base}/models/task/records/${record}$`, "u")],
+    ["PATCH", new RegExp(`^${base}/models/task/records/${record}$`, "u")],
+    ["DELETE", new RegExp(`^${base}/models/task/records/${record}$`, "u")],
+    ["POST", new RegExp(`^${base}/models/task/records/${record}/actions/(complete|reopen)$`, "u")],
+    ["POST", new RegExp(`^${base}/models/event/records$`, "u")],
+    ["GET", new RegExp(`^${base}/models/event/records$`, "u")],
+    ["DELETE", new RegExp(`^${base}/models/event/records/${record}$`, "u")],
+    ["POST", new RegExp(`^${base}/models/day_record/records$`, "u")],
+    ["GET", new RegExp(`^${base}/models/day_record/records$`, "u")],
+    ["DELETE", new RegExp(`^${base}/models/day_record/records/${record}$`, "u")],
+    ["POST", new RegExp(`^${base}/models/wish/records$`, "u")],
+    ["GET", new RegExp(`^${base}/models/wish/records$`, "u")],
+    ["DELETE", new RegExp(`^${base}/models/wish/records/${record}$`, "u")],
   ];
 
   return rules.some(([allowedMethod, pattern]) => allowedMethod === method && pattern.test(pathname));

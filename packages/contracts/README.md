@@ -18,23 +18,24 @@ The current cross-environment HomeMew release identity is:
 
 ```text
 Identity:                   0.6.0
-Core Kernel:                0.21.0
-Model Semantic Fingerprint: msf_498674114e2e312c926f733ba939b49d85020a1ee14a4729b27be62bf1f774dc
-Profile:                    infra/homemew-integration-profile.json (profileVersion 2, accepted)
+Core Kernel:                0.32.0
+Integration/Eventing:       0.1.0
+Model Semantic Fingerprint: msf_27f2a733d8a40f84035e909d73d328adce6782ab83f4a7b50d78697900e5a705
+Profile:                    infra/homemew-integration-profile.json (profileVersion 3, accepted)
 
 Accepted staging mct evidence:
-  mct_723249464e3b7c2f53c4ef63edd53cfc17edb57205afa63a56ba7d0bd21209bf
+  mct_ab4a409654afdc6044ea50720e5c69fdf40ffb3b8c64fe6fd27a385a9bf154b4
 ```
 
-The accepted HomeMew profile was promoted to Core Kernel 0.21.0 / Identity 0.6.0 after `Deploy staging` run #67 (`33842249069`) proved the HomeMew integration Golden Flow on that Kernel, including Event/Task CRUD, Task semantic Action, stale-version denial, governed Change attribution, real public Eventing delivery, disabled-subscriber revocation and the typed-runtime performance gate. Kernel 0.21.0 is a Candidate/Public invitation-transport security migration: invite preview/join callers carry the possession token in the JSON body instead of the URL path. Repository search found no current HomeMew application dependency on those invite preview/join routes, so this promotion requires no HomeMew application code migration.
+This profile was explicitly promoted after the Core 0.32.0 staging deployment and HomeMew integration Golden Flow completed successfully and the reproducible staging candidate bundle identified the exact tuple above. The promotion records the #200 modelKey-only Runtime identity: new cross-environment Model Semantic Fingerprints contain only `key + schemaHash`; `route` is not a Model identity. HomeMew remains a direct LifeSpace consumer and the platform keeps the four already-published `/api/v1` domain paths only as fixed compatibility aliases for older deployed clients.
 
-The current accepted HomeMew tuple predates the #109 split, so its historical Core pin still contains Eventing representation. It is not silently rewritten. The next HomeMew promotion on Core 0.31.0 or later must add an explicit Integration/Eventing pin; the staging-candidate exporter includes that version and contract file so staging evidence can prove the migration before the accepted profile changes.
+The previous accepted HomeMew profile v2 / Core 0.21.0 remains historical evidence. It is not rewritten to look like a post-#200 contract and its historical route-bearing fingerprint remains verifiable through the legacy profile-v2 calculation.
 
 ### Cross-environment model identity
 
 A Model Contract Revision (`mct_*`) is a content-addressed snapshot of one environment's complete published Registry. Its manifest contains environment-local monotonic Model Registry versions. Staging and production can therefore have different valid `mct_*` IDs even when the HomeMew-visible model semantics are identical.
 
-HomeMew release compatibility across environments is pinned by a semantic fingerprint over the exact models HomeMew consumes. The accepted profile v2 below is immutable pre-#200 evidence and historically hashed `key + route + schemaHash`. LifeSpace #200 removes `route` from all new candidate identities; profile v3 and later hash the model entries sorted by `key`, where each entry contains only:
+HomeMew release compatibility across environments is pinned by a semantic fingerprint over the exact models HomeMew consumes. The historical profile v2 is immutable pre-#200 evidence and hashed `key + route + schemaHash`. LifeSpace #200 removes `route` from all new candidate identities; profile v3 and later hash the model entries sorted by `key`, where each entry contains only:
 
 ```text
 key
@@ -43,13 +44,22 @@ schemaHash
 
 Environment-local model `version` and the environment-wide `mct_*` ID are deliberately excluded.
 
-The currently accepted historical profile v2 fingerprint covers:
+The historical profile v2 fingerprint covered:
 
 ```text
 day_record  day-records  4b2f241958aeca05e396eea7e6719a3f030cef3ea7dfd3c57d426c086fe4cf56
 event       events       6a23eb2f25463ce55d7ed75d64f0afa020d7aab25149badf28fdd77abc2d1aad
 task        tasks        aaa6317b3810a20e6c4622736ec8e39e96edcd5079c6189fb5892ac54397b145
 wish        wishes       ec4f99f238e44c756905d30a97f6bb5c063b783eca159dfe39f518ea58ff64b6
+```
+
+The current accepted profile v3 fingerprint covers:
+
+```text
+day_record  9297a2f87fdd0718bfb74a362a0c451cf25309f4975099772f76e8a485fd0852
+event       35106ecb38a7d33cee083b285a62001d64234d0a86890b8a51094e1dd3b58e8f
+task        e79798bcadefad021ca86c1577c3fa3bc8fd0627f46557193aeca9b62acabb8e
+wish        7dc6c079916a967c8bcd93f8cbe082c98157ceaeb30ce782ef3f2eb035d370df
 ```
 
 The release rule is therefore:
@@ -64,9 +74,7 @@ Identity version
 mct_* = immutable environment-local contract/deployment evidence
 ```
 
-A schema semantic change requires an explicit HomeMew compatibility decision and a new fingerprint. A merely higher environment-local Registry version does not. New staging candidates and promoted profiles must use only `key + schemaHash`; the legacy v2 calculation exists solely to verify its already accepted artifact and must not be used to generate new identity.
-
-The #200 modelKey-addressed four-model staging candidate computes to `msf_27f2a733d8a40f84035e909d73d328adce6782ab83f4a7b50d78697900e5a705`. This is candidate evidence only until HomeMew path migration and staging acceptance complete; it does not silently replace the accepted profile v2 fingerprint.
+A schema semantic change requires an explicit HomeMew compatibility decision and a new fingerprint. A merely higher environment-local Registry version does not. New staging candidates and promoted profiles must use only `key + schemaHash`; the legacy v2 calculation exists solely to verify its historical accepted artifact and must not be used to generate new identity.
 
 ### Reproducible staging handoff
 

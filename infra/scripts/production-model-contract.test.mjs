@@ -30,7 +30,9 @@ test("production release readiness blocks mutation until accepted application se
   const source = readFileSync(fileURLToPath(releaseReadiness), "utf8");
   assert.match(source, /profile\.contracts\?\.coreKernel !== PRODUCTION_EXPECTATIONS\.core\.contractVersion/u, "release readiness must compare the accepted HomeMew Kernel pin to the production release");
   assert.match(source, /profile\.contracts\?\.identity !== PRODUCTION_EXPECTATIONS\.identity\.contractVersion/u, "release readiness must compare the accepted Identity pin to the production release");
+  assert.match(source, /profile\.contracts\?\.integrationEventing !== integrationEventingContract\.info\?\.version/u, "post-split release readiness must compare the accepted Integration\/Eventing pin to the production release");
   assert.match(source, /assertHomeMewModelSemanticCompatibility/u, "release readiness must compare accepted model semantics to production proving semantics");
+  assert.doesNotMatch(source, /route:\s*model\.route/u, "new production semantic identity must not revive route identity");
 
   const workflow = readFileSync(fileURLToPath(productionWorkflow), "utf8");
   const readinessIndex = workflow.indexOf("node infra/scripts/check-production-release-readiness.mjs");
@@ -42,9 +44,9 @@ test("production release readiness blocks mutation until accepted application se
 
 test("different environment-local model versions preserve one HomeMew semantic fingerprint", () => {
   const accepted = acceptedHomeMewModelSemantics(profile);
-  assert.equal(accepted.fingerprint, "msf_498674114e2e312c926f733ba939b49d85020a1ee14a4729b27be62bf1f774dc");
-  const stagingManifest = accepted.models.map((model) => ({ ...model, version: model.key === "wish" ? 8 : model.key === "task" ? 5 : model.key === "day_record" ? 2 : 3 }));
-  const productionManifest = accepted.models.map((model) => ({ ...model, version: model.key === "wish" ? 6 : model.key === "task" ? 5 : model.key === "day_record" ? 2 : 3 }));
+  assert.equal(accepted.fingerprint, "msf_27f2a733d8a40f84035e909d73d328adce6782ab83f4a7b50d78697900e5a705");
+  const stagingManifest = accepted.models.map((model) => ({ ...model, version: model.key === "wish" ? 10 : model.key === "task" ? 7 : model.key === "day_record" ? 4 : 5 }));
+  const productionManifest = accepted.models.map((model) => ({ ...model, version: model.key === "wish" ? 11 : model.key === "task" ? 8 : model.key === "day_record" ? 5 : 6 }));
 
   assert.equal(assertHomeMewModelSemanticCompatibility(profile, stagingManifest, "staging mct").fingerprint, accepted.fingerprint);
   assert.equal(assertHomeMewModelSemanticCompatibility(profile, productionManifest, "production mct").fingerprint, accepted.fingerprint);

@@ -27,6 +27,15 @@ type AppEnv = { Bindings: Bindings; Variables: Variables };
 type App = Hono<AppEnv>;
 type Body = Record<string, unknown>;
 
+const LEGACY_V1_RUNTIME_MODEL_ALIASES = {
+  tasks: "task",
+  wishes: "wish",
+  events: "event",
+  "day-records": "day_record",
+} as const;
+
+type LegacyV1RuntimeSegment = keyof typeof LEGACY_V1_RUNTIME_MODEL_ALIASES;
+
 async function body(context: Context<AppEnv>): Promise<Body> {
   const value = await context.req.json<unknown>().catch(() => null);
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new ApiError("INVALID_REQUEST", "Request body must be a JSON object", 400);
@@ -41,8 +50,16 @@ function pathParam(context: Context<AppEnv>, name: string): string {
   if (!value) throw new ApiError("NOT_FOUND", "Runtime path parameter is missing", 404);
   return value;
 }
+function requestModelKey(context: Context<AppEnv>): string {
+  const canonicalModelKey = context.req.param("modelKey");
+  if (canonicalModelKey) return canonicalModelKey;
+
+  const match = /^\/api\/v1\/spaces\/[^/]+\/(tasks|wishes|events|day-records)(?:\/|$)/u.exec(context.req.path);
+  if (!match) return "";
+  return LEGACY_V1_RUNTIME_MODEL_ALIASES[match[1] as LegacyV1RuntimeSegment];
+}
 async function model(context: Context<AppEnv>): Promise<PublishedModel> {
-  const resolved = await getRuntimeModel(context.env, context.req.param("modelKey") || "");
+  const resolved = await getRuntimeModel(context.env, requestModelKey(context));
   if (!resolved) throw new ApiError("MODEL_NOT_FOUND", "Published model not found", 404);
   return resolved;
 }
@@ -207,4 +224,16 @@ export function registerGenericResourceRoutes(app: App): void {
     return context.json(success(await dto(context.env, spaceId, resolved, updated)));
   };
   app.post(canonical.action, action);
+
+  for (const routeSegment of Object.keys(LEGACY_V1_RUNTIME_MODEL_ALIASES) as LegacyV1RuntimeSegment[]) {
+    const collection = `/api/v1/spaces/:spaceId/${routeSegment}`;
+    const record = `${collection}/:recordId`;
+    app.get(collection, list);
+    app.post(collection, create);
+    app.get(record, get);
+    app.patch(record, update);
+    app.delete(record, remove);
+    app.get(`${record}/occurrences`, occurrences);
+    app.post(`${record}/actions/:actionKey`, action);
+  }
 }
