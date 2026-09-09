@@ -35,6 +35,7 @@ jobs:
         run: |
           set -euo pipefail
           test "$GITHUB_REF_NAME" = "main" || { echo "APAC performance acceptance must run from main" >&2; exit 1; }
+          echo "LIFESPACE_APAC_PROBE_NAME=${LIFESPACE_APAC_PROBE_NAME}-${GITHUB_RUN_ID}" >> "$GITHUB_ENV"
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -71,7 +72,7 @@ jobs:
           node --check infra/scripts/verify-staging-apac-performance.mjs
           node --check infra/scripts/wait-staging-apac-probe.mjs
           node --check infra/performance-probe/worker.mjs
-          pnpm --dir apps/core exec wrangler deploy --dry-run --config ../../infra/performance-probe/wrangler.jsonc
+          pnpm --dir apps/core exec wrangler deploy --dry-run --config ../../infra/performance-probe/wrangler.jsonc --name "$LIFESPACE_APAC_PROBE_NAME"
 
       - name: Prepare ephemeral authenticated staging smoke
         run: node infra/scripts/prepare-staging-smoke.mjs
