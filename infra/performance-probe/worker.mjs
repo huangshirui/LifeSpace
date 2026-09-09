@@ -19,13 +19,77 @@ export function isAllowedBenchmarkRequest(path, method, spaceId) {
   const base = `/api/v1/spaces/${spaceId}`;
   const pathname = url.pathname;
   const record = "rec_[A-Za-z0-9]+";
+  // The benchmark creates records through /models/... but cleans them up through
+  // the public plural collection routes returned by Core.
+  const pluralRecord = "(?:tasks|events|day-records|wishes)/[A-Za-z0-9_]+";
 
   const rules = [
     ["POST", new RegExp(`^${base}/models/task/records$`, "u")],
     ["GET", new RegExp(`^${base}/models/task/records$`, "u")],
     ["GET", new RegExp(`^${base}/models/task/records/${record}$`, "u")],
     ["PATCH", new RegExp(`^${base}/models/task/records/${record}$`, "u")],
-    ["DELETE", new RegExp(`^${base}/models/task/records/${record}$`, "u")],
+    ["DELETE", new RegExp(`^${base}/models/task/records/${record}const CORE_BASE_URL = "https://core-staging.aisr.online";
+
+function json(data, status = 200) {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" },
+  });
+}
+
+export function isAllowedBenchmarkRequest(path, method, spaceId) {
+  let url;
+  try {
+    url = new URL(path, CORE_BASE_URL);
+  } catch {
+    return false;
+  }
+  if (url.origin !== CORE_BASE_URL || !path.startsWith("/")) return false;
+
+  const base = `/api/v1/spaces/${spaceId}`;
+  const pathname = url.pathname;
+  const record = "rec_[A-Za-z0-9]+";
+  // The benchmark creates records through /models/... but cleans them up through
+  // the public plural collection routes returned by Core.
+  const pluralRecord = "(?:tasks|events|day-records|wishes)/[A-Za-z0-9_]+";
+
+  const rules = [
+    ["POST", new RegExp(`^${base}/models/task/records$`, "u")],
+    ["GET", new RegExp(`^${base}/models/task/records$`, "u")],
+    ["GET", new RegExp(`^${base}/models/task/records/${record}$`, "u")],
+    ["PATCH", new RegExp(`^${base}/models/task/records/${record}$`, "u")],
+, "u")],
+    ["DELETE", new RegExp(`^${base}/${pluralRecord}const CORE_BASE_URL = "https://core-staging.aisr.online";
+
+function json(data, status = 200) {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" },
+  });
+}
+
+export function isAllowedBenchmarkRequest(path, method, spaceId) {
+  let url;
+  try {
+    url = new URL(path, CORE_BASE_URL);
+  } catch {
+    return false;
+  }
+  if (url.origin !== CORE_BASE_URL || !path.startsWith("/")) return false;
+
+  const base = `/api/v1/spaces/${spaceId}`;
+  const pathname = url.pathname;
+  const record = "rec_[A-Za-z0-9]+";
+  // The benchmark creates records through /models/... but cleans them up through
+  // the public plural collection routes returned by Core.
+  const pluralRecord = "(?:tasks|events|day-records|wishes)/[A-Za-z0-9_]+";
+
+  const rules = [
+    ["POST", new RegExp(`^${base}/models/task/records$`, "u")],
+    ["GET", new RegExp(`^${base}/models/task/records$`, "u")],
+    ["GET", new RegExp(`^${base}/models/task/records/${record}$`, "u")],
+    ["PATCH", new RegExp(`^${base}/models/task/records/${record}$`, "u")],
+, "u")],
     ["POST", new RegExp(`^${base}/models/task/records/${record}/actions/(complete|reopen)$`, "u")],
     ["POST", new RegExp(`^${base}/models/event/records$`, "u")],
     ["GET", new RegExp(`^${base}/models/event/records$`, "u")],
