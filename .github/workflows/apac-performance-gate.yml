@@ -94,6 +94,7 @@ jobs:
           node --input-type=module -e '
             process.stdout.write(JSON.stringify({
               PROBE_TOKEN: process.env.LIFESPACE_APAC_PROBE_TOKEN,
+              CORE_URL: process.env.LIFESPACE_CORE_STAGING_URL,
               USER_BEARER: process.env.LIFESPACE_STAGING_USER_BEARER,
               SERVICE_BEARER: process.env.LIFESPACE_STAGING_SERVICE_BEARER,
               SPACE_ID: process.env.LIFESPACE_STAGING_SPACE_ID,
