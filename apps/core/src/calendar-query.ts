@@ -1,3 +1,8 @@
+import {
+  CALENDAR_LEGACY_WINDOW_PARAMETERS,
+  CALENDAR_VIEWING_WINDOW_ORDERING,
+  CALENDAR_VIEWING_WINDOW_PARAMETERS,
+} from "./calendar-query-semantics";
 import type { Bindings, Principal } from "./env";
 import type { GenericResource } from "./generic-resource";
 import { ApiError } from "./http";
@@ -30,9 +35,8 @@ type ViewingCandidate = {
   row: ViewingRow;
 };
 
-const CALENDAR_SORTS = new Set(["calendarStart:asc", "calendarStart:desc"]);
-const LEGACY_WINDOW_PARAMETERS = ["rangeStart", "rangeEnd", "dateStart", "dateEndExclusive"] as const;
-const VIEWING_WINDOW_PARAMETERS = ["windowStartDate", "windowEndDateExclusive", "viewingTimezone"] as const;
+const CALENDAR_SORTS = new Set<string>(CALENDAR_VIEWING_WINDOW_ORDERING.values);
+const VIEWING_WINDOW_PARAMETER_NAMES = CALENDAR_VIEWING_WINDOW_PARAMETERS.map(({ parameter }) => parameter);
 
 function encode(value: LegacyCursor | ViewingCursor) {
   const bytes = new TextEncoder().encode(JSON.stringify(value));
@@ -122,7 +126,7 @@ async function mePerson(env: Bindings, principal: Principal, spaceId: string) {
 function semanticSort(params: URLSearchParams): string {
   const sorts = params.getAll("sort");
   if (sorts.length > 1) throw new ApiError("INVALID_QUERY", "Calendar semantic query accepts exactly one standalone sort criterion", 400);
-  const sort = sorts[0] ?? "calendarStart:asc";
+  const sort = sorts[0] ?? CALENDAR_VIEWING_WINDOW_ORDERING.default;
   if (!CALENDAR_SORTS.has(sort)) throw new ApiError("INVALID_QUERY", "Unsupported Calendar sort", 400);
   return sort;
 }
@@ -144,8 +148,8 @@ export function isCalendarSpecialQuery(model: PublishedModel, params: URLSearchP
   if (!model.definition.capabilities?.calendar) return false;
   const sorts = params.getAll("sort");
   const attendee = model.definition.capabilities.calendar.attendeePersonField;
-  return LEGACY_WINDOW_PARAMETERS.some((parameter) => params.has(parameter))
-    || VIEWING_WINDOW_PARAMETERS.some((parameter) => params.has(parameter))
+  return CALENDAR_LEGACY_WINDOW_PARAMETERS.some((parameter) => params.has(parameter))
+    || VIEWING_WINDOW_PARAMETER_NAMES.some((parameter) => params.has(parameter))
     || (attendee ? params.get(attendee) === "me" : false)
     || sorts.some((sort) => CALENDAR_SORTS.has(sort));
 }
@@ -256,10 +260,10 @@ async function queryViewingWindowCalendarResources(
 ): Promise<{ items: GenericResource[]; nextCursor: string | null }> {
   const c = model.definition.capabilities?.calendar;
   if (!c) throw new ApiError("CALENDAR_CAPABILITY_NOT_ENABLED", "Calendar capability is required", 400);
-  if (LEGACY_WINDOW_PARAMETERS.some((parameter) => params.has(parameter))) {
+  if (CALENDAR_LEGACY_WINDOW_PARAMETERS.some((parameter) => params.has(parameter))) {
     throw new ApiError("INVALID_QUERY", "Calendar viewing-window parameters cannot be mixed with legacy range/date window parameters", 400);
   }
-  if (!VIEWING_WINDOW_PARAMETERS.every((parameter) => params.has(parameter))) {
+  if (!VIEWING_WINDOW_PARAMETER_NAMES.every((parameter) => params.has(parameter))) {
     throw new ApiError("INVALID_QUERY", "windowStartDate, windowEndDateExclusive, and viewingTimezone must be provided together", 400);
   }
 
@@ -394,7 +398,7 @@ export async function queryCalendarResources(
   model: PublishedModel,
   params: URLSearchParams,
 ): Promise<{ items: GenericResource[]; nextCursor: string | null }> {
-  const hasViewingWindow = VIEWING_WINDOW_PARAMETERS.some((parameter) => params.has(parameter));
+  const hasViewingWindow = VIEWING_WINDOW_PARAMETER_NAMES.some((parameter) => params.has(parameter));
   return hasViewingWindow
     ? queryViewingWindowCalendarResources(env, principal, spaceId, model, params)
     : queryLegacyCalendarResources(env, principal, spaceId, model, params);

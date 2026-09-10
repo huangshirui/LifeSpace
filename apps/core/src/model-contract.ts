@@ -1,3 +1,4 @@
+import { calendarViewingWindowSemanticQuery } from "./calendar-query-semantics";
 import type { FieldDefinition, ModelDefinition } from "./model-definition";
 import type { PublishedModel } from "./model-registry";
 import { referenceLabelSemantic } from "./reference-label";
@@ -366,6 +367,7 @@ function parameterMap(model: PublishedModel): Map<string, Record<string, unknown
 
   const temporal = model.definition.capabilities?.temporal;
   const calendar = model.definition.capabilities?.calendar;
+  const calendarQuery = calendar ? calendarViewingWindowSemanticQuery() : null;
 
   for (const fieldKey of model.definition.query?.filterable ?? []) {
     const field = model.definition.fields[fieldKey];
@@ -459,13 +461,28 @@ function parameterMap(model: PublishedModel): Map<string, Record<string, unknown
     semanticSortValues.add("effectiveDate:desc");
   }
 
-  if (calendar) {
-    put({ name: "rangeStart", in: "query", schema: { type: "string", format: "date-time" }, "x-lifespace-paired-with": "rangeEnd" });
-    put({ name: "rangeEnd", in: "query", schema: { type: "string", format: "date-time" }, "x-lifespace-paired-with": "rangeStart" });
-    put({ name: "dateStart", in: "query", schema: { type: "string", format: "date" }, "x-lifespace-paired-with": "dateEndExclusive" });
-    put({ name: "dateEndExclusive", in: "query", schema: { type: "string", format: "date" }, "x-lifespace-paired-with": "dateStart" });
-    semanticSortValues.add("calendarStart:asc");
-    semanticSortValues.add("calendarStart:desc");
+  if (calendarQuery) {
+    put({ name: "rangeStart", in: "query", schema: { type: "string", format: "date-time" }, "x-lifespace-paired-with": "rangeEnd", "x-lifespace-compatibility-for": calendarQuery.key });
+    put({ name: "rangeEnd", in: "query", schema: { type: "string", format: "date-time" }, "x-lifespace-paired-with": "rangeStart", "x-lifespace-compatibility-for": calendarQuery.key });
+    put({ name: "dateStart", in: "query", schema: { type: "string", format: "date" }, "x-lifespace-paired-with": "dateEndExclusive", "x-lifespace-compatibility-for": calendarQuery.key });
+    put({ name: "dateEndExclusive", in: "query", schema: { type: "string", format: "date" }, "x-lifespace-paired-with": "dateStart", "x-lifespace-compatibility-for": calendarQuery.key });
+    for (const parameter of calendarQuery.parameters) {
+      put({
+        name: parameter.parameter,
+        in: "query",
+        schema: parameter.type === "timezone"
+          ? { type: "string", "x-lifespace-format": "iana-timezone" }
+          : { type: "string", format: "date" },
+        "x-lifespace-capability-query": calendarQuery.key,
+        "x-lifespace-query-semantics": calendarQuery.semantics,
+        "x-lifespace-query-role": parameter.role,
+        "x-lifespace-required-with": calendarQuery.parameters
+          .filter((candidate) => candidate.parameter !== parameter.parameter)
+          .map((candidate) => candidate.parameter),
+        "x-lifespace-recurrence-expansion": calendarQuery.recurrenceExpansion,
+      });
+    }
+    for (const value of calendarQuery.ordering.values) semanticSortValues.add(value);
   }
 
   const genericSortSchema: JsonSchema = {
@@ -492,10 +509,11 @@ function parameterMap(model: PublishedModel): Map<string, Record<string, unknown
           "x-lifespace-defaults": {
             generic: ["createdAt:desc"],
             ...(temporal ? { temporal: "effectiveDate:asc" } : {}),
-            ...(calendar ? { calendar: "calendarStart:asc" } : {}),
+            ...(calendarQuery ? { calendar: calendarQuery.ordering.default } : {}),
           },
         }
       : genericSortSchema,
+    ...(calendarQuery ? { "x-lifespace-capability-query-ordering": structuredClone(calendarQuery.ordering) } : {}),
   });
   put({ name: "limit", in: "query", schema: { type: "integer", minimum: 1, maximum: 200, default: 100 } });
   put({ name: "cursor", in: "query", schema: { type: "string" } });

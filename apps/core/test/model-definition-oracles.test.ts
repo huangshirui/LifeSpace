@@ -247,7 +247,7 @@ describe("Model Definition v1 independent Oracle fixtures", () => {
   });
 
   // Oracle-Fixture: ORC-CAPABILITY-CALENDAR-01
-  // Covers: MDV1-CAPABILITY-CALENDAR-01
+  // Covers: MDV1-CAPABILITY-CALENDAR-01, MDV1-CAPABILITY-CALENDAR-WINDOW-01
   it("checks Calendar timed/all-day bindings and semantic query inputs", async () => {
     const definition: ModelDefinition = {
       definitionVersion: 1,
@@ -280,8 +280,26 @@ describe("Model Definition v1 independent Oracle fixtures", () => {
     expect(validateModelDefinition(definition).valid).toBe(true);
     const contract = await generateModelContract([published(definition)]);
     const collection = openApiPath(contract, collectionPath("oracle_calendar"));
-    const names = collection.get.parameters.map((parameter: any) => parameter.name);
-    expect(names).toEqual(expect.arrayContaining(["rangeStart", "rangeEnd", "dateStart", "dateEndExclusive", "sort"]));
+    const parameters = collection.get.parameters as any[];
+    const names = parameters.map((parameter: any) => parameter.name);
+    expect(names).toEqual(expect.arrayContaining([
+      "rangeStart", "rangeEnd", "dateStart", "dateEndExclusive",
+      "windowStartDate", "windowEndDateExclusive", "viewingTimezone", "sort",
+    ]));
+    const byName = (name: string) => parameters.find((parameter: any) => parameter.name === name);
+    expect(byName("windowStartDate")).toMatchObject({
+      "x-lifespace-capability-query": "calendar.window",
+      "x-lifespace-query-semantics": "record-interval-overlap",
+      "x-lifespace-query-role": "window-start-date",
+      "x-lifespace-recurrence-expansion": false,
+    });
+    expect(byName("viewingTimezone")?.schema?.["x-lifespace-format"]).toBe("iana-timezone");
+    expect(byName("rangeStart")?.["x-lifespace-compatibility-for"]).toBe("calendar.window");
+    expect(byName("sort")?.["x-lifespace-capability-query-ordering"]).toMatchObject({
+      dateBasis: "viewing-timezone",
+      allDayPlacement: "before-timed-within-date",
+      timedOrder: "instant",
+    });
     const create = schema(contract, "OracleCalendarCreate") as any;
     expect(create.allOf[0]["x-lifespace-range-semantics"]).toContain("half-open");
 
