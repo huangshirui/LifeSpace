@@ -25,12 +25,14 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Apply final Calendar M2 transform
         run: node .github/scripts/one-shot-calendar-m2-finalize.mjs
+      - name: Repair Calendar descriptor imports
+        run: node .github/scripts/one-shot-calendar-m2-runtime-import-fix.mjs
       - name: Apply status-version check migration
         run: node .github/scripts/one-shot-calendar-m2-status-fix.mjs
       - name: Run full repository check
         run: pnpm check
       - name: Remove one-shot files
-        run: rm .github/workflows/one-shot-calendar-m2-finalize.yml .github/scripts/one-shot-calendar-m2-finalize.mjs .github/scripts/one-shot-calendar-m2-status-fix.mjs
+        run: rm .github/workflows/one-shot-calendar-m2-finalize.yml .github/scripts/one-shot-calendar-m2-finalize.mjs .github/scripts/one-shot-calendar-m2-runtime-import-fix.mjs .github/scripts/one-shot-calendar-m2-status-fix.mjs
       - name: Commit validated Calendar M2 tree
         run: |
           git config user.name "github-actions[bot]"
