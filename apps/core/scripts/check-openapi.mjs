@@ -3,7 +3,7 @@ import YAML from "yaml";
 
 const document = YAML.parse(fs.readFileSync(new URL("../openapi.yaml", import.meta.url), "utf8"));
 
-if (document.openapi !== "3.1.0" || document.info?.version !== "0.33.0") {
+if (document.openapi !== "3.1.0" || document.info?.version !== "0.34.0") {
   throw new Error("Core Kernel OpenAPI version metadata is invalid");
 }
 if (!document.info?.title?.includes("Kernel")) {
@@ -448,8 +448,18 @@ if (schemas.RuntimeModelSemanticField?.properties?.relation?.$ref !== "#/compone
   throw new Error("Single-model semantic detail relation facts must remain static target/cardinality/resolution semantics without dynamic lookup state");
 }
 if (!schemas.RuntimeModelSemanticQuery?.required?.includes("filters")
+    || !schemas.RuntimeModelSemanticQuery?.required?.includes("comparisons")
     || !schemas.RuntimeModelSemanticQuery?.required?.includes("pagination")
     || !schemas.RuntimeModelSemanticQuery?.required?.includes("capabilityParameters")
+    || schemas.RuntimeModelSemanticQuery?.properties?.comparisons?.items?.$ref !== "#/components/schemas/RuntimeModelSemanticComparison"
+    || schemas.RuntimeModelSemanticComparison?.additionalProperties !== false
+    || JSON.stringify(schemas.RuntimeModelSemanticComparison?.properties?.source?.enum) !== JSON.stringify(["model", "envelope"])
+    || JSON.stringify(schemas.RuntimeModelSemanticComparison?.properties?.valueType?.enum) !== JSON.stringify(["date", "datetime", "integer", "number"])
+    || JSON.stringify(schemas.RuntimeModelSemanticComparisonOperator?.properties?.operator?.enum) !== JSON.stringify(["eq", "lt", "lte", "gt", "gte"])
+    || JSON.stringify(schemas.RuntimeModelSemanticComparisonOperator?.properties?.transport?.enum) !== JSON.stringify(["legacy", "explicit"])
+    || schemas.RuntimeModelSemanticLocalDateWindow?.properties?.bounds?.const !== "[)"
+    || schemas.RuntimeModelSemanticLocalDateWindow?.properties?.lowerOperator?.const !== "gte"
+    || schemas.RuntimeModelSemanticLocalDateWindow?.properties?.upperOperator?.const !== "lt"
     || schemas.RuntimeModelSemanticQuery?.properties?.sort?.properties?.nullPlacement?.const !== "last") {
   throw new Error("Single-model semantic detail must expose complete shared query facts");
 }
@@ -515,7 +525,7 @@ if (!schemas.CreationDraftProcessing?.required?.includes("modelContractRevision"
   throw new Error("Creation Draft jobs must expose their pinned Model Contract Revision");
 }
 
-if (schemas.StatusResponse?.properties?.data?.properties?.contractVersion?.const !== "0.33.0") {
+if (schemas.StatusResponse?.properties?.data?.properties?.contractVersion?.const !== "0.34.0") {
   throw new Error("Core Kernel status contract version drifted");
 }
 
