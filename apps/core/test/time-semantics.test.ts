@@ -65,6 +65,19 @@ describe("Time Semantics", () => {
     });
   });
 
+  it("preserves a repeated historical local date as one extended instant window", () => {
+    const range = localDateWindowToInstantRange({
+      dateStart: "1969-09-30",
+      dateEndExclusive: "1969-10-01",
+      timezone: "Pacific/Kwajalein",
+    });
+    expect(range).toEqual({
+      startInclusive: "1969-09-29T13:00:00.000Z",
+      endExclusive: "1969-10-01T12:00:00.000Z",
+    });
+    expect(durationHours(range.startInclusive, range.endExclusive)).toBe(47);
+  });
+
   it("rejects a local calendar date skipped by a historical timezone change", () => {
     expect(() => localDateWindowToInstantRange({
       dateStart: "2011-12-30",
