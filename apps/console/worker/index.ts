@@ -31,7 +31,7 @@ type AdminContext = {
 };
 
 const IDENTITY_PLATFORM_ADMIN_CONTRACT = "0.2.0";
-const CORE_PLATFORM_ADMIN_CONTRACT = "0.1.0";
+const CORE_PLATFORM_ADMIN_CONTRACT = "0.2.0";
 const CONSOLE_VERSION = "0.1.0";
 const ACCESS_ASSERTION_HEADER = "cf-access-jwt-assertion";
 const REGISTRATION_INTENT_HEADER = "x-lifespace-console-intent";

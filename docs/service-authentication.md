@@ -189,7 +189,7 @@ The application cannot escape its own registered application context or exceed i
 
 LifeSpace Console needs platform governance across registered applications. It must not accomplish this by borrowing the target application's `lsa_*` credential or by using the bootstrap secret as a normal runtime credential.
 
-Identity Platform Admin `0.1.0` therefore exposes a separate cross-application control plane under:
+Identity Platform Admin `0.2.0` therefore exposes a separate cross-application control plane under:
 
 ```text
 /internal/v1/platform-admin/applications/{applicationId}/service-principals*
@@ -262,7 +262,7 @@ If OAuth `client_credentials` is deliberately chosen, configure n8n's OAuth2 cre
 Store the credential in an environment variable/secret manager:
 
 ```bash
-curl "https://core.aisr.online/api/v1/spaces/spc_xxx/tasks" \
+curl "https://core.aisr.online/api/v1/spaces/spc_xxx/models/task/records" \
   -H "Authorization: Bearer ${LIFESPACE_TOKEN}"
 ```
 
@@ -340,14 +340,14 @@ LifeSpace Console privileged service administration:
 
 ```text
 apps/identity/platform-admin.openapi.yaml
-Identity Platform Admin contract 0.1.0
+Identity Platform Admin contract 0.2.0
 ```
 
 Core Console administration:
 
 ```text
 apps/core/platform-admin.openapi.yaml
-Core Platform Admin contract 0.1.0
+Core Platform Admin contract 0.2.0
 ```
 
 Product applications such as HomeMew do not need to repin their business contract merely because the platform Console gains a new privileged administration endpoint. The Core-only Service Principal eligibility read used to enforce already-declared Eventing revocation semantics is likewise not application-callable syntax and does not by itself require a business-application Identity repin.

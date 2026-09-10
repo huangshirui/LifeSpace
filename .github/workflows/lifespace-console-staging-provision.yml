@@ -447,7 +447,7 @@ jobs:
           - Worker: \`lifespace-console-staging\`
           - Hostname: \`lifespace-staging.aisr.online\`
           - React/Vite Console + bounded same-origin BFF: deployed
-          - Identity/Core Platform Admin companion contracts: \`0.1.0\`
+          - Identity/Core Platform Admin companion contracts: \`0.2.0\`
           - Identity application credential + Core executor token: freshly rotated in-run, installed as Worker Secrets, superseded credentials revoked after deployment verification
           - Platform administrator assignment: reconciled to the supplied staging \`usr_*\`
           - Bootstrap secret: provisioning/recovery-only; not installed in the Console Worker

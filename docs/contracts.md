@@ -7,7 +7,7 @@ Canonical service contracts live with the service implementation in this reposit
 Identity now has two explicit contract surfaces:
 
 1. **Identity Application Contract** — `apps/identity/openapi.yaml`, used by ordinary user/application authentication, profile, trusted application exchange, Cloudflare Access principal linking and application-owned service authentication. Its current version is `0.6.0`; 0.6.0 adds first-class Agent identity and Core-only delegated Agent execution-token issuance.
-2. **Identity Platform Admin Contract** — `apps/identity/platform-admin.openapi.yaml`, used only by the LifeSpace Console and approved break-glass/platform-control workflows. Its initial version is `0.1.0`.
+2. **Identity Platform Admin Contract** — `apps/identity/platform-admin.openapi.yaml`, used only by the LifeSpace Console and approved break-glass/platform-control workflows. Its current version is `0.2.0`; 0.2.0 adds Application-scoped Agent identity governance while preserving the existing dual actor/executor control-plane boundary.
 
 Core has five contract layers:
 
@@ -44,7 +44,7 @@ The Model Semantic Fingerprint is content-addressed over the selected applicatio
 A platform operator surface such as LifeSpace Console additionally pins the two Platform Admin companion contracts:
 
 ```text
-Identity Platform Admin Contract: 0.1.0
+Identity Platform Admin Contract: 0.2.0
 Core Platform Admin Contract:     0.2.0
 ```
 
@@ -69,7 +69,7 @@ They are companion contracts rather than alternative service implementations: th
 Normative rules:
 
 - `apps/identity/platform-admin.openapi.yaml` and `apps/core/platform-admin.openapi.yaml` are the only editable OpenAPI sources for the new Console control plane.
-- Identity Platform Admin is `0.1.0`; Core Platform Admin is `0.2.0`. Their versions advance independently when each service's admin syntax changes.
+- Identity Platform Admin is `0.2.0`; Core Platform Admin is `0.2.0`. Their versions advance independently when each service's admin syntax changes.
 - Console privileged operations use the dual identity model from `docs/permissions.md`: a controlled server-side executor plus `X-LifeSpace-Actor-Token` carrying the dedicated short-lived human actor proof.
 - The actor proof is not a reusable general user credential. Identity issues it only from an ordinary authenticated LifeSpace user session after current `platform_administrators` assignment checks, and the proof is bound to `purpose=platform_admin_actor` with a maximum five-minute lifetime.
 - Bootstrap administrator-assignment routes are included only as provisioning/break-glass control-plane syntax. The bootstrap secret is never a Console runtime credential.
@@ -87,7 +87,7 @@ The Model Control Plane does **not** redefine Model Definition semantics. `docs/
 
 Non-interactive service automation continues to authenticate as a service principal with `models:manage`. LifeSpace Console uses the same underlying Model Registry routes but adds the separate Platform Admin human actor proof and pending -> success/failure audit profile. Human actor proof is therefore an interactive governance overlay, not a new baseline requirement for CI/automation.
 
-A model-governance consumer pins `Model Control Plane 0.1.0` independently from `Kernel 0.31.0`; an ordinary application that never administers models does not need to pin or discover the Model Control Plane.
+A model-governance consumer pins `Model Control Plane 0.2.0` independently from `Kernel 0.32.0`; an ordinary application that never administers models does not need to pin or discover the Model Control Plane.
 
 ## Model-driven generation
 
@@ -153,7 +153,7 @@ The Kernel OpenAPI is intentionally explicit and comparatively stable. It curren
 - Registry-driven Creation Draft orchestration;
 - governed Change History as a bounded record-scoped collection.
 
-Model Registry administration and immutable Model Contract governance are intentionally absent from Kernel 0.31.0 and live in the Model Control Plane contract instead. Eventing representation is likewise absent from Kernel 0.31.0 and lives in Integration/Eventing 0.1.0.
+Model Registry administration and immutable Model Contract governance are intentionally absent from Kernel 0.32.0 and live in the Model Control Plane contract instead. Eventing representation is likewise absent from Kernel 0.32.0 and lives in Integration/Eventing 0.1.0.
 
 Kernel 0.13.0 defines these Data Grant targets:
 
