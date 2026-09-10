@@ -892,6 +892,27 @@ Runtime Discovery may project these canonical Calendar field roles through a bou
 
 Conformance-ID: MDV1-CAPABILITY-CALENDAR-01
 
+Calendar also owns one preferred high-level viewing-window query whose caller supplies concrete local calendar dates plus an explicit viewing timezone:
+
+```text
+windowStartDate=YYYY-MM-DD
+windowEndDateExclusive=YYYY-MM-DD
+viewingTimezone=<IANA timezone>
+```
+
+All three parameters are required together. Relative-language inputs such as `today` or `tomorrow` are not Calendar Runtime syntax; a caller/Agent resolves them to concrete dates before execution. Core converts the local date boundaries with the shared Time Semantics primitive and applies separate half-open overlap predicates to the two Calendar representations:
+
+```text
+timed:   startAt < instantWindowEnd AND endAt > instantWindowStart
+all-day: startDate < windowEndDateExclusive AND endDateExclusive > windowStartDate
+```
+
+Timed records are therefore compared as absolute instants while all-day records remain calendar-date facts. Adapters must not independently compute UTC/DST boundaries. The existing `rangeStart` / `rangeEnd` and `dateStart` / `dateEndExclusive` parameters remain compatibility transport; they are not mixed with the preferred viewing-window transport in one request.
+
+For the preferred query, `calendarStart` ordering is defined in the explicit viewing timezone: compare viewing calendar date first, place all-day records before timed records within the same date, order timed records by absolute start instant, then use stable record ID as the final tie-breaker. Recurrence expansion is not implied or performed by this query. Progressive Runtime Semantic Detail and generated Model Contracts publish this grouped semantic query so MCP, n8n and generated clients consume the platform definition instead of inferring special Event field names or timezone math.
+
+Conformance-ID: MDV1-CAPABILITY-CALENDAR-WINDOW-01
+
 ## 15. Generated Runtime API
 
 Ordinary models do not receive handwritten route implementations.

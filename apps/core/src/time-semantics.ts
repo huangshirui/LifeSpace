@@ -60,13 +60,18 @@ function localDateFormatter(timezone: string): Intl.DateTimeFormat {
   });
 }
 
-function localDateOrdinalAt(instantMs: number, formatter: Intl.DateTimeFormat): number {
+function formattedDateParts(instantMs: number, formatter: Intl.DateTimeFormat): CalendarDateParts {
   const parts = formatter.formatToParts(new Date(instantMs));
   const value = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value;
-  const year = Number(value("year"));
-  const month = Number(value("month"));
-  const day = Number(value("day"));
-  return dateOrdinal({ year, month, day });
+  return {
+    year: Number(value("year")),
+    month: Number(value("month")),
+    day: Number(value("day")),
+  };
+}
+
+function localDateOrdinalAt(instantMs: number, formatter: Intl.DateTimeFormat): number {
+  return dateOrdinal(formattedDateParts(instantMs, formatter));
 }
 
 function startOfLocalDate(
@@ -94,6 +99,24 @@ function startOfLocalDate(
     throw new RangeError(`${field} does not exist in timezone ${timezone}`);
   }
   return new Date(low).toISOString();
+}
+
+/**
+ * Projects one absolute instant onto a concrete calendar date in an explicit
+ * viewing timezone. This is presentation/query semantics only; it does not
+ * change the instant or adopt the record's own timezone as viewer context.
+ */
+export function instantToLocalDate(value: string, timezone: string): string {
+  const normalizedTimezone = assertIanaTimezone(timezone);
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime()) || !value.includes("T")) {
+    throw new RangeError("instant must be an RFC 3339 date-time");
+  }
+  const parts = formattedDateParts(parsed.getTime(), localDateFormatter(normalizedTimezone));
+  const year = String(parts.year).padStart(4, "0");
+  const month = String(parts.month).padStart(2, "0");
+  const day = String(parts.day).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 /**

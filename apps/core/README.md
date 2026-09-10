@@ -20,7 +20,7 @@ Webhook Endpoint / Event Subscription management, delivery diagnostics/test-send
 
 ## Current Kernel Runtime Discovery
 
-The current business-facing Core Kernel contract is **0.34.0**. Progressive single-model semantic detail includes canonical structural `timeRanges` plus explicit Generic Query comparison/operator transport, platform envelope time fields, and DST-safe local-date-window semantics. Structural ranges still do not imply an interval-overlap operator. Generic consumers may choose the projection size appropriate to the task:
+The current business-facing Core Kernel contract is **0.35.0**. Progressive single-model semantic detail includes canonical structural `timeRanges`, explicit Generic Query comparison/operator transport, platform envelope time fields, DST-safe local-date-window semantics, and the preferred grouped `calendar.window` viewing-window query while retaining the older flat Calendar range/date parameters as compatibility transport. Structural ranges still do not imply an interval-overlap operator. Generic consumers may choose the projection size appropriate to the task:
 
 - `GET /api/v1/spaces/{spaceId}/_discovery` — full current capability metadata for one known Space;
 - `GET /api/v1/me/_discovery` — full aggregate current capability metadata across reachable Spaces;

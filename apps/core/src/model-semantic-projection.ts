@@ -1,4 +1,5 @@
 import type { CalendarCapabilityDefinition, TemporalCapabilityDefinition } from "./capability-definition";
+import { calendarViewingWindowSemanticQuery } from "./calendar-query-semantics";
 import type { FieldDefinition, ModelAccess } from "./model-definition";
 import type { PublishedModel } from "./model-registry";
 import { referenceLabelSemantic, type ReferenceLabelSemantic } from "./reference-label";
@@ -64,6 +65,8 @@ export type ModelSemanticQueryParameter = {
   pairedWith?: string;
 };
 
+export type ModelSemanticCapabilityQuery = ReturnType<typeof calendarViewingWindowSemanticQuery>;
+
 export type ModelSemanticQueryFacts = {
   searchable: string[];
   filterable: string[];
@@ -99,6 +102,7 @@ export type ModelSemanticQueryFacts = {
     cursor: { parameter: "cursor"; type: "string" };
   };
   capabilityParameters: ModelSemanticQueryParameter[];
+  capabilityQueries: ModelSemanticCapabilityQuery[];
 };
 
 export type ModelSemanticCapabilityBindings = {
@@ -188,6 +192,7 @@ export function modelQuerySemanticFacts(model: PublishedModel): ModelSemanticQue
   const semanticValues: string[] = [];
   const semanticDefaults: ModelSemanticQueryFacts["sort"]["semantic"]["defaults"] = {};
   const capabilityParameters: ModelSemanticQueryParameter[] = [];
+  const capabilityQueries: ModelSemanticCapabilityQuery[] = [];
 
   if (model.definition.capabilities?.temporal) {
     capabilityParameters.push({ parameter: "attentionOnly", type: "boolean", default: false });
@@ -202,8 +207,10 @@ export function modelQuerySemanticFacts(model: PublishedModel): ModelSemanticQue
       { parameter: "dateStart", type: "date", pairedWith: "dateEndExclusive" },
       { parameter: "dateEndExclusive", type: "date", pairedWith: "dateStart" },
     );
-    semanticValues.push("calendarStart:asc", "calendarStart:desc");
-    semanticDefaults.calendar = "calendarStart:asc";
+    const calendarQuery = calendarViewingWindowSemanticQuery();
+    capabilityQueries.push(calendarQuery);
+    semanticValues.push(...calendarQuery.ordering.values);
+    semanticDefaults.calendar = calendarQuery.ordering.default;
   }
 
   return {
@@ -234,6 +241,7 @@ export function modelQuerySemanticFacts(model: PublishedModel): ModelSemanticQue
       cursor: { parameter: "cursor", type: "string" },
     },
     capabilityParameters,
+    capabilityQueries,
   };
 }
 

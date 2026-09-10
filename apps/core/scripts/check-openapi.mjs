@@ -3,7 +3,7 @@ import YAML from "yaml";
 
 const document = YAML.parse(fs.readFileSync(new URL("../openapi.yaml", import.meta.url), "utf8"));
 
-if (document.openapi !== "3.1.0" || document.info?.version !== "0.34.0") {
+if (document.openapi !== "3.1.0" || document.info?.version !== "0.35.0") {
   throw new Error("Core Kernel OpenAPI version metadata is invalid");
 }
 if (!document.info?.title?.includes("Kernel")) {
@@ -451,6 +451,8 @@ if (!schemas.RuntimeModelSemanticQuery?.required?.includes("filters")
     || !schemas.RuntimeModelSemanticQuery?.required?.includes("comparisons")
     || !schemas.RuntimeModelSemanticQuery?.required?.includes("pagination")
     || !schemas.RuntimeModelSemanticQuery?.required?.includes("capabilityParameters")
+    || !schemas.RuntimeModelSemanticQuery?.required?.includes("capabilityQueries")
+    || schemas.RuntimeModelSemanticQuery?.properties?.capabilityQueries?.items?.$ref !== "#/components/schemas/RuntimeModelSemanticCapabilityQuery"
     || schemas.RuntimeModelSemanticQuery?.properties?.comparisons?.items?.$ref !== "#/components/schemas/RuntimeModelSemanticComparison"
     || schemas.RuntimeModelSemanticComparison?.additionalProperties !== false
     || JSON.stringify(schemas.RuntimeModelSemanticComparison?.properties?.source?.enum) !== JSON.stringify(["model", "envelope"])
@@ -462,6 +464,25 @@ if (!schemas.RuntimeModelSemanticQuery?.required?.includes("filters")
     || schemas.RuntimeModelSemanticLocalDateWindow?.properties?.upperOperator?.const !== "lt"
     || schemas.RuntimeModelSemanticQuery?.properties?.sort?.properties?.nullPlacement?.const !== "last") {
   throw new Error("Single-model semantic detail must expose complete shared query facts");
+}
+const calendarWindowQuery = schemas.RuntimeModelSemanticCalendarWindowQuery;
+const calendarWindowOrdering = schemas.RuntimeModelSemanticCalendarWindowOrdering;
+const calendarWindowParameters = schemas.RuntimeModelSemanticCalendarWindowParameter?.oneOf ?? [];
+if (schemas.RuntimeModelSemanticCapabilityQuery?.oneOf?.[0]?.$ref !== "#/components/schemas/RuntimeModelSemanticCalendarWindowQuery"
+    || calendarWindowQuery?.properties?.key?.const !== "calendar.window"
+    || calendarWindowQuery?.properties?.capability?.const !== "calendar"
+    || calendarWindowQuery?.properties?.semantics?.const !== "record-interval-overlap"
+    || calendarWindowQuery?.properties?.recurrenceExpansion?.const !== false
+    || calendarWindowQuery?.properties?.parameters?.minItems !== 3
+    || calendarWindowQuery?.properties?.parameters?.maxItems !== 3
+    || calendarWindowParameters.length !== 3
+    || JSON.stringify(calendarWindowParameters.map((entry) => entry?.properties?.parameter?.const)) !== JSON.stringify(["windowStartDate", "windowEndDateExclusive", "viewingTimezone"])
+    || JSON.stringify(calendarWindowParameters.map((entry) => entry?.properties?.type?.const)) !== JSON.stringify(["date", "date", "timezone"])
+    || calendarWindowOrdering?.properties?.dateBasis?.const !== "viewing-timezone"
+    || calendarWindowOrdering?.properties?.allDayPlacement?.const !== "before-timed-within-date"
+    || calendarWindowOrdering?.properties?.timedOrder?.const !== "instant"
+    || calendarWindowOrdering?.properties?.tieBreaker?.const !== "record-id-asc") {
+  throw new Error("Single-model semantic detail Calendar viewing-window query drifted");
 }
 if (!schemas.RuntimeModelSemanticAction?.required?.includes("invocation")
     || schemas.RuntimeModelSemanticAction?.properties?.concurrency?.$ref !== "#/components/schemas/RuntimeModelSemanticActionConcurrency") {
@@ -525,7 +546,7 @@ if (!schemas.CreationDraftProcessing?.required?.includes("modelContractRevision"
   throw new Error("Creation Draft jobs must expose their pinned Model Contract Revision");
 }
 
-if (schemas.StatusResponse?.properties?.data?.properties?.contractVersion?.const !== "0.34.0") {
+if (schemas.StatusResponse?.properties?.data?.properties?.contractVersion?.const !== "0.35.0") {
   throw new Error("Core Kernel status contract version drifted");
 }
 

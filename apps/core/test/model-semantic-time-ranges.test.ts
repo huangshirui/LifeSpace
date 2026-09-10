@@ -46,6 +46,7 @@ describe("progressive static time-range semantics", () => {
       },
     ]);
     expect(semantic.query.capabilityParameters).toEqual([]);
+    expect(semantic.query.capabilityQueries).toEqual([]);
     expect(semantic.query.filters).toEqual([]);
   });
 
@@ -71,6 +72,32 @@ describe("progressive static time-range semantics", () => {
         source: "capability",
         capability: "calendar",
       },
+    ]);
+    expect(semantic.query.capabilityQueries).toEqual([{
+      key: "calendar.window",
+      capability: "calendar",
+      semantics: "record-interval-overlap",
+      recurrenceExpansion: false,
+      parameters: [
+        { parameter: "windowStartDate", type: "date", required: true, role: "window-start-date" },
+        { parameter: "windowEndDateExclusive", type: "date", required: true, role: "window-end-date-exclusive" },
+        { parameter: "viewingTimezone", type: "timezone", required: true, role: "viewing-timezone" },
+      ],
+      ordering: {
+        parameter: "sort",
+        values: ["calendarStart:asc", "calendarStart:desc"],
+        default: "calendarStart:asc",
+        dateBasis: "viewing-timezone",
+        allDayPlacement: "before-timed-within-date",
+        timedOrder: "instant",
+        tieBreaker: "record-id-asc",
+      },
+    }]);
+    expect(semantic.query.capabilityParameters).toEqual([
+      { parameter: "rangeStart", type: "datetime", pairedWith: "rangeEnd" },
+      { parameter: "rangeEnd", type: "datetime", pairedWith: "rangeStart" },
+      { parameter: "dateStart", type: "date", pairedWith: "dateEndExclusive" },
+      { parameter: "dateEndExclusive", type: "date", pairedWith: "dateStart" },
     ]);
   });
 });
