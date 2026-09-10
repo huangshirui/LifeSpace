@@ -3,7 +3,7 @@ import YAML from "yaml";
 
 const document = YAML.parse(fs.readFileSync(new URL("../openapi.yaml", import.meta.url), "utf8"));
 
-if (document.openapi !== "3.1.0" || document.info?.version !== "0.32.0") {
+if (document.openapi !== "3.1.0" || document.info?.version !== "0.33.0") {
   throw new Error("Core Kernel OpenAPI version metadata is invalid");
 }
 if (!document.info?.title?.includes("Kernel")) {
@@ -417,7 +417,7 @@ const semanticDetail = schemas.RuntimeModelSemanticDetail;
 const semanticDetailProperties = Object.keys(semanticDetail?.properties ?? {}).sort();
 const expectedSemanticDetailProperties = [
   "actions", "capabilities", "capabilityBindings", "declaredAccess", "defaults", "description", "display",
-  "fields", "key", "query", "referenceLabel", "schemaHash", "version",
+  "fields", "key", "query", "referenceLabel", "schemaHash", "timeRanges", "version",
 ].sort();
 if (semanticDetail?.additionalProperties !== false
     || JSON.stringify(semanticDetailProperties) !== JSON.stringify(expectedSemanticDetailProperties)
@@ -427,6 +427,21 @@ if (semanticDetail?.additionalProperties !== false
     || semanticDetail?.properties?.spaceName) {
   throw new Error("Single-model semantic detail must expose only static model semantics without effective Space authority state");
 }
+const semanticTimeRange = schemas.RuntimeModelSemanticTimeRange;
+if (!semanticDetail?.required?.includes("timeRanges")
+    || semanticDetail?.properties?.timeRanges?.type !== "array"
+    || semanticDetail?.properties?.timeRanges?.items?.$ref !== "#/components/schemas/RuntimeModelSemanticTimeRange"
+    || semanticTimeRange?.additionalProperties !== false
+    || JSON.stringify(semanticTimeRange?.required) !== JSON.stringify(["key", "startField", "endField", "valueType", "bounds", "source"])
+    || semanticTimeRange?.properties?.key?.maxLength !== 80
+    || semanticTimeRange?.properties?.startField?.pattern !== "^[a-z][A-Za-z0-9]{0,62}$"
+    || semanticTimeRange?.properties?.endField?.pattern !== "^[a-z][A-Za-z0-9]{0,62}$"
+    || JSON.stringify(semanticTimeRange?.properties?.valueType?.enum) !== JSON.stringify(["date", "datetime"])
+    || JSON.stringify(semanticTimeRange?.properties?.bounds?.enum) !== JSON.stringify(["[]", "[)", "(]", "()"])
+    || JSON.stringify(semanticTimeRange?.properties?.source?.enum) !== JSON.stringify(["model", "capability"])) {
+  throw new Error("Single-model semantic detail time-range contract drifted");
+}
+
 if (schemas.RuntimeModelSemanticField?.properties?.relation?.$ref !== "#/components/schemas/RuntimeModelSemanticRelation"
     || Object.keys(schemas.RuntimeModelSemanticRelation?.properties ?? {}).sort().join(",") !== "cardinality,resolution,targetModel"
     || schemas.RuntimeModelSemanticRelation?.properties?.lookup) {
@@ -500,7 +515,7 @@ if (!schemas.CreationDraftProcessing?.required?.includes("modelContractRevision"
   throw new Error("Creation Draft jobs must expose their pinned Model Contract Revision");
 }
 
-if (schemas.StatusResponse?.properties?.data?.properties?.contractVersion?.const !== "0.32.0") {
+if (schemas.StatusResponse?.properties?.data?.properties?.contractVersion?.const !== "0.33.0") {
   throw new Error("Core Kernel status contract version drifted");
 }
 

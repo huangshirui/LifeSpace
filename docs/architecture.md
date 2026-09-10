@@ -325,7 +325,7 @@ Platform Admin Control-Plane Contract
 Kernel Contract
   apps/core/openapi.yaml
   explicit product-facing Space / Grant / Runtime Discovery / Change History / Creation Draft primitives
-  current Kernel contract: 0.32.0
+  current Kernel contract: 0.33.0
 
 Integration / Eventing Contract
   apps/core/integration-eventing.openapi.yaml

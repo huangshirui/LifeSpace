@@ -24,7 +24,7 @@ Model Definition
 Normative ownership is split deliberately:
 
 - this document defines the human-readable DSL semantics;
-- `apps/core/src/model-definition.ts`, `policy-definition.ts`, `workflow-definition.ts` and `capability-definition.ts` are the machine validators and must remain aligned with this specification;
+- `apps/core/src/model-definition.ts`, `time-range-definition.ts`, `policy-definition.ts`, `workflow-definition.ts` and `capability-definition.ts` are the machine validators and must remain aligned with this specification;
 - runtime implementation and automated tests verify executable behavior;
 - a published Model Registry version plus its immutable `mct_*` Model Contract Revision is the exact contract evidence for a deployed model version.
 
@@ -34,11 +34,12 @@ Notion documentation may explain this specification, but it is not an independen
 
 ## 2. Mental model
 
-A Model Definition answers six different questions:
+A Model Definition answers seven different questions:
 
 ```text
 Model
 ├── Fields       — what data does this thing contain?
+├── Time Ranges  — which date/datetime fields form semantic intervals?
 ├── Query        — how may clients find it?
 ├── Access       — what model-level operation classes exist?
 ├── Policy       — who may perform an otherwise-authorized operation?
@@ -49,6 +50,7 @@ Model
 Do not collapse these concepts:
 
 - **字段（Field）** describes state.
+- **时间范围（Time Range）** groups two declared date/datetime fields into one structural interval semantic; it is not itself a query operator.
 - **CRUD** is the generic transport for ordinary state access/change.
 - **记录动作 / 转换（Record Action / Transition）** is a named, single-record semantic command specific to a model, such as `Task.complete`.
 - **变更权限（Mutation Authority）** declares which mutation surface owns a field change: ordinary CRUD, or trusted model semantics such as an Action/Capability.
@@ -73,6 +75,11 @@ The v1 top-level shape is:
     plural: string
   },
   fields: Record<string, FieldDefinition>,
+  timeRanges?: Record<string, {
+    startField: string,
+    endField: string,
+    bounds?: "[]" | "[)" | "(]" | "()"
+  }>,
   referenceLabel?: { field: string } | { template: string },
   defaults?: Record<string, DefaultValue>,
   query?: {
@@ -290,6 +297,37 @@ ownerPersonId: { type: "person", required: true, immutable: true }
 
 Conformance-ID: MDV1-FIELD-IMMUTABLE-01
 
+### 4.4 `timeRanges`
+
+`timeRanges` declares model-owned **structural interval semantics** for pairs of already-declared `date` or `datetime` fields. It lets generic consumers understand that two otherwise independent fields represent the start and end of the same semantic range without guessing from names such as `startAt`, `endAt`, `validFrom` or `validUntil`.
+
+Example:
+
+```ts
+timeRanges: {
+  validity: {
+    startField: "validFrom",
+    endField: "validUntil",
+    bounds: "[)"
+  }
+}
+```
+
+Rules:
+
+- `timeRanges` is optional; when present it must be a non-empty object with at most 16 entries;
+- range keys use the normal field-style semantic-key syntax `^[a-z][A-Za-z0-9]{0,62}$`;
+- `startField` and `endField` must both exist, must be distinct, and must be either `date/date` or `datetime/datetime`; mixed `date/datetime` pairs are invalid;
+- `bounds` may be `[]`, `[)`, `(]` or `()`; omission means the canonical half-open form `[)`, and validation normalizes the published definition to that explicit value;
+- the same unordered field pair may not be declared twice, including a reversed duplicate, because that would create ambiguous structural semantics;
+- Calendar Capability bindings remain authoritative for Calendar timed and all-day intervals. A model with Calendar must not redeclare the Calendar-owned `timedStartField/timedEndField` or `allDayStartField/allDayEndExclusiveField` pair in `timeRanges`; progressive semantic projection derives those ranges directly from the Capability binding;
+- declaring a range does **not** automatically add `overlaps`, `contains`, `before` or any other query operator. Query capability remains separately and explicitly declared/versioned;
+- declaring a range does **not** by itself add a new create/update ordering invariant such as `start < end`. Record-value validation remains whatever the model/Capability already owns until a future semantic rule explicitly introduces such an invariant;
+- adding, removing or changing `timeRanges` on an already-published model is a breaking semantic compatibility change because generic consumers may change how they interpret the participating fields;
+- progressive static semantic detail may project a derived `valueType` plus `source` metadata for consumers. Those projection fields are derived facts, not additional editable Model Definition properties.
+
+Conformance-ID: MDV1-TIME-RANGES-01
+
 ## 5. Defaults
 
 `defaults` supplies server defaults for declared fields.
@@ -340,7 +378,7 @@ sortable   -> explicit field sort options
 
 Generic Query sorting is an ordered tuple. Clients may repeat `sort=field:direction` up to eight times, preserving criterion order. Envelope fields `createdAt` and `updatedAt` are always sortable; model fields must be declared in `query.sortable`. Omitted sort defaults deterministically to `createdAt:desc`. Cursor pagination binds the complete sort tuple and uses stable record identity as the final tie-breaker. Nullable sortable fields use null-last semantics for both ascending and descending directions. Capability-specific computed semantic sorts such as Calendar or Temporal remain standalone modes and are not mixed with the Generic Query tuple.
 
-For filterable `date`, `datetime`, `integer` and `number` fields, the generated query surface also supports `FieldFrom` / `FieldTo` style range parameters.
+For filterable `date`, `datetime`, `integer` and `number` fields, the generated query surface also supports `FieldFrom` / `FieldTo` style range parameters. A `timeRanges` declaration remains independent structural metadata and does not imply any additional overlap/interval query syntax.
 
 Capabilities may add their own semantic query parameters. For example, Calendar contributes time-window queries and Temporal contributes attention/effective-date semantics.
 
