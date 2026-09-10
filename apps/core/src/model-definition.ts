@@ -5,9 +5,15 @@ import {
   REFERENCE_LABEL_TEMPLATE_MAX_LENGTH,
   type ReferenceLabelDefinition,
 } from "./reference-label-syntax";
+import {
+  validateCalendarTimeRangeCollisions,
+  validateTimeRanges,
+  type TimeRangeDefinitions,
+} from "./time-range-definition";
 import { validateWorkflowActions, type WorkflowActionsDefinition } from "./workflow-definition";
 
 export type { ReferenceLabelDefinition } from "./reference-label-syntax";
+export type { TimeRangeBounds, TimeRangeDefinition, TimeRangeDefinitions } from "./time-range-definition";
 
 export const MODEL_DEFINITION_VERSION = 1 as const;
 
@@ -62,6 +68,7 @@ export type ModelDefinition = {
     plural: string;
   };
   fields: Record<string, FieldDefinition>;
+  timeRanges?: TimeRangeDefinitions;
   referenceLabel?: ReferenceLabelDefinition;
   defaults?: Record<string, ModelDefaultValue>;
   query?: QueryDefinition;
@@ -335,6 +342,7 @@ export function validateModelDefinition(input: unknown): ModelValidationResult {
     "description",
     "display",
     "fields",
+    "timeRanges",
     "referenceLabel",
     "defaults",
     "query",
@@ -570,6 +578,8 @@ export function validateModelDefinition(input: unknown): ModelValidationResult {
     }
   }
 
+  const timeRangeResult = validateTimeRanges(input.timeRanges, fields);
+  issues.push(...timeRangeResult.issues);
   const referenceLabel = validateReferenceLabel(input.referenceLabel, fields, issues);
 
   const defaultsInput = input.defaults === undefined
@@ -687,6 +697,10 @@ export function validateModelDefinition(input: unknown): ModelValidationResult {
 
   const capabilityResult = validateCapabilities(input.capabilities, fields);
   issues.push(...capabilityResult.issues);
+  issues.push(...validateCalendarTimeRangeCollisions(
+    timeRangeResult.timeRanges,
+    capabilityResult.capabilities?.calendar,
+  ));
 
   const modelPolicies = validateModelPolicies(input.policies, fields);
   issues.push(...modelPolicies.issues);
@@ -725,6 +739,7 @@ export function validateModelDefinition(input: unknown): ModelValidationResult {
     ...(description ? { description } : {}),
     display: { singular, plural },
     fields,
+    ...(timeRangeResult.timeRanges ? { timeRanges: timeRangeResult.timeRanges } : {}),
     ...(referenceLabel ? { referenceLabel } : {}),
     ...(Object.keys(defaults).length ? { defaults } : {}),
     ...(query ? { query } : {}),

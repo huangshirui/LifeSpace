@@ -20,7 +20,7 @@ Webhook Endpoint / Event Subscription management, delivery diagnostics/test-send
 
 ## Current Kernel Runtime Discovery
 
-The current business-facing Core Kernel contract is **0.32.0**. Generic consumers may choose the projection size appropriate to the task:
+The current business-facing Core Kernel contract is **0.33.0**. Progressive single-model semantic detail now includes canonical structural `timeRanges` projected from Model Definition declarations and registered Capability bindings; this metadata does not itself imply an interval query operator. Generic consumers may choose the projection size appropriate to the task:
 
 - `GET /api/v1/spaces/{spaceId}/_discovery` — full current capability metadata for one known Space;
 - `GET /api/v1/me/_discovery` — full aggregate current capability metadata across reachable Spaces;

@@ -3,6 +3,7 @@ import type { FieldDefinition, ModelAccess } from "./model-definition";
 import type { PublishedModel } from "./model-registry";
 import { referenceLabelSemantic, type ReferenceLabelSemantic } from "./reference-label";
 import { relationSemanticMetadata, type RelationResolutionDescriptor } from "./relation-semantic";
+import { projectTimeRangeSemantics, type TimeRangeSemantic } from "./time-range-definition";
 
 export type ModelRelationSemantic = {
   targetModel: string;
@@ -112,6 +113,7 @@ export type ModelSemanticProjection = {
   referenceLabel: ReferenceLabelSemantic;
   declaredAccess: ModelAccess[];
   fields: ModelSemanticField[];
+  timeRanges: TimeRangeSemantic[];
   defaults: Record<string, unknown>;
   query: ModelSemanticQueryFacts;
   actions: ModelSemanticAction[];
@@ -304,6 +306,7 @@ export function projectModelSemanticFacts(model: PublishedModel): ModelSemanticP
     referenceLabel: referenceLabelSemantic(model.definition),
     declaredAccess: [...model.definition.access],
     fields: modelFieldSemanticFacts(model),
+    timeRanges: projectTimeRangeSemantics(model.definition),
     defaults: structuredClone(model.definition.defaults ?? {}),
     query: modelQuerySemanticFacts(model),
     actions: modelActionSemanticFacts(model),
