@@ -130,8 +130,9 @@ jobs:
         run: node infra/scripts/verify-production-model-admin.mjs
 
       # HomeMew release compatibility is cross-environment semantic identity:
-      # Kernel + Identity versions + model key/route/schemaHash fingerprint. The
-      # production mct_* remains immutable environment-local deployment evidence.
+      # Kernel + Identity + Integration/Eventing versions + model key/schemaHash
+      # fingerprint. The production mct_* remains immutable environment-local
+      # deployment evidence.
       - name: Verify HomeMew production semantic contract
         run: node infra/scripts/verify-production-homemew-contract.mjs
 
