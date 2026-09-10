@@ -89,10 +89,10 @@ export async function runStagingPerformanceBenchmark({
     return { data: result.payload?.data, elapsedMs: result.elapsedMs };
   }
 
-  async function deleteRecord(route, id, version) {
-    const result = await request(`/api/v1/spaces/${spaceId}/${route}/${id}`, { method: "DELETE", body: { version } });
+  async function deleteRecord(modelKey, id, version) {
+    const result = await request(`/api/v1/spaces/${spaceId}/models/${modelKey}/records/${id}`, { method: "DELETE", body: { version } });
     if (result.status !== 204 && result.status !== 404) {
-      console.warn(`Performance cleanup ${route}/${id} failed with ${result.status}: ${JSON.stringify(result.payload)}`);
+      console.warn(`Performance cleanup ${modelKey}/${id} failed with ${result.status}: ${JSON.stringify(result.payload)}`);
     }
   }
 
@@ -114,7 +114,7 @@ export async function runStagingPerformanceBenchmark({
         body: { name: `Performance task ${marker} ${index}`, assigneePersonIds: index === 0 ? [personId] : [] },
       }, 201);
       tasks.push(created.data);
-      cleanup.push({ route: "tasks", id: created.data.id, version: created.data.version });
+      cleanup.push({ modelKey: "task", id: created.data.id, version: created.data.version });
     }
 
     const eventStart = new Date(Date.now() + 2 * 60 * 60 * 1000);
@@ -131,20 +131,20 @@ export async function runStagingPerformanceBenchmark({
         attendeePersonIds: [personId],
       },
     }, 201);
-    cleanup.push({ route: "events", id: event.data.id, version: event.data.version });
+    cleanup.push({ modelKey: "event", id: event.data.id, version: event.data.version });
 
     const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
     const day = await expectData(`/api/v1/spaces/${spaceId}/models/day_record/records`, {
       method: "POST",
       body: { name: `Performance day ${marker}`, kind: "elapsed", anchorDate: yesterday, subjectPersonId: personId },
     }, 201);
-    cleanup.push({ route: "day-records", id: day.data.id, version: day.data.version });
+    cleanup.push({ modelKey: "day_record", id: day.data.id, version: day.data.version });
 
     const wish = await expectData(`/api/v1/spaces/${spaceId}/models/wish/records`, {
       method: "POST",
       body: { ownerPersonId: personId, title: `Performance wish ${marker}` },
     }, 201);
-    cleanup.push({ route: "wishes", id: wish.data.id, version: wish.data.version });
+    cleanup.push({ modelKey: "wish", id: wish.data.id, version: wish.data.version });
 
     const eventRangeStart = encodeURIComponent(new Date(eventStart.getTime() - 60_000).toISOString());
     const eventRangeEnd = encodeURIComponent(new Date(eventEnd.getTime() + 60_000).toISOString());
@@ -204,6 +204,6 @@ export async function runStagingPerformanceBenchmark({
         : "Diagnostic only: absolute HTTP timings may include long-distance runner-to-edge and Worker-to-D1 latency and must not accept or reject Phase 3. D1 round-trip budgets are enforced separately in Core integration tests.",
     };
   } finally {
-    for (const record of cleanup.reverse()) await deleteRecord(record.route, record.id, record.version);
+    for (const record of cleanup.reverse()) await deleteRecord(record.modelKey, record.id, record.version);
   }
 }
