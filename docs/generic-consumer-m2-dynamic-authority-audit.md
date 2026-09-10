@@ -403,7 +403,7 @@ Rules:
 
 Subject to normal version/identity invalidation:
 
-- static model semantic detail keyed by `(key, version, schemaHash)`;
+- static model semantic detail keyed by `(Kernel contractVersion, key, version, schemaHash)` when caches may survive a Kernel deployment;
 - immutable `mct_*`;
 - previously resolved display labels for non-authoritative presentation, where product UX accepts staleness.
 

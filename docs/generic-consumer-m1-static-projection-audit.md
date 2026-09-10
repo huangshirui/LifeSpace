@@ -381,7 +381,7 @@ Static semantic detail must not depend on a caller's Space authority except for 
 
 Current execution authority must remain dynamic and must be rechecked at Runtime mutation/query time.
 
-A cached static detail by `(key, version, schemaHash)` is safe as semantic metadata; a cached positive visibility/access edge is never execution authority.
+A cached static detail by `(Kernel contractVersion, key, version, schemaHash)` is safe as semantic metadata; `contractVersion` belongs to the Kernel representation layer, while the remaining tuple identifies the published model semantics. A cached positive visibility/access edge is never execution authority.
 
 ### 8.4 Compatibility / representation maturity
 
