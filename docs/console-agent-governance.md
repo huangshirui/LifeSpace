@@ -13,7 +13,7 @@ Agent identity governance is part of the independent Identity Platform Admin com
 ```text
 Identity Application Contract:    0.6.0
 Identity Platform Admin Contract: 0.2.0
-Core Platform Admin Contract:     0.1.0
+Core Platform Admin Contract:     0.2.0
 ```
 
 The ordinary Identity Application Contract is unchanged. Business applications do not repin merely because Console gains a new operator capability.
