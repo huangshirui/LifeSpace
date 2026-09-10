@@ -1,6 +1,7 @@
 import type { FieldDefinition, ModelDefinition } from "./model-definition";
 import type { PublishedModel } from "./model-registry";
 import { referenceLabelSemantic } from "./reference-label";
+import { genericComparisonFieldSemantics } from "./query-semantics";
 
 export type JsonSchema = Record<string, unknown>;
 export type OpenApiDocument = Record<string, unknown>;
@@ -388,6 +389,54 @@ function parameterMap(model: PublishedModel): Map<string, Record<string, unknown
     if (["date", "datetime", "integer", "number"].includes(field.type)) {
       put({ name: `${fieldKey}From`, in: "query", schema: fieldSchema({ ...field, nullable: false, readOnly: false }) });
       put({ name: `${fieldKey}To`, in: "query", schema: fieldSchema({ ...field, nullable: false, readOnly: false }) });
+    }
+  }
+
+
+  for (const semantic of genericComparisonFieldSemantics(model.definition)) {
+    const valueSchema: JsonSchema = semantic.source === "model"
+      ? fieldSchema({ ...model.definition.fields[semantic.field]!, nullable: false, readOnly: false })
+      : { type: "string", format: "date-time" };
+    for (const transport of semantic.operators) {
+      const metadata = {
+        "x-lifespace-query-field": semantic.field,
+        "x-lifespace-query-source": semantic.source,
+        "x-lifespace-operator": transport.operator,
+        "x-lifespace-transport": transport.transport,
+      };
+      const existing = parameters.get(transport.parameter);
+      if (existing) parameters.set(transport.parameter, { ...existing, ...metadata });
+      else put({ name: transport.parameter, in: "query", schema: structuredClone(valueSchema), ...metadata });
+    }
+    if (semantic.localDateWindow) {
+      const windowMetadata = {
+        "x-lifespace-query-field": semantic.field,
+        "x-lifespace-query-source": semantic.source,
+        "x-lifespace-window-bounds": semantic.localDateWindow.bounds,
+        "x-lifespace-window-lower-operator": semantic.localDateWindow.lowerOperator,
+        "x-lifespace-window-upper-operator": semantic.localDateWindow.upperOperator,
+      };
+      put({
+        name: semantic.localDateWindow.dateStartParameter,
+        in: "query",
+        schema: { type: "string", format: "date" },
+        ...windowMetadata,
+        "x-lifespace-local-date-window-role": "date-start",
+      });
+      put({
+        name: semantic.localDateWindow.dateEndExclusiveParameter,
+        in: "query",
+        schema: { type: "string", format: "date" },
+        ...windowMetadata,
+        "x-lifespace-local-date-window-role": "date-end-exclusive",
+      });
+      put({
+        name: semantic.localDateWindow.timezoneParameter,
+        in: "query",
+        schema: { type: "string", "x-lifespace-format": "iana-timezone" },
+        ...windowMetadata,
+        "x-lifespace-local-date-window-role": "viewing-timezone",
+      });
     }
   }
 

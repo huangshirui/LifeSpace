@@ -3,6 +3,7 @@ import type { FieldDefinition, ModelAccess } from "./model-definition";
 import type { PublishedModel } from "./model-registry";
 import { referenceLabelSemantic, type ReferenceLabelSemantic } from "./reference-label";
 import { relationSemanticMetadata, type RelationResolutionDescriptor } from "./relation-semantic";
+import { genericComparisonFieldSemantics, type GenericComparisonFieldSemantic } from "./query-semantics";
 import { projectTimeRangeSemantics, type TimeRangeSemantic } from "./time-range-definition";
 
 export type ModelRelationSemantic = {
@@ -73,6 +74,7 @@ export type ModelSemanticQueryFacts = {
     maxLength: 100;
   };
   filters: ModelSemanticFilter[];
+  comparisons: GenericComparisonFieldSemantic[];
   sort: {
     parameter: "sort";
     syntax: "field:direction";
@@ -210,6 +212,7 @@ export function modelQuerySemanticFacts(model: PublishedModel): ModelSemanticQue
     sortable,
     search: searchable.length ? { parameter: "q", minLength: 1, maxLength: 100 } : null,
     filters,
+    comparisons: genericComparisonFieldSemantics(model.definition),
     sort: {
       parameter: "sort",
       syntax: "field:direction",

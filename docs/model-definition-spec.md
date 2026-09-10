@@ -378,7 +378,38 @@ sortable   -> explicit field sort options
 
 Generic Query sorting is an ordered tuple. Clients may repeat `sort=field:direction` up to eight times, preserving criterion order. Envelope fields `createdAt` and `updatedAt` are always sortable; model fields must be declared in `query.sortable`. Omitted sort defaults deterministically to `createdAt:desc`. Cursor pagination binds the complete sort tuple and uses stable record identity as the final tie-breaker. Nullable sortable fields use null-last semantics for both ascending and descending directions. Capability-specific computed semantic sorts such as Calendar or Temporal remain standalone modes and are not mixed with the Generic Query tuple.
 
-For filterable `date`, `datetime`, `integer` and `number` fields, the generated query surface also supports `FieldFrom` / `FieldTo` style range parameters. A `timeRanges` declaration remains independent structural metadata and does not imply any additional overlap/interval query syntax.
+For filterable `date`, `datetime`, `integer` and `number` fields, Generic Query owns an explicit comparison-operator semantic set:
+
+```text
+eq | lt | lte | gt | gte
+```
+
+The semantic operator is independent from a REST parameter name. Existing v1 REST compatibility is frozen as:
+
+```text
+field=x       -> eq x
+fieldFrom=x   -> gte x
+fieldTo=x     -> lte x
+```
+
+In particular `fieldTo` remains inclusive. New explicit comparison transport uses collision-free `field.operator` parameter names such as `dueDate.gte` and `dueDate.lt`; Model field keys cannot contain `.`, so adapters never need to infer an operator from a field-name suffix. Supplying two transport aliases for the same field/operator in one request is invalid rather than silently choosing precedence.
+
+The platform-owned envelope `createdAt` and `updatedAt` fields are always queryable `datetime` comparison fields even though they are not repeated in Model `query.filterable`. Their comparison transport is explicit only. Generated Model Contract metadata and Progressive Runtime Semantic Detail enumerate the actual operator/parameter mapping; adapters must consume that published mapping rather than reconstructing names.
+
+For any comparison-queryable `datetime` field, Generic Query additionally exposes one concrete local-calendar window transport:
+
+```text
+<field>.dateStart=YYYY-MM-DD
+<field>.dateEndExclusive=YYYY-MM-DD
+<field>.timezone=<IANA timezone>
+```
+
+All three parameters are required together. Core resolves the two local date boundaries with the shared DST-safe Time Semantics primitive and applies the canonical half-open instant predicate `value >= startInclusive AND value < endExclusive`. Adapters must not calculate UTC boundaries themselves. `date` fields remain calendar-date values and use ordinary explicit comparisons without timezone conversion.
+
+A `timeRanges` declaration remains independent structural metadata and does not imply any additional overlap/interval query syntax.
+
+Conformance-ID: MDV1-QUERY-COMPARISON-01
+Conformance-ID: MDV1-QUERY-LOCAL-DATE-WINDOW-01
 
 Capabilities may add their own semantic query parameters. For example, Calendar contributes time-window queries and Temporal contributes attention/effective-date semantics.
 

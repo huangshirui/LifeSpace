@@ -192,6 +192,31 @@ describe("Progressive single-model semantic detail", () => {
       { field: "rank", parameter: "rank", mode: "exact", range: { fromParameter: "rankFrom", toParameter: "rankTo" } },
       { field: "ownerPersonId", parameter: "ownerPersonId", mode: "exact" },
     ]));
+    expect(data.query.comparisons).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        field: "rank",
+        source: "model",
+        valueType: "integer",
+        operators: expect.arrayContaining([
+          { operator: "gte", parameter: "rankFrom", transport: "legacy" },
+          { operator: "lt", parameter: "rank.lt", transport: "explicit" },
+        ]),
+      }),
+      expect.objectContaining({
+        field: "createdAt",
+        source: "envelope",
+        valueType: "datetime",
+        localDateWindow: {
+          dateStartParameter: "createdAt.dateStart",
+          dateEndExclusiveParameter: "createdAt.dateEndExclusive",
+          timezoneParameter: "createdAt.timezone",
+          bounds: "[)",
+          lowerOperator: "gte",
+          upperOperator: "lt",
+        },
+      }),
+      expect.objectContaining({ field: "updatedAt", source: "envelope", valueType: "datetime" }),
+    ]));
     expect(data.query.pagination).toEqual({
       limit: { parameter: "limit", minimum: 1, maximum: 200, default: 100 },
       cursor: { parameter: "cursor", type: "string" },
