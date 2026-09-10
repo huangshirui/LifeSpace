@@ -31,11 +31,11 @@ The current business-facing Core Kernel contract is **0.32.0**. Generic consumer
 
 The progressive Runtime Discovery representations are Candidate/Public Context Projections. They reflect current visibility when requested but never authorize execution; every CRUD/query/Action rechecks current authority and model/Capability rules.
 
-## Phase 2 native HomeMew capability replacement
+## Historical Phase 2 HomeMew capability replacement
 
-Core API contract version **0.8.0** is native-only. It contains the family Space policy and the Space-owned Events, Tasks, Day Records and Wishes needed by the frozen HomeMew migration baseline, but no longer exposes HomeMew `/api/v1/families/...` or `/api/v1/family-invites/...` runtime compatibility facades.
+The Phase-2 Core API contract **0.8.0** was a native-only proving baseline. It contained the family Space policy and the Space-owned Events, Tasks, Day Records and Wishes needed by the then-frozen HomeMew migration baseline, and no longer exposed HomeMew `/api/v1/families/...` or `/api/v1/family-invites/...` runtime compatibility facades.
 
-HomeMew remains free to use product terms such as “家庭” and “家庭成员” in its UI. Its application layer maps those product concepts to the native LifeSpace contract:
+That Phase-2 contract is historical evidence, not the current ordinary-model contract. HomeMew remains free to use product terms such as “家庭” and “家庭成员” in its UI. Its application layer maps those product concepts to native LifeSpace concepts:
 
 ```text
 family            -> Space(kind=family)
@@ -46,19 +46,26 @@ day subject       -> Space Person ID
 wish people       -> Space Person ID
 ```
 
-The retired compatibility implementation from Phase 2.2–2.6 is migration history, not target architecture. Migration mapping tables and transform scripts remain because they are needed to deterministically transform HomeMew production data and preserve audit traceability; native request handling does not consult those mappings.
+The retired compatibility implementation from Phase 2.2–2.6 is migration history, not target architecture. Migration mapping tables and transform scripts remain because they are needed to deterministically transform HomeMew migration snapshots and preserve audit traceability; native request handling does not consult those mappings.
 
-## Native domain behavior
+## Current runtime and model authority
+
+Current Kernel-level behavior that is intentionally explicit outside ordinary Model Definitions includes:
 
 - Every Space stores an IANA `timezone`; creation defaults to `UTC` when omitted.
 - Space profile updates use optimistic-concurrency `version`.
 - Family Spaces allow at most eight active memberships and retain at least one active owner/admin.
 - Membership activation/deactivation keeps its linked Space Person consistent.
 - Core owns hashed, expiring, revocable Space invitations. Plaintext invitation tokens are returned exactly once at creation; redemption atomically creates/reactivates membership plus Space Person.
-- Events are stored against `space_id`. Attendees are active same-Space `space_person` references. Timed instants are canonical UTC with display timezones; all-day ranges use half-open dates; update/delete use optimistic versions and soft deletion.
-- Tasks are stored against `space_id`. Assignees are active same-Space `space_person` references. Status is `pending`, `completed`, or `cancelled`; `dueDate` is date-only; PATCH/DELETE/complete/reopen use optimistic versions. When a due-date range is supplied, omitted `includeNoDue` is explicitly `false`.
-- Day Records are Space-owned date-only records with `elapsed`, `countdown`, and `cycle` kinds. Computed state uses the owning Space timezone. Elapsed/cycle records preserve occurrence history; manual occurrences advance the anchor atomically. Archived records are readable but immutable until restored. Native subjects use Space Person IDs and historical subject references remain renderable after deactivation.
-- Wishes are Space-owned records with `open`, `claimed`, `fulfilled`, and `archived` lifecycle states. Owner, claimant, and fulfiller are durable same-Space Person references. Phase 2.6 lifecycle actions still require a current user principal with an active linked Space Person; service/Agent lifecycle semantics belong to the external-integrations slice.
+
+Ordinary business-model semantics such as the current Event, Task, Day Record and Wish fields, lifecycle states, Actions, query metadata and Capability bindings are **not duplicated in this README**. Their current sources of truth are:
+
+- shipped baseline Model Definitions: `model-catalog/baseline-models.json`;
+- normative Model Definition / Policy / Action / Capability DSL semantics: `../../docs/model-definition-spec.md`;
+- the currently published Model Registry plus immutable generated `mct_*` Model Contract Revision;
+- current Runtime/Capability tests, including baseline-model convergence and Generic Runtime/Workflow/Temporal coverage.
+
+Canonical ordinary Runtime addressing is `/api/v1/spaces/{spaceId}/models/{modelKey}/records/...`. Historical Phase-2 lifecycle prose and migration transforms below are preserved as evidence only and must not be treated as the current Model Contract.
 
 ## HomeMew migration transforms
 
@@ -122,4 +129,4 @@ Canonical request and response syntax lives in `openapi.yaml`. D1 migrations liv
 
 ## Verification
 
-`pnpm --filter @lifespace/core check` runs Wrangler binding drift checks, canonical OpenAPI checks, Workers-runtime D1 integration tests, Node migration-transform tests, TypeScript checking, and Wrangler dry-run build. Native-domain integration tests use only `/api/v1/spaces/...` and explicitly verify that retired HomeMew compatibility paths return `404`.
+`pnpm --filter @lifespace/core check` runs Wrangler binding drift checks, canonical OpenAPI checks, Workers-runtime D1 integration tests, Node migration-transform tests, TypeScript checking, and Wrangler dry-run build. Current ordinary-model behavior is verified through the Model Catalog/Generic Runtime/Capability tests rather than by duplicating domain lifecycle prose in this README.
