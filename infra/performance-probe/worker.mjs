@@ -34,7 +34,6 @@ export function isAllowedBenchmarkRequest(path, method, spaceId) {
     ["POST", new RegExp("^" + base + "/models/wish/records$", "u")],
     ["GET", new RegExp("^" + base + "/models/wish/records$", "u")],
     ["DELETE", new RegExp("^" + base + "/models/wish/records/" + record + "$", "u")],
-    ["DELETE", new RegExp("^" + base + "/(?:tasks|events|day-records|wishes)/[A-Za-z0-9_]+$", "u")],
   ];
 
   return rules.some(([allowedMethod, pattern]) => allowedMethod === method && pattern.test(url.pathname));
