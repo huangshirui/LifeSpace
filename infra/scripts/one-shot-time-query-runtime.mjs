@@ -12,30 +12,33 @@ function replaceOnce(before, after, label) {
   text = text.slice(0, first) + after + text.slice(first + before.length);
 }
 
+function replaceSection(startMarker, endMarker, replacement, label, useLast = false) {
+  const start = useLast ? text.lastIndexOf(startMarker) : text.indexOf(startMarker);
+  if (start < 0) throw new Error(`Missing start marker: ${label}`);
+  const end = text.indexOf(endMarker, start + startMarker.length);
+  if (end < 0) throw new Error(`Missing end marker: ${label}`);
+  text = text.slice(0, start) + replacement + text.slice(end);
+}
+
 replaceOnce(
   'import type { PublishedModel } from "./model-registry";\n',
   'import type { PublishedModel } from "./model-registry";\nimport {\n  genericComparisonFieldSemantics,\n  isGenericComparableFieldType,\n  type GenericComparisonOperator,\n  type GenericComparisonValueType,\n  type GenericComparisonFieldSemantic,\n} from "./query-semantics";\nimport { localDateWindowToInstantRange } from "./time-semantics";\n',
   "query semantic imports",
 );
 
-replaceOnce(
-`function rangeValue(field: FieldDefinition, raw: string, key: string): string | number {
-  if (field.type === "date") return exactDate(raw, key);
-  if (field.type === "datetime") return dateTime(raw, key);
-  if (field.type === "integer" || field.type === "number") return scalarValue(field, raw, key);
-  throw new ApiError("INVALID_QUERY", \`${key} is not supported for \${field.type}\`, 400);
-}
-`,
-`function comparisonValue(type: GenericComparisonValueType, raw: string, key: string): string | number {
+replaceSection(
+  "function rangeValue(",
+  "function escapeLike(",
+  `function comparisonValue(type: GenericComparisonValueType, raw: string, key: string): string | number {
   if (type === "date") return exactDate(raw, key);
   if (type === "datetime") return dateTime(raw, key);
   if (type === "integer") {
     const value = Number(raw);
-    if (!Number.isInteger(value)) throw new ApiError("INVALID_QUERY", \`${key} must be an integer\`, 400);
+    if (!Number.isInteger(value)) throw new ApiError("INVALID_QUERY", key + " must be an integer", 400);
     return value;
   }
   const value = Number(raw);
-  if (!Number.isFinite(value)) throw new ApiError("INVALID_QUERY", \`${key} must be a number\`, 400);
+  if (!Number.isFinite(value)) throw new ApiError("INVALID_QUERY", key + " must be a number", 400);
   return value;
 }
 
@@ -55,25 +58,15 @@ function comparisonSqlOperator(operator: GenericComparisonOperator): string {
     case "gte": return ">=";
   }
 }
+
 `,
-  "comparison value helpers",
+  "comparison helpers",
 );
 
-replaceOnce(
-`function allowedQueryKeys(model: PublishedModel): Set<string> {
-  const allowed = new Set(["q", "sort", "cursor", "limit"]);
-  for (const fieldKey of model.definition.query?.filterable ?? []) {
-    allowed.add(fieldKey);
-    const field = model.definition.fields[fieldKey];
-    if (field && ["date", "datetime", "integer", "number"].includes(field.type)) {
-      allowed.add(\`${fieldKey}From\`);
-      allowed.add(\`${fieldKey}To\`);
-    }
-  }
-  return allowed;
-}
-`,
-`function allowedQueryKeys(model: PublishedModel): Set<string> {
+replaceSection(
+  "function allowedQueryKeys(model: PublishedModel): Set<string> {",
+  "function parseSortCriterion(",
+  `function allowedQueryKeys(model: PublishedModel): Set<string> {
   const allowed = new Set(["q", "sort", "cursor", "limit"]);
   for (const fieldKey of model.definition.query?.filterable ?? []) allowed.add(fieldKey);
   for (const semantic of genericComparisonFieldSemantics(model.definition)) {
@@ -86,49 +79,12 @@ replaceOnce(
   }
   return allowed;
 }
+
 `,
   "allowed generic query keys",
 );
 
-const oldFilterLoop = `  for (const fieldKey of model.definition.query?.filterable ?? []) {
-    const field = model.definition.fields[fieldKey];
-    if (!field) continue;
-    const exact = one(params, fieldKey);
-    if (exact !== undefined) {
-      if (field.type === "person" || field.type === "person_list") {
-        sql += \` AND EXISTS(SELECT 1 FROM resource_relations rel WHERE rel.source_record_id=r.id AND rel.field_key=? AND rel.target_type='person' AND rel.target_person_id=?)\`;
-        args.push(fieldKey, scalarValue(field, exact, fieldKey));
-      } else if (field.type === "record" || field.type === "record_list") {
-        sql += \` AND EXISTS(SELECT 1 FROM resource_relations rel WHERE rel.source_record_id=r.id AND rel.field_key=? AND rel.target_type='record' AND rel.target_record_id=?)\`;
-        args.push(fieldKey, scalarValue(field, exact, fieldKey));
-      } else if (field.type === "enum" && exact.includes(",")) {
-        const values = exact.split(",").filter(Boolean);
-        if (!values.length || new Set(values).size !== values.length) throw new ApiError("INVALID_QUERY", \`${fieldKey} enum filter is invalid\`, 400);
-        const parsed = values.map((value) => scalarValue(field, value, fieldKey));
-        sql += \` AND \${typedScalarExpression(model, fieldKey)} IN (\${parsed.map(() => "?").join(",")})\`;
-        args.push(...parsed);
-      } else {
-        sql += \` AND \${typedScalarExpression(model, fieldKey)}=?\`;
-        args.push(scalarValue(field, exact, fieldKey));
-      }
-    }
-
-    const from = one(params, \`${fieldKey}From\`);
-    const to = one(params, \`${fieldKey}To\`);
-    if (from !== undefined) {
-      if (["person", "person_list", "record", "record_list"].includes(field.type)) throw new ApiError("INVALID_QUERY", \`${fieldKey}From is not supported for relation fields\`, 400);
-      sql += \` AND \${typedScalarExpression(model, fieldKey)}>=?\`;
-      args.push(rangeValue(field, from, \`${fieldKey}From\`));
-    }
-    if (to !== undefined) {
-      if (["person", "person_list", "record", "record_list"].includes(field.type)) throw new ApiError("INVALID_QUERY", \`${fieldKey}To is not supported for relation fields\`, 400);
-      sql += \` AND \${typedScalarExpression(model, fieldKey)}<=?\`;
-      args.push(rangeValue(field, to, \`${fieldKey}To\`));
-    }
-  }
-`;
-
-const newFilterLoop = `  for (const semantic of genericComparisonFieldSemantics(model.definition)) {
+const comparisonExecution = `  for (const semantic of genericComparisonFieldSemantics(model.definition)) {
     const expression = comparisonExpression(model, semantic);
     const suppliedOperators = new Map<GenericComparisonOperator, string>();
     for (const transport of semantic.operators) {
@@ -138,12 +94,12 @@ const newFilterLoop = `  for (const semantic of genericComparisonFieldSemantics(
       if (previous) {
         throw new ApiError(
           "INVALID_QUERY",
-          \`\${previous} and \${transport.parameter} are aliases for the same \${transport.operator} operator\`,
+          previous + " and " + transport.parameter + " are aliases for the same " + transport.operator + " operator",
           400,
         );
       }
       suppliedOperators.set(transport.operator, transport.parameter);
-      sql += \` AND \${expression}\${comparisonSqlOperator(transport.operator)}?\`;
+      sql += " AND " + expression + comparisonSqlOperator(transport.operator) + "?";
       args.push(comparisonValue(semantic.valueType, raw, transport.parameter));
     }
 
@@ -156,7 +112,7 @@ const newFilterLoop = `  for (const semantic of genericComparisonFieldSemantics(
       if (suppliedCount > 0 && suppliedCount < 3) {
         throw new ApiError(
           "INVALID_QUERY",
-          \`\${semantic.field} local-date window requires dateStart, dateEndExclusive, and timezone together\`,
+          semantic.field + " local-date window requires dateStart, dateEndExclusive, and timezone together",
           400,
         );
       }
@@ -167,12 +123,14 @@ const newFilterLoop = `  for (const semantic of genericComparisonFieldSemantics(
             dateEndExclusive: dateEndExclusive!,
             timezone: timezone!,
           });
-          sql += \` AND \${expression}>=? AND \${expression}<?\`;
+          sql += " AND " + expression + ">=? AND " + expression + "<?";
           args.push(instantRange.startInclusive, instantRange.endExclusive);
         } catch (error) {
           throw new ApiError(
             "INVALID_QUERY",
-            error instanceof Error ? \`\${semantic.field} local-date window is invalid: \${error.message}\` : \`\${semantic.field} local-date window is invalid\`,
+            error instanceof Error
+              ? semantic.field + " local-date window is invalid: " + error.message
+              : semantic.field + " local-date window is invalid",
             400,
           );
         }
@@ -193,17 +151,24 @@ const newFilterLoop = `  for (const semantic of genericComparisonFieldSemantics(
       args.push(fieldKey, scalarValue(field, exact, fieldKey));
     } else if (field.type === "enum" && exact.includes(",")) {
       const values = exact.split(",").filter(Boolean);
-      if (!values.length || new Set(values).size !== values.length) throw new ApiError("INVALID_QUERY", \`${fieldKey} enum filter is invalid\`, 400);
+      if (!values.length || new Set(values).size !== values.length) throw new ApiError("INVALID_QUERY", fieldKey + " enum filter is invalid", 400);
       const parsed = values.map((value) => scalarValue(field, value, fieldKey));
-      sql += \` AND \${typedScalarExpression(model, fieldKey)} IN (\${parsed.map(() => "?").join(",")})\`;
+      sql += " AND " + typedScalarExpression(model, fieldKey) + " IN (" + parsed.map(() => "?").join(",") + ")";
       args.push(...parsed);
     } else {
-      sql += \` AND \${typedScalarExpression(model, fieldKey)}=?\`;
+      sql += " AND " + typedScalarExpression(model, fieldKey) + "=?";
       args.push(scalarValue(field, exact, fieldKey));
     }
   }
 `;
-replaceOnce(oldFilterLoop, newFilterLoop, "generic filter execution");
+
+replaceSection(
+  "  for (const fieldKey of model.definition.query?.filterable ?? []) {",
+  '\n\n  const rawCursor = one(params, "cursor");',
+  comparisonExecution,
+  "generic filter execution",
+  true,
+);
 
 await writeFile(path, text, "utf8");
 console.log("Generic Time Query runtime migration applied.");
