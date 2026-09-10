@@ -151,6 +151,32 @@ describe("Calendar viewing-window query", () => {
     expect(cursor).toBeNull();
   });
 
+  it("keeps descending merged pagination stable when timed records share the same start instant", async () => {
+    const { spaceId, model } = await fixture();
+    const day = await allDay(spaceId, model, "All day", "2026-09-10", "2026-09-11");
+    const early = await timed(spaceId, model, "Early", "2026-09-09T16:30:00.000Z", "2026-09-09T17:00:00.000Z");
+    const tiedA = await timed(spaceId, model, "Tied A", "2026-09-10T01:00:00.000Z", "2026-09-10T02:00:00.000Z");
+    const tiedB = await timed(spaceId, model, "Tied B", "2026-09-10T01:00:00.000Z", "2026-09-10T02:30:00.000Z");
+    const tied = [tiedA, tiedB].sort((left, right) => left.id.localeCompare(right.id));
+    const expected = [day, ...tied, early];
+
+    const seen: string[] = [];
+    let cursor: string | null = null;
+    for (let page = 0; page < expected.length; page += 1) {
+      const params = viewingParams({
+        sort: "calendarStart:desc",
+        limit: "1",
+        ...(cursor ? { cursor } : {}),
+      });
+      const result = await queryCalendarResources(bindings(), actor, spaceId, model, params);
+      expect(result.items).toHaveLength(1);
+      seen.push(result.items[0]!.id);
+      cursor = result.nextCursor;
+    }
+    expect(seen).toEqual(expected.map((item) => item.id));
+    expect(cursor).toBeNull();
+  });
+
   it("composes attendee me with the high-level window", async () => {
     const { spaceId, personId, model } = await fixture();
     const mine = await timed(
