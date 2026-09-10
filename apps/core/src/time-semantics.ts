@@ -49,15 +49,19 @@ export function assertIanaTimezone(value: string): string {
   }
 }
 
-function localDateOrdinalAt(instantMs: number, timezone: string): number {
-  const parts = new Intl.DateTimeFormat("en-CA", {
+function localDateFormatter(timezone: string): Intl.DateTimeFormat {
+  return new Intl.DateTimeFormat("en-CA", {
     timeZone: timezone,
     calendar: "iso8601",
     numberingSystem: "latn",
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
-  }).formatToParts(new Date(instantMs));
+  });
+}
+
+function localDateOrdinalAt(instantMs: number, formatter: Intl.DateTimeFormat): number {
+  const parts = formatter.formatToParts(new Date(instantMs));
   const value = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value;
   const year = Number(value("year"));
   const month = Number(value("month"));
@@ -65,23 +69,28 @@ function localDateOrdinalAt(instantMs: number, timezone: string): number {
   return dateOrdinal({ year, month, day });
 }
 
-function startOfLocalDate(value: string, timezone: string, field: string): string {
+function startOfLocalDate(
+  value: string,
+  timezone: string,
+  field: string,
+  formatter: Intl.DateTimeFormat,
+): string {
   const target = calendarDateParts(value, field);
   const targetOrdinal = dateOrdinal(target);
   const nominalUtc = Date.UTC(target.year, target.month - 1, target.day);
   let low = nominalUtc - SEARCH_PADDING_MS;
   let high = nominalUtc + SEARCH_PADDING_MS;
 
-  while (localDateOrdinalAt(low, timezone) >= targetOrdinal) low -= SEARCH_PADDING_MS;
-  while (localDateOrdinalAt(high, timezone) < targetOrdinal) high += SEARCH_PADDING_MS;
+  while (localDateOrdinalAt(low, formatter) >= targetOrdinal) low -= SEARCH_PADDING_MS;
+  while (localDateOrdinalAt(high, formatter) < targetOrdinal) high += SEARCH_PADDING_MS;
 
   while (low < high) {
     const middle = low + Math.floor((high - low) / 2);
-    if (localDateOrdinalAt(middle, timezone) >= targetOrdinal) high = middle;
+    if (localDateOrdinalAt(middle, formatter) >= targetOrdinal) high = middle;
     else low = middle + 1;
   }
 
-  if (localDateOrdinalAt(low, timezone) !== targetOrdinal) {
+  if (localDateOrdinalAt(low, formatter) !== targetOrdinal) {
     throw new RangeError(`${field} does not exist in timezone ${timezone}`);
   }
   return new Date(low).toISOString();
@@ -103,9 +112,10 @@ export function localDateWindowToInstantRange(input: LocalDateWindow): InstantRa
   if (dateOrdinal(end) <= dateOrdinal(start)) {
     throw new RangeError("dateEndExclusive must be later than dateStart");
   }
+  const formatter = localDateFormatter(timezone);
 
   return {
-    startInclusive: startOfLocalDate(input.dateStart, timezone, "dateStart"),
-    endExclusive: startOfLocalDate(input.dateEndExclusive, timezone, "dateEndExclusive"),
+    startInclusive: startOfLocalDate(input.dateStart, timezone, "dateStart", formatter),
+    endExclusive: startOfLocalDate(input.dateEndExclusive, timezone, "dateEndExclusive", formatter),
   };
 }
