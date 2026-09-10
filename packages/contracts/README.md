@@ -27,7 +27,7 @@ Accepted staging mct evidence:
   mct_ab4a409654afdc6044ea50720e5c69fdf40ffb3b8c64fe6fd27a385a9bf154b4
 ```
 
-This profile was explicitly promoted after the Core 0.32.0 staging deployment and HomeMew integration Golden Flow completed successfully and the reproducible staging candidate bundle identified the exact tuple above. The promotion records the #200 modelKey-only Runtime identity: new cross-environment Model Semantic Fingerprints contain only `key + schemaHash`; `route` is not a Model identity. HomeMew remains a direct LifeSpace consumer and the platform keeps the four already-published `/api/v1` domain paths only as fixed compatibility aliases for older deployed clients.
+This profile was explicitly promoted after the Core 0.32.0 staging deployment and HomeMew integration Golden Flow completed successfully and the reproducible staging candidate bundle identified the exact tuple above. The promotion records the #200 modelKey-only Runtime identity: new cross-environment Model Semantic Fingerprints contain only `key + schemaHash`; `route` is not a Model identity. HomeMew remains a direct LifeSpace consumer. The four pre-#200 `/api/v1` domain-path compatibility aliases used during the cutover have been retired under #207; supported ordinary Runtime addressing is the canonical `/api/v1/spaces/{spaceId}/models/{modelKey}/records/...` surface.
 
 The previous accepted HomeMew profile v2 / Core 0.21.0 remains historical evidence. It is not rewritten to look like a post-#200 contract and its historical route-bearing fingerprint remains verifiable through the legacy profile-v2 calculation.
 
