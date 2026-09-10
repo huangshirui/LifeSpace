@@ -134,7 +134,7 @@ describe("Generic Time Query execution", () => {
       ORDER BY created_at DESC,id DESC LIMIT 101`)
       .bind(spaceId, "2026-01-01T00:00:00.000Z", "2027-01-01T00:00:00.000Z")
       .all<{ detail: string }>();
-    expect(createdPlan.results.some((row) => row.detail.includes("idx_resource_records_space_model"))).toBe(true);
+    expect(createdPlan.results.some((row) => /\bidx_resource_records_space_model\b/u.test(row.detail))).toBe(true);
 
     const updatedPlan = await db.prepare(`EXPLAIN QUERY PLAN
       SELECT id FROM resource_records
@@ -143,6 +143,6 @@ describe("Generic Time Query execution", () => {
       ORDER BY updated_at DESC,id DESC LIMIT 101`)
       .bind(spaceId, "2026-01-01T00:00:00.000Z", "2027-01-01T00:00:00.000Z")
       .all<{ detail: string }>();
-    expect(updatedPlan.results.some((row) => row.detail.includes("idx_resource_records_space_model_updated"))).toBe(true);
+    expect(updatedPlan.results.some((row) => /\bidx_resource_records_space_model_updated\b/u.test(row.detail))).toBe(true);
   });
 });
