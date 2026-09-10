@@ -31,12 +31,17 @@ test("APAC performance probe accepts the canonical modelKey Runtime surface", ()
   }
 });
 
-test("APAC performance probe does not benchmark legacy v1 aliases or arbitrary model paths", () => {
+test("APAC performance probe does not benchmark retired v1 aliases or arbitrary model paths", () => {
   const denied = [
     ["GET", `${base}/tasks`],
+    ["POST", `${base}/tasks`],
+    ["DELETE", `${base}/tasks/${recordId}`],
     ["GET", `${base}/events`],
+    ["DELETE", `${base}/events/${recordId}`],
     ["GET", `${base}/day-records`],
+    ["DELETE", `${base}/day-records/${recordId}`],
     ["GET", `${base}/wishes`],
+    ["DELETE", `${base}/wishes/${recordId}`],
     ["GET", `${base}/models/unknown/records`],
     ["POST", `${base}/models/event/records/${recordId}/actions/anything`],
   ];
