@@ -597,6 +597,18 @@ async function predicateFragment(
   return scalarFilter(model, predicate);
 }
 
+function combineBooleanFragments(operator: "AND" | "OR", fragments: SqlFragment[]): SqlFragment {
+  function balancedSql(start: number, end: number): string {
+    if (end - start === 1) return fragments[start].sql;
+    const midpoint = start + Math.floor((end - start) / 2);
+    return `(${balancedSql(start, midpoint)} ${operator} ${balancedSql(midpoint, end)})`;
+  }
+  return {
+    sql: balancedSql(0, fragments.length),
+    args: fragments.flatMap((fragment) => fragment.args),
+  };
+}
+
 async function compileFilter(
   env: Bindings,
   principal: Principal,
@@ -606,22 +618,16 @@ async function compileFilter(
   actorPersonId?: string | null,
 ): Promise<SqlFragment> {
   if ("and" in filter) {
-    const fragments: SqlFragment[] = await Promise.all(
-      filter.and.map((child: CanonicalFilter) => compileFilter(env, principal, spaceId, model, child, actorPersonId)),
+    const fragments = await Promise.all(
+      filter.and.map((child) => compileFilter(env, principal, spaceId, model, child, actorPersonId)),
     );
-    return {
-      sql: `(${fragments.map((fragment: SqlFragment) => fragment.sql).join(" AND ")})`,
-      args: fragments.flatMap((fragment: SqlFragment) => fragment.args),
-    };
+    return combineBooleanFragments("AND", fragments);
   }
   if ("or" in filter) {
-    const fragments: SqlFragment[] = await Promise.all(
-      filter.or.map((child: CanonicalFilter) => compileFilter(env, principal, spaceId, model, child, actorPersonId)),
+    const fragments = await Promise.all(
+      filter.or.map((child) => compileFilter(env, principal, spaceId, model, child, actorPersonId)),
     );
-    return {
-      sql: `(${fragments.map((fragment: SqlFragment) => fragment.sql).join(" OR ")})`,
-      args: fragments.flatMap((fragment: SqlFragment) => fragment.args),
-    };
+    return combineBooleanFragments("OR", fragments);
   }
   return predicateFragment(env, principal, spaceId, model, filter, actorPersonId);
 }
