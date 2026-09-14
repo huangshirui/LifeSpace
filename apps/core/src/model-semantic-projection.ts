@@ -1,4 +1,5 @@
 import type { CalendarCapabilityDefinition, TemporalCapabilityDefinition } from "./capability-definition";
+import { canonicalQuerySemanticDescriptor, type CanonicalQuerySemanticDescriptor } from "./canonical-query-contract";
 import { calendarViewingWindowSemanticQuery } from "./calendar-query-semantics";
 import type { FieldDefinition, ModelAccess } from "./model-definition";
 import type { PublishedModel } from "./model-registry";
@@ -68,6 +69,8 @@ export type ModelSemanticQueryParameter = {
 export type ModelSemanticCapabilityQuery = ReturnType<typeof calendarViewingWindowSemanticQuery>;
 
 export type ModelSemanticQueryFacts = {
+  canonical: CanonicalQuerySemanticDescriptor;
+  legacyDeprecated: true;
   searchable: string[];
   filterable: string[];
   sortable: string[];
@@ -214,6 +217,8 @@ export function modelQuerySemanticFacts(model: PublishedModel): ModelSemanticQue
   }
 
   return {
+    canonical: canonicalQuerySemanticDescriptor(model),
+    legacyDeprecated: true,
     searchable,
     filterable,
     sortable,
