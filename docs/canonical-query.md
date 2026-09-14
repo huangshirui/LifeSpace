@@ -322,11 +322,12 @@ Implemented in the Canonical Typed Query convergence slice:
 - structural time-range predicates;
 - Calendar-backed `when` compatibility projection;
 - normalized cursor binding and stable multi-sort continuation;
-- existing GET transports retained for compatibility.
+- existing GET transports retained as explicitly deprecated compatibility metadata;
+- Runtime Discovery and immutable Model Contract expose the same generated Canonical Query descriptor.
 
 Planned follow-up work, not yet current Model Definition v1 behavior:
 
 - direct canonical `TemporalRange` field storage and Event migration;
 - direct semantic `Location` field storage and `withinDistance` execution;
-- removal of legacy caller-visible Capability Query descriptors after downstream consumers migrate to Canonical Query metadata;
+- physical removal of deprecated legacy GET/Capability Query descriptors after downstream consumers migrate to `query.canonical`;
 - retirement of compatibility GET special-query planners after traffic and consumer evidence allow it.
