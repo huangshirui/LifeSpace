@@ -4,10 +4,15 @@ import { ApiError } from "./http";
 import type { FieldDefinition } from "./model-definition";
 import type { PublishedModel } from "./model-registry";
 import { compilePhysicalSchema, type PhysicalSchemaPlan } from "./physical-schema";
+import {
+  provenanceFromStorage,
+  type InformationProvenance,
+  type StoredProvenanceColumns,
+} from "./resource-provenance";
 
 type JsonObject = Record<string, unknown>;
 
-export type TypedResourceRow = {
+export type TypedResourceRow = StoredProvenanceColumns & {
   id: string;
   space_id: string;
   model_key: string;
@@ -25,6 +30,7 @@ export type TypedStoredResource = {
   modelKey: string;
   modelVersion: number;
   data: JsonObject;
+  provenance?: InformationProvenance;
   version: number;
   createdAt: string;
   updatedAt: string;
@@ -153,16 +159,20 @@ function scalarData(model: PublishedModel, row: TypedResourceRow): JsonObject {
 }
 
 function resourcesFromRows(model: PublishedModel, rows: TypedResourceRow[]): TypedStoredResource[] {
-  return rows.map((row) => ({
-    id: row.id,
-    spaceId: row.space_id,
-    modelKey: row.model_key,
-    modelVersion: row.model_version,
-    data: scalarData(model, row),
-    version: row.version,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-  }));
+  return rows.map((row) => {
+    const provenance = provenanceFromStorage(row);
+    return {
+      id: row.id,
+      spaceId: row.space_id,
+      modelKey: row.model_key,
+      modelVersion: row.model_version,
+      data: scalarData(model, row),
+      ...(provenance ? { provenance } : {}),
+      version: row.version,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
+  });
 }
 
 async function hydrateRelations(
@@ -228,8 +238,15 @@ export async function getTypedResource(
   recordId: string,
 ): Promise<TypedStoredResource | null> {
   const scalarSelect = typedSelectColumns(model);
-  const row = await env.DB.prepare(`SELECT r.id,r.space_id,r.model_key,r.model_version,r.version,r.created_at,r.updated_at${scalarSelect ? `,${scalarSelect}` : ""}
-    FROM resource_records r JOIN ${typedTableSql(model)} m ON m.record_id=r.id AND m.space_id=r.space_id
+  const row = await env.DB.prepare(`SELECT r.id,r.space_id,r.model_key,r.model_version,r.version,r.created_at,r.updated_at,
+      p.source AS provenance_source,p.source_ref_json AS provenance_source_ref_json,
+      p.derived_from_json AS provenance_derived_from_json${scalarSelect ? `,${scalarSelect}` : ""}
+    FROM resource_records r
+    JOIN ${typedTableSql(model)} m ON m.record_id=r.id AND m.space_id=r.space_id
+    LEFT JOIN resource_provenance p ON p.record_id=r.id AND p.record_version=(
+      SELECT MAX(p2.record_version) FROM resource_provenance p2
+      WHERE p2.record_id=r.id AND p2.record_version<=r.version
+    )
     WHERE r.id=? AND r.space_id=? AND r.model_key=? AND r.deleted_at IS NULL`)
     .bind(recordId, spaceId, model.key).first<TypedResourceRow>();
   if (!row) return null;
