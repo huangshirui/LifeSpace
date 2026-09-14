@@ -31,6 +31,8 @@ The current business-facing Core Kernel contract is **0.36.0**. Progressive sing
 
 The progressive Runtime Discovery representations are Candidate/Public Context Projections. They reflect current visibility when requested but never authorize execution; every CRUD/query/Action rechecks current authority and model/Capability rules.
 
+Ordinary Generic GET list parameters are compatibility syntax and now lower deterministically into the Canonical Query executor. Previously issued Generic GET v1/v2 cursors remain accepted during transition. Calendar and Temporal special GET ordering still use their compatibility planners until those computed orderings are represented by Canonical Sort.
+
 ## Historical Phase 2 HomeMew capability replacement
 
 The Phase-2 Core API contract **0.8.0** was a native-only proving baseline. It contained the family Space policy and the Space-owned Events, Tasks, Day Records and Wishes needed by the then-frozen HomeMew migration baseline, and no longer exposed HomeMew `/api/v1/families/...` or `/api/v1/family-invites/...` runtime compatibility facades.
