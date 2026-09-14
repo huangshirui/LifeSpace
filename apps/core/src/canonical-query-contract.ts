@@ -1,5 +1,45 @@
+import type { FieldDefinition } from "./model-definition";
 import type { PublishedModel } from "./model-registry";
 import { projectTimeRangeSemantics } from "./time-range-definition";
+
+export type CanonicalQueryTargetDescriptor = {
+  field: string;
+  kind: "envelope" | "field" | "time-range" | "calendar-range";
+  valueType: FieldDefinition["type"] | "date-range" | "instant-range" | "temporal-range";
+  operators: string[];
+  nullable: boolean;
+  acceptsCurrentActorPersonAlias?: "me";
+};
+
+export type CanonicalQuerySemanticDescriptor = {
+  invocation: {
+    method: "POST";
+    pathTemplate: "/api/v1/spaces/{spaceId}/models/{modelKey}/records/query";
+  };
+  pipeline: ["search", "filter", "sort", "cursor-pagination"];
+  search: null | { fields: string[]; minLength: 1; maxLength: 100 };
+  filter: {
+    maxDepth: 8;
+    maxNodes: 100;
+    targets: CanonicalQueryTargetDescriptor[];
+  };
+  sort: {
+    fields: string[];
+    directions: ["asc", "desc"];
+    maxCriteria: 8;
+    default: [{ field: "createdAt"; direction: "desc" }];
+    nullPlacement: "last";
+    stableTieBreaker: "record-id-asc";
+  };
+  pagination: {
+    limit: { minimum: 1; maximum: 200; default: 100 };
+    cursor: {
+      opaque: true;
+      binds: ["normalized-search", "normalized-filter", "effective-sort", "temporal-viewing-context", "continuation-key"];
+      snapshotConsistency: false;
+    };
+  };
+};
 
 export type CanonicalQueryContractSchemas = {
   filter: Record<string, unknown>;
@@ -72,23 +112,109 @@ function predicateValueSchema(): Record<string, unknown> {
   };
 }
 
-function queryTargetFields(model: PublishedModel): string[] {
+function currentActorAliasAllowed(model: PublishedModel, fieldKey: string, field: FieldDefinition): boolean {
+  return (field.type === "person" || field.type === "person_list")
+    && (model.definition.capabilities?.calendar?.attendeePersonField === fieldKey
+      || model.definition.capabilities?.temporal?.subjectPersonField === fieldKey);
+}
+
+function fieldOperators(field: FieldDefinition): string[] {
+  if (["person", "person_list", "record", "record_list"].includes(field.type)) return ["contains"];
+  const operators = ["eq", "ne"];
+  if (["date", "datetime", "integer", "number"].includes(field.type)) {
+    operators.push("lt", "lte", "gt", "gte");
+  }
+  if (field.type === "date" || field.type === "datetime") operators.push("within");
+  if (field.nullable === true) operators.push("isNull", "isNotNull");
+  return operators;
+}
+
+export function canonicalQuerySemanticDescriptor(model: PublishedModel): CanonicalQuerySemanticDescriptor {
   const filterable = new Set(model.definition.query?.filterable ?? []);
-  const fields = new Set(["createdAt", "updatedAt", ...filterable]);
+  const targets: CanonicalQueryTargetDescriptor[] = [
+    {
+      field: "createdAt",
+      kind: "envelope",
+      valueType: "datetime",
+      operators: ["eq", "ne", "lt", "lte", "gt", "gte", "within"],
+      nullable: false,
+    },
+    {
+      field: "updatedAt",
+      kind: "envelope",
+      valueType: "datetime",
+      operators: ["eq", "ne", "lt", "lte", "gt", "gte", "within"],
+      nullable: false,
+    },
+  ];
+  for (const fieldKey of [...filterable].sort()) {
+    const field = model.definition.fields[fieldKey];
+    if (!field) continue;
+    targets.push({
+      field: fieldKey,
+      kind: "field",
+      valueType: field.type,
+      operators: fieldOperators(field),
+      nullable: field.nullable === true,
+      ...(currentActorAliasAllowed(model, fieldKey, field) ? { acceptsCurrentActorPersonAlias: "me" as const } : {}),
+    });
+  }
   for (const range of projectTimeRangeSemantics(model.definition)) {
     if (range.source === "model" && filterable.has(range.startField) && filterable.has(range.endField)) {
-      fields.add(range.key);
+      targets.push({
+        field: range.key,
+        kind: "time-range",
+        valueType: range.valueType === "date" ? "date-range" : "instant-range",
+        operators: ["overlaps", "contains", "before", "after"],
+        nullable: false,
+      });
     }
   }
-  if (model.definition.capabilities?.calendar) fields.add("when");
-  return [...fields].sort();
+  if (model.definition.capabilities?.calendar) {
+    targets.push({
+      field: "when",
+      kind: "calendar-range",
+      valueType: "temporal-range",
+      operators: ["overlaps", "contains", "before", "after", "kindIs"],
+      nullable: false,
+    });
+  }
+  targets.sort((left, right) => left.field.localeCompare(right.field) || left.kind.localeCompare(right.kind));
+  const sortable = [...new Set(["createdAt", "updatedAt", ...(model.definition.query?.sortable ?? [])])].sort();
+  const searchable = [...(model.definition.query?.searchable ?? [])];
+  return {
+    invocation: {
+      method: "POST",
+      pathTemplate: "/api/v1/spaces/{spaceId}/models/{modelKey}/records/query",
+    },
+    pipeline: ["search", "filter", "sort", "cursor-pagination"],
+    search: searchable.length ? { fields: searchable, minLength: 1, maxLength: 100 } : null,
+    filter: { maxDepth: 8, maxNodes: 100, targets },
+    sort: {
+      fields: sortable,
+      directions: ["asc", "desc"],
+      maxCriteria: 8,
+      default: [{ field: "createdAt", direction: "desc" }],
+      nullPlacement: "last",
+      stableTieBreaker: "record-id-asc",
+    },
+    pagination: {
+      limit: { minimum: 1, maximum: 200, default: 100 },
+      cursor: {
+        opaque: true,
+        binds: ["normalized-search", "normalized-filter", "effective-sort", "temporal-viewing-context", "continuation-key"],
+        snapshotConsistency: false,
+      },
+    },
+  };
 }
 
 export function canonicalQueryContractSchemas(
   model: PublishedModel,
   filterRef: string,
 ): CanonicalQueryContractSchemas {
-  const targets = queryTargetFields(model);
+  const descriptor = canonicalQuerySemanticDescriptor(model);
+  const targets = descriptor.filter.targets.map((target) => target.field);
   const fieldSchema = { type: "string", enum: targets };
   const filter = {
     oneOf: [
@@ -132,13 +258,10 @@ export function canonicalQueryContractSchemas(
     "x-lifespace-max-nodes": 100,
     "x-lifespace-operator-selection": "derived-from-field-semantic-type",
     "x-lifespace-relation-membership-primitive": "contains",
+    "x-lifespace-targets": descriptor.filter.targets,
   };
 
-  const sortableFields = [...new Set([
-    "createdAt",
-    "updatedAt",
-    ...(model.definition.query?.sortable ?? []),
-  ])].sort();
+  const sortableFields = descriptor.sort.fields;
   const properties: Record<string, unknown> = {
     filter: { $ref: filterRef },
     sort: {
@@ -183,11 +306,8 @@ export function canonicalQueryContractSchemas(
     properties,
     "x-lifespace-canonical-query": true,
     "x-lifespace-pipeline": ["search", "filter", "sort", "cursor-pagination"],
-    "x-lifespace-cursor": {
-      opaque: true,
-      binds: ["normalized-search", "normalized-filter", "effective-sort", "temporal-viewing-context", "continuation-key"],
-      snapshotConsistency: false,
-    },
+    "x-lifespace-cursor": descriptor.pagination.cursor,
+    "x-lifespace-semantic-descriptor": descriptor,
   };
   return { filter, query };
 }

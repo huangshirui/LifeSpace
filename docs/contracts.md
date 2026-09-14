@@ -349,3 +349,10 @@ HomeMew's former handwritten OpenAPI contract-check pattern remains a behavioral
 ### Agent-ready contract split — 0.6.0 / 0.17.0
 
 Identity Application Contract `0.6.0` owns Agent identity (`agt_*`) and trusted-application issuance of short-lived `purpose=delegated_agent` execution JWTs whose audience is Core only. Core Kernel `0.17.0` owns User -> Agent Delegation current state, Delegation-bounded Runtime Discovery/authorization and governed Change History. Identity does not read Core Delegations; a valid Agent JWT is therefore necessary but never sufficient authority. Core rechecks the mutable Delegation and all existing authorization layers at execution time. Existing accepted downstream tuples remain pinned evidence and must not be silently rewritten merely because the platform publishes a newer compatible contract.
+
+
+## Canonical Query discovery authority
+
+Runtime Discovery `query.canonical` and each immutable generated Model Contract expose the same metadata-derived Canonical Query descriptor: invocation, searchable fields, typed filter targets/operators, ordered sort, pagination limits and opaque cursor bindings. Consumers must use that descriptor instead of selecting between Generic/Standard and Capability Query modes.
+
+The remaining GET parameter and Capability Query fields in Runtime Discovery are deprecated compatibility metadata. They may guide migration of an existing caller, but they are no longer an independent semantic authority.

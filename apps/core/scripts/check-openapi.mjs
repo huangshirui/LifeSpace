@@ -3,7 +3,7 @@ import YAML from "yaml";
 
 const document = YAML.parse(fs.readFileSync(new URL("../openapi.yaml", import.meta.url), "utf8"));
 
-if (document.openapi !== "3.1.0" || document.info?.version !== "0.35.0") {
+if (document.openapi !== "3.1.0" || document.info?.version !== "0.36.0") {
   throw new Error("Core Kernel OpenAPI version metadata is invalid");
 }
 if (!document.info?.title?.includes("Kernel")) {
@@ -447,7 +447,21 @@ if (schemas.RuntimeModelSemanticField?.properties?.relation?.$ref !== "#/compone
     || schemas.RuntimeModelSemanticRelation?.properties?.lookup) {
   throw new Error("Single-model semantic detail relation facts must remain static target/cardinality/resolution semantics without dynamic lookup state");
 }
-if (!schemas.RuntimeModelSemanticQuery?.required?.includes("filters")
+if (!schemas.RuntimeModelSemanticQuery?.required?.includes("canonical")
+    || !schemas.RuntimeModelSemanticQuery?.required?.includes("legacyDeprecated")
+    || schemas.RuntimeModelSemanticQuery?.properties?.canonical?.$ref !== "#/components/schemas/RuntimeCanonicalQuery"
+    || schemas.RuntimeModelSemanticQuery?.properties?.legacyDeprecated?.const !== true
+    || schemas.RuntimeCanonicalQuery?.properties?.invocation?.properties?.method?.const !== "POST"
+    || schemas.RuntimeCanonicalQuery?.properties?.invocation?.properties?.pathTemplate?.const !== "/api/v1/spaces/{spaceId}/models/{modelKey}/records/query"
+    || schemas.RuntimeCanonicalQuery?.properties?.filter?.properties?.maxDepth?.const !== 8
+    || schemas.RuntimeCanonicalQuery?.properties?.filter?.properties?.maxNodes?.const !== 100
+    || schemas.RuntimeCanonicalQuery?.properties?.filter?.properties?.targets?.items?.$ref !== "#/components/schemas/RuntimeCanonicalQueryTarget"
+    || schemas.RuntimeCanonicalQuery?.properties?.sort?.properties?.nullPlacement?.const !== "last"
+    || schemas.RuntimeCanonicalQuery?.properties?.sort?.properties?.stableTieBreaker?.const !== "record-id-asc"
+    || schemas.RuntimeCanonicalQuery?.properties?.pagination?.properties?.cursor?.properties?.opaque?.const !== true
+    || schemas.RuntimeModelSemanticQuery?.properties?.capabilityQueries?.deprecated !== true
+    || schemas.RuntimeModelSemanticQuery?.properties?.filters?.deprecated !== true
+    || !schemas.RuntimeModelSemanticQuery?.required?.includes("filters")
     || !schemas.RuntimeModelSemanticQuery?.required?.includes("comparisons")
     || !schemas.RuntimeModelSemanticQuery?.required?.includes("pagination")
     || !schemas.RuntimeModelSemanticQuery?.required?.includes("capabilityParameters")
