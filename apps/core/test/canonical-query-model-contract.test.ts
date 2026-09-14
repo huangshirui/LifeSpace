@@ -55,16 +55,22 @@ describe("generated Canonical Typed Query Model Contract", () => {
     ]);
 
     const filter = document.components.schemas.QueryContractCanonicalFilter;
-    const predicate = filter.oneOf[2];
-    expect(predicate.properties.field.enum).toEqual([
+    const nullPredicate = filter.oneOf[2];
+    const valuePredicate = filter.oneOf[3];
+    expect(valuePredicate.properties.field.enum).toEqual([
       "assigneePersonIds",
       "createdAt",
       "dueDate",
       "status",
       "updatedAt",
     ]);
-    expect(predicate.properties.op.enum).toContain("contains");
-    expect(predicate.properties.op.enum).toContain("within");
+    expect(nullPredicate.required).toEqual(["field", "op"]);
+    expect(nullPredicate.properties.op.enum).toEqual(["isNull", "isNotNull"]);
+    expect(nullPredicate.properties.value).toBeUndefined();
+    expect(valuePredicate.required).toEqual(["field", "op", "value"]);
+    expect(valuePredicate.properties.op.enum).toContain("contains");
+    expect(valuePredicate.properties.op.enum).toContain("within");
+    expect(valuePredicate.properties.op.enum).not.toContain("isNull");
     expect(filter["x-lifespace-max-depth"]).toBe(8);
     expect(filter["x-lifespace-relation-membership-primitive"]).toBe("contains");
 
