@@ -1,4 +1,4 @@
-import type { Bindings } from "./env";
+import type { ResourceMutationExtension } from "./generic-resource";
 import { ApiError } from "./http";
 
 type JsonObject = Record<string, unknown>;
@@ -98,7 +98,7 @@ export function validateInformationProvenance(value: unknown): InformationProven
   return {
     source,
     ...(sourceRef ? { sourceRef } : {}),
-    ...(derivedFrom ? { derivedFrom } : {}),
+    ...(derivedFrom?.length ? { derivedFrom } : {}),
   };
 }
 
@@ -123,65 +123,30 @@ function serialized(provenance: InformationProvenance) {
   };
 }
 
-export function createProvenanceStatement(
-  env: Bindings,
-  recordId: string,
-  recordVersion: number,
-  provenance: InformationProvenance,
-  timestamp: string,
-): D1PreparedStatement {
+export function provenanceMutationExtension(provenance: InformationProvenance): ResourceMutationExtension {
   const encoded = serialized(provenance);
-  return env.DB.prepare(`INSERT INTO resource_provenance(
-    record_id,record_version,source,source_ref_json,derived_from_json,recorded_at
-  ) VALUES(?,?,?,?,?,?)`).bind(
-    recordId,
-    recordVersion,
-    provenance.source,
-    encoded.sourceRef,
-    encoded.derivedFrom,
-    timestamp,
-  );
-}
-
-export function nextVersionProvenanceStatement(
-  env: Bindings,
-  recordId: string,
-  previousVersion: number,
-  nextVersion: number,
-  timestamp: string,
-  mutationToken: string,
-  provenance?: InformationProvenance,
-): D1PreparedStatement {
-  if (provenance) {
-    const encoded = serialized(provenance);
-    return env.DB.prepare(`INSERT INTO resource_provenance(
+  return ({ env, recordId, timestamp, mutationToken }) => {
+    const base = `INSERT INTO resource_provenance(
       record_id,record_version,source,source_ref_json,derived_from_json,recorded_at
-    ) SELECT ?,?,?,?,?,? WHERE EXISTS(
-      SELECT 1 FROM resource_records WHERE id=? AND mutation_token=?
-    )`).bind(
-      recordId,
-      nextVersion,
+    ) SELECT id,version,?,?,?,?,? FROM resource_records WHERE id=?`;
+    if (!mutationToken) {
+      return [env.DB.prepare(base).bind(
+        provenance.source,
+        encoded.sourceRef,
+        encoded.derivedFrom,
+        timestamp,
+        recordId,
+      )];
+    }
+    return [env.DB.prepare(`${base} AND mutation_token=?`).bind(
       provenance.source,
       encoded.sourceRef,
       encoded.derivedFrom,
       timestamp,
       recordId,
       mutationToken,
-    );
-  }
-  return env.DB.prepare(`INSERT INTO resource_provenance(
-    record_id,record_version,source,source_ref_json,derived_from_json,recorded_at
-  ) SELECT record_id,?,source,source_ref_json,derived_from_json,?
-    FROM resource_provenance
-    WHERE record_id=? AND record_version=?
-      AND EXISTS(SELECT 1 FROM resource_records WHERE id=? AND mutation_token=?)`).bind(
-    nextVersion,
-    timestamp,
-    recordId,
-    previousVersion,
-    recordId,
-    mutationToken,
-  );
+    )];
+  };
 }
 
 function parseStoredReference(value: string | null | undefined, path: string): ProvenanceReference | undefined {
@@ -206,8 +171,14 @@ export function provenanceFromStorage(row: StoredProvenanceColumns): Information
     throw new ApiError("RESOURCE_STORAGE_CORRUPT", "Stored provenance.derivedFrom JSON is invalid", 500);
   }
   const sourceRef = parseStoredReference(row.provenance_source_ref_json, "sourceRef");
+  let source: string;
+  try {
+    source = boundedString(row.provenance_source, "source", 100);
+  } catch {
+    throw new ApiError("RESOURCE_STORAGE_CORRUPT", "Stored provenance.source is invalid", 500);
+  }
   return {
-    source: boundedString(row.provenance_source, "source", 100),
+    source,
     ...(sourceRef ? { sourceRef } : {}),
     ...(derivedFrom.length ? { derivedFrom } : {}),
   };
