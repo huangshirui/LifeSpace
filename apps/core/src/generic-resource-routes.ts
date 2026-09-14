@@ -129,7 +129,14 @@ export function registerGenericResourceRoutes(app: App): void {
     const principal = context.get("principal");
     const access = await requireModelAccess(context.env, principal, spaceId, resolved, "read");
     await requireModelPolicy(context.env, principal, spaceId, resolved, "read", undefined, undefined, { personId: access.actorPersonId });
-    const result = await queryCanonicalResources(context.env, principal, spaceId, resolved, await body(context));
+    const result = await queryCanonicalResources(
+      context.env,
+      principal,
+      spaceId,
+      resolved,
+      await body(context),
+      access.actorPersonId,
+    );
     return listResponse(context, spaceId, resolved, result);
   };
   app.post(canonical.query, query);
