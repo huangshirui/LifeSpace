@@ -15,7 +15,7 @@ import {
 } from "./capability-runtime";
 import type { Bindings, Variables } from "./env";
 import { deleteGenericResource, getGenericResource, type GenericResource } from "./generic-resource";
-import { queryGenericResources } from "./generic-query";
+import { hasLegacyGenericCursor, queryGenericResources, translateGenericGetQuery } from "./generic-query";
 import { isTemporalSpecialQuery, queryTemporalResources } from "./temporal-query";
 import { ApiError, success } from "./http";
 import { requireModelAccess } from "./model-authorization";
@@ -127,7 +127,16 @@ export function registerGenericResourceRoutes(app: App): void {
       ? await queryTemporalResources(context.env, principal, spaceId, resolved, params)
       : isCalendarSpecialQuery(resolved, params)
         ? await queryCalendarResources(context.env, principal, spaceId, resolved, params)
-        : await queryGenericResources(context.env, spaceId, resolved, params);
+        : hasLegacyGenericCursor(params)
+          ? await queryGenericResources(context.env, spaceId, resolved, params)
+          : await queryCanonicalResources(
+              context.env,
+              principal,
+              spaceId,
+              resolved,
+              translateGenericGetQuery(resolved, params),
+              access.actorPersonId,
+            );
     return listResponse(context, spaceId, resolved, result);
   };
   app.get(canonical.collection, list);
