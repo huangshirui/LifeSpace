@@ -1,5 +1,6 @@
 import type { Context, Hono } from "hono";
 import { isCalendarSpecialQuery, queryCalendarResources } from "./calendar-query";
+import { queryCanonicalResources } from "./canonical-query";
 import {
   capabilityActionAccess,
   createCapabilityAwareResource,
@@ -52,6 +53,7 @@ async function model(context: Context<AppEnv>): Promise<PublishedModel> {
 
 const canonical = {
   collection: "/api/v1/spaces/:spaceId/models/:modelKey/records",
+  query: "/api/v1/spaces/:spaceId/models/:modelKey/records/query",
   record: "/api/v1/spaces/:spaceId/models/:modelKey/records/:recordId",
   occurrences: "/api/v1/spaces/:spaceId/models/:modelKey/records/:recordId/occurrences",
   action: "/api/v1/spaces/:spaceId/models/:modelKey/records/:recordId/actions/:actionKey",
@@ -83,6 +85,27 @@ async function dto(
   };
 }
 
+async function listResponse(
+  context: Context<AppEnv>,
+  spaceId: string,
+  resolved: PublishedModel,
+  result: { items: GenericResource[]; nextCursor: string | null },
+) {
+  const [decorations, audits] = await Promise.all([
+    decorateCapabilityResponses(context.env, spaceId, resolved, result.items),
+    loadResourceAudits(context.env, spaceId, result.items.map((resource) => resource.id)),
+  ]);
+  const items = await Promise.all(result.items.map((resource, index) => dto(
+    context.env,
+    spaceId,
+    resolved,
+    resource,
+    decorations[index],
+    requireResourceAudit(audits, resource.id),
+  )));
+  return context.json(success({ items, nextCursor: result.nextCursor }));
+}
+
 export function registerGenericResourceRoutes(app: App): void {
   const list = async (context: Context<AppEnv>) => {
     const spaceId = pathParam(context, "spaceId");
@@ -96,21 +119,27 @@ export function registerGenericResourceRoutes(app: App): void {
       : isCalendarSpecialQuery(resolved, params)
         ? await queryCalendarResources(context.env, principal, spaceId, resolved, params)
         : await queryGenericResources(context.env, spaceId, resolved, params);
-    const [decorations, audits] = await Promise.all([
-      decorateCapabilityResponses(context.env, spaceId, resolved, result.items),
-      loadResourceAudits(context.env, spaceId, result.items.map((resource) => resource.id)),
-    ]);
-    const items = await Promise.all(result.items.map((resource, index) => dto(
-      context.env,
-      spaceId,
-      resolved,
-      resource,
-      decorations[index],
-      requireResourceAudit(audits, resource.id),
-    )));
-    return context.json(success({ items, nextCursor: result.nextCursor }));
+    return listResponse(context, spaceId, resolved, result);
   };
   app.get(canonical.collection, list);
+
+  const query = async (context: Context<AppEnv>) => {
+    const spaceId = pathParam(context, "spaceId");
+    const resolved = await model(context);
+    const principal = context.get("principal");
+    const access = await requireModelAccess(context.env, principal, spaceId, resolved, "read");
+    await requireModelPolicy(context.env, principal, spaceId, resolved, "read", undefined, undefined, { personId: access.actorPersonId });
+    const result = await queryCanonicalResources(
+      context.env,
+      principal,
+      spaceId,
+      resolved,
+      await body(context),
+      access.actorPersonId,
+    );
+    return listResponse(context, spaceId, resolved, result);
+  };
+  app.post(canonical.query, query);
 
   const create = async (context: Context<AppEnv>) => {
     const spaceId = pathParam(context, "spaceId");
