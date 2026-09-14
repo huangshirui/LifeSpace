@@ -55,4 +55,36 @@ describe("Canonical Typed Query execution complexity", () => {
       message: "Canonical Query exceeds the execution complexity budget",
     });
   });
+
+  it("reuses an already-authorized actor Person for the me alias without another Space Person lookup", async () => {
+    const db = (env as unknown as TestEnv).DB;
+    const model = await getPublishedModel({ DB: db } as Bindings, "task");
+    if (!model) throw new Error("bootstrap Task model is missing");
+
+    let personLookups = 0;
+    const countedDb = new Proxy(db as object, {
+      get(target, property) {
+        if (property === "prepare") {
+          return (sql: string) => {
+            if (sql.includes("FROM space_people")) personLookups += 1;
+            return db.prepare(sql);
+          };
+        }
+        const value = Reflect.get(target, property, db);
+        return typeof value === "function" ? value.bind(db) : value;
+      },
+    }) as D1Database;
+
+    const result = await queryCanonicalResources(
+      { DB: countedDb } as Bindings,
+      actor,
+      "spc_canonical_query_context",
+      model,
+      { filter: { field: "assigneePersonIds", op: "contains", value: "me" } },
+      "per_authorized_actor",
+    );
+
+    expect(result.items).toEqual([]);
+    expect(personLookups).toBe(0);
+  });
 });
