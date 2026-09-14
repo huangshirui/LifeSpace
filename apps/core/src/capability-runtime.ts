@@ -1,4 +1,4 @@
-import { createCalendarResource, prepareCalendarUpdate } from "./calendar-capability";
+import { prepareCalendarCreate, prepareCalendarUpdate } from "./calendar-capability";
 import type { Bindings, Principal } from "./env";
 import {
   createGenericResource,
@@ -52,10 +52,22 @@ export async function createCapabilityAwareResource(
   rejectClientReadOnlyCreateFields(model, input);
   if (hasTemporalCapability(model)) {
     const space = await loadSpaceTemporalContext(env, spaceId);
-    return createTemporalResource(env, principal, space, model, input, extension);
+    const created = await createTemporalResource(env, principal, space, model, input);
+    if (extension) {
+      const statements = await extension({
+        env,
+        principal,
+        recordId: created.id,
+        spaceId,
+        model,
+        timestamp: created.createdAt,
+      });
+      if (statements.length) await env.DB.batch(statements);
+    }
+    return created;
   }
   if (hasCalendarCapability(model)) {
-    return createCalendarResource(env, principal, spaceId, model, input, extension);
+    return createGenericResource(env, principal, spaceId, model, prepareCalendarCreate(model, input), false, extension);
   }
   return createGenericResource(env, principal, spaceId, model, input, false, extension);
 }
