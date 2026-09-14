@@ -600,13 +600,22 @@ async function compileFilter(
   model: PublishedModel,
   filter: CanonicalFilter,
 ): Promise<SqlFragment> {
-  if ("and" in filter || "or" in filter) {
-    const key = "and" in filter ? "and" : "or";
-    const children = filter[key];
-    const fragments = await Promise.all(children.map((child) => compileFilter(env, principal, spaceId, model, child)));
+  if ("and" in filter) {
+    const fragments: SqlFragment[] = await Promise.all(
+      filter.and.map((child: CanonicalFilter) => compileFilter(env, principal, spaceId, model, child)),
+    );
     return {
-      sql: `(${fragments.map((fragment) => fragment.sql).join(key === "and" ? " AND " : " OR ")})`,
-      args: fragments.flatMap((fragment) => fragment.args),
+      sql: `(${fragments.map((fragment: SqlFragment) => fragment.sql).join(" AND ")})`,
+      args: fragments.flatMap((fragment: SqlFragment) => fragment.args),
+    };
+  }
+  if ("or" in filter) {
+    const fragments: SqlFragment[] = await Promise.all(
+      filter.or.map((child: CanonicalFilter) => compileFilter(env, principal, spaceId, model, child)),
+    );
+    return {
+      sql: `(${fragments.map((fragment: SqlFragment) => fragment.sql).join(" OR ")})`,
+      args: fragments.flatMap((fragment: SqlFragment) => fragment.args),
     };
   }
   return predicateFragment(env, principal, spaceId, model, filter);
