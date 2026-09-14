@@ -21,12 +21,18 @@ import { ApiError, success } from "./http";
 import { requireModelAccess } from "./model-authorization";
 import { getRuntimeModel, type PublishedModel } from "./model-registry";
 import { requireModelPolicy } from "./policy";
+import {
+  provenanceMutationExtension,
+  splitProvenanceEnvelope,
+  type InformationProvenance,
+} from "./resource-provenance";
 import { loadResourceAudits, requireResourceAudit, type ResourceAudit } from "./resource-audit";
 import { executeWorkflowAction, workflowActionAccess } from "./workflow";
 
 type AppEnv = { Bindings: Bindings; Variables: Variables };
 type App = Hono<AppEnv>;
 type Body = Record<string, unknown>;
+type ResourceWithProvenance = GenericResource & { provenance?: InformationProvenance };
 
 async function body(context: Context<AppEnv>): Promise<Body> {
   const value = await context.req.json<unknown>().catch(() => null);
@@ -65,11 +71,13 @@ async function dto(
   resource: GenericResource,
   decoration?: CapabilityResponseDecoration,
   audit?: ResourceAudit,
+  provenanceOverride?: InformationProvenance,
 ) {
   const resolvedAudit = audit ?? requireResourceAudit(
     await loadResourceAudits(env, spaceId, [resource.id]),
     resource.id,
   );
+  const provenance = provenanceOverride ?? (resource as ResourceWithProvenance).provenance;
   return {
     id: resource.id,
     spaceId: resource.spaceId,
@@ -77,6 +85,7 @@ async function dto(
     modelVersion: resource.modelVersion,
     ...resource.data,
     ...(decoration ?? await decorateCapabilityResponse(env, spaceId, model, resource)),
+    ...(provenance ? { provenance } : {}),
     createdBy: resolvedAudit.createdBy,
     updatedBy: resolvedAudit.updatedBy,
     version: resource.version,
@@ -146,11 +155,19 @@ export function registerGenericResourceRoutes(app: App): void {
     const resolved = await model(context);
     const principal = context.get("principal");
     const access = await requireModelAccess(context.env, principal, spaceId, resolved, "write");
-    const input = await body(context);
+    const request = await body(context);
+    const { data: input, provenance } = splitProvenanceEnvelope(request);
     const prepared = prepareCapabilityCreateInput(resolved, input);
     await requireModelPolicy(context.env, principal, spaceId, resolved, "create", undefined, prepared, { personId: access.actorPersonId });
-    const created = await createCapabilityAwareResource(context.env, principal, spaceId, resolved, input);
-    return context.json(success(await dto(context.env, spaceId, resolved, created)), 201);
+    const created = await createCapabilityAwareResource(
+      context.env,
+      principal,
+      spaceId,
+      resolved,
+      input,
+      provenance ? provenanceMutationExtension(provenance) : undefined,
+    );
+    return context.json(success(await dto(context.env, spaceId, resolved, created, undefined, undefined, provenance)), 201);
   };
   app.post(canonical.collection, create);
 
@@ -171,14 +188,25 @@ export function registerGenericResourceRoutes(app: App): void {
     const resolved = await model(context);
     const principal = context.get("principal");
     const access = await requireModelAccess(context.env, principal, spaceId, resolved, "write");
-    const input = await body(context);
-    const expected = positiveVersion(input.version);
-    const changes = Object.fromEntries(Object.entries(input).filter(([key]) => key !== "version"));
+    const request = await body(context);
+    const expected = positiveVersion(request.version);
+    const mutationInput = Object.fromEntries(Object.entries(request).filter(([key]) => key !== "version"));
+    const { data: changes, provenance } = splitProvenanceEnvelope(mutationInput);
     if (!Object.keys(changes).length) throw new ApiError("INVALID_REQUEST", "At least one resource field change is required", 400);
     const prepared = await prepareCapabilityUpdatePolicyInput(context.env, spaceId, resolved, pathParam(context, "recordId"), changes);
     await requireModelPolicy(context.env, principal, spaceId, resolved, "update", prepared.resource, prepared.prepared, { personId: access.actorPersonId });
-    const updated = await updateCapabilityAwareResource(context.env, principal, spaceId, resolved, prepared.resource.id, expected, changes, prepared.resource);
-    return context.json(success(await dto(context.env, spaceId, resolved, updated)));
+    const updated = await updateCapabilityAwareResource(
+      context.env,
+      principal,
+      spaceId,
+      resolved,
+      prepared.resource.id,
+      expected,
+      changes,
+      prepared.resource,
+      provenance ? provenanceMutationExtension(provenance) : undefined,
+    );
+    return context.json(success(await dto(context.env, spaceId, resolved, updated, undefined, undefined, provenance)));
   };
   app.patch(canonical.record, update);
 
