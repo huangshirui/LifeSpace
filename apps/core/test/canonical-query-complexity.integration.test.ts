@@ -58,8 +58,8 @@ describe("Canonical Typed Query execution complexity", () => {
 
   it("reuses an already-authorized actor Person for the me alias without another Space Person lookup", async () => {
     const db = (env as unknown as TestEnv).DB;
-    const model = await getPublishedModel({ DB: db } as Bindings, "task");
-    if (!model) throw new Error("bootstrap Task model is missing");
+    const model = await getPublishedModel({ DB: db } as Bindings, "event");
+    if (!model) throw new Error("bootstrap Event model is missing");
 
     let personLookups = 0;
     const countedDb = new Proxy(db as object, {
@@ -80,7 +80,7 @@ describe("Canonical Typed Query execution complexity", () => {
       actor,
       "spc_canonical_query_context",
       model,
-      { filter: { field: "assigneePersonIds", op: "contains", value: "me" } },
+      { filter: { field: "attendeePersonIds", op: "contains", value: "me" } },
       "per_authorized_actor",
     );
 
