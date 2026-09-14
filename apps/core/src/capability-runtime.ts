@@ -12,9 +12,9 @@ import { applyModelDefaults } from "./model-defaults";
 import type { PublishedModel } from "./model-registry";
 import {
   computeTemporalResource,
-  createTemporalResource,
   listTemporalOccurrences,
   loadSpaceTemporalContext,
+  prepareTemporalCreate,
   prepareTemporalUpdate,
   recordTemporalOccurrence,
   type TemporalOccurrence,
@@ -37,6 +37,43 @@ function rejectClientReadOnlyCreateFields(model: PublishedModel, input: unknown)
   if (readOnlyField) throw new ApiError("INVALID_RESOURCE", `Field ${readOnlyField} is read-only`, 400);
 }
 
+function composeMutationExtensions(
+  ...extensions: Array<ResourceMutationExtension | undefined>
+): ResourceMutationExtension | undefined {
+  const active = extensions.filter((extension): extension is ResourceMutationExtension => Boolean(extension));
+  if (!active.length) return undefined;
+  return async (context) => {
+    const statements: D1PreparedStatement[] = [];
+    for (const extension of active) statements.push(...await extension(context));
+    return statements;
+  };
+}
+
+function temporalInitialOccurrenceExtension(
+  model: PublishedModel,
+  prepared: Record<string, unknown>,
+): ResourceMutationExtension | undefined {
+  const temporal = model.definition.capabilities?.temporal;
+  if (!temporal?.occurrences || prepared[temporal.kindField] === "countdown") return undefined;
+  const anchorDate = prepared[temporal.anchorDateField];
+  if (typeof anchorDate !== "string") {
+    throw new ApiError("TEMPORAL_STORAGE_CORRUPT", `${temporal.anchorDateField} must be prepared before persistence`, 500);
+  }
+  return ({ env, principal, recordId, timestamp }) => [
+    env.DB.prepare(`INSERT INTO temporal_occurrences(
+      id,record_id,occurred_on,note,source,recorded_by_type,recorded_by_id,recorded_by_name_snapshot,created_at
+    ) VALUES(?,?,?,NULL,'initial',?,?,?,?)`).bind(
+      `tmo_${crypto.randomUUID().replaceAll("-", "")}`,
+      recordId,
+      anchorDate,
+      principal.type,
+      principal.id,
+      principal.id,
+      timestamp,
+    ),
+  ];
+}
+
 export async function createCapabilityAwareResource(
   env: Bindings,
   principal: Principal,
@@ -52,19 +89,16 @@ export async function createCapabilityAwareResource(
   rejectClientReadOnlyCreateFields(model, input);
   if (hasTemporalCapability(model)) {
     const space = await loadSpaceTemporalContext(env, spaceId);
-    const created = await createTemporalResource(env, principal, space, model, input);
-    if (extension) {
-      const statements = await extension({
-        env,
-        principal,
-        recordId: created.id,
-        spaceId,
-        model,
-        timestamp: created.createdAt,
-      });
-      if (statements.length) await env.DB.batch(statements);
-    }
-    return created;
+    const prepared = prepareTemporalCreate(model, input, space);
+    return createGenericResource(
+      env,
+      principal,
+      spaceId,
+      model,
+      prepared,
+      true,
+      composeMutationExtensions(temporalInitialOccurrenceExtension(model, prepared), extension),
+    );
   }
   if (hasCalendarCapability(model)) {
     return createGenericResource(env, principal, spaceId, model, prepareCalendarCreate(model, input), false, extension);
