@@ -154,13 +154,13 @@ describe("Canonical Typed Query", () => {
   });
 
   it("composes Search + Filter + multi-sort + cursor and binds normalized semantics", async () => {
-    const { spaceId, model, weekA, weekBoth, noDue } = await taskFixture();
+    const { spaceId, model, weekA, weekBoth } = await taskFixture();
     const first = await queryCanonicalResources(bindings(), actor, spaceId, model, {
       search: { text: "FTC" },
       filter: {
         and: [
           { field: "status", op: "eq", value: "pending" },
-          { field: "name", op: "ne", value: "never" },
+          { field: "dueDate", op: "lte", value: "2026-09-30" },
         ],
       },
       sort: [
@@ -176,7 +176,7 @@ describe("Canonical Typed Query", () => {
       search: { text: "FTC" },
       filter: {
         and: [
-          { field: "name", op: "ne", value: "never" },
+          { field: "dueDate", op: "lte", value: "2026-09-30" },
           { field: "status", op: "eq", value: "pending" },
         ],
       },
@@ -186,7 +186,7 @@ describe("Canonical Typed Query", () => {
       ],
       page: { limit: 5, cursor: first.nextCursor },
     });
-    expect(second.items.map((item) => item.id)).toEqual([weekBoth.id, noDue.id]);
+    expect(second.items.map((item) => item.id)).toEqual([weekBoth.id]);
     expect(second.nextCursor).toBeNull();
   });
 
