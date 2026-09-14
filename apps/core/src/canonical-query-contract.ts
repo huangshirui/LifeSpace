@@ -6,15 +6,13 @@ export type CanonicalQueryContractSchemas = {
   query: Record<string, unknown>;
 };
 
-const CANONICAL_OPERATORS = [
+const VALUE_OPERATORS = [
   "eq",
   "ne",
   "lt",
   "lte",
   "gt",
   "gte",
-  "isNull",
-  "isNotNull",
   "within",
   "contains",
   "overlaps",
@@ -22,6 +20,7 @@ const CANONICAL_OPERATORS = [
   "after",
   "kindIs",
 ] as const;
+const NULL_OPERATORS = ["isNull", "isNotNull"] as const;
 
 function rangeOperandSchema(): Record<string, unknown> {
   return {
@@ -85,6 +84,7 @@ export function canonicalQueryContractSchemas(
   filterRef: string,
 ): CanonicalQueryContractSchemas {
   const targets = queryTargetFields(model);
+  const fieldSchema = { type: "string", enum: targets };
   const filter = {
     oneOf: [
       {
@@ -108,8 +108,17 @@ export function canonicalQueryContractSchemas(
         additionalProperties: false,
         required: ["field", "op"],
         properties: {
-          field: { type: "string", enum: targets },
-          op: { type: "string", enum: [...CANONICAL_OPERATORS] },
+          field: fieldSchema,
+          op: { type: "string", enum: [...NULL_OPERATORS] },
+        },
+      },
+      {
+        type: "object",
+        additionalProperties: false,
+        required: ["field", "op", "value"],
+        properties: {
+          field: fieldSchema,
+          op: { type: "string", enum: [...VALUE_OPERATORS] },
           value: predicateValueSchema(),
         },
       },
