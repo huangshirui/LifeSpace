@@ -74,7 +74,7 @@ function predicateValueSchema(): Record<string, unknown> {
 }
 
 function queryTargetFields(model: PublishedModel): string[] {
-  const fields = new Set(model.definition.query?.filterable ?? []);
+  const fields = new Set(["createdAt", "updatedAt", ...(model.definition.query?.filterable ?? [])]);
   for (const range of projectTimeRangeSemantics(model.definition)) fields.add(range.key);
   if (model.definition.capabilities?.calendar) fields.add("when");
   return [...fields].sort();
@@ -131,6 +131,7 @@ export function canonicalQueryContractSchemas(
       type: "array",
       minItems: 1,
       maxItems: 8,
+      default: [{ field: "createdAt", direction: "desc" }],
       items: {
         type: "object",
         additionalProperties: false,
