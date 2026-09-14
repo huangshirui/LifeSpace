@@ -13,10 +13,17 @@ function published(): PublishedModel {
       status: { type: "enum", required: true, values: ["open", "done"] },
       dueDate: { type: "date", nullable: true },
       assigneePersonIds: { type: "person_list" },
+      windowStart: { type: "datetime", nullable: true },
+      windowEnd: { type: "datetime", nullable: true },
+      hiddenEnd: { type: "datetime", nullable: true },
+    },
+    timeRanges: {
+      activeWindow: { startField: "windowStart", endField: "windowEnd", bounds: "[)" },
+      hiddenWindow: { startField: "windowStart", endField: "hiddenEnd", bounds: "[)" },
     },
     query: {
       searchable: ["name"],
-      filterable: ["status", "dueDate", "assigneePersonIds"],
+      filterable: ["status", "dueDate", "assigneePersonIds", "windowStart", "windowEnd"],
       sortable: ["dueDate", "name"],
     },
     access: ["read"],
@@ -58,12 +65,16 @@ describe("generated Canonical Typed Query Model Contract", () => {
     const nullPredicate = filter.oneOf[2];
     const valuePredicate = filter.oneOf[3];
     expect(valuePredicate.properties.field.enum).toEqual([
+      "activeWindow",
       "assigneePersonIds",
       "createdAt",
       "dueDate",
       "status",
       "updatedAt",
+      "windowEnd",
+      "windowStart",
     ]);
+    expect(valuePredicate.properties.field.enum).not.toContain("hiddenWindow");
     expect(nullPredicate.required).toEqual(["field", "op"]);
     expect(nullPredicate.properties.op.enum).toEqual(["isNull", "isNotNull"]);
     expect(nullPredicate.properties.value).toBeUndefined();
