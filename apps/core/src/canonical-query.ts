@@ -1,3 +1,4 @@
+import { canonicalQuerySemanticDescriptor } from "./canonical-query-contract";
 import type { Bindings, Principal } from "./env";
 import type { GenericResource } from "./generic-resource";
 import { ApiError } from "./http";
@@ -568,6 +569,11 @@ async function predicateFragment(
   predicate: FilterPredicate,
   actorPersonId?: string | null,
 ): Promise<SqlFragment> {
+  const projectedTarget = canonicalQuerySemanticDescriptor(model).filter.targets
+    .find((target) => target.field === predicate.field);
+  if (projectedTarget && !projectedTarget.operators.includes(predicate.op)) {
+    throw new ApiError("INVALID_QUERY", `${predicate.field}.${predicate.op} is unsupported`, 400);
+  }
   if (predicate.field === "createdAt" || predicate.field === "updatedAt") return envelopeFilter(predicate);
   if (predicate.field === "when") {
     if (!model.definition.capabilities?.calendar) throw new ApiError("INVALID_QUERY", "when is not available for this model", 400);
