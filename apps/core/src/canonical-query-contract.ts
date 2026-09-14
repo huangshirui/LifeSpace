@@ -73,8 +73,13 @@ function predicateValueSchema(): Record<string, unknown> {
 }
 
 function queryTargetFields(model: PublishedModel): string[] {
-  const fields = new Set(["createdAt", "updatedAt", ...(model.definition.query?.filterable ?? [])]);
-  for (const range of projectTimeRangeSemantics(model.definition)) fields.add(range.key);
+  const filterable = new Set(model.definition.query?.filterable ?? []);
+  const fields = new Set(["createdAt", "updatedAt", ...filterable]);
+  for (const range of projectTimeRangeSemantics(model.definition)) {
+    if (range.source === "model" && filterable.has(range.startField) && filterable.has(range.endField)) {
+      fields.add(range.key);
+    }
+  }
   if (model.definition.capabilities?.calendar) fields.add("when");
   return [...fields].sort();
 }
