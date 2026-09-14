@@ -1,3 +1,4 @@
+import type { CanonicalFilter, CanonicalQueryInput } from "./canonical-query";
 import type { Bindings } from "./env";
 import type { GenericResource } from "./generic-resource";
 import { ApiError } from "./http";
@@ -274,6 +275,149 @@ function cursorPredicate(sorts: SortCriterion[], keys: CursorScalar[], id: strin
     };
   };
   return build(0);
+}
+
+function canonicalExactValue(field: FieldDefinition, raw: string, key: string): string | number | boolean {
+  if (field.type === "boolean") {
+    if (raw !== "true" && raw !== "false") throw new ApiError("INVALID_QUERY", `${key} must be true or false`, 400);
+    return raw === "true";
+  }
+  return scalarValue(field, raw, key);
+}
+
+function decodeCursorVersion(raw: string): number | null {
+  try {
+    const base64 = raw.replaceAll("-", "+").replaceAll("_", "/");
+    const bytes = Uint8Array.from(atob(base64), (character) => character.charCodeAt(0));
+    const value = JSON.parse(new TextDecoder().decode(bytes)) as { v?: unknown };
+    return typeof value.v === "number" ? value.v : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Keeps already-issued Generic GET cursors usable during the Canonical Query migration.
+ * New GET requests emit Canonical Query v3 cursors and stay on the canonical planner.
+ */
+export function hasLegacyGenericCursor(params: URLSearchParams): boolean {
+  const cursors = params.getAll("cursor");
+  return cursors.length === 1 && Boolean(cursors[0]) && [1, 2].includes(decodeCursorVersion(cursors[0]) ?? -1);
+}
+
+/**
+ * Deterministically lowers the legacy Generic GET transport to Canonical Query.
+ * Calendar/Temporal special transports are selected before this function and retain
+ * their compatibility planners until their computed ordering is canonicalized.
+ */
+export function translateGenericGetQuery(
+  model: PublishedModel,
+  params: URLSearchParams,
+): CanonicalQueryInput {
+  const allowed = allowedQueryKeys(model);
+  for (const key of new Set(params.keys())) {
+    if (!allowed.has(key)) throw new ApiError("INVALID_QUERY", `Unsupported query parameter ${key}`, 400);
+  }
+
+  const predicates: CanonicalFilter[] = [];
+  for (const semantic of genericComparisonFieldSemantics(model.definition)) {
+    const suppliedOperators = new Map<GenericComparisonOperator, string>();
+    for (const transport of semantic.operators) {
+      const raw = one(params, transport.parameter);
+      if (raw === undefined) continue;
+      const previous = suppliedOperators.get(transport.operator);
+      if (previous) {
+        throw new ApiError(
+          "INVALID_QUERY",
+          previous + " and " + transport.parameter + " are aliases for the same " + transport.operator + " operator",
+          400,
+        );
+      }
+      suppliedOperators.set(transport.operator, transport.parameter);
+      predicates.push({
+        field: semantic.field,
+        op: transport.operator,
+        value: comparisonValue(semantic.valueType, raw, transport.parameter),
+      });
+    }
+
+    const window = semantic.localDateWindow;
+    if (window) {
+      const dateStart = one(params, window.dateStartParameter);
+      const dateEndExclusive = one(params, window.dateEndExclusiveParameter);
+      const timezone = one(params, window.timezoneParameter);
+      const suppliedCount = [dateStart, dateEndExclusive, timezone].filter((value) => value !== undefined).length;
+      if (suppliedCount > 0 && suppliedCount < 3) {
+        throw new ApiError(
+          "INVALID_QUERY",
+          semantic.field + " local-date window requires dateStart, dateEndExclusive, and timezone together",
+          400,
+        );
+      }
+      if (suppliedCount === 3) {
+        try {
+          localDateWindowToInstantRange({ dateStart: dateStart!, dateEndExclusive: dateEndExclusive!, timezone: timezone! });
+        } catch (error) {
+          throw new ApiError(
+            "INVALID_QUERY",
+            error instanceof Error
+              ? semantic.field + " local-date window is invalid: " + error.message
+              : semantic.field + " local-date window is invalid",
+            400,
+          );
+        }
+        predicates.push({
+          field: semantic.field,
+          op: "within",
+          value: { kind: "local_date_window", startDate: dateStart!, endDateExclusive: dateEndExclusive!, timezone: timezone! },
+        });
+      }
+    }
+  }
+
+  for (const fieldKey of model.definition.query?.filterable ?? []) {
+    const field = model.definition.fields[fieldKey];
+    if (!field || isGenericComparableFieldType(field.type)) continue;
+    const exact = one(params, fieldKey);
+    if (exact === undefined) continue;
+    if (field.type === "person" || field.type === "person_list" || field.type === "record" || field.type === "record_list") {
+      predicates.push({ field: fieldKey, op: "contains", value: exact });
+    } else if (field.type === "enum" && exact.includes(",")) {
+      const values = exact.split(",").filter(Boolean);
+      if (!values.length || new Set(values).size !== values.length) {
+        throw new ApiError("INVALID_QUERY", fieldKey + " enum filter is invalid", 400);
+      }
+      predicates.push({
+        or: values.map((value) => ({
+          field: fieldKey,
+          op: "eq",
+          value: canonicalExactValue(field, value, fieldKey),
+        })),
+      });
+    } else {
+      predicates.push({ field: fieldKey, op: "eq", value: canonicalExactValue(field, exact, fieldKey) });
+    }
+  }
+
+  const q = one(params, "q");
+  let search: CanonicalQueryInput["search"];
+  if (q !== undefined) {
+    const text = q.trim();
+    if (!text || text.length > 100) throw new ApiError("INVALID_QUERY", "q must contain 1-100 characters", 400);
+    if (!(model.definition.query?.searchable?.length)) {
+      throw new ApiError("INVALID_QUERY", `Model ${model.key} does not expose searchable fields`, 400);
+    }
+    search = { text };
+  }
+
+  const sorts = parseSorts(model, params).map(({ field, direction }) => ({ field, direction }));
+  const cursor = one(params, "cursor") ?? null;
+  return {
+    ...(search ? { search } : {}),
+    ...(predicates.length === 1 ? { filter: predicates[0] } : predicates.length ? { filter: { and: predicates } } : {}),
+    sort: sorts,
+    page: { limit: parseLimit(params), cursor: cursor || null },
+  };
 }
 
 export async function queryGenericResources(
