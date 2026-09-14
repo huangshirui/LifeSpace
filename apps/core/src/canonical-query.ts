@@ -97,6 +97,7 @@ type NormalizedQuery = {
 const MAX_SORT_CRITERIA = 8;
 const MAX_FILTER_DEPTH = 8;
 const MAX_FILTER_NODES = 100;
+const MAX_QUERY_BINDINGS = 100;
 const FILTER_OPERATORS = new Set<CanonicalOperator>([
   "eq", "ne", "lt", "lte", "gt", "gte", "isNull", "isNotNull", "within",
   "contains", "overlaps", "before", "after", "kindIs",
@@ -264,12 +265,14 @@ async function resolveRelationTarget(
   fieldKey: string,
   field: FieldDefinition,
   value: unknown,
+  actorPersonId?: string | null,
 ): Promise<string> {
   if (value === "me") {
     if ((field.type !== "person" && field.type !== "person_list") || !relationAliasAllowed(model, fieldKey)) {
       throw new ApiError("INVALID_QUERY", `${fieldKey} does not accept the me alias`, 400);
     }
     if (principal.type !== "user") throw new ApiError("INVALID_QUERY", "me requires a user principal", 400);
+    if (actorPersonId) return actorPersonId;
     const row = await env.DB.prepare("SELECT id FROM space_people WHERE space_id=? AND linked_user_id=? AND deleted_at IS NULL LIMIT 1")
       .bind(spaceId, principal.id).first<{ id: string }>();
     if (!row) throw new ApiError("INVALID_QUERY", "me requires an active Space Person", 400);
@@ -563,6 +566,7 @@ async function predicateFragment(
   spaceId: string,
   model: PublishedModel,
   predicate: FilterPredicate,
+  actorPersonId?: string | null,
 ): Promise<SqlFragment> {
   if (predicate.field === "createdAt" || predicate.field === "updatedAt") return envelopeFilter(predicate);
   if (predicate.field === "when") {
@@ -583,7 +587,7 @@ async function predicateFragment(
   if (field && ["person", "person_list", "record", "record_list"].includes(field.type)) {
     if (!model.definition.query?.filterable?.includes(predicate.field)) throw new ApiError("INVALID_QUERY", `${predicate.field} is not filterable for model ${model.key}`, 400);
     if (predicate.op !== "contains") throw new ApiError("INVALID_QUERY", `${predicate.field} uses contains for relation membership`, 400);
-    const target = await resolveRelationTarget(env, principal, spaceId, model, predicate.field, field, predicate.value);
+    const target = await resolveRelationTarget(env, principal, spaceId, model, predicate.field, field, predicate.value, actorPersonId);
     const person = field.type === "person" || field.type === "person_list";
     return {
       sql: `EXISTS(SELECT 1 FROM resource_relations rel WHERE rel.source_record_id=r.id AND rel.field_key=? AND rel.target_type=? AND ${person ? "rel.target_person_id" : "rel.target_record_id"}=?)`,
@@ -599,10 +603,11 @@ async function compileFilter(
   spaceId: string,
   model: PublishedModel,
   filter: CanonicalFilter,
+  actorPersonId?: string | null,
 ): Promise<SqlFragment> {
   if ("and" in filter) {
     const fragments: SqlFragment[] = await Promise.all(
-      filter.and.map((child: CanonicalFilter) => compileFilter(env, principal, spaceId, model, child)),
+      filter.and.map((child: CanonicalFilter) => compileFilter(env, principal, spaceId, model, child, actorPersonId)),
     );
     return {
       sql: `(${fragments.map((fragment: SqlFragment) => fragment.sql).join(" AND ")})`,
@@ -611,14 +616,14 @@ async function compileFilter(
   }
   if ("or" in filter) {
     const fragments: SqlFragment[] = await Promise.all(
-      filter.or.map((child: CanonicalFilter) => compileFilter(env, principal, spaceId, model, child)),
+      filter.or.map((child: CanonicalFilter) => compileFilter(env, principal, spaceId, model, child, actorPersonId)),
     );
     return {
       sql: `(${fragments.map((fragment: SqlFragment) => fragment.sql).join(" OR ")})`,
       args: fragments.flatMap((fragment: SqlFragment) => fragment.args),
     };
   }
-  return predicateFragment(env, principal, spaceId, model, filter);
+  return predicateFragment(env, principal, spaceId, model, filter, actorPersonId);
 }
 
 function escapeLike(value: string): string {
@@ -644,6 +649,7 @@ export async function queryCanonicalResources(
   spaceId: string,
   model: PublishedModel,
   input: unknown,
+  actorPersonId?: string | null,
 ): Promise<CanonicalQueryResult> {
   const parsed = parseInput(model, input);
   const signature = stableJson(parsed.query);
@@ -656,7 +662,7 @@ export async function queryCanonicalResources(
     args.push(...fragment.args);
   }
   if (parsed.query.filter) {
-    const fragment = await compileFilter(env, principal, spaceId, model, parsed.query.filter);
+    const fragment = await compileFilter(env, principal, spaceId, model, parsed.query.filter, actorPersonId);
     where.push(fragment.sql);
     args.push(...fragment.args);
   }
@@ -683,6 +689,9 @@ export async function queryCanonicalResources(
   ]);
   order.push("r.id ASC");
   args.push(parsed.limit + 1);
+  if (args.length > MAX_QUERY_BINDINGS) {
+    throw new ApiError("INVALID_QUERY", "Canonical Query exceeds the execution complexity budget", 400);
+  }
   const rows = await env.DB.prepare(`SELECT r.id,r.space_id,r.model_key,r.model_version,r.version,r.created_at,r.updated_at${scalarSelect ? `,${scalarSelect}` : ""},${sortSelect}
     FROM resource_records r JOIN ${typedTableSql(model)} m ON m.record_id=r.id AND m.space_id=r.space_id
     WHERE ${where.join(" AND ")} ORDER BY ${order.join(",")} LIMIT ?`)
