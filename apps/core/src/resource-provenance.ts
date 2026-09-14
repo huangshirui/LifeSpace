@@ -128,7 +128,7 @@ export function provenanceMutationExtension(provenance: InformationProvenance): 
   return ({ env, recordId, timestamp, mutationToken }) => {
     const base = `INSERT INTO resource_provenance(
       record_id,record_version,source,source_ref_json,derived_from_json,recorded_at
-    ) SELECT id,version,?,?,?,?,? FROM resource_records WHERE id=?`;
+    ) SELECT id,version,?,?,?,? FROM resource_records WHERE id=?`;
     if (!mutationToken) {
       return [env.DB.prepare(base).bind(
         provenance.source,
