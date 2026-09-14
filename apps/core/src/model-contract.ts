@@ -1,4 +1,5 @@
 import { calendarViewingWindowSemanticQuery } from "./calendar-query-semantics";
+import { canonicalQueryContractSchemas } from "./canonical-query-contract";
 import type { FieldDefinition, ModelDefinition } from "./model-definition";
 import type { PublishedModel } from "./model-registry";
 import { referenceLabelSemantic } from "./reference-label";
@@ -394,7 +395,6 @@ function parameterMap(model: PublishedModel): Map<string, Record<string, unknown
     }
   }
 
-
   for (const semantic of genericComparisonFieldSemantics(model.definition)) {
     const valueSchema: JsonSchema = semantic.source === "model"
       ? fieldSchema({ ...model.definition.fields[semantic.field]!, nullable: false, readOnly: false })
@@ -604,6 +604,8 @@ function modelOpenApi(model: PublishedModel, schemas: Record<string, JsonSchema>
   const resourceName = schemaName(model, "Resource");
   const versionName = schemaName(model, "VersionRequest");
   const listName = schemaName(model, "ListResponse");
+  const canonicalFilterName = schemaName(model, "CanonicalFilter");
+  const canonicalQueryName = schemaName(model, "CanonicalQuery");
 
   schemas[createName] = createSchema(model);
   schemas[updateName] = updateSchema(model);
@@ -623,6 +625,9 @@ function modelOpenApi(model: PublishedModel, schemas: Record<string, JsonSchema>
       },
     },
   };
+  const canonicalQuery = canonicalQueryContractSchemas(model, `#/components/schemas/${canonicalFilterName}`);
+  schemas[canonicalFilterName] = canonicalQuery.filter;
+  schemas[canonicalQueryName] = canonicalQuery.query;
 
   const collectionPath = `/api/v1/spaces/{spaceId}/models/${model.key}/records`;
   const recordPath = `${collectionPath}/{recordId}`;
@@ -650,6 +655,25 @@ function modelOpenApi(model: PublishedModel, schemas: Record<string, JsonSchema>
         "201": {
           description: "Created model record",
           content: { "application/json": { schema: responseSchemaRef(resourceName) } },
+        },
+      },
+    },
+  };
+
+  paths[`${collectionPath}/query`] = {
+    parameters: [{ $ref: "#/components/parameters/SpaceId" }],
+    post: {
+      operationId: `query_${model.key}`,
+      tags: [model.definition.display.plural],
+      "x-lifespace-canonical-query": true,
+      requestBody: {
+        required: true,
+        content: { "application/json": { schema: { $ref: `#/components/schemas/${canonicalQueryName}` } } },
+      },
+      responses: {
+        "200": {
+          description: "Canonical Typed Query result",
+          content: { "application/json": { schema: { $ref: `#/components/schemas/${listName}` } } },
         },
       },
     },
@@ -727,10 +751,15 @@ function jsonSchemaBundle(models: PublishedModel[]): JsonSchema {
   const metadata: Record<string, unknown> = {};
   for (const model of models) {
     const prefix = schemaName(model, "");
+    const canonicalFilterName = `${prefix}CanonicalFilter`;
+    const canonicalQueryName = `${prefix}CanonicalQuery`;
+    const canonicalQuery = canonicalQueryContractSchemas(model, `#/$defs/${canonicalFilterName}`);
     defs[`${prefix}Create`] = createSchema(model);
     defs[`${prefix}Update`] = updateSchema(model);
     defs[`${prefix}Resource`] = resourceSchema(model);
     defs[`${prefix}VersionRequest`] = versionRequestSchema();
+    defs[canonicalFilterName] = canonicalQuery.filter;
+    defs[canonicalQueryName] = canonicalQuery.query;
     const capabilityActions = model.definition.capabilities?.temporal?.occurrences ? ["record-occurrence"] : [];
     metadata[model.key] = {
       version: model.version,
@@ -739,6 +768,8 @@ function jsonSchemaBundle(models: PublishedModel[]): JsonSchema {
       createSchema: `#/$defs/${prefix}Create`,
       updateSchema: `#/$defs/${prefix}Update`,
       resourceSchema: `#/$defs/${prefix}Resource`,
+      canonicalFilterSchema: `#/$defs/${canonicalFilterName}`,
+      canonicalQuerySchema: `#/$defs/${canonicalQueryName}`,
       actions: [...Object.keys(model.definition.actions ?? {}).sort(), ...capabilityActions],
       capabilities: Object.keys(model.definition.capabilities ?? {}).sort(),
     };
