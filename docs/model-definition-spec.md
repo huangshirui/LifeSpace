@@ -197,7 +197,7 @@ The deployed v1 scalar field name remains `datetime`, whose domain meaning is an
 
 The Model Definition validator recognizes `temporal_range`. Its physical mapping is deterministic and internal: one logical field expands to discriminator/start/end columns while the REST/Resource shape remains the canonical tagged value. Scalar fields retain their existing one-field/one-column mapping and relation fields retain relation-table storage.
 
-A `temporal_range` field still cannot be published in this phase because CRUD hydration/dehydration and generated resource contracts are not implemented yet. Registry publication fails closed before D1 mutation. The field also cannot declare a Query role until typed range operators, temporal projection and their index strategy are implemented.
+A `temporal_range` field may be published for generic CRUD. Create/update validation accepts the canonical tagged value, storage dehydrates it into the internal physical columns, and get/list/query resource projection hydrates it back into the same logical value. Generated Model Contracts and Creation Draft schemas expose only that canonical logical shape. The field still cannot declare a Query role until typed range operators, temporal projection and their index strategy are implemented.
 
 Conformance-ID: MDV1-FIELD-TYPES-01
 
@@ -211,7 +211,7 @@ Physical mapping is not Model Definition syntax and is never exposed to model au
 | relation field `field` | existing relation-table rows |
 | `temporal_range field` | internal `__tr_<field>_kind`, `__tr_<field>_start`, `__tr_<field>_end` columns |
 
-The TemporalRange columns enforce the canonical `date | instant` discriminator, all-null/all-present integrity, and `start < end`. These names and checks are Storage implementation details, not REST or Resource fields.
+The TemporalRange columns enforce the canonical `date | instant` discriminator, all-null/all-present integrity, and `start < end`. These names and checks are Storage implementation details, not REST or Resource fields. Generic create/update dehydrates the logical value into these columns; get/list and Generic/Canonical Query result projection hydrate them back into one canonical `temporal_range` value. A partial or invalid stored tuple fails closed instead of leaking physical state.
 
 Compatible physical migration may add an optional `temporal_range` as three nullable columns. Adding a required field still requires an explicit backfill/migration plan. Existing scalar schema and index output remains byte-for-byte stable.
 

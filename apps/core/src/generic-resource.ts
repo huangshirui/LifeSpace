@@ -2,6 +2,7 @@ import type { Bindings, Principal } from "./env";
 import { ApiError } from "./http";
 import { applyModelDefaults } from "./model-defaults";
 import type { FieldDefinition, ModelDefinition } from "./model-definition";
+import { validateTemporalRangeValue } from "./temporal-range";
 import { normalizeRfc3339Instant } from "./time-semantics";
 import { getRuntimeModel, type PublishedModel } from "./model-registry";
 import {
@@ -185,12 +186,17 @@ function validateFieldValue(fieldKey: string, field: FieldDefinition, value: unk
     case "record": return relationIds(value, fieldKey, false)[0];
     case "person_list":
     case "record_list": return relationIds(value, fieldKey, true);
-    case "temporal_range":
-      throw new ApiError(
-        "TEMPORAL_RANGE_STORAGE_NOT_READY",
-        `Field ${fieldKey} cannot be written until temporal_range storage mapping is available`,
-        409,
-      );
+    case "temporal_range": {
+      const result = validateTemporalRangeValue(value);
+      if (!result.valid) {
+        throw new ApiError(
+          "INVALID_RESOURCE",
+          `${fieldKey} is invalid: ${result.issues.map((entry) => entry.message).join("; ")}`,
+          400,
+        );
+      }
+      return result.value;
+    }
   }
 }
 

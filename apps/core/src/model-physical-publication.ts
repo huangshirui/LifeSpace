@@ -1,5 +1,4 @@
 import type { Bindings } from "./env";
-import { ApiError } from "./http";
 import type { ModelDefinition } from "./model-definition";
 import { compileCompatiblePhysicalChange, compilePhysicalSchema } from "./physical-schema";
 
@@ -8,16 +7,6 @@ export function physicalPublicationStatements(
   current: ModelDefinition | null,
   next: ModelDefinition,
 ): D1PreparedStatement[] {
-  const pendingCrudField = Object.entries(next.fields)
-    .find(([, field]) => field.type === "temporal_range");
-  if (pendingCrudField) {
-    throw new ApiError(
-      "TEMPORAL_RANGE_CRUD_NOT_READY",
-      `Field ${pendingCrudField[0]} cannot be published until temporal_range CRUD hydration is implemented`,
-      409,
-    );
-  }
-
   const sql = current
     ? compileCompatiblePhysicalChange(current, next).statements
     : (() => {

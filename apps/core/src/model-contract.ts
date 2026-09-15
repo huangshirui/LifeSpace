@@ -106,7 +106,33 @@ function fieldSchema(field: FieldDefinition): JsonSchema {
       };
       break;
     case "temporal_range":
-      throw new Error("temporal_range contract generation requires the physical mapping and CRUD implementation");
+      schema = {
+        oneOf: [
+          {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              kind: { const: "date" },
+              start: { type: "string", format: "date" },
+              endExclusive: { type: "string", format: "date" },
+            },
+            required: ["kind", "start", "endExclusive"],
+          },
+          {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              kind: { const: "instant" },
+              start: { type: "string", format: "date-time" },
+              endExclusive: { type: "string", format: "date-time" },
+            },
+            required: ["kind", "start", "endExclusive"],
+          },
+        ],
+        "x-lifespace-type": "temporal_range",
+        "x-lifespace-bounds": "[)",
+      };
+      break;
   }
   const result = nullable(schema, field);
   const relation = relationMetadata(field);
