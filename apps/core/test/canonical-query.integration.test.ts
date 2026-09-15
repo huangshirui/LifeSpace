@@ -113,7 +113,7 @@ async function temporalRangeFixture() {
       name: { type: "string", required: true },
       when: { type: "temporal_range", nullable: true },
     },
-    query: { filterable: ["when"] },
+    query: { filterable: ["when"], sortable: ["when"] },
     access: ["read", "write"],
   };
   const publisher: Principal = {
@@ -374,6 +374,51 @@ describe("Canonical Typed Query", () => {
       filter: { field: "when", op: "isNull" },
     });
     expect(nulls.items.map((item) => item.id)).toEqual([unscheduled.id]);
+  });
+
+  it("sorts TemporalRange by projected start/end, keeps null last, and binds viewing context to cursors", async () => {
+    const { spaceId, model, date, instant, unscheduled } = await temporalRangeFixture();
+    const context = { viewingTimezone: "Asia/Shanghai" };
+
+    await expect(queryCanonicalResources(bindings(), actor, spaceId, model, {
+      sort: [{ field: "when", direction: "asc" }],
+    })).rejects.toMatchObject({ code: "INVALID_QUERY" });
+
+    const first = await queryCanonicalResources(bindings(), actor, spaceId, model, {
+      context,
+      sort: [{ field: "when", direction: "asc" }],
+      page: { limit: 2 },
+    });
+    expect(first.items.map((item) => item.id)).toEqual([date.id, instant.id]);
+    expect(first.nextCursor).toBeTruthy();
+
+    const second = await queryCanonicalResources(bindings(), actor, spaceId, model, {
+      context,
+      sort: [{ field: "when", direction: "asc" }],
+      page: { limit: 2, cursor: first.nextCursor },
+    });
+    expect(second.items.at(-1)?.id).toBe(unscheduled.id);
+    expect(new Set([
+      ...first.items.map((item) => item.id),
+      ...second.items.map((item) => item.id),
+    ]).size).toBe(4);
+
+    await expect(queryCanonicalResources(bindings(), actor, spaceId, model, {
+      context: { viewingTimezone: "Asia/Tokyo" },
+      sort: [{ field: "when", direction: "asc" }],
+      page: { limit: 2, cursor: first.nextCursor },
+    })).rejects.toMatchObject({ code: "INVALID_QUERY" });
+
+    const descending = await queryCanonicalResources(bindings(), actor, spaceId, model, {
+      context,
+      sort: [{ field: "when", direction: "desc" }],
+    });
+    expect(descending.items.at(-1)?.id).toBe(unscheduled.id);
+
+    await expect(queryCanonicalResources(bindings(), actor, spaceId, model, {
+      context,
+      sort: [{ field: "createdAt", direction: "asc" }],
+    })).rejects.toMatchObject({ code: "INVALID_QUERY" });
   });
 
 });
