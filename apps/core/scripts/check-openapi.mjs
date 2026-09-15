@@ -275,6 +275,7 @@ if (actionConcurrency?.additionalProperties !== false
   throw new Error("Runtime Discovery record-version concurrency contract drifted");
 }
 if (!schemas.RuntimeDiscoveryFieldType?.enum?.includes("date")
+    || !schemas.RuntimeDiscoveryFieldType?.enum?.includes("temporal_range")
     || !schemas.RuntimeDiscoveryFieldType?.enum?.includes("record_list")) {
   throw new Error("Runtime Discovery field type vocabulary drifted");
 }

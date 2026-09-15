@@ -57,7 +57,8 @@ function fieldType(field: FieldDefinition): OperandType {
     case "person":
     case "record": return { kind: "string", nullable: field.nullable };
     case "person_list":
-    case "record_list": return { kind: "unknown", nullable: field.nullable };
+    case "record_list":
+    case "temporal_range": return { kind: "unknown", nullable: field.nullable };
   }
 }
 

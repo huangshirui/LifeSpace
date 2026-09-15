@@ -26,6 +26,7 @@ export const FIELD_TYPES = [
   "boolean",
   "date",
   "datetime",
+  "temporal_range",
   "timezone",
   "enum",
   "person",
@@ -205,6 +206,7 @@ function validTimezone(value: string): boolean {
 }
 
 function validDefault(field: FieldDefinition, value: unknown): value is ModelDefaultValue {
+  if (field.type === "temporal_range") return false;
   if (value === null) return field.nullable === true;
 
   if (field.type === "person" || field.type === "record") return false;
@@ -650,8 +652,16 @@ export function validateModelDefinition(input: unknown): ModelValidationResult {
   if (query) {
     for (const [kind, fieldKeys] of Object.entries(query)) {
       for (const fieldKey of fieldKeys ?? []) {
-        if (!fields[fieldKey]) {
+        const field = fields[fieldKey];
+        if (!field) {
           issue(issues, `query.${kind}`, "UNKNOWN_QUERY_FIELD", `${fieldKey} is not a declared field`);
+        } else if (field.type === "temporal_range") {
+          issue(
+            issues,
+            `query.${kind}`,
+            "UNSUPPORTED_QUERY_FIELD_TYPE",
+            "temporal_range query roles require the TemporalRange query-operator implementation",
+          );
         }
       }
     }

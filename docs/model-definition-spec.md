@@ -185,6 +185,7 @@ v1 supports:
 | `boolean` | boolean |
 | `date` | calendar date, `YYYY-MM-DD` |
 | `datetime` | absolute RFC 3339 date-time with `Z` or numeric offset; runtime normalizes it to ISO Instant form |
+| `temporal_range` | controlled half-open `Range<Date> | Range<Instant>` value with canonical `kind: "date" | "instant"` tagging |
 | `timezone` | valid IANA timezone |
 | `enum` | one declared string value |
 | `person` | one active Space Person in the same Space |
@@ -192,7 +193,9 @@ v1 supports:
 | `record` | one active record of the declared target model in the same Space |
 | `record_list` | unique list of active records of the declared target model in the same Space |
 
-The deployed v1 scalar field name remains `datetime`, whose domain meaning is an Instant. The controlled TemporalRange canonical value uses the tagged variant `kind: "instant"`; `datetime` is not a TemporalRange tag. Direct `temporal_range` Model Definition support remains planned until its validator, physical mapping, CRUD hydration and generated contract are implemented together.
+The deployed v1 scalar field name remains `datetime`, whose domain meaning is an Instant. The controlled TemporalRange canonical value uses the tagged variant `kind: "instant"`; `datetime` is not a TemporalRange tag.
+
+The Model Definition validator recognizes `temporal_range` in this phase, but the field cannot yet be published into Runtime storage. Physical schema compilation fails closed until the explicit multi-column mapping, CRUD hydration/dehydration and generated contract layers are implemented. It also cannot declare a Query role in this phase.
 
 Conformance-ID: MDV1-FIELD-TYPES-01
 
@@ -224,7 +227,8 @@ Rules:
 - `minLength` / `maxLength` apply only to `string` / `text`;
 - `minimum` / `maximum` apply only to `integer` / `number`;
 - `values` is required for `enum`, must be unique and may contain at most 50 entries;
-- `targetModel` is required only for `record` / `record_list`; it remains structural relation semantics and is not encoded into `title`. Generated contracts may project relation target/cardinality metadata separately so human-readable naming and machine relation semantics remain orthogonal.
+- `targetModel` is required only for `record` / `record_list`; it remains structural relation semantics and is not encoded into `title`. Generated contracts may project relation target/cardinality metadata separately so human-readable naming and machine relation semantics remain orthogonal;
+- `temporal_range` accepts none of `minLength`, `maxLength`, `minimum`, `maximum`, `values` or `targetModel`.
 
 Conformance-ID: MDV1-FIELD-REQUIRED-NULLABLE-01
 Conformance-ID: MDV1-FIELD-CONSTRAINTS-01
@@ -347,6 +351,7 @@ A default must satisfy the field type and constraints.
 Important v1 rules:
 
 - `null` is allowed only for nullable fields;
+- `temporal_range` cannot have any default in this phase, including `null`;
 - scalar relation fields `person` and `record` cannot have non-null defaults;
 - `person_list` / `record_list` may only use an empty list `[]` as a default;
 - enum defaults must be one of the declared values;
@@ -366,7 +371,7 @@ query: {
 }
 ```
 
-Every listed field must exist in `fields`.
+Every listed field must exist in `fields`. A `temporal_range` field cannot appear in `searchable`, `filterable` or `sortable` until its typed Query operators and temporal sort projection are implemented.
 
 The purpose is not to describe SQL. It declares the model's supported logical query surface, from which Runtime/query planning and generated contracts are derived.
 

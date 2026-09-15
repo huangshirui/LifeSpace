@@ -185,6 +185,12 @@ function validateFieldValue(fieldKey: string, field: FieldDefinition, value: unk
     case "record": return relationIds(value, fieldKey, false)[0];
     case "person_list":
     case "record_list": return relationIds(value, fieldKey, true);
+    case "temporal_range":
+      throw new ApiError(
+        "TEMPORAL_RANGE_STORAGE_NOT_READY",
+        `Field ${fieldKey} cannot be written until temporal_range storage mapping is available`,
+        409,
+      );
   }
 }
 
