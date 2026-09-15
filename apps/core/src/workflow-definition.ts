@@ -56,6 +56,7 @@ function issue(issues: ModelValidationIssue[], path: string, code: string, messa
 }
 
 function literalCompatible(field: FieldDefinition, value: WorkflowLiteral): boolean {
+  if (field.type === "temporal_range") return false;
   if (value === null) return field.nullable === true;
   switch (field.type) {
     case "string":
