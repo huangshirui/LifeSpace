@@ -18,6 +18,8 @@ import {
 type JsonObject = Record<string, unknown>;
 type CursorScalar = string | number | null;
 type Direction = "asc" | "desc";
+type ViewingContext = { viewingTimezone: string };
+type TemporalVariant = "date" | "instant" | "null";
 type ScalarOperator = "eq" | "ne" | "lt" | "lte" | "gt" | "gte" | "isNull" | "isNotNull" | "within";
 type RelationOperator = "contains";
 type RangeOperator = "overlaps" | "contains" | "before" | "after";
@@ -60,6 +62,7 @@ export type CanonicalQueryInput = {
   search?: { text: string };
   filter?: CanonicalFilter;
   sort?: Array<{ field: string; direction: Direction }>;
+  context?: ViewingContext;
   page?: { limit?: number; cursor?: string | null };
 };
 
@@ -74,6 +77,12 @@ type SortCriterion = {
   direction: Direction;
   expression: string;
   nullable: boolean;
+  temporal?: {
+    kind: string;
+    start: string;
+    end: string;
+    viewingTimezone: string;
+  };
 };
 
 type QueryRow = TypedResourceRow & Record<string, string | number | null | undefined>;
@@ -87,6 +96,15 @@ type Cursor = {
   id: string;
 };
 
+type TemporalStreamCursor = { keys: CursorScalar[]; id: string };
+type TemporalCursor = {
+  v: 4;
+  model: string;
+  signature: string;
+  sorts: string[];
+  streams: Partial<Record<TemporalVariant, TemporalStreamCursor>>;
+};
+
 type SqlFragment = { sql: string; args: unknown[] };
 type QueryRange = { kind: "date" | "instant"; start: string; endExclusive: string };
 
@@ -94,6 +112,7 @@ type NormalizedQuery = {
   search?: { text: string };
   filter?: CanonicalFilter;
   sort: Array<{ field: string; direction: Direction }>;
+  context?: ViewingContext;
 };
 
 const MAX_SORT_CRITERIA = 8;
@@ -440,13 +459,33 @@ function validateFilterShape(value: unknown, depth = 0, counter = { value: 0 }):
   return { field: value.field, op, ...(needsValue ? { value: value.value } : {}) };
 }
 
-function parseSorts(model: PublishedModel, raw: unknown): SortCriterion[] {
+function parseViewingContext(raw: unknown): ViewingContext | undefined {
+  if (raw === undefined) return undefined;
+  if (
+    !isObject(raw)
+    || Object.keys(raw).some((key) => key !== "viewingTimezone")
+    || typeof raw.viewingTimezone !== "string"
+  ) {
+    throw new ApiError("INVALID_QUERY", "context must be {viewingTimezone:string}", 400);
+  }
+  try {
+    return { viewingTimezone: assertIanaTimezone(raw.viewingTimezone) };
+  } catch {
+    throw new ApiError("INVALID_QUERY", "context.viewingTimezone must be an IANA timezone", 400);
+  }
+}
+
+function parseSorts(
+  model: PublishedModel,
+  raw: unknown,
+  context: ViewingContext | undefined,
+): SortCriterion[] {
   const values = raw === undefined ? [{ field: "createdAt", direction: "desc" as const }] : raw;
   if (!Array.isArray(values) || values.length < 1 || values.length > MAX_SORT_CRITERIA) {
     throw new ApiError("INVALID_QUERY", `sort must contain 1-${MAX_SORT_CRITERIA} criteria`, 400);
   }
   const seen = new Set<string>();
-  return values.map((value, index) => {
+  const sorts: SortCriterion[] = values.map((value, index): SortCriterion => {
     if (!isObject(value) || !Object.keys(value).every((key) => key === "field" || key === "direction")) {
       throw new ApiError("INVALID_QUERY", `sort[${index}] must contain field and direction`, 400);
     }
@@ -459,16 +498,57 @@ function parseSorts(model: PublishedModel, raw: unknown): SortCriterion[] {
     seen.add(field);
     if (field === "createdAt") return { raw: `${field}:${direction}`, field, direction, expression: "r.created_at", nullable: false };
     if (field === "updatedAt") return { raw: `${field}:${direction}`, field, direction, expression: "r.updated_at", nullable: false };
-    if (field === "when") throw new ApiError("INVALID_QUERY", "TemporalRange sorting is not enabled until an explicit viewing timezone is bound to the sort context", 400);
+
+    const declared = model.definition.fields[field];
+    if (declared?.type === "temporal_range") {
+      if (!model.definition.query?.sortable?.includes(field)) {
+        throw new ApiError("INVALID_QUERY", `${field} is not sortable for model ${model.key}`, 400);
+      }
+      if (!context) {
+        throw new ApiError(
+          "INVALID_QUERY",
+          `${field} sorting requires context.viewingTimezone`,
+          400,
+        );
+      }
+      const expressions = typedTemporalRangeExpressions(model, field);
+      return {
+        raw: `${field}:${direction}:${context.viewingTimezone}`,
+        field,
+        direction,
+        expression: expressions.start,
+        nullable: declared.nullable === true || declared.required !== true,
+        temporal: { ...expressions, viewingTimezone: context.viewingTimezone },
+      };
+    }
+    if (field === "when") {
+      throw new ApiError(
+        "INVALID_QUERY",
+        "Calendar compatibility when sorting remains on the Calendar transport until Event migration",
+        400,
+      );
+    }
     if (!model.definition.query?.sortable?.includes(field)) throw new ApiError("INVALID_QUERY", `${field} is not sortable for model ${model.key}`, 400);
     return {
       raw: `${field}:${direction}`,
       field,
       direction,
       expression: typedScalarExpression(model, field),
-      nullable: model.definition.fields[field]?.nullable === true || model.definition.fields[field]?.required !== true,
+      nullable: declared?.nullable === true || declared?.required !== true,
     };
   });
+  const temporalCount = sorts.filter((sort) => sort.temporal).length;
+  if (temporalCount > 1) {
+    throw new ApiError("INVALID_QUERY", "Canonical Query supports at most one temporal_range sort field", 400);
+  }
+  if (context && temporalCount === 0) {
+    throw new ApiError(
+      "INVALID_QUERY",
+      "context.viewingTimezone is only valid with a temporal_range sort",
+      400,
+    );
+  }
+  return sorts;
 }
 
 function parseInput(model: PublishedModel, input: unknown): {
@@ -478,7 +558,7 @@ function parseInput(model: PublishedModel, input: unknown): {
   cursor: string | null;
 } {
   if (!isObject(input)) throw new ApiError("INVALID_QUERY", "Canonical Query body must be an object", 400);
-  const unknown = Object.keys(input).find((key) => !["search", "filter", "sort", "page"].includes(key));
+  const unknown = Object.keys(input).find((key) => !["search", "filter", "sort", "context", "page"].includes(key));
   if (unknown) throw new ApiError("INVALID_QUERY", `Unsupported Canonical Query member ${unknown}`, 400);
   let search: { text: string } | undefined;
   if (input.search !== undefined) {
@@ -491,7 +571,8 @@ function parseInput(model: PublishedModel, input: unknown): {
     search = { text };
   }
   const filter = input.filter === undefined ? undefined : normalizeFilter(validateFilterShape(input.filter));
-  const sorts = parseSorts(model, input.sort);
+  const context = parseViewingContext(input.context);
+  const sorts = parseSorts(model, input.sort, context);
   let limit = 100;
   let cursor: string | null = null;
   if (input.page !== undefined) {
@@ -514,6 +595,7 @@ function parseInput(model: PublishedModel, input: unknown): {
       ...(search ? { search } : {}),
       ...(filter ? { filter } : {}),
       sort: sorts.map(({ field, direction }) => ({ field, direction })),
+      ...(context ? { context } : {}),
     },
     sorts,
     limit,
@@ -521,7 +603,7 @@ function parseInput(model: PublishedModel, input: unknown): {
   };
 }
 
-function encodeCursor(cursor: Cursor): string {
+function encodeCursor(cursor: Cursor | TemporalCursor): string {
   const bytes = new TextEncoder().encode(JSON.stringify(cursor));
   return btoa(String.fromCharCode(...bytes)).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/u, "");
 }
@@ -547,6 +629,34 @@ function decodeCursor(raw: string): Cursor {
       || typeof value.id !== "string"
     ) throw new Error("invalid cursor");
     return value as Cursor;
+  } catch {
+    throw new ApiError("INVALID_QUERY", "cursor is invalid", 400);
+  }
+}
+
+function decodeTemporalCursor(raw: string): TemporalCursor {
+  try {
+    const base64 = raw.replaceAll("-", "+").replaceAll("_", "/");
+    const bytes = Uint8Array.from(atob(base64), (character) => character.charCodeAt(0));
+    const value = JSON.parse(new TextDecoder().decode(bytes)) as Partial<TemporalCursor>;
+    if (
+      value.v !== 4
+      || typeof value.model !== "string"
+      || typeof value.signature !== "string"
+      || !Array.isArray(value.sorts)
+      || value.sorts.some((sort) => typeof sort !== "string")
+      || !isObject(value.streams)
+    ) throw new Error("invalid cursor");
+    for (const [variant, state] of Object.entries(value.streams)) {
+      if (
+        !["date", "instant", "null"].includes(variant)
+        || !isObject(state)
+        || !Array.isArray(state.keys)
+        || state.keys.some((key) => !isCursorScalar(key))
+        || typeof state.id !== "string"
+      ) throw new Error("invalid stream cursor");
+    }
+    return value as TemporalCursor;
   } catch {
     throw new ApiError("INVALID_QUERY", "cursor is invalid", 400);
   }
@@ -736,6 +846,199 @@ function searchFragment(model: PublishedModel, text: string): SqlFragment {
   return { sql: `(${clauses.join(" OR ")})`, args };
 }
 
+function temporalStreamSorts(
+  sorts: SortCriterion[],
+): SortCriterion[] {
+  return sorts.flatMap((sort) => {
+    if (!sort.temporal) return [sort];
+    const nullable = sort.nullable;
+    return [
+      {
+        raw: `${sort.raw}:projectedStart`,
+        field: sort.field,
+        direction: sort.direction,
+        expression: sort.temporal.start,
+        nullable,
+      },
+      {
+        raw: `${sort.raw}:projectedEnd`,
+        field: sort.field,
+        direction: sort.direction,
+        expression: sort.temporal.end,
+        nullable,
+      },
+    ];
+  });
+}
+
+function temporalProjectedKeys(
+  row: QueryRow,
+  variant: TemporalVariant,
+  sorts: SortCriterion[],
+): CursorScalar[] {
+  const keys: CursorScalar[] = [];
+  let effectiveIndex = 0;
+  for (const sort of sorts) {
+    if (!sort.temporal) {
+      keys.push(row[`sort_value_${effectiveIndex}`] ?? null);
+      effectiveIndex += 1;
+      continue;
+    }
+    const start = row[`sort_value_${effectiveIndex}`] ?? null;
+    const endExclusive = row[`sort_value_${effectiveIndex + 1}`] ?? null;
+    effectiveIndex += 2;
+    if (variant === "null") {
+      keys.push(null, null);
+      continue;
+    }
+    if (typeof start !== "string" || typeof endExclusive !== "string") {
+      throw new ApiError("RESOURCE_STORAGE_CORRUPT", `Temporal range sort value is invalid for resource ${row.id}`, 500);
+    }
+    if (variant === "instant") {
+      keys.push(start, endExclusive);
+      continue;
+    }
+    try {
+      const projected = localDateWindowToInstantRange({
+        dateStart: start,
+        dateEndExclusive: endExclusive,
+        timezone: sort.temporal.viewingTimezone,
+      });
+      keys.push(projected.startInclusive, projected.endExclusive);
+    } catch {
+      throw new ApiError("RESOURCE_STORAGE_CORRUPT", `Temporal range sort value is invalid for resource ${row.id}`, 500);
+    }
+  }
+  return keys;
+}
+
+function temporalSortDirections(sorts: SortCriterion[]): Direction[] {
+  return sorts.flatMap((sort) => sort.temporal
+    ? [sort.direction, sort.direction]
+    : [sort.direction]);
+}
+
+function compareProjectedKey(
+  left: CursorScalar,
+  right: CursorScalar,
+  direction: Direction,
+): number {
+  if (left === null || right === null) {
+    if (left === right) return 0;
+    return left === null ? 1 : -1;
+  }
+  const order = left < right ? -1 : left > right ? 1 : 0;
+  return direction === "asc" ? order : -order;
+}
+
+async function queryTemporalSortedResources(
+  env: Bindings,
+  spaceId: string,
+  model: PublishedModel,
+  parsed: ReturnType<typeof parseInput>,
+  signature: string,
+  baseWhere: string[],
+  baseArgs: unknown[],
+): Promise<CanonicalQueryResult> {
+  const temporal = parsed.sorts.find((sort) => sort.temporal)?.temporal;
+  if (!temporal) throw new ApiError("INVALID_QUERY", "Temporal sort context is missing", 400);
+  const rawSorts = parsed.sorts.map((sort) => sort.raw);
+  const cursor = parsed.cursor ? decodeTemporalCursor(parsed.cursor) : null;
+  if (
+    cursor
+    && (
+      cursor.model !== model.key
+      || cursor.signature !== signature
+      || cursor.sorts.length !== rawSorts.length
+      || cursor.sorts.some((value, index) => value !== rawSorts[index])
+    )
+  ) throw new ApiError("INVALID_QUERY", "cursor does not match this Canonical Query", 400);
+
+  const variants: TemporalVariant[] = ["date", "instant", "null"];
+  const scalarSelect = typedSelectColumns(model);
+  const statements = variants.map((variant) => {
+    const sorts = temporalStreamSorts(parsed.sorts);
+    const where = [...baseWhere];
+    const args = [...baseArgs];
+    if (variant === "null") {
+      where.push(`${temporal.kind} IS NULL`);
+    } else {
+      where.push(`${temporal.kind}=?`);
+      args.push(variant);
+    }
+    const streamCursor = cursor?.streams[variant];
+    if (streamCursor) {
+      if (streamCursor.keys.length !== sorts.length) {
+        throw new ApiError("INVALID_QUERY", "cursor does not match this Canonical Query", 400);
+      }
+      const continuation = cursorPredicate(sorts, streamCursor.keys, streamCursor.id);
+      where.push(continuation.sql);
+      args.push(...continuation.args);
+    }
+    const sortSelect = sorts.map(
+      (sort, index) => `${sort.expression} AS sort_value_${index}`,
+    ).join(",");
+    const order = sorts.flatMap((sort) => [
+      ...(sort.nullable ? [`${sort.expression} IS NULL ASC`] : []),
+      `${sort.expression} ${sort.direction.toUpperCase()}`,
+    ]);
+    order.push("r.id ASC");
+    args.push(parsed.limit + 1);
+    if (args.length > MAX_QUERY_BINDINGS) {
+      throw new ApiError("INVALID_QUERY", "Canonical Query exceeds the execution complexity budget", 400);
+    }
+    return env.DB.prepare(`SELECT r.id,r.space_id,r.model_key,r.model_version,r.version,r.created_at,r.updated_at${scalarSelect ? `,${scalarSelect}` : ""},${sortSelect}
+      FROM resource_records r JOIN ${typedTableSql(model)} m ON m.record_id=r.id AND m.space_id=r.space_id
+      WHERE ${where.join(" AND ")} ORDER BY ${order.join(",")} LIMIT ?`)
+      .bind(...args);
+  });
+
+  const results = await env.DB.batch<QueryRow>(statements);
+  const directions = temporalSortDirections(parsed.sorts);
+  const candidates = variants.flatMap((variant, index) =>
+    results[index]!.results.map((row) => ({
+      variant,
+      row,
+      projected: temporalProjectedKeys(row, variant, parsed.sorts),
+    }))
+  ).sort((left, right) => {
+    for (let index = 0; index < directions.length; index += 1) {
+      const order = compareProjectedKey(
+        left.projected[index] ?? null,
+        right.projected[index] ?? null,
+        directions[index]!,
+      );
+      if (order) return order;
+    }
+    return left.row.id.localeCompare(right.row.id);
+  });
+
+  const page = candidates.slice(0, parsed.limit);
+  const streams: Partial<Record<TemporalVariant, TemporalStreamCursor>> = {
+    ...(cursor?.streams ?? {}),
+  };
+  for (const candidate of page) {
+    const sorts = temporalStreamSorts(parsed.sorts);
+    streams[candidate.variant] = {
+      keys: sorts.map((_sort, index) => candidate.row[`sort_value_${index}`] ?? null),
+      id: candidate.row.id,
+    };
+  }
+  const items = await hydrateTypedResourceRows(env, model, page.map((candidate) => candidate.row));
+  return {
+    items,
+    nextCursor: candidates.length > parsed.limit
+      ? encodeCursor({
+          v: 4,
+          model: model.key,
+          signature,
+          sorts: rawSorts,
+          streams,
+        })
+      : null,
+  };
+}
+
 export async function queryCanonicalResources(
   env: Bindings,
   principal: Principal,
@@ -758,6 +1061,10 @@ export async function queryCanonicalResources(
     const fragment = await compileFilter(env, principal, spaceId, model, parsed.query.filter, actorPersonId);
     where.push(fragment.sql);
     args.push(...fragment.args);
+  }
+
+  if (parsed.sorts.some((sort) => sort.temporal)) {
+    return queryTemporalSortedResources(env, spaceId, model, parsed, signature, where, args);
   }
 
   const cursor = parsed.cursor ? decodeCursor(parsed.cursor) : null;

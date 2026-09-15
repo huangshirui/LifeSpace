@@ -530,6 +530,7 @@ function parameterMap(model: PublishedModel): Map<string, Record<string, unknown
     "updatedAt:desc",
   ]);
   for (const fieldKey of model.definition.query?.sortable ?? []) {
+    if (model.definition.fields[fieldKey]?.type === "temporal_range") continue;
     genericSortValues.add(`${fieldKey}:asc`);
     genericSortValues.add(`${fieldKey}:desc`);
   }

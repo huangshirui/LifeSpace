@@ -655,12 +655,12 @@ export function validateModelDefinition(input: unknown): ModelValidationResult {
         const field = fields[fieldKey];
         if (!field) {
           issue(issues, `query.${kind}`, "UNKNOWN_QUERY_FIELD", `${fieldKey} is not a declared field`);
-        } else if (field.type === "temporal_range" && kind !== "filterable") {
+        } else if (field.type === "temporal_range" && kind === "searchable") {
           issue(
             issues,
             `query.${kind}`,
             "UNSUPPORTED_QUERY_FIELD_TYPE",
-            "temporal_range supports the filterable role only; search and sort require separate projections",
+            "temporal_range supports filterable and sortable roles, but has no text-search projection",
           );
         }
       }
