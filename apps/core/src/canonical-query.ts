@@ -848,7 +848,6 @@ function searchFragment(model: PublishedModel, text: string): SqlFragment {
 
 function temporalStreamSorts(
   sorts: SortCriterion[],
-  variant: TemporalVariant,
 ): SortCriterion[] {
   return sorts.flatMap((sort) => {
     if (!sort.temporal) return [sort];
@@ -958,7 +957,7 @@ async function queryTemporalSortedResources(
   const variants: TemporalVariant[] = ["date", "instant", "null"];
   const scalarSelect = typedSelectColumns(model);
   const statements = variants.map((variant) => {
-    const sorts = temporalStreamSorts(parsed.sorts, variant);
+    const sorts = temporalStreamSorts(parsed.sorts);
     const where = [...baseWhere];
     const args = [...baseArgs];
     if (variant === "null") {
@@ -1019,7 +1018,7 @@ async function queryTemporalSortedResources(
     ...(cursor?.streams ?? {}),
   };
   for (const candidate of page) {
-    const sorts = temporalStreamSorts(parsed.sorts, candidate.variant);
+    const sorts = temporalStreamSorts(parsed.sorts);
     streams[candidate.variant] = {
       keys: sorts.map((_sort, index) => candidate.row[`sort_value_${index}`] ?? null),
       id: candidate.row.id,
