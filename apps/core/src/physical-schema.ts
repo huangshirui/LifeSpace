@@ -180,8 +180,8 @@ function renderColumn(column: PhysicalColumn): string {
 }
 
 function renderIndex(tableName: string, index: PhysicalIndex): string {
-  const keys = ["space_id", ...index.columnKeys, "record_id"].map(identifier);
-  return `CREATE INDEX ${identifier(index.name)} ON ${identifier(tableName)}(${keys.join(",")})`;
+  const columns = index.columnKeys.map(identifier);
+  return `CREATE INDEX ${identifier(index.name)} ON ${identifier(tableName)}(space_id,${columns.join(",")},record_id)`;
 }
 
 export function compilePhysicalSchema(definition: ModelDefinition): PhysicalSchemaPlan {
