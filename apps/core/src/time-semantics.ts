@@ -1,4 +1,5 @@
 const CALENDAR_DATE = /^(\d{4})-(\d{2})-(\d{2})$/u;
+const RFC3339_INSTANT = /^\d{4}-\d{2}-\d{2}[Tt]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:[Zz]|[+-]\d{2}:\d{2})$/u;
 const SEARCH_PADDING_MS = 48 * 60 * 60 * 1000;
 
 export type LocalDateWindow = {
@@ -11,6 +12,26 @@ export type InstantRange = {
   startInclusive: string;
   endExclusive: string;
 };
+
+export function normalizeRfc3339Instant(value: unknown): string {
+  if (typeof value !== "string" || !RFC3339_INSTANT.test(value)) {
+    throw new RangeError("instant must be an absolute RFC 3339 date-time");
+  }
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    throw new RangeError("instant must be an absolute RFC 3339 date-time");
+  }
+  return parsed.toISOString();
+}
+
+export function isRfc3339Instant(value: unknown): value is string {
+  try {
+    normalizeRfc3339Instant(value);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 type CalendarDateParts = {
   year: number;
@@ -108,10 +129,7 @@ function startOfLocalDate(
  */
 export function instantToLocalDate(value: string, timezone: string): string {
   const normalizedTimezone = assertIanaTimezone(timezone);
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime()) || !value.includes("T")) {
-    throw new RangeError("instant must be an RFC 3339 date-time");
-  }
+  const parsed = new Date(normalizeRfc3339Instant(value));
   const parts = formattedDateParts(parsed.getTime(), localDateFormatter(normalizedTimezone));
   const year = String(parts.year).padStart(4, "0");
   const month = String(parts.month).padStart(2, "0");
