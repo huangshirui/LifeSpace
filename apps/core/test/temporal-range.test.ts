@@ -41,7 +41,12 @@ describe("TemporalRange value semantics", () => {
       kind: "datetime",
       start: "2026-09-20T10:00:00+08:00",
       endExclusive: "2026-09-20T11:00:00+08:00",
-    })).toMatchObject({ valid: false, issues: expect.arrayContaining([{ code: "INVALID_KIND" }]) });
+    })).toMatchObject({
+      valid: false,
+      issues: expect.arrayContaining([
+        expect.objectContaining({ code: "INVALID_KIND" }),
+      ]),
+    });
     expect(validateTemporalRangeValue({
       kind: "instant",
       start: "2026-09-20T10:00:00",
