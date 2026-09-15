@@ -485,7 +485,7 @@ function parseSorts(
     throw new ApiError("INVALID_QUERY", `sort must contain 1-${MAX_SORT_CRITERIA} criteria`, 400);
   }
   const seen = new Set<string>();
-  const sorts = values.map((value, index) => {
+  const sorts: SortCriterion[] = values.map((value, index): SortCriterion => {
     if (!isObject(value) || !Object.keys(value).every((key) => key === "field" || key === "direction")) {
       throw new ApiError("INVALID_QUERY", `sort[${index}] must contain field and direction`, 400);
     }
