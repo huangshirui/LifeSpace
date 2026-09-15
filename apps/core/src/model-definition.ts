@@ -10,6 +10,7 @@ import {
   validateTimeRanges,
   type TimeRangeDefinitions,
 } from "./time-range-definition";
+import { isRfc3339Instant } from "./time-semantics";
 import { validateWorkflowActions, type WorkflowActionsDefinition } from "./workflow-definition";
 
 export type { ReferenceLabelDefinition } from "./reference-label-syntax";
@@ -228,9 +229,7 @@ function validDefault(field: FieldDefinition, value: unknown): value is ModelDef
 
   if (field.type === "boolean") return typeof value === "boolean";
   if (field.type === "date") return typeof value === "string" && validDate(value);
-  if (field.type === "datetime") {
-    return typeof value === "string" && /T/.test(value) && !Number.isNaN(Date.parse(value));
-  }
+  if (field.type === "datetime") return isRfc3339Instant(value);
   if (field.type === "timezone") return typeof value === "string" && validTimezone(value);
   if (field.type === "enum") return typeof value === "string" && Boolean(field.values?.includes(value));
   return false;
