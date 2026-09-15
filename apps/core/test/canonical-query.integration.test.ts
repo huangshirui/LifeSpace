@@ -4,8 +4,7 @@ import { queryCanonicalResources } from "../src/canonical-query";
 import type { Bindings, Principal } from "../src/env";
 import { createGenericResource } from "../src/generic-resource";
 import type { ModelDefinition } from "../src/model-definition";
-import { getPublishedModel, type PublishedModel } from "../src/model-registry";
-import { compilePhysicalSchema } from "../src/physical-schema";
+import { getPublishedModel, publishModelDefinition } from "../src/model-registry";
 
 type TestEnv = { DB: D1Database };
 
@@ -117,22 +116,14 @@ async function temporalRangeFixture() {
     query: { filterable: ["when"] },
     access: ["read", "write"],
   };
-  const model: PublishedModel = {
-    id: `mdl_${definition.key}`,
-    key: definition.key,
-    version: 1,
-    state: "published",
-    schemaHash: "b".repeat(64),
-    compatibility: "initial",
-    definition,
-    publishedAt: "2026-09-15T00:00:00.000Z",
+  const publisher: Principal = {
+    type: "service",
+    id: "svc_temporal_query_test",
+    clientId: "lifespace-platform-admin",
+    scopes: ["models:manage"],
+    tokenId: "tok_temporal_query_test",
   };
-  const plan = compilePhysicalSchema(definition);
-  const db = (env as unknown as TestEnv).DB;
-  await db.batch([
-    db.prepare(plan.createTableSql),
-    ...plan.createIndexSql.map((sql) => db.prepare(sql)),
-  ]);
+  const model = await publishModelDefinition(bindings(), publisher, definition, "initial");
   const date = await createGenericResource(bindings(), actor, spaceId, model, {
     name: "All day",
     when: { kind: "date", start: "2026-09-20", endExclusive: "2026-09-21" },
