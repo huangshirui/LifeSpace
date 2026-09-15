@@ -79,8 +79,14 @@ describe("Model Definition temporal_range independent Oracle fixtures", () => {
 
   // Oracle-Fixture: ORC-FIELD-TEMPORAL-RANGE-QUERY-GATE-01
   // Covers: MDV1-QUERY-GENERIC-01
-  it.each(["searchable", "filterable", "sortable"])(
-    "fails closed for the %s query role until typed query support exists",
+  it("allows the filterable role for typed TemporalRange predicates", () => {
+    expect(issueCodes(definition({}, { query: { filterable: ["when"] } }))).not.toContain(
+      "UNSUPPORTED_QUERY_FIELD_TYPE",
+    );
+  });
+
+  it.each(["searchable", "sortable"])(
+    "keeps the %s query role closed until its projection is implemented",
     (role) => {
       expect(issueCodes(definition({}, { query: { [role]: ["when"] } }))).toContain(
         "UNSUPPORTED_QUERY_FIELD_TYPE",
