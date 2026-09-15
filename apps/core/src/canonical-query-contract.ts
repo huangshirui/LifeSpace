@@ -30,6 +30,10 @@ export type CanonicalQuerySemanticDescriptor = {
     default: [{ field: "createdAt"; direction: "desc" }];
     nullPlacement: "last";
     stableTieBreaker: "record-id-asc";
+    temporalRange: null | {
+      context: "context.viewingTimezone";
+      ordering: ["projectedStart", "projectedEnd", "record-id-asc"];
+    };
   };
   pagination: {
     limit: { minimum: 1; maximum: 200; default: 100 };
@@ -191,6 +195,9 @@ export function canonicalQuerySemanticDescriptor(model: PublishedModel): Canonic
   }
   targets.sort((left, right) => left.field.localeCompare(right.field) || left.kind.localeCompare(right.kind));
   const sortable = [...new Set(["createdAt", "updatedAt", ...(model.definition.query?.sortable ?? [])])].sort();
+  const hasTemporalSort = (model.definition.query?.sortable ?? []).some(
+    (fieldKey) => model.definition.fields[fieldKey]?.type === "temporal_range",
+  );
   const searchable = [...(model.definition.query?.searchable ?? [])];
   return {
     invocation: {
@@ -207,6 +214,12 @@ export function canonicalQuerySemanticDescriptor(model: PublishedModel): Canonic
       default: [{ field: "createdAt", direction: "desc" }],
       nullPlacement: "last",
       stableTieBreaker: "record-id-asc",
+      temporalRange: hasTemporalSort
+        ? {
+            context: "context.viewingTimezone",
+            ordering: ["projectedStart", "projectedEnd", "record-id-asc"],
+          }
+        : null,
     },
     pagination: {
       limit: { minimum: 1, maximum: 200, default: 100 },
@@ -300,6 +313,22 @@ export function canonicalQueryContractSchemas(
       },
     },
   };
+  if ((model.definition.query?.sortable ?? []).some(
+    (fieldKey) => model.definition.fields[fieldKey]?.type === "temporal_range",
+  )) {
+    properties.context = {
+      type: "object",
+      additionalProperties: false,
+      required: ["viewingTimezone"],
+      properties: {
+        viewingTimezone: {
+          type: "string",
+          "x-lifespace-format": "iana-timezone",
+        },
+      },
+      "x-lifespace-required-with-sort-type": "temporal_range",
+    };
+  }
   if (model.definition.query?.searchable?.length) {
     properties.search = {
       type: "object",
