@@ -5,7 +5,7 @@ import { ApiError } from "./http";
 import type { FieldDefinition } from "./model-definition";
 import type { PublishedModel } from "./model-registry";
 import { projectTimeRangeSemantics, type TimeRangeBounds } from "./time-range-definition";
-import { assertIanaTimezone, localDateWindowToInstantRange } from "./time-semantics";
+import { assertIanaTimezone, localDateWindowToInstantRange, normalizeRfc3339Instant } from "./time-semantics";
 import {
   hydrateTypedResourceRows,
   typedScalarExpression,
@@ -143,12 +143,11 @@ function exactDate(value: unknown, field: string): string {
 }
 
 function instant(value: unknown, field: string): string {
-  if (typeof value !== "string" || !value.includes("T")) {
-    throw new ApiError("INVALID_QUERY", `${field} must be an RFC 3339 date-time`, 400);
+  try {
+    return normalizeRfc3339Instant(value);
+  } catch {
+    throw new ApiError("INVALID_QUERY", `${field} must be an absolute RFC 3339 date-time`, 400);
   }
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) throw new ApiError("INVALID_QUERY", `${field} must be an RFC 3339 date-time`, 400);
-  return parsed.toISOString();
 }
 
 function scalarValue(field: FieldDefinition, raw: unknown, path: string): string | number {
