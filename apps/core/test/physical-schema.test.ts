@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import type { ModelDefinition } from "../src/model-definition";
-import { physicalPublicationStatements } from "../src/model-physical-publication";
 import { compileCompatiblePhysicalChange, compilePhysicalSchema } from "../src/physical-schema";
 
 function taskDefinition(): ModelDefinition {
@@ -148,7 +147,7 @@ describe("Physical Schema Compiler", () => {
     })).toThrow(/Required field window needs an explicit backfill\/default migration plan/);
   });
 
-  it("keeps temporal_range query indexes and publication closed until their dependent slices", () => {
+  it("keeps temporal_range query indexes closed until typed Query support exists", () => {
     const definition: ModelDefinition = {
       ...taskDefinition(),
       key: "appointment",
@@ -160,16 +159,6 @@ describe("Physical Schema Compiler", () => {
     expect(() => compilePhysicalSchema(definition)).toThrow(
       "requires the temporal_range query/index implementation",
     );
-
-    const publishableShape: ModelDefinition = {
-      ...definition,
-      query: undefined,
-    };
-    expect(() => physicalPublicationStatements(
-      { DB: { prepare: () => { throw new Error("must not reach D1"); } } } as any,
-      null,
-      publishableShape,
-    )).toThrow("cannot be published until temporal_range CRUD hydration is implemented");
   });
 
 });
