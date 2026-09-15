@@ -10,6 +10,7 @@ import {
   hydrateTypedResourceRows,
   typedScalarExpression,
   typedSelectColumns,
+  typedTemporalRangeExpressions,
   typedTableSql,
   type TypedResourceRow,
 } from "./typed-resource-storage";
@@ -342,6 +343,81 @@ function calendarTemporalRangePredicate(model: PublishedModel, op: RangeOperator
   };
 }
 
+function temporalRangeFieldPredicate(
+  model: PublishedModel,
+  predicate: FilterPredicate,
+): SqlFragment {
+  const field = model.definition.fields[predicate.field];
+  if (!field || field.type !== "temporal_range") {
+    throw new ApiError("INVALID_QUERY", `${predicate.field} is not a temporal_range field`, 400);
+  }
+  if (!model.definition.query?.filterable?.includes(predicate.field)) {
+    throw new ApiError("INVALID_QUERY", `${predicate.field} is not filterable for model ${model.key}`, 400);
+  }
+  const expressions = typedTemporalRangeExpressions(model, predicate.field);
+  if (predicate.op === "isNull" || predicate.op === "isNotNull") {
+    if (field.nullable !== true) {
+      throw new ApiError("INVALID_QUERY", `${predicate.field} is not nullable`, 400);
+    }
+    return {
+      sql: `${expressions.kind} IS ${predicate.op === "isNull" ? "" : "NOT "}NULL`,
+      args: [],
+    };
+  }
+  if (predicate.op === "kindIs") {
+    if (predicate.value !== "date" && predicate.value !== "instant") {
+      throw new ApiError(
+        "INVALID_QUERY",
+        `${predicate.field}.kindIs requires date or instant`,
+        400,
+      );
+    }
+    return { sql: `${expressions.kind}=?`, args: [predicate.value] };
+  }
+  if (!["overlaps", "contains", "before", "after"].includes(predicate.op)) {
+    throw new ApiError(
+      "INVALID_QUERY",
+      `${predicate.field}.${predicate.op} is unsupported for temporal_range`,
+      400,
+    );
+  }
+
+  const operand = parseRangeOperand(predicate.value, `${predicate.field}.value`);
+  const branches: SqlFragment[] = [];
+  if (operand.kind === "local_date_window" || operand.kind === "date") {
+    const projected = projectOperand(operand, "date", `${predicate.field}.value`);
+    const fragment = rangePredicate(
+      expressions.start,
+      expressions.end,
+      "[)",
+      predicate.op as RangeOperator,
+      projected,
+    );
+    branches.push({
+      sql: `(${expressions.kind}=? AND ${fragment.sql})`,
+      args: ["date", ...fragment.args],
+    });
+  }
+  if (operand.kind === "local_date_window" || operand.kind === "instant") {
+    const projected = projectOperand(operand, "datetime", `${predicate.field}.value`);
+    const fragment = rangePredicate(
+      expressions.start,
+      expressions.end,
+      "[)",
+      predicate.op as RangeOperator,
+      projected,
+    );
+    branches.push({
+      sql: `(${expressions.kind}=? AND ${fragment.sql})`,
+      args: ["instant", ...fragment.args],
+    });
+  }
+  return {
+    sql: `(${branches.map((branch) => branch.sql).join(" OR ")})`,
+    args: branches.flatMap((branch) => branch.args),
+  };
+}
+
 function validateFilterShape(value: unknown, depth = 0, counter = { value: 0 }): CanonicalFilter {
   if (!isObject(value)) throw new ApiError("INVALID_QUERY", "filter nodes must be objects", 400);
   if (depth > MAX_FILTER_DEPTH) throw new ApiError("INVALID_QUERY", `filter depth may not exceed ${MAX_FILTER_DEPTH}`, 400);
@@ -576,6 +652,10 @@ async function predicateFragment(
     throw new ApiError("INVALID_QUERY", `${predicate.field}.${predicate.op} is unsupported`, 400);
   }
   if (predicate.field === "createdAt" || predicate.field === "updatedAt") return envelopeFilter(predicate);
+  const declaredField = model.definition.fields[predicate.field];
+  if (declaredField?.type === "temporal_range") {
+    return temporalRangeFieldPredicate(model, predicate);
+  }
   if (predicate.field === "when") {
     if (!model.definition.capabilities?.calendar) throw new ApiError("INVALID_QUERY", "when is not available for this model", 400);
     if (predicate.op === "kindIs") {
