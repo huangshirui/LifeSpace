@@ -44,8 +44,31 @@ function aiFieldSchema(field: FieldDefinition): Record<string, unknown> {
     case "person_list": return { type: "array", maxItems: 100, items: { type: "string" }, description: `${field.description ?? "People references"}. Use only supplied temporary person refs.` };
     case "record": return { type: "null", description: "Record relations are not inferred by Creation Draft v1." };
     case "record_list": return { type: "array", maxItems: 0, items: { type: "string" }, description: "Record relations are not inferred by Creation Draft v1." };
-    case "temporal_range":
-      throw new Error("temporal_range Creation Draft projection requires the CRUD implementation");
+    case "temporal_range": return nullable({
+      oneOf: [
+        {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            kind: { const: "date" },
+            start: { type: "string", format: "date" },
+            endExclusive: { type: "string", format: "date" },
+          },
+          required: ["kind", "start", "endExclusive"],
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            kind: { const: "instant" },
+            start: { type: "string", format: "date-time" },
+            endExclusive: { type: "string", format: "date-time" },
+          },
+          required: ["kind", "start", "endExclusive"],
+        },
+      ],
+      ...description,
+    });
   }
 }
 
