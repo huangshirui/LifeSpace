@@ -2,6 +2,7 @@ import type { Bindings } from "./env";
 import { ApiError } from "./http";
 import type { FieldDefinition, ModelDefaultValue } from "./model-definition";
 import { listPublishedModels, type PublishedModel } from "./model-registry";
+import { isRfc3339Instant } from "./time-semantics";
 
 export type RegistryDraftWarningCode = "AMBIGUOUS_PERSON" | "UNRESOLVED_PERSON" | "INVALID_INFERRED_VALUE" | "UNSUPPORTED_DETAIL";
 export type RegistryDraftWarning = { code: RegistryDraftWarningCode; field: string | null; message: string };
@@ -153,7 +154,7 @@ function scalar(field: FieldDefinition, value: unknown, key: string, warnings: R
   else if (field.type === "number") valid = typeof value === "number" && Number.isFinite(value);
   else if (field.type === "boolean") valid = typeof value === "boolean";
   else if (field.type === "date") valid = typeof value === "string" && validDate(value);
-  else if (field.type === "datetime") valid = typeof value === "string" && !Number.isNaN(Date.parse(value));
+  else if (field.type === "datetime") valid = isRfc3339Instant(value);
   else if (field.type === "timezone") valid = typeof value === "string" && validTimezone(value);
   else if (field.type === "enum") valid = typeof value === "string" && Boolean(field.values?.includes(value));
   if (valid && typeof value === "number") {
