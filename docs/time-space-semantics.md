@@ -51,9 +51,9 @@ A structural range declaration gives meaning to a field pair; it is not merely U
 
 ## 3. Controlled TemporalRange
 
-**Current platform value and filter type; sorting and Event migration remain planned.**
+**Current platform value, filter and sort type; Event migration remains planned.**
 
-TemporalRange is a controlled temporal union for values that can be either all-day/date-based or timed/instant-based. It is intentionally not a general arbitrary union type. Model Definition v1 can publish a `temporal_range` field for generic CRUD: generated contracts expose the canonical tagged value, while the storage layer dehydrates/hydrates its internal multi-column representation. A filterable field supports typed range predicates and `kindIs`; mixed-variant sort and migration of the published Event resource shape are separate later phases.
+TemporalRange is a controlled temporal union for values that can be either all-day/date-based or timed/instant-based. It is intentionally not a general arbitrary union type. Model Definition v1 can publish a `temporal_range` field for generic CRUD: generated contracts expose the canonical tagged value, while the storage layer dehydrates/hydrates its internal multi-column representation. A filterable field supports typed range predicates and `kindIs`; a sortable field uses an explicit viewing-timezone projection. Migration of the published Event resource shape remains a separate later phase.
 
 Conceptually:
 
@@ -144,15 +144,15 @@ This distinguishes date/all-day and instant/timed variants without exposing phys
 
 Sorting a controlled temporal value requires a projection that produces comparable ordering keys.
 
-Long-term rule:
+Current Canonical Query rule:
 
 ```text
 projectedStart -> projectedEnd -> record id
 ```
 
-For mixed Date/Instant temporal ranges, Runtime must not silently adopt a server timezone. A viewing timezone or other explicit temporal context is required when Date values need projection into the same absolute ordering domain as Instant values.
+For mixed Date/Instant temporal ranges, Runtime never adopts a server timezone. Canonical Query requires `context.viewingTimezone`; Date boundaries project through that IANA timezone while Instant boundaries remain absolute. NULL stays last for both directions. The opaque cursor binds the normalized context and keeps independent Date/Instant/null stream continuations so pagination remains deterministic.
 
-Current legacy Calendar `calendarStart` ordering remains a compatibility behavior. New query work should converge on Canonical Query semantic sort projection rather than create another Calendar-only sort language.
+Current legacy Calendar `calendarStart` ordering remains a compatibility behavior until Event and its consumers migrate to the direct field.
 
 ## 7. Location
 
