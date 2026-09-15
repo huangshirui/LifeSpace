@@ -105,6 +105,8 @@ function fieldSchema(field: FieldDefinition): JsonSchema {
         items: { type: "string", pattern: "^rec_", "x-lifespace-target-model": field.targetModel },
       };
       break;
+    case "temporal_range":
+      throw new Error("temporal_range contract generation requires the physical mapping and CRUD implementation");
   }
   const result = nullable(schema, field);
   const relation = relationMetadata(field);
