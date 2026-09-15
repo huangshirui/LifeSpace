@@ -11,7 +11,7 @@ import {
   type GenericComparisonValueType,
   type GenericComparisonFieldSemantic,
 } from "./query-semantics";
-import { localDateWindowToInstantRange } from "./time-semantics";
+import { localDateWindowToInstantRange, normalizeRfc3339Instant } from "./time-semantics";
 import {
   hydrateTypedResourceRows,
   typedScalarExpression,
@@ -111,9 +111,11 @@ function exactDate(value: string, field: string): string {
 }
 
 function dateTime(value: string, field: string): string {
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime()) || !value.includes("T")) throw new ApiError("INVALID_QUERY", `${field} must be an RFC 3339 date-time`, 400);
-  return parsed.toISOString();
+  try {
+    return normalizeRfc3339Instant(value);
+  } catch {
+    throw new ApiError("INVALID_QUERY", `${field} must be an absolute RFC 3339 date-time`, 400);
+  }
 }
 
 function scalarValue(field: FieldDefinition, raw: string, key: string): string | number {

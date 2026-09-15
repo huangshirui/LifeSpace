@@ -1,11 +1,18 @@
 import { describe, expect, it } from "vitest";
-import { assertIanaTimezone, localDateWindowToInstantRange } from "../src/time-semantics";
+import { assertIanaTimezone, isRfc3339Instant, localDateWindowToInstantRange, normalizeRfc3339Instant } from "../src/time-semantics";
 
 function durationHours(startInclusive: string, endExclusive: string): number {
   return (Date.parse(endExclusive) - Date.parse(startInclusive)) / 3_600_000;
 }
 
 describe("Time Semantics", () => {
+  it("accepts only absolute RFC 3339 instants and normalizes offsets", () => {
+    expect(normalizeRfc3339Instant("2026-09-20T10:00:00+08:00")).toBe("2026-09-20T02:00:00.000Z");
+    expect(normalizeRfc3339Instant("2026-09-20T02:00:00Z")).toBe("2026-09-20T02:00:00.000Z");
+    expect(isRfc3339Instant("2026-09-20T10:00:00")).toBe(false);
+    expect(() => normalizeRfc3339Instant("2026-09-20T10:00:00")).toThrow("absolute RFC 3339");
+  });
+
   it("converts an ordinary Shanghai local date window to an instant range", () => {
     expect(localDateWindowToInstantRange({
       dateStart: "2026-09-10",

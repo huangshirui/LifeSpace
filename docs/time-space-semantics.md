@@ -14,7 +14,7 @@ It deliberately separates semantic truth from current storage compatibility. Sec
 
 An Instant is one absolute point on the timeline.
 
-Current Model Definition v1 represents this semantic type as `datetime`. Runtime accepts RFC3339 date-time input and normalizes it to an absolute ISO instant.
+Current Model Definition v1 represents this semantic type with the deployed scalar field name `datetime`. Runtime accepts only absolute RFC3339 date-time input carrying `Z` or a numeric offset and normalizes it to an ISO Instant. The controlled TemporalRange canonical value uses `kind: "instant"`; `datetime` is not its variant tag.
 
 An Instant must never be interpreted using server-local timezone after it has been stored. Presentation timezone is context, not a mutation of the stored instant.
 

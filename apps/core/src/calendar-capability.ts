@@ -3,6 +3,7 @@ import type { Bindings, Principal } from "./env";
 import { createGenericResource, getGenericResource, updateGenericResource, type GenericResource } from "./generic-resource";
 import { ApiError } from "./http";
 import type { PublishedModel } from "./model-registry";
+import { normalizeRfc3339Instant } from "./time-semantics";
 
 type JsonObject = Record<string, unknown>;
 
@@ -26,10 +27,11 @@ function exactDate(value: unknown, field: string): string {
 }
 
 function instant(value: unknown, field: string): string {
-  if (typeof value !== "string" || !/T/u.test(value)) throw new ApiError("INVALID_CALENDAR_INSTANT", `${field} must be an RFC 3339 date-time`, 400);
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) throw new ApiError("INVALID_CALENDAR_INSTANT", `${field} must be an RFC 3339 date-time`, 400);
-  return parsed.toISOString();
+  try {
+    return normalizeRfc3339Instant(value);
+  } catch {
+    throw new ApiError("INVALID_CALENDAR_INSTANT", `${field} must be an absolute RFC 3339 date-time`, 400);
+  }
 }
 
 function timezone(value: unknown, field: string): string {
