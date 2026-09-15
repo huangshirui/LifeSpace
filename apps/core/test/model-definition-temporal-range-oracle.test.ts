@@ -29,7 +29,7 @@ function issueCodes(input: unknown): string[] {
 describe("Model Definition temporal_range independent Oracle fixtures", () => {
   // Oracle-Fixture: ORC-FIELD-TEMPORAL-RANGE-01
   // Covers: MDV1-FIELD-TYPES-01, MDV1-FIELD-CONSTRAINTS-01
-  it("recognizes a controlled temporal_range field without physical storage semantics", () => {
+  it("recognizes a controlled temporal_range field and maps it without changing its logical shape", () => {
     expect(FIELD_TYPES).toContain("temporal_range");
 
     const result = validateModelDefinition(definition());
@@ -37,9 +37,19 @@ describe("Model Definition temporal_range independent Oracle fixtures", () => {
     if (!result.valid) return;
 
     expect(result.definition.fields.when).toEqual({ type: "temporal_range" });
-    expect(() => compilePhysicalSchema(result.definition)).toThrow(
-      "requires the temporal_range physical mapping implementation",
-    );
+    const plan = compilePhysicalSchema(result.definition);
+    expect(plan.fieldMappings).toEqual([
+      {
+        fieldKey: "when",
+        logicalType: "temporal_range",
+        storage: "temporal_range",
+        columns: expect.arrayContaining([
+          expect.objectContaining({ fieldKey: "__tr_when_kind", logicalFieldKey: "when", component: "kind" }),
+          expect.objectContaining({ fieldKey: "__tr_when_start", logicalFieldKey: "when", component: "start" }),
+          expect.objectContaining({ fieldKey: "__tr_when_end", logicalFieldKey: "when", component: "end" }),
+        ]),
+      },
+    ]);
   });
 
   // Oracle-Fixture: ORC-FIELD-TEMPORAL-RANGE-CONSTRAINTS-01
