@@ -4,6 +4,7 @@ import { generateModelContract } from "../src/model-contract";
 import type { ModelDefinition } from "../src/model-definition";
 import { physicalPublicationStatements } from "../src/model-physical-publication";
 import type { PublishedModel } from "../src/model-registry";
+import { normalizeRegistryCreationDraft } from "../src/registry-creation-draft";
 import {
   dehydrateTypedResourceData,
   hydrateTypedResourceData,
@@ -117,6 +118,54 @@ describe("TemporalRange CRUD storage", () => {
       __tr_when_start: "2026-09-20",
       __tr_when_end: null,
     }, "rec_corrupt")).toThrow("partially stored");
+  });
+
+  it("normalizes Creation Draft ranges and discards invalid inferred values", () => {
+    const model = published();
+    const normalized = normalizeRegistryCreationDraft({
+      status: "ready",
+      modelKey: model.key,
+      draft: {
+        name: "Meeting",
+        when: {
+          kind: "instant",
+          start: "2026-09-20T10:00:00+08:00",
+          endExclusive: "2026-09-20T11:00:00+08:00",
+        },
+      },
+      missingFields: [],
+      warnings: [],
+    }, { models: [model], people: [] });
+    expect(normalized.status).toBe("ready");
+    if (normalized.status !== "ready") return;
+    expect(normalized.draft.when).toEqual({
+      kind: "instant",
+      start: "2026-09-20T02:00:00.000Z",
+      endExclusive: "2026-09-20T03:00:00.000Z",
+    });
+
+    const invalid = normalizeRegistryCreationDraft({
+      status: "ready",
+      modelKey: model.key,
+      draft: {
+        name: "Broken",
+        when: {
+          kind: "date",
+          start: "2026-09-22",
+          endExclusive: "2026-09-20",
+        },
+      },
+      missingFields: [],
+      warnings: [],
+    }, { models: [model], people: [] });
+    expect(invalid.status).toBe("ready");
+    if (invalid.status !== "ready") return;
+    expect(invalid.draft.when).toBeNull();
+    expect(invalid.warnings).toContainEqual({
+      code: "INVALID_INFERRED_VALUE",
+      field: "when",
+      message: "An invalid inferred value was discarded.",
+    });
   });
 
   it("publishes physical DDL and generated contracts without leaking physical columns", async () => {
