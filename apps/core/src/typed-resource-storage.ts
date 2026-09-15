@@ -3,7 +3,12 @@ import { allD1Batched, chunkD1Values } from "./d1-batch";
 import { ApiError } from "./http";
 import type { FieldDefinition } from "./model-definition";
 import type { PublishedModel } from "./model-registry";
-import { compilePhysicalSchema, type PhysicalSchemaPlan } from "./physical-schema";
+import {
+  compilePhysicalSchema,
+  type PhysicalFieldMapping,
+  type PhysicalSchemaPlan,
+} from "./physical-schema";
+import { validateTemporalRangeValue } from "./temporal-range";
 import {
   provenanceFromStorage,
   type InformationProvenance,
@@ -98,6 +103,131 @@ function decodedValue(field: FieldDefinition, value: unknown): unknown {
   return value;
 }
 
+function temporalComponents(mapping: PhysicalFieldMapping): {
+  kind: string;
+  start: string;
+  end: string;
+} {
+  const kind = mapping.columns.find((column) => column.component === "kind")?.fieldKey;
+  const start = mapping.columns.find((column) => column.component === "start")?.fieldKey;
+  const end = mapping.columns.find((column) => column.component === "end")?.fieldKey;
+  if (!kind || !start || !end) {
+    throw new ApiError(
+      "INVALID_PHYSICAL_SCHEMA",
+      `Temporal range field ${mapping.fieldKey} has an incomplete physical mapping`,
+      500,
+    );
+  }
+  return { kind, start, end };
+}
+
+export function dehydrateTypedResourceData(
+  model: PublishedModel,
+  data: JsonObject,
+): JsonObject {
+  const stored: JsonObject = {};
+  for (const mapping of physicalPlanFor(model).fieldMappings) {
+    if (mapping.storage === "relation") continue;
+    const field = model.definition.fields[mapping.fieldKey];
+    const value = data[mapping.fieldKey];
+    if (mapping.storage === "scalar") {
+      const column = mapping.columns[0];
+      if (!column) {
+        throw new ApiError("INVALID_PHYSICAL_SCHEMA", `Scalar field ${mapping.fieldKey} has no physical column`, 500);
+      }
+      stored[column.fieldKey] = encodedValue(field, value);
+      continue;
+    }
+
+    const columns = temporalComponents(mapping);
+    if (value === undefined || value === null) {
+      stored[columns.kind] = null;
+      stored[columns.start] = null;
+      stored[columns.end] = null;
+      continue;
+    }
+    const result = validateTemporalRangeValue(value);
+    if (!result.valid) {
+      throw new ApiError(
+        "INVALID_RESOURCE",
+        `${mapping.fieldKey} is invalid: ${result.issues.map((entry) => entry.message).join("; ")}`,
+        400,
+      );
+    }
+    stored[columns.kind] = result.value.kind;
+    stored[columns.start] = result.value.start;
+    stored[columns.end] = result.value.endExclusive;
+  }
+  return stored;
+}
+
+export function hydrateTypedResourceData(
+  model: PublishedModel,
+  stored: JsonObject,
+  recordId = "<unknown>",
+): JsonObject {
+  const data: JsonObject = {};
+  for (const mapping of physicalPlanFor(model).fieldMappings) {
+    if (mapping.storage === "relation") continue;
+    const field = model.definition.fields[mapping.fieldKey];
+    if (mapping.storage === "scalar") {
+      const column = mapping.columns[0];
+      if (!column) {
+        throw new ApiError("INVALID_PHYSICAL_SCHEMA", `Scalar field ${mapping.fieldKey} has no physical column`, 500);
+      }
+      const value = stored[column.fieldKey];
+      if (value === null || value === undefined) {
+        if (field.required) {
+          throw new ApiError(
+            "RESOURCE_STORAGE_CORRUPT",
+            `Required field ${mapping.fieldKey} is missing from resource ${recordId}`,
+            500,
+          );
+        }
+        if (field.nullable) data[mapping.fieldKey] = null;
+        continue;
+      }
+      data[mapping.fieldKey] = decodedValue(field, value);
+      continue;
+    }
+
+    const columns = temporalComponents(mapping);
+    const kind = stored[columns.kind];
+    const start = stored[columns.start];
+    const endExclusive = stored[columns.end];
+    const values = [kind, start, endExclusive];
+    const absent = values.every((value) => value === null || value === undefined);
+    if (absent) {
+      if (field.required) {
+        throw new ApiError(
+          "RESOURCE_STORAGE_CORRUPT",
+          `Required field ${mapping.fieldKey} is missing from resource ${recordId}`,
+          500,
+        );
+      }
+      if (field.nullable) data[mapping.fieldKey] = null;
+      continue;
+    }
+    if (values.some((value) => value === null || value === undefined)) {
+      throw new ApiError(
+        "RESOURCE_STORAGE_CORRUPT",
+        `Temporal range field ${mapping.fieldKey} is partially stored for resource ${recordId}`,
+        500,
+      );
+    }
+    const result = validateTemporalRangeValue({ kind, start, endExclusive });
+    if (!result.valid) {
+      throw new ApiError(
+        "RESOURCE_STORAGE_CORRUPT",
+        `Temporal range field ${mapping.fieldKey} is invalid for resource ${recordId}`,
+        500,
+      );
+    }
+    data[mapping.fieldKey] = result.value;
+  }
+  return data;
+}
+
 export function typedInsertStatement(
   env: Bindings,
   model: PublishedModel,
@@ -107,10 +237,12 @@ export function typedInsertStatement(
 ): D1PreparedStatement {
   const plan = physicalPlanFor(model);
   const columns = ["record_id", "space_id", ...plan.columns.map((column) => column.fieldKey)];
-  const values: unknown[] = [recordId, spaceId];
-  for (const column of plan.columns) {
-    values.push(encodedValue(model.definition.fields[column.fieldKey], data[column.fieldKey]));
-  }
+  const dehydrated = dehydrateTypedResourceData(model, data);
+  const values: unknown[] = [
+    recordId,
+    spaceId,
+    ...plan.columns.map((column) => dehydrated[column.fieldKey] ?? null),
+  ];
   return env.DB.prepare(`INSERT INTO ${identifier(plan.tableName)}(${columns.map(identifier).join(",")}) VALUES(${columns.map(() => "?").join(",")})`)
     .bind(...values);
 }
@@ -130,9 +262,10 @@ export function typedUpdateStatement(
         AND EXISTS(SELECT 1 FROM resource_records WHERE id=? AND mutation_token=?)`)
       .bind(recordId, spaceId, recordId, mutationToken);
   }
+  const dehydrated = dehydrateTypedResourceData(model, data);
   const values: unknown[] = [];
   const assignments = plan.columns.map((column) => {
-    values.push(encodedValue(model.definition.fields[column.fieldKey], data[column.fieldKey]));
+    values.push(dehydrated[column.fieldKey] ?? null);
     return `${identifier(column.fieldKey)}=?`;
   });
   return env.DB.prepare(`UPDATE ${identifier(plan.tableName)} SET ${assignments.join(",")}
@@ -142,20 +275,13 @@ export function typedUpdateStatement(
 }
 
 function scalarData(model: PublishedModel, row: TypedResourceRow): JsonObject {
-  const data: JsonObject = {};
-  for (const column of physicalPlanFor(model).columns) {
-    const field = model.definition.fields[column.fieldKey];
-    const value = row[fieldAlias(column.fieldKey)];
-    if (value === null || value === undefined) {
-      if (field.required) {
-        throw new ApiError("RESOURCE_STORAGE_CORRUPT", `Required field ${column.fieldKey} is missing from resource ${row.id}`, 500);
-      }
-      if (field.nullable) data[column.fieldKey] = null;
-      continue;
-    }
-    data[column.fieldKey] = decodedValue(field, value);
-  }
-  return data;
+  const stored = Object.fromEntries(
+    physicalPlanFor(model).columns.map((column) => [
+      column.fieldKey,
+      row[fieldAlias(column.fieldKey)],
+    ]),
+  );
+  return hydrateTypedResourceData(model, stored, row.id);
 }
 
 function resourcesFromRows(model: PublishedModel, rows: TypedResourceRow[]): TypedStoredResource[] {
