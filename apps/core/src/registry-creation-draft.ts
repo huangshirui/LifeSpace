@@ -2,6 +2,7 @@ import type { Bindings } from "./env";
 import { ApiError } from "./http";
 import type { FieldDefinition, ModelDefaultValue } from "./model-definition";
 import { listPublishedModels, type PublishedModel } from "./model-registry";
+import { validateTemporalRangeValue } from "./temporal-range";
 import { isRfc3339Instant } from "./time-semantics";
 
 export type RegistryDraftWarningCode = "AMBIGUOUS_PERSON" | "UNRESOLVED_PERSON" | "INVALID_INFERRED_VALUE" | "UNSUPPORTED_DETAIL";
@@ -173,6 +174,11 @@ function resolvePerson(ref: unknown, field: string, people: RegistryPersonRef[],
 }
 function scalar(field: FieldDefinition, value: unknown, key: string, warnings: RegistryDraftWarning[]) {
   if (value === null) return null;
+  if (field.type === "temporal_range") {
+    const result = validateTemporalRangeValue(value);
+    if (!result.valid) { addWarning(warnings, "INVALID_INFERRED_VALUE", key); return null; }
+    return result.value;
+  }
   let valid = true;
   if (field.type === "string" || field.type === "text") valid = typeof value === "string" && (field.maxLength === undefined || value.length <= field.maxLength);
   else if (field.type === "integer") valid = Number.isInteger(value);
