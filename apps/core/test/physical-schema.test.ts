@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ModelDefinition } from "../src/model-definition";
+import { physicalPublicationStatements } from "../src/model-physical-publication";
 import { compileCompatiblePhysicalChange, compilePhysicalSchema } from "../src/physical-schema";
 
 function taskDefinition(): ModelDefinition {
@@ -75,5 +76,101 @@ describe("Physical Schema Compiler", () => {
       fields: { ...previous.fields, dueDate: { type: "datetime", nullable: true } },
     })).toThrow(/data-rewriting physical migration/);
   });
+
+  it("maps temporal_range to deterministic internal columns with composite integrity checks", () => {
+    const definition: ModelDefinition = {
+      ...taskDefinition(),
+      key: "appointment",
+      fields: {
+        name: { type: "string", required: true },
+        when: { type: "temporal_range", nullable: true },
+      },
+      query: { searchable: ["name"] },
+    };
+
+    const plan = compilePhysicalSchema(definition);
+    expect(plan.fieldMappings.map((mapping) => [
+      mapping.fieldKey,
+      mapping.storage,
+      mapping.columns.map((column) => column.fieldKey),
+    ])).toEqual([
+      ["name", "scalar", ["name"]],
+      ["when", "temporal_range", ["__tr_when_kind", "__tr_when_start", "__tr_when_end"]],
+    ]);
+    expect(plan.columns.map((column) => [
+      column.fieldKey,
+      column.logicalFieldKey,
+      column.component,
+      column.sqlType,
+      column.nullable,
+    ])).toEqual([
+      ["name", "name", "value", "TEXT", false],
+      ["__tr_when_kind", "when", "kind", "TEXT", true],
+      ["__tr_when_start", "when", "start", "TEXT", true],
+      ["__tr_when_end", "when", "end", "TEXT", true],
+    ]);
+    expect(plan.createTableSql).toContain(
+      '"__tr_when_kind" TEXT CHECK("__tr_when_kind" IS NULL OR "__tr_when_kind" IN (\'date\',\'instant\'))',
+    );
+    expect(plan.createTableSql).toContain(
+      '"__tr_when_end" TEXT CHECK(("__tr_when_kind" IS NULL AND "__tr_when_start" IS NULL AND "__tr_when_end" IS NULL) OR',
+    );
+  });
+
+  it("adds an optional temporal_range as three columns and rejects required additions", () => {
+    const previous = taskDefinition();
+    const next: ModelDefinition = {
+      ...previous,
+      fields: {
+        ...previous.fields,
+        window: { type: "temporal_range", nullable: true },
+      },
+    };
+
+    const plan = compileCompatiblePhysicalChange(previous, next);
+    expect(plan.addedMappings.map((mapping) => [mapping.fieldKey, mapping.storage])).toEqual([
+      ["window", "temporal_range"],
+    ]);
+    expect(plan.addedColumns.map((column) => column.fieldKey)).toEqual([
+      "__tr_window_kind",
+      "__tr_window_start",
+      "__tr_window_end",
+    ]);
+    expect(plan.statements).toHaveLength(3);
+    expect(plan.statements[2]).toContain('ALTER TABLE "mdl_task" ADD COLUMN "__tr_window_end" TEXT CHECK(');
+
+    expect(() => compileCompatiblePhysicalChange(previous, {
+      ...previous,
+      fields: {
+        ...previous.fields,
+        window: { type: "temporal_range", required: true },
+      },
+    })).toThrow(/Required field window needs an explicit backfill\/default migration plan/);
+  });
+
+  it("keeps temporal_range query indexes and publication closed until their dependent slices", () => {
+    const definition: ModelDefinition = {
+      ...taskDefinition(),
+      key: "appointment",
+      fields: {
+        when: { type: "temporal_range", nullable: true },
+      },
+      query: { filterable: ["when"] },
+    };
+    expect(() => compilePhysicalSchema(definition)).toThrow(
+      "requires the temporal_range query/index implementation",
+    );
+
+    const publishableShape: ModelDefinition = {
+      ...definition,
+      query: undefined,
+    };
+    expect(() => physicalPublicationStatements(
+      { DB: { prepare: () => { throw new Error("must not reach D1"); } } } as any,
+      null,
+      publishableShape,
+    )).toThrow("cannot be published until temporal_range CRUD hydration is implemented");
+  });
+
 });
 
