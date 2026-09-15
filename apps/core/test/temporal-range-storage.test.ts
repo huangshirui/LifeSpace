@@ -192,6 +192,32 @@ describe("TemporalRange CRUD storage", () => {
     });
   });
 
+  it("publishes TemporalRange sort context and keeps it off legacy GET", async () => {
+    const model = published();
+    model.definition.query = { sortable: ["when"] };
+    const descriptor = canonicalQuerySemanticDescriptor(model);
+    expect(descriptor.sort.fields).toContain("when");
+    expect(descriptor.sort.temporalRange).toEqual({
+      context: "context.viewingTimezone",
+      ordering: ["projectedStart", "projectedEnd", "record-id-asc"],
+    });
+
+    const contract = await generateModelContract([model]);
+    const querySchema = (contract.jsonSchema.$defs as Record<string, any>)
+      .TemporalRecordCanonicalQuery;
+    expect(querySchema.properties.context).toMatchObject({
+      required: ["viewingTimezone"],
+      "x-lifespace-required-with-sort-type": "temporal_range",
+    });
+    const collectionPath = `/api/v1/spaces/{spaceId}/models/${model.key}/records`;
+    const collection = (contract.openapi.paths as Record<string, any>)[collectionPath];
+    const sortParameter = collection.get.parameters.find(
+      (parameter: Record<string, unknown>) => parameter.name === "sort",
+    );
+    expect(sortParameter.schema.items.enum).not.toContain("when:asc");
+    expect(sortParameter.schema.items.enum).not.toContain("when:desc");
+  });
+
   it("keeps TemporalRange filters on the structured query transport", async () => {
     const model = published();
     model.definition.query = { filterable: ["when"] };
