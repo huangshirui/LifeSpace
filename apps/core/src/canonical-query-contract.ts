@@ -120,6 +120,16 @@ function currentActorAliasAllowed(model: PublishedModel, fieldKey: string, field
 
 function fieldOperators(field: FieldDefinition): string[] {
   if (["person", "person_list", "record", "record_list"].includes(field.type)) return ["contains"];
+  if (field.type === "temporal_range") {
+    return [
+      "overlaps",
+      "contains",
+      "before",
+      "after",
+      "kindIs",
+      ...(field.nullable === true ? ["isNull", "isNotNull"] : []),
+    ];
+  }
   const operators = ["eq", "ne"];
   if (["date", "datetime", "integer", "number"].includes(field.type)) {
     operators.push("lt", "lte", "gt", "gte");
