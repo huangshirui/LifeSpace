@@ -72,7 +72,7 @@ Allowed top-level keys:
 Allowed field types:
 string, text, integer, number, boolean, date, datetime, temporal_range, timezone, enum, person, person_list, record, record_list.
 Fields may use description, required, nullable, immutable, readOnly, minLength, maxLength, minimum, maximum, values and targetModel where valid.
-A required field cannot be nullable. record/record_list require targetModel. temporal_range accepts none of minLength, maxLength, minimum, maximum, values or targetModel; it cannot have a default, may be filterable, and cannot be searchable or sortable. Do not invent other properties.
+A required field cannot be nullable. record/record_list require targetModel. temporal_range accepts none of minLength, maxLength, minimum, maximum, values or targetModel; it cannot have a default, may be filterable or sortable, and cannot be searchable. Sorting requires Canonical Query context.viewingTimezone. Do not invent other properties.
 
 DESIGN RULES
 - Prefer simple Model Definition + Generic Runtime semantics. Do not create a Capability when ordinary fields/query/workflow can express the requirement.
