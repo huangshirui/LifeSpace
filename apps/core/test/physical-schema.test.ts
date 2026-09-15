@@ -147,7 +147,7 @@ describe("Physical Schema Compiler", () => {
     })).toThrow(/Required field window needs an explicit backfill\/default migration plan/);
   });
 
-  it("keeps temporal_range query indexes closed until typed Query support exists", () => {
+  it("indexes a filterable temporal_range by discriminator and bounds", () => {
     const definition: ModelDefinition = {
       ...taskDefinition(),
       key: "appointment",
@@ -156,9 +156,18 @@ describe("Physical Schema Compiler", () => {
       },
       query: { filterable: ["when"] },
     };
-    expect(() => compilePhysicalSchema(definition)).toThrow(
-      "requires the temporal_range query/index implementation",
-    );
+    const plan = compilePhysicalSchema(definition);
+    expect(plan.indexes).toEqual([
+      {
+        name: "idx_mdl_appointment_when",
+        fieldKey: "when",
+        columnKeys: ["__tr_when_kind", "__tr_when_start", "__tr_when_end"],
+        unique: false,
+      },
+    ]);
+    expect(plan.createIndexSql).toEqual([
+      'CREATE INDEX "idx_mdl_appointment_when" ON "mdl_appointment"(space_id,"__tr_when_kind","__tr_when_start","__tr_when_end",record_id)',
+    ]);
   });
 
 });

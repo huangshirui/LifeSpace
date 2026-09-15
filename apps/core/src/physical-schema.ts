@@ -157,13 +157,6 @@ function mappingFor(fieldKey: string, field: FieldDefinition): PhysicalFieldMapp
 
 function indexFor(tableName: string, mapping: PhysicalFieldMapping): PhysicalIndex | null {
   if (mapping.storage === "relation") return null;
-  if (mapping.storage === "temporal_range") {
-    throw new ApiError(
-      "TEMPORAL_RANGE_QUERY_MAPPING_REQUIRED",
-      `Field ${mapping.fieldKey} requires the temporal_range query/index implementation`,
-      409,
-    );
-  }
   return {
     name: assertIdentifier(`idx_${tableName}_${mapping.fieldKey}`),
     fieldKey: mapping.fieldKey,

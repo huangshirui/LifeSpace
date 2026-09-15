@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { canonicalQuerySemanticDescriptor } from "../src/canonical-query-contract";
 import { validateResourceData } from "../src/generic-resource";
 import { generateModelContract } from "../src/model-contract";
 import type { ModelDefinition } from "../src/model-definition";
@@ -166,6 +167,43 @@ describe("TemporalRange CRUD storage", () => {
       field: "when",
       message: "An invalid inferred value was discarded.",
     });
+  });
+
+  it("publishes the direct TemporalRange filter surface", () => {
+    const model = published();
+    model.definition.query = { filterable: ["when"] };
+    const target = canonicalQuerySemanticDescriptor(model).filter.targets.find(
+      (candidate) => candidate.field === "when",
+    );
+    expect(target).toEqual({
+      field: "when",
+      kind: "field",
+      valueType: "temporal_range",
+      operators: [
+        "overlaps",
+        "contains",
+        "before",
+        "after",
+        "kindIs",
+        "isNull",
+        "isNotNull",
+      ],
+      nullable: true,
+    });
+  });
+
+  it("keeps TemporalRange filters on the structured query transport", async () => {
+    const model = published();
+    model.definition.query = { filterable: ["when"] };
+    const contract = await generateModelContract([model]);
+    const collectionPath = `/api/v1/spaces/{spaceId}/models/${model.key}/records`;
+    const collection = (contract.openapi.paths as Record<string, any>)[collectionPath];
+    const parameterNames = collection.get.parameters
+      .map((parameter: Record<string, unknown>) => parameter.name)
+      .filter(Boolean);
+    expect(parameterNames).not.toContain("when");
+    expect((contract.openapi.paths as Record<string, any>)[`${collectionPath}/query`].post)
+      .toMatchObject({ "x-lifespace-canonical-query": true });
   });
 
   it("publishes physical DDL and generated contracts without leaking physical columns", async () => {

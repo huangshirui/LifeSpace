@@ -51,9 +51,9 @@ A structural range declaration gives meaning to a field pair; it is not merely U
 
 ## 3. Controlled TemporalRange
 
-**Current platform value type; Query and Event migration remain planned.**
+**Current platform value and filter type; sorting and Event migration remain planned.**
 
-TemporalRange is a controlled temporal union for values that can be either all-day/date-based or timed/instant-based. It is intentionally not a general arbitrary union type. Model Definition v1 can publish a `temporal_range` field for generic CRUD: generated contracts expose the canonical tagged value, while the storage layer dehydrates/hydrates its internal multi-column representation. Typed TemporalRange Query operators and migration of the published Event resource shape are separate later phases.
+TemporalRange is a controlled temporal union for values that can be either all-day/date-based or timed/instant-based. It is intentionally not a general arbitrary union type. Model Definition v1 can publish a `temporal_range` field for generic CRUD: generated contracts expose the canonical tagged value, while the storage layer dehydrates/hydrates its internal multi-column representation. A filterable field supports typed range predicates and `kindIs`; mixed-variant sort and migration of the published Event resource shape are separate later phases.
 
 Conceptually:
 
@@ -109,7 +109,8 @@ Projection rules:
 - target `Range<Date>`: compare the calendar dates directly;
 - target `Range<Instant>`: independently convert each local date boundary to an absolute instant using the IANA timezone;
 - target Date scalar with `within`: compare directly to the date window;
-- target Instant scalar with `within`: compare to the absolute projected window.
+- target Instant scalar with `within`: compare to the absolute projected window;
+- target TemporalRange with a range predicate: evaluate the Date variant against calendar dates and the Instant variant against independently projected absolute boundaries.
 
 This boundary conversion is DST-safe; one local day is not assumed to be exactly 24 hours.
 
@@ -128,9 +129,9 @@ before
 after
 ```
 
-For Calendar-backed compatibility `when`, the same operators apply over the projected all-day/timed branches.
+For a direct filterable `temporal_range`, the operators apply to its stored Date or Instant variant. For Calendar-backed compatibility `when`, the same operators apply over the projected all-day/timed branches.
 
-`kindIs` may be used on that controlled TemporalRange projection:
+`kindIs` may be used on either a direct controlled TemporalRange field or the Calendar compatibility projection:
 
 ```text
 kindIs = date

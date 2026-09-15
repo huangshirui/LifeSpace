@@ -211,6 +211,23 @@ or a `local_date_window` as defined above.
 
 `Range<Date>` does not silently compare with `Range<Instant>`. A `local_date_window` provides the explicit temporal context needed to project to the target range type.
 
+### Direct TemporalRange fields
+
+A Model Definition field with `type: "temporal_range"` may be declared in `query.filterable`. It exposes:
+
+```text
+overlaps
+contains
+before
+after
+kindIs
+isNull / isNotNull  (nullable fields only)
+```
+
+A `date` operand compares only Date variants, and an `instant` operand compares only Instant variants. A `local_date_window` deliberately evaluates both branches: its calendar dates compare directly with Date ranges, while Core projects the same boundaries through the supplied IANA timezone before comparing Instant ranges. `kindIs` accepts only `date` or `instant`.
+
+Physical discriminator/start/end columns and their composite index are internal planner details. Discovery and generated Model Contracts expose one logical field and the typed operator set.
+
 ### Calendar compatibility projection
 
 Until Event storage is migrated to a direct `TemporalRange` value, a Calendar-backed model exposes the semantic query target `when` inside the structured Canonical Query. Runtime projects the existing timed and all-day Calendar field bindings into one range target.
@@ -320,6 +337,7 @@ Implemented in the Canonical Typed Query convergence slice:
 - relation/list `contains`;
 - local-date-window projection;
 - structural time-range predicates;
+- direct filterable `TemporalRange` predicates with Date/Instant/local-date-window operands;
 - Calendar-backed `when` compatibility projection;
 - normalized cursor binding and stable multi-sort continuation;
 - ordinary Generic GET parameters deterministically lower into Canonical Query before execution;
@@ -329,7 +347,7 @@ Implemented in the Canonical Typed Query convergence slice:
 
 Planned follow-up work, not yet current Model Definition v1 behavior:
 
-- direct canonical `TemporalRange` field storage and Event migration;
+- TemporalRange mixed Date/Instant sort projection and Event migration;
 - direct semantic `Location` field storage and `withinDistance` execution;
 - physical removal of deprecated legacy GET/Capability Query descriptors after downstream consumers migrate to `query.canonical`;
 - Canonical Sort support for Calendar mixed date/instant ordering and Temporal computed ordering, followed by retirement of their compatibility GET planners after migration evidence allows it.
