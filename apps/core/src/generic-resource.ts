@@ -2,6 +2,7 @@ import type { Bindings, Principal } from "./env";
 import { ApiError } from "./http";
 import { applyModelDefaults } from "./model-defaults";
 import type { FieldDefinition, ModelDefinition } from "./model-definition";
+import { normalizeRfc3339Instant } from "./time-semantics";
 import { getRuntimeModel, type PublishedModel } from "./model-registry";
 import {
   getTypedResource,
@@ -117,10 +118,11 @@ function parseDate(value: unknown, fieldKey: string): string {
 }
 
 function parseDateTime(value: unknown, fieldKey: string): string {
-  if (typeof value !== "string") throw new ApiError("INVALID_RESOURCE", `${fieldKey} must be an RFC 3339 date-time`, 400);
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime()) || !/T/.test(value)) throw new ApiError("INVALID_RESOURCE", `${fieldKey} must be an RFC 3339 date-time`, 400);
-  return parsed.toISOString();
+  try {
+    return normalizeRfc3339Instant(value);
+  } catch {
+    throw new ApiError("INVALID_RESOURCE", `${fieldKey} must be an absolute RFC 3339 date-time`, 400);
+  }
 }
 
 function parseTimezone(value: unknown, fieldKey: string): string {
