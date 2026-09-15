@@ -197,7 +197,7 @@ The deployed v1 scalar field name remains `datetime`, whose domain meaning is an
 
 The Model Definition validator recognizes `temporal_range`. Its physical mapping is deterministic and internal: one logical field expands to discriminator/start/end columns while the REST/Resource shape remains the canonical tagged value. Scalar fields retain their existing one-field/one-column mapping and relation fields retain relation-table storage.
 
-A `temporal_range` field may be published for generic CRUD and declared `query.filterable`. Create/update validation accepts the canonical tagged value, storage dehydrates it into the internal physical columns, and get/list/query resource projection hydrates it back into the same logical value. Generated Model Contracts and Creation Draft schemas expose only that canonical logical shape. Filter execution uses the typed range operators and the internal discriminator/bounds index; the physical columns never become public fields. Search and sort remain unavailable until their separate semantic projections are implemented.
+A `temporal_range` field may be published for generic CRUD and declared `query.filterable` and/or `query.sortable`. Create/update validation accepts the canonical tagged value, storage dehydrates it into the internal physical columns, and get/list/query resource projection hydrates it back into the same logical value. Generated Model Contracts and Creation Draft schemas expose only that canonical logical shape. Filter execution uses typed range operators and the internal discriminator/bounds index. Sort execution requires `context.viewingTimezone`, projects Date variants to absolute boundaries, keeps Instant variants absolute, and compares `projectedStart`, then `projectedEnd`, then record ID. Physical columns never become public fields. Search remains unavailable because no text projection is defined.
 
 Conformance-ID: MDV1-FIELD-TYPES-01
 
@@ -387,7 +387,7 @@ query: {
 }
 ```
 
-Every listed field must exist in `fields`. A `temporal_range` field may appear in `filterable`, exposing `overlaps`, `contains`, `before`, `after`, `kindIs` and, when nullable, `isNull` / `isNotNull`. It cannot appear in `searchable` or `sortable`; search has no defined text projection, and mixed Date/Instant ordering requires a separate viewing-timezone sort projection.
+Every listed field must exist in `fields`. A `temporal_range` field may appear in `filterable`, exposing `overlaps`, `contains`, `before`, `after`, `kindIs` and, when nullable, `isNull` / `isNotNull`. It may also appear in `sortable`; each Canonical Query that actually sorts it must provide `context.viewingTimezone`. It cannot appear in `searchable` because no text projection is defined.
 
 The purpose is not to describe SQL. It declares the model's supported logical query surface, from which Runtime/query planning and generated contracts are derived.
 
@@ -399,7 +399,7 @@ filterable -> exact / supported range filtering
 sortable   -> explicit field sort options
 ```
 
-Canonical Query sorting is an ordered tuple. Structured callers provide ordered `{ field, direction }` criteria; retained GET shorthand may repeat `sort=field:direction` up to eight times. Envelope fields `createdAt` and `updatedAt` are always sortable; model fields must be declared in `query.sortable`. Omitted sort defaults deterministically to `createdAt:desc`. Cursor pagination binds the complete Effective Sort and uses stable record identity as the final tie-breaker. Nullable sortable fields use null-last semantics for both ascending and descending directions. Capability semantics may contribute typed targets or internal planning, but do not create a second caller-visible Query mode. Existing Calendar/Temporal computed GET sorts remain compatibility transport until their explicit migrations are complete.
+Canonical Query sorting is an ordered tuple. Structured callers provide ordered `{ field, direction }` criteria; retained GET shorthand may repeat `sort=field:direction` up to eight times. Envelope fields `createdAt` and `updatedAt` are always sortable; model fields must be declared in `query.sortable`. Omitted sort defaults deterministically to `createdAt:desc`. Cursor pagination binds the complete Effective Sort and uses stable record identity as the final tie-breaker. Nullable sortable fields use null-last semantics for both ascending and descending directions. A TemporalRange sort expands to `projectedStart`, `projectedEnd`, and record ID under the explicit `context.viewingTimezone`; that context is part of cursor identity. TemporalRange sort is structured-Query-only and is not projected into legacy GET shorthand. Capability semantics may contribute typed targets or internal planning, but do not create a second caller-visible Query mode. Existing Calendar/Temporal computed GET sorts remain compatibility transport until their explicit migrations are complete.
 
 For filterable `date`, `datetime`, `integer` and `number` fields, Generic Query owns an explicit comparison-operator semantic set:
 
