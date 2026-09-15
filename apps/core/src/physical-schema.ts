@@ -57,6 +57,13 @@ export function physicalTableName(modelKey: string): string {
 
 function columnFor(fieldKey: string, field: FieldDefinition): PhysicalColumn | null {
   if (RELATION_TYPES.has(field.type)) return null;
+  if (field.type === "temporal_range") {
+    throw new ApiError(
+      "TEMPORAL_RANGE_PHYSICAL_MAPPING_REQUIRED",
+      `Field ${fieldKey} requires the temporal_range physical mapping implementation`,
+      409,
+    );
+  }
 
   const sqlType = field.type === "integer" || field.type === "boolean"
     ? "INTEGER"
