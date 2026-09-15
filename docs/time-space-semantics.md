@@ -4,7 +4,7 @@
 
 This document defines LifeSpace platform-level time and location semantics used by Model Definition, Canonical Query, Runtime projections and generated contracts.
 
-It deliberately separates semantic truth from current storage compatibility. Sections marked **Current** describe behavior implemented by the present Runtime/Model Definition generation. Sections marked **Planned** describe an approved target that still requires a compatibility-classified Model Definition/storage migration before it becomes available to published models.
+It deliberately separates semantic truth from current platform and application migration state. Sections marked **Current** describe behavior implemented by the present Runtime/Model Definition generation. Sections marked **Planned** describe an approved target that still requires Query, compatibility-classified model migration, or downstream application work.
 
 `docs/canonical-query.md` defines how these semantic values participate in Search / Filter / Sort / Cursor Pagination.
 
@@ -51,9 +51,9 @@ A structural range declaration gives meaning to a field pair; it is not merely U
 
 ## 3. Controlled TemporalRange
 
-**Planned canonical value type.**
+**Current platform value type; Query and Event migration remain planned.**
 
-TemporalRange is a controlled temporal union for values that can be either all-day/date-based or timed/instant-based. It is intentionally not a general arbitrary union type.
+TemporalRange is a controlled temporal union for values that can be either all-day/date-based or timed/instant-based. It is intentionally not a general arbitrary union type. Model Definition v1 can publish a `temporal_range` field for generic CRUD: generated contracts expose the canonical tagged value, while the storage layer dehydrates/hydrates its internal multi-column representation. Typed TemporalRange Query operators and migration of the published Event resource shape are separate later phases.
 
 Conceptually:
 
@@ -257,7 +257,7 @@ Current convergence order:
 
 1. establish one Canonical Typed Query and explicit local-date/range semantics;
 2. project existing Calendar Event storage into the canonical query target during transition;
-3. publish direct TemporalRange and Location Model Definition support only with compatibility classification, storage plan, generated-contract changes and downstream impact assessment;
+3. use the implemented direct TemporalRange Model Definition/storage/CRUD support as the platform base; add typed Query roles separately, and introduce Location only with its own storage, generated-contract and downstream impact assessment;
 4. migrate Event and consumers explicitly;
 5. retire old Calendar/Temporal query transports only after consumer/traffic evidence permits removal.
 
