@@ -150,7 +150,7 @@ function scalarValue(field: FieldDefinition, raw: string, key: string): string |
       if (!raw) throw new ApiError("INVALID_QUERY", `${key} must contain an ID`, 400);
       return raw;
     case "temporal_range":
-      throw new ApiError("INVALID_QUERY", `${key} requires TemporalRange query operators`, 400);
+      throw new ApiError("INVALID_QUERY", `${key} requires the structured Canonical Query transport`, 400);
   }
 }
 
