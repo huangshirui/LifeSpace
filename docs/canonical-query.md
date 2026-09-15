@@ -276,6 +276,26 @@ Rules:
 
 The caller does not need to send the implicit `id` tie-breaker.
 
+### 6.1 TemporalRange sort context
+
+A direct `temporal_range` sort requires one explicit viewing context for the result set:
+
+```json
+{
+  "context": {
+    "viewingTimezone": "Asia/Shanghai"
+  },
+  "sort": [
+    { "field": "when", "direction": "asc" }
+  ]
+}
+```
+
+Runtime projects Date variant boundaries through `context.viewingTimezone`, keeps Instant boundaries absolute, and compares `projectedStart → projectedEnd → id`. NULL remains last in either direction. The context is rejected when no TemporalRange sort is present, preventing unused context from silently changing cursor identity.
+
+Execution uses independently ordered Date, Instant and null streams and merges them by the canonical projected keys. The opaque cursor stores continuation state for each stream and binds the normalized viewing context. The legacy GET transport does not advertise TemporalRange sort because it cannot carry this structured context.
+
+
 ## 7. Cursor pagination
 
 Cursor pagination is the long-term public contract. Cursors are opaque and must not be parsed or edited by clients.
@@ -338,6 +358,7 @@ Implemented in the Canonical Typed Query convergence slice:
 - local-date-window projection;
 - structural time-range predicates;
 - direct filterable `TemporalRange` predicates with Date/Instant/local-date-window operands;
+- direct TemporalRange sort projection with `context.viewingTimezone` and stream-aware cursor continuation;
 - Calendar-backed `when` compatibility projection;
 - normalized cursor binding and stable multi-sort continuation;
 - ordinary Generic GET parameters deterministically lower into Canonical Query before execution;
@@ -347,7 +368,7 @@ Implemented in the Canonical Typed Query convergence slice:
 
 Planned follow-up work, not yet current Model Definition v1 behavior:
 
-- TemporalRange mixed Date/Instant sort projection and Event migration;
+- Event migration onto the direct TemporalRange resource shape;
 - direct semantic `Location` field storage and `withinDistance` execution;
 - physical removal of deprecated legacy GET/Capability Query descriptors after downstream consumers migrate to `query.canonical`;
 - Canonical Sort support for Calendar mixed date/instant ordering and Temporal computed ordering, followed by retirement of their compatibility GET planners after migration evidence allows it.
