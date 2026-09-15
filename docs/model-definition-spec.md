@@ -197,7 +197,7 @@ The deployed v1 scalar field name remains `datetime`, whose domain meaning is an
 
 The Model Definition validator recognizes `temporal_range`. Its physical mapping is deterministic and internal: one logical field expands to discriminator/start/end columns while the REST/Resource shape remains the canonical tagged value. Scalar fields retain their existing one-field/one-column mapping and relation fields retain relation-table storage.
 
-A `temporal_range` field may be published for generic CRUD. Create/update validation accepts the canonical tagged value, storage dehydrates it into the internal physical columns, and get/list/query resource projection hydrates it back into the same logical value. Generated Model Contracts and Creation Draft schemas expose only that canonical logical shape. The field still cannot declare a Query role until typed range operators, temporal projection and their index strategy are implemented.
+A `temporal_range` field may be published for generic CRUD and declared `query.filterable`. Create/update validation accepts the canonical tagged value, storage dehydrates it into the internal physical columns, and get/list/query resource projection hydrates it back into the same logical value. Generated Model Contracts and Creation Draft schemas expose only that canonical logical shape. Filter execution uses the typed range operators and the internal discriminator/bounds index; the physical columns never become public fields. Search and sort remain unavailable until their separate semantic projections are implemented.
 
 Conformance-ID: MDV1-FIELD-TYPES-01
 
@@ -387,7 +387,7 @@ query: {
 }
 ```
 
-Every listed field must exist in `fields`. A `temporal_range` field cannot appear in `searchable`, `filterable` or `sortable` until its typed Query operators and temporal sort projection are implemented.
+Every listed field must exist in `fields`. A `temporal_range` field may appear in `filterable`, exposing `overlaps`, `contains`, `before`, `after`, `kindIs` and, when nullable, `isNull` / `isNotNull`. It cannot appear in `searchable` or `sortable`; search has no defined text projection, and mixed Date/Instant ordering requires a separate viewing-timezone sort projection.
 
 The purpose is not to describe SQL. It declares the model's supported logical query surface, from which Runtime/query planning and generated contracts are derived.
 
@@ -429,7 +429,7 @@ For any comparison-queryable `datetime` field, Generic Query additionally expose
 
 All three parameters are required together. Core resolves the two local date boundaries with the shared DST-safe Time Semantics primitive and applies the canonical half-open instant predicate `value >= startInclusive AND value < endExclusive`. Adapters must not calculate UTC boundaries themselves. `date` fields remain calendar-date values and use ordinary explicit comparisons without timezone conversion.
 
-A `timeRanges` declaration remains independent structural metadata and does not imply any additional overlap/interval query syntax.
+A direct filterable `temporal_range` and a projected structural `timeRanges` target both use Canonical Query range operands. A `local_date_window` compares Date variants directly and projects its boundaries to Instants for Instant variants. Direct `date` and `instant` operands match only the same stored variant; `kindIs` filters the controlled discriminator without exposing physical columns.
 
 Conformance-ID: MDV1-QUERY-COMPARISON-01
 Conformance-ID: MDV1-QUERY-LOCAL-DATE-WINDOW-01
