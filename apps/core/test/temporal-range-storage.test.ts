@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { canonicalQuerySemanticDescriptor } from "../src/canonical-query-contract";
 import { validateResourceData } from "../src/generic-resource";
 import { generateModelContract } from "../src/model-contract";
 import type { ModelDefinition } from "../src/model-definition";
@@ -165,6 +166,29 @@ describe("TemporalRange CRUD storage", () => {
       code: "INVALID_INFERRED_VALUE",
       field: "when",
       message: "An invalid inferred value was discarded.",
+    });
+  });
+
+  it("publishes the direct TemporalRange filter surface", () => {
+    const model = published();
+    model.definition.query = { filterable: ["when"] };
+    const target = canonicalQuerySemanticDescriptor(model).filter.targets.find(
+      (candidate) => candidate.field === "when",
+    );
+    expect(target).toEqual({
+      field: "when",
+      kind: "field",
+      valueType: "temporal_range",
+      operators: [
+        "overlaps",
+        "contains",
+        "before",
+        "after",
+        "kindIs",
+        "isNull",
+        "isNotNull",
+      ],
+      nullable: true,
     });
   });
 
