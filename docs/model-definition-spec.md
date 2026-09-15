@@ -184,13 +184,15 @@ v1 supports:
 | `number` | finite number |
 | `boolean` | boolean |
 | `date` | calendar date, `YYYY-MM-DD` |
-| `datetime` | RFC 3339-compatible date-time; runtime normalizes it to ISO instant form |
+| `datetime` | absolute RFC 3339 date-time with `Z` or numeric offset; runtime normalizes it to ISO Instant form |
 | `timezone` | valid IANA timezone |
 | `enum` | one declared string value |
 | `person` | one active Space Person in the same Space |
 | `person_list` | unique list of active Space People in the same Space |
 | `record` | one active record of the declared target model in the same Space |
 | `record_list` | unique list of active records of the declared target model in the same Space |
+
+The deployed v1 scalar field name remains `datetime`, whose domain meaning is an Instant. The controlled TemporalRange canonical value uses the tagged variant `kind: "instant"`; `datetime` is not a TemporalRange tag. Direct `temporal_range` Model Definition support remains planned until its validator, physical mapping, CRUD hydration and generated contract are implemented together.
 
 Conformance-ID: MDV1-FIELD-TYPES-01
 
@@ -376,7 +378,7 @@ filterable -> exact / supported range filtering
 sortable   -> explicit field sort options
 ```
 
-Generic Query sorting is an ordered tuple. Clients may repeat `sort=field:direction` up to eight times, preserving criterion order. Envelope fields `createdAt` and `updatedAt` are always sortable; model fields must be declared in `query.sortable`. Omitted sort defaults deterministically to `createdAt:desc`. Cursor pagination binds the complete sort tuple and uses stable record identity as the final tie-breaker. Nullable sortable fields use null-last semantics for both ascending and descending directions. Capability-specific computed semantic sorts such as Calendar or Temporal remain standalone modes and are not mixed with the Generic Query tuple.
+Canonical Query sorting is an ordered tuple. Structured callers provide ordered `{ field, direction }` criteria; retained GET shorthand may repeat `sort=field:direction` up to eight times. Envelope fields `createdAt` and `updatedAt` are always sortable; model fields must be declared in `query.sortable`. Omitted sort defaults deterministically to `createdAt:desc`. Cursor pagination binds the complete Effective Sort and uses stable record identity as the final tie-breaker. Nullable sortable fields use null-last semantics for both ascending and descending directions. Capability semantics may contribute typed targets or internal planning, but do not create a second caller-visible Query mode. Existing Calendar/Temporal computed GET sorts remain compatibility transport until their explicit migrations are complete.
 
 For filterable `date`, `datetime`, `integer` and `number` fields, Generic Query owns an explicit comparison-operator semantic set:
 
@@ -411,7 +413,7 @@ A `timeRanges` declaration remains independent structural metadata and does not 
 Conformance-ID: MDV1-QUERY-COMPARISON-01
 Conformance-ID: MDV1-QUERY-LOCAL-DATE-WINDOW-01
 
-Capabilities may add their own semantic query parameters. For example, Calendar contributes time-window queries and Temporal contributes attention/effective-date semantics.
+Capabilities may contribute reusable field semantics and internal planner behavior to the same Canonical Query. They do not create a separate Capability Query contract. Existing Calendar time-window and Temporal attention/effective-date GET parameters are deprecated compatibility transport while direct TemporalRange/Event migration and concrete Temporal reassessment remain incomplete.
 
 Only `searchable`, `filterable` and `sortable` are defined query properties in v1. Other query metadata must not be relied on as protocol semantics.
 
