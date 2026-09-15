@@ -195,9 +195,25 @@ v1 supports:
 
 The deployed v1 scalar field name remains `datetime`, whose domain meaning is an Instant. The controlled TemporalRange canonical value uses the tagged variant `kind: "instant"`; `datetime` is not a TemporalRange tag.
 
-The Model Definition validator recognizes `temporal_range` in this phase, but the field cannot yet be published into Runtime storage. Physical schema compilation fails closed until the explicit multi-column mapping, CRUD hydration/dehydration and generated contract layers are implemented. It also cannot declare a Query role in this phase.
+The Model Definition validator recognizes `temporal_range`. Its physical mapping is deterministic and internal: one logical field expands to discriminator/start/end columns while the REST/Resource shape remains the canonical tagged value. Scalar fields retain their existing one-field/one-column mapping and relation fields retain relation-table storage.
+
+A `temporal_range` field still cannot be published in this phase because CRUD hydration/dehydration and generated resource contracts are not implemented yet. Registry publication fails closed before D1 mutation. The field also cannot declare a Query role until typed range operators, temporal projection and their index strategy are implemented.
 
 Conformance-ID: MDV1-FIELD-TYPES-01
+
+### 4.1.1 Physical mapping boundary
+
+Physical mapping is not Model Definition syntax and is never exposed to model authors or callers. Current deterministic compiler behavior is:
+
+| Logical field | Physical storage |
+|---|---|
+| scalar field `field` | existing `field` column |
+| relation field `field` | existing relation-table rows |
+| `temporal_range field` | internal `__tr_<field>_kind`, `__tr_<field>_start`, `__tr_<field>_end` columns |
+
+The TemporalRange columns enforce the canonical `date | instant` discriminator, all-null/all-present integrity, and `start < end`. These names and checks are Storage implementation details, not REST or Resource fields.
+
+Compatible physical migration may add an optional `temporal_range` as three nullable columns. Adding a required field still requires an explicit backfill/migration plan. Existing scalar schema and index output remains byte-for-byte stable.
 
 ### 4.2 Field properties
 
