@@ -192,6 +192,20 @@ describe("TemporalRange CRUD storage", () => {
     });
   });
 
+  it("keeps TemporalRange filters on the structured query transport", async () => {
+    const model = published();
+    model.definition.query = { filterable: ["when"] };
+    const contract = await generateModelContract([model]);
+    const collectionPath = `/api/v1/spaces/{spaceId}/models/${model.key}/records`;
+    const collection = (contract.openapi.paths as Record<string, any>)[collectionPath];
+    const parameterNames = collection.get.parameters
+      .map((parameter: Record<string, unknown>) => parameter.name)
+      .filter(Boolean);
+    expect(parameterNames).not.toContain("when");
+    expect((contract.openapi.paths as Record<string, any>)[`${collectionPath}/query`].post)
+      .toMatchObject({ "x-lifespace-canonical-query": true });
+  });
+
   it("publishes physical DDL and generated contracts without leaking physical columns", async () => {
     const prepared: string[] = [];
     const statements = physicalPublicationStatements({
