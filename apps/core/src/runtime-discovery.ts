@@ -23,7 +23,7 @@ type DelegationSpaceAccessRow = DelegationAccessRow & { source_space_id: string 
 
 type DiscoveryActionInputField = {
   key: string;
-  type: "string" | "text" | "integer" | "number" | "boolean" | "date" | "datetime" | "timezone" | "enum" | "person" | "person_list" | "record" | "record_list";
+  type: "string" | "text" | "integer" | "number" | "boolean" | "date" | "datetime" | "temporal_range" | "timezone" | "enum" | "person" | "person_list" | "record" | "record_list";
   title?: string;
   description?: string;
   required?: boolean;
