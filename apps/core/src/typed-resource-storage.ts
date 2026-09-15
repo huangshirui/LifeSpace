@@ -82,6 +82,35 @@ export function typedScalarExpression(model: PublishedModel, fieldKey: string, a
   return `${alias}.${identifier(fieldKey)}`;
 }
 
+export type TypedTemporalRangeExpressions = {
+  kind: string;
+  start: string;
+  end: string;
+};
+
+export function typedTemporalRangeExpressions(
+  model: PublishedModel,
+  fieldKey: string,
+  alias = "m",
+): TypedTemporalRangeExpressions {
+  const mapping = physicalPlanFor(model).fieldMappings.find(
+    (candidate) => candidate.fieldKey === fieldKey,
+  );
+  if (!mapping || mapping.storage !== "temporal_range") {
+    throw new ApiError(
+      "INVALID_PHYSICAL_SCHEMA",
+      `Field ${fieldKey} is not a typed temporal_range field for model ${model.key}`,
+      500,
+    );
+  }
+  const columns = temporalComponents(mapping);
+  return {
+    kind: `${alias}.${identifier(columns.kind)}`,
+    start: `${alias}.${identifier(columns.start)}`,
+    end: `${alias}.${identifier(columns.end)}`,
+  };
+}
+
 export function typedSelectColumns(model: PublishedModel, alias = "m"): string {
   return physicalPlanFor(model).columns
     .map((column) => `${alias}.${identifier(column.fieldKey)} AS ${identifier(fieldAlias(column.fieldKey))}`)
