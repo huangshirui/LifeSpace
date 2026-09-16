@@ -28,3 +28,22 @@ test("staging expectations derive contract/schema versions from repository sourc
   assert.ok(STAGING_EXPECTATIONS.core.schemaVersion >= 1);
   assert.ok(STAGING_EXPECTATIONS.identity.schemaVersion >= 1);
 });
+
+test("staging expectations reject a latest migration that does not advance schema metadata", async () => {
+  const { assertSchemaMetadataAdvance } = await import("../../../infra/scripts/staging-expectations.mjs");
+  assert.doesNotThrow(() => {
+    assertSchemaMetadataAdvance(
+      "UPDATE schema_metadata SET value='40' WHERE key='schema_version';",
+      40,
+      "synthetic migration",
+    );
+  });
+  assert.throws(
+    () => assertSchemaMetadataAdvance(
+      "CREATE TABLE missing_version_marker (id TEXT PRIMARY KEY);",
+      40,
+      "synthetic migration",
+    ),
+    /must advance schema_metadata schema_version to 40/u,
+  );
+});
