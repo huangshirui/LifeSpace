@@ -51,7 +51,13 @@ describe("generated Canonical Typed Query Model Contract", () => {
 
     const query = document.components.schemas.QueryContractCanonicalQuery;
     expect(query["x-lifespace-canonical-query"]).toBe(true);
-    expect(query["x-lifespace-pipeline"]).toEqual(["search", "filter", "sort", "cursor-pagination"]);
+    expect(query["x-lifespace-composition"]).toEqual({
+      selectionFacets: ["search", "filter"],
+      selectionCombine: "intersection",
+      ordering: "sort",
+      pagination: "cursor-pagination",
+    });
+    expect(query["x-lifespace-pipeline"]).toBeUndefined();
     expect(query.properties.search["x-lifespace-searchable-fields"]).toEqual(["name"]);
     expect(query.properties.sort.default).toEqual([{ field: "createdAt", direction: "desc" }]);
     expect(query.properties.sort.items.properties.field.enum).toEqual([
