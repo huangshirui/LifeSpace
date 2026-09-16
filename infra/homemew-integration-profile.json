@@ -40,7 +40,7 @@
     "event": "write"
   },
   "contracts": {
-    "coreKernel": "0.32.0",
+    "coreKernel": "0.35.0",
     "identity": "0.6.0",
     "integrationEventing": "0.1.0",
     "modelSemantics": {
@@ -63,6 +63,6 @@
     "pinStatus": "accepted"
   },
   "evidence": {
-    "acceptedStagingModelContract": "mct_ab4a409654afdc6044ea50720e5c69fdf40ffb3b8c64fe6fd27a385a9bf154b4"
+    "acceptedStagingModelContract": "mct_7d74f87e765bba202ab88c26c139dbac4fd2cbb56a49e6ed916046f20f917db4"
   }
 }
