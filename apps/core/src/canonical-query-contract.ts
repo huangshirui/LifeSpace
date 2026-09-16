@@ -16,7 +16,12 @@ export type CanonicalQuerySemanticDescriptor = {
     method: "POST";
     pathTemplate: "/api/v1/spaces/{spaceId}/models/{modelKey}/records/query";
   };
-  pipeline: ["search", "filter", "sort", "cursor-pagination"];
+  composition: {
+    selectionFacets: ["search", "filter"];
+    selectionCombine: "intersection";
+    ordering: "sort";
+    pagination: "cursor-pagination";
+  };
   search: null | { fields: string[]; minLength: 1; maxLength: 100 };
   filter: {
     maxDepth: 8;
@@ -204,7 +209,12 @@ export function canonicalQuerySemanticDescriptor(model: PublishedModel): Canonic
       method: "POST",
       pathTemplate: "/api/v1/spaces/{spaceId}/models/{modelKey}/records/query",
     },
-    pipeline: ["search", "filter", "sort", "cursor-pagination"],
+    composition: {
+      selectionFacets: ["search", "filter"],
+      selectionCombine: "intersection",
+      ordering: "sort",
+      pagination: "cursor-pagination",
+    },
     search: searchable.length ? { fields: searchable, minLength: 1, maxLength: 100 } : null,
     filter: { maxDepth: 8, maxNodes: 100, targets },
     sort: {
@@ -344,7 +354,7 @@ export function canonicalQueryContractSchemas(
     additionalProperties: false,
     properties,
     "x-lifespace-canonical-query": true,
-    "x-lifespace-pipeline": ["search", "filter", "sort", "cursor-pagination"],
+    "x-lifespace-composition": descriptor.composition,
     "x-lifespace-cursor": descriptor.pagination.cursor,
     "x-lifespace-semantic-descriptor": descriptor,
   };

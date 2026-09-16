@@ -14,15 +14,16 @@ Runtime implementation, automated tests and immutable `mct_*` Model Contract Rev
 
 The caller-visible concepts **Generic Query** and **Capability Query** are not separate semantic query languages. Calendar/Temporal may own planner/compiler behavior, but callers should converge on one Canonical Query.
 
+This contract is deliberately **single-model**: one Canonical Query executes against one `modelKey`. Cross-model aggregation such as Agenda / Calendar Projection is a separate higher-level capability that may compose multiple model queries or other platform projections; it is not represented by adding multiple model keys to this Query shape.
+
 ## 1. Canonical shape
 
-The semantic pipeline is:
+Search and Filter are orthogonal selection facets. Both restrict the candidate set and combine by intersection; neither is semantically a mandatory execution stage before the other. Runtime may choose an equivalent physical execution order or index strategy as long as observable results remain unchanged.
 
 ```text
-Search
-  -> Filter(Boolean AST + typed predicates)
-  -> Sort
-  -> Cursor Pagination
+Search ─┐
+        ├─ candidate-set intersection -> Sort -> Cursor Pagination
+Filter ─┘
 ```
 
 Structured transport:
@@ -82,7 +83,7 @@ Result envelope:
 
 Current matching semantics are model-scoped text retrieval over declared text-like fields. Storage may later use D1 FTS or another index, but indexing strategy is not public semantics.
 
-Search composes with Filter, Sort and Pagination. A consumer must not model keyword retrieval as a synthetic field predicate.
+Search and Filter both restrict the candidate set. When both are present, only records satisfying the Filter and matching Search are candidates for Sort/Pagination. A consumer must not model keyword retrieval as a synthetic field predicate.
 
 ## 3. Filter Boolean AST
 
@@ -295,7 +296,6 @@ Runtime projects Date variant boundaries through `context.viewingTimezone`, keep
 
 Execution uses independently ordered Date, Instant and null streams and merges them by the canonical projected keys. The opaque cursor stores continuation state for each stream and binds the normalized viewing context. The legacy GET transport does not advertise TemporalRange sort because it cannot carry this structured context.
 
-
 ## 7. Cursor pagination
 
 Cursor pagination is the long-term public contract. Cursors are opaque and must not be parsed or edited by clients.
@@ -316,19 +316,19 @@ Pagination guarantees deterministic continuation when query semantics, sort keys
 
 ## 8. Compatibility GET transport
 
-Existing GET list parameters remain compatibility/shorthand syntax while consumers migrate:
+Existing GET list parameters may remain compatibility/shorthand syntax only where a real deployed consumer still depends on them:
 
 ```http
 GET /api/v1/spaces/{spaceId}/models/{modelKey}/records?...query parameters...
 ```
 
-Legacy Generic, Calendar and Temporal parameter forms are not separate semantic authorities. They remain accepted compatibility transports and must converge toward deterministic translation into the Canonical Query/planner semantics.
+Legacy Generic, Calendar and Temporal parameter forms are not separate semantic authorities. Compatibility transport is transitional and must not justify adding a permanent platform abstraction merely to preserve a temporary route. New consumers should use the structured Canonical Query contract.
 
-New generic adapters should prefer the structured query contract when they need nested Boolean expressions or typed range composition. They must not introduce new private query operators to compensate for a missing Core semantic.
+Adapters that have no deployed compatibility requirement should cut directly to Canonical Query rather than preserving hidden Standard/Capability query modes. They must not introduce private query operators to compensate for a missing Core semantic.
 
 ## 9. Agent / MCP projection
 
-Agent-facing tools do not need to expose the full recursive AST by default. A generated projection may offer:
+Agent-facing tools do not need to expose the full recursive AST by default. A generated projection should prefer:
 
 - `search`;
 - simple AND filters;
@@ -347,9 +347,9 @@ Query syntax does not grant read authority. Every execution still applies the or
 
 Query compilation may choose indexes, relation-table predicates, typed columns or Capability-owned planner fragments, but those physical choices must not change observable semantics or become part of caller contracts.
 
-## 11. Implementation state
+## 11. Implementation state and migration order
 
-Implemented in the Canonical Typed Query convergence slice:
+Implemented in the Canonical Typed Query / TemporalRange platform foundation:
 
 - structured `POST .../records/query`;
 - Search + nested AND/OR Filter + Sort + cursor composition;
@@ -357,18 +357,22 @@ Implemented in the Canonical Typed Query convergence slice:
 - relation/list `contains`;
 - local-date-window projection;
 - structural time-range predicates;
+- first-class `temporal_range` Model Definition values, typed physical storage and CRUD hydration/dehydration;
+- generated TemporalRange contracts and Creation Draft validation;
 - direct filterable `TemporalRange` predicates with Date/Instant/local-date-window operands;
 - direct TemporalRange sort projection with `context.viewingTimezone` and stream-aware cursor continuation;
 - Calendar-backed `when` compatibility projection;
 - normalized cursor binding and stable multi-sort continuation;
 - ordinary Generic GET parameters deterministically lower into Canonical Query before execution;
 - already-issued Generic GET v1/v2 cursors remain temporarily accepted by the legacy executor;
-- Calendar/Temporal special GET transports remain on compatibility planners until their computed ordering is representable canonically;
+- Calendar/Temporal special GET transports remain temporary compatibility planners;
 - Runtime Discovery and immutable Model Contract expose the same generated Canonical Query descriptor.
 
-Planned follow-up work, not yet current Model Definition v1 behavior:
+The approved remaining order is:
 
-- Event migration onto the direct TemporalRange resource shape;
-- direct semantic `Location` field storage and `withinDistance` execution;
-- physical removal of deprecated legacy GET/Capability Query descriptors after downstream consumers migrate to `query.canonical`;
-- Canonical Sort support for Calendar mixed date/instant ordering and Temporal computed ordering, followed by retirement of their compatibility GET planners after migration evidence allows it.
+1. migrate Event resource truth and storage onto the direct `TemporalRange` value and migrate active downstream consumers explicitly;
+2. add direct semantic `Location` storage and `withinDistance` execution;
+3. retire Calendar compatibility planners/routes only after no active consumer needs them;
+4. reassess any remaining Temporal `effectiveDate` / `attention` ordering from concrete use cases instead of introducing a generic derived-query-key abstraction solely to eliminate compatibility code.
+
+Compatibility cleanup is downstream-evidence-driven, not a prerequisite for declaring Canonical Query itself semantically complete.
