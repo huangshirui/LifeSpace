@@ -18,18 +18,20 @@ The current cross-environment HomeMew release identity is:
 
 ```text
 Identity:                   0.6.0
-Core Kernel:                0.32.0
+Core Kernel:                0.35.0
 Integration/Eventing:       0.1.0
 Model Semantic Fingerprint: msf_27f2a733d8a40f84035e909d73d328adce6782ab83f4a7b50d78697900e5a705
 Profile:                    infra/homemew-integration-profile.json (profileVersion 3, accepted)
 
 Accepted staging mct evidence:
-  mct_ab4a409654afdc6044ea50720e5c69fdf40ffb3b8c64fe6fd27a385a9bf154b4
+  mct_7d74f87e765bba202ab88c26c139dbac4fd2cbb56a49e6ed916046f20f917db4
 ```
 
-This profile was explicitly promoted after the Core 0.32.0 staging deployment and HomeMew integration Golden Flow completed successfully and the reproducible staging candidate bundle identified the exact tuple above. The promotion records the #200 modelKey-only Runtime identity: new cross-environment Model Semantic Fingerprints contain only `key + schemaHash`; `route` is not a Model identity. HomeMew remains a direct LifeSpace consumer. The four pre-#200 `/api/v1` domain-path compatibility aliases used during the cutover have been retired under #207; supported ordinary Runtime addressing is the canonical `/api/v1/spaces/{spaceId}/models/{modelKey}/records/...` surface.
+This profile was explicitly promoted after `Deploy staging` run #88 (`35059940863`) deployed Core 0.35.0 from `091308135b339f162fcd945220f22fdd71bd44c5` and completed the staging acceptance gates. The reproducible HomeMew staging candidate from that run kept Identity 0.6.0 and Integration/Eventing 0.1.0 unchanged and proved the same `msf_27f2...` HomeMew model semantic fingerprint for `task`, `wish`, `day_record` and `event`; only the Kernel pin and environment-local immutable `mct_*` evidence advanced. This is therefore an explicit compatible release promotion rather than a HomeMew model-semantic migration.
 
-The previous accepted HomeMew profile v2 / Core 0.21.0 remains historical evidence. It is not rewritten to look like a post-#200 contract and its historical route-bearing fingerprint remains verifiable through the legacy profile-v2 calculation.
+The promotion continues the #200 modelKey-only Runtime identity: cross-environment Model Semantic Fingerprints contain only `key + schemaHash`; `route` is not a Model identity. HomeMew remains a direct LifeSpace consumer. The four pre-#200 `/api/v1` domain-path compatibility aliases used during the cutover have been retired under #207; supported ordinary Runtime addressing is the canonical `/api/v1/spaces/{spaceId}/models/{modelKey}/records/...` surface.
+
+The previously accepted profile v3 / Core 0.32.0 tuple remains historical release evidence and is not rewritten. The older accepted HomeMew profile v2 / Core 0.21.0 likewise remains historical evidence, and its route-bearing fingerprint remains verifiable through the legacy profile-v2 calculation.
 
 ### Cross-environment model identity
 
