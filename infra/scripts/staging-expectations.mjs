@@ -13,13 +13,33 @@ function packageVersion(service) {
   return packageJson.version;
 }
 
+export function assertSchemaMetadataAdvance(sql, version, label = "migration") {
+  if (!Number.isInteger(version) || version < 1) throw new Error(`${label} has an invalid migration version`);
+  const pattern = new RegExp(
+    `UPDATE\\s+schema_metadata\\s+SET\\s+value\\s*=\\s*['\"]${version}['\"]\\s+WHERE\\s+key\\s*=\\s*['\"]schema_version['\"]\\s*;`,
+    "iu",
+  );
+  if (!pattern.test(sql)) {
+    throw new Error(`${label} must advance schema_metadata schema_version to ${version}`);
+  }
+}
+
 function latestMigrationVersion(service) {
   const migrations = readdirSync(resolve(ROOT_DIR, `apps/${service}/migrations`))
-    .map((name) => /^(\d+)_.*\.sql$/u.exec(name)?.[1])
-    .filter(Boolean)
-    .map(Number);
+    .map((name) => ({ name, match: /^(\d+)_.*\.sql$/u.exec(name) }))
+    .filter(({ match }) => Boolean(match))
+    .map(({ name, match }) => ({ name, version: Number(match[1]) }));
   if (!migrations.length) throw new Error(`apps/${service}/migrations has no numbered SQL migrations`);
-  return Math.max(...migrations);
+
+  const version = Math.max(...migrations.map((migration) => migration.version));
+  const latest = migrations.filter((migration) => migration.version === version);
+  if (latest.length !== 1) {
+    throw new Error(`apps/${service}/migrations must have exactly one latest migration for version ${version}`);
+  }
+
+  const migrationPath = resolve(ROOT_DIR, `apps/${service}/migrations/${latest[0].name}`);
+  assertSchemaMetadataAdvance(readFileSync(migrationPath, "utf8"), version, migrationPath);
+  return version;
 }
 
 // Published model versions are monotonic inside each environment and therefore
