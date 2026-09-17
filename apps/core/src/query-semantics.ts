@@ -2,7 +2,7 @@ import type { FieldType, ModelDefinition } from "./model-definition";
 
 export const GENERIC_COMPARISON_OPERATORS = ["eq", "lt", "lte", "gt", "gte"] as const;
 export type GenericComparisonOperator = typeof GENERIC_COMPARISON_OPERATORS[number];
-export type GenericComparisonValueType = Extract<FieldType, "date" | "datetime" | "integer" | "number">;
+export type GenericComparisonValueType = Extract<FieldType, "date" | "instant" | "datetime" | "integer" | "number">;
 export type GenericQueryFieldSource = "model" | "envelope";
 export type GenericQueryTransportKind = "legacy" | "explicit";
 
@@ -29,10 +29,10 @@ export type GenericComparisonFieldSemantic = {
   localDateWindow?: GenericLocalDateWindowTransport;
 };
 
-const COMPARABLE_TYPES = new Set<GenericComparisonValueType>(["date", "datetime", "integer", "number"]);
+const COMPARABLE_TYPES = new Set<GenericComparisonValueType>(["date", "instant", "datetime", "integer", "number"]);
 const ENVELOPE_FIELDS = [
-  { field: "createdAt", valueType: "datetime" },
-  { field: "updatedAt", valueType: "datetime" },
+  { field: "createdAt", valueType: "instant" },
+  { field: "updatedAt", valueType: "instant" },
 ] as const satisfies ReadonlyArray<{ field: string; valueType: GenericComparisonValueType }>;
 
 export function isGenericComparableFieldType(type: FieldType): type is GenericComparisonValueType {
@@ -77,7 +77,7 @@ function modelFieldSemantics(
     source: "model",
     valueType,
     operators,
-    ...(valueType === "datetime" ? { localDateWindow: localDateWindowParameters(field) } : {}),
+    ...((valueType === "instant" || valueType === "datetime") ? { localDateWindow: localDateWindowParameters(field) } : {}),
   };
 }
 
