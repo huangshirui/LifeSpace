@@ -105,7 +105,7 @@ function compileRuntimeModel(model: PublishedModel): RuntimeModelDescriptor {
   for (const fieldKey of filterable) {
     allowedQueryKeys.add(fieldKey);
     const field = model.definition.fields[fieldKey];
-    if (field && ["date", "datetime", "integer", "number"].includes(field.type)) {
+    if (field && ["date", "instant", "datetime", "integer", "number"].includes(field.type)) {
       allowedQueryKeys.add(`${fieldKey}From`);
       allowedQueryKeys.add(`${fieldKey}To`);
     }
