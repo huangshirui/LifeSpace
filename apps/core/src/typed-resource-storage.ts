@@ -1,13 +1,14 @@
 import type { Bindings } from "./env";
 import { allD1Batched, chunkD1Values } from "./d1-batch";
 import { ApiError } from "./http";
-import type { FieldDefinition } from "./model-definition";
+import { isFirstClassRangeFieldType, rangeFieldValueType, type FieldDefinition } from "./model-definition";
 import type { PublishedModel } from "./model-registry";
 import {
   compilePhysicalSchema,
   type PhysicalFieldMapping,
   type PhysicalSchemaPlan,
 } from "./physical-schema";
+import { validateRangeValue } from "./range-value";
 import { validateTemporalRangeValue } from "./temporal-range";
 import {
   provenanceFromStorage,
@@ -88,6 +89,33 @@ export type TypedTemporalRangeExpressions = {
   end: string;
 };
 
+export type TypedRangeExpressions = {
+  start: string;
+  end: string;
+};
+
+export function typedRangeExpressions(
+  model: PublishedModel,
+  fieldKey: string,
+  alias = "m",
+): TypedRangeExpressions {
+  const mapping = physicalPlanFor(model).fieldMappings.find(
+    (candidate) => candidate.fieldKey === fieldKey,
+  );
+  if (!mapping || mapping.storage !== "range") {
+    throw new ApiError(
+      "INVALID_PHYSICAL_SCHEMA",
+      `Field ${fieldKey} is not a typed range field for model ${model.key}`,
+      500,
+    );
+  }
+  const columns = rangeComponents(mapping);
+  return {
+    start: `${alias}.${identifier(columns.start)}`,
+    end: `${alias}.${identifier(columns.end)}`,
+  };
+}
+
 export function typedTemporalRangeExpressions(
   model: PublishedModel,
   fieldKey: string,
@@ -132,6 +160,22 @@ function decodedValue(field: FieldDefinition, value: unknown): unknown {
   return value;
 }
 
+function rangeComponents(mapping: PhysicalFieldMapping): {
+  start: string;
+  end: string;
+} {
+  const start = mapping.columns.find((column) => column.component === "start")?.fieldKey;
+  const end = mapping.columns.find((column) => column.component === "end")?.fieldKey;
+  if (!start || !end) {
+    throw new ApiError(
+      "INVALID_PHYSICAL_SCHEMA",
+      `Range field ${mapping.fieldKey} has an incomplete physical mapping`,
+      500,
+    );
+  }
+  return { start, end };
+}
+
 function temporalComponents(mapping: PhysicalFieldMapping): {
   kind: string;
   start: string;
@@ -165,6 +209,29 @@ export function dehydrateTypedResourceData(
         throw new ApiError("INVALID_PHYSICAL_SCHEMA", `Scalar field ${mapping.fieldKey} has no physical column`, 500);
       }
       stored[column.fieldKey] = encodedValue(field, value);
+      continue;
+    }
+
+    if (mapping.storage === "range") {
+      const columns = rangeComponents(mapping);
+      if (value === undefined || value === null) {
+        stored[columns.start] = null;
+        stored[columns.end] = null;
+        continue;
+      }
+      if (!isFirstClassRangeFieldType(field.type)) {
+        throw new ApiError("INVALID_PHYSICAL_SCHEMA", `Field ${mapping.fieldKey} has invalid range storage type`, 500);
+      }
+      const result = validateRangeValue(value, rangeFieldValueType(field.type));
+      if (!result.valid) {
+        throw new ApiError(
+          "INVALID_RESOURCE",
+          `${mapping.fieldKey} is invalid: ${result.issues.map((entry) => entry.message).join("; ")}`,
+          400,
+        );
+      }
+      stored[columns.start] = result.value.start;
+      stored[columns.end] = result.value.endExclusive;
       continue;
     }
 
@@ -217,6 +284,45 @@ export function hydrateTypedResourceData(
         continue;
       }
       data[mapping.fieldKey] = decodedValue(field, value);
+      continue;
+    }
+
+    if (mapping.storage === "range") {
+      const columns = rangeComponents(mapping);
+      const start = stored[columns.start];
+      const endExclusive = stored[columns.end];
+      const values = [start, endExclusive];
+      const absent = values.every((value) => value === null || value === undefined);
+      if (absent) {
+        if (field.required) {
+          throw new ApiError(
+            "RESOURCE_STORAGE_CORRUPT",
+            `Required field ${mapping.fieldKey} is missing from resource ${recordId}`,
+            500,
+          );
+        }
+        if (field.nullable) data[mapping.fieldKey] = null;
+        continue;
+      }
+      if (values.some((value) => value === null || value === undefined)) {
+        throw new ApiError(
+          "RESOURCE_STORAGE_CORRUPT",
+          `Range field ${mapping.fieldKey} is partially stored for resource ${recordId}`,
+          500,
+        );
+      }
+      if (!isFirstClassRangeFieldType(field.type)) {
+        throw new ApiError("INVALID_PHYSICAL_SCHEMA", `Field ${mapping.fieldKey} has invalid range storage type`, 500);
+      }
+      const result = validateRangeValue({ start, endExclusive }, rangeFieldValueType(field.type));
+      if (!result.valid) {
+        throw new ApiError(
+          "RESOURCE_STORAGE_CORRUPT",
+          `Range field ${mapping.fieldKey} is invalid for resource ${recordId}`,
+          500,
+        );
+      }
+      data[mapping.fieldKey] = result.value;
       continue;
     }
 
