@@ -1,7 +1,8 @@
 import type { Bindings } from "./env";
 import { ApiError } from "./http";
-import type { FieldDefinition, ModelDefaultValue } from "./model-definition";
+import { isFirstClassRangeFieldType, rangeFieldValueType, type FieldDefinition, type ModelDefaultValue } from "./model-definition";
 import { listPublishedModels, type PublishedModel } from "./model-registry";
+import { validateRangeValue } from "./range-value";
 import { validateTemporalRangeValue } from "./temporal-range";
 import { isRfc3339Instant } from "./time-semantics";
 
@@ -38,7 +39,28 @@ function aiFieldSchema(field: FieldDefinition): Record<string, unknown> {
     case "number": return nullable({ type: "number", ...(field.minimum === undefined ? {} : { minimum: field.minimum }), ...(field.maximum === undefined ? {} : { maximum: field.maximum }), ...description });
     case "boolean": return nullable({ type: "boolean", ...description });
     case "date": return nullable({ type: "string", format: "date", ...description });
+    case "instant":
     case "datetime": return nullable({ type: "string", format: "date-time", ...description });
+    case "range<date>": return nullable({
+      type: "object",
+      additionalProperties: false,
+      required: ["start", "endExclusive"],
+      properties: {
+        start: { type: "string", format: "date" },
+        endExclusive: { type: "string", format: "date" },
+      },
+      ...description,
+    });
+    case "range<instant>": return nullable({
+      type: "object",
+      additionalProperties: false,
+      required: ["start", "endExclusive"],
+      properties: {
+        start: { type: "string", format: "date-time" },
+        endExclusive: { type: "string", format: "date-time" },
+      },
+      ...description,
+    });
     case "timezone": return nullable({ type: "string", ...description });
     case "enum": return nullable({ type: "string", enum: field.values ?? [], ...description });
     case "person": return nullable({ type: "string", description: `${field.description ?? "Person reference"}. Use only a supplied temporary person ref.` });
@@ -185,7 +207,12 @@ function scalar(field: FieldDefinition, value: unknown, key: string, warnings: R
   else if (field.type === "number") valid = typeof value === "number" && Number.isFinite(value);
   else if (field.type === "boolean") valid = typeof value === "boolean";
   else if (field.type === "date") valid = typeof value === "string" && validDate(value);
-  else if (field.type === "datetime") valid = isRfc3339Instant(value);
+  else if (field.type === "instant" || field.type === "datetime") valid = isRfc3339Instant(value);
+  else if (isFirstClassRangeFieldType(field.type)) {
+    const range = validateRangeValue(value, rangeFieldValueType(field.type));
+    if (!range.valid) { addWarning(warnings, "INVALID_INFERRED_VALUE", key); return null; }
+    return range.value;
+  }
   else if (field.type === "timezone") valid = typeof value === "string" && validTimezone(value);
   else if (field.type === "enum") valid = typeof value === "string" && Boolean(field.values?.includes(value));
   if (valid && typeof value === "number") {
