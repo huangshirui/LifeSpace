@@ -51,6 +51,7 @@ function fieldType(field: FieldDefinition): OperandType {
     case "string":
     case "text":
     case "date":
+    case "instant":
     case "datetime":
     case "timezone":
     case "enum":
@@ -58,6 +59,8 @@ function fieldType(field: FieldDefinition): OperandType {
     case "record": return { kind: "string", nullable: field.nullable };
     case "person_list":
     case "record_list":
+    case "range<date>":
+    case "range<instant>":
     case "temporal_range": return { kind: "unknown", nullable: field.nullable };
   }
 }
