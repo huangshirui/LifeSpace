@@ -123,11 +123,7 @@ export async function runStagingPerformanceBenchmark({
       method: "POST",
       body: {
         summary: `Performance event ${marker}`,
-        isAllDay: false,
-        startAt: eventStart.toISOString(),
-        endAt: eventEnd.toISOString(),
-        startTimezone: "UTC",
-        endTimezone: "UTC",
+        when: { kind: "instant", start: eventStart.toISOString(), endExclusive: eventEnd.toISOString() },
         attendeePersonIds: [personId],
       },
     }, 201);
@@ -146,13 +142,35 @@ export async function runStagingPerformanceBenchmark({
     }, 201);
     cleanup.push({ modelKey: "wish", id: wish.data.id, version: wish.data.version });
 
-    const eventRangeStart = encodeURIComponent(new Date(eventStart.getTime() - 60_000).toISOString());
-    const eventRangeEnd = encodeURIComponent(new Date(eventEnd.getTime() + 60_000).toISOString());
+    const eventWindowStartDate = new Date(eventStart.getTime() - 60_000).toISOString().slice(0, 10);
+    const eventWindowEndDateExclusive = new Date(eventEnd.getTime() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const eventWindowQuery = {
+      filter: {
+        and: [
+          {
+            field: "when", op: "overlaps",
+            value: {
+              kind: "local_date_window",
+              startDate: eventWindowStartDate,
+              endDateExclusive: eventWindowEndDateExclusive,
+              timezone: "UTC",
+            },
+          },
+          { field: "status", op: "eq", value: "active" },
+        ],
+      },
+      sort: [{ field: "when", direction: "asc" }],
+      page: { limit: 20 },
+      context: { viewingTimezone: "UTC" },
+    };
 
     const entries = [];
     entries.push(await measure("taskGet", () => expectData(`/api/v1/spaces/${spaceId}/models/task/records/${tasks[0].id}`)));
     entries.push(await measure("taskList10", () => expectData(`/api/v1/spaces/${spaceId}/models/task/records?limit=10`)));
-    entries.push(await measure("eventWindow", () => expectData(`/api/v1/spaces/${spaceId}/models/event/records?rangeStart=${eventRangeStart}&rangeEnd=${eventRangeEnd}&limit=20`)));
+    entries.push(await measure("eventWindow", () => expectData(`/api/v1/spaces/${spaceId}/models/event/records/query`, {
+      method: "POST",
+      body: eventWindowQuery,
+    })));
     entries.push(await measure("dayRecordList", () => expectData(`/api/v1/spaces/${spaceId}/models/day_record/records?sort=effectiveDate:asc&limit=20`)));
     entries.push(await measure("wishList", () => expectData(`/api/v1/spaces/${spaceId}/models/wish/records?limit=20`)));
     const reads = Object.fromEntries(entries);
