@@ -1,4 +1,8 @@
-import type { CalendarCapabilityDefinition } from "./capability-definition";
+import {
+  isCanonicalCalendarCapability,
+  type CalendarCapabilityDefinition,
+  type LegacyCalendarCapabilityDefinition,
+} from "./capability-definition";
 import type { Bindings, Principal } from "./env";
 import { createGenericResource, getGenericResource, updateGenericResource, type GenericResource } from "./generic-resource";
 import { ApiError } from "./http";
@@ -15,6 +19,14 @@ function object(value: unknown): JsonObject {
 function config(model: PublishedModel): CalendarCapabilityDefinition {
   const calendar = model.definition.capabilities?.calendar;
   if (!calendar) throw new ApiError("CALENDAR_CAPABILITY_NOT_ENABLED", `Model ${model.key} does not enable Calendar capability`, 404);
+  return calendar;
+}
+
+function legacyConfig(model: PublishedModel): LegacyCalendarCapabilityDefinition {
+  const calendar = config(model);
+  if (isCanonicalCalendarCapability(calendar)) {
+    throw new ApiError("INVALID_CALENDAR_RESOURCE", "Canonical Calendar resources use the bound temporal_range field directly", 400);
+  }
   return calendar;
 }
 
@@ -50,8 +62,8 @@ function reject(data: JsonObject, fields: string[], message: string): void {
   if (fields.some((field) => data[field] !== undefined && data[field] !== null && data[field] !== "")) throw new ApiError("INVALID_CALENDAR_RESOURCE", message, 400);
 }
 
-function normalize(model: PublishedModel, candidate: JsonObject): JsonObject {
-  const calendar = config(model);
+function normalizeLegacy(model: PublishedModel, candidate: JsonObject): JsonObject {
+  const calendar = legacyConfig(model);
   const allDay = candidate[calendar.allDayField];
   if (typeof allDay !== "boolean") throw new ApiError("INVALID_CALENDAR_RESOURCE", `${calendar.allDayField} must be boolean`, 400);
   const normalized = { ...candidate };
@@ -84,7 +96,11 @@ function normalize(model: PublishedModel, candidate: JsonObject): JsonObject {
 export function prepareCalendarCreate(model: PublishedModel, input: unknown): JsonObject {
   const value = object(input);
   const calendar = config(model);
-  return normalize(model, {
+  // Canonical Calendar owns no private time representation. Generic Runtime
+  // validates/normalizes the bound temporal_range field and persists it through
+  // the normal typed TemporalRange path.
+  if (isCanonicalCalendarCapability(calendar)) return value;
+  return normalizeLegacy(model, {
     ...value,
     [calendar.timedStartField]: value[calendar.timedStartField] ?? null,
     [calendar.timedEndField]: value[calendar.timedEndField] ?? null,
@@ -98,13 +114,17 @@ export function prepareCalendarCreate(model: PublishedModel, input: unknown): Js
 export function prepareCalendarUpdate(model: PublishedModel, resource: GenericResource, input: unknown): JsonObject {
   const calendar = config(model);
   const patch = object(input);
+  // Canonical Calendar updates are ordinary field updates. The TemporalRange
+  // field validator owns tag/bounds/Instant normalization.
+  if (isCanonicalCalendarCapability(calendar)) return patch;
+
   const candidate: JsonObject = { ...resource.data, ...patch };
   const currentAllDay = resource.data[calendar.allDayField];
   const requestedAllDay = patch[calendar.allDayField];
 
-  // A Calendar mode switch is one semantic update. Clear only opposite-mode values
+  // A legacy Calendar mode switch is one semantic update. Clear only opposite-mode values
   // inherited from the stored record; explicitly supplied conflicting values still
-  // flow into normalize() and are rejected as malformed input.
+  // flow into normalizeLegacy() and are rejected as malformed input.
   if (currentAllDay === true && requestedAllDay === false) {
     if (patch[calendar.allDayStartField] === undefined) candidate[calendar.allDayStartField] = null;
     if (patch[calendar.allDayEndExclusiveField] === undefined) candidate[calendar.allDayEndExclusiveField] = null;
@@ -115,7 +135,7 @@ export function prepareCalendarUpdate(model: PublishedModel, resource: GenericRe
     if (patch[calendar.endTimezoneField] === undefined) candidate[calendar.endTimezoneField] = null;
   }
 
-  const normalized = normalize(model, candidate);
+  const normalized = normalizeLegacy(model, candidate);
   const changes: JsonObject = {};
   for (const [key, value] of Object.entries(normalized)) if (resource.data[key] !== value) changes[key] = value;
   if (!Object.keys(changes).length) throw new ApiError("INVALID_REQUEST", "Calendar update does not change any field", 400);
