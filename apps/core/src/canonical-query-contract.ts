@@ -1,11 +1,16 @@
-import type { FieldDefinition } from "./model-definition";
+import {
+  canonicalFieldType,
+  isFirstClassRangeFieldType,
+  type CanonicalFieldType,
+  type FieldDefinition,
+} from "./model-definition";
 import type { PublishedModel } from "./model-registry";
 import { projectTimeRangeSemantics } from "./time-range-definition";
 
 export type CanonicalQueryTargetDescriptor = {
   field: string;
   kind: "envelope" | "field" | "time-range" | "calendar-range";
-  valueType: FieldDefinition["type"] | "date-range" | "instant-range" | "temporal-range";
+  valueType: CanonicalFieldType;
   operators: string[];
   nullable: boolean;
   acceptsCurrentActorPersonAlias?: "me";
@@ -129,6 +134,15 @@ function currentActorAliasAllowed(model: PublishedModel, fieldKey: string, field
 
 function fieldOperators(field: FieldDefinition): string[] {
   if (["person", "person_list", "record", "record_list"].includes(field.type)) return ["contains"];
+  if (isFirstClassRangeFieldType(field.type)) {
+    return [
+      "overlaps",
+      "contains",
+      "before",
+      "after",
+      ...(field.nullable === true ? ["isNull", "isNotNull"] : []),
+    ];
+  }
   if (field.type === "temporal_range") {
     return [
       "overlaps",
@@ -140,10 +154,10 @@ function fieldOperators(field: FieldDefinition): string[] {
     ];
   }
   const operators = ["eq", "ne"];
-  if (["date", "datetime", "integer", "number"].includes(field.type)) {
+  if (["date", "instant", "datetime", "integer", "number"].includes(field.type)) {
     operators.push("lt", "lte", "gt", "gte");
   }
-  if (field.type === "date" || field.type === "datetime") operators.push("within");
+  if (field.type === "date" || field.type === "instant" || field.type === "datetime") operators.push("within");
   if (field.nullable === true) operators.push("isNull", "isNotNull");
   return operators;
 }
@@ -154,14 +168,14 @@ export function canonicalQuerySemanticDescriptor(model: PublishedModel): Canonic
     {
       field: "createdAt",
       kind: "envelope",
-      valueType: "datetime",
+      valueType: "instant",
       operators: ["eq", "ne", "lt", "lte", "gt", "gte", "within"],
       nullable: false,
     },
     {
       field: "updatedAt",
       kind: "envelope",
-      valueType: "datetime",
+      valueType: "instant",
       operators: ["eq", "ne", "lt", "lte", "gt", "gte", "within"],
       nullable: false,
     },
@@ -172,7 +186,7 @@ export function canonicalQuerySemanticDescriptor(model: PublishedModel): Canonic
     targets.push({
       field: fieldKey,
       kind: "field",
-      valueType: field.type,
+      valueType: canonicalFieldType(field.type),
       operators: fieldOperators(field),
       nullable: field.nullable === true,
       ...(currentActorAliasAllowed(model, fieldKey, field) ? { acceptsCurrentActorPersonAlias: "me" as const } : {}),
@@ -183,7 +197,7 @@ export function canonicalQuerySemanticDescriptor(model: PublishedModel): Canonic
       targets.push({
         field: range.key,
         kind: "time-range",
-        valueType: range.valueType === "date" ? "date-range" : "instant-range",
+        valueType: range.valueType === "date" ? "range<date>" : "range<instant>",
         operators: ["overlaps", "contains", "before", "after"],
         nullable: false,
       });
@@ -193,7 +207,7 @@ export function canonicalQuerySemanticDescriptor(model: PublishedModel): Canonic
     targets.push({
       field: "when",
       kind: "calendar-range",
-      valueType: "temporal-range",
+      valueType: "temporal_range",
       operators: ["overlaps", "contains", "before", "after", "kindIs"],
       nullable: false,
     });
