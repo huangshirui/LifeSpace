@@ -1,7 +1,7 @@
 import type { CalendarCapabilityDefinition, TemporalCapabilityDefinition } from "./capability-definition";
 import { canonicalQuerySemanticDescriptor, type CanonicalQuerySemanticDescriptor } from "./canonical-query-contract";
 import { calendarViewingWindowSemanticQuery } from "./calendar-query-semantics";
-import type { FieldDefinition, ModelAccess } from "./model-definition";
+import { canonicalFieldType, type FieldDefinition, type ModelAccess } from "./model-definition";
 import type { PublishedModel } from "./model-registry";
 import { referenceLabelSemantic, type ReferenceLabelSemantic } from "./reference-label";
 import { relationSemanticMetadata, type RelationResolutionDescriptor } from "./relation-semantic";
@@ -61,7 +61,7 @@ export type ModelSemanticFilter = {
 
 export type ModelSemanticQueryParameter = {
   parameter: string;
-  type: "boolean" | "date" | "datetime";
+  type: "boolean" | "date" | "instant";
   default?: boolean;
   pairedWith?: string;
 };
@@ -152,13 +152,14 @@ export function modelFieldSemanticFacts(model: PublishedModel): ModelSemanticFie
       return {
         key,
         ...structuredClone(field),
+        type: canonicalFieldType(field.type),
         ...(relation ? { relation } : {}),
       };
     });
 }
 
 function supportsRange(field: FieldDefinition): boolean {
-  return field.type === "date" || field.type === "datetime" || field.type === "integer" || field.type === "number";
+  return field.type === "date" || field.type === "instant" || field.type === "datetime" || field.type === "integer" || field.type === "number";
 }
 
 function acceptsCurrentActorPersonAlias(model: PublishedModel, fieldKey: string, field: FieldDefinition): boolean {
@@ -205,8 +206,8 @@ export function modelQuerySemanticFacts(model: PublishedModel): ModelSemanticQue
 
   if (model.definition.capabilities?.calendar) {
     capabilityParameters.push(
-      { parameter: "rangeStart", type: "datetime", pairedWith: "rangeEnd" },
-      { parameter: "rangeEnd", type: "datetime", pairedWith: "rangeStart" },
+      { parameter: "rangeStart", type: "instant", pairedWith: "rangeEnd" },
+      { parameter: "rangeEnd", type: "instant", pairedWith: "rangeStart" },
       { parameter: "dateStart", type: "date", pairedWith: "dateEndExclusive" },
       { parameter: "dateEndExclusive", type: "date", pairedWith: "dateStart" },
     );
