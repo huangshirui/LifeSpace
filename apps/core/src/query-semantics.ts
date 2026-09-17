@@ -90,7 +90,7 @@ function envelopeFieldSemantics(
     source: "envelope",
     valueType,
     operators: explicitOperators(field),
-    ...(valueType === "datetime" ? { localDateWindow: localDateWindowParameters(field) } : {}),
+    ...((valueType === "instant" || valueType === "datetime") ? { localDateWindow: localDateWindowParameters(field) } : {}),
   };
 }
 
@@ -109,7 +109,7 @@ export function genericComparisonFieldSemantics(
   const modelFields = (definition.query?.filterable ?? []).flatMap((field) => {
     const definitionField = definition.fields[field];
     return definitionField && isGenericComparableFieldType(definitionField.type)
-      ? [modelFieldSemantics(field, definitionField.type)]
+      ? [modelFieldSemantics(field, definitionField.type === "datetime" ? "instant" : definitionField.type)]
       : [];
   });
   return [
