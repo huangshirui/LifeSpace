@@ -80,8 +80,31 @@ function fieldSchema(field: FieldDefinition): JsonSchema {
     case "date":
       schema = { type: "string", format: "date" };
       break;
+    case "instant":
     case "datetime":
       schema = { type: "string", format: "date-time" };
+      break;
+    case "range<date>":
+      schema = {
+        type: "object",
+        additionalProperties: false,
+        required: ["start", "endExclusive"],
+        properties: {
+          start: { type: "string", format: "date" },
+          endExclusive: { type: "string", format: "date" },
+        },
+      };
+      break;
+    case "range<instant>":
+      schema = {
+        type: "object",
+        additionalProperties: false,
+        required: ["start", "endExclusive"],
+        properties: {
+          start: { type: "string", format: "date-time" },
+          endExclusive: { type: "string", format: "date-time" },
+        },
+      };
       break;
     case "timezone":
       schema = { type: "string", "x-lifespace-format": "iana-timezone" };
@@ -470,7 +493,7 @@ function parameterMap(model: PublishedModel): Map<string, Record<string, unknown
       };
     }
     put({ name: fieldKey, in: "query", schema });
-    if (["date", "datetime", "integer", "number"].includes(field.type)) {
+    if (["date", "instant", "datetime", "integer", "number"].includes(field.type)) {
       put({ name: `${fieldKey}From`, in: "query", schema: fieldSchema({ ...field, nullable: false, readOnly: false }) });
       put({ name: `${fieldKey}To`, in: "query", schema: fieldSchema({ ...field, nullable: false, readOnly: false }) });
     }
