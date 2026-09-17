@@ -4,6 +4,7 @@ import { capabilityActionAccess } from "./capability-runtime";
 import type { Bindings, Principal, Variables } from "./env";
 import { ApiError, success } from "./http";
 import type { ModelAccess } from "./model-definition";
+import type { CalendarCapabilityDefinition } from "./capability-definition";
 import { listPublishedModels, type PublishedModel } from "./model-registry";
 import { projectModelSemanticFacts } from "./model-semantic-projection";
 import { referenceLabelSemantic } from "./reference-label";
@@ -49,16 +50,7 @@ type DiscoveryAction = {
   concurrency: DiscoveryActionConcurrency;
 };
 
-type DiscoveryCalendarCapabilityBinding = {
-  allDayField: string;
-  timedStartField: string;
-  timedEndField: string;
-  startTimezoneField: string;
-  endTimezoneField: string;
-  allDayStartField: string;
-  allDayEndExclusiveField: string;
-  attendeePersonField?: string;
-};
+type DiscoveryCalendarCapabilityBinding = CalendarCapabilityDefinition;
 
 type DiscoveryCapabilityBindings = {
   calendar?: DiscoveryCalendarCapabilityBinding;
