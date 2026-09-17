@@ -3,7 +3,7 @@ import type { Permission, SpaceRole } from "./authorization";
 import { capabilityActionAccess } from "./capability-runtime";
 import type { Bindings, Principal, Variables } from "./env";
 import { ApiError, success } from "./http";
-import { canonicalFieldType, type ModelAccess } from "./model-definition";
+import type { ModelAccess } from "./model-definition";
 import { listPublishedModels, type PublishedModel } from "./model-registry";
 import { projectModelSemanticFacts } from "./model-semantic-projection";
 import { referenceLabelSemantic } from "./reference-label";
@@ -180,7 +180,7 @@ function dto(model: PublishedModel, allowed: ModelAccess[]) {
     access: allowed,
     fields: Object.entries(model.definition.fields).map(([key, field]) => {
       const relation = relationDiscoveryMetadata(field);
-      return { key, ...field, type: canonicalFieldType(field.type), ...(relation ? { relation } : {}) };
+      return { key, ...field, ...(relation ? { relation } : {}) };
     }),
     defaults: structuredClone(model.definition.defaults ?? {}),
     query: {
