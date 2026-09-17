@@ -1,16 +1,11 @@
-import {
-  canonicalFieldType,
-  isFirstClassRangeFieldType,
-  type CanonicalFieldType,
-  type FieldDefinition,
-} from "./model-definition";
+import { isFirstClassRangeFieldType, type FieldDefinition } from "./model-definition";
 import type { PublishedModel } from "./model-registry";
 import { projectTimeRangeSemantics } from "./time-range-definition";
 
 export type CanonicalQueryTargetDescriptor = {
   field: string;
   kind: "envelope" | "field" | "time-range" | "calendar-range";
-  valueType: CanonicalFieldType;
+  valueType: FieldDefinition["type"] | "date-range" | "instant-range" | "temporal-range";
   operators: string[];
   nullable: boolean;
   acceptsCurrentActorPersonAlias?: "me";
@@ -168,14 +163,14 @@ export function canonicalQuerySemanticDescriptor(model: PublishedModel): Canonic
     {
       field: "createdAt",
       kind: "envelope",
-      valueType: "instant",
+      valueType: "datetime",
       operators: ["eq", "ne", "lt", "lte", "gt", "gte", "within"],
       nullable: false,
     },
     {
       field: "updatedAt",
       kind: "envelope",
-      valueType: "instant",
+      valueType: "datetime",
       operators: ["eq", "ne", "lt", "lte", "gt", "gte", "within"],
       nullable: false,
     },
@@ -186,7 +181,7 @@ export function canonicalQuerySemanticDescriptor(model: PublishedModel): Canonic
     targets.push({
       field: fieldKey,
       kind: "field",
-      valueType: canonicalFieldType(field.type),
+      valueType: field.type,
       operators: fieldOperators(field),
       nullable: field.nullable === true,
       ...(currentActorAliasAllowed(model, fieldKey, field) ? { acceptsCurrentActorPersonAlias: "me" as const } : {}),
@@ -197,7 +192,7 @@ export function canonicalQuerySemanticDescriptor(model: PublishedModel): Canonic
       targets.push({
         field: range.key,
         kind: "time-range",
-        valueType: range.valueType === "date" ? "range<date>" : "range<instant>",
+        valueType: range.valueType === "date" ? "date-range" : "instant-range",
         operators: ["overlaps", "contains", "before", "after"],
         nullable: false,
       });
@@ -207,7 +202,7 @@ export function canonicalQuerySemanticDescriptor(model: PublishedModel): Canonic
     targets.push({
       field: "when",
       kind: "calendar-range",
-      valueType: "temporal_range",
+      valueType: "temporal-range",
       operators: ["overlaps", "contains", "before", "after", "kindIs"],
       nullable: false,
     });
