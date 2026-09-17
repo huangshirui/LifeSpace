@@ -10,12 +10,12 @@ function eventModel(): PublishedModel {
   return {
     id: "mdl_event",
     key: EVENT_MODEL_DEFINITION.key,
-    version: 1,
+    version: 6,
     state: "published",
-    schemaHash: "a".repeat(64),
-    compatibility: "initial",
+    schemaHash: "be9bdea442a30108a22a2da77a96ab23aba5122ec3c2b1de20a6312cebb0cc8a",
+    compatibility: "breaking",
     definition: EVENT_MODEL_DEFINITION,
-    publishedAt: "2026-01-01T00:00:00.000Z",
+    publishedAt: "2026-09-17T00:00:00.000Z",
   };
 }
 
@@ -71,7 +71,7 @@ describe("Canonical Query discovery convergence", () => {
     expect((schema.properties as Record<string, unknown>).search).toBeDefined();
   });
 
-  it("publishes the exact operator matrix accepted by Canonical Query Runtime", () => {
+  it("publishes the exact operator matrix accepted by canonical Event Runtime", () => {
     const descriptor = canonicalQuerySemanticDescriptor(eventModel());
     const target = (field: string) => descriptor.filter.targets.find((candidate) => candidate.field === field);
 
@@ -81,8 +81,10 @@ describe("Canonical Query discovery convergence", () => {
       nullable: false,
     });
     expect(target("when")).toMatchObject({
-      kind: "calendar-range",
+      kind: "field",
+      valueType: "temporal_range",
       operators: ["overlaps", "contains", "before", "after", "kindIs"],
+      nullable: false,
     });
 
     const attendee = descriptor.filter.targets.find((candidate) => candidate.acceptsCurrentActorPersonAlias === "me");
