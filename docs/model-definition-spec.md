@@ -342,7 +342,7 @@ Rules:
 - `startField` and `endField` must both exist, must be distinct, and must be either `date/date` or `datetime/datetime`; mixed `date/datetime` pairs are invalid;
 - `bounds` may be `[]`, `[)`, `(]` or `()`; omission means the canonical half-open form `[)`, and validation normalizes the published definition to that explicit value;
 - the same unordered field pair may not be declared twice, including a reversed duplicate, because that would create ambiguous structural semantics;
-- Calendar Capability bindings remain authoritative for Calendar timed and all-day intervals. A model with Calendar must not redeclare the Calendar-owned `timedStartField/timedEndField` or `allDayStartField/allDayEndExclusiveField` pair in `timeRanges`; progressive semantic projection derives those ranges directly from the Capability binding;
+- Calendar Capability bindings remain authoritative for Calendar intervals. Current Calendar models bind one `temporal_range` field through `rangeField`; progressive semantic projection derives that interval directly from the Capability binding. Historical split-field Calendar definitions retain their derived timed/all-day ranges for compatibility and must not redeclare those legacy pairs in `timeRanges`;
 - declaring a range does **not** automatically add `overlaps`, `contains`, `before` or any other query operator. Query capability remains separately and explicitly declared/versioned;
 - declaring a range does **not** by itself add a new create/update ordering invariant such as `start < end`. Record-value validation remains whatever the model/Capability already owns until a future semantic rule explicitly introduces such an invariant;
 - adding, removing or changing `timeRanges` on an already-published model is a breaking semantic compatibility change because generic consumers may change how they interpret the participating fields;
@@ -883,18 +883,12 @@ Conformance-ID: MDV1-CAPABILITY-TEMPORAL-01
 
 ### 14.2 Calendar Capability
 
-Configuration:
+Current/canonical configuration:
 
 ```ts
 capabilities: {
   calendar: {
-    allDayField: string,
-    timedStartField: string,
-    timedEndField: string,
-    startTimezoneField: string,
-    endTimezoneField: string,
-    allDayStartField: string,
-    allDayEndExclusiveField: string,
+    rangeField: string,
     attendeePersonField?: string
   }
 }
@@ -902,37 +896,35 @@ capabilities: {
 
 Field contracts:
 
-- all-day marker: `boolean`;
-- timed start/end: `datetime`;
-- start/end timezone: `timezone`;
-- all-day start/exclusive end: `date`;
-- optional attendees: `person_list`;
-- Calendar core fields must map to distinct model fields.
+- `rangeField` must name one declared `temporal_range` field;
+- optional attendees must name a `person_list` field;
+- the bound TemporalRange is the single Calendar time truth. Date and Instant variants are represented by the canonical tagged value and are validated/persisted by Generic Runtime;
+- Calendar adds semantic role/context around that field but does not create a second time representation.
 
-Calendar contributes timed/all-day shape validation and semantic time-window query behavior. It does not currently contribute a model-specific Workflow Action.
+Current Model Definitions must use this canonical binding. The validator/runtime also retain the prior split-field binding:
 
-Runtime Discovery may project these canonical Calendar field roles through a bounded Capability binding so generic clients can distinguish timed from all-day inputs without inferring field names. That projection is derived from this Model Definition mapping, contains no UI layout semantics and does not replace execution-time Calendar validation.
+```ts
+{
+  allDayField,
+  timedStartField,
+  timedEndField,
+  startTimezoneField,
+  endTimezoneField,
+  allDayStartField,
+  allDayEndExclusiveField,
+  attendeePersonField?
+}
+```
+
+That shape exists only so already-published historical Model Definitions remain interpretable during migration. A Calendar definition must use either `rangeField` or the complete legacy split binding, never both. New baseline models and AI-generated proposals must not introduce the legacy shape.
+
+Runtime Discovery and progressive static semantic detail project the same canonical/legacy union. Generic consumers inspect the returned binding instead of guessing Event field names. For current models, `rangeField` points directly at the authoritative `temporal_range` field. The projection contains no UI layout semantics and never replaces execution-time validation.
 
 Conformance-ID: MDV1-CAPABILITY-CALENDAR-01
 
-Calendar also owns one preferred high-level viewing-window query whose caller supplies concrete local calendar dates plus an explicit viewing timezone:
+Canonical Calendar query behavior is the normal Canonical Query behavior of the bound TemporalRange field. Overlap/filter/sort predicates therefore target `rangeField`, and TemporalRange sort requires explicit `context.viewingTimezone`. Relative-language inputs such as `today` or `tomorrow` remain caller/Agent concerns and are resolved to concrete Canonical Query values before execution.
 
-```text
-windowStartDate=YYYY-MM-DD
-windowEndDateExclusive=YYYY-MM-DD
-viewingTimezone=<IANA timezone>
-```
-
-All three parameters are required together. Relative-language inputs such as `today` or `tomorrow` are not Calendar Runtime syntax; a caller/Agent resolves them to concrete dates before execution. Core converts the local date boundaries with the shared Time Semantics primitive and applies separate half-open overlap predicates to the two Calendar representations:
-
-```text
-timed:   startAt < instantWindowEnd AND endAt > instantWindowStart
-all-day: startDate < windowEndDateExclusive AND endDateExclusive > windowStartDate
-```
-
-Timed records are therefore compared as absolute instants while all-day records remain calendar-date facts. Adapters must not independently compute UTC/DST boundaries. The existing `rangeStart` / `rangeEnd` and `dateStart` / `dateEndExclusive` parameters remain compatibility transport; they are not mixed with the preferred viewing-window transport in one request.
-
-For the preferred query, `calendarStart` ordering is defined in the explicit viewing timezone: compare viewing calendar date first, place all-day records before timed records within the same date, order timed records by absolute start instant, then use stable record ID as the final tie-breaker. Recurrence expansion is not implied or performed by this query. Progressive Runtime Semantic Detail and generated Model Contracts publish this grouped semantic query so MCP, n8n and generated clients consume the platform definition instead of inferring special Event field names or timezone math.
+The historical split-field Calendar engine retains its previous grouped `calendar.window`, `rangeStart/rangeEnd`, `dateStart/dateEndExclusive` and `calendarStart` semantics only for historical published definitions. Canonical Calendar models do not expose or execute that legacy query transport.
 
 Conformance-ID: MDV1-CAPABILITY-CALENDAR-WINDOW-01
 

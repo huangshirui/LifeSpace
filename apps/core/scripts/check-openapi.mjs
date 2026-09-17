@@ -392,15 +392,31 @@ if (!schemas.RuntimeDiscoveryModel?.required?.includes("capabilityBindings")
     || schemas.RuntimeDiscoveryModel?.properties?.capabilities?.type !== "array") {
   throw new Error("Runtime Discovery Capability binding/inventory contract drifted");
 }
-const calendarRequired = [
+const calendarVariants = calendarBinding?.oneOf;
+const calendarFieldPattern = "^[a-z][A-Za-z0-9]{0,62}$";
+const legacyCalendarRequired = [
   "allDayField", "timedStartField", "timedEndField", "startTimezoneField",
   "endTimezoneField", "allDayStartField", "allDayEndExclusiveField",
 ];
-if (calendarBinding?.additionalProperties !== false
-    || JSON.stringify(calendarBinding?.required) !== JSON.stringify(calendarRequired)
-    || calendarRequired.some((key) => calendarBinding?.properties?.[key]?.pattern !== "^[a-z][A-Za-z0-9]{0,62}$")
-    || calendarBinding?.properties?.attendeePersonField?.pattern !== "^[a-z][A-Za-z0-9]{0,62}$") {
-  throw new Error("Runtime Discovery Calendar Capability field-role binding drifted");
+const canonicalCalendarBinding = Array.isArray(calendarVariants)
+  ? calendarVariants.find((variant) => JSON.stringify(variant?.required) === JSON.stringify(["rangeField"]))
+  : null;
+const legacyCalendarBinding = Array.isArray(calendarVariants)
+  ? calendarVariants.find((variant) => JSON.stringify(variant?.required) === JSON.stringify(legacyCalendarRequired))
+  : null;
+if (calendarBinding?.oneOf?.length !== 2
+    || canonicalCalendarBinding?.additionalProperties !== false
+    || canonicalCalendarBinding?.properties?.rangeField?.pattern !== calendarFieldPattern
+    || canonicalCalendarBinding?.properties?.attendeePersonField?.pattern !== calendarFieldPattern
+    || legacyCalendarBinding?.additionalProperties !== false
+    || legacyCalendarBinding?.deprecated !== true
+    || legacyCalendarRequired.some((key) => legacyCalendarBinding?.properties?.[key]?.pattern !== calendarFieldPattern)
+    || legacyCalendarBinding?.properties?.attendeePersonField?.pattern !== calendarFieldPattern) {
+  throw new Error("Runtime Discovery Calendar Capability canonical/legacy binding drifted");
+}
+const semanticCalendarBinding = schemas.RuntimeModelSemanticCalendarBinding;
+if (JSON.stringify(semanticCalendarBinding) !== JSON.stringify(calendarBinding)) {
+  throw new Error("Runtime Discovery and static semantic Calendar binding schemas must stay identical");
 }
 
 const semanticDetailRoute = document.paths?.["/api/v1/spaces/{spaceId}/_discovery/models/{modelKey}"]?.get;
@@ -561,7 +577,7 @@ if (!schemas.CreationDraftProcessing?.required?.includes("modelContractRevision"
   throw new Error("Creation Draft jobs must expose their pinned Model Contract Revision");
 }
 
-if (schemas.StatusResponse?.properties?.data?.properties?.contractVersion?.const !== "0.35.0") {
+if (schemas.StatusResponse?.properties?.data?.properties?.contractVersion?.const !== "0.36.0") {
   throw new Error("Core Kernel status contract version drifted");
 }
 
