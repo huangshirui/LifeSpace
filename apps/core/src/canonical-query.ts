@@ -205,6 +205,9 @@ function scalarValue(field: FieldDefinition, raw: unknown, path: string): string
     case "record_list":
       if (typeof raw !== "string" || !raw) throw new ApiError("INVALID_QUERY", `${path} must contain an ID`, 400);
       return raw;
+    case "range<date>":
+    case "range<instant>":
+      throw new ApiError("INVALID_QUERY", `${path} requires range query operators`, 400);
     case "temporal_range":
       throw new ApiError("INVALID_QUERY", `${path} requires TemporalRange query operators`, 400);
   }
