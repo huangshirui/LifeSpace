@@ -476,7 +476,7 @@ function parameterMap(model: PublishedModel): Map<string, Record<string, unknown
 
   for (const fieldKey of model.definition.query?.filterable ?? []) {
     const field = model.definition.fields[fieldKey];
-    if (!field || field.type === "temporal_range") continue;
+    if (!field || field.type === "temporal_range" || field.type === "range<date>" || field.type === "range<instant>") continue;
     let schema = fieldSchema({ ...field, nullable: false, readOnly: false });
     if (field.type === "enum") {
       schema = { type: "string", ...(field.title ? { title: field.title } : {}), description: "One enum value, or a comma-separated set of enum values" };
