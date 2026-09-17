@@ -8,6 +8,8 @@ const scripts = [
   "infra/scripts/provision-production.mjs",
   "infra/scripts/production-expectations.mjs",
   "infra/scripts/check-production-release-readiness.mjs",
+  "infra/scripts/verify-production-apac-gate.mjs",
+  "infra/scripts/verify-staging-candidate-identity.mjs",
   "infra/scripts/resolve-production-d1.mjs",
   "infra/scripts/ensure-production-domains.mjs",
   "infra/scripts/initialize-production-runtime.mjs",
@@ -88,8 +90,13 @@ requireTokens("Production deployment workflow", productionDeploy, [
   "environment: production",
   "confirmation:",
   "DEPLOY_PRODUCTION",
+  "apac_gate_run_id:",
+  "actions: read",
   "group: lifespace-production-change",
   "LIFESPACE_PRODUCTION_BOOTSTRAP_SECRET",
+  "ref: ${{ github.sha }}",
+  "production deployment must run from main",
+  "node infra/scripts/verify-production-apac-gate.mjs",
   "node infra/scripts/check-production-release-readiness.mjs",
   "db:migrate:production",
   "wrangler deploy --env production",
@@ -130,6 +137,18 @@ if (!stagingDeploy.includes("group: lifespace-staging-deploy") || !stagingProvis
   throw new Error("Staging deploy and provision workflows must share one concurrency lock");
 }
 
+const apacGate = readFileSync(resolve(ROOT, ".github/workflows/apac-performance-gate.yml"), "utf8");
+requireTokens("APAC performance gate workflow", apacGate, [
+  "ref: ${{ github.sha }}",
+  "APAC checkout does not match workflow candidate SHA",
+  "node infra/scripts/staging-expectations.mjs",
+  "node infra/scripts/verify-staging-candidate-identity.mjs",
+  "REQUIRE_ACTIVE_MODEL_CONTRACT: \"1\"",
+  "node infra/scripts/verify-staging-db.mjs",
+  "node infra/scripts/verify-staging-http.mjs",
+  "node infra/scripts/verify-staging-apac-performance.mjs",
+]);
+
 const profile = JSON.parse(readFileSync(resolve(ROOT, "infra/homemew-integration-profile.json"), "utf8"));
 if (profile.application?.productionId !== "homemew-miniprogram") {
   throw new Error("HomeMew production application ID must remain aligned with Core Application × Model Access");
@@ -151,4 +170,6 @@ console.log(JSON.stringify({
   phase6ActiveEntrypointAbsent: true,
   deploymentProvisioningSeparated: true,
   stagingProvisioningSeparated: true,
+  productionApacGateRequired: true,
+  apacGateCandidateIdentityRequired: true,
 }, null, 2));
