@@ -1,4 +1,5 @@
 import type { CalendarCapabilityDefinition, TemporalCapabilityDefinition } from "./capability-definition";
+import { isCanonicalCalendarCapability } from "./capability-definition";
 import { canonicalQuerySemanticDescriptor, type CanonicalQuerySemanticDescriptor } from "./canonical-query-contract";
 import { calendarViewingWindowSemanticQuery } from "./calendar-query-semantics";
 import type { FieldDefinition, ModelAccess } from "./model-definition";
@@ -203,7 +204,8 @@ export function modelQuerySemanticFacts(model: PublishedModel): ModelSemanticQue
     semanticDefaults.temporal = "effectiveDate:asc";
   }
 
-  if (model.definition.capabilities?.calendar) {
+  const calendar = model.definition.capabilities?.calendar;
+  if (calendar && !isCanonicalCalendarCapability(calendar)) {
     capabilityParameters.push(
       { parameter: "rangeStart", type: "datetime", pairedWith: "rangeEnd" },
       { parameter: "rangeEnd", type: "datetime", pairedWith: "rangeStart" },
