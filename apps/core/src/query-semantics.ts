@@ -31,8 +31,8 @@ export type GenericComparisonFieldSemantic = {
 
 const COMPARABLE_TYPES = new Set<GenericComparisonValueType>(["date", "instant", "datetime", "integer", "number"]);
 const ENVELOPE_FIELDS = [
-  { field: "createdAt", valueType: "instant" },
-  { field: "updatedAt", valueType: "instant" },
+  { field: "createdAt", valueType: "datetime" },
+  { field: "updatedAt", valueType: "datetime" },
 ] as const satisfies ReadonlyArray<{ field: string; valueType: GenericComparisonValueType }>;
 
 export function isGenericComparableFieldType(type: FieldType): type is GenericComparisonValueType {
@@ -109,7 +109,7 @@ export function genericComparisonFieldSemantics(
   const modelFields = (definition.query?.filterable ?? []).flatMap((field) => {
     const definitionField = definition.fields[field];
     return definitionField && isGenericComparableFieldType(definitionField.type)
-      ? [modelFieldSemantics(field, definitionField.type === "datetime" ? "instant" : definitionField.type)]
+      ? [modelFieldSemantics(field, definitionField.type)]
       : [];
   });
   return [
