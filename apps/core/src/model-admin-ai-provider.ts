@@ -69,10 +69,10 @@ Allowed top-level keys:
 - policies: optional bounded declarative Policy AST only
 - actions: optional bounded declarative Workflow actions only
 
-Allowed field types:
-string, text, integer, number, boolean, date, datetime, temporal_range, timezone, enum, person, person_list, record, record_list.
+Allowed canonical field types:
+string, text, integer, number, boolean, date, instant, range<date>, range<instant>, temporal_range, timezone, enum, person, person_list, record, record_list.
 Fields may use description, required, nullable, immutable, readOnly, minLength, maxLength, minimum, maximum, values and targetModel where valid.
-A required field cannot be nullable. record/record_list require targetModel. temporal_range accepts none of minLength, maxLength, minimum, maximum, values or targetModel; it cannot have a default, may be filterable or sortable, and cannot be searchable. Sorting requires Canonical Query context.viewingTimezone. Do not invent other properties.
+A required field cannot be nullable. record/record_list require targetModel. instant is the canonical absolute-time field type; never propose legacy datetime. range<date> and range<instant> are first-class half-open {start,endExclusive} values; they cannot have defaults, may be filterable, are not searchable, and currently are not sortable. temporal_range accepts none of minLength, maxLength, minimum, maximum, values or targetModel; it cannot have a default, may be filterable or sortable, and cannot be searchable. Sorting temporal_range requires Canonical Query context.viewingTimezone. Do not propose top-level timeRanges; it is legacy structural compatibility only. Do not invent other properties.
 
 DESIGN RULES
 - Prefer simple Model Definition + Generic Runtime semantics. Do not create a Capability when ordinary fields/query/workflow can express the requirement.
