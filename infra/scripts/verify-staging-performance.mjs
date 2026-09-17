@@ -1,5 +1,5 @@
 import process from "node:process";
-import { runStagingPerformanceBenchmark } from "./staging-performance-benchmark.mjs";
+import { runStagingPerformanceBenchmark } from "./staging-canonical-performance-benchmark.mjs";
 
 const coreBaseUrl = (process.env.LIFESPACE_CORE_STAGING_URL ?? "").replace(/\/+$/u, "");
 const bearer = process.env.LIFESPACE_STAGING_USER_BEARER ?? "";
