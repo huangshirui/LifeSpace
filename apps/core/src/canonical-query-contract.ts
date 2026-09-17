@@ -189,7 +189,8 @@ export function canonicalQuerySemanticDescriptor(model: PublishedModel): Canonic
       });
     }
   }
-  if (model.definition.capabilities?.calendar) {
+  const calendar = model.definition.capabilities?.calendar;
+  if (calendar && !("rangeField" in calendar)) {
     targets.push({
       field: "when",
       kind: "calendar-range",
