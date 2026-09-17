@@ -14,7 +14,9 @@ It deliberately separates semantic truth from current platform and application m
 
 An Instant is one absolute point on the timeline.
 
-Current Model Definition v1 represents this semantic type with the deployed scalar field name `datetime`. Runtime accepts only absolute RFC3339 date-time input carrying `Z` or a numeric offset and normalizes it to an ISO Instant. The controlled TemporalRange canonical value uses `kind: "instant"`; `datetime` is not its variant tag.
+Canonical Model Definition syntax represents this semantic type as `instant`. Runtime accepts only absolute RFC3339 input carrying `Z` or a numeric offset and normalizes it to an ISO Instant.
+
+Already-published Model Definition v1 rows may still contain the historical spelling `datetime`. That spelling is a compatibility token only: Registry/runtime loaders continue to interpret it as the same Instant semantic so existing schema hashes remain stable, but new models and newly introduced fields must use `instant`. The controlled TemporalRange canonical value likewise uses `kind: "instant"`; `datetime` is never a TemporalRange variant tag.
 
 An Instant must never be interpreted using server-local timezone after it has been stored. Presentation timezone is context, not a mutation of the stored instant.
 
@@ -34,20 +36,33 @@ Canonicalization of accepted IANA aliases/casing is tracked separately from thes
 
 ## 2. Range semantics
 
-A semantic range has:
+`Range<T>` is a first-class logical value constructor over one base time type:
 
 ```text
-start
-end
-bounds
-value type
+Range<Date>
+Range<Instant>
 ```
 
-The preferred ordinary interval convention is half-open `[start, end)` because adjacent intervals do not overlap by sharing an endpoint.
+Canonical Model Definition syntax is:
 
-Current Model Definition supports structural `timeRanges` over two Date fields or two datetime/Instant fields, with explicit bounds. Calendar also projects its existing timed and all-day field pairs as structural time ranges.
+```text
+range<date>
+range<instant>
+```
 
-A structural range declaration gives meaning to a field pair; it is not merely UI grouping and it does not imply arbitrary cross-type comparison.
+Canonical value shape is one field value:
+
+```json
+{ "start": "...", "endExclusive": "..." }
+```
+
+The field type determines whether the boundaries are Date or Instant. Fixed Range values do not repeat a `kind` discriminator. Their bounds are always half-open `[start,endExclusive)`.
+
+Storage may split one logical Range into typed start/end columns, but those columns are an implementation detail. Model authors and callers do not declare or manipulate physical start/end columns merely to represent one Range value.
+
+The existing top-level `timeRanges` structure is **legacy structural compatibility**, not a second canonical Range syntax. It remains readable only for already-published definitions whose two scalar fields were historically given interval meaning. New or changed `timeRanges` declarations are not publishable; new range-valued state uses a first-class Range field.
+
+Calendar split-field projections remain a separately tracked compatibility path until their own migration completes. They do not redefine ordinary `Range<T>`.
 
 ## 3. Controlled TemporalRange
 
@@ -129,7 +144,7 @@ before
 after
 ```
 
-For a direct filterable `temporal_range`, the operators apply to its stored Date or Instant variant. For Calendar-backed compatibility `when`, the same operators apply over the projected all-day/timed branches.
+For a direct filterable `range<date>` or `range<instant>`, the operators apply to the one stored fixed Range value. For a direct filterable `temporal_range`, they apply to its stored Date or Instant variant. For Calendar-backed compatibility `when`, the same operators apply over the projected all-day/timed branches.
 
 `kindIs` may be used on either a direct controlled TemporalRange field or the Calendar compatibility projection:
 
@@ -209,7 +224,7 @@ D1 remains the preferred storage engine. A geohash or other spatial index may be
 Time and space semantics follow the same platform layering as Canonical Query:
 
 1. **Domain semantics / type system** — defines Instant, Date, ranges, controlled TemporalRange and Location meaning.
-2. **Model Definition DSL** — declares fields and structural semantic bindings; it does not contain SQL/index logic.
+2. **Model Definition DSL** — declares first-class semantic field types such as `instant`, `date`, `range<instant>`, `range<date>` and `temporal_range`; it does not expose physical start/end/discriminator columns or SQL/index logic.
 3. **Canonical Value / Query Model** — carries unambiguous stored/query values and typed predicates.
 4. **REST / generated contract transport** — transports those values without inventing parallel semantics.
 5. **Runtime / Query Planner** — performs timezone/range/spatial projection and selects execution strategy.
@@ -258,7 +273,7 @@ Current convergence order:
 
 1. establish one Canonical Typed Query and explicit local-date/range semantics;
 2. project existing Calendar Event storage into the canonical query target during transition;
-3. use the implemented direct TemporalRange Model Definition/storage/CRUD support as the platform base; add typed Query roles separately, and introduce Location only with its own storage, generated-contract and downstream impact assessment;
+3. keep canonical `instant`, fixed Range and direct TemporalRange Model Definition/storage/CRUD/query semantics aligned; legacy `datetime` / `timeRanges` remain compatibility-only rather than alternate design paths; introduce Location only with its own storage, generated-contract and downstream impact assessment;
 4. migrate Event and consumers explicitly;
 5. retire old Calendar/Temporal query transports only after consumer/traffic evidence permits removal.
 
