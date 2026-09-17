@@ -12,7 +12,9 @@ for (const [name, value] of Object.entries({
   if (!value) throw new Error(`${name} is required`);
 }
 
-const attempts = 12;
+// workers.dev route propagation is eventually consistent. Keep this bounded but
+// long enough to distinguish propagation lag from an actually broken probe.
+const attempts = 30;
 const delayMs = 2000;
 
 async function readResponse(response) {
@@ -84,4 +86,3 @@ for (let attempt = 1; attempt <= attempts; attempt += 1) {
 }
 
 throw new Error(`APAC probe did not converge for the real benchmark route: ${JSON.stringify(last)}`);
-
