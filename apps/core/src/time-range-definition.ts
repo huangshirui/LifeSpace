@@ -46,7 +46,7 @@ export type TimeRangeSemantic = {
   key: string;
   startField: string;
   endField: string;
-  valueType: "date" | "datetime";
+  valueType: "date" | "instant";
   bounds: TimeRangeBounds;
   source: "model" | "capability";
   capability?: string;
@@ -126,20 +126,21 @@ export function validateTimeRanges(
     if (endField && !endDefinition) {
       issue(issues, `${path}.endField`, "UNKNOWN_TIME_RANGE_FIELD", `${endField} is not a declared field`);
     }
-    if (startDefinition && startDefinition.type !== "date" && startDefinition.type !== "datetime") {
-      issue(issues, `${path}.startField`, "INVALID_TIME_RANGE_FIELD_TYPE", "startField must be date or datetime");
+    const semanticTimeType = (definition: FieldLike | undefined): "date" | "instant" | null => {
+      if (definition?.type === "date") return "date";
+      if (definition?.type === "instant" || definition?.type === "datetime") return "instant";
+      return null;
+    };
+    const startSemanticType = semanticTimeType(startDefinition);
+    const endSemanticType = semanticTimeType(endDefinition);
+    if (startDefinition && !startSemanticType) {
+      issue(issues, `${path}.startField`, "INVALID_TIME_RANGE_FIELD_TYPE", "startField must be Date or Instant");
     }
-    if (endDefinition && endDefinition.type !== "date" && endDefinition.type !== "datetime") {
-      issue(issues, `${path}.endField`, "INVALID_TIME_RANGE_FIELD_TYPE", "endField must be date or datetime");
+    if (endDefinition && !endSemanticType) {
+      issue(issues, `${path}.endField`, "INVALID_TIME_RANGE_FIELD_TYPE", "endField must be Date or Instant");
     }
-    if (
-      startDefinition
-      && endDefinition
-      && (startDefinition.type === "date" || startDefinition.type === "datetime")
-      && (endDefinition.type === "date" || endDefinition.type === "datetime")
-      && startDefinition.type !== endDefinition.type
-    ) {
-      issue(issues, path, "MISMATCHED_TIME_RANGE_FIELD_TYPES", "startField and endField must have the same date/datetime type");
+    if (startSemanticType && endSemanticType && startSemanticType !== endSemanticType) {
+      issue(issues, path, "MISMATCHED_TIME_RANGE_FIELD_TYPES", "startField and endField must have the same Date/Instant semantic type");
     }
 
     const bounds = rawRange.bounds === undefined ? "[)" : rawRange.bounds;
@@ -201,7 +202,7 @@ export function projectTimeRangeSemantics(definition: TimeRangeSemanticInput): T
     key,
     startField: range.startField,
     endField: range.endField,
-    valueType: definition.fields[range.startField]!.type as "date" | "datetime",
+    valueType: definition.fields[range.startField]!.type === "date" ? "date" : "instant",
     bounds: range.bounds,
     source: "model",
   }));
@@ -213,7 +214,7 @@ export function projectTimeRangeSemantics(definition: TimeRangeSemanticInput): T
         key: "calendar.timed",
         startField: calendar.timedStartField,
         endField: calendar.timedEndField,
-        valueType: "datetime",
+        valueType: "instant",
         bounds: "[)",
         source: "capability",
         capability: "calendar",
