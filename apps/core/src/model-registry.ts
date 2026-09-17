@@ -165,6 +165,50 @@ export async function validateDefinition(input: unknown): Promise<
   };
 }
 
+export function validateCanonicalTemporalDslTransition(
+  current: ModelDefinition | null,
+  next: ModelDefinition,
+): ModelValidationIssue[] {
+  const issues: ModelValidationIssue[] = [];
+
+  for (const [fieldKey, field] of Object.entries(next.fields)) {
+    if (field.type !== "datetime") continue;
+    if (current?.fields[fieldKey]?.type === "datetime") continue;
+    issues.push({
+      path: `fields.${fieldKey}.type`,
+      code: "LEGACY_DATETIME_NOT_PUBLISHABLE",
+      message: "datetime is a legacy published spelling; new Instant fields must use type instant",
+    });
+  }
+
+  for (const [rangeKey, range] of Object.entries(next.timeRanges ?? {})) {
+    const previous = current?.timeRanges?.[rangeKey];
+    if (previous && JSON.stringify(previous) === JSON.stringify(range)) continue;
+    issues.push({
+      path: `timeRanges.${rangeKey}`,
+      code: "LEGACY_TIME_RANGE_BINDING_NOT_PUBLISHABLE",
+      message: "timeRanges is a legacy structural projection; new range values must use range<date> or range<instant> fields",
+    });
+  }
+
+  return issues;
+}
+
+export async function validateDefinitionForPublication(
+  env: Bindings,
+  input: unknown,
+): Promise<
+  | { valid: true; definition: ModelDefinition; schemaHash: string }
+  | { valid: false; issues: ModelValidationIssue[] }
+> {
+  const validation = await validateDefinition(input);
+  if (!validation.valid) return validation;
+  const current = await getPublishedModel(env, validation.definition.key);
+  const issues = validateCanonicalTemporalDslTransition(current?.definition ?? null, validation.definition);
+  if (issues.length) return { valid: false, issues };
+  return validation;
+}
+
 export async function getPublishedModel(env: Bindings, key: string): Promise<PublishedModel | null> {
   const row = await env.DB.prepare(`SELECT id,model_key,version,state,definition_json,schema_hash,compatibility,published_at
     FROM model_definitions WHERE model_key=? AND state='published' LIMIT 1`)
@@ -204,6 +248,10 @@ export async function publishModelDefinition(
   const expectedRevision = await getModelRegistryRevision(env);
   const currentModels = await listPublishedModels(env);
   const current = currentModels.find((model) => model.key === validation.definition.key) ?? null;
+  const temporalDslIssues = validateCanonicalTemporalDslTransition(current?.definition ?? null, validation.definition);
+  if (temporalDslIssues.length) {
+    throw new ApiError("INVALID_MODEL_DEFINITION", JSON.stringify(temporalDslIssues), 422);
+  }
   if (!current && compatibility !== "initial") {
     throw new ApiError("INVALID_MODEL_COMPATIBILITY", "The first published version must use compatibility=initial", 400);
   }
