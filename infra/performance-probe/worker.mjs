@@ -27,6 +27,7 @@ export function isAllowedBenchmarkRequest(path, method, spaceId) {
     ["POST", new RegExp("^" + base + "/models/task/records/" + record + "/actions/(complete|reopen)$", "u")],
     ["POST", new RegExp("^" + base + "/models/event/records$", "u")],
     ["GET", new RegExp("^" + base + "/models/event/records$", "u")],
+    ["POST", new RegExp("^" + base + "/models/event/records/query$", "u")],
     ["DELETE", new RegExp("^" + base + "/models/event/records/" + record + "$", "u")],
     ["POST", new RegExp("^" + base + "/models/day_record/records$", "u")],
     ["GET", new RegExp("^" + base + "/models/day_record/records$", "u")],
