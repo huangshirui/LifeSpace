@@ -1,3 +1,4 @@
+import { isCanonicalCalendarCapability } from "./capability-definition";
 import {
   CALENDAR_LEGACY_WINDOW_PARAMETERS,
   CALENDAR_VIEWING_WINDOW_ORDERING,
@@ -145,9 +146,10 @@ function viewingCandidateCompare(left: ViewingCandidate, right: ViewingCandidate
 }
 
 export function isCalendarSpecialQuery(model: PublishedModel, params: URLSearchParams) {
-  if (!model.definition.capabilities?.calendar) return false;
+  const calendar = model.definition.capabilities?.calendar;
+  if (!calendar || isCanonicalCalendarCapability(calendar)) return false;
   const sorts = params.getAll("sort");
-  const attendee = model.definition.capabilities.calendar.attendeePersonField;
+  const attendee = calendar.attendeePersonField;
   return CALENDAR_LEGACY_WINDOW_PARAMETERS.some((parameter) => params.has(parameter))
     || VIEWING_WINDOW_PARAMETER_NAMES.some((parameter) => params.has(parameter))
     || (attendee ? params.get(attendee) === "me" : false)
@@ -163,6 +165,7 @@ async function queryLegacyCalendarResources(
 ): Promise<{ items: GenericResource[]; nextCursor: string | null }> {
   const c = model.definition.capabilities?.calendar;
   if (!c) throw new ApiError("CALENDAR_CAPABILITY_NOT_ENABLED", "Calendar capability is required", 400);
+  if (isCanonicalCalendarCapability(c)) throw new ApiError("INVALID_QUERY", "Legacy Calendar query parameters are not available for canonical temporal_range Calendar models", 400);
   const allowed = new Set([
     "q", "status", "rangeStart", "rangeEnd", "dateStart", "dateEndExclusive", "sort", "limit", "cursor",
     ...(c.attendeePersonField ? [c.attendeePersonField] : []),
@@ -260,6 +263,7 @@ async function queryViewingWindowCalendarResources(
 ): Promise<{ items: GenericResource[]; nextCursor: string | null }> {
   const c = model.definition.capabilities?.calendar;
   if (!c) throw new ApiError("CALENDAR_CAPABILITY_NOT_ENABLED", "Calendar capability is required", 400);
+  if (isCanonicalCalendarCapability(c)) throw new ApiError("INVALID_QUERY", "Legacy Calendar viewing-window query is not available for canonical temporal_range Calendar models", 400);
   if (CALENDAR_LEGACY_WINDOW_PARAMETERS.some((parameter) => params.has(parameter))) {
     throw new ApiError("INVALID_QUERY", "Calendar viewing-window parameters cannot be mixed with legacy range/date window parameters", 400);
   }
@@ -398,6 +402,10 @@ export async function queryCalendarResources(
   model: PublishedModel,
   params: URLSearchParams,
 ): Promise<{ items: GenericResource[]; nextCursor: string | null }> {
+  const calendar = model.definition.capabilities?.calendar;
+  if (calendar && isCanonicalCalendarCapability(calendar)) {
+    throw new ApiError("INVALID_QUERY", "Canonical Calendar models use Canonical Query over their temporal_range field", 400);
+  }
   const hasViewingWindow = VIEWING_WINDOW_PARAMETER_NAMES.some((parameter) => params.has(parameter));
   return hasViewingWindow
     ? queryViewingWindowCalendarResources(env, principal, spaceId, model, params)
