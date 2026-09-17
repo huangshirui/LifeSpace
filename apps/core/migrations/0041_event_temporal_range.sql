@@ -56,30 +56,30 @@ ORDER BY version DESC LIMIT 1;
 CREATE TABLE "mdl_event_temporal_range" (
   record_id TEXT PRIMARY KEY REFERENCES resource_records(id) ON DELETE CASCADE,
   space_id TEXT NOT NULL REFERENCES spaces(id),
-  "summary" TEXT NOT NULL,
   "description" TEXT,
   "location" TEXT,
+  "status" TEXT NOT NULL CHECK("status" IS NULL OR "status" IN ('active','cancelled')),
+  "summary" TEXT NOT NULL,
   "__tr_when_kind" TEXT NOT NULL CHECK("__tr_when_kind" IS NULL OR "__tr_when_kind" IN ('date','instant')),
   "__tr_when_start" TEXT NOT NULL,
   "__tr_when_end" TEXT NOT NULL CHECK(("__tr_when_kind" IS NULL AND "__tr_when_start" IS NULL AND "__tr_when_end" IS NULL) OR ("__tr_when_kind" IS NOT NULL AND "__tr_when_start" IS NOT NULL AND "__tr_when_end" IS NOT NULL AND "__tr_when_start" < "__tr_when_end")),
-  "status" TEXT NOT NULL CHECK("status" IS NULL OR "status" IN ('active','cancelled')),
   UNIQUE(space_id,record_id)
 );
 
 INSERT INTO "mdl_event_temporal_range"(
-  record_id,space_id,"summary","description","location",
-  "__tr_when_kind","__tr_when_start","__tr_when_end","status"
+  record_id,space_id,"description","location","status","summary",
+  "__tr_when_kind","__tr_when_start","__tr_when_end"
 )
 SELECT
   record_id,
   space_id,
-  "summary",
   "description",
   "location",
+  "status",
+  "summary",
   CASE WHEN "isAllDay"=1 THEN 'date' ELSE 'instant' END,
   CASE WHEN "isAllDay"=1 THEN "startDate" ELSE "startAt" END,
-  CASE WHEN "isAllDay"=1 THEN "endDateExclusive" ELSE "endAt" END,
-  "status"
+  CASE WHEN "isAllDay"=1 THEN "endDateExclusive" ELSE "endAt" END
 FROM "mdl_event";
 
 DROP TABLE "mdl_event";
