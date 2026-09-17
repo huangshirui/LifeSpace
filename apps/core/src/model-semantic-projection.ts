@@ -1,7 +1,7 @@
 import type { CalendarCapabilityDefinition, TemporalCapabilityDefinition } from "./capability-definition";
 import { canonicalQuerySemanticDescriptor, type CanonicalQuerySemanticDescriptor } from "./canonical-query-contract";
 import { calendarViewingWindowSemanticQuery } from "./calendar-query-semantics";
-import { canonicalFieldType, type FieldDefinition, type ModelAccess } from "./model-definition";
+import { canonicalFieldType, isFirstClassRangeFieldType, type FieldDefinition, type ModelAccess } from "./model-definition";
 import type { PublishedModel } from "./model-registry";
 import { referenceLabelSemantic, type ReferenceLabelSemantic } from "./reference-label";
 import { relationSemanticMetadata, type RelationResolutionDescriptor } from "./relation-semantic";
@@ -174,7 +174,7 @@ export function modelQuerySemanticFacts(model: PublishedModel): ModelSemanticQue
   const sortable = [...(model.definition.query?.sortable ?? [])];
   const filters = filterable.flatMap((fieldKey) => {
     const field = model.definition.fields[fieldKey];
-    if (!field) return [];
+    if (!field || field.type === "temporal_range" || isFirstClassRangeFieldType(field.type)) return [];
     return [{
       field: fieldKey,
       parameter: fieldKey,
