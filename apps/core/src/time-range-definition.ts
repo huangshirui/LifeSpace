@@ -46,7 +46,7 @@ export type TimeRangeSemantic = {
   key: string;
   startField: string;
   endField: string;
-  valueType: "date" | "instant";
+  valueType: "date" | "instant" | "datetime";
   bounds: TimeRangeBounds;
   source: "model" | "capability";
   capability?: string;
@@ -202,7 +202,7 @@ export function projectTimeRangeSemantics(definition: TimeRangeSemanticInput): T
     key,
     startField: range.startField,
     endField: range.endField,
-    valueType: definition.fields[range.startField]!.type === "date" ? "date" : "instant",
+    valueType: definition.fields[range.startField]!.type as "date" | "instant" | "datetime",
     bounds: range.bounds,
     source: "model",
   }));
@@ -214,7 +214,7 @@ export function projectTimeRangeSemantics(definition: TimeRangeSemanticInput): T
         key: "calendar.timed",
         startField: calendar.timedStartField,
         endField: calendar.timedEndField,
-        valueType: "instant",
+        valueType: "datetime",
         bounds: "[)",
         source: "capability",
         capability: "calendar",
