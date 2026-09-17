@@ -80,13 +80,13 @@ describe("Event canonical TemporalRange migration", () => {
   it("compiles the Event table and indexes from the canonical temporal_range field", () => {
     const plan = compilePhysicalSchema(EVENT_MODEL_DEFINITION);
     expect(plan.columns.map((column) => column.fieldKey)).toEqual([
+      "summary",
       "description",
       "location",
-      "status",
-      "summary",
       "__tr_when_kind",
       "__tr_when_start",
       "__tr_when_end",
+      "status",
     ]);
     expect(plan.relationFields).toEqual(["attendeePersonIds"]);
     expect(plan.indexes.map((index) => index.name)).toEqual([
