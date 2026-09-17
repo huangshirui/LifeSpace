@@ -47,13 +47,32 @@ export const LEGACY_CALENDAR_MODEL: PublishedModel = {
   key: LEGACY_CALENDAR_MODEL_DEFINITION.key,
   version: 1,
   state: "published",
-  schemaHash: "legacy-calendar-probe",
+  schemaHash: "f".repeat(64),
   compatibility: "initial",
   definition: LEGACY_CALENDAR_MODEL_DEFINITION,
   publishedAt: "2026-09-17T00:00:00.000Z",
 };
 
 export async function ensureLegacyCalendarStorage(db: D1Database): Promise<void> {
+  await db.prepare(`INSERT OR IGNORE INTO model_definitions(
+    id,model_key,route_segment,version,state,definition_version,definition_json,schema_hash,compatibility,
+    published_by_type,published_by_id,published_by_name_snapshot,published_at
+  ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(
+    LEGACY_CALENDAR_MODEL.id,
+    LEGACY_CALENDAR_MODEL.key,
+    "legacy-calendar-probe",
+    LEGACY_CALENDAR_MODEL.version,
+    LEGACY_CALENDAR_MODEL.state,
+    LEGACY_CALENDAR_MODEL_DEFINITION.definitionVersion,
+    JSON.stringify(LEGACY_CALENDAR_MODEL_DEFINITION),
+    LEGACY_CALENDAR_MODEL.schemaHash,
+    LEGACY_CALENDAR_MODEL.compatibility,
+    "service",
+    "svc_legacy_calendar_probe",
+    "Legacy Calendar compatibility test fixture",
+    LEGACY_CALENDAR_MODEL.publishedAt,
+  ).run();
+
   const plan = compilePhysicalSchema(LEGACY_CALENDAR_MODEL_DEFINITION);
   await db.prepare(plan.createTableSql.replace("CREATE TABLE ", "CREATE TABLE IF NOT EXISTS ")).run();
   for (const statement of plan.createIndexSql) {
