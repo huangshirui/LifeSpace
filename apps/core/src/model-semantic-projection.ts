@@ -1,7 +1,7 @@
 import type { CalendarCapabilityDefinition, TemporalCapabilityDefinition } from "./capability-definition";
 import { canonicalQuerySemanticDescriptor, type CanonicalQuerySemanticDescriptor } from "./canonical-query-contract";
 import { calendarViewingWindowSemanticQuery } from "./calendar-query-semantics";
-import { canonicalFieldType, isFirstClassRangeFieldType, type FieldDefinition, type ModelAccess } from "./model-definition";
+import { isFirstClassRangeFieldType, type FieldDefinition, type ModelAccess } from "./model-definition";
 import type { PublishedModel } from "./model-registry";
 import { referenceLabelSemantic, type ReferenceLabelSemantic } from "./reference-label";
 import { relationSemanticMetadata, type RelationResolutionDescriptor } from "./relation-semantic";
@@ -61,7 +61,7 @@ export type ModelSemanticFilter = {
 
 export type ModelSemanticQueryParameter = {
   parameter: string;
-  type: "boolean" | "date" | "instant";
+  type: "boolean" | "date" | "datetime";
   default?: boolean;
   pairedWith?: string;
 };
@@ -152,7 +152,6 @@ export function modelFieldSemanticFacts(model: PublishedModel): ModelSemanticFie
       return {
         key,
         ...structuredClone(field),
-        type: canonicalFieldType(field.type),
         ...(relation ? { relation } : {}),
       };
     });
@@ -206,8 +205,8 @@ export function modelQuerySemanticFacts(model: PublishedModel): ModelSemanticQue
 
   if (model.definition.capabilities?.calendar) {
     capabilityParameters.push(
-      { parameter: "rangeStart", type: "instant", pairedWith: "rangeEnd" },
-      { parameter: "rangeEnd", type: "instant", pairedWith: "rangeStart" },
+      { parameter: "rangeStart", type: "datetime", pairedWith: "rangeEnd" },
+      { parameter: "rangeEnd", type: "datetime", pairedWith: "rangeStart" },
       { parameter: "dateStart", type: "date", pairedWith: "dateEndExclusive" },
       { parameter: "dateEndExclusive", type: "date", pairedWith: "dateStart" },
     );
