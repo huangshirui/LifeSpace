@@ -339,6 +339,9 @@ function rangePredicate(
 function calendarTemporalRangePredicate(model: PublishedModel, op: RangeOperator, operand: RangeOperand): SqlFragment {
   const c = model.definition.capabilities?.calendar;
   if (!c) throw new ApiError("INVALID_QUERY", "when is only available for Calendar-backed models", 400);
+  if ("rangeField" in c) {
+    throw new ApiError("INVALID_QUERY", `when compatibility alias is not available for canonical Calendar binding; use ${c.rangeField}`, 400);
+  }
   const allDay = typedScalarExpression(model, c.allDayField);
   const dateStart = typedScalarExpression(model, c.allDayStartField);
   const dateEnd = typedScalarExpression(model, c.allDayEndExclusiveField);
@@ -767,11 +770,15 @@ async function predicateFragment(
     return temporalRangeFieldPredicate(model, predicate);
   }
   if (predicate.field === "when") {
-    if (!model.definition.capabilities?.calendar) throw new ApiError("INVALID_QUERY", "when is not available for this model", 400);
+    const calendar = model.definition.capabilities?.calendar;
+    if (!calendar) throw new ApiError("INVALID_QUERY", "when is not available for this model", 400);
+    if ("rangeField" in calendar) {
+      throw new ApiError("INVALID_QUERY", `when compatibility alias is not available for canonical Calendar binding; use ${calendar.rangeField}`, 400);
+    }
     if (predicate.op === "kindIs") {
       if (predicate.value !== "date" && predicate.value !== "instant") throw new ApiError("INVALID_QUERY", "when.kindIs requires date or instant", 400);
       return {
-        sql: `${typedScalarExpression(model, model.definition.capabilities.calendar.allDayField)}=?`,
+        sql: `${typedScalarExpression(model, calendar.allDayField)}=?`,
         args: [predicate.value === "date" ? 1 : 0],
       };
     }
