@@ -134,9 +134,7 @@ describe("Agent-ready Authority + Change", () => {
       headers: auth(delegated),
       body: JSON.stringify({
         summary: "Agent-created family event",
-        isAllDay: true,
-        startDate: "2026-09-06",
-        endDateExclusive: "2026-09-07",
+        when: { kind: "date", start: "2026-09-06", endExclusive: "2026-09-07" },
       }),
     }, publicKey);
     expect(eventResponse.status).toBe(201);
@@ -229,9 +227,7 @@ describe("Agent-ready Authority + Change", () => {
       headers: auth(delegated),
       body: JSON.stringify({
         summary: "Should be denied after revoke",
-        isAllDay: true,
-        startDate: "2026-09-07",
-        endDateExclusive: "2026-09-08",
+        when: { kind: "date", start: "2026-09-07", endExclusive: "2026-09-08" },
       }),
     }, publicKey);
     expect(afterRevocation.status).toBe(403);
@@ -252,9 +248,7 @@ describe("Agent-ready Authority + Change", () => {
       },
       body: JSON.stringify({
         summary: "Direct user event",
-        isAllDay: true,
-        startDate: "2026-09-08",
-        endDateExclusive: "2026-09-09",
+        when: { kind: "date", start: "2026-09-08", endExclusive: "2026-09-09" },
       }),
     }, publicKey);
     expect(response.status).toBe(201);
