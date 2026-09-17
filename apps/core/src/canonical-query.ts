@@ -2,12 +2,13 @@ import { canonicalQuerySemanticDescriptor } from "./canonical-query-contract";
 import type { Bindings, Principal } from "./env";
 import type { GenericResource } from "./generic-resource";
 import { ApiError } from "./http";
-import type { FieldDefinition } from "./model-definition";
+import { isFirstClassRangeFieldType, rangeFieldValueType, type FieldDefinition } from "./model-definition";
 import type { PublishedModel } from "./model-registry";
 import { projectTimeRangeSemantics, type TimeRangeBounds } from "./time-range-definition";
 import { assertIanaTimezone, localDateWindowToInstantRange, normalizeRfc3339Instant } from "./time-semantics";
 import {
   hydrateTypedResourceRows,
+  typedRangeExpressions,
   typedScalarExpression,
   typedSelectColumns,
   typedTemporalRangeExpressions,
@@ -182,6 +183,7 @@ function scalarValue(field: FieldDefinition, raw: unknown, path: string): string
       if (typeof raw !== "string" || !field.values?.includes(raw)) throw new ApiError("INVALID_QUERY", `${path} is not a declared enum value`, 400);
       return raw;
     case "date": return exactDate(raw, path);
+    case "instant":
     case "datetime": return instant(raw, path);
     case "timezone": {
       if (typeof raw !== "string") throw new ApiError("INVALID_QUERY", `${path} must be an IANA timezone`, 400);
@@ -235,7 +237,7 @@ function parseRangeOperand(value: unknown, path: string): RangeOperand {
   throw new ApiError("INVALID_QUERY", `${path}.kind must be local_date_window, date, or instant`, 400);
 }
 
-function projectOperand(value: RangeOperand, valueType: "date" | "datetime", path: string): QueryRange {
+function projectOperand(value: RangeOperand, valueType: "date" | "instant" | "datetime", path: string): QueryRange {
   if (value.kind === "local_date_window") {
     if (valueType === "date") return { kind: "date", start: value.startDate, endExclusive: value.endDateExclusive };
     try {
@@ -250,7 +252,7 @@ function projectOperand(value: RangeOperand, valueType: "date" | "datetime", pat
     }
   }
   if (valueType === "date" && value.kind !== "date") throw new ApiError("INVALID_QUERY", `${path} must use a date range or local_date_window`, 400);
-  if (valueType === "datetime" && value.kind !== "instant") throw new ApiError("INVALID_QUERY", `${path} must use an instant range or local_date_window`, 400);
+  if ((valueType === "instant" || valueType === "datetime") && value.kind !== "instant") throw new ApiError("INVALID_QUERY", `${path} must use an instant range or local_date_window`, 400);
   return { kind: value.kind, start: value.start, endExclusive: value.endExclusive };
 }
 
@@ -267,7 +269,7 @@ function comparisonOperator(op: CanonicalOperator): string {
 }
 
 function orderedType(field: FieldDefinition): boolean {
-  return field.type === "date" || field.type === "datetime" || field.type === "integer" || field.type === "number";
+  return field.type === "date" || field.type === "instant" || field.type === "datetime" || field.type === "integer" || field.type === "number";
 }
 
 function equalityType(field: FieldDefinition): boolean {
@@ -360,6 +362,49 @@ function calendarTemporalRangePredicate(model: PublishedModel, op: RangeOperator
     sql: `(${branches.map((branch) => branch.sql).join(" OR ")})`,
     args: branches.flatMap((branch) => branch.args),
   };
+}
+
+function directRangeFieldPredicate(
+  model: PublishedModel,
+  predicate: FilterPredicate,
+): SqlFragment {
+  const field = model.definition.fields[predicate.field];
+  if (!field || !isFirstClassRangeFieldType(field.type)) {
+    throw new ApiError("INVALID_QUERY", `${predicate.field} is not a first-class range field`, 400);
+  }
+  if (!model.definition.query?.filterable?.includes(predicate.field)) {
+    throw new ApiError("INVALID_QUERY", `${predicate.field} is not filterable for model ${model.key}`, 400);
+  }
+  const expressions = typedRangeExpressions(model, predicate.field);
+  if (predicate.op === "isNull" || predicate.op === "isNotNull") {
+    if (field.nullable !== true) {
+      throw new ApiError("INVALID_QUERY", `${predicate.field} is not nullable`, 400);
+    }
+    const op = predicate.op === "isNull" ? "IS NULL" : "IS NOT NULL";
+    return {
+      sql: `(${expressions.start} ${op} AND ${expressions.end} ${op})`,
+      args: [],
+    };
+  }
+  if (!["overlaps", "contains", "before", "after"].includes(predicate.op)) {
+    throw new ApiError(
+      "INVALID_QUERY",
+      `${predicate.field}.${predicate.op} is unsupported for a range field`,
+      400,
+    );
+  }
+  const operand = projectOperand(
+    parseRangeOperand(predicate.value, `${predicate.field}.value`),
+    rangeFieldValueType(field.type),
+    `${predicate.field}.value`,
+  );
+  return rangePredicate(
+    expressions.start,
+    expressions.end,
+    "[)",
+    predicate.op as RangeOperator,
+    operand,
+  );
 }
 
 function temporalRangeFieldPredicate(
@@ -500,6 +545,13 @@ function parseSorts(
     if (field === "updatedAt") return { raw: `${field}:${direction}`, field, direction, expression: "r.updated_at", nullable: false };
 
     const declared = model.definition.fields[field];
+    if (declared && isFirstClassRangeFieldType(declared.type)) {
+      throw new ApiError(
+        "INVALID_QUERY",
+        `${field} range sorting is not defined by the current Canonical Query contract`,
+        400,
+      );
+    }
     if (declared?.type === "temporal_range") {
       if (!model.definition.query?.sortable?.includes(field)) {
         throw new ApiError("INVALID_QUERY", `${field} is not sortable for model ${model.key}`, 400);
@@ -763,6 +815,9 @@ async function predicateFragment(
   }
   if (predicate.field === "createdAt" || predicate.field === "updatedAt") return envelopeFilter(predicate);
   const declaredField = model.definition.fields[predicate.field];
+  if (declaredField && isFirstClassRangeFieldType(declaredField.type)) {
+    return directRangeFieldPredicate(model, predicate);
+  }
   if (declaredField?.type === "temporal_range") {
     return temporalRangeFieldPredicate(model, predicate);
   }
