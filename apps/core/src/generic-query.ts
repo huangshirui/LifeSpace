@@ -126,6 +126,7 @@ function scalarValue(field: FieldDefinition, raw: string, key: string): string |
       if (!field.values?.includes(raw)) throw new ApiError("INVALID_QUERY", `${key} contains an unsupported enum value`, 400);
       return raw;
     case "date": return exactDate(raw, key);
+    case "instant":
     case "datetime": return dateTime(raw, key);
     case "timezone":
       try { new Intl.DateTimeFormat("en-US", { timeZone: raw }).format(new Date(0)); } catch { throw new ApiError("INVALID_QUERY", `${key} must be an IANA timezone`, 400); }
@@ -149,6 +150,8 @@ function scalarValue(field: FieldDefinition, raw: string, key: string): string |
     case "record_list":
       if (!raw) throw new ApiError("INVALID_QUERY", `${key} must contain an ID`, 400);
       return raw;
+    case "range<date>":
+    case "range<instant>":
     case "temporal_range":
       throw new ApiError("INVALID_QUERY", `${key} requires the structured Canonical Query transport`, 400);
   }
@@ -156,7 +159,7 @@ function scalarValue(field: FieldDefinition, raw: string, key: string): string |
 
 function comparisonValue(type: GenericComparisonValueType, raw: string, key: string): string | number {
   if (type === "date") return exactDate(raw, key);
-  if (type === "datetime") return dateTime(raw, key);
+  if (type === "instant" || type === "datetime") return dateTime(raw, key);
   if (type === "integer") {
     const value = Number(raw);
     if (!Number.isInteger(value)) throw new ApiError("INVALID_QUERY", key + " must be an integer", 400);
