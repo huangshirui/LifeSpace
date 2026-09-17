@@ -207,7 +207,7 @@ function writableFields(definition: ModelDefinition, mode: "create" | "update"):
 
 function calendarCreateConstraint(model: PublishedModel): JsonSchema | null {
   const c = model.definition.capabilities?.calendar;
-  if (!c) return null;
+  if (!c || "rangeField" in c) return null;
   return {
     oneOf: [
       {
@@ -278,6 +278,7 @@ function actionConcurrencyMetadata(): JsonSchema {
 
 function updateSchema(model: PublishedModel): JsonSchema {
   const fields = writableFields(model.definition, "update");
+  const calendar = model.definition.capabilities?.calendar;
   return {
     type: "object",
     additionalProperties: false,
@@ -291,7 +292,7 @@ function updateSchema(model: PublishedModel): JsonSchema {
     ...(fields.length
       ? { anyOf: fields.map(([key]) => ({ required: [key] })) }
       : { not: {} }),
-    ...(model.definition.capabilities?.calendar
+    ...(calendar && !("rangeField" in calendar)
       ? { "x-lifespace-calendar-update": "A mode switch must provide a complete valid timed or all-day Calendar shape." }
       : {}),
   };
@@ -449,7 +450,7 @@ function parameterMap(model: PublishedModel): Map<string, Record<string, unknown
 
   const temporal = model.definition.capabilities?.temporal;
   const calendar = model.definition.capabilities?.calendar;
-  const calendarQuery = calendar ? calendarViewingWindowSemanticQuery() : null;
+  const calendarQuery = calendar && !("rangeField" in calendar) ? calendarViewingWindowSemanticQuery() : null;
 
   for (const fieldKey of model.definition.query?.filterable ?? []) {
     const field = model.definition.fields[fieldKey];
