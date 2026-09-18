@@ -73,6 +73,9 @@ jobs:
       - name: Resolve expected staging versions
         run: node infra/scripts/staging-expectations.mjs
 
+      - name: Reject staging downgrade before mutation
+        run: node infra/scripts/verify-staging-candidate-compatibility.mjs
+
       - name: Resolve staging D1 IDs
         run: node infra/scripts/resolve-staging-d1.mjs
 
