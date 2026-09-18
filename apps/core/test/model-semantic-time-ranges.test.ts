@@ -3,6 +3,7 @@ import { EVENT_MODEL_DEFINITION } from "../src/builtin-models";
 import type { ModelDefinition } from "../src/model-definition";
 import { projectModelSemanticFacts } from "../src/model-semantic-projection";
 import type { PublishedModel } from "../src/model-registry";
+import { LEGACY_CALENDAR_MODEL_DEFINITION } from "./legacy-calendar-fixture";
 
 function published(definition: ModelDefinition): PublishedModel {
   return {
@@ -50,9 +51,25 @@ describe("progressive static time-range semantics", () => {
     expect(semantic.query.filters).toEqual([]);
   });
 
-  it("derives Calendar timed/all-day ranges from the Capability binding as the sole source", () => {
+  it("keeps canonical Event range semantics on the first-class temporal_range field", () => {
     expect(EVENT_MODEL_DEFINITION.timeRanges).toBeUndefined();
     const semantic = projectModelSemanticFacts(published(EVENT_MODEL_DEFINITION));
+    expect(semantic.timeRanges).toEqual([]);
+    expect(semantic.query.capabilityQueries).toEqual([]);
+    expect(semantic.query.capabilityParameters).toEqual([]);
+    expect(semantic.query.canonical.filter.targets.filter((target) => target.field === "when")).toEqual([
+      {
+        field: "when",
+        kind: "field",
+        valueType: "temporal_range",
+        operators: ["overlaps", "contains", "before", "after", "kindIs"],
+        nullable: false,
+      },
+    ]);
+  });
+
+  it("continues projecting split Calendar ranges and transport only for historical definitions", () => {
+    const semantic = projectModelSemanticFacts(published(LEGACY_CALENDAR_MODEL_DEFINITION));
     expect(semantic.timeRanges).toEqual([
       {
         key: "calendar.allDay",
