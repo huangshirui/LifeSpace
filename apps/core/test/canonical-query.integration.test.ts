@@ -74,11 +74,7 @@ async function timed(
 ) {
   return createGenericResource(bindings(), actor, spaceId, model, {
     summary,
-    isAllDay: false,
-    startAt,
-    endAt,
-    startTimezone: "Asia/Shanghai",
-    endTimezone: "Asia/Shanghai",
+    when: { kind: "instant", start: startAt, endExclusive: endAt },
     attendeePersonIds,
     status: "active",
   });
@@ -94,9 +90,7 @@ async function allDay(
 ) {
   return createGenericResource(bindings(), actor, spaceId, model, {
     summary,
-    isAllDay: true,
-    startDate,
-    endDateExclusive,
+    when: { kind: "date", start: startDate, endExclusive: endDateExclusive },
     attendeePersonIds,
     status: "active",
   });
@@ -240,7 +234,7 @@ describe("Canonical Typed Query", () => {
     expect(second.nextCursor).toBeNull();
   });
 
-  it("projects Calendar timed and all-day storage into one when TemporalRange query target", async () => {
+  it("queries canonical Event date and instant variants through one when target", async () => {
     const { spaceId, personA } = await createSpaceFixture();
     const model = await getPublishedModel(bindings(), "event");
     if (!model) throw new Error("bootstrap Event model is missing");
