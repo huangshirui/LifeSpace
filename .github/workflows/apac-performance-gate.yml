@@ -73,7 +73,7 @@ jobs:
         run: |
           set -euo pipefail
           node --check infra/scripts/verify-staging-candidate-identity.mjs
-          node --check infra/scripts/staging-performance-benchmark.mjs
+          node --check infra/scripts/staging-canonical-performance-benchmark.mjs
           node --check infra/scripts/staging-service-performance-benchmark.mjs
           node --check infra/scripts/verify-staging-apac-performance.mjs
           node --check infra/scripts/wait-staging-apac-probe.mjs
