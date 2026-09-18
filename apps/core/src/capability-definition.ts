@@ -11,7 +11,7 @@ export type TemporalCapabilityDefinition = {
   occurrences?: boolean;
 };
 
-export type CalendarCapabilityDefinition = {
+export type LegacyCalendarCapabilityDefinition = {
   allDayField: string;
   timedStartField: string;
   timedEndField: string;
@@ -21,6 +21,19 @@ export type CalendarCapabilityDefinition = {
   allDayEndExclusiveField: string;
   attendeePersonField?: string;
 };
+
+export type CanonicalCalendarCapabilityDefinition = {
+  rangeField: string;
+  attendeePersonField?: string;
+};
+
+export type CalendarCapabilityDefinition = LegacyCalendarCapabilityDefinition | CanonicalCalendarCapabilityDefinition;
+
+export function isCanonicalCalendarCapability(
+  definition: CalendarCapabilityDefinition,
+): definition is CanonicalCalendarCapabilityDefinition {
+  return "rangeField" in definition;
+}
 
 export type CapabilityDefinitions = {
   temporal?: TemporalCapabilityDefinition;
@@ -118,13 +131,42 @@ function validateCalendar(
     issue(issues, "capabilities.calendar", "INVALID_CAPABILITY", "calendar capability config must be an object");
     return { issues };
   }
-  const allowed = new Set([
+  const legacyProperties = [
     "allDayField", "timedStartField", "timedEndField", "startTimezoneField", "endTimezoneField",
-    "allDayStartField", "allDayEndExclusiveField", "attendeePersonField",
-  ]);
+    "allDayStartField", "allDayEndExclusiveField",
+  ] as const;
+  const allowed = new Set<string>(["rangeField", ...legacyProperties, "attendeePersonField"]);
   for (const key of Object.keys(raw)) {
     if (!allowed.has(key)) issue(issues, `capabilities.calendar.${key}`, "UNKNOWN_PROPERTY", `Unsupported calendar capability property ${key}`);
   }
+
+  const hasCanonicalRange = raw.rangeField !== undefined;
+  const hasLegacyBinding = legacyProperties.some((property) => raw[property] !== undefined);
+  if (hasCanonicalRange && hasLegacyBinding) {
+    issue(
+      issues,
+      "capabilities.calendar",
+      "MIXED_CALENDAR_BINDING",
+      "Calendar must bind either one temporal_range rangeField or the legacy split fields, not both",
+    );
+  }
+
+  const attendeePersonField = raw.attendeePersonField === undefined
+    ? undefined
+    : namedField(raw, "calendar", "attendeePersonField", fields, ["person_list"], issues);
+
+  if (hasCanonicalRange) {
+    const rangeField = namedField(raw, "calendar", "rangeField", fields, ["temporal_range"], issues);
+    if (issues.length) return { issues };
+    return {
+      definition: {
+        rangeField,
+        ...(attendeePersonField ? { attendeePersonField } : {}),
+      },
+      issues,
+    };
+  }
+
   const allDayField = namedField(raw, "calendar", "allDayField", fields, ["boolean"], issues);
   const timedStartField = namedField(raw, "calendar", "timedStartField", fields, ["instant", "datetime"], issues);
   const timedEndField = namedField(raw, "calendar", "timedEndField", fields, ["instant", "datetime"], issues);
@@ -132,9 +174,6 @@ function validateCalendar(
   const endTimezoneField = namedField(raw, "calendar", "endTimezoneField", fields, ["timezone"], issues);
   const allDayStartField = namedField(raw, "calendar", "allDayStartField", fields, ["date"], issues);
   const allDayEndExclusiveField = namedField(raw, "calendar", "allDayEndExclusiveField", fields, ["date"], issues);
-  const attendeePersonField = raw.attendeePersonField === undefined
-    ? undefined
-    : namedField(raw, "calendar", "attendeePersonField", fields, ["person_list"], issues);
   const coreFields = [allDayField, timedStartField, timedEndField, startTimezoneField, endTimezoneField, allDayStartField, allDayEndExclusiveField].filter(Boolean);
   if (new Set(coreFields).size !== coreFields.length) {
     issue(issues, "capabilities.calendar", "DUPLICATE_CAPABILITY_FIELD", "Calendar core fields must map to distinct model fields");
