@@ -120,29 +120,17 @@
       "summary": { "type": "string", "title": "Summary", "description": "A concise name for the calendar occurrence.", "required": true, "minLength": 1, "maxLength": 100 },
       "description": { "type": "text", "title": "Description", "description": "Optional details about the occurrence.", "nullable": true, "maxLength": 5000 },
       "location": { "type": "string", "title": "Location", "description": "Where the occurrence happens, when explicitly provided.", "nullable": true, "maxLength": 500 },
-      "isAllDay": { "type": "boolean", "title": "All Day", "description": "Whether the occurrence is date-only rather than at a specific time.", "required": true },
-      "startAt": { "type": "datetime", "title": "Start", "description": "Start instant for a timed occurrence.", "nullable": true },
-      "endAt": { "type": "datetime", "title": "End", "description": "End instant for a timed occurrence when explicitly known.", "nullable": true },
-      "startTimezone": { "type": "timezone", "title": "Start Time Zone", "nullable": true },
-      "endTimezone": { "type": "timezone", "title": "End Time Zone", "nullable": true },
-      "startDate": { "type": "date", "title": "Start Date", "description": "Start date for an all-day occurrence.", "nullable": true },
-      "endDateExclusive": { "type": "date", "title": "End Date (Exclusive)", "description": "Exclusive end date for an all-day occurrence.", "nullable": true },
+      "when": { "type": "temporal_range", "title": "When", "description": "When the occurrence happens. Use the date variant for all-day/date-only events and the instant variant for timed events.", "required": true },
       "attendeePersonIds": { "type": "person_list", "title": "Attendees", "description": "People attending or participating in the occurrence." },
       "status": { "type": "enum", "title": "Status", "description": "Current lifecycle state of the event.", "required": true, "values": ["active", "cancelled"] }
     },
     "defaults": { "status": "active" },
-    "query": { "searchable": ["summary", "description", "location"], "filterable": ["status", "isAllDay", "startAt", "startDate", "attendeePersonIds"], "sortable": ["startAt", "startDate", "summary"] },
+    "query": { "searchable": ["summary", "description", "location"], "filterable": ["status", "when", "attendeePersonIds"], "sortable": ["when", "summary"] },
     "access": ["read", "write"],
     "lifecycle": { "optimisticConcurrency": true, "softDelete": true },
     "capabilities": {
       "calendar": {
-        "allDayField": "isAllDay",
-        "timedStartField": "startAt",
-        "timedEndField": "endAt",
-        "startTimezoneField": "startTimezone",
-        "endTimezoneField": "endTimezone",
-        "allDayStartField": "startDate",
-        "allDayEndExclusiveField": "endDateExclusive",
+        "rangeField": "when",
         "attendeePersonField": "attendeePersonIds"
       }
     }
