@@ -308,22 +308,27 @@ try {
     bearer: userBearer,
     body: {
       summary: `M3 HomeMew event ${verifierSuffix}`,
-      isAllDay: true,
-      startDate: "2099-01-01",
-      endDateExclusive: "2099-01-02",
+      when: { kind: "date", start: "2099-01-01", endExclusive: "2099-01-02" },
     },
   });
   const eventCreatedData = expectStatus("HomeMew Event create", eventCreated, 201);
   eventId = eventCreatedData?.id ?? "";
   eventVersion = eventCreatedData?.version ?? 0;
-  if (!eventId || eventVersion !== 1 || eventCreatedData?.status !== "active") {
-    throw new Error(`HomeMew Event create returned unexpected semantics: ${JSON.stringify(eventCreatedData)}`);
+  if (
+    !eventId
+    || eventVersion !== 1
+    || eventCreatedData?.status !== "active"
+    || eventCreatedData?.when?.kind !== "date"
+    || eventCreatedData?.when?.start !== "2099-01-01"
+    || eventCreatedData?.when?.endExclusive !== "2099-01-02"
+  ) {
+    throw new Error(`HomeMew Event create returned unexpected TemporalRange semantics: ${JSON.stringify(eventCreatedData)}`);
   }
 
   const eventRead = await jsonRequest(coreBase, modelRecordsPath(spaceId, "event", eventId), { bearer: userBearer });
   const eventReadData = expectStatus("HomeMew Event read", eventRead, 200);
-  if (eventReadData?.id !== eventId || eventReadData?.summary !== `M3 HomeMew event ${verifierSuffix}`) {
-    throw new Error(`HomeMew Event read did not return the created record: ${JSON.stringify(eventReadData)}`);
+  if (eventReadData?.id !== eventId || eventReadData?.summary !== `M3 HomeMew event ${verifierSuffix}` || eventReadData?.when?.kind !== "date") {
+    throw new Error(`HomeMew Event read did not return the created canonical record: ${JSON.stringify(eventReadData)}`);
   }
 
   const eventUpdated = await jsonRequest(coreBase, modelRecordsPath(spaceId, "event", eventId), {
@@ -333,8 +338,8 @@ try {
   });
   const eventUpdatedData = expectStatus("HomeMew Event update", eventUpdated, 200);
   eventVersion = eventUpdatedData?.version ?? 0;
-  if (eventVersion !== 2 || eventUpdatedData?.summary !== `M3 HomeMew event updated ${verifierSuffix}`) {
-    throw new Error(`HomeMew Event update returned unexpected semantics: ${JSON.stringify(eventUpdatedData)}`);
+  if (eventVersion !== 2 || eventUpdatedData?.summary !== `M3 HomeMew event updated ${verifierSuffix}` || eventUpdatedData?.when?.kind !== "date") {
+    throw new Error(`HomeMew Event update returned unexpected canonical semantics: ${JSON.stringify(eventUpdatedData)}`);
   }
 
   const taskCreated = await jsonRequest(coreBase, modelRecordsPath(spaceId, "task"), {
@@ -439,6 +444,7 @@ try {
     familyOwnerMembershipResolved: true,
     goldenFlow: {
       eventCrud: true,
+      eventTemporalRange: true,
       taskCrud: true,
       taskSemanticAction: true,
       staleVersionDenied: true,
