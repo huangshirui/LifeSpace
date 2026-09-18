@@ -275,6 +275,10 @@ if (actionConcurrency?.additionalProperties !== false
   throw new Error("Runtime Discovery record-version concurrency contract drifted");
 }
 if (!schemas.RuntimeDiscoveryFieldType?.enum?.includes("date")
+    || !schemas.RuntimeDiscoveryFieldType?.enum?.includes("instant")
+    || !schemas.RuntimeDiscoveryFieldType?.enum?.includes("range<date>")
+    || !schemas.RuntimeDiscoveryFieldType?.enum?.includes("range<instant>")
+    || !schemas.RuntimeDiscoveryFieldType?.enum?.includes("datetime")
     || !schemas.RuntimeDiscoveryFieldType?.enum?.includes("temporal_range")
     || !schemas.RuntimeDiscoveryFieldType?.enum?.includes("record_list")) {
   throw new Error("Runtime Discovery field type vocabulary drifted");
@@ -437,7 +441,7 @@ if (!semanticDetail?.required?.includes("timeRanges")
     || semanticTimeRange?.properties?.key?.maxLength !== 80
     || semanticTimeRange?.properties?.startField?.pattern !== "^[a-z][A-Za-z0-9]{0,62}$"
     || semanticTimeRange?.properties?.endField?.pattern !== "^[a-z][A-Za-z0-9]{0,62}$"
-    || JSON.stringify(semanticTimeRange?.properties?.valueType?.enum) !== JSON.stringify(["date", "datetime"])
+    || JSON.stringify(semanticTimeRange?.properties?.valueType?.enum) !== JSON.stringify(["date", "instant", "datetime"])
     || JSON.stringify(semanticTimeRange?.properties?.bounds?.enum) !== JSON.stringify(["[]", "[)", "(]", "()"])
     || JSON.stringify(semanticTimeRange?.properties?.source?.enum) !== JSON.stringify(["model", "capability"])) {
   throw new Error("Single-model semantic detail time-range contract drifted");
@@ -471,7 +475,7 @@ if (!schemas.RuntimeModelSemanticQuery?.required?.includes("canonical")
     || schemas.RuntimeModelSemanticQuery?.properties?.comparisons?.items?.$ref !== "#/components/schemas/RuntimeModelSemanticComparison"
     || schemas.RuntimeModelSemanticComparison?.additionalProperties !== false
     || JSON.stringify(schemas.RuntimeModelSemanticComparison?.properties?.source?.enum) !== JSON.stringify(["model", "envelope"])
-    || JSON.stringify(schemas.RuntimeModelSemanticComparison?.properties?.valueType?.enum) !== JSON.stringify(["date", "datetime", "integer", "number"])
+    || JSON.stringify(schemas.RuntimeModelSemanticComparison?.properties?.valueType?.enum) !== JSON.stringify(["date", "instant", "datetime", "integer", "number"])
     || JSON.stringify(schemas.RuntimeModelSemanticComparisonOperator?.properties?.operator?.enum) !== JSON.stringify(["eq", "lt", "lte", "gt", "gte"])
     || JSON.stringify(schemas.RuntimeModelSemanticComparisonOperator?.properties?.transport?.enum) !== JSON.stringify(["legacy", "explicit"])
     || schemas.RuntimeModelSemanticLocalDateWindow?.properties?.bounds?.const !== "[)"
@@ -561,7 +565,7 @@ if (!schemas.CreationDraftProcessing?.required?.includes("modelContractRevision"
   throw new Error("Creation Draft jobs must expose their pinned Model Contract Revision");
 }
 
-if (schemas.StatusResponse?.properties?.data?.properties?.contractVersion?.const !== "0.35.0") {
+if (schemas.StatusResponse?.properties?.data?.properties?.contractVersion?.const !== "0.36.0") {
   throw new Error("Core Kernel status contract version drifted");
 }
 
