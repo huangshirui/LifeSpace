@@ -1,6 +1,7 @@
 import type { Context, Hono } from "hono";
 import type { Permission, SpaceRole } from "./authorization";
 import { capabilityActionAccess } from "./capability-runtime";
+import type { CalendarCapabilityDefinition } from "./capability-definition";
 import type { Bindings, Principal, Variables } from "./env";
 import { ApiError, success } from "./http";
 import type { ModelAccess } from "./model-definition";
@@ -49,16 +50,7 @@ type DiscoveryAction = {
   concurrency: DiscoveryActionConcurrency;
 };
 
-type DiscoveryCalendarCapabilityBinding = {
-  allDayField: string;
-  timedStartField: string;
-  timedEndField: string;
-  startTimezoneField: string;
-  endTimezoneField: string;
-  allDayStartField: string;
-  allDayEndExclusiveField: string;
-  attendeePersonField?: string;
-};
+type DiscoveryCalendarCapabilityBinding = CalendarCapabilityDefinition;
 
 type DiscoveryCapabilityBindings = {
   calendar?: DiscoveryCalendarCapabilityBinding;
