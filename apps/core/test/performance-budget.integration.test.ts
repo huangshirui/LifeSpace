@@ -134,11 +134,11 @@ async function fixture() {
     const end = new Date(start.getTime() + 30 * 60 * 1000);
     await createGenericResource({ DB: database } as Bindings, actor, spaceId, eventModel, {
       summary: `Budget event ${String(index).padStart(3, "0")}`,
-      isAllDay: false,
-      startAt: start.toISOString(),
-      endAt: end.toISOString(),
-      startTimezone: "UTC",
-      endTimezone: "UTC",
+      when: {
+        kind: "instant",
+        start: start.toISOString(),
+        endExclusive: end.toISOString(),
+      },
       attendeePersonIds: [],
       status: "active",
     });
@@ -201,7 +201,24 @@ describe("Core D1 round-trip budgets", () => {
 
     const calendar100 = await measured(
       f.counter,
-      () => f.request(`/api/v1/spaces/${f.spaceId}/models/event/records?windowStartDate=2026-08-01&windowEndDateExclusive=2026-08-02&viewingTimezone=UTC&sort=calendarStart%3Aasc&limit=100`),
+      () => f.request(`/api/v1/spaces/${f.spaceId}/models/event/records/query`, {
+        method: "POST",
+        body: JSON.stringify({
+          filter: {
+            field: "when",
+            op: "overlaps",
+            value: {
+              kind: "local_date_window",
+              startDate: "2026-08-01",
+              endDateExclusive: "2026-08-02",
+              timezone: "UTC",
+            },
+          },
+          context: { viewingTimezone: "UTC" },
+          sort: [{ field: "when", direction: "asc" }],
+          page: { limit: 100 },
+        }),
+      }),
       200,
       4,
     );
@@ -211,7 +228,14 @@ describe("Core D1 round-trip budgets", () => {
 
     const calendar200 = await measured(
       f.counter,
-      () => f.request(`/api/v1/spaces/${f.spaceId}/models/event/records?rangeStart=2026-07-31T00%3A00%3A00.000Z&rangeEnd=2026-08-02T00%3A00%3A00.000Z&dateStart=2026-07-31&dateEndExclusive=2026-08-02&sort=calendarStart%3Aasc&limit=200`),
+      () => f.request(`/api/v1/spaces/${f.spaceId}/models/event/records/query`, {
+        method: "POST",
+        body: JSON.stringify({
+          context: { viewingTimezone: "UTC" },
+          sort: [{ field: "when", direction: "asc" }],
+          page: { limit: 200 },
+        }),
+      }),
       200,
       4,
     );
