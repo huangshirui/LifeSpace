@@ -34,12 +34,11 @@ Notion documentation may explain this specification, but it is not an independen
 
 ## 2. Mental model
 
-A Model Definition answers seven different questions:
+A Model Definition answers six different questions:
 
 ```text
 Model
-├── Fields       — what data does this thing contain?
-├── Time Ranges  — which date/datetime fields form semantic intervals?
+├── Fields       — what typed data does this thing contain?
 ├── Query        — how may clients find it?
 ├── Access       — what model-level operation classes exist?
 ├── Policy       — who may perform an otherwise-authorized operation?
@@ -49,8 +48,7 @@ Model
 
 Do not collapse these concepts:
 
-- **字段（Field）** describes state.
-- **时间范围（Time Range）** groups two declared date/datetime fields into one structural interval semantic; it is not itself a query operator.
+- **字段（Field）** describes state. Time values are fields too: `instant`, `date`, `range<instant>`, `range<date>` and `temporal_range` are first-class logical field types.
 - **CRUD** is the generic transport for ordinary state access/change.
 - **记录动作 / 转换（Record Action / Transition）** is a named, single-record semantic command specific to a model, such as `Task.complete`.
 - **变更权限（Mutation Authority）** declares which mutation surface owns a field change: ordinary CRUD, or trusted model semantics such as an Action/Capability.
@@ -75,11 +73,6 @@ The v1 top-level shape is:
     plural: string
   },
   fields: Record<string, FieldDefinition>,
-  timeRanges?: Record<string, {
-    startField: string,
-    endField: string,
-    bounds?: "[]" | "[)" | "(]" | "()"
-  }>,
   referenceLabel?: { field: string } | { template: string },
   defaults?: Record<string, DefaultValue>,
   query?: {
@@ -184,7 +177,9 @@ v1 supports:
 | `number` | finite number |
 | `boolean` | boolean |
 | `date` | calendar date, `YYYY-MM-DD` |
-| `datetime` | absolute RFC 3339 date-time with `Z` or numeric offset; runtime normalizes it to ISO Instant form |
+| `instant` | absolute RFC 3339 instant with `Z` or numeric offset; runtime normalizes it to one absolute Instant representation |
+| `range<date>` | one first-class half-open `Range<Date>` value: `{ start, endExclusive }` |
+| `range<instant>` | one first-class half-open `Range<Instant>` value: `{ start, endExclusive }` |
 | `temporal_range` | controlled half-open `Range<Date> | Range<Instant>` value with canonical `kind: "date" | "instant"` tagging |
 | `timezone` | valid IANA timezone |
 | `enum` | one declared string value |
@@ -193,9 +188,19 @@ v1 supports:
 | `record` | one active record of the declared target model in the same Space |
 | `record_list` | unique list of active records of the declared target model in the same Space |
 
-The deployed v1 scalar field name remains `datetime`, whose domain meaning is an Instant. The controlled TemporalRange canonical value uses the tagged variant `kind: "instant"`; `datetime` is not a TemporalRange tag.
+Canonical Model Definition syntax uses **`instant`**, not `datetime`. The string `datetime` is retained only as a **legacy published spelling** so immutable Registry rows and their historical schema hashes remain readable. A new model or newly introduced field must use `instant`; a later version may preserve an already-published `datetime` field unchanged, or explicitly migrate that field to `instant` under normal compatibility/versioning rules. Validators/loaders therefore understand the legacy spelling, but publication policy does not treat it as a second canonical DSL type.
 
-The Model Definition validator recognizes `temporal_range`. Its physical mapping is deterministic and internal: one logical field expands to discriminator/start/end columns while the REST/Resource shape remains the canonical tagged value. Scalar fields retain their existing one-field/one-column mapping and relation fields retain relation-table storage.
+The controlled TemporalRange canonical value uses the tagged variant `kind: "instant"`; `datetime` is never a TemporalRange tag.
+
+First-class Range fields are one logical value. `range<date>` and `range<instant>` use exactly:
+
+```json
+{ "start": "...", "endExclusive": "..." }
+```
+
+The field type already fixes Date versus Instant, so a fixed Range value does not repeat a `kind`. Bounds are always half-open `[start,endExclusive)`. `temporal_range` remains the controlled tagged union for a field that deliberately permits both Date and Instant variants.
+
+The physical mapping is deterministic and internal: one fixed Range field expands to start/end columns; one `temporal_range` field expands to discriminator/start/end columns. REST/Resource values remain the logical values above. Scalar fields retain one-field/one-column mapping and relation fields retain relation-table storage.
 
 A `temporal_range` field may be published for generic CRUD and declared `query.filterable` and/or `query.sortable`. Create/update validation accepts the canonical tagged value, storage dehydrates it into the internal physical columns, and get/list/query resource projection hydrates it back into the same logical value. Generated Model Contracts and Creation Draft schemas expose only that canonical logical shape. Filter execution uses typed range operators and the internal discriminator/bounds index. Sort execution requires `context.viewingTimezone`, projects Date variants to absolute boundaries, keeps Instant variants absolute, and compares `projectedStart`, then `projectedEnd`, then record ID. Physical columns never become public fields. Search remains unavailable because no text projection is defined.
 
@@ -209,11 +214,12 @@ Physical mapping is not Model Definition syntax and is never exposed to model au
 |---|---|
 | scalar field `field` | existing `field` column |
 | relation field `field` | existing relation-table rows |
-| `temporal_range field` | internal `__tr_<field>_kind`, `__tr_<field>_start`, `__tr_<field>_end` columns |
+| `range<date>` / `range<instant>` field | internal `__r_<field>_start`, `__r_<field>_end` columns |
+| `temporal_range` field | internal `__tr_<field>_kind`, `__tr_<field>_start`, `__tr_<field>_end` columns |
 
-The TemporalRange columns enforce the canonical `date | instant` discriminator, all-null/all-present integrity, and `start < end`. These names and checks are Storage implementation details, not REST or Resource fields. Generic create/update dehydrates the logical value into these columns; get/list and Generic/Canonical Query result projection hydrate them back into one canonical `temporal_range` value. A partial or invalid stored tuple fails closed instead of leaking physical state.
+Range columns enforce all-null/all-present integrity and `start < end`; TemporalRange columns additionally enforce the canonical `date | instant` discriminator. These names and checks are Storage implementation details, not REST or Resource fields. Generic create/update dehydrates the logical value into these columns; get/list and Generic/Canonical Query result projection hydrate them back into one canonical `temporal_range` value. A partial or invalid stored tuple fails closed instead of leaking physical state.
 
-Compatible physical migration may add an optional `temporal_range` as three nullable columns. Adding a required field still requires an explicit backfill/migration plan. Existing scalar schema and index output remains byte-for-byte stable.
+Compatible physical migration may add an optional fixed Range as two nullable columns or an optional `temporal_range` as three nullable columns. Adding a required field still requires an explicit backfill/migration plan. Existing scalar schema and index output remains byte-for-byte stable.
 
 ### 4.2 Field properties
 
@@ -244,7 +250,7 @@ Rules:
 - `minimum` / `maximum` apply only to `integer` / `number`;
 - `values` is required for `enum`, must be unique and may contain at most 50 entries;
 - `targetModel` is required only for `record` / `record_list`; it remains structural relation semantics and is not encoded into `title`. Generated contracts may project relation target/cardinality metadata separately so human-readable naming and machine relation semantics remain orthogonal;
-- `temporal_range` accepts none of `minLength`, `maxLength`, `minimum`, `maximum`, `values` or `targetModel`.
+- `range<date>`, `range<instant>` and `temporal_range` accept none of `minLength`, `maxLength`, `minimum`, `maximum`, `values` or `targetModel`.
 
 Conformance-ID: MDV1-FIELD-REQUIRED-NULLABLE-01
 Conformance-ID: MDV1-FIELD-CONSTRAINTS-01
@@ -265,7 +271,7 @@ referenceLabel: { template: "{code} · {name}" }
 Rules:
 
 - the object must contain exactly one of `field` or `template`;
-- referenced fields must exist and must be scalar `string`, `text`, `integer`, `number`, `boolean`, `date`, `datetime`, `timezone` or `enum` fields; relation fields are not valid label inputs;
+- referenced fields must exist and must be scalar `string`, `text`, `integer`, `number`, `boolean`, `date`, `instant`, `timezone` or `enum` fields; an already-published legacy `datetime` field remains readable as the same Instant semantic; range/relation fields are not valid label inputs;
 - a template is trimmed, contains 1–200 characters, uses only simple `{field}` placeholders and contains at most eight placeholders; at least one placeholder is required;
 - rendered output is trimmed and limited to 200 characters; boolean values render as `true` / `false`;
 - when `referenceLabel` is omitted, or when every referenced value is null/blank so the projected label is empty, the stable record ID is the canonical fallback;
@@ -292,7 +298,7 @@ status: {
   readOnly: true,
   values: ["pending", "completed", "cancelled"]
 }
-completedAt: { type: "datetime", nullable: true, readOnly: true }
+completedAt: { type: "instant", nullable: true, readOnly: true }
 ```
 
 This means a normal `POST`/`PATCH` cannot choose Task lifecycle state or completion bookkeeping, while `Task.complete`, `Task.cancel` and `Task.reopen` can change those fields through the trusted Action path.
@@ -319,36 +325,25 @@ ownerPersonId: { type: "person", required: true, immutable: true }
 
 Conformance-ID: MDV1-FIELD-IMMUTABLE-01
 
-### 4.4 `timeRanges`
+### 4.4 Legacy compatibility: `timeRanges`
 
-`timeRanges` declares model-owned **structural interval semantics** for pairs of already-declared `date` or `datetime` fields. It lets generic consumers understand that two otherwise independent fields represent the start and end of the same semantic range without guessing from names such as `startAt`, `endAt`, `validFrom` or `validUntil`.
+`timeRanges` is **not the canonical way to declare an ordinary Range value**. It is a retained structural projection for already-published definitions that historically represented an interval with two separately meaningful scalar fields.
 
-Example:
+New range-valued state must be modeled as one `range<date>` or `range<instant>` field. Model authors must not split one logical Range into start/end fields merely to satisfy storage.
 
-```ts
-timeRanges: {
-  validity: {
-    startField: "validFrom",
-    endField: "validUntil",
-    bounds: "[)"
-  }
-}
-```
+Registry/runtime compatibility remains deliberately one-way:
 
-Rules:
+- historical definitions containing `timeRanges` remain readable;
+- a later version may preserve an existing `timeRanges.<key>` declaration byte-for-byte while other model semantics evolve;
+- a later version may remove a legacy declaration as part of an explicit migration to first-class Range state;
+- publication must reject a newly introduced or changed `timeRanges` declaration;
+- legacy bound fields may be `date` or Instant-semantic scalar fields; historical `datetime` remains accepted only as the legacy spelling of Instant;
+- existing non-half-open bounds are interpreted only as historical structural semantics. They do not redefine canonical `Range<T>`, whose bounds are always `[start,endExclusive)`;
+- Calendar-owned split-field projections remain compatibility behavior until their separately tracked migration completes; they do not make `timeRanges` canonical.
 
-- `timeRanges` is optional; when present it must be a non-empty object with at most 16 entries;
-- range keys use the normal field-style semantic-key syntax `^[a-z][A-Za-z0-9]{0,62}$`;
-- `startField` and `endField` must both exist, must be distinct, and must be either `date/date` or `datetime/datetime`; mixed `date/datetime` pairs are invalid;
-- `bounds` may be `[]`, `[)`, `(]` or `()`; omission means the canonical half-open form `[)`, and validation normalizes the published definition to that explicit value;
-- the same unordered field pair may not be declared twice, including a reversed duplicate, because that would create ambiguous structural semantics;
-- Calendar Capability bindings remain authoritative for Calendar timed and all-day intervals. A model with Calendar must not redeclare the Calendar-owned `timedStartField/timedEndField` or `allDayStartField/allDayEndExclusiveField` pair in `timeRanges`; progressive semantic projection derives those ranges directly from the Capability binding;
-- declaring a range does **not** automatically add `overlaps`, `contains`, `before` or any other query operator. Query capability remains separately and explicitly declared/versioned;
-- declaring a range does **not** by itself add a new create/update ordering invariant such as `start < end`. Record-value validation remains whatever the model/Capability already owns until a future semantic rule explicitly introduces such an invariant;
-- adding, removing or changing `timeRanges` on an already-published model is a breaking semantic compatibility change because generic consumers may change how they interpret the participating fields;
-- progressive static semantic detail may project a derived `valueType` plus `source` metadata for consumers. Those projection fields are derived facts, not additional editable Model Definition properties.
+This compatibility surface must not be used to design new models.
 
-Conformance-ID: MDV1-TIME-RANGES-01
+Conformance-ID: MDV1-TIME-RANGES-LEGACY-01
 
 ## 5. Defaults
 
@@ -367,7 +362,7 @@ A default must satisfy the field type and constraints.
 Important v1 rules:
 
 - `null` is allowed only for nullable fields;
-- `temporal_range` cannot have any default in this phase, including `null`;
+- `range<date>`, `range<instant>` and `temporal_range` cannot have defaults, including `null`;
 - scalar relation fields `person` and `record` cannot have non-null defaults;
 - `person_list` / `record_list` may only use an empty list `[]` as a default;
 - enum defaults must be one of the declared values;
@@ -387,7 +382,9 @@ query: {
 }
 ```
 
-Every listed field must exist in `fields`. A `temporal_range` field may appear in `filterable`, exposing `overlaps`, `contains`, `before`, `after`, `kindIs` and, when nullable, `isNull` / `isNotNull`. It may also appear in `sortable`; each Canonical Query that actually sorts it must provide `context.viewingTimezone`. It cannot appear in `searchable` because no text projection is defined.
+Every listed field must exist in `fields`. A `range<date>` or `range<instant>` field may appear in `filterable`, exposing `overlaps`, `contains`, `before`, `after` and, when nullable, `isNull` / `isNotNull`. Fixed Range fields are not searchable. **No canonical ordinary-Range sort ordering has been approved**, so they must not appear in `sortable`.
+
+A `temporal_range` field may appear in `filterable`, exposing `overlaps`, `contains`, `before`, `after`, `kindIs` and nullable predicates. It may also appear in `sortable`; each Canonical Query that actually sorts it must provide `context.viewingTimezone`. It cannot appear in `searchable`.
 
 The purpose is not to describe SQL. It declares the model's supported logical query surface, from which Runtime/query planning and generated contracts are derived.
 
@@ -401,7 +398,7 @@ sortable   -> explicit field sort options
 
 Canonical Query sorting is an ordered tuple. Structured callers provide ordered `{ field, direction }` criteria; retained GET shorthand may repeat `sort=field:direction` up to eight times. Envelope fields `createdAt` and `updatedAt` are always sortable; model fields must be declared in `query.sortable`. Omitted sort defaults deterministically to `createdAt:desc`. Cursor pagination binds the complete Effective Sort and uses stable record identity as the final tie-breaker. Nullable sortable fields use null-last semantics for both ascending and descending directions. A TemporalRange sort expands to `projectedStart`, `projectedEnd`, and record ID under the explicit `context.viewingTimezone`; that context is part of cursor identity. TemporalRange sort is structured-Query-only and is not projected into legacy GET shorthand. Capability semantics may contribute typed targets or internal planning, but do not create a second caller-visible Query mode. Existing Calendar/Temporal computed GET sorts remain compatibility transport until their explicit migrations are complete.
 
-For filterable `date`, `datetime`, `integer` and `number` fields, Generic Query owns an explicit comparison-operator semantic set:
+For filterable `date`, `instant`, `integer` and `number` fields, Generic Query owns an explicit comparison-operator semantic set. Historical `datetime` fields retain the same Instant comparison behavior as a compatibility spelling:
 
 ```text
 eq | lt | lte | gt | gte
@@ -417,9 +414,9 @@ fieldTo=x     -> lte x
 
 In particular `fieldTo` remains inclusive. New explicit comparison transport uses collision-free `field.operator` parameter names such as `dueDate.gte` and `dueDate.lt`; Model field keys cannot contain `.`, so adapters never need to infer an operator from a field-name suffix. Supplying two transport aliases for the same field/operator in one request is invalid rather than silently choosing precedence.
 
-The platform-owned envelope `createdAt` and `updatedAt` fields are always queryable `datetime` comparison fields even though they are not repeated in Model `query.filterable`. Their comparison transport is explicit only. Generated Model Contract metadata and Progressive Runtime Semantic Detail enumerate the actual operator/parameter mapping; adapters must consume that published mapping rather than reconstructing names.
+The platform-owned envelope `createdAt` and `updatedAt` fields are semantically Instant comparison fields even though they are not repeated in Model `query.filterable`. Existing legacy query/discovery metadata may retain the historical `datetime` wire token until its own versioned compatibility migration; that token is not Model Definition canonical syntax. Their comparison transport is explicit only. Generated Model Contract metadata and Progressive Runtime Semantic Detail enumerate the actual operator/parameter mapping; adapters must consume that published mapping rather than reconstructing names.
 
-For any comparison-queryable `datetime` field, Generic Query additionally exposes one concrete local-calendar window transport:
+For any comparison-queryable `instant` field (and an already-published legacy `datetime` field), Generic Query additionally exposes one concrete local-calendar window transport:
 
 ```text
 <field>.dateStart=YYYY-MM-DD
@@ -429,7 +426,7 @@ For any comparison-queryable `datetime` field, Generic Query additionally expose
 
 All three parameters are required together. Core resolves the two local date boundaries with the shared DST-safe Time Semantics primitive and applies the canonical half-open instant predicate `value >= startInclusive AND value < endExclusive`. Adapters must not calculate UTC boundaries themselves. `date` fields remain calendar-date values and use ordinary explicit comparisons without timezone conversion.
 
-A direct filterable `temporal_range` and a projected structural `timeRanges` target both use Canonical Query range operands. A `local_date_window` compares Date variants directly and projects its boundaries to Instants for Instant variants. Direct `date` and `instant` operands match only the same stored variant; `kindIs` filters the controlled discriminator without exposing physical columns.
+A direct filterable `range<date>`, `range<instant>`, or `temporal_range` field uses Canonical Query range operands. A retained legacy `timeRanges` projection may use the same operands for compatibility, but it is not a second Model Definition Range syntax. A `local_date_window` compares Date variants directly and projects its boundaries to Instants for Instant variants. Direct `date` and `instant` operands match only the same stored variant; `kindIs` filters the controlled discriminator without exposing physical columns.
 
 Conformance-ID: MDV1-QUERY-COMPARISON-01
 Conformance-ID: MDV1-QUERY-LOCAL-DATE-WINDOW-01

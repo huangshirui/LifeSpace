@@ -40,7 +40,7 @@ function published(model: ModelDefinition): PublishedModel {
 
 describe("Model Definition v1 timeRanges Oracle", () => {
   // Oracle-Fixture: ORC-TIME-RANGES-01
-  // Covers: MDV1-TIME-RANGES-01
+  // Covers: MDV1-TIME-RANGES-LEGACY-01
   it("normalizes half-open bounds and accepts date/date plus datetime/datetime pairs", () => {
     const result = validateModelDefinition({
       ...definition(),

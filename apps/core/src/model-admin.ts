@@ -9,7 +9,7 @@ import {
   listPublishedModels,
   publishModelDefinition,
   retireModel,
-  validateDefinition,
+  validateDefinitionForPublication,
   type ModelCompatibility,
 } from "./model-registry";
 
@@ -131,7 +131,7 @@ export function registerModelAdminRoutes(app: App): void {
     if (Object.keys(input).some((key) => key !== "definition") || input.definition === undefined) {
       throw new ApiError("INVALID_REQUEST", "Request must contain only definition", 400);
     }
-    const validation = await validateDefinition(input.definition);
+    const validation = await validateDefinitionForPublication(context.env, input.definition);
     return context.json(success(validation));
   });
 

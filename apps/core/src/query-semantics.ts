@@ -2,7 +2,7 @@ import type { FieldType, ModelDefinition } from "./model-definition";
 
 export const GENERIC_COMPARISON_OPERATORS = ["eq", "lt", "lte", "gt", "gte"] as const;
 export type GenericComparisonOperator = typeof GENERIC_COMPARISON_OPERATORS[number];
-export type GenericComparisonValueType = Extract<FieldType, "date" | "datetime" | "integer" | "number">;
+export type GenericComparisonValueType = Extract<FieldType, "date" | "instant" | "datetime" | "integer" | "number">;
 export type GenericQueryFieldSource = "model" | "envelope";
 export type GenericQueryTransportKind = "legacy" | "explicit";
 
@@ -29,7 +29,7 @@ export type GenericComparisonFieldSemantic = {
   localDateWindow?: GenericLocalDateWindowTransport;
 };
 
-const COMPARABLE_TYPES = new Set<GenericComparisonValueType>(["date", "datetime", "integer", "number"]);
+const COMPARABLE_TYPES = new Set<GenericComparisonValueType>(["date", "instant", "datetime", "integer", "number"]);
 const ENVELOPE_FIELDS = [
   { field: "createdAt", valueType: "datetime" },
   { field: "updatedAt", valueType: "datetime" },
@@ -77,7 +77,7 @@ function modelFieldSemantics(
     source: "model",
     valueType,
     operators,
-    ...(valueType === "datetime" ? { localDateWindow: localDateWindowParameters(field) } : {}),
+    ...((valueType === "instant" || valueType === "datetime") ? { localDateWindow: localDateWindowParameters(field) } : {}),
   };
 }
 
@@ -90,7 +90,7 @@ function envelopeFieldSemantics(
     source: "envelope",
     valueType,
     operators: explicitOperators(field),
-    ...(valueType === "datetime" ? { localDateWindow: localDateWindowParameters(field) } : {}),
+    ...((valueType === "instant" || valueType === "datetime") ? { localDateWindow: localDateWindowParameters(field) } : {}),
   };
 }
 

@@ -1,5 +1,5 @@
 import { ApiError } from "./http";
-import type { FieldDefinition, FieldType, ModelDefinition } from "./model-definition";
+import { isFirstClassRangeFieldType, type FieldDefinition, type FieldType, type ModelDefinition } from "./model-definition";
 
 export type PhysicalColumnComponent = "value" | "kind" | "start" | "end";
 
@@ -17,7 +17,7 @@ export type PhysicalColumn = {
 export type PhysicalFieldMapping = {
   fieldKey: string;
   logicalType: FieldType;
-  storage: "scalar" | "relation" | "temporal_range";
+  storage: "scalar" | "relation" | "range" | "temporal_range";
   columns: PhysicalColumn[];
 };
 
@@ -95,6 +95,38 @@ function scalarColumn(fieldKey: string, field: FieldDefinition): PhysicalColumn 
   };
 }
 
+function rangeMapping(fieldKey: string, field: FieldDefinition): PhysicalFieldMapping {
+  const nullable = field.required !== true;
+  const start = `__r_${fieldKey}_start`;
+  const end = `__r_${fieldKey}_end`;
+  const present = `${identifier(start)} IS NOT NULL AND ${identifier(end)} IS NOT NULL`;
+  const absent = `${identifier(start)} IS NULL AND ${identifier(end)} IS NULL`;
+  return {
+    fieldKey,
+    logicalType: field.type,
+    storage: "range",
+    columns: [
+      {
+        fieldKey: start,
+        logicalFieldKey: fieldKey,
+        component: "start",
+        logicalType: field.type,
+        sqlType: "TEXT",
+        nullable,
+      },
+      {
+        fieldKey: end,
+        logicalFieldKey: fieldKey,
+        component: "end",
+        logicalType: field.type,
+        sqlType: "TEXT",
+        nullable,
+        checkSql: `(${absent}) OR (${present} AND ${identifier(start)} < ${identifier(end)})`,
+      },
+    ],
+  };
+}
+
 function temporalRangeMapping(fieldKey: string, field: FieldDefinition): PhysicalFieldMapping {
   const nullable = field.required !== true;
   const kind = `__tr_${fieldKey}_kind`;
@@ -146,6 +178,7 @@ function mappingFor(fieldKey: string, field: FieldDefinition): PhysicalFieldMapp
       columns: [],
     };
   }
+  if (isFirstClassRangeFieldType(field.type)) return rangeMapping(fieldKey, field);
   if (field.type === "temporal_range") return temporalRangeMapping(fieldKey, field);
   return {
     fieldKey,

@@ -126,8 +126,8 @@ function validateCalendar(
     if (!allowed.has(key)) issue(issues, `capabilities.calendar.${key}`, "UNKNOWN_PROPERTY", `Unsupported calendar capability property ${key}`);
   }
   const allDayField = namedField(raw, "calendar", "allDayField", fields, ["boolean"], issues);
-  const timedStartField = namedField(raw, "calendar", "timedStartField", fields, ["datetime"], issues);
-  const timedEndField = namedField(raw, "calendar", "timedEndField", fields, ["datetime"], issues);
+  const timedStartField = namedField(raw, "calendar", "timedStartField", fields, ["instant", "datetime"], issues);
+  const timedEndField = namedField(raw, "calendar", "timedEndField", fields, ["instant", "datetime"], issues);
   const startTimezoneField = namedField(raw, "calendar", "startTimezoneField", fields, ["timezone"], issues);
   const endTimezoneField = namedField(raw, "calendar", "endTimezoneField", fields, ["timezone"], issues);
   const allDayStartField = namedField(raw, "calendar", "allDayStartField", fields, ["date"], issues);

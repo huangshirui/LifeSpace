@@ -1,4 +1,4 @@
-import type { FieldDefinition } from "./model-definition";
+import { isFirstClassRangeFieldType, type FieldDefinition } from "./model-definition";
 import type { PublishedModel } from "./model-registry";
 import { projectTimeRangeSemantics } from "./time-range-definition";
 
@@ -129,6 +129,15 @@ function currentActorAliasAllowed(model: PublishedModel, fieldKey: string, field
 
 function fieldOperators(field: FieldDefinition): string[] {
   if (["person", "person_list", "record", "record_list"].includes(field.type)) return ["contains"];
+  if (isFirstClassRangeFieldType(field.type)) {
+    return [
+      "overlaps",
+      "contains",
+      "before",
+      "after",
+      ...(field.nullable === true ? ["isNull", "isNotNull"] : []),
+    ];
+  }
   if (field.type === "temporal_range") {
     return [
       "overlaps",
@@ -140,10 +149,10 @@ function fieldOperators(field: FieldDefinition): string[] {
     ];
   }
   const operators = ["eq", "ne"];
-  if (["date", "datetime", "integer", "number"].includes(field.type)) {
+  if (["date", "instant", "datetime", "integer", "number"].includes(field.type)) {
     operators.push("lt", "lte", "gt", "gte");
   }
-  if (field.type === "date" || field.type === "datetime") operators.push("within");
+  if (field.type === "date" || field.type === "instant" || field.type === "datetime") operators.push("within");
   if (field.nullable === true) operators.push("isNull", "isNotNull");
   return operators;
 }

@@ -56,12 +56,13 @@ function issue(issues: ModelValidationIssue[], path: string, code: string, messa
 }
 
 function literalCompatible(field: FieldDefinition, value: WorkflowLiteral): boolean {
-  if (field.type === "temporal_range") return false;
+  if (field.type === "temporal_range" || field.type === "range<date>" || field.type === "range<instant>") return false;
   if (value === null) return field.nullable === true;
   switch (field.type) {
     case "string":
     case "text":
     case "date":
+    case "instant":
     case "datetime":
     case "timezone":
     case "person":
@@ -103,7 +104,7 @@ function referenceCompatible(
   reference: WorkflowReferenceName,
   fields: Record<string, FieldDefinition>,
 ): boolean {
-  if (reference === "now") return target.type === "datetime";
+  if (reference === "now") return target.type === "instant" || target.type === "datetime";
   if (reference === "actor.id") return target.type === "string" || target.type === "text";
   if (reference === "actor.personId") {
     return target.type === "person" || target.type === "string" || target.type === "text";

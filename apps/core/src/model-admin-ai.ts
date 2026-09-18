@@ -24,7 +24,7 @@ import {
   getPublishedModel,
   listPublishedModels,
   publishModelDefinition,
-  validateDefinition,
+  validateDefinitionForPublication,
   type ModelCompatibility,
   type PublishedModel,
 } from "./model-registry";
@@ -333,7 +333,7 @@ export async function createAiModelProposal(
 
   const validation = parsed.issue
     ? { valid: false as const, issues: [] as ModelValidationIssue[] }
-    : await validateDefinition(parsed.value);
+    : await validateDefinitionForPublication(env, parsed.value);
   const issues = [
     ...extraIssues,
     ...(validation.valid ? [] : validation.issues),
@@ -440,7 +440,7 @@ export async function publishAiModelProposal(
   }
 
   const definition = safeJson<unknown>(currentProposal.definition_json, null);
-  const validation = await validateDefinition(definition);
+  const validation = await validateDefinitionForPublication(env, definition);
   if (!validation.valid || validation.schemaHash !== currentProposal.schema_hash) {
     throw new ApiError(
       "MODEL_PROPOSAL_INVALID",

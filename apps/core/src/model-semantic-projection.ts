@@ -1,7 +1,7 @@
 import type { CalendarCapabilityDefinition, TemporalCapabilityDefinition } from "./capability-definition";
 import { canonicalQuerySemanticDescriptor, type CanonicalQuerySemanticDescriptor } from "./canonical-query-contract";
 import { calendarViewingWindowSemanticQuery } from "./calendar-query-semantics";
-import type { FieldDefinition, ModelAccess } from "./model-definition";
+import { isFirstClassRangeFieldType, type FieldDefinition, type ModelAccess } from "./model-definition";
 import type { PublishedModel } from "./model-registry";
 import { referenceLabelSemantic, type ReferenceLabelSemantic } from "./reference-label";
 import { relationSemanticMetadata, type RelationResolutionDescriptor } from "./relation-semantic";
@@ -158,7 +158,7 @@ export function modelFieldSemanticFacts(model: PublishedModel): ModelSemanticFie
 }
 
 function supportsRange(field: FieldDefinition): boolean {
-  return field.type === "date" || field.type === "datetime" || field.type === "integer" || field.type === "number";
+  return field.type === "date" || field.type === "instant" || field.type === "datetime" || field.type === "integer" || field.type === "number";
 }
 
 function acceptsCurrentActorPersonAlias(model: PublishedModel, fieldKey: string, field: FieldDefinition): boolean {
@@ -173,7 +173,7 @@ export function modelQuerySemanticFacts(model: PublishedModel): ModelSemanticQue
   const sortable = [...(model.definition.query?.sortable ?? [])];
   const filters = filterable.flatMap((fieldKey) => {
     const field = model.definition.fields[fieldKey];
-    if (!field) return [];
+    if (!field || field.type === "temporal_range" || isFirstClassRangeFieldType(field.type)) return [];
     return [{
       field: fieldKey,
       parameter: fieldKey,

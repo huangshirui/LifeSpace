@@ -18,14 +18,16 @@ export type { TimeRangeBounds, TimeRangeDefinition, TimeRangeDefinitions } from 
 
 export const MODEL_DEFINITION_VERSION = 1 as const;
 
-export const FIELD_TYPES = [
+export const CANONICAL_FIELD_TYPES = [
   "string",
   "text",
   "integer",
   "number",
   "boolean",
   "date",
-  "datetime",
+  "instant",
+  "range<date>",
+  "range<instant>",
   "temporal_range",
   "timezone",
   "enum",
@@ -35,7 +37,27 @@ export const FIELD_TYPES = [
   "record_list",
 ] as const;
 
+export const LEGACY_FIELD_TYPES = ["datetime"] as const;
+export const FIELD_TYPES = [...CANONICAL_FIELD_TYPES, ...LEGACY_FIELD_TYPES] as const;
+
+export type CanonicalFieldType = typeof CANONICAL_FIELD_TYPES[number];
 export type FieldType = typeof FIELD_TYPES[number];
+
+export function canonicalFieldType(type: FieldType): CanonicalFieldType {
+  return type === "datetime" ? "instant" : type;
+}
+
+export function isInstantFieldType(type: FieldType): boolean {
+  return type === "instant" || type === "datetime";
+}
+
+export function isFirstClassRangeFieldType(type: FieldType): type is "range<date>" | "range<instant>" {
+  return type === "range<date>" || type === "range<instant>";
+}
+
+export function rangeFieldValueType(type: "range<date>" | "range<instant>"): "date" | "instant" {
+  return type === "range<date>" ? "date" : "instant";
+}
 export type ModelAccess = "read" | "write" | "manage";
 export type ModelDefaultValue = string | number | boolean | null | string[];
 
@@ -118,6 +140,7 @@ const REFERENCE_LABEL_FIELD_TYPES = new Set<FieldType>([
   "number",
   "boolean",
   "date",
+  "instant",
   "datetime",
   "timezone",
   "enum",
@@ -206,7 +229,7 @@ function validTimezone(value: string): boolean {
 }
 
 function validDefault(field: FieldDefinition, value: unknown): value is ModelDefaultValue {
-  if (field.type === "temporal_range") return false;
+  if (field.type === "temporal_range" || isFirstClassRangeFieldType(field.type)) return false;
   if (value === null) return field.nullable === true;
 
   if (field.type === "person" || field.type === "record") return false;
@@ -231,7 +254,7 @@ function validDefault(field: FieldDefinition, value: unknown): value is ModelDef
 
   if (field.type === "boolean") return typeof value === "boolean";
   if (field.type === "date") return typeof value === "string" && validDate(value);
-  if (field.type === "datetime") return isRfc3339Instant(value);
+  if (isInstantFieldType(field.type)) return isRfc3339Instant(value);
   if (field.type === "timezone") return typeof value === "string" && validTimezone(value);
   if (field.type === "enum") return typeof value === "string" && Boolean(field.values?.includes(value));
   return false;
@@ -655,12 +678,19 @@ export function validateModelDefinition(input: unknown): ModelValidationResult {
         const field = fields[fieldKey];
         if (!field) {
           issue(issues, `query.${kind}`, "UNKNOWN_QUERY_FIELD", `${fieldKey} is not a declared field`);
-        } else if (field.type === "temporal_range" && kind === "searchable") {
+        } else if ((field.type === "temporal_range" || isFirstClassRangeFieldType(field.type)) && kind === "searchable") {
           issue(
             issues,
             `query.${kind}`,
             "UNSUPPORTED_QUERY_FIELD_TYPE",
-            "temporal_range supports filterable and sortable roles, but has no text-search projection",
+            "Range-valued fields have no text-search projection",
+          );
+        } else if (isFirstClassRangeFieldType(field.type) && kind === "sortable") {
+          issue(
+            issues,
+            `query.${kind}`,
+            "UNSUPPORTED_QUERY_FIELD_TYPE",
+            "range<date> and range<instant> do not define a canonical sort ordering; use them as filterable fields",
           );
         }
       }

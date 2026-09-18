@@ -124,7 +124,7 @@ isNotNull
 
 ### 4.2 Ordered scalar comparison
 
-For ordered scalar types such as Date, Instant/datetime, integer and number:
+For ordered scalar types such as Date, Instant, integer and number:
 
 ```text
 lt
@@ -133,11 +133,11 @@ gt
 gte
 ```
 
-Date values compare as ISO calendar dates. Instant/datetime values are normalized to an absolute RFC3339 instant before comparison.
+Date values compare as ISO calendar dates. Instant values are normalized to an absolute RFC3339 instant before comparison.
 
 ### 4.3 Local-date window
 
-Date and Instant/datetime fields support `within` with an explicit local-date window:
+Date and Instant fields support `within` with an explicit local-date window:
 
 ```json
 {
@@ -154,7 +154,7 @@ Date and Instant/datetime fields support `within` with an explicit local-date wi
 
 The window is half-open `[startDate, endDateExclusive)`.
 
-For a Date field the dates compare directly. For an Instant/datetime field Runtime converts both local date boundaries independently to absolute instants using the explicit IANA timezone, preserving DST correctness. Runtime must not silently use server timezone.
+For a Date field the dates compare directly. For an Instant field Runtime converts both local date boundaries independently to absolute instants using the explicit IANA timezone, preserving DST correctness. Runtime must not silently use server timezone.
 
 ### 4.4 Relations and list membership
 
@@ -181,9 +181,9 @@ This rule applies consistently to `person_list` and `record_list`.
 
 The compatibility alias `me` is accepted only for semantic Person relation roles that explicitly support current-actor resolution, such as Calendar attendees or Temporal subject Person. Runtime resolves it under current Space Person state; adapters must not resolve it by guessing a Person ID.
 
-## 5. Structural range predicates
+## 5. Range predicates
 
-A model-declared `timeRanges` entry is a semantic query target. Calendar-projected ranges may also provide a semantic target during compatibility migration.
+A first-class `range<date>` or `range<instant>` field declared `query.filterable` is the canonical fixed-Range query target. A retained legacy `timeRanges` projection and Calendar-projected ranges may also provide compatibility targets while older published models migrate.
 
 Canonical range operators are:
 
@@ -211,6 +211,16 @@ Range operands are explicit:
 or a `local_date_window` as defined above.
 
 `Range<Date>` does not silently compare with `Range<Instant>`. A `local_date_window` provides the explicit temporal context needed to project to the target range type.
+
+A first-class fixed Range value is stored and returned as:
+
+```json
+{ "start": "...", "endExclusive": "..." }
+```
+
+Its Model Definition type supplies Date versus Instant. The `kind` used in query operands identifies the operand/projection domain; it is not a stored discriminator for fixed Range fields.
+
+Ordinary fixed Range sorting is intentionally not defined by the current contract. Only confirmed filter semantics are exposed.
 
 ### Direct TemporalRange fields
 
@@ -356,7 +366,8 @@ Implemented in the Canonical Typed Query / TemporalRange platform foundation:
 - typed scalar comparisons and null predicates;
 - relation/list `contains`;
 - local-date-window projection;
-- structural time-range predicates;
+- first-class `range<date>` / `range<instant>` values and typed range predicates;
+- legacy structural time-range predicates for already-published compatibility;
 - first-class `temporal_range` Model Definition values, typed physical storage and CRUD hydration/dehydration;
 - generated TemporalRange contracts and Creation Draft validation;
 - direct filterable `TemporalRange` predicates with Date/Instant/local-date-window operands;

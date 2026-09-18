@@ -1,7 +1,8 @@
 import type { Bindings, Principal } from "./env";
 import { ApiError } from "./http";
 import { applyModelDefaults } from "./model-defaults";
-import type { FieldDefinition, ModelDefinition } from "./model-definition";
+import { isFirstClassRangeFieldType, rangeFieldValueType, type FieldDefinition, type ModelDefinition } from "./model-definition";
+import { validateRangeValue } from "./range-value";
 import { validateTemporalRangeValue } from "./temporal-range";
 import { normalizeRfc3339Instant } from "./time-semantics";
 import { getRuntimeModel, type PublishedModel } from "./model-registry";
@@ -177,7 +178,21 @@ function validateFieldValue(fieldKey: string, field: FieldDefinition, value: unk
       if (typeof value !== "boolean") throw new ApiError("INVALID_RESOURCE", `${fieldKey} must be boolean`, 400);
       return value;
     case "date": return parseDate(value, fieldKey);
+    case "instant":
     case "datetime": return parseDateTime(value, fieldKey);
+    case "range<date>":
+    case "range<instant>": {
+      if (!isFirstClassRangeFieldType(field.type)) throw new ApiError("INVALID_RESOURCE", `${fieldKey} has invalid range type`, 400);
+      const result = validateRangeValue(value, rangeFieldValueType(field.type));
+      if (!result.valid) {
+        throw new ApiError(
+          "INVALID_RESOURCE",
+          `${fieldKey} is invalid: ${result.issues.map((entry) => entry.message).join("; ")}`,
+          400,
+        );
+      }
+      return result.value;
+    }
     case "timezone": return parseTimezone(value, fieldKey);
     case "enum":
       if (typeof value !== "string" || !field.values?.includes(value)) throw new ApiError("INVALID_RESOURCE", `${fieldKey} must be one of the declared enum values`, 400);
