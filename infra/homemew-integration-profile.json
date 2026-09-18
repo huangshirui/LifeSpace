@@ -44,7 +44,7 @@
     "identity": "0.6.0",
     "integrationEventing": "0.1.0",
     "modelSemantics": {
-      "fingerprint": "msf_27f2a733d8a40f84035e909d73d328adce6782ab83f4a7b50d78697900e5a705",
+      "fingerprint": "msf_6dab6ba5b88da89eb608960a5e23feaf7dd0aec4d8f6a0db1defe7ab2a370b22",
       "models": {
         "task": {
           "schemaHash": "e79798bcadefad021ca86c1577c3fa3bc8fd0627f46557193aeca9b62acabb8e"
@@ -56,13 +56,13 @@
           "schemaHash": "9297a2f87fdd0718bfb74a362a0c451cf25309f4975099772f76e8a485fd0852"
         },
         "event": {
-          "schemaHash": "35106ecb38a7d33cee083b285a62001d64234d0a86890b8a51094e1dd3b58e8f"
+          "schemaHash": "be9bdea442a30108a22a2da77a96ab23aba5122ec3c2b1de20a6312cebb0cc8a"
         }
       }
     },
     "pinStatus": "accepted"
   },
   "evidence": {
-    "acceptedStagingModelContract": "mct_7d74f87e765bba202ab88c26c139dbac4fd2cbb56a49e6ed916046f20f917db4"
+    "acceptedStagingModelContract": "mct_6c76d80012873f27cf23e047822e8571b37f637ef24852739bb7f773763b21d8"
   }
 }
