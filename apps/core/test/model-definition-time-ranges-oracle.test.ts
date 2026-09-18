@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { EVENT_MODEL_DEFINITION } from "../src/builtin-models";
 import { validateModelDefinition, type ModelDefinition } from "../src/model-definition";
 import { diffModelDefinition } from "../src/model-proposal";
 import type { PublishedModel } from "../src/model-registry";
+import { LEGACY_CALENDAR_MODEL_DEFINITION } from "./legacy-calendar-fixture";
 
 function definition(): ModelDefinition {
   return {
@@ -79,12 +79,12 @@ describe("Model Definition v1 timeRanges Oracle", () => {
     })).toContain("DUPLICATE_TIME_RANGE_BINDING");
   });
 
-  it("keeps Calendar Capability bindings authoritative instead of accepting duplicate Event declarations", () => {
-    const event = structuredClone(EVENT_MODEL_DEFINITION) as ModelDefinition;
-    event.timeRanges = {
+  it("keeps legacy Calendar scalar-pair bindings authoritative for historical definitions", () => {
+    const legacy = structuredClone(LEGACY_CALENDAR_MODEL_DEFINITION) as ModelDefinition;
+    legacy.timeRanges = {
       duplicateTimed: { startField: "startAt", endField: "endAt", bounds: "[)" },
     };
-    expect(issueCodes(event)).toContain("CAPABILITY_TIME_RANGE_COLLISION");
+    expect(issueCodes(legacy)).toContain("CAPABILITY_TIME_RANGE_COLLISION");
   });
 
   it("classifies any published time-range semantic change as breaking", () => {
