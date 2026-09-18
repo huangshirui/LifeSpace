@@ -37,7 +37,7 @@ const RELEASE_HISTORY = Object.freeze({
   task: Object.freeze({ previousVersion: 6, previousHash: "1fdfb9eb954382f3509cdca14431a7235cb1a954b8a6d425670a4150c8402837", previousRoute: "tasks", currentVersion: 7 }),
   wish: Object.freeze({ previousVersion: 6, previousHash: "4d34e89df332b9b2c34549699e4210a3166db6eaddabe0ac59de5d4770c206c3", previousRoute: "wishes", currentVersion: 7 }),
   day_record: Object.freeze({ previousVersion: 3, previousHash: "7793d9959277e45d9af52c6c71820040034f9c84ee487d8f0e6b00320e5c10aa", previousRoute: "day-records", currentVersion: 4 }),
-  event: Object.freeze({ previousVersion: 4, previousHash: "66832c4dae9fd9f99b1f4f49cfdb53e7c91a55512c0b3cf8b8cddaee2111f6c4", previousRoute: "events", currentVersion: 5 }),
+  event: Object.freeze({ previousVersion: 4, previousHash: "66832c4dae9fd9f99b1f4f49cfdb53e7c91a55512c0b3cf8b8cddaee2111f6c4", previousRoute: "events", currentVersion: 6 }),
 });
 
 describe("canonical baseline Model Catalog", () => {

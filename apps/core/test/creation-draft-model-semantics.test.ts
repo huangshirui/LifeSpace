@@ -20,7 +20,7 @@ const releaseFingerprint = Object.freeze({
   task: Object.freeze({ version: 7, schemaHash: "e79798bcadefad021ca86c1577c3fa3bc8fd0627f46557193aeca9b62acabb8e" }),
   wish: Object.freeze({ version: 7, schemaHash: "7dc6c079916a967c8bcd93f8cbe082c98157ceaeb30ce782ef3f2eb035d370df" }),
   day_record: Object.freeze({ version: 4, schemaHash: "9297a2f87fdd0718bfb74a362a0c451cf25309f4975099772f76e8a485fd0852" }),
-  event: Object.freeze({ version: 5, schemaHash: "35106ecb38a7d33cee083b285a62001d64234d0a86890b8a51094e1dd3b58e8f" }),
+  event: Object.freeze({ version: 6, schemaHash: "be9bdea442a30108a22a2da77a96ab23aba5122ec3c2b1de20a6312cebb0cc8a" }),
 });
 
 function published(definition: ModelDefinition): PublishedModel {
@@ -76,7 +76,8 @@ describe("Creation Draft baseline model semantics", () => {
     expect(taskFields.get("dueDate")?.description).toContain("deadline");
 
     const eventFields = new Map(byKey.get("event")?.fields.map((field) => [field.key, field]));
-    expect(eventFields.get("startAt")?.description).toContain("timed occurrence");
+    expect(eventFields.get("when")?.description).toContain("date variant");
+    expect(eventFields.get("when")?.description).toContain("instant variant");
 
     const dayFields = new Map(byKey.get("day_record")?.fields.map((field) => [field.key, field]));
     expect(dayFields.get("anchorDate")?.description).toContain("anchors");

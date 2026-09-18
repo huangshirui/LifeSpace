@@ -247,13 +247,7 @@ describe("Runtime discovery", () => {
     ]);
     const accessToken = await token(privateKey, "user", userId, clientId, ["resources:read", "resources:write"]);
     const expectedCalendar = {
-      allDayField: "isAllDay",
-      timedStartField: "startAt",
-      timedEndField: "endAt",
-      startTimezoneField: "startTimezone",
-      endTimezoneField: "endTimezone",
-      allDayStartField: "startDate",
-      allDayEndExclusiveField: "endDateExclusive",
+      rangeField: "when",
       attendeePersonField: "attendeePersonIds",
     };
 

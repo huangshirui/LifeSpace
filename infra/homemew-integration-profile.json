@@ -40,7 +40,7 @@
     "event": "write"
   },
   "contracts": {
-    "coreKernel": "0.35.0",
+    "coreKernel": "0.36.0",
     "identity": "0.6.0",
     "integrationEventing": "0.1.0",
     "modelSemantics": {

@@ -200,11 +200,11 @@ try {
     bearer: managerBearer,
     body: {
       summary: `Staging disabled subscriber ${suffix}`,
-      isAllDay: false,
-      startAt: start.toISOString(),
-      endAt: end.toISOString(),
-      startTimezone: "UTC",
-      endTimezone: "UTC",
+      when: {
+        kind: "instant",
+        start: start.toISOString(),
+        endExclusive: end.toISOString(),
+      },
       attendeePersonIds: [personId],
     },
   });

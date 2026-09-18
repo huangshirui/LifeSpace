@@ -212,7 +212,7 @@ ALOHA may reuse a LifeSpace capability-retrieval component from `lifespace-adapt
 
 n8n UI, HomeMew UI, ALOHA UI and generated UI own renderer decisions.
 
-LifeSpace may expose reusable semantic facts that inform presentation, for example `calendar.timedStartField`. It does not prescribe:
+LifeSpace may expose reusable semantic facts that inform presentation, for example canonical `calendar.rangeField` (or legacy split-field roles when inspecting a historical model version). It does not prescribe:
 
 - widget type;
 - layout sections;

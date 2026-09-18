@@ -387,11 +387,11 @@ try {
     bearer: managerBearer,
     body: {
       summary: `Staging Eventing ${suffix}`,
-      isAllDay: false,
-      startAt: start.toISOString(),
-      endAt: end.toISOString(),
-      startTimezone: "UTC",
-      endTimezone: "UTC",
+      when: {
+        kind: "instant",
+        start: start.toISOString(),
+        endExclusive: end.toISOString(),
+      },
       attendeePersonIds: [personId],
     },
   });
@@ -523,4 +523,3 @@ if (primaryError) {
 if (cleanupErrors.length) throw new Error(`Staging Eventing smoke cleanup failed: ${cleanupErrors.join(" | ")}`);
 
 console.log(JSON.stringify({ ...verification, cleanup: { temporaryCustomDomainDetached: true, temporarySinkDeleted: true, subscriberDisabled: true, applicationScopeRestored: true } }, null, 2));
-

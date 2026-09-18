@@ -27,12 +27,18 @@ type FieldLike = {
   type: string;
 };
 
-type CalendarBindingLike = {
+type LegacyCalendarBindingLike = {
   timedStartField: string;
   timedEndField: string;
   allDayStartField: string;
   allDayEndExclusiveField: string;
 };
+
+type CanonicalCalendarBindingLike = {
+  rangeField: string;
+};
+
+type CalendarBindingLike = LegacyCalendarBindingLike | CanonicalCalendarBindingLike;
 
 type TimeRangeSemanticInput = {
   fields: Record<string, FieldLike>;
@@ -54,6 +60,10 @@ export type TimeRangeSemantic = {
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function isLegacyCalendarBinding(calendar: CalendarBindingLike): calendar is LegacyCalendarBindingLike {
+  return "timedStartField" in calendar;
 }
 
 function issue(
@@ -177,7 +187,9 @@ export function validateCalendarTimeRangeCollisions(
   timeRanges: TimeRangeDefinitions | undefined,
   calendar: CalendarBindingLike | undefined,
 ): TimeRangeValidationIssue[] {
-  if (!timeRanges || !calendar) return [];
+  // Canonical Calendar binds one temporal_range value; scalar-pair timeRanges
+  // cannot collide with that representation.
+  if (!timeRanges || !calendar || !isLegacyCalendarBinding(calendar)) return [];
   const ownedPairs = new Map([
     [pairKey(calendar.timedStartField, calendar.timedEndField), "Calendar timed range"],
     [pairKey(calendar.allDayStartField, calendar.allDayEndExclusiveField), "Calendar all-day range"],
@@ -208,7 +220,9 @@ export function projectTimeRangeSemantics(definition: TimeRangeSemanticInput): T
   }));
 
   const calendar = definition.capabilities?.calendar;
-  if (calendar) {
+  // Canonical Calendar's range is already projected as a first-class
+  // temporal_range field. Do not synthesize legacy scalar-pair semantics.
+  if (calendar && isLegacyCalendarBinding(calendar)) {
     projected.push(
       {
         key: "calendar.timed",

@@ -82,18 +82,37 @@ try {
     method: "POST",
     body: {
       summary: `Staging event ${marker}`,
-      isAllDay: false,
-      startAt: start.toISOString(),
-      endAt: end.toISOString(),
-      startTimezone: "UTC",
-      endTimezone: "UTC",
+      when: {
+        kind: "instant",
+        start: start.toISOString(),
+        endExclusive: end.toISOString(),
+      },
       attendeePersonIds: [personId],
     },
   }, 201);
   cleanup.push({ modelKey: "event", id: event.id, version: event.version });
-  if (event.status !== "active" || event.isAllDay !== false) throw new Error(`Event Calendar/default mismatch: ${JSON.stringify(event)}`);
-  const events = await expectData(`/api/v1/spaces/${spaceId}/models/event/records?rangeStart=${encodeURIComponent(new Date(start.getTime() - 60_000).toISOString())}&rangeEnd=${encodeURIComponent(new Date(end.getTime() + 60_000).toISOString())}&limit=20`);
-  if (!Array.isArray(events?.items) || !events.items.some((item) => item.id === event.id)) throw new Error(`Calendar overlap query did not return the created Event: ${JSON.stringify(events)}`);
+  if (event.status !== "active"
+      || event.when?.kind !== "instant"
+      || event.when?.start !== start.toISOString()
+      || event.when?.endExclusive !== end.toISOString()) {
+    throw new Error(`Event TemporalRange/default mismatch: ${JSON.stringify(event)}`);
+  }
+  const events = await expectData(`/api/v1/spaces/${spaceId}/models/event/records/query`, {
+    method: "POST",
+    body: {
+      filter: {
+        field: "when",
+        op: "overlaps",
+        value: {
+          kind: "instant",
+          start: new Date(start.getTime() - 60_000).toISOString(),
+          endExclusive: new Date(end.getTime() + 60_000).toISOString(),
+        },
+      },
+      page: { limit: 20 },
+    },
+  });
+  if (!Array.isArray(events?.items) || !events.items.some((item) => item.id === event.id)) throw new Error(`Canonical TemporalRange overlap query did not return the created Event: ${JSON.stringify(events)}`);
 
   const anchor = addDays(today, -1);
   const day = await expectData(`/api/v1/spaces/${spaceId}/models/day_record/records`, {
@@ -165,7 +184,7 @@ try {
     ok: true,
     marker,
     task: { id: task.id, workflow: "complete/reopen" },
-    event: { id: event.id, calendarOverlap: true },
+    event: { id: event.id, temporalRange: true, canonicalOverlapQuery: true },
     dayRecord: { id: day.id, temporalOccurrence: true },
     wish: {
       id: wish.id,

@@ -24,11 +24,12 @@ const REQUIRED_TYPED_COLUMNS = new Map([
   ["mdl_task", ["record_id", "space_id", "completedAt", "completedById", "completedByType", "description", "dueDate", "name", "status"]],
   ["mdl_wish", ["record_id", "space_id", "description", "desiredDate", "fulfilledAt", "status", "title"]],
   ["mdl_day_record", ["record_id", "space_id", "anchorDate", "attentionAfterDays", "attentionBeforeDays", "cycleDays", "description", "icon", "kind", "name", "status"]],
-  ["mdl_event", ["record_id", "space_id", "description", "endAt", "endDateExclusive", "endTimezone", "isAllDay", "location", "startAt", "startDate", "startTimezone", "status", "summary"]],
+  ["mdl_event", ["record_id", "space_id", "summary", "description", "location", "__tr_when_kind", "__tr_when_start", "__tr_when_end", "status"]],
 ]);
 
 const FORBIDDEN_TYPED_COLUMNS = new Map([
   ["mdl_wish", ["archivedFromStatus", "claimedAt"]],
+  ["mdl_event", ["isAllDay", "startAt", "endAt", "startTimezone", "endTimezone", "startDate", "endDateExclusive"]],
 ]);
 
 const MODEL_TABLES = new Map([

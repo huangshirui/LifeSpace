@@ -86,8 +86,9 @@ DESIGN RULES
 REGISTERED CAPABILITIES
 Temporal is only for elapsed/countdown/cycle semantics. Its config maps declared fields using:
 { kindField, anchorDateField, cycleDaysField, attentionBeforeDaysField, attentionAfterDaysField, statusField, optional subjectPersonField, optional occurrences:true }.
-Calendar is only for timed/all-day calendar interval semantics. Its config maps:
-{ allDayField, timedStartField, timedEndField, startTimezoneField, endTimezoneField, allDayStartField, allDayEndExclusiveField, optional attendeePersonField }.
+Calendar is only for timed/all-day calendar interval semantics. New/current models map one declared temporal_range field using:
+{ rangeField, optional attendeePersonField }.
+The legacy seven split Calendar fields are historical compatibility syntax and must not be proposed for new/current models.
 Do not invent any other capability key.
 
 UPDATES

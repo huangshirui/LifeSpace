@@ -3,7 +3,8 @@ import { describe, expect, it } from "vitest";
 import type { Bindings, Principal } from "../src/env";
 import { createGenericResource } from "../src/generic-resource";
 import { queryCalendarResources } from "../src/calendar-query";
-import { getPublishedModel } from "../src/model-registry";
+import type { PublishedModel } from "../src/model-registry";
+import { LEGACY_CALENDAR_MODEL, ensureLegacyCalendarStorage } from "./legacy-calendar-fixture";
 
 type TestEnv = { DB: D1Database };
 
@@ -21,6 +22,7 @@ const actor: Principal = {
 
 async function fixture() {
   const db = (env as unknown as TestEnv).DB;
+  await ensureLegacyCalendarStorage(db);
   const suffix = crypto.randomUUID().replaceAll("-", "");
   const spaceId = `spc_${suffix}`;
   const personId = `per_${suffix}`;
@@ -31,14 +33,12 @@ async function fixture() {
     db.prepare(`INSERT INTO space_people(id,space_id,linked_user_id,display_name,created_at,updated_at)
       VALUES(?,?,?,?,?,?)`).bind(personId, spaceId, actor.id, "Calendar Viewer", now, now),
   ]);
-  const model = await getPublishedModel(bindings(), "event");
-  if (!model) throw new Error("bootstrap Event model is missing");
-  return { db, spaceId, personId, model };
+  return { db, spaceId, personId, model: LEGACY_CALENDAR_MODEL };
 }
 
 async function timed(
   spaceId: string,
-  model: Awaited<ReturnType<typeof getPublishedModel>> & {},
+  model: PublishedModel,
   summary: string,
   startAt: string,
   endAt: string,
@@ -58,7 +58,7 @@ async function timed(
 
 async function allDay(
   spaceId: string,
-  model: Awaited<ReturnType<typeof getPublishedModel>> & {},
+  model: PublishedModel,
   summary: string,
   startDate: string,
   endDateExclusive: string,
