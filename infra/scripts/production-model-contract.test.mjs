@@ -53,6 +53,17 @@ test("production release readiness blocks mutation until accepted application se
   assert.ok(readinessIndex < migrationIndex, "release readiness must fail closed before any production Core migration");
 });
 
+test("accepted HomeMew profile is promoted to the current production proving semantics", () => {
+  const accepted = acceptedHomeMewModelSemantics(profile);
+  const current = assertHomeMewModelSemanticCompatibility(
+    profile,
+    PRODUCTION_PROVING_MODELS.map((model) => ({ key: model.key, schemaHash: model.hash })),
+    "current production proving semantics",
+  );
+  assert.equal(current.fingerprint, accepted.fingerprint);
+  assert.equal(accepted.fingerprint, "msf_6dab6ba5b88da89eb608960a5e23feaf7dd0aec4d8f6a0db1defe7ab2a370b22");
+});
+
 test("different environment-local model versions preserve one HomeMew semantic fingerprint", () => {
   const accepted = acceptedHomeMewModelSemantics(profile);
   assert.equal(accepted.fingerprint, "msf_6dab6ba5b88da89eb608960a5e23feaf7dd0aec4d8f6a0db1defe7ab2a370b22");
