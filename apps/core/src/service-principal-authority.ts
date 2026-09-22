@@ -2,7 +2,7 @@ import type { Bindings } from "./env";
 
 export type ServicePrincipalAuthority =
   | { active: false }
-  | { active: true; displayName: string };
+  | { active: true; displayName?: string };
 
 export async function servicePrincipalAuthority(env: Bindings, principalId: string): Promise<ServicePrincipalAuthority> {
   if (!env.IDENTITY || !env.CORE_IDENTITY_SHARED_SECRET) {
@@ -27,10 +27,10 @@ export async function servicePrincipalAuthority(env: Bindings, principalId: stri
     throw new Error("Identity service principal introspection returned an invalid response");
   }
   if (!payload.data.active) return { active: false };
-  if (typeof payload.data.displayName !== "string" || !payload.data.displayName.trim()) {
-    throw new Error("Identity service principal introspection omitted the display name");
-  }
-  return { active: true, displayName: payload.data.displayName.trim() };
+  const displayName = typeof payload.data.displayName === "string" && payload.data.displayName.trim()
+    ? payload.data.displayName.trim()
+    : undefined;
+  return { active: true, ...(displayName ? { displayName } : {}) };
 }
 
 export async function servicePrincipalIsActive(env: Bindings, principalId: string): Promise<boolean> {
