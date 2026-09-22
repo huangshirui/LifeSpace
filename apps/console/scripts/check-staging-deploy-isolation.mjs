@@ -15,6 +15,11 @@ for (const token of workflowRequired) {
   if (!workflowSource.includes(token)) throw new Error(`${workflowPath} must include ${token}`);
 }
 
+const pinnedCheckoutCount = (workflowSource.match(/ref: \$\{\{ github\.sha \}\}/gu) ?? []).length;
+if (pinnedCheckoutCount !== 2) {
+  throw new Error(`${workflowPath} must pin both deploy and acceptance checkouts to github.sha`);
+}
+
 const workflowForbidden = [
   ["automatic push execution", /^\s*push:\s*$/mu],
   ["pull-request-triggered execution", /^\s*pull_request(?:_target)?:\s*$/mu],
