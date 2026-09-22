@@ -220,6 +220,20 @@ describe("Agent-ready Authority + Change", () => {
       versionAfter: 1,
     });
 
+    const legacyChangeId = secondPage.items[0].id;
+    await (env as unknown as TestEnv).DB.prepare(
+      "UPDATE resource_changes SET field_changes_json=NULL WHERE id=?",
+    ).bind(legacyChangeId).run();
+    const legacyDetailResponse = await request(
+      `/api/v1/spaces/${spaceId}/changes/by-id/${legacyChangeId}`,
+      { headers: { authorization: `Bearer ${delegated}` } },
+      publicKey,
+    );
+    expect(legacyDetailResponse.status).toBe(200);
+    const legacyDetail = await jsonData(legacyDetailResponse);
+    expect(legacyDetail.detailAvailable).toBe(false);
+    expect(legacyDetail.fieldChanges).toBeNull();
+
     const wrongRecordCursor = await request(
       `/api/v1/spaces/${spaceId}/changes?recordId=rec_other&cursor=${encodeURIComponent(firstPage.nextCursor)}`,
       { headers: { authorization: `Bearer ${delegated}` } },
