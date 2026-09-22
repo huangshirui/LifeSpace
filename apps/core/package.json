@@ -14,7 +14,8 @@
     "db:migrate:local": "wrangler d1 migrations apply DB --local",
     "db:migrate:staging": "wrangler d1 migrations apply DB --remote --env staging",
     "db:migrate:production": "wrangler d1 migrations apply DB --remote --env production",
-    "stable-contract:baseline": "node scripts/check-stable-contract-compatibility.mjs --write"
+    "stable-contract:baseline": "node scripts/check-stable-contract-compatibility.mjs --write",
+    "stable-contract:baseline:print": "node scripts/check-stable-contract-compatibility.mjs --print-accepted"
   },
   "dependencies": {
     "hono": "^4.10.0"
