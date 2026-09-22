@@ -66,7 +66,7 @@ test("canonical staging deploy executes ALOHA M4 verifier after ephemeral user a
 
 test("production ALOHA preparation consumes the same M4 profile without bypassing Core governance", () => {
   assert.match(productionPrepare, /aloha-integration-profile\.json/u);
-  assert.match(productionPrepare, /application\.allowedUserScopes/u);
+  assert.match(productionPrepare, /applicationProfile\.allowedUserScopes/u);
   assert.match(productionPrepare, /coreAuthority\.m4ModelAccess/u);
   assert.match(productionPrepare, /coreAuthority\.m4DelegationModels/u);
   assert.match(productionPrepare, /resources:read/u);
