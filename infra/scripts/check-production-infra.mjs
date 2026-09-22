@@ -90,7 +90,7 @@ requireTokens("Production deployment workflow", productionDeploy, [
   "confirmation:",
   "DEPLOY_PRODUCTION",
   "group: lifespace-production-change",
-  "uses: ./.github/workflows/apac-performance-gate.yml",
+  "apac_performance:",
   "needs: apac_performance",
   "LIFESPACE_PRODUCTION_BOOTSTRAP_SECRET",
   "ref: ${{ github.sha }}",
@@ -135,9 +135,11 @@ if (!stagingDeploy.includes("group: lifespace-staging-deploy") || !stagingProvis
   throw new Error("Staging deploy and provision workflows must share one concurrency lock");
 }
 
-const apacGate = readFileSync(resolve(ROOT, ".github/workflows/apac-performance-gate.yml"), "utf8");
-requireTokens("APAC performance gate workflow", apacGate, [
-  "workflow_call:",
+requireTokens("Production APAC prerequisite job", productionDeploy, [
+  "apac_performance:",
+  "needs: validate",
+  "group: lifespace-staging-apac-performance",
+  "environment: staging",
   "ref: ${{ github.sha }}",
   "APAC checkout does not match workflow candidate SHA",
   "node infra/scripts/staging-expectations.mjs",
