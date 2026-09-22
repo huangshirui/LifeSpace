@@ -13,6 +13,14 @@ describe("Time Semantics", () => {
     expect(() => normalizeRfc3339Instant("2026-09-20T10:00:00")).toThrow("absolute RFC 3339");
   });
 
+  it("canonicalizes accepted IANA casing and aliases using the runtime timezone database", () => {
+    expect(assertIanaTimezone(" asia/shanghai ")).toBe("Asia/Shanghai");
+    expect(assertIanaTimezone("US/Eastern")).toBe(
+      new Intl.DateTimeFormat("en-US", { timeZone: "US/Eastern" }).resolvedOptions().timeZone,
+    );
+    expect(assertIanaTimezone("Etc/UTC")).toBe(assertIanaTimezone("UTC"));
+  });
+
   it("converts an ordinary Shanghai local date window to an instant range", () => {
     expect(localDateWindowToInstantRange({
       dateStart: "2026-09-10",
