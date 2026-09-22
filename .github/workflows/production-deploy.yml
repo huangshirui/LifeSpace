@@ -320,7 +320,7 @@ jobs:
 
           - Ref: \`${GITHUB_REF}\`
           - SHA: \`${GITHUB_SHA}\`
-          - APAC performance gate run: \`${{ inputs.apac_gate_run_id }}\` (same SHA, successful, <=24h old)
+          - APAC performance gate: passed automatically for this exact candidate SHA before production mutation
           - Core: schema v${LIFESPACE_EXPECTED_CORE_SCHEMA_VERSION} / Kernel contract ${LIFESPACE_EXPECTED_CORE_CONTRACT_VERSION}
           - Identity: schema v${LIFESPACE_EXPECTED_IDENTITY_SCHEMA_VERSION} / contract ${LIFESPACE_EXPECTED_IDENTITY_CONTRACT_VERSION}
           - Production active Model Contract consistency: passed
