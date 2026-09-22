@@ -60,6 +60,7 @@ function identityBinding(
   scopes: string[],
   state: IdentityState = "active",
   calls: IdentityCall[] = [],
+  displayName: string | null = "Home n8n",
 ): Fetcher {
   return {
     fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -75,12 +76,27 @@ function identityBinding(
       if (state === "unavailable") return new Response("unavailable", { status: 503 });
 
       if (request.url.endsWith(`/introspection/v1/service-principals/${principalId}`)) {
-        return Response.json({ data: state === "active" ? { active: true, displayName: "Home n8n" } : { active: false } });
+        return Response.json({
+          data: state === "active"
+            ? { active: true, ...(displayName ? { displayName } : {}) }
+            : { active: false },
+        });
       }
       if (request.url.endsWith("/introspection/v1/service-tokens")) {
         return Response.json({
           data: state === "active"
-            ? { active: true, audience: "lifespace-core", principal: { type: "service", id: principalId, displayName: "Home n8n", clientId: "homemew-external", scopes, tokenId: "sat_test" } }
+            ? {
+                active: true,
+                audience: "lifespace-core",
+                principal: {
+                  type: "service",
+                  id: principalId,
+                  ...(displayName ? { displayName } : {}),
+                  clientId: "homemew-external",
+                  scopes,
+                  tokenId: "sat_test",
+                },
+              }
             : { active: false },
         });
       }
@@ -262,6 +278,26 @@ describe("Core service authentication", () => {
       identityBinding(principalId, ["spaces:read"], "unavailable"),
     );
     expect(unavailable.status).toBe(401);
+  });
+
+  it("keeps service authentication compatible during Core-first rollout when older Identity omits displayName", async () => {
+    const { privateKey, publicKey } = await keys();
+    const home = await createSpace(privateKey, publicKey, "Rollout Home");
+    const principalId = `svc_${crypto.randomUUID().replaceAll("-", "")}`;
+    await grantSpaceRead(home, principalId, publicKey);
+    const legacyIdentity = identityBinding(principalId, ["spaces:read"], "active", [], null);
+
+    const opaque = await request(
+      `/api/v1/spaces/${home.spaceId}`,
+      "lsp_pat_legacy_identity_token_that_is_long_enough_for_auth",
+      publicKey,
+      legacyIdentity,
+    );
+    expect(opaque.status).toBe(200);
+
+    const jwt = await serviceJwt(privateKey, principalId);
+    const jwtResponse = await request(`/api/v1/spaces/${home.spaceId}`, jwt, publicKey, legacyIdentity);
+    expect(jwtResponse.status).toBe(200);
   });
 
   it("does not add a Service Principal eligibility read to ordinary user JWT requests", async () => {
