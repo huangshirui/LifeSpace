@@ -29,6 +29,7 @@ jobs:
         run: |
           set -euo pipefail
           test "${{ inputs.confirmation }}" = "PROVISION_PRODUCTION" || { echo "confirmation must be PROVISION_PRODUCTION" >&2; exit 1; }
+          test "$GITHUB_REF_NAME" = "main" || { echo "production provisioning must run from main" >&2; exit 1; }
 
       - name: Checkout
         uses: actions/checkout@v4
