@@ -1,5 +1,6 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import { gzipSync } from "node:zlib";
 import {
   buildStablePublicSchemaBaseline,
   compareStablePublicBaselines,
@@ -30,9 +31,8 @@ let accepted;
 try {
   accepted = JSON.parse(await readFile(acceptedPath, "utf8"));
 } catch (error) {
-  console.error("[stable-schema] GENERATED_BASELINE_BEGIN");
-  console.error(JSON.stringify(current, null, 2));
-  console.error("[stable-schema] GENERATED_BASELINE_END");
+  const generated = Buffer.from(`${JSON.stringify(current, null, 2)}\n`, "utf8");
+  console.error(`[stable-schema] GENERATED_BASELINE_GZIP_BASE64=${gzipSync(generated, { level: 9 }).toString("base64")}`);
   throw new Error(`[stable-schema] accepted baseline is missing or invalid; run pnpm --filter @lifespace/core stable-contract:baseline after review: ${error instanceof Error ? error.message : String(error)}`);
 }
 
