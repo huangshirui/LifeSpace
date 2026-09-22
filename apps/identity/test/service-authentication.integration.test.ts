@@ -104,7 +104,7 @@ describe("Identity service authentication", () => {
       headers: { authorization: `Bearer ${createdBody.data.token}`, "x-lifespace-internal-secret": b.CORE_IDENTITY_SHARED_SECRET },
     }, b);
     expect(introspected.status).toBe(200);
-    expect(await introspected.json()).toMatchObject({ data: { active: true, audience: "lifespace-core", principal: { type: "service", id: principalId, scopes: ["events:read", "events:write"] } } });
+    expect(await introspected.json()).toMatchObject({ data: { active: true, audience: "lifespace-core", principal: { type: "service", id: principalId, displayName: "Home n8n", scopes: ["events:read", "events:write"] } } });
     expect(await waitForLastUsedAt(b.DB, "service_api_tokens", createdBody.data.id)).not.toBeNull();
 
     const reduced = await app.request(`http://identity.test/api/v1/service-principals/${principalId}/tokens/${createdBody.data.id}`, {
@@ -118,7 +118,7 @@ describe("Identity service authentication", () => {
       method: "POST",
       headers: { authorization: `Bearer ${createdBody.data.token}`, "x-lifespace-internal-secret": b.CORE_IDENTITY_SHARED_SECRET },
     }, b);
-    expect(await reducedIntrospection.json()).toMatchObject({ data: { active: true, principal: { scopes: ["events:read"] } } });
+    expect(await reducedIntrospection.json()).toMatchObject({ data: { active: true, principal: { displayName: "Home n8n", scopes: ["events:read"] } } });
 
     const revoked = await app.request(`http://identity.test/api/v1/service-principals/${principalId}/tokens/${createdBody.data.id}`, {
       method: "DELETE",
