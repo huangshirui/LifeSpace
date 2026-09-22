@@ -1,4 +1,4 @@
-name: Provision LifeSpace Console staging
+name: Converge LifeSpace staging control plane
 
 on:
   workflow_dispatch:
