@@ -236,7 +236,7 @@
           "id": "core-change-history",
           "maturity": "candidate",
           "visibility": "public",
-          "operationPattern": "^GET /api/v1/spaces/\\{spaceId\\}/changes(?:/\\{recordId\\})?$"
+          "operationPattern": "^GET /api/v1/spaces/\\{spaceId\\}/changes$|^GET /api/v1/spaces/\\{spaceId\\}/changes/\\{recordId\\}$|^GET /api/v1/spaces/\\{spaceId\\}/changes/by-id/\\{changeId\\}$"
         },
         {
           "id": "core-creation-drafts",
