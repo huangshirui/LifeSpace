@@ -62,7 +62,7 @@ export async function verifyAccessToken(rawToken: string, publicKey: string): Pr
   }
 }
 
-async function requireCurrentServicePrincipal(env: Bindings, principalId: string): Promise<string> {
+async function requireCurrentServicePrincipal(env: Bindings, principalId: string): Promise<string | undefined> {
   if (!env.IDENTITY || !env.CORE_IDENTITY_SHARED_SECRET) {
     throw notConfigured("Identity service principal introspection binding is not configured");
   }
@@ -101,8 +101,7 @@ export async function introspectServiceToken(rawToken: string, env: Bindings): P
     || !principal
     || principal.type !== "service"
     || typeof principal.id !== "string"
-    || typeof principal.displayName !== "string"
-    || !principal.displayName.trim()
+    || (principal.displayName !== undefined && (typeof principal.displayName !== "string" || !principal.displayName.trim()))
     || typeof principal.clientId !== "string"
     || typeof principal.tokenId !== "string"
     || !Array.isArray(principal.scopes)
@@ -111,7 +110,9 @@ export async function introspectServiceToken(rawToken: string, env: Bindings): P
   return {
     type: "service",
     id: principal.id,
-    displayName: principal.displayName.trim(),
+    ...(typeof principal.displayName === "string" && principal.displayName.trim()
+      ? { displayName: principal.displayName.trim() }
+      : {}),
     clientId: principal.clientId,
     scopes: [...principal.scopes],
     tokenId: principal.tokenId,
@@ -131,7 +132,8 @@ export function authenticate(): MiddlewareHandler<AppEnv> {
     } else if (context.env.IDENTITY_PUBLIC_KEY) {
       principal = await verifyAccessToken(rawToken, context.env.IDENTITY_PUBLIC_KEY);
       if (principal.type === "service") {
-        principal = { ...principal, displayName: await requireCurrentServicePrincipal(context.env, principal.id) };
+        const displayName = await requireCurrentServicePrincipal(context.env, principal.id);
+        principal = { ...principal, ...(displayName ? { displayName } : {}) };
       }
     } else {
       throw notConfigured("Identity public verification key is not configured");
