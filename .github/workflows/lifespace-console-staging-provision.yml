@@ -37,6 +37,8 @@ jobs:
     steps:
       - name: Checkout LifeSpace
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
 
       - name: Report provisioning started
         continue-on-error: true
