@@ -6,14 +6,16 @@
   "scripts": {
     "dev": "wrangler dev",
     "bindings:check": "wrangler types src/worker-configuration.d.ts --env-interface CloudflareBindings --include-runtime false --check",
-    "contract": "node scripts/check-openapi.mjs && node scripts/check-model-control-plane-openapi.mjs && node scripts/check-integration-eventing-openapi.mjs && node scripts/check-platform-admin-openapi.mjs",
+    "contract": "node scripts/check-openapi.mjs && node scripts/check-model-control-plane-openapi.mjs && node scripts/check-integration-eventing-openapi.mjs && node scripts/check-platform-admin-openapi.mjs && node scripts/check-stable-contract-compatibility.mjs",
     "test": "vitest run --passWithNoTests && node --test scripts/*.test.mjs",
     "typecheck": "tsc --noEmit",
     "build": "wrangler deploy --dry-run --outdir dist",
     "check": "pnpm bindings:check && pnpm contract && pnpm test && pnpm typecheck && pnpm build",
     "db:migrate:local": "wrangler d1 migrations apply DB --local",
     "db:migrate:staging": "wrangler d1 migrations apply DB --remote --env staging",
-    "db:migrate:production": "wrangler d1 migrations apply DB --remote --env production"
+    "db:migrate:production": "wrangler d1 migrations apply DB --remote --env production",
+    "stable-contract:baseline": "node scripts/check-stable-contract-compatibility.mjs --write",
+    "stable-contract:baseline:print": "node scripts/check-stable-contract-compatibility.mjs --print-accepted"
   },
   "dependencies": {
     "hono": "^4.10.0"

@@ -323,7 +323,7 @@ LifeSpace Console is different: it is a platform-operator application. Its artif
 
 ## Required checks
 
-Changes to public or control-plane API behavior should fail CI when canonical inputs, generated contracts, implementation and selected publication artifacts drift.
+Changes to public or control-plane API behavior should fail CI when canonical inputs, generated contracts, implementation and selected publication artifacts drift. Stable Public code-owned OpenAPI additionally passes a schema-aware backward-compatibility comparison against generated accepted evidence; this is intentionally narrower than the full OpenAPI sanity checks and does not apply Stable representation rules to Candidate/Experimental surfaces.
 
 Metadata-platform checks include:
 
