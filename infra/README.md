@@ -35,6 +35,7 @@ All manual deploy/provision workflows explicitly pin `actions/checkout` to the d
 
 Additional long-lived operator boundaries:
 
+- Canonical platform staging deployment also proves the candidate ALOHA M4 authority profile: trusted `web` Application, `profile:read + resources:read` scope ceiling, Task-read Application × Model Access, explicit Task-read User -> Agent Delegation, read-only Runtime Discovery/Canonical Query/Get, mutation denial and current-state Delegation revocation. The verifier uses only staging fixtures and temporary credentials; it does not provision n8n with LifeSpace credentials or touch production.
 - `Deploy LifeSpace Console staging (isolated)` is the normal Console-only staging entrypoint. Its default job does not migrate/deploy Core or Identity or use bootstrap authority; an explicit `run_control_plane_acceptance=true` adds a separate staging-only control-plane acceptance job after deployment.
 - `Converge LifeSpace staging control plane` remains a low-frequency platform/credential convergence path because it can reconcile Core/Identity, platform administrator assignment and Console executor credentials. It is not the normal Console deploy path and should shrink further with bootstrap-surface work tracked in #93.
 - `Deploy LifeSpace Console production` remains an independent guarded Console-only production rollout.
