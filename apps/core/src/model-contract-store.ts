@@ -63,7 +63,7 @@ function revisionInsert(
       JSON.stringify(snapshot.jsonSchema),
       principal.type,
       principal.id,
-      principal.id,
+      principal.displayName?.trim() || principal.id,
       createdAt,
       ...predicateArgs,
     );

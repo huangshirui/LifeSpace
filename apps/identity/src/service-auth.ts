@@ -487,11 +487,11 @@ export function registerServiceAuthenticationRoutes(app: App): void {
     if (!plaintext.startsWith(SERVICE_TOKEN_PREFIX) || plaintext.length < 40) return c.json(ok({ active: false }));
     const tokenHash = await sha256(plaintext);
     const row = await c.env.DB.prepare(`SELECT t.id tokenId,t.principal_id principalId,t.scopes,t.audience,t.expires_at expiresAt,t.revoked_at revokedAt,
-        sp.application_id applicationId,sp.max_scopes maxScopes,sp.status principalStatus,a.allowed_scopes allowedScopes,a.status applicationStatus
+        sp.application_id applicationId,sp.display_name displayName,sp.max_scopes maxScopes,sp.status principalStatus,a.allowed_scopes allowedScopes,a.status applicationStatus
       FROM service_api_tokens t JOIN service_principals sp ON sp.id=t.principal_id JOIN applications a ON a.id=sp.application_id
       WHERE t.token_hash_version=? AND t.token_hash=?`).bind(TOKEN_HASH_VERSION, tokenHash).first<{
         tokenId: string; principalId: string; scopes: string; audience: string; expiresAt: string | null; revokedAt: string | null;
-        applicationId: string; maxScopes: string; principalStatus: string; allowedScopes: string; applicationStatus: string;
+        applicationId: string; displayName: string; maxScopes: string; principalStatus: string; allowedScopes: string; applicationStatus: string;
       }>();
     if (!row || row.revokedAt || row.principalStatus !== "active" || row.applicationStatus !== "active" || row.audience !== TOKEN_AUDIENCE || (row.expiresAt && Date.parse(row.expiresAt) <= Date.now())) {
       return c.json(ok({ active: false }));
@@ -504,7 +504,7 @@ export function registerServiceAuthenticationRoutes(app: App): void {
     );
     return c.json(ok({
       active: true,
-      principal: { type: "service", id: row.principalId, clientId: row.applicationId, scopes, tokenId: row.tokenId },
+      principal: { type: "service", id: row.principalId, displayName: row.displayName, clientId: row.applicationId, scopes, tokenId: row.tokenId },
       audience: row.audience,
     }));
   });

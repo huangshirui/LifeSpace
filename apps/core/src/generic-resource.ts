@@ -69,6 +69,10 @@ function operationActor(principal: Principal) {
   return principal.actor ?? { type: principal.type, id: principal.id };
 }
 
+function principalAuditName(principal: Principal): string {
+  return principal.displayName?.trim() || principal.id;
+}
+
 function canonicalJson(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(canonicalJson);
   if (!isObject(value)) return value;
@@ -409,10 +413,10 @@ export async function createGenericResource(
       model.version,
       principal.type,
       principal.id,
-      principal.id,
+      principalAuditName(principal),
       principal.type,
       principal.id,
-      principal.id,
+      principalAuditName(principal),
       mutationToken,
       timestamp,
       timestamp,
@@ -492,7 +496,7 @@ export async function updateGenericResource(
     env.DB.prepare(`UPDATE resource_records SET
       model_version=?,updated_by_type=?,updated_by_id=?,updated_by_name_snapshot=?,version=?,updated_at=?,mutation_token=?
       WHERE id=? AND space_id=? AND model_key=? AND deleted_at IS NULL AND version=?`)
-      .bind(model.version, principal.type, principal.id, principal.id, nextVersion, timestamp, mutationToken, recordId, spaceId, model.key, expectedVersion),
+      .bind(model.version, principal.type, principal.id, principalAuditName(principal), nextVersion, timestamp, mutationToken, recordId, spaceId, model.key, expectedVersion),
     typedUpdateStatement(env, model, recordId, spaceId, data, mutationToken),
     ...relationStatements(env, recordId, spaceId, model, relations, mutationToken),
   ];

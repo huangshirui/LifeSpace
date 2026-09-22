@@ -46,7 +46,7 @@ describe("Service principal current-state introspection", () => {
 
     const active = await introspect(app, b, principalId);
     expect(active.status).toBe(200);
-    expect(await active.json()).toEqual({ data: { active: true } });
+    expect(await active.json()).toEqual({ data: { active: true, displayName: "Webhook subscriber" } });
 
     await b.DB.prepare("UPDATE service_principals SET status='disabled',disabled_at=?,updated_at=? WHERE id=?")
       .bind(new Date().toISOString(), new Date().toISOString(), principalId).run();

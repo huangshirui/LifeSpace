@@ -123,7 +123,9 @@ GET /introspection/v1/service-principals/{principalId}
 X-LifeSpace-Internal-Secret: <Core/Identity internal secret>
 ```
 
-Identity returns only whether the stable Service Principal is currently eligible. Eligibility requires both the Service Principal and its owning registered application to be active. Missing/malformed principals are ineligible.
+Identity returns current eligibility and, for an eligible principal, its Identity-owned human-readable `displayName`. Eligibility still requires both the Service Principal and its owning registered application to be active. Missing/malformed principals are ineligible. The display name is presentation/audit metadata only: Core never treats it as authority and never accepts a caller-supplied service name as a substitute for the verified `svc_*` identity.
+
+The same trusted metadata is carried by opaque Service API Token introspection. Core attaches it to the normalized service principal context and snapshots it into common audit presentation such as `createdBy.displayName` / `updatedBy.displayName` and Temporal occurrence attribution. The stable `svc_*` remains the audit identity. During a Core-first rolling deployment, an older Identity may temporarily omit this additive metadata; Core continues to authenticate the service and falls back to the stable ID until Identity is upgraded.
 
 This endpoint is a private Core↔Identity runtime boundary, not ordinary application/service client syntax. It is not exposed as a new HomeMew/ALOHA-consumable API and does not by itself change the pinned Identity Application Contract. The externally observable authority result was already part of the service-disable semantics: a disabled Service Principal must not continue receiving platform-authorized work merely because another service retains stale cleanup state.
 

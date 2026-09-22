@@ -16,7 +16,7 @@ function identityFetcher(result: "active" | "inactive" | "unavailable", calls: A
       const request = new Request(input, init);
       calls.push({ url: request.url, secret: request.headers.get("x-lifespace-internal-secret") });
       if (result === "unavailable") return new Response("unavailable", { status: 503 });
-      return Response.json({ data: { active: result === "active" } });
+      return Response.json({ data: result === "active" ? { active: true, displayName: "Webhook subscriber" } : { active: false } });
     },
   } as unknown as Fetcher;
 }
