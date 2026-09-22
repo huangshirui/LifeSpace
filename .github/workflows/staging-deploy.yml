@@ -1,4 +1,4 @@
-name: Deploy staging
+name: Deploy LifeSpace platform staging
 
 on:
   workflow_dispatch:
