@@ -30,6 +30,8 @@ Provisioning is a durable but low-frequency infrastructure operation rather than
 
 Deploy and provision operations for the same environment share a concurrency lock so they cannot mutate that environment at the same time.
 
+All manual deploy/provision workflows explicitly pin `actions/checkout` to the dispatch-time immutable `github.sha`; queued runs never follow a branch that has advanced after dispatch.
+
 
 Additional long-lived operator boundaries:
 
