@@ -1,4 +1,4 @@
-name: Deploy production
+name: Deploy LifeSpace platform production
 
 on:
   workflow_dispatch:
