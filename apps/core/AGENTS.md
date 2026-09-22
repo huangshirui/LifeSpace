@@ -161,14 +161,14 @@ Business-facing Core Kernel contract:
 
 ```text
 apps/core/openapi.yaml
-current Kernel version: 0.36.0
+current Kernel version: 0.37.0
 ```
 
 Integration/Eventing public contract (same Worker, independent lifecycle):
 
 ```text
 apps/core/integration-eventing.openapi.yaml
-current Integration/Eventing version: 0.1.0
+current Integration/Eventing version: 0.2.0
 ```
 
 Model Registry / Model Contract governance contract:
