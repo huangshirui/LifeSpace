@@ -7,6 +7,7 @@ type App = Hono<AppEnv>;
 type PrincipalStateRow = {
   principalStatus: string;
   applicationStatus: string;
+  displayName: string;
 };
 
 const ok = <T>(data: T) => ({ data });
@@ -42,15 +43,14 @@ export function registerServicePrincipalIntrospectionRoutes(app: App): void {
     const principalId = c.req.param("principalId");
     if (!/^svc_[A-Za-z0-9]+$/.test(principalId)) return c.json(ok({ active: false }));
 
-    const row = await c.env.DB.prepare(`SELECT sp.status principalStatus,a.status applicationStatus
+    const row = await c.env.DB.prepare(`SELECT sp.status principalStatus,a.status applicationStatus,sp.display_name displayName
       FROM service_principals sp
       JOIN applications a ON a.id=sp.application_id
       WHERE sp.id=?`)
       .bind(principalId)
       .first<PrincipalStateRow>();
 
-    return c.json(ok({
-      active: row?.principalStatus === "active" && row.applicationStatus === "active",
-    }));
+    const active = row?.principalStatus === "active" && row.applicationStatus === "active";
+    return c.json(ok(active ? { active: true, displayName: row.displayName } : { active: false }));
   });
 }
