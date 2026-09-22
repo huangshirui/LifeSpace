@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import process from "node:process";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { pathToFileURL } from "node:url";
 
 const CORE_DIR = new URL("../../apps/core/", import.meta.url);
 const IDENTITY_DIR = new URL("../../apps/identity/", import.meta.url);
@@ -122,7 +122,7 @@ async function main() {
   }, null, 2));
 }
 
-const invokedPath = process.argv[1] ? pathToFileURL(fileURLToPath(pathToFileURL(process.argv[1]))).href : "";
+const invokedPath = process.argv[1] ? pathToFileURL(process.argv[1]).href : "";
 if (invokedPath === import.meta.url) {
   await main();
 }
