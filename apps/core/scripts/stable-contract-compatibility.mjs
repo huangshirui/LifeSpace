@@ -180,7 +180,7 @@ function operationMap(document) {
   return result;
 }
 
-export function stablePublicOperations(classification, documentsBySource) {
+export function buildStablePublicSchemaBaseline(classification, documentsBySource) {
   const snapshots = {};
   const classifiedGroups = [];
 
