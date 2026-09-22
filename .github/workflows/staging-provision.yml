@@ -1,4 +1,4 @@
-name: Provision staging resources
+name: Provision LifeSpace platform staging resources
 
 on:
   workflow_dispatch:
