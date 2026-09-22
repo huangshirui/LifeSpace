@@ -1,6 +1,10 @@
 import type { Bindings } from "./env";
 
-export async function servicePrincipalIsActive(env: Bindings, principalId: string): Promise<boolean> {
+export type ServicePrincipalAuthority =
+  | { active: false }
+  | { active: true; displayName: string };
+
+export async function servicePrincipalAuthority(env: Bindings, principalId: string): Promise<ServicePrincipalAuthority> {
   if (!env.IDENTITY || !env.CORE_IDENTITY_SHARED_SECRET) {
     throw new Error("Identity service principal introspection is not configured");
   }
@@ -18,9 +22,17 @@ export async function servicePrincipalIsActive(env: Bindings, principalId: strin
   }
 
   if (!response.ok) throw new Error(`Identity service principal introspection returned HTTP ${response.status}`);
-  const payload = await response.json<{ data?: { active?: boolean } }>().catch(() => null);
+  const payload = await response.json<{ data?: { active?: boolean; displayName?: unknown } }>().catch(() => null);
   if (typeof payload?.data?.active !== "boolean") {
     throw new Error("Identity service principal introspection returned an invalid response");
   }
-  return payload.data.active;
+  if (!payload.data.active) return { active: false };
+  if (typeof payload.data.displayName !== "string" || !payload.data.displayName.trim()) {
+    throw new Error("Identity service principal introspection omitted the display name");
+  }
+  return { active: true, displayName: payload.data.displayName.trim() };
+}
+
+export async function servicePrincipalIsActive(env: Bindings, principalId: string): Promise<boolean> {
+  return (await servicePrincipalAuthority(env, principalId)).active;
 }
