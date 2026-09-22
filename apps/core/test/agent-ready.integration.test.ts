@@ -176,6 +176,32 @@ describe("Agent-ready Authority + Change", () => {
       versionAfter: 2,
     });
 
+    expect(firstPage.items[0].detailAvailable).toBe(true);
+    const exactChangeId = firstPage.items[0].id;
+    const detailResponse = await request(
+      `/api/v1/spaces/${spaceId}/changes/by-id/${exactChangeId}`,
+      { headers: { authorization: `Bearer ${delegated}` } },
+      publicKey,
+    );
+    expect(detailResponse.status).toBe(200);
+    const detail = await jsonData(detailResponse);
+    expect(detail).toMatchObject({
+      id: exactChangeId,
+      recordId: createdEvent.id,
+      operation: "update",
+      detailAvailable: true,
+      principal: { type: "user", id: userId },
+      actor: { type: "agent", id: agentId },
+      delegationId: delegation.id,
+    });
+    expect(detail.fieldChanges).toEqual([
+      {
+        field: "summary",
+        before: { present: true, value: "Agent-created family event" },
+        after: { present: true, value: "Agent-updated family event" },
+      },
+    ]);
+
     const secondPageResponse = await request(
       `/api/v1/spaces/${spaceId}/changes?recordId=${createdEvent.id}&limit=1&cursor=${encodeURIComponent(firstPage.nextCursor)}`,
       { headers: { authorization: `Bearer ${delegated}` } },
@@ -221,6 +247,13 @@ describe("Agent-ready Authority + Change", () => {
       headers: { authorization: `Bearer ${direct}` },
     }, publicKey);
     expect(revoked.status).toBe(204);
+
+    const detailAfterRevocation = await request(
+      `/api/v1/spaces/${spaceId}/changes/by-id/${exactChangeId}`,
+      { headers: { authorization: `Bearer ${delegated}` } },
+      publicKey,
+    );
+    expect(detailAfterRevocation.status).toBe(403);
 
     const afterRevocation = await request(`/api/v1/spaces/${spaceId}/models/event/records`, {
       method: "POST",
