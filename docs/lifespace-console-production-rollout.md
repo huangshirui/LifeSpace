@@ -1,6 +1,6 @@
 # LifeSpace Console — Production Rollout
 
-Status: **production active; permanent deployment path is manual-only**
+Status: **production active; permanent deployment path is manual-only and main-only**
 
 ## Production evidence
 
@@ -52,13 +52,13 @@ Canonical workflow:
 .github/workflows/lifespace-console-production-deploy.yml
 ```
 
-Production deployment is **manual-only** through `workflow_dispatch` and requires the typed confirmation:
+Production deployment is **manual-only** through `workflow_dispatch`, must be launched from `main`, and requires the typed confirmation:
 
 ```text
 DEPLOY_LIFESPACE_CONSOLE_PRODUCTION
 ```
 
-The temporary first-release push trigger used on 2026-08-26 has been removed from the permanent workflow. Repository guard `apps/console/scripts/check-production-deploy-isolation.mjs` rejects any future push, pull-request, scheduled or `workflow_call` trigger for this production workflow.
+The temporary first-release push trigger used on 2026-08-26 has been removed from the permanent workflow. Repository guard `apps/console/scripts/check-production-deploy-isolation.mjs` rejects any future push, pull-request, scheduled or `workflow_call` trigger and requires the manual production rollout to originate from `main`.
 
 Every rollout publishes the commit status context:
 

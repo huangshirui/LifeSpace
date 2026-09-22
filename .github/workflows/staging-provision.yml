@@ -1,4 +1,4 @@
-name: Provision staging resources
+name: Provision LifeSpace platform staging resources
 
 on:
   workflow_dispatch:
@@ -33,7 +33,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.ref_name }}
+          ref: ${{ github.sha }}
 
       - name: Report provisioning source
         run: |

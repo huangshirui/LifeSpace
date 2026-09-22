@@ -8,7 +8,6 @@ const scripts = [
   "infra/scripts/provision-production.mjs",
   "infra/scripts/production-expectations.mjs",
   "infra/scripts/check-production-release-readiness.mjs",
-  "infra/scripts/verify-production-apac-gate.mjs",
   "infra/scripts/verify-staging-candidate-identity.mjs",
   "infra/scripts/resolve-production-d1.mjs",
   "infra/scripts/ensure-production-domains.mjs",
@@ -90,13 +89,12 @@ requireTokens("Production deployment workflow", productionDeploy, [
   "environment: production",
   "confirmation:",
   "DEPLOY_PRODUCTION",
-  "apac_gate_run_id:",
-  "actions: read",
   "group: lifespace-production-change",
+  "apac_performance:",
+  "needs: apac_performance",
   "LIFESPACE_PRODUCTION_BOOTSTRAP_SECRET",
   "ref: ${{ github.sha }}",
   "production deployment must run from main",
-  "node infra/scripts/verify-production-apac-gate.mjs",
   "node infra/scripts/check-production-release-readiness.mjs",
   "db:migrate:production",
   "wrangler deploy --env production",
@@ -104,6 +102,9 @@ requireTokens("Production deployment workflow", productionDeploy, [
   "node infra/scripts/verify-production-homemew-contract.mjs",
 ]);
 forbidTokens("Production deployment workflow", productionDeploy, [
+  "apac_gate_run_id",
+  "verify-production-apac-gate",
+  "apac-performance-gate.yml",
   "phase6_bringup",
   "provision-production.mjs",
   "verify-production-homemew-auth.mjs",
@@ -116,6 +117,8 @@ requireTokens("Production provisioning workflow", productionProvision, [
   "environment: production",
   "confirmation:",
   "PROVISION_PRODUCTION",
+  "production provisioning must run from main",
+  "ref: ${{ github.sha }}",
   "group: lifespace-production-change",
   "node infra/scripts/provision-production.mjs",
 ]);
@@ -137,8 +140,11 @@ if (!stagingDeploy.includes("group: lifespace-staging-deploy") || !stagingProvis
   throw new Error("Staging deploy and provision workflows must share one concurrency lock");
 }
 
-const apacGate = readFileSync(resolve(ROOT, ".github/workflows/apac-performance-gate.yml"), "utf8");
-requireTokens("APAC performance gate workflow", apacGate, [
+requireTokens("Production APAC prerequisite job", productionDeploy, [
+  "apac_performance:",
+  "needs: validate",
+  "group: lifespace-staging-apac-performance",
+  "environment: staging",
   "ref: ${{ github.sha }}",
   "APAC checkout does not match workflow candidate SHA",
   "node infra/scripts/staging-expectations.mjs",
@@ -171,5 +177,6 @@ console.log(JSON.stringify({
   deploymentProvisioningSeparated: true,
   stagingProvisioningSeparated: true,
   productionApacGateRequired: true,
+  productionApacGateAutomatic: true,
   apacGateCandidateIdentityRequired: true,
 }, null, 2));

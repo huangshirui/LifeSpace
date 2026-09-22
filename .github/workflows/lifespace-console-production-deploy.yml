@@ -36,6 +36,8 @@ jobs:
     steps:
       - name: Checkout LifeSpace
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
 
       - name: Report rollout pending
         env:
@@ -67,6 +69,10 @@ jobs:
           set -euo pipefail
           test "$GITHUB_EVENT_NAME" = "workflow_dispatch" || {
             echo "LifeSpace Console production deployment is manual-only" >&2
+            exit 1
+          }
+          test "$GITHUB_REF_NAME" = "main" || {
+            echo "LifeSpace Console production deployment must run from main" >&2
             exit 1
           }
           test "${{ inputs.confirmation }}" = "DEPLOY_LIFESPACE_CONSOLE_PRODUCTION" || {
