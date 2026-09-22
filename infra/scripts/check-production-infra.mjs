@@ -8,7 +8,6 @@ const scripts = [
   "infra/scripts/provision-production.mjs",
   "infra/scripts/production-expectations.mjs",
   "infra/scripts/check-production-release-readiness.mjs",
-  "infra/scripts/verify-production-apac-gate.mjs",
   "infra/scripts/verify-staging-candidate-identity.mjs",
   "infra/scripts/resolve-production-d1.mjs",
   "infra/scripts/ensure-production-domains.mjs",
@@ -90,13 +89,12 @@ requireTokens("Production deployment workflow", productionDeploy, [
   "environment: production",
   "confirmation:",
   "DEPLOY_PRODUCTION",
-  "apac_gate_run_id:",
-  "actions: read",
   "group: lifespace-production-change",
+  "uses: ./.github/workflows/apac-performance-gate.yml",
+  "needs: apac_performance",
   "LIFESPACE_PRODUCTION_BOOTSTRAP_SECRET",
   "ref: ${{ github.sha }}",
   "production deployment must run from main",
-  "node infra/scripts/verify-production-apac-gate.mjs",
   "node infra/scripts/check-production-release-readiness.mjs",
   "db:migrate:production",
   "wrangler deploy --env production",
@@ -139,6 +137,7 @@ if (!stagingDeploy.includes("group: lifespace-staging-deploy") || !stagingProvis
 
 const apacGate = readFileSync(resolve(ROOT, ".github/workflows/apac-performance-gate.yml"), "utf8");
 requireTokens("APAC performance gate workflow", apacGate, [
+  "workflow_call:",
   "ref: ${{ github.sha }}",
   "APAC checkout does not match workflow candidate SHA",
   "node infra/scripts/staging-expectations.mjs",
@@ -171,5 +170,6 @@ console.log(JSON.stringify({
   deploymentProvisioningSeparated: true,
   stagingProvisioningSeparated: true,
   productionApacGateRequired: true,
+  productionApacGateAutomatic: true,
   apacGateCandidateIdentityRequired: true,
 }, null, 2));
