@@ -181,6 +181,25 @@ A household member can delegate Event/Task authority to HomeMew Agent. The Agent
 
 A user can delegate Event/Task authority in the HomeMew family Space to ALOHA. ALOHA uses the same LifeSpace capabilities directly; revoking the Delegation blocks subsequent access immediately.
 
+### Current ALOHA M4 product authority
+
+The 2026-09-01 staging scenario below was a **platform proving scenario**, not a durable ALOHA product entitlement. It intentionally exercised ALOHA with Task write authority to prove Agent mutation attribution and revocation. ALOHA's first real Runtime Tool milestone is narrower.
+
+Current ALOHA M4 candidate authority is:
+
+```text
+Application scopes     = profile:read + resources:read
+Application × Model    = task:read only
+User -> Agent Delegation = task:read only
+Agent execution scope  = resources:read only
+Runtime semantics      = Runtime Discovery -> Canonical Query / Get
+Mutation / Action      = denied; deferred to M5 Confirmation boundary
+```
+
+The ALOHA Agent Control backend is the only consumer of the short-lived delegated Agent JWT. n8n receives neither the `lsa_*` application credential nor the delegated Agent JWT. The staging Application identity is milestone-neutral; M4/M5 are authority-profile evolution, not new Application identities.
+
+This M4 LifeSpace-side gate does not claim that the separate real Cloudflare Access M3 production activation is complete. Production M3 activation remains independently gated by its own deployment evidence.
+
 ### Required deny paths
 
 - no Delegation -> no inherited user authority;

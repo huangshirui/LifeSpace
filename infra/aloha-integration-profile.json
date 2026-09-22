@@ -1,17 +1,18 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "profileVersion": 1,
+  "profileVersion": 2,
   "status": "candidate",
-  "trackingIssue": 132,
+  "trackingIssue": 162,
   "application": {
     "key": "aloha-assistant",
-    "stagingId": "app_aloha_assistant_staging",
+    "stagingId": "aloha-assistant-staging",
     "productionId": "aloha-assistant",
     "clientType": "web",
     "trustedBackend": true,
     "accessTokenTtlSeconds": 900,
     "allowedUserScopes": [
-      "profile:read"
+      "profile:read",
+      "resources:read"
     ]
   },
   "trustedBackend": {
@@ -33,17 +34,42 @@
     "applicationBinding": "same_application",
     "activeAgentCardinality": 1,
     "executionTokenPurpose": "delegated_agent",
-    "m3RequestedScopes": []
+    "m3RequestedScopes": [],
+    "m4RequestedScopes": [
+      "resources:read"
+    ]
   },
   "coreAuthority": {
     "m3ModelAccess": {},
     "m3DelegationRequired": false,
-    "futureExpansion": "Add Core model access and User -> Agent Delegation only with the first concrete Runtime Tool milestone."
+    "futureExpansion": "Mutation/action authority is deferred to ALOHA M5 and requires its Confirmation boundary; M4 remains Task read-only.",
+    "m4ModelAccess": {
+      "task": "read"
+    },
+    "m4DelegationRequired": true,
+    "m4DelegationModels": [
+      {
+        "modelKey": "task",
+        "maxAccess": "read"
+      }
+    ],
+    "m4RuntimeDiscovery": "authoritative",
+    "m4WriteAuthority": false
   },
   "contracts": {
     "identity": "0.6.0",
-    "coreKernel": null,
+    "coreKernel": "0.37.0",
     "modelContract": null,
     "pinStatus": "candidate"
+  },
+  "runtimeToolBoundary": {
+    "m4Operations": [
+      "discover",
+      "query",
+      "get"
+    ],
+    "delegatedTokenConsumer": "aloha-agent-control",
+    "n8nReceivesLifeSpaceCredential": false,
+    "n8nReceivesDelegatedAgentToken": false
   }
 }

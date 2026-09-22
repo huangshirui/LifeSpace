@@ -63,6 +63,7 @@ jobs:
         run: |
           node --check infra/scripts/verify-staging-application-admin.mjs
           node --check infra/scripts/verify-staging-homemew-integration.mjs
+          node --check infra/scripts/verify-staging-aloha-m4-read.mjs
           node --check infra/scripts/verify-staging-eventing.mjs
           node --check infra/scripts/verify-staging-eventing-principal-revocation.mjs
           node --check infra/scripts/verify-staging-creation-draft.mjs
@@ -153,6 +154,9 @@ jobs:
       - name: Verify HomeMew integration readiness boundary
         run: node infra/scripts/verify-staging-homemew-integration.mjs
 
+      - name: Verify ALOHA M4 read-only delegated authority
+        run: node infra/scripts/verify-staging-aloha-m4-read.mjs
+
       - name: Verify authenticated Kernel and Model Contract
         run: node infra/scripts/verify-staging-http.mjs
 
@@ -213,6 +217,9 @@ jobs:
           - HomeMew integration profile / app-scoped user-token boundary: passed
           - HomeMew user-token platform-admin scope exclusion: passed
           - HomeMew Application x Model Access (Task/Wish/Day Record/Event): passed
+          - ALOHA M4 profile: profile:read + resources:read only; Task Application x Model Access read; explicit Task-read Agent Delegation: passed
+          - ALOHA M4 Runtime Discovery / Canonical Query / Task read: passed; Task write / Task.complete denied; Delegation revocation rechecked with still-valid Agent token
+          - ALOHA M4 credential boundary: n8n receives neither LifeSpace application credential nor delegated Agent JWT
           - HomeMew staging candidate semantic contract bundle: reproducible, exported and uploaded; accepted downstream pin was not mutated
           - Typed model storage / legacy JSON cleanup: passed
           - D1 hot-path budgets: passed in repository validation
