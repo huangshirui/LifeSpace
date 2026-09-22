@@ -2,14 +2,14 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { assertStagingStatus } from "./verify-staging-candidate-identity.mjs";
 
-const expected = { schemaVersion: 42, contractVersion: "0.36.0" };
+const expected = { schemaVersion: 43, contractVersion: "0.37.0" };
 
 function payload(overrides = {}) {
   return {
     data: {
       environment: "staging",
-      schemaVersion: 42,
-      contractVersion: "0.36.0",
+      schemaVersion: 43,
+      contractVersion: "0.37.0",
       ...overrides,
     },
   };
@@ -18,8 +18,8 @@ function payload(overrides = {}) {
 test("accepts live staging status that matches checkout expectations", () => {
   assert.deepEqual(assertStagingStatus(payload(), expected, "Core"), {
     environment: "staging",
-    schemaVersion: 42,
-    contractVersion: "0.36.0",
+    schemaVersion: 43,
+    contractVersion: "0.37.0",
   });
 });
 
