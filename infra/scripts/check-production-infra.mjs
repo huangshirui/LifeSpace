@@ -102,6 +102,9 @@ requireTokens("Production deployment workflow", productionDeploy, [
   "node infra/scripts/verify-production-homemew-contract.mjs",
 ]);
 forbidTokens("Production deployment workflow", productionDeploy, [
+  "apac_gate_run_id",
+  "verify-production-apac-gate",
+  "apac-performance-gate.yml",
   "phase6_bringup",
   "provision-production.mjs",
   "verify-production-homemew-auth.mjs",
