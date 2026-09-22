@@ -399,6 +399,8 @@ try {
   const actionChange = taskChangesData?.items?.find?.((change) => change.operation === "action" && change.versionAfter === taskVersion);
   if (
     !actionChange
+    || actionChange.actionKey !== "complete"
+    || actionChange.detailAvailable !== true
     || actionChange.applicationId !== applicationId
     || actionChange.principal?.type !== "user"
     || actionChange.principal?.id !== userId
@@ -407,6 +409,20 @@ try {
     || actionChange.delegationId !== null
   ) {
     throw new Error(`HomeMew Task Change attribution is not explainable: ${JSON.stringify(taskChangesData)}`);
+  }
+  const actionDetail = await jsonRequest(
+    coreBase,
+    `/api/v1/spaces/${encodeURIComponent(spaceId)}/changes/by-id/${encodeURIComponent(actionChange.id)}`,
+    { bearer: userBearer },
+  );
+  const actionDetailData = expectStatus("HomeMew Task exact Change Detail", actionDetail, 200);
+  if (
+    actionDetailData?.actionKey !== "complete"
+    || actionDetailData?.detailAvailable !== true
+    || !Array.isArray(actionDetailData?.fieldChanges)
+    || !actionDetailData.fieldChanges.some((change) => change.field === "status")
+  ) {
+    throw new Error(`HomeMew Task exact Change detail is not deterministic: ${JSON.stringify(actionDetailData)}`);
   }
 
   const eventDeleted = await jsonRequest(coreBase, modelRecordsPath(spaceId, "event", eventId), {
@@ -449,6 +465,7 @@ try {
       taskSemanticAction: true,
       staleVersionDenied: true,
       governedChangeAttribution: true,
+      governedChangeExactDetail: true,
     },
     credentialMetadataRedacted: true,
     productionUntouched: true,
