@@ -8,7 +8,7 @@ import type { Bindings, Principal } from "./env";
 import type { GenericResource } from "./generic-resource";
 import { ApiError } from "./http";
 import type { PublishedModel } from "./model-registry";
-import { instantToLocalDate, localDateWindowToInstantRange, normalizeRfc3339Instant } from "./time-semantics";
+import { assertIanaTimezone, instantToLocalDate, localDateWindowToInstantRange, normalizeRfc3339Instant } from "./time-semantics";
 import {
   hydrateTypedResourceRows,
   typedScalarExpression,
@@ -281,9 +281,10 @@ async function queryViewingWindowCalendarResources(
 
   const windowStartDate = params.get("windowStartDate")!;
   const windowEndDateExclusive = params.get("windowEndDateExclusive")!;
-  const viewingTimezone = params.get("viewingTimezone")!;
+  let viewingTimezone: string;
   let instantRange: { startInclusive: string; endExclusive: string };
   try {
+    viewingTimezone = assertIanaTimezone(params.get("viewingTimezone")!);
     instantRange = localDateWindowToInstantRange({
       dateStart: windowStartDate,
       dateEndExclusive: windowEndDateExclusive,
@@ -301,7 +302,9 @@ async function queryViewingWindowCalendarResources(
   if (attendee === "me") attendee = await mePerson(env, principal, spaceId);
   const sort = semanticSort(params);
   const asc = sort.endsWith(":asc");
-  const sig = signature(params);
+  const signatureParams = new URLSearchParams(params);
+  signatureParams.set("viewingTimezone", viewingTimezone);
+  const sig = signature(signatureParams);
   const cursor = params.get("cursor") ? decodeViewing(params.get("cursor")!, model.key, sig, sort) : null;
   const pageLimit = limit(params.get("limit"));
 

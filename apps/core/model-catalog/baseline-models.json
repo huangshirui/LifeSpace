@@ -10,9 +10,9 @@
       "dueDate": { "type": "date", "title": "Due Date", "description": "The deadline date for completing the task, not a calendar time block.", "nullable": true },
       "status": { "type": "enum", "title": "Status", "description": "Current lifecycle state of the task.", "required": true, "readOnly": true, "values": ["pending", "completed", "cancelled"] },
       "assigneePersonIds": { "type": "person_list", "title": "Assignees", "description": "People responsible for completing the task." },
-      "completedAt": { "type": "datetime", "title": "Completed At", "nullable": true, "readOnly": true },
-      "completedByType": { "type": "enum", "title": "Completed By Type", "nullable": true, "readOnly": true, "values": ["user", "service", "device", "agent"] },
-      "completedById": { "type": "string", "title": "Completed By", "nullable": true, "readOnly": true, "maxLength": 100 }
+      "completedAt": { "type": "datetime", "title": "Completed At", "description": "When the task was completed, set by the authoritative completion Action.", "nullable": true, "readOnly": true },
+      "completedByType": { "type": "enum", "title": "Completed By Type", "description": "Type of Actor that completed the task, set by the authoritative completion Action.", "nullable": true, "readOnly": true, "values": ["user", "service", "device", "agent"] },
+      "completedById": { "type": "string", "title": "Completed By", "description": "Identifier of the Actor that completed the task, set by the authoritative completion Action.", "nullable": true, "readOnly": true, "maxLength": 100 }
     },
     "defaults": { "status": "pending" },
     "query": { "searchable": ["name", "description"], "filterable": ["status", "dueDate", "assigneePersonIds"], "sortable": ["dueDate", "name"] },
@@ -85,11 +85,11 @@
       "kind": { "type": "enum", "title": "Kind", "description": "Tracker mode: elapsed since anchorDate, countdown until anchorDate, or recurring cycle.", "required": true, "immutable": true, "values": ["elapsed", "countdown", "cycle"] },
       "anchorDate": { "type": "date", "title": "Anchor Date", "description": "The calendar date that anchors the elapsed, countdown, or cycle calculation.", "required": true },
       "subjectPersonId": { "type": "person", "title": "Subject", "description": "Optional person the tracked date or cycle belongs to.", "nullable": true },
-      "icon": { "type": "string", "title": "Icon", "nullable": true, "maxLength": 50 },
-      "attentionAfterDays": { "type": "integer", "title": "Attention After Days", "nullable": true, "minimum": 1 },
-      "attentionBeforeDays": { "type": "integer", "title": "Attention Before Days", "nullable": true, "minimum": 0 },
+      "icon": { "type": "string", "title": "Icon", "description": "Optional presentation icon associated with the tracked day record.", "nullable": true, "maxLength": 50 },
+      "attentionAfterDays": { "type": "integer", "title": "Attention After Days", "description": "Number of days after the anchor date when the record should enter an attention window.", "nullable": true, "minimum": 1 },
+      "attentionBeforeDays": { "type": "integer", "title": "Attention Before Days", "description": "Number of days before the anchor date when the record should enter an attention window.", "nullable": true, "minimum": 0 },
       "cycleDays": { "type": "integer", "title": "Cycle Days", "description": "Length in days for a recurring cycle.", "nullable": true, "minimum": 1 },
-      "status": { "type": "enum", "title": "Status", "required": true, "readOnly": true, "values": ["active", "archived"] }
+      "status": { "type": "enum", "title": "Status", "description": "Current lifecycle state of the day record.", "required": true, "readOnly": true, "values": ["active", "archived"] }
     },
     "query": { "searchable": ["name", "description"], "filterable": ["kind", "status", "subjectPersonId", "anchorDate"], "sortable": ["anchorDate", "name"] },
     "access": ["read", "write"],

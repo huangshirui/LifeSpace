@@ -14,24 +14,26 @@ Generated/exported artifacts are read-only handoff material. They must never bec
 
 ## HomeMew current accepted handoff
 
-The current cross-environment HomeMew release identity is:
+The machine-readable source of truth is `infra/homemew-integration-profile.json`. Its currently accepted production-ready baseline is:
 
 ```text
 Identity:                   0.6.0
-Core Kernel:                0.35.0
+Core Kernel:                0.36.0
 Integration/Eventing:       0.1.0
-Model Semantic Fingerprint: msf_27f2a733d8a40f84035e909d73d328adce6782ab83f4a7b50d78697900e5a705
+Model Semantic Fingerprint: msf_6dab6ba5b88da89eb608960a5e23feaf7dd0aec4d8f6a0db1defe7ab2a370b22
 Profile:                    infra/homemew-integration-profile.json (profileVersion 3, accepted)
 
 Accepted staging mct evidence:
-  mct_7d74f87e765bba202ab88c26c139dbac4fd2cbb56a49e6ed916046f20f917db4
+  mct_6c76d80012873f27cf23e047822e8571b37f637ef24852739bb7f773763b21d8
 ```
 
-This profile was explicitly promoted after `Deploy staging` run #88 (`35059940863`) deployed Core 0.35.0 from `091308135b339f162fcd945220f22fdd71bd44c5` and completed the staging acceptance gates. The reproducible HomeMew staging candidate from that run kept Identity 0.6.0 and Integration/Eventing 0.1.0 unchanged and proved the same `msf_27f2...` HomeMew model semantic fingerprint for `task`, `wish`, `day_record` and `event`; only the Kernel pin and environment-local immutable `mct_*` evidence advanced. This is therefore an explicit compatible release promotion rather than a HomeMew model-semantic migration.
+This accepted baseline remains immutable until an explicit staging-candidate promotion updates the profile and its content-addressed staging evidence. Repository model semantics may advance ahead of that accepted baseline: staging proves the candidate first, exports a reproducible candidate bundle, and production remains fail-closed on the accepted profile until promotion.
+
+Schema 42 is such a candidate transition: it adds semantic field descriptions to Task and Day Record without changing typed storage or ordinary CRUD behavior. The candidate hashes are Task `fed3dab27e2f51da3780e42db38dd164fefe39f7d6e7f84161a97e1a8a6d96e6` and Day Record `9dae14eeaef9311412dc910a8976cf85e7d8641792192376ed6678739fe029d1`. They are not described as accepted production semantics until staging evidence is explicitly promoted.
 
 The promotion continues the #200 modelKey-only Runtime identity: cross-environment Model Semantic Fingerprints contain only `key + schemaHash`; `route` is not a Model identity. HomeMew remains a direct LifeSpace consumer. The four pre-#200 `/api/v1` domain-path compatibility aliases used during the cutover have been retired under #207; supported ordinary Runtime addressing is the canonical `/api/v1/spaces/{spaceId}/models/{modelKey}/records/...` surface.
 
-The previously accepted profile v3 / Core 0.32.0 tuple remains historical release evidence and is not rewritten. The older accepted HomeMew profile v2 / Core 0.21.0 likewise remains historical evidence, and its route-bearing fingerprint remains verifiable through the legacy profile-v2 calculation.
+Historical accepted tuples remain historical release evidence and are not rewritten when the current accepted baseline advances.
 
 ### Cross-environment model identity
 
@@ -59,7 +61,7 @@ The current accepted profile v3 fingerprint covers:
 
 ```text
 day_record  9297a2f87fdd0718bfb74a362a0c451cf25309f4975099772f76e8a485fd0852
-event       35106ecb38a7d33cee083b285a62001d64234d0a86890b8a51094e1dd3b58e8f
+event       be9bdea442a30108a22a2da77a96ab23aba5122ec3c2b1de20a6312cebb0cc8a
 task        e79798bcadefad021ca86c1577c3fa3bc8fd0627f46557193aeca9b62acabb8e
 wish        7dc6c079916a967c8bcd93f8cbe082c98157ceaeb30ce782ef3f2eb035d370df
 ```

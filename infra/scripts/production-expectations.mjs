@@ -23,13 +23,10 @@ function latestMigrationVersion(service) {
   return Math.max(...migrations);
 }
 
-// Published model versions are monotonic inside each environment and therefore
-// can legitimately be higher than a clean-install release version. Production
-// acceptance pins semantic identity with model key + schema hash, while requiring
-// only a release floor for the environment-local Registry version.
-// Staging and production must prove the same shipped model semantics. Keep one
-// model-key/schema-hash release truth so a staging candidate cannot advance while
-// production preflight silently remains pinned to an older model contract.
+// Production preflight deliberately uses the same candidate model semantics that
+// staging is expected to prove. If the accepted HomeMew profile has not yet been
+// explicitly promoted to those semantics, check-production-release-readiness must
+// fail before any production migration or deployment mutation begins.
 export const PRODUCTION_PROVING_MODELS = STAGING_PROVING_MODELS;
 
 export const PRODUCTION_EXPECTATIONS = Object.freeze({

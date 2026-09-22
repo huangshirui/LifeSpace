@@ -65,7 +65,7 @@ describe("Phase 2 family Space management", () => {
 
     const updated = await request(`/api/v1/spaces/${family.spaceId}`, family.accessToken, publicKey, {
       method: "PATCH",
-      body: JSON.stringify({ name: "Home 2", timezone: "Asia/Tokyo", version: 1 }),
+      body: JSON.stringify({ name: "Home 2", timezone: "asia/tokyo", version: 1 }),
     });
     expect(updated.status).toBe(200);
     expect((await updated.json<{ data: { timezone: string; version: number } }>()).data).toMatchObject({ timezone: "Asia/Tokyo", version: 2 });

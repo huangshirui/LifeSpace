@@ -61,10 +61,10 @@ function dateOrdinal(parts: CalendarDateParts): number {
 }
 
 export function assertIanaTimezone(value: string): string {
-  if (!value.trim()) throw new RangeError("timezone must be an IANA timezone");
+  const candidate = value.trim();
+  if (!candidate) throw new RangeError("timezone must be an IANA timezone");
   try {
-    new Intl.DateTimeFormat("en-US", { timeZone: value }).format(new Date(0));
-    return value;
+    return new Intl.DateTimeFormat("en-US", { timeZone: candidate }).resolvedOptions().timeZone;
   } catch {
     throw new RangeError("timezone must be an IANA timezone");
   }

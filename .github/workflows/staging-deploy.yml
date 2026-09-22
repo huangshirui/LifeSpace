@@ -23,7 +23,7 @@ jobs:
       LIFESPACE_IDENTITY_STAGING_URL: https://auth-staging.aisr.online
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           ref: ${{ github.sha }}
 
@@ -34,13 +34,13 @@ jobs:
           echo "checkout=$(git rev-parse HEAD)"
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v4.4.0
         with:
           version: 10.13.1
           run_install: false
 
       - name: Setup Node.js 24
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: 24
           cache: pnpm
@@ -188,7 +188,7 @@ jobs:
           cmp "$RUNNER_TEMP/homemew-candidate-checksums-first.json" packages/contracts/dist/homemew-candidate/checksums.json
 
       - name: Upload HomeMew staging candidate contract evidence
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: homemew-staging-candidate-${{ github.sha }}
           path: packages/contracts/dist/homemew-candidate

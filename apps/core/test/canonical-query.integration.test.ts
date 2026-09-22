@@ -146,6 +146,41 @@ async function temporalRangeFixture() {
 }
 
 describe("Canonical Typed Query", () => {
+  it("canonicalizes timezone fields consistently at write and query boundaries", async () => {
+    const { spaceId } = await createSpaceFixture();
+    const suffix = crypto.randomUUID().replaceAll("-", "").slice(0, 16);
+    const definition: ModelDefinition = {
+      definitionVersion: 1,
+      key: `timezone_query_${suffix}`,
+      display: { singular: "Timezone Query", plural: "Timezone Queries" },
+      fields: {
+        name: { type: "string", required: true },
+        timezone: { type: "timezone", required: true },
+      },
+      query: { filterable: ["timezone"] },
+      access: ["read", "write"],
+    };
+    const publisher: Principal = {
+      type: "service",
+      id: "svc_timezone_query_test",
+      clientId: "lifespace-platform-admin",
+      scopes: ["models:manage"],
+      tokenId: "tok_timezone_query_test",
+    };
+    const model = await publishModelDefinition(bindings(), publisher, definition, "initial");
+    const created = await createGenericResource(bindings(), actor, spaceId, model, {
+      name: "Shanghai",
+      timezone: "asia/shanghai",
+    });
+    expect(created.data.timezone).toBe("Asia/Shanghai");
+
+    const result = await queryCanonicalResources(bindings(), actor, spaceId, model, {
+      filter: { field: "timezone", op: "eq", value: "ASIA/SHANGHAI" },
+    });
+    expect(result.items.map((item) => item.id)).toEqual([created.id]);
+  });
+
+
   it("supports nested Boolean filters, local date windows and null predicates", async () => {
     const { spaceId, model, weekA, weekBoth, noDue } = await taskFixture();
     const result = await queryCanonicalResources(bindings(), actor, spaceId, model, {

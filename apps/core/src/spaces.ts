@@ -3,6 +3,7 @@ import type { Bindings, Principal, Variables } from "./env";
 import { requireScope } from "./auth";
 import { requireSpacePermission, type SpaceRole } from "./authorization";
 import { ApiError, success } from "./http";
+import { assertIanaTimezone } from "./time-semantics";
 
 type AppEnv = { Bindings: Bindings; Variables: Variables };
 type App = Hono<AppEnv>;
@@ -70,11 +71,10 @@ function version(value: unknown): number {
 function timezone(value: unknown): string {
   if (typeof value !== "string" || !value.trim()) throw new ApiError("VALIDATION_ERROR", "timezone must be an IANA timezone", 422);
   try {
-    new Intl.DateTimeFormat("en-US", { timeZone: value }).format(new Date(0));
+    return assertIanaTimezone(value);
   } catch {
     throw new ApiError("VALIDATION_ERROR", "timezone must be an IANA timezone", 422);
   }
-  return value;
 }
 
 function fields(input: Body, allowed: string[]): void {

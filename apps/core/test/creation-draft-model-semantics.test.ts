@@ -17,9 +17,9 @@ const baselineDefinitions = [
   EVENT_MODEL_DEFINITION,
 ];
 const releaseFingerprint = Object.freeze({
-  task: Object.freeze({ version: 7, schemaHash: "e79798bcadefad021ca86c1577c3fa3bc8fd0627f46557193aeca9b62acabb8e" }),
+  task: Object.freeze({ version: 8, schemaHash: "fed3dab27e2f51da3780e42db38dd164fefe39f7d6e7f84161a97e1a8a6d96e6" }),
   wish: Object.freeze({ version: 7, schemaHash: "7dc6c079916a967c8bcd93f8cbe082c98157ceaeb30ce782ef3f2eb035d370df" }),
-  day_record: Object.freeze({ version: 4, schemaHash: "9297a2f87fdd0718bfb74a362a0c451cf25309f4975099772f76e8a485fd0852" }),
+  day_record: Object.freeze({ version: 5, schemaHash: "9dae14eeaef9311412dc910a8976cf85e7d8641792192376ed6678739fe029d1" }),
   event: Object.freeze({ version: 6, schemaHash: "be9bdea442a30108a22a2da77a96ab23aba5122ec3c2b1de20a6312cebb0cc8a" }),
 });
 
@@ -54,6 +54,14 @@ describe("Creation Draft baseline model semantics", () => {
       expect(descriptor?.description).toBeTruthy();
       expect(descriptor?.description).not.toBe(`${descriptor?.name} LifeSpace record`);
       expect(descriptor?.description.length).toBeGreaterThan(80);
+    }
+  });
+
+  it("gives every built-in field an explicit semantic description", () => {
+    for (const definition of baselineDefinitions) {
+      for (const [fieldKey, field] of Object.entries(definition.fields)) {
+        expect(field.description, `${definition.key}.${fieldKey}`).toBeTruthy();
+      }
     }
   });
 
@@ -100,7 +108,7 @@ describe("Creation Draft baseline model semantics", () => {
         version: expected.version,
         state: "published",
         schemaHash: validated.schemaHash,
-        compatibility: "breaking",
+        compatibility: definition.key === "task" || definition.key === "day_record" ? "compatible" : "breaking",
         definition: validated.definition,
         publishedAt: "2026-09-08T00:00:00.000Z",
       });

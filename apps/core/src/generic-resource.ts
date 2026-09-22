@@ -4,7 +4,7 @@ import { applyModelDefaults } from "./model-defaults";
 import { isFirstClassRangeFieldType, rangeFieldValueType, type FieldDefinition, type ModelDefinition } from "./model-definition";
 import { validateRangeValue } from "./range-value";
 import { validateTemporalRangeValue } from "./temporal-range";
-import { normalizeRfc3339Instant } from "./time-semantics";
+import { assertIanaTimezone, normalizeRfc3339Instant } from "./time-semantics";
 import { getRuntimeModel, type PublishedModel } from "./model-registry";
 import {
   getTypedResource,
@@ -130,11 +130,10 @@ function parseDateTime(value: unknown, fieldKey: string): string {
 function parseTimezone(value: unknown, fieldKey: string): string {
   if (typeof value !== "string" || !value.trim()) throw new ApiError("INVALID_RESOURCE", `${fieldKey} must be a valid IANA timezone`, 400);
   try {
-    new Intl.DateTimeFormat("en-US", { timeZone: value }).format(new Date(0));
+    return assertIanaTimezone(value);
   } catch {
     throw new ApiError("INVALID_RESOURCE", `${fieldKey} must be a valid IANA timezone`, 400);
   }
-  return value;
 }
 
 function stringValue(value: unknown, fieldKey: string, definition: FieldDefinition): string {

@@ -12,6 +12,7 @@ import {
   type RegistryPersonRef,
 } from "./registry-creation-draft";
 import { createRegistryOpenAIProvider, OpenAICompatibleProviderError } from "./registry-openai-provider";
+import { assertIanaTimezone } from "./time-semantics";
 
 type AppEnv = { Bindings: Bindings; Variables: Variables };
 type App = Hono<AppEnv>;
@@ -80,11 +81,10 @@ function timezone(value: unknown): string {
     throw new ApiError("VALIDATION_ERROR", "viewingTimezone must be an IANA timezone", 422);
   }
   try {
-    new Intl.DateTimeFormat("en", { timeZone: value }).format(new Date(0));
+    return assertIanaTimezone(value);
   } catch {
     throw new ApiError("VALIDATION_ERROR", "viewingTimezone must be an IANA timezone", 422);
   }
-  return value;
 }
 
 function createInput(input: Body) {
