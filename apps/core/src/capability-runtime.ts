@@ -68,7 +68,7 @@ function temporalInitialOccurrenceExtension(
       anchorDate,
       principal.type,
       principal.id,
-      principal.id,
+      principal.displayName?.trim() || principal.id,
       timestamp,
     ),
   ];
