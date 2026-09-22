@@ -18,7 +18,7 @@ test("allows a candidate at or ahead of live staging", () => {
     expectedContractVersion: "0.37.0",
     expectedSchemaVersion: 43,
   });
-  assert.equal(result.expectedSchemaVersion, 42);
+  assert.equal(result.expectedSchemaVersion, 43);
 });
 
 test("rejects a schema downgrade before deployment", () => {
