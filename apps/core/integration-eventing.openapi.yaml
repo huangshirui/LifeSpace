@@ -2,8 +2,8 @@
   "openapi": "3.1.0",
   "info": {
     "title": "LifeSpace Integration / Eventing API",
-    "version": "0.1.0",
-    "description": "Independently versioned LifeSpace Integration/Eventing contract for Webhook endpoint configuration, model/event subscriptions, delivery diagnostics, test sends, and the reference-only signed outbound Webhook representation. Eventing remains implemented by LifeSpace Core and derives from authoritative ordinary-model Change/event facts; this contract does not create a second mutation or authorization source."
+    "version": "0.2.0",
+    "description": "Independently versioned LifeSpace Integration/Eventing contract for Webhook endpoint configuration, model/event subscriptions, delivery diagnostics, test sends, and the reference-only signed outbound Webhook representation with exact governed Change linkage. Eventing remains implemented by LifeSpace Core and derives from authoritative ordinary-model Change/event facts; this contract does not create a second mutation or authorization source."
   },
   "security": [
     {
@@ -639,6 +639,7 @@
           "modelKey",
           "recordId",
           "recordVersion",
+          "changeId",
           "occurredAt",
           "status",
           "attemptCount",
@@ -712,6 +713,18 @@
           },
           "modelKey": {
             "type": "string"
+          },
+          "changeId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^chg_[A-Za-z0-9_-]+$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Opaque governed Change reference. New Generic Runtime events carry chg_*; null is reserved for legacy pre-linkage event evidence."
           }
         }
       },
@@ -1148,6 +1161,7 @@
           "modelKey",
           "recordId",
           "recordVersion",
+          "changeId",
           "occurredAt"
         ],
         "properties": {
@@ -1177,6 +1191,18 @@
           "occurredAt": {
             "type": "string",
             "format": "date-time"
+          },
+          "changeId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^chg_[A-Za-z0-9_-]+$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Opaque governed Change reference. New Generic Runtime events carry chg_*; null is reserved for legacy pre-linkage event evidence."
           }
         }
       },
