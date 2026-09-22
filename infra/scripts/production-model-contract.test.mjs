@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import {
   acceptedHomeMewModelSemantics,
   assertHomeMewModelSemanticCompatibility,
+  calculateModelSemanticFingerprint,
 } from "./homemew-contract-identity.mjs";
 import { PRODUCTION_PROVING_MODELS } from "./production-expectations.mjs";
 import { PROVING_MODELS as STAGING_PROVING_MODELS } from "./staging-expectations.mjs";
@@ -15,50 +16,27 @@ const releaseReadiness = new URL("./check-production-release-readiness.mjs", imp
 const productionWorkflow = new URL("../../.github/workflows/production-deploy.yml", import.meta.url);
 const profile = JSON.parse(readFileSync(new URL("../homemew-integration-profile.json", import.meta.url), "utf8"));
 
-test("staging candidate semantics may advance without silently promoting production", () => {
-  assert.notEqual(PRODUCTION_PROVING_MODELS, STAGING_PROVING_MODELS, "candidate and accepted release pins must be independently addressable");
+test("production preflight uses the same candidate semantics that staging must prove", () => {
+  assert.equal(PRODUCTION_PROVING_MODELS, STAGING_PROVING_MODELS, "production preflight must evaluate the exact staging candidate semantics before mutation");
 
-  const stagingTask = STAGING_PROVING_MODELS.find((model) => model.key === "task");
-  const productionTask = PRODUCTION_PROVING_MODELS.find((model) => model.key === "task");
+  const task = STAGING_PROVING_MODELS.find((model) => model.key === "task");
   assert.deepEqual(
-    { minimumVersion: stagingTask?.minimumVersion, hash: stagingTask?.hash },
+    { minimumVersion: task?.minimumVersion, hash: task?.hash },
     { minimumVersion: 8, hash: "fed3dab27e2f51da3780e42db38dd164fefe39f7d6e7f84161a97e1a8a6d96e6" },
-    "staging must prove the schema-42 Task description semantics",
-  );
-  assert.deepEqual(
-    { minimumVersion: productionTask?.minimumVersion, hash: productionTask?.hash },
-    { minimumVersion: 7, hash: "e79798bcadefad021ca86c1577c3fa3bc8fd0627f46557193aeca9b62acabb8e" },
-    "production must remain on the accepted Task semantics until explicit promotion",
+    "schema 42 must prove the description-complete Task semantics",
   );
 
-  const stagingDayRecord = STAGING_PROVING_MODELS.find((model) => model.key === "day_record");
-  const productionDayRecord = PRODUCTION_PROVING_MODELS.find((model) => model.key === "day_record");
+  const dayRecord = STAGING_PROVING_MODELS.find((model) => model.key === "day_record");
   assert.deepEqual(
-    { minimumVersion: stagingDayRecord?.minimumVersion, hash: stagingDayRecord?.hash },
+    { minimumVersion: dayRecord?.minimumVersion, hash: dayRecord?.hash },
     { minimumVersion: 5, hash: "9dae14eeaef9311412dc910a8976cf85e7d8641792192376ed6678739fe029d1" },
-    "staging must prove the schema-42 Day Record description semantics",
-  );
-  assert.deepEqual(
-    { minimumVersion: productionDayRecord?.minimumVersion, hash: productionDayRecord?.hash },
-    { minimumVersion: 4, hash: "9297a2f87fdd0718bfb74a362a0c451cf25309f4975099772f76e8a485fd0852" },
-    "production must remain on the accepted Day Record semantics until explicit promotion",
+    "schema 42 must prove the description-complete Day Record semantics",
   );
 
-  const accepted = acceptedHomeMewModelSemantics(profile);
-  const production = assertHomeMewModelSemanticCompatibility(
-    profile,
-    PRODUCTION_PROVING_MODELS.map((model) => ({ key: model.key, schemaHash: model.hash })),
-    "accepted production proving semantics",
+  const candidateFingerprint = calculateModelSemanticFingerprint(
+    STAGING_PROVING_MODELS.map((model) => ({ key: model.key, schemaHash: model.hash })),
   );
-  assert.equal(production.fingerprint, accepted.fingerprint);
-  assert.throws(
-    () => assertHomeMewModelSemanticCompatibility(
-      profile,
-      STAGING_PROVING_MODELS.map((model) => ({ key: model.key, schemaHash: model.hash })),
-      "unpromoted staging candidate",
-    ),
-    /does not match HomeMew semantic fingerprint/u,
-  );
+  assert.equal(candidateFingerprint, "msf_d6b275bf5f4516f057c02a21f89e46de380a71ffa85e9c34a9fbac60f1b60c01");
 });
 
 test("production release readiness blocks mutation until accepted application semantics are promoted", () => {
@@ -77,15 +55,17 @@ test("production release readiness blocks mutation until accepted application se
   assert.ok(readinessIndex < migrationIndex, "release readiness must fail closed before any production Core migration");
 });
 
-test("accepted HomeMew profile is promoted to the current production proving semantics", () => {
+test("unpromoted candidate semantics are rejected by the accepted HomeMew production gate", () => {
   const accepted = acceptedHomeMewModelSemantics(profile);
-  const current = assertHomeMewModelSemanticCompatibility(
-    profile,
-    PRODUCTION_PROVING_MODELS.map((model) => ({ key: model.key, schemaHash: model.hash })),
-    "current production proving semantics",
-  );
-  assert.equal(current.fingerprint, accepted.fingerprint);
   assert.equal(accepted.fingerprint, "msf_6dab6ba5b88da89eb608960a5e23feaf7dd0aec4d8f6a0db1defe7ab2a370b22");
+  assert.throws(
+    () => assertHomeMewModelSemanticCompatibility(
+      profile,
+      PRODUCTION_PROVING_MODELS.map((model) => ({ key: model.key, schemaHash: model.hash })),
+      "unpromoted schema-42 production candidate",
+    ),
+    /does not match HomeMew semantic fingerprint/u,
+  );
 });
 
 test("different environment-local model versions preserve one HomeMew semantic fingerprint", () => {
