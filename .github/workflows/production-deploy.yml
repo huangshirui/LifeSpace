@@ -46,7 +46,7 @@ jobs:
 
     steps:
       - name: Checkout exact gate candidate
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           ref: ${{ github.sha }}
 
@@ -60,13 +60,13 @@ jobs:
           echo "LIFESPACE_APAC_PROBE_NAME=${LIFESPACE_APAC_PROBE_NAME}-${GITHUB_RUN_ID}" >> "$GITHUB_ENV"
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v4.4.0
         with:
           version: 10.13.1
           run_install: false
 
       - name: Setup Node.js 24
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: 24
           cache: pnpm
@@ -206,7 +206,7 @@ jobs:
 
     steps:
       - name: Checkout exact production candidate
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           ref: ${{ github.sha }}
 
@@ -221,13 +221,13 @@ jobs:
           test "$CHECKOUT_SHA" = "$GITHUB_SHA" || { echo "production checkout does not match workflow candidate SHA" >&2; exit 1; }
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v4.4.0
         with:
           version: 10.13.1
           run_install: false
 
       - name: Setup Node.js 24
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: 24
           cache: pnpm
