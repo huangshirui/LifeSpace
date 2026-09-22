@@ -14,6 +14,7 @@ type ChangeRow = {
   space_id: string;
   model_key: string;
   operation: "create" | "update" | "action" | "delete";
+  action_key: string | null;
   version_before: number | null;
   version_after: number;
   principal_type: PrincipalType;
@@ -23,6 +24,7 @@ type ChangeRow = {
   application_id: string;
   delegation_id: string | null;
   changed_fields_json: string;
+  field_changes_json: string | null;
   occurred_at: string;
 };
 
@@ -48,6 +50,7 @@ function dto(row: ChangeRow) {
     spaceId: row.space_id,
     modelKey: row.model_key,
     operation: row.operation,
+    actionKey: row.action_key,
     versionBefore: row.version_before,
     versionAfter: row.version_after,
     principal: { type: row.principal_type, id: row.principal_id },
@@ -55,6 +58,7 @@ function dto(row: ChangeRow) {
     applicationId: row.application_id,
     delegationId: row.delegation_id,
     changedFields,
+    detailAvailable: row.field_changes_json !== null,
     occurredAt: row.occurred_at,
   };
 }
@@ -113,6 +117,12 @@ function validateQuery(params: URLSearchParams): void {
   }
 }
 
+const CHANGE_SELECT = `SELECT
+    id,record_id,space_id,model_key,operation,action_key,version_before,version_after,
+    principal_type,principal_id,actor_type,actor_id,application_id,delegation_id,
+    changed_fields_json,field_changes_json,occurred_at
+  FROM resource_changes`;
+
 async function authorizeRecord(appEnv: Bindings, principal: Variables["principal"], spaceId: string, recordId: string) {
   const resource = await appEnv.DB.prepare(`SELECT model_key FROM resource_records
     WHERE id=? AND space_id=? LIMIT 1`).bind(recordId, spaceId).first<ResourceRow>();
@@ -122,11 +132,38 @@ async function authorizeRecord(appEnv: Bindings, principal: Variables["principal
   await requireModelAccess(appEnv, principal, spaceId, model, "read");
 }
 
-const CHANGE_SELECT = `SELECT
-    id,record_id,space_id,model_key,operation,version_before,version_after,
-    principal_type,principal_id,actor_type,actor_id,application_id,delegation_id,
-    changed_fields_json,occurred_at
-  FROM resource_changes`;
+async function authorizeChange(
+  appEnv: Bindings,
+  principal: Variables["principal"],
+  spaceId: string,
+  changeId: string,
+): Promise<ChangeRow> {
+  if (!/^chg_[A-Za-z0-9_-]+$/u.test(changeId) || changeId.length > 200) {
+    throw new ApiError("INVALID_REQUEST", "changeId must be a valid chg_* identifier", 400);
+  }
+  const row = await appEnv.DB.prepare(`${CHANGE_SELECT} WHERE id=? AND space_id=? LIMIT 1`)
+    .bind(changeId, spaceId)
+    .first<ChangeRow>();
+  if (!row) throw new ApiError("CHANGE_NOT_FOUND", "Change not found", 404);
+  const model = await getRuntimeModel(appEnv, row.model_key);
+  if (!model) throw new ApiError("MODEL_NOT_FOUND", "Published model not found", 404);
+  await requireModelAccess(appEnv, principal, spaceId, model, "read");
+  return row;
+}
+
+function detailDto(row: ChangeRow) {
+  const base = dto(row);
+  if (row.field_changes_json === null) {
+    return { ...base, fieldChanges: null };
+  }
+  try {
+    const parsed = JSON.parse(row.field_changes_json) as unknown;
+    if (!Array.isArray(parsed)) throw new Error("field changes are not an array");
+    return { ...base, fieldChanges: parsed };
+  } catch {
+    throw new ApiError("CHANGE_EVIDENCE_CORRUPT", `Stored exact Change detail is invalid for ${row.id}`, 500);
+  }
+}
 
 async function listPage(
   env: Bindings,
@@ -197,6 +234,12 @@ export function registerChangeHistoryRoutes(app: App): void {
 
     await authorizeRecord(context.env, context.get("principal"), spaceId, recordId);
     return context.json(success(await listPage(context.env, spaceId, recordId, limit, cursor)));
+  });
+
+  app.get("/api/v1/spaces/:spaceId/changes/by-id/:changeId", async (context) => {
+    const spaceId = context.req.param("spaceId");
+    const row = await authorizeChange(context.env, context.get("principal"), spaceId, context.req.param("changeId"));
+    return context.json(success(detailDto(row)));
   });
 
   // Kernel 0.29 compatibility alias. The canonical Change History resource is the
