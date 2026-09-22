@@ -118,6 +118,7 @@ requireTokens("Production provisioning workflow", productionProvision, [
   "confirmation:",
   "PROVISION_PRODUCTION",
   "production provisioning must run from main",
+  "ref: ${{ github.sha }}",
   "group: lifespace-production-change",
   "node infra/scripts/provision-production.mjs",
 ]);
