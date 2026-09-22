@@ -8,7 +8,7 @@ import type { Bindings, Principal } from "./env";
 import type { GenericResource } from "./generic-resource";
 import { ApiError } from "./http";
 import type { PublishedModel } from "./model-registry";
-import { instantToLocalDate, localDateWindowToInstantRange, normalizeRfc3339Instant } from "./time-semantics";
+import { assertIanaTimezone, instantToLocalDate, localDateWindowToInstantRange, normalizeRfc3339Instant } from "./time-semantics";
 import {
   hydrateTypedResourceRows,
   typedScalarExpression,
