@@ -262,7 +262,7 @@ function initialOccurrenceExtension(anchorDate: string): ResourceMutationExtensi
       anchorDate,
       principal.type,
       principal.id,
-      principal.id,
+      principal.displayName?.trim() || principal.id,
       timestamp,
     ),
   ];
@@ -324,7 +324,7 @@ function manualOccurrenceExtension(
       "manual",
       principal.type,
       principal.id,
-      principal.id,
+      principal.displayName?.trim() || principal.id,
       timestamp,
       recordId,
       mutationToken,
