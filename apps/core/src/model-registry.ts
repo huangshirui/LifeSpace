@@ -62,7 +62,7 @@ const runtimeRegistrySnapshots = new WeakMap<object, RuntimeRegistrySnapshot>();
 const createId = (prefix: string) => `${prefix}_${crypto.randomUUID().replaceAll("-", "")}`;
 
 function actorName(principal: Principal): string {
-  return principal.id;
+  return principal.displayName?.trim() || principal.id;
 }
 
 async function sha256Hex(input: string): Promise<string> {
