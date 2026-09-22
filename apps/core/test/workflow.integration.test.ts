@@ -62,6 +62,14 @@ describe("Generic Workflow Engine", () => {
     expect(typed?.completedById).toBe(serviceActor.id);
     expect(typed?.completedAt).toBe(completed.data.completedAt);
 
+    const completeChange = await db.prepare(`SELECT action_key,field_changes_json FROM resource_changes
+      WHERE record_id=? AND version_after=2`).bind(resource.id).first<{ action_key: string | null; field_changes_json: string | null }>();
+    expect(completeChange?.action_key).toBe("complete");
+    expect(JSON.parse(completeChange!.field_changes_json!)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ field: "status", before: { present: true, value: "pending" }, after: { present: true, value: "completed" } }),
+      expect.objectContaining({ field: "completedById", after: { present: true, value: serviceActor.id } }),
+    ]));
+
     await expect(executeWorkflowAction(bindings(), serviceActor, spaceId, model, resource.id, "complete", 2))
       .rejects.toMatchObject({ code: "TASK_ALREADY_COMPLETED", status: 409 });
 
