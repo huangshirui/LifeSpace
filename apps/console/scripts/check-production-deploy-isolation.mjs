@@ -20,6 +20,7 @@ const requiredWorkflow = [
   'test "$GITHUB_EVENT_NAME" = "workflow_dispatch"',
   'test "$GITHUB_REF_NAME" = "main"',
   "environment: production",
+  "ref: ${{ github.sha }}",
   "statuses: write",
   "lifespace-console-production/deploy",
   "LIFESPACE_PRODUCTION_BOOTSTRAP_SECRET",
