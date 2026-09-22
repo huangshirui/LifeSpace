@@ -7,21 +7,33 @@ on:
         description: "Type DEPLOY_PRODUCTION"
         required: true
         type: string
-      apac_gate_run_id:
-        description: "Successful APAC performance gate run ID for this exact candidate SHA"
-        required: true
-        type: string
 
 permissions:
   contents: read
-  actions: read
 
 concurrency:
   group: lifespace-production-change
   cancel-in-progress: false
 
 jobs:
+  validate:
+    name: Validate production release intent
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate production intent
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${{ inputs.confirmation }}" = "DEPLOY_PRODUCTION" || { echo "confirmation must be DEPLOY_PRODUCTION" >&2; exit 1; }
+          test "$GITHUB_REF_NAME" = "main" || { echo "production deployment must run from main" >&2; exit 1; }
+
+  apac_performance:
+    needs: validate
+    uses: ./.github/workflows/apac-performance-gate.yml
+    secrets: inherit
+
   deploy:
+    needs: apac_performance
     name: Migrate, deploy and verify production
     runs-on: ubuntu-latest
     environment: production
@@ -33,13 +45,6 @@ jobs:
       LIFESPACE_IDENTITY_PRODUCTION_URL: https://auth.aisr.online
 
     steps:
-      - name: Validate production intent
-        shell: bash
-        run: |
-          set -euo pipefail
-          test "${{ inputs.confirmation }}" = "DEPLOY_PRODUCTION" || { echo "confirmation must be DEPLOY_PRODUCTION" >&2; exit 1; }
-          test "$GITHUB_REF_NAME" = "main" || { echo "production deployment must run from main" >&2; exit 1; }
-
       - name: Checkout exact production candidate
         uses: actions/checkout@v4
         with:
@@ -54,12 +59,6 @@ jobs:
           echo "sha=$GITHUB_SHA"
           echo "checkout=$CHECKOUT_SHA"
           test "$CHECKOUT_SHA" = "$GITHUB_SHA" || { echo "production checkout does not match workflow candidate SHA" >&2; exit 1; }
-
-      - name: Verify APAC performance gate for exact production candidate
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-          LIFESPACE_APAC_GATE_RUN_ID: ${{ inputs.apac_gate_run_id }}
-        run: node infra/scripts/verify-production-apac-gate.mjs
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
