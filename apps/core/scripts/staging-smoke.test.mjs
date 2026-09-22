@@ -17,7 +17,7 @@ const homemewIntegrationSmoke = new URL("../../../infra/scripts/verify-staging-h
 const waitApacProbe = new URL("../../../infra/scripts/wait-staging-apac-probe.mjs", import.meta.url);
 const scripts = [prepareSmoke, cleanupSmoke, eventingSmoke, creationDraftSmoke, stagingHttpVerifier, modelRegressionSmoke, homemewIntegrationSmoke, waitApacProbe];
 const stagingWorkflow = new URL("../../../.github/workflows/staging-deploy.yml", import.meta.url);
-const apacWorkflow = new URL("../../../.github/workflows/apac-performance-gate.yml", import.meta.url);
+const apacWorkflow = new URL("../../../.github/workflows/production-deploy.yml", import.meta.url);
 const apacProbeConfig = new URL("../../../infra/performance-probe/wrangler.jsonc", import.meta.url);
 
 test("authenticated staging smoke scripts remain syntax-valid and staging-only", () => {
