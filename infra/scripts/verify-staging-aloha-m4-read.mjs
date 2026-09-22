@@ -67,8 +67,10 @@ function assertProfile() {
   }
   if (runtimeBoundary.delegatedTokenConsumer !== "aloha-agent-control"
       || runtimeBoundary.n8nReceivesLifeSpaceCredential !== false
-      || runtimeBoundary.n8nReceivesDelegatedAgentToken !== false) {
-    throw new Error("ALOHA M4 Runtime Tool credential boundary drifted");
+      || runtimeBoundary.n8nReceivesDelegatedAgentToken !== false
+      || !sameSet(runtimeBoundary.m4Operations, ["discover", "describe", "query", "get"])
+      || runtimeBoundary.discoveryFlow !== "inventory_then_selected_model_semantic_detail") {
+    throw new Error("ALOHA M4 Runtime Tool credential/discovery boundary drifted");
   }
 }
 
@@ -426,16 +428,34 @@ try {
 
   delegationId = await createReadDelegation(userBearer, agentId, spaceId);
 
-  const discoveryResult = await request(
+  const inventoryResult = await request(
     coreBase,
-    `/api/v1/spaces/${encodeURIComponent(spaceId)}/_discovery`,
+    "/api/v1/me/_discovery/inventory",
     { bearer: agentBearer },
   );
-  const discovery = expectStatus("ALOHA M4 Runtime Discovery", discoveryResult, 200);
-  const taskModel = discovery?.models?.find?.((entry) => entry.key === "task");
-  const eventModel = discovery?.models?.find?.((entry) => entry.key === "event");
-  if (!taskModel || !sameSet(taskModel.access, ["read"]) || eventModel) {
-    throw new Error(`ALOHA M4 Discovery must expose Task read only: ${JSON.stringify(discovery?.models)}`);
+  const inventory = expectStatus("ALOHA M4 Runtime Discovery inventory", inventoryResult, 200);
+  if (inventory?.semanticDetailPathTemplate !== "/api/v1/spaces/{spaceId}/_discovery/models/{modelKey}") {
+    throw new Error(`ALOHA M4 inventory semantic detail path drifted: ${JSON.stringify(inventory)}`);
+  }
+  const inventorySpace = inventory?.spaces?.find?.((entry) => entry.spaceId === spaceId);
+  const taskEdge = inventorySpace?.models?.find?.((entry) => entry.modelKey === "task");
+  const eventEdge = inventorySpace?.models?.find?.((entry) => entry.modelKey === "event");
+  if (!taskEdge || !sameSet(taskEdge.access, ["read"]) || eventEdge) {
+    throw new Error(`ALOHA M4 inventory must expose Task read only for the target Space: ${JSON.stringify(inventorySpace)}`);
+  }
+
+  const detailResult = await request(
+    coreBase,
+    `/api/v1/spaces/${encodeURIComponent(spaceId)}/_discovery/models/task`,
+    { bearer: agentBearer },
+  );
+  const detail = expectStatus("ALOHA M4 Task semantic detail", detailResult, 200);
+  if (
+    detail?.key !== "task"
+    || detail?.query?.canonical?.invocation?.method !== "POST"
+    || detail?.query?.canonical?.invocation?.pathTemplate !== "/api/v1/spaces/{spaceId}/models/{modelKey}/records/query"
+  ) {
+    throw new Error(`ALOHA M4 Task semantic detail did not expose Canonical Query: ${JSON.stringify(detail)}`);
   }
 
   const queryResult = await request(coreBase, `${taskPath(spaceId)}/query`, {
@@ -480,18 +500,26 @@ try {
     throw new Error(`Revoked ALOHA M4 Delegation remained usable with a still-valid token: HTTP ${afterRevoke.response.status}`);
   }
 
-  const discoveryAfterRevoke = await request(
+  const inventoryAfterRevoke = await request(
     coreBase,
-    `/api/v1/spaces/${encodeURIComponent(spaceId)}/_discovery`,
+    "/api/v1/me/_discovery/inventory",
     { bearer: agentBearer },
   );
-  if (discoveryAfterRevoke.response.status === 200) {
-    const models = discoveryAfterRevoke.payload?.data?.models ?? [];
-    if (models.some((entry) => entry.key === "task")) {
-      throw new Error("Revoked ALOHA M4 Delegation remained visible in Runtime Discovery");
-    }
-  } else if (discoveryAfterRevoke.response.status !== 403) {
-    throw new Error(`ALOHA M4 post-revocation Discovery returned unexpected HTTP ${discoveryAfterRevoke.response.status}`);
+  const postRevokeInventory = expectStatus("ALOHA M4 post-revocation inventory", inventoryAfterRevoke, 200);
+  const postRevokeSpace = postRevokeInventory?.spaces?.find?.((entry) => entry.spaceId === spaceId);
+  if (postRevokeSpace?.models?.some?.((entry) => entry.modelKey === "task")) {
+    throw new Error("Revoked ALOHA M4 Delegation remained visible in Runtime Discovery inventory");
+  }
+
+  const detailAfterRevoke = await request(
+    coreBase,
+    `/api/v1/spaces/${encodeURIComponent(spaceId)}/_discovery/models/task`,
+    { bearer: agentBearer },
+  );
+  if (detailAfterRevoke.response.status !== 404 || detailAfterRevoke.payload?.error?.code !== "NOT_FOUND") {
+    throw new Error(
+      `Revoked ALOHA M4 Delegation still exposed Task semantic detail: HTTP ${detailAfterRevoke.response.status} ${JSON.stringify(detailAfterRevoke.payload)}`,
+    );
   }
 
   verificationSucceeded = true;
@@ -516,7 +544,8 @@ try {
     },
     goldenFlow: {
       noDelegationDenied: true,
-      runtimeDiscoveryTaskReadOnly: true,
+      runtimeInventoryTaskReadOnly: true,
+      progressiveTaskSemanticDetail: true,
       canonicalTaskQuery: true,
       taskGet: true,
       taskCreateDenied: true,

@@ -192,7 +192,7 @@ Application scopes     = profile:read + resources:read
 Application × Model    = task:read only
 User -> Agent Delegation = task:read only
 Agent execution scope  = resources:read only
-Runtime semantics      = Runtime Discovery -> Canonical Query / Get
+Runtime semantics      = Inventory -> selected Model semantic detail -> Canonical Query / Get
 Mutation / Action      = denied; deferred to M5 Confirmation boundary
 ```
 
