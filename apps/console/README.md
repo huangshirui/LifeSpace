@@ -171,7 +171,7 @@ The global bootstrap secret is deliberately not a Console Worker secret.
 
 The Console uses `@cloudflare/vite-plugin`; Vite owns client asset output and generated Worker deployment configuration. Select the target environment at **build time** and deploy the generated configuration.
 
-There are deliberately two different staging workflows with different authority boundaries.
+There is one normal Console staging workflow with two explicitly separated jobs, plus a separate high-blast-radius platform/credential convergence workflow.
 
 ### Ordinary Console code/UI deployment
 
@@ -181,40 +181,30 @@ Canonical workflow:
 .github/workflows/lifespace-console-staging-deploy.yml
 ```
 
-This is the default for normal Console-only changes. It is manual-only and must remain isolated:
+Run it with the default `run_control_plane_acceptance=false` for normal Console-only changes. The deploy job is manual-only and remains isolated:
 
 ```text
 Console frozen install/check
--> read current staging Identity/Core status only
--> CLOUDFLARE_ENV=staging Vite build
--> deploy lifespace-console-staging using existing Worker secrets
--> verify lifespace-staging.aisr.online is reachable behind Access
+-> read current staging Identity/Core status
+-> Vite build for staging
+-> deploy Console Worker only
+-> verify Access-protected staging hostname
 ```
 
-It must **not** run D1 migrations, deploy Core/Identity, use the bootstrap secret, rotate/install secrets, or target production. This lets Console staging move independently while other LifeSpace branches are changing Core/Identity.
+It does not migrate/deploy Core or Identity, use bootstrap authority, rotate/install secrets or target production.
 
-`@lifespace/console check` includes built-Worker `node --check`, in addition to TypeScript/Vite and control-plane boundary guards, because staging deployment proved that TypeScript/Vite alone can miss a Worker-runtime JavaScript parser incompatibility.
+### Optional real staging transaction acceptance
 
-### Real staging transaction acceptance
-
-Canonical workflow:
-
-```text
-.github/workflows/lifespace-console-staging-acceptance.yml
-```
-
-It is manual-only, staging-only and performs no deployments/migrations. It exercises and cleans up the real A+B+C platform transactions:
+When a release also needs the repeatable A+B+C control-plane proof, dispatch the same workflow with `run_control_plane_acceptance=true`. After the isolated Console deploy succeeds, a separate staging-only acceptance job exercises and cleans up:
 
 ```text
 Model validate/publish/version/retire + Model Access restore
 Application create/update + Access Audience lifecycle
-Application credential rotation
-Service Principal lifecycle
-Service API Token create/reduce/re-expansion-deny/revoke
-platform-admin audit / plaintext-leak checks
+Application credential lifecycle
+Service Principal + Service API Token lifecycle
 ```
 
-The generated Slice B/C acceptance Application is disabled at cleanup because the canonical platform contract currently has no delete-Application lifecycle.
+The acceptance job may use the staging bootstrap secret as bounded proving authority, but it performs no Core/Identity/Console deployment or database migration and never targets production. Keeping the authority in a separate job preserves the same security boundary while removing a redundant operator entrypoint.
 
 ### Platform/credential convergence
 
