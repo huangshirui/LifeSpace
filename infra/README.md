@@ -19,10 +19,10 @@ Application domains such as ALOHA and HomeMew remain owned by their application 
 Long-lived workflows are intentionally explicit about operation type:
 
 - `Check`: repository CI for pull requests and pushes to `main`.
-- `Provision staging resources`: low-frequency, create-if-missing reconciliation of D1/R2/Queue resources declared in the staging manifest.
-- `Deploy staging`: manual staging migration, Core/Identity deployment, convergence checks and authenticated platform regression. It never provisions shared infrastructure.
-- `Provision production resources`: guarded, low-frequency, create-if-missing reconciliation of D1/R2/Queue resources declared in the production manifest. It never migrates databases or deploys Workers.
-- `Deploy production`: guarded normal production migration/deployment/verification. It never provisions infrastructure and contains no historical first-bring-up mode. Before any production migration, it requires the accepted downstream release identity to match the repository production Kernel/Identity/model semantics.
+- `Provision LifeSpace platform staging resources`: low-frequency, create-if-missing reconciliation of D1/R2/Queue resources declared in the staging manifest.
+- `Deploy LifeSpace platform staging`: manual staging migration, Core/Identity deployment, convergence checks and authenticated platform regression. It never provisions shared infrastructure.
+- `Provision LifeSpace platform production resources`: guarded, low-frequency, create-if-missing reconciliation of D1/R2/Queue resources declared in the production manifest. It never migrates databases or deploys Workers. It is manual-only, typed-confirmation guarded and main-only.
+- `Deploy LifeSpace platform production`: guarded normal production migration/deployment/verification. It never provisions infrastructure and contains no historical first-bring-up mode. Before any production migration, it requires the accepted downstream release identity to match the repository production Kernel/Identity/model semantics. It is manual-only, typed-confirmation guarded and main-only.
 
 Phase-specific one-shot workflow modes are not permanent operator entrypoints. The historical Phase 6 empty-platform bring-up is complete and remains only as audit evidence in phase documents/Git history; `phase6_bringup` is not part of the long-lived production workflow.
 
@@ -36,11 +36,11 @@ Additional long-lived operator boundaries:
 - `Deploy LifeSpace Console staging (isolated)` is the normal Console-only staging entrypoint. Its default job does not migrate/deploy Core or Identity or use bootstrap authority; an explicit `run_control_plane_acceptance=true` adds a separate staging-only control-plane acceptance job after deployment.
 - `Converge LifeSpace staging control plane` remains a low-frequency platform/credential convergence path because it can reconcile Core/Identity, platform administrator assignment and Console executor credentials. It is not the normal Console deploy path and should shrink further with bootstrap-surface work tracked in #93.
 - `Deploy LifeSpace Console production` remains an independent guarded Console-only production rollout.
-- The APAC performance gate is an internal prerequisite job inside `Deploy production`, not a separate operator-facing workflow. It runs automatically against the exact candidate SHA before any production migration/deployment job may start.
+- The APAC performance gate is an internal prerequisite job inside `Deploy LifeSpace platform production`, not a separate operator-facing workflow. It runs automatically against the exact candidate SHA before any production migration/deployment job may start.
 - Product-owned staging workflows are not retained in this platform repository after the product environment is retired. HomeMew Web staging provisioning was removed in #261; application-specific deployment belongs to the HomeMew repository.
 
 
-`Deploy staging` derives expected Core/Identity contract and schema versions from the repository (`package.json` plus the latest numbered migration) through `infra/scripts/staging-expectations.mjs`. `Deploy production` does the same through `infra/scripts/production-expectations.mjs`.
+`Deploy LifeSpace platform staging` derives expected Core/Identity contract and schema versions from the repository (`package.json` plus the latest numbered migration) through `infra/scripts/staging-expectations.mjs`. `Deploy LifeSpace platform production` does the same through `infra/scripts/production-expectations.mjs`.
 
 Normal staging and production releases use Core-first -> Identity ordering so a newer compatible Core verifier/runtime is live before Identity may issue credentials that depend on it. The historical first production bring-up used a special Identity-first path because Core's Service Binding target did not yet exist; that exception is no longer active.
 
@@ -61,7 +61,7 @@ Historical Phase 6 verification used short-lived probe authority, removed probe 
 
 ## Production scripts
 
-- `provision-production.mjs`: create-if-missing D1/R2/Queue provisioning from the production manifest; never deletes, renames, replaces or reuses staging resources. It is invoked only by **Provision production resources**.
+- `provision-production.mjs`: create-if-missing D1/R2/Queue provisioning from the production manifest; never deletes, renames, replaces or reuses staging resources. It is invoked only by **Provision LifeSpace platform production resources**.
 - `resolve-production-d1.mjs`: resolves exact production D1 IDs only into the ephemeral deployment checkout.
 - `ensure-production-domains.mjs`: preflights and attaches only the two approved production Worker Custom Domains; refuses to move a hostname owned by another Worker.
 - `production-expectations.mjs`: derives production contract/schema expectations from the repository and pins semantic model hashes while treating Registry model versions as environment-local monotonic values.
