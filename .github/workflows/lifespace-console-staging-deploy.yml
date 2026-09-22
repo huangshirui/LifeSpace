@@ -29,6 +29,8 @@ jobs:
     steps:
       - name: Checkout LifeSpace
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
 
       - name: Report deployment source
         run: |
@@ -139,6 +141,8 @@ jobs:
     steps:
       - name: Checkout LifeSpace
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
