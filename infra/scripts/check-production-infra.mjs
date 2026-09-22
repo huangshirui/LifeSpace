@@ -117,6 +117,7 @@ requireTokens("Production provisioning workflow", productionProvision, [
   "environment: production",
   "confirmation:",
   "PROVISION_PRODUCTION",
+  "production provisioning must run from main",
   "group: lifespace-production-change",
   "node infra/scripts/provision-production.mjs",
 ]);
