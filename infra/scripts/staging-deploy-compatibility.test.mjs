@@ -29,7 +29,7 @@ test("rejects a schema downgrade before deployment", () => {
       expectedContractVersion: "0.36.0",
       expectedSchemaVersion: 40,
     }),
-    /schema 41 is newer than candidate schema 40/,
+    /schema 42 is newer than candidate schema 40/,
   );
 });
 
