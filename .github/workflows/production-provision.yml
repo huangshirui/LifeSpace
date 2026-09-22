@@ -1,4 +1,4 @@
-name: Provision production resources
+name: Provision LifeSpace platform production resources
 
 on:
   workflow_dispatch:
