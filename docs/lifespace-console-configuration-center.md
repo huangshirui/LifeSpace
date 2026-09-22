@@ -170,7 +170,7 @@ The Configuration Center has three distinct types of staging evidence.
 
 ### Authoritative transaction acceptance
 
-The repeatable manual workflow `.github/workflows/lifespace-console-staging-acceptance.yml` covers both:
+The repeatable manual workflow `.github/workflows/lifespace-console-staging-deploy.yml` with `run_control_plane_acceptance=true` runs a separate post-deploy acceptance job covering both:
 
 - Slice A Model validate/publish/version/retire, Model Contract revision movement and Application × Model Access restore;
 - Slice B/C Application create/update, Access Audience register/revoke, Application credential rotation, Service Principal lifecycle and Service API Token create/reduce/re-expansion-deny/revoke.
