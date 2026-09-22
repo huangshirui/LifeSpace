@@ -36,6 +36,8 @@ jobs:
     steps:
       - name: Checkout LifeSpace
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
 
       - name: Report rollout pending
         env:
