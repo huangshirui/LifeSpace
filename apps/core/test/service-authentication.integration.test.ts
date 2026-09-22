@@ -40,7 +40,7 @@ async function userToken(privateKey: string, userId: string) {
   }, privateKey, "RS256");
 }
 
-async function serviceJwt(privateKey: string, principalId: string, clientId = "homemew-external") {
+async function serviceJwt(privateKey: string, principalId: string, clientId = "homemew-external", scope = "spaces:read") {
   const iat = Math.floor(Date.now() / 1000);
   return sign({
     iss: "lifespace-identity",
@@ -48,7 +48,7 @@ async function serviceJwt(privateKey: string, principalId: string, clientId = "h
     sub: principalId,
     azp: clientId,
     principal_type: "service",
-    scope: "spaces:read",
+    scope,
     iat,
     exp: iat + 900,
     jti: `tok_${crypto.randomUUID()}`,
@@ -75,12 +75,12 @@ function identityBinding(
       if (state === "unavailable") return new Response("unavailable", { status: 503 });
 
       if (request.url.endsWith(`/introspection/v1/service-principals/${principalId}`)) {
-        return Response.json({ data: { active: state === "active" } });
+        return Response.json({ data: state === "active" ? { active: true, displayName: "Home n8n" } : { active: false } });
       }
       if (request.url.endsWith("/introspection/v1/service-tokens")) {
         return Response.json({
           data: state === "active"
-            ? { active: true, audience: "lifespace-core", principal: { type: "service", id: principalId, clientId: "homemew-external", scopes, tokenId: "sat_test" } }
+            ? { active: true, audience: "lifespace-core", principal: { type: "service", id: principalId, displayName: "Home n8n", clientId: "homemew-external", scopes, tokenId: "sat_test" } }
             : { active: false },
         });
       }
@@ -124,6 +124,24 @@ async function grantSpaceRead(home: { token: string; spaceId: string }, principa
   return (await response.json() as { data: { id: string } }).data.id;
 }
 
+async function grantTaskWrite(home: { token: string; spaceId: string }, principalId: string, publicKey: string) {
+  const db = (env as unknown as TestEnv).DB;
+  await db.prepare(`INSERT OR REPLACE INTO application_model_access(application_id,model_key,max_access,created_by_type,created_by_id)
+    VALUES(?,?,?,?,?)`).bind("homemew-external", "task", "write", "service", "svc_test_admin").run();
+  const response = await request(`/api/v1/spaces/${home.spaceId}/grants`, home.token, publicKey, undefined, {
+    method: "POST",
+    body: JSON.stringify({
+      granteeType: "service",
+      granteeId: principalId,
+      resourceType: "model",
+      resourceId: "task",
+      permission: "write",
+      expiresAt: null,
+    }),
+  });
+  expect(response.status).toBe(201);
+}
+
 describe("Core service authentication", () => {
   it("normalizes opaque tokens and intersects scope with current service Data Grant", async () => {
     const { privateKey, publicKey } = await keys();
@@ -153,6 +171,43 @@ describe("Core service authentication", () => {
     expect(revoked.status).toBe(204);
     const afterRevoke = await request(`/api/v1/spaces/${home.spaceId}`, serviceToken, publicKey, identity);
     expect(afterRevoke.status).toBe(403);
+  });
+
+  it("returns trusted service display names in Generic Resource audit fields for opaque tokens and service JWTs", async () => {
+    const { privateKey, publicKey } = await keys();
+    const home = await createSpace(privateKey, publicKey, "Audit Home");
+    const principalId = `svc_${crypto.randomUUID().replaceAll("-", "")}`;
+    await grantTaskWrite(home, principalId, publicKey);
+    const identity = identityBinding(principalId, ["resources:read", "resources:write"]);
+    const serviceToken = "lsp_pat_audit_token_that_is_long_enough_for_core_authentication";
+    const collection = `/api/v1/spaces/${home.spaceId}/models/task/records`;
+
+    const createdResponse = await request(collection, serviceToken, publicKey, identity, {
+      method: "POST",
+      body: JSON.stringify({ name: "Created by automation" }),
+    });
+    expect(createdResponse.status).toBe(201);
+    const created = await createdResponse.json() as { data: {
+      id: string;
+      version: number;
+      createdBy: { type: string; id: string; displayName: string };
+      updatedBy: { type: string; id: string; displayName: string };
+    } };
+    expect(created.data.createdBy).toEqual({ type: "service", id: principalId, displayName: "Home n8n" });
+    expect(created.data.updatedBy).toEqual({ type: "service", id: principalId, displayName: "Home n8n" });
+
+    const jwt = await serviceJwt(privateKey, principalId, "homemew-external", "resources:read resources:write");
+    const updatedResponse = await request(`${collection}/${created.data.id}`, jwt, publicKey, identity, {
+      method: "PATCH",
+      body: JSON.stringify({ version: created.data.version, name: "Updated by automation" }),
+    });
+    expect(updatedResponse.status).toBe(200);
+    const updated = await updatedResponse.json() as { data: {
+      createdBy: { type: string; id: string; displayName: string };
+      updatedBy: { type: string; id: string; displayName: string };
+    } };
+    expect(updated.data.createdBy).toEqual({ type: "service", id: principalId, displayName: "Home n8n" });
+    expect(updated.data.updatedBy).toEqual({ type: "service", id: principalId, displayName: "Home n8n" });
   });
 
   it("rejects inactive opaque-token introspection and keeps RS256 user authentication working", async () => {
