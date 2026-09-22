@@ -2,7 +2,6 @@ import { appendFileSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
-import { PROVING_MODELS as STAGING_PROVING_MODELS } from "./staging-expectations.mjs";
 
 const ROOT_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 
@@ -23,14 +22,17 @@ function latestMigrationVersion(service) {
   return Math.max(...migrations);
 }
 
-// Published model versions are monotonic inside each environment and therefore
-// can legitimately be higher than a clean-install release version. Production
-// acceptance pins semantic identity with model key + schema hash, while requiring
-// only a release floor for the environment-local Registry version.
-// Staging and production must prove the same shipped model semantics. Keep one
-// model-key/schema-hash release truth so a staging candidate cannot advance while
-// production preflight silently remains pinned to an older model contract.
-export const PRODUCTION_PROVING_MODELS = STAGING_PROVING_MODELS;
+// Production proving semantics are the currently accepted downstream release,
+ // not the repository's newer staging candidate. They advance only after staging
+ // has produced immutable candidate evidence and the HomeMew integration profile
+ // is explicitly promoted. This keeps production fail-closed while allowing a
+ // candidate schema/model-semantic change to be proven in staging first.
+export const PRODUCTION_PROVING_MODELS = Object.freeze([
+  Object.freeze({ key: "task", minimumVersion: 7, hash: "e79798bcadefad021ca86c1577c3fa3bc8fd0627f46557193aeca9b62acabb8e" }),
+  Object.freeze({ key: "wish", minimumVersion: 7, hash: "7dc6c079916a967c8bcd93f8cbe082c98157ceaeb30ce782ef3f2eb035d370df" }),
+  Object.freeze({ key: "day_record", minimumVersion: 4, hash: "9297a2f87fdd0718bfb74a362a0c451cf25309f4975099772f76e8a485fd0852" }),
+  Object.freeze({ key: "event", minimumVersion: 6, hash: "be9bdea442a30108a22a2da77a96ab23aba5122ec3c2b1de20a6312cebb0cc8a" }),
+]);
 
 export const PRODUCTION_EXPECTATIONS = Object.freeze({
   core: Object.freeze({
