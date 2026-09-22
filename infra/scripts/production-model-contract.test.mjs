@@ -15,26 +15,50 @@ const releaseReadiness = new URL("./check-production-release-readiness.mjs", imp
 const productionWorkflow = new URL("../../.github/workflows/production-deploy.yml", import.meta.url);
 const profile = JSON.parse(readFileSync(new URL("../homemew-integration-profile.json", import.meta.url), "utf8"));
 
-test("production proving models reuse the same shipped semantic identity as staging", () => {
-  assert.equal(PRODUCTION_PROVING_MODELS, STAGING_PROVING_MODELS, "staging and production must share one proving-model release truth");
-  const event = PRODUCTION_PROVING_MODELS.find((model) => model.key === "event");
-  assert.ok(event, "Event must remain a production proving model");
-  assert.equal(event.minimumVersion, 6, "Event v6 is the production Registry floor");
-  assert.equal(
-    event.hash,
-    "be9bdea442a30108a22a2da77a96ab23aba5122ec3c2b1de20a6312cebb0cc8a",
-    "production proving semantics must pin the Event v6 schema hash",
+test("staging candidate semantics may advance without silently promoting production", () => {
+  assert.notEqual(PRODUCTION_PROVING_MODELS, STAGING_PROVING_MODELS, "candidate and accepted release pins must be independently addressable");
+
+  const stagingTask = STAGING_PROVING_MODELS.find((model) => model.key === "task");
+  const productionTask = PRODUCTION_PROVING_MODELS.find((model) => model.key === "task");
+  assert.deepEqual(
+    { minimumVersion: stagingTask?.minimumVersion, hash: stagingTask?.hash },
+    { minimumVersion: 8, hash: "fed3dab27e2f51da3780e42db38dd164fefe39f7d6e7f84161a97e1a8a6d96e6" },
+    "staging must prove the schema-42 Task description semantics",
+  );
+  assert.deepEqual(
+    { minimumVersion: productionTask?.minimumVersion, hash: productionTask?.hash },
+    { minimumVersion: 7, hash: "e79798bcadefad021ca86c1577c3fa3bc8fd0627f46557193aeca9b62acabb8e" },
+    "production must remain on the accepted Task semantics until explicit promotion",
   );
 
-  const wish = PRODUCTION_PROVING_MODELS.find((model) => model.key === "wish");
-  assert.ok(wish, "Wish must remain a production proving model");
-  assert.equal(wish.minimumVersion, 7, "Wish modelKey-addressed release version remains the production Registry floor");
-  assert.equal(
-    wish.hash,
-    "7dc6c079916a967c8bcd93f8cbe082c98157ceaeb30ce782ef3f2eb035d370df",
-    "production proving semantics must pin the modelKey-addressed Wish schema hash",
+  const stagingDayRecord = STAGING_PROVING_MODELS.find((model) => model.key === "day_record");
+  const productionDayRecord = PRODUCTION_PROVING_MODELS.find((model) => model.key === "day_record");
+  assert.deepEqual(
+    { minimumVersion: stagingDayRecord?.minimumVersion, hash: stagingDayRecord?.hash },
+    { minimumVersion: 5, hash: "9dae14eeaef9311412dc910a8976cf85e7d8641792192376ed6678739fe029d1" },
+    "staging must prove the schema-42 Day Record description semantics",
   );
-  assert.equal("version" in wish, false, "production must not assume one exact environment-local Wish Registry version");
+  assert.deepEqual(
+    { minimumVersion: productionDayRecord?.minimumVersion, hash: productionDayRecord?.hash },
+    { minimumVersion: 4, hash: "9297a2f87fdd0718bfb74a362a0c451cf25309f4975099772f76e8a485fd0852" },
+    "production must remain on the accepted Day Record semantics until explicit promotion",
+  );
+
+  const accepted = acceptedHomeMewModelSemantics(profile);
+  const production = assertHomeMewModelSemanticCompatibility(
+    profile,
+    PRODUCTION_PROVING_MODELS.map((model) => ({ key: model.key, schemaHash: model.hash })),
+    "accepted production proving semantics",
+  );
+  assert.equal(production.fingerprint, accepted.fingerprint);
+  assert.throws(
+    () => assertHomeMewModelSemanticCompatibility(
+      profile,
+      STAGING_PROVING_MODELS.map((model) => ({ key: model.key, schemaHash: model.hash })),
+      "unpromoted staging candidate",
+    ),
+    /does not match HomeMew semantic fingerprint/u,
+  );
 });
 
 test("production release readiness blocks mutation until accepted application semantics are promoted", () => {
