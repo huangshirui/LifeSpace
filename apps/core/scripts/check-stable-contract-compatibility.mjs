@@ -30,6 +30,9 @@ let accepted;
 try {
   accepted = JSON.parse(await readFile(acceptedPath, "utf8"));
 } catch (error) {
+  console.error("[stable-schema] GENERATED_BASELINE_BEGIN");
+  console.error(JSON.stringify(current, null, 2));
+  console.error("[stable-schema] GENERATED_BASELINE_END");
   throw new Error(`[stable-schema] accepted baseline is missing or invalid; run pnpm --filter @lifespace/core stable-contract:baseline after review: ${error instanceof Error ? error.message : String(error)}`);
 }
 
