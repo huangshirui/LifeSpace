@@ -65,11 +65,13 @@
   "runtimeToolBoundary": {
     "m4Operations": [
       "discover",
+      "describe",
       "query",
       "get"
     ],
     "delegatedTokenConsumer": "aloha-agent-control",
     "n8nReceivesLifeSpaceCredential": false,
-    "n8nReceivesDelegatedAgentToken": false
+    "n8nReceivesDelegatedAgentToken": false,
+    "discoveryFlow": "inventory_then_selected_model_semantic_detail"
   }
 }
