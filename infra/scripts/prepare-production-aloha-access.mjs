@@ -2,30 +2,30 @@ import { chmodSync, readFileSync, writeFileSync } from "node:fs";
 import process from "node:process";
 
 const profile = JSON.parse(readFileSync(new URL("../aloha-integration-profile.json", import.meta.url), "utf8"));
-const application = profile.application ?? {};
+const applicationProfile = profile.application ?? {};
 const agentIdentity = profile.agentIdentity ?? {};
 const coreAuthority = profile.coreAuthority ?? {};
 
 const identityBase = (process.env.LIFESPACE_IDENTITY_PRODUCTION_URL ?? "https://auth.aisr.online").replace(/\/+$/u, "");
 const bootstrapSecret = process.env.LIFESPACE_PRODUCTION_BOOTSTRAP_SECRET ?? "";
 const accessAudience = (process.env.LIFESPACE_PRODUCTION_ALOHA_ACCESS_AUD ?? "").trim();
-const applicationId = (process.env.LIFESPACE_PRODUCTION_ALOHA_APPLICATION_ID ?? application.productionId ?? "").trim();
+const applicationId = (process.env.LIFESPACE_PRODUCTION_ALOHA_APPLICATION_ID ?? applicationProfile.productionId ?? "").trim();
 const applicationName = (process.env.LIFESPACE_PRODUCTION_ALOHA_APPLICATION_NAME ?? "ALOHA Assistant").trim();
 const suppliedCredential = (process.env.LIFESPACE_PRODUCTION_ALOHA_APPLICATION_CREDENTIAL ?? "").trim();
 const credentialOutput = (process.env.LIFESPACE_PRODUCTION_ALOHA_CREDENTIAL_OUTPUT ?? "").trim();
 
 const REQUIRED_CONTRACT = profile.contracts?.identity;
 const MINIMUM_SCHEMA = 8;
-const TOKEN_TTL_SECONDS = application.accessTokenTtlSeconds;
-const APPLICATION_SCOPES = application.allowedUserScopes;
+const TOKEN_TTL_SECONDS = applicationProfile.accessTokenTtlSeconds;
+const APPLICATION_SCOPES = applicationProfile.allowedUserScopes;
 const AGENT_DISPLAY_NAME = agentIdentity.displayName;
 
 if (
   profile.profileVersion !== 2
   || profile.trackingIssue !== 162
   || profile.status !== "candidate"
-  || application.clientType !== "web"
-  || application.trustedBackend !== true
+  || applicationProfile.clientType !== "web"
+  || applicationProfile.trustedBackend !== true
   || !Number.isInteger(TOKEN_TTL_SECONDS)
   || TOKEN_TTL_SECONDS !== 900
   || !Array.isArray(APPLICATION_SCOPES)
@@ -145,9 +145,9 @@ async function createApplication() {
     body: {
       id: applicationId,
       name: applicationName,
-      clientType: application.clientType,
+      clientType: applicationProfile.clientType,
       allowedScopes: APPLICATION_SCOPES,
-      trustedBackend: application.trustedBackend,
+      trustedBackend: applicationProfile.trustedBackend,
       accessTokenTtlSeconds: TOKEN_TTL_SECONDS,
     },
   });
@@ -160,7 +160,7 @@ async function createApplication() {
 }
 
 async function reconcileApplication(existing) {
-  if (existing.clientType !== application.clientType || existing.trustedBackend !== application.trustedBackend) {
+  if (existing.clientType !== applicationProfile.clientType || existing.trustedBackend !== applicationProfile.trustedBackend) {
     throw new Error(
       `Existing application ${applicationId} has incompatible immutable trust class: `
       + `${JSON.stringify({ clientType: existing.clientType, trustedBackend: existing.trustedBackend })}`,
@@ -310,8 +310,8 @@ console.log(JSON.stringify({
     id: applicationId,
     created: applicationCreated,
     updated: applicationUpdated,
-    clientType: application.clientType,
-    trustedBackend: application.trustedBackend,
+    clientType: applicationProfile.clientType,
+    trustedBackend: applicationProfile.trustedBackend,
     allowedScopes: APPLICATION_SCOPES,
     accessTokenTtlSeconds: TOKEN_TTL_SECONDS,
   },
