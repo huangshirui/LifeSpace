@@ -32,7 +32,7 @@ jobs:
           test "$GITHUB_REF_NAME" = "main" || { echo "production provisioning must run from main" >&2; exit 1; }
 
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           ref: ${{ github.sha }}
 
@@ -43,7 +43,7 @@ jobs:
           echo "checkout=$(git rev-parse HEAD)"
 
       - name: Setup Node.js 24
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: 24
 
