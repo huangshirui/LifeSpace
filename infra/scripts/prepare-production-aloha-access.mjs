@@ -1,19 +1,45 @@
-import { chmodSync, writeFileSync } from "node:fs";
+import { chmodSync, readFileSync, writeFileSync } from "node:fs";
 import process from "node:process";
+
+const profile = JSON.parse(readFileSync(new URL("../aloha-integration-profile.json", import.meta.url), "utf8"));
+const application = profile.application ?? {};
+const agentIdentity = profile.agentIdentity ?? {};
+const coreAuthority = profile.coreAuthority ?? {};
 
 const identityBase = (process.env.LIFESPACE_IDENTITY_PRODUCTION_URL ?? "https://auth.aisr.online").replace(/\/+$/u, "");
 const bootstrapSecret = process.env.LIFESPACE_PRODUCTION_BOOTSTRAP_SECRET ?? "";
 const accessAudience = (process.env.LIFESPACE_PRODUCTION_ALOHA_ACCESS_AUD ?? "").trim();
-const applicationId = (process.env.LIFESPACE_PRODUCTION_ALOHA_APPLICATION_ID ?? "aloha-assistant").trim();
+const applicationId = (process.env.LIFESPACE_PRODUCTION_ALOHA_APPLICATION_ID ?? application.productionId ?? "").trim();
 const applicationName = (process.env.LIFESPACE_PRODUCTION_ALOHA_APPLICATION_NAME ?? "ALOHA Assistant").trim();
 const suppliedCredential = (process.env.LIFESPACE_PRODUCTION_ALOHA_APPLICATION_CREDENTIAL ?? "").trim();
 const credentialOutput = (process.env.LIFESPACE_PRODUCTION_ALOHA_CREDENTIAL_OUTPUT ?? "").trim();
 
-const REQUIRED_CONTRACT = "0.6.0";
+const REQUIRED_CONTRACT = profile.contracts?.identity;
 const MINIMUM_SCHEMA = 8;
-const TOKEN_TTL_SECONDS = 900;
-const APPLICATION_SCOPES = ["profile:read"];
-const AGENT_DISPLAY_NAME = "ALOHA Assistant";
+const TOKEN_TTL_SECONDS = application.accessTokenTtlSeconds;
+const APPLICATION_SCOPES = application.allowedUserScopes;
+const AGENT_DISPLAY_NAME = agentIdentity.displayName;
+
+if (
+  profile.profileVersion !== 2
+  || profile.trackingIssue !== 162
+  || profile.status !== "candidate"
+  || application.clientType !== "web"
+  || application.trustedBackend !== true
+  || !Number.isInteger(TOKEN_TTL_SECONDS)
+  || TOKEN_TTL_SECONDS !== 900
+  || !Array.isArray(APPLICATION_SCOPES)
+  || JSON.stringify(APPLICATION_SCOPES) !== JSON.stringify(["profile:read", "resources:read"])
+  || APPLICATION_SCOPES.includes("resources:write")
+  || typeof AGENT_DISPLAY_NAME !== "string"
+  || !AGENT_DISPLAY_NAME
+  || REQUIRED_CONTRACT !== "0.6.0"
+  || JSON.stringify(coreAuthority.m4ModelAccess) !== JSON.stringify({ task: "read" })
+  || JSON.stringify(coreAuthority.m4DelegationModels) !== JSON.stringify([{ modelKey: "task", maxAccess: "read" }])
+  || coreAuthority.m4WriteAuthority !== false
+) {
+  throw new Error("ALOHA production preparation refuses an invalid or broadened M4 integration profile");
+}
 
 for (const [name, value] of Object.entries({
   LIFESPACE_PRODUCTION_BOOTSTRAP_SECRET: bootstrapSecret,
@@ -119,9 +145,9 @@ async function createApplication() {
     body: {
       id: applicationId,
       name: applicationName,
-      clientType: "web",
+      clientType: application.clientType,
       allowedScopes: APPLICATION_SCOPES,
-      trustedBackend: true,
+      trustedBackend: application.trustedBackend,
       accessTokenTtlSeconds: TOKEN_TTL_SECONDS,
     },
   });
@@ -134,7 +160,7 @@ async function createApplication() {
 }
 
 async function reconcileApplication(existing) {
-  if (existing.clientType !== "web" || existing.trustedBackend !== true) {
+  if (existing.clientType !== application.clientType || existing.trustedBackend !== application.trustedBackend) {
     throw new Error(
       `Existing application ${applicationId} has incompatible immutable trust class: `
       + `${JSON.stringify({ clientType: existing.clientType, trustedBackend: existing.trustedBackend })}`,
@@ -284,8 +310,8 @@ console.log(JSON.stringify({
     id: applicationId,
     created: applicationCreated,
     updated: applicationUpdated,
-    clientType: "web",
-    trustedBackend: true,
+    clientType: application.clientType,
+    trustedBackend: application.trustedBackend,
     allowedScopes: APPLICATION_SCOPES,
     accessTokenTtlSeconds: TOKEN_TTL_SECONDS,
   },
@@ -301,5 +327,11 @@ console.log(JSON.stringify({
     configured: true,
     created: agent.created,
   },
-  next: "Install the lsa_* from the secure sink as ALOHA Agent Control LIFESPACE_APPLICATION_CREDENTIAL, then run the M3 Access-authenticated deployment verifier.",
+  coreAuthority: {
+    applicationModelAccess: coreAuthority.m4ModelAccess,
+    delegationRequired: coreAuthority.m4DelegationRequired,
+    delegationModels: coreAuthority.m4DelegationModels,
+    writeAuthority: coreAuthority.m4WriteAuthority,
+  },
+  next: "Use LifeSpace Console / Platform Admin to set the production ALOHA Application × Model Access catalog to Task read only; install the lsa_* and deployment-only Core base in ALOHA Agent Control; then let the direct user create the explicit Task-read Agent Delegation for each target Space before the M4 Golden Flow.",
 }, null, 2));
