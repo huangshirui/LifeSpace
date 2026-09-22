@@ -20,6 +20,7 @@ export type Actor = {
 export type Principal = {
   type: PrincipalType;
   id: string;
+  displayName?: string;
   clientId: string;
   scopes: string[];
   tokenId: string;
