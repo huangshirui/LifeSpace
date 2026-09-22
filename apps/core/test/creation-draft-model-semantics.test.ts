@@ -57,6 +57,14 @@ describe("Creation Draft baseline model semantics", () => {
     }
   });
 
+  it("gives every built-in field an explicit semantic description", () => {
+    for (const definition of baselineDefinitions) {
+      for (const [fieldKey, field] of Object.entries(definition.fields)) {
+        expect(field.description, `${definition.key}.${fieldKey}`).toBeTruthy();
+      }
+    }
+  });
+
   it("distinguishes concrete work, scheduled occurrences, date trackers, and aspirations", () => {
     expect(byKey.get("task")?.description).toContain("concrete to-dos");
     expect(byKey.get("task")?.description).toContain("deadline");
