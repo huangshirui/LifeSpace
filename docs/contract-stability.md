@@ -232,10 +232,10 @@ It must not:
 
 `docs/contract-stability-baseline.json` is the machine-readable baseline for code-owned OpenAPI surfaces, generated contract-family classifications and Stable semantic commitments.
 
-`infra/scripts/check-contract-stability.mjs` validates it during normal `pnpm check`.
+`infra/scripts/check-contract-stability.mjs` validates operation coverage/classification during normal `pnpm check`. A second gate, `apps/core/scripts/check-stable-contract-compatibility.mjs`, compares canonical OpenAPI against generated accepted evidence in `docs/stable-public-schema-baseline.json` for **Stable / Public** representation groups only. It dereferences local schemas and rejects clear backward-incompatible representation changes such as operation/parameter/property removal, newly required input, request type/enum/constraint narrowing, removed responses/media types/headers, required-response weakening and incompatible response widening. Compatible additive optional input and additive response fields remain allowed.
 
 The check intentionally fingerprints the complete code-owned OpenAPI operation set. Adding/removing an operation therefore requires an explicit baseline update even if the new operation happens to match an existing path family. Stable operation groups are fingerprinted separately, so refreshing a whole-contract fingerprint cannot silently remove an already-Stable operation.
 
 Generated ordinary Model Contract surfaces are not copied into this operation inventory; their family classification is validated separately while Model Definition / Registry publication remains authoritative for their contents and compatibility.
 
-The machine file is not a replacement for canonical OpenAPI, Model Definitions or this policy. It only records classification and guards evolution boundaries.
+Neither machine file is a replacement for canonical OpenAPI, Model Definitions or this policy. `docs/stable-public-schema-baseline.json` is generated acceptance evidence, not an editable semantic source: deliberate Stable breaking evolution must use the documented deprecation/migration process rather than refreshing the evidence to silence CI. Candidate/Experimental surfaces and generated ordinary Model Contracts keep their existing weaker/Model-publication compatibility rules.
