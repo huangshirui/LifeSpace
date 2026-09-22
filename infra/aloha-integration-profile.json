@@ -5,7 +5,7 @@
   "trackingIssue": 162,
   "application": {
     "key": "aloha-assistant",
-    "stagingId": "app_aloha_assistant_m4_staging",
+    "stagingId": "aloha-assistant-staging",
     "productionId": "aloha-assistant",
     "clientType": "web",
     "trustedBackend": true,
