@@ -2,6 +2,12 @@ name: Deploy LifeSpace Console staging (isolated)
 
 on:
   workflow_dispatch:
+    inputs:
+      run_control_plane_acceptance:
+        description: "After Console deployment, exercise and clean up real staging control-plane write lifecycles"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -115,4 +121,80 @@ jobs:
           - No bootstrap secret was used.
           - Existing Console Worker secrets were preserved rather than rotated.
           - Next: verify the new model publish/retire and Application × Model Access flows through the real Cloudflare Access browser session.
+          EOF
+
+  acceptance:
+    name: Exercise staging Configuration Center writes and cleanup
+    if: ${{ inputs.run_control_plane_acceptance }}
+    needs: deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: staging
+    env:
+      LIFESPACE_STAGING_BOOTSTRAP_SECRET: ${{ secrets.LIFESPACE_STAGING_BOOTSTRAP_SECRET }}
+      LIFESPACE_IDENTITY_STAGING_URL: https://auth-staging.aisr.online
+      LIFESPACE_CORE_STAGING_URL: https://core-staging.aisr.online
+      LIFESPACE_STAGING_CONSOLE_APPLICATION_ID: app_lifespace_console_staging
+
+    steps:
+      - name: Checkout LifeSpace
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.13.1
+          run_install: false
+
+      - name: Setup Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Validate staging-only authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          test ${#LIFESPACE_STAGING_BOOTSTRAP_SECRET} -ge 32 || { echo "LIFESPACE_STAGING_BOOTSTRAP_SECRET is not configured" >&2; exit 1; }
+          [[ "$LIFESPACE_IDENTITY_STAGING_URL" == "https://auth-staging.aisr.online" ]]
+          [[ "$LIFESPACE_CORE_STAGING_URL" == "https://core-staging.aisr.online" ]]
+
+      - name: Install repository dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate Console before acceptance
+        run: pnpm --filter @lifespace/console check
+
+      - name: Exercise Model publishing and Model Access lifecycle
+        run: node apps/console/scripts/verify-staging-control-plane.mjs
+
+      - name: Exercise Application and service identity lifecycle
+        run: node apps/console/scripts/verify-staging-configuration-center.mjs
+
+      - name: Summarize acceptance
+        if: ${{ success() }}
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<'EOF'
+          ## LifeSpace Console Configuration & Publishing Center — staging acceptance
+
+          Slice A:
+          - Used the current active staging platform administrator as human actor.
+          - Validated/published an ephemeral model v1 (`initial`) and additive v2 (`compatible`).
+          - Observed Model Contract revision advancement.
+          - Added then restored Application × Model Access.
+          - Retired the ephemeral model and verified it disappeared from the published Registry.
+
+          Slices B/C:
+          - Created and updated a generated staging Application.
+          - Registered then revoked a disposable Cloudflare Access audience.
+          - Created/revoked target Application credentials and verified metadata does not expose plaintext.
+          - Created/disabled a disposable Service Principal.
+          - Created a Service API Token, reduced its scopes, proved scope re-expansion is denied, then revoked it.
+          - Verified human-attributed Identity audit and no plaintext credential leakage.
+          - Left the generated acceptance Application disabled because the platform contract has no delete-Application lifecycle.
+
+          Boundaries:
+          - Temporary acceptance executors/credentials are revoked during cleanup.
+          - This workflow does not deploy Console/Core/Identity or run migrations.
+          - Production is not targeted.
           EOF
