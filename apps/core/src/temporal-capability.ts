@@ -375,6 +375,8 @@ export async function recordTemporalOccurrence(
       { [temporal.anchorDateField]: occurredOn },
       "action",
       manualOccurrenceExtension(occurredOn, note),
+      undefined,
+      "record-occurrence",
     );
     return { previousAnchorDate, intervalDays: daysBetween(previousAnchorDate, occurredOn), record };
   } catch (error) {
