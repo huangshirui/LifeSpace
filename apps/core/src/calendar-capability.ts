@@ -7,7 +7,7 @@ import type { Bindings, Principal } from "./env";
 import { createGenericResource, getGenericResource, updateGenericResource, type GenericResource } from "./generic-resource";
 import { ApiError } from "./http";
 import type { PublishedModel } from "./model-registry";
-import { normalizeRfc3339Instant } from "./time-semantics";
+import { assertIanaTimezone, normalizeRfc3339Instant } from "./time-semantics";
 
 type JsonObject = Record<string, unknown>;
 
@@ -48,9 +48,8 @@ function instant(value: unknown, field: string): string {
 
 function timezone(value: unknown, field: string): string {
   if (typeof value !== "string" || !value) throw new ApiError("INVALID_CALENDAR_TIMEZONE", `${field} must be an IANA timezone`, 400);
-  try { new Intl.DateTimeFormat("en-US", { timeZone: value }).format(new Date(0)); }
+  try { return assertIanaTimezone(value); }
   catch { throw new ApiError("INVALID_CALENDAR_TIMEZONE", `${field} must be an IANA timezone`, 400); }
-  return value;
 }
 
 function required(value: unknown, field: string): unknown {
