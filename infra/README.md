@@ -34,7 +34,7 @@ Deploy and provision operations for the same environment share a concurrency loc
 Additional long-lived operator boundaries:
 
 - `Deploy LifeSpace Console staging (isolated)` is the normal Console-only staging entrypoint. Its default job does not migrate/deploy Core or Identity or use bootstrap authority; an explicit `run_control_plane_acceptance=true` adds a separate staging-only control-plane acceptance job after deployment.
-- `Provision LifeSpace Console staging` remains a low-frequency platform/credential convergence path because it can reconcile Core/Identity, platform administrator assignment and Console executor credentials. It is not the normal Console deploy path and should shrink further with bootstrap-surface work tracked in #93.
+- `Converge LifeSpace staging control plane` remains a low-frequency platform/credential convergence path because it can reconcile Core/Identity, platform administrator assignment and Console executor credentials. It is not the normal Console deploy path and should shrink further with bootstrap-surface work tracked in #93.
 - `Deploy LifeSpace Console production` remains an independent guarded Console-only production rollout.
 - The APAC performance gate is an internal prerequisite job inside `Deploy production`, not a separate operator-facing workflow. It runs automatically against the exact candidate SHA before any production migration/deployment job may start.
 - Product-owned staging workflows are not retained in this platform repository after the product environment is retired. HomeMew Web staging provisioning was removed in #261; application-specific deployment belongs to the HomeMew repository.
