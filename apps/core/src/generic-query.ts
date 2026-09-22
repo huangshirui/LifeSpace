@@ -11,7 +11,7 @@ import {
   type GenericComparisonValueType,
   type GenericComparisonFieldSemantic,
 } from "./query-semantics";
-import { localDateWindowToInstantRange, normalizeRfc3339Instant } from "./time-semantics";
+import { assertIanaTimezone, localDateWindowToInstantRange, normalizeRfc3339Instant } from "./time-semantics";
 import {
   hydrateTypedResourceRows,
   typedScalarExpression,
@@ -129,8 +129,7 @@ function scalarValue(field: FieldDefinition, raw: string, key: string): string |
     case "instant":
     case "datetime": return dateTime(raw, key);
     case "timezone":
-      try { new Intl.DateTimeFormat("en-US", { timeZone: raw }).format(new Date(0)); } catch { throw new ApiError("INVALID_QUERY", `${key} must be an IANA timezone`, 400); }
-      return raw;
+      try { return assertIanaTimezone(raw); } catch { throw new ApiError("INVALID_QUERY", `${key} must be an IANA timezone`, 400); }
     case "integer": {
       const value = Number(raw);
       if (!Number.isInteger(value)) throw new ApiError("INVALID_QUERY", `${key} must be an integer`, 400);
