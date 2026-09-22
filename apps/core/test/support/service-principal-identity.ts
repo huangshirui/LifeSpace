@@ -11,7 +11,7 @@ function activeServicePrincipalBinding(): Fetcher {
       }
       const url = new URL(request.url);
       if (request.method === "GET" && url.pathname.startsWith("/introspection/v1/service-principals/")) {
-        return Response.json({ data: { active: true } });
+        return Response.json({ data: { active: true, displayName: "Test service principal" } });
       }
       return new Response("not found", { status: 404 });
     },
