@@ -3,7 +3,7 @@ import YAML from "yaml";
 
 const document = YAML.parse(fs.readFileSync(new URL("../integration-eventing.openapi.yaml", import.meta.url), "utf8"));
 
-if (document.openapi !== "3.1.0" || document.info?.version !== "0.1.0") {
+if (document.openapi !== "3.1.0" || document.info?.version !== "0.2.0") {
   throw new Error("Integration/Eventing OpenAPI version metadata is invalid");
 }
 const lifecycleDescription = document.info?.description?.toLowerCase() ?? "";
@@ -64,7 +64,7 @@ if (!schemas.WebhookDelivery?.required?.includes("modelKey")) {
 }
 
 const referencePayload = schemas.DomainEventReferencePayload;
-const expectedReferenceFields = ["id", "type", "spaceId", "modelKey", "recordId", "recordVersion", "occurredAt"].sort();
+const expectedReferenceFields = ["id", "type", "spaceId", "modelKey", "recordId", "recordVersion", "changeId", "occurredAt"].sort();
 if (referencePayload?.additionalProperties !== false
     || JSON.stringify([...(referencePayload?.required ?? [])].sort()) !== JSON.stringify(expectedReferenceFields)
     || JSON.stringify(Object.keys(referencePayload?.properties ?? {}).sort()) !== JSON.stringify(expectedReferenceFields)) {
@@ -88,6 +88,9 @@ if (testPayload?.additionalProperties !== false
 const recordWebhook = document.webhooks?.recordChange?.post;
 const testWebhook = document.webhooks?.endpointTest?.post;
 if (!recordWebhook || !testWebhook) throw new Error("Outbound Webhook contracts are missing");
+if (!referencePayload?.properties?.changeId?.anyOf?.some((entry) => entry?.type === "null")) {
+  throw new Error("Domain Event changeId must preserve explicit nullable legacy evidence");
+}
 if (recordWebhook.requestBody?.content?.["application/json"]?.schema?.$ref !== "#/components/schemas/DomainEventReferencePayload") {
   throw new Error("recordChange Webhook must use the canonical reference-only payload");
 }

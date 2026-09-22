@@ -275,6 +275,6 @@ This document describes the **current permission architecture**. It intentionall
 
 - **Space Boundary**: Space is the default ownership/authorization boundary; cross-Space sharing is explicit and revocable.
 - **Bounded Authority**: authority is explicit; entity type and Principal/Actor roles are not conflated.
-- **Governed Change**: authorization is evaluated before durable changes commit.
+- **Governed Change**: authorization is evaluated before durable changes commit. Exact Change Detail is immutable audit evidence but is not a bypass around current authorization: reading historical before/after values rechecks current model read authority, including after soft deletion; revoked Delegations/Grants lose access immediately.
 
 A future implementation of richer Agent identity, delegation, consent or approval must extend these foundations deliberately and update contracts/tests before being described as supported behavior.

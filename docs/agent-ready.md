@@ -167,7 +167,9 @@ Governed Change
 
 For Agent-originated mutations, the legacy outbox `actor_type` / `actor_id` continues to reflect the authority-bearing Principal for compatibility, while `resource_changes` is authoritative for the separated User Principal + Agent Actor + Application + Delegation attribution.
 
-An authorized subscriber that needs operation attribution can use the Event's record/version reference and read Change History through normal LifeSpace authorization. This keeps Eventing minimal and avoids broadcasting identity metadata to subscribers that only need a change notification.
+An authorized subscriber that needs operation attribution uses the Event's opaque `changeId` and reads exact Change Detail through normal LifeSpace authorization. New Generic Runtime events bind that reference in the same mutation transaction. Legacy pre-linkage Event evidence may have no `changeId` and must fall back to its historical record/version correlation without fabricating exact detail. This keeps Eventing minimal and avoids broadcasting identity metadata or field values to subscribers that only need a change notification.
+
+`changedFields` remains compatibility evidence for fields touched/submitted by the mutation path. Kernel 0.37 adds independent `fieldChanges` exact before/after evidence. A submitted no-op may therefore advance the record version and appear in `changedFields` while `fieldChanges` is empty. Workflow and Capability Actions additionally persist their semantic `actionKey`. Exact Change Detail is immutable for the committed version and remains readable after later updates or soft deletion only while the caller retains current read authority for that Space/model.
 
 ## Agent-ready acceptance gate
 

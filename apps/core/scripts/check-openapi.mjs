@@ -3,7 +3,7 @@ import YAML from "yaml";
 
 const document = YAML.parse(fs.readFileSync(new URL("../openapi.yaml", import.meta.url), "utf8"));
 
-if (document.openapi !== "3.1.0" || document.info?.version !== "0.36.0") {
+if (document.openapi !== "3.1.0" || document.info?.version !== "0.37.0") {
   throw new Error("Core Kernel OpenAPI version metadata is invalid");
 }
 if (!document.info?.title?.includes("Kernel")) {
@@ -45,6 +45,7 @@ const requiredPaths = [
   "/api/v1/spaces/{spaceId}/agent-delegations/{delegationId}",
   "/api/v1/spaces/{spaceId}/changes",
   "/api/v1/spaces/{spaceId}/changes/{recordId}",
+  "/api/v1/spaces/{spaceId}/changes/by-id/{changeId}",
   "/api/v1/spaces/{spaceId}/creation-drafts",
   "/api/v1/spaces/{spaceId}/creation-drafts/{draftId}",
   "/api/v1/spaces/{spaceId}/creation-drafts/{draftId}/choose-model",
@@ -581,7 +582,7 @@ if (!schemas.CreationDraftProcessing?.required?.includes("modelContractRevision"
   throw new Error("Creation Draft jobs must expose their pinned Model Contract Revision");
 }
 
-if (schemas.StatusResponse?.properties?.data?.properties?.contractVersion?.const !== "0.36.0") {
+if (schemas.StatusResponse?.properties?.data?.properties?.contractVersion?.const !== "0.37.0") {
   throw new Error("Core Kernel status contract version drifted");
 }
 
@@ -594,6 +595,15 @@ if (!agentDelegations?.get || !agentDelegations?.post || !document.paths?.["/api
 if (JSON.stringify(schemas.AgentDelegationModelAccess?.properties?.maxAccess?.enum) !== JSON.stringify(["read", "write", "manage"])) {
   throw new Error("Agent Delegation must use the stable read/write/manage ceiling");
 }
-if (!schemas.ResourceChangeActor?.properties?.type?.enum?.includes("agent") || !schemas.ResourceChange?.required?.includes("delegationId")) {
-  throw new Error("Governed Change contract must preserve Agent actor and Delegation attribution");
+if (!schemas.ResourceChangeActor?.properties?.type?.enum?.includes("agent")
+    || !schemas.ResourceChange?.required?.includes("delegationId")
+    || !schemas.ResourceChange?.required?.includes("actionKey")
+    || !schemas.ResourceChange?.required?.includes("detailAvailable")) {
+  throw new Error("Governed Change contract must preserve Agent attribution and exact-detail metadata");
+}
+const changeDetail = document.paths?.["/api/v1/spaces/{spaceId}/changes/by-id/{changeId}"]?.get;
+if (changeDetail?.operationId !== "getResourceChangeDetail"
+    || changeDetail?.responses?.["200"]?.content?.["application/json"]?.schema?.$ref !== "#/components/schemas/ResourceChangeDetailResponse"
+    || !schemas.ResourceChangeDetail?.required?.includes("fieldChanges")) {
+  throw new Error("Exact governed Change detail contract drifted");
 }

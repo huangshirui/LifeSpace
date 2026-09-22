@@ -176,7 +176,7 @@
     {
       "id": "core-kernel",
       "source": "apps/core/openapi.yaml",
-      "operationSetSha256": "sha256:812c6505f514641e0df580148b19da594ecc648495f65fb1ddc70a8c29c2980c",
+      "operationSetSha256": "sha256:22ffd2ea787b1fa9cc74c27f24d3875224324041c44bce135f647a925a32ae12",
       "groups": [
         {
           "id": "core-operational",
@@ -236,7 +236,7 @@
           "id": "core-change-history",
           "maturity": "candidate",
           "visibility": "public",
-          "operationPattern": "^GET /api/v1/spaces/\\{spaceId\\}/changes(?:/\\{recordId\\})?$"
+          "operationPattern": "^GET /api/v1/spaces/\\{spaceId\\}/changes$|^GET /api/v1/spaces/\\{spaceId\\}/changes/\\{recordId\\}$|^GET /api/v1/spaces/\\{spaceId\\}/changes/by-id/\\{changeId\\}$"
         },
         {
           "id": "core-creation-drafts",

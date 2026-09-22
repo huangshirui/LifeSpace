@@ -273,7 +273,7 @@ export function registerEventSubscriptionRoutes(app: App): void {
     requireUser(principal);
     const current = await ownedEndpoint(context.env, principal, context.req.param("endpointId"));
     const rows = await context.env.DB.prepare(`SELECT d.id,d.event_id,d.status,d.attempt_count,d.queued_at,d.delivered_at,d.last_status_code,d.last_error,d.created_at,
-        e.event_type,e.model_key,e.record_id,e.record_version,e.occurred_at
+        e.event_type,e.model_key,e.record_id,e.record_version,e.change_id,e.occurred_at
       FROM webhook_deliveries d
       JOIN event_subscriptions s ON s.id=d.subscription_id
       JOIN domain_event_outbox e ON e.id=d.event_id
@@ -286,6 +286,7 @@ export function registerEventSubscriptionRoutes(app: App): void {
       modelKey: row.model_key,
       recordId: row.record_id,
       recordVersion: row.record_version,
+      changeId: row.change_id,
       occurredAt: row.occurred_at,
       status: row.status,
       attemptCount: row.attempt_count,

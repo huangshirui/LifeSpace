@@ -99,9 +99,10 @@ export default {
       return new Response(null, { status: 204 });
     }
 
-    if (!exactKeys(payload, ["id", "type", "spaceId", "modelKey", "recordId", "recordVersion", "occurredAt"])) return bad("domain payload is not reference-only");
+    if (!exactKeys(payload, ["id", "type", "spaceId", "modelKey", "recordId", "recordVersion", "changeId", "occurredAt"])) return bad("domain payload is not reference-only");
     if (payload.type !== "record.created" || payload.modelKey !== "event") return bad("domain payload semantics invalid");
     if (!Number.isInteger(payload.recordVersion) || payload.recordVersion < 1) return bad("record version invalid");
+    if (typeof payload.changeId !== "string" || !payload.changeId.startsWith("chg_")) return bad("governed Change reference invalid");
     if (request.headers.get("x-lifespace-event-id") !== payload.id) return bad("event header mismatch");
     if (!request.headers.get("x-lifespace-delivery-id") || !request.headers.get("x-lifespace-webhook-endpoint-id") || !request.headers.get("x-lifespace-subscription-id")) return bad("delivery headers missing");
     return new Response(null, { status: 204 });

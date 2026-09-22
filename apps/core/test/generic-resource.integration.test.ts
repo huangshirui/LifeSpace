@@ -140,6 +140,44 @@ describe("Generic Resource Runtime", () => {
       .rejects.toMatchObject({ code: "VERSION_CONFLICT" });
   });
 
+  it("persists touched fields separately from exact normalized field changes", async () => {
+    const { db, spaceId, personId, model } = await fixture();
+    const resource = await createGenericResource(bindings(), actor, spaceId, model, {
+      name: "Diff me",
+      assigneePersonIds: [personId],
+    });
+
+    const noOp = await updateGenericResource(bindings(), actor, spaceId, model, resource.id, 1, {
+      name: "Diff me",
+    });
+    expect(noOp.version).toBe(2);
+
+    const relationUpdate = await updateGenericResource(bindings(), actor, spaceId, model, resource.id, 2, {
+      assigneePersonIds: [],
+    });
+    expect(relationUpdate.version).toBe(3);
+
+    const rows = await db.prepare(`SELECT operation,version_after,changed_fields_json,field_changes_json
+      FROM resource_changes WHERE record_id=? ORDER BY version_after`)
+      .bind(resource.id)
+      .all<{ operation: string; version_after: number; changed_fields_json: string; field_changes_json: string | null }>();
+
+    expect(JSON.parse(rows.results[0].field_changes_json!)).toEqual(expect.arrayContaining([
+      { field: "name", before: { present: false }, after: { present: true, value: "Diff me" } },
+      { field: "status", before: { present: false }, after: { present: true, value: "pending" } },
+    ]));
+    expect(JSON.parse(rows.results[1].changed_fields_json)).toEqual(["name"]);
+    expect(JSON.parse(rows.results[1].field_changes_json!)).toEqual([]);
+    expect(JSON.parse(rows.results[2].changed_fields_json)).toEqual(["assigneePersonIds"]);
+    expect(JSON.parse(rows.results[2].field_changes_json!)).toEqual([
+      {
+        field: "assigneePersonIds",
+        before: { present: true, value: [personId] },
+        after: { present: true, value: [] },
+      },
+    ]);
+  });
+
   it("soft-deletes resources and removes relation projections", async () => {
     const { db, spaceId, personId, model } = await fixture();
     const resource = await createGenericResource(bindings(), actor, spaceId, model, {
@@ -155,5 +193,18 @@ describe("Generic Resource Runtime", () => {
     const relationCount = await db.prepare("SELECT count(*) AS count FROM resource_relations WHERE source_record_id=?")
       .bind(resource.id).first<{ count: number }>();
     expect(relationCount?.count).toBe(0);
+
+    const deletion = await db.prepare(`SELECT id,field_changes_json FROM resource_changes
+      WHERE record_id=? AND operation='delete' LIMIT 1`)
+      .bind(resource.id).first<{ id: string; field_changes_json: string | null }>();
+    expect(deletion?.id).toMatch(/^chg_/u);
+    expect(JSON.parse(deletion!.field_changes_json!)).toEqual(expect.arrayContaining([
+      { field: "name", before: { present: true, value: "Delete me" }, after: { present: false } },
+      { field: "assigneePersonIds", before: { present: true, value: [personId] }, after: { present: false } },
+    ]));
+    const event = await db.prepare(`SELECT change_id FROM domain_event_outbox
+      WHERE record_id=? AND event_type='record.deleted' LIMIT 1`)
+      .bind(resource.id).first<{ change_id: string | null }>();
+    expect(event?.change_id).toBe(deletion?.id);
   });
 });

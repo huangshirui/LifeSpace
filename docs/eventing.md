@@ -2,7 +2,7 @@
 
 LifeSpace Eventing is the platform-owned mechanism for publishing ordinary-model changes to authorized external subscribers. Applications own product-facing configuration UX; they do not create parallel event, webhook, delivery, or retry stores.
 
-Canonical public contract: `apps/core/integration-eventing.openapi.yaml` (Integration/Eventing `0.1.0`). It is independently versioned and compatibility-checked from the Core Kernel contract while remaining implemented in the same Core Worker.
+Canonical public contract: `apps/core/integration-eventing.openapi.yaml` (Integration/Eventing `0.2.0`). It is independently versioned and compatibility-checked from the Core Kernel contract while remaining implemented in the same Core Worker.
 
 ## Event model
 

@@ -274,6 +274,7 @@ async function verifyChange(context, spaceId, recordId, expectedOperation = "cre
   const data = expectStatus(`${context.key} Change History`, result, 200);
   const change = data?.items?.find?.((item) => item.operation === expectedOperation && item.recordId === recordId);
   if (!change
+      || change.detailAvailable !== true
       || change.principal?.type !== "user"
       || change.principal?.id !== userId
       || change.actor?.type !== "agent"
@@ -281,6 +282,15 @@ async function verifyChange(context, spaceId, recordId, expectedOperation = "cre
       || change.applicationId !== context.applicationId
       || change.delegationId !== context.delegationId) {
     throw new Error(`${context.key} Change attribution is invalid: ${JSON.stringify(change)}`);
+  }
+  const detailResult = await request(
+    coreBase,
+    `/api/v1/spaces/${encodeURIComponent(spaceId)}/changes/by-id/${encodeURIComponent(change.id)}`,
+    { bearer: context.agentBearer },
+  );
+  const detail = expectStatus(`${context.key} exact Change Detail`, detailResult, 200);
+  if (detail?.id !== change.id || detail?.detailAvailable !== true || !Array.isArray(detail?.fieldChanges)) {
+    throw new Error(`${context.key} exact Change detail is invalid: ${JSON.stringify(detail)}`);
   }
   return change;
 }
@@ -290,11 +300,12 @@ function verifyEventEvidence(context, spaceId, recordId, version) {
       c.id AS change_id,c.principal_type,c.principal_id,c.actor_type AS change_actor_type,c.actor_id AS change_actor_id,
       c.application_id,c.delegation_id
     FROM domain_event_outbox e
-    JOIN resource_changes c ON c.record_id=e.record_id AND c.space_id=e.space_id AND c.model_key=e.model_key AND c.version_after=e.record_version
+    JOIN resource_changes c ON c.id=e.change_id
     WHERE e.space_id=${sqlString(spaceId)} AND e.record_id=${sqlString(recordId)} AND e.record_version=${Number(version)} AND e.event_type='record.created'
     ORDER BY e.occurred_at DESC LIMIT 1`);
   const evidence = rows[0];
   if (!evidence
+      || evidence.change_id == null
       || evidence.outbox_actor_type !== "user"
       || evidence.outbox_actor_id !== userId
       || evidence.principal_type !== "user"

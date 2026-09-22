@@ -152,6 +152,7 @@ export async function executeWorkflowAction(
     "action",
     undefined,
     resource,
+    actionKey,
   );
 }
 

@@ -16,6 +16,16 @@ import {
 type JsonObject = Record<string, unknown>;
 type ChangeOperation = "create" | "update" | "action" | "delete";
 
+export type ResourceFieldChangeValue =
+  | { present: false }
+  | { present: true; value: unknown };
+
+export type ResourceFieldChange = {
+  field: string;
+  before: ResourceFieldChangeValue;
+  after: ResourceFieldChangeValue;
+};
+
 export type GenericResource = {
   id: string;
   spaceId: string;
@@ -59,29 +69,68 @@ function operationActor(principal: Principal) {
   return principal.actor ?? { type: principal.type, id: principal.id };
 }
 
+function canonicalJson(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalJson);
+  if (!isObject(value)) return value;
+  return Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonicalJson(value[key])]));
+}
+
+function equalJson(left: unknown, right: unknown): boolean {
+  return JSON.stringify(canonicalJson(left)) === JSON.stringify(canonicalJson(right));
+}
+
+function fieldValue(data: JsonObject, field: string): ResourceFieldChangeValue {
+  return Object.prototype.hasOwnProperty.call(data, field)
+    ? { present: true, value: data[field] }
+    : { present: false };
+}
+
+export function exactFieldChanges(before: JsonObject, after: JsonObject): ResourceFieldChange[] {
+  const fields = [...new Set([...Object.keys(before), ...Object.keys(after)])].sort();
+  return fields.flatMap((field) => {
+    const previous = fieldValue(before, field);
+    const next = fieldValue(after, field);
+    if (previous.present === next.present
+        && (!previous.present || !next.present || equalJson(previous.value, next.value))) {
+      return [];
+    }
+    return [{ field, before: previous, after: next }];
+  });
+}
+
 function changeStatement(
   env: Bindings,
   principal: Principal,
+  id: string,
   recordId: string,
   spaceId: string,
   modelKey: string,
   operation: ChangeOperation,
+  actionKey: string | null,
   versionBefore: number | null,
   versionAfter: number,
   changedFields: string[],
+  fieldChanges: ResourceFieldChange[],
   timestamp: string,
   mutationToken?: string,
 ): D1PreparedStatement {
   if (principal.actor?.type === "agent" && !principal.activeDelegationId) {
     throw new ApiError("FORBIDDEN", "Delegated Agent mutation requires current delegation authority", 403);
   }
+  if (operation === "action" && !actionKey) {
+    throw new ApiError("CHANGE_EVIDENCE_INCOMPLETE", "Action mutation requires semantic actionKey evidence", 500);
+  }
+  if (operation !== "action" && actionKey) {
+    throw new ApiError("CHANGE_EVIDENCE_INCOMPLETE", "Only Action mutations may carry actionKey evidence", 500);
+  }
   const actor = operationActor(principal);
   const values = [
-    changeId(),
+    id,
     recordId,
     spaceId,
     modelKey,
     operation,
+    actionKey,
     versionBefore,
     versionAfter,
     principal.type,
@@ -91,18 +140,21 @@ function changeStatement(
     principal.clientId,
     principal.activeDelegationId ?? null,
     JSON.stringify([...new Set(changedFields)].sort()),
+    JSON.stringify(fieldChanges),
     timestamp,
   ];
   if (!mutationToken) {
     return env.DB.prepare(`INSERT INTO resource_changes(
-      id,record_id,space_id,model_key,operation,version_before,version_after,
-      principal_type,principal_id,actor_type,actor_id,application_id,delegation_id,changed_fields_json,occurred_at
-    ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(...values);
+      id,record_id,space_id,model_key,operation,action_key,version_before,version_after,
+      principal_type,principal_id,actor_type,actor_id,application_id,delegation_id,
+      changed_fields_json,field_changes_json,occurred_at
+    ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(...values);
   }
   return env.DB.prepare(`INSERT INTO resource_changes(
-      id,record_id,space_id,model_key,operation,version_before,version_after,
-      principal_type,principal_id,actor_type,actor_id,application_id,delegation_id,changed_fields_json,occurred_at
-    ) SELECT ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
+      id,record_id,space_id,model_key,operation,action_key,version_before,version_after,
+      principal_type,principal_id,actor_type,actor_id,application_id,delegation_id,
+      changed_fields_json,field_changes_json,occurred_at
+    ) SELECT ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
       WHERE EXISTS(SELECT 1 FROM resource_records WHERE id=? AND mutation_token=?)`)
     .bind(...values, recordId, mutationToken);
 }
@@ -345,11 +397,12 @@ export async function createGenericResource(
   const relations = await projectRelations(env, spaceId, model.definition, data);
   const id = createId();
   const timestamp = new Date().toISOString();
+  const mutationToken = changeId();
   const statements: D1PreparedStatement[] = [
     env.DB.prepare(`INSERT INTO resource_records(
       id,space_id,model_key,model_version,created_by_type,created_by_id,created_by_name_snapshot,
-      updated_by_type,updated_by_id,updated_by_name_snapshot,version,created_at,updated_at
-    ) VALUES(?,?,?,?,?,?,?,?,?,?,1,?,?)`).bind(
+      updated_by_type,updated_by_id,updated_by_name_snapshot,version,mutation_token,created_at,updated_at
+    ) VALUES(?,?,?,?,?,?,?,?,?,?,1,?,?,?)`).bind(
       id,
       spaceId,
       model.key,
@@ -360,14 +413,31 @@ export async function createGenericResource(
       principal.type,
       principal.id,
       principal.id,
+      mutationToken,
       timestamp,
       timestamp,
     ),
     typedInsertStatement(env, model, id, spaceId, data),
     ...relationStatements(env, id, spaceId, model, relations),
-    changeStatement(env, principal, id, spaceId, model.key, "create", null, 1, Object.keys(data), timestamp),
   ];
-  if (extension) statements.push(...await extension({ env, principal, recordId: id, spaceId, model, timestamp }));
+  if (extension) statements.push(...await extension({ env, principal, recordId: id, spaceId, model, timestamp, mutationToken }));
+  statements.push(changeStatement(
+    env,
+    principal,
+    mutationToken,
+    id,
+    spaceId,
+    model.key,
+    "create",
+    null,
+    null,
+    1,
+    Object.keys(data),
+    exactFieldChanges({}, data),
+    timestamp,
+    mutationToken,
+  ));
+  statements.push(env.DB.prepare("UPDATE resource_records SET mutation_token=NULL WHERE id=? AND mutation_token=?").bind(id, mutationToken));
   await env.DB.batch(statements);
   return {
     id,
@@ -403,6 +473,7 @@ export async function updateGenericResource(
   mutationMode: "client" | "action" = "client",
   extension?: ResourceMutationExtension,
   previousResource?: GenericResource,
+  actionKey?: string,
 ): Promise<GenericResource> {
   const previous = previousResource ?? await getTypedResource(env, spaceId, model, recordId);
   if (!previous || previous.id !== recordId || previous.spaceId !== spaceId || previous.modelKey !== model.key) {
@@ -413,9 +484,10 @@ export async function updateGenericResource(
   const data = validateResourceData(model.definition, input, mutationMode === "action" ? "action" : "update", previous.data);
   const relations = await projectRelations(env, spaceId, model.definition, data);
   const timestamp = new Date().toISOString();
-  const mutationToken = crypto.randomUUID();
+  const mutationToken = changeId();
   const nextVersion = previous.version + 1;
   const changedFields = isObject(input) ? Object.keys(input) : [];
+  const fieldChanges = exactFieldChanges(previous.data, data);
   const statements: D1PreparedStatement[] = [
     env.DB.prepare(`UPDATE resource_records SET
       model_version=?,updated_by_type=?,updated_by_id=?,updated_by_name_snapshot=?,version=?,updated_at=?,mutation_token=?
@@ -428,13 +500,16 @@ export async function updateGenericResource(
   statements.push(changeStatement(
     env,
     principal,
+    mutationToken,
     recordId,
     spaceId,
     model.key,
     mutationMode === "action" ? "action" : "update",
+    mutationMode === "action" ? (actionKey ?? null) : null,
     expectedVersion,
     nextVersion,
     changedFields,
+    fieldChanges,
     timestamp,
     mutationToken,
   ));
@@ -461,25 +536,42 @@ export async function deleteGenericResource(
   recordId: string,
   expectedVersion: number,
 ): Promise<void> {
+  const previous = await getTypedResource(env, spaceId, model, recordId);
+  if (!previous || previous.id !== recordId || previous.spaceId !== spaceId || previous.modelKey !== model.key) {
+    throw new ApiError("RESOURCE_NOT_FOUND", "Resource not found", 404);
+  }
+  if (previous.version !== expectedVersion) throw new ApiError("VERSION_CONFLICT", "Resource version is stale", 409);
+
   const timestamp = new Date().toISOString();
-  const mutationToken = crypto.randomUUID();
+  const mutationToken = changeId();
   const nextVersion = expectedVersion + 1;
   const results = await env.DB.batch([
     env.DB.prepare(`UPDATE resource_records SET
       deleted_at=?,updated_at=?,updated_by_type=?,updated_by_id=?,updated_by_name_snapshot=?,version=version+1,mutation_token=?
       WHERE id=? AND space_id=? AND model_key=? AND deleted_at IS NULL AND version=?`)
       .bind(timestamp, timestamp, principal.type, principal.id, principal.id, mutationToken, recordId, spaceId, model.key, expectedVersion),
-    changeStatement(env, principal, recordId, spaceId, model.key, "delete", expectedVersion, nextVersion, [], timestamp, mutationToken),
+    changeStatement(
+      env,
+      principal,
+      mutationToken,
+      recordId,
+      spaceId,
+      model.key,
+      "delete",
+      null,
+      expectedVersion,
+      nextVersion,
+      [],
+      exactFieldChanges(previous.data, {}),
+      timestamp,
+      mutationToken,
+    ),
     env.DB.prepare(`DELETE FROM resource_relations WHERE source_record_id=?
       AND EXISTS(SELECT 1 FROM resource_records WHERE id=? AND mutation_token=?)`)
       .bind(recordId, recordId, mutationToken),
     env.DB.prepare("UPDATE resource_records SET mutation_token=NULL WHERE id=? AND mutation_token=?").bind(recordId, mutationToken),
   ]);
-  if (!results[0].meta.changes) {
-    const existing = await getTypedResource(env, spaceId, model, recordId);
-    if (!existing) throw new ApiError("RESOURCE_NOT_FOUND", "Resource not found", 404);
-    throw new ApiError("VERSION_CONFLICT", "Resource version is stale", 409);
-  }
+  if (!results[0].meta.changes) throw new ApiError("VERSION_CONFLICT", "Resource version is stale", 409);
 }
 
 export async function listGenericResources(

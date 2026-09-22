@@ -73,6 +73,16 @@ describe("Temporal capability", () => {
     expect(advanced.intervalDays).toBe(5);
     expect(advanced.record.version).toBe(2);
     expect(advanced.record.data.anchorDate).toBe(occurredOn);
+    const occurrenceChange = await f.db.prepare(`SELECT action_key,field_changes_json FROM resource_changes
+      WHERE record_id=? AND version_after=2`).bind(cycle.id).first<{ action_key: string | null; field_changes_json: string | null }>();
+    expect(occurrenceChange?.action_key).toBe("record-occurrence");
+    expect(JSON.parse(occurrenceChange!.field_changes_json!)).toEqual([
+      {
+        field: "anchorDate",
+        before: { present: true, value: anchor },
+        after: { present: true, value: occurredOn },
+      },
+    ]);
     const nextDueDate = addDateDays(occurredOn, 30);
     expect(computeTemporalResource(f.published, advanced.record, f.space)).toMatchObject({ nextDueDate, remainingDays: daysBetween(f.today, nextDueDate) });
 

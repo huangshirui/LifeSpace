@@ -12,6 +12,7 @@ type OutboxRow = {
   model_key: string;
   record_id: string;
   record_version: number;
+  change_id: string | null;
   occurred_at: string;
 };
 
@@ -72,6 +73,7 @@ function eventPayload(event: OutboxRow) {
     modelKey: event.model_key,
     recordId: event.record_id,
     recordVersion: event.record_version,
+    changeId: event.change_id,
     occurredAt: event.occurred_at,
   };
 }
@@ -162,7 +164,7 @@ async function dispatchEvent(env: Bindings, event: OutboxRow): Promise<void> {
 }
 
 export async function dispatchPendingDomainEvents(env: Bindings, limit = 50): Promise<number> {
-  const rows = await env.DB.prepare(`SELECT id,event_type,space_id,model_key,record_id,record_version,occurred_at
+  const rows = await env.DB.prepare(`SELECT id,event_type,space_id,model_key,record_id,record_version,change_id,occurred_at
     FROM domain_event_outbox WHERE dispatched_at IS NULL ORDER BY occurred_at,id LIMIT ?`)
     .bind(limit).all<OutboxRow>();
   let dispatched = 0;
@@ -227,7 +229,7 @@ async function deliverOne(env: Bindings, deliveryId: string): Promise<"ack" | "r
       .bind(now(), deliveryId).run();
     return "ack";
   }
-  const event = await env.DB.prepare(`SELECT id,event_type,space_id,model_key,record_id,record_version,occurred_at
+  const event = await env.DB.prepare(`SELECT id,event_type,space_id,model_key,record_id,record_version,change_id,occurred_at
     FROM domain_event_outbox WHERE id=?`)
     .bind(delivery.event_id).first<OutboxRow>();
   if (!event) {
