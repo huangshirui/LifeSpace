@@ -41,7 +41,7 @@ describe("Domain Event outbox", () => {
     });
     await deleteGenericResource(bindings(), actor, spaceId, model, created.id, 2);
 
-    const rows = await db.prepare(`SELECT event_type,space_id,model_key,record_id,record_version,actor_type,actor_id
+    const rows = await db.prepare(`SELECT event_type,space_id,model_key,record_id,record_version,change_id,actor_type,actor_id
       FROM domain_event_outbox WHERE record_id=? ORDER BY record_version,event_type`)
       .bind(created.id)
       .all<{
@@ -50,11 +50,15 @@ describe("Domain Event outbox", () => {
         model_key: string;
         record_id: string;
         record_version: number;
+        change_id: string | null;
         actor_type: string;
         actor_id: string;
       }>();
 
-    expect(rows.results).toEqual([
+    const changeRows = await db.prepare("SELECT id,version_after FROM resource_changes WHERE record_id=? ORDER BY version_after")
+      .bind(created.id).all<{ id: string; version_after: number }>();
+    expect(rows.results.map((row) => row.change_id)).toEqual(changeRows.results.map((row) => row.id));
+    expect(rows.results.map(({ change_id: _changeId, ...row }) => row)).toEqual([
       {
         event_type: "record.created",
         space_id: spaceId,
