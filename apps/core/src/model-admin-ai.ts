@@ -362,7 +362,7 @@ export async function createAiModelProposal(
     base?.version ?? null,
     principal.type,
     principal.id,
-    principal.id,
+    principal.displayName?.trim() || principal.id,
     timestamp,
     timestamp,
     "ai",
