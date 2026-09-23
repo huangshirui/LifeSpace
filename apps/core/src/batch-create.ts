@@ -66,7 +66,7 @@ function parseBatchCreateRequest(value: unknown): BatchCreateItem[] {
       if (typeof item.clientRef !== "string" || !item.clientRef.trim() || item.clientRef.length > 100) {
         throw new ApiError("INVALID_REQUEST", `items[${index}].clientRef must contain 1-100 characters`, 400);
       }
-      clientRef = item.clientRef;
+      clientRef = item.clientRef.trim();
       if (clientRefs.has(clientRef)) {
         throw new ApiError("INVALID_REQUEST", `items[${index}].clientRef must be unique within the batch`, 400);
       }
