@@ -13,8 +13,8 @@ Read:
 5. `docs/service-authentication.md` when changing service/machine/platform executors;
 6. `docs/contracts.md`;
 7. `docs/eventing.md` when changing Domain Events, subscriptions, Webhook delivery, queues or delivery diagnostics;
-8. `docs/phase3-metadata-platform-plan.md` when changing model/runtime architecture;
-9. `docs/phase3-performance-convergence-plan.md` for persistence/query/performance changes;
+8. `docs/model-runtime-architecture.md` when changing model/runtime architecture;
+9. `docs/performance-invariants.md` for persistence/query/performance changes;
 10. the relevant Core contract, migrations, tests, Model Definitions and implementation.
 
 ## Core responsibilities
@@ -68,7 +68,7 @@ Core does not own:
 - Query/list mapping must not perform D1 I/O per result record.
 - Batch shared Space/Person/Capability/relation context.
 - Prefer fewer Worker↔D1 round trips; use D1 `batch()` where semantics allow it.
-- Preserve budgets in `docs/phase3-performance-convergence-plan.md`.
+- Preserve budgets in `docs/performance-invariants.md`.
 - Do not introduce another distributed cache without measured need.
 
 ## Ordinary authorization rules
