@@ -1,10 +1,12 @@
 import { prepareCalendarCreate, prepareCalendarUpdate } from "./calendar-capability";
 import type { Bindings, Principal } from "./env";
 import {
-  createGenericResource,
+  commitPreparedGenericResourceCreates,
   getGenericResource,
+  prepareGenericResourceCreate,
   updateGenericResource,
   type GenericResource,
+  type PreparedGenericResourceCreate,
   type ResourceMutationExtension,
 } from "./generic-resource";
 import { ApiError } from "./http";
@@ -17,6 +19,7 @@ import {
   prepareTemporalCreate,
   prepareTemporalUpdate,
   recordTemporalOccurrence,
+  type SpaceTemporalContext,
   type TemporalOccurrence,
 } from "./temporal-capability";
 
@@ -74,23 +77,24 @@ function temporalInitialOccurrenceExtension(
   ];
 }
 
-export async function createCapabilityAwareResource(
+export async function prepareCapabilityAwareResourceCreate(
   env: Bindings,
   principal: Principal,
   spaceId: string,
   model: PublishedModel,
   input: unknown,
   extension?: ResourceMutationExtension,
-): Promise<GenericResource> {
+  temporalContext?: SpaceTemporalContext,
+): Promise<PreparedGenericResourceCreate> {
   // Capability preparation may derive trusted read-only values. Preserve the
   // original client authority boundary before any defaults or capability-owned
   // fields are added so trusted preparation cannot turn a client-supplied
   // read-only field into an authorized internal mutation.
   rejectClientReadOnlyCreateFields(model, input);
   if (hasTemporalCapability(model)) {
-    const space = await loadSpaceTemporalContext(env, spaceId);
+    const space = temporalContext ?? await loadSpaceTemporalContext(env, spaceId);
     const prepared = prepareTemporalCreate(model, input, space);
-    return createGenericResource(
+    return prepareGenericResourceCreate(
       env,
       principal,
       spaceId,
@@ -101,9 +105,22 @@ export async function createCapabilityAwareResource(
     );
   }
   if (hasCalendarCapability(model)) {
-    return createGenericResource(env, principal, spaceId, model, prepareCalendarCreate(model, input), false, extension);
+    return prepareGenericResourceCreate(env, principal, spaceId, model, prepareCalendarCreate(model, input), false, extension);
   }
-  return createGenericResource(env, principal, spaceId, model, input, false, extension);
+  return prepareGenericResourceCreate(env, principal, spaceId, model, input, false, extension);
+}
+
+export async function createCapabilityAwareResource(
+  env: Bindings,
+  principal: Principal,
+  spaceId: string,
+  model: PublishedModel,
+  input: unknown,
+  extension?: ResourceMutationExtension,
+): Promise<GenericResource> {
+  const prepared = await prepareCapabilityAwareResourceCreate(env, principal, spaceId, model, input, extension);
+  const [created] = await commitPreparedGenericResourceCreates(env, spaceId, [prepared]);
+  return created!;
 }
 
 export async function updateCapabilityAwareResource(
