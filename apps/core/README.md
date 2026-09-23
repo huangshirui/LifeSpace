@@ -16,7 +16,7 @@ Model Registry validation/publication/retirement, immutable Model Contract gover
 
 ## Integration / Eventing
 
-Webhook Endpoint / Event Subscription management, delivery diagnostics/test-send and signed reference-only outbound Webhook representation are declared in `integration-eventing.openapi.yaml` **0.1.0**. The routes still execute in the same Core Worker, but Runtime-only consumers do not need to pin Eventing.
+Webhook Endpoint / Event Subscription management, delivery diagnostics/test-send and signed reference-only outbound Webhook representation are declared in `integration-eventing.openapi.yaml` **0.3.0**. The routes still execute in the same Core Worker, but Runtime-only consumers do not need to pin Eventing.
 
 ## Current Kernel Runtime Discovery
 
