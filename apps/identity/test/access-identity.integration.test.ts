@@ -126,9 +126,9 @@ describe("Cloudflare Access Identity integration", () => {
     }
 
     const suffix = crypto.randomUUID();
-    const webAppId = `homemew-web-${suffix}`;
-    const otherWebAppId = `aloha-web-${suffix}`;
-    const miniAppId = `homemew-mini-${suffix}`;
+    const webAppId = `test-web-a-${suffix}`;
+    const otherWebAppId = `test-web-b-${suffix}`;
+    const miniAppId = `test-mini-${suffix}`;
     const homeAudience = `aud-home-${suffix}`;
     const otherAudience = `aud-other-${suffix}`;
     const webSecret = await bootstrapApp(webAppId, "web");

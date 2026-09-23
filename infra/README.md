@@ -12,7 +12,7 @@ Staging
   core-staging.aisr.online -> Core Worker
 ```
 
-Application domains such as ALOHA and HomeMew remain owned by their application repositories and may use a same-origin BFF that reaches Core through a Service Binding.
+Application domains remain owned by their application repositories and may use a same-origin BFF that reaches LifeSpace through approved authenticated interfaces.
 
 ## GitHub Actions
 
@@ -22,33 +22,21 @@ Long-lived workflows are intentionally explicit about operation type:
 - `Provision LifeSpace platform staging resources`: low-frequency, create-if-missing reconciliation of D1/R2/Queue resources declared in the staging manifest.
 - `Deploy LifeSpace platform staging`: manual staging migration, Core/Identity deployment, convergence checks and authenticated platform regression. It never provisions shared infrastructure.
 - `Provision LifeSpace platform production resources`: guarded, low-frequency, create-if-missing reconciliation of D1/R2/Queue resources declared in the production manifest. It never migrates databases or deploys Workers. It is manual-only, typed-confirmation guarded and main-only.
-- `Deploy LifeSpace platform production`: guarded normal production migration/deployment/verification. It never provisions infrastructure and contains no historical first-bring-up mode. Before any production migration, it requires the accepted downstream release identity to match the repository production Kernel/Identity/model semantics. It is manual-only, typed-confirmation guarded and main-only.
-
-Phase-specific one-shot workflow modes are not permanent operator entrypoints. The historical Phase 6 empty-platform bring-up is complete and remains only as audit evidence in phase documents/Git history; `phase6_bringup` is not part of the long-lived production workflow.
-
-Provisioning is a durable but low-frequency infrastructure operation rather than a deploy checkbox. When a release adds a declared Cloudflare resource, provision staging first, deploy/accept staging, provision production, then deploy production. Provisioners are idempotent create-if-missing and never delete, rename, replace or reuse resources across environments.
-
-Deploy and provision operations for the same environment share a concurrency lock so they cannot mutate that environment at the same time.
+- `Deploy LifeSpace platform production`: guarded normal production migration/deployment/verification. It never provisions infrastructure and contains no consumer-specific release gate. It is manual-only, typed-confirmation guarded and main-only.
 
 All manual deploy/provision workflows explicitly pin `actions/checkout` to the dispatch-time immutable `github.sha`; queued runs never follow a branch that has advanced after dispatch.
 
 
 Additional long-lived operator boundaries:
 
-- Canonical platform staging deployment also proves the candidate ALOHA M4 authority profile: trusted `web` Application, `profile:read + resources:read` scope ceiling, Task-read Application × Model Access, explicit Task-read User -> Agent Delegation, compact inventory -> selected-model semantic detail -> Canonical Query/Get, mutation denial and current-state Delegation revocation. The verifier uses only staging fixtures and temporary credentials; it does not provision n8n with LifeSpace credentials or touch production.
-- `infra/scripts/prepare-production-aloha-access.mjs` consumes the same checked-in ALOHA integration profile for current Identity scope/Agent/Audience reconciliation. It intentionally does **not** write Core `application_model_access` directly: production Application × Model Access is a LifeSpace Console / Platform Admin mutation so the normal human Actor + executor audit boundary is preserved. User -> Agent Delegation is not provisioning authority at all; the target user creates it through the direct-user Core contract for each selected Space.
 - `Deploy LifeSpace Console staging (isolated)` is the normal Console-only staging entrypoint. Its default job does not migrate/deploy Core or Identity or use bootstrap authority; an explicit `run_control_plane_acceptance=true` adds a separate staging-only control-plane acceptance job after deployment.
-- `Converge LifeSpace staging control plane` remains a low-frequency platform/credential convergence path because it can reconcile Core/Identity, platform administrator assignment and Console executor credentials. It is not the normal Console deploy path and should shrink further with bootstrap-surface work tracked in #93.
+- `Converge LifeSpace staging control plane` remains a low-frequency platform/credential convergence path because it can reconcile Core/Identity, platform administrator assignment and Console executor credentials. It is not the normal Console deploy path.
 - `Deploy LifeSpace Console production` remains an independent guarded Console-only production rollout.
 - The APAC performance gate is an internal prerequisite job inside `Deploy LifeSpace platform production`, not a separate operator-facing workflow. It runs automatically against the exact candidate SHA before any production migration/deployment job may start.
-- Product-owned staging workflows are not retained in this platform repository after the product environment is retired. HomeMew Web staging provisioning was removed in #261; application-specific deployment belongs to the HomeMew repository.
-
 
 `Deploy LifeSpace platform staging` derives expected Core/Identity contract and schema versions from the repository (`package.json` plus the latest numbered migration) through `infra/scripts/staging-expectations.mjs`. `Deploy LifeSpace platform production` does the same through `infra/scripts/production-expectations.mjs`.
 
 Normal staging and production releases use Core-first -> Identity ordering so a newer compatible Core verifier/runtime is live before Identity may issue credentials that depend on it. The historical first production bring-up used a special Identity-first path because Core's Service Binding target did not yet exist; that exception is no longer active.
-
-Historical Phase 6 verification used short-lived probe authority, removed probe users/applications/service principals/tokens after verification, and left HomeMew with a registered production application but no active cutover credential. That behavior is historical evidence, not part of normal deployment.
 
 ## Staging scripts
 
@@ -69,13 +57,9 @@ Historical Phase 6 verification used short-lived probe authority, removed probe 
 - `resolve-production-d1.mjs`: resolves exact production D1 IDs only into the ephemeral deployment checkout.
 - `ensure-production-domains.mjs`: preflights and attaches only the two approved production Worker Custom Domains; refuses to move a hostname owned by another Worker.
 - `production-expectations.mjs`: derives production contract/schema expectations from the repository and pins semantic model hashes while treating Registry model versions as environment-local monotonic values.
-- `check-production-release-readiness.mjs`: fail-closed pre-mutation gate that requires the accepted HomeMew Core/Identity pins and Model Semantic Fingerprint to match the repository production release. Platform code may enter `main` and be proven in staging before this downstream promotion occurs; production remains blocked until the accepted release identity is explicitly advanced.
 - `initialize-production-runtime.mjs`: initializes first-use signing/shared secrets, preserves complete existing secret sets, and refuses partial automatic repair/rotation.
-- `homemew-contract-identity.mjs`: defines the canonical HomeMew cross-environment Model Semantic Fingerprint from model `key + route + schemaHash`; it deliberately excludes environment-local Registry versions and `mct_*` revision IDs.
 - `verify-production-http.mjs`: verifies production health, environment, schema and contract versions.
 - `verify-production-cloudflare.mjs`: verifies D1/R2/Queue/Worker/domain/secret presence, Queue attachment/policy, and staging isolation.
 - `verify-production-model-admin.mjs`: uses disposable service authority to verify `lsp_pat_*` introspection, reconcile required model semantics when safe, and prove that the production active immutable `mct_*` exactly represents the current production Registry snapshot.
-- `verify-production-homemew-contract.mjs`: proves that the production Core/Identity versions and the HomeMew-selected models inside production's own active `mct_*` match the accepted cross-environment Model Semantic Fingerprint. It does not require production to reuse staging's `mct_*` ID.
-- `verify-production-homemew-auth.mjs` and `verify-production-db.mjs`: retained historical Phase 6 evidence helpers; they are not invoked by normal production deployment. The DB helper follows the same semantic-fingerprint rule so historical verification does not reintroduce cross-environment `mct_*` equality.
 
-Detailed operator rules are documented in `infra/staging/README.md` and `infra/production/README.md`. Historical phase plans/status documents remain audit evidence, not current deployment runbooks.
+Detailed operator rules are documented in `infra/staging/README.md` and `infra/production/README.md`. Historical migration evidence remains available through Git history and release artifacts rather than current runbooks.

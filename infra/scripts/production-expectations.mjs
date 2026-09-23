@@ -24,8 +24,7 @@ function latestMigrationVersion(service) {
 }
 
 // Production preflight deliberately uses the same candidate model semantics that
-// staging is expected to prove. If the accepted HomeMew profile has not yet been
-// explicitly promoted to those semantics, check-production-release-readiness must
+// staging is expected to prove. Production release validation must
 // fail before any production migration or deployment mutation begins.
 export const PRODUCTION_PROVING_MODELS = STAGING_PROVING_MODELS;
 

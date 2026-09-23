@@ -62,7 +62,7 @@
       "id": "agent-protocol-independence",
       "maturity": "stable",
       "visibility": "public",
-      "commitment": "Agent readiness is protocol/product independent; REST, MCP, API Tool, n8n, SDK, ALOHA and future adapters must project the same authority and model semantics."
+      "commitment": "Agent readiness is protocol/product independent; REST, MCP, API Tool, workflow integrations, SDKs, product Agent runtimes and future adapters must project the same authority and model semantics."
     }
   ],
   "generatedContractClasses": [

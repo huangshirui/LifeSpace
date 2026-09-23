@@ -13,7 +13,7 @@ function bindings(): Bindings {
 const actor: Principal = {
   type: "user",
   id: "usr_capability_mutation_authority",
-  clientId: "homemew-miniprogram",
+  clientId: "app_test_runtime",
   scopes: ["resources:read", "resources:write"],
   tokenId: "tok_capability_mutation_authority",
 };

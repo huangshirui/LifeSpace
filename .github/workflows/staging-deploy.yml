@@ -62,14 +62,11 @@ jobs:
       - name: Validate staging verifier syntax
         run: |
           node --check infra/scripts/verify-staging-application-admin.mjs
-          node --check infra/scripts/verify-staging-homemew-integration.mjs
-          node --check infra/scripts/verify-staging-aloha-m4-read.mjs
           node --check infra/scripts/verify-staging-eventing.mjs
           node --check infra/scripts/verify-staging-eventing-principal-revocation.mjs
           node --check infra/scripts/verify-staging-creation-draft.mjs
           node --check infra/scripts/baseline-model-semantics.mjs
           node --check infra/scripts/publish-staging-baseline-model-semantics.mjs
-          node --check packages/contracts/scripts/export-homemew-staging-candidate.mjs
 
       - name: Resolve expected staging versions
         run: node infra/scripts/staging-expectations.mjs
@@ -151,12 +148,6 @@ jobs:
       - name: Verify trusted application credential lifecycle
         run: node infra/scripts/verify-staging-application-admin.mjs
 
-      - name: Verify HomeMew integration readiness boundary
-        run: node infra/scripts/verify-staging-homemew-integration.mjs
-
-      - name: Verify ALOHA M4 read-only delegated authority
-        run: node infra/scripts/verify-staging-aloha-m4-read.mjs
-
       - name: Verify authenticated Kernel and Model Contract
         run: node infra/scripts/verify-staging-http.mjs
 
@@ -180,25 +171,6 @@ jobs:
       - name: Measure typed-runtime staging performance
         run: node infra/scripts/verify-staging-performance.mjs
 
-      - name: Export and prove HomeMew staging candidate handoff reproducibility
-        env:
-          LIFESPACE_HANDOFF_ENVIRONMENT: staging
-        shell: bash
-        run: |
-          set -euo pipefail
-          pnpm --filter @lifespace/contracts export:homemew:candidate
-          cp packages/contracts/dist/homemew-candidate/checksums.json "$RUNNER_TEMP/homemew-candidate-checksums-first.json"
-          pnpm --filter @lifespace/contracts export:homemew:candidate
-          cmp "$RUNNER_TEMP/homemew-candidate-checksums-first.json" packages/contracts/dist/homemew-candidate/checksums.json
-
-      - name: Upload HomeMew staging candidate contract evidence
-        uses: actions/upload-artifact@v6
-        with:
-          name: homemew-staging-candidate-${{ github.sha }}
-          path: packages/contracts/dist/homemew-candidate
-          if-no-files-found: error
-          retention-days: 30
-
       - name: Cleanup ephemeral staging authority
         if: ${{ always() }}
         continue-on-error: true
@@ -214,13 +186,6 @@ jobs:
           - Identity: schema v${LIFESPACE_EXPECTED_IDENTITY_SCHEMA_VERSION} / contract ${LIFESPACE_EXPECTED_IDENTITY_CONTRACT_VERSION}
           - Platform D1 convergence: passed
           - Trusted application credential replacement/revocation lifecycle: passed
-          - HomeMew integration profile / app-scoped user-token boundary: passed
-          - HomeMew user-token platform-admin scope exclusion: passed
-          - HomeMew Application x Model Access (Task/Wish/Day Record/Event): passed
-          - ALOHA M4 profile: profile:read + resources:read only; Task Application x Model Access read; explicit Task-read Agent Delegation: passed
-          - ALOHA M4 Runtime Discovery / Canonical Query / Task read: passed; Task write / Task.complete denied; Delegation revocation rechecked with still-valid Agent token
-          - ALOHA M4 credential boundary: n8n receives neither LifeSpace application credential nor delegated Agent JWT
-          - HomeMew staging candidate semantic contract bundle: reproducible, exported and uploaded; accepted downstream pin was not mutated
           - Typed model storage / legacy JSON cleanup: passed
           - D1 hot-path budgets: passed in repository validation
           - Staging HTTP performance benchmark: recorded in workflow logs
@@ -232,6 +197,6 @@ jobs:
           - Baseline model AI semantic metadata: published/verified through Model Admin
           - Registry-driven Creation Draft Queue: task classification smoke passed or reached an allowed AI-configuration terminal state
           - Ephemeral smoke PAT: maximum 15-minute lifetime; cleanup attempted
-          - Production and HomeMew traffic/data were not touched.
+          - Production traffic/data were not touched.
           EOF
 

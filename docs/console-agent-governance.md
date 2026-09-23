@@ -4,7 +4,7 @@
 
 LifeSpace Console is the operator surface for stable Agent identity (`agt_*`) configuration. Identity remains the source of truth; Console is a policy/UI shell over the canonical Identity control plane.
 
-The first consumer is ALOHA M3, but this boundary is platform-wide and applies equally to HomeMew and future Agent applications.
+This boundary is platform-wide and applies uniformly to every Agent-capable downstream application.
 
 ## Contract split
 
@@ -98,6 +98,6 @@ Identity platform-admin audit distinguishes:
 
 Agent creation audit records that no authority or Delegation was created as a side effect.
 
-## ALOHA M3
+## Downstream use
 
-ALOHA M3 can use this UI to establish the stable `ALOHA Assistant` Agent identity after its LifeSpace Application, Cloudflare Access Audience and Application Credential are configured. The Agent identity may then be referenced by ALOHA's trusted runtime envelope; actual LifeSpace business authority remains subject to the normal Delegation/Grant/model intersections.
+A downstream application may use this UI to establish a stable Agent identity after its LifeSpace Application, Access Audience and Application Credential are configured. The Agent identity may then be referenced by the application's trusted runtime envelope; actual LifeSpace business authority remains subject to the normal Delegation/Data Grant/model intersections.

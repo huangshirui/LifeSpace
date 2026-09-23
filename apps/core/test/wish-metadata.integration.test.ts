@@ -17,7 +17,7 @@ function principal(id: string): Principal {
   return {
     type: "user",
     id,
-    clientId: "homemew-miniprogram",
+    clientId: "app_test_runtime",
     scopes: ["resources:read", "resources:write"],
     tokenId: `tok_${id}`,
   };

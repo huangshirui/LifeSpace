@@ -112,13 +112,6 @@ for (const [key, expected] of EXPECTED_MODELS) {
   verifiedModelVersions[key] = Number(row.version);
 }
 
-const accessRows = runSql(`SELECT model_key,max_access
-  FROM application_model_access
-  WHERE application_id='homemew-miniprogram'
-    AND model_key IN ('task','wish','day_record','event')
-  ORDER BY model_key`);
-const access = new Map(accessRows.map((row) => [row.model_key, row.max_access]));
-for (const key of EXPECTED_MODELS.keys()) assertEqual(access.get(key), "write", `homemew-miniprogram ${key} model access`);
 
 const tableSet = new Set(runSql("SELECT name FROM sqlite_master WHERE type='table'").map((row) => row.name));
 for (const table of REQUIRED_PLATFORM_TABLES) assertTruthy(tableSet.has(table), `Required platform table ${table} is missing`);
@@ -177,7 +170,6 @@ console.log(JSON.stringify({
   typedModelTables: [...REQUIRED_TYPED_COLUMNS.keys()],
   typedEnvelopeConsistency: true,
   legacyGenericStorageRemoved: true,
-  homemewModelAccess: "write",
   activeModelContract: contractRows[0]?.active_contract_id ?? null,
   proposalAuditTrigger: true,
 }, null, 2));

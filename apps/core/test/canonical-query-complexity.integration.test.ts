@@ -13,7 +13,7 @@ function bindings(): Bindings {
 const actor: Principal = {
   type: "user",
   id: "usr_canonical_query_complexity",
-  clientId: "homemew-miniprogram",
+  clientId: "app_test_runtime",
   scopes: ["resources:read"],
   tokenId: "tok_canonical_query_complexity",
 };

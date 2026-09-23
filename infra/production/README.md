@@ -9,7 +9,7 @@ This runbook covers the long-lived LifeSpace production operation paths after th
 
 The historical Phase 6 empty-platform bring-up is complete and is no longer an active workflow mode. Its evidence remains in the phase status/history documents, but normal operators must not repeat the empty-platform path on an established production database.
 
-Neither operation may read or migrate HomeMew production business data as a side effect. The completed HomeMew one-shot migration implementation was retired from the active repository in Phase 8; normal LifeSpace operations must not revive historical migration code or route HomeMew application traffic.
+Neither operation may read or migrate any consumer application's production business data as a side effect.
 
 ## Production resources
 
@@ -102,11 +102,6 @@ Provision staging resources
 
 Do not use provisioning merely because a deployment is being performed; it is a separate low-frequency infrastructure operation.
 
-## Historical Phase 6 bring-up
-
-The first empty-platform bring-up previously used special Identity-first ordering, empty-database checks and HomeMew application-boundary bootstrap verification. That path established production and is now retired from active workflow inputs.
-
-Historical evidence is intentionally preserved in `docs/phase6-status.md` and Git history. The historical verifier scripts may remain as audit/test evidence, but they are not invoked by the long-lived production deployment workflow.
 
 ## Eventing production verification
 
@@ -118,13 +113,8 @@ The Eventing production verifier requires:
 - the DLQ to exist as the dead-letter target without pretending it is a normal Core producer/consumer queue;
 - production Queue IDs to remain isolated from staging.
 
-## Migration and application-cutover boundary
+## External application boundary
 
-Normal LifeSpace production operations must not:
+Normal LifeSpace production operations must not read or import an external application's business data as a deployment side effect, create provider mappings for a consumer, alter consumer DNS/routes/clients, or delete consumer-owned runtime resources.
 
-- run a retired HomeMew one-shot migration from Git history;
-- create HomeMew provider mappings or import application business data as a side effect of platform deployment/provisioning;
-- alter HomeMew production DNS/routes/clients;
-- delete legacy HomeMew runtime resources merely because repository-side migration implementation has been retired.
-
-The completed Phase 7 migration/cutover remains historical evidence. Any future migration or destructive runtime-resource retirement requires a new, explicitly approved plan based on the then-current contracts and rollback conditions.
+Application migration, compatibility acceptance, provider identity mapping and release/cutover remain responsibilities of the application repository. Any future destructive LifeSpace infrastructure change requires its own explicit platform migration/rollback plan.

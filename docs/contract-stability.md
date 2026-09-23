@@ -46,7 +46,7 @@ Do not infer that a Stable semantic invariant freezes:
 - a Cloudflare transport choice;
 - an MCP/OpenAI Tool schema;
 - an n8n node representation;
-- an ALOHA Runtime/Capability shape.
+- a product-specific Agent Runtime/Capability shape.
 
 Those representations receive their own classification.
 
@@ -62,7 +62,7 @@ The first Contract Baseline classifies the following semantic invariants as Stab
 6. **Generic Runtime Fundamentals（通用运行时基本语义）** — validation, declared server defaults, optimistic concurrency, Action semantic input, and Mutation Authority are Runtime-enforced rather than client conventions.
 7. **Governed Change Attribution（受治理变更归因）** — committed ordinary-model mutation evidence preserves operation/resource/version plus Principal, Actor, Application and Delegation where applicable.
 8. **Current-State Revocation（当前状态撤销）** — mutable Membership, Data Grant, Application × Model Access, Service Principal and Agent Delegation authority is rechecked from current state; stale credentials do not preserve revoked authority.
-9. **Agent Product / Protocol Independence（Agent 产品与协议无关）** — Agent Ready is a platform capability. REST, MCP, OpenAI/API Tool, n8n, SDK, ALOHA and future protocols are adapters over the same authority and model semantics.
+9. **Agent Product / Protocol Independence（Agent 产品与协议无关）** — Agent Ready is a platform capability. REST, MCP, OpenAI/API Tool, workflow integrations, SDKs, product Agent runtimes and future protocols are adapters over the same authority and model semantics.
 
 These are semantic commitments. Their current wire forms are classified independently in the machine baseline.
 

@@ -20,8 +20,7 @@ Console 管理 LifeSpace 平台本身的控制面：Application、Model、Identi
 
 它不是：
 
-- HomeMew 家庭管理后台；
-- ALOHA 管理后台；
+- 下游产品的业务管理后台；
 - 通用业务数据编辑器；
 - Cloudflare/GitHub 运维后台；
 - SQL/D1 控制台。
@@ -115,7 +114,7 @@ PR #47 在 production 上没有部署，也不得在本 slice 未经明确批准
 4. 验证浏览器响应/源码中没有 Access/LifeSpace/actor/executor bearer；
 5. 保留 missing assertion / unlinked / non-admin / wrong-purpose / wrong-application deny evidence；
 6. 确认现有 service-only Model Admin automation 仍不受影响；
-7. production LifeSpace/HomeMew 服务、凭证和数据保持未触碰。
+7. production LifeSpace and external-application services/credentials/data remain untouched。
 
 ## Information architecture
 
@@ -426,7 +425,7 @@ apps/core/openapi.yaml
 apps/core/platform-admin.openapi.yaml
 ```
 
-HomeMew/ALOHA do not repin business contracts merely because Console governance syntax changes。
+Downstream applications do not repin business contracts merely because Console governance syntax changes。
 
 ## Technical implementation
 
@@ -483,8 +482,7 @@ Staging must never point to production services/secrets and vice versa。
 - SQL/D1 console；
 - Cloudflare configuration manager；
 - GitHub CI/CD manager；
-- HomeMew family administration；
-- ALOHA product administration；
+- downstream product administration；
 - user impersonation；
 - email-based account merging；
 - AI automatic model publication；
@@ -508,7 +506,7 @@ The read-only React/Vite slice is Ready only when：
 9. browser-visible code/responses contain no Access/LifeSpace/actor/executor bearer material；
 10. staging Vite build/deploy uses the staging-generated configuration and credentials；
 11. existing service-only Model Admin automation still works；
-12. production and staging remain isolated and this slice does not modify production LifeSpace/HomeMew data；
+12. production and staging remain isolated and this slice does not modify production external-application data；
 13. real staging browser/E2E evidence is complete before production rollout is considered。
 
 Write-capable Console administration is a separate subsequent slice and must preserve the same actor/executor, one-time-secret and audit boundaries。

@@ -37,13 +37,13 @@ async function request(path: string, options: RequestInit, privateKey: string) {
 describe("D1-backed Identity trust flow", () => {
   it("stores only application credential hashes and applies per-app token TTL", async () => {
     const privateKey = await privateKeyPem();
-    const appId = `homemew-test-${crypto.randomUUID()}`;
+    const appId = `app-test-${crypto.randomUUID()}`;
     const bootstrap = await request("/bootstrap/v1/applications", {
       method: "POST",
       headers: { "content-type": "application/json", "x-bootstrap-secret": "bootstrap-test" },
       body: JSON.stringify({
         id: appId,
-        name: "HomeMew Test",
+        name: "Test Application",
         clientType: "mini_program",
         trustedBackend: true,
         allowedScopes: ["spaces:read", "spaces:write"],

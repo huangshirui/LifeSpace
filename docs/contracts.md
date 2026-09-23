@@ -239,34 +239,13 @@ The Platform Admin split also means Console-only governance syntax does not auto
 
 A Kernel behavior change is versioned independently from model publication. The Phase-3 contract split moved Core from the Phase-2 `0.11.0` combined-domain contract to Kernel `0.12.0`; Kernel `0.13.0` added backwards-compatible model-collection Data Grant targeting for external integrations; Kernel `0.14.0` introduced generic Eventing; Kernel `0.15.0` separates shared Webhook Endpoint transport/signing from model/event subscription filters; Kernel `0.16.0` adds owner-only logical Space close; Kernel `0.17.0` adds Agent Delegation/governed Change; Kernel `0.18.0` adds cross-Space current-principal Runtime Discovery; Kernel `0.19.0` exposes authoritative Model server defaults through Runtime Discovery while keeping default application in Generic Runtime semantics; Kernel `0.20.0` separates Action semantic input from optimistic-concurrency metadata without changing the current body-based concurrency transport; Kernel `0.21.0` moves Space invitation bearer tokens from URL paths to JSON request bodies as a Candidate/Public security migration without changing invitation lifecycle semantics; Kernel `0.22.0` adds ordered multi-field Generic Query sorting and Agent-readable canonical field titles across Runtime Discovery and generated model contracts; Kernel `0.23.0` adds source-field-aware Person Relation Target Lookup; Kernel `0.24.0` adds minimal current `spaceName` Context Projection; Kernel `0.25.0` adds bounded standard Capability field-role bindings; Kernel `0.26.0` adds progressive single-model static semantic detail; Kernel `0.27.0` adds the compact current capability inventory.
 
-## Published artifacts
+## Contract publication and downstream ownership
 
-`packages/contracts` is the reproducible publication/export surface for pinned contract combinations such as OpenAPI bundles, JSON Schema, TypeScript types and stable indexes. `packages/client` is the generated or thin handwritten SDK surface built against an explicit compatible combination.
+Canonical platform contracts are owned by the service OpenAPI files and immutable Model Contract revisions listed above. LifeSpace publishes platform contract identity and reproducible model-contract evidence; it does not maintain consumer-specific integration profiles, handoff bundles or release pins in this repository.
 
-Generated output must be reproducible from canonical inputs and must never become a second editable source of truth.
+A downstream application may generate or check in its own SDK/types/snapshot from an explicit compatible LifeSpace contract version or immutable `mct_*` evidence. That generated artifact belongs to the consumer repository and must not become a second editable source of truth.
 
-A repository commit is **not** required merely to make a newly published Model Definition have a contract revision. Repository publication/export is needed when an application or release wants a checked-in/package artifact for a selected revision.
-
-Application-specific handoff artifacts are generated from an explicit integration profile rather than from an unversioned latest Model Contract. For a cross-environment release profile, the profile pins the application-relevant semantic identity; the exporter then reads an explicit immutable environment-local `mct_*` evidence revision and proves that its selected model identities match that semantic fingerprint before exporting generated OpenAPI/JSON Schema. A service-only credential used to read the immutable revision is an export-time implementation detail and must never be written into the handoff.
-
-The HomeMew handoff under `packages/contracts` contains the pinned Identity OpenAPI, Core Kernel OpenAPI, one staging Model Contract OpenAPI/JSON Schema/manifest as immutable code-generation evidence, HomeMew integration profile, a handoff manifest and SHA-256 checksums with a deterministic bundle id. The handoff manifest identifies the cross-environment Model Semantic Fingerprint separately from the environment-local `mct_*` evidence ID. The normal staging workflow uploads this generated directory as a read-only workflow artifact after the HomeMew integration and platform regression gates pass.
-
-Platform Admin contracts are **not** added to the HomeMew handoff merely because they exist in the platform repository. They belong only in Console/platform-operator artifacts. This preserves least-privilege discovery and keeps the accepted HomeMew evidence independent from Console evolution.
-
-### Historical accepted HomeMew handoff — Phase 4
-
-Phase 4 accepted and froze this application contract tuple:
-
-```text
-Identity Contract:    0.4.0
-Core Kernel Contract: 0.12.0
-Model Contract:       mct_9a3d9588da8591ab376ef000e5e661f670a64dd8b1ebc14fd146580f0ed1fa45
-Integration Profile:  infra/homemew-integration-profile.json / profileVersion 1 / accepted at that time
-```
-
-The exporter-enabled `Deploy staging` run #29 (`31694445585`) passed on 2026-08-13 and proved deterministic export/upload of that exact contract/application-policy combination before the publication-state flip from candidate to accepted. That tuple remains immutable historical evidence; later compatible Kernel/Identity/model pins do not rewrite what Phase 4 proved.
-
-HomeMew and its Coding Agents must treat the Phase-2 Core `0.11.0` / Identity `0.3.0` versions as historical parity evidence only. They are not the current HomeMew client contract.
+Consumer compatibility acceptance is one-way: applications decide when to adopt a LifeSpace release. A consumer pin or release milestone never blocks a compatible LifeSpace platform release.
 
 ## Runtime and downstream pinning
 
@@ -303,7 +282,7 @@ Where genuine simultaneous incompatible runtime versions are later required, tha
 
 ## Downstream applications
 
-ALOHA, HomeMew and vertical apps must depend on explicit compatible ordinary contract artifacts/semantic release identities. They must not fetch an unversioned latest model contract during normal builds and must not consume Platform Admin contracts unless the application is explicitly an approved platform-operator surface.
+Downstream applications must depend on explicit compatible ordinary contract artifacts/semantic release identities. They must not fetch an unversioned latest model contract during normal builds and must not consume Platform Admin contracts unless the application is explicitly an approved platform-operator surface.
 
 For Coding Agents and repository-local development, an application may check in or generate a read-only snapshot containing the exact Kernel/model contract evidence it consumes. Such snapshots are generated artifacts and must not be edited manually.
 
@@ -348,7 +327,6 @@ Metadata-platform checks include:
 - Generic Runtime behavior matching generated constraints;
 - compatibility/retirement dependency gates before production use.
 
-HomeMew's former handwritten OpenAPI contract-check pattern remains a behavioral reference for strict drift detection, not the ordinary-model source-authoring model.
 
 ### Agent-ready contract split — 0.6.0 / 0.17.0
 

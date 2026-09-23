@@ -29,7 +29,7 @@ async function token(privateKey: string, userId: string, scopes: string[], audie
     iss: "lifespace-identity",
     aud: audience,
     sub: userId,
-    azp: "homemew-miniprogram",
+    azp: "app_test_runtime",
     principal_type: "user",
     scope: scopes.join(" "),
     iat,

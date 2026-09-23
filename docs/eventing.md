@@ -85,7 +85,7 @@ The subscriber Service Principal itself remains Identity-owned. Eventing stores 
 
 Re-enabling a Service Principal restores only Identity eligibility. It does not recreate a revoked/expired Data Grant, a disabled/deleted Endpoint or Subscription, or removed Application × Model Access. All of those independent current-state checks must still pass.
 
-Application UIs may present domain-friendly names (for example HomeMew shows `event` as `日程`) but submit stable model keys and the actual subscriber Service Principal ID to Core.
+Application UIs may present domain-friendly names, but they submit stable model keys and the actual subscriber Service Principal ID to Core.
 
 ## Delivery
 

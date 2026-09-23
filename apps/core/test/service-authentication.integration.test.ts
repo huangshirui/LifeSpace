@@ -31,7 +31,7 @@ async function userToken(privateKey: string, userId: string) {
     iss: "lifespace-identity",
     aud: "lifespace-core",
     sub: userId,
-    azp: "homemew-miniprogram",
+    azp: "app_test_runtime",
     principal_type: "user",
     scope: "profile:read spaces:read spaces:write spaces:manage grants:manage",
     iat,
@@ -40,7 +40,7 @@ async function userToken(privateKey: string, userId: string) {
   }, privateKey, "RS256");
 }
 
-async function serviceJwt(privateKey: string, principalId: string, clientId = "homemew-external", scope = "spaces:read") {
+async function serviceJwt(privateKey: string, principalId: string, clientId = "app_test_service", scope = "spaces:read") {
   const iat = Math.floor(Date.now() / 1000);
   return sign({
     iss: "lifespace-identity",
@@ -60,7 +60,7 @@ function identityBinding(
   scopes: string[],
   state: IdentityState = "active",
   calls: IdentityCall[] = [],
-  displayName: string | null = "Home n8n",
+  displayName: string | null = "Test Automation Service",
 ): Fetcher {
   return {
     fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -92,7 +92,7 @@ function identityBinding(
                   type: "service",
                   id: principalId,
                   ...(displayName ? { displayName } : {}),
-                  clientId: "homemew-external",
+                  clientId: "app_test_service",
                   scopes,
                   tokenId: "sat_test",
                 },
@@ -143,7 +143,7 @@ async function grantSpaceRead(home: { token: string; spaceId: string }, principa
 async function grantTaskWrite(home: { token: string; spaceId: string }, principalId: string, publicKey: string) {
   const db = (env as unknown as TestEnv).DB;
   await db.prepare(`INSERT OR REPLACE INTO application_model_access(application_id,model_key,max_access,created_by_type,created_by_id)
-    VALUES(?,?,?,?,?)`).bind("homemew-external", "task", "write", "service", "svc_test_admin").run();
+    VALUES(?,?,?,?,?)`).bind("app_test_service", "task", "write", "service", "svc_test_admin").run();
   const response = await request(`/api/v1/spaces/${home.spaceId}/grants`, home.token, publicKey, undefined, {
     method: "POST",
     body: JSON.stringify({
@@ -209,10 +209,10 @@ describe("Core service authentication", () => {
       createdBy: { type: string; id: string; displayName: string };
       updatedBy: { type: string; id: string; displayName: string };
     } };
-    expect(created.data.createdBy).toEqual({ type: "service", id: principalId, displayName: "Home n8n" });
-    expect(created.data.updatedBy).toEqual({ type: "service", id: principalId, displayName: "Home n8n" });
+    expect(created.data.createdBy).toEqual({ type: "service", id: principalId, displayName: "Test Automation Service" });
+    expect(created.data.updatedBy).toEqual({ type: "service", id: principalId, displayName: "Test Automation Service" });
 
-    const jwt = await serviceJwt(privateKey, principalId, "homemew-external", "resources:read resources:write");
+    const jwt = await serviceJwt(privateKey, principalId, "app_test_service", "resources:read resources:write");
     const updatedResponse = await request(`${collection}/${created.data.id}`, jwt, publicKey, identity, {
       method: "PATCH",
       body: JSON.stringify({ version: created.data.version, name: "Updated by automation" }),
@@ -222,8 +222,8 @@ describe("Core service authentication", () => {
       createdBy: { type: string; id: string; displayName: string };
       updatedBy: { type: string; id: string; displayName: string };
     } };
-    expect(updated.data.createdBy).toEqual({ type: "service", id: principalId, displayName: "Home n8n" });
-    expect(updated.data.updatedBy).toEqual({ type: "service", id: principalId, displayName: "Home n8n" });
+    expect(updated.data.createdBy).toEqual({ type: "service", id: principalId, displayName: "Test Automation Service" });
+    expect(updated.data.updatedBy).toEqual({ type: "service", id: principalId, displayName: "Test Automation Service" });
   });
 
   it("rejects inactive opaque-token introspection and keeps RS256 user authentication working", async () => {

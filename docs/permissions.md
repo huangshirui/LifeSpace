@@ -85,10 +85,10 @@ JWT / Service API Token scopes:
   resources:read resources:write
 
 Application × Model Access:
-  homemew-miniprogram × task       -> write
-  homemew-miniprogram × wish       -> write
-  homemew-miniprogram × day_record -> write
-  homemew-miniprogram × event      -> write
+  app_example × task       -> write
+  app_example × wish       -> write
+  app_example × day_record -> write
+  app_example × event      -> write
 ```
 
 This split is deliberate. Publishing a new ordinary model does not require an Identity deployment or an update to every application's Identity `allowed_scopes`. The model is unavailable to an application until an authorized Core administrator creates the corresponding Application × Model Access entry.
@@ -187,8 +187,8 @@ Service API Tokens may have `expires_at = null`, but they remain individually re
 Example:
 
 ```text
-Service principal: svc_n8n_home
-Application context: homemew-integrations
+Service principal: svc_automation_example
+Application context: app_integrations_example
 Token scopes: resources:read resources:write
 
 Application × Model Access ceiling:
@@ -202,7 +202,7 @@ Core Data Grants for spc_family_xxx:
   model:day_record -> read
 ```
 
-A different service principal under the same application may receive a different set of model-collection Grants. This is how LifeSpace preserves the original HomeMew capability to authorize each external system independently without restoring model-specific credential scopes.
+A different service principal under the same application may receive a different set of model-collection Grants. This allows each external system to be authorized independently without restoring model-specific credential scopes.
 
 The effective result is the intersection. The token cannot use a model absent from its application's catalog, and it cannot use a model/Space target absent from current membership/Data Grant authority.
 
