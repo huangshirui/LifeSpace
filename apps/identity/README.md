@@ -2,7 +2,7 @@
 
 Global LifeSpace user registry and credential issuer for LifeSpace applications.
 
-## Phase 1 scope
+## Scope
 
 - Global LifeSpace users (`usr_*`)
 - Trusted application/client registration
@@ -11,7 +11,7 @@ Global LifeSpace user registry and credential issuer for LifeSpace applications.
 - App-policy Core access token issuance
 - Token revocation and signing-key lifecycle foundation
 
-Application-specific external identities are deliberately out of scope. HomeMew keeps WeChat `openid -> user_id` mapping in its WeChat Cloud Function/database; other applications keep equivalent provider mappings in their own adapters/BFFs.
+Application-specific external identities are deliberately out of scope. Each application keeps provider-specific subject mappings in its own adapter/BFF and resolves them to LifeSpace `usr_*` identities through the approved trusted-application flow.
 
 ## Trust flow
 
@@ -37,7 +37,6 @@ Access-token lifetime is an application policy, not a caller-controlled request 
 
 - Allowed range: 300-3600 seconds.
 - Default: 900 seconds.
-- HomeMew Mini Program target policy: 3600 seconds, matching the existing HomeMew user-token lifetime and avoiding unnecessary Cloud Function -> Identity refresh traffic.
 - Core enforces the platform maximum of one hour but does not decide each application's exact TTL.
 
 Space membership, Data Grants and life-domain authorization remain Core responsibilities and are evaluated against current Core state rather than encoded as long-lived mutable permissions in the token.
