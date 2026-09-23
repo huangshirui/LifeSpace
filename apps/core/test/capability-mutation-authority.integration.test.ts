@@ -23,7 +23,8 @@ async function fixture() {
   const suffix = crypto.randomUUID().replaceAll("-", "");
   const spaceId = `spc_${suffix}`;
   const now = new Date().toISOString();
-  await db.prepare(`INSERT INTO spaces(id,name,created_by_user_id,created_at,updated_at,timezone) VALUES(?,?,?,?,?,?)`).bind(spaceId, "Capability Mutation Authority", actor.id, now, now, "UTC").run();
+  await db.prepare(`INSERT INTO spaces(id,kind,name,created_by_user_id,created_at,updated_at,timezone)
+    VALUES(?,?,?,?,?,?,?)`).bind(spaceId, "personal", "Capability Mutation Authority", actor.id, now, now, "UTC").run();
   const model = await getPublishedModel(bindings(), "day_record");
   if (!model) throw new Error("bootstrap Day Record model is missing");
   return { spaceId, model, today: now.slice(0, 10) };
