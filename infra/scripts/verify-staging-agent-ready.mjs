@@ -357,7 +357,7 @@ const cleanupErrors = [];
 let resultSummary = null;
 
 try {
-  const familyCreated = await request(coreBase, "/api/v1/spaces", {
+  const spaceCreated = await request(coreBase, "/api/v1/spaces", {
     method: "POST",
     bearer: cleanupBearer,
     body: {
@@ -366,7 +366,7 @@ try {
       timezone: "Asia/Shanghai",
     },
   });
-  testSpace = expectStatus("staging Space create", familyCreated, 201);
+  testSpace = expectStatus("staging Space create", spaceCreated, 201);
   if (!testSpace?.id?.startsWith("spc_")) throw new Error("staging Space response is invalid");
   const spaceId = testSpace.id;
 
@@ -515,7 +515,7 @@ try {
   resultSummary = {
     ok: true,
     mergeGate: "Intent/Action -> Execution Context -> Effective Authority -> Semantic Validation -> Commit Change -> Attribution/Provenance/Event evidence",
-    testSpace: { id: spaceId, kind: "family" },
+    space: { id: spaceId },
     principalId: userId,
     agentA: {
       applicationId: agentA.applicationId,
@@ -560,7 +560,7 @@ try {
 
   const spaceId = testSpace?.id ?? "";
   if (membershipLowered && spaceId) {
-    await cleanup("family membership restore", async () => {
+    await cleanup("membership restore", async () => {
       coreSql(`UPDATE space_memberships SET role='owner',updated_at=${sqlString(new Date().toISOString())}
         WHERE space_id=${sqlString(spaceId)} AND user_id=${sqlString(userId)} AND deleted_at IS NULL`);
       membershipLowered = false;
