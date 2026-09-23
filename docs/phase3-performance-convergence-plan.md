@@ -279,3 +279,21 @@ The expected platform scale remains fewer than roughly 25 ordinary business mode
 The Phase-3 performance blocker is cleared as of 2026-08-13.
 
 HomeMew Phase 4 client/Cloud Function/integration adaptation may begin against the explicit final Phase-3 contract pair. Phase 5 migration tooling must continue to target the final typed model-table/resource-relation/capability schema and must never import production data into the discarded `resource_records.data_json` representation.
+
+
+## 9. 2026-09-23 production I/O latency follow-up
+
+Issue #270 records a post-Phase-3 production observation from owner-controlled n8n traffic using opaque `lsp_pat_*` Service API Tokens. Ordinary Runtime requests remained CPU-light, while request wall time was materially higher than the authoritative Phase-3 user-JWT benchmark. Core D1 analytics showed sub-millisecond to low-millisecond SQL execution for the dominant statements, so database execution time itself did not explain the observed wall time.
+
+The follow-up keeps the existing correctness boundary unchanged:
+
+- opaque service credentials still require current Identity introspection on every Core request;
+- credential, Service Principal, Application, Membership, Data Grant and Application × Model Access revocation remain current-state decisions;
+- no positive authorization cache is introduced merely to reduce latency;
+- D1 round-trip budgets and no-N+1 rules remain in force.
+
+The measurement strategy is to attribute synchronous wall time before changing architecture. Staging and production enable bounded structured phase diagnostics for Core authentication/Runtime phases and Identity current-state D1 phases. Diagnostic logs contain request IDs, method/path, placement metadata and aggregate phase durations; they do not log credentials, Authorization headers or request bodies. `PERFORMANCE_DIAGNOSTICS=1` is an explicit operational diagnostic switch and should be removed or disabled after #270 converges.
+
+Identity staging and production also enable Cloudflare Smart Placement, matching Core's existing D1-heavy deployment policy. Production deployment verification requires Smart Placement to remain configured for both Core and Identity and records the reported placement-analysis status. A missing/not-yet-analyzed or `INSUFFICIENT_INVOCATIONS` status is observational, while `UNSUPPORTED_APPLICATION` is treated as a failed placement assumption requiring review.
+
+This follow-up is a topology/observability refinement, not a contract, authority or data-model change. Absolute latency claims must still come from controlled representative measurements rather than SQL execution duration or nested Worker `wallTimeMs` alone.
