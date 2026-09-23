@@ -131,19 +131,19 @@ export function authenticate(): MiddlewareHandler<AppEnv> {
     if (rawToken.startsWith(SERVICE_TOKEN_PREFIX)) {
       principal = await measurePerformancePhase(
         context,
-        "auth.service_token_introspection",
+        "security.service_token_check",
         () => introspectServiceToken(rawToken, context.env),
       );
     } else if (context.env.IDENTITY_PUBLIC_KEY) {
       principal = await measurePerformancePhase(
         context,
-        "auth.jwt_verify",
+        "security.jwt_check",
         () => verifyAccessToken(rawToken, context.env.IDENTITY_PUBLIC_KEY),
       );
       if (principal.type === "service") {
         const displayName = await measurePerformancePhase(
           context,
-          "auth.service_principal_status",
+          "security.service_principal_state",
           () => requireCurrentServicePrincipal(context.env, principal.id),
         );
         principal = { ...principal, ...(displayName ? { displayName } : {}) };

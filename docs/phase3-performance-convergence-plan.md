@@ -297,3 +297,27 @@ The measurement strategy is to attribute synchronous wall time before changing a
 Identity staging and production also enable Cloudflare Smart Placement, matching Core's existing D1-heavy deployment policy. Production deployment verification requires Smart Placement to remain configured for both Core and Identity and records the reported placement-analysis status. A missing/not-yet-analyzed or `INSUFFICIENT_INVOCATIONS` status is observational, while `UNSUPPORTED_APPLICATION` is treated as a failed placement assumption requiring review.
 
 This follow-up is a topology/observability refinement, not a contract, authority or data-model change. Absolute latency claims must still come from controlled representative measurements rather than SQL execution duration or nested Worker `wallTimeMs` alone.
+
+
+## 10. 2026-09-23 Runtime D1 round-trip convergence
+
+Production phase timing after the Identity Smart Placement rollout showed that opaque Service API Token introspection had fallen to roughly 61 ms P50, while ordinary Core Runtime GET / Query / PATCH requests still spent hundreds of milliseconds in serialized business-data I/O. Code-level attribution showed that the remaining wall time closely tracked Core Worker↔D1 round-trip count rather than SQL execution duration.
+
+The convergence keeps the Authority boundary explicit: current Model/Space/Application access is decided before business resource data is fetched. Optimization must not batch an unauthorized business read together with the authority decision merely to save a network round trip.
+
+For the current hot Runtime paths, the target becomes:
+
+| Runtime path | Previous Core D1 round trips | Converged budget | Main change |
+| --- | ---: | ---: | --- |
+| Single resource GET | 4 | 2 | authority batch; then one D1 batch for resource envelope/scalars + relations, with audit projection carried in the resource row |
+| Canonical Query / translated GET list | 4 | 3 | authority batch; main query with audit projection; one bounded relation hydration trip |
+| PATCH with relation validation | 6 | 4 | authority batch; bundled current resource read; one batched relation-target validation trip; one atomic mutation batch |
+| CREATE without relation targets | up to 6 | 2 | authority batch; one mutation batch; response audit comes from the authenticated principal rather than a post-write read |
+
+The response contract does not change. `createdBy` / `updatedBy` continue to use immutable name snapshots with the existing active Space Person fallback for legacy data. Mutation responses may reuse audit evidence already known from the authenticated principal and the pre-mutation resource rather than reading the same envelope again.
+
+Relation-target validation also changes from field-by-field awaits to one bounded `DB.batch()` containing the required Person/record target checks. This preserves the same validation semantics while preventing models with multiple relation fields from multiplying Worker↔D1 network round trips.
+
+The D1 round-trip integration gate is tightened to the converged budgets, including an Event PATCH with a real attendee Person relation. These budgets are correctness/performance invariants for the ordinary hot path, not merely benchmarks.
+
+Observability timing keys that Cloudflare treated as secret-like (`auth.*`, `runtime.authorization`) are renamed to neutral timing names. Smart Placement analysis status is read from the Workers service endpoint rather than inferred from script settings; a missing status means not yet analyzed, while `UNSUPPORTED_APPLICATION` remains a failed placement assumption.

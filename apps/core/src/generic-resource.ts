@@ -1,8 +1,10 @@
 import type { Bindings, Principal } from "./env";
+import { chunkD1Values } from "./d1-batch";
 import { ApiError } from "./http";
 import { applyModelDefaults } from "./model-defaults";
 import { isFirstClassRangeFieldType, rangeFieldValueType, type FieldDefinition, type ModelDefinition } from "./model-definition";
 import { validateRangeValue } from "./range-value";
+import { resourceAuditActor, type ResourceAudit } from "./resource-audit";
 import { validateTemporalRangeValue } from "./temporal-range";
 import { assertIanaTimezone, normalizeRfc3339Instant } from "./time-semantics";
 import { getRuntimeModel, type PublishedModel } from "./model-registry";
@@ -32,6 +34,7 @@ export type GenericResource = {
   modelKey: string;
   modelVersion: number;
   data: JsonObject;
+  audit?: ResourceAudit;
   version: number;
   createdAt: string;
   updatedAt: string;
@@ -71,6 +74,10 @@ function operationActor(principal: Principal) {
 
 function principalAuditName(principal: Principal): string {
   return principal.displayName?.trim() || principal.id;
+}
+
+function principalResourceAuditActor(principal: Principal) {
+  return resourceAuditActor(principal.type, principal.id, principalAuditName(principal), null);
 }
 
 function canonicalJson(value: unknown): unknown {
@@ -301,36 +308,73 @@ export function validateResourceData(
   return result;
 }
 
-async function requireActivePeople(env: Bindings, spaceId: string, personIds: string[]): Promise<void> {
-  if (!personIds.length) return;
-  const placeholders = personIds.map(() => "?").join(",");
-  const rows = await env.DB.prepare(`SELECT id FROM space_people WHERE space_id=? AND deleted_at IS NULL AND id IN (${placeholders})`)
-    .bind(spaceId, ...personIds).all<{ id: string }>();
-  if (rows.results.length !== personIds.length) throw new ApiError("INVALID_RESOURCE_RELATION", "Every Person relation must reference an active Person in the same Space", 400);
-}
-
-async function requireRecordTargets(env: Bindings, spaceId: string, targetModel: string, recordIds: string[]): Promise<void> {
-  if (!recordIds.length) return;
-  const placeholders = recordIds.map(() => "?").join(",");
-  const rows = await env.DB.prepare(`SELECT id FROM resource_records WHERE space_id=? AND model_key=? AND deleted_at IS NULL AND id IN (${placeholders})`)
-    .bind(spaceId, targetModel, ...recordIds).all<{ id: string }>();
-  if (rows.results.length !== recordIds.length) throw new ApiError("INVALID_RESOURCE_RELATION", `Every record relation must reference an active ${targetModel} record in the same Space`, 400);
-}
-
 async function projectRelations(env: Bindings, spaceId: string, definition: ModelDefinition, data: JsonObject): Promise<RelationProjection[]> {
   const relations: RelationProjection[] = [];
+  const personIds = new Set<string>();
+  const recordIdsByModel = new Map<string, Set<string>>();
+
   for (const [fieldKey, field] of Object.entries(definition.fields)) {
     const value = data[fieldKey];
     if (value === undefined || value === null) continue;
     if (field.type === "person" || field.type === "person_list") {
       const ids = relationIds(value, fieldKey, field.type === "person_list");
-      await requireActivePeople(env, spaceId, ids);
-      ids.forEach((targetId, ordinal) => relations.push({ fieldKey, targetType: "person", targetId, ordinal }));
+      ids.forEach((targetId, ordinal) => {
+        personIds.add(targetId);
+        relations.push({ fieldKey, targetType: "person", targetId, ordinal });
+      });
     }
     if (field.type === "record" || field.type === "record_list") {
       const ids = relationIds(value, fieldKey, field.type === "record_list");
-      await requireRecordTargets(env, spaceId, field.targetModel!, ids);
-      ids.forEach((targetId, ordinal) => relations.push({ fieldKey, targetType: "record", targetId, ordinal }));
+      const targetModel = field.targetModel!;
+      const targets = recordIdsByModel.get(targetModel) ?? new Set<string>();
+      ids.forEach((targetId, ordinal) => {
+        targets.add(targetId);
+        relations.push({ fieldKey, targetType: "record", targetId, ordinal });
+      });
+      recordIdsByModel.set(targetModel, targets);
+    }
+  }
+
+  const validations: Array<{
+    expected: Set<string>;
+    statements: D1PreparedStatement[];
+    message: string;
+  }> = [];
+  if (personIds.size) {
+    const expected = new Set(personIds);
+    validations.push({
+      expected,
+      statements: chunkD1Values([...expected], 1).map((chunk) =>
+        env.DB.prepare(`SELECT id FROM space_people WHERE space_id=? AND deleted_at IS NULL AND id IN (${chunk.map(() => "?").join(",")})`)
+          .bind(spaceId, ...chunk),
+      ),
+      message: "Every Person relation must reference an active Person in the same Space",
+    });
+  }
+  for (const [targetModel, ids] of recordIdsByModel) {
+    const expected = new Set(ids);
+    validations.push({
+      expected,
+      statements: chunkD1Values([...expected], 2).map((chunk) =>
+        env.DB.prepare(`SELECT id FROM resource_records WHERE space_id=? AND model_key=? AND deleted_at IS NULL AND id IN (${chunk.map(() => "?").join(",")})`)
+          .bind(spaceId, targetModel, ...chunk),
+      ),
+      message: `Every record relation must reference an active ${targetModel} record in the same Space`,
+    });
+  }
+  const statements = validations.flatMap((validation) => validation.statements);
+  if (statements.length) {
+    const results = await env.DB.batch<{ id: string }>(statements);
+    let offset = 0;
+    for (const validation of validations) {
+      const found = new Set<string>();
+      for (let index = 0; index < validation.statements.length; index += 1) {
+        for (const row of results[offset + index]?.results ?? []) found.add(row.id);
+      }
+      offset += validation.statements.length;
+      if (found.size !== validation.expected.size) {
+        throw new ApiError("INVALID_RESOURCE_RELATION", validation.message, 400);
+      }
     }
   }
   return relations;
@@ -443,12 +487,14 @@ export async function createGenericResource(
   ));
   statements.push(env.DB.prepare("UPDATE resource_records SET mutation_token=NULL WHERE id=? AND mutation_token=?").bind(id, mutationToken));
   await env.DB.batch(statements);
+  const auditActor = principalResourceAuditActor(principal);
   return {
     id,
     spaceId,
     modelKey: model.key,
     modelVersion: model.version,
     data,
+    audit: { createdBy: auditActor, updatedBy: auditActor },
     version: 1,
     createdAt: timestamp,
     updatedAt: timestamp,
@@ -520,12 +566,14 @@ export async function updateGenericResource(
   statements.push(env.DB.prepare("UPDATE resource_records SET mutation_token=NULL WHERE id=? AND mutation_token=?").bind(recordId, mutationToken));
   const results = await env.DB.batch(statements);
   if (!results[0].meta.changes) throw new ApiError("VERSION_CONFLICT", "Resource version is stale", 409);
+  const updatedBy = principalResourceAuditActor(principal);
   return {
     id: recordId,
     spaceId,
     modelKey: model.key,
     modelVersion: model.version,
     data,
+    ...(previous.audit ? { audit: { createdBy: previous.audit.createdBy, updatedBy } } : {}),
     version: nextVersion,
     createdAt: previous.createdAt,
     updatedAt: timestamp,

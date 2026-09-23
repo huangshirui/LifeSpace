@@ -9,6 +9,11 @@ import {
   type PhysicalSchemaPlan,
 } from "./physical-schema";
 import { validateRangeValue } from "./range-value";
+import {
+  resourceAuditFromStorage,
+  type ResourceAudit,
+  type ResourceAuditStorageRow,
+} from "./resource-audit";
 import { validateTemporalRangeValue } from "./temporal-range";
 import {
   provenanceFromStorage,
@@ -18,7 +23,7 @@ import {
 
 type JsonObject = Record<string, unknown>;
 
-export type TypedResourceRow = StoredProvenanceColumns & {
+export type TypedResourceRow = StoredProvenanceColumns & Partial<ResourceAuditStorageRow> & {
   id: string;
   space_id: string;
   model_key: string;
@@ -37,6 +42,7 @@ export type TypedStoredResource = {
   modelVersion: number;
   data: JsonObject;
   provenance?: InformationProvenance;
+  audit?: ResourceAudit;
   version: number;
   createdAt: string;
   updatedAt: string;
@@ -60,6 +66,32 @@ function identifier(value: string): string {
 
 function fieldAlias(fieldKey: string): string {
   return `__field_${fieldKey}`;
+}
+
+export function resourceAuditSelectColumns(alias = "r"): string {
+  return [
+    `${alias}.created_by_type`,
+    `${alias}.created_by_id`,
+    `${alias}.created_by_name_snapshot`,
+    "created_person.display_name AS created_current_name",
+    `${alias}.updated_by_type`,
+    `${alias}.updated_by_id`,
+    `${alias}.updated_by_name_snapshot`,
+    "updated_person.display_name AS updated_current_name",
+  ].join(",");
+}
+
+export function resourceAuditJoins(alias = "r"): string {
+  return `LEFT JOIN space_people created_person
+      ON ${alias}.created_by_type='user'
+      AND created_person.space_id=${alias}.space_id
+      AND created_person.linked_user_id=${alias}.created_by_id
+      AND created_person.deleted_at IS NULL
+    LEFT JOIN space_people updated_person
+      ON ${alias}.updated_by_type='user'
+      AND updated_person.space_id=${alias}.space_id
+      AND updated_person.linked_user_id=${alias}.updated_by_id
+      AND updated_person.deleted_at IS NULL`;
 }
 
 export function physicalPlanFor(model: PublishedModel): PhysicalSchemaPlan {
@@ -422,6 +454,7 @@ function scalarData(model: PublishedModel, row: TypedResourceRow): JsonObject {
 function resourcesFromRows(model: PublishedModel, rows: TypedResourceRow[]): TypedStoredResource[] {
   return rows.map((row) => {
     const provenance = provenanceFromStorage(row);
+    const audit = resourceAuditFromStorage(row);
     return {
       id: row.id,
       spaceId: row.space_id,
@@ -429,6 +462,7 @@ function resourcesFromRows(model: PublishedModel, rows: TypedResourceRow[]): Typ
       modelVersion: row.model_version,
       data: scalarData(model, row),
       ...(provenance ? { provenance } : {}),
+      ...(audit ? { audit } : {}),
       version: row.version,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
@@ -436,19 +470,19 @@ function resourcesFromRows(model: PublishedModel, rows: TypedResourceRow[]): Typ
   });
 }
 
-async function hydrateRelations(
-  env: Bindings,
+function relationReadStatement(env: Bindings, recordIds: readonly string[]): D1PreparedStatement {
+  return env.DB.prepare(`SELECT source_record_id,field_key,ordinal,target_person_id,target_record_id
+    FROM resource_relations WHERE source_record_id IN (${recordIds.map(() => "?").join(",")}) ORDER BY source_record_id,field_key,ordinal`)
+    .bind(...recordIds);
+}
+
+function applyRelationRows(
   model: PublishedModel,
   resources: TypedStoredResource[],
-): Promise<void> {
+  rows: readonly RelationRow[],
+): void {
   const relationFields = physicalPlanFor(model).relationFields;
   if (!resources.length || !relationFields.length) return;
-
-  const ids = [...new Set(resources.map((resource) => resource.id))];
-  const statements = chunkD1Values(ids).map((chunk) => env.DB.prepare(`SELECT source_record_id,field_key,ordinal,target_person_id,target_record_id
-    FROM resource_relations WHERE source_record_id IN (${chunk.map(() => "?").join(",")}) ORDER BY source_record_id,field_key,ordinal`)
-    .bind(...chunk));
-  const rows = await allD1Batched<RelationRow>(env.DB, statements);
 
   const values = new Map<string, Map<string, string[]>>();
   for (const row of rows) {
@@ -482,6 +516,20 @@ async function hydrateRelations(
   }
 }
 
+async function hydrateRelations(
+  env: Bindings,
+  model: PublishedModel,
+  resources: TypedStoredResource[],
+): Promise<void> {
+  const relationFields = physicalPlanFor(model).relationFields;
+  if (!resources.length || !relationFields.length) return;
+
+  const ids = [...new Set(resources.map((resource) => resource.id))];
+  const statements = chunkD1Values(ids).map((chunk) => relationReadStatement(env, chunk));
+  const rows = await allD1Batched<RelationRow>(env.DB, statements);
+  applyRelationRows(model, resources, rows);
+}
+
 export async function hydrateTypedResourceRows(
   env: Bindings,
   model: PublishedModel,
@@ -499,19 +547,31 @@ export async function getTypedResource(
   recordId: string,
 ): Promise<TypedStoredResource | null> {
   const scalarSelect = typedSelectColumns(model);
-  const row = await env.DB.prepare(`SELECT r.id,r.space_id,r.model_key,r.model_version,r.version,r.created_at,r.updated_at,
+  const recordStatement = env.DB.prepare(`SELECT r.id,r.space_id,r.model_key,r.model_version,r.version,r.created_at,r.updated_at,
       p.source AS provenance_source,p.source_ref_json AS provenance_source_ref_json,
-      p.derived_from_json AS provenance_derived_from_json${scalarSelect ? `,${scalarSelect}` : ""}
+      p.derived_from_json AS provenance_derived_from_json,
+      ${resourceAuditSelectColumns("r")}${scalarSelect ? `,${scalarSelect}` : ""}
     FROM resource_records r
     JOIN ${typedTableSql(model)} m ON m.record_id=r.id AND m.space_id=r.space_id
     LEFT JOIN resource_provenance p ON p.record_id=r.id AND p.record_version=(
       SELECT MAX(p2.record_version) FROM resource_provenance p2
       WHERE p2.record_id=r.id AND p2.record_version<=r.version
     )
+    ${resourceAuditJoins("r")}
     WHERE r.id=? AND r.space_id=? AND r.model_key=? AND r.deleted_at IS NULL`)
-    .bind(recordId, spaceId, model.key).first<TypedResourceRow>();
+    .bind(recordId, spaceId, model.key);
+  if (!physicalPlanFor(model).relationFields.length) {
+    const row = await recordStatement.first<TypedResourceRow>();
+    if (!row) return null;
+    return resourcesFromRows(model, [row])[0] ?? null;
+  }
+
+  const results = await env.DB.batch([recordStatement, relationReadStatement(env, [recordId])]);
+  const row = (results[0]?.results as TypedResourceRow[] | undefined)?.[0] ?? null;
   if (!row) return null;
-  return (await hydrateTypedResourceRows(env, model, [row]))[0] ?? null;
+  const resources = resourcesFromRows(model, [row]);
+  applyRelationRows(model, resources, (results[1]?.results ?? []) as RelationRow[]);
+  return resources[0] ?? null;
 }
 
 export async function listTypedResources(

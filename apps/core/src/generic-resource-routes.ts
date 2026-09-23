@@ -76,7 +76,7 @@ async function dto(
   audit?: ResourceAudit,
   provenanceOverride?: InformationProvenance,
 ) {
-  const resolvedAudit = audit ?? requireResourceAudit(
+  const resolvedAudit = audit ?? resource.audit ?? requireResourceAudit(
     await loadResourceAudits(env, spaceId, [resource.id]),
     resource.id,
   );
@@ -103,9 +103,14 @@ async function listResponse(
   resolved: PublishedModel,
   result: { items: GenericResource[]; nextCursor: string | null },
 ) {
-  const [decorations, audits] = await Promise.all([
+  const missingAuditIds = result.items
+    .filter((resource) => !resource.audit)
+    .map((resource) => resource.id);
+  const [decorations, fallbackAudits] = await Promise.all([
     decorateCapabilityResponses(context.env, spaceId, resolved, result.items),
-    loadResourceAudits(context.env, spaceId, result.items.map((resource) => resource.id)),
+    missingAuditIds.length
+      ? loadResourceAudits(context.env, spaceId, missingAuditIds)
+      : Promise.resolve(new Map<string, ResourceAudit>()),
   ]);
   const items = await Promise.all(result.items.map((resource, index) => dto(
     context.env,
@@ -113,7 +118,7 @@ async function listResponse(
     resolved,
     resource,
     decorations[index],
-    requireResourceAudit(audits, resource.id),
+    resource.audit ?? requireResourceAudit(fallbackAudits, resource.id),
   )));
   return context.json(success({ items, nextCursor: result.nextCursor }));
 }
@@ -125,7 +130,7 @@ export function registerGenericResourceRoutes(app: App): void {
     const principal = context.get("principal");
     const access = await measurePerformancePhase(
       context,
-      "runtime.authorization",
+      "runtime.access_check",
       () => requireModelAccess(context.env, principal, spaceId, resolved, "read"),
     );
     await measurePerformancePhase(
@@ -164,7 +169,7 @@ export function registerGenericResourceRoutes(app: App): void {
     const principal = context.get("principal");
     const access = await measurePerformancePhase(
       context,
-      "runtime.authorization",
+      "runtime.access_check",
       () => requireModelAccess(context.env, principal, spaceId, resolved, "read"),
     );
     await measurePerformancePhase(
@@ -197,20 +202,37 @@ export function registerGenericResourceRoutes(app: App): void {
     const spaceId = pathParam(context, "spaceId");
     const resolved = await model(context);
     const principal = context.get("principal");
-    const access = await requireModelAccess(context.env, principal, spaceId, resolved, "write");
+    const access = await measurePerformancePhase(
+      context,
+      "runtime.access_check",
+      () => requireModelAccess(context.env, principal, spaceId, resolved, "write"),
+    );
     const request = await body(context);
     const { data: input, provenance } = splitProvenanceEnvelope(request);
     const prepared = prepareCapabilityCreateInput(resolved, input);
-    await requireModelPolicy(context.env, principal, spaceId, resolved, "create", undefined, prepared, { personId: access.actorPersonId });
-    const created = await createCapabilityAwareResource(
-      context.env,
-      principal,
-      spaceId,
-      resolved,
-      input,
-      provenance ? provenanceMutationExtension(provenance) : undefined,
+    await measurePerformancePhase(
+      context,
+      "runtime.policy",
+      () => requireModelPolicy(context.env, principal, spaceId, resolved, "create", undefined, prepared, { personId: access.actorPersonId }),
     );
-    return context.json(success(await dto(context.env, spaceId, resolved, created, undefined, undefined, provenance)), 201);
+    const created = await measurePerformancePhase(
+      context,
+      "runtime.create_write",
+      () => createCapabilityAwareResource(
+        context.env,
+        principal,
+        spaceId,
+        resolved,
+        input,
+        provenance ? provenanceMutationExtension(provenance) : undefined,
+      ),
+    );
+    const response = await measurePerformancePhase(
+      context,
+      "runtime.response_projection",
+      () => dto(context.env, spaceId, resolved, created, undefined, undefined, provenance),
+    );
+    return context.json(success(response), 201);
   };
   app.post(canonical.collection, create);
 
@@ -220,7 +242,7 @@ export function registerGenericResourceRoutes(app: App): void {
     const principal = context.get("principal");
     const access = await measurePerformancePhase(
       context,
-      "runtime.authorization",
+      "runtime.access_check",
       () => requireModelAccess(context.env, principal, spaceId, resolved, "read"),
     );
     const resource = await measurePerformancePhase(
@@ -249,7 +271,7 @@ export function registerGenericResourceRoutes(app: App): void {
     const principal = context.get("principal");
     const access = await measurePerformancePhase(
       context,
-      "runtime.authorization",
+      "runtime.access_check",
       () => requireModelAccess(context.env, principal, spaceId, resolved, "write"),
     );
     const request = await body(context);
