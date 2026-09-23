@@ -151,7 +151,7 @@ Operation Attribution and Information Provenance remain distinct:
 - **Operation Attribution**: Principal, Actor, Application, Delegation — who exercised authority and executed the Change.
 - **Information Provenance**: source, sourceRef, derivedFrom — where the information itself came from. Information Provenance can be expanded separately where the domain/use case requires it.
 
-## Event evidence boundary
+## Atomic Batch Create for Agent intent\n\nKernel 0.38.0 adds a bounded same-Space Batch Create primitive for cases where one user/Agent intent creates several ordinary records, including mixed models such as Event + Task. This is not an Agent-only data path: every item uses the same Model Definition, current Effective Authority, Model Policy, Capability preparation, relation validation, Provenance and governed Change attribution as ordinary single Create.\n\nThe batch is all-or-nothing. Current write authority and Agent Delegation are evaluated per distinct selected model, so one unauthorized or invalid item prevents every item from committing. Adapters such as n8n, MCP and ALOHA should use the Kernel batch primitive rather than implement loops with partial-success semantics.\n\n## Event evidence boundary
 
 Domain Event / Webhook delivery remains **reference-only**. Agent readiness does not copy User/Agent identity or full Change attribution into every outbound Webhook.
 
