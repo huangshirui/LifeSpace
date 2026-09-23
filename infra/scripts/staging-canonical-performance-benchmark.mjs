@@ -1,4 +1,6 @@
-export const STAGING_READ_TARGETS = Object.freeze({ p50Ms: 220, p90Ms: 500 });
+import { evaluateTargets, USER_MUTATION_TARGETS, USER_READ_TARGETS } from "./performance-release-targets.mjs";
+
+const DEFAULT_MUTATION_SAMPLE_COUNT = 15;
 
 function summarize(values) {
   const sorted = [...values].sort((a, b) => a - b);
@@ -13,10 +15,6 @@ function summarize(values) {
   };
 }
 
-function targetMet(metric) {
-  return metric.p50Ms <= STAGING_READ_TARGETS.p50Ms && metric.p90Ms <= STAGING_READ_TARGETS.p90Ms;
-}
-
 export async function runStagingPerformanceBenchmark({
   coreBaseUrl,
   bearer,
@@ -28,6 +26,7 @@ export async function runStagingPerformanceBenchmark({
   requestAdapter,
   sampleCount = 15,
   warmupCount = 3,
+  mutationSampleCount = DEFAULT_MUTATION_SAMPLE_COUNT,
 }) {
   const baseUrl = coreBaseUrl.replace(/\/+$/u, "");
   for (const [name, value] of Object.entries({ baseUrl, bearer, spaceId, personId, benchmarkProfile, source })) {
@@ -35,6 +34,7 @@ export async function runStagingPerformanceBenchmark({
   }
   if (!Number.isInteger(sampleCount) || sampleCount < 1) throw new Error("sampleCount must be a positive integer");
   if (!Number.isInteger(warmupCount) || warmupCount < 0) throw new Error("warmupCount must be a non-negative integer");
+  if (!Number.isInteger(mutationSampleCount) || mutationSampleCount < 1) throw new Error("mutationSampleCount must be a positive integer");
 
   async function directRequest(path, { method = "GET", body } = {}) {
     const started = performance.now();
@@ -132,7 +132,7 @@ export async function runStagingPerformanceBenchmark({
 
     let patchVersion = tasks[1].version;
     const patchSamples = [];
-    for (let index = 0; index < 8; index += 1) {
+    for (let index = 0; index < mutationSampleCount; index += 1) {
       const patched = await expectData(`/api/v1/spaces/${spaceId}/models/task/records/${tasks[1].id}`, {
         method: "PATCH",
         body: { version: patchVersion, name: `Performance task ${marker} patch ${index}` },
@@ -144,7 +144,7 @@ export async function runStagingPerformanceBenchmark({
 
     let actionVersion = tasks[2].version;
     const actionSamples = [];
-    for (let index = 0; index < 8; index += 1) {
+    for (let index = 0; index < mutationSampleCount; index += 1) {
       const action = index % 2 === 0 ? "complete" : "reopen";
       const changed = await expectData(`/api/v1/spaces/${spaceId}/models/task/records/${tasks[2].id}/actions/${action}`, {
         method: "POST",
@@ -155,20 +155,33 @@ export async function runStagingPerformanceBenchmark({
     }
     cleanup.find((item) => item.id === tasks[2].id).version = actionVersion;
 
-    const readTargetsMet = Object.fromEntries(Object.entries(reads).map(([key, metric]) => [key, targetMet(metric)]));
+    const mutations = {
+      taskPatch: summarize(patchSamples),
+      taskWorkflow: summarize(actionSamples),
+    };
+    const readTargetsMet = evaluateTargets(reads, USER_READ_TARGETS);
+    const mutationTargetsMet = evaluateTargets(mutations, USER_MUTATION_TARGETS);
+    const allReadTargetsMet = Object.values(readTargetsMet).every(Boolean);
+    const allMutationTargetsMet = Object.values(mutationTargetsMet).every(Boolean);
     return {
       ok: true,
       benchmarkProfile,
       acceptanceEligible: benchmarkProfile === "apac",
       source,
       marker,
-      targets: STAGING_READ_TARGETS,
+      targets: {
+        reads: USER_READ_TARGETS,
+        mutations: USER_MUTATION_TARGETS,
+      },
       reads,
       readTargetsMet,
-      allReadTargetsMet: Object.values(readTargetsMet).every(Boolean),
-      mutations: { taskPatch: summarize(patchSamples), taskWorkflow: summarize(actionSamples) },
+      allReadTargetsMet,
+      mutations,
+      mutationTargetsMet,
+      allMutationTargetsMet,
+      allTargetsMet: allReadTargetsMet && allMutationTargetsMet,
       note: benchmarkProfile === "apac"
-        ? "Absolute read targets are eligible for Phase-3 acceptance; D1 round-trip budgets remain independently enforced in Core integration tests."
+        ? "Scenario-specific read and mutation targets are release-gate eligible; D1 round-trip budgets remain independently enforced in Core integration tests."
         : "Diagnostic only: absolute HTTP timings may include runner-to-edge and Worker-to-D1 latency. D1 round-trip budgets are enforced separately in Core integration tests.",
     };
   } finally {
