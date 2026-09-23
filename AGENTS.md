@@ -1,6 +1,6 @@
 # LifeSpace Agent Instructions
 
-LifeSpace is the platform for giving any Space a durable Shared Reality and governed action foundation. ALOHA, HomeMew and future products are initial application experiences over the platform, not the boundary of the platform itself. LifeSpace is the sole source of truth for global LifeSpace user identity, Space/Data Grant authorization, shared domain models, platform migrations, contracts and deployment configuration.
+LifeSpace is the platform for giving any Space a durable Shared Reality and governed action foundation. External applications are replaceable consumers of the platform and are not the boundary of the platform itself. LifeSpace is the sole source of truth for global LifeSpace user identity, Space/Data Grant authorization, shared domain models, platform migrations, contracts and deployment configuration.
 
 ## Read before making changes
 
@@ -16,9 +16,8 @@ Read in this order:
 8. `docs/model-definition-spec.md` for the normative human-readable Model Definition / Policy / Workflow / Capability DSL semantics;
 9. `docs/phase3-metadata-platform-plan.md` for business-model/runtime architecture;
 10. `docs/phase3-performance-convergence-plan.md` for ordinary-model storage, Registry runtime lookup, query hydration, authorization I/O or performance-sensitive paths;
-11. `docs/migration-plan.md` when changing/moving HomeMew behavior;
-12. `apps/AGENTS.md` and the nearest nested `AGENTS.md` for every directory changed;
-13. relevant OpenAPI contracts, tests, migrations, implementation, Model Definitions and generated artifacts.
+11. `apps/AGENTS.md` and the nearest nested `AGENTS.md` for every directory changed;
+12. relevant OpenAPI contracts, tests, migrations, implementation, Model Definitions and generated artifacts.
 
 If a required source does not yet exist during initial scaffold, create/update it before implementing behavior that depends on it.
 
@@ -245,7 +244,7 @@ Do not create one-off domain source code merely because the DSL needs extension.
 - Keep platform code, contracts, Kernel/Identity migrations and deployment configuration in this repository.
 - Keep product UI and application-specific external-provider mappings in application repos, except the LifeSpace platform Console itself, which belongs in this platform repo.
 - Cloudflare Access principal mapping is Identity state and belongs here, not in individual application repos.
-- Do not copy HomeMew code mechanically; preserve proven semantics while removing family/app assumptions that are not platform policy.
+- Do not copy consumer-application behavior mechanically; preserve only semantics that have been deliberately adopted as platform policy.
 - Do not make current application, AI-provider, Agent-framework, orchestration or protocol concepts durable platform truth unless the underlying abstraction remains meaningful without that dependency.
 - Do not introduce packages without a concrete consumer/near-term role.
 - Generated artifacts are reproducible outputs and must not be hand-edited.
