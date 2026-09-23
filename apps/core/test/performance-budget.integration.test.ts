@@ -129,10 +129,11 @@ async function fixture() {
       assigneePersonIds: [],
     }));
   }
+  const eventRecords = [];
   for (let index = 0; index < 200; index += 1) {
     const start = new Date(Date.UTC(2026, 7, 1, 0, index));
     const end = new Date(start.getTime() + 30 * 60 * 1000);
-    await createGenericResource({ DB: database } as Bindings, actor, spaceId, eventModel, {
+    eventRecords.push(await createGenericResource({ DB: database } as Bindings, actor, spaceId, eventModel, {
       summary: `Budget event ${String(index).padStart(3, "0")}`,
       when: {
         kind: "instant",
@@ -141,7 +142,7 @@ async function fixture() {
       },
       attendeePersonIds: [],
       status: "active",
-    });
+    }));
   }
 
   const keyPair = await keys();
@@ -163,7 +164,7 @@ async function fixture() {
     return createApp().request(`http://localhost${path}`, { ...init, headers }, bindings);
   }
 
-  return { DB, counter, request, spaceId, records };
+  return { DB, counter, request, spaceId, personId, records, eventRecords };
 }
 
 async function measured(
@@ -194,7 +195,7 @@ describe("Core D1 round-trip budgets", () => {
       f.counter,
       () => f.request(`/api/v1/spaces/${f.spaceId}/models/task/records?limit=200`),
       200,
-      5,
+      3,
     );
     const listPayload = await list.json<{ data: { items: Array<{ id: string; version: number }> } }>();
     expect(listPayload.data.items).toHaveLength(200);
@@ -220,7 +221,7 @@ describe("Core D1 round-trip budgets", () => {
         }),
       }),
       200,
-      4,
+      3,
     );
     const calendar100Payload = await calendar100.json<{ data: { items: Array<{ id: string; summary: string }> } }>();
     expect(calendar100Payload.data.items).toHaveLength(100);
@@ -237,7 +238,7 @@ describe("Core D1 round-trip budgets", () => {
         }),
       }),
       200,
-      4,
+      3,
     );
     const calendar200Payload = await calendar200.json<{ data: { items: Array<{ id: string; summary: string }> } }>();
     expect(calendar200Payload.data.items).toHaveLength(200);
@@ -248,8 +249,30 @@ describe("Core D1 round-trip budgets", () => {
       f.counter,
       () => f.request(`/api/v1/spaces/${f.spaceId}/models/task/records/${target.id}`),
       200,
+      2,
+    );
+
+    const eventTarget = f.eventRecords[0];
+    await measured(
+      f.counter,
+      () => f.request(`/api/v1/spaces/${f.spaceId}/models/event/records/${eventTarget.id}`),
+      200,
+      2,
+    );
+
+    const patchedEvent = await measured(
+      f.counter,
+      () => f.request(`/api/v1/spaces/${f.spaceId}/models/event/records/${eventTarget.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ version: eventTarget.version, attendeePersonIds: [f.personId] }),
+      }),
+      200,
       4,
     );
+    const patchedEventPayload = await patchedEvent.json<{ data: { attendeePersonIds: string[]; createdBy: { id: string }; updatedBy: { id: string } } }>();
+    expect(patchedEventPayload.data.attendeePersonIds).toEqual([f.personId]);
+    expect(patchedEventPayload.data.createdBy.id).toBe(f.records[0].audit?.createdBy.id ?? f.records[0].id);
+    expect(patchedEventPayload.data.updatedBy.id).toBeDefined();
 
     const patched = await measured(
       f.counter,
@@ -258,7 +281,7 @@ describe("Core D1 round-trip budgets", () => {
         body: JSON.stringify({ version: target.version, name: "Budget task updated" }),
       }),
       200,
-      6,
+      3,
     );
     const patchedPayload = await patched.json<{ data: { version: number } }>();
 
@@ -279,7 +302,7 @@ describe("Core D1 round-trip budgets", () => {
         body: JSON.stringify({ name: "Budget created task", assigneePersonIds: [] }),
       }),
       201,
-      6,
+      2,
     );
   }, PERFORMANCE_TEST_TIMEOUT_MS);
 });
