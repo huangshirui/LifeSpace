@@ -50,7 +50,7 @@ async function createFamily(privateKey: string, publicKey: string, ownerId: stri
   const accessToken = await token(privateKey, ownerId, ["profile:read", "spaces:read", "spaces:write", "spaces:manage", "grants:manage"]);
   const response = await request("/api/v1/spaces", accessToken, publicKey, {
     method: "POST",
-    body: JSON.stringify({ name: "Lifecycle Home", ownerDisplayName: "Owner", timezone: "Asia/Shanghai" }),
+    body: JSON.stringify({ kind: "family", name: "Lifecycle Home", ownerDisplayName: "Owner", timezone: "Asia/Shanghai" }),
   });
   expect(response.status).toBe(201);
   const payload = await response.json<{ data: { id: string; version: number } }>();
