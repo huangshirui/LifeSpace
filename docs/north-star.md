@@ -56,7 +56,7 @@ AI models, Agent frameworks, reasoning systems and model providers will change r
 
 ### H3 — Protocols are replaceable
 
-REST, MCP, tool schemas, SDKs, n8n nodes and future Agent protocols are adapters over stable platform meaning, not the source of domain truth.
+REST, MCP, tool schemas, SDKs, workflow adapters and future Agent protocols are adapters over stable platform meaning, not the source of domain truth.
 
 ### H4 — Multiple participants and authoritative sources will continue to exist
 
@@ -244,7 +244,7 @@ The semantic system may include:
 
 The current Model Registry and Model Definitions are foundational semantic mechanisms for defining Shared World and, where appropriate, Shared Knowledge.
 
-REST paths, MCP tools, OpenAI tool schemas, SDKs, n8n nodes, generated forms and future protocols should be projections/adapters over stable semantics rather than becoming the semantic source of truth.
+REST paths, MCP tools, OpenAI tool schemas, SDKs, workflow adapters, generated forms and future protocols should be projections/adapters over stable semantics rather than becoming the semantic source of truth.
 
 ## Context is a projection, not the database
 
@@ -324,7 +324,7 @@ LifeSpace keeps these responsibilities separate:
 ```text
 Application / generated UI = Experience
 Agent / model               = Reasoning
-n8n / workflow systems      = Orchestration
+workflow systems            = Orchestration
 LifeSpace                   = Shared Reality + Authority + Change
 ```
 
@@ -382,7 +382,7 @@ LifeSpace should not drift into being merely:
 - an MCP server with storage behind it;
 - an Agent framework or reasoning runtime;
 - a prompt/model runtime;
-- a workflow/orchestration product competing with systems such as n8n;
+- a workflow/orchestration product;
 - a no-code application builder;
 - a universal schemaless JSON store;
 - a system where application-specific or Agent-specific copies become parallel sources of truth;

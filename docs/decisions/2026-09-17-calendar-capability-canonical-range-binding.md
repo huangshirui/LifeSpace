@@ -1,6 +1,6 @@
 # Calendar Capability binds canonical TemporalRange
 
-Status: **Accepted for Phase 4 development**
+Status: **Accepted**
 
 ## Decision
 
@@ -23,6 +23,6 @@ The legacy split binding remains parseable for historical published Model Defini
 
 This keeps Model Definition field semantics authoritative, removes `isAllDay` as a second source of truth, reuses the already-shipped TemporalRange CRUD/query/sort implementation, and lets historical Event model revisions remain readable while Event vNext is prepared.
 
-## Release boundary
+## Compatibility
 
-This decision authorizes branch/PR/test implementation during HomeMew Mini 1.6.3 review. It does not authorize production cutover. Production Event contract/storage migration remains gated on the reviewed Mini version becoming production-active.
+Historical published Model Definitions may continue to expose the legacy split Calendar binding while they remain supported. New model semantics should use the canonical `temporal_range` binding and must not introduce a second authoritative time representation.

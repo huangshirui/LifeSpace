@@ -119,7 +119,7 @@ The repository-wide validation entry point is:
 pnpm check
 ```
 
-Service-specific migrations and deployment configuration are repository-owned. Staging deployment applies migrations before deploying compatible Workers and then runs database, authentication, contract, model-runtime and HomeMew integration verification gates.
+Service-specific migrations and deployment configuration are repository-owned. Staging deployment applies migrations before deploying compatible Workers and then runs platform-owned database, authentication, contract and model-runtime verification gates.
 
 ## Read before changing the platform
 
@@ -130,6 +130,7 @@ Start with `AGENTS.md`, then the relevant source-of-truth documents:
 - `docs/model-scoped-data-grants.md` — whole-Space vs model-collection Grant semantics
 - `docs/service-authentication.md` — service/Agent/machine credentials
 - `docs/contracts.md` — Kernel/model contract ownership and publication
-- `docs/phase3-metadata-platform-plan.md` — metadata-driven model architecture
-- `docs/phase3-performance-convergence-plan.md` — runtime/storage performance invariants
+- `docs/model-platform-architecture.md` — metadata-driven model architecture
+- `docs/runtime-storage-performance.md` — runtime/storage performance invariants
+- `docs/generic-consumer-contract.md` — consumer-neutral semantic projection and authority boundary
 - `docs/application-authentication.md` — trusted application and Cloudflare Access Identity contracts

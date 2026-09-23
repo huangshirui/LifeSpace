@@ -281,7 +281,7 @@ Rules:
 
 Conformance-ID: MDV1-REFERENCE-LABEL-01
 
-Relation metadata defines **what may be referenced structurally**, not a static list of current target instances. Generated JSON Schema therefore projects stable relation target/cardinality through `x-lifespace-relation` and must not encode mutable Space-specific targets as `enum`. Runtime Discovery / Relation Target Lookup may resolve current targets under current authorization for clients such as n8n, Agents/MCP and generated UI. A lookup result is a capability/reference projection only: it does not bypass create/update Policy or mutation-time relation validation. `person` / `person_list` use the canonical Space Person `displayName`. `record` / `record_list` use the target Model's canonical `referenceLabel` semantics defined below, with stable record ID fallback. Record lookup/resolution additionally requires current read authority to the target Model; adapters must never infer labels from conventional field names such as `name`, `title` or `summary`.
+Relation metadata defines **what may be referenced structurally**, not a static list of current target instances. Generated JSON Schema therefore projects stable relation target/cardinality through `x-lifespace-relation` and must not encode mutable Space-specific targets as `enum`. Runtime Discovery / Relation Target Lookup may resolve current targets under current authorization for workflow clients, Agents/MCP and generated UI. A lookup result is a capability/reference projection only: it does not bypass create/update Policy or mutation-time relation validation. `person` / `person_list` use the canonical Space Person `displayName`. `record` / `record_list` use the target Model's canonical `referenceLabel` semantics defined below, with stable record ID fallback. Record lookup/resolution additionally requires current read authority to the target Model; adapters must never infer labels from conventional field names such as `name`, `title` or `summary`.
 
 ### 4.3 `readOnly`, Mutation Authority, and `immutable`
 
@@ -1174,7 +1174,7 @@ Do not add one-off domain runtime code merely because the DSL needs extension.
 - `docs/architecture.md` — current platform boundaries.
 - `docs/permissions.md` — authorization model surrounding Model Policy.
 - `docs/contracts.md` — contract ownership, publication and Model Contract revisions.
-- `docs/phase3-metadata-platform-plan.md` — origin and architectural rationale of the metadata platform.
+- `docs/model-platform-architecture.md` — current architecture and invariants of the metadata-driven Model Platform.
 - `apps/core/src/model-definition.ts` — top-level/field/query/lifecycle validator.
 - `apps/core/src/policy-definition.ts` and `policy.ts` — Policy syntax and execution.
 - `apps/core/src/workflow-definition.ts` and `workflow.ts` — Action/Workflow syntax and execution.

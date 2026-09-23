@@ -32,7 +32,7 @@ Timezone values use IANA timezone identifiers. They are required wherever local 
 
 A viewing timezone is interpretation/presentation context. It does not rewrite the timezone or absolute value of an existing record.
 
-**Current canonicalization rule:** Core trims an accepted timezone input, validates it with the runtime IANA timezone database and canonicalizes it to `Intl.DateTimeFormat(...).resolvedOptions().timeZone`. Space writes, ordinary `timezone` model fields, Canonical Query/local-date-window inputs, Calendar compatibility inputs and Creation Draft viewing context use the same primitive. Adapters such as n8n must not maintain an independent alias/casing table.
+**Current canonicalization rule:** Core trims an accepted timezone input, validates it with the runtime IANA timezone database and canonicalizes it to `Intl.DateTimeFormat(...).resolvedOptions().timeZone`. Space writes, ordinary `timezone` model fields, Canonical Query/local-date-window inputs, Calendar compatibility inputs and Creation Draft viewing context use the same primitive. Adapters must not maintain an independent alias/casing table.
 
 The exact canonical name of an IANA Link alias follows the supported runtime/ICU timezone database rather than a LifeSpace-maintained alias list. Existing valid persisted timezone strings are not bulk-rewritten solely for this representational convergence: new writes and later updates are canonicalized, while historical values remain valid interpretation inputs. A targeted data backfill is required only if an inventory finds a deployed model whose pre-existing non-canonical timezone field must participate in exact-value equality before that record is next written.
 

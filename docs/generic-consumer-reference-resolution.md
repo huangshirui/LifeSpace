@@ -2,11 +2,9 @@
 
 Status: **Candidate / Public representation**  
 Kernel contract: **0.29.0**  
-Semantic owner: `docs/generic-consumer-m2-dynamic-authority-audit.md` §4–5, §10–12  
-Owning implementation: #191 under #165  
-Ordinary-record label semantics: #155 (implemented by Kernel 0.29.0)
+Semantic owner: `docs/generic-consumer-contract.md` §5–7  
 
-This document fixes the HTTP representation for the already-accepted M2 Batch Reference Resolution / Hydration semantic and records the Kernel 0.29 composition with #155 canonical ordinary-record reference-label semantics. It does not redefine mutation authority: lookup/resolution remain Context Projection only.
+This document fixes the HTTP representation for bounded Batch Reference Resolution / Hydration under the generic consumer contract. It does not redefine mutation authority: lookup/resolution remain Context Projection only.
 
 ## Operation
 

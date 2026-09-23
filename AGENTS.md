@@ -14,10 +14,11 @@ Read in this order:
 6. `docs/contracts.md`;
 7. `docs/agent-ready.md` for Principal / Actor / Delegation / governed Change rules when changing Agent-facing authority;
 8. `docs/model-definition-spec.md` for the normative human-readable Model Definition / Policy / Workflow / Capability DSL semantics;
-9. `docs/phase3-metadata-platform-plan.md` for business-model/runtime architecture;
-10. `docs/phase3-performance-convergence-plan.md` for ordinary-model storage, Registry runtime lookup, query hydration, authorization I/O or performance-sensitive paths;
-11. `apps/AGENTS.md` and the nearest nested `AGENTS.md` for every directory changed;
-12. relevant OpenAPI contracts, tests, migrations, implementation, Model Definitions and generated artifacts.
+9. `docs/model-platform-architecture.md` for business-model/runtime architecture;
+10. `docs/runtime-storage-performance.md` for ordinary-model storage, Registry runtime lookup, query hydration, authorization I/O or performance-sensitive paths;
+11. `docs/generic-consumer-contract.md` when changing discovery, semantic projection, reference resolution or consumer-facing genericity;
+12. `apps/AGENTS.md` and the nearest nested `AGENTS.md` for every directory changed;
+13. relevant OpenAPI contracts, tests, migrations, implementation, Model Definitions and generated artifacts.
 
 If a required source does not yet exist during initial scaffold, create/update it before implementing behavior that depends on it.
 
@@ -31,8 +32,9 @@ If a required source does not yet exist during initial scaffold, create/update i
 - Contract ownership/versioning/publication/downstream consumption: `docs/contracts.md`
 - Agent execution-context, Delegation and governed Change invariants: `docs/agent-ready.md`
 - Model Definition / Policy / Workflow / Capability DSL semantics: `docs/model-definition-spec.md`
-- Metadata business-model architecture: `docs/phase3-metadata-platform-plan.md`
-- Runtime performance/typed persistence: `docs/phase3-performance-convergence-plan.md`
+- Metadata business-model architecture: `docs/model-platform-architecture.md`
+- Runtime performance/typed persistence: `docs/runtime-storage-performance.md`
+- Generic consumer projection/authority boundary: `docs/generic-consumer-contract.md`
 - Core business-facing Kernel API: `apps/core/openapi.yaml`
 - Core Integration/Eventing API: `apps/core/integration-eventing.openapi.yaml`
 - Core Model Registry / Model Contract governance API: `apps/core/model-control-plane.openapi.yaml`
@@ -88,7 +90,7 @@ Before committing to a platform design, ask:
 3. Does durable state belong to a Space, or are we accidentally making an application its owner?
 4. Would the concept still make sense if the current application disappeared?
 5. Would it still make sense if the current Agent framework, AI model, protocol or orchestration product disappeared?
-6. Is MCP/REST/OpenAI tooling/n8n/another protocol being treated as an adapter rather than domain truth?
+6. Is MCP/REST/OpenAI tooling/workflow automation/another protocol being treated as an adapter rather than domain truth?
 7. Are AI-derived observations/claims distinguishable from authoritative state where that distinction matters?
 8. For delegated/autonomous action, are Principal, Actor, application context, delegation and source correctly attributed?
 9. Is CRUD merely the transport for a more durable semantic Action/Change concept?

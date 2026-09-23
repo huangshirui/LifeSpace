@@ -22,7 +22,7 @@ const creator: Principal = {
 const serviceActor: Principal = {
   type: "service",
   id: "svc_workflow_executor",
-  clientId: "homemew-integration",
+  clientId: "app_test_integration",
   scopes: ["resources:read", "resources:write"],
   tokenId: "tok_workflow_service",
 };

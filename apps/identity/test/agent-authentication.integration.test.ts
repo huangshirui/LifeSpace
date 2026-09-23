@@ -68,7 +68,7 @@ describe("Agent Identity and execution credential", () => {
     const created = await request("/internal/v1/agents", {
       method: "POST",
       headers: { authorization: `Bearer ${secret}`, "content-type": "application/json" },
-      body: JSON.stringify({ displayName: "ALOHA Test Agent" }),
+      body: JSON.stringify({ displayName: "Test Agent" }),
     }, privateKey);
     expect(created.status).toBe(201);
     const agent = ((await created.json()) as any).data;

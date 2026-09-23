@@ -134,7 +134,7 @@ export default function AgentIdentitiesDialog({ applicationId, onClose }: { appl
       <div className="cp-dialog-body">
         <div className="acp-warning"><strong>Agent identity ≠ Agent authority</strong><span>这里仅管理 agt_* 身份与 Application binding。真正的数据访问仍由 Delegation、Space/Data Grant、Application scope ceiling 与 Model Access 独立决定。</span></div>
         <div className="acp-inline-form">
-          <label className="cp-field"><span>New Agent display name</span><input value={displayName} maxLength={100} onChange={(event) => setDisplayName(event.target.value)} placeholder="例如 ALOHA Assistant" /></label>
+          <label className="cp-field"><span>New Agent display name</span><input value={displayName} maxLength={100} onChange={(event) => setDisplayName(event.target.value)} placeholder="例如 Scheduling Assistant" /></label>
           <button className="cp-primary" disabled={busy || !displayName.trim()} onClick={() => void createAgent()}>Create Agent</button>
         </div>
 

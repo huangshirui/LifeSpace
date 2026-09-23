@@ -249,8 +249,8 @@ Do not add heavyweight release bureaucracy merely to imitate traditional enterpr
 
 - arbitrary business-record editing;
 - hidden platform-admin impersonation of a Space member;
-- HomeMew family administration;
-- ALOHA product settings;
+- downstream product business administration;
+- downstream product settings;
 - arbitrary Data Grant mutation across all Spaces;
 - arbitrary webhook/integration configuration owned by an application;
 - Cloudflare dashboard replacement;

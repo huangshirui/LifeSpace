@@ -45,7 +45,7 @@ Do not infer that a Stable semantic invariant freezes:
 - a JWT claim layout;
 - a Cloudflare transport choice;
 - an MCP/OpenAI Tool schema;
-- an n8n node representation;
+- a workflow-node representation;
 - a product-specific Agent Runtime/Capability shape.
 
 Those representations receive their own classification.
@@ -211,7 +211,7 @@ Promoting a particular generated representation family or model semantic promise
 
 ## 11. Adapter rule
 
-REST, SDK, MCP, OpenAI/API Tool, n8n and product-specific Agent integrations must project LifeSpace semantics.
+REST, SDK, MCP, OpenAI/API Tool, workflow integrations and product-specific Agent integrations must project LifeSpace semantics.
 
 An adapter may:
 

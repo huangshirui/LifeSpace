@@ -23,7 +23,7 @@ Identity: schema 7 / contract 0.5.0
 Core:     schema 28 / Kernel 0.15.0
 ```
 
-The successful rollout did **not** run Core/Identity migrations, did **not** deploy Core/Identity, did **not** mutate ordinary Space/business records, and did **not** perform HomeMew production migration/cutover.
+The successful rollout did **not** run Core/Identity migrations, did **not** deploy Core/Identity, did **not** mutate ordinary Space/business records, and did **not** perform downstream application migration/cutover.
 
 ## Production topology
 
@@ -179,7 +179,7 @@ The Console production workflow must never:
 - deploy the Core Worker;
 - deploy the Identity Worker;
 - invoke the full platform `production-deploy.yml`;
-- perform HomeMew migration/cutover work;
+- perform downstream application migration/cutover work;
 - create ordinary Space records or business-model records;
 - enable production first-use Access registration;
 - install the bootstrap secret in the Console Worker;

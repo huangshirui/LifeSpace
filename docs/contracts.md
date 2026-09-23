@@ -40,13 +40,13 @@ Integration/Eventing Contract: <pinned version; only when the consumer uses Even
 
 That `mct_*` is not automatically the cross-environment application compatibility identity. Model Registry versions are monotonic **inside one environment**, and an `mct_*` manifest contains those environment-local versions plus the complete published Registry snapshot. Staging and production may therefore have different valid `mct_*` IDs while exposing the same application-relevant model semantics.
 
-When an application release must be compared across environments, the stable compatibility identity must pin semantic identity rather than accidentally pinning environment-local representation. For HomeMew the accepted cross-environment release identity is:
+When an application release must be compared across environments, the stable compatibility identity must pin semantic identity rather than accidentally pinning environment-local representation. A downstream consumer should pin:
 
 ```text
 Identity Application Contract version
 + Kernel Contract version
 + Model Semantic Fingerprint
-+ Integration/Eventing Contract version (for consumers such as HomeMew that use Eventing)
++ Integration/Eventing Contract version when that consumer uses Eventing
 ```
 
 The Model Semantic Fingerprint is content-addressed over the selected application models' stable `key + schemaHash`, sorted by model key. Environment-local Model Registry `version` and the environment-wide `mct_*` revision ID are deliberately excluded. Each environment still retains its own immutable `mct_*` as exact deployment/code-generation evidence, and that environment-local contract must contain model identities matching the accepted semantic fingerprint.
@@ -58,7 +58,7 @@ Identity Platform Admin Contract: 0.2.0
 Core Platform Admin Contract:     0.2.0
 ```
 
-The control-plane split is intentional. Adding Console governance capabilities must not force HomeMew, ALOHA or another downstream business application to repin its ordinary Kernel/Identity contract when their callable business/authentication syntax did not change. Conversely, downstream applications and their Agents should not discover platform-admin capabilities merely by consuming their ordinary application contract.
+The control-plane split is intentional. Adding Console governance capabilities must not force downstream business applications to repin their ordinary Kernel/Identity contract when callable business/authentication syntax did not change. Conversely, downstream applications and their Agents should not discover platform-admin capabilities merely by consuming their ordinary application contract.
 
 Do not create a separately hand-maintained contract repository.
 

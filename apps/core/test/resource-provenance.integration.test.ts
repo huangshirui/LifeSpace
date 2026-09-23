@@ -62,7 +62,7 @@ describe("Information Provenance", () => {
     const { db, spaceId, model } = await fixture();
     const initial: InformationProvenance = {
       source: "ai_estimation",
-      sourceRef: { type: "external", system: "aloha", ref: "upload/img_001" },
+      sourceRef: { type: "external", system: "assistant-app", ref: "upload/img_001" },
     };
     const created = await createGenericResource(
       bindings(),
@@ -84,7 +84,7 @@ describe("Information Provenance", () => {
 
     const replacement: InformationProvenance = {
       source: "user_correction",
-      sourceRef: { type: "external", system: "aloha", ref: "conversation/correction-1" },
+      sourceRef: { type: "external", system: "assistant-app", ref: "conversation/correction-1" },
       derivedFrom: [{ type: "record", recordId: created.id, version: 2 }],
     };
     await updateGenericResource(

@@ -349,7 +349,7 @@ Agent-facing tools do not need to expose the full recursive AST by default. A ge
 
 The adapter must deterministically lower those inputs to the same Canonical Query. An advanced structured-filter entry may expose nested Boolean expressions when needed.
 
-Complexity belongs in the platform/compiler rather than being duplicated across n8n, MCP, ALOHA or generated UI.
+Complexity belongs in the platform/compiler rather than being duplicated across workflow adapters, protocol adapters, product Agents or generated UI.
 
 ## 10. Authorization and execution boundary
 

@@ -45,7 +45,6 @@ const forbiddenWorkflow = [
   ["D1 migration", /db:migrate|d1\s+migrations\s+apply/iu],
   ["Core Worker deployment", /apps\/core[^\n]*wrangler deploy|core-deploy/iu],
   ["Identity Worker deployment", /apps\/identity[^\n]*wrangler deploy|identity-deploy/iu],
-  ["HomeMew command execution", /(?:node|pnpm|npm|npx|wrangler)[^\n]*homemew/iu],
   ["full platform production deploy", /production-deploy\.yml|provision-production\.mjs|initialize-production-runtime\.mjs/iu],
   ["pull-request trigger", /^\s*pull_request(?:_target)?:\s*$/mu],
   ["scheduled trigger", /^\s*schedule:\s*$/mu],

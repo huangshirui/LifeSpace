@@ -23,11 +23,11 @@ test("service audit repair targets all current friendly-name snapshots", () => {
 
 test("repair only replaces the known broken service-id snapshot shape", () => {
   const target = AUDIT_NAME_TARGETS[0];
-  const sql = repairStatement(target, "svc_example", "Home n8n");
+  const sql = repairStatement(target, "svc_example", "Home automation");
   assert.match(sql, /created_by_type='service'/u);
   assert.match(sql, /created_by_id='svc_example'/u);
   assert.match(sql, /created_by_name_snapshot=created_by_id/u);
-  assert.match(sql, /SET created_by_name_snapshot='Home n8n'/u);
+  assert.match(sql, /SET created_by_name_snapshot='Home automation'/u);
 });
 
 test("discovery and verification queries use the same broken-snapshot predicate", () => {
