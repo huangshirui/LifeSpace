@@ -127,7 +127,7 @@ Identity returns current eligibility and, for an eligible principal, its Identit
 
 The same trusted metadata is carried by opaque Service API Token introspection. Core attaches it to the normalized service principal context and snapshots it into common audit presentation such as `createdBy.displayName` / `updatedBy.displayName` and Temporal occurrence attribution. The stable `svc_*` remains the audit identity. During a Core-first rolling deployment, an older Identity may temporarily omit this additive metadata; Core continues to authenticate the service and falls back to the stable ID until Identity is upgraded.
 
-This endpoint is a private Core↔Identity runtime boundary, not ordinary application/service client syntax. It is not exposed as a new HomeMew/ALOHA-consumable API and does not by itself change the pinned Identity Application Contract. The externally observable authority result was already part of the service-disable semantics: a disabled Service Principal must not continue receiving platform-authorized work merely because another service retains stale cleanup state.
+This endpoint is a private Core↔Identity runtime boundary, not ordinary application/service client syntax. It is not exposed as a downstream application API and does not by itself change the public Identity Application Contract. The externally observable authority result was already part of the service-disable semantics: a disabled Service Principal must not continue receiving platform-authorized work merely because another service retains stale cleanup state.
 
 Failure semantics are deliberately asymmetric:
 
@@ -352,7 +352,7 @@ apps/core/platform-admin.openapi.yaml
 Core Platform Admin contract 0.2.0
 ```
 
-Product applications such as HomeMew do not need to repin their business contract merely because the platform Console gains a new privileged administration endpoint. The Core-only Service Principal eligibility read used to enforce already-declared Eventing revocation semantics is likewise not application-callable syntax and does not by itself require a business-application Identity repin.
+Downstream applications do not need to repin their business contract merely because the platform Console gains a new privileged administration endpoint. The Core-only Service Principal eligibility read used to enforce already-declared Eventing revocation semantics is likewise not application-callable syntax and does not by itself require a business-application Identity repin.
 
 ## Non-goals
 
