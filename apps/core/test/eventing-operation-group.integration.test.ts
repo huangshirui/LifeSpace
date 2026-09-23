@@ -178,7 +178,11 @@ describe("Eventing explicit operation grouping", () => {
 
     const groupedRequest = webhookFetch.mock.calls[0]![1] as RequestInit;
     const groupedHeaders = new Headers(groupedRequest.headers);
-    const groupedBody = JSON.parse(String(groupedRequest.body)) as { events: Array<{ modelKey: string }> };
+    const groupedBody = JSON.parse(String(groupedRequest.body)) as {
+      operationGroupId: string;
+      events: Array<{ modelKey: string }>;
+    };
+    expect(groupedBody.operationGroupId).toBe(f.operationGroupId);
     expect(groupedBody.events.map((event) => event.modelKey)).toEqual(["event", "task"]);
     expect(groupedHeaders.get("x-lifespace-operation-group-id")).toBe(f.operationGroupId);
     expect(groupedHeaders.get("x-lifespace-event-count")).toBe("2");
