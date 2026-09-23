@@ -91,8 +91,9 @@ function authenticateUser(): MiddlewareHandler<AppEnv> {
     if (payload.principal_type !== "user" || typeof payload.sub !== "string" || typeof payload.azp !== "string" || typeof payload.jti !== "string") {
       return c.json(fail("UNAUTHORIZED", "Bearer token principal is invalid", c.get("requestId")), 401);
     }
+    const userId = payload.sub;
     const user = await measurePerformancePhase(c, "auth.user_status", () =>
-      c.env.DB.prepare("SELECT status FROM users WHERE id=?").bind(payload.sub).first<{ status: string }>(),
+      c.env.DB.prepare("SELECT status FROM users WHERE id=?").bind(userId).first<{ status: string }>(),
     );
     if (!user || user.status !== "active") {
       return c.json(fail("FORBIDDEN", "User is not active", c.get("requestId")), 403);
@@ -315,9 +316,10 @@ export function createApp() {
       return c.json(fail("VALIDATION_ERROR", "subjectId is required", c.get("requestId")), 422);
     }
 
+    const subjectId = body.subjectId;
     const user = await measurePerformancePhase(c, "identity.token_subject_status", () =>
       c.env.DB.prepare("SELECT status FROM users WHERE id=?")
-        .bind(body.subjectId).first<{ status: string }>(),
+        .bind(subjectId).first<{ status: string }>(),
     );
     if (!user || user.status !== "active") {
       return c.json(fail("FORBIDDEN", "User is not active", c.get("requestId")), 403);
@@ -340,7 +342,7 @@ export function createApp() {
     const token = await measurePerformancePhase(c, "identity.token_sign", () => sign({
       iss: TOKEN_ISSUER,
       aud: [...TOKEN_AUDIENCES],
-      sub: body.subjectId,
+      sub: subjectId,
       azp: applicationId,
       principal_type: "user",
       scope: requested.join(" "),
