@@ -63,3 +63,18 @@ test("APAC user benchmark exercises Event v6 TemporalRange through Canonical Que
   assert.match(benchmark, /mutationSampleCount\s*=\s*DEFAULT_MUTATION_SAMPLE_COUNT/u);
   assert.match(benchmark, /DEFAULT_MUTATION_SAMPLE_COUNT\s*=\s*15/u);
 });
+
+
+test("APAC release gate enforces scenario targets for reads and mutations", () => {
+  const userBenchmark = readFileSync(new URL("../../../infra/scripts/staging-canonical-performance-benchmark.mjs", import.meta.url), "utf8");
+  const serviceBenchmark = readFileSync(new URL("../../../infra/scripts/staging-service-performance-benchmark.mjs", import.meta.url), "utf8");
+  const verifier = readFileSync(new URL("../../../infra/scripts/verify-staging-apac-performance.mjs", import.meta.url), "utf8");
+
+  assert.match(userBenchmark, /DEFAULT_MUTATION_SAMPLE_COUNT\s*=\s*15/u);
+  assert.match(serviceBenchmark, /DEFAULT_MUTATION_SAMPLE_COUNT\s*=\s*15/u);
+  assert.match(userBenchmark, /mutationTargetsMet/u);
+  assert.match(serviceBenchmark, /mutationTargetsMet/u);
+  assert.match(verifier, /userResult\.allTargetsMet/u);
+  assert.match(verifier, /serviceResult\.allTargetsMet/u);
+  assert.doesNotMatch(verifier, /allReadTargetsMet\)\s*\{/u);
+});
