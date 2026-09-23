@@ -33,10 +33,12 @@ async function fixture() {
   const otherPersonId = `per_${crypto.randomUUID().replaceAll("-", "")}`;
   const now = new Date().toISOString();
   await db.batch([
-    db.prepare(`INSERT INTO spaces(id,name,created_by_user_id,created_at,updated_at,timezone) VALUES(?,?,?,?,?,?)`).bind(spaceId, "Generic Runtime Test", actor.id, now, now, "Asia/Shanghai"),
+    db.prepare(`INSERT INTO spaces(id,kind,name,created_by_user_id,created_at,updated_at,timezone)
+      VALUES(?,?,?,?,?,?,?)`).bind(spaceId, "family", "Generic Runtime Test", actor.id, now, now, "Asia/Shanghai"),
     db.prepare(`INSERT INTO space_people(id,space_id,linked_user_id,display_name,created_at,updated_at)
       VALUES(?,?,?,?,?,?)`).bind(personId, spaceId, actor.id, "Tester", now, now),
-    db.prepare(`INSERT INTO spaces(id,name,created_by_user_id,created_at,updated_at,timezone) VALUES(?,?,?,?,?,?)`).bind(otherSpaceId, "Other Space", actor.id, now, now, "UTC"),
+    db.prepare(`INSERT INTO spaces(id,kind,name,created_by_user_id,created_at,updated_at,timezone)
+      VALUES(?,?,?,?,?,?,?)`).bind(otherSpaceId, "family", "Other Space", actor.id, now, now, "UTC"),
     db.prepare(`INSERT INTO space_people(id,space_id,linked_user_id,display_name,created_at,updated_at)
       VALUES(?,?,?,?,?,?)`).bind(otherPersonId, otherSpaceId, null, "Other", now, now),
   ]);
