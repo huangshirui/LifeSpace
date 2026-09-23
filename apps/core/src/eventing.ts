@@ -13,22 +13,36 @@ type OutboxRow = {
   record_id: string;
   record_version: number;
   change_id: string | null;
+  operation_group_id: string | null;
+  operation_group_ordinal: number | null;
   occurred_at: string;
+  dispatched_at?: string | null;
 };
 
 type DeliveryRow = {
   id: string;
-  event_id: string;
-  subscription_id: string;
   status: "pending" | "queued" | "succeeded" | "failed" | "cancelled";
   endpoint_id: string | null;
+  operation_group_id: string | null;
+  event_count: number;
   webhook_url: string | null;
   signing_secret: string | null;
   endpoint_enabled: number | null;
-  subscription_enabled: number | null;
   application_id: string | null;
   subscriber_service_principal_id: string | null;
-  model_key: string | null;
+  space_id: string | null;
+};
+
+type DeliveryMatch = {
+  event_id: string;
+  subscription_id: string;
+  endpoint_id: string;
+  ordinal: number;
+};
+
+type DeliveryEventRow = OutboxRow & {
+  subscription_id: string;
+  delivery_ordinal: number;
 };
 
 const id = (prefix: string) => `${prefix}_${crypto.randomUUID().replaceAll("-", "")}`;
@@ -106,20 +120,28 @@ async function signedFetch(url: string, secret: string, body: string, headers: R
   });
 }
 
-async function dispatchEvent(env: Bindings, event: OutboxRow): Promise<void> {
+async function matchingSubscriptions(env: Bindings, events: readonly OutboxRow[]): Promise<DeliveryMatch[]> {
+  if (!events.length) return [];
+  const placeholders = events.map(() => "?").join(",");
   const currentTime = now();
-  const subscriptions = await env.DB.prepare(`SELECT s.id
-    FROM event_subscriptions s
+  const matches = await env.DB.prepare(`SELECT
+      o.id AS event_id,
+      s.id AS subscription_id,
+      s.endpoint_id,
+      COALESCE(o.operation_group_ordinal,0) AS ordinal
+    FROM domain_event_outbox o
+    JOIN event_subscriptions s ON s.model_key=o.model_key
     JOIN webhook_endpoints e ON e.id=s.endpoint_id
     JOIN application_model_access ama
-      ON ama.application_id=e.application_id AND ama.model_key=s.model_key
-    WHERE s.deleted_at IS NULL AND s.enabled=1
+      ON ama.application_id=e.application_id AND ama.model_key=o.model_key
+    WHERE o.id IN (${placeholders})
+      AND s.deleted_at IS NULL AND s.enabled=1
       AND e.deleted_at IS NULL AND e.enabled=1
-      AND e.space_id=? AND s.model_key=?
+      AND e.space_id=o.space_id
       AND (
-        (?='record.created' AND s.include_created=1)
-        OR (?='record.updated' AND s.include_updated=1)
-        OR (?='record.deleted' AND s.include_deleted=1)
+        (o.event_type='record.created' AND s.include_created=1)
+        OR (o.event_type='record.updated' AND s.include_updated=1)
+        OR (o.event_type='record.deleted' AND s.include_deleted=1)
       )
       AND EXISTS (
         SELECT 1 FROM data_grants g
@@ -130,117 +152,241 @@ async function dispatchEvent(env: Bindings, event: OutboxRow): Promise<void> {
           AND (g.expires_at IS NULL OR g.expires_at>?)
           AND g.permission IN ('read','write','manage')
           AND (
-            (g.resource_type='model' AND g.resource_id=s.model_key)
+            (g.resource_type='model' AND g.resource_id=o.model_key)
             OR (g.resource_type='space' AND g.resource_id IS NULL)
           )
-      )`)
-    .bind(event.space_id, event.model_key, event.event_type, event.event_type, event.event_type, currentTime)
-    .all<{ id: string }>();
+      )
+    ORDER BY COALESCE(o.operation_group_ordinal,0),o.occurred_at,o.id,s.id`)
+    .bind(...events.map((event) => event.id), currentTime)
+    .all<DeliveryMatch>();
+  return matches.results;
+}
 
-  for (const subscription of subscriptions.results) {
-    const deliveryId = id("dlv");
-    const timestamp = now();
-    await env.DB.prepare(`INSERT OR IGNORE INTO webhook_deliveries(
-      id,event_id,subscription_id,status,created_at,updated_at
-    ) VALUES(?,?,?,'pending',?,?)`)
-      .bind(deliveryId, event.id, subscription.id, timestamp, timestamp).run();
+async function queueEndpointDelivery(
+  env: Bindings,
+  events: readonly OutboxRow[],
+  endpointId: string,
+  matches: readonly DeliveryMatch[],
+): Promise<void> {
+  const operationGroupId = events[0]?.operation_group_id ?? null;
+  const anchor = matches[0];
+  if (!anchor) return;
+  const deliveryKey = operationGroupId
+    ? `grp:${operationGroupId}:${endpointId}`
+    : `evt:${anchor.event_id}:${anchor.subscription_id}`;
+  const candidateId = id("dlv");
+  const timestamp = now();
 
-    const delivery = await env.DB.prepare(
-      "SELECT id,status FROM webhook_deliveries WHERE event_id=? AND subscription_id=?",
-    ).bind(event.id, subscription.id).first<{ id: string; status: string }>();
-    if (!delivery || delivery.status === "queued" || delivery.status === "succeeded" || delivery.status === "cancelled") continue;
+  await env.DB.prepare(`INSERT OR IGNORE INTO webhook_deliveries(
+      id,event_id,subscription_id,status,created_at,updated_at,
+      endpoint_id,delivery_key,operation_group_id,event_count
+    ) VALUES(?,?,?,'pending',?,?,?,?,?,?)`)
+    .bind(
+      candidateId,
+      anchor.event_id,
+      anchor.subscription_id,
+      timestamp,
+      timestamp,
+      endpointId,
+      deliveryKey,
+      operationGroupId,
+      matches.length,
+    ).run();
 
-    await env.EVENT_DELIVERY_QUEUE.send({ kind: "webhook-delivery", deliveryId: delivery.id } satisfies WebhookDeliveryQueueMessage);
-    await env.DB.prepare(`UPDATE webhook_deliveries
-      SET status='queued',queued_at=?,updated_at=?,last_error=NULL
-      WHERE id=? AND status IN ('pending','failed')`)
-      .bind(timestamp, timestamp, delivery.id).run();
-  }
+  const delivery = await env.DB.prepare(
+    "SELECT id,status FROM webhook_deliveries WHERE delivery_key=?",
+  ).bind(deliveryKey).first<{ id: string; status: string }>();
+  if (!delivery) return;
 
+  await env.DB.batch(matches.map((match, ordinal) =>
+    env.DB.prepare(`INSERT OR IGNORE INTO webhook_delivery_events(
+      delivery_id,event_id,subscription_id,ordinal
+    ) VALUES(?,?,?,?)`).bind(delivery.id, match.event_id, match.subscription_id, ordinal)
+  ));
+  await env.DB.prepare(`UPDATE webhook_deliveries
+    SET endpoint_id=COALESCE(endpoint_id,?),operation_group_id=COALESCE(operation_group_id,?),
+        event_count=?,updated_at=?
+    WHERE id=?`)
+    .bind(endpointId, operationGroupId, matches.length, timestamp, delivery.id).run();
+
+  if (delivery.status === "queued" || delivery.status === "succeeded" || delivery.status === "cancelled") return;
+
+  await env.EVENT_DELIVERY_QUEUE.send({ kind: "webhook-delivery", deliveryId: delivery.id } satisfies WebhookDeliveryQueueMessage);
+  await env.DB.prepare(`UPDATE webhook_deliveries
+    SET status='queued',queued_at=?,updated_at=?,last_error=NULL
+    WHERE id=? AND status IN ('pending','failed')`)
+    .bind(timestamp, timestamp, delivery.id).run();
+}
+
+async function markEventsDispatched(env: Bindings, events: readonly OutboxRow[]): Promise<void> {
+  if (!events.length) return;
+  const placeholders = events.map(() => "?").join(",");
+  const timestamp = now();
   await env.DB.prepare(`UPDATE domain_event_outbox
     SET dispatched_at=?,dispatch_attempt_count=dispatch_attempt_count+1,last_dispatch_attempt_at=?,last_dispatch_error=NULL
-    WHERE id=? AND dispatched_at IS NULL`)
-    .bind(now(), now(), event.id).run();
+    WHERE id IN (${placeholders}) AND dispatched_at IS NULL`)
+    .bind(timestamp, timestamp, ...events.map((event) => event.id)).run();
+}
+
+async function dispatchEvents(env: Bindings, events: readonly OutboxRow[]): Promise<void> {
+  const matches = await matchingSubscriptions(env, events);
+  const byEndpoint = new Map<string, DeliveryMatch[]>();
+  for (const match of matches) {
+    const list = byEndpoint.get(match.endpoint_id) ?? [];
+    list.push(match);
+    byEndpoint.set(match.endpoint_id, list);
+  }
+  for (const [endpointId, endpointMatches] of byEndpoint) {
+    await queueEndpointDelivery(env, events, endpointId, endpointMatches);
+  }
+  await markEventsDispatched(env, events);
+}
+
+async function operationGroupEvents(env: Bindings, operationGroupId: string): Promise<OutboxRow[]> {
+  const rows = await env.DB.prepare(`SELECT
+      id,event_type,space_id,model_key,record_id,record_version,change_id,
+      operation_group_id,operation_group_ordinal,occurred_at,dispatched_at
+    FROM domain_event_outbox
+    WHERE operation_group_id=?
+    ORDER BY operation_group_ordinal,occurred_at,id`)
+    .bind(operationGroupId).all<OutboxRow>();
+  return rows.results;
+}
+
+async function markDispatchFailure(env: Bindings, events: readonly OutboxRow[], message: string): Promise<void> {
+  if (!events.length) return;
+  const placeholders = events.map(() => "?").join(",");
+  await env.DB.prepare(`UPDATE domain_event_outbox
+    SET dispatch_attempt_count=dispatch_attempt_count+1,last_dispatch_attempt_at=?,last_dispatch_error=?
+    WHERE id IN (${placeholders}) AND dispatched_at IS NULL`)
+    .bind(now(), message, ...events.map((event) => event.id)).run();
 }
 
 export async function dispatchPendingDomainEvents(env: Bindings, limit = 50): Promise<number> {
-  const rows = await env.DB.prepare(`SELECT id,event_type,space_id,model_key,record_id,record_version,change_id,occurred_at
-    FROM domain_event_outbox WHERE dispatched_at IS NULL ORDER BY occurred_at,id LIMIT ?`)
+  const rows = await env.DB.prepare(`SELECT
+      id,event_type,space_id,model_key,record_id,record_version,change_id,
+      operation_group_id,operation_group_ordinal,occurred_at,dispatched_at
+    FROM domain_event_outbox
+    WHERE dispatched_at IS NULL
+    ORDER BY occurred_at,id
+    LIMIT ?`)
     .bind(limit).all<OutboxRow>();
+
   let dispatched = 0;
-  for (const event of rows.results) {
+  const handledGroups = new Set<string>();
+  for (const seed of rows.results) {
+    if (seed.operation_group_id && handledGroups.has(seed.operation_group_id)) continue;
+    const events = seed.operation_group_id
+      ? await operationGroupEvents(env, seed.operation_group_id)
+      : [seed];
+    if (seed.operation_group_id) handledGroups.add(seed.operation_group_id);
+    const pendingCount = events.filter((event) => !event.dispatched_at).length;
     try {
-      await dispatchEvent(env, event);
-      dispatched += 1;
+      await dispatchEvents(env, events);
+      dispatched += pendingCount;
     } catch (error) {
       const message = error instanceof Error ? error.message.slice(0, 300) : "dispatch failed";
-      await env.DB.prepare(`UPDATE domain_event_outbox
-        SET dispatch_attempt_count=dispatch_attempt_count+1,last_dispatch_attempt_at=?,last_dispatch_error=?
-        WHERE id=? AND dispatched_at IS NULL`)
-        .bind(now(), message, event.id).run();
-      console.error("Domain event dispatch failed", { eventId: event.id, error: message });
+      await markDispatchFailure(env, events, message);
+      console.error("Domain event dispatch failed", {
+        eventIds: events.map((event) => event.id),
+        operationGroupId: seed.operation_group_id,
+        error: message,
+      });
     }
   }
   return dispatched;
 }
 
 async function loadDelivery(env: Bindings, deliveryId: string): Promise<DeliveryRow | null> {
-  return env.DB.prepare(`SELECT d.id,d.event_id,d.subscription_id,d.status,
-      s.endpoint_id,s.enabled AS subscription_enabled,s.model_key,
-      e.webhook_url,e.signing_secret,e.enabled AS endpoint_enabled,e.application_id,e.subscriber_service_principal_id
+  return env.DB.prepare(`SELECT
+      d.id,d.status,
+      COALESCE(d.endpoint_id,s.endpoint_id) AS endpoint_id,
+      d.operation_group_id,d.event_count,
+      e.webhook_url,e.signing_secret,e.enabled AS endpoint_enabled,
+      e.application_id,e.subscriber_service_principal_id,e.space_id
     FROM webhook_deliveries d
-    LEFT JOIN event_subscriptions s ON s.id=d.subscription_id AND s.deleted_at IS NULL
-    LEFT JOIN webhook_endpoints e ON e.id=s.endpoint_id AND e.deleted_at IS NULL
+    LEFT JOIN event_subscriptions s ON s.id=d.subscription_id
+    LEFT JOIN webhook_endpoints e
+      ON e.id=COALESCE(d.endpoint_id,s.endpoint_id) AND e.deleted_at IS NULL
     WHERE d.id=?`)
     .bind(deliveryId).first<DeliveryRow>();
 }
 
-async function applicationCanReceive(env: Bindings, applicationId: string, modelKey: string): Promise<boolean> {
-  const row = await env.DB.prepare(`SELECT 1 AS allowed FROM application_model_access
-    WHERE application_id=? AND model_key=? LIMIT 1`)
-    .bind(applicationId, modelKey).first<{ allowed: number }>();
-  return Boolean(row);
+async function authorizedDeliveryEvents(env: Bindings, delivery: DeliveryRow): Promise<DeliveryEventRow[]> {
+  if (!delivery.endpoint_id || !delivery.application_id || !delivery.subscriber_service_principal_id || !delivery.space_id) return [];
+  const rows = await env.DB.prepare(`WITH refs AS (
+      SELECT event_id,subscription_id,ordinal
+      FROM webhook_delivery_events
+      WHERE delivery_id=?
+      UNION ALL
+      SELECT d.event_id,d.subscription_id,0
+      FROM webhook_deliveries d
+      WHERE d.id=?
+        AND NOT EXISTS(SELECT 1 FROM webhook_delivery_events WHERE delivery_id=?)
+    )
+    SELECT
+      o.id,o.event_type,o.space_id,o.model_key,o.record_id,o.record_version,o.change_id,
+      o.operation_group_id,o.operation_group_ordinal,o.occurred_at,
+      r.subscription_id,r.ordinal AS delivery_ordinal
+    FROM refs r
+    JOIN domain_event_outbox o ON o.id=r.event_id
+    JOIN event_subscriptions s ON s.id=r.subscription_id
+    JOIN application_model_access ama
+      ON ama.application_id=? AND ama.model_key=o.model_key
+    WHERE s.endpoint_id=?
+      AND s.deleted_at IS NULL AND s.enabled=1
+      AND s.model_key=o.model_key
+      AND o.space_id=?
+      AND (
+        (o.event_type='record.created' AND s.include_created=1)
+        OR (o.event_type='record.updated' AND s.include_updated=1)
+        OR (o.event_type='record.deleted' AND s.include_deleted=1)
+      )
+      AND EXISTS (
+        SELECT 1 FROM data_grants g
+        WHERE g.source_space_id=o.space_id
+          AND g.grantee_type='service'
+          AND g.grantee_id=?
+          AND g.revoked_at IS NULL
+          AND (g.expires_at IS NULL OR g.expires_at>?)
+          AND g.permission IN ('read','write','manage')
+          AND (
+            (g.resource_type='model' AND g.resource_id=o.model_key)
+            OR (g.resource_type='space' AND g.resource_id IS NULL)
+          )
+      )
+    ORDER BY r.ordinal,o.occurred_at,o.id`)
+    .bind(
+      delivery.id,
+      delivery.id,
+      delivery.id,
+      delivery.application_id,
+      delivery.endpoint_id,
+      delivery.space_id,
+      delivery.subscriber_service_principal_id,
+      now(),
+    )
+    .all<DeliveryEventRow>();
+  return rows.results;
 }
 
-async function subscriberCanReceive(env: Bindings, subscriberId: string, spaceId: string, modelKey: string): Promise<boolean> {
-  const row = await env.DB.prepare(`SELECT 1 AS allowed FROM data_grants
-    WHERE source_space_id=?
-      AND grantee_type='service'
-      AND grantee_id=?
-      AND revoked_at IS NULL
-      AND (expires_at IS NULL OR expires_at>?)
-      AND permission IN ('read','write','manage')
-      AND (
-        (resource_type='model' AND resource_id=?)
-        OR (resource_type='space' AND resource_id IS NULL)
-      )
-    LIMIT 1`)
-    .bind(spaceId, subscriberId, now(), modelKey).first<{ allowed: number }>();
-  return Boolean(row);
+async function cancelDelivery(env: Bindings, deliveryId: string, reason: string): Promise<"ack"> {
+  await env.DB.prepare("UPDATE webhook_deliveries SET status='cancelled',updated_at=?,last_error=? WHERE id=?")
+    .bind(now(), reason, deliveryId).run();
+  return "ack";
 }
 
 async function deliverOne(env: Bindings, deliveryId: string): Promise<"ack" | "retry"> {
   const delivery = await loadDelivery(env, deliveryId);
   if (!delivery || delivery.status === "succeeded" || delivery.status === "cancelled") return "ack";
-  if (!delivery.endpoint_id || !delivery.webhook_url || !delivery.signing_secret || !delivery.endpoint_enabled || !delivery.subscription_enabled
-      || !delivery.application_id || !delivery.subscriber_service_principal_id || !delivery.model_key
-      || !(await applicationCanReceive(env, delivery.application_id, delivery.model_key))) {
-    await env.DB.prepare(`UPDATE webhook_deliveries SET status='cancelled',updated_at=?,last_error='endpoint/subscription unavailable or access revoked' WHERE id=?`)
-      .bind(now(), deliveryId).run();
-    return "ack";
+  if (!delivery.endpoint_id || !delivery.webhook_url || !delivery.signing_secret || !delivery.endpoint_enabled
+      || !delivery.application_id || !delivery.subscriber_service_principal_id || !delivery.space_id) {
+    return cancelDelivery(env, deliveryId, "endpoint unavailable or access revoked");
   }
-  const event = await env.DB.prepare(`SELECT id,event_type,space_id,model_key,record_id,record_version,change_id,occurred_at
-    FROM domain_event_outbox WHERE id=?`)
-    .bind(delivery.event_id).first<OutboxRow>();
-  if (!event) {
-    await env.DB.prepare(`UPDATE webhook_deliveries SET status='cancelled',updated_at=?,last_error='event unavailable' WHERE id=?`)
-      .bind(now(), deliveryId).run();
-    return "ack";
-  }
-  if (!(await subscriberCanReceive(env, delivery.subscriber_service_principal_id, event.space_id, event.model_key))) {
-    await env.DB.prepare(`UPDATE webhook_deliveries SET status='cancelled',updated_at=?,last_error='subscriber grant revoked or expired' WHERE id=?`)
-      .bind(now(), deliveryId).run();
-    return "ack";
+
+  const events = await authorizedDeliveryEvents(env, delivery);
+  if (!events.length) {
+    return cancelDelivery(env, deliveryId, "no currently authorized delivery events");
   }
 
   let subscriberActive: boolean;
@@ -248,28 +394,39 @@ async function deliverOne(env: Bindings, deliveryId: string): Promise<"ack" | "r
     subscriberActive = await servicePrincipalIsActive(env, delivery.subscriber_service_principal_id);
   } catch (error) {
     const message = error instanceof Error ? error.message.slice(0, 240) : "subscriber identity status unavailable";
-    await env.DB.prepare(`UPDATE webhook_deliveries SET status='failed',updated_at=?,last_error=? WHERE id=?`)
+    await env.DB.prepare("UPDATE webhook_deliveries SET status='failed',updated_at=?,last_error=? WHERE id=?")
       .bind(now(), `subscriber identity status unavailable: ${message}`, deliveryId).run();
-    console.error("Webhook subscriber identity check failed", { deliveryId, subscriberId: delivery.subscriber_service_principal_id, error: message });
+    console.error("Webhook subscriber identity check failed", {
+      deliveryId,
+      subscriberId: delivery.subscriber_service_principal_id,
+      error: message,
+    });
     return "retry";
   }
   if (!subscriberActive) {
-    await env.DB.prepare(`UPDATE webhook_deliveries SET status='cancelled',updated_at=?,last_error='subscriber service principal inactive' WHERE id=?`)
-      .bind(now(), deliveryId).run();
-    return "ack";
+    return cancelDelivery(env, deliveryId, "subscriber service principal inactive");
   }
 
-  const body = JSON.stringify(eventPayload(event));
+  const payloads = events.map(eventPayload);
+  const grouped = Boolean(delivery.operation_group_id);
+  const body = JSON.stringify(grouped ? { events: payloads } : payloads[0]);
+  const headers: Record<string, string> = {
+    "x-lifespace-delivery-id": delivery.id,
+    "x-lifespace-webhook-endpoint-id": delivery.endpoint_id,
+    "x-lifespace-event-count": String(payloads.length),
+  };
+  if (grouped && delivery.operation_group_id) {
+    headers["x-lifespace-operation-group-id"] = delivery.operation_group_id;
+  } else {
+    headers["x-lifespace-event-id"] = events[0]!.id;
+    headers["x-lifespace-subscription-id"] = events[0]!.subscription_id;
+  }
+
   const attemptedAt = now();
-  await env.DB.prepare(`UPDATE webhook_deliveries SET attempt_count=attempt_count+1,updated_at=? WHERE id=?`)
-    .bind(attemptedAt, deliveryId).run();
+  await env.DB.prepare("UPDATE webhook_deliveries SET attempt_count=attempt_count+1,event_count=?,updated_at=? WHERE id=?")
+    .bind(payloads.length, attemptedAt, deliveryId).run();
   try {
-    const response = await signedFetch(delivery.webhook_url, delivery.signing_secret, body, {
-      "x-lifespace-event-id": event.id,
-      "x-lifespace-delivery-id": delivery.id,
-      "x-lifespace-webhook-endpoint-id": delivery.endpoint_id,
-      "x-lifespace-subscription-id": delivery.subscription_id,
-    });
+    const response = await signedFetch(delivery.webhook_url, delivery.signing_secret, body, headers);
     if (response.ok) {
       await env.DB.prepare(`UPDATE webhook_deliveries
         SET status='succeeded',delivered_at=?,last_status_code=?,last_error=NULL,updated_at=? WHERE id=?`)
@@ -282,8 +439,7 @@ async function deliverOne(env: Bindings, deliveryId: string): Promise<"ack" | "r
     return "retry";
   } catch (error) {
     const message = error instanceof Error ? error.message.slice(0, 300) : "webhook request failed";
-    await env.DB.prepare(`UPDATE webhook_deliveries
-      SET status='failed',last_error=?,updated_at=? WHERE id=?`)
+    await env.DB.prepare("UPDATE webhook_deliveries SET status='failed',last_error=?,updated_at=? WHERE id=?")
       .bind(message, now(), deliveryId).run();
     return "retry";
   }
