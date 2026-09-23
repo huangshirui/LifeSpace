@@ -57,7 +57,7 @@ describe("Core native Space avatar", () => {
     const created = await app.request("http://core.test/api/v1/spaces", {
       method: "POST",
       headers: { authorization: `Bearer ${ownerToken}`, "content-type": "application/json" },
-      body: JSON.stringify({ name: "Home", ownerDisplayName: "Owner", timezone: "Asia/Shanghai" }),
+      body: JSON.stringify({ kind: "family", name: "Home", ownerDisplayName: "Owner", timezone: "Asia/Shanghai" }),
     }, bindings(publicKey));
     expect(created.status).toBe(201);
     const createdBody = await json(created);
