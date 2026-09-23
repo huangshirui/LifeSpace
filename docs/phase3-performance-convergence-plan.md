@@ -123,7 +123,7 @@ Representative acceptance is measured from an APAC probe explicitly targeted nea
 
 ## 4. Request-I/O performance budget
 
-The runtime is designed against D1 network round trips, not only number of SQL statements. D1 `batch()` is preferred when several independent/current-state statements can be sent in one database call without weakening semantics.
+### Post-Phase-3 Batch Create extension\n\nKernel 0.38.0 extends the same round-trip discipline to bounded Generic Batch Create. With hot model descriptors, a 1–20 item same-model batch with relation validation is budgeted at no more than 3 Core D1 round trips, independent of item count; a two-model mixed batch with relation validation is budgeted at no more than 4. The additional round trip per distinct model is the current mutable authorization check and must not be cached away in a way that weakens revocation semantics.\n\nThe runtime is designed against D1 network round trips, not only number of SQL statements. D1 `batch()` is preferred when several independent/current-state statements can be sent in one database call without weakening semantics.
 
 Enforced engineering budgets for ordinary hot-cache requests:
 
