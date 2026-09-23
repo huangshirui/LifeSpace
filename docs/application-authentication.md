@@ -41,13 +41,13 @@ Plaintext is returned exactly once when a credential is created. Identity stores
 
 Application-specific provider identifiers remain in the owning application boundary.
 
-Example: HomeMew Mini Program.
+Example: an application-specific Mini Program.
 
 ```text
 WeChat server-side authentication
-  -> HomeMew resolves openid
-  -> HomeMew mapping resolves openid -> usr_123
-  -> HomeMew backend authenticates to Identity with lsa_*
+  -> Application backend resolves provider subject
+  -> Application mapping resolves provider subject -> usr_123
+  -> Application backend authenticates to Identity with lsa_*
   -> POST /internal/v1/tokens
   -> short-lived app-scoped LifeSpace user token
 ```
@@ -164,7 +164,7 @@ Authorization: Bearer <LifeSpace user JWT>
 
 The target `usr_*` is derived only from the verified LifeSpace bearer token. The challenge is high-entropy, application/audience/principal-bound, expires after ten minutes and is single-use. Consumption and principal-link insertion are atomic.
 
-This allows an existing HomeMew Mini Program user to link Web Access identity without exposing WeChat `openid` to Identity.
+This allows an existing application user to link Web Access identity without exposing the application's provider-specific subject to Identity.
 
 ## Multiple Access principals
 
@@ -300,7 +300,7 @@ apps/identity/platform-admin.openapi.yaml
 Platform Admin contract 0.2.0
 ```
 
-Adding privileged Console surfaces must not silently broaden the business application contract consumed by HomeMew/ALOHA.
+Adding privileged Console surfaces must not silently broaden the business application contract consumed by downstream applications.
 
 ## Rotation and recovery
 
