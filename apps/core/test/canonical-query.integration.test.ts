@@ -28,7 +28,8 @@ async function createSpaceFixture() {
   const personB = `per_${crypto.randomUUID().replaceAll("-", "")}`;
   const now = new Date().toISOString();
   await db.batch([
-    db.prepare(`INSERT INTO spaces(id,name,created_by_user_id,created_at,updated_at,timezone) VALUES(?,?,?,?,?,?)`).bind(spaceId, "Canonical Query", actor.id, now, now, "Asia/Shanghai"),
+    db.prepare(`INSERT INTO spaces(id,kind,name,created_by_user_id,created_at,updated_at,timezone)
+      VALUES(?,?,?,?,?,?,?)`).bind(spaceId, "family", "Canonical Query", actor.id, now, now, "Asia/Shanghai"),
     db.prepare(`INSERT INTO space_people(id,space_id,linked_user_id,display_name,created_at,updated_at)
       VALUES(?,?,?,?,?,?)`).bind(personA, spaceId, actor.id, "Me", now, now),
     db.prepare(`INSERT INTO space_people(id,space_id,linked_user_id,display_name,created_at,updated_at)
