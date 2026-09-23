@@ -363,6 +363,25 @@ describe("Core D1 round-trip budgets", () => {
     const mixedPayload = await mixedBatch.json<{ data: { items: Array<{ clientRef: string; modelKey: string; id: string }> } }>();
     expect(mixedPayload.data.items.map((item) => item.modelKey)).toEqual(["event", "task"]);
 
+    const mixedIds = mixedPayload.data.items.map((item) => item.id);
+    const mixedPlaceholders = mixedIds.map(() => "?").join(",");
+    const [mixedChanges, mixedProvenance, mixedEvents] = await f.DB.batch([
+      f.DB.prepare(`SELECT record_id,model_key,operation FROM resource_changes
+        WHERE record_id IN (${mixedPlaceholders})`).bind(...mixedIds),
+      f.DB.prepare(`SELECT record_id,source FROM resource_provenance
+        WHERE record_id IN (${mixedPlaceholders})`).bind(...mixedIds),
+      f.DB.prepare(`SELECT record_id,event_type,change_id FROM domain_event_outbox
+        WHERE record_id IN (${mixedPlaceholders})`).bind(...mixedIds),
+    ]);
+    expect(mixedChanges.results).toHaveLength(2);
+    expect((mixedChanges.results as Array<{ operation: string }>).every((row) => row.operation === "create")).toBe(true);
+    expect(mixedProvenance.results).toHaveLength(2);
+    expect((mixedProvenance.results as Array<{ source: string }>).every((row) => row.source === "performance-test")).toBe(true);
+    expect(mixedEvents.results).toHaveLength(2);
+    expect((mixedEvents.results as Array<{ event_type: string; change_id: string | null }>).every(
+      (row) => row.event_type === "record.created" && row.change_id?.startsWith("chg_"),
+    )).toBe(true);
+
     const beforeRejected = await f.DB.prepare("SELECT COUNT(*) count FROM resource_records WHERE space_id=?")
       .bind(f.spaceId).first<{ count: number }>();
 
