@@ -16,7 +16,9 @@ All ordinary models emit model-agnostic event types:
 
 The authoritative mutation and the event outbox entry are atomic. D1 triggers on `resource_records` write the outbox inside the same transaction/batch as the ordinary-model mutation. Capability-specific mutation paths therefore participate without handwritten event hooks.
 
-Batch Create does not introduce a batch-specific Domain Event. An atomic batch that creates N ordinary records produces N ordinary `record.created` outbox entries through the same `resource_records` triggers. Because the authoritative records, governed Change rows and trigger-produced outbox rows participate in the same D1 batch/transaction, a failed Batch Create leaves none of them committed.\n\nExternal Webhook payloads are reference-only and contain event ID/type, Space, model key, record ID/version and occurrence time. They do not contain the full record or actor identity. A receiving system that needs record data must authenticate normally and pass current LifeSpace credential scope, Application × Model Access and Space/Data Grant authorization.
+Batch Create does not introduce a batch-specific Domain Event. An atomic batch that creates N ordinary records produces N ordinary `record.created` outbox entries through the same `resource_records` triggers. Because the authoritative records, governed Change rows and trigger-produced outbox rows participate in the same D1 batch/transaction, a failed Batch Create leaves none of them committed.
+
+External Webhook payloads are reference-only and contain event ID/type, Space, model key, record ID/version and occurrence time. They do not contain the full record or actor identity. A receiving system that needs record data must authenticate normally and pass current LifeSpace credential scope, Application × Model Access and Space/Data Grant authorization.
 
 ## Endpoint and subscription model
 
