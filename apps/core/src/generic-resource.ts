@@ -64,8 +64,13 @@ export type RelationProjection = {
 
 export type PreparedGenericResourceCreate = {
   resource: GenericResource;
+  changeId: string;
   relations: RelationProjection[];
   statements: D1PreparedStatement[];
+};
+
+export type PreparedCreateCommitOptions = {
+  operationGroupId?: string;
 };
 
 const createId = () => `rec_${crypto.randomUUID().replaceAll("-", "")}`;
@@ -527,6 +532,7 @@ export async function prepareGenericResourceCreate(
       createdAt: timestamp,
       updatedAt: timestamp,
     },
+    changeId: mutationToken,
     relations,
     statements,
   };
@@ -536,13 +542,23 @@ export async function commitPreparedGenericResourceCreates(
   env: Bindings,
   spaceId: string,
   prepared: readonly PreparedGenericResourceCreate[],
+  options: PreparedCreateCommitOptions = {},
 ): Promise<GenericResource[]> {
   if (!prepared.length) return [];
   if (prepared.some((entry) => entry.resource.spaceId !== spaceId)) {
     throw new ApiError("INVALID_REQUEST", "Prepared batch resources must belong to the same Space", 400);
   }
   await validateProjectedRelations(env, spaceId, prepared.flatMap((entry) => entry.relations));
-  await env.DB.batch(prepared.flatMap((entry) => entry.statements));
+  const statements = prepared.flatMap((entry, index) => [
+    ...entry.statements,
+    ...(options.operationGroupId
+      ? [env.DB.prepare(`UPDATE domain_event_outbox
+          SET operation_group_id=?,operation_group_ordinal=?
+          WHERE change_id=? AND operation_group_id IS NULL`)
+        .bind(options.operationGroupId, index, entry.changeId)]
+      : []),
+  ]);
+  await env.DB.batch(statements);
   return prepared.map((entry) => entry.resource);
 }
 
