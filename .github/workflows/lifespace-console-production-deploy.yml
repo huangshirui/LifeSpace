@@ -201,7 +201,7 @@ jobs:
           - Identity/Core executor credentials: zero-downtime rotated; superseded credentials revoked after hostname verification
           - Core/Identity deployment or migration: **not performed**
           - Space/business data mutation: **not performed**
-          - HomeMew production migration/cutover: **not performed by this workflow**
+          - Downstream application migration/cutover: **not performed by this workflow**
           EOF
 
       - name: Report rollout result
