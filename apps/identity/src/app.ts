@@ -14,6 +14,7 @@ import { registerAgentAuthenticationRoutes } from "./agent-auth";
 import { registerPlatformAdminRoutes } from "./platform-admin";
 import { registerServiceAuthenticationRoutes } from "./service-auth";
 import type { Bindings, Variables } from "./env";
+import { logPerformanceTiming, measurePerformancePhase, startPerformanceTiming } from "./performance-timing";
 
 type AppEnv = { Bindings: Bindings; Variables: Variables };
 type UserBody = { displayName?: string };
@@ -90,7 +91,9 @@ function authenticateUser(): MiddlewareHandler<AppEnv> {
     if (payload.principal_type !== "user" || typeof payload.sub !== "string" || typeof payload.azp !== "string" || typeof payload.jti !== "string") {
       return c.json(fail("UNAUTHORIZED", "Bearer token principal is invalid", c.get("requestId")), 401);
     }
-    const user = await c.env.DB.prepare("SELECT status FROM users WHERE id=?").bind(payload.sub).first<{ status: string }>();
+    const user = await measurePerformancePhase(c, "auth.user_status", () =>
+      c.env.DB.prepare("SELECT status FROM users WHERE id=?").bind(payload.sub).first<{ status: string }>(),
+    );
     if (!user || user.status !== "active") {
       return c.json(fail("FORBIDDEN", "User is not active", c.get("requestId")), 403);
     }
@@ -115,8 +118,13 @@ export function createApp() {
   app.use("*", async (c, next) => {
     const requestId = c.req.header("x-request-id")?.trim() || crypto.randomUUID();
     c.set("requestId", requestId);
-    await next();
-    c.header("x-request-id", requestId);
+    startPerformanceTiming(c);
+    try {
+      await next();
+    } finally {
+      c.header("x-request-id", requestId);
+      logPerformanceTiming(c);
+    }
   });
 
   app.use("/bootstrap/*", async (c, next) => {
@@ -135,19 +143,21 @@ export function createApp() {
     if (!secret.startsWith("lsa_") || secret.length < 40) {
       return c.json(fail("UNAUTHORIZED", "Trusted application authentication is required", c.get("requestId")), 401);
     }
-    const secretHash = await hashApplicationSecret(secret);
-    const credential = await c.env.DB.prepare(`
-      SELECT c.application_id applicationId,
-             a.allowed_scopes allowedScopes,
-             a.access_token_ttl_seconds accessTokenTtlSeconds
-      FROM application_credentials c
-      JOIN applications a ON a.id = c.application_id
-      WHERE c.secret_hash = ?
-        AND c.status = 'active'
-        AND c.revoked_at IS NULL
-        AND a.status = 'active'
-        AND a.trusted_backend = 1
-    `).bind(secretHash).first<{ applicationId: string; allowedScopes: string; accessTokenTtlSeconds: number }>();
+    const credential = await measurePerformancePhase(c, "auth.application_credential", async () => {
+      const secretHash = await hashApplicationSecret(secret);
+      return c.env.DB.prepare(`
+        SELECT c.application_id applicationId,
+               a.allowed_scopes allowedScopes,
+               a.access_token_ttl_seconds accessTokenTtlSeconds
+        FROM application_credentials c
+        JOIN applications a ON a.id = c.application_id
+        WHERE c.secret_hash = ?
+          AND c.status = 'active'
+          AND c.revoked_at IS NULL
+          AND a.status = 'active'
+          AND a.trusted_backend = 1
+      `).bind(secretHash).first<{ applicationId: string; allowedScopes: string; accessTokenTtlSeconds: number }>();
+    });
     if (!credential) {
       return c.json(fail("UNAUTHORIZED", "Trusted application authentication is required", c.get("requestId")), 401);
     }
@@ -194,8 +204,10 @@ export function createApp() {
 
   app.get("/api/v1/me", requireUserScope("profile:read"), async (c) => {
     const principal = c.get("principal");
-    const row = await c.env.DB.prepare("SELECT id,display_name,avatar_key,status,created_at,updated_at FROM users WHERE id=?")
-      .bind(principal.id).first<UserRow>();
+    const row = await measurePerformancePhase(c, "identity.profile_read", () =>
+      c.env.DB.prepare("SELECT id,display_name,avatar_key,status,created_at,updated_at FROM users WHERE id=?")
+        .bind(principal.id).first<UserRow>(),
+    );
     if (!row) return c.json(fail("USER_NOT_FOUND", "User not found", c.get("requestId")), 404);
     return c.json(ok(userDto(c.req.url, row)));
   });
@@ -303,8 +315,10 @@ export function createApp() {
       return c.json(fail("VALIDATION_ERROR", "subjectId is required", c.get("requestId")), 422);
     }
 
-    const user = await c.env.DB.prepare("SELECT status FROM users WHERE id=?")
-      .bind(body.subjectId).first<{ status: string }>();
+    const user = await measurePerformancePhase(c, "identity.token_subject_status", () =>
+      c.env.DB.prepare("SELECT status FROM users WHERE id=?")
+        .bind(body.subjectId).first<{ status: string }>(),
+    );
     if (!user || user.status !== "active") {
       return c.json(fail("FORBIDDEN", "User is not active", c.get("requestId")), 403);
     }
@@ -323,7 +337,7 @@ export function createApp() {
     const exp = iat + tokenTtlSeconds;
     const jti = id("tok");
     const applicationId = c.get("currentApplicationId");
-    const token = await sign({
+    const token = await measurePerformancePhase(c, "identity.token_sign", () => sign({
       iss: TOKEN_ISSUER,
       aud: [...TOKEN_AUDIENCES],
       sub: body.subjectId,
@@ -333,7 +347,7 @@ export function createApp() {
       iat,
       exp,
       jti,
-    }, c.env.TOKEN_PRIVATE_KEY, "RS256");
+    }, c.env.TOKEN_PRIVATE_KEY, "RS256"));
 
     return c.json(ok({ accessToken: token, tokenType: "Bearer", expiresIn: tokenTtlSeconds, scope: requested.join(" ") }));
   });
