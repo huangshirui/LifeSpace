@@ -282,7 +282,6 @@ const space = await jsonRequest(coreBase, "/api/v1/spaces", {
   method: "POST",
   bearer: userBearer,
   body: {
-    kind: "personal",
     name: `LifeSpace staging smoke ${smokeId}`,
     ownerDisplayName: `Staging Owner ${smokeId}`,
     timezone: "UTC",

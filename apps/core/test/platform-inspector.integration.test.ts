@@ -78,8 +78,7 @@ describe("Core Platform Inspector", () => {
     const createdAt = new Date().toISOString();
 
     await (env as unknown as TestEnv).DB.batch([
-      (env as unknown as TestEnv).DB.prepare(`INSERT INTO spaces(id,kind,name,created_by_user_id,created_at,updated_at,timezone)
-        VALUES(?,?,?,?,?,?,?)`).bind(spaceId, "family", "Inspector Family", userId, createdAt, createdAt, "Asia/Shanghai"),
+      (env as unknown as TestEnv).DB.prepare(`INSERT INTO spaces(id,kind,name,created_by_user_id,created_at,updated_at,timezone) VALUES(?,?,?,?,?,?,?)`).bind(spaceId, "personal", "Inspector Space", userId, createdAt, createdAt, "Asia/Shanghai"),
       (env as unknown as TestEnv).DB.prepare(`INSERT INTO space_memberships(id,space_id,user_id,role,created_at,updated_at)
         VALUES(?,?,?,?,?,?)`).bind(`mem_${crypto.randomUUID().replaceAll("-", "")}`, spaceId, userId, "owner", createdAt, createdAt),
       (env as unknown as TestEnv).DB.prepare(`INSERT INTO space_people(id,space_id,linked_user_id,display_name,created_at,updated_at)
@@ -99,16 +98,16 @@ describe("Core Platform Inspector", () => {
       ),
     ]);
 
-    const list = await call(pair.publicKey, executor, actor, `/api/v1/platform-admin/spaces?q=${encodeURIComponent("Inspector Family")}`);
+    const list = await call(pair.publicKey, executor, actor, `/api/v1/platform-admin/spaces?q=${encodeURIComponent("Inspector Space")}`);
     expect(list.status).toBe(200);
     expect((await list.json() as any).data).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: spaceId, name: "Inspector Family", memberCount: 1, grantCount: 1 }),
+      expect.objectContaining({ id: spaceId, name: "Inspector Space", memberCount: 1, grantCount: 1 }),
     ]));
 
     const detail = await call(pair.publicKey, executor, actor, `/api/v1/platform-admin/spaces/${spaceId}`);
     expect(detail.status).toBe(200);
     const payload = (await detail.json() as any).data;
-    expect(payload).toMatchObject({ id: spaceId, name: "Inspector Family", timezone: "Asia/Shanghai" });
+    expect(payload).toMatchObject({ id: spaceId, name: "Inspector Space", timezone: "Asia/Shanghai" });
     expect(payload.members).toEqual([expect.objectContaining({ userId, displayName: "Owner", role: "owner" })]);
     expect(payload.grants).toEqual([expect.objectContaining({ granteeType: "service", permission: "read" })]);
     expect(payload.recordCounts).toEqual({});

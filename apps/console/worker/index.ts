@@ -373,19 +373,14 @@ function userInspectorQuery(url: URL, request: Request): string | Response {
 }
 
 function spaceInspectorQuery(url: URL, request: Request): string | Response {
-  const invalid = onlyQueryKeys(url, new Set(["q", "kind", "limit"]), request);
+  const invalid = onlyQueryKeys(url, new Set(["q", "limit"]), request);
   if (invalid) return invalid;
   const q = url.searchParams.get("q")?.trim() ?? "";
   if (q.length > 100) return failure("VALIDATION_ERROR", "q must contain at most 100 characters", 422, requestId(request));
-  const kind = url.searchParams.get("kind")?.trim() ?? "";
-  if (kind && kind !== "personal" && kind !== "family" && kind !== "team") {
-    return failure("VALIDATION_ERROR", "kind must be personal, family or team", 422, requestId(request));
-  }
   const limit = boundedLimit(url, request);
   if (limit instanceof Response) return limit;
   const params = new URLSearchParams({ limit: String(limit) });
   if (q) params.set("q", q);
-  if (kind) params.set("kind", kind);
   return `?${params.toString()}`;
 }
 
