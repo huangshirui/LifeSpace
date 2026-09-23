@@ -16,7 +16,7 @@ import {
 
 type TestEnv = { DB: D1Database };
 const bindings = (): Bindings => ({ DB: (env as unknown as TestEnv).DB } as Bindings);
-const actor: Principal = { type: "user", id: "usr_temporal_test", clientId: "homemew-miniprogram", scopes: ["resources:read", "resources:write"], tokenId: "tok_temporal_test" };
+const actor: Principal = { type: "user", id: "usr_temporal_test", clientId: "app_test_runtime", scopes: ["resources:read", "resources:write"], tokenId: "tok_temporal_test" };
 
 async function model() {
   const current = await getPublishedModel(bindings(), "day_record");
