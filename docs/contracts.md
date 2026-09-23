@@ -12,7 +12,7 @@ Identity now has two explicit contract surfaces:
 Core has five contract layers:
 
 1. **Kernel Contract** — explicit application/runtime APIs such as Space, Membership, Data Grant, Runtime Discovery, Registry-driven Creation Draft orchestration and governed Change History. The checked-in contract is `apps/core/openapi.yaml`; Kernel `0.38.0` owns neither Model Registry governance nor Eventing wire representation.
-2. **Integration / Eventing Contract** — `apps/core/integration-eventing.openapi.yaml`, the independently versioned public contract for Webhook Endpoint/Event Subscription management, delivery diagnostics/test-send and signed reference-only outbound Webhook representation. Current version `0.2.0` adds an opaque governed `changeId` reference while preserving reference-only delivery; the same Core Worker still executes the routes.
+2. **Integration / Eventing Contract** — `apps/core/integration-eventing.openapi.yaml`, the independently versioned public contract for Webhook Endpoint/Event Subscription management, delivery diagnostics/test-send and signed reference-only outbound Webhook representation. Current version `0.3.0` adds explicit operation-group callback delivery while preserving one Domain Event per record mutation and reference-only payloads; the same Core Worker still executes the routes.
 3. **Model Control Plane Contract** — `apps/core/model-control-plane.openapi.yaml`, the independently versioned service-automation contract for Model Definition validation/publication/retirement, immutable Model Contract evidence and the optional AI-assisted proposal lifecycle. Version `0.2.0` removes the independent model route identity; every operation remains service-principal-only with `models:manage`.
 4. **Platform Admin Contract** — `apps/core/platform-admin.openapi.yaml`, a privileged Console companion profile for Application × Model Access, global read-only Space inspection, platform audit and human-attributed Console model mutations. Version `0.2.0` reuses Model Control Plane publish/retire wire schemas rather than treating Kernel as their owner.
 5. **Model Contract Revision** — immutable OpenAPI/JSON Schema snapshots generated from the published Model Registry plus registered Capability contract contributions.
@@ -66,7 +66,9 @@ Do not create a separately hand-maintained contract repository.
 
 ## Integration / Eventing Contract
 
-`apps/core/integration-eventing.openapi.yaml` is the canonical public Eventing contract and is currently version `0.2.0`. It owns Webhook Endpoint/Event Subscription management, delivery diagnostics/test-send, the signed reference-only ordinary-record change payload, `endpoint.test`, required `X-LifeSpace-*` headers, HMAC-SHA256 signature representation and at-least-once delivery semantics.
+`apps/core/integration-eventing.openapi.yaml` is the canonical public Eventing contract and is currently version `0.3.0`. It owns Webhook Endpoint/Event Subscription management, delivery diagnostics/test-send, the signed reference-only ordinary-record change payload, `endpoint.test`, required `X-LifeSpace-*` headers, HMAC-SHA256 signature representation and at-least-once delivery semantics.
+
+Integration/Eventing `0.3.0` makes callback grouping explicit: unrelated operations are never merged by time; only events carrying the same platform-assigned atomic `operation_group_id` share one callback per matching endpoint. Independent operations retain the existing single-event body, while grouped deliveries use a bounded `events[]` reference envelope.
 
 It does **not** own ordinary-model Change production, model mutation semantics or a separate authorization model. The same Core Worker remains authoritative for Endpoint/Subscription state, Application × Model Access, Data Grants, subscriber Service Principal/application eligibility, Queue delivery and current revocation. Splitting the contract lifecycle therefore does not split the runtime or create another truth source.
 
