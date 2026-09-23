@@ -8,7 +8,6 @@ type App = Hono<AppEnv>;
 
 type SpaceRow = {
   id: string;
-  kind: "personal" | "family" | "team";
   name: string;
   timezone: string;
   avatar_key: string | null;
@@ -53,7 +52,6 @@ function avatarUrl(requestUrl: string, spaceId: string, avatarKey: string | null
 function spaceDto(requestUrl: string, row: SpaceRow) {
   return {
     id: row.id,
-    kind: row.kind,
     name: row.name,
     timezone: row.timezone,
     avatarUrl: avatarUrl(requestUrl, row.id, row.avatar_key),
@@ -79,22 +77,17 @@ export function registerPlatformInspectorRoutes(app: App): void {
     await requirePlatformAdminContext(c, "spaces:inspect");
     const limit = parseLimit(c.req.query("limit"));
     const q = c.req.query("q")?.trim().slice(0, 100) ?? "";
-    const kind = c.req.query("kind")?.trim() ?? "";
-    if (kind && kind !== "personal" && kind !== "family" && kind !== "team") {
-      throw new ApiError("VALIDATION_ERROR", "kind must be personal, family or team", 422);
-    }
     const rows = await c.env.DB.prepare(`
-      SELECT s.id,s.kind,s.name,s.timezone,s.avatar_key,s.version,s.created_by_user_id,s.created_at,s.updated_at,
+      SELECT s.id,s.name,s.timezone,s.avatar_key,s.version,s.created_by_user_id,s.created_at,s.updated_at,
         (SELECT COUNT(*) FROM space_memberships m WHERE m.space_id=s.id AND m.deleted_at IS NULL) member_count,
         (SELECT COUNT(*) FROM data_grants g WHERE g.source_space_id=s.id AND g.revoked_at IS NULL) grant_count,
         (SELECT COUNT(*) FROM resource_records r WHERE r.space_id=s.id AND r.deleted_at IS NULL) record_count
       FROM spaces s
       WHERE s.deleted_at IS NULL
         AND (?='' OR s.id LIKE '%' || ? || '%' OR s.name LIKE '%' || ? || '%')
-        AND (?='' OR s.kind=?)
       ORDER BY s.created_at DESC,s.id DESC
       LIMIT ?
-    `).bind(q, q, q, kind, kind, limit).all<SpaceRow>();
+    `).bind(q, q, q, limit).all<SpaceRow>();
     return c.json(success(rows.results.map((row) => spaceDto(c.req.url, row))));
   });
 
@@ -102,7 +95,7 @@ export function registerPlatformInspectorRoutes(app: App): void {
     await requirePlatformAdminContext(c, "spaces:inspect");
     const spaceId = c.req.param("spaceId");
     if (!/^spc_[A-Za-z0-9_-]+$/u.test(spaceId)) throw new ApiError("VALIDATION_ERROR", "spaceId is invalid", 422);
-    const space = await c.env.DB.prepare(`SELECT id,kind,name,timezone,avatar_key,version,created_by_user_id,created_at,updated_at
+    const space = await c.env.DB.prepare(`SELECT id,name,timezone,avatar_key,version,created_by_user_id,created_at,updated_at
       FROM spaces WHERE id=? AND deleted_at IS NULL`).bind(spaceId).first<SpaceRow>();
     if (!space) throw new ApiError("SPACE_NOT_FOUND", "Space not found", 404);
 

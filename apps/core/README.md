@@ -20,7 +20,7 @@ Webhook Endpoint / Event Subscription management, delivery diagnostics/test-send
 
 ## Current Kernel Runtime Discovery
 
-The current business-facing Core Kernel contract is **0.37.0**. Progressive single-model semantic detail now exposes one `query.canonical` descriptor for the structured Canonical Query transport. The immutable Model Contract and Runtime Discovery derive its search fields, typed filter targets/operators, ordered sort, limits and cursor bindings from the same implementation source. Older Generic/Capability GET metadata remains only as explicitly deprecated compatibility metadata while adapters migrate. Generic consumers may choose the projection size appropriate to the task:
+The current business-facing Core Kernel contract is **0.38.0**. Progressive single-model semantic detail now exposes one `query.canonical` descriptor for the structured Canonical Query transport. The immutable Model Contract and Runtime Discovery derive its search fields, typed filter targets/operators, ordered sort, limits and cursor bindings from the same implementation source. Older Generic/Capability GET metadata remains only as explicitly deprecated compatibility metadata while adapters migrate. Generic consumers may choose the projection size appropriate to the task:
 
 - `GET /api/v1/spaces/{spaceId}/_discovery` — full current capability metadata for one known Space;
 - `GET /api/v1/me/_discovery` — full aggregate current capability metadata across reachable Spaces;
@@ -40,7 +40,7 @@ Current Kernel-level behavior that is intentionally explicit outside ordinary Mo
 
 - Every Space stores an IANA `timezone`; creation defaults to `UTC` when omitted.
 - Space profile updates use optimistic-concurrency `version`.
-- Family Spaces allow at most eight active memberships and retain at least one active owner/admin.
+- A Space must retain at least one active owner/admin; membership capacity is not a Kernel product rule.
 - Membership activation/deactivation keeps its linked Space Person consistent.
 - Core owns hashed, expiring, revocable Space invitations. Plaintext invitation tokens are returned exactly once at creation; redemption atomically creates/reactivates membership plus Space Person.
 

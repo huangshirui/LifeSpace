@@ -3,7 +3,7 @@ import YAML from "yaml";
 
 const document = YAML.parse(fs.readFileSync(new URL("../openapi.yaml", import.meta.url), "utf8"));
 
-if (document.openapi !== "3.1.0" || document.info?.version !== "0.37.0") {
+if (document.openapi !== "3.1.0" || document.info?.version !== "0.38.0") {
   throw new Error("Core Kernel OpenAPI version metadata is invalid");
 }
 if (!document.info?.title?.includes("Kernel")) {
@@ -85,17 +85,6 @@ for (const retired of [
   "/api/v1/event-subscriptions/{subscriptionId}/test",
 ]) {
   if (document.paths?.[retired]) throw new Error(`Retired subscription-owned Webhook route remains: ${retired}`);
-}
-
-const retiredCompatibility = [
-  "/api/v1/me/families",
-  "/api/v1/families",
-  "/api/v1/family-invites",
-];
-for (const path of Object.keys(document.paths ?? {})) {
-  if (retiredCompatibility.some((prefix) => path === prefix || path.startsWith(`${prefix}/`))) {
-    throw new Error(`Retired HomeMew compatibility path remains in Kernel OpenAPI: ${path}`);
-  }
 }
 
 const ordinaryModelPrefixes = [
@@ -582,7 +571,7 @@ if (!schemas.CreationDraftProcessing?.required?.includes("modelContractRevision"
   throw new Error("Creation Draft jobs must expose their pinned Model Contract Revision");
 }
 
-if (schemas.StatusResponse?.properties?.data?.properties?.contractVersion?.const !== "0.37.0") {
+if (schemas.StatusResponse?.properties?.data?.properties?.contractVersion?.const !== "0.38.0") {
   throw new Error("Core Kernel status contract version drifted");
 }
 

@@ -327,8 +327,8 @@ function SpacesPage({ id }: { id?: string }) {
     <PageHeader eyebrow="Platform" title="Spaces" description="只读检查所有权、成员、Data Grant 与模型记录计数；Console 不获得隐藏成员身份。" />
     <form className="search-bar" onSubmit={(event) => { event.preventDefault(); setSubmitted(query.trim()); }}><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索 spc_* 或 Space 名称" maxLength={100} /><button>搜索</button></form>
     <Section title="Spaces">
-      {!rows.length ? <Empty /> : <div className="table-wrap"><table><thead><tr><th>Space</th><th>Kind</th><th>Members</th><th>Grants</th><th>Records</th><th /></tr></thead><tbody>
-        {rows.map((space: PlatformSpace) => <tr key={space.id}><td><strong>{space.name}</strong><small>{space.id}</small></td><td><Badge value={space.kind} tone="neutral" /></td><td>{space.memberCount}</td><td>{space.grantCount}</td><td>{space.recordCount}</td><td><button className="link-button" onClick={() => navigate(`/spaces/${encodeURIComponent(space.id)}`)}>查看</button></td></tr>)}
+      {!rows.length ? <Empty /> : <div className="table-wrap"><table><thead><tr><th>Space</th><th>Members</th><th>Grants</th><th>Records</th><th /></tr></thead><tbody>
+        {rows.map((space: PlatformSpace) => <tr key={space.id}><td><strong>{space.name}</strong><small>{space.id}</small></td><td>{space.memberCount}</td><td>{space.grantCount}</td><td>{space.recordCount}</td><td><button className="link-button" onClick={() => navigate(`/spaces/${encodeURIComponent(space.id)}`)}>查看</button></td></tr>)}
       </tbody></table></div>}
     </Section>
   </>;
@@ -341,7 +341,7 @@ function SpaceDetailPage({ id }: { id: string }) {
   const space = remote.data as PlatformSpaceDetail;
   return <>
     <PageHeader eyebrow="Space" title={space.name} description={space.id} actions={<button className="secondary-button" onClick={() => navigate("/spaces")}>返回列表</button>} />
-    <Section title="Ownership boundary"><KeyValue rows={[["Kind", <Badge value={space.kind} tone="neutral" />], ["Timezone", space.timezone], ["Owner creator", <Code>{space.createdByUserId}</Code>], ["Version", space.version], ["Created", formatDate(space.createdAt)], ["Updated", formatDate(space.updatedAt)]]} /></Section>
+    <Section title="Ownership boundary"><KeyValue rows={[["Timezone", space.timezone], ["Owner creator", <Code>{space.createdByUserId}</Code>], ["Version", space.version], ["Created", formatDate(space.createdAt)], ["Updated", formatDate(space.updatedAt)]]} /></Section>
     <div className="two-column">
       <Section title={`Members (${space.members.length})`}>{!space.members.length ? <Empty /> : <div className="stack-list">{space.members.map((member) => <div className="stack-row" key={member.id}><div><strong>{member.displayName}</strong><small>{member.userId} · {member.personId}</small></div><Badge value={member.role} tone="neutral" /></div>)}</div>}</Section>
       <Section title="Record counts">{!Object.keys(space.recordCounts).length ? <Empty /> : <div className="stack-list">{Object.entries(space.recordCounts).sort(([a], [b]) => a.localeCompare(b)).map(([key, count]) => <div className="stack-row" key={key}><strong>{key}</strong><span>{count}</span></div>)}</div>}</Section>
