@@ -328,7 +328,6 @@ components:
       required: [id, name, timezone, avatarUrl, version, createdByUserId, createdAt, updatedAt, members, grants, recordCounts]
       properties:
         id: { type: string, pattern: '^spc_' }
-        kind: { $ref: '#/components/schemas/SpaceKind' }
         name: { type: string }
         timezone: { type: string, x-lifespace-format: iana-timezone }
         avatarUrl: { anyOf: [{ type: string, format: uri }, { type: 'null' }] }
