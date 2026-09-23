@@ -181,7 +181,7 @@ Privileged LifeSpace Console control-plane contract:
 
 ```text
 apps/core/platform-admin.openapi.yaml
-current Platform Admin version: 0.2.0
+current Platform Admin version: 0.3.0
 ```
 
 Ordinary model contract:
