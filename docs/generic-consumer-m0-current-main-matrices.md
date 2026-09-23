@@ -33,7 +33,7 @@ M0 does not fix gaps. It identifies the smallest root concern and links an exist
 | Relation Target Lookup | `apps/core/src/relation-targets.ts`, relation lookup tests |
 | Effective model authority | `apps/core/src/model-authorization.ts`, `authorization.ts`, Discovery authority calculation/tests |
 | Compatibility classification | `apps/core/src/model-proposal.ts`, Model Admin / AI Proposal publication paths |
-| Performance | `docs/phase3-performance-convergence-plan.md`, `docs/generic-consumer-performance-feasibility.md` |
+| Performance | `docs/performance-invariants.md`, `docs/generic-consumer-performance-feasibility.md` |
 
 ## 3. Matrix A — Static Semantic Contract
 
