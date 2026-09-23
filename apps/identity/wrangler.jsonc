@@ -10,14 +10,16 @@
   "env": {
     "staging": {
       "name": "lifespace-identity-staging",
-      "vars": { "ENVIRONMENT": "staging", "ACCESS_TEAM_DOMAIN": "https://aisronline.cloudflareaccess.com" },
+      "placement": { "mode": "smart" },
+      "vars": { "ENVIRONMENT": "staging", "ACCESS_TEAM_DOMAIN": "https://aisronline.cloudflareaccess.com", "PERFORMANCE_DIAGNOSTICS": "1" },
       "routes": [{ "pattern": "auth-staging.aisr.online", "custom_domain": true }],
       "d1_databases": [{ "binding": "DB", "database_name": "lifespace-identity-staging", "database_id": "00000000-0000-0000-0000-000000000012", "migrations_dir": "migrations" }],
       "r2_buckets": [{ "binding": "ASSETS", "bucket_name": "lifespace-staging-assets" }]
     },
     "production": {
       "name": "lifespace-identity",
-      "vars": { "ENVIRONMENT": "production", "ACCESS_TEAM_DOMAIN": "https://aisronline.cloudflareaccess.com" },
+      "placement": { "mode": "smart" },
+      "vars": { "ENVIRONMENT": "production", "ACCESS_TEAM_DOMAIN": "https://aisronline.cloudflareaccess.com", "PERFORMANCE_DIAGNOSTICS": "1" },
       "routes": [{ "pattern": "auth.aisr.online", "custom_domain": true }],
       "d1_databases": [{ "binding": "DB", "database_name": "lifespace-identity", "database_id": "00000000-0000-0000-0000-000000000013", "migrations_dir": "migrations" }],
       "r2_buckets": [{ "binding": "ASSETS", "bucket_name": "lifespace-assets" }]
