@@ -55,22 +55,20 @@ test("production release readiness blocks mutation until accepted application se
   assert.ok(readinessIndex < migrationIndex, "release readiness must fail closed before any production Core migration");
 });
 
-test("unpromoted candidate semantics are rejected by the accepted HomeMew production gate", () => {
+test("promoted staging candidate semantics are accepted by the HomeMew production gate", () => {
   const accepted = acceptedHomeMewModelSemantics(profile);
-  assert.equal(accepted.fingerprint, "msf_6dab6ba5b88da89eb608960a5e23feaf7dd0aec4d8f6a0db1defe7ab2a370b22");
-  assert.throws(
-    () => assertHomeMewModelSemanticCompatibility(
-      profile,
-      PRODUCTION_PROVING_MODELS.map((model) => ({ key: model.key, schemaHash: model.hash })),
-      "unpromoted schema-42 production candidate",
-    ),
-    /does not match HomeMew semantic fingerprint/u,
+  assert.equal(accepted.fingerprint, "msf_d6b275bf5f4516f057c02a21f89e46de380a71ffa85e9c34a9fbac60f1b60c01");
+  const result = assertHomeMewModelSemanticCompatibility(
+    profile,
+    PRODUCTION_PROVING_MODELS.map((model) => ({ key: model.key, schemaHash: model.hash })),
+    "promoted schema-42 production candidate",
   );
+  assert.equal(result.fingerprint, accepted.fingerprint);
 });
 
 test("different environment-local model versions preserve one HomeMew semantic fingerprint", () => {
   const accepted = acceptedHomeMewModelSemantics(profile);
-  assert.equal(accepted.fingerprint, "msf_6dab6ba5b88da89eb608960a5e23feaf7dd0aec4d8f6a0db1defe7ab2a370b22");
+  assert.equal(accepted.fingerprint, "msf_d6b275bf5f4516f057c02a21f89e46de380a71ffa85e9c34a9fbac60f1b60c01");
   const stagingManifest = accepted.models.map((model) => ({ ...model, version: model.key === "wish" ? 10 : model.key === "task" ? 7 : model.key === "day_record" ? 4 : 6 }));
   const productionManifest = accepted.models.map((model) => ({ ...model, version: model.key === "wish" ? 11 : model.key === "task" ? 8 : model.key === "day_record" ? 5 : 7 }));
 

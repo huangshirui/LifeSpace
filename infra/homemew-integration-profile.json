@@ -40,20 +40,20 @@
     "event": "write"
   },
   "contracts": {
-    "coreKernel": "0.36.0",
+    "coreKernel": "0.37.0",
     "identity": "0.6.0",
-    "integrationEventing": "0.1.0",
+    "integrationEventing": "0.2.0",
     "modelSemantics": {
-      "fingerprint": "msf_6dab6ba5b88da89eb608960a5e23feaf7dd0aec4d8f6a0db1defe7ab2a370b22",
+      "fingerprint": "msf_d6b275bf5f4516f057c02a21f89e46de380a71ffa85e9c34a9fbac60f1b60c01",
       "models": {
         "task": {
-          "schemaHash": "e79798bcadefad021ca86c1577c3fa3bc8fd0627f46557193aeca9b62acabb8e"
+          "schemaHash": "fed3dab27e2f51da3780e42db38dd164fefe39f7d6e7f84161a97e1a8a6d96e6"
         },
         "wish": {
           "schemaHash": "7dc6c079916a967c8bcd93f8cbe082c98157ceaeb30ce782ef3f2eb035d370df"
         },
         "day_record": {
-          "schemaHash": "9297a2f87fdd0718bfb74a362a0c451cf25309f4975099772f76e8a485fd0852"
+          "schemaHash": "9dae14eeaef9311412dc910a8976cf85e7d8641792192376ed6678739fe029d1"
         },
         "event": {
           "schemaHash": "be9bdea442a30108a22a2da77a96ab23aba5122ec3c2b1de20a6312cebb0cc8a"
@@ -63,6 +63,6 @@
     "pinStatus": "accepted"
   },
   "evidence": {
-    "acceptedStagingModelContract": "mct_6c76d80012873f27cf23e047822e8571b37f637ef24852739bb7f773763b21d8"
+    "acceptedStagingModelContract": "mct_64b2ee86ba0a5dbc0d3dbee152321cf3b7fc2e38bc25e3294490b869a97a2e1f"
   }
 }
