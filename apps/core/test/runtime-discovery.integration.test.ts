@@ -68,7 +68,8 @@ async function fixture() {
   const now = new Date().toISOString();
 
   await db.batch([
-    db.prepare(`INSERT INTO spaces(id,name,created_by_user_id,created_at,updated_at,timezone) VALUES(?,?,?,?,?,?)`).bind(spaceId, "Discovery Test", userId, now, now, "UTC"),
+    db.prepare(`INSERT INTO spaces(id,kind,name,created_by_user_id,created_at,updated_at,timezone)
+      VALUES(?,?,?,?,?,?,?)`).bind(spaceId, "personal", "Discovery Test", userId, now, now, "UTC"),
     db.prepare(`INSERT INTO space_memberships(id,space_id,user_id,role,created_at,updated_at)
       VALUES(?,?,?,?,?,?)`).bind(`mem_${suffix}`, spaceId, userId, "owner", now, now),
     db.prepare(`INSERT INTO space_people(id,space_id,linked_user_id,display_name,created_at,updated_at)
@@ -199,7 +200,8 @@ describe("Runtime discovery", () => {
     const spaceId = `spc_${suffix}`;
     const now = new Date().toISOString();
     await db.batch([
-      db.prepare(`INSERT INTO spaces(id,name,created_by_user_id,created_at,updated_at,timezone) VALUES(?,?,?,?,?,?)`).bind(spaceId, "Temporal Discovery", userId, now, now, "UTC"),
+      db.prepare(`INSERT INTO spaces(id,kind,name,created_by_user_id,created_at,updated_at,timezone)
+        VALUES(?,?,?,?,?,?,?)`).bind(spaceId, "personal", "Temporal Discovery", userId, now, now, "UTC"),
       db.prepare(`INSERT INTO space_memberships(id,space_id,user_id,role,created_at,updated_at)
         VALUES(?,?,?,?,?,?)`).bind(`mem_${suffix}`, spaceId, userId, "owner", now, now),
       db.prepare(`INSERT INTO space_people(id,space_id,linked_user_id,display_name,created_at,updated_at)
@@ -234,7 +236,8 @@ describe("Runtime discovery", () => {
     const spaceId = `spc_${suffix}`;
     const now = new Date().toISOString();
     await db.batch([
-      db.prepare(`INSERT INTO spaces(id,name,created_by_user_id,created_at,updated_at,timezone) VALUES(?,?,?,?,?,?)`).bind(spaceId, "Calendar Discovery", userId, now, now, "UTC"),
+      db.prepare(`INSERT INTO spaces(id,kind,name,created_by_user_id,created_at,updated_at,timezone)
+        VALUES(?,?,?,?,?,?,?)`).bind(spaceId, "personal", "Calendar Discovery", userId, now, now, "UTC"),
       db.prepare(`INSERT INTO space_memberships(id,space_id,user_id,role,created_at,updated_at)
         VALUES(?,?,?,?,?,?)`).bind(`mem_${suffix}`, spaceId, userId, "owner", now, now),
       db.prepare(`INSERT INTO space_people(id,space_id,linked_user_id,display_name,created_at,updated_at)
