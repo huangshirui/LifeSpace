@@ -14,8 +14,8 @@ Read in this order:
 6. `docs/contracts.md`;
 7. `docs/agent-ready.md` for Principal / Actor / Delegation / governed Change rules when changing Agent-facing authority;
 8. `docs/model-definition-spec.md` for the normative human-readable Model Definition / Policy / Workflow / Capability DSL semantics;
-9. `docs/phase3-metadata-platform-plan.md` for business-model/runtime architecture;
-10. `docs/phase3-performance-convergence-plan.md` for ordinary-model storage, Registry runtime lookup, query hydration, authorization I/O or performance-sensitive paths;
+9. `docs/model-runtime-architecture.md` for business-model/runtime architecture;
+10. `docs/performance-invariants.md` for ordinary-model storage, Registry runtime lookup, query hydration, authorization I/O or performance-sensitive paths;
 11. `apps/AGENTS.md` and the nearest nested `AGENTS.md` for every directory changed;
 12. relevant OpenAPI contracts, tests, migrations, implementation, Model Definitions and generated artifacts.
 
@@ -31,8 +31,8 @@ If a required source does not yet exist during initial scaffold, create/update i
 - Contract ownership/versioning/publication/downstream consumption: `docs/contracts.md`
 - Agent execution-context, Delegation and governed Change invariants: `docs/agent-ready.md`
 - Model Definition / Policy / Workflow / Capability DSL semantics: `docs/model-definition-spec.md`
-- Metadata business-model architecture: `docs/phase3-metadata-platform-plan.md`
-- Runtime performance/typed persistence: `docs/phase3-performance-convergence-plan.md`
+- Metadata business-model architecture: `docs/model-runtime-architecture.md`
+- Runtime performance/typed persistence: `docs/performance-invariants.md`
 - Core business-facing Kernel API: `apps/core/openapi.yaml`
 - Core Integration/Eventing API: `apps/core/integration-eventing.openapi.yaml`
 - Core Model Registry / Model Contract governance API: `apps/core/model-control-plane.openapi.yaml`
