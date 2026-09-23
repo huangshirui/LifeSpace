@@ -89,7 +89,7 @@ explicit Batch Create with N created records
   -> N Domain Events
   -> same ordered opg_* operation group
   -> 1 callback per matching Webhook Endpoint
-  -> callback body { "events": [ ...matching event references... ] }
+  -> callback body { "operationGroupId": "opg_*", "events": [ ...matching event references... ] }
 
 N independent operations close together in time
   -> N independent Domain Events
