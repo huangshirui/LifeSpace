@@ -78,8 +78,7 @@ describe("Core Platform Inspector", () => {
     const createdAt = new Date().toISOString();
 
     await (env as unknown as TestEnv).DB.batch([
-      (env as unknown as TestEnv).DB.prepare(`INSERT INTO spaces(id,kind,name,created_by_user_id,created_at,updated_at,timezone)
-        VALUES(?,?,?,?,?,?,?)`).bind(spaceId, "family", "Inspector Family", userId, createdAt, createdAt, "Asia/Shanghai"),
+      (env as unknown as TestEnv).DB.prepare(`INSERT INTO spaces(id,name,created_by_user_id,created_at,updated_at,timezone) VALUES(?,?,?,?,?,?)`).bind(spaceId, "Inspector Family", userId, createdAt, createdAt, "Asia/Shanghai"),
       (env as unknown as TestEnv).DB.prepare(`INSERT INTO space_memberships(id,space_id,user_id,role,created_at,updated_at)
         VALUES(?,?,?,?,?,?)`).bind(`mem_${crypto.randomUUID().replaceAll("-", "")}`, spaceId, userId, "owner", createdAt, createdAt),
       (env as unknown as TestEnv).DB.prepare(`INSERT INTO space_people(id,space_id,linked_user_id,display_name,created_at,updated_at)
