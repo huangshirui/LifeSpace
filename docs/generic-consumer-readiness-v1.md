@@ -35,7 +35,7 @@ This document does not replace existing sources of truth.
 - `docs/contracts.md` owns contract publication/versioning and Runtime Discovery / Model Contract rules.
 - `docs/contract-stability.md` owns Stable/Candidate/Experimental and compatibility policy.
 - `docs/model-definition-spec.md` remains the normative human-readable Model Definition / Policy / Action / Capability DSL specification.
-- `docs/phase3-performance-convergence-plan.md` preserves the completed typed-runtime and D1 round-trip performance baseline.
+- `docs/performance-invariants.md` preserves the completed typed-runtime and D1 round-trip performance baseline.
 - #111 defines durable cross-session execution discipline.
 
 If this document and a current normative source disagree, do not silently reconcile them. Record the discrepancy under #165 or a dedicated implementation issue and resolve the owning source explicitly.
