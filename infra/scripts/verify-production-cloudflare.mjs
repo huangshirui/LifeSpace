@@ -113,10 +113,22 @@ for (const worker of ["lifespace-core", "lifespace-identity"]) {
   if (!workerNames.has(worker)) throw new Error(`Production Worker ${worker} is missing`);
 }
 
-async function workerBindings(worker) {
+async function workerSettings(worker) {
   const settings = await cf(`/accounts/${accountId}/workers/scripts/${worker}/settings`);
   if (!Array.isArray(settings?.bindings)) throw new Error(`Production Worker ${worker} settings did not expose bindings`);
-  return settings.bindings;
+  return settings;
+}
+
+function requireSmartPlacement(settings, worker) {
+  const placement = settings?.placement;
+  const mode = placement?.mode ?? settings?.placement_mode ?? null;
+  const status = placement?.status ?? settings?.placement_status ?? null;
+  const lastAnalyzedAt = placement?.last_analyzed_at ?? null;
+  if (mode !== "smart") throw new Error(`Production Worker ${worker} must enable Smart Placement, got ${mode ?? "missing"}`);
+  if (status === "UNSUPPORTED_APPLICATION") {
+    throw new Error(`Production Worker ${worker} Smart Placement is unsupported for the current workload`);
+  }
+  return { mode, status, lastAnalyzedAt };
 }
 
 function requireBinding(bindings, expected, worker) {
@@ -129,14 +141,21 @@ function requireBinding(bindings, expected, worker) {
   }
 }
 
-const coreBindings = await workerBindings("lifespace-core");
+const coreSettings = await workerSettings("lifespace-core");
+const identitySettings = await workerSettings("lifespace-identity");
+const placement = {
+  core: requireSmartPlacement(coreSettings, "lifespace-core"),
+  identity: requireSmartPlacement(identitySettings, "lifespace-identity"),
+};
+
+const coreBindings = coreSettings.bindings;
 requireBinding(coreBindings, { name: "DB", type: "d1", fields: { database_id: productionD1.get("lifespace-core") } }, "lifespace-core");
 requireBinding(coreBindings, { name: "ASSETS", type: "r2_bucket", fields: { bucket_name: "lifespace-assets" } }, "lifespace-core");
 requireBinding(coreBindings, { name: "IDENTITY", type: "service", fields: { service: "lifespace-identity" } }, "lifespace-core");
 requireBinding(coreBindings, { name: "CREATION_DRAFT_QUEUE", type: "queue", fields: { queue_name: "lifespace-creation-drafts" } }, "lifespace-core");
 requireBinding(coreBindings, { name: "EVENT_DELIVERY_QUEUE", type: "queue", fields: { queue_name: "lifespace-event-deliveries" } }, "lifespace-core");
 
-const identityBindings = await workerBindings("lifespace-identity");
+const identityBindings = identitySettings.bindings;
 requireBinding(identityBindings, { name: "DB", type: "d1", fields: { database_id: productionD1.get("lifespace-identity") } }, "lifespace-identity");
 requireBinding(identityBindings, { name: "ASSETS", type: "r2_bucket", fields: { bucket_name: "lifespace-assets" } }, "lifespace-identity");
 
@@ -173,6 +192,7 @@ console.log(JSON.stringify({
     core: ["DB", "ASSETS", "IDENTITY", "CREATION_DRAFT_QUEUE", "EVENT_DELIVERY_QUEUE"],
     identity: ["DB", "ASSETS"],
   },
+  smartPlacementVerified: placement,
   domains: Object.fromEntries((manifest.domains ?? []).map((item) => [item.hostname, item.service])),
   secretNamesVerified: true,
   stagingIsolationVerified: true,
