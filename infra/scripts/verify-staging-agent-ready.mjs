@@ -346,12 +346,12 @@ async function closeSpace(space) {
 }
 
 let contexts = [];
-let familySpace = null;
+let testSpace = null;
 let wrongSpace = null;
 let agentAEvent = null;
 let agentBTask = null;
 let agentBTaskCatalogLowered = false;
-let familyMembershipLowered = false;
+let membershipLowered = false;
 let primaryError = null;
 const cleanupErrors = [];
 let resultSummary = null;
@@ -361,15 +361,14 @@ try {
     method: "POST",
     bearer: cleanupBearer,
     body: {
-      kind: "family",
-      name: `Agent staging Family ${suffix}`,
+      name: `Agent staging Space ${suffix}`,
       ownerDisplayName: `M4 Owner ${suffix}`,
       timezone: "Asia/Shanghai",
     },
   });
-  familySpace = expectStatus("M4 family Space create", familyCreated, 201);
-  if (!familySpace?.id?.startsWith("spc_")) throw new Error("M4 family Space response is invalid");
-  const spaceId = familySpace.id;
+  testSpace = expectStatus("staging Space create", familyCreated, 201);
+  if (!testSpace?.id?.startsWith("spc_")) throw new Error("staging Space response is invalid");
+  const spaceId = testSpace.id;
 
   contexts = await Promise.all(agents.map(ensureApplication));
   for (const context of contexts) {
@@ -404,7 +403,7 @@ try {
   const tempSpace = await request(coreBase, "/api/v1/spaces", {
     method: "POST",
     bearer: cleanupBearer,
-    body: { kind: "personal", name: `Agent staging wrong-space ${suffix}`, ownerDisplayName: `M4 Owner ${suffix}`, timezone: "UTC" },
+    body: { name: `Agent staging wrong-space ${suffix}`, ownerDisplayName: `M4 Owner ${suffix}`, timezone: "UTC" },
   });
   wrongSpace = expectStatus("M4 wrong-Space fixture create", tempSpace, 201);
   const wrongSpaceProbe = await request(coreBase, `/api/v1/spaces/${encodeURIComponent(wrongSpace.id)}/models/event/records?limit=1`, { bearer: agentA.agentBearer });
@@ -494,7 +493,7 @@ try {
 
   coreSql(`UPDATE space_memberships SET role='viewer',updated_at=${sqlString(new Date().toISOString())}
     WHERE space_id=${sqlString(spaceId)} AND user_id=${sqlString(userId)} AND deleted_at IS NULL`);
-  familyMembershipLowered = true;
+  membershipLowered = true;
   const userAuthorityDenied = await request(coreBase, `/api/v1/spaces/${encodeURIComponent(spaceId)}/models/task/records`, {
     method: "POST", bearer: agentB.agentBearer, body: { name: `Agent B user authority must deny ${suffix}` },
   });
@@ -503,7 +502,7 @@ try {
   }
   coreSql(`UPDATE space_memberships SET role='owner',updated_at=${sqlString(new Date().toISOString())}
     WHERE space_id=${sqlString(spaceId)} AND user_id=${sqlString(userId)} AND deleted_at IS NULL`);
-  familyMembershipLowered = false;
+  membershipLowered = false;
 
   await revokeDelegation(agentB, spaceId);
   const afterRevoke = await request(coreBase, `/api/v1/spaces/${encodeURIComponent(spaceId)}/models/task/records`, {
@@ -516,7 +515,7 @@ try {
   resultSummary = {
     ok: true,
     mergeGate: "Intent/Action -> Execution Context -> Effective Authority -> Semantic Validation -> Commit Change -> Attribution/Provenance/Event evidence",
-    familySpace: { id: spaceId, kind: "family" },
+    testSpace: { id: spaceId, kind: "family" },
     principalId: userId,
     agentA: {
       applicationId: agentA.applicationId,
@@ -559,12 +558,12 @@ try {
     catch (error) { cleanupErrors.push(`${label}: ${error instanceof Error ? error.message : String(error)}`); }
   }
 
-  const spaceId = familySpace?.id ?? "";
-  if (familyMembershipLowered && spaceId) {
+  const spaceId = testSpace?.id ?? "";
+  if (membershipLowered && spaceId) {
     await cleanup("family membership restore", async () => {
       coreSql(`UPDATE space_memberships SET role='owner',updated_at=${sqlString(new Date().toISOString())}
         WHERE space_id=${sqlString(spaceId)} AND user_id=${sqlString(userId)} AND deleted_at IS NULL`);
-      familyMembershipLowered = false;
+      membershipLowered = false;
     });
   }
   if (agentBTaskCatalogLowered) {
@@ -581,7 +580,7 @@ try {
   if (spaceId && agentAEvent) await cleanup("Agent A Event delete", () => deleteRecord(spaceId, "events", agentAEvent));
   if (spaceId && agentBTask) await cleanup("Agent B Task delete", () => deleteRecord(spaceId, "tasks", agentBTask));
   if (wrongSpace?.id) await cleanup("wrong-Space fixture close", () => closeSpace(wrongSpace));
-  if (familySpace?.id) await cleanup("M4 family Space close", () => closeSpace(familySpace));
+  if (testSpace?.id) await cleanup("staging Space close", () => closeSpace(testSpace));
   for (const context of contexts) await cleanup(`${context.key} temporary credential revoke`, () => revokeCredential(context));
 }
 
