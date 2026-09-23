@@ -101,7 +101,7 @@ The staging-only first-use registration for the **current verified Access princi
 
 ## Platform vs application administration boundary
 
-LifeSpace Console configures platform-wide metadata and platform authorization ceilings. It is not the product administration UI for HomeMew, ALOHA or another vertical application.
+LifeSpace Console configures platform-wide metadata and platform authorization ceilings. It is not the product administration UI for any downstream application.
 
 In particular:
 
@@ -117,7 +117,7 @@ Console work should be easy to develop, deploy to staging and merge independentl
 - Prefer consuming already-merged contracts before adding new downstream APIs.
 - If a required Core/Identity capability is missing, add the smallest separately reviewable contract/runtime change rather than coupling unrelated refactors into a Console branch.
 - Do not base Console UI work on an unrelated in-flight feature branch unless the dependency is intentional and documented.
-- Avoid touching Runtime Discovery, Eventing, HomeMew migration/application code or other active slices merely to implement Console presentation.
+- Avoid touching Runtime Discovery, Eventing, downstream application code or other active slices merely to implement Console presentation.
 - **Normal Console-only staging changes use `.github/workflows/lifespace-console-staging-deploy.yml`.** Its default deploy job must remain manual-only and must not migrate/deploy Core or Identity, use bootstrap authority, rotate/install secrets, or target production.
 - The same workflow exposes an explicit `run_control_plane_acceptance` opt-in. Only that separate acceptance job may use staging bootstrap authority to exercise and clean up the bounded control-plane write lifecycles; it must not deploy/migrate Core, Identity or Console.
 - `.github/workflows/lifespace-console-staging-provision.yml` is a platform/credential convergence workflow, not the default Console deploy path. Use it only when Core/Identity/platform-admin/application credential convergence is intentionally part of the task.

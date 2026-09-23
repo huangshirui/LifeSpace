@@ -10,7 +10,7 @@ Normal service syntax is part of the Identity application/user/service contract.
 
 ### Opaque Service API Token
 
-Recommended for owner-controlled n8n, scripts, cron jobs, MCP servers and trusted backend automation:
+Recommended for owner-controlled workflow automation, scripts, cron jobs, MCP servers and trusted backend automation:
 
 ```text
 lsp_pat_<cryptographically-random-secret>
@@ -246,9 +246,9 @@ Console-triggered mutations write pending audit evidence before Registry mutatio
 
 This preserves existing CI/automation behavior without weakening interactive Console auditability.
 
-## n8n
+## Workflow automation
 
-For an owner-controlled n8n instance, use one Header Auth credential:
+For an owner-controlled workflow automation instance, use one Header Auth credential:
 
 ```text
 Name: Authorization
@@ -257,7 +257,7 @@ Value: Bearer lsp_pat_xxxxx
 
 Then call Core directly. No token-acquisition node is needed for opaque-token mode.
 
-If OAuth `client_credentials` is deliberately chosen, configure n8n's OAuth2 credential normally and allow n8n to cache/refresh the short-lived access token rather than manually fetching a new token before every business request.
+If OAuth `client_credentials` is deliberately chosen, configure the automation platform's OAuth2 credential normally and allow it to cache/refresh the short-lived access token rather than manually fetching a new token before every business request.
 
 ## curl and private scripts
 

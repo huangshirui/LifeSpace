@@ -47,7 +47,7 @@ describe("Creation Draft baseline model semantics", () => {
     }
   });
 
-  it("gives every HomeMew baseline model an explicit semantic description", () => {
+  it("gives every baseline proving model an explicit semantic description", () => {
     for (const key of ["task", "wish", "day_record", "event"]) {
       const descriptor = byKey.get(key);
       expect(descriptor).toBeDefined();

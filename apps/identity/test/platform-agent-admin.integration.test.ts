@@ -99,20 +99,20 @@ describe("Identity cross-application Platform Agent Admin", () => {
   it("creates, lists, disables and reactivates an Agent identity with human audit attribution", async () => {
     const pair = await keys();
     const console = await provisionConsole(pair, ["platform:admin", "applications:manage", "audit:read"]);
-    const targetId = `aloha-target-${crypto.randomUUID().replaceAll("-", "")}`;
+    const targetId = `agent-target-${crypto.randomUUID().replaceAll("-", "")}`;
     await bootstrapApplication(pair, targetId, ["profile:read"], true);
 
     const createdResponse = await request(`/internal/v1/platform-admin/applications/${targetId}/agents`, {
       method: "POST",
       headers: adminHeaders(console.secret, console.actorToken, true),
-      body: JSON.stringify({ displayName: "ALOHA Assistant" }),
+      body: JSON.stringify({ displayName: "Scheduling Assistant" }),
     }, pair);
     expect(createdResponse.status).toBe(201);
     const created = (await createdResponse.json() as any).data;
     expect(created.id).toMatch(/^agt_/u);
     expect(created).toMatchObject({
       applicationId: targetId,
-      displayName: "ALOHA Assistant",
+      displayName: "Scheduling Assistant",
       status: "active",
       binding: { status: "active", revokedAt: null },
     });
@@ -123,13 +123,13 @@ describe("Identity cross-application Platform Agent Admin", () => {
     }, pair);
     expect(listed.status).toBe(200);
     expect((await listed.json() as any).data).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: created.id, displayName: "ALOHA Assistant", status: "active" }),
+      expect.objectContaining({ id: created.id, displayName: "Scheduling Assistant", status: "active" }),
     ]));
 
     const disabled = await request(`/internal/v1/platform-admin/applications/${targetId}/agents/${created.id}`, {
       method: "PATCH",
       headers: adminHeaders(console.secret, console.actorToken, true),
-      body: JSON.stringify({ displayName: "ALOHA Assistant", status: "disabled" }),
+      body: JSON.stringify({ displayName: "Scheduling Assistant", status: "disabled" }),
     }, pair);
     expect(disabled.status).toBe(200);
     expect((await disabled.json() as any).data.status).toBe("disabled");
@@ -137,7 +137,7 @@ describe("Identity cross-application Platform Agent Admin", () => {
     const reactivated = await request(`/internal/v1/platform-admin/applications/${targetId}/agents/${created.id}`, {
       method: "PATCH",
       headers: adminHeaders(console.secret, console.actorToken, true),
-      body: JSON.stringify({ displayName: "ALOHA Assistant", status: "active" }),
+      body: JSON.stringify({ displayName: "Scheduling Assistant", status: "active" }),
     }, pair);
     expect(reactivated.status).toBe(200);
     expect((await reactivated.json() as any).data.status).toBe("active");

@@ -112,7 +112,7 @@ describe("Identity cross-application Platform Service Admin", () => {
       method: "POST",
       headers: adminHeaders(console.secret, console.actorToken, true),
       body: JSON.stringify({
-        displayName: "n8n household sync",
+        displayName: "household sync service",
         description: "Console-managed service principal",
         maxScopes: ["resources:read", "resources:write"],
       }),
@@ -125,7 +125,7 @@ describe("Identity cross-application Platform Service Admin", () => {
     const createToken = await request(`/internal/v1/platform-admin/applications/${targetId}/service-principals/${principal.id}/tokens`, {
       method: "POST",
       headers: adminHeaders(console.secret, console.actorToken, true),
-      body: JSON.stringify({ label: "n8n primary", scopes: ["resources:read", "resources:write"] }),
+      body: JSON.stringify({ label: "automation primary", scopes: ["resources:read", "resources:write"] }),
     }, pair);
     expect(createToken.status).toBe(201);
     const createdToken = (await createToken.json() as any).data;

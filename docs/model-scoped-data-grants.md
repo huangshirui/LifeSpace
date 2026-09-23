@@ -4,7 +4,7 @@ Updated: 2026-08-23
 
 ## Purpose
 
-LifeSpace Data Grants provide current, revocable authority from one source Space to a grantee principal. Kernel 0.13.0 completes the collection-level semantics needed to preserve the external-integration authorization capability that existed in the original HomeMew Core without restoring model-specific credential scopes.
+LifeSpace Data Grants provide current, revocable authority from one source Space to a grantee principal. Collection-level model semantics allow external integrations to receive bounded model authority without introducing model-specific credential scopes.
 
 The effective ordinary-model authorization remains the intersection of:
 
@@ -43,7 +43,7 @@ For backwards compatibility, omitting `resourceType` and `resourceId` when creat
 }
 ```
 
-`resourceId` is the published LifeSpace `modelKey`, not the HTTP route segment and not a legacy HomeMew scope name.
+`resourceId` is the published LifeSpace `modelKey`, not an HTTP route segment or consumer-specific legacy scope name.
 
 A model-collection Grant:
 
@@ -56,10 +56,10 @@ If both a matching model-collection Grant and a whole-Space Grant are active for
 
 ## External integration parity
 
-The original HomeMew Core could express different model permissions for each external system, for example:
+Different external systems may require different model permissions, for example:
 
 ```text
-n8n
+Workflow automation
   event       write
   task        write
 
@@ -73,7 +73,7 @@ The LifeSpace-native representation is:
 ```text
 Service Principal (one per external system)
 + stable `resources:read` / `resources:write` credential scopes
-+ HomeMew Integrations Application × Model Access ceiling
++ Application × Model Access ceiling
 + per-Space model-collection Data Grants for that Service Principal
 ```
 

@@ -79,7 +79,7 @@ An external reference is opaque to Core:
 ```json
 {
   "type": "external",
-  "system": "aloha",
+  "system": "assistant-app",
   "ref": "upload/img_001"
 }
 ```

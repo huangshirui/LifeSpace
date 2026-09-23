@@ -143,7 +143,7 @@ function CreateApplicationDialog({ onClose }: { onClose: () => void }) {
   return <DialogShell title="Create Application" description="创建一个 Identity 权威 Application。Application ID 由 Identity 生成；Model Access、Service Principal 与 Space/Data Grant 不会被隐式创建。" onClose={onClose}>
     <div className="cp-dialog-body">
       <div className="acp-form-grid">
-        <label className="cp-field"><span>Name</span><input value={name} maxLength={100} onChange={(event) => { setName(event.target.value); setConfirmName(""); }} placeholder="例如 HomeMew Web" /></label>
+        <label className="cp-field"><span>Name</span><input value={name} maxLength={100} onChange={(event) => { setName(event.target.value); setConfirmName(""); }} placeholder="例如 Customer Portal" /></label>
         <label className="cp-field cp-compact"><span>Client type</span><select value={clientType} onChange={(event) => setClientType(event.target.value as Application["clientType"])}><option value="web">web</option><option value="mini_program">mini_program</option><option value="service">service</option><option value="device">device</option></select></label>
         <label className="cp-field cp-compact"><span>Access token TTL (seconds)</span><input type="number" min={300} max={3600} value={ttl} onChange={(event) => setTtl(Number(event.target.value))} /></label>
         <label className="acp-toggle"><input type="checkbox" checked={trustedBackend} onChange={(event) => setTrustedBackend(event.target.checked)} /><span><strong>Trusted backend</strong><small>这是创建时的不可变分类。</small></span></label>

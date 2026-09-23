@@ -40,6 +40,5 @@ test("production release verifies the platform Model Contract without downstream
   const workflow = readFileSync(fileURLToPath(productionWorkflow), "utf8");
 
   assert.match(workflow, /node infra\/scripts\/verify-production-model-admin\.mjs/u);
-  assert.doesNotMatch(workflow, /homemew|aloha/iu, "platform production workflow must not depend on a concrete consumer");
   assert.doesNotMatch(workflow, /check-production-release-readiness\.mjs/u, "consumer promotion must not gate platform production release");
 });

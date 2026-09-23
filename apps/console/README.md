@@ -121,7 +121,7 @@ A valid Cloudflare Access principal may still be unknown to LifeSpace Identity. 
 
 ## Platform/application boundary
 
-Console is the platform configuration center, not the HomeMew/ALOHA product administration UI.
+Console is the platform configuration center, not a downstream product administration UI.
 
 Belongs in Console:
 
@@ -239,7 +239,7 @@ The automated transaction acceptance and authenticated browser smoke are deliber
 
 Console work should remain mergeable and deployable independently from unrelated Core/Identity feature work. Prefer already-merged control-plane contracts and isolate UI/BFF changes inside `apps/console`.
 
-The current Configuration Center work was intentionally developed independently of Runtime Discovery. It does not modify Runtime Discovery, Eventing, HomeMew, Core migrations or Identity migrations.
+The current Configuration Center work was intentionally developed independently of Runtime Discovery. It does not modify Runtime Discovery, Eventing, downstream product code, Core migrations or Identity migrations.
 
 ## Verification gate
 
