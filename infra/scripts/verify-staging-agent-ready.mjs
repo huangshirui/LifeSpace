@@ -28,10 +28,10 @@ const applicationModelAccess = new Map([
 ]);
 const agents = [
   {
-    key: "homemew",
-    applicationId: "app_homemew_agent_staging",
-    applicationName: "HomeMew Agent staging",
-    agentDisplayName: "HomeMew Agent",
+    key: "agent-a",
+    applicationId: "app_agent_a_staging",
+    applicationName: "Agent A staging",
+    agentDisplayName: "Agent A",
     delegationModels: [
       { modelKey: "event", maxAccess: "write" },
       { modelKey: "task", maxAccess: "read" },
@@ -39,10 +39,10 @@ const agents = [
     expectedDiscovery: { event: ["read", "write"], task: ["read"] },
   },
   {
-    key: "aloha",
-    applicationId: "app_aloha_assistant_staging",
-    applicationName: "ALOHA Assistant staging",
-    agentDisplayName: "ALOHA Assistant",
+    key: "agent-b",
+    applicationId: "app_agent_b_staging",
+    applicationName: "Agent B staging",
+    agentDisplayName: "Agent B",
     delegationModels: [
       { modelKey: "event", maxAccess: "read" },
       { modelKey: "task", maxAccess: "write" },
@@ -348,9 +348,9 @@ async function closeSpace(space) {
 let contexts = [];
 let familySpace = null;
 let wrongSpace = null;
-let homemewEvent = null;
-let alohaTask = null;
-let alohaTaskCatalogLowered = false;
+let agentAEvent = null;
+let agentBTask = null;
+let agentBTaskCatalogLowered = false;
 let familyMembershipLowered = false;
 let primaryError = null;
 const cleanupErrors = [];
@@ -362,7 +362,7 @@ try {
     bearer: cleanupBearer,
     body: {
       kind: "family",
-      name: `Agent M4 Family ${suffix}`,
+      name: `Agent staging Family ${suffix}`,
       ownerDisplayName: `M4 Owner ${suffix}`,
       timezone: "Asia/Shanghai",
     },
@@ -388,14 +388,14 @@ try {
     await verifyDiscovery(context, spaceId);
   }
 
-  const homemew = contexts.find((item) => item.key === "homemew");
-  const aloha = contexts.find((item) => item.key === "aloha");
-  if (!homemew || !aloha) throw new Error("Agent contexts are incomplete");
+  const agentA = contexts.find((item) => item.key === "agentA");
+  const agentB = contexts.find((item) => item.key === "agentB");
+  if (!agentA || !agentB) throw new Error("Agent contexts are incomplete");
 
   const wrongApplication = await request(identityBase, "/internal/v1/agent-tokens", {
     method: "POST",
-    bearer: aloha.credential,
-    body: { subjectId: userId, agentId: homemew.agentId, scopes: applicationScopes },
+    bearer: agentB.credential,
+    body: { subjectId: userId, agentId: agentA.agentId, scopes: applicationScopes },
   });
   if (wrongApplication.response.status !== 403) {
     throw new Error(`Agent identity crossed application boundary: HTTP ${wrongApplication.response.status}`);
@@ -404,24 +404,24 @@ try {
   const tempSpace = await request(coreBase, "/api/v1/spaces", {
     method: "POST",
     bearer: cleanupBearer,
-    body: { kind: "personal", name: `Agent M4 wrong-space ${suffix}`, ownerDisplayName: `M4 Owner ${suffix}`, timezone: "UTC" },
+    body: { kind: "personal", name: `Agent staging wrong-space ${suffix}`, ownerDisplayName: `M4 Owner ${suffix}`, timezone: "UTC" },
   });
   wrongSpace = expectStatus("M4 wrong-Space fixture create", tempSpace, 201);
-  const wrongSpaceProbe = await request(coreBase, `/api/v1/spaces/${encodeURIComponent(wrongSpace.id)}/models/event/records?limit=1`, { bearer: homemew.agentBearer });
+  const wrongSpaceProbe = await request(coreBase, `/api/v1/spaces/${encodeURIComponent(wrongSpace.id)}/models/event/records?limit=1`, { bearer: agentA.agentBearer });
   if (wrongSpaceProbe.response.status !== 403) {
-    throw new Error(`HomeMew Agent crossed Space Delegation boundary: HTTP ${wrongSpaceProbe.response.status}`);
+    throw new Error(`Agent A crossed Space Delegation boundary: HTTP ${wrongSpaceProbe.response.status}`);
   }
 
   const selfGrant = await request(coreBase, `/api/v1/spaces/${encodeURIComponent(spaceId)}/agent-delegations`, {
-    method: "POST", bearer: homemew.agentBearer, body: { agentId: homemew.agentId, models: [{ modelKey: "task", maxAccess: "write" }] },
+    method: "POST", bearer: agentA.agentBearer, body: { agentId: agentA.agentId, models: [{ modelKey: "task", maxAccess: "write" }] },
   });
   if (selfGrant.response.status !== 403) throw new Error(`Agent self-Delegation was not denied: HTTP ${selfGrant.response.status}`);
 
   const invalidEvent = await request(coreBase, `/api/v1/spaces/${encodeURIComponent(spaceId)}/models/event/records`, {
     method: "POST",
-    bearer: homemew.agentBearer,
+    bearer: agentA.agentBearer,
     body: {
-      summary: `Invalid HomeMew Agent event ${suffix}`,
+      summary: `Invalid Agent A event ${suffix}`,
       isAllDay: true,
       startDate: "2026-09-10",
       endDateExclusive: "2026-09-09",
@@ -435,82 +435,82 @@ try {
   const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
   const createdEvent = await request(coreBase, `/api/v1/spaces/${encodeURIComponent(spaceId)}/models/event/records`, {
     method: "POST",
-    bearer: homemew.agentBearer,
+    bearer: agentA.agentBearer,
     body: {
-      summary: `HomeMew Agent M4 ${suffix}`,
+      summary: `Agent A staging ${suffix}`,
       isAllDay: true,
       startDate: dateOnly(start),
       endDateExclusive: dateOnly(end),
     },
   });
-  homemewEvent = expectStatus("HomeMew Agent Event create", createdEvent, 201);
-  if (!homemewEvent?.id || homemewEvent.version !== 1) throw new Error("HomeMew Agent Event response is invalid");
+  agentAEvent = expectStatus("Agent A Event create", createdEvent, 201);
+  if (!agentAEvent?.id || agentAEvent.version !== 1) throw new Error("Agent A Event response is invalid");
 
-  const homemewTaskDenied = await request(coreBase, `/api/v1/spaces/${encodeURIComponent(spaceId)}/models/task/records`, {
-    method: "POST", bearer: homemew.agentBearer, body: { name: `HomeMew Agent must not create task ${suffix}` },
+  const agentATaskDenied = await request(coreBase, `/api/v1/spaces/${encodeURIComponent(spaceId)}/models/task/records`, {
+    method: "POST", bearer: agentA.agentBearer, body: { name: `Agent A must not create task ${suffix}` },
   });
-  if (homemewTaskDenied.response.status !== 403) {
-    throw new Error(`HomeMew Agent exceeded Task read Delegation: HTTP ${homemewTaskDenied.response.status}`);
+  if (agentATaskDenied.response.status !== 403) {
+    throw new Error(`Agent A exceeded Task read Delegation: HTTP ${agentATaskDenied.response.status}`);
   }
 
-  const homemewChange = await verifyChange(homemew, spaceId, homemewEvent.id);
-  const homemewEvidence = verifyEventEvidence(homemew, spaceId, homemewEvent.id, homemewEvent.version);
+  const agentAChange = await verifyChange(agentA, spaceId, agentAEvent.id);
+  const agentAEvidence = verifyEventEvidence(agentA, spaceId, agentAEvent.id, agentAEvent.version);
 
-  const alohaEventDenied = await request(coreBase, `/api/v1/spaces/${encodeURIComponent(spaceId)}/models/event/records`, {
+  const agentBEventDenied = await request(coreBase, `/api/v1/spaces/${encodeURIComponent(spaceId)}/models/event/records`, {
     method: "POST",
-    bearer: aloha.agentBearer,
+    bearer: agentB.agentBearer,
     body: {
-      summary: `ALOHA must not write Event ${suffix}`,
+      summary: `Agent B must not write Event ${suffix}`,
       isAllDay: true,
       startDate: dateOnly(start),
       endDateExclusive: dateOnly(end),
     },
   });
-  if (alohaEventDenied.response.status !== 403) {
-    throw new Error(`ALOHA exceeded Event read Delegation: HTTP ${alohaEventDenied.response.status}`);
+  if (agentBEventDenied.response.status !== 403) {
+    throw new Error(`Agent B exceeded Event read Delegation: HTTP ${agentBEventDenied.response.status}`);
   }
 
   const createdTask = await request(coreBase, `/api/v1/spaces/${encodeURIComponent(spaceId)}/models/task/records`, {
-    method: "POST", bearer: aloha.agentBearer, body: { name: `ALOHA Assistant M4 ${suffix}` },
+    method: "POST", bearer: agentB.agentBearer, body: { name: `Agent B staging ${suffix}` },
   });
-  alohaTask = expectStatus("ALOHA Task create", createdTask, 201);
-  if (!alohaTask?.id || alohaTask.version !== 1 || alohaTask.status !== "pending") throw new Error("ALOHA Task response is invalid");
+  agentBTask = expectStatus("Agent B Task create", createdTask, 201);
+  if (!agentBTask?.id || agentBTask.version !== 1 || agentBTask.status !== "pending") throw new Error("Agent B Task response is invalid");
 
-  const alohaChange = await verifyChange(aloha, spaceId, alohaTask.id);
-  const alohaEvidence = verifyEventEvidence(aloha, spaceId, alohaTask.id, alohaTask.version);
+  const agentBChange = await verifyChange(agentB, spaceId, agentBTask.id);
+  const agentBEvidence = verifyEventEvidence(agentB, spaceId, agentBTask.id, agentBTask.version);
 
   coreSql(`UPDATE application_model_access SET max_access='read',updated_at=${sqlString(new Date().toISOString())}
-    WHERE application_id=${sqlString(aloha.applicationId)} AND model_key='task'`);
-  alohaTaskCatalogLowered = true;
+    WHERE application_id=${sqlString(agentB.applicationId)} AND model_key='task'`);
+  agentBTaskCatalogLowered = true;
   const applicationCeilingDenied = await request(coreBase, `/api/v1/spaces/${encodeURIComponent(spaceId)}/models/task/records`, {
-    method: "POST", bearer: aloha.agentBearer, body: { name: `ALOHA app ceiling must deny ${suffix}` },
+    method: "POST", bearer: agentB.agentBearer, body: { name: `Agent B app ceiling must deny ${suffix}` },
   });
   if (applicationCeilingDenied.response.status !== 403) {
-    throw new Error(`ALOHA exceeded current Application x Model Access: HTTP ${applicationCeilingDenied.response.status}`);
+    throw new Error(`Agent B exceeded current Application x Model Access: HTTP ${applicationCeilingDenied.response.status}`);
   }
   coreSql(`UPDATE application_model_access SET max_access='write',updated_at=${sqlString(new Date().toISOString())}
-    WHERE application_id=${sqlString(aloha.applicationId)} AND model_key='task'`);
-  alohaTaskCatalogLowered = false;
+    WHERE application_id=${sqlString(agentB.applicationId)} AND model_key='task'`);
+  agentBTaskCatalogLowered = false;
 
   coreSql(`UPDATE space_memberships SET role='viewer',updated_at=${sqlString(new Date().toISOString())}
     WHERE space_id=${sqlString(spaceId)} AND user_id=${sqlString(userId)} AND deleted_at IS NULL`);
   familyMembershipLowered = true;
   const userAuthorityDenied = await request(coreBase, `/api/v1/spaces/${encodeURIComponent(spaceId)}/models/task/records`, {
-    method: "POST", bearer: aloha.agentBearer, body: { name: `ALOHA user authority must deny ${suffix}` },
+    method: "POST", bearer: agentB.agentBearer, body: { name: `Agent B user authority must deny ${suffix}` },
   });
   if (userAuthorityDenied.response.status !== 403) {
-    throw new Error(`ALOHA exceeded current user Space authority: HTTP ${userAuthorityDenied.response.status}`);
+    throw new Error(`Agent B exceeded current user Space authority: HTTP ${userAuthorityDenied.response.status}`);
   }
   coreSql(`UPDATE space_memberships SET role='owner',updated_at=${sqlString(new Date().toISOString())}
     WHERE space_id=${sqlString(spaceId)} AND user_id=${sqlString(userId)} AND deleted_at IS NULL`);
   familyMembershipLowered = false;
 
-  await revokeDelegation(aloha, spaceId);
+  await revokeDelegation(agentB, spaceId);
   const afterRevoke = await request(coreBase, `/api/v1/spaces/${encodeURIComponent(spaceId)}/models/task/records`, {
-    method: "POST", bearer: aloha.agentBearer, body: { name: `ALOHA stale token must fail ${suffix}` },
+    method: "POST", bearer: agentB.agentBearer, body: { name: `Agent B stale token must fail ${suffix}` },
   });
   if (afterRevoke.response.status !== 403) {
-    throw new Error(`Revoked ALOHA Delegation remained usable: HTTP ${afterRevoke.response.status}`);
+    throw new Error(`Revoked Agent B Delegation remained usable: HTTP ${afterRevoke.response.status}`);
   }
 
   resultSummary = {
@@ -518,21 +518,21 @@ try {
     mergeGate: "Intent/Action -> Execution Context -> Effective Authority -> Semantic Validation -> Commit Change -> Attribution/Provenance/Event evidence",
     familySpace: { id: spaceId, kind: "family" },
     principalId: userId,
-    homemewAgent: {
-      applicationId: homemew.applicationId,
-      agentId: homemew.agentId,
+    agentA: {
+      applicationId: agentA.applicationId,
+      agentId: agentA.agentId,
       delegation: { event: "write", task: "read" },
-      eventRecordId: homemewEvent.id,
-      changeId: homemewChange.id,
-      domainEventId: homemewEvidence.eventId,
+      eventRecordId: agentAEvent.id,
+      changeId: agentAChange.id,
+      domainEventId: agentAEvidence.eventId,
     },
-    alohaAssistant: {
-      applicationId: aloha.applicationId,
-      agentId: aloha.agentId,
+    agentB: {
+      applicationId: agentB.applicationId,
+      agentId: agentB.agentId,
       delegation: { event: "read", task: "write" },
-      taskRecordId: alohaTask.id,
-      changeId: alohaChange.id,
-      domainEventId: alohaEvidence.eventId,
+      taskRecordId: agentBTask.id,
+      changeId: agentBChange.id,
+      domainEventId: agentBEvidence.eventId,
       revocationRecheckedWithStillValidToken: true,
     },
     denyPaths: {
@@ -567,19 +567,19 @@ try {
       familyMembershipLowered = false;
     });
   }
-  if (alohaTaskCatalogLowered) {
-    const aloha = contexts.find((item) => item.key === "aloha");
-    if (aloha) await cleanup("ALOHA Task catalog restore", async () => {
+  if (agentBTaskCatalogLowered) {
+    const agentB = contexts.find((item) => item.key === "agentB");
+    if (agentB) await cleanup("Agent B Task catalog restore", async () => {
       coreSql(`UPDATE application_model_access SET max_access='write',updated_at=${sqlString(new Date().toISOString())}
-        WHERE application_id=${sqlString(aloha.applicationId)} AND model_key='task'`);
-      alohaTaskCatalogLowered = false;
+        WHERE application_id=${sqlString(agentB.applicationId)} AND model_key='task'`);
+      agentBTaskCatalogLowered = false;
     });
   }
   for (const context of contexts) {
     if (context.delegationId && context.userBearer && spaceId) await cleanup(`${context.key} Delegation revoke`, () => revokeDelegation(context, spaceId));
   }
-  if (spaceId && homemewEvent) await cleanup("HomeMew Event delete", () => deleteRecord(spaceId, "events", homemewEvent));
-  if (spaceId && alohaTask) await cleanup("ALOHA Task delete", () => deleteRecord(spaceId, "tasks", alohaTask));
+  if (spaceId && agentAEvent) await cleanup("Agent A Event delete", () => deleteRecord(spaceId, "events", agentAEvent));
+  if (spaceId && agentBTask) await cleanup("Agent B Task delete", () => deleteRecord(spaceId, "tasks", agentBTask));
   if (wrongSpace?.id) await cleanup("wrong-Space fixture close", () => closeSpace(wrongSpace));
   if (familySpace?.id) await cleanup("M4 family Space close", () => closeSpace(familySpace));
   for (const context of contexts) await cleanup(`${context.key} temporary credential revoke`, () => revokeCredential(context));
@@ -589,7 +589,7 @@ if (primaryError) {
   if (cleanupErrors.length) primaryError.message += `; cleanup warnings: ${cleanupErrors.join(" | ")}`;
   throw primaryError;
 }
-if (cleanupErrors.length) throw new Error(`Agent-ready M4 cleanup failed: ${cleanupErrors.join(" | ")}`);
+if (cleanupErrors.length) throw new Error(`Agent-ready staging cleanup failed: ${cleanupErrors.join(" | ")}`);
 
 console.log(JSON.stringify({
   ...resultSummary,
