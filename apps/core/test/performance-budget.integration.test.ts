@@ -87,7 +87,7 @@ async function accessToken(privateKey: string, userId: string) {
     iss: "lifespace-identity",
     aud: "lifespace-core",
     sub: userId,
-    azp: "homemew-miniprogram",
+    azp: "app_test_runtime",
     principal_type: "user",
     scope: "resources:read resources:write",
     iat,
@@ -118,7 +118,7 @@ async function fixture() {
   const actor: Principal = {
     type: "user",
     id: userId,
-    clientId: "homemew-miniprogram",
+    clientId: "app_test_runtime",
     scopes: ["resources:read", "resources:write"],
     tokenId: `tok_setup_${suffix}`,
   };
