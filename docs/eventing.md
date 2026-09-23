@@ -128,7 +128,7 @@ Webhook transport is deliberately **public HTTPS egress**, including when a vali
 
 Non-2xx responses and transport failures are retried by Cloudflare Queues. After configured retries the message moves to the environment-specific dead-letter queue. Delivery logs retain status, attempt count, last HTTP status/error and timestamps; response bodies are not persisted.
 
-Delivery diagnostics are endpoint-level so an operator can see all model notifications using the shared destination in one history view. Each delivery still exposes its source `modelKey` and subscription ID for diagnosis.
+Delivery diagnostics are endpoint-level so an operator can see all model notifications using the shared destination in one history view. Each delivery exposes an authoritative `events[]` list; every entry carries its source `modelKey`, event reference and matching subscription ID. Independent single-event deliveries also retain the legacy scalar event fields for compatibility.
 
 ## Test send
 
