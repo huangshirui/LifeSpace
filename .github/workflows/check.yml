@@ -62,5 +62,12 @@ jobs:
           node-version: 24
       - run: pnpm install --frozen-lockfile
         if: steps.validation.outputs.run_full == 'true'
+      - name: Generate reviewed Stable Space baseline
+        if: steps.validation.outputs.run_full == 'true'
+        run: |
+          pnpm --filter @lifespace/core stable-contract:baseline
+          echo "__LIFESPACE_STABLE_BASELINE_BEGIN__"
+          cat docs/stable-public-schema-baseline.json.gz.b64
+          echo "__LIFESPACE_STABLE_BASELINE_END__"
       - run: pnpm check
         if: steps.validation.outputs.run_full == 'true'
