@@ -15,8 +15,7 @@ Read:
 7. `docs/eventing.md` when changing Domain Events, subscriptions, Webhook delivery, queues or delivery diagnostics;
 8. `docs/phase3-metadata-platform-plan.md` when changing model/runtime architecture;
 9. `docs/phase3-performance-convergence-plan.md` for persistence/query/performance changes;
-10. `docs/migration-plan.md` when porting HomeMew behavior;
-11. the relevant Core contract, migrations, tests, Model Definitions and implementation.
+10. the relevant Core contract, migrations, tests, Model Definitions and implementation.
 
 ## Core responsibilities
 
@@ -195,17 +194,11 @@ Do not put Console-only privileged APIs into the Kernel contract simply because 
 
 Console Model publish/retire profiles reuse the Model Control Plane request/response schemas; they must not become a second hand-maintained Model Definition schema.
 
-## HomeMew migration rules
+## Consumer independence
 
-Use prior HomeMew behavior as semantic reference for request tracing, envelopes, concurrency, time/date behavior, queues and proven business semantics.
+Use prior consumer behavior only as evidence when deciding whether a semantic belongs in LifeSpace. Do not preserve consumer-specific ownership, identity, role, lifecycle, persistence, delivery, UI or product-policy assumptions unless they have been deliberately generalized as a platform invariant.
 
-Do not mechanically preserve:
-
-- `family_id` ownership assumptions;
-- HomeMew-specific identity ownership;
-- family-only role checks where Space/Data Grant rules are required;
-- handwritten Event/Task/Day Record/Wish persistence/routers where Generic Runtime is now authoritative;
-- HomeMew-owned Webhook/outbox/retry state when the behavior belongs to LifeSpace Eventing.
+Application-specific migration/cutover tooling belongs in the consumer repository or Git history, not in current Core source.
 
 ## Verification
 
