@@ -27,7 +27,20 @@ vi.mock("../src/app", async (importOriginal) => {
   };
 });
 
+const testDb = (env as unknown as { DB: D1Database }).DB;
+
 await applyD1Migrations(
-  (env as unknown as { DB: D1Database }).DB,
+  testDb,
   (env as unknown as { TEST_MIGRATIONS: D1Migration[] }).TEST_MIGRATIONS,
+);
+
+// Generic Runtime tests use an anonymous Application fixture rather than
+// borrowing any concrete downstream application's production catalog seed.
+await testDb.batch(
+  ["task", "wish", "day_record", "event"].map((modelKey) =>
+    testDb.prepare(`INSERT OR REPLACE INTO application_model_access(
+      application_id,model_key,max_access,created_by_type,created_by_id,created_at,updated_at
+    ) VALUES(?,?,?,?,?,strftime('%Y-%m-%dT%H:%M:%fZ','now'),strftime('%Y-%m-%dT%H:%M:%fZ','now'))`)
+      .bind("app_test_runtime", modelKey, "write", "service", "svc_test_bootstrap"),
+  ),
 );
