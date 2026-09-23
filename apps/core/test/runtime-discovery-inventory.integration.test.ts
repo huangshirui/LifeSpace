@@ -92,10 +92,8 @@ async function fixture(): Promise<Fixture> {
   const now = new Date().toISOString();
 
   await db.batch([
-    db.prepare(`INSERT INTO spaces(id,kind,name,created_by_user_id,created_at,updated_at,timezone)
-      VALUES(?,?,?,?,?,?,?)`).bind(firstSpaceId, "personal", "Inventory A", userId, now, now, "UTC"),
-    db.prepare(`INSERT INTO spaces(id,kind,name,created_by_user_id,created_at,updated_at,timezone)
-      VALUES(?,?,?,?,?,?,?)`).bind(secondSpaceId, "family", "Inventory B", userId, now, now, "UTC"),
+    db.prepare(`INSERT INTO spaces(id,name,created_by_user_id,created_at,updated_at,timezone) VALUES(?,?,?,?,?,?)`).bind(firstSpaceId, "Inventory A", userId, now, now, "UTC"),
+    db.prepare(`INSERT INTO spaces(id,name,created_by_user_id,created_at,updated_at,timezone) VALUES(?,?,?,?,?,?)`).bind(secondSpaceId, "Inventory B", userId, now, now, "UTC"),
     db.prepare(`INSERT INTO space_memberships(id,space_id,user_id,role,created_at,updated_at)
       VALUES(?,?,?,?,?,?)`).bind(`mem_inventory_a_${suffix}`, firstSpaceId, userId, "owner", now, now),
     db.prepare(`INSERT INTO space_memberships(id,space_id,user_id,role,created_at,updated_at)
