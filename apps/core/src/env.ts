@@ -42,9 +42,16 @@ export type Bindings = CloudflareBindings & {
   AI_API_KEY?: string;
   AI_MODEL?: string;
   AI_PROMPT_APPENDIX?: string;
+  PERFORMANCE_DIAGNOSTICS?: string;
+};
+
+export type RequestPerformanceTiming = {
+  startedAt: number;
+  phases: Record<string, number>;
 };
 
 export type Variables = {
   requestId: string;
   principal: Principal;
+  performanceTiming?: RequestPerformanceTiming;
 };
