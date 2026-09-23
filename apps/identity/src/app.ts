@@ -92,7 +92,7 @@ function authenticateUser(): MiddlewareHandler<AppEnv> {
       return c.json(fail("UNAUTHORIZED", "Bearer token principal is invalid", c.get("requestId")), 401);
     }
     const userId = payload.sub;
-    const user = await measurePerformancePhase(c, "auth.user_status", () =>
+    const user = await measurePerformancePhase(c, "security.user_state", () =>
       c.env.DB.prepare("SELECT status FROM users WHERE id=?").bind(userId).first<{ status: string }>(),
     );
     if (!user || user.status !== "active") {
@@ -144,7 +144,7 @@ export function createApp() {
     if (!secret.startsWith("lsa_") || secret.length < 40) {
       return c.json(fail("UNAUTHORIZED", "Trusted application authentication is required", c.get("requestId")), 401);
     }
-    const credential = await measurePerformancePhase(c, "auth.application_credential", async () => {
+    const credential = await measurePerformancePhase(c, "security.application_check", async () => {
       const secretHash = await hashApplicationSecret(secret);
       return c.env.DB.prepare(`
         SELECT c.application_id applicationId,
