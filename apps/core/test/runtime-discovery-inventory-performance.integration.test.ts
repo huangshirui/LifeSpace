@@ -107,7 +107,8 @@ async function seed(database: D1Database) {
     const spaceId = `spc_inventory_perf_${index}_${suffix}`;
     spaceIds.push(spaceId);
     statements.push(
-      database.prepare(`INSERT INTO spaces(id,name,created_by_user_id,created_at,updated_at,timezone) VALUES(?,?,?,?,?,?)`).bind(spaceId, `Inventory Perf ${index}`, userId, now, now, "UTC"),
+      database.prepare(`INSERT INTO spaces(id,kind,name,created_by_user_id,created_at,updated_at,timezone)
+        VALUES(?,?,?,?,?,?,?)`).bind(spaceId, "personal", `Inventory Perf ${index}`, userId, now, now, "UTC"),
       database.prepare(`INSERT INTO space_memberships(id,space_id,user_id,role,created_at,updated_at)
         VALUES(?,?,?,?,?,?)`).bind(`mem_inventory_perf_${index}_${suffix}`, spaceId, userId, "owner", now, now),
       database.prepare(`INSERT INTO space_people(id,space_id,linked_user_id,display_name,created_at,updated_at)
