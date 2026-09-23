@@ -137,7 +137,6 @@ export type PlatformUserDetail = PlatformUser & {
 
 export type PlatformSpace = {
   id: string;
-  kind: "personal" | "family" | "team" | string;
   name: string;
   timezone: string;
   avatarUrl: string | null;
