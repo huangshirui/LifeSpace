@@ -14,6 +14,12 @@ export type Bindings = {
   CORE_IDENTITY_SHARED_SECRET: string;
   ACCESS_TEAM_DOMAIN?: string;
   ENVIRONMENT?: string;
+  PERFORMANCE_DIAGNOSTICS?: string;
+};
+
+export type RequestPerformanceTiming = {
+  startedAt: number;
+  phases: Record<string, number>;
 };
 
 export type Variables = {
@@ -22,4 +28,5 @@ export type Variables = {
   currentApplicationScopes: string[];
   currentApplicationTokenTtlSeconds: number;
   principal: UserPrincipal;
+  performanceTiming?: RequestPerformanceTiming;
 };
