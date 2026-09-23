@@ -28,7 +28,7 @@ const applicationModelAccess = new Map([
 ]);
 const agents = [
   {
-    key: "agent-a",
+    key: "agentA",
     applicationId: "app_agent_a_staging",
     applicationName: "Agent A staging",
     agentDisplayName: "Agent A",
@@ -39,7 +39,7 @@ const agents = [
     expectedDiscovery: { event: ["read", "write"], task: ["read"] },
   },
   {
-    key: "agent-b",
+    key: "agentB",
     applicationId: "app_agent_b_staging",
     applicationName: "Agent B staging",
     agentDisplayName: "Agent B",
