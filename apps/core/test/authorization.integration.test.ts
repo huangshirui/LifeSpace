@@ -47,7 +47,7 @@ async function seedSpace(spaceId: string, ownerId: string) {
   const db = (env as unknown as TestEnv).DB;
   const now = new Date().toISOString();
   await db.prepare(`INSERT INTO spaces(id,kind,name,created_by_user_id,created_at,updated_at) VALUES(?,?,?,?,?,?)`)
-    .bind(spaceId, `Space ${spaceId}`, ownerId, now, now).run();
+    .bind(spaceId, "family", `Space ${spaceId}`, ownerId, now, now).run();
   await db.prepare(`INSERT INTO space_memberships(id,space_id,user_id,role,created_at,updated_at) VALUES(?,?,?,?,?,?)`)
     .bind(`mem_${crypto.randomUUID()}`, spaceId, ownerId, "owner", now, now).run();
   await db.prepare(`INSERT INTO space_people(id,space_id,linked_user_id,display_name,created_at,updated_at) VALUES(?,?,?,?,?,?)`)
