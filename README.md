@@ -132,5 +132,4 @@ Start with `AGENTS.md`, then the relevant source-of-truth documents:
 - `docs/contracts.md` — Kernel/model contract ownership and publication
 - `docs/phase3-metadata-platform-plan.md` — metadata-driven model architecture
 - `docs/phase3-performance-convergence-plan.md` — runtime/storage performance invariants
-- `docs/migration-plan.md` — HomeMew migration/cutover rules and current phase status
 - `docs/application-authentication.md` — trusted application and Cloudflare Access Identity contracts
