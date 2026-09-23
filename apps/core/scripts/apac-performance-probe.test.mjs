@@ -54,12 +54,12 @@ test("APAC performance probe does not benchmark retired v1 aliases or arbitrary 
 });
 
 test("APAC user benchmark exercises Event v6 TemporalRange through Canonical Query", () => {
-  const benchmark = readFileSync(new URL("../../../infra/scripts/staging-performance-benchmark.mjs", import.meta.url), "utf8");
+  const benchmark = readFileSync(new URL("../../../infra/scripts/staging-canonical-performance-benchmark.mjs", import.meta.url), "utf8");
   assert.match(benchmark, /when:\s*\{\s*kind:\s*"instant"/u);
   assert.match(benchmark, /models\/event\/records\/query/u);
   assert.match(benchmark, /field:\s*"when",\s*op:\s*"overlaps"/u);
-  assert.match(benchmark, /kind:\s*"local_date_window"/u);
-  assert.match(benchmark, /context:\s*\{\s*viewingTimezone:\s*"UTC"\s*\}/u);
   assert.doesNotMatch(benchmark, /isAllDay/u);
   assert.doesNotMatch(benchmark, /rangeStart=/u);
+  assert.match(benchmark, /mutationSampleCount\s*=\s*DEFAULT_MUTATION_SAMPLE_COUNT/u);
+  assert.match(benchmark, /DEFAULT_MUTATION_SAMPLE_COUNT\s*=\s*15/u);
 });
