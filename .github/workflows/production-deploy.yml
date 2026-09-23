@@ -185,8 +185,11 @@ jobs:
           - Probe access: ephemeral random credential; staging user JWT and opaque Service API Token are stored only as temporary Worker secrets.
           - Readiness: both \`/health\` and the real \`POST /run -> Core\` read path must converge before timed samples start.
           - Benchmark profile: \`apac\`, acceptance eligible.
-          - User JWT common-read target: P50 <= 220 ms and P90 <= 500 ms.
-          - Opaque \`lsp_pat_*\` Task GET/list target: P50 <= 220 ms and P90 <= 500 ms; Task create/PATCH/Action timings are recorded for #198 convergence.
+          - User JWT ordinary-read target: P50 <= 150 ms and P90 <= 250 ms.
+          - User JWT Day Record / Temporal read target: P50 <= 220 ms and P90 <= 300 ms.
+          - User JWT mutation/action target: P50 <= 160 ms and P90 <= 250 ms, measured with 15 samples per mutation scenario.
+          - Opaque \`lsp_pat_*\` Task GET/list target: P50 <= 180 ms and P90 <= 250 ms.
+          - Opaque \`lsp_pat_*\` Task create/PATCH/Action target: P50 <= 220 ms and P90 <= 300 ms, measured with 15 samples per mutation scenario.
           - D1 round-trip budgets: independently enforced by repository integration tests.
           - Temporary probe Worker: deletion attempted on every outcome.
           - Production and HomeMew traffic/data were not touched.

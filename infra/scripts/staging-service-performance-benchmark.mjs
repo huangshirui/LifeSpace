@@ -1,8 +1,8 @@
-export const SERVICE_READ_TARGETS = Object.freeze({ p50Ms: 220, p90Ms: 500 });
+import { evaluateTargets, SERVICE_MUTATION_TARGETS, SERVICE_READ_TARGETS } from "./performance-release-targets.mjs";
 
 const DEFAULT_SAMPLE_COUNT = 15;
 const DEFAULT_WARMUP_COUNT = 3;
-const DEFAULT_MUTATION_SAMPLE_COUNT = 8;
+const DEFAULT_MUTATION_SAMPLE_COUNT = 15;
 
 function percentile(values, p) {
   const sorted = [...values].sort((a, b) => a - b);
@@ -19,10 +19,6 @@ function summarize(values) {
     minMs: Number(Math.min(...values).toFixed(1)),
     maxMs: Number(Math.max(...values).toFixed(1)),
   };
-}
-
-function targetMet(metric) {
-  return metric.p50Ms <= SERVICE_READ_TARGETS.p50Ms && metric.p90Ms <= SERVICE_READ_TARGETS.p90Ms;
 }
 
 export async function runStagingServicePerformanceBenchmark({
@@ -159,8 +155,15 @@ export async function runStagingServicePerformanceBenchmark({
       actionSamples.push(changed.elapsedMs);
     }
 
-    const readTargetsMet = Object.fromEntries(Object.entries(reads).map(([key, metric]) => [key, targetMet(metric)]));
+    const mutations = {
+      taskCreate: summarize(createSamples),
+      taskPatch: summarize(patchSamples),
+      taskWorkflow: summarize(actionSamples),
+    };
+    const readTargetsMet = evaluateTargets(reads, SERVICE_READ_TARGETS);
+    const mutationTargetsMet = evaluateTargets(mutations, SERVICE_MUTATION_TARGETS);
     const allReadTargetsMet = Object.values(readTargetsMet).every(Boolean);
+    const allMutationTargetsMet = Object.values(mutationTargetsMet).every(Boolean);
 
     return {
       ok: true,
@@ -169,17 +172,19 @@ export async function runStagingServicePerformanceBenchmark({
       acceptanceEligible,
       source,
       marker,
-      targets: SERVICE_READ_TARGETS,
+      targets: {
+        reads: SERVICE_READ_TARGETS,
+        mutations: SERVICE_MUTATION_TARGETS,
+      },
       reads,
       readTargetsMet,
       allReadTargetsMet,
-      mutations: {
-        taskCreate: summarize(createSamples),
-        taskPatch: summarize(patchSamples),
-        taskWorkflow: summarize(actionSamples),
-      },
+      mutations,
+      mutationTargetsMet,
+      allMutationTargetsMet,
+      allTargetsMet: allReadTargetsMet && allMutationTargetsMet,
       note: acceptanceEligible
-        ? "Service API Token read timings are acceptance-eligible and use the same Phase-3 common-read envelope; mutation timings are recorded explicitly for #198 convergence."
+        ? "Service API Token read and mutation timings are release-gate eligible under scenario-specific APAC targets."
         : "Diagnostic only: absolute Service API Token timings are not acceptance-eligible outside the controlled APAC probe.",
     };
   } finally {

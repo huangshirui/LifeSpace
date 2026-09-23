@@ -73,9 +73,15 @@ const serviceResult = await runStagingServicePerformanceBenchmark({
 
 console.log(JSON.stringify({ user: userResult, service: serviceResult }, null, 2));
 
-if (!userResult.acceptanceEligible || !userResult.allReadTargetsMet) {
-  throw new Error(`Staging APAC user read performance target missed: ${JSON.stringify(userResult.readTargetsMet)}`);
+if (!userResult.acceptanceEligible || !userResult.allTargetsMet) {
+  throw new Error(`Staging APAC user performance target missed: ${JSON.stringify({
+    reads: userResult.readTargetsMet,
+    mutations: userResult.mutationTargetsMet,
+  })}`);
 }
-if (!serviceResult.acceptanceEligible || !serviceResult.allReadTargetsMet) {
-  throw new Error(`Staging APAC Service PAT read performance target missed: ${JSON.stringify(serviceResult.readTargetsMet)}`);
+if (!serviceResult.acceptanceEligible || !serviceResult.allTargetsMet) {
+  throw new Error(`Staging APAC Service PAT performance target missed: ${JSON.stringify({
+    reads: serviceResult.readTargetsMet,
+    mutations: serviceResult.mutationTargetsMet,
+  })}`);
 }

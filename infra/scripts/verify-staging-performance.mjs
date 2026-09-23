@@ -35,6 +35,9 @@ const result = await runStagingPerformanceBenchmark({
 
 console.log(JSON.stringify(result, null, 2));
 
-if (enforce && !result.allReadTargetsMet) {
-  throw new Error(`Staging APAC read performance target missed: ${JSON.stringify(result.readTargetsMet)}`);
+if (enforce && !result.allTargetsMet) {
+  throw new Error(`Staging APAC performance target missed: ${JSON.stringify({
+    reads: result.readTargetsMet,
+    mutations: result.mutationTargetsMet,
+  })}`);
 }
