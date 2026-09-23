@@ -3,6 +3,7 @@ import { cors } from "hono/cors";
 import type { Bindings, Variables } from "./env";
 import { authenticate } from "./auth";
 import { registerAgentDelegationRoutes } from "./agent-delegation";
+import { registerBatchCreateRoutes } from "./batch-create";
 import { registerChangeHistoryRoutes } from "./change-history";
 import { registerRegistryCreationDraftRoutes } from "./registry-creation-draft-jobs";
 import { registerGenericResourceRoutes } from "./generic-resource-routes";
@@ -81,6 +82,7 @@ export function createApp() {
   registerRuntimeDiscoveryRoutes(app);
   registerRuntimeModelSemanticDetailRoutes(app);
   registerRelationTargetRoutes(app);
+  registerBatchCreateRoutes(app);
   registerGenericResourceRoutes(app);
   app.notFound((context) => context.json(failure("NOT_FOUND", "Route not found", context.get("requestId")), 404));
   app.onError((error, context) => {
