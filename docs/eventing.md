@@ -2,7 +2,7 @@
 
 LifeSpace Eventing is the platform-owned mechanism for publishing ordinary-model changes to authorized external subscribers. Applications own product-facing configuration UX; they do not create parallel event, webhook, delivery, or retry stores.
 
-Canonical public contract: `apps/core/integration-eventing.openapi.yaml` (Integration/Eventing `0.2.0`). It is independently versioned and compatibility-checked from the Core Kernel contract while remaining implemented in the same Core Worker.
+Canonical public contract: `apps/core/integration-eventing.openapi.yaml` (Integration/Eventing `0.3.0`). It is independently versioned and compatibility-checked from the Core Kernel contract while remaining implemented in the same Core Worker.
 
 ## Event model
 
@@ -16,9 +16,15 @@ All ordinary models emit model-agnostic event types:
 
 The authoritative mutation and the event outbox entry are atomic. D1 triggers on `resource_records` write the outbox inside the same transaction/batch as the ordinary-model mutation. Capability-specific mutation paths therefore participate without handwritten event hooks.
 
-Batch Create does not introduce a batch-specific Domain Event. An atomic batch that creates N ordinary records produces N ordinary `record.created` outbox entries through the same `resource_records` triggers. Because the authoritative records, governed Change rows and trigger-produced outbox rows participate in the same D1 batch/transaction, a failed Batch Create leaves none of them committed.
+Batch Create does not introduce a batch-specific Domain Event. An atomic batch that creates N ordinary records still produces N ordinary `record.created` outbox entries through the same `resource_records` triggers. Those events receive one explicit ordered `operation_group_id` only because they came from the same atomic Batch operation. The authoritative records, governed Change rows, operation-group metadata and trigger-produced outbox rows participate in the same D1 batch/transaction, so a failed Batch Create leaves none of them committed.
 
-External Webhook payloads are reference-only and contain event ID/type, Space, model key, record ID/version and occurrence time. They do not contain the full record or actor identity. A receiving system that needs record data must authenticate normally and pass current LifeSpace credential scope, Application × Model Access and Space/Data Grant authorization.
+Callback grouping is **operation-defined, never time-window inferred**:
+
+- single ordinary operation: 1 Domain Event → 1 callback;
+- explicit Batch operation: N Domain Events → 1 callback per matching Webhook Endpoint, carrying that endpoint's matching events in `events[]`;
+- independent operations that happen milliseconds apart: independent callbacks. LifeSpace Core does not debounce, coalesce or guess user intent from elapsed time.
+
+External Webhook payloads remain reference-only. Independent single-event callbacks retain the historical single-event object. Explicit operation-group callbacks use `{"events":[...]}`; each event reference contains event ID/type, Space, model key, record ID/version, governed `changeId` and occurrence time. Neither form contains the full record or actor identity. A receiving system that needs record data must authenticate normally and pass current LifeSpace credential scope, Application × Model Access and Space/Data Grant authorization.
 
 ## Endpoint and subscription model
 
@@ -91,7 +97,7 @@ Application UIs may present domain-friendly names (for example HomeMew shows `ev
 
 ## Delivery
 
-The D1 outbox is scanned by the Core scheduled handler and matched against active subscription filters whose endpoint is active and whose subscriber still has a current Data Grant. Matching produces one durable delivery row per `(event, subscription)` and enqueues the delivery to the environment-specific Cloudflare Queue.
+The D1 outbox is scanned by the Core scheduled handler and matched against active subscription filters whose endpoint is active and whose subscriber still has a current Data Grant. Matching produces one durable delivery per Webhook Endpoint and explicit operation unit. Independent events therefore remain one delivery each; events sharing one `operation_group_id` are matched across that endpoint's model subscriptions and represented by one delivery with ordered event references. The delivery is then enqueued once to the environment-specific Cloudflare Queue.
 
 Outbox matching intentionally does not copy or cache Identity principal state. The Queue consumer is the final authority gate: after re-checking the Core-owned endpoint/subscription, Application × Model Access and Data Grant state, it queries Identity current state by stable `svc_*` ID before any outbound HTTP attempt or delivery-attempt increment.
 
@@ -104,16 +110,17 @@ The resulting behavior is fail-closed:
 
 This design deliberately accepts one authenticated Service Binding + Identity current-state read for each delivery that survives the Core-owned authority checks. Positive caching or replicated principal eligibility is not part of the correctness boundary unless a future design supplies explicit revocation-safe freshness semantics.
 
-Delivery semantics are at-least-once. Receivers should use `X-LifeSpace-Event-Id` and/or `X-LifeSpace-Delivery-Id` for idempotency.
+Delivery semantics are at-least-once. `X-LifeSpace-Delivery-Id` is the callback-level idempotency key.
 
-Webhook requests are POST JSON and include:
+Webhook requests are POST JSON and always include:
 
-- `X-LifeSpace-Event-Id`
 - `X-LifeSpace-Delivery-Id`
 - `X-LifeSpace-Webhook-Endpoint-Id`
-- `X-LifeSpace-Subscription-Id`
+- `X-LifeSpace-Event-Count`
 - `X-LifeSpace-Timestamp`
 - `X-LifeSpace-Signature: v1=<hex HMAC-SHA256>`
+
+Independent single-event callbacks additionally include `X-LifeSpace-Event-Id` and `X-LifeSpace-Subscription-Id`. Explicit grouped callbacks instead include `X-LifeSpace-Operation-Group-Id`; they may span multiple model subscriptions, so no singular subscription/event header is invented.
 
 The signature input is `timestamp + "." + rawBody` using the endpoint signing secret.
 
