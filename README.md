@@ -1,6 +1,6 @@
 # LifeSpace Platform
 
-LifeSpace is the shared life-data platform behind ALOHA, HomeMew, and future vertical applications.
+LifeSpace is a shared-reality platform consumed by replaceable applications, Agents, services and protocol adapters.
 
 It is the platform source of truth for global LifeSpace Identity, Space/Data Grant authorization, metadata-driven domain models, reusable business capabilities, canonical contracts, migrations, and Cloudflare deployment configuration. Application repositories own product UI, application-specific provider adapters/BFF behavior, and product presentation.
 
@@ -10,11 +10,9 @@ It is the platform source of truth for global LifeSpace Identity, Space/Data Gra
 apps/
   core/        LifeSpace Core Worker: Spaces, Grants, Model Registry, Generic Runtime and Capabilities
   identity/    LifeSpace Identity Worker: users, application/service credentials and Web Access principals
-packages/
-  contracts/   Reproducible versioned/pinned platform contract artifacts
-  client/      Platform client/SDK surface built against explicit contracts
-docs/          Architecture, authorization, contracts, migration plans and phase evidence
-infra/         Shared Cloudflare deployment, verification and migration tooling
+  console/     LifeSpace platform administration UI/BFF
+docs/          Current architecture, authorization, contracts and platform specifications
+infra/         Shared Cloudflare deployment, verification and platform operations
 ```
 
 Service-owned D1 migrations live with the service that owns the database, for example `apps/core/migrations` and `apps/identity/migrations`.
@@ -25,7 +23,7 @@ Service-owned D1 migrations live with the service that owns the database, for ex
 
 A human has one global LifeSpace `usr_*` identity across applications and Spaces.
 
-Application-specific provider identities remain application-owned. For example, HomeMew owns its WeChat `openid -> usr_*` mapping in the HomeMew application backend; LifeSpace Identity does not become a generic external-provider identity store.
+Application-specific provider identities remain application-owned. Applications resolve provider subjects to LifeSpace `usr_*` identities through their own adapters/BFFs; LifeSpace Identity does not become a generic external-provider identity store.
 
 Cloudflare Access is the deliberate Web exception and the long-term authentication/SSO layer for owner-controlled LifeSpace Web/PWA/Admin applications:
 
@@ -74,40 +72,11 @@ Applications pin explicit compatible contract versions instead of consuming an u
 | --- | --- |
 | Owner-controlled Web/PWA/Admin | Cloudflare Access + same-origin BFF + LifeSpace Identity Access exchange |
 | Mini Program / application-specific provider | Application backend resolves provider identity, then `lsa_*` trusted application exchange |
-| Owner-controlled n8n/script/MCP/backend | Opaque revocable `lsp_pat_*` Service API Token |
+| Owner-controlled automation/script/backend | Opaque revocable `lsp_pat_*` Service API Token |
 | Third-party/policy-controlled service | OAuth 2.0 `client_credentials` |
 
 Browser, Mini Program and downloadable client code must never contain `lsa_*`, service credentials, signing keys, provider secrets or other backend secrets.
 
-## HomeMew status
-
-HomeMew is already cut over to LifeSpace production as the authoritative writable platform for migrated household data.
-
-Phase 7 completed the controlled one-shot production migration and activation on 2026-08-21. Current production routing is:
-
-```text
-homemew.aisr.online -> HomeMew Cloudflare backend
-                       -> auth.aisr.online
-                       -> core.aisr.online
-```
-
-The legacy HomeMew Core/D1 is retained frozen/read-only only for the Phase 8 stabilization and rollback-evidence window. There is no dual-write or permanent compatibility Core.
-
-Current migration status:
-
-| Phase | Status |
-| --- | --- |
-| Phase 1 — platform foundation | Complete |
-| Phase 2 — native HomeMew capability parity | Complete |
-| Phase 3 — metadata-driven runtime / typed storage / performance convergence | Complete |
-| Phase 4 — HomeMew integration readiness | Complete |
-| Phase 5 — one-shot migration rehearsal | Complete |
-| Phase 6 — isolated production platform deployment | Complete |
-| Phase 7 — HomeMew production migration and cutover | Complete |
-| Phase 8 — stabilization and old-infrastructure retirement | **In progress** |
-| Phase 9 — post-cutover aggregation/sharing evolution | Non-blocking |
-
-See `docs/migration-plan.md` and `docs/phase7-status.md` for the migration/cutover evidence.
 
 ## Current contracts and Identity × Cloudflare Access work
 
@@ -123,8 +92,6 @@ The current repository Identity Application Contract is **0.6.0**. It extends th
 - explicit atomic new-user registration without email-based merging;
 - short-lived, high-entropy, single-use existing-account link challenges;
 - multiple verified Access principals may link to one LifeSpace user.
-
-The earlier Identity 0.5.0 HomeMew Web staging Access proof remains historical acceptance evidence; it is not the current repository contract label. The existing HomeMew Mini Program production identity path continues to use its application-owned WeChat mapping and trusted application exchange.
 
 ## Environments
 
