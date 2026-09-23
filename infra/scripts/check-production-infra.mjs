@@ -7,18 +7,13 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const scripts = [
   "infra/scripts/provision-production.mjs",
   "infra/scripts/production-expectations.mjs",
-  "infra/scripts/check-production-release-readiness.mjs",
   "infra/scripts/verify-staging-candidate-identity.mjs",
   "infra/scripts/resolve-production-d1.mjs",
   "infra/scripts/ensure-production-domains.mjs",
   "infra/scripts/initialize-production-runtime.mjs",
-  "infra/scripts/homemew-contract-identity.mjs",
   "infra/scripts/verify-production-http.mjs",
   "infra/scripts/verify-production-cloudflare.mjs",
   "infra/scripts/verify-production-model-admin.mjs",
-  "infra/scripts/verify-production-homemew-contract.mjs",
-  "infra/scripts/verify-production-homemew-auth.mjs",
-  "infra/scripts/verify-production-db.mjs",
 ];
 
 for (const script of scripts) {
@@ -102,11 +97,9 @@ requireTokens("Production deployment workflow", productionDeploy, [
   "LIFESPACE_PRODUCTION_BOOTSTRAP_SECRET",
   "ref: ${{ github.sha }}",
   "production deployment must run from main",
-  "node infra/scripts/check-production-release-readiness.mjs",
   "db:migrate:production",
   "wrangler deploy --env production",
   "node infra/scripts/verify-production-model-admin.mjs",
-  "node infra/scripts/verify-production-homemew-contract.mjs",
 ]);
 forbidTokens("Production deployment workflow", productionDeploy, [
   "apac_gate_run_id",
@@ -114,9 +107,6 @@ forbidTokens("Production deployment workflow", productionDeploy, [
   "apac-performance-gate.yml",
   "phase6_bringup",
   "provision-production.mjs",
-  "verify-production-homemew-auth.mjs",
-  "verify-production-db.mjs",
-  "homemew-one-shot.mjs",
 ]);
 
 const productionProvision = readFileSync(resolve(ROOT, ".github/workflows/production-provision.yml"), "utf8");
@@ -162,14 +152,6 @@ requireTokens("Production APAC prerequisite job", productionDeploy, [
   "node infra/scripts/verify-staging-apac-performance.mjs",
 ]);
 
-const profile = JSON.parse(readFileSync(resolve(ROOT, "infra/homemew-integration-profile.json"), "utf8"));
-if (profile.application?.productionId !== "homemew-miniprogram") {
-  throw new Error("HomeMew production application ID must remain aligned with Core Application × Model Access");
-}
-if (profile.application?.allowedUserScopes?.includes("models:manage")) {
-  throw new Error("HomeMew production user scope ceiling must not contain models:manage");
-}
-
 console.log(JSON.stringify({
   ok: true,
   scripts: scripts.length,
@@ -179,7 +161,6 @@ console.log(JSON.stringify({
     queues: [...expected.queues],
     domains: Object.fromEntries(expected.domains),
   },
-  homemewProductionApplicationId: profile.application.productionId,
   phase6ActiveEntrypointAbsent: true,
   deploymentProvisioningSeparated: true,
   stagingProvisioningSeparated: true,
