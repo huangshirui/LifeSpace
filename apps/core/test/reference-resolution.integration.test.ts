@@ -81,10 +81,8 @@ async function fixture() {
   const now = new Date().toISOString();
 
   await db.batch([
-    db.prepare(`INSERT INTO spaces(id,kind,name,created_by_user_id,created_at,updated_at,timezone)
-      VALUES(?,?,?,?,?,?,?)`).bind(spaceId, "family", "Reference Resolution", userId, now, now, "UTC"),
-    db.prepare(`INSERT INTO spaces(id,kind,name,created_by_user_id,created_at,updated_at,timezone)
-      VALUES(?,?,?,?,?,?,?)`).bind(otherSpaceId, "family", "Other Reference Space", userId, now, now, "UTC"),
+    db.prepare(`INSERT INTO spaces(id,name,created_by_user_id,created_at,updated_at,timezone) VALUES(?,?,?,?,?,?)`).bind(spaceId, "Reference Resolution", userId, now, now, "UTC"),
+    db.prepare(`INSERT INTO spaces(id,name,created_by_user_id,created_at,updated_at,timezone) VALUES(?,?,?,?,?,?)`).bind(otherSpaceId, "Other Reference Space", userId, now, now, "UTC"),
     db.prepare(`INSERT INTO space_memberships(id,space_id,user_id,role,created_at,updated_at)
       VALUES(?,?,?,?,?,?)`).bind(`mem_ref_${suffix}`, spaceId, userId, "owner", now, now),
     db.prepare(`INSERT INTO space_people(id,space_id,linked_user_id,display_name,created_at,updated_at)
