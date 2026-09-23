@@ -260,21 +260,20 @@ Spaces remains a **read-only Core troubleshooting inspector**。Platform adminis
 List：
 
 - search by `spc_*` / name；
-- kind filter (`personal` / `family` / `team`)；
 - member count；
 - active Grant count；
 - active ordinary record count。
 
 Detail：
 
-- ID / name / kind / timezone / version；
+- ID / name / timezone / version；
 - active members + linked Space Person display names；
 - Data Grants including revoked/expiry state；
 - record counts grouped by model key。
 
 Not MVP：
 
-- arbitrary family/personal record edit；
+- arbitrary downstream product record editing；
 - force membership；
 - arbitrary Data Grant mutation；
 - authorization bypass by impersonation。
