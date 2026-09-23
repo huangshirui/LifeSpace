@@ -381,7 +381,7 @@ async function deliverOne(env: Bindings, deliveryId: string): Promise<"ack" | "r
   if (!delivery || delivery.status === "succeeded" || delivery.status === "cancelled") return "ack";
   if (!delivery.endpoint_id || !delivery.webhook_url || !delivery.signing_secret || !delivery.endpoint_enabled
       || !delivery.application_id || !delivery.subscriber_service_principal_id || !delivery.space_id) {
-    return cancelDelivery(env, deliveryId, "endpoint unavailable or access revoked");
+    return cancelDelivery(env, deliveryId, "endpoint/subscription unavailable or access revoked");
   }
 
   const events = await authorizedDeliveryEvents(env, delivery);
