@@ -119,16 +119,45 @@ async function workerSettings(worker) {
   return settings;
 }
 
-function requireSmartPlacement(settings, worker) {
+function configuredSmartPlacement(settings, worker) {
   const placement = settings?.placement;
   const mode = placement?.mode ?? settings?.placement_mode ?? null;
-  const status = placement?.status ?? settings?.placement_status ?? null;
-  const lastAnalyzedAt = placement?.last_analyzed_at ?? null;
   if (mode !== "smart") throw new Error(`Production Worker ${worker} must enable Smart Placement, got ${mode ?? "missing"}`);
-  if (status === "UNSUPPORTED_APPLICATION") {
+  return mode;
+}
+
+function placementFromService(service) {
+  const candidates = [
+    service?.placement,
+    service?.default_environment?.placement,
+    service?.default_environment?.script?.placement,
+    service?.script?.placement,
+  ].filter(Boolean);
+  const placement = candidates.find((candidate) =>
+    candidate?.mode === "smart"
+    || candidate?.status
+    || candidate?.last_analyzed_at
+  ) ?? null;
+  return {
+    mode: placement?.mode ?? service?.placement_mode ?? null,
+    status: placement?.status ?? service?.placement_status ?? null,
+    lastAnalyzedAt: placement?.last_analyzed_at ?? null,
+  };
+}
+
+async function requireSmartPlacement(settings, worker) {
+  const configuredMode = configuredSmartPlacement(settings, worker);
+  const service = await cf(`/accounts/${accountId}/workers/services/${worker}`);
+  const analyzed = placementFromService(service);
+  if (analyzed.status === "UNSUPPORTED_APPLICATION") {
     throw new Error(`Production Worker ${worker} Smart Placement is unsupported for the current workload`);
   }
-  return { mode, status, lastAnalyzedAt };
+  return {
+    configuredMode,
+    analyzedMode: analyzed.mode,
+    status: analyzed.status,
+    lastAnalyzedAt: analyzed.lastAnalyzedAt,
+  };
 }
 
 function requireBinding(bindings, expected, worker) {
@@ -144,8 +173,8 @@ function requireBinding(bindings, expected, worker) {
 const coreSettings = await workerSettings("lifespace-core");
 const identitySettings = await workerSettings("lifespace-identity");
 const placement = {
-  core: requireSmartPlacement(coreSettings, "lifespace-core"),
-  identity: requireSmartPlacement(identitySettings, "lifespace-identity"),
+  core: await requireSmartPlacement(coreSettings, "lifespace-core"),
+  identity: await requireSmartPlacement(identitySettings, "lifespace-identity"),
 };
 
 const coreBindings = coreSettings.bindings;
