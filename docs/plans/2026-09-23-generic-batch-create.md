@@ -76,6 +76,31 @@ Single-record Create reuses the same prepare/commit primitives so Batch Create i
 
 Agent Delegation remains model-specific/current-state authority. A mixed-model Agent batch succeeds only when the current Delegation and every other authority term allow every selected model.
 
+## Eventing / callback semantics
+
+Batch atomicity and callback grouping are related but distinct:
+
+```text
+single ordinary operation
+  -> 1 Domain Event
+  -> 1 callback
+
+explicit Batch Create with N created records
+  -> N Domain Events
+  -> same ordered opg_* operation group
+  -> 1 callback per matching Webhook Endpoint
+  -> callback body { "events": [ ...matching event references... ] }
+
+N independent operations close together in time
+  -> N independent Domain Events
+  -> no operation group
+  -> N independent callbacks
+```
+
+LifeSpace Core deliberately does **not** implement a debounce/time-window merger. Grouping is based only on explicit durable operation provenance written in the same atomic commit. An endpoint that subscribes to only a subset of models receives one callback containing only the currently authorized matching events from that operation.
+
+Integration/Eventing advances to `0.3.0` for this callback representation. Existing independent single-event delivery remains wire-compatible.
+
 ## Performance invariant
 
 The optimization target is Worker↔D1 round trips rather than statement count.
