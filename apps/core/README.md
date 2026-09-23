@@ -20,7 +20,7 @@ Webhook Endpoint / Event Subscription management, delivery diagnostics/test-send
 
 ## Current Kernel Runtime Discovery
 
-The current business-facing Core Kernel contract is **0.38.0**. Progressive single-model semantic detail now exposes one `query.canonical` descriptor for the structured Canonical Query transport. The immutable Model Contract and Runtime Discovery derive its search fields, typed filter targets/operators, ordered sort, limits and cursor bindings from the same implementation source. Older Generic/Capability GET metadata remains only as explicitly deprecated compatibility metadata while adapters migrate. Generic consumers may choose the projection size appropriate to the task:
+The current business-facing Core Kernel contract is **0.39.0**. Progressive single-model semantic detail now exposes one `query.canonical` descriptor for the structured Canonical Query transport. The immutable Model Contract and Runtime Discovery derive its search fields, typed filter targets/operators, ordered sort, limits and cursor bindings from the same implementation source. Older Generic/Capability GET metadata remains only as explicitly deprecated compatibility metadata while adapters migrate. Generic consumers may choose the projection size appropriate to the task:
 
 - `GET /api/v1/spaces/{spaceId}/_discovery` — full current capability metadata for one known Space;
 - `GET /api/v1/me/_discovery` — full aggregate current capability metadata across reachable Spaces;
