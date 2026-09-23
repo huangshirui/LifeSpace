@@ -53,7 +53,7 @@ async function request(path: string, accessToken: string, publicKey: string, ini
 async function createFamily(accessToken: string, publicKey: string) {
   const response = await request("/api/v1/spaces", accessToken, publicKey, {
     method: "POST",
-    body: JSON.stringify({ kind: "family", name: "Event subscription test", ownerDisplayName: "Owner", timezone: "Asia/Shanghai" }),
+    body: JSON.stringify({ name: "Event subscription test", ownerDisplayName: "Owner", timezone: "Asia/Shanghai" }),
   });
   expect(response.status).toBe(201);
   return (await response.json<{ data: { id: string } }>()).data.id;
