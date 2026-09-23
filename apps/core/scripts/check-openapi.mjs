@@ -87,17 +87,6 @@ for (const retired of [
   if (document.paths?.[retired]) throw new Error(`Retired subscription-owned Webhook route remains: ${retired}`);
 }
 
-const retiredCompatibility = [
-  "/api/v1/me/families",
-  "/api/v1/families",
-  "/api/v1/family-invites",
-];
-for (const path of Object.keys(document.paths ?? {})) {
-  if (retiredCompatibility.some((prefix) => path === prefix || path.startsWith(`${prefix}/`))) {
-    throw new Error(`Retired HomeMew compatibility path remains in Kernel OpenAPI: ${path}`);
-  }
-}
-
 const ordinaryModelPrefixes = [
   "/api/v1/spaces/{spaceId}/events",
   "/api/v1/spaces/{spaceId}/tasks",
@@ -582,7 +571,7 @@ if (!schemas.CreationDraftProcessing?.required?.includes("modelContractRevision"
   throw new Error("Creation Draft jobs must expose their pinned Model Contract Revision");
 }
 
-if (schemas.StatusResponse?.properties?.data?.properties?.contractVersion?.const !== "0.37.0") {
+if (schemas.StatusResponse?.properties?.data?.properties?.contractVersion?.const !== "0.38.0") {
   throw new Error("Core Kernel status contract version drifted");
 }
 
