@@ -19,6 +19,7 @@ import { registerSpaceRoutes } from "./spaces";
 import { registerSpaceLifecycleRoutes } from "./space-lifecycle";
 import { registerSpaceAvatarRoutes } from "./space-avatars";
 import { registerGrantRoutes } from "./grants";
+import { logPerformanceTiming, startPerformanceTiming } from "./performance-timing";
 
 type AppEnv = { Bindings: Bindings; Variables: Variables };
 const defaultOrigins = ["http://localhost:5173", "http://127.0.0.1:5173"];
@@ -34,8 +35,13 @@ export function createApp() {
   app.use("*", async (context, next) => {
     const requestId = context.req.header("x-request-id")?.trim() || crypto.randomUUID();
     context.set("requestId", requestId);
-    await next();
-    context.header("x-request-id", requestId);
+    startPerformanceTiming(context);
+    try {
+      await next();
+    } finally {
+      context.header("x-request-id", requestId);
+      logPerformanceTiming(context);
+    }
   });
   app.use("*", cors({
     origin: (origin, context) => origins(context.env).includes(origin) ? origin : undefined,
