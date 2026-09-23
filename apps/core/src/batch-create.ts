@@ -169,9 +169,15 @@ export function registerBatchCreateRoutes(app: App): void {
       }
     }
 
+    const operationGroupId = `opg_${crypto.randomUUID().replaceAll("-", "")}`;
     let created;
     try {
-      created = await commitPreparedGenericResourceCreates(context.env, spaceId, prepared);
+      created = await commitPreparedGenericResourceCreates(
+        context.env,
+        spaceId,
+        prepared,
+        { operationGroupId },
+      );
     } catch (error) {
       if (error instanceof ApiError) {
         throw new ApiError(error.code, `Batch create failed: ${error.message}`, error.status);
