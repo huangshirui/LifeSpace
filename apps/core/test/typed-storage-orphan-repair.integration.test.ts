@@ -24,8 +24,7 @@ describe("typed storage orphan repair", () => {
     const now = new Date().toISOString();
 
     await db.batch([
-      db.prepare(`INSERT INTO spaces(id,kind,name,created_by_user_id,created_at,updated_at,timezone)
-        VALUES(?,?,?,?,?,?,?)`).bind(spaceId, "personal", "Typed orphan repair", `usr_${suffix}`, now, now, "UTC"),
+      db.prepare(`INSERT INTO spaces(id,name,created_by_user_id,created_at,updated_at,timezone) VALUES(?,?,?,?,?,?)`).bind(spaceId, "Typed orphan repair", `usr_${suffix}`, now, now, "UTC"),
       db.prepare(`INSERT INTO resource_records(
         id,space_id,model_key,model_version,created_by_type,created_by_id,created_by_name_snapshot,
         updated_by_type,updated_by_id,updated_by_name_snapshot,version,created_at,updated_at
