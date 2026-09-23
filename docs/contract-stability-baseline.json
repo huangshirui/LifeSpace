@@ -176,7 +176,7 @@
     {
       "id": "core-kernel",
       "source": "apps/core/openapi.yaml",
-      "operationSetSha256": "sha256:22ffd2ea787b1fa9cc74c27f24d3875224324041c44bce135f647a925a32ae12",
+      "operationSetSha256": "sha256:56f06475390d570c124e9343f0020c8e9a4a91905d5bc17f04cff50af22565ba",
       "groups": [
         {
           "id": "core-operational",
@@ -243,6 +243,12 @@
           "maturity": "experimental",
           "visibility": "public",
           "operationPattern": "^(GET|POST|PATCH|DELETE) /api/v1/spaces/\\{spaceId\\}/creation-drafts(?:/.*)?$"
+        },
+        {
+          "id": "core-batch-create",
+          "maturity": "candidate",
+          "visibility": "public",
+          "operationPattern": "^POST /api/v1/spaces/\\{spaceId\\}/records/batch$"
         }
       ]
     },
