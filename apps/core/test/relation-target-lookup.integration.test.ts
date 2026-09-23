@@ -70,8 +70,8 @@ async function fixture() {
   const deletedPersonId = `per_deleted_${suffix}`;
 
   await db.batch([
-    db.prepare(`INSERT INTO spaces(id,kind,name,created_by_user_id,created_at,updated_at,timezone)
-      VALUES(?,?,?,?,?,?,?)`).bind(spaceId, "family", "Relation Lookup", userId, now, now, "UTC"),
+    db.prepare(`INSERT INTO spaces(id,name,created_by_user_id,created_at,updated_at,timezone)
+      VALUES(?,?,?,?,?,?)`).bind(spaceId, "Relation Lookup", userId, now, now, "UTC"),
     db.prepare(`INSERT INTO space_memberships(id,space_id,user_id,role,created_at,updated_at)
       VALUES(?,?,?,?,?,?)`).bind(`mem_${suffix}`, spaceId, userId, "owner", now, now),
     db.prepare(`INSERT INTO space_people(id,space_id,linked_user_id,display_name,created_at,updated_at)
