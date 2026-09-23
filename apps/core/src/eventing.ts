@@ -386,7 +386,7 @@ async function deliverOne(env: Bindings, deliveryId: string): Promise<"ack" | "r
 
   const events = await authorizedDeliveryEvents(env, delivery);
   if (!events.length) {
-    return cancelDelivery(env, deliveryId, "no currently authorized delivery events");
+    return cancelDelivery(env, deliveryId, "endpoint/subscription unavailable or access revoked");
   }
 
   let subscriberActive: boolean;
