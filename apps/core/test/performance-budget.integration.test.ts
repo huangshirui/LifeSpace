@@ -164,7 +164,7 @@ async function fixture() {
     return createApp().request(`http://localhost${path}`, { ...init, headers }, bindings);
   }
 
-  return { DB, counter, request, spaceId, personId, records, eventRecords };
+  return { DB, counter, request, userId, spaceId, personId, records, eventRecords };
 }
 
 async function measured(
@@ -271,8 +271,8 @@ describe("Core D1 round-trip budgets", () => {
     );
     const patchedEventPayload = await patchedEvent.json<{ data: { attendeePersonIds: string[]; createdBy: { id: string }; updatedBy: { id: string } } }>();
     expect(patchedEventPayload.data.attendeePersonIds).toEqual([f.personId]);
-    expect(patchedEventPayload.data.createdBy.id).toBe(f.records[0].audit?.createdBy.id ?? f.records[0].id);
-    expect(patchedEventPayload.data.updatedBy.id).toBeDefined();
+    expect(patchedEventPayload.data.createdBy.id).toBe(f.userId);
+    expect(patchedEventPayload.data.updatedBy.id).toBe(f.userId);
 
     const patched = await measured(
       f.counter,
