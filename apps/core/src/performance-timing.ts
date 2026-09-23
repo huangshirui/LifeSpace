@@ -8,7 +8,12 @@ function rounded(milliseconds: number): number {
 }
 
 export function startPerformanceTiming(context: Context<AppEnv>): void {
-  if (context.env.PERFORMANCE_DIAGNOSTICS !== "1") return;
+  if (context.env.PERFORMANCE_DIAGNOSTICS === "0") return;
+  if (
+    context.env.PERFORMANCE_DIAGNOSTICS !== "1"
+    && context.env.ENVIRONMENT !== "staging"
+    && context.env.ENVIRONMENT !== "production"
+  ) return;
   context.set("performanceTiming", {
     startedAt: performance.now(),
     phases: {},
