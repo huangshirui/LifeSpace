@@ -66,8 +66,7 @@ async function fixture() {
   const now = new Date().toISOString();
 
   await db.batch([
-    db.prepare(`INSERT INTO spaces(id,kind,name,created_by_user_id,created_at,updated_at,timezone)
-      VALUES(?,?,?,?,?,?,?)`).bind(spaceId, "family", "Policy Test", ownerId, now, now, "UTC"),
+    db.prepare(`INSERT INTO spaces(id,name,created_by_user_id,created_at,updated_at,timezone) VALUES(?,?,?,?,?,?)`).bind(spaceId, "Policy Test", ownerId, now, now, "UTC"),
     db.prepare(`INSERT INTO space_memberships(id,space_id,user_id,role,created_at,updated_at)
       VALUES(?,?,?,?,?,?)`).bind(`mem_owner_${suffix}`, spaceId, ownerId, "owner", now, now),
     db.prepare(`INSERT INTO space_memberships(id,space_id,user_id,role,created_at,updated_at)
