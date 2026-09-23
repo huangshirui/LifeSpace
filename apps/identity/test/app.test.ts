@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createApp } from "../src/app";
 
 describe("LifeSpace Identity foundation", () => {
@@ -6,6 +6,30 @@ describe("LifeSpace Identity foundation", () => {
     const response = await createApp().request("http://localhost/health", {}, {} as any);
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ data: { status: "ok" } });
+  });
+
+  it("emits structured performance timing in deployed environments and honors the kill switch", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    try {
+      const measured = await createApp().request("http://localhost/health", {}, { ENVIRONMENT: "staging" } as any);
+      expect(measured.status).toBe(200);
+      const entries = log.mock.calls
+        .map(([value]) => typeof value === "string" ? JSON.parse(value) : null)
+        .filter((value) => value?.message === "LifeSpace performance timing");
+      expect(entries).toHaveLength(1);
+      expect(entries[0]).toMatchObject({ service: "identity", method: "GET", path: "/health", status: 200, phases: {} });
+      expect(typeof entries[0].totalMs).toBe("number");
+
+      log.mockClear();
+      await createApp().request(
+        "http://localhost/health",
+        {},
+        { ENVIRONMENT: "staging", PERFORMANCE_DIAGNOSTICS: "0" } as any,
+      );
+      expect(log).not.toHaveBeenCalled();
+    } finally {
+      log.mockRestore();
+    }
   });
 
   it("does not expose bootstrap application registration without the bootstrap secret", async () => {
