@@ -27,7 +27,7 @@ The benchmark runs through the real Core application in Cloudflare Vitest with l
 
 The local wall-time figures are **diagnostic only**. They are useful for detecting growth shape and obvious CPU/serialization regressions, but they are not APAC production latency evidence.
 
-Absolute deployed latency continues to use the controlled APAC method documented in `docs/phase3-performance-convergence-plan.md`, where the existing ordinary Runtime gate already passed representative common reads at P50 44–92 ms and P90 57–111 ms.
+Absolute deployed latency continues to use the controlled APAC method documented in `docs/performance-invariants.md`, where the existing ordinary Runtime gate already passed representative common reads at P50 44–92 ms and P90 57–111 ms.
 
 ## 3. Current-main measurements
 
