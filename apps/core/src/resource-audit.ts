@@ -13,7 +13,7 @@ export type ResourceAudit = {
   updatedBy: ResourceAuditActor;
 };
 
-type AuditRow = {
+export type ResourceAuditStorageRow = {
   id: string;
   created_by_type: Principal["type"];
   created_by_id: string;
@@ -25,7 +25,9 @@ type AuditRow = {
   updated_current_name: string | null;
 };
 
-function actor(
+type AuditRow = { id: string } & ResourceAuditStorageRow;
+
+export function resourceAuditActor(
   type: Principal["type"],
   id: string,
   snapshot: string,
@@ -35,6 +37,31 @@ function actor(
     type,
     id,
     displayName: snapshot?.trim() || currentName?.trim() || id,
+  };
+}
+
+export function resourceAuditFromStorage(row: Partial<ResourceAuditStorageRow>): ResourceAudit | undefined {
+  if (
+    (row.created_by_type !== "user" && row.created_by_type !== "service")
+    || typeof row.created_by_id !== "string"
+    || typeof row.created_by_name_snapshot !== "string"
+    || (row.updated_by_type !== "user" && row.updated_by_type !== "service")
+    || typeof row.updated_by_id !== "string"
+    || typeof row.updated_by_name_snapshot !== "string"
+  ) return undefined;
+  return {
+    createdBy: resourceAuditActor(
+      row.created_by_type,
+      row.created_by_id,
+      row.created_by_name_snapshot,
+      row.created_current_name ?? null,
+    ),
+    updatedBy: resourceAuditActor(
+      row.updated_by_type,
+      row.updated_by_id,
+      row.updated_by_name_snapshot,
+      row.updated_current_name ?? null,
+    ),
   };
 }
 
@@ -80,13 +107,13 @@ export async function loadResourceAudits(
   const result = new Map<string, ResourceAudit>();
   for (const row of rows) {
     result.set(row.id, {
-      createdBy: actor(
+      createdBy: resourceAuditActor(
         row.created_by_type,
         row.created_by_id,
         row.created_by_name_snapshot,
         row.created_current_name,
       ),
-      updatedBy: actor(
+      updatedBy: resourceAuditActor(
         row.updated_by_type,
         row.updated_by_id,
         row.updated_by_name_snapshot,
