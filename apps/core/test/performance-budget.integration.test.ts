@@ -362,6 +362,69 @@ describe("Core D1 round-trip budgets", () => {
     );
     const mixedPayload = await mixedBatch.json<{ data: { items: Array<{ clientRef: string; modelKey: string; id: string }> } }>();
     expect(mixedPayload.data.items.map((item) => item.modelKey)).toEqual(["event", "task"]);
+
+    const beforeRejected = await f.DB.prepare("SELECT COUNT(*) count FROM resource_records WHERE space_id=?")
+      .bind(f.spaceId).first<{ count: number }>();
+
+    const invalidBatch = await f.request(`/api/v1/spaces/${f.spaceId}/records/batch`, {
+      method: "POST",
+      body: JSON.stringify({
+        items: [
+          { clientRef: "valid-before-invalid", modelKey: "task", input: { name: "Must roll back" } },
+          { clientRef: "invalid", modelKey: "task", input: {} },
+        ],
+      }),
+    });
+    expect(invalidBatch.status).toBe(400);
+    const invalidPayload = await invalidBatch.json<{ error: { code: string; message: string } }>();
+    expect(invalidPayload.error.code).toBe("INVALID_RESOURCE");
+    expect(invalidPayload.error.message).toContain("items[1]");
+    const afterInvalid = await f.DB.prepare("SELECT COUNT(*) count FROM resource_records WHERE space_id=?")
+      .bind(f.spaceId).first<{ count: number }>();
+    expect(afterInvalid?.count).toBe(beforeRejected?.count);
+
+    const invalidRelationBatch = await f.request(`/api/v1/spaces/${f.spaceId}/records/batch`, {
+      method: "POST",
+      body: JSON.stringify({
+        items: [
+          { modelKey: "task", input: { name: "Valid before bad relation" } },
+          {
+            clientRef: "bad-relation",
+            modelKey: "task",
+            input: { name: "Bad relation", assigneePersonIds: ["per_not_in_this_space"] },
+          },
+        ],
+      }),
+    });
+    expect(invalidRelationBatch.status).toBe(400);
+    const relationPayload = await invalidRelationBatch.json<{ error: { code: string } }>();
+    expect(relationPayload.error.code).toBe("INVALID_RESOURCE_RELATION");
+    const afterRelationFailure = await f.DB.prepare("SELECT COUNT(*) count FROM resource_records WHERE space_id=?")
+      .bind(f.spaceId).first<{ count: number }>();
+    expect(afterRelationFailure?.count).toBe(beforeRejected?.count);
+
+    expect((await f.request(`/api/v1/spaces/${f.spaceId}/records/batch`, {
+      method: "POST",
+      body: JSON.stringify({ items: [] }),
+    })).status).toBe(400);
+    expect((await f.request(`/api/v1/spaces/${f.spaceId}/records/batch`, {
+      method: "POST",
+      body: JSON.stringify({
+        items: Array.from({ length: 21 }, (_, index) => ({
+          modelKey: "task",
+          input: { name: `Too many ${index}` },
+        })),
+      }),
+    })).status).toBe(400);
+    expect((await f.request(`/api/v1/spaces/${f.spaceId}/records/batch`, {
+      method: "POST",
+      body: JSON.stringify({
+        items: [
+          { clientRef: "duplicate", modelKey: "task", input: { name: "One" } },
+          { clientRef: "duplicate", modelKey: "task", input: { name: "Two" } },
+        ],
+      }),
+    })).status).toBe(400);
   }, PERFORMANCE_TEST_TIMEOUT_MS);
 });
 
