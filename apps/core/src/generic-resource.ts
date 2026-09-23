@@ -54,11 +54,18 @@ export type ResourceMutationExtension = (
   context: ResourceMutationExtensionContext,
 ) => Promise<D1PreparedStatement[]> | D1PreparedStatement[];
 
-type RelationProjection = {
+export type RelationProjection = {
   fieldKey: string;
   targetType: "person" | "record";
   targetId: string;
+  targetModel: string | null;
   ordinal: number;
+};
+
+export type PreparedGenericResourceCreate = {
+  resource: GenericResource;
+  relations: RelationProjection[];
+  statements: D1PreparedStatement[];
 };
 
 const createId = () => `rec_${crypto.randomUUID().replaceAll("-", "")}`;
@@ -308,10 +315,8 @@ export function validateResourceData(
   return result;
 }
 
-async function projectRelations(env: Bindings, spaceId: string, definition: ModelDefinition, data: JsonObject): Promise<RelationProjection[]> {
+function projectRelations(definition: ModelDefinition, data: JsonObject): RelationProjection[] {
   const relations: RelationProjection[] = [];
-  const personIds = new Set<string>();
-  const recordIdsByModel = new Map<string, Set<string>>();
 
   for (const [fieldKey, field] of Object.entries(definition.fields)) {
     const value = data[fieldKey];
@@ -319,20 +324,43 @@ async function projectRelations(env: Bindings, spaceId: string, definition: Mode
     if (field.type === "person" || field.type === "person_list") {
       const ids = relationIds(value, fieldKey, field.type === "person_list");
       ids.forEach((targetId, ordinal) => {
-        personIds.add(targetId);
-        relations.push({ fieldKey, targetType: "person", targetId, ordinal });
+        relations.push({ fieldKey, targetType: "person", targetId, targetModel: null, ordinal });
       });
     }
     if (field.type === "record" || field.type === "record_list") {
       const ids = relationIds(value, fieldKey, field.type === "record_list");
-      const targetModel = field.targetModel!;
-      const targets = recordIdsByModel.get(targetModel) ?? new Set<string>();
       ids.forEach((targetId, ordinal) => {
-        targets.add(targetId);
-        relations.push({ fieldKey, targetType: "record", targetId, ordinal });
+        relations.push({
+          fieldKey,
+          targetType: "record",
+          targetId,
+          targetModel: field.targetModel!,
+          ordinal,
+        });
       });
-      recordIdsByModel.set(targetModel, targets);
     }
+  }
+
+  return relations;
+}
+
+async function validateProjectedRelations(
+  env: Bindings,
+  spaceId: string,
+  projected: readonly RelationProjection[],
+): Promise<void> {
+  const personIds = new Set<string>();
+  const recordIdsByModel = new Map<string, Set<string>>();
+  for (const relation of projected) {
+    if (relation.targetType === "person") {
+      personIds.add(relation.targetId);
+      continue;
+    }
+    const targetModel = relation.targetModel;
+    if (!targetModel) throw new ApiError("INVALID_RESOURCE_RELATION", "Record relation target model is missing", 500);
+    const ids = recordIdsByModel.get(targetModel) ?? new Set<string>();
+    ids.add(relation.targetId);
+    recordIdsByModel.set(targetModel, ids);
   }
 
   const validations: Array<{
@@ -362,22 +390,22 @@ async function projectRelations(env: Bindings, spaceId: string, definition: Mode
       message: `Every record relation must reference an active ${targetModel} record in the same Space`,
     });
   }
+
   const statements = validations.flatMap((validation) => validation.statements);
-  if (statements.length) {
-    const results = await env.DB.batch<{ id: string }>(statements);
-    let offset = 0;
-    for (const validation of validations) {
-      const found = new Set<string>();
-      for (let index = 0; index < validation.statements.length; index += 1) {
-        for (const row of results[offset + index]?.results ?? []) found.add(row.id);
-      }
-      offset += validation.statements.length;
-      if (found.size !== validation.expected.size) {
-        throw new ApiError("INVALID_RESOURCE_RELATION", validation.message, 400);
-      }
+  if (!statements.length) return;
+
+  const results = await env.DB.batch<{ id: string }>(statements);
+  let offset = 0;
+  for (const validation of validations) {
+    const found = new Set<string>();
+    for (let index = 0; index < validation.statements.length; index += 1) {
+      for (const row of results[offset + index]?.results ?? []) found.add(row.id);
+    }
+    offset += validation.statements.length;
+    if (found.size !== validation.expected.size) {
+      throw new ApiError("INVALID_RESOURCE_RELATION", validation.message, 400);
     }
   }
-  return relations;
 }
 
 function relationStatements(
@@ -432,7 +460,7 @@ async function resolveModel(env: Bindings, modelOrKey: PublishedModel | string):
   return getRuntimeModel(env, modelOrKey);
 }
 
-export async function createGenericResource(
+export async function prepareGenericResourceCreate(
   env: Bindings,
   principal: Principal,
   spaceId: string,
@@ -440,9 +468,9 @@ export async function createGenericResource(
   input: unknown,
   trustedCapabilityInput = false,
   extension?: ResourceMutationExtension,
-): Promise<GenericResource> {
+): Promise<PreparedGenericResourceCreate> {
   const data = validateResourceData(model.definition, input, trustedCapabilityInput ? "create_internal" : "create");
-  const relations = await projectRelations(env, spaceId, model.definition, data);
+  const relations = projectRelations(model.definition, data);
   const id = createId();
   const timestamp = new Date().toISOString();
   const mutationToken = changeId();
@@ -486,19 +514,58 @@ export async function createGenericResource(
     mutationToken,
   ));
   statements.push(env.DB.prepare("UPDATE resource_records SET mutation_token=NULL WHERE id=? AND mutation_token=?").bind(id, mutationToken));
-  await env.DB.batch(statements);
   const auditActor = principalResourceAuditActor(principal);
   return {
-    id,
-    spaceId,
-    modelKey: model.key,
-    modelVersion: model.version,
-    data,
-    audit: { createdBy: auditActor, updatedBy: auditActor },
-    version: 1,
-    createdAt: timestamp,
-    updatedAt: timestamp,
+    resource: {
+      id,
+      spaceId,
+      modelKey: model.key,
+      modelVersion: model.version,
+      data,
+      audit: { createdBy: auditActor, updatedBy: auditActor },
+      version: 1,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    },
+    relations,
+    statements,
   };
+}
+
+export async function commitPreparedGenericResourceCreates(
+  env: Bindings,
+  spaceId: string,
+  prepared: readonly PreparedGenericResourceCreate[],
+): Promise<GenericResource[]> {
+  if (!prepared.length) return [];
+  if (prepared.some((entry) => entry.resource.spaceId !== spaceId)) {
+    throw new ApiError("INVALID_REQUEST", "Prepared batch resources must belong to the same Space", 400);
+  }
+  await validateProjectedRelations(env, spaceId, prepared.flatMap((entry) => entry.relations));
+  await env.DB.batch(prepared.flatMap((entry) => entry.statements));
+  return prepared.map((entry) => entry.resource);
+}
+
+export async function createGenericResource(
+  env: Bindings,
+  principal: Principal,
+  spaceId: string,
+  model: PublishedModel,
+  input: unknown,
+  trustedCapabilityInput = false,
+  extension?: ResourceMutationExtension,
+): Promise<GenericResource> {
+  const prepared = await prepareGenericResourceCreate(
+    env,
+    principal,
+    spaceId,
+    model,
+    input,
+    trustedCapabilityInput,
+    extension,
+  );
+  const [created] = await commitPreparedGenericResourceCreates(env, spaceId, [prepared]);
+  return created!;
 }
 
 export async function getGenericResource(
