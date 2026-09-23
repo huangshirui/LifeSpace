@@ -409,7 +409,9 @@ async function deliverOne(env: Bindings, deliveryId: string): Promise<"ack" | "r
 
   const payloads = events.map(eventPayload);
   const grouped = Boolean(delivery.operation_group_id);
-  const body = JSON.stringify(grouped ? { events: payloads } : payloads[0]);
+  const body = JSON.stringify(grouped
+    ? { operationGroupId: delivery.operation_group_id, events: payloads }
+    : payloads[0]);
   const headers: Record<string, string> = {
     "x-lifespace-delivery-id": delivery.id,
     "x-lifespace-webhook-endpoint-id": delivery.endpoint_id,
