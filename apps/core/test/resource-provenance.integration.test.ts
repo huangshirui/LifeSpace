@@ -35,8 +35,8 @@ async function fixture() {
   const suffix = crypto.randomUUID().replaceAll("-", "");
   const spaceId = `spc_${suffix}`;
   const now = new Date().toISOString();
-  await db.prepare(`INSERT INTO spaces(id,kind,name,created_by_user_id,created_at,updated_at,timezone)
-    VALUES(?,?,?,?,?,?,?)`).bind(spaceId, "family", "Provenance Test", actor.id, now, now, "Asia/Shanghai").run();
+  await db.prepare(`INSERT INTO spaces(id,name,created_by_user_id,created_at,updated_at,timezone)
+    VALUES(?,?,?,?,?,?)`).bind(spaceId, "Provenance Test", actor.id, now, now, "Asia/Shanghai").run();
   const model = await getPublishedModel(bindings(), "task");
   if (!model) throw new Error("bootstrap Task model is missing");
   return { db, spaceId, model };
