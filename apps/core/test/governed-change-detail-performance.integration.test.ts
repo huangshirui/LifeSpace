@@ -61,7 +61,8 @@ describe("Governed Change detail cost", () => {
     const suffix = crypto.randomUUID().replaceAll("-", "");
     const spaceId = `spc_change_perf_${suffix}`;
     const now = new Date().toISOString();
-    await realDb.prepare(`INSERT INTO spaces(id,name,created_by_user_id,created_at,updated_at,timezone) VALUES(?,?,?,?,?,?)`).bind(spaceId, "Change Performance", actor.id, now, now, "UTC").run();
+    await realDb.prepare(`INSERT INTO spaces(id,kind,name,created_by_user_id,created_at,updated_at,timezone)
+      VALUES(?,?,?,?,?,?,?)`).bind(spaceId, "personal", "Change Performance", actor.id, now, now, "UTC").run();
 
     const model = await getPublishedModel({ DB: realDb } as Bindings, "task");
     if (!model) throw new Error("Task model missing");
