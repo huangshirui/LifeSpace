@@ -1,10 +1,10 @@
 # Agent-ready Authority and Change
 
-Status: **Complete** on `feature/agent-delegation-foundation` after automated and staging acceptance.
+Status: **Active platform authority specification**.
 
 ## Purpose
 
-LifeSpace supports independent Agent products such as HomeMew Agent and ALOHA Assistant without coupling them to each other or creating an AI-specific data world.
+LifeSpace supports independent Agent consumers without coupling the platform to any particular Agent product or creating an AI-specific data world.
 
 The stable platform rule is:
 
@@ -41,7 +41,7 @@ Application = app context from signed credential
 Delegation  = none
 ```
 
-### Trusted service / n8n
+### Trusted service / automation
 
 ```text
 Principal   = svc_*
@@ -52,25 +52,16 @@ Delegation  = none
 
 Service authority remains its own explicit scope/Application × Model Access/Data Grant authority. It does not masquerade as user delegation.
 
-### HomeMew member -> HomeMew Agent
-
-```text
-Principal   = household member usr_*
-Actor       = HomeMew agt_*
-Application = HomeMew application
-Delegation  = member -> Agent, bounded to family Space/model access
-```
-
-### User -> ALOHA Assistant -> HomeMew family Space
+### User -> delegated Agent
 
 ```text
 Principal   = user usr_*
-Actor       = ALOHA agt_*
-Application = ALOHA application
-Delegation  = user -> ALOHA Agent, bounded to the family Space/model access
+Actor       = agent agt_*
+Application = registered application context
+Delegation  = user -> Agent, bounded to Space/model access
 ```
 
-ALOHA calls the same LifeSpace Event/Task capability directly after authorization. It does not call HomeMew Agent.
+The Agent calls the same LifeSpace model/capability surfaces used by traditional applications. It never calls another product Agent as an authorization shortcut.
 
 ## Agent execution credential
 
@@ -173,32 +164,16 @@ An authorized subscriber that needs operation attribution uses the Event's opaqu
 
 ## Agent-ready acceptance gate
 
-### HomeMew Agent
+Platform acceptance must prove the generic authority model without relying on any named consumer application.
 
-A household member can delegate Event/Task authority to HomeMew Agent. The Agent can use the normal Runtime only within that member's effective family-space authority, and the resulting Change identifies both member and Agent.
+### Required positive paths
 
-### ALOHA Assistant
-
-A user can delegate Event/Task authority in the HomeMew family Space to ALOHA. ALOHA uses the same LifeSpace capabilities directly; revoking the Delegation blocks subsequent access immediately.
-
-### Current ALOHA M4 product authority
-
-The 2026-09-01 staging scenario below was a **platform proving scenario**, not a durable ALOHA product entitlement. It intentionally exercised ALOHA with Task write authority to prove Agent mutation attribution and revocation. ALOHA's first real Runtime Tool milestone is narrower.
-
-Current ALOHA M4 candidate authority is:
-
-```text
-Application scopes     = profile:read + resources:read
-Application × Model    = task:read only
-User -> Agent Delegation = task:read only
-Agent execution scope  = resources:read only
-Runtime semantics      = Inventory -> selected Model semantic detail -> Canonical Query / Get
-Mutation / Action      = denied; deferred to M5 Confirmation boundary
-```
-
-The ALOHA Agent Control backend is the only consumer of the short-lived delegated Agent JWT. n8n receives neither the `lsa_*` application credential nor the delegated Agent JWT. The staging Application identity is milestone-neutral; M4/M5 are authority-profile evolution, not new Application identities.
-
-This M4 LifeSpace-side gate does not claim that the separate real Cloudflare Access M3 production activation is complete. Production M3 activation remains independently gated by its own deployment evidence.
+- a user can create an explicit bounded Delegation to a registered Agent;
+- a short-lived Agent execution credential preserves User Principal + Agent Actor + Application context;
+- Generic Runtime uses the same model/Capability validation and storage path as direct-user operations;
+- committed mutations preserve User Principal + Agent Actor + Application + Delegation attribution;
+- revoking Delegation blocks subsequent requests even when the Agent JWT is still cryptographically valid;
+- narrowing Application × Model Access or current Space authority blocks subsequent Agent access immediately.
 
 ### Required deny paths
 
@@ -212,50 +187,4 @@ This M4 LifeSpace-side gate does not claim that the separate real Cloudflare Acc
 - Agent cannot self-create Delegation;
 - Agent adapter cannot bypass normal model validation, policy or optimistic concurrency.
 
-## Staging acceptance evidence
-
-The Agent-ready staging gate passed on 2026-09-01:
-
-```text
-workflow:   Agent-ready staging gate
-run ID:     33507669643
-commit:     9591777b176f3084f9586e24d2b3927aa979c50e
-Core:       contract 0.17.0 / schema 32
-Identity:   contract 0.6.0 / schema 8
-```
-
-The M4 verifier proved two independent Agent products over one temporary family Space:
-
-- HomeMew Agent application: `app_homemew_agent_staging`; Delegation `event=write`, `task=read`;
-- ALOHA Assistant application: `app_aloha_assistant_staging`; Delegation `event=read`, `task=write`;
-- both used the same Generic Runtime and published Event/Task models;
-- HomeMew Agent committed a real Event and ALOHA committed a real Task;
-- both committed Changes preserved User Principal + Agent Actor + Application + Delegation attribution;
-- Domain Event evidence correlated with governed Change by record/version while Webhook actor identity remained reference-only;
-- revoking ALOHA Delegation blocked a still-valid Agent token immediately;
-- live current-state checks also denied access after temporarily narrowing Application × Model Access and the user's Space membership;
-- no-Delegation, wrong-Space, wrong-Application, Delegation ceiling, Agent self-grant and semantic-validation bypass paths were denied;
-- temporary records, Spaces, credentials and Delegations were cleaned up; production was untouched.
-
-The full staging gate also passed existing model regression, Registry-driven Creation Draft, signed reference-only Eventing, D1 hot-path checks and the reproducible HomeMew handoff export.
-
-The accepted HomeMew compatibility tuple after this gate is:
-
-```text
-Identity Contract:    0.6.0
-Core Kernel Contract: 0.17.0
-Model Contract:       mct_a4cc6dad278204b08cd706f9abeb68107e229148f1cd9ccde0991382606a92b9
-```
-
-The reproducible staging handoff evidence is:
-
-```text
-bundle ID:     hmb_717d91aae0fb0c0b5a79f939050dfb8b4ad2af0abca80fd5bc76198aa7b8a770
-artifact ID:   9800565590
-artifact name: homemew-contract-handoff-9591777b176f3084f9586e24d2b3927aa979c50e
-artifact SHA:  bc8b7179f4976f0e9817f0be5528eec85f0c45de1b01e2abd71a0b8af6b30f23
-```
-
-The GitHub-hosted HTTP performance sample from this run is diagnostic only because runner geography is uncontrolled; it is not an acceptance gate. Deterministic D1 hot-path/round-trip budgets remain enforced by Core tests.
-
-With automated tests and this staging evidence passing, the Agent-ready architecture gate is complete and the branch is merge-ready subject to normal final CI/review.
+Staging verification uses ephemeral generic Application/Agent/User/Space fixtures and cleans them up after the gate. Consumer-specific authority profiles, milestones and compatibility acceptance belong to the consumer repository.
