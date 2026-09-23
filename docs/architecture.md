@@ -2,7 +2,7 @@
 
 ## Purpose
 
-LifeSpace is the shared platform for ALOHA, HomeMew and future vertical applications. It is the source of truth for global Identity, Space/Data Grant authorization, metadata-driven domain models, migrations, contracts and Cloudflare deployment configuration.
+LifeSpace is a shared platform for replaceable applications, Agents, services and protocol adapters. It is the source of truth for global Identity, Space/Data Grant authorization, metadata-driven domain models, migrations, contracts and Cloudflare deployment configuration.
 
 Applications are product experiences over the platform. They do not own parallel copies of LifeSpace users, Spaces, Grants or ordinary domain data.
 
@@ -38,7 +38,7 @@ Mini Program / untrusted client
   -> short-lived app-scoped LifeSpace user token
   -> LifeSpace Core
 
-Owner-controlled n8n / script / MCP / backend
+Owner-controlled automation / script / protocol adapter / backend
   -> opaque lsp_pat_* Service API Token
   -> LifeSpace Core
 
@@ -115,7 +115,7 @@ Ordinary read querying has one semantic composition model: `Search -> Filter(Boo
 
 The four pre-#200 ordinary Runtime aliases (`/tasks`, `/wishes`, `/events`, `/day-records`) were retired under #207 after consumer cutover and production verification. Current Runtime addressing is modelKey-only: callers use `/api/v1/spaces/{spaceId}/models/{modelKey}/records/...`. Historical migrations and release notes may still mention the former route segments as immutable deployment evidence; they are not current Runtime contracts or semantic identities.
 
-Relation structure and relation instances deliberately live at different layers. Model Definition / generated JSON Schema owns stable relation target/cardinality semantics; Runtime Context Projection resolves current relation targets under live authority. Kernel `0.23.0` provides source-field-aware Person target lookup as minimal `{id,label}` references for generated clients without exposing Space membership-management data. This lookup is not a UI widget contract and is not mutation authority; adapters decide presentation, while create/update Policy and relation integrity are rechecked at execution. Kernel `0.29.0` adds model-owned canonical record `referenceLabel` semantics so `record` / `record_list` lookup and hydration no longer depend on adapter heuristics such as guessing `name`, `title` or `summary`. The same projection is used for lookup search/pagination and batch resolution, falls back to stable record ID when no usable label value exists, and additionally requires current target-model read authority to prevent cross-model label disclosure. Kernel `0.24.0` also projects a minimal current human-readable Space label alongside an already-authorized Runtime Discovery Space reference, so n8n, MCP, Agents and generated UI can present the same Space without acquiring Space membership-management metadata or authority. Kernel `0.25.0` adds bounded standard Capability field-role bindings to the same projection, beginning with Calendar timed/all-day field roles; these bindings expose reusable semantics without promoting adapter UI layout into platform truth. Kernel `0.26.0` separates the Static Semantic Plane from dynamic visibility by adding `GET /api/v1/spaces/{spaceId}/_discovery/models/{modelKey}`: Space is only a current visibility gate, while a successful semantic body is authority-independent and cacheable within one Kernel representation by `(key, version, schemaHash)`; a cache that survives Kernel deployment additionally keys by Kernel `contractVersion`; missing and currently invisible models share an opaque 404, and execution still rechecks current authority. Kernel `0.27.0` adds `GET /api/v1/me/_discovery/inventory` as the compact Dynamic Visibility Plane: coarse static Model/Action/Capability facts are de-duplicated once, each reachable Space carries only minimal `modelKey + effective access` edges, and heavyweight field/default/query/action-input/Capability-binding semantics are loaded progressively through the 0.26 detail route. The older full Discovery surfaces remain available for compatibility and are never authorization proof.
+Relation structure and relation instances deliberately live at different layers. Model Definition / generated JSON Schema owns stable relation target/cardinality semantics; Runtime Context Projection resolves current relation targets under live authority. Kernel `0.23.0` provides source-field-aware Person target lookup as minimal `{id,label}` references for generated clients without exposing Space membership-management data. This lookup is not a UI widget contract and is not mutation authority; adapters decide presentation, while create/update Policy and relation integrity are rechecked at execution. Kernel `0.29.0` adds model-owned canonical record `referenceLabel` semantics so `record` / `record_list` lookup and hydration no longer depend on adapter heuristics such as guessing `name`, `title` or `summary`. The same projection is used for lookup search/pagination and batch resolution, falls back to stable record ID when no usable label value exists, and additionally requires current target-model read authority to prevent cross-model label disclosure. Kernel `0.24.0` also projects a minimal current human-readable Space label alongside an already-authorized Runtime Discovery Space reference, so adapters, Agents and generated UI can present the same Space without acquiring Space membership-management metadata or authority. Kernel `0.25.0` adds bounded standard Capability field-role bindings to the same projection, beginning with Calendar timed/all-day field roles; these bindings expose reusable semantics without promoting adapter UI layout into platform truth. Kernel `0.26.0` separates the Static Semantic Plane from dynamic visibility by adding `GET /api/v1/spaces/{spaceId}/_discovery/models/{modelKey}`: Space is only a current visibility gate, while a successful semantic body is authority-independent and cacheable within one Kernel representation by `(key, version, schemaHash)`; a cache that survives Kernel deployment additionally keys by Kernel `contractVersion`; missing and currently invisible models share an opaque 404, and execution still rechecks current authority. Kernel `0.27.0` adds `GET /api/v1/me/_discovery/inventory` as the compact Dynamic Visibility Plane: coarse static Model/Action/Capability facts are de-duplicated once, each reachable Space carries only minimal `modelKey + effective access` edges, and heavyweight field/default/query/action-input/Capability-binding semantics are loaded progressively through the 0.26 detail route. The older full Discovery surfaces remain available for compatibility and are never authorization proof.
 
 Each successful model publish/retire activates an immutable content-addressed Model Contract Revision:
 
@@ -212,13 +212,13 @@ Both authenticate the current `service` principal representation and are bounded
 
 The same Identity/Core ownership applies to passive Eventing subscribers. Identity remains authoritative for whether the subscriber Service Principal and owning application are active; Core remains authoritative for Eventing Endpoint/Subscription state, Application × Model Access and Data Grants. The final Webhook delivery gate composes those two sources through an authenticated Core -> Identity Service Binding read rather than copying Identity status into Core. Principal disablement therefore remains effective even if an application partially fails to revoke its Core Grant during cleanup.
 
-The Core-only current-principal eligibility read is an internal runtime interface used to enforce already-declared revocation semantics. It is not application-callable business syntax and does not by itself broaden the Identity Application Contract consumed by HomeMew/ALOHA.
+The Core-only current-principal eligibility read is an internal runtime interface used to enforce already-declared revocation semantics. It is not application-callable business syntax and does not by itself broaden the public Identity Application Contract consumed by downstream applications.
 
 Normative details are in `docs/service-authentication.md`.
 
 ## LifeSpace platform administration
 
-LifeSpace Console is the platform operations/governance client for `lifespace.aisr.online`. It is not a HomeMew administrator, ALOHA administrator or generic business-data editor.
+LifeSpace Console is the platform operations/governance client for `lifespace.aisr.online`. It is not a downstream product administrator or generic business-data editor.
 
 Cloudflare Access controls entry to the Console but does not itself grant LifeSpace platform-admin authority.
 
@@ -348,7 +348,7 @@ Model Contract Revision
   concrete published ordinary-model CRUD/query/action/Capability contract
 ```
 
-The separate Model Control Plane prevents Model Registry governance and optional AI proposal syntax from being pinned by ordinary Runtime consumers. The independent Integration/Eventing contract does the same for Webhook/Eventing representation: Runtime-only consumers pin Identity/Core Kernel/Model semantics without Eventing, while consumers that use Eventing add its version. The separate Platform Admin contract prevents Console-only privileged APIs from forcing unrelated HomeMew/ALOHA business-contract pin changes. All three contract families may still execute through the same Core Worker without sharing a compatibility lifecycle.
+The separate Model Control Plane prevents Model Registry governance and optional AI proposal syntax from being pinned by ordinary Runtime consumers. The independent Integration/Eventing contract does the same for Webhook/Eventing representation: Runtime-only consumers pin Identity/Core Kernel/Model semantics without Eventing, while consumers that use Eventing add its version. The separate Platform Admin contract prevents Console-only privileged APIs from forcing unrelated downstream business-contract pin changes. All three contract families may still execute through the same Core Worker without sharing a compatibility lifecycle.
 
 Contract publication/versioning rules are normative in `docs/contracts.md`.
 
@@ -383,7 +383,7 @@ Primary platform domains:
 - `lifespace.aisr.online` -> Console Worker/BFF behind Cloudflare Access;
 - application domains -> their own Worker/Pages/BFF deployments.
 
-Staging uses the corresponding isolated staging services and data stores. A staging Console proof must never modify production LifeSpace or HomeMew traffic/data.
+Staging uses the corresponding isolated staging services and data stores. A staging Console proof must never modify production LifeSpace or external application traffic/data.
 
 Publishing a compatible ordinary Model Definition does not itself require a Worker deployment after typed-storage convergence. Kernel/Capability/control-plane runtime code and repository-owned schema migrations still use the normal deployment process.
 
