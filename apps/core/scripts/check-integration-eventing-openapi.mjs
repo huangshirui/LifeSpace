@@ -80,6 +80,8 @@ for (const forbidden of ["record", "data", "actor", "principal", "applicationId"
   }
 }
 if (batchReferencePayload?.additionalProperties !== false
+    || JSON.stringify([...(batchReferencePayload?.required ?? [])].sort()) !== JSON.stringify(["events", "operationGroupId"])
+    || batchReferencePayload?.properties?.operationGroupId?.pattern !== "^opg_[A-Za-z0-9_-]+$"
     || batchReferencePayload?.properties?.events?.minItems !== 1
     || batchReferencePayload?.properties?.events?.maxItems !== 20
     || batchReferencePayload?.properties?.events?.items?.$ref !== "#/components/schemas/DomainEventReferencePayload"
