@@ -28,8 +28,8 @@ async function fixture() {
   const personId = `per_${suffix}`;
   const now = new Date().toISOString();
   await db.batch([
-    db.prepare(`INSERT INTO spaces(id,kind,name,created_by_user_id,created_at,updated_at,timezone)
-      VALUES(?,?,?,?,?,?,?)`).bind(spaceId, "personal", "Calendar Window", actor.id, now, now, "UTC"),
+    db.prepare(`INSERT INTO spaces(id,name,created_by_user_id,created_at,updated_at,timezone)
+      VALUES(?,?,?,?,?,?)`).bind(spaceId, "Calendar Window", actor.id, now, now, "UTC"),
     db.prepare(`INSERT INTO space_people(id,space_id,linked_user_id,display_name,created_at,updated_at)
       VALUES(?,?,?,?,?,?)`).bind(personId, spaceId, actor.id, "Calendar Viewer", now, now),
   ]);
