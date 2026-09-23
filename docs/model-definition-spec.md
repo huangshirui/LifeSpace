@@ -1174,7 +1174,7 @@ Do not add one-off domain runtime code merely because the DSL needs extension.
 - `docs/architecture.md` — current platform boundaries.
 - `docs/permissions.md` — authorization model surrounding Model Policy.
 - `docs/contracts.md` — contract ownership, publication and Model Contract revisions.
-- `docs/phase3-metadata-platform-plan.md` — origin and architectural rationale of the metadata platform.
+- `docs/model-runtime-architecture.md` — origin and architectural rationale of the metadata platform.
 - `apps/core/src/model-definition.ts` — top-level/field/query/lifecycle validator.
 - `apps/core/src/policy-definition.ts` and `policy.ts` — Policy syntax and execution.
 - `apps/core/src/workflow-definition.ts` and `workflow.ts` — Action/Workflow syntax and execution.
