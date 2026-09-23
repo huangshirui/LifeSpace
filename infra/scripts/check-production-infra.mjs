@@ -79,7 +79,6 @@ for (const [label, source, required] of [
     "\"dead_letter_queue\": \"lifespace-event-deliveries-dlq\"",
     "\"pattern\": \"core.aisr.online\"",
     "\"placement\": { \"mode\": \"smart\" }",
-    "\"PERFORMANCE_DIAGNOSTICS\": \"1\"",
   ]],
   ["Identity", identityWrangler, [
     "\"name\": \"lifespace-identity\"",
@@ -87,7 +86,6 @@ for (const [label, source, required] of [
     "\"bucket_name\": \"lifespace-assets\"",
     "\"pattern\": \"auth.aisr.online\"",
     "\"placement\": { \"mode\": \"smart\" }",
-    "\"PERFORMANCE_DIAGNOSTICS\": \"1\"",
   ]],
 ]) {
   requireTokens(`${label} production Wrangler config`, source, required);
