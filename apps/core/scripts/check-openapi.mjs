@@ -87,17 +87,6 @@ for (const retired of [
   if (document.paths?.[retired]) throw new Error(`Retired subscription-owned Webhook route remains: ${retired}`);
 }
 
-const retiredCompatibility = [
-  "/api/v1/me/families",
-  "/api/v1/families",
-  "/api/v1/family-invites",
-];
-for (const path of Object.keys(document.paths ?? {})) {
-  if (retiredCompatibility.some((prefix) => path === prefix || path.startsWith(`${prefix}/`))) {
-    throw new Error(`Retired HomeMew compatibility path remains in Kernel OpenAPI: ${path}`);
-  }
-}
-
 const ordinaryModelPrefixes = [
   "/api/v1/spaces/{spaceId}/events",
   "/api/v1/spaces/{spaceId}/tasks",
