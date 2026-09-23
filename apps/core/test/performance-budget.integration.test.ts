@@ -370,17 +370,26 @@ describe("Core D1 round-trip budgets", () => {
         WHERE record_id IN (${mixedPlaceholders})`).bind(...mixedIds),
       f.DB.prepare(`SELECT record_id,source FROM resource_provenance
         WHERE record_id IN (${mixedPlaceholders})`).bind(...mixedIds),
-      f.DB.prepare(`SELECT record_id,event_type,change_id FROM domain_event_outbox
-        WHERE record_id IN (${mixedPlaceholders})`).bind(...mixedIds),
+      f.DB.prepare(`SELECT record_id,event_type,change_id,operation_group_id,operation_group_ordinal FROM domain_event_outbox
+        WHERE record_id IN (${mixedPlaceholders}) ORDER BY operation_group_ordinal`).bind(...mixedIds),
     ]);
     expect(mixedChanges.results).toHaveLength(2);
     expect((mixedChanges.results as Array<{ operation: string }>).every((row) => row.operation === "create")).toBe(true);
     expect(mixedProvenance.results).toHaveLength(2);
     expect((mixedProvenance.results as Array<{ source: string }>).every((row) => row.source === "performance-test")).toBe(true);
     expect(mixedEvents.results).toHaveLength(2);
-    expect((mixedEvents.results as Array<{ event_type: string; change_id: string | null }>).every(
+    const mixedEventRows = mixedEvents.results as Array<{
+      event_type: string;
+      change_id: string | null;
+      operation_group_id: string | null;
+      operation_group_ordinal: number | null;
+    }>;
+    expect(mixedEventRows.every(
       (row) => row.event_type === "record.created" && row.change_id?.startsWith("chg_"),
     )).toBe(true);
+    expect(new Set(mixedEventRows.map((row) => row.operation_group_id)).size).toBe(1);
+    expect(mixedEventRows[0]?.operation_group_id).toMatch(/^opg_/u);
+    expect(mixedEventRows.map((row) => row.operation_group_ordinal)).toEqual([0, 1]);
 
     const beforeRejected = await f.DB.prepare("SELECT COUNT(*) count FROM resource_records WHERE space_id=?")
       .bind(f.spaceId).first<{ count: number }>();
