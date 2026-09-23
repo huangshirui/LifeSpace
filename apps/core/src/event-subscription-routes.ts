@@ -272,30 +272,107 @@ export function registerEventSubscriptionRoutes(app: App): void {
     const principal = context.get("principal");
     requireUser(principal);
     const current = await ownedEndpoint(context.env, principal, context.req.param("endpointId"));
-    const rows = await context.env.DB.prepare(`SELECT d.id,d.event_id,d.status,d.attempt_count,d.queued_at,d.delivered_at,d.last_status_code,d.last_error,d.created_at,
-        e.event_type,e.model_key,e.record_id,e.record_version,e.change_id,e.occurred_at
-      FROM webhook_deliveries d
-      JOIN event_subscriptions s ON s.id=d.subscription_id
-      JOIN domain_event_outbox e ON e.id=d.event_id
-      WHERE s.endpoint_id=? ORDER BY d.created_at DESC,d.id DESC LIMIT 50`)
+    const rows = await context.env.DB.prepare(`WITH recent AS (
+        SELECT
+          d.id,d.event_id,d.subscription_id,d.status,d.attempt_count,d.queued_at,d.delivered_at,
+          d.last_status_code,d.last_error,d.created_at,d.operation_group_id,d.event_count
+        FROM webhook_deliveries d
+        LEFT JOIN event_subscriptions anchor ON anchor.id=d.subscription_id
+        WHERE COALESCE(d.endpoint_id,anchor.endpoint_id)=?
+        ORDER BY d.created_at DESC,d.id DESC
+        LIMIT 50
+      ),
+      refs AS (
+        SELECT r.id AS delivery_id,m.event_id,m.subscription_id,m.ordinal
+        FROM recent r
+        JOIN webhook_delivery_events m ON m.delivery_id=r.id
+        UNION ALL
+        SELECT r.id,r.event_id,r.subscription_id,0
+        FROM recent r
+        WHERE NOT EXISTS(SELECT 1 FROM webhook_delivery_events m WHERE m.delivery_id=r.id)
+      )
+      SELECT
+        r.id,r.status,r.attempt_count,r.queued_at,r.delivered_at,r.last_status_code,r.last_error,
+        r.created_at,r.operation_group_id,r.event_count,
+        refs.subscription_id,refs.ordinal,
+        e.id AS event_id,e.event_type,e.model_key,e.record_id,e.record_version,e.change_id,e.occurred_at
+      FROM recent r
+      JOIN refs ON refs.delivery_id=r.id
+      JOIN domain_event_outbox e ON e.id=refs.event_id
+      ORDER BY r.created_at DESC,r.id DESC,refs.ordinal,e.occurred_at,e.id`)
       .bind(current.id).all<Record<string, unknown>>();
-    return context.json(success({ items: rows.results.map((row) => ({
-      id: row.id,
-      eventId: row.event_id,
-      eventType: row.event_type,
-      modelKey: row.model_key,
-      recordId: row.record_id,
-      recordVersion: row.record_version,
-      changeId: row.change_id,
-      occurredAt: row.occurred_at,
-      status: row.status,
-      attemptCount: row.attempt_count,
-      queuedAt: row.queued_at,
-      deliveredAt: row.delivered_at,
-      lastStatusCode: row.last_status_code,
-      lastError: row.last_error,
-      createdAt: row.created_at,
-    })) }));
+
+    const deliveries = new Map<string, {
+      id: unknown;
+      operationGroupId: unknown;
+      status: unknown;
+      attemptCount: unknown;
+      queuedAt: unknown;
+      deliveredAt: unknown;
+      lastStatusCode: unknown;
+      lastError: unknown;
+      createdAt: unknown;
+      events: Array<Record<string, unknown>>;
+    }>();
+    for (const row of rows.results) {
+      const deliveryId = String(row.id);
+      let delivery = deliveries.get(deliveryId);
+      if (!delivery) {
+        delivery = {
+          id: row.id,
+          operationGroupId: row.operation_group_id,
+          status: row.status,
+          attemptCount: row.attempt_count,
+          queuedAt: row.queued_at,
+          deliveredAt: row.delivered_at,
+          lastStatusCode: row.last_status_code,
+          lastError: row.last_error,
+          createdAt: row.created_at,
+          events: [],
+        };
+        deliveries.set(deliveryId, delivery);
+      }
+      delivery.events.push({
+        subscriptionId: row.subscription_id,
+        id: row.event_id,
+        type: row.event_type,
+        modelKey: row.model_key,
+        recordId: row.record_id,
+        recordVersion: row.record_version,
+        changeId: row.change_id,
+        occurredAt: row.occurred_at,
+      });
+    }
+
+    return context.json(success({
+      items: [...deliveries.values()].map((delivery) => {
+        const single = delivery.operationGroupId === null && delivery.events.length === 1
+          ? delivery.events[0]
+          : null;
+        return {
+          id: delivery.id,
+          operationGroupId: delivery.operationGroupId,
+          eventCount: delivery.events.length,
+          events: delivery.events,
+          ...(single ? {
+            eventId: single.id,
+            eventType: single.type,
+            modelKey: single.modelKey,
+            recordId: single.recordId,
+            recordVersion: single.recordVersion,
+            changeId: single.changeId,
+            occurredAt: single.occurredAt,
+          } : {}),
+          status: delivery.status,
+          attemptCount: delivery.attemptCount,
+          queuedAt: delivery.queuedAt,
+          deliveredAt: delivery.deliveredAt,
+          lastStatusCode: delivery.lastStatusCode,
+          lastError: delivery.lastError,
+          createdAt: delivery.createdAt,
+        };
+      }),
+    }));
   });
 
   app.get("/api/v1/event-subscriptions", requireScope("spaces:manage"), async (context) => {
