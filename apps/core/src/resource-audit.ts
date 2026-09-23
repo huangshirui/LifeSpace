@@ -42,10 +42,10 @@ export function resourceAuditActor(
 
 export function resourceAuditFromStorage(row: Partial<ResourceAuditStorageRow>): ResourceAudit | undefined {
   if (
-    (row.created_by_type !== "user" && row.created_by_type !== "service")
+    !["user", "service", "device"].includes(String(row.created_by_type))
     || typeof row.created_by_id !== "string"
     || typeof row.created_by_name_snapshot !== "string"
-    || (row.updated_by_type !== "user" && row.updated_by_type !== "service")
+    || !["user", "service", "device"].includes(String(row.updated_by_type))
     || typeof row.updated_by_id !== "string"
     || typeof row.updated_by_name_snapshot !== "string"
   ) return undefined;
