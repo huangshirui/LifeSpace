@@ -226,3 +226,16 @@ The wall-time gate and the structural D1 gate remain separate:
 - D1 round-trip integration budgets protect the Runtime from reintroducing serialized I/O/N+1 shapes even when a particular network sample happens to be fast.
 
 A production release must satisfy both. The historical 220/500 migration envelope is retained for comparison and must not be silently rewritten as though it had always been the current release SLO.
+
+## 8. Consumer projection cost invariants
+
+Consumer-facing semantic projection must remain opt-in and progressive.
+
+- Ordinary CRUD/query execution must not pay a mandatory Discovery, semantic-detail or reference-hydration preflight tax.
+- Cross-Space capability inventory must keep D1 network trips bounded as visible Space/model cardinality grows; payload materialization must not be used as an excuse for N+1 database access.
+- A full aggregate projection is valid when explicitly requested, but it is not the default context representation for every consumer interaction because payload size grows with visible Space × Model edges.
+- The preferred default flow is compact inventory -> selected model semantic detail -> bounded dynamic lookup/resolution only when required.
+- Relation target lookup and reference resolution must be set-based and bounded rather than per-ID request waterfalls.
+- Immutable/static semantics may be cached by identity/hash; mutable authority is never authorized from a stale positive projection.
+- Protocol or LLM token economy belongs to adapters/product runtimes and must not force protocol-specific semantics into Core.
+
