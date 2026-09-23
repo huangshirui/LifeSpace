@@ -102,8 +102,7 @@ describe("Batch Reference Resolution performance", () => {
     const personIds = Array.from({ length: 50 }, (_, index) => `per_ref_perf_${suffix}_${index}`);
 
     const setup = [
-      realDb.prepare(`INSERT INTO spaces(id,kind,name,created_by_user_id,created_at,updated_at,timezone)
-        VALUES(?,?,?,?,?,?,?)`).bind(spaceId, "family", "Reference Resolution Performance", userId, now, now, "UTC"),
+      realDb.prepare(`INSERT INTO spaces(id,name,created_by_user_id,created_at,updated_at,timezone) VALUES(?,?,?,?,?,?)`).bind(spaceId, "Reference Resolution Performance", userId, now, now, "UTC"),
       realDb.prepare(`INSERT INTO space_memberships(id,space_id,user_id,role,created_at,updated_at)
         VALUES(?,?,?,?,?,?)`).bind(`mem_ref_perf_${suffix}`, spaceId, userId, "owner", now, now),
       realDb.prepare(`INSERT INTO application_model_access(application_id,model_key,max_access,created_by_type,created_by_id)
