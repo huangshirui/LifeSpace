@@ -130,6 +130,6 @@ Start with `AGENTS.md`, then the relevant source-of-truth documents:
 - `docs/model-scoped-data-grants.md` — whole-Space vs model-collection Grant semantics
 - `docs/service-authentication.md` — service/Agent/machine credentials
 - `docs/contracts.md` — Kernel/model contract ownership and publication
-- `docs/phase3-metadata-platform-plan.md` — metadata-driven model architecture
-- `docs/phase3-performance-convergence-plan.md` — runtime/storage performance invariants
+- `docs/model-runtime-architecture.md` — metadata-driven model architecture
+- `docs/performance-invariants.md` — runtime/storage performance invariants
 - `docs/application-authentication.md` — trusted application and Cloudflare Access Identity contracts
