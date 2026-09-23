@@ -40,12 +40,16 @@ export function resourceAuditActor(
   };
 }
 
+function storedPrincipalType(value: unknown): value is Principal["type"] {
+  return value === "user" || value === "service" || value === "device";
+}
+
 export function resourceAuditFromStorage(row: Partial<ResourceAuditStorageRow>): ResourceAudit | undefined {
   if (
-    !["user", "service", "device"].includes(String(row.created_by_type))
+    !storedPrincipalType(row.created_by_type)
     || typeof row.created_by_id !== "string"
     || typeof row.created_by_name_snapshot !== "string"
-    || !["user", "service", "device"].includes(String(row.updated_by_type))
+    || !storedPrincipalType(row.updated_by_type)
     || typeof row.updated_by_id !== "string"
     || typeof row.updated_by_name_snapshot !== "string"
   ) return undefined;
