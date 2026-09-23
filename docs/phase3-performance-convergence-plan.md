@@ -2,7 +2,7 @@
 
 Status: **Complete**
 
-Updated: 2026-08-13
+Updated: 2026-09-23
 
 > Evolution note: LifeSpace #200 removes the former route index; the current isolate snapshot is keyed only by `modelKey`, with no additional Discovery or D1 hot-path lookup.
 
@@ -321,3 +321,29 @@ Relation-target validation also changes from field-by-field awaits to one bounde
 The D1 round-trip integration gate is tightened to the converged budgets, including an Event PATCH with a real attendee Person relation. These budgets are correctness/performance invariants for the ordinary hot path, not merely benchmarks.
 
 Observability timing keys that Cloudflare treated as secret-like (`auth.*`, `runtime.authorization`) are renamed to neutral timing names. Smart Placement analysis status is read from the Workers service endpoint rather than inferred from script settings; a missing status means not yet analyzed, while `UNSUPPORTED_APPLICATION` remains a failed placement assumption.
+
+
+## 11. 2026-09-23 Current APAC release regression gate
+
+The original Phase-3 migration acceptance envelope in section 5 remains historical evidence: representative APAC common-read P50 <= 220 ms and P90 <= 500 ms proved that the metadata-driven platform was safe to carry into HomeMew migration.
+
+After the #270/#274 convergence, that envelope is no longer the only production-release regression gate. Controlled APAC evidence for the exact production candidate showed ordinary reads and mutations in roughly the 50-130 ms range, so continuing to use only 220/500 would allow multi-fold regressions to pass unnoticed.
+
+The current production release gate is scenario-specific and deliberately keeps substantial cloud-noise headroom:
+
+| Scenario class | P50 gate | P90 gate |
+| --- | ---: | ---: |
+| User JWT ordinary read: Task GET/list, Event query, Wish list | <= 150 ms | <= 250 ms |
+| User JWT Day Record / Temporal read | <= 220 ms | <= 300 ms |
+| User JWT Task mutation/action | <= 160 ms | <= 250 ms |
+| Opaque Service API Token Task GET/list | <= 180 ms | <= 250 ms |
+| Opaque Service API Token Task create/PATCH/action | <= 220 ms | <= 300 ms |
+
+Read scenarios use 15 timed samples after warmup. Mutation/action scenarios also use 15 timed samples; this avoids making a release-blocking P90 effectively equal to the maximum of only eight observations.
+
+The wall-time gate and the structural D1 gate remain separate:
+
+- APAC P50/P90 gates protect deployed request experience and topology regressions.
+- D1 round-trip integration budgets protect the Runtime from reintroducing serialized I/O/N+1 shapes even when a particular network sample happens to be fast.
+
+A production release must satisfy both. The historical 220/500 migration envelope is retained for comparison and must not be silently rewritten as though it had always been the current release SLO.
