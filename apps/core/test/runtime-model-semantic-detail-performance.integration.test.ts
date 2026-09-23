@@ -104,8 +104,8 @@ describe("Progressive model semantic detail performance", () => {
     const now = new Date().toISOString();
 
     await realDb.batch([
-      realDb.prepare(`INSERT INTO spaces(id,kind,name,created_by_user_id,created_at,updated_at,timezone)
-        VALUES(?,?,?,?,?,?,?)`).bind(spaceId, "personal", "S2 Performance", userId, now, now, "UTC"),
+      realDb.prepare(`INSERT INTO spaces(id,name,created_by_user_id,created_at,updated_at,timezone)
+        VALUES(?,?,?,?,?,?)`).bind(spaceId, "S2 Performance", userId, now, now, "UTC"),
       realDb.prepare(`INSERT INTO space_memberships(id,space_id,user_id,role,created_at,updated_at)
         VALUES(?,?,?,?,?,?)`).bind(`mem_s2_${suffix}`, spaceId, userId, "owner", now, now),
       realDb.prepare(`INSERT INTO space_people(id,space_id,linked_user_id,display_name,created_at,updated_at)
