@@ -80,7 +80,10 @@ test("Service PAT benchmark covers bounded Task read/create/update/action reques
   assert.equal(result.credentialMode, "opaque_service_api_token");
   assert.equal(result.acceptanceEligible, true);
   assert.equal(result.allReadTargetsMet, true);
+  assert.equal(result.allMutationTargetsMet, true);
+  assert.equal(result.allTargetsMet, true);
   assert.deepEqual(result.readTargetsMet, { taskGet: true, taskList10: true });
+  assert.deepEqual(result.mutationTargetsMet, { taskCreate: true, taskPatch: true, taskWorkflow: true });
   assert.equal(result.reads.taskGet.samples, 2);
   assert.equal(result.reads.taskList10.samples, 2);
   assert.equal(result.mutations.taskCreate.samples, 2);
