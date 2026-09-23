@@ -8,7 +8,7 @@ import { assertIanaTimezone } from "./time-semantics";
 type AppEnv = { Bindings: Bindings; Variables: Variables };
 type App = Hono<AppEnv>;
 type Body = Record<string, unknown>;
-type SpaceRow = { id: string; kind: "personal" | "family" | "team"; name: string; timezone: string; avatar_key: string | null; version: number };
+type SpaceRow = { id: string; name: string; timezone: string; avatar_key: string | null; version: number };
 type MembershipRow = { id: string; space_id: string; user_id: string; role: SpaceRole; version: number; deleted_at: string | null };
 type PersonRow = { id: string; deleted_at: string | null };
 type InviteRow = {
@@ -25,7 +25,6 @@ type InviteRow = {
 };
 
 const INVITE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-const FAMILY_MEMBER_LIMIT = 8;
 const now = () => new Date().toISOString();
 const createId = (prefix: string) => `${prefix}_${crypto.randomUUID().replaceAll("-", "")}`;
 
@@ -85,7 +84,7 @@ function fields(input: Body, allowed: string[]): void {
 }
 
 async function findSpace(env: Bindings, spaceId: string): Promise<SpaceRow> {
-  const row = await env.DB.prepare("SELECT id,kind,name,timezone,avatar_key,version FROM spaces WHERE id=? AND deleted_at IS NULL")
+  const row = await env.DB.prepare("SELECT id,name,timezone,avatar_key,version FROM spaces WHERE id=? AND deleted_at IS NULL")
     .bind(spaceId).first<SpaceRow>();
   if (!row) throw new ApiError("SPACE_NOT_FOUND", "Space not found", 404);
   return row;
@@ -149,10 +148,10 @@ async function sha256(value: string): Promise<string> {
   return Array.from(hash, (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-async function findInvite(env: Bindings, token: string): Promise<InviteRow & { space_name: string; space_kind: SpaceRow["kind"]; timezone: string }> {
-  const invite = await env.DB.prepare(`SELECT i.*,s.name space_name,s.kind space_kind,s.timezone
+async function findInvite(env: Bindings, token: string): Promise<InviteRow & { space_name: string; timezone: string }> {
+  const invite = await env.DB.prepare(`SELECT i.*,s.name space_name,s.timezone
     FROM space_invites i JOIN spaces s ON s.id=i.space_id
-    WHERE i.token_hash=? AND s.deleted_at IS NULL`).bind(await sha256(token)).first<InviteRow & { space_name: string; space_kind: SpaceRow["kind"]; timezone: string }>();
+    WHERE i.token_hash=? AND s.deleted_at IS NULL`).bind(await sha256(token)).first<InviteRow & { space_name: string; timezone: string }>();
   if (!invite) throw new ApiError("INVITE_NOT_FOUND", "Invite not found", 404);
   return invite;
 }
@@ -189,7 +188,7 @@ export function registerSpaceRoutes(app: App): void {
   app.get("/api/v1/me/spaces", requireScope("spaces:read"), async (c) => {
     const principal = c.get("principal");
     const result = principal.type === "user"
-      ? await c.env.DB.prepare(`SELECT s.id,s.kind,s.name,s.timezone,s.avatar_key,m.role,s.version
+      ? await c.env.DB.prepare(`SELECT s.id,s.name,s.timezone,s.avatar_key,m.role,s.version
           FROM spaces s JOIN space_memberships m ON m.space_id=s.id
           WHERE m.user_id=? AND m.deleted_at IS NULL AND s.deleted_at IS NULL ORDER BY m.created_at`)
         .bind(principal.id).all<SpaceRow & { role: SpaceRole }>()
@@ -201,9 +200,7 @@ export function registerSpaceRoutes(app: App): void {
     const principal = c.get("principal");
     requireUser(principal);
     const input = await body(c);
-    fields(input, ["kind", "name", "ownerDisplayName", "timezone"]);
-    if (!['personal', 'family', 'team'].includes(input.kind as string)) throw new ApiError("VALIDATION_ERROR", "kind is invalid", 422);
-    const kind = input.kind as SpaceRow["kind"];
+    fields(input, ["name", "ownerDisplayName", "timezone"]);
     const name = text(input.name, "name");
     const ownerDisplayName = text(input.ownerDisplayName, "ownerDisplayName");
     const zone = input.timezone === undefined ? "UTC" : timezone(input.timezone);
@@ -212,14 +209,14 @@ export function registerSpaceRoutes(app: App): void {
     const personId = createId("per");
     const createdAt = now();
     await c.env.DB.batch([
-      c.env.DB.prepare(`INSERT INTO spaces(id,kind,name,timezone,created_by_user_id,created_at,updated_at) VALUES(?,?,?,?,?,?,?)`)
-        .bind(spaceId, kind, name, zone, principal.id, createdAt, createdAt),
+      c.env.DB.prepare(`INSERT INTO spaces(id,name,timezone,created_by_user_id,created_at,updated_at) VALUES(?,?,?,?,?,?)`)
+        .bind(spaceId, name, zone, principal.id, createdAt, createdAt),
       c.env.DB.prepare(`INSERT INTO space_memberships(id,space_id,user_id,role,created_at,updated_at) VALUES(?,?,?,?,?,?)`)
         .bind(membershipId, spaceId, principal.id, "owner", createdAt, createdAt),
       c.env.DB.prepare(`INSERT INTO space_people(id,space_id,linked_user_id,display_name,created_at,updated_at) VALUES(?,?,?,?,?,?)`)
         .bind(personId, spaceId, principal.id, ownerDisplayName, createdAt, createdAt),
     ]);
-    return c.json(success({ id: spaceId, kind, name, timezone: zone, avatarUrl: null, role: "owner", ownerPersonId: personId, version: 1 }), 201);
+    return c.json(success({ id: spaceId, name, timezone: zone, avatarUrl: null, role: "owner", ownerPersonId: personId, version: 1 }), 201);
   });
 
   app.get("/api/v1/spaces/:spaceId", requireScope("spaces:read"), async (c) => {
@@ -261,7 +258,6 @@ export function registerSpaceRoutes(app: App): void {
     requireUser(principal);
     const spaceId = c.req.param("spaceId");
     await requireSpacePermission(c.env, principal, spaceId, "manage");
-    const space = await findSpace(c.env, spaceId);
     const input = await body(c);
     fields(input, ["userId", "role", "displayName"]);
     const userId = text(input.userId, "userId", 200);
@@ -277,13 +273,13 @@ export function registerSpaceRoutes(app: App): void {
     const personId = previousPerson?.id ?? createId("per");
     const statements = previousMembership
       ? [c.env.DB.prepare(`UPDATE space_memberships SET role=?,deleted_at=NULL,updated_at=?,version=version+1
-          WHERE id=? AND deleted_at IS NOT NULL
-          AND (?!='family' OR (SELECT COUNT(*) FROM space_memberships WHERE space_id=? AND deleted_at IS NULL)<${FAMILY_MEMBER_LIMIT})`)
-        .bind(role, addedAt, membershipId, space.kind, spaceId)]
+          WHERE id=? AND deleted_at IS NOT NULL`)
+        .bind(role, addedAt, membershipId)]
       : [c.env.DB.prepare(`INSERT INTO space_memberships(id,space_id,user_id,role,created_at,updated_at)
-          SELECT ?,?,?,?,?,? WHERE (?!='family' OR (SELECT COUNT(*) FROM space_memberships WHERE space_id=? AND deleted_at IS NULL)<${FAMILY_MEMBER_LIMIT})
-          AND NOT EXISTS (SELECT 1 FROM space_memberships WHERE space_id=? AND user_id=? AND deleted_at IS NULL)`)
-        .bind(membershipId, spaceId, userId, role, addedAt, addedAt, space.kind, spaceId, spaceId, userId)];
+          SELECT ?,?,?,?,?,? WHERE NOT EXISTS (
+            SELECT 1 FROM space_memberships WHERE space_id=? AND user_id=? AND deleted_at IS NULL
+          )`)
+        .bind(membershipId, spaceId, userId, role, addedAt, addedAt, spaceId, userId)];
     statements.push(previousPerson
       ? c.env.DB.prepare(`UPDATE space_people SET display_name=?,deleted_at=NULL,updated_at=? WHERE id=? AND deleted_at IS NOT NULL
           AND EXISTS (SELECT 1 FROM space_memberships WHERE id=? AND deleted_at IS NULL AND updated_at=?)`)
@@ -297,18 +293,10 @@ export function registerSpaceRoutes(app: App): void {
       if (await findMembership(c.env, spaceId, userId)) {
         throw new ApiError("MEMBER_ALREADY_ACTIVE", "User is already an active Space member", 409);
       }
-      if (space.kind === "family" && await memberCount(c.env, spaceId) >= FAMILY_MEMBER_LIMIT) {
-        throw new ApiError("FAMILY_MEMBER_LIMIT_REACHED", "Family Space member limit reached", 409);
-      }
       throw error;
     }
     const current = await findMembership(c.env, spaceId, userId);
-    if (!current) {
-      if (space.kind === "family" && await memberCount(c.env, spaceId) >= FAMILY_MEMBER_LIMIT) {
-        throw new ApiError("FAMILY_MEMBER_LIMIT_REACHED", "Family Space member limit reached", 409);
-      }
-      throw new ApiError("MEMBER_ALREADY_ACTIVE", "User is already an active Space member", 409);
-    }
+    if (!current) throw new ApiError("MEMBER_ALREADY_ACTIVE", "User is already an active Space member", 409);
     return c.json(success(membershipDto(current, personId, displayName)), 201);
   });
 
@@ -349,13 +337,12 @@ export function registerSpaceRoutes(app: App): void {
     requireUser(principal);
     const spaceId = c.req.param("spaceId");
     await requireSpacePermission(c.env, principal, spaceId, "manage");
-    const space = await findSpace(c.env, spaceId);
     const input = await body(c);
     fields(input, ["role", "expiresInMinutes", "maxUses"]);
     const role = input.role === undefined ? "editor" : input.role;
     if (!['admin', 'editor', 'viewer'].includes(role as string)) throw new ApiError("VALIDATION_ERROR", "role is invalid", 422);
     const expiresInMinutes = positiveInteger(input.expiresInMinutes, "expiresInMinutes", 1440, 43_200);
-    const maxUses = positiveInteger(input.maxUses, "maxUses", 1, space.kind === "family" ? FAMILY_MEMBER_LIMIT : 100);
+    const maxUses = positiveInteger(input.maxUses, "maxUses", 1, 100);
     const token = inviteToken();
     const inviteId = createId("inv");
     const createdAt = now();
@@ -409,8 +396,8 @@ export function registerSpaceRoutes(app: App): void {
     const count = await memberCount(c.env, invite.space_id);
     const status = inviteStatus(invite);
     return c.json(success({
-      space: { id: invite.space_id, name: invite.space_name, kind: invite.space_kind, timezone: invite.timezone, memberCount: count },
-      role: invite.role, expiresAt: invite.expires_at, canJoin: status === "active" && (invite.space_kind !== "family" || count < FAMILY_MEMBER_LIMIT),
+      space: { id: invite.space_id, name: invite.space_name, timezone: invite.timezone, memberCount: count },
+      role: invite.role, expiresAt: invite.expires_at, canJoin: status === "active",
     }));
   });
 
@@ -424,9 +411,6 @@ export function registerSpaceRoutes(app: App): void {
     const invite = await findInvite(c.env, token);
     assertInvite(invite);
     if (await findMembership(c.env, invite.space_id, principal.id)) throw new ApiError("ALREADY_SPACE_MEMBER", "User is already a Space member", 409);
-    if (invite.space_kind === "family" && await memberCount(c.env, invite.space_id) >= FAMILY_MEMBER_LIMIT) {
-      throw new ApiError("FAMILY_MEMBER_LIMIT_REACHED", "Family Space member limit reached", 409);
-    }
     const previousMembership = await findMembership(c.env, invite.space_id, principal.id, false);
     const previousPerson = await c.env.DB.prepare(`SELECT id,deleted_at FROM space_people WHERE space_id=? AND linked_user_id=? ORDER BY created_at DESC LIMIT 1`)
       .bind(invite.space_id, principal.id).first<PersonRow>();
@@ -437,7 +421,6 @@ export function registerSpaceRoutes(app: App): void {
     const redemption = c.env.DB.prepare(`INSERT INTO space_invite_redemptions(id,invite_id,space_id,user_id,redeemed_at)
       SELECT ?,i.id,i.space_id,?,? FROM space_invites i JOIN spaces s ON s.id=i.space_id
       WHERE i.id=? AND i.status='active' AND julianday(i.expires_at)>julianday('now') AND i.used_count<i.max_uses AND s.deleted_at IS NULL
-      AND (s.kind!='family' OR (SELECT COUNT(*) FROM space_memberships WHERE space_id=i.space_id AND deleted_at IS NULL)<${FAMILY_MEMBER_LIMIT})
       AND NOT EXISTS (SELECT 1 FROM space_memberships WHERE space_id=i.space_id AND user_id=? AND deleted_at IS NULL)
       AND NOT EXISTS (SELECT 1 FROM space_invite_redemptions WHERE invite_id=i.id AND user_id=?)`)
       .bind(redemptionId, principal.id, redeemedAt, invite.id, principal.id, principal.id);
@@ -459,9 +442,6 @@ export function registerSpaceRoutes(app: App): void {
     if (!results[0].meta.changes) {
       const current = await findInvite(c.env, token);
       assertInvite(current);
-      if (current.space_kind === "family" && await memberCount(c.env, current.space_id) >= FAMILY_MEMBER_LIMIT) {
-        throw new ApiError("FAMILY_MEMBER_LIMIT_REACHED", "Family Space member limit reached", 409);
-      }
       const priorRedemption = await c.env.DB.prepare(`SELECT 1 redeemed FROM space_invite_redemptions WHERE invite_id=? AND user_id=?`)
         .bind(current.id, principal.id).first<{ redeemed: number }>();
       if (priorRedemption) throw new ApiError("INVITE_ALREADY_REDEEMED", "Invite was already redeemed by this user", 409);
