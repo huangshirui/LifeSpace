@@ -71,9 +71,6 @@ paths:
           in: query
           description: Optional case-insensitive-ish D1 LIKE match against Space id or name.
           schema: { type: string, maxLength: 100 }
-        - name: kind
-          in: query
-          schema: { $ref: '#/components/schemas/SpaceKind' }
         - $ref: '#/components/parameters/Limit'
       responses:
         '200':
@@ -274,16 +271,12 @@ components:
             models:
               type: array
               items: { $ref: '#/components/schemas/ApplicationModelAccessEntry' }
-    SpaceKind:
-      type: string
-      enum: [personal, family, team]
     PlatformSpaceSummary:
       type: object
       additionalProperties: false
-      required: [id, kind, name, timezone, avatarUrl, version, createdByUserId, createdAt, updatedAt, memberCount, grantCount, recordCount]
+      required: [id, name, timezone, avatarUrl, version, createdByUserId, createdAt, updatedAt, memberCount, grantCount, recordCount]
       properties:
         id: { type: string, pattern: '^spc_' }
-        kind: { $ref: '#/components/schemas/SpaceKind' }
         name: { type: string }
         timezone: { type: string, x-lifespace-format: iana-timezone }
         avatarUrl: { anyOf: [{ type: string, format: uri }, { type: 'null' }] }
@@ -332,7 +325,7 @@ components:
     PlatformSpaceDetail:
       type: object
       additionalProperties: false
-      required: [id, kind, name, timezone, avatarUrl, version, createdByUserId, createdAt, updatedAt, members, grants, recordCounts]
+      required: [id, name, timezone, avatarUrl, version, createdByUserId, createdAt, updatedAt, members, grants, recordCounts]
       properties:
         id: { type: string, pattern: '^spc_' }
         kind: { $ref: '#/components/schemas/SpaceKind' }
