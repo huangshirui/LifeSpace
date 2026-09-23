@@ -40,7 +40,6 @@ Current Kernel-level behavior that is intentionally explicit outside ordinary Mo
 
 - Every Space stores an IANA `timezone`; creation defaults to `UTC` when omitted.
 - Space profile updates use optimistic-concurrency `version`.
-- Family Spaces allow at most eight active memberships and retain at least one active owner/admin.
 - Membership activation/deactivation keeps its linked Space Person consistent.
 - Core owns hashed, expiring, revocable Space invitations. Plaintext invitation tokens are returned exactly once at creation; redemption atomically creates/reactivates membership plus Space Person.
 
