@@ -24,7 +24,7 @@ Callback grouping is **operation-defined, never time-window inferred**:
 - explicit Batch operation: N Domain Events → 1 callback per matching Webhook Endpoint, carrying that endpoint's matching events in `events[]`;
 - independent operations that happen milliseconds apart: independent callbacks. LifeSpace Core does not debounce, coalesce or guess user intent from elapsed time.
 
-External Webhook payloads remain reference-only. Independent single-event callbacks retain the historical single-event object. Explicit operation-group callbacks use `{"events":[...]}`; each event reference contains event ID/type, Space, model key, record ID/version, governed `changeId` and occurrence time. Neither form contains the full record or actor identity. A receiving system that needs record data must authenticate normally and pass current LifeSpace credential scope, Application × Model Access and Space/Data Grant authorization.
+External Webhook payloads remain reference-only. Independent single-event callbacks retain the historical single-event object. Explicit operation-group callbacks use `{"operationGroupId":"opg_*","events":[...]}`; each event reference contains event ID/type, Space, model key, record ID/version, governed `changeId` and occurrence time. Neither form contains the full record or actor identity. A receiving system that needs record data must authenticate normally and pass current LifeSpace credential scope, Application × Model Access and Space/Data Grant authorization.
 
 ## Endpoint and subscription model
 
@@ -122,7 +122,7 @@ Webhook requests are POST JSON and always include:
 
 Independent single-event callbacks additionally include `X-LifeSpace-Event-Id` and `X-LifeSpace-Subscription-Id`. Explicit grouped callbacks instead include `X-LifeSpace-Operation-Group-Id`; they may span multiple model subscriptions, so no singular subscription/event header is invented.
 
-The signature input is `timestamp + "." + rawBody` using the endpoint signing secret.
+The signature input is `timestamp + "." + rawBody` using the endpoint signing secret. Because `operationGroupId` is inside the grouped raw body, the explicit Batch identity is covered by the same HMAC; the corresponding header is routing/diagnostic metadata, not the sole integrity source.
 
 Webhook transport is deliberately **public HTTPS egress**, including when a valid callback happens to use a Cloudflare Custom Domain in the same DNS zone as Core. Core therefore configures the Workers global `fetch()` runtime with `global_fetch_strictly_public`, so a same-zone callback traverses Cloudflare's public front door instead of being resolved as a private origin lookup. Trusted same-account internal calls such as Core -> Identity continue to use explicit Service Bindings; Eventing must not silently replace a configured public Webhook URL with a Service Binding because that would test and execute a different transport contract.
 
