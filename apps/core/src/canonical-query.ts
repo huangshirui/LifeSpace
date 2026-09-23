@@ -8,6 +8,8 @@ import { projectTimeRangeSemantics, type TimeRangeBounds } from "./time-range-de
 import { assertIanaTimezone, localDateWindowToInstantRange, normalizeRfc3339Instant } from "./time-semantics";
 import {
   hydrateTypedResourceRows,
+  resourceAuditJoins,
+  resourceAuditSelectColumns,
   typedRangeExpressions,
   typedScalarExpression,
   typedSelectColumns,
@@ -1052,9 +1054,7 @@ async function queryTemporalSortedResources(
     if (args.length > MAX_QUERY_BINDINGS) {
       throw new ApiError("INVALID_QUERY", "Canonical Query exceeds the execution complexity budget", 400);
     }
-    return env.DB.prepare(`SELECT r.id,r.space_id,r.model_key,r.model_version,r.version,r.created_at,r.updated_at${scalarSelect ? `,${scalarSelect}` : ""},${sortSelect}
-      FROM resource_records r JOIN ${typedTableSql(model)} m ON m.record_id=r.id AND m.space_id=r.space_id
-      WHERE ${where.join(" AND ")} ORDER BY ${order.join(",")} LIMIT ?`)
+    return env.DB.prepare(`SELECT r.id,r.space_id,r.model_key,r.model_version,r.version,r.created_at,r.updated_at,${resourceAuditSelectColumns("r")}${scalarSelect ? `,${scalarSelect}` : ""},${sortSelect}\n      FROM resource_records r JOIN ${typedTableSql(model)} m ON m.record_id=r.id AND m.space_id=r.space_id\n      ${resourceAuditJoins("r")}\n      WHERE ${where.join(" AND ")} ORDER BY ${order.join(",")} LIMIT ?`)
       .bind(...args);
   });
 
@@ -1157,9 +1157,7 @@ export async function queryCanonicalResources(
   if (args.length > MAX_QUERY_BINDINGS) {
     throw new ApiError("INVALID_QUERY", "Canonical Query exceeds the execution complexity budget", 400);
   }
-  const rows = await env.DB.prepare(`SELECT r.id,r.space_id,r.model_key,r.model_version,r.version,r.created_at,r.updated_at${scalarSelect ? `,${scalarSelect}` : ""},${sortSelect}
-    FROM resource_records r JOIN ${typedTableSql(model)} m ON m.record_id=r.id AND m.space_id=r.space_id
-    WHERE ${where.join(" AND ")} ORDER BY ${order.join(",")} LIMIT ?`)
+  const rows = await env.DB.prepare(`SELECT r.id,r.space_id,r.model_key,r.model_version,r.version,r.created_at,r.updated_at,${resourceAuditSelectColumns("r")}${scalarSelect ? `,${scalarSelect}` : ""},${sortSelect}\n    FROM resource_records r JOIN ${typedTableSql(model)} m ON m.record_id=r.id AND m.space_id=r.space_id\n    ${resourceAuditJoins("r")}\n    WHERE ${where.join(" AND ")} ORDER BY ${order.join(",")} LIMIT ?`)
     .bind(...args).all<QueryRow>();
   const page = rows.results.slice(0, parsed.limit);
   const items = await hydrateTypedResourceRows(env, model, page);
