@@ -124,7 +124,7 @@ describe("Space membership and invitation management", () => {
     expect(replay.status).toBe(409);
   });
 
-  it("preserves a space Space manager and deactivates membership with its person", async () => {
+  it("preserves a Space manager and deactivates membership with its person", async () => {
     const { privateKey, publicKey } = await keys();
     const ownerId = `usr_${crypto.randomUUID()}`;
     const memberId = `usr_${crypto.randomUUID()}`;
