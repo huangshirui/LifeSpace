@@ -16,9 +16,9 @@ test("allows a candidate at or ahead of live staging", () => {
     service: "core",
     live: { data: { status: "ok", environment: "staging", schemaVersion: 40, contractVersion: "0.35.0" } },
     expectedContractVersion: "0.38.0",
-    expectedSchemaVersion: 43,
+    expectedSchemaVersion: 44,
   });
-  assert.equal(result.expectedSchemaVersion, 43);
+  assert.equal(result.expectedSchemaVersion, 44);
 });
 
 test("rejects a schema downgrade before deployment", () => {
@@ -39,8 +39,8 @@ test("rejects a contract downgrade before deployment", () => {
       service: "core",
       live: { data: { status: "ok", environment: "staging", schemaVersion: 43, contractVersion: "0.39.0" } },
       expectedContractVersion: "0.38.0",
-      expectedSchemaVersion: 43,
+      expectedSchemaVersion: 44,
     }),
-    /contract 0.38.0 is newer than candidate contract 0.37.0/,
+    /contract 0.39.0 is newer than candidate contract 0.38.0/,
   );
 });
