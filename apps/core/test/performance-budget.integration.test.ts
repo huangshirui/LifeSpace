@@ -154,6 +154,7 @@ async function fixture() {
   // Prime the isolate-local Registry snapshot on the same wrapped binding, then
   // reset the counter so the assertions below measure the hot path only.
   expect(await getRuntimeModel({ DB } as Bindings, "task")).not.toBeNull();
+  expect(await getRuntimeModel({ DB } as Bindings, "event")).not.toBeNull();
   counter.roundTrips = 0;
   counter.maxBindings = 0;
 
@@ -304,6 +305,63 @@ describe("Core D1 round-trip budgets", () => {
       201,
       2,
     );
+
+    const batch20 = await measured(
+      f.counter,
+      () => f.request(`/api/v1/spaces/${f.spaceId}/records/batch`, {
+        method: "POST",
+        body: JSON.stringify({
+          items: Array.from({ length: 20 }, (_, index) => ({
+            clientRef: `task-${index}`,
+            modelKey: "task",
+            input: {
+              name: `Batch budget task ${index}`,
+              assigneePersonIds: [f.personId],
+            },
+          })),
+        }),
+      }),
+      201,
+      3,
+    );
+    const batch20Payload = await batch20.json<{ data: { items: Array<{ clientRef: string; modelKey: string; id: string; version: number }> } }>();
+    expect(batch20Payload.data.items).toHaveLength(20);
+    expect(new Set(batch20Payload.data.items.map((item) => item.id)).size).toBe(20);
+    expect(batch20Payload.data.items.every((item) => item.modelKey === "task" && item.version === 1)).toBe(true);
+
+    const mixedBatch = await measured(
+      f.counter,
+      () => f.request(`/api/v1/spaces/${f.spaceId}/records/batch`, {
+        method: "POST",
+        body: JSON.stringify({
+          items: [
+            {
+              clientRef: "mixed-event",
+              modelKey: "event",
+              input: {
+                summary: "Batch budget event",
+                when: { kind: "date", start: "2026-09-26", endExclusive: "2026-09-27" },
+                attendeePersonIds: [f.personId],
+                provenance: { source: "performance-test" },
+              },
+            },
+            {
+              clientRef: "mixed-task",
+              modelKey: "task",
+              input: {
+                name: "Batch budget follow-up",
+                assigneePersonIds: [f.personId],
+                provenance: { source: "performance-test" },
+              },
+            },
+          ],
+        }),
+      }),
+      201,
+      4,
+    );
+    const mixedPayload = await mixedBatch.json<{ data: { items: Array<{ clientRef: string; modelKey: string; id: string }> } }>();
+    expect(mixedPayload.data.items.map((item) => item.modelKey)).toEqual(["event", "task"]);
   }, PERFORMANCE_TEST_TIMEOUT_MS);
 });
 
