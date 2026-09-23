@@ -168,7 +168,7 @@ Integration/Eventing public contract (same Worker, independent lifecycle):
 
 ```text
 apps/core/integration-eventing.openapi.yaml
-current Integration/Eventing version: 0.2.0
+current Integration/Eventing version: 0.3.0
 ```
 
 Model Registry / Model Contract governance contract:
