@@ -83,7 +83,7 @@ describe("Webhook endpoint and event subscription authorization", () => {
         spaceId,
         subscriberServicePrincipalId: subscriberId,
         name: "Home automation",
-        webhookUrl: "https://example.com/hooks/homemew",
+        webhookUrl: "https://example.com/hooks/consumer",
       }),
     });
     expect(endpointResponse.status).toBe(201);
@@ -92,7 +92,7 @@ describe("Webhook endpoint and event subscription authorization", () => {
       destination: { url: string };
       signingSecret: string;
     } }>();
-    expect(endpoint.data.destination.url).toBe("https://example.com/hooks/homemew");
+    expect(endpoint.data.destination.url).toBe("https://example.com/hooks/consumer");
     expect(endpoint.data.signingSecret).toHaveLength(64);
 
     const denied = await request("/api/v1/event-subscriptions", accessToken, publicKey, {
