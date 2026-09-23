@@ -1,5 +1,6 @@
 import type { Hono } from "hono";
 import type { Bindings, Variables } from "./env";
+import { measurePerformancePhase } from "./performance-timing";
 
 type AppEnv = { Bindings: Bindings; Variables: Variables };
 type App = Hono<AppEnv>;
@@ -43,12 +44,14 @@ export function registerServicePrincipalIntrospectionRoutes(app: App): void {
     const principalId = c.req.param("principalId");
     if (!/^svc_[A-Za-z0-9]+$/.test(principalId)) return c.json(ok({ active: false }));
 
-    const row = await c.env.DB.prepare(`SELECT sp.status principalStatus,a.status applicationStatus,sp.display_name displayName
-      FROM service_principals sp
-      JOIN applications a ON a.id=sp.application_id
-      WHERE sp.id=?`)
-      .bind(principalId)
-      .first<PrincipalStateRow>();
+    const row = await measurePerformancePhase(c, "identity.service_principal_lookup", () =>
+      c.env.DB.prepare(`SELECT sp.status principalStatus,a.status applicationStatus,sp.display_name displayName
+        FROM service_principals sp
+        JOIN applications a ON a.id=sp.application_id
+        WHERE sp.id=?`)
+        .bind(principalId)
+        .first<PrincipalStateRow>(),
+    );
 
     const active = row?.principalStatus === "active" && row.applicationStatus === "active";
     return c.json(ok(active ? { active: true, displayName: row.displayName } : { active: false }));
