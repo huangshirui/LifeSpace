@@ -124,7 +124,7 @@ async function createSpace(privateKey: string, publicKey: string, name: string) 
   const token = await userToken(privateKey, ownerId);
   const response = await request("/api/v1/spaces", token, publicKey, undefined, {
     method: "POST",
-    body: JSON.stringify({ name, ownerDisplayName: `${name} owner`, timezone: "Asia/Shanghai" }),
+    body: JSON.stringify({ kind: "family", name, ownerDisplayName: `${name} owner`, timezone: "Asia/Shanghai" }),
   });
   expect(response.status).toBe(201);
   const body = await response.json() as { data: { id: string } };
