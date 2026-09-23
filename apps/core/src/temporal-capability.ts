@@ -13,7 +13,7 @@ import type { PublishedModel } from "./model-registry";
 
 type JsonObject = Record<string, unknown>;
 
-type SpaceTemporalContext = {
+export type SpaceTemporalContext = {
   id: string;
   timezone: string;
 };
