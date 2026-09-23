@@ -78,8 +78,7 @@ async function data<T>(response: Response): Promise<T> {
 async function seed(userId: string, spaceId: string) {
   const db = (env as unknown as TestEnv).DB;
   const now = new Date().toISOString();
-  await db.prepare(`INSERT INTO spaces(id,kind,name,created_by_user_id,created_at,updated_at,timezone)
-    VALUES(?,?,?,?,?,?,?)`).bind(spaceId, "family", "Agent Task", userId, now, now, "UTC").run();
+  await db.prepare(`INSERT INTO spaces(id,name,created_by_user_id,created_at,updated_at,timezone) VALUES(?,?,?,?,?,?)`).bind(spaceId, "Agent Task", userId, now, now, "UTC").run();
   await db.prepare(`INSERT INTO space_memberships(id,space_id,user_id,role,created_at,updated_at)
     VALUES(?,?,?,?,?,?)`).bind(`mem_${crypto.randomUUID()}`, spaceId, userId, "owner", now, now).run();
   await db.prepare(`INSERT INTO space_people(id,space_id,linked_user_id,display_name,created_at,updated_at)
