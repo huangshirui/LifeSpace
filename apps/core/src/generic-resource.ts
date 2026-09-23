@@ -599,7 +599,8 @@ export async function updateGenericResource(
   if (previous.version !== expectedVersion) throw new ApiError("VERSION_CONFLICT", "Resource version is stale", 409);
 
   const data = validateResourceData(model.definition, input, mutationMode === "action" ? "action" : "update", previous.data);
-  const relations = await projectRelations(env, spaceId, model.definition, data);
+  const relations = projectRelations(model.definition, data);
+  await validateProjectedRelations(env, spaceId, relations);
   const timestamp = new Date().toISOString();
   const mutationToken = changeId();
   const nextVersion = previous.version + 1;
