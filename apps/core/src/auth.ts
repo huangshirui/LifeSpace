@@ -3,6 +3,7 @@ import { verify } from "hono/jwt";
 import { isPrincipalType, type Bindings, type Principal, type Variables } from "./env";
 import { ApiError } from "./http";
 import { servicePrincipalAuthority } from "./service-principal-authority";
+import { measurePerformancePhase } from "./performance-timing";
 
 type AppEnv = { Bindings: Bindings; Variables: Variables };
 const MAX_ACCESS_TOKEN_TTL_SECONDS = 3600;
@@ -128,11 +129,23 @@ export function authenticate(): MiddlewareHandler<AppEnv> {
 
     let principal: Principal;
     if (rawToken.startsWith(SERVICE_TOKEN_PREFIX)) {
-      principal = await introspectServiceToken(rawToken, context.env);
+      principal = await measurePerformancePhase(
+        context,
+        "auth.service_token_introspection",
+        () => introspectServiceToken(rawToken, context.env),
+      );
     } else if (context.env.IDENTITY_PUBLIC_KEY) {
-      principal = await verifyAccessToken(rawToken, context.env.IDENTITY_PUBLIC_KEY);
+      principal = await measurePerformancePhase(
+        context,
+        "auth.jwt_verify",
+        () => verifyAccessToken(rawToken, context.env.IDENTITY_PUBLIC_KEY),
+      );
       if (principal.type === "service") {
-        const displayName = await requireCurrentServicePrincipal(context.env, principal.id);
+        const displayName = await measurePerformancePhase(
+          context,
+          "auth.service_principal_status",
+          () => requireCurrentServicePrincipal(context.env, principal.id),
+        );
         principal = { ...principal, ...(displayName ? { displayName } : {}) };
       }
     } else {
