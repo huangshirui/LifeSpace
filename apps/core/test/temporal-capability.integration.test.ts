@@ -29,8 +29,8 @@ async function fixture(timezone = "America/Los_Angeles") {
   const suffix = crypto.randomUUID().replaceAll("-", "");
   const spaceId = `spc_${suffix}`;
   const now = new Date().toISOString();
-  await db.prepare("INSERT INTO spaces(id,kind,name,created_by_user_id,created_at,updated_at,timezone) VALUES(?,?,?,?,?,?,?)")
-    .bind(spaceId, "family", "Temporal Test", actor.id, now, now, timezone).run();
+  await db.prepare("INSERT INTO spaces(id,name,created_by_user_id,created_at,updated_at,timezone) VALUES(?,?,?,?,?,?)")
+    .bind(spaceId, "Temporal Test", actor.id, now, now, timezone).run();
   await db.prepare("INSERT INTO space_people(id,space_id,linked_user_id,display_name,created_at,updated_at) VALUES(?,?,?,?,?,?)")
     .bind(`per_${suffix}`, spaceId, actor.id, "Temporal User", now, now).run();
   const published = await model();
