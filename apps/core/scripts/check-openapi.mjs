@@ -3,7 +3,7 @@ import YAML from "yaml";
 
 const document = YAML.parse(fs.readFileSync(new URL("../openapi.yaml", import.meta.url), "utf8"));
 
-if (document.openapi !== "3.1.0" || document.info?.version !== "0.37.0") {
+if (document.openapi !== "3.1.0" || document.info?.version !== "0.38.0") {
   throw new Error("Core Kernel OpenAPI version metadata is invalid");
 }
 if (!document.info?.title?.includes("Kernel")) {
@@ -46,6 +46,7 @@ const requiredPaths = [
   "/api/v1/spaces/{spaceId}/changes",
   "/api/v1/spaces/{spaceId}/changes/{recordId}",
   "/api/v1/spaces/{spaceId}/changes/by-id/{changeId}",
+  "/api/v1/spaces/{spaceId}/records/batch",
   "/api/v1/spaces/{spaceId}/creation-drafts",
   "/api/v1/spaces/{spaceId}/creation-drafts/{draftId}",
   "/api/v1/spaces/{spaceId}/creation-drafts/{draftId}/choose-model",
@@ -60,6 +61,20 @@ for (const path of Object.keys(document.paths ?? {})) {
     throw new Error(`Integration/Eventing route leaked into Kernel OpenAPI: ${path}`);
   }
 }
+const batchCreate = document.paths?.["/api/v1/spaces/{spaceId}/records/batch"]?.post;
+const batchCreateItems = document.components?.schemas?.BatchCreateRequest?.properties?.items;
+const batchCreateItem = document.components?.schemas?.BatchCreateItem;
+const batchCreateResult = document.components?.schemas?.BatchCreateResult;
+if (batchCreate?.operationId !== "batchCreateRecords"
+    || batchCreateItems?.minItems !== 1
+    || batchCreateItems?.maxItems !== 20
+    || batchCreateItem?.additionalProperties !== false
+    || JSON.stringify(batchCreateItem?.required) !== JSON.stringify(["modelKey", "input"])
+    || batchCreateResult?.properties?.version?.const !== 1
+    || batchCreate?.responses?.["201"]?.content?.["application/json"]?.schema?.$ref !== "#/components/schemas/BatchCreateResponse") {
+  throw new Error("Generic Batch Create contract semantics drifted");
+}
+
 const canonicalChanges = document.paths?.["/api/v1/spaces/{spaceId}/changes"]?.get;
 const legacyChanges = document.paths?.["/api/v1/spaces/{spaceId}/changes/{recordId}"]?.get;
 const changeParams = new Map((canonicalChanges?.parameters ?? []).map((entry) => [entry.name, entry]));
@@ -582,7 +597,7 @@ if (!schemas.CreationDraftProcessing?.required?.includes("modelContractRevision"
   throw new Error("Creation Draft jobs must expose their pinned Model Contract Revision");
 }
 
-if (schemas.StatusResponse?.properties?.data?.properties?.contractVersion?.const !== "0.37.0") {
+if (schemas.StatusResponse?.properties?.data?.properties?.contractVersion?.const !== "0.38.0") {
   throw new Error("Core Kernel status contract version drifted");
 }
 
