@@ -37,7 +37,8 @@ async function fixture(identityState: "active" | "inactive" | "unavailable") {
   const identityCalls: Array<{ url: string; secret: string | null }> = [];
 
   await db.batch([
-    db.prepare(`INSERT INTO spaces(id,name,created_by_user_id,created_at,updated_at,timezone) VALUES(?,?,?,?,?,?)`).bind(spaceId, "Eventing subscriber authority", userId, now, now, "Asia/Shanghai"),
+    db.prepare(`INSERT INTO spaces(id,kind,name,created_by_user_id,created_at,updated_at,timezone)
+      VALUES(?,?,?,?,?,?,?)`).bind(spaceId, "family", "Eventing subscriber authority", userId, now, now, "Asia/Shanghai"),
     db.prepare(`INSERT INTO application_model_access(
       application_id,model_key,max_access,created_by_type,created_by_id,created_at,updated_at
     ) VALUES(?,?,?,?,?,?,?)`).bind(applicationId, "task", "read", "user", userId, now, now),
