@@ -262,7 +262,7 @@ export function registerSpaceRoutes(app: App): void {
     requireUser(principal);
     const spaceId = c.req.param("spaceId");
     await requireSpacePermission(c.env, principal, spaceId, "manage");
-    const space = await findSpace(c.env, spaceId);
+    await findSpace(c.env, spaceId);
     const input = await body(c);
     fields(input, ["userId", "role", "displayName"]);
     const userId = text(input.userId, "userId", 200);
