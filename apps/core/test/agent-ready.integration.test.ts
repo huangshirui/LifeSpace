@@ -150,6 +150,81 @@ describe("Agent-ready Authority + Change", () => {
     }, publicKey);
     expect(updatedResponse.status).toBe(200);
 
+    const delegatedBatchResponse = await request(`/api/v1/spaces/${spaceId}/records/batch`, {
+      method: "POST",
+      headers: auth(delegated),
+      body: JSON.stringify({
+        items: [
+          {
+            clientRef: "agent-event-1",
+            modelKey: "event",
+            input: {
+              summary: "Agent batch event one",
+              when: { kind: "date", start: "2026-09-10", endExclusive: "2026-09-11" },
+            },
+          },
+          {
+            clientRef: "agent-event-2",
+            modelKey: "event",
+            input: {
+              summary: "Agent batch event two",
+              when: { kind: "date", start: "2026-09-11", endExclusive: "2026-09-12" },
+            },
+          },
+        ],
+      }),
+    }, publicKey);
+    expect(delegatedBatchResponse.status).toBe(201);
+    const delegatedBatch = await jsonData(delegatedBatchResponse);
+    expect(delegatedBatch.items).toHaveLength(2);
+    const batchIds = delegatedBatch.items.map((item: any) => item.id);
+    const batchChanges = await (env as unknown as TestEnv).DB.prepare(`SELECT record_id,principal_type,principal_id,actor_type,actor_id,application_id,delegation_id
+      FROM resource_changes WHERE record_id IN (?,?) ORDER BY record_id`)
+      .bind(...batchIds)
+      .all<{
+        record_id: string;
+        principal_type: string;
+        principal_id: string;
+        actor_type: string;
+        actor_id: string;
+        application_id: string;
+        delegation_id: string | null;
+      }>();
+    expect(batchChanges.results).toHaveLength(2);
+    expect(batchChanges.results.every((row) =>
+      row.principal_type === "user"
+      && row.principal_id === userId
+      && row.actor_type === "agent"
+      && row.actor_id === agentId
+      && row.application_id === "test-app"
+      && row.delegation_id === delegation.id
+    )).toBe(true);
+
+    const beforeMixedDenied = await (env as unknown as TestEnv).DB.prepare(
+      "SELECT COUNT(*) count FROM resource_records WHERE space_id=? AND deleted_at IS NULL",
+    ).bind(spaceId).first<{ count: number }>();
+    const mixedDenied = await request(`/api/v1/spaces/${spaceId}/records/batch`, {
+      method: "POST",
+      headers: auth(delegated),
+      body: JSON.stringify({
+        items: [
+          {
+            modelKey: "event",
+            input: {
+              summary: "Must not partially commit",
+              when: { kind: "date", start: "2026-09-12", endExclusive: "2026-09-13" },
+            },
+          },
+          { modelKey: "task", input: { name: "Delegation only allows task read" } },
+        ],
+      }),
+    }, publicKey);
+    expect(mixedDenied.status).toBe(403);
+    const afterMixedDenied = await (env as unknown as TestEnv).DB.prepare(
+      "SELECT COUNT(*) count FROM resource_records WHERE space_id=? AND deleted_at IS NULL",
+    ).bind(spaceId).first<{ count: number }>();
+    expect(afterMixedDenied?.count).toBe(beforeMixedDenied?.count);
+
     const taskDenied = await request(`/api/v1/spaces/${spaceId}/models/task/records`, {
       method: "POST",
       headers: auth(delegated),
