@@ -99,7 +99,7 @@ async function fixture() {
     await DB.prepare(`INSERT INTO domain_event_outbox(
       id,event_type,space_id,model_key,record_id,record_version,change_id,
       actor_type,actor_id,occurred_at,operation_group_id,operation_group_ordinal
-    ) VALUES(?,'record.created',?,?,?,1,NULL,'user',?,?,?,?,?)`)
+    ) VALUES(?,'record.created',?,?,?,1,NULL,'user',?,?,?,?)`)
       .bind(
         args.eventId,
         spaceId,
