@@ -46,7 +46,7 @@ async function request(path: string, accessToken: string, publicKey: string, ini
   return createApp().request(`http://localhost${path}`, { ...init, headers }, { DB: db, IDENTITY_PUBLIC_KEY: publicKey, ENVIRONMENT: "test" });
 }
 
-async function createFamily(privateKey: string, publicKey: string, ownerId: string) {
+async function createSpace(privateKey: string, publicKey: string, ownerId: string) {
   const accessToken = await token(privateKey, ownerId, ["profile:read", "spaces:read", "spaces:write", "spaces:manage", "grants:manage"]);
   const response = await request("/api/v1/spaces", accessToken, publicKey, {
     method: "POST",
@@ -62,25 +62,25 @@ describe("Space lifecycle", () => {
     const { privateKey, publicKey } = await keys();
     const ownerId = `usr_${crypto.randomUUID()}`;
     const adminId = `usr_${crypto.randomUUID()}`;
-    const family = await createFamily(privateKey, publicKey, ownerId);
+    const space = await createSpace(privateKey, publicKey, ownerId);
 
-    const added = await request(`/api/v1/spaces/${family.spaceId}/members`, family.accessToken, publicKey, {
+    const added = await request(`/api/v1/spaces/${space.spaceId}/members`, space.accessToken, publicKey, {
       method: "POST",
       body: JSON.stringify({ userId: adminId, role: "admin", displayName: "Admin" }),
     });
     expect(added.status).toBe(201);
     const adminToken = await token(privateKey, adminId, ["spaces:read", "spaces:write", "spaces:manage"]);
 
-    const denied = await request(`/api/v1/spaces/${family.spaceId}/close`, adminToken, publicKey, {
+    const denied = await request(`/api/v1/spaces/${space.spaceId}/close`, adminToken, publicKey, {
       method: "POST",
-      body: JSON.stringify({ version: family.version }),
+      body: JSON.stringify({ version: space.version }),
     });
     expect(denied.status).toBe(403);
     expect((await denied.json<{ error: { code: string } }>()).error.code).toBe("SPACE_OWNER_REQUIRED");
 
-    const stale = await request(`/api/v1/spaces/${family.spaceId}/close`, family.accessToken, publicKey, {
+    const stale = await request(`/api/v1/spaces/${space.spaceId}/close`, space.accessToken, publicKey, {
       method: "POST",
-      body: JSON.stringify({ version: family.version + 1 }),
+      body: JSON.stringify({ version: space.version + 1 }),
     });
     expect(stale.status).toBe(409);
     expect((await stale.json<{ error: { code: string } }>()).error.code).toBe("SPACE_VERSION_CONFLICT");
@@ -90,15 +90,15 @@ describe("Space lifecycle", () => {
     const { privateKey, publicKey } = await keys();
     const ownerId = `usr_${crypto.randomUUID()}`;
     const memberId = `usr_${crypto.randomUUID()}`;
-    const family = await createFamily(privateKey, publicKey, ownerId);
+    const space = await createSpace(privateKey, publicKey, ownerId);
     const db = (env as unknown as TestEnv).DB;
 
-    expect((await request(`/api/v1/spaces/${family.spaceId}/members`, family.accessToken, publicKey, {
+    expect((await request(`/api/v1/spaces/${space.spaceId}/members`, space.accessToken, publicKey, {
       method: "POST",
       body: JSON.stringify({ userId: memberId, role: "editor", displayName: "Member" }),
     })).status).toBe(201);
 
-    const inviteResponse = await request(`/api/v1/spaces/${family.spaceId}/invites`, family.accessToken, publicKey, {
+    const inviteResponse = await request(`/api/v1/spaces/${space.spaceId}/invites`, space.accessToken, publicKey, {
       method: "POST",
       body: JSON.stringify({ expiresInMinutes: 60, maxUses: 1 }),
     });
@@ -110,23 +110,23 @@ describe("Space lifecycle", () => {
     await db.prepare(`INSERT INTO data_grants(
       id,source_space_id,grantee_type,grantee_id,resource_type,resource_id,permission,created_by_user_id,created_at
     ) VALUES(?,?,?,?,?,?,?,?,?)`)
-      .bind(grantId, family.spaceId, "service", "svc_test", "space", null, "read", ownerId, createdAt)
+      .bind(grantId, space.spaceId, "service", "svc_test", "space", null, "read", ownerId, createdAt)
       .run();
 
-    const closed = await request(`/api/v1/spaces/${family.spaceId}/close`, family.accessToken, publicKey, {
+    const closed = await request(`/api/v1/spaces/${space.spaceId}/close`, space.accessToken, publicKey, {
       method: "POST",
-      body: JSON.stringify({ version: family.version }),
+      body: JSON.stringify({ version: space.version }),
     });
     expect(closed.status).toBe(204);
 
     const space = await db.prepare("SELECT deleted_at,version FROM spaces WHERE id=?")
-      .bind(family.spaceId).first<{ deleted_at: string | null; version: number }>();
+      .bind(space.spaceId).first<{ deleted_at: string | null; version: number }>();
     expect(space?.deleted_at).toBeTruthy();
-    expect(space?.version).toBe(family.version + 1);
+    expect(space?.version).toBe(space.version + 1);
     expect((await db.prepare("SELECT COUNT(*) count FROM space_memberships WHERE space_id=? AND deleted_at IS NULL")
-      .bind(family.spaceId).first<{ count: number }>())?.count).toBe(0);
+      .bind(space.spaceId).first<{ count: number }>())?.count).toBe(0);
     expect((await db.prepare("SELECT COUNT(*) count FROM space_people WHERE space_id=? AND deleted_at IS NULL")
-      .bind(family.spaceId).first<{ count: number }>())?.count).toBe(0);
+      .bind(space.spaceId).first<{ count: number }>())?.count).toBe(0);
 
     const storedInvite = await db.prepare("SELECT status,revoked_at,revoked_by_user_id FROM space_invites WHERE id=?")
       .bind(invite.data.id).first<{ status: string; revoked_at: string | null; revoked_by_user_id: string | null }>();
@@ -135,14 +135,14 @@ describe("Space lifecycle", () => {
     expect((await db.prepare("SELECT revoked_at FROM data_grants WHERE id=?").bind(grantId).first<{ revoked_at: string | null }>())?.revoked_at).toBeTruthy();
 
     const lifecycle = await db.prepare("SELECT event_type,actor_user_id FROM space_lifecycle_events WHERE space_id=?")
-      .bind(family.spaceId).first<{ event_type: string; actor_user_id: string }>();
+      .bind(space.spaceId).first<{ event_type: string; actor_user_id: string }>();
     expect(lifecycle).toEqual({ event_type: "closed", actor_user_id: ownerId });
 
-    const mine = await request("/api/v1/me/spaces", family.accessToken, publicKey);
+    const mine = await request("/api/v1/me/spaces", space.accessToken, publicKey);
     expect(mine.status).toBe(200);
-    expect((await mine.json<{ data: Array<{ id: string }> }>()).data.some((item) => item.id === family.spaceId)).toBe(false);
+    expect((await mine.json<{ data: Array<{ id: string }> }>()).data.some((item) => item.id === space.spaceId)).toBe(false);
 
-    const oldSpace = await request(`/api/v1/spaces/${family.spaceId}`, family.accessToken, publicKey);
+    const oldSpace = await request(`/api/v1/spaces/${space.spaceId}`, space.accessToken, publicKey);
     expect(oldSpace.status).toBe(403);
 
     const memberToken = await token(privateKey, memberId, ["spaces:read", "spaces:write"]);
