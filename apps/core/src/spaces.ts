@@ -83,6 +83,69 @@ function fields(input: Body, allowed: string[]): void {
   }
 }
 
+// Migration-only storage bridge for #278. Kernel 0.39 never exposes Space.kind.
+// Schema 44 still has the retired NOT NULL column; 0.38 used "personal" when
+// callers omitted kind. Remove this bridge after production reaches schema >=45.
+export function retiredSpaceKindStorageRequired(schemaVersion: number): boolean {
+  if (schemaVersion === 44) return true;
+  if (schemaVersion >= 45) return false;
+  throw new Error(`Core 0.39 Space create requires schema >=44, got ${schemaVersion}`);
+}
+
+async function currentCoreSchemaVersion(env: Bindings): Promise<number> {
+  const row = await env.DB.prepare("SELECT value FROM schema_metadata WHERE key='schema_version'")
+    .first<{ value: string }>();
+  const schemaVersion = Number(row?.value);
+  if (!Number.isInteger(schemaVersion)) throw new Error("Core schema version metadata is invalid");
+  return schemaVersion;
+}
+
+function retiredKindColumnWasDropped(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /kind/iu.test(message) && /(no such column|has no column|no column named)/iu.test(message);
+}
+
+async function createSpaceStorageRows(
+  env: Bindings,
+  input: {
+    spaceId: string;
+    membershipId: string;
+    personId: string;
+    name: string;
+    ownerDisplayName: string;
+    zone: string;
+    ownerUserId: string;
+    createdAt: string;
+  },
+): Promise<void> {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const schemaVersion = await currentCoreSchemaVersion(env);
+    const legacyKindColumn = retiredSpaceKindStorageRequired(schemaVersion);
+    const spaceInsert = legacyKindColumn
+      ? env.DB.prepare(`INSERT INTO spaces(id,kind,name,timezone,created_by_user_id,created_at,updated_at) VALUES(?,?,?,?,?,?,?)`)
+        .bind(input.spaceId, "personal", input.name, input.zone, input.ownerUserId, input.createdAt, input.createdAt)
+      : env.DB.prepare(`INSERT INTO spaces(id,name,timezone,created_by_user_id,created_at,updated_at) VALUES(?,?,?,?,?,?)`)
+        .bind(input.spaceId, input.name, input.zone, input.ownerUserId, input.createdAt, input.createdAt);
+
+    try {
+      await env.DB.batch([
+        spaceInsert,
+        env.DB.prepare(`INSERT INTO space_memberships(id,space_id,user_id,role,created_at,updated_at) VALUES(?,?,?,?,?,?)`)
+          .bind(input.membershipId, input.spaceId, input.ownerUserId, "owner", input.createdAt, input.createdAt),
+        env.DB.prepare(`INSERT INTO space_people(id,space_id,linked_user_id,display_name,created_at,updated_at) VALUES(?,?,?,?,?,?)`)
+          .bind(input.personId, input.spaceId, input.ownerUserId, input.ownerDisplayName, input.createdAt, input.createdAt),
+      ]);
+      return;
+    } catch (error) {
+      // Migration 0045 may commit between the schema-version read and this batch.
+      // D1 batch is transactional, so a missing retired column rolls back the
+      // complete create and can be retried once against the new schema.
+      if (attempt === 0 && legacyKindColumn && retiredKindColumnWasDropped(error)) continue;
+      throw error;
+    }
+  }
+}
+
 async function findSpace(env: Bindings, spaceId: string): Promise<SpaceRow> {
   const row = await env.DB.prepare("SELECT id,name,timezone,avatar_key,version FROM spaces WHERE id=? AND deleted_at IS NULL")
     .bind(spaceId).first<SpaceRow>();
@@ -208,14 +271,16 @@ export function registerSpaceRoutes(app: App): void {
     const membershipId = createId("mem");
     const personId = createId("per");
     const createdAt = now();
-    await c.env.DB.batch([
-      c.env.DB.prepare(`INSERT INTO spaces(id,name,timezone,created_by_user_id,created_at,updated_at) VALUES(?,?,?,?,?,?)`)
-        .bind(spaceId, name, zone, principal.id, createdAt, createdAt),
-      c.env.DB.prepare(`INSERT INTO space_memberships(id,space_id,user_id,role,created_at,updated_at) VALUES(?,?,?,?,?,?)`)
-        .bind(membershipId, spaceId, principal.id, "owner", createdAt, createdAt),
-      c.env.DB.prepare(`INSERT INTO space_people(id,space_id,linked_user_id,display_name,created_at,updated_at) VALUES(?,?,?,?,?,?)`)
-        .bind(personId, spaceId, principal.id, ownerDisplayName, createdAt, createdAt),
-    ]);
+    await createSpaceStorageRows(c.env, {
+      spaceId,
+      membershipId,
+      personId,
+      name,
+      ownerDisplayName,
+      zone,
+      ownerUserId: principal.id,
+      createdAt,
+    });
     return c.json(success({ id: spaceId, name, timezone: zone, avatarUrl: null, role: "owner", ownerPersonId: personId, version: 1 }), 201);
   });
 
