@@ -119,10 +119,10 @@ describe("Space lifecycle", () => {
     });
     expect(closed.status).toBe(204);
 
-    const space = await db.prepare("SELECT deleted_at,version FROM spaces WHERE id=?")
+    const storedSpace = await db.prepare("SELECT deleted_at,version FROM spaces WHERE id=?")
       .bind(space.spaceId).first<{ deleted_at: string | null; version: number }>();
-    expect(space?.deleted_at).toBeTruthy();
-    expect(space?.version).toBe(space.version + 1);
+    expect(storedSpace?.deleted_at).toBeTruthy();
+    expect(storedSpace?.version).toBe(space.version + 1);
     expect((await db.prepare("SELECT COUNT(*) count FROM space_memberships WHERE space_id=? AND deleted_at IS NULL")
       .bind(space.spaceId).first<{ count: number }>())?.count).toBe(0);
     expect((await db.prepare("SELECT COUNT(*) count FROM space_people WHERE space_id=? AND deleted_at IS NULL")
