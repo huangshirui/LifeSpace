@@ -196,7 +196,7 @@ Application × Model Access ceiling:
   task  -> write
   day_record -> read
 
-Core Data Grants for spc_family_xxx:
+Core Data Grants for spc_example_xxx:
   model:event      -> write
   model:task       -> write
   model:day_record -> read
@@ -210,7 +210,7 @@ The effective result is the intersection. The token cannot use a model absent fr
 
 Initial role vocabulary remains small: `owner`, `admin`, `editor`, `viewer`. Published model policy or sensitive-data Capabilities may further reduce these defaults. Roles are not a substitute for model checks.
 
-Personal Spaces may apply stricter lifecycle rules than family/team Spaces, such as one immutable owner and no ownership transfer, but such rules must be explicit Kernel policy rather than client assumptions.
+Kernel lifecycle rules apply uniformly to Spaces unless a future platform-level distinction is explicitly introduced. Product-specific classifications and lifecycle differences belong downstream and must not be inferred from a Space type or naming convention.
 
 ### Space lifecycle authority
 

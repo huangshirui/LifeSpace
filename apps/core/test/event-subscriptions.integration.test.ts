@@ -50,7 +50,7 @@ async function request(path: string, accessToken: string, publicKey: string, ini
   });
 }
 
-async function createFamily(accessToken: string, publicKey: string) {
+async function createSpace(accessToken: string, publicKey: string) {
   const response = await request("/api/v1/spaces", accessToken, publicKey, {
     method: "POST",
     body: JSON.stringify({ name: "Event subscription test", ownerDisplayName: "Owner", timezone: "Asia/Shanghai" }),
@@ -65,7 +65,7 @@ describe("Webhook endpoint and event subscription authorization", () => {
     const userId = `usr_${crypto.randomUUID()}`;
     const subscriberId = `svc_${crypto.randomUUID()}`;
     const accessToken = await token(privateKey, userId);
-    const spaceId = await createFamily(accessToken, publicKey);
+    const spaceId = await createSpace(accessToken, publicKey);
     const db = (env as unknown as TestEnv).DB;
     const now = new Date().toISOString();
 
