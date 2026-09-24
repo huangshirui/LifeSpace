@@ -16,7 +16,7 @@ Kernel `0.39.0` completes the explicit breaking removal of deprecated `Space.kin
 
 2. **Integration / Eventing Contract** — `apps/core/integration-eventing.openapi.yaml`, the independently versioned public contract for Webhook Endpoint/Event Subscription management, delivery diagnostics/test-send and signed reference-only outbound Webhook representation. Current version `0.2.0` adds an opaque governed `changeId` reference while preserving reference-only delivery; the same Core Worker still executes the routes.
 3. **Model Control Plane Contract** — `apps/core/model-control-plane.openapi.yaml`, the independently versioned service-automation contract for Model Definition validation/publication/retirement, immutable Model Contract evidence and the optional AI-assisted proposal lifecycle. Version `0.2.0` removes the independent model route identity; every operation remains service-principal-only with `models:manage`.
-4. **Platform Admin Contract** — `apps/core/platform-admin.openapi.yaml`, a privileged Console companion profile for Application × Model Access, global read-only Space inspection, platform audit and human-attributed Console model mutations. Version `0.2.0` reuses Model Control Plane publish/retire wire schemas rather than treating Kernel as their owner.
+4. **Platform Admin Contract** — `apps/core/platform-admin.openapi.yaml`, a privileged Console companion profile for Application × Model Access, global read-only Space inspection, platform audit and human-attributed Console model mutations. Version `0.3.0` removes the retired Space kind filter/representation from the privileged inspector while preserving the platform-admin authority boundary.
 5. **Model Contract Revision** — immutable OpenAPI/JSON Schema snapshots generated from the published Model Registry plus registered Capability contract contributions.
 
 Core Kernel `0.37.0` adds the canonical Model Definition temporal vocabulary needed by Runtime Discovery and generated contracts: new definitions may use `instant`, `range<date>` and `range<instant>`. Existing published `datetime` fields remain a compatibility spelling and keep their immutable model-definition/schema-hash identity; new publication cannot introduce that legacy spelling. Top-level `timeRanges` is likewise retained only for already-published structural compatibility, while new range-valued state uses a first-class Range field. This release does not perform the separately gated Event -> TemporalRange migration and does not define ordinary fixed-Range sorting.
@@ -57,7 +57,7 @@ A platform operator surface such as LifeSpace Console additionally pins the two 
 
 ```text
 Identity Platform Admin Contract: 0.2.0
-Core Platform Admin Contract:     0.2.0
+Core Platform Admin Contract:     0.3.0
 ```
 
 The control-plane split is intentional. Adding Console governance capabilities must not force downstream business applications to repin their ordinary Kernel/Identity contract when callable business/authentication syntax did not change. Conversely, downstream applications and their Agents should not discover platform-admin capabilities merely by consuming their ordinary application contract.
@@ -81,7 +81,7 @@ They are companion contracts rather than alternative service implementations: th
 Normative rules:
 
 - `apps/identity/platform-admin.openapi.yaml` and `apps/core/platform-admin.openapi.yaml` are the only editable OpenAPI sources for the new Console control plane.
-- Identity Platform Admin is `0.2.0`; Core Platform Admin is `0.2.0`. Their versions advance independently when each service's admin syntax changes.
+- Identity Platform Admin is `0.2.0`; Core Platform Admin is `0.3.0`. Their versions advance independently when each service's admin syntax changes.
 - Console privileged operations use the dual identity model from `docs/permissions.md`: a controlled server-side executor plus `X-LifeSpace-Actor-Token` carrying the dedicated short-lived human actor proof.
 - The actor proof is not a reusable general user credential. Identity issues it only from an ordinary authenticated LifeSpace user session after current `platform_administrators` assignment checks, and the proof is bound to `purpose=platform_admin_actor` with a maximum five-minute lifetime.
 - Bootstrap administrator-assignment routes are included only as provisioning/break-glass control-plane syntax. The bootstrap secret is never a Console runtime credential.
