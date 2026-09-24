@@ -38,7 +38,7 @@ This refinement does not declare new speculative Kernel tables and does not inva
 
 > **LifeSpace gives any Space a durable shared digital reality and governed action foundation that survives replacement of applications, Agents, models, protocols and orchestration systems.**
 
-LifeSpace is not fundamentally a personal-data platform or family-data platform. Personal and family Spaces are initial proving contexts. A Space may represent a person, family, team, class, school, organization, project, home, vehicle, trip, community, temporary event, Agent collective or another bounded world not yet anticipated.
+LifeSpace is not fundamentally a personal-data platform or family-data platform. Personal and family scenarios are initial proving contexts. A Space may represent a person, family, team, class, school, organization, project, home, vehicle, trip, community, temporary event, Agent collective or another bounded world not yet anticipated.
 
 Applications and Agents are participants, consumers and possible actors over this shared reality. They are not its owners merely because they provide the current interface or intelligence.
 
