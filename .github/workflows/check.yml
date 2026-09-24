@@ -62,18 +62,5 @@ jobs:
           node-version: 24
       - run: pnpm install --frozen-lockfile
         if: steps.validation.outputs.run_full == 'true'
-      - name: Generate reviewed Stable Space baseline
-        if: steps.validation.outputs.run_full == 'true'
-        run: |
-          pnpm --filter @lifespace/core stable-contract:baseline
-
-      - name: Upload reviewed Stable Space baseline
-        if: steps.validation.outputs.run_full == 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: reviewed-stable-space-baseline
-          path: docs/stable-public-schema-baseline.json.gz.b64
-          if-no-files-found: error
-          retention-days: 1
       - run: pnpm check
         if: steps.validation.outputs.run_full == 'true'
