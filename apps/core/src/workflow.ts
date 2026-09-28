@@ -1,5 +1,5 @@
 import type { Bindings, Principal } from "./env";
-import { getGenericResource, updateGenericResource, type GenericResource } from "./generic-resource";
+import { getGenericResource, updateGenericResource, type GenericResource, type MutationAttribution } from "./generic-resource";
 import { ApiError } from "./http";
 import type { PublishedModel } from "./model-registry";
 import { requirePolicyExpression, type PolicyContext, type ResolvedPolicyActor } from "./policy";
@@ -113,6 +113,7 @@ export async function executeWorkflowAction(
   actionKey: string,
   expectedVersion: number,
   resolvedActor?: ResolvedPolicyActor,
+  attribution: MutationAttribution = {},
 ): Promise<GenericResource> {
   const action = actionFor(model, actionKey);
   const resource = await getGenericResource(env, spaceId, model, recordId);
@@ -153,6 +154,7 @@ export async function executeWorkflowAction(
     undefined,
     resource,
     actionKey,
+    attribution,
   );
 }
 
