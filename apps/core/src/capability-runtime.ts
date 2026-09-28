@@ -75,6 +75,50 @@ function temporalInitialOccurrenceExtension(
   ];
 }
 
+export type CapabilityCreatePlan = {
+  prepared: Record<string, unknown>;
+  trusted: boolean;
+  extension?: ResourceMutationExtension;
+};
+
+export async function prepareCapabilityCreateMutation(
+  env: Bindings,
+  spaceId: string,
+  model: PublishedModel,
+  input: unknown,
+  extension?: ResourceMutationExtension,
+): Promise<CapabilityCreatePlan> {
+  // Capability preparation may derive trusted read-only values. Preserve the
+  // original client authority boundary before any defaults or capability-owned
+  // fields are added so trusted preparation cannot turn a client-supplied
+  // read-only field into an authorized internal mutation.
+  rejectClientReadOnlyCreateFields(model, input);
+  if (hasTemporalCapability(model)) {
+    const space = await loadSpaceTemporalContext(env, spaceId);
+    const prepared = prepareTemporalCreate(model, input, space);
+    return {
+      prepared,
+      trusted: true,
+      extension: composeMutationExtensions(
+        temporalInitialOccurrenceExtension(model, prepared),
+        extension,
+      ),
+    };
+  }
+  if (hasCalendarCapability(model)) {
+    return {
+      prepared: prepareCalendarCreate(model, input),
+      trusted: false,
+      extension,
+    };
+  }
+  return {
+    prepared: input as Record<string, unknown>,
+    trusted: false,
+    extension,
+  };
+}
+
 export async function createCapabilityAwareResource(
   env: Bindings,
   principal: Principal,
@@ -84,29 +128,27 @@ export async function createCapabilityAwareResource(
   extension?: ResourceMutationExtension,
   attribution: MutationAttribution = {},
 ): Promise<GenericResource> {
-  // Capability preparation may derive trusted read-only values. Preserve the
-  // original client authority boundary before any defaults or capability-owned
-  // fields are added so trusted preparation cannot turn a client-supplied
-  // read-only field into an authorized internal mutation.
-  rejectClientReadOnlyCreateFields(model, input);
-  if (hasTemporalCapability(model)) {
-    const space = await loadSpaceTemporalContext(env, spaceId);
-    const prepared = prepareTemporalCreate(model, input, space);
-    return createGenericResource(
-      env,
-      principal,
-      spaceId,
-      model,
-      prepared,
-      true,
-      composeMutationExtensions(temporalInitialOccurrenceExtension(model, prepared), extension),
-      attribution,
-    );
-  }
-  if (hasCalendarCapability(model)) {
-    return createGenericResource(env, principal, spaceId, model, prepareCalendarCreate(model, input), false, extension, attribution);
-  }
-  return createGenericResource(env, principal, spaceId, model, input, false, extension, attribution);
+  const plan = await prepareCapabilityCreateMutation(env, spaceId, model, input, extension);
+  return createGenericResource(
+    env,
+    principal,
+    spaceId,
+    model,
+    plan.prepared,
+    plan.trusted,
+    plan.extension,
+    attribution,
+  );
+}
+
+export function prepareCapabilityUpdateMutation(
+  model: PublishedModel,
+  resource: GenericResource,
+  input: unknown,
+): Record<string, unknown> {
+  if (hasTemporalCapability(model)) return prepareTemporalUpdate(model, resource, input);
+  if (hasCalendarCapability(model)) return prepareCalendarUpdate(model, resource, input);
+  return input as Record<string, unknown>;
 }
 
 export async function updateCapabilityAwareResource(
@@ -123,12 +165,21 @@ export async function updateCapabilityAwareResource(
 ): Promise<GenericResource> {
   const resource = previousResource ?? await getGenericResource(env, spaceId, model, recordId);
   if (!resource) throw new ApiError("RESOURCE_NOT_FOUND", "Resource not found", 404);
-  const prepared = hasTemporalCapability(model)
-    ? prepareTemporalUpdate(model, resource, input)
-    : hasCalendarCapability(model)
-      ? prepareCalendarUpdate(model, resource, input)
-      : input;
-  return updateGenericResource(env, principal, spaceId, model, recordId, expectedVersion, prepared, "client", extension, resource, undefined, attribution);
+  const prepared = prepareCapabilityUpdateMutation(model, resource, input);
+  return updateGenericResource(
+    env,
+    principal,
+    spaceId,
+    model,
+    recordId,
+    expectedVersion,
+    prepared,
+    "client",
+    extension,
+    resource,
+    undefined,
+    attribution,
+  );
 }
 
 export async function prepareCapabilityUpdatePolicyInput(env: Bindings, spaceId: string, model: PublishedModel, recordId: string, input: unknown) {
