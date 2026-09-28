@@ -4,7 +4,7 @@ import { ApiError } from "./http";
 import type { ModelAccess } from "./model-definition";
 import type { PublishedModel } from "./model-registry";
 
-const modelAccessRank: Record<ModelAccess, number> = { read: 2, write: 3, manage: 4 };
+const accessRank: Record<ModelAccess, number> = { read: 2, write: 3, manage: 4 };
 const permissionRank: Record<Permission, number> = { free_busy: 1, read: 2, write: 3, manage: 4 };
 const stableScopes: Record<ModelAccess, string> = {
   read: "resources:read",
@@ -29,22 +29,6 @@ const permissionMaxAccess: Record<Permission, ModelAccess | null> = {
   manage: "manage",
 };
 
-type CatalogRow = { model_key: string; max_access: ModelAccess };
-type MembershipRow = { role: SpaceRole };
-type GrantRow = { resource_type: "space" | "model"; resource_id: string | null; permission: Permission };
-type PersonRow = { id: string };
-type DelegationRow = {
-  id: string;
-  revoked_at: string | null;
-  expires_at: string | null;
-  max_uses: number | null;
-  consumed_at: string | null;
-  target_type: "space" | "model" | "record";
-  target_id: string;
-  target_model_key: string | null;
-  max_access: Permission;
-};
-
 export type DelegationSelector = {
   delegationId?: string | null;
   recordId?: string | null;
@@ -67,74 +51,262 @@ export type ModelAccessDecision = {
   singleUse: boolean;
 };
 
-function firstResult<T>(result: D1Result<unknown>): T | null {
-  return ((result.results ?? []) as T[])[0] ?? null;
+type AuthoritySnapshotRow = {
+  space_exists: number;
+  catalog_access: ModelAccess | null;
+  membership_role: SpaceRole | null;
+  grant_permission: Permission | null;
+  actor_person_id: string | null;
+  delegation_id: string | null;
+  delegation_revoked_at: string | null;
+  delegation_expires_at: string | null;
+  delegation_max_uses: number | null;
+  delegation_consumed_at: string | null;
+  delegation_target_type: "space" | "model" | "record" | null;
+  delegation_target_id: string | null;
+  delegation_target_model_key: string | null;
+  delegation_max_access: Permission | null;
+};
+
+type PreparedAccess = {
+  key: string;
+  request: ModelAccessRequest;
+  delegationId: string | null;
+  recordId: string | null;
+  statement: D1PreparedStatement;
+};
+
+function selectorValues(principal: Principal, selector: DelegationSelector | undefined) {
+  const represented = Boolean(principal.actor);
+  const delegationId = selector?.delegationId?.trim() || null;
+  const recordId = selector?.recordId?.trim() || null;
+  if (represented && !delegationId) {
+    throw new ApiError("DELEGATION_REQUIRED", "Represented execution requires an explicit Delegation selector", 403);
+  }
+  if (!represented && delegationId) {
+    throw new ApiError("DELEGATION_INVALID", "Direct execution cannot exercise a Delegation", 403);
+  }
+  return { represented, delegationId, recordId };
 }
 
-function values<T>(result: D1Result<unknown>): T[] {
-  return (result.results ?? []) as T[];
+function preflight(principal: Principal, request: ModelAccessRequest): void {
+  if (!request.model.definition.access.includes(request.required)) {
+    throw new ApiError(
+      "MODEL_OPERATION_UNSUPPORTED",
+      `Model ${request.model.key} does not expose ${request.required} access`,
+      405,
+    );
+  }
+  const scope = stableScopes[request.required];
+  if (!principal.scopes.includes(scope)) {
+    throw new ApiError("CREDENTIAL_SCOPE_INSUFFICIENT", `Scope ${scope} is required`, 403);
+  }
 }
 
-function placeholders(count: number): string {
-  return Array.from({ length: count }, () => "?").join(",");
+function accessKey(
+  principal: Principal,
+  model: PublishedModel,
+  required: ModelAccess,
+  delegationId: string | null,
+  recordId: string | null,
+): string {
+  return [
+    principal.clientId,
+    principal.type,
+    principal.id,
+    principal.actor?.type ?? principal.type,
+    principal.actor?.id ?? principal.id,
+    model.key,
+    required,
+    delegationId ?? "",
+    recordId ?? "",
+  ].join("\u001f");
 }
 
-function delegationIsCurrent(row: DelegationRow): boolean {
-  if (row.revoked_at || row.consumed_at) return false;
-  if (!row.expires_at) return true;
-  return Date.parse(row.expires_at) > Date.now();
+function snapshotStatement(
+  env: Bindings,
+  principal: Principal,
+  spaceId: string,
+  request: ModelAccessRequest,
+  delegationId: string | null,
+): D1PreparedStatement {
+  const actorId = principal.actor?.id ?? "";
+  return env.DB.prepare(`
+    SELECT
+      CASE WHEN EXISTS(
+        SELECT 1 FROM spaces WHERE id=? AND deleted_at IS NULL
+      ) THEN 1 ELSE 0 END AS space_exists,
+      (
+        SELECT max_access FROM application_model_access
+        WHERE application_id=? AND model_key=? LIMIT 1
+      ) AS catalog_access,
+      (
+        SELECT role FROM space_memberships
+        WHERE ?='user' AND space_id=? AND user_id=? AND deleted_at IS NULL LIMIT 1
+      ) AS membership_role,
+      (
+        SELECT permission FROM data_grants
+        WHERE source_space_id=? AND grantee_type=? AND grantee_id=?
+          AND (
+            (resource_type='space' AND resource_id IS NULL)
+            OR (resource_type='model' AND resource_id=?)
+          )
+          AND revoked_at IS NULL
+          AND (expires_at IS NULL OR julianday(expires_at)>julianday('now'))
+        ORDER BY CASE permission
+          WHEN 'manage' THEN 4 WHEN 'write' THEN 3 WHEN 'read' THEN 2 ELSE 1 END DESC
+        LIMIT 1
+      ) AS grant_permission,
+      (
+        SELECT id FROM space_people
+        WHERE ?='user' AND space_id=? AND linked_user_id=? AND deleted_at IS NULL LIMIT 1
+      ) AS actor_person_id,
+      d.id AS delegation_id,
+      d.revoked_at AS delegation_revoked_at,
+      d.expires_at AS delegation_expires_at,
+      d.max_uses AS delegation_max_uses,
+      d.consumed_at AS delegation_consumed_at,
+      ds.target_type AS delegation_target_type,
+      ds.target_id AS delegation_target_id,
+      ds.target_model_key AS delegation_target_model_key,
+      ds.max_access AS delegation_max_access
+    FROM (SELECT 1) base
+    LEFT JOIN agent_delegations d
+      ON d.id=?
+      AND d.principal_user_id=?
+      AND d.agent_id=?
+      AND d.application_id=?
+      AND d.source_space_id=?
+    LEFT JOIN agent_delegation_scopes ds ON ds.delegation_id=d.id
+    LIMIT 1
+  `).bind(
+    spaceId,
+    principal.clientId,
+    request.model.key,
+    principal.type,
+    spaceId,
+    principal.id,
+    spaceId,
+    principal.type,
+    principal.id,
+    request.model.key,
+    principal.type,
+    spaceId,
+    principal.id,
+    delegationId,
+    principal.id,
+    actorId,
+    principal.clientId,
+    spaceId,
+  );
+}
+
+function delegationCurrent(row: AuthoritySnapshotRow): boolean {
+  if (!row.delegation_id || row.delegation_revoked_at || row.delegation_consumed_at) return false;
+  if (!row.delegation_expires_at) return true;
+  return Date.parse(row.delegation_expires_at) > Date.now();
 }
 
 function delegationScopeAllows(
-  row: DelegationRow,
+  row: AuthoritySnapshotRow,
   spaceId: string,
   modelKey: string,
   recordId: string | null,
   required: ModelAccess,
 ): boolean {
-  if (permissionRank[row.max_access] < modelAccessRank[required]) return false;
-  if (row.target_type === "space") return row.target_id === spaceId;
-  if (row.target_type === "model") return row.target_id === modelKey;
-  return Boolean(recordId)
-    && row.target_id === recordId
-    && row.target_model_key === modelKey;
-}
-
-function strongestGrant(rows: GrantRow[], modelKey: string): Permission | null {
-  let selected: Permission | null = null;
-  for (const row of rows) {
-    if (row.resource_type === "model" && row.resource_id !== modelKey) continue;
-    if (row.resource_type === "space" && row.resource_id !== null) continue;
-    if (!selected || permissionRank[row.permission] > permissionRank[selected]) selected = row.permission;
+  if (!row.delegation_max_access || permissionRank[row.delegation_max_access] < accessRank[required]) return false;
+  if (row.delegation_target_type === "space") return row.delegation_target_id === spaceId;
+  if (row.delegation_target_type === "model") return row.delegation_target_id === modelKey;
+  if (row.delegation_target_type === "record") {
+    return Boolean(recordId)
+      && row.delegation_target_id === recordId
+      && row.delegation_target_model_key === modelKey;
   }
-  return selected;
+  return false;
 }
 
-function normalizeSelector(selector: DelegationSelector | undefined): Required<DelegationSelector> {
+function decisionFromSnapshot(
+  principal: Principal,
+  spaceId: string,
+  prepared: PreparedAccess,
+  row: AuthoritySnapshotRow | null,
+): ModelAccessDecision {
+  const { request, delegationId, recordId } = prepared;
+  if (!row || row.space_exists !== 1) {
+    throw new ApiError("SPACE_NOT_FOUND", "Space not found", 404);
+  }
+
+  if (!row.catalog_access || accessRank[row.catalog_access] < accessRank[request.required]) {
+    throw new ApiError(
+      "APPLICATION_ACCESS_INSUFFICIENT",
+      `Application ${principal.clientId} is not allowed ${request.required} access to model ${request.model.key}`,
+      403,
+    );
+  }
+
+  const membershipAccess = row.membership_role ? roleMaxAccess[row.membership_role] : null;
+  const grantAccess = row.grant_permission ? permissionMaxAccess[row.grant_permission] : null;
+  const membershipAllowed = membershipAccess !== null
+    && accessRank[membershipAccess] >= accessRank[request.required];
+  const grantAllowed = grantAccess !== null
+    && grantAccess !== undefined
+    && accessRank[grantAccess] >= accessRank[request.required];
+  if (!membershipAllowed && !grantAllowed) {
+    throw new ApiError(
+      "PRINCIPAL_AUTHORITY_INSUFFICIENT",
+      `Space ${spacePermissions[request.required]} permission is required`,
+      403,
+    );
+  }
+
+  let resolvedDelegationId: string | null = null;
+  let singleUse = false;
+  if (principal.actor) {
+    if (!delegationId || !delegationCurrent(row)) {
+      throw new ApiError(
+        "DELEGATION_INVALID",
+        "Delegation is missing, revoked, expired or already consumed",
+        403,
+      );
+    }
+    if (!delegationScopeAllows(row, spaceId, request.model.key, recordId, request.required)) {
+      throw new ApiError(
+        "DELEGATION_SCOPE_INSUFFICIENT",
+        `Delegation scope does not allow ${request.required} access to this target`,
+        403,
+      );
+    }
+    resolvedDelegationId = row.delegation_id;
+    singleUse = row.delegation_max_uses === 1;
+  }
+
   return {
-    delegationId: selector?.delegationId?.trim() || null,
-    recordId: selector?.recordId?.trim() || null,
+    applicationId: principal.clientId,
+    modelKey: request.model.key,
+    required: request.required,
+    catalogAccess: row.catalog_access,
+    spaceAuthority: membershipAllowed ? row.membership_role! : "grant",
+    actorPersonId: row.actor_person_id,
+    delegationId: resolvedDelegationId,
+    singleUse,
   };
 }
 
-function validateStaticRequest(principal: Principal, request: ModelAccessRequest): Required<DelegationSelector> {
-  const { model, required } = request;
-  if (!model.definition.access.includes(required)) {
-    throw new ApiError("MODEL_OPERATION_UNSUPPORTED", `Model ${model.key} does not expose ${required} access`, 405);
-  }
-  const scope = stableScopes[required];
-  if (!principal.scopes.includes(scope)) {
-    throw new ApiError("CREDENTIAL_SCOPE_INSUFFICIENT", `Scope ${scope} is required`, 403);
-  }
-  const selector = normalizeSelector(request.selector);
-  const represented = Boolean(principal.actor);
-  if (represented && !selector.delegationId) {
-    throw new ApiError("DELEGATION_REQUIRED", "Represented execution requires an explicit Delegation selector", 403);
-  }
-  if (!represented && selector.delegationId) {
-    throw new ApiError("DELEGATION_INVALID", "Direct execution cannot exercise a Delegation", 403);
-  }
-  return selector;
+function prepareAccess(
+  env: Bindings,
+  principal: Principal,
+  spaceId: string,
+  request: ModelAccessRequest,
+): PreparedAccess {
+  preflight(principal, request);
+  const { delegationId, recordId } = selectorValues(principal, request.selector);
+  return {
+    key: accessKey(principal, request.model, request.required, delegationId, recordId),
+    request,
+    delegationId,
+    recordId,
+    statement: snapshotStatement(env, principal, spaceId, request, delegationId),
+  };
 }
 
 export async function requireModelAccessMany(
@@ -143,125 +315,22 @@ export async function requireModelAccessMany(
   spaceId: string,
   requests: readonly ModelAccessRequest[],
 ): Promise<ModelAccessDecision[]> {
-  if (requests.length < 1 || requests.length > 20) {
-    throw new ApiError("INVALID_REQUEST", "Authority batch must contain 1-20 requests", 400);
+  if (!requests.length) return [];
+
+  const prepared = requests.map((request) => prepareAccess(env, principal, spaceId, request));
+  const unique = new Map<string, PreparedAccess>();
+  for (const entry of prepared) {
+    if (!unique.has(entry.key)) unique.set(entry.key, entry);
   }
+  const uniqueEntries = [...unique.values()];
+  const results = await env.DB.batch<AuthoritySnapshotRow>(uniqueEntries.map((entry) => entry.statement));
 
-  const selectors = requests.map((request) => validateStaticRequest(principal, request));
-  const modelKeys = [...new Set(requests.map((request) => request.model.key))];
-  const delegationIds = principal.actor
-    ? [...new Set(selectors.map((selector) => selector.delegationId).filter((value): value is string => Boolean(value)))]
-    : [];
-
-  const statements: D1PreparedStatement[] = [
-    env.DB.prepare("SELECT id FROM spaces WHERE id=? AND deleted_at IS NULL LIMIT 1").bind(spaceId),
-    env.DB.prepare(`SELECT model_key,max_access FROM application_model_access
-      WHERE application_id=? AND model_key IN (${placeholders(modelKeys.length)})`)
-      .bind(principal.clientId, ...modelKeys),
-  ];
-
-  const membershipIndex = principal.type === "user" ? statements.length : -1;
-  if (principal.type === "user") {
-    statements.push(env.DB.prepare(`SELECT role FROM space_memberships
-      WHERE space_id=? AND user_id=? AND deleted_at IS NULL LIMIT 1`).bind(spaceId, principal.id));
-  }
-
-  const grantsIndex = statements.length;
-  statements.push(env.DB.prepare(`SELECT resource_type,resource_id,permission
-    FROM data_grants
-    WHERE source_space_id=? AND grantee_type=? AND grantee_id=?
-      AND (
-        (resource_type='space' AND resource_id IS NULL)
-        OR (resource_type='model' AND resource_id IN (${placeholders(modelKeys.length)}))
-      )
-      AND revoked_at IS NULL
-      AND (expires_at IS NULL OR julianday(expires_at)>julianday('now'))`)
-    .bind(spaceId, principal.type, principal.id, ...modelKeys));
-
-  const personIndex = principal.type === "user" ? statements.length : -1;
-  if (principal.type === "user") {
-    statements.push(env.DB.prepare(`SELECT id FROM space_people
-      WHERE space_id=? AND linked_user_id=? AND deleted_at IS NULL LIMIT 1`).bind(spaceId, principal.id));
-  }
-
-  const delegationsIndex = principal.actor ? statements.length : -1;
-  if (principal.actor) {
-    statements.push(env.DB.prepare(`SELECT
-        d.id,d.revoked_at,d.expires_at,d.max_uses,d.consumed_at,
-        s.target_type,s.target_id,s.target_model_key,s.max_access
-      FROM agent_delegations d
-      JOIN agent_delegation_scopes s ON s.delegation_id=d.id
-      WHERE d.id IN (${placeholders(delegationIds.length)})
-        AND d.principal_user_id=?
-        AND d.agent_id=?
-        AND d.application_id=?
-        AND d.source_space_id=?`)
-      .bind(...delegationIds, principal.id, principal.actor.id, principal.clientId, spaceId));
-  }
-
-  const results = await env.DB.batch(statements);
-  if (!firstResult<{ id: string }>(results[0])) {
-    throw new ApiError("SPACE_NOT_FOUND", "Space not found", 404);
-  }
-
-  const catalogs = new Map(values<CatalogRow>(results[1]).map((row) => [row.model_key, row.max_access]));
-  const membership = membershipIndex >= 0 ? firstResult<MembershipRow>(results[membershipIndex]) : null;
-  const grants = values<GrantRow>(results[grantsIndex]);
-  const person = personIndex >= 0 ? firstResult<PersonRow>(results[personIndex]) : null;
-  const delegations = delegationsIndex >= 0
-    ? new Map(values<DelegationRow>(results[delegationsIndex]).map((row) => [row.id, row]))
-    : new Map<string, DelegationRow>();
-
-  return requests.map((request, index) => {
-    const { model, required } = request;
-    const selector = selectors[index];
-    const catalogAccess = catalogs.get(model.key);
-    if (!catalogAccess || modelAccessRank[catalogAccess] < modelAccessRank[required]) {
-      throw new ApiError(
-        "APPLICATION_ACCESS_INSUFFICIENT",
-        `Application ${principal.clientId} is not allowed ${required} access to model ${model.key}`,
-        403,
-      );
-    }
-
-    const membershipAccess = membership ? roleMaxAccess[membership.role] : null;
-    const grantPermission = strongestGrant(grants, model.key);
-    const grantAccess = grantPermission ? permissionMaxAccess[grantPermission] : null;
-    const membershipAllowed = membershipAccess !== null && modelAccessRank[membershipAccess] >= modelAccessRank[required];
-    const grantAllowed = grantAccess !== null && grantAccess !== undefined && modelAccessRank[grantAccess] >= modelAccessRank[required];
-    if (!membershipAllowed && !grantAllowed) {
-      throw new ApiError("PRINCIPAL_AUTHORITY_INSUFFICIENT", `Space ${spacePermissions[required]} permission is required`, 403);
-    }
-
-    let delegationId: string | null = null;
-    let singleUse = false;
-    if (principal.actor) {
-      const delegation = delegations.get(selector.delegationId);
-      if (!delegation || !delegationIsCurrent(delegation)) {
-        throw new ApiError("DELEGATION_INVALID", "Delegation is missing, revoked, expired or already consumed", 403);
-      }
-      if (!delegationScopeAllows(delegation, spaceId, model.key, selector.recordId, required)) {
-        throw new ApiError(
-          "DELEGATION_SCOPE_INSUFFICIENT",
-          `Delegation scope does not allow ${required} access to this target`,
-          403,
-        );
-      }
-      delegationId = delegation.id;
-      singleUse = delegation.max_uses === 1;
-    }
-
-    return {
-      applicationId: principal.clientId,
-      modelKey: model.key,
-      required,
-      catalogAccess,
-      spaceAuthority: membershipAllowed ? membership!.role : "grant",
-      actorPersonId: person?.id ?? null,
-      delegationId,
-      singleUse,
-    };
+  const decisions = new Map<string, ModelAccessDecision>();
+  uniqueEntries.forEach((entry, index) => {
+    const row = (results[index]?.results ?? [])[0] as AuthoritySnapshotRow | undefined;
+    decisions.set(entry.key, decisionFromSnapshot(principal, spaceId, entry, row ?? null));
   });
+  return prepared.map((entry) => decisions.get(entry.key)!);
 }
 
 export async function requireModelAccess(
@@ -272,7 +341,12 @@ export async function requireModelAccess(
   required: ModelAccess,
   selector: DelegationSelector = {},
 ): Promise<ModelAccessDecision> {
-  return (await requireModelAccessMany(env, principal, spaceId, [{ model, required, selector }]))[0]!;
+  const [decision] = await requireModelAccessMany(env, principal, spaceId, [{
+    model,
+    required,
+    selector,
+  }]);
+  return decision!;
 }
 
 export async function consumeSingleUseRead(
@@ -291,6 +365,10 @@ export async function consumeSingleUseRead(
     .bind(consumedAt, decision.delegationId)
     .run();
   if (result.meta.changes !== 1) {
-    throw new ApiError("DELEGATION_INVALID", "Single-use Delegation was consumed, revoked or expired before the read completed", 403);
+    throw new ApiError(
+      "DELEGATION_INVALID",
+      "Single-use Delegation was consumed, revoked or expired before the read completed",
+      403,
+    );
   }
 }
