@@ -2,7 +2,7 @@ import type { Hono } from "hono";
 import type { Bindings, Principal, Variables } from "./env";
 import { ApiError, success } from "./http";
 import type { ModelAccess } from "./model-definition";
-import { requireModelAccess } from "./model-authorization";
+import { consumeSingleUseRead, requireModelAccess, type ModelAccessDecision } from "./model-authorization";
 import { getRuntimeModel, type PublishedModel } from "./model-registry";
 import { projectModelSemanticFacts } from "./model-semantic-projection";
 
@@ -30,11 +30,12 @@ async function requireCurrentVisibility(
   principal: Principal,
   spaceId: string,
   model: PublishedModel,
-): Promise<void> {
+  delegationId?: string | null,
+): Promise<ModelAccessDecision> {
   const required = lowestScopedDeclaredAccess(principal, model);
   if (!required) throw opaqueNotFound();
   try {
-    await requireModelAccess(env, principal, spaceId, model, required);
+    return await requireModelAccess(env, principal, spaceId, model, required, { delegationId });
   } catch (error) {
     if (error instanceof ApiError && [403, 404, 405].includes(error.status)) throw opaqueNotFound();
     throw error;
@@ -48,7 +49,15 @@ export function registerRuntimeModelSemanticDetailRoutes(app: App): void {
     const model = await getRuntimeModel(context.env, context.req.param("modelKey"));
     if (!model) throw opaqueNotFound();
 
-    await requireCurrentVisibility(context.env, principal, spaceId, model);
-    return context.json(success(projectModelSemanticFacts(model)));
+    const access = await requireCurrentVisibility(
+      context.env,
+      principal,
+      spaceId,
+      model,
+      context.req.header("x-lifespace-delegation-id"),
+    );
+    const response = success(projectModelSemanticFacts(model));
+    await consumeSingleUseRead(context.env, access);
+    return context.json(response);
   });
 }
