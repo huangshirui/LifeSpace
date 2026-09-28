@@ -10,7 +10,6 @@ export type WebhookDeliveryQueueMessage =
       deliveryIds: string[];
       changeSetId: string;
       endpointId: string;
-      batchDeliveryId: string;
     };
 
 type OutboxRow = {
@@ -205,10 +204,15 @@ async function dispatchEvent(env: Bindings, event: OutboxRow): Promise<void> {
   await markEventsDispatched(env, [event]);
 }
 
-function deterministicBatchDeliveryId(changeSetId: string, endpointId: string): string {
-  const change = changeSetId.startsWith("cgs_") ? changeSetId.slice(4) : changeSetId;
-  const endpoint = endpointId.startsWith("whk_") ? endpointId.slice(4) : endpointId;
-  return `bdl_${change}_${endpoint}`;
+async function deterministicBatchDeliveryId(
+  changeSetId: string,
+  endpointId: string,
+  deliveryIds: readonly string[],
+): Promise<string> {
+  const canonical = [changeSetId, endpointId, ...[...deliveryIds].sort()].join("\u001f");
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(canonical));
+  const hex = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+  return `bdl_${hex.slice(0, 40)}`;
 }
 
 async function dispatchChangeSet(env: Bindings, events: readonly OutboxRow[]): Promise<void> {
@@ -232,13 +236,11 @@ async function dispatchChangeSet(env: Bindings, events: readonly OutboxRow[]): P
 
   for (const [endpointId, deliveryIds] of deliveriesByEndpoint) {
     if (!deliveryIds.length) continue;
-    const batchDeliveryId = deterministicBatchDeliveryId(changeSetId, endpointId);
     await env.EVENT_DELIVERY_QUEUE.send({
       kind: "webhook-delivery-batch",
       deliveryIds,
       changeSetId,
       endpointId,
-      batchDeliveryId,
     } satisfies WebhookDeliveryQueueMessage);
     const timestamp = now();
     const placeholders = deliveryIds.map(() => "?").join(",");
@@ -622,6 +624,12 @@ async function deliverBatch(
     return "ack";
   }
 
+  const validIds = valid.map((entry) => entry.delivery.id);
+  const batchDeliveryId = await deterministicBatchDeliveryId(
+    message.changeSetId,
+    message.endpointId,
+    validIds,
+  );
   const uniqueEvents = [...new Map(valid.map((entry) => [entry.event.id, entry.event])).values()]
     .sort((left, right) => left.occurred_at.localeCompare(right.occurred_at) || left.id.localeCompare(right.id));
   const body = JSON.stringify({
@@ -633,7 +641,6 @@ async function deliverBatch(
     occurredAt: uniqueEvents[0]!.occurred_at,
   });
   const attemptedAt = now();
-  const validIds = valid.map((entry) => entry.delivery.id);
   await updateDeliveryGroup(
     env,
     validIds,
@@ -644,7 +651,7 @@ async function deliverBatch(
   try {
     const response = await signedFetch(first.webhook_url, first.signing_secret, body, {
       "x-lifespace-change-set-id": message.changeSetId,
-      "x-lifespace-delivery-id": message.batchDeliveryId,
+      "x-lifespace-delivery-id": batchDeliveryId,
       "x-lifespace-webhook-endpoint-id": message.endpointId,
     });
     if (response.ok) {
@@ -694,7 +701,6 @@ export async function processWebhookDeliveryQueue(
       && body.deliveryIds.every((value) => typeof value === "string")
       && typeof body.changeSetId === "string"
       && typeof body.endpointId === "string"
-      && typeof body.batchDeliveryId === "string"
     ) {
       result = await deliverBatch(env, body);
     } else {
