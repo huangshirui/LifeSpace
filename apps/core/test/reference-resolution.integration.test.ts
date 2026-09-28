@@ -179,7 +179,7 @@ describe("Batch Reference Resolution", () => {
     const response = await resolve(f, [f.alphaPersonId], f.hiddenToken);
     expect(response.status).toBe(403);
     const payload = await response.json<{ error: { code: string } }>();
-    expect(payload.error.code).toBe("FORBIDDEN");
+    expect(payload.error.code).toBe("APPLICATION_ACCESS_INSUFFICIENT");
   });
 
   it("uses the target record ID as the canonical fallback when no explicit record referenceLabel is declared", async () => {
