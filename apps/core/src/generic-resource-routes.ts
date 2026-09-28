@@ -22,18 +22,12 @@ import { consumeSingleUseRead, requireModelAccess } from "./model-authorization"
 import { measurePerformancePhase } from "./performance-timing";
 import { getRuntimeModel, type PublishedModel } from "./model-registry";
 import { requireModelPolicy } from "./policy";
-import {
-  provenanceMutationExtension,
-  splitProvenanceEnvelope,
-  type InformationProvenance,
-} from "./resource-provenance";
 import { loadResourceAudits, requireResourceAudit, type ResourceAudit } from "./resource-audit";
 import { executeWorkflowAction, workflowActionAccess } from "./workflow";
 
 type AppEnv = { Bindings: Bindings; Variables: Variables };
 type App = Hono<AppEnv>;
 type Body = Record<string, unknown>;
-type ResourceWithProvenance = GenericResource & { provenance?: InformationProvenance };
 
 async function body(context: Context<AppEnv>): Promise<Body> {
   const value = await context.req.json<unknown>().catch(() => null);
@@ -86,13 +80,11 @@ async function dto(
   resource: GenericResource,
   decoration?: CapabilityResponseDecoration,
   audit?: ResourceAudit,
-  provenanceOverride?: InformationProvenance,
 ) {
   const resolvedAudit = audit ?? resource.audit ?? requireResourceAudit(
     await loadResourceAudits(env, spaceId, [resource.id]),
     resource.id,
   );
-  const provenance = provenanceOverride ?? (resource as ResourceWithProvenance).provenance;
   return {
     id: resource.id,
     spaceId: resource.spaceId,
@@ -100,7 +92,6 @@ async function dto(
     modelVersion: resource.modelVersion,
     ...resource.data,
     ...(decoration ?? await decorateCapabilityResponse(env, spaceId, model, resource)),
-    ...(provenance ? { provenance } : {}),
     createdBy: resolvedAudit.createdBy,
     updatedBy: resolvedAudit.updatedBy,
     version: resource.version,
@@ -223,8 +214,7 @@ export function registerGenericResourceRoutes(app: App): void {
       "runtime.access_check",
       () => requireModelAccess(context.env, principal, spaceId, resolved, "write", accessSelector(context)),
     );
-    const request = await body(context);
-    const { data: input, provenance } = splitProvenanceEnvelope(request);
+    const input = await body(context);
     const prepared = prepareCapabilityCreateInput(resolved, input);
     await measurePerformancePhase(
       context,
@@ -240,14 +230,14 @@ export function registerGenericResourceRoutes(app: App): void {
         spaceId,
         resolved,
         input,
-        provenance ? provenanceMutationExtension(provenance) : undefined,
+        undefined,
         { delegationId: access.delegationId },
       ),
     );
     const response = await measurePerformancePhase(
       context,
       "runtime.response_projection",
-      () => dto(context.env, spaceId, resolved, created, undefined, undefined, provenance),
+      () => dto(context.env, spaceId, resolved, created),
     );
     return context.json(success(response), 201);
   };
@@ -296,8 +286,7 @@ export function registerGenericResourceRoutes(app: App): void {
     );
     const request = await body(context);
     const expected = positiveVersion(request.version);
-    const mutationInput = Object.fromEntries(Object.entries(request).filter(([key]) => key !== "version"));
-    const { data: changes, provenance } = splitProvenanceEnvelope(mutationInput);
+    const changes = Object.fromEntries(Object.entries(request).filter(([key]) => key !== "version"));
     if (!Object.keys(changes).length) throw new ApiError("INVALID_REQUEST", "At least one resource field change is required", 400);
     const prepared = await measurePerformancePhase(
       context,
@@ -321,14 +310,14 @@ export function registerGenericResourceRoutes(app: App): void {
         expected,
         changes,
         prepared.resource,
-        provenance ? provenanceMutationExtension(provenance) : undefined,
+        undefined,
         { delegationId: access.delegationId },
       ),
     );
     const response = await measurePerformancePhase(
       context,
       "runtime.response_projection",
-      () => dto(context.env, spaceId, resolved, updated, undefined, undefined, provenance),
+      () => dto(context.env, spaceId, resolved, updated),
     );
     return context.json(success(response));
   };
