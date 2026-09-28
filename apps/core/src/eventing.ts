@@ -3,7 +3,15 @@ import { ApiError } from "./http";
 import { servicePrincipalIsActive } from "./service-principal-authority";
 
 export type DomainEventType = "record.created" | "record.updated" | "record.deleted";
-export type WebhookDeliveryQueueMessage = { kind: "webhook-delivery"; deliveryId: string };
+export type WebhookDeliveryQueueMessage =
+  | { kind: "webhook-delivery"; deliveryId: string }
+  | {
+      kind: "webhook-delivery-batch";
+      deliveryIds: string[];
+      changeSetId: string;
+      endpointId: string;
+      batchDeliveryId: string;
+    };
 
 type OutboxRow = {
   id: string;
@@ -13,6 +21,7 @@ type OutboxRow = {
   record_id: string;
   record_version: number;
   change_id: string | null;
+  change_set_id: string | null;
   occurred_at: string;
 };
 
@@ -106,9 +115,11 @@ async function signedFetch(url: string, secret: string, body: string, headers: R
   });
 }
 
-async function dispatchEvent(env: Bindings, event: OutboxRow): Promise<void> {
+type EligibleSubscription = { id: string; endpoint_id: string };
+
+async function eligibleSubscriptions(env: Bindings, event: OutboxRow): Promise<EligibleSubscription[]> {
   const currentTime = now();
-  const subscriptions = await env.DB.prepare(`SELECT s.id
+  const subscriptions = await env.DB.prepare(`SELECT s.id,e.id endpoint_id
     FROM event_subscriptions s
     JOIN webhook_endpoints e ON e.id=s.endpoint_id
     JOIN application_model_access ama
@@ -134,51 +145,192 @@ async function dispatchEvent(env: Bindings, event: OutboxRow): Promise<void> {
             OR (g.resource_type='space' AND g.resource_id IS NULL)
           )
       )`)
-    .bind(event.space_id, event.model_key, event.event_type, event.event_type, event.event_type, currentTime)
-    .all<{ id: string }>();
+    .bind(
+      event.space_id,
+      event.model_key,
+      event.event_type,
+      event.event_type,
+      event.event_type,
+      currentTime,
+    )
+    .all<EligibleSubscription>();
+  return subscriptions.results;
+}
 
-  for (const subscription of subscriptions.results) {
-    const deliveryId = id("dlv");
+async function ensureDelivery(
+  env: Bindings,
+  event: OutboxRow,
+  subscriptionId: string,
+): Promise<{ id: string; status: string }> {
+  const deliveryId = id("dlv");
+  const timestamp = now();
+  await env.DB.prepare(`INSERT OR IGNORE INTO webhook_deliveries(
+    id,event_id,subscription_id,status,created_at,updated_at
+  ) VALUES(?,?,?,'pending',?,?)`)
+    .bind(deliveryId, event.id, subscriptionId, timestamp, timestamp)
+    .run();
+  const delivery = await env.DB.prepare(
+    "SELECT id,status FROM webhook_deliveries WHERE event_id=? AND subscription_id=?",
+  ).bind(event.id, subscriptionId).first<{ id: string; status: string }>();
+  if (!delivery) throw new Error("Webhook delivery row could not be created");
+  return delivery;
+}
+
+async function markEventsDispatched(env: Bindings, events: readonly OutboxRow[]): Promise<void> {
+  const timestamp = now();
+  await env.DB.batch(events.map((event) => env.DB.prepare(`UPDATE domain_event_outbox
+    SET dispatched_at=?,dispatch_attempt_count=dispatch_attempt_count+1,
+        last_dispatch_attempt_at=?,last_dispatch_error=NULL
+    WHERE id=? AND dispatched_at IS NULL`)
+    .bind(timestamp, timestamp, event.id)));
+}
+
+async function dispatchEvent(env: Bindings, event: OutboxRow): Promise<void> {
+  const subscriptions = await eligibleSubscriptions(env, event);
+  for (const subscription of subscriptions) {
+    const delivery = await ensureDelivery(env, event, subscription.id);
+    if (delivery.status === "queued" || delivery.status === "succeeded" || delivery.status === "cancelled") continue;
+
+    await env.EVENT_DELIVERY_QUEUE.send({
+      kind: "webhook-delivery",
+      deliveryId: delivery.id,
+    } satisfies WebhookDeliveryQueueMessage);
     const timestamp = now();
-    await env.DB.prepare(`INSERT OR IGNORE INTO webhook_deliveries(
-      id,event_id,subscription_id,status,created_at,updated_at
-    ) VALUES(?,?,?,'pending',?,?)`)
-      .bind(deliveryId, event.id, subscription.id, timestamp, timestamp).run();
-
-    const delivery = await env.DB.prepare(
-      "SELECT id,status FROM webhook_deliveries WHERE event_id=? AND subscription_id=?",
-    ).bind(event.id, subscription.id).first<{ id: string; status: string }>();
-    if (!delivery || delivery.status === "queued" || delivery.status === "succeeded" || delivery.status === "cancelled") continue;
-
-    await env.EVENT_DELIVERY_QUEUE.send({ kind: "webhook-delivery", deliveryId: delivery.id } satisfies WebhookDeliveryQueueMessage);
     await env.DB.prepare(`UPDATE webhook_deliveries
       SET status='queued',queued_at=?,updated_at=?,last_error=NULL
       WHERE id=? AND status IN ('pending','failed')`)
-      .bind(timestamp, timestamp, delivery.id).run();
+      .bind(timestamp, timestamp, delivery.id)
+      .run();
+  }
+  await markEventsDispatched(env, [event]);
+}
+
+function deterministicBatchDeliveryId(changeSetId: string, endpointId: string): string {
+  const change = changeSetId.startsWith("cgs_") ? changeSetId.slice(4) : changeSetId;
+  const endpoint = endpointId.startsWith("whk_") ? endpointId.slice(4) : endpointId;
+  return `bdl_${change}_${endpoint}`;
+}
+
+async function dispatchChangeSet(env: Bindings, events: readonly OutboxRow[]): Promise<void> {
+  if (!events.length) return;
+  const changeSetId = events[0]!.change_set_id;
+  if (!changeSetId || events.some((event) => event.change_set_id !== changeSetId)) {
+    throw new Error("Batch Eventing requires one coherent ChangeSet");
   }
 
-  await env.DB.prepare(`UPDATE domain_event_outbox
-    SET dispatched_at=?,dispatch_attempt_count=dispatch_attempt_count+1,last_dispatch_attempt_at=?,last_dispatch_error=NULL
+  const deliveriesByEndpoint = new Map<string, string[]>();
+  for (const event of events) {
+    const subscriptions = await eligibleSubscriptions(env, event);
+    for (const subscription of subscriptions) {
+      const delivery = await ensureDelivery(env, event, subscription.id);
+      if (delivery.status === "queued" || delivery.status === "succeeded" || delivery.status === "cancelled") continue;
+      const ids = deliveriesByEndpoint.get(subscription.endpoint_id) ?? [];
+      ids.push(delivery.id);
+      deliveriesByEndpoint.set(subscription.endpoint_id, ids);
+    }
+  }
+
+  for (const [endpointId, deliveryIds] of deliveriesByEndpoint) {
+    if (!deliveryIds.length) continue;
+    const batchDeliveryId = deterministicBatchDeliveryId(changeSetId, endpointId);
+    await env.EVENT_DELIVERY_QUEUE.send({
+      kind: "webhook-delivery-batch",
+      deliveryIds,
+      changeSetId,
+      endpointId,
+      batchDeliveryId,
+    } satisfies WebhookDeliveryQueueMessage);
+    const timestamp = now();
+    const placeholders = deliveryIds.map(() => "?").join(",");
+    await env.DB.prepare(`UPDATE webhook_deliveries
+      SET status='queued',queued_at=?,updated_at=?,last_error=NULL
+      WHERE id IN (${placeholders}) AND status IN ('pending','failed')`)
+      .bind(timestamp, timestamp, ...deliveryIds)
+      .run();
+  }
+
+  await markEventsDispatched(env, events);
+}
+
+function outboxSelect(): string {
+  return `SELECT id,event_type,space_id,model_key,record_id,record_version,
+      change_id,change_set_id,occurred_at
+    FROM domain_event_outbox`;
+}
+
+async function expandSelectedChangeSets(
+  env: Bindings,
+  selected: readonly OutboxRow[],
+): Promise<OutboxRow[]> {
+  const changeSetIds = [...new Set(
+    selected.map((event) => event.change_set_id).filter((value): value is string => Boolean(value)),
+  )];
+  if (!changeSetIds.length) return [...selected];
+  const placeholders = changeSetIds.map(() => "?").join(",");
+  const related = await env.DB.prepare(`${outboxSelect()}
+    WHERE dispatched_at IS NULL AND change_set_id IN (${placeholders})
+    ORDER BY occurred_at,id`)
+    .bind(...changeSetIds)
+    .all<OutboxRow>();
+  const byId = new Map(selected.map((event) => [event.id, event]));
+  for (const event of related.results) byId.set(event.id, event);
+  return [...byId.values()].sort((left, right) =>
+    left.occurred_at.localeCompare(right.occurred_at) || left.id.localeCompare(right.id)
+  );
+}
+
+async function markDispatchFailure(
+  env: Bindings,
+  events: readonly OutboxRow[],
+  error: unknown,
+): Promise<void> {
+  const message = error instanceof Error ? error.message.slice(0, 300) : "dispatch failed";
+  const timestamp = now();
+  await env.DB.batch(events.map((event) => env.DB.prepare(`UPDATE domain_event_outbox
+    SET dispatch_attempt_count=dispatch_attempt_count+1,last_dispatch_attempt_at=?,last_dispatch_error=?
     WHERE id=? AND dispatched_at IS NULL`)
-    .bind(now(), now(), event.id).run();
+    .bind(timestamp, message, event.id)));
+  console.error("Domain event dispatch failed", {
+    eventIds: events.map((event) => event.id),
+    changeSetId: events[0]?.change_set_id ?? null,
+    error: message,
+  });
 }
 
 export async function dispatchPendingDomainEvents(env: Bindings, limit = 50): Promise<number> {
-  const rows = await env.DB.prepare(`SELECT id,event_type,space_id,model_key,record_id,record_version,change_id,occurred_at
-    FROM domain_event_outbox WHERE dispatched_at IS NULL ORDER BY occurred_at,id LIMIT ?`)
-    .bind(limit).all<OutboxRow>();
+  const selected = await env.DB.prepare(`${outboxSelect()}
+    WHERE dispatched_at IS NULL ORDER BY occurred_at,id LIMIT ?`)
+    .bind(limit)
+    .all<OutboxRow>();
+  const rows = await expandSelectedChangeSets(env, selected.results);
+
+  const singles: OutboxRow[] = [];
+  const groups = new Map<string, OutboxRow[]>();
+  for (const event of rows) {
+    if (!event.change_set_id) {
+      singles.push(event);
+      continue;
+    }
+    const group = groups.get(event.change_set_id) ?? [];
+    group.push(event);
+    groups.set(event.change_set_id, group);
+  }
+
   let dispatched = 0;
-  for (const event of rows.results) {
+  for (const event of singles) {
     try {
       await dispatchEvent(env, event);
       dispatched += 1;
     } catch (error) {
-      const message = error instanceof Error ? error.message.slice(0, 300) : "dispatch failed";
-      await env.DB.prepare(`UPDATE domain_event_outbox
-        SET dispatch_attempt_count=dispatch_attempt_count+1,last_dispatch_attempt_at=?,last_dispatch_error=?
-        WHERE id=? AND dispatched_at IS NULL`)
-        .bind(now(), message, event.id).run();
-      console.error("Domain event dispatch failed", { eventId: event.id, error: message });
+      await markDispatchFailure(env, [event], error);
+    }
+  }
+  for (const events of groups.values()) {
+    try {
+      await dispatchChangeSet(env, events);
+      dispatched += events.length;
+    } catch (error) {
+      await markDispatchFailure(env, events, error);
     }
   }
   return dispatched;
@@ -229,7 +381,7 @@ async function deliverOne(env: Bindings, deliveryId: string): Promise<"ack" | "r
       .bind(now(), deliveryId).run();
     return "ack";
   }
-  const event = await env.DB.prepare(`SELECT id,event_type,space_id,model_key,record_id,record_version,change_id,occurred_at
+  const event = await env.DB.prepare(`SELECT id,event_type,space_id,model_key,record_id,record_version,change_id,change_set_id,occurred_at
     FROM domain_event_outbox WHERE id=?`)
     .bind(delivery.event_id).first<OutboxRow>();
   if (!event) {
