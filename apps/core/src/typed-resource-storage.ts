@@ -42,7 +42,7 @@ export type TypedStoredResource = {
   updatedAt: string;
 };
 
-type RelationRow = {
+export type RelationRow = {
   source_record_id: string;
   field_key: string;
   ordinal: number;
