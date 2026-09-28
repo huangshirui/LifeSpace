@@ -1890,7 +1890,7 @@
                 "type": "string"
               },
               "contractVersion": {
-                "const": "0.39.0"
+                "const": "0.40.0"
               }
             }
           }
