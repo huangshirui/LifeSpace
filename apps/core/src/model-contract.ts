@@ -166,51 +166,6 @@ function fieldSchema(field: FieldDefinition): JsonSchema {
   return result;
 }
 
-function provenanceReferenceSchema(): JsonSchema {
-  return {
-    oneOf: [
-      {
-        type: "object",
-        additionalProperties: false,
-        properties: {
-          type: { const: "record" },
-          recordId: { type: "string", pattern: "^rec_[A-Za-z0-9]+$", maxLength: 100 },
-          version: { type: "integer", minimum: 1 },
-        },
-        required: ["type", "recordId"],
-      },
-      {
-        type: "object",
-        additionalProperties: false,
-        properties: {
-          type: { const: "external" },
-          system: { type: "string", minLength: 1, maxLength: 100 },
-          ref: { type: "string", minLength: 1, maxLength: 2000 },
-        },
-        required: ["type", "system", "ref"],
-      },
-    ],
-  };
-}
-
-function provenanceSchema(readOnly = false): JsonSchema {
-  return {
-    type: "object",
-    additionalProperties: false,
-    ...(readOnly ? { readOnly: true } : {}),
-    properties: {
-      source: { type: "string", minLength: 1, maxLength: 100 },
-      sourceRef: provenanceReferenceSchema(),
-      derivedFrom: {
-        type: "array",
-        maxItems: 50,
-        items: provenanceReferenceSchema(),
-      },
-    },
-    required: ["source"],
-  };
-}
-
 function hasDefault(definition: ModelDefinition, key: string): boolean {
   return Object.prototype.hasOwnProperty.call(definition.defaults ?? {}, key);
 }
@@ -272,7 +227,6 @@ function createSchema(model: PublishedModel): JsonSchema {
     additionalProperties: false,
     properties: {
       ...Object.fromEntries(fields.map(([key, field]) => [key, schemaWithDefault(definition, key, field)])),
-      provenance: provenanceSchema(),
     },
     required: fields
       .filter(([key, field]) => field.required && !hasDefault(definition, key))
@@ -309,7 +263,6 @@ function updateSchema(model: PublishedModel): JsonSchema {
     properties: {
       version: concurrencyVersionSchema(),
       ...Object.fromEntries(fields.map(([key, field]) => [key, fieldSchema(field)])),
-      provenance: provenanceSchema(),
     },
     required: ["version"],
     ...(fields.length
@@ -364,7 +317,6 @@ function resourceSchema(model: PublishedModel): JsonSchema {
     modelKey: { type: "string", const: definition.key },
     modelVersion: { type: "integer", minimum: 1 },
     ...Object.fromEntries(Object.entries(definition.fields).map(([key, field]) => [key, fieldSchema(field)])),
-    provenance: provenanceSchema(true),
     createdBy: resourceAuditActorSchema(),
     updatedBy: resourceAuditActorSchema(),
     version: { type: "integer", minimum: 1 },
