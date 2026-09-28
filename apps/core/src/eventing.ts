@@ -347,6 +347,21 @@ async function loadDelivery(env: Bindings, deliveryId: string): Promise<Delivery
     .bind(deliveryId).first<DeliveryRow>();
 }
 
+async function loadDeliveries(env: Bindings, deliveryIds: readonly string[]): Promise<DeliveryRow[]> {
+  if (!deliveryIds.length) return [];
+  const placeholders = deliveryIds.map(() => "?").join(",");
+  const rows = await env.DB.prepare(`SELECT d.id,d.event_id,d.subscription_id,d.status,
+      s.endpoint_id,s.enabled AS subscription_enabled,s.model_key,
+      e.webhook_url,e.signing_secret,e.enabled AS endpoint_enabled,e.application_id,e.subscriber_service_principal_id
+    FROM webhook_deliveries d
+    LEFT JOIN event_subscriptions s ON s.id=d.subscription_id AND s.deleted_at IS NULL
+    LEFT JOIN webhook_endpoints e ON e.id=s.endpoint_id AND e.deleted_at IS NULL
+    WHERE d.id IN (${placeholders})`)
+    .bind(...deliveryIds)
+    .all<DeliveryRow>();
+  return rows.results;
+}
+
 async function applicationCanReceive(env: Bindings, applicationId: string, modelKey: string): Promise<boolean> {
   const row = await env.DB.prepare(`SELECT 1 AS allowed FROM application_model_access
     WHERE application_id=? AND model_key=? LIMIT 1`)
@@ -441,16 +456,251 @@ async function deliverOne(env: Bindings, deliveryId: string): Promise<"ack" | "r
   }
 }
 
+async function updateDeliveryGroup(
+  env: Bindings,
+  deliveryIds: readonly string[],
+  setSql: string,
+  values: unknown[],
+): Promise<void> {
+  if (!deliveryIds.length) return;
+  const placeholders = deliveryIds.map(() => "?").join(",");
+  await env.DB.prepare(`UPDATE webhook_deliveries SET ${setSql} WHERE id IN (${placeholders})`)
+    .bind(...values, ...deliveryIds)
+    .run();
+}
+
+async function batchAllowedModels(
+  env: Bindings,
+  applicationId: string,
+  subscriberId: string,
+  spaceId: string,
+  modelKeys: readonly string[],
+): Promise<Set<string>> {
+  const unique = [...new Set(modelKeys)];
+  if (!unique.length) return new Set();
+  const placeholders = unique.map(() => "?").join(",");
+  const currentTime = now();
+  const [application, grants] = await env.DB.batch([
+    env.DB.prepare(`SELECT model_key FROM application_model_access
+      WHERE application_id=? AND model_key IN (${placeholders})`)
+      .bind(applicationId, ...unique),
+    env.DB.prepare(`SELECT resource_type,resource_id FROM data_grants
+      WHERE source_space_id=?
+        AND grantee_type='service'
+        AND grantee_id=?
+        AND revoked_at IS NULL
+        AND (expires_at IS NULL OR expires_at>?)
+        AND permission IN ('read','write','manage')
+        AND (
+          (resource_type='model' AND resource_id IN (${placeholders}))
+          OR (resource_type='space' AND resource_id IS NULL)
+        )`)
+      .bind(spaceId, subscriberId, currentTime, ...unique),
+  ]);
+  const appModels = new Set(
+    ((application.results ?? []) as Array<{ model_key: string }>).map((row) => row.model_key),
+  );
+  const grantRows = (grants.results ?? []) as Array<{ resource_type: string; resource_id: string | null }>;
+  const wholeSpace = grantRows.some((row) => row.resource_type === "space");
+  const grantModels = new Set(
+    grantRows.filter((row) => row.resource_type === "model" && row.resource_id).map((row) => row.resource_id!),
+  );
+  return new Set(unique.filter((key) => appModels.has(key) && (wholeSpace || grantModels.has(key))));
+}
+
+async function deliverBatch(
+  env: Bindings,
+  message: Extract<WebhookDeliveryQueueMessage, { kind: "webhook-delivery-batch" }>,
+): Promise<"ack" | "retry"> {
+  const requestedIds = [...new Set(message.deliveryIds)];
+  if (!requestedIds.length || requestedIds.length > 20) return "ack";
+  const deliveries = await loadDeliveries(env, requestedIds);
+  const active = deliveries.filter((delivery) =>
+    delivery.status !== "succeeded" && delivery.status !== "cancelled"
+  );
+  if (!active.length) return "ack";
+
+  const first = active[0]!;
+  if (!first.endpoint_id
+      || first.endpoint_id !== message.endpointId
+      || !first.webhook_url
+      || !first.signing_secret
+      || !first.endpoint_enabled
+      || !first.application_id
+      || !first.subscriber_service_principal_id) {
+    await updateDeliveryGroup(
+      env,
+      active.map((delivery) => delivery.id),
+      "status='cancelled',updated_at=?,last_error='batch endpoint unavailable'",
+      [now()],
+    );
+    return "ack";
+  }
+
+  const eventIds = [...new Set(active.map((delivery) => delivery.event_id))];
+  const placeholders = eventIds.map(() => "?").join(",");
+  const eventRows = await env.DB.prepare(`SELECT
+      id,event_type,space_id,model_key,record_id,record_version,change_id,change_set_id,occurred_at
+    FROM domain_event_outbox
+    WHERE id IN (${placeholders})`)
+    .bind(...eventIds)
+    .all<OutboxRow>();
+  const eventById = new Map(eventRows.results.map((event) => [event.id, event]));
+  const models = active.map((delivery) => eventById.get(delivery.event_id)?.model_key).filter((value): value is string => Boolean(value));
+  const firstEvent = eventById.get(first.event_id);
+  if (!firstEvent || firstEvent.change_set_id !== message.changeSetId) {
+    await updateDeliveryGroup(
+      env,
+      active.map((delivery) => delivery.id),
+      "status='cancelled',updated_at=?,last_error='batch ChangeSet evidence unavailable'",
+      [now()],
+    );
+    return "ack";
+  }
+
+  const allowedModels = await batchAllowedModels(
+    env,
+    first.application_id,
+    first.subscriber_service_principal_id,
+    firstEvent.space_id,
+    models,
+  );
+
+  const valid: Array<{ delivery: DeliveryRow; event: OutboxRow }> = [];
+  const cancelled: string[] = [];
+  for (const delivery of active) {
+    const event = eventById.get(delivery.event_id);
+    const validEndpoint = delivery.endpoint_id === message.endpointId
+      && delivery.endpoint_id === first.endpoint_id
+      && delivery.application_id === first.application_id
+      && delivery.subscriber_service_principal_id === first.subscriber_service_principal_id
+      && Boolean(delivery.endpoint_enabled)
+      && Boolean(delivery.subscription_enabled)
+      && delivery.webhook_url === first.webhook_url
+      && delivery.signing_secret === first.signing_secret;
+    if (!event
+        || event.change_set_id !== message.changeSetId
+        || event.space_id !== firstEvent.space_id
+        || !delivery.model_key
+        || delivery.model_key !== event.model_key
+        || !validEndpoint
+        || !allowedModels.has(event.model_key)) {
+      cancelled.push(delivery.id);
+      continue;
+    }
+    valid.push({ delivery, event });
+  }
+
+  await updateDeliveryGroup(
+    env,
+    cancelled,
+    "status='cancelled',updated_at=?,last_error='endpoint/subscription unavailable or access revoked'",
+    [now()],
+  );
+  if (!valid.length) return "ack";
+
+  let subscriberActive: boolean;
+  try {
+    subscriberActive = await servicePrincipalIsActive(env, first.subscriber_service_principal_id);
+  } catch (error) {
+    const reason = error instanceof Error ? error.message.slice(0, 240) : "subscriber identity status unavailable";
+    await updateDeliveryGroup(
+      env,
+      valid.map((entry) => entry.delivery.id),
+      "status='failed',updated_at=?,last_error=?",
+      [now(), `subscriber identity status unavailable: ${reason}`],
+    );
+    return "retry";
+  }
+  if (!subscriberActive) {
+    await updateDeliveryGroup(
+      env,
+      valid.map((entry) => entry.delivery.id),
+      "status='cancelled',updated_at=?,last_error='subscriber service principal inactive'",
+      [now()],
+    );
+    return "ack";
+  }
+
+  const uniqueEvents = [...new Map(valid.map((entry) => [entry.event.id, entry.event])).values()]
+    .sort((left, right) => left.occurred_at.localeCompare(right.occurred_at) || left.id.localeCompare(right.id));
+  const body = JSON.stringify({
+    id: message.changeSetId,
+    type: "change_set.committed",
+    changeSetId: message.changeSetId,
+    spaceId: firstEvent.space_id,
+    events: uniqueEvents.map(eventPayload),
+    occurredAt: uniqueEvents[0]!.occurred_at,
+  });
+  const attemptedAt = now();
+  const validIds = valid.map((entry) => entry.delivery.id);
+  await updateDeliveryGroup(
+    env,
+    validIds,
+    "attempt_count=attempt_count+1,updated_at=?",
+    [attemptedAt],
+  );
+
+  try {
+    const response = await signedFetch(first.webhook_url, first.signing_secret, body, {
+      "x-lifespace-change-set-id": message.changeSetId,
+      "x-lifespace-delivery-id": message.batchDeliveryId,
+      "x-lifespace-webhook-endpoint-id": message.endpointId,
+    });
+    if (response.ok) {
+      await updateDeliveryGroup(
+        env,
+        validIds,
+        "status='succeeded',delivered_at=?,last_status_code=?,last_error=NULL,updated_at=?",
+        [now(), response.status, now()],
+      );
+      return "ack";
+    }
+    await updateDeliveryGroup(
+      env,
+      validIds,
+      "status='failed',last_status_code=?,last_error=?,updated_at=?",
+      [response.status, `HTTP ${response.status}`, now()],
+    );
+    return "retry";
+  } catch (error) {
+    const reason = error instanceof Error ? error.message.slice(0, 300) : "webhook request failed";
+    await updateDeliveryGroup(
+      env,
+      validIds,
+      "status='failed',last_error=?,updated_at=?",
+      [reason, now()],
+    );
+    return "retry";
+  }
+}
+
 export async function processWebhookDeliveryQueue(
   batch: MessageBatch<WebhookDeliveryQueueMessage>,
   env: Bindings,
 ): Promise<void> {
   for (const message of batch.messages) {
-    if (!message.body || message.body.kind !== "webhook-delivery" || typeof message.body.deliveryId !== "string") {
+    const body = message.body;
+    if (!body || typeof body !== "object" || !("kind" in body)) {
       message.ack();
       continue;
     }
-    const result = await deliverOne(env, message.body.deliveryId);
+    let result: "ack" | "retry";
+    if (body.kind === "webhook-delivery" && typeof body.deliveryId === "string") {
+      result = await deliverOne(env, body.deliveryId);
+    } else if (
+      body.kind === "webhook-delivery-batch"
+      && Array.isArray(body.deliveryIds)
+      && body.deliveryIds.every((value) => typeof value === "string")
+      && typeof body.changeSetId === "string"
+      && typeof body.endpointId === "string"
+      && typeof body.batchDeliveryId === "string"
+    ) {
+      result = await deliverBatch(env, body);
+    } else {
+      message.ack();
+      continue;
+    }
     if (result === "retry") message.retry();
     else message.ack();
   }
