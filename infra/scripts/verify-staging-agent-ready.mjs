@@ -32,7 +32,7 @@ const agents = [
     applicationId: "app_agent_a_staging",
     applicationName: "Agent A staging",
     agentDisplayName: "Agent A",
-    delegationModels: [
+    delegationScopes: [
       { modelKey: "event", maxAccess: "write" },
       { modelKey: "task", maxAccess: "read" },
     ],
@@ -43,7 +43,7 @@ const agents = [
     applicationId: "app_agent_b_staging",
     applicationName: "Agent B staging",
     agentDisplayName: "Agent B",
-    delegationModels: [
+    delegationScopes: [
       { modelKey: "event", maxAccess: "read" },
       { modelKey: "task", maxAccess: "write" },
     ],
@@ -78,13 +78,14 @@ async function parseResponse(response) {
   catch { return raw; }
 }
 
-async function request(base, path, { method = "GET", bootstrap, bearer, body } = {}) {
+async function request(base, path, { method = "GET", bootstrap, bearer, delegationId, body } = {}) {
   const response = await fetch(`${base}${path}`, {
     method,
     headers: {
       accept: "application/json",
       ...(bootstrap ? { "x-bootstrap-secret": bootstrap } : {}),
       ...(bearer ? { authorization: `Bearer ${bearer}` } : {}),
+      ...(delegationId ? { "x-lifespace-delegation-id": delegationId } : {}),
       ...(body === undefined ? {} : { "content-type": "application/json" }),
     },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
@@ -241,21 +242,34 @@ async function revokeActiveDelegations(context, spaceId) {
   }
 }
 
-async function createDelegation(context, spaceId) {
-  const result = await request(coreBase, `/api/v1/spaces/${encodeURIComponent(spaceId)}/agent-delegations`, {
-    method: "POST",
-    bearer: context.userBearer,
-    body: {
-      agentId: context.agentId,
-      models: context.delegationModels,
-      expiresAt: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
-    },
-  });
-  const data = expectStatus(`${context.key} Delegation create`, result, 201);
-  if (!data?.id?.startsWith("dlg_") || data.agentId !== context.agentId || data.applicationId !== context.applicationId || data.spaceId !== spaceId) {
-    throw new Error(`${context.key} Delegation response is invalid: ${JSON.stringify(data)}`);
+async function createDelegations(context, spaceId) {
+  const ids = {};
+  for (const scope of context.delegationScopes) {
+    const result = await request(coreBase, `/api/v1/spaces/${encodeURIComponent(spaceId)}/agent-delegations`, {
+      method: "POST",
+      bearer: context.userBearer,
+      body: {
+        agentId: context.agentId,
+        scope: {
+          target: { type: "model", id: scope.modelKey },
+          maxAccess: scope.maxAccess,
+        },
+        constraints: { expiresAt: new Date(Date.now() + 15 * 60 * 1000).toISOString() },
+      },
+    });
+    const data = expectStatus(`${context.key} ${scope.modelKey} Delegation create`, result, 201);
+    if (!data?.id?.startsWith("dlg_")
+        || data.agentId !== context.agentId
+        || data.applicationId !== context.applicationId
+        || data.spaceId !== spaceId
+        || data.scope?.target?.type !== "model"
+        || data.scope?.target?.id !== scope.modelKey
+        || data.scope?.maxAccess !== scope.maxAccess) {
+      throw new Error(`${context.key} Delegation response is invalid: ${JSON.stringify(data)}`);
+    }
+    ids[scope.modelKey] = data.id;
   }
-  return data.id;
+  return ids;
 }
 
 async function verifyDiscovery(context, spaceId) {
@@ -269,8 +283,12 @@ async function verifyDiscovery(context, spaceId) {
   }
 }
 
-async function verifyChange(context, spaceId, recordId, expectedOperation = "create") {
-  const result = await request(coreBase, `/api/v1/spaces/${encodeURIComponent(spaceId)}/changes?recordId=${encodeURIComponent(recordId)}`, { bearer: context.agentBearer });
+async function verifyChange(context, spaceId, recordId, modelKey, expectedOperation = "create") {
+  const delegationId = context.delegationIds[modelKey];
+  const result = await request(coreBase, `/api/v1/spaces/${encodeURIComponent(spaceId)}/changes?recordId=${encodeURIComponent(recordId)}`, {
+    bearer: context.agentBearer,
+    delegationId,
+  });
   const data = expectStatus(`${context.key} Change History`, result, 200);
   const change = data?.items?.find?.((item) => item.operation === expectedOperation && item.recordId === recordId);
   if (!change
@@ -280,13 +298,13 @@ async function verifyChange(context, spaceId, recordId, expectedOperation = "cre
       || change.actor?.type !== "agent"
       || change.actor?.id !== context.agentId
       || change.applicationId !== context.applicationId
-      || change.delegationId !== context.delegationId) {
+      || change.delegationId !== delegationId) {
     throw new Error(`${context.key} Change attribution is invalid: ${JSON.stringify(change)}`);
   }
   const detailResult = await request(
     coreBase,
     `/api/v1/spaces/${encodeURIComponent(spaceId)}/changes/by-id/${encodeURIComponent(change.id)}`,
-    { bearer: context.agentBearer },
+    { bearer: context.agentBearer, delegationId },
   );
   const detail = expectStatus(`${context.key} exact Change Detail`, detailResult, 200);
   if (detail?.id !== change.id || detail?.detailAvailable !== true || !Array.isArray(detail?.fieldChanges)) {
@@ -295,7 +313,8 @@ async function verifyChange(context, spaceId, recordId, expectedOperation = "cre
   return change;
 }
 
-function verifyEventEvidence(context, spaceId, recordId, version) {
+function verifyEventEvidence(context, spaceId, recordId, version, modelKey) {
+  const delegationId = context.delegationIds[modelKey];
   const rows = coreSql(`SELECT e.id AS event_id,e.event_type,e.actor_type AS outbox_actor_type,e.actor_id AS outbox_actor_id,
       c.id AS change_id,c.principal_type,c.principal_id,c.actor_type AS change_actor_type,c.actor_id AS change_actor_id,
       c.application_id,c.delegation_id
@@ -313,20 +332,26 @@ function verifyEventEvidence(context, spaceId, recordId, version) {
       || evidence.change_actor_type !== "agent"
       || evidence.change_actor_id !== context.agentId
       || evidence.application_id !== context.applicationId
-      || evidence.delegation_id !== context.delegationId
+      || evidence.delegation_id !== delegationId
       || !String(evidence.change_id ?? "").startsWith("chg_")) {
     throw new Error(`${context.key} Event/Change evidence is invalid: ${JSON.stringify(evidence)}`);
   }
   return { eventId: evidence.event_id, changeId: evidence.change_id };
 }
 
-async function revokeDelegation(context, spaceId) {
-  if (!context?.delegationId) return;
-  const result = await request(coreBase,
-    `/api/v1/spaces/${encodeURIComponent(spaceId)}/agent-delegations/${encodeURIComponent(context.delegationId)}`,
-    { method: "DELETE", bearer: context.userBearer });
-  if (![204, 404].includes(result.response.status)) throw new Error(`${context.key} Delegation revoke returned HTTP ${result.response.status}`);
-  context.delegationId = "";
+async function revokeDelegation(context, spaceId, modelKey) {
+  const keys = modelKey ? [modelKey] : Object.keys(context?.delegationIds ?? {});
+  for (const key of keys) {
+    const delegationId = context?.delegationIds?.[key];
+    if (!delegationId) continue;
+    const result = await request(coreBase,
+      `/api/v1/spaces/${encodeURIComponent(spaceId)}/agent-delegations/${encodeURIComponent(delegationId)}`,
+      { method: "DELETE", bearer: context.userBearer });
+    if (![204, 404].includes(result.response.status)) {
+      throw new Error(`${context.key} ${key} Delegation revoke returned HTTP ${result.response.status}`);
+    }
+    context.delegationIds[key] = "";
+  }
 }
 
 async function deleteRecord(spaceId, route, record) {
@@ -383,7 +408,7 @@ try {
       throw new Error(`${context.key} Agent inherited user authority without Delegation: HTTP ${noDelegation.response.status}`);
     }
 
-    context.delegationId = await createDelegation(context, spaceId);
+    context.delegationIds = await createDelegations(context, spaceId);
     await verifyDiscovery(context, spaceId);
   }
 
@@ -406,19 +431,26 @@ try {
     body: { name: `Agent staging wrong-space ${suffix}`, ownerDisplayName: `M4 Owner ${suffix}`, timezone: "UTC" },
   });
   wrongSpace = expectStatus("M4 wrong-Space fixture create", tempSpace, 201);
-  const wrongSpaceProbe = await request(coreBase, `/api/v1/spaces/${encodeURIComponent(wrongSpace.id)}/models/event/records?limit=1`, { bearer: agentA.agentBearer });
+  const wrongSpaceProbe = await request(coreBase, `/api/v1/spaces/${encodeURIComponent(wrongSpace.id)}/models/event/records?limit=1`, {
+    bearer: agentA.agentBearer,
+    delegationId: agentA.delegationIds.event,
+  });
   if (wrongSpaceProbe.response.status !== 403) {
     throw new Error(`Agent A crossed Space Delegation boundary: HTTP ${wrongSpaceProbe.response.status}`);
   }
 
   const selfGrant = await request(coreBase, `/api/v1/spaces/${encodeURIComponent(spaceId)}/agent-delegations`, {
-    method: "POST", bearer: agentA.agentBearer, body: { agentId: agentA.agentId, models: [{ modelKey: "task", maxAccess: "write" }] },
+    method: "POST", bearer: agentA.agentBearer, body: {
+      agentId: agentA.agentId,
+      scope: { target: { type: "model", id: "task" }, maxAccess: "write" },
+    },
   });
   if (selfGrant.response.status !== 403) throw new Error(`Agent self-Delegation was not denied: HTTP ${selfGrant.response.status}`);
 
   const invalidEvent = await request(coreBase, `/api/v1/spaces/${encodeURIComponent(spaceId)}/models/event/records`, {
     method: "POST",
     bearer: agentA.agentBearer,
+    delegationId: agentA.delegationIds.event,
     body: {
       summary: `Invalid Agent A event ${suffix}`,
       isAllDay: true,
@@ -435,6 +467,7 @@ try {
   const createdEvent = await request(coreBase, `/api/v1/spaces/${encodeURIComponent(spaceId)}/models/event/records`, {
     method: "POST",
     bearer: agentA.agentBearer,
+    delegationId: agentA.delegationIds.event,
     body: {
       summary: `Agent A staging ${suffix}`,
       isAllDay: true,
@@ -446,18 +479,19 @@ try {
   if (!agentAEvent?.id || agentAEvent.version !== 1) throw new Error("Agent A Event response is invalid");
 
   const agentATaskDenied = await request(coreBase, `/api/v1/spaces/${encodeURIComponent(spaceId)}/models/task/records`, {
-    method: "POST", bearer: agentA.agentBearer, body: { name: `Agent A must not create task ${suffix}` },
+    method: "POST", bearer: agentA.agentBearer, delegationId: agentA.delegationIds.task, body: { name: `Agent A must not create task ${suffix}` },
   });
   if (agentATaskDenied.response.status !== 403) {
     throw new Error(`Agent A exceeded Task read Delegation: HTTP ${agentATaskDenied.response.status}`);
   }
 
-  const agentAChange = await verifyChange(agentA, spaceId, agentAEvent.id);
-  const agentAEvidence = verifyEventEvidence(agentA, spaceId, agentAEvent.id, agentAEvent.version);
+  const agentAChange = await verifyChange(agentA, spaceId, agentAEvent.id, "event");
+  const agentAEvidence = verifyEventEvidence(agentA, spaceId, agentAEvent.id, agentAEvent.version, "event");
 
   const agentBEventDenied = await request(coreBase, `/api/v1/spaces/${encodeURIComponent(spaceId)}/models/event/records`, {
     method: "POST",
     bearer: agentB.agentBearer,
+    delegationId: agentB.delegationIds.event,
     body: {
       summary: `Agent B must not write Event ${suffix}`,
       isAllDay: true,
@@ -470,19 +504,19 @@ try {
   }
 
   const createdTask = await request(coreBase, `/api/v1/spaces/${encodeURIComponent(spaceId)}/models/task/records`, {
-    method: "POST", bearer: agentB.agentBearer, body: { name: `Agent B staging ${suffix}` },
+    method: "POST", bearer: agentB.agentBearer, delegationId: agentB.delegationIds.task, body: { name: `Agent B staging ${suffix}` },
   });
   agentBTask = expectStatus("Agent B Task create", createdTask, 201);
   if (!agentBTask?.id || agentBTask.version !== 1 || agentBTask.status !== "pending") throw new Error("Agent B Task response is invalid");
 
-  const agentBChange = await verifyChange(agentB, spaceId, agentBTask.id);
-  const agentBEvidence = verifyEventEvidence(agentB, spaceId, agentBTask.id, agentBTask.version);
+  const agentBChange = await verifyChange(agentB, spaceId, agentBTask.id, "task");
+  const agentBEvidence = verifyEventEvidence(agentB, spaceId, agentBTask.id, agentBTask.version, "task");
 
   coreSql(`UPDATE application_model_access SET max_access='read',updated_at=${sqlString(new Date().toISOString())}
     WHERE application_id=${sqlString(agentB.applicationId)} AND model_key='task'`);
   agentBTaskCatalogLowered = true;
   const applicationCeilingDenied = await request(coreBase, `/api/v1/spaces/${encodeURIComponent(spaceId)}/models/task/records`, {
-    method: "POST", bearer: agentB.agentBearer, body: { name: `Agent B app ceiling must deny ${suffix}` },
+    method: "POST", bearer: agentB.agentBearer, delegationId: agentB.delegationIds.task, body: { name: `Agent B app ceiling must deny ${suffix}` },
   });
   if (applicationCeilingDenied.response.status !== 403) {
     throw new Error(`Agent B exceeded current Application x Model Access: HTTP ${applicationCeilingDenied.response.status}`);
@@ -495,7 +529,7 @@ try {
     WHERE space_id=${sqlString(spaceId)} AND user_id=${sqlString(userId)} AND deleted_at IS NULL`);
   membershipLowered = true;
   const userAuthorityDenied = await request(coreBase, `/api/v1/spaces/${encodeURIComponent(spaceId)}/models/task/records`, {
-    method: "POST", bearer: agentB.agentBearer, body: { name: `Agent B user authority must deny ${suffix}` },
+    method: "POST", bearer: agentB.agentBearer, delegationId: agentB.delegationIds.task, body: { name: `Agent B user authority must deny ${suffix}` },
   });
   if (userAuthorityDenied.response.status !== 403) {
     throw new Error(`Agent B exceeded current user Space authority: HTTP ${userAuthorityDenied.response.status}`);
@@ -504,9 +538,10 @@ try {
     WHERE space_id=${sqlString(spaceId)} AND user_id=${sqlString(userId)} AND deleted_at IS NULL`);
   membershipLowered = false;
 
-  await revokeDelegation(agentB, spaceId);
+  const revokedTaskDelegationId = agentB.delegationIds.task;
+  await revokeDelegation(agentB, spaceId, "task");
   const afterRevoke = await request(coreBase, `/api/v1/spaces/${encodeURIComponent(spaceId)}/models/task/records`, {
-    method: "POST", bearer: agentB.agentBearer, body: { name: `Agent B stale token must fail ${suffix}` },
+    method: "POST", bearer: agentB.agentBearer, delegationId: revokedTaskDelegationId, body: { name: `Agent B stale token must fail ${suffix}` },
   });
   if (afterRevoke.response.status !== 403) {
     throw new Error(`Revoked Agent B Delegation remained usable: HTTP ${afterRevoke.response.status}`);
@@ -520,7 +555,7 @@ try {
     agentA: {
       applicationId: agentA.applicationId,
       agentId: agentA.agentId,
-      delegation: { event: "write", task: "read" },
+      delegation: { event: "write", task: "read", ids: agentA.delegationIds },
       eventRecordId: agentAEvent.id,
       changeId: agentAChange.id,
       domainEventId: agentAEvidence.eventId,
@@ -528,7 +563,7 @@ try {
     agentB: {
       applicationId: agentB.applicationId,
       agentId: agentB.agentId,
-      delegation: { event: "read", task: "write" },
+      delegation: { event: "read", task: "write", ids: agentB.delegationIds },
       taskRecordId: agentBTask.id,
       changeId: agentBChange.id,
       domainEventId: agentBEvidence.eventId,
@@ -575,7 +610,7 @@ try {
     });
   }
   for (const context of contexts) {
-    if (context.delegationId && context.userBearer && spaceId) await cleanup(`${context.key} Delegation revoke`, () => revokeDelegation(context, spaceId));
+    if (context.userBearer && spaceId) await cleanup(`${context.key} Delegation revoke`, () => revokeDelegation(context, spaceId));
   }
   if (spaceId && agentAEvent) await cleanup("Agent A Event delete", () => deleteRecord(spaceId, "events", agentAEvent));
   if (spaceId && agentBTask) await cleanup("Agent B Task delete", () => deleteRecord(spaceId, "tasks", agentBTask));
