@@ -242,8 +242,9 @@ describe("Compact current Runtime capability inventory", () => {
       ) VALUES(?,?,?,?,?,?,?,?,?)`).bind(
         delegationId, f.userId, f.agentId, f.clientId, f.firstSpaceId, f.userId, f.now, null, null,
       ),
-      f.db.prepare(`INSERT INTO agent_delegation_models(delegation_id,model_key,max_access)
-        VALUES(?,?,?)`).bind(delegationId, f.modelKey, "read"),
+      f.db.prepare(`INSERT INTO agent_delegation_scopes(
+        delegation_id,target_type,target_id,target_model_key,max_access
+      ) VALUES(?,'model',?,?,?)`).bind(delegationId, f.modelKey, f.modelKey, "read"),
     ]);
     const bearer = await token(
       f.privateKey,
