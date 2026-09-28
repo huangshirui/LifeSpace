@@ -250,7 +250,10 @@ describe("Agent-ready Authority + Change", () => {
     expect(wrongRecordCursor.status).toBe(400);
 
     const legacyResponse = await request(`/api/v1/spaces/${spaceId}/changes/${createdEvent.id}`, {
-      headers: { authorization: `Bearer ${delegated}` },
+      headers: {
+        authorization: `Bearer ${delegated}`,
+        "x-lifespace-delegation-id": delegation.id,
+      },
     }, publicKey);
     expect(legacyResponse.status).toBe(200);
     const legacy = await jsonData(legacyResponse);
