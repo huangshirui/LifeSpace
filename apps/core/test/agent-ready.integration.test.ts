@@ -108,15 +108,23 @@ describe("Agent-ready Authority + Change", () => {
       headers: auth(direct),
       body: JSON.stringify({
         agentId,
-        models: [
-          { modelKey: "event", maxAccess: "write" },
-          { modelKey: "task", maxAccess: "read" },
-        ],
+        scope: { target: { type: "model", id: "event" }, maxAccess: "write" },
       }),
     }, publicKey);
     expect(createdDelegation.status).toBe(201);
     const delegation = await jsonData(createdDelegation);
     expect(delegation.agentId).toBe(agentId);
+
+    const createdTaskDelegation = await request(`/api/v1/spaces/${spaceId}/agent-delegations`, {
+      method: "POST",
+      headers: auth(direct),
+      body: JSON.stringify({
+        agentId,
+        scope: { target: { type: "model", id: "task" }, maxAccess: "read" },
+      }),
+    }, publicKey);
+    expect(createdTaskDelegation.status).toBe(201);
+    const taskDelegation = await jsonData(createdTaskDelegation);
 
     const delegated = await agentToken(privateKey, userId, agentId, ["resources:read", "resources:write"]);
     const discoveryResponse = await request(`/api/v1/spaces/${spaceId}/_discovery`, {
@@ -131,7 +139,7 @@ describe("Agent-ready Authority + Change", () => {
 
     const eventResponse = await request(`/api/v1/spaces/${spaceId}/models/event/records`, {
       method: "POST",
-      headers: auth(delegated),
+      headers: { ...auth(delegated), "x-lifespace-delegation-id": delegation.id },
       body: JSON.stringify({
         summary: "Agent-created family event",
         when: { kind: "date", start: "2026-09-06", endExclusive: "2026-09-07" },
@@ -142,7 +150,7 @@ describe("Agent-ready Authority + Change", () => {
 
     const updatedResponse = await request(`/api/v1/spaces/${spaceId}/models/event/records/${createdEvent.id}`, {
       method: "PATCH",
-      headers: auth(delegated),
+      headers: { ...auth(delegated), "x-lifespace-delegation-id": delegation.id },
       body: JSON.stringify({
         version: createdEvent.version,
         summary: "Agent-updated family event",
@@ -152,14 +160,14 @@ describe("Agent-ready Authority + Change", () => {
 
     const taskDenied = await request(`/api/v1/spaces/${spaceId}/models/task/records`, {
       method: "POST",
-      headers: auth(delegated),
+      headers: { ...auth(delegated), "x-lifespace-delegation-id": taskDelegation.id },
       body: JSON.stringify({ name: "Must not be created" }),
     }, publicKey);
     expect(taskDenied.status).toBe(403);
 
     const firstPageResponse = await request(
       `/api/v1/spaces/${spaceId}/changes?recordId=${createdEvent.id}&limit=1`,
-      { headers: { authorization: `Bearer ${delegated}` } },
+      { headers: { authorization: `Bearer ${delegated}`, "x-lifespace-delegation-id": delegation.id } },
       publicKey,
     );
     expect(firstPageResponse.status).toBe(200);
@@ -180,7 +188,7 @@ describe("Agent-ready Authority + Change", () => {
     const exactChangeId = firstPage.items[0].id;
     const detailResponse = await request(
       `/api/v1/spaces/${spaceId}/changes/by-id/${exactChangeId}`,
-      { headers: { authorization: `Bearer ${delegated}` } },
+      { headers: { authorization: `Bearer ${delegated}`, "x-lifespace-delegation-id": delegation.id } },
       publicKey,
     );
     expect(detailResponse.status).toBe(200);
@@ -204,7 +212,7 @@ describe("Agent-ready Authority + Change", () => {
 
     const secondPageResponse = await request(
       `/api/v1/spaces/${spaceId}/changes?recordId=${createdEvent.id}&limit=1&cursor=${encodeURIComponent(firstPage.nextCursor)}`,
-      { headers: { authorization: `Bearer ${delegated}` } },
+      { headers: { authorization: `Bearer ${delegated}`, "x-lifespace-delegation-id": delegation.id } },
       publicKey,
     );
     expect(secondPageResponse.status).toBe(200);
@@ -226,7 +234,7 @@ describe("Agent-ready Authority + Change", () => {
     ).bind(legacyChangeId).run();
     const legacyDetailResponse = await request(
       `/api/v1/spaces/${spaceId}/changes/by-id/${legacyChangeId}`,
-      { headers: { authorization: `Bearer ${delegated}` } },
+      { headers: { authorization: `Bearer ${delegated}`, "x-lifespace-delegation-id": delegation.id } },
       publicKey,
     );
     expect(legacyDetailResponse.status).toBe(200);
@@ -236,7 +244,7 @@ describe("Agent-ready Authority + Change", () => {
 
     const wrongRecordCursor = await request(
       `/api/v1/spaces/${spaceId}/changes?recordId=rec_other&cursor=${encodeURIComponent(firstPage.nextCursor)}`,
-      { headers: { authorization: `Bearer ${delegated}` } },
+      { headers: { authorization: `Bearer ${delegated}`, "x-lifespace-delegation-id": delegation.id } },
       publicKey,
     );
     expect(wrongRecordCursor.status).toBe(400);
@@ -252,7 +260,10 @@ describe("Agent-ready Authority + Change", () => {
     const agentCannotSelfGrant = await request(`/api/v1/spaces/${spaceId}/agent-delegations`, {
       method: "POST",
       headers: auth(delegated),
-      body: JSON.stringify({ agentId, models: [{ modelKey: "task", maxAccess: "write" }] }),
+      body: JSON.stringify({
+        agentId,
+        scope: { target: { type: "model", id: "task" }, maxAccess: "write" },
+      }),
     }, publicKey);
     expect(agentCannotSelfGrant.status).toBe(403);
 
@@ -264,14 +275,14 @@ describe("Agent-ready Authority + Change", () => {
 
     const detailAfterRevocation = await request(
       `/api/v1/spaces/${spaceId}/changes/by-id/${exactChangeId}`,
-      { headers: { authorization: `Bearer ${delegated}` } },
+      { headers: { authorization: `Bearer ${delegated}`, "x-lifespace-delegation-id": delegation.id } },
       publicKey,
     );
     expect(detailAfterRevocation.status).toBe(403);
 
     const afterRevocation = await request(`/api/v1/spaces/${spaceId}/models/event/records`, {
       method: "POST",
-      headers: auth(delegated),
+      headers: { ...auth(delegated), "x-lifespace-delegation-id": delegation.id },
       body: JSON.stringify({
         summary: "Should be denied after revoke",
         when: { kind: "date", start: "2026-09-07", endExclusive: "2026-09-08" },
