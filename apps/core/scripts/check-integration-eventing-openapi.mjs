@@ -3,7 +3,7 @@ import YAML from "yaml";
 
 const document = YAML.parse(fs.readFileSync(new URL("../integration-eventing.openapi.yaml", import.meta.url), "utf8"));
 
-if (document.openapi !== "3.1.0" || document.info?.version !== "0.2.0") {
+if (document.openapi !== "3.1.0" || document.info?.version !== "0.3.0") {
   throw new Error("Integration/Eventing OpenAPI version metadata is invalid");
 }
 const lifecycleDescription = document.info?.description?.toLowerCase() ?? "";
@@ -86,13 +86,27 @@ if (testPayload?.additionalProperties !== false
 }
 
 const recordWebhook = document.webhooks?.recordChange?.post;
+const changeSetWebhook = document.webhooks?.changeSetCommitted?.post;
 const testWebhook = document.webhooks?.endpointTest?.post;
-if (!recordWebhook || !testWebhook) throw new Error("Outbound Webhook contracts are missing");
+if (!recordWebhook || !changeSetWebhook || !testWebhook) throw new Error("Outbound Webhook contracts are missing");
 if (!referencePayload?.properties?.changeId?.anyOf?.some((entry) => entry?.type === "null")) {
   throw new Error("Domain Event changeId must preserve explicit nullable legacy evidence");
 }
 if (recordWebhook.requestBody?.content?.["application/json"]?.schema?.$ref !== "#/components/schemas/DomainEventReferencePayload") {
   throw new Error("recordChange Webhook must use the canonical reference-only payload");
+}
+const changeSetPayload = schemas.ChangeSetReferencePayload;
+const expectedChangeSetFields = ["id", "type", "changeSetId", "spaceId", "events", "occurredAt"].sort();
+if (changeSetPayload?.additionalProperties !== false
+    || changeSetPayload?.properties?.type?.const !== "change_set.committed"
+    || changeSetPayload?.properties?.events?.maxItems !== 20
+    || changeSetPayload?.properties?.events?.items?.$ref !== "#/components/schemas/DomainEventReferencePayload"
+    || JSON.stringify([...(changeSetPayload?.required ?? [])].sort()) !== JSON.stringify(expectedChangeSetFields)
+    || JSON.stringify(Object.keys(changeSetPayload?.properties ?? {}).sort()) !== JSON.stringify(expectedChangeSetFields)) {
+  throw new Error("ChangeSet Webhook must remain a bounded reference-only event envelope");
+}
+if (changeSetWebhook.requestBody?.content?.["application/json"]?.schema?.$ref !== "#/components/schemas/ChangeSetReferencePayload") {
+  throw new Error("changeSetCommitted Webhook must use the canonical ChangeSet reference payload");
 }
 if (testWebhook.requestBody?.content?.["application/json"]?.schema?.$ref !== "#/components/schemas/WebhookEndpointTestPayload") {
   throw new Error("endpointTest Webhook must use the canonical test payload");
@@ -101,7 +115,7 @@ if (testWebhook.requestBody?.content?.["application/json"]?.schema?.$ref !== "#/
 function header(operation, name) {
   return operation.parameters?.find((parameter) => parameter?.in === "header" && parameter?.name === name);
 }
-for (const operation of [recordWebhook, testWebhook]) {
+for (const operation of [recordWebhook, changeSetWebhook, testWebhook]) {
   if (header(operation, "X-LifeSpace-Timestamp")?.required !== true
       || header(operation, "X-LifeSpace-Signature")?.required !== true
       || !header(operation, "X-LifeSpace-Signature")?.description?.includes("timestamp + '.' + the exact raw UTF-8 request body")) {
@@ -110,6 +124,12 @@ for (const operation of [recordWebhook, testWebhook]) {
 }
 for (const name of ["X-LifeSpace-Event-Id", "X-LifeSpace-Delivery-Id", "X-LifeSpace-Webhook-Endpoint-Id", "X-LifeSpace-Subscription-Id"]) {
   if (header(recordWebhook, name)?.required !== true) throw new Error(`recordChange Webhook missing required ${name}`);
+}
+for (const name of ["X-LifeSpace-Change-Set-Id", "X-LifeSpace-Delivery-Id", "X-LifeSpace-Webhook-Endpoint-Id"]) {
+  if (header(changeSetWebhook, name)?.required !== true) throw new Error(`changeSetCommitted Webhook missing required ${name}`);
+}
+if (header(changeSetWebhook, "X-LifeSpace-Event-Id")) {
+  throw new Error("ChangeSet Webhook must not pretend one event is the batch idempotency key");
 }
 if (header(testWebhook, "X-LifeSpace-Test")?.schema?.const !== "true") {
   throw new Error("endpoint.test Webhook must carry X-LifeSpace-Test: true");
@@ -120,7 +140,9 @@ if (semantics?.delivery !== "at-least-once"
     || semantics?.payloadMode !== "reference-only"
     || semantics?.signatureAlgorithm !== "HMAC-SHA256"
     || semantics?.signatureInput !== "<X-LifeSpace-Timestamp>.<exact raw body>"
-    || JSON.stringify(semantics?.idempotencyHeaders) !== JSON.stringify(["X-LifeSpace-Event-Id", "X-LifeSpace-Delivery-Id"])) {
+    || JSON.stringify(semantics?.singleEventIdempotencyHeaders) !== JSON.stringify(["X-LifeSpace-Event-Id", "X-LifeSpace-Delivery-Id"])
+    || JSON.stringify(semantics?.changeSetIdempotencyHeaders) !== JSON.stringify(["X-LifeSpace-Change-Set-Id", "X-LifeSpace-Delivery-Id"])
+    || !String(semantics?.explicitBatchAggregation ?? "").includes("never time-window coalesced")) {
   throw new Error("Integration/Eventing delivery semantics drifted");
 }
 
