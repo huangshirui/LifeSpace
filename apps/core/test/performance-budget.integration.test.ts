@@ -304,6 +304,31 @@ describe("Core D1 round-trip budgets", () => {
       201,
       2,
     );
+
+    const batchCreate = await measured(
+      f.counter,
+      () => f.request(`/api/v1/spaces/${f.spaceId}/models/batch`, {
+        method: "POST",
+        body: JSON.stringify({
+          operations: Array.from({ length: 20 }, (_, index) => ({
+            operation: "create",
+            modelKey: "task",
+            data: {
+              name: `Budget batch task ${String(index).padStart(2, "0")}`,
+              assigneePersonIds: [],
+            },
+          })),
+        }),
+      }),
+      200,
+      2,
+    );
+    const batchPayload = await batchCreate.json<{
+      data: { changeSetId: string; items: Array<{ recordId: string }> };
+    }>();
+    expect(batchPayload.data.changeSetId).toMatch(/^cgs_/);
+    expect(batchPayload.data.items).toHaveLength(20);
+
   }, PERFORMANCE_TEST_TIMEOUT_MS);
 });
 
