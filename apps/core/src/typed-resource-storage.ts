@@ -445,7 +445,7 @@ function scalarData(model: PublishedModel, row: TypedResourceRow): JsonObject {
   return hydrateTypedResourceData(model, stored, row.id);
 }
 
-function resourcesFromRows(model: PublishedModel, rows: TypedResourceRow[]): TypedStoredResource[] {
+export function resourcesFromRows(model: PublishedModel, rows: TypedResourceRow[]): TypedStoredResource[] {
   return rows.map((row) => {
     const audit = resourceAuditFromStorage(row);
     return {
@@ -462,13 +462,13 @@ function resourcesFromRows(model: PublishedModel, rows: TypedResourceRow[]): Typ
   });
 }
 
-function relationReadStatement(env: Bindings, recordIds: readonly string[]): D1PreparedStatement {
+export function relationReadStatement(env: Bindings, recordIds: readonly string[]): D1PreparedStatement {
   return env.DB.prepare(`SELECT source_record_id,field_key,ordinal,target_person_id,target_record_id
     FROM resource_relations WHERE source_record_id IN (${recordIds.map(() => "?").join(",")}) ORDER BY source_record_id,field_key,ordinal`)
     .bind(...recordIds);
 }
 
-function applyRelationRows(
+export function applyRelationRows(
   model: PublishedModel,
   resources: TypedStoredResource[],
   rows: readonly RelationRow[],
