@@ -102,7 +102,11 @@ The resulting behavior is fail-closed:
 
 This design deliberately accepts one authenticated Service Binding + Identity current-state read for each delivery that survives the Core-owned authority checks. Positive caching or replicated principal eligibility is not part of the correctness boundary unless a future design supplies explicit revocation-safe freshness semantics.
 
-Delivery semantics are at-least-once. Receivers should use `X-LifeSpace-Event-Id` and/or `X-LifeSpace-Delivery-Id` for idempotency.
+Delivery semantics are at-least-once. For an ordinary independent Change, receivers should use `X-LifeSpace-Event-Id` and/or `X-LifeSpace-Delivery-Id` for idempotency.
+
+An explicit first-class Runtime Batch is delivered differently at the transport envelope only. Every committed resource mutation still owns one governed Change, one Domain Event reference and one durable per-subscription delivery row. Events that share the same explicit `changeSetId` are grouped by Webhook Endpoint and sent as one signed `change_set.committed` callback containing `1..20` reference-only `events[]`. The batch callback uses `X-LifeSpace-Change-Set-Id` plus `X-LifeSpace-Delivery-Id` as its idempotency identity. This aggregation applies only to the explicit atomic ChangeSet; unrelated operations are never merged by a time window.
+
+Batch delivery re-runs the same send-time endpoint/subscription, Application × Model Access, subscriber Data Grant and Service Principal eligibility checks before the outbound request. Aggregation therefore changes transport fan-out, not authority or individual Change/Event evidence.
 
 Webhook requests are POST JSON and include:
 
