@@ -220,3 +220,24 @@ export async function requireModelAccess(
     singleUse,
   };
 }
+
+
+export async function consumeSingleUseRead(
+  env: Bindings,
+  decision: ModelAccessDecision,
+): Promise<void> {
+  if (!decision.singleUse || !decision.delegationId) return;
+  const consumedAt = new Date().toISOString();
+  const result = await env.DB.prepare(`UPDATE agent_delegations
+    SET consumed_at=?,consumed_by_change_id=NULL
+    WHERE id=?
+      AND max_uses=1
+      AND consumed_at IS NULL
+      AND revoked_at IS NULL
+      AND (expires_at IS NULL OR julianday(expires_at)>julianday('now'))`)
+    .bind(consumedAt, decision.delegationId)
+    .run();
+  if (result.meta.changes !== 1) {
+    throw new ApiError("DELEGATION_INVALID", "Single-use Delegation was consumed, revoked or expired before the read completed", 403);
+  }
+}
