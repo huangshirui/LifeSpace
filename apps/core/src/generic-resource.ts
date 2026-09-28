@@ -59,10 +59,11 @@ export type MutationAttribution = {
   changeSetId?: string | null;
 };
 
-type RelationProjection = {
+export type RelationProjection = {
   fieldKey: string;
   targetType: "person" | "record";
   targetId: string;
+  targetModelKey?: string;
   ordinal: number;
 };
 
@@ -328,31 +329,48 @@ export function validateResourceData(
   return result;
 }
 
-async function projectRelations(env: Bindings, spaceId: string, definition: ModelDefinition, data: JsonObject): Promise<RelationProjection[]> {
+export function collectRelationProjections(
+  definition: ModelDefinition,
+  data: JsonObject,
+): RelationProjection[] {
   const relations: RelationProjection[] = [];
-  const personIds = new Set<string>();
-  const recordIdsByModel = new Map<string, Set<string>>();
-
   for (const [fieldKey, field] of Object.entries(definition.fields)) {
     const value = data[fieldKey];
     if (value === undefined || value === null) continue;
     if (field.type === "person" || field.type === "person_list") {
       const ids = relationIds(value, fieldKey, field.type === "person_list");
       ids.forEach((targetId, ordinal) => {
-        personIds.add(targetId);
         relations.push({ fieldKey, targetType: "person", targetId, ordinal });
       });
     }
     if (field.type === "record" || field.type === "record_list") {
       const ids = relationIds(value, fieldKey, field.type === "record_list");
-      const targetModel = field.targetModel!;
-      const targets = recordIdsByModel.get(targetModel) ?? new Set<string>();
+      const targetModelKey = field.targetModel!;
       ids.forEach((targetId, ordinal) => {
-        targets.add(targetId);
-        relations.push({ fieldKey, targetType: "record", targetId, ordinal });
+        relations.push({ fieldKey, targetType: "record", targetId, targetModelKey, ordinal });
       });
-      recordIdsByModel.set(targetModel, targets);
     }
+  }
+  return relations;
+}
+
+export async function validateRelationProjections(
+  env: Bindings,
+  spaceId: string,
+  relations: readonly RelationProjection[],
+): Promise<void> {
+  const personIds = new Set(
+    relations.filter((relation) => relation.targetType === "person").map((relation) => relation.targetId),
+  );
+  const recordIdsByModel = new Map<string, Set<string>>();
+  for (const relation of relations) {
+    if (relation.targetType !== "record") continue;
+    if (!relation.targetModelKey) {
+      throw new ApiError("INVALID_RESOURCE_RELATION", "Record relation is missing its target model", 500);
+    }
+    const ids = recordIdsByModel.get(relation.targetModelKey) ?? new Set<string>();
+    ids.add(relation.targetId);
+    recordIdsByModel.set(relation.targetModelKey, ids);
   }
 
   const validations: Array<{
@@ -360,43 +378,57 @@ async function projectRelations(env: Bindings, spaceId: string, definition: Mode
     statements: D1PreparedStatement[];
     message: string;
   }> = [];
+
   if (personIds.size) {
-    const expected = new Set(personIds);
     validations.push({
-      expected,
-      statements: chunkD1Values([...expected], 1).map((chunk) =>
-        env.DB.prepare(`SELECT id FROM space_people WHERE space_id=? AND deleted_at IS NULL AND id IN (${chunk.map(() => "?").join(",")})`)
+      expected: personIds,
+      statements: chunkD1Values([...personIds], 1).map((chunk) =>
+        env.DB.prepare(`SELECT id FROM space_people
+          WHERE space_id=? AND deleted_at IS NULL AND id IN (${chunk.map(() => "?").join(",")})`)
           .bind(spaceId, ...chunk),
       ),
       message: "Every Person relation must reference an active Person in the same Space",
     });
   }
+
   for (const [targetModel, ids] of recordIdsByModel) {
-    const expected = new Set(ids);
     validations.push({
-      expected,
-      statements: chunkD1Values([...expected], 2).map((chunk) =>
-        env.DB.prepare(`SELECT id FROM resource_records WHERE space_id=? AND model_key=? AND deleted_at IS NULL AND id IN (${chunk.map(() => "?").join(",")})`)
+      expected: ids,
+      statements: chunkD1Values([...ids], 2).map((chunk) =>
+        env.DB.prepare(`SELECT id FROM resource_records
+          WHERE space_id=? AND model_key=? AND deleted_at IS NULL
+            AND id IN (${chunk.map(() => "?").join(",")})`)
           .bind(spaceId, targetModel, ...chunk),
       ),
       message: `Every record relation must reference an active ${targetModel} record in the same Space`,
     });
   }
+
   const statements = validations.flatMap((validation) => validation.statements);
-  if (statements.length) {
-    const results = await env.DB.batch<{ id: string }>(statements);
-    let offset = 0;
-    for (const validation of validations) {
-      const found = new Set<string>();
-      for (let index = 0; index < validation.statements.length; index += 1) {
-        for (const row of results[offset + index]?.results ?? []) found.add(row.id);
-      }
-      offset += validation.statements.length;
-      if (found.size !== validation.expected.size) {
-        throw new ApiError("INVALID_RESOURCE_RELATION", validation.message, 400);
-      }
+  if (!statements.length) return;
+
+  const results = await env.DB.batch<{ id: string }>(statements);
+  let offset = 0;
+  for (const validation of validations) {
+    const found = new Set<string>();
+    for (let index = 0; index < validation.statements.length; index += 1) {
+      for (const row of results[offset + index]?.results ?? []) found.add(row.id);
+    }
+    offset += validation.statements.length;
+    if (found.size !== validation.expected.size) {
+      throw new ApiError("INVALID_RESOURCE_RELATION", validation.message, 400);
     }
   }
+}
+
+async function projectRelations(
+  env: Bindings,
+  spaceId: string,
+  definition: ModelDefinition,
+  data: JsonObject,
+): Promise<RelationProjection[]> {
+  const relations = collectRelationProjections(definition, data);
+  await validateRelationProjections(env, spaceId, relations);
   return relations;
 }
 
