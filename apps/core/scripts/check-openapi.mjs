@@ -3,7 +3,7 @@ import YAML from "yaml";
 
 const document = YAML.parse(fs.readFileSync(new URL("../openapi.yaml", import.meta.url), "utf8"));
 
-if (document.openapi !== "3.1.0" || document.info?.version !== "0.39.0") {
+if (document.openapi !== "3.1.0" || document.info?.version !== "0.40.0") {
   throw new Error("Core Kernel OpenAPI version metadata is invalid");
 }
 if (!document.info?.title?.includes("Kernel")) {
@@ -54,6 +54,9 @@ for (const path of requiredPaths) {
   if (!document.paths?.[path]) throw new Error(`Core Kernel OpenAPI missing ${path}`);
 }
 for (const path of Object.keys(document.paths ?? {})) {
+  if (path === "/api/v1/spaces/{spaceId}/models/batch") {
+    throw new Error("First-class ordinary Runtime Batch belongs to immutable Model Contracts, not the Kernel OpenAPI");
+  }
   if (path.startsWith("/api/v1/model-admin")) throw new Error(`Model Control Plane route leaked into Kernel OpenAPI: ${path}`);
   if (path === "/api/v1/webhook-endpoints" || path.startsWith("/api/v1/webhook-endpoints/")
       || path === "/api/v1/event-subscriptions" || path.startsWith("/api/v1/event-subscriptions/")) {
@@ -571,7 +574,7 @@ if (!schemas.CreationDraftProcessing?.required?.includes("modelContractRevision"
   throw new Error("Creation Draft jobs must expose their pinned Model Contract Revision");
 }
 
-if (schemas.StatusResponse?.properties?.data?.properties?.contractVersion?.const !== "0.39.0") {
+if (schemas.StatusResponse?.properties?.data?.properties?.contractVersion?.const !== "0.40.0") {
   throw new Error("Core Kernel status contract version drifted");
 }
 
@@ -581,18 +584,47 @@ const agentDelegations = document.paths?.["/api/v1/spaces/{spaceId}/agent-delega
 if (!agentDelegations?.get || !agentDelegations?.post || !document.paths?.["/api/v1/spaces/{spaceId}/agent-delegations/{delegationId}"]?.delete) {
   throw new Error("Agent Delegation lifecycle is incomplete");
 }
-if (JSON.stringify(schemas.AgentDelegationModelAccess?.properties?.maxAccess?.enum) !== JSON.stringify(["read", "write", "manage"])) {
-  throw new Error("Agent Delegation must use the stable read/write/manage ceiling");
+if (schemas.AgentDelegationModelAccess || schemas.AgentDelegation?.properties?.models || schemas.CreateAgentDelegationRequest?.properties?.models) {
+  throw new Error("Legacy multi-model Delegation contract must not remain");
+}
+if (schemas.AgentDelegationScope?.properties?.target?.$ref !== "#/components/schemas/AgentDelegationTarget"
+    || JSON.stringify(schemas.AgentDelegationTarget?.properties?.type?.enum) !== JSON.stringify(["space", "model", "record"])
+    || JSON.stringify(schemas.AgentDelegationScope?.properties?.maxAccess?.enum) !== JSON.stringify(["free_busy", "read", "write", "manage"])
+    || schemas.AgentDelegationConstraints?.properties?.maxUses?.const !== 1
+    || !schemas.AgentDelegation?.required?.includes("effectiveStatus")
+    || schemas.CreateAgentDelegationRequest?.required?.join(",") !== "agentId,scope") {
+  throw new Error("Agent Delegation must remain one immutable scope with bounded lifecycle constraints");
 }
 if (!schemas.ResourceChangeActor?.properties?.type?.enum?.includes("agent")
     || !schemas.ResourceChange?.required?.includes("delegationId")
+    || !schemas.ResourceChange?.required?.includes("changeSetId")
     || !schemas.ResourceChange?.required?.includes("actionKey")
     || !schemas.ResourceChange?.required?.includes("detailAvailable")) {
-  throw new Error("Governed Change contract must preserve Agent attribution and exact-detail metadata");
+  throw new Error("Governed Change contract must preserve Agent attribution, ChangeSet correlation and exact-detail metadata");
 }
 const changeDetail = document.paths?.["/api/v1/spaces/{spaceId}/changes/by-id/{changeId}"]?.get;
 if (changeDetail?.operationId !== "getResourceChangeDetail"
     || changeDetail?.responses?.["200"]?.content?.["application/json"]?.schema?.$ref !== "#/components/schemas/ResourceChangeDetailResponse"
     || !schemas.ResourceChangeDetail?.required?.includes("fieldChanges")) {
   throw new Error("Exact governed Change detail contract drifted");
+}
+
+const delegationParameter = document.components?.parameters?.DelegationId;
+if (delegationParameter?.name !== "X-LifeSpace-Delegation-Id"
+    || delegationParameter?.in !== "header"
+    || delegationParameter?.required !== false) {
+  throw new Error("Kernel authority-sensitive reads must expose the opaque Delegation selector header");
+}
+for (const path of [
+  "/api/v1/spaces/{spaceId}/changes",
+  "/api/v1/spaces/{spaceId}/changes/{recordId}",
+  "/api/v1/spaces/{spaceId}/changes/by-id/{changeId}",
+  "/api/v1/spaces/{spaceId}/_relation-targets/{modelKey}/{fieldKey}",
+  "/api/v1/spaces/{spaceId}/_discovery/models/{modelKey}",
+  "/api/v1/spaces/{spaceId}/_reference-resolutions/{modelKey}/{fieldKey}",
+]) {
+  const parameters = document.paths?.[path]?.parameters ?? [];
+  if (!parameters.some((entry) => entry?.$ref === "#/components/parameters/DelegationId")) {
+    throw new Error(`Authority-sensitive Kernel route missing Delegation selector: ${path}`);
+  }
 }
