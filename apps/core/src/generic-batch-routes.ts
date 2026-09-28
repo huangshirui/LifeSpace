@@ -420,6 +420,7 @@ export function registerGenericBatchRoutes(app: App): void {
   app.post("/api/v1/spaces/:spaceId/models/batch", async (context: Context<AppEnv>) => {
     const principal = context.get("principal");
     const spaceId = context.req.param("spaceId");
+    if (!spaceId) throw new ApiError("INVALID_REQUEST", "spaceId is required", 400);
     const body = await context.req.json<unknown>().catch(() => null);
     const operations = parseBatch(body);
     const models = await modelsForOperations(context.env, operations);
