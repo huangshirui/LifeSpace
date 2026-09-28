@@ -961,6 +961,7 @@ function modelOpenApi(model: PublishedModel, schemas: Record<string, JsonSchema>
       parameters: [
         { $ref: "#/components/parameters/SpaceId" },
         { $ref: "#/components/parameters/RecordId" },
+        { $ref: "#/components/parameters/DelegationId" },
       ],
       post: {
         operationId: `${actionKey}_${model.key}`,
