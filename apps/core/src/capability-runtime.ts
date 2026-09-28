@@ -166,13 +166,32 @@ function actionBody(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
-export async function executeCapabilityAction(env: Bindings, principal: Principal, spaceId: string, model: PublishedModel, recordId: string, actionKey: string, inputValue: unknown): Promise<GenericResource> {
+export async function executeCapabilityAction(
+  env: Bindings,
+  principal: Principal,
+  spaceId: string,
+  model: PublishedModel,
+  recordId: string,
+  actionKey: string,
+  inputValue: unknown,
+  attribution: MutationAttribution = {},
+): Promise<GenericResource> {
   if (!capabilityActionAccess(model, actionKey)) throw new ApiError("ACTION_NOT_FOUND", `Action ${actionKey} is not defined for model ${model.key}`, 404);
   const input = actionBody(inputValue);
   if (Object.keys(input).some((key) => !["version", "occurredOn", "note"].includes(key))) throw new ApiError("INVALID_REQUEST", "record-occurrence accepts only version, occurredOn, and note", 400);
   if (!Number.isInteger(input.version) || Number(input.version) < 1) throw new ApiError("INVALID_REQUEST", "version must be a positive integer", 400);
   const space = await loadSpaceTemporalContext(env, spaceId);
-  const result = await recordTemporalOccurrence(env, principal, space, model, recordId, Number(input.version), input.occurredOn, input.note);
+  const result = await recordTemporalOccurrence(
+    env,
+    principal,
+    space,
+    model,
+    recordId,
+    Number(input.version),
+    input.occurredOn,
+    input.note,
+    attribution,
+  );
   return result.record;
 }
 
