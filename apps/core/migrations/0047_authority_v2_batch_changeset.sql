@@ -1,58 +1,35 @@
 PRAGMA foreign_keys = OFF;
 
--- #295: converge Delegation to one immutable scope per row and introduce the
--- minimum durable primitives required for single-use execution and atomic
--- first-class Batch ChangeSets.
+-- #295 is an intentional breaking authority cutover.
 --
--- Historical User -> Agent delegations may contain more than one model scope
--- through agent_delegation_models. Preserve the original dlg_* id for the
--- lexicographically first model and split every additional model into a
--- deterministic sibling Delegation. Historical resource_changes references are
--- rewritten to the sibling that represents the model actually changed.
-
-ALTER TABLE agent_delegations ADD COLUMN max_uses INTEGER CHECK(max_uses IS NULL OR max_uses=1);
-ALTER TABLE agent_delegations ADD COLUMN consumed_at TEXT;
-ALTER TABLE agent_delegations ADD COLUMN consumed_by_change_id TEXT;
-
-INSERT INTO agent_delegations(
-  id,principal_user_id,agent_id,application_id,source_space_id,
-  created_by_user_id,created_at,expires_at,revoked_at,max_uses,consumed_at,consumed_by_change_id
-)
-SELECT
-  d.id || '_split_' || lower(hex(m.model_key)),
-  d.principal_user_id,
-  d.agent_id,
-  d.application_id,
-  d.source_space_id,
-  d.created_by_user_id,
-  d.created_at,
-  d.expires_at,
-  d.revoked_at,
-  NULL,
-  NULL,
-  NULL
-FROM agent_delegations d
-JOIN agent_delegation_models m ON m.delegation_id=d.id
-WHERE m.model_key <> (
-  SELECT MIN(m2.model_key)
-  FROM agent_delegation_models m2
-  WHERE m2.delegation_id=d.id
-);
-
+-- The pre-Authority-v2 User -> Agent Delegation representation is not migrated
+-- or kept compatible. Existing delegated authorization is invalidated and must
+-- be explicitly re-issued under the one-Delegation/one-Scope model.
+--
+-- Historical Change rows keep Principal / Actor / Application evidence but drop
+-- references to retired Delegation rows.
 UPDATE resource_changes
-SET delegation_id = delegation_id || '_split_' || lower(hex(model_key))
-WHERE delegation_id IS NOT NULL
-  AND EXISTS(
-    SELECT 1
-    FROM agent_delegation_models m
-    WHERE m.delegation_id=resource_changes.delegation_id
-      AND m.model_key=resource_changes.model_key
-      AND m.model_key <> (
-        SELECT MIN(m2.model_key)
-        FROM agent_delegation_models m2
-        WHERE m2.delegation_id=m.delegation_id
-      )
-  );
+SET delegation_id=NULL
+WHERE delegation_id IS NOT NULL;
+
+DROP TABLE IF EXISTS agent_delegation_models;
+DROP TABLE IF EXISTS agent_delegations;
+
+CREATE TABLE agent_delegations (
+  id TEXT PRIMARY KEY CHECK(id GLOB 'dlg_*'),
+  principal_user_id TEXT NOT NULL,
+  agent_id TEXT NOT NULL CHECK(agent_id LIKE 'agt_%'),
+  application_id TEXT NOT NULL,
+  source_space_id TEXT NOT NULL REFERENCES spaces(id),
+  created_by_user_id TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  expires_at TEXT,
+  revoked_at TEXT,
+  max_uses INTEGER CHECK(max_uses IS NULL OR max_uses=1),
+  consumed_at TEXT,
+  consumed_by_change_id TEXT,
+  CHECK(consumed_at IS NULL OR max_uses=1)
+);
 
 CREATE TABLE agent_delegation_scopes (
   delegation_id TEXT PRIMARY KEY REFERENCES agent_delegations(id),
@@ -67,29 +44,24 @@ CREATE TABLE agent_delegation_scopes (
   )
 );
 
-INSERT INTO agent_delegation_scopes(
-  delegation_id,target_type,target_id,target_model_key,max_access
-)
-SELECT
-  CASE
-    WHEN m.model_key=(
-      SELECT MIN(m2.model_key)
-      FROM agent_delegation_models m2
-      WHERE m2.delegation_id=m.delegation_id
-    )
-      THEN m.delegation_id
-    ELSE m.delegation_id || '_split_' || lower(hex(m.model_key))
-  END,
-  'model',
-  m.model_key,
-  m.model_key,
-  m.max_access
-FROM agent_delegation_models m;
-
-DROP TABLE agent_delegation_models;
-
+CREATE INDEX idx_agent_delegations_authority
+  ON agent_delegations(
+    principal_user_id,agent_id,application_id,source_space_id,
+    revoked_at,consumed_at,expires_at
+  );
+CREATE INDEX idx_agent_delegations_space_user
+  ON agent_delegations(
+    source_space_id,principal_user_id,application_id,created_at DESC
+  );
 CREATE INDEX idx_agent_delegation_scopes_target
-  ON agent_delegation_scopes(target_type,target_id,target_model_key,max_access,delegation_id);
+  ON agent_delegation_scopes(
+    target_type,target_id,target_model_key,max_access,delegation_id
+  );
+
+-- The former generic Resource Provenance envelope is retired without migration.
+-- Provenance is no longer a special Runtime envelope/storage plane. Future
+-- provenance is modeled through ordinary business relations/semantic roles.
+DROP TABLE IF EXISTS resource_provenance;
 
 -- One explicit atomic Batch is one ChangeSet. Ordinary single CRUD keeps
 -- change_set_id NULL. Change rows remain the per-resource source of truth.
