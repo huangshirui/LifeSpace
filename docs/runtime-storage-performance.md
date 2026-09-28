@@ -1,6 +1,6 @@
 # LifeSpace Runtime Storage and Performance
 
-Updated: 2026-09-23
+Updated: 2026-09-28
 
 ## 中文摘要
 
@@ -83,6 +83,10 @@ Principle:
 
 Independent current-state queries should be combined with D1 `batch()` when semantics permit.
 
+A represented Principal/Actor operation uses an explicit Delegation selector. Delegation lookup is an indexed current-state lookup inside the same Authority round trip; Core must not scan for or choose a best matching Delegation.
+
+First-class Batch mutation resolves the verified Execution Context once and de-duplicates equal Authority keys. Distinct Authority checks are prepared together and sent through bounded D1 batch I/O; item count must not become serialized Worker -> D1 authorization round trips.
+
 Business data must not be fetched before the required authority decision merely to reduce one network hop.
 
 ## 5. D1 round-trip budgets
@@ -97,6 +101,10 @@ Current hot-path budgets:
 | Canonical Query / translated list | 3 | authority batch, main query, bounded relation hydration |
 | CREATE without relation targets | 2 | authority batch, atomic mutation batch |
 | PATCH with relation validation | 4 | authority batch, current resource read, batched target validation, atomic mutation |
+| Batch CREATE, 1-20 operations, no relation targets | 2 | one de-duplicated authority batch, one atomic ChangeSet mutation batch |
+| General Batch mutation, 1-20 operations | O(1) in item count | authority once; bounded grouped record/relation preparation; one atomic ChangeSet mutation batch |
+| Single-use mutation | no extra standalone RTT | consume inside the same atomic mutation/Change batch |
+| Single-use read | ordinary read budget + at most 1 | conditional successful-use consumption is an explicit slow-path exception |
 | Ordinary list mapping | O(1) in result count | no per-record D1 calls |
 | Hot Model Registry lookup | 0 | isolate descriptor snapshot |
 
@@ -115,6 +123,9 @@ Tests must fail when these structural budgets regress unless an explicit archite
 
 Mutation performance optimizations must preserve:
 
+- first-class Batch semantics: Batch is never implemented as a loop over single-operation HTTP/runtime commits;
+- one verified Execution Context per request;
+- de-duplicated Authority resolution for equal batch Authority keys;
 - model validation;
 - current authority;
 - optimistic concurrency;
@@ -122,6 +133,8 @@ Mutation performance optimizations must preserve:
 - Policy and Action semantics;
 - governed Change evidence;
 - Principal / Actor / Application / Delegation attribution;
+- one Change per committed resource mutation and one ChangeSet correlation for an explicit atomic Batch;
+- atomic single-use Delegation consumption with the Change it authorizes;
 - atomicity of the committed logical mutation.
 
 Performance work must never turn an uncertain write into a blind retry.
