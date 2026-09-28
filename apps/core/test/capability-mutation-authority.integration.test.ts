@@ -31,7 +31,7 @@ async function fixture() {
 }
 
 describe("Capability Mutation Authority", () => {
-  it("keeps client read-only provenance separate from trusted Temporal preparation", async () => {
+  it("keeps client read-only fields separate from trusted Temporal preparation", async () => {
     const f = await fixture();
 
     await expect(createCapabilityAwareResource(bindings(), actor, f.spaceId, f.model, {
