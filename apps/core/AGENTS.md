@@ -81,7 +81,7 @@ verified principal
 ∩ stable credential scope
 ∩ Application × Model Access
 ∩ current Space membership / Data Grant
-∩ current User -> Agent Delegation when Actor is an Agent
+∩ explicit current Delegation when verified Principal and Actor differ
 ∩ published model access capability
 ∩ model policy / Capability restrictions
 ```
@@ -161,14 +161,14 @@ Business-facing Core Kernel contract:
 
 ```text
 apps/core/openapi.yaml
-current Kernel version: 0.39.0
+current Kernel version: 0.40.0
 ```
 
 Integration/Eventing public contract (same Worker, independent lifecycle):
 
 ```text
 apps/core/integration-eventing.openapi.yaml
-current Integration/Eventing version: 0.2.0
+current Integration/Eventing version: 0.3.0
 ```
 
 Model Registry / Model Contract governance contract:
