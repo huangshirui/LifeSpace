@@ -5,6 +5,7 @@ import {
   getGenericResource,
   updateGenericResource,
   type GenericResource,
+  type MutationAttribution,
   type ResourceMutationExtension,
 } from "./generic-resource";
 import { ApiError } from "./http";
@@ -81,6 +82,7 @@ export async function createCapabilityAwareResource(
   model: PublishedModel,
   input: unknown,
   extension?: ResourceMutationExtension,
+  attribution: MutationAttribution = {},
 ): Promise<GenericResource> {
   // Capability preparation may derive trusted read-only values. Preserve the
   // original client authority boundary before any defaults or capability-owned
@@ -98,12 +100,13 @@ export async function createCapabilityAwareResource(
       prepared,
       true,
       composeMutationExtensions(temporalInitialOccurrenceExtension(model, prepared), extension),
+      attribution,
     );
   }
   if (hasCalendarCapability(model)) {
-    return createGenericResource(env, principal, spaceId, model, prepareCalendarCreate(model, input), false, extension);
+    return createGenericResource(env, principal, spaceId, model, prepareCalendarCreate(model, input), false, extension, attribution);
   }
-  return createGenericResource(env, principal, spaceId, model, input, false, extension);
+  return createGenericResource(env, principal, spaceId, model, input, false, extension, attribution);
 }
 
 export async function updateCapabilityAwareResource(
@@ -116,6 +119,7 @@ export async function updateCapabilityAwareResource(
   input: unknown,
   previousResource?: GenericResource,
   extension?: ResourceMutationExtension,
+  attribution: MutationAttribution = {},
 ): Promise<GenericResource> {
   const resource = previousResource ?? await getGenericResource(env, spaceId, model, recordId);
   if (!resource) throw new ApiError("RESOURCE_NOT_FOUND", "Resource not found", 404);
@@ -124,7 +128,7 @@ export async function updateCapabilityAwareResource(
     : hasCalendarCapability(model)
       ? prepareCalendarUpdate(model, resource, input)
       : input;
-  return updateGenericResource(env, principal, spaceId, model, recordId, expectedVersion, prepared, "client", extension, resource);
+  return updateGenericResource(env, principal, spaceId, model, recordId, expectedVersion, prepared, "client", extension, resource, undefined, attribution);
 }
 
 export async function prepareCapabilityUpdatePolicyInput(env: Bindings, spaceId: string, model: PublishedModel, recordId: string, input: unknown) {
