@@ -2,8 +2,8 @@
   "openapi": "3.1.0",
   "info": {
     "title": "LifeSpace Integration / Eventing API",
-    "version": "0.2.0",
-    "description": "Independently versioned LifeSpace Integration/Eventing contract for Webhook endpoint configuration, model/event subscriptions, delivery diagnostics, test sends, and the reference-only signed outbound Webhook representation with exact governed Change linkage. Eventing remains implemented by LifeSpace Core and derives from authoritative ordinary-model Change/event facts; this contract does not create a second mutation or authorization source."
+    "version": "0.3.0",
+    "description": "Independently versioned LifeSpace Integration/Eventing contract for Webhook endpoint configuration, model/event subscriptions, delivery diagnostics, test sends, reference-only signed ordinary-record Webhooks, and explicit ChangeSet batch Webhook envelopes. Eventing remains implemented by LifeSpace Core and derives from authoritative ordinary-model Change/event facts; this contract does not create a second mutation or authorization source."
   },
   "security": [
     {
@@ -535,6 +535,76 @@
         "responses": {
           "2XX": {
             "description": "Receiver accepted the signed test payload."
+          }
+        }
+      }
+    },
+    "changeSetCommitted": {
+      "post": {
+        "summary": "Reference-only explicit ChangeSet batch delivery",
+        "description": "At-least-once outbound Webhook delivery for one explicit atomic Runtime Batch. The envelope contains only ChangeSet identity plus the same reference-only Domain Event items used by recordChange. LifeSpace does not time-window coalesce unrelated changes. Delivery rechecks endpoint/subscription state, managing Application × Model Access, subscriber Data Grant, and subscriber Service Principal/application eligibility immediately before the outbound attempt.",
+        "parameters": [
+          {
+            "name": "X-LifeSpace-Change-Set-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^cgs_[A-Za-z0-9_-]+$"
+            }
+          },
+          {
+            "name": "X-LifeSpace-Delivery-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^(?:dlv|bdl)_[A-Za-z0-9_-]+$"
+            }
+          },
+          {
+            "name": "X-LifeSpace-Webhook-Endpoint-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^(?:whk|wep)_[A-Za-z0-9_-]+$"
+            }
+          },
+          {
+            "name": "X-LifeSpace-Timestamp",
+            "in": "header",
+            "required": true,
+            "description": "Unix timestamp in seconds used in the HMAC input.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9]+$"
+            }
+          },
+          {
+            "name": "X-LifeSpace-Signature",
+            "in": "header",
+            "required": true,
+            "description": "v1=<lowercase hex HMAC-SHA256> over timestamp + '.' + the exact raw UTF-8 request body, using the Webhook Endpoint signing secret.",
+            "schema": {
+              "type": "string",
+              "pattern": "^v1=[a-f0-9]{64}$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangeSetReferencePayload"
+              }
+            }
+          }
+        },
+        "responses": {
+          "2XX": {
+            "description": "Receiver accepted the ChangeSet delivery. Non-2xx responses are retryable according to LifeSpace Queue delivery policy."
           }
         }
       }
@@ -1242,18 +1312,65 @@
             "format": "date-time"
           }
         }
+      },
+      "ChangeSetReferencePayload": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "type",
+          "changeSetId",
+          "spaceId",
+          "events",
+          "occurredAt"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^cgs_[A-Za-z0-9_-]+$"
+          },
+          "type": {
+            "type": "string",
+            "const": "change_set.committed"
+          },
+          "changeSetId": {
+            "type": "string",
+            "pattern": "^cgs_[A-Za-z0-9_-]+$"
+          },
+          "spaceId": {
+            "type": "string",
+            "pattern": "^spc_"
+          },
+          "events": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 20,
+            "items": {
+              "$ref": "#/components/schemas/DomainEventReferencePayload"
+            }
+          },
+          "occurredAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
       }
     }
   },
   "x-lifespace-delivery-semantics": {
     "delivery": "at-least-once",
-    "idempotencyHeaders": [
+    "singleEventIdempotencyHeaders": [
       "X-LifeSpace-Event-Id",
+      "X-LifeSpace-Delivery-Id"
+    ],
+    "changeSetIdempotencyHeaders": [
+      "X-LifeSpace-Change-Set-Id",
       "X-LifeSpace-Delivery-Id"
     ],
     "signatureAlgorithm": "HMAC-SHA256",
     "signatureInput": "<X-LifeSpace-Timestamp>.<exact raw body>",
     "signatureHeader": "X-LifeSpace-Signature: v1=<lowercase hex digest>",
-    "payloadMode": "reference-only"
+    "payloadMode": "reference-only",
+    "explicitBatchAggregation": "one explicit ChangeSet -> one callback envelope per eligible Webhook Endpoint; unrelated changes are never time-window coalesced"
   }
 }
