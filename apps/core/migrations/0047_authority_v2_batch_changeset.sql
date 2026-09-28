@@ -1,19 +1,24 @@
 PRAGMA foreign_keys = OFF;
 
--- #295 is an intentional breaking authority cutover.
+-- #295 is an intentional breaking authority cutover for executable
+-- Delegations. Pre-v2 Delegations are never left active after migration and
+-- callers must explicitly re-issue authority under the one-Delegation/one-Scope
+-- model.
 --
--- The pre-Authority-v2 User -> Agent Delegation representation is not migrated
--- or kept compatible. Existing delegated authorization is invalidated and must
--- be explicitly re-issued under the one-Delegation/one-Scope model.
---
--- Historical Change rows keep Principal / Actor / Application evidence but drop
--- references to retired Delegation rows.
-UPDATE resource_changes
-SET delegation_id=NULL
-WHERE delegation_id IS NOT NULL;
+-- Historical Change attribution is different from runtime compatibility:
+-- resource_changes.delegation_id is durable audit evidence and must not be
+-- erased. Preserve old rows as revoked historical Delegations. A legacy
+-- multi-model Delegation is deterministically split; the original dlg_* ID
+-- represents its lexicographically first model and sibling IDs represent the
+-- remaining models. Existing Change rows are remapped by their model_key.
+CREATE TABLE _migration_0047_agent_delegations AS
+SELECT * FROM agent_delegations;
 
-DROP TABLE IF EXISTS agent_delegation_models;
-DROP TABLE IF EXISTS agent_delegations;
+CREATE TABLE _migration_0047_agent_delegation_models AS
+SELECT * FROM agent_delegation_models;
+
+DROP TABLE agent_delegation_models;
+DROP TABLE agent_delegations;
 
 CREATE TABLE agent_delegations (
   id TEXT PRIMARY KEY CHECK(id GLOB 'dlg_*'),
@@ -44,6 +49,105 @@ CREATE TABLE agent_delegation_scopes (
   )
 );
 
+CREATE TABLE _migration_0047_delegation_scope_map (
+  old_delegation_id TEXT NOT NULL,
+  model_key TEXT NOT NULL,
+  new_delegation_id TEXT NOT NULL,
+  PRIMARY KEY(old_delegation_id,model_key)
+);
+
+INSERT INTO _migration_0047_delegation_scope_map(
+  old_delegation_id,model_key,new_delegation_id
+)
+SELECT
+  m.delegation_id,
+  m.model_key,
+  CASE
+    WHEN m.model_key=(
+      SELECT MIN(m2.model_key)
+      FROM _migration_0047_agent_delegation_models m2
+      WHERE m2.delegation_id=m.delegation_id
+    )
+      THEN m.delegation_id
+    ELSE m.delegation_id || '_legacy_' || lower(hex(m.model_key))
+  END
+FROM _migration_0047_agent_delegation_models m;
+
+INSERT INTO agent_delegations(
+  id,principal_user_id,agent_id,application_id,source_space_id,
+  created_by_user_id,created_at,expires_at,revoked_at,max_uses,consumed_at,consumed_by_change_id
+)
+SELECT
+  map.new_delegation_id,
+  d.principal_user_id,
+  d.agent_id,
+  d.application_id,
+  d.source_space_id,
+  d.created_by_user_id,
+  d.created_at,
+  d.expires_at,
+  COALESCE(d.revoked_at,strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  NULL,
+  NULL,
+  NULL
+FROM _migration_0047_delegation_scope_map map
+JOIN _migration_0047_agent_delegations d ON d.id=map.old_delegation_id;
+
+-- Defensive audit preservation for an impossible-but-legal legacy row that had
+-- no model scope. It remains revoked and has no executable v2 scope.
+INSERT INTO agent_delegations(
+  id,principal_user_id,agent_id,application_id,source_space_id,
+  created_by_user_id,created_at,expires_at,revoked_at,max_uses,consumed_at,consumed_by_change_id
+)
+SELECT
+  d.id,
+  d.principal_user_id,
+  d.agent_id,
+  d.application_id,
+  d.source_space_id,
+  d.created_by_user_id,
+  d.created_at,
+  d.expires_at,
+  COALESCE(d.revoked_at,strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  NULL,
+  NULL,
+  NULL
+FROM _migration_0047_agent_delegations d
+WHERE NOT EXISTS(
+  SELECT 1
+  FROM _migration_0047_delegation_scope_map map
+  WHERE map.old_delegation_id=d.id
+);
+
+INSERT INTO agent_delegation_scopes(
+  delegation_id,target_type,target_id,target_model_key,max_access
+)
+SELECT
+  map.new_delegation_id,
+  'model',
+  map.model_key,
+  map.model_key,
+  m.max_access
+FROM _migration_0047_delegation_scope_map map
+JOIN _migration_0047_agent_delegation_models m
+  ON m.delegation_id=map.old_delegation_id
+ AND m.model_key=map.model_key;
+
+UPDATE resource_changes
+SET delegation_id=(
+  SELECT map.new_delegation_id
+  FROM _migration_0047_delegation_scope_map map
+  WHERE map.old_delegation_id=resource_changes.delegation_id
+    AND map.model_key=resource_changes.model_key
+)
+WHERE delegation_id IS NOT NULL
+  AND EXISTS(
+    SELECT 1
+    FROM _migration_0047_delegation_scope_map map
+    WHERE map.old_delegation_id=resource_changes.delegation_id
+      AND map.model_key=resource_changes.model_key
+  );
+
 CREATE INDEX idx_agent_delegations_authority
   ON agent_delegations(
     principal_user_id,agent_id,application_id,source_space_id,
@@ -57,6 +161,10 @@ CREATE INDEX idx_agent_delegation_scopes_target
   ON agent_delegation_scopes(
     target_type,target_id,target_model_key,max_access,delegation_id
   );
+
+DROP TABLE _migration_0047_delegation_scope_map;
+DROP TABLE _migration_0047_agent_delegation_models;
+DROP TABLE _migration_0047_agent_delegations;
 
 -- The former generic Resource Provenance envelope is retired without migration.
 -- Provenance is no longer a special Runtime envelope/storage plane. Future
