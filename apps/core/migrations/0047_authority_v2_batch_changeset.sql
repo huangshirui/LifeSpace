@@ -102,13 +102,33 @@ CREATE TABLE resource_change_sets (
   actor_type TEXT NOT NULL CHECK(actor_type IN ('user','service','device','agent')),
   actor_id TEXT NOT NULL,
   operation_count INTEGER NOT NULL CHECK(operation_count BETWEEN 1 AND 20),
-  occurred_at TEXT NOT NULL
+  occurred_at TEXT NOT NULL,
+  committed_at TEXT
 );
 
 ALTER TABLE resource_changes
   ADD COLUMN change_set_id TEXT CHECK(change_set_id IS NULL OR change_set_id GLOB 'cgs_*');
 CREATE INDEX idx_resource_changes_change_set
   ON resource_changes(change_set_id,occurred_at,id) WHERE change_set_id IS NOT NULL;
+
+-- Finalizing an explicit Batch is the transaction completeness gate. Each
+-- successful item must have inserted exactly one governed Change. If an
+-- optimistic-concurrency predicate or another guarded item mutation matched
+-- zero rows, this trigger aborts the entire D1 batch rather than allowing a
+-- partial ChangeSet to commit.
+CREATE TRIGGER trg_resource_change_set_require_complete
+BEFORE UPDATE OF committed_at ON resource_change_sets
+WHEN NEW.committed_at IS NOT NULL AND OLD.committed_at IS NULL
+BEGIN
+  SELECT CASE
+    WHEN (
+      SELECT COUNT(*)
+      FROM resource_changes c
+      WHERE c.change_set_id=NEW.id
+    ) <> NEW.operation_count
+    THEN RAISE(ABORT, 'CHANGE_SET_INCOMPLETE')
+  END;
+END;
 
 ALTER TABLE domain_event_outbox
   ADD COLUMN change_set_id TEXT CHECK(change_set_id IS NULL OR change_set_id GLOB 'cgs_*');
