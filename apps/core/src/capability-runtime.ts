@@ -18,6 +18,7 @@ import {
   prepareTemporalCreate,
   prepareTemporalUpdate,
   recordTemporalOccurrence,
+  type SpaceTemporalContext,
   type TemporalOccurrence,
 } from "./temporal-capability";
 
@@ -87,6 +88,7 @@ export async function prepareCapabilityCreateMutation(
   model: PublishedModel,
   input: unknown,
   extension?: ResourceMutationExtension,
+  temporalContext?: SpaceTemporalContext,
 ): Promise<CapabilityCreatePlan> {
   // Capability preparation may derive trusted read-only values. Preserve the
   // original client authority boundary before any defaults or capability-owned
@@ -94,7 +96,7 @@ export async function prepareCapabilityCreateMutation(
   // read-only field into an authorized internal mutation.
   rejectClientReadOnlyCreateFields(model, input);
   if (hasTemporalCapability(model)) {
-    const space = await loadSpaceTemporalContext(env, spaceId);
+    const space = temporalContext ?? await loadSpaceTemporalContext(env, spaceId);
     const prepared = prepareTemporalCreate(model, input, space);
     return {
       prepared,
