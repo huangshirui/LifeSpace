@@ -1,7 +1,7 @@
 import type { Context, Hono } from "hono";
 import type { Bindings, Variables } from "./env";
 import { ApiError, success } from "./http";
-import { requireModelAccess } from "./model-authorization";
+import { consumeSingleUseRead, requireModelAccess, type ModelAccessDecision } from "./model-authorization";
 import { getRuntimeModel, type PublishedModel } from "./model-registry";
 import { requireModelPolicy } from "./policy";
 import { referenceLabelSql } from "./reference-label";
@@ -43,6 +43,7 @@ type RelationCursor = {
 type AuthorizedSourceRelation = {
   relation: RelationDiscoveryMetadata;
   kind: "person" | "record";
+  access: ModelAccessDecision;
 };
 
 function encodeCursor(cursor: RelationCursor): string {
@@ -324,11 +325,19 @@ async function authorizeSourceRelation(
   if (!relation) throw new ApiError("FIELD_NOT_RELATION", `Field ${fieldKey} is not a relation field`, 400);
 
   const principal = context.get("principal");
-  const access = await requireModelAccess(context.env, principal, spaceId, model, "read");
+  const access = await requireModelAccess(
+    context.env,
+    principal,
+    spaceId,
+    model,
+    "read",
+    { delegationId: context.req.header("x-lifespace-delegation-id") },
+  );
   await requireModelPolicy(context.env, principal, spaceId, model, "read", undefined, undefined, { personId: access.actorPersonId });
   return {
     relation,
     kind: field.type === "record" || field.type === "record_list" ? "record" : "person",
+    access,
   };
 }
 
@@ -340,7 +349,14 @@ async function authorizeRecordTarget(
   const targetModel = await getRuntimeModel(context.env, targetModelKey);
   if (!targetModel) throw new ApiError("MODEL_NOT_FOUND", "Published relation target model not found", 404);
   const principal = context.get("principal");
-  const access = await requireModelAccess(context.env, principal, spaceId, targetModel, "read");
+  const access = await requireModelAccess(
+    context.env,
+    principal,
+    spaceId,
+    targetModel,
+    "read",
+    { delegationId: context.req.header("x-lifespace-delegation-id") },
+  );
   await requireModelPolicy(
     context.env,
     principal,
@@ -372,6 +388,7 @@ export function registerRelationTargetRoutes(app: App): void {
         await authorizeRecordTarget(context, spaceId, source.relation.targetModel),
         params,
       );
+    await consumeSingleUseRead(context.env, source.access);
     return context.json(success(result));
   });
 
@@ -390,6 +407,7 @@ export function registerRelationTargetRoutes(app: App): void {
         await authorizeRecordTarget(context, spaceId, source.relation.targetModel),
         ids,
       );
+    await consumeSingleUseRead(context.env, source.access);
     return context.json(success({ items }));
   });
 }
