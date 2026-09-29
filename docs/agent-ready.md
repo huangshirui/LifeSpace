@@ -54,6 +54,8 @@ If a Sub Agent instead becomes an independently identified LifeSpace Actor and c
 
 LifeSpace does not support re-delegation of another Principal's delegated Authority.
 
+Space Person (`per_*`) is business Policy context, not an Authority-bearing identity. A User Principal may resolve to `principal.personId`; a User Actor may independently resolve to `actor.personId`. For represented User -> Agent execution, the expected current profile is `principal.personId=per_*` and `actor.personId=null`. Co-fetching those policy-context values with current Authority state is only a D1 optimization and must not turn Person into Membership/Grant/Delegation authority.
+
 ## 2. Verified Execution Context
 
 All ordinary Runtime read/query/create/update/delete/action/batch requests execute under a normalized context:
@@ -169,6 +171,10 @@ Rules:
     - `now >= expiresAt` -> expired
     - otherwise active
 
+### 4.0 Persistence profile
+
+The durable Delegation schema stores generic operation roles (`principal_type/principal_id`, `actor_type/actor_id`, Application and Scope) so future supported identity-role combinations do not require another table-shape migration. V1 public Delegation management intentionally exposes only the credential-backed direct User -> Agent issuance profile; generic storage does not imply that every Principal/Actor combination is currently executable.
+
 ### 4.1 Lifecycle
 
 - **single-use** — `maxUses = 1`
@@ -250,13 +256,14 @@ Rules:
 3. All operations are atomic: either every operation commits or none commits.
 4. Batch must not be implemented as N Runtime HTTP calls.
 5. Batch must not perform N serialized Authority checks.
-6. Identical Authority keys are resolved once.
-7. Distinct Authority checks are sent through bounded D1 batch I/O rather than serialized Worker -> D1 round trips.
-8. Every committed resource mutation produces its own `resource_changes` row.
-9. All Changes committed by one explicit Batch share one ChangeSet identifier.
-10. A single-use Delegation authorizing one business action cannot authorize two successful batch items. Reusing the same single-use Delegation for two items makes the batch invalid/unsuccessful.
-11. Independent non-batch operations remain independent; Core must not invent a time-window ChangeSet merely because operations happen close together.
-12. Batch Eventing aggregates only the explicit ChangeSet. It does not change individual Change identity/history.
+6. Base Authority facts are de-duplicated independently from Delegation state. Different record IDs do not force repeated base Membership/Data Grant/Application × Model reads.
+7. Selected Delegation snapshots are de-duplicated by Principal + Actor + Application + Space + Delegation ID; record ID is evaluated only when a record-scoped Delegation requires it.
+8. Distinct current-state snapshots are sent through bounded D1 batch I/O rather than serialized Worker -> D1 round trips.
+9. Every committed resource mutation produces its own `resource_changes` row.
+10. All Changes committed by one explicit Batch share one ChangeSet identifier.
+11. A single-use Delegation authorizing one business action cannot authorize two successful batch items. Reusing the same single-use Delegation for two items makes the batch invalid/unsuccessful.
+12. Independent non-batch operations remain independent; Core must not invent a time-window ChangeSet merely because operations happen close together.
+13. Batch Eventing aggregates only the explicit ChangeSet. It does not change individual Change identity/history.
 
 ## 7. Governed Change
 
