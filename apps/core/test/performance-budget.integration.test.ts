@@ -479,7 +479,7 @@ describe("Core D1 round-trip budgets", () => {
     expect((await relationBearing.json<{ data: { items: unknown[] } }>()).data.items).toHaveLength(20);
     expect(f.counter.batchSizes[0]).toBe(1);
 
-    const agentId = `agt_perf_${crypto.randomUUID().replaceAll("-", "")}`;
+    const agentId = `agt_${crypto.randomUUID().replaceAll("-", "")}`;
     const agentBearer = await accessToken(f.privateKey, f.userId, agentId);
     const modelDelegationId = `dlg_perf_model_${crypto.randomUUID().replaceAll("-", "")}`;
     const delegatedNow = new Date().toISOString();
