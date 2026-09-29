@@ -103,7 +103,7 @@ describe("Authority v2 structural Batch resolution", () => {
     expect(counter.batchSizes).toEqual([1]);
     expect(directDecisions).toHaveLength(20);
     expect(directDecisions.every((decision) =>
-      decision.principalPersonId === personId && decision.actorPersonId === personId
+      decision.policyIdentity.principalPersonId === personId && decision.policyIdentity.actorPersonId === personId
     )).toBe(true);
 
     const modelDelegationId = `dlg_auth_perf_model_${suffix}`;
@@ -140,12 +140,12 @@ describe("Authority v2 structural Batch resolution", () => {
     expect(counter.roundTrips).toBe(1);
     expect(counter.batchSizes).toEqual([2]);
     expect(representedDecisions.every((decision) =>
-      decision.principalPersonId === personId && decision.actorPersonId === null
+      decision.policyIdentity.principalPersonId === personId && decision.policyIdentity.actorPersonId === null
     )).toBe(true);
 
     const representedIdentity = {
-      principalPersonId: representedDecisions[0]!.principalPersonId,
-      actorPersonId: representedDecisions[0]!.actorPersonId,
+      principalPersonId: representedDecisions[0]!.policyIdentity.principalPersonId,
+      actorPersonId: representedDecisions[0]!.policyIdentity.actorPersonId,
     };
     await expect(requirePolicyExpression(
       bindings,
