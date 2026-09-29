@@ -19,7 +19,7 @@ describe("final migration state", () => {
     const db = (env as unknown as TestEnv).DB;
     const tables = await db.prepare(`SELECT name FROM sqlite_master
       WHERE type='table' AND name IN (
-        'delegations','delegation_scopes','agent_delegations','agent_delegation_scopes'
+        'delegations','delegation_scopes','agent_delegations','agent_delegation_models','agent_delegation_scopes'
       ) ORDER BY name`).all<{ name: string }>();
 
     expect(tables.results.map((row) => row.name)).toEqual([
