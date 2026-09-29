@@ -19,7 +19,12 @@ type MembershipRow = { role: SpaceRole };
 type MembershipAccessRow = MembershipRow & { space_id: string; space_name: string };
 type GrantRow = { resource_type: "space" | "model"; resource_id: string | null; permission: Permission };
 type GrantAccessRow = GrantRow & { source_space_id: string; space_name: string };
-type DelegationAccessRow = { model_key: string; max_access: ModelAccess };
+type DelegationAccessRow = {
+  target_type: "space" | "model" | "record";
+  target_id: string;
+  target_model_key: string | null;
+  max_access: Permission;
+};
 type DelegationSpaceAccessRow = DelegationAccessRow & { source_space_id: string };
 
 type DiscoveryActionInputField = {
@@ -247,13 +252,23 @@ function pushGrant(grantsBySpace: Map<string, GrantRow[]>, row: GrantAccessRow):
   grantsBySpace.set(row.source_space_id, grants);
 }
 
+function delegationModelAccess(value: Permission): ModelAccess | null {
+  return value === "read" || value === "write" || value === "manage" ? value : null;
+}
+
 function pushDelegation(
   delegatedBySpace: Map<string, Map<string, ModelAccess>>,
   row: DelegationSpaceAccessRow,
+  modelKeys: readonly string[],
 ): void {
+  const access = delegationModelAccess(row.max_access);
+  if (!access || row.target_type === "record") return;
   const delegatedByModel = delegatedBySpace.get(row.source_space_id) ?? new Map<string, ModelAccess>();
-  const current = delegatedByModel.get(row.model_key);
-  if (!current || accessRank[row.max_access] > accessRank[current]) delegatedByModel.set(row.model_key, row.max_access);
+  const targets = row.target_type === "space" ? modelKeys : [row.target_id];
+  for (const modelKey of targets) {
+    const current = delegatedByModel.get(modelKey);
+    if (!current || accessRank[access] > accessRank[current]) delegatedByModel.set(modelKey, access);
+  }
   delegatedBySpace.set(row.source_space_id, delegatedByModel);
 }
 
@@ -284,15 +299,18 @@ async function aggregateDiscoveryState(context: AppContext): Promise<AggregateDi
   const delegatedAgent = principal.actor?.type === "agent";
   const delegationIndex = delegatedAgent ? statements.length : -1;
   if (delegatedAgent) {
-    statements.push(context.env.DB.prepare(`SELECT d.source_space_id,m.model_key,m.max_access
-      FROM agent_delegations d
-      JOIN agent_delegation_models m ON m.delegation_id=d.id
-      JOIN spaces s ON s.id=d.source_space_id
-      WHERE d.principal_user_id=? AND d.agent_id=? AND d.application_id=?
+    statements.push(context.env.DB.prepare(`SELECT
+        d.source_space_id,s.target_type,s.target_id,s.target_model_key,s.max_access
+      FROM delegations d
+      JOIN delegation_scopes s ON s.delegation_id=d.id
+      JOIN spaces sp ON sp.id=d.source_space_id
+      WHERE d.principal_type=? AND d.principal_id=?
+        AND d.actor_type=? AND d.actor_id=? AND d.application_id=?
         AND d.revoked_at IS NULL
+        AND d.consumed_at IS NULL
         AND (d.expires_at IS NULL OR julianday(d.expires_at)>julianday('now'))
-        AND s.deleted_at IS NULL`)
-      .bind(principal.id, principal.actor!.id, principal.clientId));
+        AND sp.deleted_at IS NULL`)
+      .bind(principal.type, principal.id, principal.actor!.type, principal.actor!.id, principal.clientId));
   }
 
   const results = await context.env.DB.batch(statements);
@@ -307,14 +325,18 @@ async function aggregateDiscoveryState(context: AppContext): Promise<AggregateDi
     if (!spaceNamesById.has(row.source_space_id)) spaceNamesById.set(row.source_space_id, row.space_name);
   }
 
+  const models = await listPublishedModels(context.env);
+  const modelKeys = models.map((model) => model.key);
   const delegatedBySpace = new Map<string, Map<string, ModelAccess>>();
   if (delegatedAgent) {
-    for (const row of (results[delegationIndex].results ?? []) as DelegationSpaceAccessRow[]) pushDelegation(delegatedBySpace, row);
+    for (const row of (results[delegationIndex].results ?? []) as DelegationSpaceAccessRow[]) {
+      pushDelegation(delegatedBySpace, row, modelKeys);
+    }
   }
 
   return {
     principal,
-    models: await listPublishedModels(context.env),
+    models,
     catalogByModel,
     membershipsBySpace,
     spaceNamesById,
@@ -399,13 +421,16 @@ export function registerRuntimeDiscoveryRoutes(app: App): void {
     const delegatedAgent = principal.actor?.type === "agent";
     const delegationIndex = delegatedAgent ? statements.length : -1;
     if (delegatedAgent) {
-      statements.push(context.env.DB.prepare(`SELECT m.model_key,m.max_access
-        FROM agent_delegations d
-        JOIN agent_delegation_models m ON m.delegation_id=d.id
-        WHERE d.principal_user_id=? AND d.agent_id=? AND d.application_id=? AND d.source_space_id=?
+      statements.push(context.env.DB.prepare(`SELECT
+          s.target_type,s.target_id,s.target_model_key,s.max_access
+        FROM delegations d
+        JOIN delegation_scopes s ON s.delegation_id=d.id
+        WHERE d.principal_type=? AND d.principal_id=?
+          AND d.actor_type=? AND d.actor_id=? AND d.application_id=? AND d.source_space_id=?
           AND d.revoked_at IS NULL
+          AND d.consumed_at IS NULL
           AND (d.expires_at IS NULL OR julianday(d.expires_at)>julianday('now'))`)
-        .bind(principal.id, principal.actor!.id, principal.clientId, spaceId));
+        .bind(principal.type, principal.id, principal.actor!.type, principal.actor!.id, principal.clientId, spaceId));
     }
 
     const results = await context.env.DB.batch(statements);
@@ -418,14 +443,19 @@ export function registerRuntimeDiscoveryRoutes(app: App): void {
       ? ((results[membershipIndex].results ?? [])[0] as MembershipRow | undefined) ?? null
       : null;
     const grants = (results[grantsIndex].results ?? []) as GrantRow[];
+    const models = await listPublishedModels(context.env);
     const delegatedByModel = new Map<string, ModelAccess>();
     if (delegatedAgent) {
       for (const row of (results[delegationIndex].results ?? []) as DelegationAccessRow[]) {
-        const current = delegatedByModel.get(row.model_key);
-        if (!current || accessRank[row.max_access] > accessRank[current]) delegatedByModel.set(row.model_key, row.max_access);
+        const access = delegationModelAccess(row.max_access);
+        if (!access || row.target_type === "record") continue;
+        const targets = row.target_type === "space" ? models.map((model) => model.key) : [row.target_id];
+        for (const modelKey of targets) {
+          const current = delegatedByModel.get(modelKey);
+          if (!current || accessRank[access] > accessRank[current]) delegatedByModel.set(modelKey, access);
+        }
       }
     }
-    const models = await listPublishedModels(context.env);
     const visible = visibleModels(
       principal,
       models,

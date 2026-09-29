@@ -6,6 +6,7 @@ import { registerAgentDelegationRoutes } from "./agent-delegation";
 import { registerChangeHistoryRoutes } from "./change-history";
 import { registerRegistryCreationDraftRoutes } from "./registry-creation-draft-jobs";
 import { registerGenericResourceRoutes } from "./generic-resource-routes";
+import { registerGenericBatchRoutes } from "./generic-batch-routes";
 import { registerRuntimeDiscoveryRoutes } from "./runtime-discovery";
 import { registerRuntimeModelSemanticDetailRoutes } from "./runtime-model-semantic-detail";
 import { registerRelationTargetRoutes } from "./relation-targets";
@@ -45,13 +46,13 @@ export function createApp() {
   });
   app.use("*", cors({
     origin: (origin, context) => origins(context.env).includes(origin) ? origin : undefined,
-    allowHeaders: ["Authorization", "Content-Type", "X-Request-ID", "X-LifeSpace-Actor-Token"],
+    allowHeaders: ["Authorization", "Content-Type", "X-Request-ID", "X-LifeSpace-Actor-Token", "X-LifeSpace-Delegation-Id"],
     allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
   }));
   app.get("/health", (context) => context.json(success({ status: "ok" })));
   app.get("/api/v1/status", async (context) => context.json(success({
     status: "ok", service: "core", environment: context.env.ENVIRONMENT ?? "local", database: "available",
-    schemaVersion: await schemaVersion(context.env), contractVersion: "0.39.0",
+    schemaVersion: await schemaVersion(context.env), contractVersion: "0.40.0",
   })));
   app.use("/api/v1/me", authenticate());
   app.use("/api/v1/me/*", authenticate());
@@ -81,6 +82,7 @@ export function createApp() {
   registerRuntimeDiscoveryRoutes(app);
   registerRuntimeModelSemanticDetailRoutes(app);
   registerRelationTargetRoutes(app);
+  registerGenericBatchRoutes(app);
   registerGenericResourceRoutes(app);
   app.notFound((context) => context.json(failure("NOT_FOUND", "Route not found", context.get("requestId")), 404));
   app.onError((error, context) => {

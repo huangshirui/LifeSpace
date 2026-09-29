@@ -16,11 +16,11 @@ Model Registry validation/publication/retirement, immutable Model Contract gover
 
 ## Integration / Eventing
 
-Webhook Endpoint / Event Subscription management, delivery diagnostics/test-send and signed reference-only outbound Webhook representation are declared in `integration-eventing.openapi.yaml` **0.1.0**. The routes still execute in the same Core Worker, but Runtime-only consumers do not need to pin Eventing.
+Webhook Endpoint / Event Subscription management, delivery diagnostics/test-send, signed reference-only single-event Webhooks and explicit ChangeSet batch callback envelopes are declared in `integration-eventing.openapi.yaml` **0.3.0**. The routes still execute in the same Core Worker, but Runtime-only consumers do not need to pin Eventing.
 
 ## Current Kernel Runtime Discovery
 
-The current business-facing Core Kernel contract is **0.39.0**. Progressive single-model semantic detail now exposes one `query.canonical` descriptor for the structured Canonical Query transport. The immutable Model Contract and Runtime Discovery derive its search fields, typed filter targets/operators, ordered sort, limits and cursor bindings from the same implementation source. Older Generic/Capability GET metadata remains only as explicitly deprecated compatibility metadata while adapters migrate. Generic consumers may choose the projection size appropriate to the task:
+The current business-facing Core Kernel contract is **0.40.0**. Progressive single-model semantic detail now exposes one `query.canonical` descriptor for the structured Canonical Query transport. The immutable Model Contract and Runtime Discovery derive its search fields, typed filter targets/operators, ordered sort, limits and cursor bindings from the same implementation source. Older Generic/Capability GET metadata remains only as explicitly deprecated compatibility metadata while adapters migrate. Generic consumers may choose the projection size appropriate to the task:
 
 - `GET /api/v1/spaces/{spaceId}/_discovery` — full current capability metadata for one known Space;
 - `GET /api/v1/me/_discovery` — full aggregate current capability metadata across reachable Spaces;

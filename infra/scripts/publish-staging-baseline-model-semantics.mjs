@@ -1,4 +1,5 @@
 import process from "node:process";
+import { requestWithStagingAuthConvergence } from "./staging-auth-convergence.mjs";
 import {
   BASELINE_MODEL_SEMANTICS,
   applyBaselineModelSemantics,
@@ -33,7 +34,16 @@ async function jsonRequest(path, { method = "GET", body } = {}) {
   return { response, payload };
 }
 
-const listed = await jsonRequest("/api/v1/model-admin/models");
+async function modelAdminRequest(path, options = {}) {
+  const method = options.method ?? "GET";
+  return requestWithStagingAuthConvergence({
+    method,
+    label: `Model Admin ${method} ${path}`,
+    request: () => jsonRequest(path, options),
+  });
+}
+
+const listed = await modelAdminRequest("/api/v1/model-admin/models");
 if (listed.response.status !== 200 || !Array.isArray(listed.payload?.data)) {
   throw new Error(`Could not list staging models: ${listed.response.status} ${JSON.stringify(listed.payload)}`);
 }
@@ -54,7 +64,7 @@ for (const [key, expected] of Object.entries(BASELINE_MODEL_SEMANTICS)) {
   }
 
   const definition = applyBaselineModelSemantics(current.definition, expected);
-  const result = await jsonRequest("/api/v1/model-admin/models", {
+  const result = await modelAdminRequest("/api/v1/model-admin/models", {
     method: "POST",
     body: { definition, compatibility: "compatible" },
   });
@@ -69,7 +79,7 @@ for (const [key, expected] of Object.entries(BASELINE_MODEL_SEMANTICS)) {
   });
 }
 
-const verified = await jsonRequest("/api/v1/model-admin/models");
+const verified = await modelAdminRequest("/api/v1/model-admin/models");
 if (verified.response.status !== 200 || !Array.isArray(verified.payload?.data)) {
   throw new Error(`Could not verify staging models: ${verified.response.status} ${JSON.stringify(verified.payload)}`);
 }
@@ -81,7 +91,7 @@ for (const [key, expected] of Object.entries(BASELINE_MODEL_SEMANTICS)) {
   }
 }
 
-const active = await jsonRequest("/api/v1/model-admin/contracts/active");
+const active = await modelAdminRequest("/api/v1/model-admin/contracts/active");
 if (active.response.status !== 200 || !/^mct_[a-f0-9]{64}$/u.test(active.payload?.data?.id ?? "")) {
   throw new Error(`Could not read active staging Model Contract: ${active.response.status} ${JSON.stringify(active.payload)}`);
 }

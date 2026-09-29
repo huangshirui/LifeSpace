@@ -6,14 +6,14 @@ import {
   getGenericResource,
   updateGenericResource,
   type GenericResource,
-  type ResourceMutationExtension,
+  type MutationAttribution, type ResourceMutationExtension,
 } from "./generic-resource";
 import { ApiError } from "./http";
 import type { PublishedModel } from "./model-registry";
 
 type JsonObject = Record<string, unknown>;
 
-type SpaceTemporalContext = {
+export type SpaceTemporalContext = {
   id: string;
   timezone: string;
 };
@@ -341,6 +341,7 @@ export async function recordTemporalOccurrence(
   expectedVersion: number,
   occurredOnValue: unknown,
   noteValue: unknown,
+  attribution: MutationAttribution = {},
 ): Promise<{ previousAnchorDate: string; intervalDays: number; record: GenericResource }> {
   const temporal = config(model);
   if (temporal.occurrences !== true) throw new ApiError("OCCURRENCE_NOT_ALLOWED", "This Temporal model does not enable occurrences", 409);
@@ -377,6 +378,7 @@ export async function recordTemporalOccurrence(
       manualOccurrenceExtension(occurredOn, note),
       undefined,
       "record-occurrence",
+      attribution,
     );
     return { previousAnchorDate, intervalDays: daysBetween(previousAnchorDate, occurredOn), record };
   } catch (error) {

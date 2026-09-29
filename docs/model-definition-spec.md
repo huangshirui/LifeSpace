@@ -538,7 +538,8 @@ Boolean composition:
 Operands are explicit objects:
 
 ```ts
-{ $ref: "actor.personId" }
+{ $ref: "principal.personId" }
+{ $ref: "actor.type" }
 { $ref: "record.ownerPersonId" }
 { $ref: "input.ownerPersonId" }
 { value: "open" }
@@ -549,13 +550,18 @@ There are no bare implicit field names.
 
 ### 9.3 Current references
 
-Always-supported actor references:
+Always-supported execution-identity references:
 
 ```text
+principal.type
+principal.id
+principal.personId
 actor.type
 actor.id
 actor.personId
 ```
+
+`principal.*` means the authority-bearing Principal for the operation. `actor.*` means the actual executor at the LifeSpace trust boundary. A Space Person (`per_*`) is business Policy context, not an Authority subject. Therefore a represented User -> Agent execution may have `principal.personId=per_*` while `actor.personId=null`. Policies that compare ownership fields such as `ownerPersonId` to the represented user's business identity must use `principal.personId`; policies that require the actual executor itself to be a human Person must use `actor.personId`.
 
 Field references:
 

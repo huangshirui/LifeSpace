@@ -18,22 +18,16 @@ import { deleteGenericResource, getGenericResource, type GenericResource } from 
 import { hasLegacyGenericCursor, queryGenericResources, translateGenericGetQuery } from "./generic-query";
 import { isTemporalSpecialQuery, queryTemporalResources } from "./temporal-query";
 import { ApiError, success } from "./http";
-import { requireModelAccess } from "./model-authorization";
+import { consumeSingleUseRead, requireModelAccess } from "./model-authorization";
 import { measurePerformancePhase } from "./performance-timing";
 import { getRuntimeModel, type PublishedModel } from "./model-registry";
 import { requireModelPolicy } from "./policy";
-import {
-  provenanceMutationExtension,
-  splitProvenanceEnvelope,
-  type InformationProvenance,
-} from "./resource-provenance";
 import { loadResourceAudits, requireResourceAudit, type ResourceAudit } from "./resource-audit";
 import { executeWorkflowAction, workflowActionAccess } from "./workflow";
 
 type AppEnv = { Bindings: Bindings; Variables: Variables };
 type App = Hono<AppEnv>;
 type Body = Record<string, unknown>;
-type ResourceWithProvenance = GenericResource & { provenance?: InformationProvenance };
 
 async function body(context: Context<AppEnv>): Promise<Body> {
   const value = await context.req.json<unknown>().catch(() => null);
@@ -51,6 +45,18 @@ function pathParam(context: Context<AppEnv>, name: string): string {
 }
 function requestModelKey(context: Context<AppEnv>): string {
   return context.req.param("modelKey") ?? "";
+}
+
+function delegationId(context: Context<AppEnv>): string | null {
+  const value = context.req.header("x-lifespace-delegation-id")?.trim();
+  return value || null;
+}
+
+function accessSelector(context: Context<AppEnv>, recordId?: string) {
+  return {
+    delegationId: delegationId(context),
+    ...(recordId ? { recordId } : {}),
+  };
 }
 async function model(context: Context<AppEnv>): Promise<PublishedModel> {
   return measurePerformancePhase(context, "runtime.model_resolution", async () => {
@@ -74,13 +80,11 @@ async function dto(
   resource: GenericResource,
   decoration?: CapabilityResponseDecoration,
   audit?: ResourceAudit,
-  provenanceOverride?: InformationProvenance,
 ) {
   const resolvedAudit = audit ?? resource.audit ?? requireResourceAudit(
     await loadResourceAudits(env, spaceId, [resource.id]),
     resource.id,
   );
-  const provenance = provenanceOverride ?? (resource as ResourceWithProvenance).provenance;
   return {
     id: resource.id,
     spaceId: resource.spaceId,
@@ -88,7 +92,6 @@ async function dto(
     modelVersion: resource.modelVersion,
     ...resource.data,
     ...(decoration ?? await decorateCapabilityResponse(env, spaceId, model, resource)),
-    ...(provenance ? { provenance } : {}),
     createdBy: resolvedAudit.createdBy,
     updatedBy: resolvedAudit.updatedBy,
     version: resource.version,
@@ -131,12 +134,12 @@ export function registerGenericResourceRoutes(app: App): void {
     const access = await measurePerformancePhase(
       context,
       "runtime.access_check",
-      () => requireModelAccess(context.env, principal, spaceId, resolved, "read"),
+      () => requireModelAccess(context.env, principal, spaceId, resolved, "read", accessSelector(context)),
     );
     await measurePerformancePhase(
       context,
       "runtime.policy",
-      () => requireModelPolicy(context.env, principal, spaceId, resolved, "read", undefined, undefined, { personId: access.actorPersonId }),
+      () => requireModelPolicy(context.env, principal, spaceId, resolved, "read", undefined, undefined, { principalPersonId: access.policyIdentity.principalPersonId, actorPersonId: access.policyIdentity.actorPersonId }),
     );
     const params = new URL(context.req.url).searchParams;
     const result = await measurePerformancePhase(context, "runtime.query", async () =>
@@ -152,14 +155,16 @@ export function registerGenericResourceRoutes(app: App): void {
                 spaceId,
                 resolved,
                 translateGenericGetQuery(resolved, params),
-                access.actorPersonId,
+                access.policyIdentity.principalPersonId,
               ),
     );
-    return measurePerformancePhase(
+    const response = await measurePerformancePhase(
       context,
       "runtime.response_projection",
       () => listResponse(context, spaceId, resolved, result),
     );
+    await consumeSingleUseRead(context.env, access);
+    return response;
   };
   app.get(canonical.collection, list);
 
@@ -170,12 +175,12 @@ export function registerGenericResourceRoutes(app: App): void {
     const access = await measurePerformancePhase(
       context,
       "runtime.access_check",
-      () => requireModelAccess(context.env, principal, spaceId, resolved, "read"),
+      () => requireModelAccess(context.env, principal, spaceId, resolved, "read", accessSelector(context)),
     );
     await measurePerformancePhase(
       context,
       "runtime.policy",
-      () => requireModelPolicy(context.env, principal, spaceId, resolved, "read", undefined, undefined, { personId: access.actorPersonId }),
+      () => requireModelPolicy(context.env, principal, spaceId, resolved, "read", undefined, undefined, { principalPersonId: access.policyIdentity.principalPersonId, actorPersonId: access.policyIdentity.actorPersonId }),
     );
     const input = await body(context);
     const result = await measurePerformancePhase(
@@ -187,14 +192,16 @@ export function registerGenericResourceRoutes(app: App): void {
         spaceId,
         resolved,
         input,
-        access.actorPersonId,
+        access.policyIdentity.principalPersonId,
       ),
     );
-    return measurePerformancePhase(
+    const response = await measurePerformancePhase(
       context,
       "runtime.response_projection",
       () => listResponse(context, spaceId, resolved, result),
     );
+    await consumeSingleUseRead(context.env, access);
+    return response;
   };
   app.post(canonical.query, query);
 
@@ -205,15 +212,14 @@ export function registerGenericResourceRoutes(app: App): void {
     const access = await measurePerformancePhase(
       context,
       "runtime.access_check",
-      () => requireModelAccess(context.env, principal, spaceId, resolved, "write"),
+      () => requireModelAccess(context.env, principal, spaceId, resolved, "write", accessSelector(context)),
     );
-    const request = await body(context);
-    const { data: input, provenance } = splitProvenanceEnvelope(request);
+    const input = await body(context);
     const prepared = prepareCapabilityCreateInput(resolved, input);
     await measurePerformancePhase(
       context,
       "runtime.policy",
-      () => requireModelPolicy(context.env, principal, spaceId, resolved, "create", undefined, prepared, { personId: access.actorPersonId }),
+      () => requireModelPolicy(context.env, principal, spaceId, resolved, "create", undefined, prepared, { principalPersonId: access.policyIdentity.principalPersonId, actorPersonId: access.policyIdentity.actorPersonId }),
     );
     const created = await measurePerformancePhase(
       context,
@@ -224,13 +230,14 @@ export function registerGenericResourceRoutes(app: App): void {
         spaceId,
         resolved,
         input,
-        provenance ? provenanceMutationExtension(provenance) : undefined,
+        undefined,
+        { delegationId: access.authority.delegationId },
       ),
     );
     const response = await measurePerformancePhase(
       context,
       "runtime.response_projection",
-      () => dto(context.env, spaceId, resolved, created, undefined, undefined, provenance),
+      () => dto(context.env, spaceId, resolved, created),
     );
     return context.json(success(response), 201);
   };
@@ -240,27 +247,29 @@ export function registerGenericResourceRoutes(app: App): void {
     const spaceId = pathParam(context, "spaceId");
     const resolved = await model(context);
     const principal = context.get("principal");
+    const recordId = pathParam(context, "recordId");
     const access = await measurePerformancePhase(
       context,
       "runtime.access_check",
-      () => requireModelAccess(context.env, principal, spaceId, resolved, "read"),
+      () => requireModelAccess(context.env, principal, spaceId, resolved, "read", accessSelector(context, recordId)),
     );
     const resource = await measurePerformancePhase(
       context,
       "runtime.record_read",
-      () => getGenericResource(context.env, spaceId, resolved, pathParam(context, "recordId")),
+      () => getGenericResource(context.env, spaceId, resolved, recordId),
     );
     if (!resource) throw new ApiError("RESOURCE_NOT_FOUND", "Resource not found", 404);
     await measurePerformancePhase(
       context,
       "runtime.policy",
-      () => requireModelPolicy(context.env, principal, spaceId, resolved, "read", resource, undefined, { personId: access.actorPersonId }),
+      () => requireModelPolicy(context.env, principal, spaceId, resolved, "read", resource, undefined, { principalPersonId: access.policyIdentity.principalPersonId, actorPersonId: access.policyIdentity.actorPersonId }),
     );
     const response = await measurePerformancePhase(
       context,
       "runtime.response_projection",
       () => dto(context.env, spaceId, resolved, resource),
     );
+    await consumeSingleUseRead(context.env, access);
     return context.json(success(response));
   };
   app.get(canonical.record, get);
@@ -269,25 +278,25 @@ export function registerGenericResourceRoutes(app: App): void {
     const spaceId = pathParam(context, "spaceId");
     const resolved = await model(context);
     const principal = context.get("principal");
+    const recordId = pathParam(context, "recordId");
     const access = await measurePerformancePhase(
       context,
       "runtime.access_check",
-      () => requireModelAccess(context.env, principal, spaceId, resolved, "write"),
+      () => requireModelAccess(context.env, principal, spaceId, resolved, "write", accessSelector(context, recordId)),
     );
     const request = await body(context);
     const expected = positiveVersion(request.version);
-    const mutationInput = Object.fromEntries(Object.entries(request).filter(([key]) => key !== "version"));
-    const { data: changes, provenance } = splitProvenanceEnvelope(mutationInput);
+    const changes = Object.fromEntries(Object.entries(request).filter(([key]) => key !== "version"));
     if (!Object.keys(changes).length) throw new ApiError("INVALID_REQUEST", "At least one resource field change is required", 400);
     const prepared = await measurePerformancePhase(
       context,
       "runtime.update_prepare",
-      () => prepareCapabilityUpdatePolicyInput(context.env, spaceId, resolved, pathParam(context, "recordId"), changes),
+      () => prepareCapabilityUpdatePolicyInput(context.env, spaceId, resolved, recordId, changes),
     );
     await measurePerformancePhase(
       context,
       "runtime.policy",
-      () => requireModelPolicy(context.env, principal, spaceId, resolved, "update", prepared.resource, prepared.prepared, { personId: access.actorPersonId }),
+      () => requireModelPolicy(context.env, principal, spaceId, resolved, "update", prepared.resource, prepared.prepared, { principalPersonId: access.policyIdentity.principalPersonId, actorPersonId: access.policyIdentity.actorPersonId }),
     );
     const updated = await measurePerformancePhase(
       context,
@@ -301,13 +310,14 @@ export function registerGenericResourceRoutes(app: App): void {
         expected,
         changes,
         prepared.resource,
-        provenance ? provenanceMutationExtension(provenance) : undefined,
+        undefined,
+        { delegationId: access.authority.delegationId },
       ),
     );
     const response = await measurePerformancePhase(
       context,
       "runtime.response_projection",
-      () => dto(context.env, spaceId, resolved, updated, undefined, undefined, provenance),
+      () => dto(context.env, spaceId, resolved, updated),
     );
     return context.json(success(response));
   };
@@ -317,13 +327,22 @@ export function registerGenericResourceRoutes(app: App): void {
     const spaceId = pathParam(context, "spaceId");
     const resolved = await model(context);
     const principal = context.get("principal");
-    const access = await requireModelAccess(context.env, principal, spaceId, resolved, "write");
+    const recordId = pathParam(context, "recordId");
+    const access = await requireModelAccess(context.env, principal, spaceId, resolved, "write", accessSelector(context, recordId));
     const input = await body(context);
     if (Object.keys(input).some((key) => key !== "version")) throw new ApiError("INVALID_REQUEST", "Delete accepts only version", 400);
-    const resource = await getGenericResource(context.env, spaceId, resolved, pathParam(context, "recordId"));
+    const resource = await getGenericResource(context.env, spaceId, resolved, recordId);
     if (!resource) throw new ApiError("RESOURCE_NOT_FOUND", "Resource not found", 404);
-    await requireModelPolicy(context.env, principal, spaceId, resolved, "delete", resource, undefined, { personId: access.actorPersonId });
-    await deleteGenericResource(context.env, principal, spaceId, resolved, resource.id, positiveVersion(input.version));
+    await requireModelPolicy(context.env, principal, spaceId, resolved, "delete", resource, undefined, { principalPersonId: access.policyIdentity.principalPersonId, actorPersonId: access.policyIdentity.actorPersonId });
+    await deleteGenericResource(
+      context.env,
+      principal,
+      spaceId,
+      resolved,
+      resource.id,
+      positiveVersion(input.version),
+      { delegationId: access.authority.delegationId },
+    );
     return context.body(null, 204);
   };
   app.delete(canonical.record, remove);
@@ -332,14 +351,16 @@ export function registerGenericResourceRoutes(app: App): void {
     const spaceId = pathParam(context, "spaceId");
     const resolved = await model(context);
     const principal = context.get("principal");
-    const access = await requireModelAccess(context.env, principal, spaceId, resolved, "read");
-    const resource = await getGenericResource(context.env, spaceId, resolved, pathParam(context, "recordId"));
+    const recordId = pathParam(context, "recordId");
+    const access = await requireModelAccess(context.env, principal, spaceId, resolved, "read", accessSelector(context, recordId));
+    const resource = await getGenericResource(context.env, spaceId, resolved, recordId);
     if (!resource) throw new ApiError("RESOURCE_NOT_FOUND", "Resource not found", 404);
-    await requireModelPolicy(context.env, principal, spaceId, resolved, "read", resource, undefined, { personId: access.actorPersonId });
+    await requireModelPolicy(context.env, principal, spaceId, resolved, "read", resource, undefined, { principalPersonId: access.policyIdentity.principalPersonId, actorPersonId: access.policyIdentity.actorPersonId });
     const rawLimit = new URL(context.req.url).searchParams.get("limit");
     const limit = rawLimit === null ? 100 : Number(rawLimit);
     if (!Number.isInteger(limit) || limit < 1 || limit > 200) throw new ApiError("INVALID_QUERY", "limit must be between 1 and 200", 400);
     const result = await listCapabilityOccurrences(context.env, spaceId, resolved, resource.id, limit, new URL(context.req.url).searchParams.get("cursor") ?? undefined);
+    await consumeSingleUseRead(context.env, access);
     return context.json(success(result));
   };
   app.get(canonical.occurrences, occurrences);
@@ -350,10 +371,27 @@ export function registerGenericResourceRoutes(app: App): void {
     const actionKey = pathParam(context, "actionKey");
     const capabilityAccess = capabilityActionAccess(resolved, actionKey);
     const requiredAccess = capabilityAccess ?? workflowActionAccess(resolved, actionKey);
-    const access = await requireModelAccess(context.env, context.get("principal"), spaceId, resolved, requiredAccess);
+    const recordId = pathParam(context, "recordId");
+    const access = await requireModelAccess(
+      context.env,
+      context.get("principal"),
+      spaceId,
+      resolved,
+      requiredAccess,
+      accessSelector(context, recordId),
+    );
     const input = await body(context);
     if (capabilityAccess) {
-      const updated = await executeCapabilityAction(context.env, context.get("principal"), spaceId, resolved, pathParam(context, "recordId"), actionKey, input);
+      const updated = await executeCapabilityAction(
+        context.env,
+        context.get("principal"),
+        spaceId,
+        resolved,
+        recordId,
+        actionKey,
+        input,
+        { delegationId: access.authority.delegationId },
+      );
       return context.json(success(await dto(context.env, spaceId, resolved, updated)));
     }
     if (Object.keys(input).some((key) => key !== "version")) throw new ApiError("INVALID_REQUEST", "Action accepts only version in Model Definition v1", 400);
@@ -362,10 +400,11 @@ export function registerGenericResourceRoutes(app: App): void {
       context.get("principal"),
       spaceId,
       resolved,
-      pathParam(context, "recordId"),
+      recordId,
       actionKey,
       positiveVersion(input.version),
-      { personId: access.actorPersonId },
+      { principalPersonId: access.policyIdentity.principalPersonId, actorPersonId: access.policyIdentity.actorPersonId },
+      { delegationId: access.authority.delegationId },
     );
     return context.json(success(await dto(context.env, spaceId, resolved, updated)));
   };

@@ -294,14 +294,14 @@ async function resolveRelationTarget(
   fieldKey: string,
   field: FieldDefinition,
   value: unknown,
-  actorPersonId?: string | null,
+  principalPersonId?: string | null,
 ): Promise<string> {
   if (value === "me") {
     if ((field.type !== "person" && field.type !== "person_list") || !relationAliasAllowed(model, fieldKey)) {
       throw new ApiError("INVALID_QUERY", `${fieldKey} does not accept the me alias`, 400);
     }
     if (principal.type !== "user") throw new ApiError("INVALID_QUERY", "me requires a user principal", 400);
-    if (actorPersonId) return actorPersonId;
+    if (principalPersonId) return principalPersonId;
     const row = await env.DB.prepare("SELECT id FROM space_people WHERE space_id=? AND linked_user_id=? AND deleted_at IS NULL LIMIT 1")
       .bind(spaceId, principal.id).first<{ id: string }>();
     if (!row) throw new ApiError("INVALID_QUERY", "me requires an active Space Person", 400);
@@ -814,7 +814,7 @@ async function predicateFragment(
   spaceId: string,
   model: PublishedModel,
   predicate: FilterPredicate,
-  actorPersonId?: string | null,
+  principalPersonId?: string | null,
 ): Promise<SqlFragment> {
   const projectedTarget = canonicalQuerySemanticDescriptor(model).filter.targets
     .find((target) => target.field === predicate.field);
@@ -851,7 +851,7 @@ async function predicateFragment(
   if (field && ["person", "person_list", "record", "record_list"].includes(field.type)) {
     if (!model.definition.query?.filterable?.includes(predicate.field)) throw new ApiError("INVALID_QUERY", `${predicate.field} is not filterable for model ${model.key}`, 400);
     if (predicate.op !== "contains") throw new ApiError("INVALID_QUERY", `${predicate.field} uses contains for relation membership`, 400);
-    const target = await resolveRelationTarget(env, principal, spaceId, model, predicate.field, field, predicate.value, actorPersonId);
+    const target = await resolveRelationTarget(env, principal, spaceId, model, predicate.field, field, predicate.value, principalPersonId);
     const person = field.type === "person" || field.type === "person_list";
     return {
       sql: `EXISTS(SELECT 1 FROM resource_relations rel WHERE rel.source_record_id=r.id AND rel.field_key=? AND rel.target_type=? AND ${person ? "rel.target_person_id" : "rel.target_record_id"}=?)`,
@@ -879,21 +879,21 @@ async function compileFilter(
   spaceId: string,
   model: PublishedModel,
   filter: CanonicalFilter,
-  actorPersonId?: string | null,
+  principalPersonId?: string | null,
 ): Promise<SqlFragment> {
   if ("and" in filter) {
     const fragments = await Promise.all(
-      filter.and.map((child) => compileFilter(env, principal, spaceId, model, child, actorPersonId)),
+      filter.and.map((child) => compileFilter(env, principal, spaceId, model, child, principalPersonId)),
     );
     return combineBooleanFragments("AND", fragments);
   }
   if ("or" in filter) {
     const fragments = await Promise.all(
-      filter.or.map((child) => compileFilter(env, principal, spaceId, model, child, actorPersonId)),
+      filter.or.map((child) => compileFilter(env, principal, spaceId, model, child, principalPersonId)),
     );
     return combineBooleanFragments("OR", fragments);
   }
-  return predicateFragment(env, principal, spaceId, model, filter, actorPersonId);
+  return predicateFragment(env, principal, spaceId, model, filter, principalPersonId);
 }
 
 function escapeLike(value: string): string {
@@ -1110,7 +1110,7 @@ export async function queryCanonicalResources(
   spaceId: string,
   model: PublishedModel,
   input: unknown,
-  actorPersonId?: string | null,
+  principalPersonId?: string | null,
 ): Promise<CanonicalQueryResult> {
   const parsed = parseInput(model, input);
   const signature = stableJson(parsed.query);
@@ -1123,7 +1123,7 @@ export async function queryCanonicalResources(
     args.push(...fragment.args);
   }
   if (parsed.query.filter) {
-    const fragment = await compileFilter(env, principal, spaceId, model, parsed.query.filter, actorPersonId);
+    const fragment = await compileFilter(env, principal, spaceId, model, parsed.query.filter, principalPersonId);
     where.push(fragment.sql);
     args.push(...fragment.args);
   }

@@ -1,7 +1,7 @@
 import type { Hono } from "hono";
 import type { ActorType, Bindings, PrincipalType, Variables } from "./env";
 import { ApiError, success } from "./http";
-import { requireModelAccess } from "./model-authorization";
+import { consumeSingleUseRead, requireModelAccess, type ModelAccessDecision } from "./model-authorization";
 import { getRuntimeModel } from "./model-registry";
 
 type AppEnv = { Bindings: Bindings; Variables: Variables };
@@ -23,6 +23,7 @@ type ChangeRow = {
   actor_id: string;
   application_id: string;
   delegation_id: string | null;
+  change_set_id: string | null;
   changed_fields_json: string;
   field_changes_json: string | null;
   occurred_at: string;
@@ -57,6 +58,7 @@ function dto(row: ChangeRow) {
     actor: { type: row.actor_type, id: row.actor_id },
     applicationId: row.application_id,
     delegationId: row.delegation_id,
+    changeSetId: row.change_set_id,
     changedFields,
     detailAvailable: row.field_changes_json !== null,
     occurredAt: row.occurred_at,
@@ -119,17 +121,23 @@ function validateQuery(params: URLSearchParams): void {
 
 const CHANGE_SELECT = `SELECT
     id,record_id,space_id,model_key,operation,action_key,version_before,version_after,
-    principal_type,principal_id,actor_type,actor_id,application_id,delegation_id,
+    principal_type,principal_id,actor_type,actor_id,application_id,delegation_id,change_set_id,
     changed_fields_json,field_changes_json,occurred_at
   FROM resource_changes`;
 
-async function authorizeRecord(appEnv: Bindings, principal: Variables["principal"], spaceId: string, recordId: string) {
+async function authorizeRecord(
+  appEnv: Bindings,
+  principal: Variables["principal"],
+  spaceId: string,
+  recordId: string,
+  delegationId?: string | null,
+): Promise<ModelAccessDecision> {
   const resource = await appEnv.DB.prepare(`SELECT model_key FROM resource_records
     WHERE id=? AND space_id=? LIMIT 1`).bind(recordId, spaceId).first<ResourceRow>();
   if (!resource) throw new ApiError("RESOURCE_NOT_FOUND", "Resource not found", 404);
   const model = await getRuntimeModel(appEnv, resource.model_key);
   if (!model) throw new ApiError("MODEL_NOT_FOUND", "Published model not found", 404);
-  await requireModelAccess(appEnv, principal, spaceId, model, "read");
+  return requireModelAccess(appEnv, principal, spaceId, model, "read", { delegationId, recordId });
 }
 
 async function authorizeChange(
@@ -137,7 +145,8 @@ async function authorizeChange(
   principal: Variables["principal"],
   spaceId: string,
   changeId: string,
-): Promise<ChangeRow> {
+  delegationId?: string | null,
+): Promise<{ row: ChangeRow; access: ModelAccessDecision }> {
   if (!/^chg_[A-Za-z0-9_-]+$/u.test(changeId) || changeId.length > 200) {
     throw new ApiError("INVALID_REQUEST", "changeId must be a valid chg_* identifier", 400);
   }
@@ -147,8 +156,15 @@ async function authorizeChange(
   if (!row) throw new ApiError("CHANGE_NOT_FOUND", "Change not found", 404);
   const model = await getRuntimeModel(appEnv, row.model_key);
   if (!model) throw new ApiError("MODEL_NOT_FOUND", "Published model not found", 404);
-  await requireModelAccess(appEnv, principal, spaceId, model, "read");
-  return row;
+  const access = await requireModelAccess(
+    appEnv,
+    principal,
+    spaceId,
+    model,
+    "read",
+    { delegationId, recordId: row.record_id },
+  );
+  return { row, access };
 }
 
 function detailDto(row: ChangeRow) {
@@ -232,14 +248,30 @@ export function registerChangeHistoryRoutes(app: App): void {
     const rawCursor = one(params, "cursor");
     const cursor = rawCursor ? decodeCursor(rawCursor, recordId) : null;
 
-    await authorizeRecord(context.env, context.get("principal"), spaceId, recordId);
-    return context.json(success(await listPage(context.env, spaceId, recordId, limit, cursor)));
+    const access = await authorizeRecord(
+      context.env,
+      context.get("principal"),
+      spaceId,
+      recordId,
+      context.req.header("x-lifespace-delegation-id"),
+    );
+    const page = await listPage(context.env, spaceId, recordId, limit, cursor);
+    await consumeSingleUseRead(context.env, access);
+    return context.json(success(page));
   });
 
   app.get("/api/v1/spaces/:spaceId/changes/by-id/:changeId", async (context) => {
     const spaceId = context.req.param("spaceId");
-    const row = await authorizeChange(context.env, context.get("principal"), spaceId, context.req.param("changeId"));
-    return context.json(success(detailDto(row)));
+    const { row, access } = await authorizeChange(
+      context.env,
+      context.get("principal"),
+      spaceId,
+      context.req.param("changeId"),
+      context.req.header("x-lifespace-delegation-id"),
+    );
+    const detail = detailDto(row);
+    await consumeSingleUseRead(context.env, access);
+    return context.json(success(detail));
   });
 
   // Kernel 0.29 compatibility alias. The canonical Change History resource is the
@@ -248,7 +280,15 @@ export function registerChangeHistoryRoutes(app: App): void {
   app.get("/api/v1/spaces/:spaceId/changes/:recordId", async (context) => {
     const spaceId = context.req.param("spaceId");
     const recordId = context.req.param("recordId");
-    await authorizeRecord(context.env, context.get("principal"), spaceId, recordId);
-    return context.json(success(await listLegacy(context.env, spaceId, recordId)));
+    const access = await authorizeRecord(
+      context.env,
+      context.get("principal"),
+      spaceId,
+      recordId,
+      context.req.header("x-lifespace-delegation-id"),
+    );
+    const legacy = await listLegacy(context.env, spaceId, recordId);
+    await consumeSingleUseRead(context.env, access);
+    return context.json(success(legacy));
   });
 }

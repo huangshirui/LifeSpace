@@ -166,51 +166,6 @@ function fieldSchema(field: FieldDefinition): JsonSchema {
   return result;
 }
 
-function provenanceReferenceSchema(): JsonSchema {
-  return {
-    oneOf: [
-      {
-        type: "object",
-        additionalProperties: false,
-        properties: {
-          type: { const: "record" },
-          recordId: { type: "string", pattern: "^rec_[A-Za-z0-9]+$", maxLength: 100 },
-          version: { type: "integer", minimum: 1 },
-        },
-        required: ["type", "recordId"],
-      },
-      {
-        type: "object",
-        additionalProperties: false,
-        properties: {
-          type: { const: "external" },
-          system: { type: "string", minLength: 1, maxLength: 100 },
-          ref: { type: "string", minLength: 1, maxLength: 2000 },
-        },
-        required: ["type", "system", "ref"],
-      },
-    ],
-  };
-}
-
-function provenanceSchema(readOnly = false): JsonSchema {
-  return {
-    type: "object",
-    additionalProperties: false,
-    ...(readOnly ? { readOnly: true } : {}),
-    properties: {
-      source: { type: "string", minLength: 1, maxLength: 100 },
-      sourceRef: provenanceReferenceSchema(),
-      derivedFrom: {
-        type: "array",
-        maxItems: 50,
-        items: provenanceReferenceSchema(),
-      },
-    },
-    required: ["source"],
-  };
-}
-
 function hasDefault(definition: ModelDefinition, key: string): boolean {
   return Object.prototype.hasOwnProperty.call(definition.defaults ?? {}, key);
 }
@@ -272,7 +227,6 @@ function createSchema(model: PublishedModel): JsonSchema {
     additionalProperties: false,
     properties: {
       ...Object.fromEntries(fields.map(([key, field]) => [key, schemaWithDefault(definition, key, field)])),
-      provenance: provenanceSchema(),
     },
     required: fields
       .filter(([key, field]) => field.required && !hasDefault(definition, key))
@@ -309,7 +263,6 @@ function updateSchema(model: PublishedModel): JsonSchema {
     properties: {
       version: concurrencyVersionSchema(),
       ...Object.fromEntries(fields.map(([key, field]) => [key, fieldSchema(field)])),
-      provenance: provenanceSchema(),
     },
     required: ["version"],
     ...(fields.length
@@ -318,6 +271,176 @@ function updateSchema(model: PublishedModel): JsonSchema {
     ...(calendar && !("rangeField" in calendar)
       ? { "x-lifespace-calendar-update": "A mode switch must provide a complete valid timed or all-day Calendar shape." }
       : {}),
+  };
+}
+
+function batchUpdateDataSchema(model: PublishedModel): JsonSchema {
+  const fields = writableFields(model.definition, "update");
+  const calendar = model.definition.capabilities?.calendar;
+  return {
+    type: "object",
+    additionalProperties: false,
+    minProperties: 1,
+    properties: Object.fromEntries(fields.map(([key, field]) => [key, fieldSchema(field)])),
+    ...(fields.length
+      ? { anyOf: fields.map(([key]) => ({ required: [key] })) }
+      : { not: {} }),
+    ...(calendar && !("rangeField" in calendar)
+      ? { "x-lifespace-calendar-update": "A mode switch must provide a complete valid timed or all-day Calendar shape." }
+      : {}),
+  };
+}
+
+function delegationIdSchema(): JsonSchema {
+  return {
+    type: "string",
+    pattern: "^dlg_[A-Za-z0-9_-]+$",
+    description: "Opaque Delegation selector. Required by execution semantics when the verified Actor differs from the Principal; possession alone grants no authority.",
+  };
+}
+
+function addBatchContract(
+  models: PublishedModel[],
+  schemas: Record<string, JsonSchema>,
+  paths: Record<string, unknown>,
+): void {
+  const createVariants: JsonSchema[] = [];
+  const updateVariants: JsonSchema[] = [];
+  for (const model of models) {
+    const prefix = schemaName(model, "");
+    const createOperationName = `${prefix}BatchCreateOperation`;
+    const updateDataName = `${prefix}BatchUpdateData`;
+    const updateOperationName = `${prefix}BatchUpdateOperation`;
+    schemas[updateDataName] = batchUpdateDataSchema(model);
+    schemas[createOperationName] = {
+      type: "object",
+      additionalProperties: false,
+      required: ["operation", "modelKey", "data"],
+      properties: {
+        operation: { const: "create" },
+        modelKey: { const: model.key },
+        data: { $ref: `#/components/schemas/${prefix}Create` },
+        delegationId: delegationIdSchema(),
+      },
+    };
+    schemas[updateOperationName] = {
+      type: "object",
+      additionalProperties: false,
+      required: ["operation", "modelKey", "recordId", "version", "data"],
+      properties: {
+        operation: { const: "update" },
+        modelKey: { const: model.key },
+        recordId: { type: "string", pattern: "^rec_[A-Za-z0-9_-]+$" },
+        version: concurrencyVersionSchema(),
+        data: { $ref: `#/components/schemas/${updateDataName}` },
+        delegationId: delegationIdSchema(),
+      },
+    };
+    createVariants.push({ $ref: `#/components/schemas/${createOperationName}` });
+    updateVariants.push({ $ref: `#/components/schemas/${updateOperationName}` });
+  }
+
+  schemas.BatchDeleteOperation = {
+    type: "object",
+    additionalProperties: false,
+    required: ["operation", "modelKey", "recordId", "version"],
+    properties: {
+      operation: { const: "delete" },
+      modelKey: { type: "string", enum: models.map((model) => model.key) },
+      recordId: { type: "string", pattern: "^rec_[A-Za-z0-9_-]+$" },
+      version: concurrencyVersionSchema(),
+      delegationId: delegationIdSchema(),
+    },
+  };
+  schemas.BatchOperation = {
+    oneOf: [
+      ...createVariants,
+      ...updateVariants,
+      { $ref: "#/components/schemas/BatchDeleteOperation" },
+    ],
+    description: "One atomic Batch create/update/delete item. One existing record may appear at most once in a Batch.",
+  };
+  schemas.BatchMutationRequest = {
+    type: "object",
+    additionalProperties: false,
+    required: ["operations"],
+    properties: {
+      operations: {
+        type: "array",
+        minItems: 1,
+        maxItems: 20,
+        items: { $ref: "#/components/schemas/BatchOperation" },
+      },
+    },
+  };
+  schemas.BatchMutationResultItem = {
+    type: "object",
+    additionalProperties: false,
+    required: ["index", "operation", "modelKey", "recordId", "version"],
+    properties: {
+      index: { type: "integer", minimum: 0, maximum: 19 },
+      operation: { type: "string", enum: ["create", "update", "delete"] },
+      modelKey: { type: "string", enum: models.map((model) => model.key) },
+      recordId: { type: "string", pattern: "^rec_[A-Za-z0-9_-]+$" },
+      version: { type: "integer", minimum: 1 },
+    },
+  };
+  schemas.BatchMutationResponse = {
+    type: "object",
+    additionalProperties: false,
+    required: ["data"],
+    properties: {
+      data: {
+        type: "object",
+        additionalProperties: false,
+        required: ["changeSetId", "items"],
+        properties: {
+          changeSetId: { type: "string", pattern: "^cgs_[A-Za-z0-9_-]+$" },
+          items: {
+            type: "array",
+            minItems: 1,
+            maxItems: 20,
+            items: { $ref: "#/components/schemas/BatchMutationResultItem" },
+          },
+        },
+      },
+    },
+  };
+  paths["/api/v1/spaces/{spaceId}/models/batch"] = {
+    parameters: [{ $ref: "#/components/parameters/SpaceId" }],
+    post: {
+      operationId: "batch_mutate_models",
+      tags: ["Batch"],
+      description: "Atomically applies 1-20 create/update/delete operations in one source Space. ExecutionContext is resolved once; equal Authority keys are de-duplicated; every committed item produces one governed Change sharing one ChangeSet.",
+      requestBody: {
+        required: true,
+        content: {
+          "application/json": {
+            schema: { $ref: "#/components/schemas/BatchMutationRequest" },
+          },
+        },
+      },
+      responses: {
+        "200": {
+          description: "Atomic Batch committed",
+          content: {
+            "application/json": {
+              schema: { $ref: "#/components/schemas/BatchMutationResponse" },
+            },
+          },
+        },
+        "400": { description: "Invalid Batch shape or duplicate existing-record target" },
+        "403": { description: "Authority/Delegation denied for at least one item" },
+        "404": { description: "A required model or target record was not found" },
+        "409": { description: "Optimistic concurrency conflict; the entire Batch is rolled back" },
+      },
+      "x-lifespace-batch-semantics": {
+        atomic: true,
+        maxOperations: 20,
+        changeEvidence: "one-change-per-item-plus-one-change-set",
+        authority: "verified-once-and-de-duplicated-by-authority-key",
+      },
+    },
   };
 }
 
@@ -364,7 +487,6 @@ function resourceSchema(model: PublishedModel): JsonSchema {
     modelKey: { type: "string", const: definition.key },
     modelVersion: { type: "integer", minimum: 1 },
     ...Object.fromEntries(Object.entries(definition.fields).map(([key, field]) => [key, fieldSchema(field)])),
-    provenance: provenanceSchema(true),
     createdBy: resourceAuditActorSchema(),
     updatedBy: resourceAuditActorSchema(),
     version: { type: "integer", minimum: 1 },
@@ -664,6 +786,7 @@ function addTemporalContract(
     parameters: [
       { $ref: "#/components/parameters/SpaceId" },
       { $ref: "#/components/parameters/RecordId" },
+      { $ref: "#/components/parameters/DelegationId" },
     ],
     get: {
       operationId: `list_${model.key}_occurrences`,
@@ -685,6 +808,7 @@ function addTemporalContract(
     parameters: [
       { $ref: "#/components/parameters/SpaceId" },
       { $ref: "#/components/parameters/RecordId" },
+      { $ref: "#/components/parameters/DelegationId" },
     ],
     post: {
       operationId: `record_occurrence_${model.key}`,
@@ -738,7 +862,10 @@ function modelOpenApi(model: PublishedModel, schemas: Record<string, JsonSchema>
   const collectionPath = `/api/v1/spaces/{spaceId}/models/${model.key}/records`;
   const recordPath = `${collectionPath}/{recordId}`;
   paths[collectionPath] = {
-    parameters: [{ $ref: "#/components/parameters/SpaceId" }],
+    parameters: [
+      { $ref: "#/components/parameters/SpaceId" },
+      { $ref: "#/components/parameters/DelegationId" },
+    ],
     get: {
       operationId: `list_${model.key}`,
       tags: [model.definition.display.plural],
@@ -767,7 +894,10 @@ function modelOpenApi(model: PublishedModel, schemas: Record<string, JsonSchema>
   };
 
   paths[`${collectionPath}/query`] = {
-    parameters: [{ $ref: "#/components/parameters/SpaceId" }],
+    parameters: [
+      { $ref: "#/components/parameters/SpaceId" },
+      { $ref: "#/components/parameters/DelegationId" },
+    ],
     post: {
       operationId: `query_${model.key}`,
       tags: [model.definition.display.plural],
@@ -789,6 +919,7 @@ function modelOpenApi(model: PublishedModel, schemas: Record<string, JsonSchema>
     parameters: [
       { $ref: "#/components/parameters/SpaceId" },
       { $ref: "#/components/parameters/RecordId" },
+      { $ref: "#/components/parameters/DelegationId" },
     ],
     get: {
       operationId: `get_${model.key}`,
@@ -830,6 +961,7 @@ function modelOpenApi(model: PublishedModel, schemas: Record<string, JsonSchema>
       parameters: [
         { $ref: "#/components/parameters/SpaceId" },
         { $ref: "#/components/parameters/RecordId" },
+        { $ref: "#/components/parameters/DelegationId" },
       ],
       post: {
         operationId: `${actionKey}_${model.key}`,
@@ -901,6 +1033,7 @@ export async function generateModelContract(input: PublishedModel[]): Promise<Mo
   const schemas: Record<string, JsonSchema> = {};
   const paths: Record<string, unknown> = {};
   for (const model of models) modelOpenApi(model, schemas, paths);
+  addBatchContract(models, schemas, paths);
 
   const openapi: OpenApiDocument = {
     openapi: "3.1.0",
@@ -927,6 +1060,13 @@ export async function generateModelContract(input: PublishedModel[]): Promise<Mo
           in: "path",
           required: true,
           schema: { type: "string", pattern: "^rec_" },
+        },
+        DelegationId: {
+          name: "X-LifeSpace-Delegation-Id",
+          in: "header",
+          required: false,
+          schema: delegationIdSchema(),
+          description: "Opaque selector used only when the verified Actor represents another Principal. Core validates current Delegation state; the ID is not bearer authority.",
         },
       },
       schemas,

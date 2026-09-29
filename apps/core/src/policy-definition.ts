@@ -30,7 +30,14 @@ type OperandType = {
 };
 
 const FIELD_REF = /^(record|input)\.([a-z][A-Za-z0-9]{0,62})$/;
-const ACTOR_REFS = new Set(["actor.type", "actor.id", "actor.personId"]);
+const IDENTITY_REFS = new Set([
+  "principal.type",
+  "principal.id",
+  "principal.personId",
+  "actor.type",
+  "actor.id",
+  "actor.personId",
+]);
 const COMPARISON_OPS = new Set(["eq", "neq"]);
 const MAX_POLICY_DEPTH = 8;
 const MAX_POLICY_NODES = 64;
@@ -79,8 +86,10 @@ function referenceType(
   issues: ModelValidationIssue[],
   path: string,
 ): OperandType {
-  if (ACTOR_REFS.has(reference)) {
-    if (reference === "actor.personId") return { kind: "string", nullable: true };
+  if (IDENTITY_REFS.has(reference)) {
+    if (reference === "principal.personId" || reference === "actor.personId") {
+      return { kind: "string", nullable: true };
+    }
     return { kind: "string" };
   }
   const match = FIELD_REF.exec(reference);

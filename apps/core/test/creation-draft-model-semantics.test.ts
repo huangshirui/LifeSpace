@@ -18,7 +18,7 @@ const baselineDefinitions = [
 ];
 const releaseFingerprint = Object.freeze({
   task: Object.freeze({ version: 8, schemaHash: "fed3dab27e2f51da3780e42db38dd164fefe39f7d6e7f84161a97e1a8a6d96e6" }),
-  wish: Object.freeze({ version: 7, schemaHash: "7dc6c079916a967c8bcd93f8cbe082c98157ceaeb30ce782ef3f2eb035d370df" }),
+  wish: Object.freeze({ version: 8, schemaHash: "772e17c1d07ba620c879b90b60b1c74dd1629edeffc5e5f622b57eb43c74e934" }),
   day_record: Object.freeze({ version: 5, schemaHash: "9dae14eeaef9311412dc910a8976cf85e7d8641792192376ed6678739fe029d1" }),
   event: Object.freeze({ version: 6, schemaHash: "be9bdea442a30108a22a2da77a96ab23aba5122ec3c2b1de20a6312cebb0cc8a" }),
 });

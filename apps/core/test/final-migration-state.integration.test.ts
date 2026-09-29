@@ -15,9 +15,32 @@ describe("final migration state", () => {
     expect(rows.results).toEqual([]);
   });
 
+  it("keeps only the generic Delegation persistence shape after schema 47", async () => {
+    const db = (env as unknown as TestEnv).DB;
+    const tables = await db.prepare(`SELECT name FROM sqlite_master
+      WHERE type='table' AND name IN (
+        'delegations','delegation_scopes','agent_delegations','agent_delegation_models','agent_delegation_scopes'
+      ) ORDER BY name`).all<{ name: string }>();
+
+    expect(tables.results.map((row) => row.name)).toEqual([
+      "delegation_scopes",
+      "delegations",
+    ]);
+
+    const columns = await db.prepare("PRAGMA table_info(delegations)").all<{ name: string }>();
+    expect(columns.results.map((row) => row.name)).toEqual(expect.arrayContaining([
+      "principal_type",
+      "principal_id",
+      "actor_type",
+      "actor_id",
+      "application_id",
+      "source_space_id",
+    ]));
+  });
+
   it("reports the latest Core schema version", async () => {
     const db = (env as unknown as TestEnv).DB;
     const row = await db.prepare("SELECT value FROM schema_metadata WHERE key='schema_version'").first<{ value: string }>();
-    expect(row?.value).toBe("46");
+    expect(row?.value).toBe("47");
   });
 });

@@ -54,21 +54,21 @@
     "access": ["read", "write"],
     "lifecycle": { "optimisticConcurrency": true, "softDelete": true },
     "policies": {
-      "create": { "all": [{ "op": "neq", "left": { "$ref": "actor.personId" }, "right": { "value": null } }, { "op": "eq", "left": { "$ref": "input.ownerPersonId" }, "right": { "$ref": "actor.personId" } }] },
-      "read": { "op": "neq", "left": { "$ref": "actor.personId" }, "right": { "value": null } },
-      "update": { "op": "eq", "left": { "$ref": "record.ownerPersonId" }, "right": { "$ref": "actor.personId" } },
-      "delete": { "op": "eq", "left": { "$ref": "record.ownerPersonId" }, "right": { "$ref": "actor.personId" } }
+      "create": { "all": [{ "op": "neq", "left": { "$ref": "principal.personId" }, "right": { "value": null } }, { "op": "eq", "left": { "$ref": "input.ownerPersonId" }, "right": { "$ref": "principal.personId" } }] },
+      "read": { "op": "neq", "left": { "$ref": "principal.personId" }, "right": { "value": null } },
+      "update": { "op": "eq", "left": { "$ref": "record.ownerPersonId" }, "right": { "$ref": "principal.personId" } },
+      "delete": { "op": "eq", "left": { "$ref": "record.ownerPersonId" }, "right": { "$ref": "principal.personId" } }
     },
     "actions": {
       "fulfill": {
         "access": "write",
-        "policy": { "op": "neq", "left": { "$ref": "actor.personId" }, "right": { "value": null } },
+        "policy": { "op": "neq", "left": { "$ref": "principal.personId" }, "right": { "value": null } },
         "guards": [{ "field": "status", "op": "eq", "value": "open", "errorCode": "WISH_NOT_OPEN", "message": "Only open wishes can be fulfilled" }],
         "set": { "status": "fulfilled", "fulfilledAt": { "$ref": "now" } }
       },
       "reopen": {
         "access": "write",
-        "policy": { "op": "neq", "left": { "$ref": "actor.personId" }, "right": { "value": null } },
+        "policy": { "op": "neq", "left": { "$ref": "principal.personId" }, "right": { "value": null } },
         "guards": [{ "field": "status", "op": "eq", "value": "fulfilled", "errorCode": "WISH_NOT_FULFILLED", "message": "Only fulfilled wishes can be reopened" }],
         "set": { "status": "open", "fulfilledAt": null }
       }

@@ -12,7 +12,8 @@ const app = createApp();
 type CoreQueueMessage = RegistryCreationDraftQueueMessage | WebhookDeliveryQueueMessage;
 
 function isWebhookDelivery(message: CoreQueueMessage): message is WebhookDeliveryQueueMessage {
-  return "kind" in message && message.kind === "webhook-delivery";
+  return "kind" in message
+    && (message.kind === "webhook-delivery" || message.kind === "webhook-delivery-batch");
 }
 
 export default {

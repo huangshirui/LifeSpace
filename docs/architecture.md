@@ -327,12 +327,12 @@ Platform Admin Control-Plane Contract
 Kernel Contract
   apps/core/openapi.yaml
   explicit product-facing Space / Grant / Runtime Discovery / Change History / Creation Draft primitives
-  current Kernel contract: 0.39.0
+  current Kernel contract: 0.40.0
 
 Integration / Eventing Contract
   apps/core/integration-eventing.openapi.yaml
   Webhook Endpoint / Event Subscription / delivery + signed outbound Webhook representation
-  independent public companion contract: 0.2.0
+  independent public companion contract: 0.3.0
   executed by the same Core Worker; not part of the Kernel version/fingerprint
 
 Model Control Plane Contract

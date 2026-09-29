@@ -48,7 +48,7 @@ function latestMigrationVersion(service) {
 // only a release floor for the environment-local Registry version.
 export const PROVING_MODELS = Object.freeze([
   Object.freeze({ key: "task", minimumVersion: 8, hash: "fed3dab27e2f51da3780e42db38dd164fefe39f7d6e7f84161a97e1a8a6d96e6" }),
-  Object.freeze({ key: "wish", minimumVersion: 7, hash: "7dc6c079916a967c8bcd93f8cbe082c98157ceaeb30ce782ef3f2eb035d370df" }),
+  Object.freeze({ key: "wish", minimumVersion: 8, hash: "772e17c1d07ba620c879b90b60b1c74dd1629edeffc5e5f622b57eb43c74e934" }),
   Object.freeze({ key: "day_record", minimumVersion: 5, hash: "9dae14eeaef9311412dc910a8976cf85e7d8641792192376ed6678739fe029d1" }),
   Object.freeze({ key: "event", minimumVersion: 6, hash: "be9bdea442a30108a22a2da77a96ab23aba5122ec3c2b1de20a6312cebb0cc8a" }),
 ]);

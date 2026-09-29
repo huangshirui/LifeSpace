@@ -15,15 +15,10 @@ import {
   type ResourceAuditStorageRow,
 } from "./resource-audit";
 import { validateTemporalRangeValue } from "./temporal-range";
-import {
-  provenanceFromStorage,
-  type InformationProvenance,
-  type StoredProvenanceColumns,
-} from "./resource-provenance";
 
 type JsonObject = Record<string, unknown>;
 
-export type TypedResourceRow = StoredProvenanceColumns & Partial<ResourceAuditStorageRow> & {
+export type TypedResourceRow = Partial<ResourceAuditStorageRow> & {
   id: string;
   space_id: string;
   model_key: string;
@@ -41,14 +36,13 @@ export type TypedStoredResource = {
   modelKey: string;
   modelVersion: number;
   data: JsonObject;
-  provenance?: InformationProvenance;
   audit?: ResourceAudit;
   version: number;
   createdAt: string;
   updatedAt: string;
 };
 
-type RelationRow = {
+export type RelationRow = {
   source_record_id: string;
   field_key: string;
   ordinal: number;
@@ -451,9 +445,8 @@ function scalarData(model: PublishedModel, row: TypedResourceRow): JsonObject {
   return hydrateTypedResourceData(model, stored, row.id);
 }
 
-function resourcesFromRows(model: PublishedModel, rows: TypedResourceRow[]): TypedStoredResource[] {
+export function resourcesFromRows(model: PublishedModel, rows: TypedResourceRow[]): TypedStoredResource[] {
   return rows.map((row) => {
-    const provenance = provenanceFromStorage(row);
     const audit = resourceAuditFromStorage(row);
     return {
       id: row.id,
@@ -461,7 +454,6 @@ function resourcesFromRows(model: PublishedModel, rows: TypedResourceRow[]): Typ
       modelKey: row.model_key,
       modelVersion: row.model_version,
       data: scalarData(model, row),
-      ...(provenance ? { provenance } : {}),
       ...(audit ? { audit } : {}),
       version: row.version,
       createdAt: row.created_at,
@@ -470,13 +462,13 @@ function resourcesFromRows(model: PublishedModel, rows: TypedResourceRow[]): Typ
   });
 }
 
-function relationReadStatement(env: Bindings, recordIds: readonly string[]): D1PreparedStatement {
+export function relationReadStatement(env: Bindings, recordIds: readonly string[]): D1PreparedStatement {
   return env.DB.prepare(`SELECT source_record_id,field_key,ordinal,target_person_id,target_record_id
     FROM resource_relations WHERE source_record_id IN (${recordIds.map(() => "?").join(",")}) ORDER BY source_record_id,field_key,ordinal`)
     .bind(...recordIds);
 }
 
-function applyRelationRows(
+export function applyRelationRows(
   model: PublishedModel,
   resources: TypedStoredResource[],
   rows: readonly RelationRow[],
@@ -548,15 +540,9 @@ export async function getTypedResource(
 ): Promise<TypedStoredResource | null> {
   const scalarSelect = typedSelectColumns(model);
   const recordStatement = env.DB.prepare(`SELECT r.id,r.space_id,r.model_key,r.model_version,r.version,r.created_at,r.updated_at,
-      p.source AS provenance_source,p.source_ref_json AS provenance_source_ref_json,
-      p.derived_from_json AS provenance_derived_from_json,
       ${resourceAuditSelectColumns("r")}${scalarSelect ? `,${scalarSelect}` : ""}
     FROM resource_records r
     JOIN ${typedTableSql(model)} m ON m.record_id=r.id AND m.space_id=r.space_id
-    LEFT JOIN resource_provenance p ON p.record_id=r.id AND p.record_version=(
-      SELECT MAX(p2.record_version) FROM resource_provenance p2
-      WHERE p2.record_id=r.id AND p2.record_version<=r.version
-    )
     ${resourceAuditJoins("r")}
     WHERE r.id=? AND r.space_id=? AND r.model_key=? AND r.deleted_at IS NULL`)
     .bind(recordId, spaceId, model.key);

@@ -26,7 +26,6 @@ export type Principal = {
   tokenId: string;
   actor?: Actor;
   purpose?: "delegated_agent";
-  activeDelegationId?: string;
 };
 
 export type Bindings = CloudflareBindings & {

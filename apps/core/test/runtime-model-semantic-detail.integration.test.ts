@@ -133,11 +133,12 @@ async function fixture(): Promise<Fixture> {
   return { db, privateKey, publicKey, userId, serviceId, clientId, spaceId, modelKey, now };
 }
 
-async function detail(f: Fixture, accessToken: string): Promise<Response> {
+async function detail(f: Fixture, accessToken: string, delegationId?: string): Promise<Response> {
   return request(
     f.publicKey,
     accessToken,
     `/api/v1/spaces/${f.spaceId}/_discovery/models/${f.modelKey}`,
+    delegationId ? { headers: { "x-lifespace-delegation-id": delegationId } } : undefined,
   );
 }
 
@@ -282,13 +283,16 @@ describe("Progressive single-model semantic detail", () => {
     const agentId = `agt_${crypto.randomUUID().replaceAll("-", "")}`;
     const delegationResponse = await request(f.publicKey, direct, `/api/v1/spaces/${f.spaceId}/agent-delegations`, {
       method: "POST",
-      body: JSON.stringify({ agentId, models: [{ modelKey: f.modelKey, maxAccess: "read" }] }),
+      body: JSON.stringify({
+        agentId,
+        scope: { target: { type: "model", id: f.modelKey }, maxAccess: "read" },
+      }),
     });
     expect(delegationResponse.status).toBe(201);
     const delegation = await responseData(delegationResponse);
 
     const delegated = await token(f.privateKey, "user", f.userId, f.clientId, ["resources:read"], { id: agentId });
-    const agentResponse = await detail(f, delegated);
+    const agentResponse = await detail(f, delegated, delegation.id);
     expect(agentResponse.status).toBe(200);
     expect(await responseData(agentResponse)).toEqual(directData);
 
@@ -299,7 +303,7 @@ describe("Progressive single-model semantic detail", () => {
       { method: "DELETE" },
     );
     expect(revokeResponse.status).toBe(204);
-    const revoked = await detail(f, delegated);
+    const revoked = await detail(f, delegated, delegation.id);
     expect(revoked.status).toBe(404);
     expect(await responseError(revoked)).toMatchObject({ code: "NOT_FOUND", message: "Resource not found" });
   });

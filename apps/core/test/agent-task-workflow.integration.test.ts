@@ -111,7 +111,10 @@ describe("Delegated Agent Task Workflow", () => {
     const delegated = await request(publicKey, `/api/v1/spaces/${spaceId}/agent-delegations`, {
       method: "POST",
       headers: auth(direct),
-      body: JSON.stringify({ agentId, models: [{ modelKey: "task", maxAccess: "write" }] }),
+      body: JSON.stringify({
+        agentId,
+        scope: { target: { type: "model", id: "task" }, maxAccess: "write" },
+      }),
     });
     expect(delegated.status).toBe(201);
     const delegation = await data<{ id: string }>(delegated);
@@ -119,7 +122,7 @@ describe("Delegated Agent Task Workflow", () => {
     const agent = await agentToken(privateKey, userId, agentId);
     const completed = await request(publicKey, `/api/v1/spaces/${spaceId}/models/task/records/${task.id}/actions/complete`, {
       method: "POST",
-      headers: auth(agent),
+      headers: { ...auth(agent), "x-lifespace-delegation-id": delegation.id },
       body: JSON.stringify({ version: task.version }),
     });
     expect(completed.status).toBe(200);
@@ -141,7 +144,7 @@ describe("Delegated Agent Task Workflow", () => {
     expect(typed).toEqual({ completedByType: "agent", completedById: agentId });
 
     const history = await request(publicKey, `/api/v1/spaces/${spaceId}/changes?recordId=${task.id}`, {
-      headers: { authorization: `Bearer ${agent}` },
+      headers: { authorization: `Bearer ${agent}`, "x-lifespace-delegation-id": delegation.id },
     });
     expect(history.status).toBe(200);
     const changes = await data<{ items: Array<{

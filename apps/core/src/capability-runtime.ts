@@ -5,6 +5,7 @@ import {
   getGenericResource,
   updateGenericResource,
   type GenericResource,
+  type MutationAttribution,
   type ResourceMutationExtension,
 } from "./generic-resource";
 import { ApiError } from "./http";
@@ -17,6 +18,7 @@ import {
   prepareTemporalCreate,
   prepareTemporalUpdate,
   recordTemporalOccurrence,
+  type SpaceTemporalContext,
   type TemporalOccurrence,
 } from "./temporal-capability";
 
@@ -74,6 +76,51 @@ function temporalInitialOccurrenceExtension(
   ];
 }
 
+export type CapabilityCreatePlan = {
+  prepared: Record<string, unknown>;
+  trusted: boolean;
+  extension?: ResourceMutationExtension;
+};
+
+export async function prepareCapabilityCreateMutation(
+  env: Bindings,
+  spaceId: string,
+  model: PublishedModel,
+  input: unknown,
+  extension?: ResourceMutationExtension,
+  temporalContext?: SpaceTemporalContext,
+): Promise<CapabilityCreatePlan> {
+  // Capability preparation may derive trusted read-only values. Preserve the
+  // original client authority boundary before any defaults or capability-owned
+  // fields are added so trusted preparation cannot turn a client-supplied
+  // read-only field into an authorized internal mutation.
+  rejectClientReadOnlyCreateFields(model, input);
+  if (hasTemporalCapability(model)) {
+    const space = temporalContext ?? await loadSpaceTemporalContext(env, spaceId);
+    const prepared = prepareTemporalCreate(model, input, space);
+    return {
+      prepared,
+      trusted: true,
+      extension: composeMutationExtensions(
+        temporalInitialOccurrenceExtension(model, prepared),
+        extension,
+      ),
+    };
+  }
+  if (hasCalendarCapability(model)) {
+    return {
+      prepared: prepareCalendarCreate(model, input),
+      trusted: false,
+      extension,
+    };
+  }
+  return {
+    prepared: input as Record<string, unknown>,
+    trusted: false,
+    extension,
+  };
+}
+
 export async function createCapabilityAwareResource(
   env: Bindings,
   principal: Principal,
@@ -81,29 +128,29 @@ export async function createCapabilityAwareResource(
   model: PublishedModel,
   input: unknown,
   extension?: ResourceMutationExtension,
+  attribution: MutationAttribution = {},
 ): Promise<GenericResource> {
-  // Capability preparation may derive trusted read-only values. Preserve the
-  // original client authority boundary before any defaults or capability-owned
-  // fields are added so trusted preparation cannot turn a client-supplied
-  // read-only field into an authorized internal mutation.
-  rejectClientReadOnlyCreateFields(model, input);
-  if (hasTemporalCapability(model)) {
-    const space = await loadSpaceTemporalContext(env, spaceId);
-    const prepared = prepareTemporalCreate(model, input, space);
-    return createGenericResource(
-      env,
-      principal,
-      spaceId,
-      model,
-      prepared,
-      true,
-      composeMutationExtensions(temporalInitialOccurrenceExtension(model, prepared), extension),
-    );
-  }
-  if (hasCalendarCapability(model)) {
-    return createGenericResource(env, principal, spaceId, model, prepareCalendarCreate(model, input), false, extension);
-  }
-  return createGenericResource(env, principal, spaceId, model, input, false, extension);
+  const plan = await prepareCapabilityCreateMutation(env, spaceId, model, input, extension);
+  return createGenericResource(
+    env,
+    principal,
+    spaceId,
+    model,
+    plan.prepared,
+    plan.trusted,
+    plan.extension,
+    attribution,
+  );
+}
+
+export function prepareCapabilityUpdateMutation(
+  model: PublishedModel,
+  resource: GenericResource,
+  input: unknown,
+): Record<string, unknown> {
+  if (hasTemporalCapability(model)) return prepareTemporalUpdate(model, resource, input);
+  if (hasCalendarCapability(model)) return prepareCalendarUpdate(model, resource, input);
+  return input as Record<string, unknown>;
 }
 
 export async function updateCapabilityAwareResource(
@@ -116,15 +163,25 @@ export async function updateCapabilityAwareResource(
   input: unknown,
   previousResource?: GenericResource,
   extension?: ResourceMutationExtension,
+  attribution: MutationAttribution = {},
 ): Promise<GenericResource> {
   const resource = previousResource ?? await getGenericResource(env, spaceId, model, recordId);
   if (!resource) throw new ApiError("RESOURCE_NOT_FOUND", "Resource not found", 404);
-  const prepared = hasTemporalCapability(model)
-    ? prepareTemporalUpdate(model, resource, input)
-    : hasCalendarCapability(model)
-      ? prepareCalendarUpdate(model, resource, input)
-      : input;
-  return updateGenericResource(env, principal, spaceId, model, recordId, expectedVersion, prepared, "client", extension, resource);
+  const prepared = prepareCapabilityUpdateMutation(model, resource, input);
+  return updateGenericResource(
+    env,
+    principal,
+    spaceId,
+    model,
+    recordId,
+    expectedVersion,
+    prepared,
+    "client",
+    extension,
+    resource,
+    undefined,
+    attribution,
+  );
 }
 
 export async function prepareCapabilityUpdatePolicyInput(env: Bindings, spaceId: string, model: PublishedModel, recordId: string, input: unknown) {
@@ -162,13 +219,32 @@ function actionBody(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
-export async function executeCapabilityAction(env: Bindings, principal: Principal, spaceId: string, model: PublishedModel, recordId: string, actionKey: string, inputValue: unknown): Promise<GenericResource> {
+export async function executeCapabilityAction(
+  env: Bindings,
+  principal: Principal,
+  spaceId: string,
+  model: PublishedModel,
+  recordId: string,
+  actionKey: string,
+  inputValue: unknown,
+  attribution: MutationAttribution = {},
+): Promise<GenericResource> {
   if (!capabilityActionAccess(model, actionKey)) throw new ApiError("ACTION_NOT_FOUND", `Action ${actionKey} is not defined for model ${model.key}`, 404);
   const input = actionBody(inputValue);
   if (Object.keys(input).some((key) => !["version", "occurredOn", "note"].includes(key))) throw new ApiError("INVALID_REQUEST", "record-occurrence accepts only version, occurredOn, and note", 400);
   if (!Number.isInteger(input.version) || Number(input.version) < 1) throw new ApiError("INVALID_REQUEST", "version must be a positive integer", 400);
   const space = await loadSpaceTemporalContext(env, spaceId);
-  const result = await recordTemporalOccurrence(env, principal, space, model, recordId, Number(input.version), input.occurredOn, input.note);
+  const result = await recordTemporalOccurrence(
+    env,
+    principal,
+    space,
+    model,
+    recordId,
+    Number(input.version),
+    input.occurredOn,
+    input.note,
+    attribution,
+  );
   return result.record;
 }
 

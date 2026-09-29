@@ -36,33 +36,56 @@ A direct user action can have `principal == actor`. A user-delegated Agent actio
 
 An Agent is therefore a possible first-class Actor and authority-bearing entity, but it never obtains user authority merely because it executes a user-requested operation. Delegation must be explicit and bounded.
 
+A Space Person (`per_*`) remains Shared Reality business identity, not an Authority-bearing identity. Policy may bridge a User Principal or User Actor to its active Space Person without changing the Authority model. For represented User -> Agent execution, `principal.personId` may resolve to the user's Space Person while `actor.personId` is null because the Agent is not itself a Person. This policy context may be co-fetched with Authority state for D1 efficiency, but Membership/Data Grant/Application Access/Delegation decisions remain based on Principal/Actor identities rather than Person records. The Runtime interface must preserve that distinction as well: Authority facts are returned as an Authority decision, while `principalPersonId / actorPersonId` are returned under a separate Policy Identity result even when one SQL statement physically supplies both.
+
 This clarification does not retroactively add a universal Agent/Actor persistence model or require an immediate rename of deployed `principal`, `principal_type`, service-principal or token claims. Those are current contract/implementation terms and remain authoritative for supported behavior.
 
 ## Effective permission
 
+Every ordinary Runtime operation executes under a verified **Execution Context**:
+
+```text
+application
+principal
+actor
+delegationId?   // opaque selector only
+```
+
+Application / Principal / Actor are established from verified credential/runtime context and are never accepted as unsigned request identity. The request may carry `delegationId` only as an opaque selector; possession of a Delegation ID grants nothing.
+
+A direct operation has `principal == actor` and requires no Delegation. A represented operation has `principal != actor` and requires a current valid Delegation bound to the verified Principal, Actor and Application.
+
 Effective permission for an ordinary model is the intersection of:
 
-1. verified authenticated principal identity/context;
+1. verified Execution Context;
 2. the current credential's stable `resources:*` scope required by the operation;
 3. the calling application's current Application × Model Access catalog entry;
-4. current Space membership / Data Grant authorization;
-5. the published model's declared access capability;
-6. model policy / Capability-specific restrictions.
+4. the Principal's current Space membership / Data Grant authorization;
+5. a current Delegation when Principal and Actor differ;
+6. the published model's declared access capability;
+7. model policy / Capability-specific restrictions.
 
 In short:
 
 ```text
-verified authenticated principal context
+verified Execution Context
 ∩ stable resources:* credential scope
 ∩ Application × Model Access
-∩ current Space membership/Data Grant
+∩ Principal current Space membership/Data Grant
+∩ Delegation when principal != actor
 ∩ published model access capability
 ∩ model policy/Capability restrictions
 ```
 
+Delegation only narrows the Principal's current Authority. Actor-owned Authority cannot fill a gap when another Principal is declared. Revoking or narrowing Membership/Data Grant/Application Access/Delegation affects the next current-state check even when a credential is still cryptographically valid.
+
+Core does not scan for a more permissive or “best matching” Delegation. A represented operation identifies the Delegation it intends to exercise and Core validates that selector against current state. One Delegation contains one Scope: one Space/Model/Record target plus one access ceiling. Record-scoped read authorizes only an already-known record and never collection enumeration.
+
 No application is trusted merely because of its hostname or product name. Publishing a model does not automatically grant every application or service access to it.
 
-For Access-authenticated Web requests, Cloudflare authentication alone satisfies none of items 2-6. Identity must first validate the Access assertion, resolve `(iss, sub)` to a LifeSpace `usr_*`, bind the Access `aud` to the intended LifeSpace application context and issue/authorize the appropriate LifeSpace credential. Core authorization then proceeds exactly as for the same `usr_*` reached through any other approved authentication path.
+For Access-authenticated Web requests, Cloudflare authentication alone satisfies none of the business-authority layers above. Identity must first validate the Access assertion, resolve `(iss, sub)` to a LifeSpace `usr_*`, bind the Access `aud` to the intended LifeSpace application context and issue/authorize the appropriate LifeSpace credential. Core authorization then proceeds exactly as for the same `usr_*` reached through any other approved authentication path.
+
+For delegated Agent execution, the Agent token authenticates User Principal + Agent Actor + Application. The specific `delegationId` is intentionally not a bearer claim: it remains a request selector that Core rechecks against those verified identities and current Delegation state.
 
 ## Model authorization
 

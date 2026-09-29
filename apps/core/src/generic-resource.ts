@@ -54,11 +54,35 @@ export type ResourceMutationExtension = (
   context: ResourceMutationExtensionContext,
 ) => Promise<D1PreparedStatement[]> | D1PreparedStatement[];
 
-type RelationProjection = {
+export type MutationAttribution = {
+  delegationId?: string | null;
+  changeSetId?: string | null;
+};
+
+export type RelationProjection = {
   fieldKey: string;
   targetType: "person" | "record";
   targetId: string;
+  targetModelKey?: string;
   ordinal: number;
+};
+
+export type PreparedCreateMutation = {
+  data: JsonObject;
+  relations: RelationProjection[];
+};
+
+export type PreparedUpdateMutation = {
+  data: JsonObject;
+  relations: RelationProjection[];
+  changedFields: string[];
+  fieldChanges: ResourceFieldChange[];
+};
+
+export type ResourceMutationPlan = {
+  statements: D1PreparedStatement[];
+  resource: GenericResource | null;
+  changeId: string;
 };
 
 const createId = () => `rec_${crypto.randomUUID().replaceAll("-", "")}`;
@@ -123,10 +147,11 @@ function changeStatement(
   changedFields: string[],
   fieldChanges: ResourceFieldChange[],
   timestamp: string,
+  attribution: MutationAttribution = {},
   mutationToken?: string,
 ): D1PreparedStatement {
-  if (principal.actor?.type === "agent" && !principal.activeDelegationId) {
-    throw new ApiError("FORBIDDEN", "Delegated Agent mutation requires current delegation authority", 403);
+  if (principal.actor?.type === "agent" && !attribution.delegationId) {
+    throw new ApiError("DELEGATION_REQUIRED", "Delegated Agent mutation requires current Delegation authority", 403);
   }
   if (operation === "action" && !actionKey) {
     throw new ApiError("CHANGE_EVIDENCE_INCOMPLETE", "Action mutation requires semantic actionKey evidence", 500);
@@ -149,7 +174,8 @@ function changeStatement(
     actor.type,
     actor.id,
     principal.clientId,
-    principal.activeDelegationId ?? null,
+    attribution.delegationId ?? null,
+    attribution.changeSetId ?? null,
     JSON.stringify([...new Set(changedFields)].sort()),
     JSON.stringify(fieldChanges),
     timestamp,
@@ -157,17 +183,30 @@ function changeStatement(
   if (!mutationToken) {
     return env.DB.prepare(`INSERT INTO resource_changes(
       id,record_id,space_id,model_key,operation,action_key,version_before,version_after,
-      principal_type,principal_id,actor_type,actor_id,application_id,delegation_id,
+      principal_type,principal_id,actor_type,actor_id,application_id,delegation_id,change_set_id,
       changed_fields_json,field_changes_json,occurred_at
-    ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(...values);
+    ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(...values);
   }
   return env.DB.prepare(`INSERT INTO resource_changes(
       id,record_id,space_id,model_key,operation,action_key,version_before,version_after,
-      principal_type,principal_id,actor_type,actor_id,application_id,delegation_id,
+      principal_type,principal_id,actor_type,actor_id,application_id,delegation_id,change_set_id,
       changed_fields_json,field_changes_json,occurred_at
-    ) SELECT ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
+    ) SELECT ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
       WHERE EXISTS(SELECT 1 FROM resource_records WHERE id=? AND mutation_token=?)`)
     .bind(...values, recordId, mutationToken);
+}
+
+function appendChangeSetOutboxLink(
+  statements: D1PreparedStatement[],
+  env: Bindings,
+  changeId: string,
+  attribution: MutationAttribution,
+): void {
+  if (!attribution.changeSetId) return;
+  statements.push(env.DB.prepare(`UPDATE domain_event_outbox
+    SET change_set_id=?
+    WHERE change_id=? AND change_set_id IS NULL`)
+    .bind(attribution.changeSetId, changeId));
 }
 
 function parseDate(value: unknown, fieldKey: string): string {
@@ -308,31 +347,48 @@ export function validateResourceData(
   return result;
 }
 
-async function projectRelations(env: Bindings, spaceId: string, definition: ModelDefinition, data: JsonObject): Promise<RelationProjection[]> {
+export function collectRelationProjections(
+  definition: ModelDefinition,
+  data: JsonObject,
+): RelationProjection[] {
   const relations: RelationProjection[] = [];
-  const personIds = new Set<string>();
-  const recordIdsByModel = new Map<string, Set<string>>();
-
   for (const [fieldKey, field] of Object.entries(definition.fields)) {
     const value = data[fieldKey];
     if (value === undefined || value === null) continue;
     if (field.type === "person" || field.type === "person_list") {
       const ids = relationIds(value, fieldKey, field.type === "person_list");
       ids.forEach((targetId, ordinal) => {
-        personIds.add(targetId);
         relations.push({ fieldKey, targetType: "person", targetId, ordinal });
       });
     }
     if (field.type === "record" || field.type === "record_list") {
       const ids = relationIds(value, fieldKey, field.type === "record_list");
-      const targetModel = field.targetModel!;
-      const targets = recordIdsByModel.get(targetModel) ?? new Set<string>();
+      const targetModelKey = field.targetModel!;
       ids.forEach((targetId, ordinal) => {
-        targets.add(targetId);
-        relations.push({ fieldKey, targetType: "record", targetId, ordinal });
+        relations.push({ fieldKey, targetType: "record", targetId, targetModelKey, ordinal });
       });
-      recordIdsByModel.set(targetModel, targets);
     }
+  }
+  return relations;
+}
+
+export async function validateRelationProjections(
+  env: Bindings,
+  spaceId: string,
+  relations: readonly RelationProjection[],
+): Promise<void> {
+  const personIds = new Set(
+    relations.filter((relation) => relation.targetType === "person").map((relation) => relation.targetId),
+  );
+  const recordIdsByModel = new Map<string, Set<string>>();
+  for (const relation of relations) {
+    if (relation.targetType !== "record") continue;
+    if (!relation.targetModelKey) {
+      throw new ApiError("INVALID_RESOURCE_RELATION", "Record relation is missing its target model", 500);
+    }
+    const ids = recordIdsByModel.get(relation.targetModelKey) ?? new Set<string>();
+    ids.add(relation.targetId);
+    recordIdsByModel.set(relation.targetModelKey, ids);
   }
 
   const validations: Array<{
@@ -340,43 +396,93 @@ async function projectRelations(env: Bindings, spaceId: string, definition: Mode
     statements: D1PreparedStatement[];
     message: string;
   }> = [];
+
   if (personIds.size) {
-    const expected = new Set(personIds);
     validations.push({
-      expected,
-      statements: chunkD1Values([...expected], 1).map((chunk) =>
-        env.DB.prepare(`SELECT id FROM space_people WHERE space_id=? AND deleted_at IS NULL AND id IN (${chunk.map(() => "?").join(",")})`)
+      expected: personIds,
+      statements: chunkD1Values([...personIds], 1).map((chunk) =>
+        env.DB.prepare(`SELECT id FROM space_people
+          WHERE space_id=? AND deleted_at IS NULL AND id IN (${chunk.map(() => "?").join(",")})`)
           .bind(spaceId, ...chunk),
       ),
       message: "Every Person relation must reference an active Person in the same Space",
     });
   }
+
   for (const [targetModel, ids] of recordIdsByModel) {
-    const expected = new Set(ids);
     validations.push({
-      expected,
-      statements: chunkD1Values([...expected], 2).map((chunk) =>
-        env.DB.prepare(`SELECT id FROM resource_records WHERE space_id=? AND model_key=? AND deleted_at IS NULL AND id IN (${chunk.map(() => "?").join(",")})`)
+      expected: ids,
+      statements: chunkD1Values([...ids], 2).map((chunk) =>
+        env.DB.prepare(`SELECT id FROM resource_records
+          WHERE space_id=? AND model_key=? AND deleted_at IS NULL
+            AND id IN (${chunk.map(() => "?").join(",")})`)
           .bind(spaceId, targetModel, ...chunk),
       ),
       message: `Every record relation must reference an active ${targetModel} record in the same Space`,
     });
   }
+
   const statements = validations.flatMap((validation) => validation.statements);
-  if (statements.length) {
-    const results = await env.DB.batch<{ id: string }>(statements);
-    let offset = 0;
-    for (const validation of validations) {
-      const found = new Set<string>();
-      for (let index = 0; index < validation.statements.length; index += 1) {
-        for (const row of results[offset + index]?.results ?? []) found.add(row.id);
-      }
-      offset += validation.statements.length;
-      if (found.size !== validation.expected.size) {
-        throw new ApiError("INVALID_RESOURCE_RELATION", validation.message, 400);
-      }
+  if (!statements.length) return;
+
+  const results = await env.DB.batch<{ id: string }>(statements);
+  let offset = 0;
+  for (const validation of validations) {
+    const found = new Set<string>();
+    for (let index = 0; index < validation.statements.length; index += 1) {
+      for (const row of results[offset + index]?.results ?? []) found.add(row.id);
+    }
+    offset += validation.statements.length;
+    if (found.size !== validation.expected.size) {
+      throw new ApiError("INVALID_RESOURCE_RELATION", validation.message, 400);
     }
   }
+}
+
+export function prepareCreateGenericMutation(
+  model: PublishedModel,
+  input: unknown,
+  trustedCapabilityInput = false,
+): PreparedCreateMutation {
+  const data = validateResourceData(
+    model.definition,
+    input,
+    trustedCapabilityInput ? "create_internal" : "create",
+  );
+  return {
+    data,
+    relations: collectRelationProjections(model.definition, data),
+  };
+}
+
+export function prepareUpdateGenericMutation(
+  model: PublishedModel,
+  input: unknown,
+  previous: GenericResource,
+  mutationMode: "client" | "action" = "client",
+): PreparedUpdateMutation {
+  const data = validateResourceData(
+    model.definition,
+    input,
+    mutationMode === "action" ? "action" : "update",
+    previous.data,
+  );
+  return {
+    data,
+    relations: collectRelationProjections(model.definition, data),
+    changedFields: isObject(input) ? Object.keys(input) : [],
+    fieldChanges: exactFieldChanges(previous.data, data),
+  };
+}
+
+async function projectRelations(
+  env: Bindings,
+  spaceId: string,
+  definition: ModelDefinition,
+  data: JsonObject,
+): Promise<RelationProjection[]> {
+  const relations = collectRelationProjections(definition, data);
+  await validateRelationProjections(env, spaceId, relations);
   return relations;
 }
 
@@ -432,19 +538,17 @@ async function resolveModel(env: Bindings, modelOrKey: PublishedModel | string):
   return getRuntimeModel(env, modelOrKey);
 }
 
-export async function createGenericResource(
+export async function planCreateGenericMutation(
   env: Bindings,
   principal: Principal,
   spaceId: string,
   model: PublishedModel,
-  input: unknown,
-  trustedCapabilityInput = false,
+  prepared: PreparedCreateMutation,
   extension?: ResourceMutationExtension,
-): Promise<GenericResource> {
-  const data = validateResourceData(model.definition, input, trustedCapabilityInput ? "create_internal" : "create");
-  const relations = await projectRelations(env, spaceId, model.definition, data);
+  attribution: MutationAttribution = {},
+  timestamp = new Date().toISOString(),
+): Promise<ResourceMutationPlan> {
   const id = createId();
-  const timestamp = new Date().toISOString();
   const mutationToken = changeId();
   const statements: D1PreparedStatement[] = [
     env.DB.prepare(`INSERT INTO resource_records(
@@ -465,10 +569,20 @@ export async function createGenericResource(
       timestamp,
       timestamp,
     ),
-    typedInsertStatement(env, model, id, spaceId, data),
-    ...relationStatements(env, id, spaceId, model, relations),
+    typedInsertStatement(env, model, id, spaceId, prepared.data),
+    ...relationStatements(env, id, spaceId, model, prepared.relations),
   ];
-  if (extension) statements.push(...await extension({ env, principal, recordId: id, spaceId, model, timestamp, mutationToken }));
+  if (extension) {
+    statements.push(...await extension({
+      env,
+      principal,
+      recordId: id,
+      spaceId,
+      model,
+      timestamp,
+      mutationToken,
+    }));
+  }
   statements.push(changeStatement(
     env,
     principal,
@@ -480,25 +594,221 @@ export async function createGenericResource(
     null,
     null,
     1,
-    Object.keys(data),
-    exactFieldChanges({}, data),
+    Object.keys(prepared.data),
+    exactFieldChanges({}, prepared.data),
     timestamp,
+    attribution,
     mutationToken,
   ));
-  statements.push(env.DB.prepare("UPDATE resource_records SET mutation_token=NULL WHERE id=? AND mutation_token=?").bind(id, mutationToken));
-  await env.DB.batch(statements);
+  appendChangeSetOutboxLink(statements, env, mutationToken, attribution);
+  statements.push(
+    env.DB.prepare("UPDATE resource_records SET mutation_token=NULL WHERE id=? AND mutation_token=?")
+      .bind(id, mutationToken),
+  );
   const auditActor = principalResourceAuditActor(principal);
   return {
-    id,
-    spaceId,
-    modelKey: model.key,
-    modelVersion: model.version,
-    data,
-    audit: { createdBy: auditActor, updatedBy: auditActor },
-    version: 1,
-    createdAt: timestamp,
-    updatedAt: timestamp,
+    statements,
+    changeId: mutationToken,
+    resource: {
+      id,
+      spaceId,
+      modelKey: model.key,
+      modelVersion: model.version,
+      data: prepared.data,
+      audit: { createdBy: auditActor, updatedBy: auditActor },
+      version: 1,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    },
   };
+}
+
+export async function planUpdateGenericMutation(
+  env: Bindings,
+  principal: Principal,
+  spaceId: string,
+  model: PublishedModel,
+  previous: GenericResource,
+  expectedVersion: number,
+  prepared: PreparedUpdateMutation,
+  mutationMode: "client" | "action" = "client",
+  extension?: ResourceMutationExtension,
+  actionKey?: string,
+  attribution: MutationAttribution = {},
+  timestamp = new Date().toISOString(),
+): Promise<ResourceMutationPlan> {
+  if (previous.id === "" || previous.spaceId !== spaceId || previous.modelKey !== model.key) {
+    throw new ApiError("RESOURCE_NOT_FOUND", "Resource not found", 404);
+  }
+  if (previous.version !== expectedVersion) {
+    throw new ApiError("VERSION_CONFLICT", "Resource version is stale", 409);
+  }
+
+  const mutationToken = changeId();
+  const nextVersion = previous.version + 1;
+  const statements: D1PreparedStatement[] = [
+    env.DB.prepare(`UPDATE resource_records SET
+      model_version=?,updated_by_type=?,updated_by_id=?,updated_by_name_snapshot=?,version=?,updated_at=?,mutation_token=?
+      WHERE id=? AND space_id=? AND model_key=? AND deleted_at IS NULL AND version=?`)
+      .bind(
+        model.version,
+        principal.type,
+        principal.id,
+        principalAuditName(principal),
+        nextVersion,
+        timestamp,
+        mutationToken,
+        previous.id,
+        spaceId,
+        model.key,
+        expectedVersion,
+      ),
+    typedUpdateStatement(env, model, previous.id, spaceId, prepared.data, mutationToken),
+    ...relationStatements(env, previous.id, spaceId, model, prepared.relations, mutationToken),
+  ];
+  if (extension) {
+    statements.push(...await extension({
+      env,
+      principal,
+      recordId: previous.id,
+      spaceId,
+      model,
+      timestamp,
+      mutationToken,
+    }));
+  }
+  statements.push(changeStatement(
+    env,
+    principal,
+    mutationToken,
+    previous.id,
+    spaceId,
+    model.key,
+    mutationMode === "action" ? "action" : "update",
+    mutationMode === "action" ? (actionKey ?? null) : null,
+    expectedVersion,
+    nextVersion,
+    prepared.changedFields,
+    prepared.fieldChanges,
+    timestamp,
+    attribution,
+    mutationToken,
+  ));
+  appendChangeSetOutboxLink(statements, env, mutationToken, attribution);
+  statements.push(
+    env.DB.prepare("UPDATE resource_records SET mutation_token=NULL WHERE id=? AND mutation_token=?")
+      .bind(previous.id, mutationToken),
+  );
+  const updatedBy = principalResourceAuditActor(principal);
+  return {
+    statements,
+    changeId: mutationToken,
+    resource: {
+      id: previous.id,
+      spaceId,
+      modelKey: model.key,
+      modelVersion: model.version,
+      data: prepared.data,
+      ...(previous.audit
+        ? { audit: { createdBy: previous.audit.createdBy, updatedBy } }
+        : {}),
+      version: nextVersion,
+      createdAt: previous.createdAt,
+      updatedAt: timestamp,
+    },
+  };
+}
+
+export function planDeleteGenericMutation(
+  env: Bindings,
+  principal: Principal,
+  spaceId: string,
+  model: PublishedModel,
+  previous: GenericResource,
+  expectedVersion: number,
+  attribution: MutationAttribution = {},
+  timestamp = new Date().toISOString(),
+): ResourceMutationPlan {
+  if (previous.id === "" || previous.spaceId !== spaceId || previous.modelKey !== model.key) {
+    throw new ApiError("RESOURCE_NOT_FOUND", "Resource not found", 404);
+  }
+  if (previous.version !== expectedVersion) {
+    throw new ApiError("VERSION_CONFLICT", "Resource version is stale", 409);
+  }
+  const mutationToken = changeId();
+  const nextVersion = expectedVersion + 1;
+  const statements: D1PreparedStatement[] = [
+    env.DB.prepare(`UPDATE resource_records SET
+      deleted_at=?,updated_at=?,updated_by_type=?,updated_by_id=?,updated_by_name_snapshot=?,
+      version=version+1,mutation_token=?
+      WHERE id=? AND space_id=? AND model_key=? AND deleted_at IS NULL AND version=?`)
+      .bind(
+        timestamp,
+        timestamp,
+        principal.type,
+        principal.id,
+        principalAuditName(principal),
+        mutationToken,
+        previous.id,
+        spaceId,
+        model.key,
+        expectedVersion,
+      ),
+    changeStatement(
+      env,
+      principal,
+      mutationToken,
+      previous.id,
+      spaceId,
+      model.key,
+      "delete",
+      null,
+      expectedVersion,
+      nextVersion,
+      [],
+      exactFieldChanges(previous.data, {}),
+      timestamp,
+      attribution,
+      mutationToken,
+    ),
+    ...(attribution.changeSetId
+      ? [env.DB.prepare(`UPDATE domain_event_outbox
+          SET change_set_id=?
+          WHERE change_id=? AND change_set_id IS NULL`)
+          .bind(attribution.changeSetId, mutationToken)]
+      : []),
+    env.DB.prepare(`DELETE FROM resource_relations WHERE source_record_id=?
+      AND EXISTS(SELECT 1 FROM resource_records WHERE id=? AND mutation_token=?)`)
+      .bind(previous.id, previous.id, mutationToken),
+    env.DB.prepare("UPDATE resource_records SET mutation_token=NULL WHERE id=? AND mutation_token=?")
+      .bind(previous.id, mutationToken),
+  ];
+  return { statements, resource: null, changeId: mutationToken };
+}
+
+export async function createGenericResource(
+  env: Bindings,
+  principal: Principal,
+  spaceId: string,
+  model: PublishedModel,
+  input: unknown,
+  trustedCapabilityInput = false,
+  extension?: ResourceMutationExtension,
+  attribution: MutationAttribution = {},
+): Promise<GenericResource> {
+  const prepared = prepareCreateGenericMutation(model, input, trustedCapabilityInput);
+  await validateRelationProjections(env, spaceId, prepared.relations);
+  const plan = await planCreateGenericMutation(
+    env,
+    principal,
+    spaceId,
+    model,
+    prepared,
+    extension,
+    attribution,
+  );
+  await env.DB.batch(plan.statements);
+  return plan.resource!;
 }
 
 export async function getGenericResource(
@@ -524,60 +834,32 @@ export async function updateGenericResource(
   extension?: ResourceMutationExtension,
   previousResource?: GenericResource,
   actionKey?: string,
+  attribution: MutationAttribution = {},
 ): Promise<GenericResource> {
   const previous = previousResource ?? await getTypedResource(env, spaceId, model, recordId);
   if (!previous || previous.id !== recordId || previous.spaceId !== spaceId || previous.modelKey !== model.key) {
     throw new ApiError("RESOURCE_NOT_FOUND", "Resource not found", 404);
   }
-  if (previous.version !== expectedVersion) throw new ApiError("VERSION_CONFLICT", "Resource version is stale", 409);
-
-  const data = validateResourceData(model.definition, input, mutationMode === "action" ? "action" : "update", previous.data);
-  const relations = await projectRelations(env, spaceId, model.definition, data);
-  const timestamp = new Date().toISOString();
-  const mutationToken = changeId();
-  const nextVersion = previous.version + 1;
-  const changedFields = isObject(input) ? Object.keys(input) : [];
-  const fieldChanges = exactFieldChanges(previous.data, data);
-  const statements: D1PreparedStatement[] = [
-    env.DB.prepare(`UPDATE resource_records SET
-      model_version=?,updated_by_type=?,updated_by_id=?,updated_by_name_snapshot=?,version=?,updated_at=?,mutation_token=?
-      WHERE id=? AND space_id=? AND model_key=? AND deleted_at IS NULL AND version=?`)
-      .bind(model.version, principal.type, principal.id, principalAuditName(principal), nextVersion, timestamp, mutationToken, recordId, spaceId, model.key, expectedVersion),
-    typedUpdateStatement(env, model, recordId, spaceId, data, mutationToken),
-    ...relationStatements(env, recordId, spaceId, model, relations, mutationToken),
-  ];
-  if (extension) statements.push(...await extension({ env, principal, recordId, spaceId, model, timestamp, mutationToken }));
-  statements.push(changeStatement(
+  const prepared = prepareUpdateGenericMutation(model, input, previous, mutationMode);
+  await validateRelationProjections(env, spaceId, prepared.relations);
+  const plan = await planUpdateGenericMutation(
     env,
     principal,
-    mutationToken,
-    recordId,
     spaceId,
-    model.key,
-    mutationMode === "action" ? "action" : "update",
-    mutationMode === "action" ? (actionKey ?? null) : null,
+    model,
+    previous,
     expectedVersion,
-    nextVersion,
-    changedFields,
-    fieldChanges,
-    timestamp,
-    mutationToken,
-  ));
-  statements.push(env.DB.prepare("UPDATE resource_records SET mutation_token=NULL WHERE id=? AND mutation_token=?").bind(recordId, mutationToken));
-  const results = await env.DB.batch(statements);
-  if (!results[0].meta.changes) throw new ApiError("VERSION_CONFLICT", "Resource version is stale", 409);
-  const updatedBy = principalResourceAuditActor(principal);
-  return {
-    id: recordId,
-    spaceId,
-    modelKey: model.key,
-    modelVersion: model.version,
-    data,
-    ...(previous.audit ? { audit: { createdBy: previous.audit.createdBy, updatedBy } } : {}),
-    version: nextVersion,
-    createdAt: previous.createdAt,
-    updatedAt: timestamp,
-  };
+    prepared,
+    mutationMode,
+    extension,
+    actionKey,
+    attribution,
+  );
+  const results = await env.DB.batch(plan.statements);
+  if (!results[0]?.meta.changes) {
+    throw new ApiError("VERSION_CONFLICT", "Resource version is stale", 409);
+  }
+  return plan.resource!;
 }
 
 export async function deleteGenericResource(
@@ -587,43 +869,25 @@ export async function deleteGenericResource(
   model: PublishedModel,
   recordId: string,
   expectedVersion: number,
+  attribution: MutationAttribution = {},
 ): Promise<void> {
   const previous = await getTypedResource(env, spaceId, model, recordId);
   if (!previous || previous.id !== recordId || previous.spaceId !== spaceId || previous.modelKey !== model.key) {
     throw new ApiError("RESOURCE_NOT_FOUND", "Resource not found", 404);
   }
-  if (previous.version !== expectedVersion) throw new ApiError("VERSION_CONFLICT", "Resource version is stale", 409);
-
-  const timestamp = new Date().toISOString();
-  const mutationToken = changeId();
-  const nextVersion = expectedVersion + 1;
-  const results = await env.DB.batch([
-    env.DB.prepare(`UPDATE resource_records SET
-      deleted_at=?,updated_at=?,updated_by_type=?,updated_by_id=?,updated_by_name_snapshot=?,version=version+1,mutation_token=?
-      WHERE id=? AND space_id=? AND model_key=? AND deleted_at IS NULL AND version=?`)
-      .bind(timestamp, timestamp, principal.type, principal.id, principal.id, mutationToken, recordId, spaceId, model.key, expectedVersion),
-    changeStatement(
-      env,
-      principal,
-      mutationToken,
-      recordId,
-      spaceId,
-      model.key,
-      "delete",
-      null,
-      expectedVersion,
-      nextVersion,
-      [],
-      exactFieldChanges(previous.data, {}),
-      timestamp,
-      mutationToken,
-    ),
-    env.DB.prepare(`DELETE FROM resource_relations WHERE source_record_id=?
-      AND EXISTS(SELECT 1 FROM resource_records WHERE id=? AND mutation_token=?)`)
-      .bind(recordId, recordId, mutationToken),
-    env.DB.prepare("UPDATE resource_records SET mutation_token=NULL WHERE id=? AND mutation_token=?").bind(recordId, mutationToken),
-  ]);
-  if (!results[0].meta.changes) throw new ApiError("VERSION_CONFLICT", "Resource version is stale", 409);
+  const plan = planDeleteGenericMutation(
+    env,
+    principal,
+    spaceId,
+    model,
+    previous,
+    expectedVersion,
+    attribution,
+  );
+  const results = await env.DB.batch(plan.statements);
+  if (!results[0]?.meta.changes) {
+    throw new ApiError("VERSION_CONFLICT", "Resource version is stale", 409);
+  }
 }
 
 export async function listGenericResources(

@@ -7,7 +7,7 @@ import { createGenericResource } from "../src/generic-resource";
 import { getPublishedModel, getRuntimeModel } from "../src/model-registry";
 
 type TestEnv = { DB: D1Database };
-type Counter = { roundTrips: number; maxBindings: number };
+type Counter = { roundTrips: number; maxBindings: number; batchSizes: number[] };
 
 const statementTargets = new WeakMap<object, D1PreparedStatement>();
 // Fixture setup intentionally creates hundreds of records and an RSA key pair. The
@@ -48,6 +48,7 @@ function countedDatabase(database: D1Database, counter: Counter): D1Database {
       if (property === "batch") {
         return (statements: D1PreparedStatement[]) => {
           counter.roundTrips += 1;
+          counter.batchSizes.push(statements.length);
           return database.batch(statements.map((statement) => statementTargets.get(statement as unknown as object) ?? statement));
         };
       }
@@ -81,7 +82,7 @@ async function keys() {
   };
 }
 
-async function accessToken(privateKey: string, userId: string) {
+async function accessToken(privateKey: string, userId: string, agentId?: string) {
   const iat = Math.floor(Date.now() / 1000);
   return sign({
     iss: "lifespace-identity",
@@ -89,6 +90,11 @@ async function accessToken(privateKey: string, userId: string) {
     sub: userId,
     azp: "app_test_runtime",
     principal_type: "user",
+    ...(agentId ? {
+      actor_type: "agent",
+      actor_id: agentId,
+      purpose: "delegated_agent",
+    } : {}),
     scope: "resources:read resources:write",
     iat,
     exp: iat + 900,
@@ -147,24 +153,36 @@ async function fixture() {
 
   const keyPair = await keys();
   const bearer = await accessToken(keyPair.privateKey, userId);
-  const counter: Counter = { roundTrips: 0, maxBindings: 0 };
+  const counter: Counter = { roundTrips: 0, maxBindings: 0, batchSizes: [] };
   const DB = countedDatabase(database, counter);
   const bindings = { DB, IDENTITY_PUBLIC_KEY: keyPair.publicKey, ENVIRONMENT: "test" };
 
   // Prime the isolate-local Registry snapshot on the same wrapped binding, then
   // reset the counter so the assertions below measure the hot path only.
   expect(await getRuntimeModel({ DB } as Bindings, "task")).not.toBeNull();
+  expect(await getRuntimeModel({ DB } as Bindings, "event")).not.toBeNull();
   counter.roundTrips = 0;
   counter.maxBindings = 0;
+  counter.batchSizes = [];
 
-  async function request(path: string, init: RequestInit = {}) {
+  async function request(path: string, init: RequestInit = {}, bearerOverride = bearer) {
     const headers = new Headers(init.headers);
-    headers.set("authorization", `Bearer ${bearer}`);
+    headers.set("authorization", `Bearer ${bearerOverride}`);
     if (init.body) headers.set("content-type", "application/json");
     return createApp().request(`http://localhost${path}`, { ...init, headers }, bindings);
   }
 
-  return { DB, counter, request, userId, spaceId, personId, records, eventRecords };
+  return {
+    DB,
+    counter,
+    request,
+    privateKey: keyPair.privateKey,
+    userId,
+    spaceId,
+    personId,
+    records,
+    eventRecords,
+  };
 }
 
 async function measured(
@@ -175,6 +193,7 @@ async function measured(
 ): Promise<Response> {
   counter.roundTrips = 0;
   counter.maxBindings = 0;
+  counter.batchSizes = [];
   const response = await operation();
   expect(response.status).toBe(expectedStatus);
   expect(counter.roundTrips).toBeLessThanOrEqual(budget);
@@ -188,6 +207,7 @@ describe("Core D1 round-trip budgets", () => {
 
     f.counter.roundTrips = 0;
     f.counter.maxBindings = 0;
+    f.counter.batchSizes = [];
     expect(await getRuntimeModel({ DB: f.DB } as Bindings, "task")).not.toBeNull();
     expect(f.counter.roundTrips).toBe(0);
 
@@ -304,6 +324,248 @@ describe("Core D1 round-trip budgets", () => {
       201,
       2,
     );
+
+    const batchCreate = await measured(
+      f.counter,
+      () => f.request(`/api/v1/spaces/${f.spaceId}/models/batch`, {
+        method: "POST",
+        body: JSON.stringify({
+          operations: Array.from({ length: 20 }, (_, index) => ({
+            operation: "create",
+            modelKey: "task",
+            data: {
+              name: `Budget batch task ${String(index).padStart(2, "0")}`,
+              assigneePersonIds: [],
+            },
+          })),
+        }),
+      }),
+      200,
+      2,
+    );
+    const batchPayload = await batchCreate.json<{
+      data: { changeSetId: string; items: Array<{ recordId: string }> };
+    }>();
+    expect(batchPayload.data.changeSetId).toMatch(/^cgs_/);
+    expect(batchPayload.data.items).toHaveLength(20);
+    expect(f.counter.batchSizes[0]).toBe(1);
+
+    const batchUpdate = await measured(
+      f.counter,
+      () => f.request(`/api/v1/spaces/${f.spaceId}/models/batch`, {
+        method: "POST",
+        body: JSON.stringify({
+          operations: f.records.slice(20, 40).map((record, index) => ({
+            operation: "update",
+            modelKey: "task",
+            recordId: record.id,
+            version: record.version,
+            data: { name: `Budget batch update ${String(index).padStart(2, "0")}` },
+          })),
+        }),
+      }),
+      200,
+      3,
+    );
+    expect((await batchUpdate.json<{ data: { items: unknown[] } }>()).data.items).toHaveLength(20);
+    expect(f.counter.batchSizes[0]).toBe(1);
+
+    const batchDelete = await measured(
+      f.counter,
+      () => f.request(`/api/v1/spaces/${f.spaceId}/models/batch`, {
+        method: "POST",
+        body: JSON.stringify({
+          operations: f.records.slice(40, 60).map((record) => ({
+            operation: "delete",
+            modelKey: "task",
+            recordId: record.id,
+            version: record.version,
+          })),
+        }),
+      }),
+      200,
+      3,
+    );
+    expect((await batchDelete.json<{ data: { items: unknown[] } }>()).data.items).toHaveLength(20);
+    expect(f.counter.batchSizes[0]).toBe(1);
+
+    const mixedOperations = [
+      ...Array.from({ length: 10 }, (_, index) => ({
+        operation: "create",
+        modelKey: "task",
+        data: { name: `Budget mixed create ${index}`, assigneePersonIds: [] },
+      })),
+      ...f.records.slice(60, 65).map((record, index) => ({
+        operation: "update",
+        modelKey: "task",
+        recordId: record.id,
+        version: record.version,
+        data: { name: `Budget mixed update ${index}` },
+      })),
+      ...f.records.slice(65, 70).map((record) => ({
+        operation: "delete",
+        modelKey: "task",
+        recordId: record.id,
+        version: record.version,
+      })),
+    ];
+    const mixed = await measured(
+      f.counter,
+      () => f.request(`/api/v1/spaces/${f.spaceId}/models/batch`, {
+        method: "POST",
+        body: JSON.stringify({ operations: mixedOperations }),
+      }),
+      200,
+      3,
+    );
+    expect((await mixed.json<{ data: { items: unknown[] } }>()).data.items).toHaveLength(20);
+    expect(f.counter.batchSizes[0]).toBe(1);
+
+    const multiModel = await measured(
+      f.counter,
+      () => f.request(`/api/v1/spaces/${f.spaceId}/models/batch`, {
+        method: "POST",
+        body: JSON.stringify({
+          operations: [
+            ...Array.from({ length: 10 }, (_, index) => ({
+              operation: "create",
+              modelKey: "task",
+              data: { name: `Budget multi task ${index}`, assigneePersonIds: [] },
+            })),
+            ...Array.from({ length: 10 }, (_, index) => {
+              const start = new Date(Date.UTC(2026, 8, 1, 0, index));
+              return {
+                operation: "create",
+                modelKey: "event",
+                data: {
+                  summary: `Budget multi event ${index}`,
+                  when: {
+                    kind: "instant",
+                    start: start.toISOString(),
+                    endExclusive: new Date(start.getTime() + 30 * 60 * 1000).toISOString(),
+                  },
+                  attendeePersonIds: [],
+                  status: "active",
+                },
+              };
+            }),
+          ],
+        }),
+      }),
+      200,
+      3,
+    );
+    expect((await multiModel.json<{ data: { items: unknown[] } }>()).data.items).toHaveLength(20);
+    expect(f.counter.batchSizes[0]).toBe(2);
+
+    const relationBearing = await measured(
+      f.counter,
+      () => f.request(`/api/v1/spaces/${f.spaceId}/models/batch`, {
+        method: "POST",
+        body: JSON.stringify({
+          operations: Array.from({ length: 20 }, (_, index) => ({
+            operation: "create",
+            modelKey: "task",
+            data: {
+              name: `Budget relation task ${index}`,
+              assigneePersonIds: [f.personId],
+            },
+          })),
+        }),
+      }),
+      200,
+      3,
+    );
+    expect((await relationBearing.json<{ data: { items: unknown[] } }>()).data.items).toHaveLength(20);
+    expect(f.counter.batchSizes[0]).toBe(1);
+
+    const agentId = `agt_${crypto.randomUUID().replaceAll("-", "")}`;
+    const agentBearer = await accessToken(f.privateKey, f.userId, agentId);
+    const modelDelegationId = `dlg_perf_model_${crypto.randomUUID().replaceAll("-", "")}`;
+    const delegatedNow = new Date().toISOString();
+    await f.DB.batch([
+      f.DB.prepare(`INSERT INTO delegations(
+        id,principal_type,principal_id,actor_type,actor_id,application_id,source_space_id,
+        created_by_type,created_by_id,created_at
+      ) VALUES(?,'user',?,'agent',?,?,?,'user',?,?)`).bind(
+        modelDelegationId,
+        f.userId,
+        agentId,
+        "app_test_runtime",
+        f.spaceId,
+        f.userId,
+        delegatedNow,
+      ),
+      f.DB.prepare(`INSERT INTO delegation_scopes(
+        delegation_id,target_type,target_id,target_model_key,max_access
+      ) VALUES(?,'model','task','task','write')`).bind(modelDelegationId),
+    ]);
+
+    const delegatedModelBatch = await measured(
+      f.counter,
+      () => f.request(`/api/v1/spaces/${f.spaceId}/models/batch`, {
+        method: "POST",
+        body: JSON.stringify({
+          operations: Array.from({ length: 20 }, (_, index) => ({
+            operation: "create",
+            modelKey: "task",
+            delegationId: modelDelegationId,
+            data: { name: `Budget delegated model ${index}`, assigneePersonIds: [] },
+          })),
+        }),
+      }, agentBearer),
+      200,
+      2,
+    );
+    expect((await delegatedModelBatch.json<{ data: { items: unknown[] } }>()).data.items).toHaveLength(20);
+    expect(f.counter.batchSizes[0]).toBe(2);
+
+    const singleUseIds = Array.from(
+      { length: 20 },
+      (_, index) => `dlg_perf_single_${index}_${crypto.randomUUID().replaceAll("-", "")}`,
+    );
+    await f.DB.batch(singleUseIds.flatMap((delegationId) => [
+      f.DB.prepare(`INSERT INTO delegations(
+        id,principal_type,principal_id,actor_type,actor_id,application_id,source_space_id,
+        created_by_type,created_by_id,created_at,max_uses
+      ) VALUES(?,'user',?,'agent',?,?,?,'user',?,?,1)`).bind(
+        delegationId,
+        f.userId,
+        agentId,
+        "app_test_runtime",
+        f.spaceId,
+        f.userId,
+        delegatedNow,
+      ),
+      f.DB.prepare(`INSERT INTO delegation_scopes(
+        delegation_id,target_type,target_id,target_model_key,max_access
+      ) VALUES(?,'model','task','task','write')`).bind(delegationId),
+    ]));
+
+    const singleUseBatch = await measured(
+      f.counter,
+      () => f.request(`/api/v1/spaces/${f.spaceId}/models/batch`, {
+        method: "POST",
+        body: JSON.stringify({
+          operations: singleUseIds.map((delegationId, index) => ({
+            operation: "create",
+            modelKey: "task",
+            delegationId,
+            data: { name: `Budget single use ${index}`, assigneePersonIds: [] },
+          })),
+        }),
+      }, agentBearer),
+      200,
+      2,
+    );
+    expect((await singleUseBatch.json<{ data: { items: unknown[] } }>()).data.items).toHaveLength(20);
+    expect(f.counter.batchSizes[0]).toBe(21);
+    const consumed = await f.DB.prepare(`SELECT COUNT(*) count FROM delegations
+      WHERE id IN (${singleUseIds.map(() => "?").join(",")}) AND consumed_at IS NOT NULL`)
+      .bind(...singleUseIds)
+      .first<{ count: number }>();
+    expect(consumed?.count).toBe(20);
+
   }, PERFORMANCE_TEST_TIMEOUT_MS);
 });
 
