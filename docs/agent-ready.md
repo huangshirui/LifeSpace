@@ -171,11 +171,11 @@ Rules:
     - `now >= expiresAt` -> expired
     - otherwise active
 
-### 4.0 Persistence profile
+### 4.1 Persistence profile
 
 The durable Delegation schema stores generic operation roles (`principal_type/principal_id`, `actor_type/actor_id`, Application and Scope) so future supported identity-role combinations do not require another table-shape migration. V1 public Delegation management intentionally exposes only the credential-backed direct User -> Agent issuance profile; generic storage does not imply that every Principal/Actor combination is currently executable.
 
-### 4.1 Lifecycle
+### 4.2 Lifecycle
 
 - **single-use** — `maxUses = 1`
 - **time-bounded** — repeated use until `expiresAt`
@@ -196,7 +196,7 @@ For mutations, Delegation consumption and the corresponding committed business C
 
 For a single-use read, data must not be returned unless that request wins the conditional consumption. This path may require a deliberate additional current-state D1 round trip; that cost must not be imposed on ordinary reads.
 
-### 4.2 Multiple business actions
+### 4.3 Multiple business actions
 
 One user confirmation may issue multiple independent Delegations.
 
