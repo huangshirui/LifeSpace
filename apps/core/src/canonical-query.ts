@@ -301,7 +301,7 @@ async function resolveRelationTarget(
       throw new ApiError("INVALID_QUERY", `${fieldKey} does not accept the me alias`, 400);
     }
     if (principal.type !== "user") throw new ApiError("INVALID_QUERY", "me requires a user principal", 400);
-    if (principalPersonId) return actorPersonId;
+    if (principalPersonId) return principalPersonId;
     const row = await env.DB.prepare("SELECT id FROM space_people WHERE space_id=? AND linked_user_id=? AND deleted_at IS NULL LIMIT 1")
       .bind(spaceId, principal.id).first<{ id: string }>();
     if (!row) throw new ApiError("INVALID_QUERY", "me requires an active Space Person", 400);
