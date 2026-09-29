@@ -144,7 +144,7 @@ describe("first-class Batch Runtime", () => {
     });
     expect(ok.status).toBe(200);
     const db = (env as unknown as TestEnv).DB;
-    const consumed = await db.prepare("SELECT COUNT(*) count FROM agent_delegations WHERE id IN (?,?) AND consumed_at IS NOT NULL")
+    const consumed = await db.prepare("SELECT COUNT(*) count FROM delegations WHERE id IN (?,?) AND consumed_at IS NOT NULL")
       .bind(first, second).first<{ count: number }>();
     expect(consumed?.count).toBe(2);
 
@@ -156,7 +156,7 @@ describe("first-class Batch Runtime", () => {
       ],
     });
     expect(reused.status).toBe(403);
-    const state = await db.prepare("SELECT consumed_at FROM agent_delegations WHERE id=?")
+    const state = await db.prepare("SELECT consumed_at FROM delegations WHERE id=?")
       .bind(third).first<{ consumed_at: string | null }>();
     expect(state?.consumed_at).toBeNull();
   });
