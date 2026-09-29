@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { Bindings, Principal } from "../src/env";
 import { requireModelAccessMany } from "../src/model-authorization";
 import { getRuntimeModel } from "../src/model-registry";
+import { requirePolicyExpression } from "../src/policy";
 
 type TestEnv = { DB: D1Database };
 type Counter = { roundTrips: number; batchSizes: number[] };
@@ -141,6 +142,32 @@ describe("Authority v2 structural Batch resolution", () => {
     expect(representedDecisions.every((decision) =>
       decision.principalPersonId === personId && decision.actorPersonId === null
     )).toBe(true);
+
+    const representedIdentity = {
+      principalPersonId: representedDecisions[0]!.principalPersonId,
+      actorPersonId: representedDecisions[0]!.actorPersonId,
+    };
+    await expect(requirePolicyExpression(
+      bindings,
+      represented,
+      spaceId,
+      { op: "neq", left: { $ref: "principal.personId" }, right: { value: null } },
+      undefined,
+      undefined,
+      representedIdentity,
+    )).resolves.toMatchObject({
+      principal: { type: "user", id: userId, personId },
+      actor: { type: "agent", id: agentId, personId: null },
+    });
+    await expect(requirePolicyExpression(
+      bindings,
+      represented,
+      spaceId,
+      { op: "neq", left: { $ref: "actor.personId" }, right: { value: null } },
+      undefined,
+      undefined,
+      representedIdentity,
+    )).rejects.toMatchObject({ code: "POLICY_DENIED" });
 
     const recordDelegationStatements: D1PreparedStatement[] = [];
     const recordDelegationIds: string[] = [];
