@@ -333,7 +333,7 @@ async function authorizeSourceRelation(
     "read",
     { delegationId: context.req.header("x-lifespace-delegation-id") },
   );
-  await requireModelPolicy(context.env, principal, spaceId, model, "read", undefined, undefined, { personId: access.actorPersonId });
+  await requireModelPolicy(context.env, principal, spaceId, model, "read", undefined, undefined, { principalPersonId: access.principalPersonId, actorPersonId: access.actorPersonId });
   return {
     relation,
     kind: field.type === "record" || field.type === "record_list" ? "record" : "person",
@@ -365,7 +365,7 @@ async function authorizeRecordTarget(
     "read",
     undefined,
     undefined,
-    { personId: access.actorPersonId },
+    { principalPersonId: access.principalPersonId, actorPersonId: access.actorPersonId },
   );
   return targetModel;
 }
