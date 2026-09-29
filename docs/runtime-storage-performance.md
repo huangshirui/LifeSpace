@@ -85,7 +85,7 @@ Independent current-state queries should be combined with D1 `batch()` when sema
 
 A represented Principal/Actor operation uses an explicit Delegation selector. Delegation lookup is an indexed current-state lookup inside the same Authority round trip; Core must not scan for or choose a best matching Delegation.
 
-First-class Batch mutation resolves the verified Execution Context once and de-duplicates equal Authority keys. Distinct Authority checks are prepared together and sent through bounded D1 batch I/O; item count must not become serialized Worker -> D1 authorization round trips.
+First-class Batch mutation resolves the verified Execution Context once. Base Authority facts are de-duplicated by Application + Principal + Space + Model independently from Delegation state; explicit Delegation snapshots are de-duplicated by Principal + Actor + Application + Space + Delegation ID. Record ID participates only in per-operation record-scope evaluation, not in repeated base-Authority reads. Distinct current-state snapshots are prepared together and sent through bounded D1 batch I/O; item count must not become serialized Worker -> D1 authorization round trips or hidden duplicate base-Authority SQL inside one RTT.
 
 Business data must not be fetched before the required authority decision merely to reduce one network hop.
 
