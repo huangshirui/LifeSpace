@@ -310,7 +310,7 @@ async function aggregateDiscoveryState(context: AppContext): Promise<AggregateDi
         AND d.consumed_at IS NULL
         AND (d.expires_at IS NULL OR julianday(d.expires_at)>julianday('now'))
         AND sp.deleted_at IS NULL`)
-      .bind(principal.id, principal.actor!.id, principal.clientId));
+      .bind(principal.type, principal.id, principal.actor!.type, principal.actor!.id, principal.clientId));
   }
 
   const results = await context.env.DB.batch(statements);
@@ -430,7 +430,7 @@ export function registerRuntimeDiscoveryRoutes(app: App): void {
           AND d.revoked_at IS NULL
           AND d.consumed_at IS NULL
           AND (d.expires_at IS NULL OR julianday(d.expires_at)>julianday('now'))`)
-        .bind(principal.id, principal.actor!.id, principal.clientId, spaceId));
+        .bind(principal.type, principal.id, principal.actor!.type, principal.actor!.id, principal.clientId, spaceId));
     }
 
     const results = await context.env.DB.batch(statements);
