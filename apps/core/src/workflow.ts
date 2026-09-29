@@ -2,7 +2,7 @@ import type { Bindings, Principal } from "./env";
 import { getGenericResource, updateGenericResource, type GenericResource, type MutationAttribution } from "./generic-resource";
 import { ApiError } from "./http";
 import type { PublishedModel } from "./model-registry";
-import { requirePolicyExpression, type PolicyContext, type ResolvedPolicyActor } from "./policy";
+import { requirePolicyExpression, type PolicyContext, type ResolvedPolicyIdentity } from "./policy";
 import type {
   WorkflowActionDefinition,
   WorkflowAssignmentValue,
@@ -70,11 +70,19 @@ function resolveAssignment(
 ): unknown {
   if (!value || typeof value !== "object") return value;
   if (value.$ref === "now") return timestamp;
+  if (value.$ref === "principal.id") return context.principal.id;
+  if (value.$ref === "principal.type") return context.principal.type;
+  if (value.$ref === "principal.personId") {
+    if (!context.principal.personId) {
+      throw new ApiError("POLICY_CONTEXT_MISSING", "Action requires an active Principal Space Person", 403);
+    }
+    return context.principal.personId;
+  }
   if (value.$ref === "actor.id") return context.actor.id;
   if (value.$ref === "actor.type") return context.actor.type;
   if (value.$ref === "actor.personId") {
     if (!context.actor.personId) {
-      throw new ApiError("POLICY_CONTEXT_MISSING", "Action requires an active actor Space Person", 403);
+      throw new ApiError("POLICY_CONTEXT_MISSING", "Action requires an active Actor Space Person", 403);
     }
     return context.actor.personId;
   }
@@ -112,7 +120,7 @@ export async function executeWorkflowAction(
   recordId: string,
   actionKey: string,
   expectedVersion: number,
-  resolvedActor?: ResolvedPolicyActor,
+  resolvedIdentity?: ResolvedPolicyIdentity,
   attribution: MutationAttribution = {},
 ): Promise<GenericResource> {
   const action = actionFor(model, actionKey);
@@ -122,7 +130,7 @@ export async function executeWorkflowAction(
     throw new ApiError("VERSION_CONFLICT", "Resource version is stale", 409);
   }
 
-  const policyContext = await requirePolicyExpression(env, principal, spaceId, action.policy, resource, undefined, resolvedActor);
+  const policyContext = await requirePolicyExpression(env, principal, spaceId, action.policy, resource, undefined, resolvedIdentity);
 
   for (const guard of action.guards ?? []) {
     if (!guardPasses(resource, guard)) {
