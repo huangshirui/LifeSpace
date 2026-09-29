@@ -200,15 +200,15 @@ function authorityRequests(
 function rejectRepeatedSingleUse(decisions: readonly ModelAccessDecision[]): void {
   const seen = new Set<string>();
   for (const decision of decisions) {
-    if (!decision.singleUse || !decision.delegationId) continue;
-    if (seen.has(decision.delegationId)) {
+    if (!decision.authority.singleUse || !decision.authority.delegationId) continue;
+    if (seen.has(decision.authority.delegationId)) {
       throw new ApiError(
         "DELEGATION_INVALID",
         "One single-use Delegation cannot authorize two operations in the same Batch",
         403,
       );
     }
-    seen.add(decision.delegationId);
+    seen.add(decision.authority.delegationId);
   }
 }
 
@@ -265,7 +265,7 @@ async function prepareOperations(
         "create",
         undefined,
         policyInput,
-        { principalPersonId: decision.principalPersonId, actorPersonId: decision.actorPersonId },
+        { principalPersonId: decision.policyIdentity.principalPersonId, actorPersonId: decision.policyIdentity.actorPersonId },
       );
       const capability = await prepareCapabilityCreateMutation(
         env,
@@ -308,7 +308,7 @@ async function prepareOperations(
         "delete",
         previous,
         undefined,
-        { principalPersonId: decision.principalPersonId, actorPersonId: decision.actorPersonId },
+        { principalPersonId: decision.policyIdentity.principalPersonId, actorPersonId: decision.policyIdentity.actorPersonId },
       );
       output.push({ operation, model, decision, previous });
       continue;
@@ -323,7 +323,7 @@ async function prepareOperations(
       "update",
       previous,
       preparedInput,
-      { principalPersonId: decision.principalPersonId, actorPersonId: decision.actorPersonId },
+      { principalPersonId: decision.policyIdentity.principalPersonId, actorPersonId: decision.policyIdentity.actorPersonId },
     );
     output.push({
       operation,
@@ -352,7 +352,7 @@ async function buildPlans(
   const plans: ResourceMutationPlan[] = [];
   for (const entry of prepared) {
     const attribution = {
-      delegationId: entry.decision.delegationId,
+      delegationId: entry.decision.authority.delegationId,
       changeSetId,
     };
     if (entry.operation.operation === "create") {
