@@ -82,7 +82,7 @@ async function keys() {
   };
 }
 
-async function accessToken(privateKey: string, userId: string) {
+async function accessToken(privateKey: string, userId: string, agentId?: string) {
   const iat = Math.floor(Date.now() / 1000);
   return sign({
     iss: "lifespace-identity",
@@ -90,6 +90,11 @@ async function accessToken(privateKey: string, userId: string) {
     sub: userId,
     azp: "app_test_runtime",
     principal_type: "user",
+    ...(agentId ? {
+      actor_type: "agent",
+      actor_id: agentId,
+      purpose: "delegated_agent",
+    } : {}),
     scope: "resources:read resources:write",
     iat,
     exp: iat + 900,
@@ -160,14 +165,24 @@ async function fixture() {
   counter.maxBindings = 0;
   counter.batchSizes = [];
 
-  async function request(path: string, init: RequestInit = {}) {
+  async function request(path: string, init: RequestInit = {}, bearerOverride = bearer) {
     const headers = new Headers(init.headers);
-    headers.set("authorization", `Bearer ${bearer}`);
+    headers.set("authorization", `Bearer ${bearerOverride}`);
     if (init.body) headers.set("content-type", "application/json");
     return createApp().request(`http://localhost${path}`, { ...init, headers }, bindings);
   }
 
-  return { DB, counter, request, userId, spaceId, personId, records, eventRecords };
+  return {
+    DB,
+    counter,
+    request,
+    privateKey: keyPair.privateKey,
+    userId,
+    spaceId,
+    personId,
+    records,
+    eventRecords,
+  };
 }
 
 async function measured(
@@ -463,6 +478,93 @@ describe("Core D1 round-trip budgets", () => {
     );
     expect((await relationBearing.json<{ data: { items: unknown[] } }>()).data.items).toHaveLength(20);
     expect(f.counter.batchSizes[0]).toBe(1);
+
+    const agentId = `agt_perf_${crypto.randomUUID().replaceAll("-", "")}`;
+    const agentBearer = await accessToken(f.privateKey, f.userId, agentId);
+    const modelDelegationId = `dlg_perf_model_${crypto.randomUUID().replaceAll("-", "")}`;
+    const delegatedNow = new Date().toISOString();
+    await f.DB.batch([
+      f.DB.prepare(`INSERT INTO delegations(
+        id,principal_type,principal_id,actor_type,actor_id,application_id,source_space_id,
+        created_by_type,created_by_id,created_at
+      ) VALUES(?,'user',?,'agent',?,?,?,'user',?,?)`).bind(
+        modelDelegationId,
+        f.userId,
+        agentId,
+        "app_test_runtime",
+        f.spaceId,
+        f.userId,
+        delegatedNow,
+      ),
+      f.DB.prepare(`INSERT INTO delegation_scopes(
+        delegation_id,target_type,target_id,target_model_key,max_access
+      ) VALUES(?,'model','task','task','write')`).bind(modelDelegationId),
+    ]);
+
+    const delegatedModelBatch = await measured(
+      f.counter,
+      () => f.request(`/api/v1/spaces/${f.spaceId}/models/batch`, {
+        method: "POST",
+        body: JSON.stringify({
+          operations: Array.from({ length: 20 }, (_, index) => ({
+            operation: "create",
+            modelKey: "task",
+            delegationId: modelDelegationId,
+            data: { name: `Budget delegated model ${index}`, assigneePersonIds: [] },
+          })),
+        }),
+      }, agentBearer),
+      200,
+      2,
+    );
+    expect((await delegatedModelBatch.json<{ data: { items: unknown[] } }>()).data.items).toHaveLength(20);
+    expect(f.counter.batchSizes[0]).toBe(2);
+
+    const singleUseIds = Array.from(
+      { length: 20 },
+      (_, index) => `dlg_perf_single_${index}_${crypto.randomUUID().replaceAll("-", "")}`,
+    );
+    await f.DB.batch(singleUseIds.flatMap((delegationId) => [
+      f.DB.prepare(`INSERT INTO delegations(
+        id,principal_type,principal_id,actor_type,actor_id,application_id,source_space_id,
+        created_by_type,created_by_id,created_at,max_uses
+      ) VALUES(?,'user',?,'agent',?,?,?,'user',?,?,1)`).bind(
+        delegationId,
+        f.userId,
+        agentId,
+        "app_test_runtime",
+        f.spaceId,
+        f.userId,
+        delegatedNow,
+      ),
+      f.DB.prepare(`INSERT INTO delegation_scopes(
+        delegation_id,target_type,target_id,target_model_key,max_access
+      ) VALUES(?,'model','task','task','write')`).bind(delegationId),
+    ]));
+
+    const singleUseBatch = await measured(
+      f.counter,
+      () => f.request(`/api/v1/spaces/${f.spaceId}/models/batch`, {
+        method: "POST",
+        body: JSON.stringify({
+          operations: singleUseIds.map((delegationId, index) => ({
+            operation: "create",
+            modelKey: "task",
+            delegationId,
+            data: { name: `Budget single use ${index}`, assigneePersonIds: [] },
+          })),
+        }),
+      }, agentBearer),
+      200,
+      2,
+    );
+    expect((await singleUseBatch.json<{ data: { items: unknown[] } }>()).data.items).toHaveLength(20);
+    expect(f.counter.batchSizes[0]).toBe(21);
+    const consumed = await f.DB.prepare(`SELECT COUNT(*) count FROM delegations
+      WHERE id IN (${singleUseIds.map(() => "?").join(",")}) AND consumed_at IS NOT NULL`)
+      .bind(...singleUseIds)
+      .first<{ count: number }>();
+    expect(consumed?.count).toBe(20);
 
   }, PERFORMANCE_TEST_TIMEOUT_MS);
 });
