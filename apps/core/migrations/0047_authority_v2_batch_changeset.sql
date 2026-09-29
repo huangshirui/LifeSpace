@@ -17,6 +17,13 @@ SELECT * FROM agent_delegations;
 CREATE TABLE _migration_0047_agent_delegation_models AS
 SELECT * FROM agent_delegation_models;
 
+-- resource_changes carries a historical FK to agent_delegations from schema 32.
+-- Rebuild it in this migration so the durable audit reference points to the
+-- generic Delegation table instead of retaining a compatibility parent table.
+CREATE TABLE _migration_0047_resource_changes AS
+SELECT * FROM resource_changes;
+
+DROP TABLE resource_changes;
 DROP TABLE agent_delegation_models;
 DROP TABLE agent_delegations;
 
@@ -142,20 +149,53 @@ JOIN _migration_0047_agent_delegation_models m
   ON m.delegation_id=map.old_delegation_id
  AND m.model_key=map.model_key;
 
-UPDATE resource_changes
-SET delegation_id=(
-  SELECT map.new_delegation_id
-  FROM _migration_0047_delegation_scope_map map
-  WHERE map.old_delegation_id=resource_changes.delegation_id
-    AND map.model_key=resource_changes.model_key
+CREATE TABLE resource_changes (
+  id TEXT PRIMARY KEY,
+  record_id TEXT NOT NULL REFERENCES resource_records(id),
+  space_id TEXT NOT NULL REFERENCES spaces(id),
+  model_key TEXT NOT NULL,
+  operation TEXT NOT NULL CHECK(operation IN ('create','update','action','delete')),
+  version_before INTEGER,
+  version_after INTEGER NOT NULL CHECK(version_after >= 1),
+  principal_type TEXT NOT NULL CHECK(principal_type IN ('user','service','device')),
+  principal_id TEXT NOT NULL,
+  actor_type TEXT NOT NULL CHECK(actor_type IN ('user','service','device','agent')),
+  actor_id TEXT NOT NULL,
+  application_id TEXT NOT NULL,
+  delegation_id TEXT REFERENCES delegations(id),
+  changed_fields_json TEXT NOT NULL DEFAULT '[]',
+  occurred_at TEXT NOT NULL,
+  action_key TEXT,
+  field_changes_json TEXT,
+  change_set_id TEXT CHECK(change_set_id IS NULL OR change_set_id GLOB 'cgs_*')
+);
+
+INSERT INTO resource_changes(
+  id,record_id,space_id,model_key,operation,version_before,version_after,
+  principal_type,principal_id,actor_type,actor_id,application_id,delegation_id,
+  changed_fields_json,occurred_at,action_key,field_changes_json,change_set_id
 )
-WHERE delegation_id IS NOT NULL
-  AND EXISTS(
-    SELECT 1
-    FROM _migration_0047_delegation_scope_map map
-    WHERE map.old_delegation_id=resource_changes.delegation_id
-      AND map.model_key=resource_changes.model_key
-  );
+SELECT
+  rc.id,rc.record_id,rc.space_id,rc.model_key,rc.operation,rc.version_before,rc.version_after,
+  rc.principal_type,rc.principal_id,rc.actor_type,rc.actor_id,rc.application_id,
+  CASE
+    WHEN rc.delegation_id IS NULL THEN NULL
+    ELSE COALESCE(map.new_delegation_id,rc.delegation_id)
+  END,
+  rc.changed_fields_json,rc.occurred_at,rc.action_key,rc.field_changes_json,NULL
+FROM _migration_0047_resource_changes rc
+LEFT JOIN _migration_0047_delegation_scope_map map
+  ON map.old_delegation_id=rc.delegation_id
+ AND map.model_key=rc.model_key;
+
+CREATE INDEX idx_resource_changes_record
+  ON resource_changes(record_id, version_after DESC, occurred_at DESC);
+CREATE INDEX idx_resource_changes_space_time
+  ON resource_changes(space_id, occurred_at DESC, id DESC);
+CREATE INDEX idx_resource_changes_actor
+  ON resource_changes(actor_type, actor_id, occurred_at DESC);
+CREATE INDEX idx_resource_changes_delegation
+  ON resource_changes(delegation_id, occurred_at DESC) WHERE delegation_id IS NOT NULL;
 
 CREATE INDEX idx_delegations_authority
   ON delegations(
@@ -174,6 +214,7 @@ CREATE INDEX idx_delegation_scopes_target
 DROP TABLE _migration_0047_delegation_scope_map;
 DROP TABLE _migration_0047_agent_delegation_models;
 DROP TABLE _migration_0047_agent_delegations;
+DROP TABLE _migration_0047_resource_changes;
 
 -- Wish ownership policy is Principal-relative. A represented Agent remains
 -- the Actor and therefore has no Space Person unless explicitly modeled as one.
@@ -223,8 +264,6 @@ CREATE TABLE resource_change_sets (
   committed_at TEXT
 );
 
-ALTER TABLE resource_changes
-  ADD COLUMN change_set_id TEXT CHECK(change_set_id IS NULL OR change_set_id GLOB 'cgs_*');
 CREATE INDEX idx_resource_changes_change_set
   ON resource_changes(change_set_id,occurred_at,id) WHERE change_set_id IS NOT NULL;
 
