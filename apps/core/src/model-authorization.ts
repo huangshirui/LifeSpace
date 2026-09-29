@@ -40,16 +40,24 @@ export type ModelAccessRequest = {
   selector?: DelegationSelector;
 };
 
-export type ModelAccessDecision = {
+export type ModelAuthorityDecision = {
   applicationId: string;
   modelKey: string;
   required: ModelAccess;
   catalogAccess: ModelAccess;
   spaceAuthority: SpaceRole | "grant";
-  principalPersonId: string | null;
-  actorPersonId: string | null;
   delegationId: string | null;
   singleUse: boolean;
+};
+
+export type ModelPolicyIdentity = {
+  principalPersonId: string | null;
+  actorPersonId: string | null;
+};
+
+export type ModelAccessDecision = {
+  authority: ModelAuthorityDecision;
+  policyIdentity: ModelPolicyIdentity;
 };
 
 type BaseAuthoritySnapshotRow = {
@@ -58,7 +66,6 @@ type BaseAuthoritySnapshotRow = {
   membership_role: SpaceRole | null;
   grant_permission: Permission | null;
   principal_person_id: string | null;
-  actor_person_id: string | null;
 };
 
 type DelegationSnapshotRow = {
@@ -160,7 +167,6 @@ function baseAuthorityStatement(
   spaceId: string,
   model: PublishedModel,
 ): D1PreparedStatement {
-  const actor = executionActor(principal);
   return env.DB.prepare(`
     SELECT
       CASE WHEN EXISTS(
@@ -190,11 +196,7 @@ function baseAuthorityStatement(
       (
         SELECT id FROM space_people
         WHERE ?='user' AND space_id=? AND linked_user_id=? AND deleted_at IS NULL LIMIT 1
-      ) AS principal_person_id,
-      (
-        SELECT id FROM space_people
-        WHERE ?='user' AND space_id=? AND linked_user_id=? AND deleted_at IS NULL LIMIT 1
-      ) AS actor_person_id
+      ) AS principal_person_id
   `).bind(
     spaceId,
     principal.clientId,
@@ -209,9 +211,6 @@ function baseAuthorityStatement(
     principal.type,
     spaceId,
     principal.id,
-    actor.type,
-    spaceId,
-    actor.id,
   );
 }
 
@@ -280,10 +279,7 @@ function baseDecision(
   spaceId: string,
   request: ModelAccessRequest,
   row: BaseAuthoritySnapshotRow | null,
-): Pick<
-  ModelAccessDecision,
-  "catalogAccess" | "spaceAuthority" | "principalPersonId" | "actorPersonId"
-> {
+): Pick<ModelAuthorityDecision, "catalogAccess" | "spaceAuthority"> {
   if (!row || row.space_exists !== 1) {
     throw new ApiError("SPACE_NOT_FOUND", "Space not found", 404);
   }
@@ -314,9 +310,26 @@ function baseDecision(
   return {
     catalogAccess: row.catalog_access,
     spaceAuthority: membershipAllowed ? row.membership_role! : "grant",
-    principalPersonId: row.principal_person_id,
-    actorPersonId: row.actor_person_id,
   };
+}
+
+function policyIdentity(
+  principal: Principal,
+  row: BaseAuthoritySnapshotRow,
+): ModelPolicyIdentity {
+  const actor = executionActor(principal);
+  const principalPersonId = row.principal_person_id;
+
+  // Current supported profiles do not include represented User -> different User.
+  // Reuse the Principal Person for the hot direct-User path and keep Agent/Service/
+  // Device actors out of Space Person semantics.
+  const actorPersonId = actor.type === "user"
+    && principal.type === "user"
+    && actor.id === principal.id
+    ? principalPersonId
+    : null;
+
+  return { principalPersonId, actorPersonId };
 }
 
 function decisionFromSnapshots(
@@ -355,13 +368,20 @@ function decisionFromSnapshots(
     singleUse = delegationRow.delegation_max_uses === 1;
   }
 
+  if (!baseRow) {
+    throw new ApiError("SPACE_NOT_FOUND", "Space not found", 404);
+  }
+
   return {
-    applicationId: principal.clientId,
-    modelKey: prepared.request.model.key,
-    required: prepared.request.required,
-    ...base,
-    delegationId: resolvedDelegationId,
-    singleUse,
+    authority: {
+      applicationId: principal.clientId,
+      modelKey: prepared.request.model.key,
+      required: prepared.request.required,
+      ...base,
+      delegationId: resolvedDelegationId,
+      singleUse,
+    },
+    policyIdentity: policyIdentity(principal, baseRow),
   };
 }
 
@@ -458,7 +478,7 @@ export async function consumeSingleUseRead(
   env: Bindings,
   decision: ModelAccessDecision,
 ): Promise<void> {
-  if (!decision.singleUse || !decision.delegationId) return;
+  if (!decision.authority.singleUse || !decision.authority.delegationId) return;
   const consumedAt = new Date().toISOString();
   const result = await env.DB.prepare(`UPDATE delegations
     SET consumed_at=?,consumed_by_change_id=NULL
@@ -467,7 +487,7 @@ export async function consumeSingleUseRead(
       AND consumed_at IS NULL
       AND revoked_at IS NULL
       AND (expires_at IS NULL OR julianday(expires_at)>julianday('now'))`)
-    .bind(consumedAt, decision.delegationId)
+    .bind(consumedAt, decision.authority.delegationId)
     .run();
   if (result.meta.changes !== 1) {
     throw new ApiError(
