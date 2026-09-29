@@ -1,8 +1,16 @@
-import { ACTOR_TYPES } from "./env";
+import { ACTOR_TYPES, PRINCIPAL_TYPES } from "./env";
 import type { FieldDefinition, ModelAccess, ModelValidationIssue } from "./model-definition";
 import { validatePolicyExpression, type PolicyExpression } from "./policy-definition";
 
-export const WORKFLOW_REFERENCES = ["now", "actor.id", "actor.type", "actor.personId"] as const;
+export const WORKFLOW_REFERENCES = [
+  "now",
+  "principal.id",
+  "principal.type",
+  "principal.personId",
+  "actor.id",
+  "actor.type",
+  "actor.personId",
+] as const;
 export type FixedWorkflowReferenceName = typeof WORKFLOW_REFERENCES[number];
 export type WorkflowReferenceName = FixedWorkflowReferenceName | `record.${string}`;
 export type WorkflowReference = { $ref: WorkflowReferenceName };
@@ -105,9 +113,15 @@ function referenceCompatible(
   fields: Record<string, FieldDefinition>,
 ): boolean {
   if (reference === "now") return target.type === "instant" || target.type === "datetime";
-  if (reference === "actor.id") return target.type === "string" || target.type === "text";
-  if (reference === "actor.personId") {
+  if (reference === "principal.id" || reference === "actor.id") {
+    return target.type === "string" || target.type === "text";
+  }
+  if (reference === "principal.personId" || reference === "actor.personId") {
     return target.type === "person" || target.type === "string" || target.type === "text";
+  }
+  if (reference === "principal.type") {
+    return target.type === "enum"
+      && PRINCIPAL_TYPES.every((value) => target.values?.includes(value));
   }
   if (reference === "actor.type") {
     return target.type === "enum"
