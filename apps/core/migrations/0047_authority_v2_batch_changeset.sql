@@ -12,7 +12,7 @@ PRAGMA foreign_keys = OFF;
 -- represents its lexicographically first model and sibling IDs represent the
 -- remaining models. Existing Change rows are remapped by their model_key.
 CREATE TABLE _migration_0047_agent_delegations AS
-SELECT * FROM agent_delegations;
+SELECT * FROM delegations;
 
 CREATE TABLE _migration_0047_agent_delegation_models AS
 SELECT * FROM agent_delegation_models;
@@ -20,13 +20,16 @@ SELECT * FROM agent_delegation_models;
 DROP TABLE agent_delegation_models;
 DROP TABLE agent_delegations;
 
-CREATE TABLE agent_delegations (
+CREATE TABLE delegations (
   id TEXT PRIMARY KEY CHECK(id GLOB 'dlg_*'),
-  principal_user_id TEXT NOT NULL,
-  agent_id TEXT NOT NULL CHECK(agent_id LIKE 'agt_%'),
+  principal_type TEXT NOT NULL,
+  principal_id TEXT NOT NULL,
+  actor_type TEXT NOT NULL,
+  actor_id TEXT NOT NULL,
   application_id TEXT NOT NULL,
   source_space_id TEXT NOT NULL REFERENCES spaces(id),
-  created_by_user_id TEXT NOT NULL,
+  created_by_type TEXT NOT NULL,
+  created_by_id TEXT NOT NULL,
   created_at TEXT NOT NULL,
   expires_at TEXT,
   revoked_at TEXT,
@@ -36,8 +39,8 @@ CREATE TABLE agent_delegations (
   CHECK(consumed_at IS NULL OR max_uses=1)
 );
 
-CREATE TABLE agent_delegation_scopes (
-  delegation_id TEXT PRIMARY KEY REFERENCES agent_delegations(id),
+CREATE TABLE delegation_scopes (
+  delegation_id TEXT PRIMARY KEY REFERENCES delegations(id),
   target_type TEXT NOT NULL CHECK(target_type IN ('space','model','record')),
   target_id TEXT NOT NULL,
   target_model_key TEXT,
@@ -73,16 +76,19 @@ SELECT
   END
 FROM _migration_0047_agent_delegation_models m;
 
-INSERT INTO agent_delegations(
-  id,principal_user_id,agent_id,application_id,source_space_id,
-  created_by_user_id,created_at,expires_at,revoked_at,max_uses,consumed_at,consumed_by_change_id
+INSERT INTO delegations(
+  id,principal_type,principal_id,actor_type,actor_id,application_id,source_space_id,
+  created_by_type,created_by_id,created_at,expires_at,revoked_at,max_uses,consumed_at,consumed_by_change_id
 )
 SELECT
   map.new_delegation_id,
+  'user',
   d.principal_user_id,
+  'agent',
   d.agent_id,
   d.application_id,
   d.source_space_id,
+  'user',
   d.created_by_user_id,
   d.created_at,
   d.expires_at,
@@ -95,16 +101,19 @@ JOIN _migration_0047_agent_delegations d ON d.id=map.old_delegation_id;
 
 -- Defensive audit preservation for an impossible-but-legal legacy row that had
 -- no model scope. It remains revoked and has no executable v2 scope.
-INSERT INTO agent_delegations(
-  id,principal_user_id,agent_id,application_id,source_space_id,
-  created_by_user_id,created_at,expires_at,revoked_at,max_uses,consumed_at,consumed_by_change_id
+INSERT INTO delegations(
+  id,principal_type,principal_id,actor_type,actor_id,application_id,source_space_id,
+  created_by_type,created_by_id,created_at,expires_at,revoked_at,max_uses,consumed_at,consumed_by_change_id
 )
 SELECT
   d.id,
+  'user',
   d.principal_user_id,
+  'agent',
   d.agent_id,
   d.application_id,
   d.source_space_id,
+  'user',
   d.created_by_user_id,
   d.created_at,
   d.expires_at,
@@ -119,7 +128,7 @@ WHERE NOT EXISTS(
   WHERE map.old_delegation_id=d.id
 );
 
-INSERT INTO agent_delegation_scopes(
+INSERT INTO delegation_scopes(
   delegation_id,target_type,target_id,target_model_key,max_access
 )
 SELECT
@@ -148,17 +157,17 @@ WHERE delegation_id IS NOT NULL
       AND map.model_key=resource_changes.model_key
   );
 
-CREATE INDEX idx_agent_delegations_authority
-  ON agent_delegations(
-    principal_user_id,agent_id,application_id,source_space_id,
+CREATE INDEX idx_delegations_authority
+  ON delegations(
+    principal_type,principal_id,actor_type,actor_id,application_id,source_space_id,
     revoked_at,consumed_at,expires_at
   );
-CREATE INDEX idx_agent_delegations_space_user
-  ON agent_delegations(
-    source_space_id,principal_user_id,application_id,created_at DESC
+CREATE INDEX idx_delegations_space_principal
+  ON delegations(
+    source_space_id,principal_type,principal_id,application_id,created_at DESC
   );
-CREATE INDEX idx_agent_delegation_scopes_target
-  ON agent_delegation_scopes(
+CREATE INDEX idx_delegation_scopes_target
+  ON delegation_scopes(
     target_type,target_id,target_model_key,max_access,delegation_id
   );
 
@@ -224,11 +233,11 @@ CREATE TRIGGER trg_resource_change_consume_single_use_delegation
 BEFORE INSERT ON resource_changes
 WHEN NEW.delegation_id IS NOT NULL
   AND EXISTS(
-    SELECT 1 FROM agent_delegations
+    SELECT 1 FROM delegations
     WHERE id=NEW.delegation_id AND max_uses=1
   )
 BEGIN
-  UPDATE agent_delegations
+  UPDATE delegations
   SET consumed_at=NEW.occurred_at,
       consumed_by_change_id=NEW.id
   WHERE id=NEW.delegation_id
@@ -240,7 +249,7 @@ BEGIN
   SELECT CASE
     WHEN NOT EXISTS(
       SELECT 1
-      FROM agent_delegations
+      FROM delegations
       WHERE id=NEW.delegation_id
         AND max_uses=1
         AND consumed_by_change_id=NEW.id
