@@ -81,7 +81,7 @@ Principle:
 
 > Cache stable rules; evaluate mutable authority from current state.
 
-Independent current-state queries should be combined with D1 `batch()` when semantics permit.
+Independent current-state queries should be combined with D1 `batch()` when semantics permit. Policy-only Space Person context may be physically co-fetched with current Authority state, but the returned API keeps it separate from the Authority decision. For the ordinary direct User hot path, Principal and Actor are the same User, so Core performs one User -> Space Person lookup and reuses that result for both policy identities rather than issuing duplicate identical scalar subqueries.
 
 A represented Principal/Actor operation uses an explicit Delegation selector. Delegation lookup is an indexed current-state lookup inside the same Authority round trip; Core must not scan for or choose a best matching Delegation.
 
