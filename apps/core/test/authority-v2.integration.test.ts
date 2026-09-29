@@ -217,7 +217,7 @@ describe("Authority v2 Delegation execution", () => {
     expect(invalid.status).toBe(400);
 
     const db = (env as unknown as TestEnv).DB;
-    expect((await db.prepare("SELECT consumed_at FROM agent_delegations WHERE id=?")
+    expect((await db.prepare("SELECT consumed_at FROM delegations WHERE id=?")
       .bind(delegation.id).first<{ consumed_at: string | null }>())?.consumed_at).toBeNull();
 
     const created = await request(publicKey, `/api/v1/spaces/${spaceId}/models/task/records`, agent, {
@@ -228,7 +228,7 @@ describe("Authority v2 Delegation execution", () => {
     const record = (await payload(created)).data;
 
     const stored = await db.prepare(`SELECT d.consumed_at,d.consumed_by_change_id,c.record_id
-      FROM agent_delegations d
+      FROM delegations d
       LEFT JOIN resource_changes c ON c.id=d.consumed_by_change_id
       WHERE d.id=?`).bind(delegation.id).first<{
         consumed_at: string | null;
