@@ -139,7 +139,7 @@ export function registerGenericResourceRoutes(app: App): void {
     await measurePerformancePhase(
       context,
       "runtime.policy",
-      () => requireModelPolicy(context.env, principal, spaceId, resolved, "read", undefined, undefined, { personId: access.actorPersonId }),
+      () => requireModelPolicy(context.env, principal, spaceId, resolved, "read", undefined, undefined, { principalPersonId: access.principalPersonId, actorPersonId: access.actorPersonId }),
     );
     const params = new URL(context.req.url).searchParams;
     const result = await measurePerformancePhase(context, "runtime.query", async () =>
@@ -155,7 +155,7 @@ export function registerGenericResourceRoutes(app: App): void {
                 spaceId,
                 resolved,
                 translateGenericGetQuery(resolved, params),
-                access.actorPersonId,
+                access.principalPersonId,
               ),
     );
     const response = await measurePerformancePhase(
@@ -180,7 +180,7 @@ export function registerGenericResourceRoutes(app: App): void {
     await measurePerformancePhase(
       context,
       "runtime.policy",
-      () => requireModelPolicy(context.env, principal, spaceId, resolved, "read", undefined, undefined, { personId: access.actorPersonId }),
+      () => requireModelPolicy(context.env, principal, spaceId, resolved, "read", undefined, undefined, { principalPersonId: access.principalPersonId, actorPersonId: access.actorPersonId }),
     );
     const input = await body(context);
     const result = await measurePerformancePhase(
@@ -192,7 +192,7 @@ export function registerGenericResourceRoutes(app: App): void {
         spaceId,
         resolved,
         input,
-        access.actorPersonId,
+        access.principalPersonId,
       ),
     );
     const response = await measurePerformancePhase(
@@ -219,7 +219,7 @@ export function registerGenericResourceRoutes(app: App): void {
     await measurePerformancePhase(
       context,
       "runtime.policy",
-      () => requireModelPolicy(context.env, principal, spaceId, resolved, "create", undefined, prepared, { personId: access.actorPersonId }),
+      () => requireModelPolicy(context.env, principal, spaceId, resolved, "create", undefined, prepared, { principalPersonId: access.principalPersonId, actorPersonId: access.actorPersonId }),
     );
     const created = await measurePerformancePhase(
       context,
@@ -262,7 +262,7 @@ export function registerGenericResourceRoutes(app: App): void {
     await measurePerformancePhase(
       context,
       "runtime.policy",
-      () => requireModelPolicy(context.env, principal, spaceId, resolved, "read", resource, undefined, { personId: access.actorPersonId }),
+      () => requireModelPolicy(context.env, principal, spaceId, resolved, "read", resource, undefined, { principalPersonId: access.principalPersonId, actorPersonId: access.actorPersonId }),
     );
     const response = await measurePerformancePhase(
       context,
@@ -296,7 +296,7 @@ export function registerGenericResourceRoutes(app: App): void {
     await measurePerformancePhase(
       context,
       "runtime.policy",
-      () => requireModelPolicy(context.env, principal, spaceId, resolved, "update", prepared.resource, prepared.prepared, { personId: access.actorPersonId }),
+      () => requireModelPolicy(context.env, principal, spaceId, resolved, "update", prepared.resource, prepared.prepared, { principalPersonId: access.principalPersonId, actorPersonId: access.actorPersonId }),
     );
     const updated = await measurePerformancePhase(
       context,
@@ -333,7 +333,7 @@ export function registerGenericResourceRoutes(app: App): void {
     if (Object.keys(input).some((key) => key !== "version")) throw new ApiError("INVALID_REQUEST", "Delete accepts only version", 400);
     const resource = await getGenericResource(context.env, spaceId, resolved, recordId);
     if (!resource) throw new ApiError("RESOURCE_NOT_FOUND", "Resource not found", 404);
-    await requireModelPolicy(context.env, principal, spaceId, resolved, "delete", resource, undefined, { personId: access.actorPersonId });
+    await requireModelPolicy(context.env, principal, spaceId, resolved, "delete", resource, undefined, { principalPersonId: access.principalPersonId, actorPersonId: access.actorPersonId });
     await deleteGenericResource(
       context.env,
       principal,
@@ -355,7 +355,7 @@ export function registerGenericResourceRoutes(app: App): void {
     const access = await requireModelAccess(context.env, principal, spaceId, resolved, "read", accessSelector(context, recordId));
     const resource = await getGenericResource(context.env, spaceId, resolved, recordId);
     if (!resource) throw new ApiError("RESOURCE_NOT_FOUND", "Resource not found", 404);
-    await requireModelPolicy(context.env, principal, spaceId, resolved, "read", resource, undefined, { personId: access.actorPersonId });
+    await requireModelPolicy(context.env, principal, spaceId, resolved, "read", resource, undefined, { principalPersonId: access.principalPersonId, actorPersonId: access.actorPersonId });
     const rawLimit = new URL(context.req.url).searchParams.get("limit");
     const limit = rawLimit === null ? 100 : Number(rawLimit);
     if (!Number.isInteger(limit) || limit < 1 || limit > 200) throw new ApiError("INVALID_QUERY", "limit must be between 1 and 200", 400);
@@ -403,7 +403,7 @@ export function registerGenericResourceRoutes(app: App): void {
       recordId,
       actionKey,
       positiveVersion(input.version),
-      { personId: access.actorPersonId },
+      { principalPersonId: access.principalPersonId, actorPersonId: access.actorPersonId },
       { delegationId: access.delegationId },
     );
     return context.json(success(await dto(context.env, spaceId, resolved, updated)));
