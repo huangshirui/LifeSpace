@@ -108,6 +108,8 @@ An explicit first-class Runtime Batch is delivered differently at the transport 
 
 Batch delivery re-runs the same send-time endpoint/subscription, Application × Model Access, subscriber Data Grant and Service Principal eligibility checks before the outbound request. Aggregation therefore changes transport fan-out, not authority or individual Change/Event evidence.
 
+ChangeSet dispatch is also a structural performance boundary: subscription eligibility for all 1..20 events is resolved set-wise, delivery rows are materialized/read through bounded D1 I/O, and queued-state updates are batched after endpoint grouping. D1 round trips therefore remain bounded in ChangeSet item count; outbound Queue sends may scale with the number of distinct eligible endpoints, not with duplicate per-event database loops.
+
 Webhook requests are POST JSON and include:
 
 - `X-LifeSpace-Event-Id`
