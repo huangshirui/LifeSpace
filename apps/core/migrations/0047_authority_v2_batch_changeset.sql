@@ -276,14 +276,14 @@ CREATE TRIGGER trg_resource_change_set_require_complete
 BEFORE UPDATE OF committed_at ON resource_change_sets
 WHEN NEW.committed_at IS NOT NULL AND OLD.committed_at IS NULL
 BEGIN
-  SELECT CASE
+  SELECT (CASE
     WHEN (
       SELECT COUNT(*)
       FROM resource_changes c
       WHERE c.change_set_id=NEW.id
     ) <> NEW.operation_count
     THEN RAISE(ABORT, 'CHANGE_SET_INCOMPLETE')
-  END;
+  END);
 END;
 
 ALTER TABLE domain_event_outbox
@@ -313,7 +313,7 @@ BEGIN
     AND revoked_at IS NULL
     AND (expires_at IS NULL OR julianday(expires_at)>julianday('now'));
 
-  SELECT CASE
+  SELECT (CASE
     WHEN NOT EXISTS(
       SELECT 1
       FROM delegations
@@ -322,7 +322,7 @@ BEGIN
         AND consumed_by_change_id=NEW.id
     )
     THEN RAISE(ABORT, 'DELEGATION_SINGLE_USE_UNAVAILABLE')
-  END;
+  END);
 END;
 
 UPDATE schema_metadata SET value='47' WHERE key='schema_version';
