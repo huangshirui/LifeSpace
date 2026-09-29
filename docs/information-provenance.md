@@ -23,7 +23,7 @@ Information Provenance
 - Model Contract 不自动生成 `provenance` 字段；
 - 不保留旧 `resource_provenance` 表或旧数据兼容；
 - Provenance 应通过普通业务 Relation 表达；
-- 需要来源语义时，由 Model Definition 的 Relation 使用轻量语义角色，例如 `semanticRole: provenance_source`；
+- 当前 Model Definition v1 还没有 `semanticRole` 语法；计划中的轻量 Relation semantic role（例如 `provenance_source`）由 #297 单独实现，在该 Issue 完成前不得把 `semanticRole` 描述为已发布契约；
 - 是否需要固定 source version、同步模式、外部查询方式等，属于具体业务 Model / 外部数据源模型语义，不放进 Authority / Delegation / Change；
 - Federated Truth 另行设计，不预埋到当前 Provenance 或 Authority 模型。
 
@@ -33,13 +33,15 @@ LifeSpace treats Information Provenance as **business modeling semantics**, not 
 
 A durable provenance relationship is represented by an ordinary model relation when the business model needs it. The relation participates in the same model validation, query, authority and lifecycle rules as other business relations.
 
-Conceptually:
+Conceptually, the intended follow-up (#297) is:
 
 ```text
 Business Record
   relation -> Source Record
-  semanticRole = provenance_source
+  semanticRole = provenance_source   // planned, not yet Model Definition v1 syntax
 ```
+
+Until #297 lands, ordinary Relation fields remain available, but there is no platform-recognized provenance semantic-role annotation.
 
 The platform does not infer trust, truth quality, medical authority, confidence, synchronization authority or federation semantics merely because a provenance relationship exists. Those meanings remain explicit domain-model semantics.
 
