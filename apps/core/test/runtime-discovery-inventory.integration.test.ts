@@ -237,12 +237,13 @@ describe("Compact current Runtime capability inventory", () => {
     const f = await fixture();
     const delegationId = `dlg_inventory_${crypto.randomUUID().replaceAll("-", "")}`;
     await f.db.batch([
-      f.db.prepare(`INSERT INTO agent_delegations(
-        id,principal_user_id,agent_id,application_id,source_space_id,created_by_user_id,created_at,expires_at,revoked_at
-      ) VALUES(?,?,?,?,?,?,?,?,?)`).bind(
+      f.db.prepare(`INSERT INTO delegations(
+        id,principal_type,principal_id,actor_type,actor_id,application_id,source_space_id,
+        created_by_type,created_by_id,created_at,expires_at,revoked_at
+      ) VALUES(?,'user',?,'agent',?,?,?,'user',?,?,?,?)`).bind(
         delegationId, f.userId, f.agentId, f.clientId, f.firstSpaceId, f.userId, f.now, null, null,
       ),
-      f.db.prepare(`INSERT INTO agent_delegation_scopes(
+      f.db.prepare(`INSERT INTO delegation_scopes(
         delegation_id,target_type,target_id,target_model_key,max_access
       ) VALUES(?,'model',?,?,?)`).bind(delegationId, f.modelKey, f.modelKey, "read"),
     ]);
@@ -263,7 +264,7 @@ describe("Compact current Runtime capability inventory", () => {
       }),
     ]);
 
-    await f.db.prepare("UPDATE agent_delegations SET revoked_at=? WHERE id=?").bind(new Date().toISOString(), delegationId).run();
+    await f.db.prepare("UPDATE delegations SET revoked_at=? WHERE id=?").bind(new Date().toISOString(), delegationId).run();
     const after = await responseData(await request(f.publicKey, bearer, "/api/v1/me/_discovery/inventory"));
     expect(after.models).toEqual([]);
     expect(after.spaces).toEqual([]);
