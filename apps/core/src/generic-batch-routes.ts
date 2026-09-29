@@ -265,7 +265,7 @@ async function prepareOperations(
         "create",
         undefined,
         policyInput,
-        { personId: decision.actorPersonId },
+        { principalPersonId: decision.principalPersonId, actorPersonId: decision.actorPersonId },
       );
       const capability = await prepareCapabilityCreateMutation(
         env,
@@ -308,7 +308,7 @@ async function prepareOperations(
         "delete",
         previous,
         undefined,
-        { personId: decision.actorPersonId },
+        { principalPersonId: decision.principalPersonId, actorPersonId: decision.actorPersonId },
       );
       output.push({ operation, model, decision, previous });
       continue;
@@ -323,7 +323,7 @@ async function prepareOperations(
       "update",
       previous,
       preparedInput,
-      { personId: decision.actorPersonId },
+      { principalPersonId: decision.principalPersonId, actorPersonId: decision.actorPersonId },
     );
     output.push({
       operation,
