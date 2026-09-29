@@ -235,7 +235,7 @@ export function registerAgentDelegationRoutes(app: App): void {
       context.env.DB.prepare(`INSERT INTO delegations(
         id,principal_type,principal_id,actor_type,actor_id,application_id,source_space_id,
         created_by_type,created_by_id,created_at,expires_at,max_uses
-      ) VALUES(?,'user',?,'agent',?,?,?,?, 'user',?,?,?,?)`).bind(
+      ) VALUES(?,'user',?,'agent',?,?,?,'user',?,?,?,?)`).bind(
         delegationId,
         principal.id,
         body.agentId,
