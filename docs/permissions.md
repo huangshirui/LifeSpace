@@ -36,6 +36,8 @@ A direct user action can have `principal == actor`. A user-delegated Agent actio
 
 An Agent is therefore a possible first-class Actor and authority-bearing entity, but it never obtains user authority merely because it executes a user-requested operation. Delegation must be explicit and bounded.
 
+A Space Person (`per_*`) remains Shared Reality business identity, not an Authority-bearing identity. Policy may bridge a User Principal or User Actor to its active Space Person without changing the Authority model. For represented User -> Agent execution, `principal.personId` may resolve to the user's Space Person while `actor.personId` is null because the Agent is not itself a Person. This policy context may be co-fetched with Authority state for D1 efficiency, but Membership/Data Grant/Application Access/Delegation decisions remain based on Principal/Actor identities rather than Person records.
+
 This clarification does not retroactively add a universal Agent/Actor persistence model or require an immediate rename of deployed `principal`, `principal_type`, service-principal or token claims. Those are current contract/implementation terms and remain authoritative for supported behavior.
 
 ## Effective permission
