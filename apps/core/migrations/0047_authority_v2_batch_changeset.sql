@@ -12,7 +12,7 @@ PRAGMA foreign_keys = OFF;
 -- represents its lexicographically first model and sibling IDs represent the
 -- remaining models. Existing Change rows are remapped by their model_key.
 CREATE TABLE _migration_0047_agent_delegations AS
-SELECT * FROM delegations;
+SELECT * FROM agent_delegations;
 
 CREATE TABLE _migration_0047_agent_delegation_models AS
 SELECT * FROM agent_delegation_models;
