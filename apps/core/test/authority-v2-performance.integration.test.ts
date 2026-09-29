@@ -6,7 +6,7 @@ import { getRuntimeModel } from "../src/model-registry";
 import { requirePolicyExpression } from "../src/policy";
 
 type TestEnv = { DB: D1Database };
-type Counter = { roundTrips: number; batchSizes: number[] };
+type Counter = { roundTrips: number; batchSizes: number[]; preparedSql: string[] };
 
 const statementTargets = new WeakMap<object, D1PreparedStatement>();
 
@@ -27,7 +27,10 @@ function countedDatabase(database: D1Database, counter: Counter): D1Database {
   return new Proxy(database as object, {
     get(target, property) {
       if (property === "prepare") {
-        return (query: string) => countedStatement(database.prepare(query));
+        return (query: string) => {
+          counter.preparedSql.push(query);
+          return countedStatement(database.prepare(query));
+        };
       }
       if (property === "batch") {
         return (statements: D1PreparedStatement[]) => {
@@ -85,7 +88,7 @@ describe("Authority v2 structural Batch resolution", () => {
       purpose: "delegated_agent",
     };
 
-    const counter: Counter = { roundTrips: 0, batchSizes: [] };
+    const counter: Counter = { roundTrips: 0, batchSizes: [], preparedSql: [] };
     const bindings = { DB: countedDatabase(db, counter) } as Bindings;
     const recordIds = Array.from({ length: 20 }, (_, index) => `rec_auth_perf_${suffix}_${index}`);
 
@@ -101,6 +104,8 @@ describe("Authority v2 structural Batch resolution", () => {
     );
     expect(counter.roundTrips).toBe(1);
     expect(counter.batchSizes).toEqual([1]);
+    expect(counter.preparedSql).toHaveLength(1);
+    expect((counter.preparedSql[0]!.match(/FROM space_people/g) ?? [])).toHaveLength(1);
     expect(directDecisions).toHaveLength(20);
     expect(directDecisions.every((decision) =>
       decision.policyIdentity.principalPersonId === personId && decision.policyIdentity.actorPersonId === personId
@@ -127,6 +132,7 @@ describe("Authority v2 structural Batch resolution", () => {
 
     counter.roundTrips = 0;
     counter.batchSizes = [];
+    counter.preparedSql = [];
     const representedDecisions = await requireModelAccessMany(
       bindings,
       represented,
@@ -139,6 +145,11 @@ describe("Authority v2 structural Batch resolution", () => {
     );
     expect(counter.roundTrips).toBe(1);
     expect(counter.batchSizes).toEqual([2]);
+    expect(counter.preparedSql).toHaveLength(2);
+    expect(counter.preparedSql.reduce(
+      (count, sql) => count + (sql.match(/FROM space_people/g) ?? []).length,
+      0,
+    )).toBe(1);
     expect(representedDecisions.every((decision) =>
       decision.policyIdentity.principalPersonId === personId && decision.policyIdentity.actorPersonId === null
     )).toBe(true);
@@ -196,6 +207,7 @@ describe("Authority v2 structural Batch resolution", () => {
 
     counter.roundTrips = 0;
     counter.batchSizes = [];
+    counter.preparedSql = [];
     const recordScoped = await requireModelAccessMany(
       bindings,
       represented,
