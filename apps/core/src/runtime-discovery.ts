@@ -301,10 +301,11 @@ async function aggregateDiscoveryState(context: AppContext): Promise<AggregateDi
   if (delegatedAgent) {
     statements.push(context.env.DB.prepare(`SELECT
         d.source_space_id,s.target_type,s.target_id,s.target_model_key,s.max_access
-      FROM agent_delegations d
-      JOIN agent_delegation_scopes s ON s.delegation_id=d.id
+      FROM delegations d
+      JOIN delegation_scopes s ON s.delegation_id=d.id
       JOIN spaces sp ON sp.id=d.source_space_id
-      WHERE d.principal_user_id=? AND d.agent_id=? AND d.application_id=?
+      WHERE d.principal_type=? AND d.principal_id=?
+        AND d.actor_type=? AND d.actor_id=? AND d.application_id=?
         AND d.revoked_at IS NULL
         AND d.consumed_at IS NULL
         AND (d.expires_at IS NULL OR julianday(d.expires_at)>julianday('now'))
@@ -422,9 +423,10 @@ export function registerRuntimeDiscoveryRoutes(app: App): void {
     if (delegatedAgent) {
       statements.push(context.env.DB.prepare(`SELECT
           s.target_type,s.target_id,s.target_model_key,s.max_access
-        FROM agent_delegations d
-        JOIN agent_delegation_scopes s ON s.delegation_id=d.id
-        WHERE d.principal_user_id=? AND d.agent_id=? AND d.application_id=? AND d.source_space_id=?
+        FROM delegations d
+        JOIN delegation_scopes s ON s.delegation_id=d.id
+        WHERE d.principal_type=? AND d.principal_id=?
+          AND d.actor_type=? AND d.actor_id=? AND d.application_id=? AND d.source_space_id=?
           AND d.revoked_at IS NULL
           AND d.consumed_at IS NULL
           AND (d.expires_at IS NULL OR julianday(d.expires_at)>julianday('now'))`)
