@@ -175,6 +175,34 @@ DROP TABLE _migration_0047_delegation_scope_map;
 DROP TABLE _migration_0047_agent_delegation_models;
 DROP TABLE _migration_0047_agent_delegations;
 
+-- Wish ownership policy is Principal-relative. A represented Agent remains
+-- the Actor and therefore has no Space Person unless explicitly modeled as one.
+-- The Principal user's Space Person is the business identity compared with
+-- ownerPersonId. This is a compatible semantic publication: wire/storage shape
+-- is unchanged while delegated execution stops conflating Actor with Principal.
+UPDATE model_definitions
+SET state='superseded',superseded_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
+WHERE model_key='wish' AND state='published'
+  AND schema_hash='7dc6c079916a967c8bcd93f8cbe082c98157ceaeb30ce782ef3f2eb035d370df';
+
+INSERT INTO model_definitions(
+  id,model_key,route_segment,version,state,definition_version,definition_json,schema_hash,compatibility,
+  published_by_type,published_by_id,published_by_name_snapshot,published_at
+)
+SELECT
+  'mdl_catalog_wish_principal_person_20260929','wish','wish',
+  COALESCE((SELECT MAX(version) FROM model_definitions WHERE model_key='wish'),0)+1,
+  'published',1,
+  '{"access":["read","write"],"actions":{"fulfill":{"access":"write","guards":[{"errorCode":"WISH_NOT_OPEN","field":"status","message":"Only open wishes can be fulfilled","op":"eq","value":"open"}],"policy":{"left":{"$ref":"principal.personId"},"op":"neq","right":{"value":null}},"set":{"fulfilledAt":{"$ref":"now"},"status":"fulfilled"}},"reopen":{"access":"write","guards":[{"errorCode":"WISH_NOT_FULFILLED","field":"status","message":"Only fulfilled wishes can be reopened","op":"eq","value":"fulfilled"}],"policy":{"left":{"$ref":"principal.personId"},"op":"neq","right":{"value":null}},"set":{"fulfilledAt":null,"status":"open"}}},"defaults":{"status":"open"},"definitionVersion":1,"description":"An aspiration, desire, or hoped-for future experience or thing that the user wants but has not committed to as a concrete task or scheduled event. Use for bucket-list items, dreams, desired purchases, and hoped-for experiences. Never use Wish as a fallback merely because its schema is broad or another model has missing fields. Examples: 想去冰岛看极光；希望以后有一台房车；想学会潜水。","display":{"plural":"Wishes","singular":"Wish"},"fields":{"description":{"description":"Optional detail about the aspiration and why it is desired.","maxLength":5000,"nullable":true,"title":"Description","type":"text"},"desiredDate":{"description":"A hoped-for date, not a committed task deadline or scheduled event time.","nullable":true,"title":"Desired Date","type":"date"},"fulfilledAt":{"description":"When the wish was marked fulfilled.","nullable":true,"readOnly":true,"title":"Fulfilled At","type":"datetime"},"ownerPersonId":{"description":"The person whose aspiration this is.","immutable":true,"required":true,"title":"Owner","type":"person"},"status":{"description":"Whether the wish is still waiting to happen or has been fulfilled.","readOnly":true,"required":true,"title":"Status","type":"enum","values":["open","fulfilled"]},"title":{"description":"A concise statement of the aspiration or desired outcome.","maxLength":100,"minLength":1,"required":true,"title":"Title","type":"string"}},"key":"wish","lifecycle":{"optimisticConcurrency":true,"softDelete":true},"policies":{"create":{"all":[{"left":{"$ref":"principal.personId"},"op":"neq","right":{"value":null}},{"left":{"$ref":"input.ownerPersonId"},"op":"eq","right":{"$ref":"principal.personId"}}]},"delete":{"left":{"$ref":"record.ownerPersonId"},"op":"eq","right":{"$ref":"principal.personId"}},"read":{"left":{"$ref":"principal.personId"},"op":"neq","right":{"value":null}},"update":{"left":{"$ref":"record.ownerPersonId"},"op":"eq","right":{"$ref":"principal.personId"}}},"query":{"filterable":["status","ownerPersonId","desiredDate"],"searchable":["title","description"],"sortable":["desiredDate","title"]}}',
+  '772e17c1d07ba620c879b90b60b1c74dd1629edeffc5e5f622b57eb43c74e934',
+  'compatible',
+  'service','svc_lifespace_bootstrap','LifeSpace schema 47 migration',strftime('%Y-%m-%dT%H:%M:%fZ','now')
+WHERE NOT EXISTS(
+  SELECT 1 FROM model_definitions
+  WHERE model_key='wish' AND state='published'
+    AND schema_hash='772e17c1d07ba620c879b90b60b1c74dd1629edeffc5e5f622b57eb43c74e934'
+);
+
 -- The former generic Resource Provenance envelope is retired without migration.
 -- Provenance is no longer a special Runtime envelope/storage plane. Future
 -- provenance is modeled through ordinary business relations/semantic roles.
