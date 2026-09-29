@@ -22,7 +22,7 @@ type CreateDelegationBody = {
 
 type DelegationRow = {
   id: string;
-  agent_id: string;
+  actor_id: string;
   application_id: string;
   source_space_id: string;
   created_at: string;
@@ -142,7 +142,7 @@ function effectiveStatus(row: Pick<DelegationRow, "revoked_at" | "consumed_at" |
 function dto(row: DelegationRow) {
   return {
     id: row.id,
-    agentId: row.agent_id,
+    agentId: row.actor_id,
     applicationId: row.application_id,
     spaceId: row.source_space_id,
     scope: {
@@ -197,13 +197,14 @@ export function registerAgentDelegationRoutes(app: App): void {
     const principal = context.get("principal");
     requireDirectUser(principal);
     const rows = await context.env.DB.prepare(`SELECT
-        d.id,d.agent_id,d.application_id,d.source_space_id,d.created_at,d.expires_at,d.revoked_at,
+        d.id,d.actor_id,d.application_id,d.source_space_id,d.created_at,d.expires_at,d.revoked_at,
         d.max_uses,d.consumed_at,
         s.target_type,s.target_id,s.target_model_key,s.max_access
-      FROM agent_delegations d
-      JOIN agent_delegation_scopes s ON s.delegation_id=d.id
+      FROM delegations d
+      JOIN delegation_scopes s ON s.delegation_id=d.id
       JOIN spaces sp ON sp.id=d.source_space_id AND sp.deleted_at IS NULL
-      WHERE d.source_space_id=? AND d.principal_user_id=? AND d.application_id=?
+      WHERE d.source_space_id=? AND d.principal_type='user' AND d.principal_id=?
+        AND d.actor_type='agent' AND d.application_id=?
       ORDER BY d.created_at DESC,d.id`)
       .bind(context.req.param("spaceId"), principal.id, principal.clientId)
       .all<DelegationRow>();
@@ -231,10 +232,10 @@ export function registerAgentDelegationRoutes(app: App): void {
     const delegationId = id("dlg");
     const timestamp = new Date().toISOString();
     await context.env.DB.batch([
-      context.env.DB.prepare(`INSERT INTO agent_delegations(
-        id,principal_user_id,agent_id,application_id,source_space_id,created_by_user_id,
-        created_at,expires_at,max_uses
-      ) VALUES(?,?,?,?,?,?,?,?,?)`).bind(
+      context.env.DB.prepare(`INSERT INTO delegations(
+        id,principal_type,principal_id,actor_type,actor_id,application_id,source_space_id,
+        created_by_type,created_by_id,created_at,expires_at,max_uses
+      ) VALUES(?,'user',?,'agent',?,?,?,?, 'user',?,?,?,?)`).bind(
         delegationId,
         principal.id,
         body.agentId,
@@ -245,7 +246,7 @@ export function registerAgentDelegationRoutes(app: App): void {
         constraints.expiresAt,
         constraints.maxUses,
       ),
-      context.env.DB.prepare(`INSERT INTO agent_delegation_scopes(
+      context.env.DB.prepare(`INSERT INTO delegation_scopes(
         delegation_id,target_type,target_id,target_model_key,max_access
       ) VALUES(?,?,?,?,?)`).bind(
         delegationId,
@@ -258,7 +259,7 @@ export function registerAgentDelegationRoutes(app: App): void {
 
     const row: DelegationRow = {
       id: delegationId,
-      agent_id: body.agentId,
+      actor_id: body.agentId,
       application_id: principal.clientId,
       source_space_id: spaceId,
       created_at: timestamp,
@@ -278,8 +279,9 @@ export function registerAgentDelegationRoutes(app: App): void {
     const principal = context.get("principal");
     requireDirectUser(principal);
     const revokedAt = new Date().toISOString();
-    const result = await context.env.DB.prepare(`UPDATE agent_delegations SET revoked_at=?
-      WHERE id=? AND source_space_id=? AND principal_user_id=? AND application_id=?
+    const result = await context.env.DB.prepare(`UPDATE delegations SET revoked_at=?
+      WHERE id=? AND source_space_id=? AND principal_type='user' AND principal_id=?
+        AND actor_type='agent' AND application_id=?
         AND revoked_at IS NULL AND consumed_at IS NULL`)
       .bind(
         revokedAt,
