@@ -124,6 +124,8 @@ Tests must fail when these structural budgets regress unless an explicit archite
 Mutation performance optimizations must preserve:
 
 - first-class Batch semantics: Batch is never implemented as a loop over single-operation HTTP/runtime commits;
+- Batch update/delete may omit a caller-known version; Core then reuses the current version from the already-required set-wise target load as the expected version for the atomic commit, while an explicitly supplied version remains the caller's optimistic-concurrency expectation;
+- omitted Batch version never means blind write: a concurrent change between target load and commit still fails the whole ChangeSet with VERSION_CONFLICT;
 - one verified Execution Context per request;
 - de-duplicated Authority resolution for equal batch Authority keys;
 - model validation;
