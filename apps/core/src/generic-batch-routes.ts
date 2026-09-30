@@ -64,9 +64,10 @@ function object(value: unknown, message: string): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
-function positiveVersion(value: unknown): number {
+function optionalPositiveVersion(value: unknown): number | null {
+  if (value === undefined || value === null) return null;
   if (!Number.isInteger(value) || Number(value) < 1) {
-    throw new ApiError("INVALID_REQUEST", "Batch operation version must be a positive integer", 400);
+    throw new ApiError("INVALID_REQUEST", "Batch operation version must be a positive integer when supplied", 400);
   }
   return Number(value);
 }
@@ -107,7 +108,7 @@ function parseOperation(value: unknown, index: number): BatchOperation {
   if (typeof input.recordId !== "string" || !recordIdPattern.test(input.recordId)) {
     throw new ApiError("INVALID_REQUEST", `Batch operation ${index} has an invalid recordId`, 400);
   }
-  const version = positiveVersion(input.version);
+  const version = optionalPositiveVersion(input.version);
   if (operation === "delete") {
     const allowed = new Set(["operation", "modelKey", "recordId", "version", "delegationId"]);
     const extra = Object.keys(input).find((key) => !allowed.has(key));
@@ -373,7 +374,7 @@ async function buildPlans(
         spaceId,
         entry.model,
         entry.previous!,
-        entry.operation.version!,
+        entry.operation.version ?? entry.previous!.version,
         entry.preparedUpdate!,
         "client",
         undefined,
@@ -388,7 +389,7 @@ async function buildPlans(
         spaceId,
         entry.model,
         entry.previous!,
-        entry.operation.version!,
+        entry.operation.version ?? entry.previous!.version,
         attribution,
         timestamp,
       ));
@@ -501,7 +502,7 @@ export function registerGenericBatchRoutes(app: App): void {
         operation: operations[index]!.operation,
         modelKey: operations[index]!.modelKey,
         recordId: plan.resource?.id ?? operations[index]!.recordId!,
-        version: plan.resource?.version ?? (operations[index]!.version! + 1),
+        version: plan.resource?.version ?? (prepared[index]!.previous!.version + 1),
       })),
     }));
   });
