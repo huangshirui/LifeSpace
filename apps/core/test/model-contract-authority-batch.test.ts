@@ -46,6 +46,7 @@ describe("generated Authority v2 and Batch Model Contract", () => {
       maxOperations: 20,
       changeEvidence: "one-change-per-item-plus-one-change-set",
       authority: "verified-once-and-de-duplicated-by-authority-key",
+      concurrency: "optional-client-version-or-current-set-wise-snapshot",
     });
     expect(batch.post.requestBody.content["application/json"].schema.$ref)
       .toBe("#/components/schemas/BatchMutationRequest");
@@ -65,6 +66,14 @@ describe("generated Authority v2 and Batch Model Contract", () => {
 
     expect(document.components.schemas.AlphaBatchCreateOperation.properties.delegationId.pattern)
       .toBe("^dlg_[A-Za-z0-9_-]+$");
+    expect(document.components.schemas.AlphaBatchUpdateOperation.required)
+      .toEqual(["operation", "modelKey", "recordId", "data"]);
+    expect(document.components.schemas.BatchDeleteOperation.required)
+      .toEqual(["operation", "modelKey", "recordId"]);
+    expect(document.components.schemas.AlphaBatchUpdateOperation.properties.version.description)
+      .toContain("Optional expected record version");
+    expect(document.components.schemas.BatchDeleteOperation.properties.version.description)
+      .toContain("Optional expected record version");
     expect(document.components.schemas.AlphaBatchUpdateOperation.properties.delegationId.pattern)
       .toBe("^dlg_[A-Za-z0-9_-]+$");
     expect(document.components.schemas.BatchDeleteOperation.properties.delegationId.pattern)
