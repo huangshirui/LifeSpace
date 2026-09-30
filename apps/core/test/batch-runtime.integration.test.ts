@@ -104,12 +104,16 @@ describe("first-class Batch Runtime", () => {
     const deleteTarget = await createTask(publicKey, direct, spaceId, "delete");
     const ok = await call(publicKey, direct, `/api/v1/spaces/${spaceId}/models/batch`, {
       operations: [
-        { operation: "update", modelKey: "task", recordId: updateTarget.id, version: updateTarget.version, data: { name: "updated" } },
-        { operation: "delete", modelKey: "task", recordId: deleteTarget.id, version: deleteTarget.version },
+        { operation: "update", modelKey: "task", recordId: updateTarget.id, data: { name: "updated" } },
+        { operation: "delete", modelKey: "task", recordId: deleteTarget.id },
         { operation: "create", modelKey: "event", data: { summary: "batch event", when: { kind: "date", start: "2026-10-02", endExclusive: "2026-10-03" } } },
       ],
     });
     expect(ok.status).toBe(200);
+    const okResult = (await json(ok)).data;
+    expect(okResult.items[0].version).toBe(updateTarget.version + 1);
+    expect(okResult.items[1].version).toBe(deleteTarget.version + 1);
+    expect(okResult.items[2].version).toBe(1);
 
     const db = (env as unknown as TestEnv).DB;
     const countBefore = await db.prepare("SELECT COUNT(*) count FROM resource_records WHERE space_id=? AND model_key='task'")
@@ -124,6 +128,13 @@ describe("first-class Batch Runtime", () => {
     const countAfter = await db.prepare("SELECT COUNT(*) count FROM resource_records WHERE space_id=? AND model_key='task'")
       .bind(spaceId).first<{ count: number }>();
     expect(countAfter?.count).toBe(countBefore?.count);
+
+    const invalidVersion = await call(publicKey, direct, `/api/v1/spaces/${spaceId}/models/batch`, {
+      operations: [
+        { operation: "delete", modelKey: "task", recordId: updateTarget.id, version: 0 },
+      ],
+    });
+    expect(invalidVersion.status).toBe(400);
   });
 
   it("atomically consumes distinct single-use Delegations and rejects one selector reused twice", async () => {

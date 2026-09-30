@@ -326,12 +326,15 @@ function addBatchContract(
     schemas[updateOperationName] = {
       type: "object",
       additionalProperties: false,
-      required: ["operation", "modelKey", "recordId", "version", "data"],
+      required: ["operation", "modelKey", "recordId", "data"],
       properties: {
         operation: { const: "update" },
         modelKey: { const: model.key },
         recordId: { type: "string", pattern: "^rec_[A-Za-z0-9_-]+$" },
-        version: concurrencyVersionSchema(),
+        version: {
+          ...concurrencyVersionSchema(),
+          description: "Optional expected record version. When omitted, Core resolves the current version set-wise before atomic commit and still rejects a concurrent change before commit.",
+        },
         data: { $ref: `#/components/schemas/${updateDataName}` },
         delegationId: delegationIdSchema(),
       },
@@ -343,12 +346,15 @@ function addBatchContract(
   schemas.BatchDeleteOperation = {
     type: "object",
     additionalProperties: false,
-    required: ["operation", "modelKey", "recordId", "version"],
+    required: ["operation", "modelKey", "recordId"],
     properties: {
       operation: { const: "delete" },
       modelKey: { type: "string", enum: models.map((model) => model.key) },
       recordId: { type: "string", pattern: "^rec_[A-Za-z0-9_-]+$" },
-      version: concurrencyVersionSchema(),
+      version: {
+        ...concurrencyVersionSchema(),
+        description: "Optional expected record version. When omitted, Core resolves the current version set-wise before atomic commit and still rejects a concurrent change before commit.",
+      },
       delegationId: delegationIdSchema(),
     },
   };
@@ -358,7 +364,7 @@ function addBatchContract(
       ...updateVariants,
       { $ref: "#/components/schemas/BatchDeleteOperation" },
     ],
-    description: "One atomic Batch create/update/delete item. One existing record may appear at most once in a Batch.",
+    description: "One atomic Batch create/update/delete item. One existing record may appear at most once in a Batch. Update/delete version is optional: supplied values enforce caller-known optimistic concurrency; omitted values are resolved from the current set-wise target snapshot before atomic commit.",
   };
   schemas.BatchMutationRequest = {
     type: "object",
@@ -439,6 +445,7 @@ function addBatchContract(
         maxOperations: 20,
         changeEvidence: "one-change-per-item-plus-one-change-set",
         authority: "verified-once-and-de-duplicated-by-authority-key",
+        concurrency: "optional-client-version-or-current-set-wise-snapshot",
       },
     },
   };
