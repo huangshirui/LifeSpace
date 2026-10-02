@@ -1,5 +1,16 @@
 import type { Hono } from "hono";
 import { requireSpacePermission, type Permission } from "./authorization";
+import {
+  delegationChainStatement,
+  delegationExpiryNarrows,
+  delegationScopeContains,
+  validateStructuralDelegationChain,
+  type DelegationChainRow,
+} from "./delegation-chain";
+import {
+  canDelegateOwnAuthority,
+  canReceiveDelegation,
+} from "./entity-role-capability";
 import type { Bindings, Principal, Variables } from "./env";
 import { ApiError, success } from "./http";
 import { requireModelAccess } from "./model-authorization";
@@ -13,18 +24,29 @@ type DelegationTargetType = "space" | "model" | "record";
 type DelegationAccess = Permission;
 type DelegationTargetInput = { type?: unknown; id?: unknown };
 type DelegationScopeInput = { target?: unknown; maxAccess?: unknown };
-type DelegationConstraintsInput = { maxUses?: unknown; expiresAt?: unknown };
+type DelegationConstraintsInput = {
+  maxUses?: unknown;
+  expiresAt?: unknown;
+  remainingRedelegationDepth?: unknown;
+};
 type CreateDelegationBody = {
   agentId?: unknown;
+  parentDelegationId?: unknown;
   scope?: unknown;
   constraints?: unknown;
 };
 
 type DelegationRow = {
   id: string;
+  principal_type: Principal["type"];
+  principal_id: string;
   actor_id: string;
   application_id: string;
   source_space_id: string;
+  parent_delegation_id: string | null;
+  remaining_redelegation_depth: number;
+  created_by_type: string;
+  created_by_id: string;
   created_at: string;
   expires_at: string | null;
   revoked_at: string | null;
@@ -44,15 +66,26 @@ type ParsedScope = {
 type ParsedConstraints = {
   maxUses: 1 | null;
   expiresAt: string | null;
+  remainingRedelegationDepth: number;
 };
 
+const MAX_REDELEGATION_DEPTH = 3;
 const delegationAccess = new Set<DelegationAccess>(["free_busy", "read", "write", "manage"]);
-const modelAccess = new Set<ModelAccess>(["read", "write", "manage"]);
 const id = (prefix: string) => `${prefix}_${crypto.randomUUID().replaceAll("-", "")}`;
 
-function requireDirectUser(principal: Principal): asserts principal is Principal & { type: "user" } {
-  if (principal.type !== "user" || principal.actor) {
-    throw new ApiError("FORBIDDEN", "Delegation must be managed by the direct User Principal", 403);
+function executionActor(principal: Principal) {
+  return principal.actor ?? { type: principal.type, id: principal.id };
+}
+
+function directPrincipal(principal: Principal): Principal {
+  if (!principal.actor) return principal;
+  const { actor: _actor, ...direct } = principal;
+  return direct;
+}
+
+function requireDirectDelegatingPrincipal(principal: Principal): void {
+  if (principal.actor || !canDelegateOwnAuthority(principal.type)) {
+    throw new ApiError("FORBIDDEN", "Direct Principal is not allowed to delegate its own Authority", 403);
   }
 }
 
@@ -71,13 +104,28 @@ function parseExpiry(value: unknown): string | null {
   return parsed.toISOString();
 }
 
+function parseRemainingDepth(value: unknown): number {
+  if (value === undefined || value === null) return 0;
+  if (!Number.isInteger(value) || Number(value) < 0 || Number(value) > MAX_REDELEGATION_DEPTH) {
+    throw new ApiError(
+      "INVALID_REQUEST",
+      `constraints.remainingRedelegationDepth must be an integer between 0 and ${MAX_REDELEGATION_DEPTH}`,
+      400,
+    );
+  }
+  return Number(value);
+}
+
 function parseConstraints(value: unknown): ParsedConstraints {
-  if (value === undefined || value === null) return { maxUses: null, expiresAt: null };
+  if (value === undefined || value === null) {
+    return { maxUses: null, expiresAt: null, remainingRedelegationDepth: 0 };
+  }
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new ApiError("INVALID_REQUEST", "constraints must be an object", 400);
   }
   const input = value as DelegationConstraintsInput;
-  const unknown = Object.keys(input).find((key) => !["maxUses", "expiresAt"].includes(key));
+  const unknown = Object.keys(input)
+    .find((key) => !["maxUses", "expiresAt", "remainingRedelegationDepth"].includes(key));
   if (unknown) throw new ApiError("INVALID_REQUEST", `Unsupported constraints field ${unknown}`, 400);
   if (input.maxUses !== undefined && input.maxUses !== 1) {
     throw new ApiError("INVALID_REQUEST", "constraints.maxUses currently supports only 1", 400);
@@ -85,6 +133,7 @@ function parseConstraints(value: unknown): ParsedConstraints {
   return {
     maxUses: input.maxUses === 1 ? 1 : null,
     expiresAt: parseExpiry(input.expiresAt),
+    remainingRedelegationDepth: parseRemainingDepth(input.remainingRedelegationDepth),
   };
 }
 
@@ -112,6 +161,7 @@ function parseScope(value: unknown): ParsedScope {
   if (typeof input.maxAccess !== "string" || !delegationAccess.has(input.maxAccess as DelegationAccess)) {
     throw new ApiError("INVALID_REQUEST", "scope.maxAccess must be free_busy, read, write or manage", 400);
   }
+
   const type = target.type as DelegationTargetType;
   const targetId = target.id.trim();
   if (type === "space" && !/^spc_[A-Za-z0-9_-]+$/u.test(targetId)) {
@@ -132,7 +182,17 @@ function parseScope(value: unknown): ParsedScope {
   };
 }
 
-function effectiveStatus(row: Pick<DelegationRow, "revoked_at" | "consumed_at" | "expires_at">): "active" | "revoked" | "consumed" | "expired" {
+function parseParentDelegationId(value: unknown): string | null {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== "string" || !/^dlg_[A-Za-z0-9_-]+$/u.test(value)) {
+    throw new ApiError("INVALID_REQUEST", "parentDelegationId must be a valid dlg_* identifier", 400);
+  }
+  return value;
+}
+
+function effectiveStatus(
+  row: Pick<DelegationRow, "revoked_at" | "consumed_at" | "expires_at">,
+): "active" | "revoked" | "consumed" | "expired" {
   if (row.revoked_at) return "revoked";
   if (row.consumed_at) return "consumed";
   if (row.expires_at && Date.parse(row.expires_at) <= Date.now()) return "expired";
@@ -142,9 +202,11 @@ function effectiveStatus(row: Pick<DelegationRow, "revoked_at" | "consumed_at" |
 function dto(row: DelegationRow) {
   return {
     id: row.id,
+    principal: { type: row.principal_type, id: row.principal_id },
     agentId: row.actor_id,
     applicationId: row.application_id,
     spaceId: row.source_space_id,
+    parentDelegationId: row.parent_delegation_id,
     scope: {
       target: { type: row.target_type, id: row.target_id },
       maxAccess: row.max_access,
@@ -152,7 +214,9 @@ function dto(row: DelegationRow) {
     constraints: {
       ...(row.max_uses === 1 ? { maxUses: 1 } : {}),
       ...(row.expires_at ? { expiresAt: row.expires_at } : {}),
+      remainingRedelegationDepth: row.remaining_redelegation_depth,
     },
+    createdBy: { type: row.created_by_type, id: row.created_by_id },
     createdAt: row.created_at,
     consumedAt: row.consumed_at,
     revokedAt: row.revoked_at,
@@ -162,7 +226,7 @@ function dto(row: DelegationRow) {
 
 async function validateScopeAuthority(
   env: Bindings,
-  principal: Principal & { type: "user" },
+  principal: Principal,
   spaceId: string,
   scope: ParsedScope,
 ): Promise<string | null> {
@@ -188,63 +252,179 @@ async function validateScopeAuthority(
   if (!resource) throw new ApiError("RESOURCE_NOT_FOUND", "Record Delegation target was not found", 404);
   const model = await getRuntimeModel(env, resource.model_key);
   if (!model) throw new ApiError("MODEL_NOT_FOUND", `Published model ${resource.model_key} not found`, 404);
-  await requireModelAccess(env, principal, spaceId, model, scope.maxAccess as ModelAccess, { recordId: scope.target.id });
+  await requireModelAccess(
+    env,
+    principal,
+    spaceId,
+    model,
+    scope.maxAccess as ModelAccess,
+    { recordId: scope.target.id },
+  );
   return model.key;
+}
+
+async function loadCurrentParentChain(
+  env: Bindings,
+  principal: Principal,
+  spaceId: string,
+  parentDelegationId: string,
+): Promise<DelegationChainRow[]> {
+  const [result] = await env.DB.batch<Record<string, unknown>>([
+    delegationChainStatement(env, [parentDelegationId]),
+  ]);
+  const rows = (result?.results ?? []) as DelegationChainRow[];
+  return validateStructuralDelegationChain(principal, spaceId, parentDelegationId, rows);
+}
+
+function childScopeShape(
+  spaceId: string,
+  scope: ParsedScope,
+  targetModelKey: string | null,
+): Pick<
+  DelegationChainRow,
+  "delegation_target_type" | "delegation_target_id" | "delegation_target_model_key" | "delegation_max_access" | "source_space_id"
+> {
+  return {
+    delegation_target_type: scope.target.type,
+    delegation_target_id: scope.target.id,
+    delegation_target_model_key: targetModelKey,
+    delegation_max_access: scope.maxAccess,
+    source_space_id: spaceId,
+  };
+}
+
+function assertChildNarrowing(
+  parent: DelegationChainRow,
+  spaceId: string,
+  scope: ParsedScope,
+  targetModelKey: string | null,
+  constraints: ParsedConstraints,
+): void {
+  if (parent.remaining_redelegation_depth <= 0) {
+    throw new ApiError("DELEGATION_INVALID", "Parent Delegation does not permit re-delegation", 403);
+  }
+  if (constraints.remainingRedelegationDepth >= parent.remaining_redelegation_depth) {
+    throw new ApiError(
+      "DELEGATION_INVALID",
+      "Child remaining re-delegation depth must be lower than the parent",
+      403,
+    );
+  }
+  if (!delegationScopeContains(parent, childScopeShape(spaceId, scope, targetModelKey))) {
+    throw new ApiError("DELEGATION_SCOPE_INSUFFICIENT", "Child Delegation would widen parent scope or access", 403);
+  }
+  if (!delegationExpiryNarrows(parent.delegation_expires_at, constraints.expiresAt)) {
+    throw new ApiError("DELEGATION_INVALID", "Child Delegation expiry cannot exceed parent expiry", 403);
+  }
+}
+
+function selectRowsSql(): string {
+  return `SELECT
+    d.id,d.principal_type,d.principal_id,d.actor_id,d.application_id,d.source_space_id,
+    d.parent_delegation_id,d.remaining_redelegation_depth,d.created_by_type,d.created_by_id,
+    d.created_at,d.expires_at,d.revoked_at,d.max_uses,d.consumed_at,
+    s.target_type,s.target_id,s.target_model_key,s.max_access
+  FROM delegations d
+  JOIN delegation_scopes s ON s.delegation_id=d.id`;
 }
 
 export function registerAgentDelegationRoutes(app: App): void {
   app.get("/api/v1/spaces/:spaceId/agent-delegations", async (context) => {
     const principal = context.get("principal");
-    requireDirectUser(principal);
-    const rows = await context.env.DB.prepare(`SELECT
-        d.id,d.actor_id,d.application_id,d.source_space_id,d.created_at,d.expires_at,d.revoked_at,
-        d.max_uses,d.consumed_at,
-        s.target_type,s.target_id,s.target_model_key,s.max_access
-      FROM delegations d
-      JOIN delegation_scopes s ON s.delegation_id=d.id
+    requireDirectDelegatingPrincipal(principal);
+    const rows = await context.env.DB.prepare(`${selectRowsSql()}
       JOIN spaces sp ON sp.id=d.source_space_id AND sp.deleted_at IS NULL
-      WHERE d.source_space_id=? AND d.principal_type='user' AND d.principal_id=?
+      WHERE d.source_space_id=? AND d.principal_type=? AND d.principal_id=?
         AND d.actor_type='agent' AND d.application_id=?
       ORDER BY d.created_at DESC,d.id`)
-      .bind(context.req.param("spaceId"), principal.id, principal.clientId)
+      .bind(context.req.param("spaceId"), principal.type, principal.id, principal.clientId)
       .all<DelegationRow>();
     return context.json(success({ items: rows.results.map(dto) }));
   });
 
   app.post("/api/v1/spaces/:spaceId/agent-delegations", async (context) => {
     const principal = context.get("principal");
-    requireDirectUser(principal);
     const body = await context.req.json<CreateDelegationBody>().catch(() => null);
     if (!body || typeof body !== "object" || Array.isArray(body)) {
       throw new ApiError("INVALID_REQUEST", "Request body must be a JSON object", 400);
     }
-    const unknown = Object.keys(body).find((key) => !["agentId", "scope", "constraints"].includes(key));
+    const unknown = Object.keys(body)
+      .find((key) => !["agentId", "parentDelegationId", "scope", "constraints"].includes(key));
     if (unknown) throw new ApiError("INVALID_REQUEST", `Unsupported field ${unknown}`, 400);
-    if (typeof body.agentId !== "string" || !/^agt_[A-Za-z0-9]+$/u.test(body.agentId)) {
+    if (typeof body.agentId !== "string" || !/^agt_[A-Za-z0-9_-]+$/u.test(body.agentId)) {
       throw new ApiError("INVALID_REQUEST", "agentId must be a LifeSpace Agent ID", 400);
     }
+    if (!canReceiveDelegation("agent")) {
+      throw new ApiError("FORBIDDEN", "Agent is not currently allowed to receive Delegation", 403);
+    }
 
+    const parentDelegationId = parseParentDelegationId(body.parentDelegationId);
     const scope = parseScope(body.scope);
     const constraints = parseConstraints(body.constraints);
     const spaceId = context.req.param("spaceId");
-    const targetModelKey = await validateScopeAuthority(context.env, principal, spaceId, scope);
+
+    if (principal.actor && !parentDelegationId) {
+      throw new ApiError(
+        "DELEGATION_REQUIRED",
+        "Represented Actor may issue only a Child Delegation from an explicit parent",
+        403,
+      );
+    }
+    if (!principal.actor && parentDelegationId) {
+      throw new ApiError(
+        "INVALID_REQUEST",
+        "Direct Principal delegation does not use parentDelegationId",
+        400,
+      );
+    }
+    if (!principal.actor && !canDelegateOwnAuthority(principal.type)) {
+      throw new ApiError("FORBIDDEN", "Principal is not allowed to delegate its own Authority", 403);
+    }
+
+    // Delegation can never outlive or widen the Root Principal's current Authority.
+    // For represented issuance we deliberately inspect the Root Principal's own
+    // current Authority independently from the parent chain.
+    const targetModelKey = await validateScopeAuthority(
+      context.env,
+      directPrincipal(principal),
+      spaceId,
+      scope,
+    );
+
+    let parent: DelegationChainRow | null = null;
+    if (parentDelegationId) {
+      const parentChain = await loadCurrentParentChain(
+        context.env,
+        principal,
+        spaceId,
+        parentDelegationId,
+      );
+      parent = parentChain[parentChain.length - 1]!;
+      assertChildNarrowing(parent, spaceId, scope, targetModelKey, constraints);
+    }
 
     const delegationId = id("dlg");
     const timestamp = new Date().toISOString();
+    const issuer = executionActor(principal);
     await context.env.DB.batch([
       context.env.DB.prepare(`INSERT INTO delegations(
         id,principal_type,principal_id,actor_type,actor_id,application_id,source_space_id,
-        created_by_type,created_by_id,created_at,expires_at,max_uses
-      ) VALUES(?,'user',?,'agent',?,?,?,'user',?,?,?,?)`).bind(
+        created_by_type,created_by_id,created_at,expires_at,max_uses,
+        parent_delegation_id,remaining_redelegation_depth
+      ) VALUES(?,?,?,'agent',?,?,?,?,?,?,?,?,?,?)`).bind(
         delegationId,
+        principal.type,
         principal.id,
         body.agentId,
         principal.clientId,
         spaceId,
-        principal.id,
+        issuer.type,
+        issuer.id,
         timestamp,
         constraints.expiresAt,
         constraints.maxUses,
+        parent?.delegation_id ?? null,
+        constraints.remainingRedelegationDepth,
       ),
       context.env.DB.prepare(`INSERT INTO delegation_scopes(
         delegation_id,target_type,target_id,target_model_key,max_access
@@ -257,36 +437,26 @@ export function registerAgentDelegationRoutes(app: App): void {
       ),
     ]);
 
-    const row: DelegationRow = {
-      id: delegationId,
-      actor_id: body.agentId,
-      application_id: principal.clientId,
-      source_space_id: spaceId,
-      created_at: timestamp,
-      expires_at: constraints.expiresAt,
-      revoked_at: null,
-      max_uses: constraints.maxUses,
-      consumed_at: null,
-      target_type: scope.target.type,
-      target_id: scope.target.id,
-      target_model_key: targetModelKey,
-      max_access: scope.maxAccess,
-    };
+    const row = await context.env.DB.prepare(`${selectRowsSql()} WHERE d.id=?`)
+      .bind(delegationId)
+      .first<DelegationRow>();
+    if (!row) throw new Error("Delegation missing after create");
     return context.json(success(dto(row)), 201);
   });
 
   app.delete("/api/v1/spaces/:spaceId/agent-delegations/:delegationId", async (context) => {
     const principal = context.get("principal");
-    requireDirectUser(principal);
+    requireDirectDelegatingPrincipal(principal);
     const revokedAt = new Date().toISOString();
     const result = await context.env.DB.prepare(`UPDATE delegations SET revoked_at=?
-      WHERE id=? AND source_space_id=? AND principal_type='user' AND principal_id=?
+      WHERE id=? AND source_space_id=? AND principal_type=? AND principal_id=?
         AND actor_type='agent' AND application_id=?
         AND revoked_at IS NULL AND consumed_at IS NULL`)
       .bind(
         revokedAt,
         context.req.param("delegationId"),
         context.req.param("spaceId"),
+        principal.type,
         principal.id,
         principal.clientId,
       ).run();
