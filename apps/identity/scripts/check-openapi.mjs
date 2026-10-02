@@ -2,7 +2,7 @@ import fs from "node:fs";
 import YAML from "yaml";
 
 const doc = YAML.parse(fs.readFileSync(new URL("../openapi.yaml",import.meta.url),"utf8"));
-if (doc.openapi !== "3.1.0" || doc.info?.version !== "0.6.0") {
+if (doc.openapi !== "3.1.0" || doc.info?.version !== "0.7.0") {
   throw new Error("Identity OpenAPI version metadata is invalid");
 }
 
