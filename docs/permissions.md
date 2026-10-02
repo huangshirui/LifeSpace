@@ -87,6 +87,22 @@ For Access-authenticated Web requests, Cloudflare authentication alone satisfies
 
 For delegated Agent execution, the Agent token authenticates User Principal + Agent Actor + Application. The specific `delegationId` is intentionally not a bearer claim: it remains a request selector that Core rechecks against those verified identities and current Delegation state.
 
+### Accepted Agent Principal / re-delegation target
+
+The released credential profile above is the current implementation, not the permanent Authority ontology. The accepted target in `docs/authority-role-capability-redelegation.md` generalizes execution without changing the effective-authority intersection:
+
+- Entity Type and operation role stay orthogonal; code-owned Entity Role Capability determines whether a type may be Principal / Actor / delegation issuer/receiver, but never grants business Authority.
+- An Agent with explicit current Authority may execute as `Principal = Actor = Agent`.
+- Identity converges on a short-lived Agent Execution Token where `sub` identifies the authenticated Agent Actor while Principal is an independent signed claim; Delegation remains a Core-validated request selector rather than bearer Authority.
+- Ordinary `Agent A -> Agent B` delegation of A's own Authority uses `Principal=A, Actor=B`.
+- Re-delegation preserves the original Root Principal and requires an explicit parent chain. Each child can only narrow scope, access ceiling, expiry and remaining propagation depth and remains in the same Application Context in the initial implementation.
+- Clients submit only the leaf Delegation ID. Core resolves and validates the bounded ancestor chain from current state.
+- Parent revoke / expiry / single-use consumption invalidates descendants without cascade-updating descendant rows.
+- Successful mutation consumes every required single-use Delegation in the chain atomically with business Change / ChangeSet evidence; creating a Child Delegation does not itself consume a single-use parent.
+- Governed Change must preserve the actual chain relied on at commit time rather than reconstructing historical Authority from mutable current state.
+
+These target semantics are tracked by #302 and must not be described as deployed until the corresponding contracts/runtime/tests are released.
+
 ## Model authorization
 
 Ordinary metadata-driven models declare `read`, `write`, and optionally `manage` access capabilities. Identity does **not** mint a new token-scope vocabulary for every model.
