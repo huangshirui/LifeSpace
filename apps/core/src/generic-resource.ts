@@ -56,6 +56,7 @@ export type ResourceMutationExtension = (
 
 export type MutationAttribution = {
   delegationId?: string | null;
+  delegationChain?: readonly string[];
   changeSetId?: string | null;
 };
 
@@ -150,8 +151,8 @@ function changeStatement(
   attribution: MutationAttribution = {},
   mutationToken?: string,
 ): D1PreparedStatement {
-  if (principal.actor?.type === "agent" && !attribution.delegationId) {
-    throw new ApiError("DELEGATION_REQUIRED", "Delegated Agent mutation requires current Delegation authority", 403);
+  if (principal.actor && !attribution.delegationId) {
+    throw new ApiError("DELEGATION_REQUIRED", "Represented mutation requires current Delegation authority", 403);
   }
   if (operation === "action" && !actionKey) {
     throw new ApiError("CHANGE_EVIDENCE_INCOMPLETE", "Action mutation requires semantic actionKey evidence", 500);
@@ -194,6 +195,36 @@ function changeStatement(
     ) SELECT ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
       WHERE EXISTS(SELECT 1 FROM resource_records WHERE id=? AND mutation_token=?)`)
     .bind(...values, recordId, mutationToken);
+}
+
+function normalizedDelegationChain(attribution: MutationAttribution): readonly string[] {
+  const leaf = attribution.delegationId?.trim() || null;
+  const supplied = attribution.delegationChain?.map((entry) => entry.trim()).filter(Boolean) ?? [];
+  if (!leaf) {
+    if (supplied.length) {
+      throw new ApiError("CHANGE_EVIDENCE_INCOMPLETE", "Delegation chain requires a leaf Delegation ID", 500);
+    }
+    return [];
+  }
+  const chain = supplied.length ? supplied : [leaf];
+  if (chain[chain.length - 1] !== leaf || new Set(chain).size !== chain.length || chain.length > 4) {
+    throw new ApiError("CHANGE_EVIDENCE_INCOMPLETE", "Delegation chain evidence is inconsistent with the leaf selector", 500);
+  }
+  return chain;
+}
+
+function appendDelegationChainEvidence(
+  statements: D1PreparedStatement[],
+  env: Bindings,
+  changeId: string,
+  attribution: MutationAttribution,
+): void {
+  const chain = normalizedDelegationChain(attribution);
+  chain.forEach((delegationId, chainPosition) => {
+    statements.push(env.DB.prepare(`INSERT INTO resource_change_delegations(
+      change_id,delegation_id,chain_position
+    ) VALUES(?,?,?)`).bind(changeId, delegationId, chainPosition));
+  });
 }
 
 function appendChangeSetOutboxLink(
@@ -600,6 +631,7 @@ export async function planCreateGenericMutation(
     attribution,
     mutationToken,
   ));
+  appendDelegationChainEvidence(statements, env, mutationToken, attribution);
   appendChangeSetOutboxLink(statements, env, mutationToken, attribution);
   statements.push(
     env.DB.prepare("UPDATE resource_records SET mutation_token=NULL WHERE id=? AND mutation_token=?")
@@ -694,6 +726,7 @@ export async function planUpdateGenericMutation(
     attribution,
     mutationToken,
   ));
+  appendDelegationChainEvidence(statements, env, mutationToken, attribution);
   appendChangeSetOutboxLink(statements, env, mutationToken, attribution);
   statements.push(
     env.DB.prepare("UPDATE resource_records SET mutation_token=NULL WHERE id=? AND mutation_token=?")
@@ -770,6 +803,11 @@ export function planDeleteGenericMutation(
       timestamp,
       attribution,
       mutationToken,
+    ),
+    ...normalizedDelegationChain(attribution).map((delegationId, chainPosition) =>
+      env.DB.prepare(`INSERT INTO resource_change_delegations(
+        change_id,delegation_id,chain_position
+      ) VALUES(?,?,?)`).bind(mutationToken, delegationId, chainPosition),
     ),
     ...(attribution.changeSetId
       ? [env.DB.prepare(`UPDATE domain_event_outbox
