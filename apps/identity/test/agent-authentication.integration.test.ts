@@ -90,8 +90,10 @@ describe("Agent Identity and execution credential", () => {
     expect(tokenData.expiresIn).toBe(900);
     expect(tokenData).toMatchObject({
       principalId: userId,
+      principalType: "user",
       actor: { type: "agent", id: agent.id },
       applicationId: appId,
+      purpose: "delegated_agent",
     });
 
     const payload = decodePayload(tokenData.accessToken);
@@ -123,4 +125,115 @@ describe("Agent Identity and execution credential", () => {
     }, privateKey);
     expect(crossApp.status).toBe(403);
   });
+  it("issues generalized direct and represented Agent execution tokens without changing the legacy profile", async () => {
+    const privateKey = await privateKeyPem();
+    const appId = `agent-generalized-${crypto.randomUUID()}`;
+    const secret = await bootstrapApp(privateKey, appId);
+
+    const userResponse = await request("/internal/v1/users", {
+      method: "POST",
+      headers: { authorization: `Bearer ${secret}`, "content-type": "application/json" },
+      body: JSON.stringify({ displayName: "Generalized Principal" }),
+    }, privateKey);
+    expect(userResponse.status).toBe(201);
+    const userId = ((await userResponse.json()) as any).data.id as string;
+
+    const createAgent = async (displayName: string) => {
+      const response = await request("/internal/v1/agents", {
+        method: "POST",
+        headers: { authorization: `Bearer ${secret}`, "content-type": "application/json" },
+        body: JSON.stringify({ displayName }),
+      }, privateKey);
+      expect(response.status).toBe(201);
+      return ((await response.json()) as any).data.id as string;
+    };
+
+    const agentA = await createAgent("Agent A");
+    const agentB = await createAgent("Agent B");
+
+    const directResponse = await request("/internal/v1/agent-tokens", {
+      method: "POST",
+      headers: { authorization: `Bearer ${secret}`, "content-type": "application/json" },
+      body: JSON.stringify({ agentId: agentA, scopes: ["resources:read"] }),
+    }, privateKey);
+    expect(directResponse.status).toBe(200);
+    const direct = ((await directResponse.json()) as any).data;
+    expect(direct).toMatchObject({
+      principalId: agentA,
+      principalType: "agent",
+      actor: { type: "agent", id: agentA },
+      applicationId: appId,
+      purpose: "agent_execution",
+    });
+    expect(decodePayload(direct.accessToken)).toMatchObject({
+      sub: agentA,
+      azp: appId,
+      principal_type: "agent",
+      principal_id: agentA,
+      actor_type: "agent",
+      actor_id: agentA,
+      purpose: "agent_execution",
+    });
+
+    const representedAgentResponse = await request("/internal/v1/agent-tokens", {
+      method: "POST",
+      headers: { authorization: `Bearer ${secret}`, "content-type": "application/json" },
+      body: JSON.stringify({
+        principalType: "agent",
+        principalId: agentA,
+        agentId: agentB,
+        scopes: ["resources:read", "resources:write"],
+      }),
+    }, privateKey);
+    expect(representedAgentResponse.status).toBe(200);
+    const representedAgent = ((await representedAgentResponse.json()) as any).data;
+    expect(representedAgent).toMatchObject({
+      principalId: agentA,
+      principalType: "agent",
+      actor: { type: "agent", id: agentB },
+      purpose: "agent_execution",
+    });
+    expect(decodePayload(representedAgent.accessToken)).toMatchObject({
+      sub: agentB,
+      principal_type: "agent",
+      principal_id: agentA,
+      actor_type: "agent",
+      actor_id: agentB,
+      purpose: "agent_execution",
+    });
+
+    const representedUserResponse = await request("/internal/v1/agent-tokens", {
+      method: "POST",
+      headers: { authorization: `Bearer ${secret}`, "content-type": "application/json" },
+      body: JSON.stringify({
+        principalType: "user",
+        principalId: userId,
+        agentId: agentA,
+        scopes: ["resources:read"],
+      }),
+    }, privateKey);
+    expect(representedUserResponse.status).toBe(200);
+    expect(decodePayload(((await representedUserResponse.json()) as any).data.accessToken)).toMatchObject({
+      sub: agentA,
+      principal_type: "user",
+      principal_id: userId,
+      actor_type: "agent",
+      actor_id: agentA,
+      purpose: "agent_execution",
+    });
+
+    const mixedLegacyAndGeneralized = await request("/internal/v1/agent-tokens", {
+      method: "POST",
+      headers: { authorization: `Bearer ${secret}`, "content-type": "application/json" },
+      body: JSON.stringify({
+        subjectId: userId,
+        principalType: "user",
+        principalId: userId,
+        agentId: agentA,
+        scopes: ["resources:read"],
+      }),
+    }, privateKey);
+    expect(mixedLegacyAndGeneralized.status).toBe(400);
+  });
+
 });
