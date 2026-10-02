@@ -58,6 +58,31 @@ async function agentToken(privateKey: string, userId: string, agentId: string, s
   }, privateKey, "RS256");
 }
 
+async function generalizedAgentToken(
+  privateKey: string,
+  principalType: "user" | "agent",
+  principalId: string,
+  actorId: string,
+  scopes: string[],
+) {
+  const iat = Math.floor(Date.now() / 1000);
+  return sign({
+    iss: "lifespace-identity",
+    aud: "lifespace-core",
+    sub: actorId,
+    azp: "test-app",
+    principal_type: principalType,
+    principal_id: principalId,
+    actor_type: "agent",
+    actor_id: actorId,
+    purpose: "agent_execution",
+    scope: scopes.join(" "),
+    iat,
+    exp: iat + 900,
+    jti: `tok_${crypto.randomUUID()}`,
+  }, privateKey, "RS256");
+}
+
 async function request(path: string, options: RequestInit, publicKey: string) {
   const db = (env as unknown as TestEnv).DB;
   return createApp().request(`http://localhost${path}`, options, {
@@ -322,4 +347,299 @@ describe("Agent-ready Authority + Change", () => {
     expect(changes.items[0].delegationId).toBeNull();
     expect(changes.nextCursor).toBeNull();
   });
+  it("lets an Agent use its own Data Grant as Principal without Delegation", async () => {
+    const { privateKey, publicKey } = await keys();
+    const userId = `usr_${crypto.randomUUID().replaceAll("-", "")}`;
+    const agentId = `agt_${crypto.randomUUID().replaceAll("-", "")}`;
+    const spaceId = `spc_${crypto.randomUUID().replaceAll("-", "")}`;
+    await seedSpaceAndCatalog(userId, spaceId);
+
+    const now = new Date().toISOString();
+    const grantId = `grt_${crypto.randomUUID().replaceAll("-", "")}`;
+    await (env as unknown as TestEnv).DB.prepare(`INSERT INTO data_grants(
+      id,source_space_id,grantee_type,grantee_id,resource_type,resource_id,
+      permission,created_by_user_id,created_at
+    ) VALUES(?,?,?,?,?,?,?,?,?)`).bind(
+      grantId, spaceId, "agent", agentId, "model", "event", "write", userId, now,
+    ).run();
+
+    const directAgent = await generalizedAgentToken(
+      privateKey,
+      "agent",
+      agentId,
+      agentId,
+      ["resources:read", "resources:write"],
+    );
+    const createdResponse = await request(`/api/v1/spaces/${spaceId}/models/event/records`, {
+      method: "POST",
+      headers: auth(directAgent),
+      body: JSON.stringify({
+        summary: "Agent-owned authority event",
+        when: { kind: "date", start: "2026-10-02", endExclusive: "2026-10-03" },
+      }),
+    }, publicKey);
+    expect(createdResponse.status).toBe(201);
+    const created = await jsonData(createdResponse);
+
+    const changesResponse = await request(
+      `/api/v1/spaces/${spaceId}/changes?recordId=${created.id}`,
+      { headers: { authorization: `Bearer ${directAgent}` } },
+      publicKey,
+    );
+    expect(changesResponse.status).toBe(200);
+    const changes = await jsonData(changesResponse);
+    expect(changes.items[0]).toMatchObject({
+      principal: { type: "agent", id: agentId },
+      actor: { type: "agent", id: agentId },
+      delegationId: null,
+    });
+
+    await (env as unknown as TestEnv).DB.prepare(
+      "UPDATE data_grants SET revoked_at=? WHERE id=?",
+    ).bind(new Date().toISOString(), grantId).run();
+
+    const afterRevoke = await request(`/api/v1/spaces/${spaceId}/models/event/records`, {
+      method: "POST",
+      headers: auth(directAgent),
+      body: JSON.stringify({
+        summary: "Denied after Agent grant revoke",
+        when: { kind: "date", start: "2026-10-03", endExclusive: "2026-10-04" },
+      }),
+    }, publicKey);
+    expect(afterRevoke.status).toBe(403);
+  });
+
+  it("supports Agent-owned root Delegation and preserves Agent Principal attribution", async () => {
+    const { privateKey, publicKey } = await keys();
+    const userId = `usr_${crypto.randomUUID().replaceAll("-", "")}`;
+    const agentA = `agt_${crypto.randomUUID().replaceAll("-", "")}`;
+    const agentB = `agt_${crypto.randomUUID().replaceAll("-", "")}`;
+    const spaceId = `spc_${crypto.randomUUID().replaceAll("-", "")}`;
+    await seedSpaceAndCatalog(userId, spaceId);
+
+    const now = new Date().toISOString();
+    await (env as unknown as TestEnv).DB.prepare(`INSERT INTO data_grants(
+      id,source_space_id,grantee_type,grantee_id,resource_type,resource_id,
+      permission,created_by_user_id,created_at
+    ) VALUES(?,?,?,?,?,?,?,?,?)`).bind(
+      `grt_${crypto.randomUUID().replaceAll("-", "")}`,
+      spaceId, "agent", agentA, "model", "event", "write", userId, now,
+    ).run();
+
+    const directA = await generalizedAgentToken(
+      privateKey, "agent", agentA, agentA, ["resources:read", "resources:write"],
+    );
+    const rootResponse = await request(`/api/v1/spaces/${spaceId}/agent-delegations`, {
+      method: "POST",
+      headers: auth(directA),
+      body: JSON.stringify({
+        agentId: agentB,
+        scope: { target: { type: "model", id: "event" }, maxAccess: "write" },
+      }),
+    }, publicKey);
+    expect(rootResponse.status).toBe(201);
+    const root = await jsonData(rootResponse);
+    expect(root).toMatchObject({
+      principal: { type: "agent", id: agentA },
+      agentId: agentB,
+      parentDelegationId: null,
+      constraints: { remainingRedelegationDepth: 0 },
+    });
+
+    const representedB = await generalizedAgentToken(
+      privateKey, "agent", agentA, agentB, ["resources:read", "resources:write"],
+    );
+    const createdResponse = await request(`/api/v1/spaces/${spaceId}/models/event/records`, {
+      method: "POST",
+      headers: { ...auth(representedB), "x-lifespace-delegation-id": root.id },
+      body: JSON.stringify({
+        summary: "Agent A authority executed by Agent B",
+        when: { kind: "date", start: "2026-10-04", endExclusive: "2026-10-05" },
+      }),
+    }, publicKey);
+    expect(createdResponse.status).toBe(201);
+    const created = await jsonData(createdResponse);
+
+    const change = await (env as unknown as TestEnv).DB.prepare(`SELECT
+      principal_type,principal_id,actor_type,actor_id,delegation_id
+      FROM resource_changes WHERE record_id=? ORDER BY occurred_at DESC LIMIT 1`)
+      .bind(created.id)
+      .first<any>();
+    expect(change).toMatchObject({
+      principal_type: "agent",
+      principal_id: agentA,
+      actor_type: "agent",
+      actor_id: agentB,
+      delegation_id: root.id,
+    });
+
+    const chain = await (env as unknown as TestEnv).DB.prepare(`SELECT delegation_id,chain_position
+      FROM resource_change_delegations
+      WHERE change_id=(SELECT id FROM resource_changes WHERE record_id=? ORDER BY occurred_at DESC LIMIT 1)
+      ORDER BY chain_position`).bind(created.id).all<any>();
+    expect(chain.results).toEqual([{ delegation_id: root.id, chain_position: 0 }]);
+  });
+
+  it("re-delegates User Authority with preserved Root Principal and current parent invalidation", async () => {
+    const { privateKey, publicKey } = await keys();
+    const userId = `usr_${crypto.randomUUID().replaceAll("-", "")}`;
+    const agentA = `agt_${crypto.randomUUID().replaceAll("-", "")}`;
+    const agentB = `agt_${crypto.randomUUID().replaceAll("-", "")}`;
+    const spaceId = `spc_${crypto.randomUUID().replaceAll("-", "")}`;
+    await seedSpaceAndCatalog(userId, spaceId);
+
+    const directUser = await userToken(privateKey, userId, ["resources:read", "resources:write"]);
+    const rootResponse = await request(`/api/v1/spaces/${spaceId}/agent-delegations`, {
+      method: "POST",
+      headers: auth(directUser),
+      body: JSON.stringify({
+        agentId: agentA,
+        scope: { target: { type: "model", id: "event" }, maxAccess: "write" },
+        constraints: { remainingRedelegationDepth: 1 },
+      }),
+    }, publicKey);
+    expect(rootResponse.status).toBe(201);
+    const root = await jsonData(rootResponse);
+
+    const representedA = await generalizedAgentToken(
+      privateKey, "user", userId, agentA, ["resources:read", "resources:write"],
+    );
+    const childResponse = await request(`/api/v1/spaces/${spaceId}/agent-delegations`, {
+      method: "POST",
+      headers: auth(representedA),
+      body: JSON.stringify({
+        agentId: agentB,
+        parentDelegationId: root.id,
+        scope: { target: { type: "model", id: "event" }, maxAccess: "write" },
+        constraints: { remainingRedelegationDepth: 0 },
+      }),
+    }, publicKey);
+    expect(childResponse.status).toBe(201);
+    const child = await jsonData(childResponse);
+    expect(child).toMatchObject({
+      principal: { type: "user", id: userId },
+      agentId: agentB,
+      parentDelegationId: root.id,
+      createdBy: { type: "agent", id: agentA },
+    });
+
+    const representedB = await generalizedAgentToken(
+      privateKey, "user", userId, agentB, ["resources:read", "resources:write"],
+    );
+    const createdResponse = await request(`/api/v1/spaces/${spaceId}/models/event/records`, {
+      method: "POST",
+      headers: { ...auth(representedB), "x-lifespace-delegation-id": child.id },
+      body: JSON.stringify({
+        summary: "User authority re-delegated to B",
+        when: { kind: "date", start: "2026-10-05", endExclusive: "2026-10-06" },
+      }),
+    }, publicKey);
+    expect(createdResponse.status).toBe(201);
+    const created = await jsonData(createdResponse);
+
+    const evidence = await (env as unknown as TestEnv).DB.prepare(`SELECT delegation_id,chain_position
+      FROM resource_change_delegations
+      WHERE change_id=(SELECT id FROM resource_changes WHERE record_id=? ORDER BY occurred_at DESC LIMIT 1)
+      ORDER BY chain_position`).bind(created.id).all<any>();
+    expect(evidence.results).toEqual([
+      { delegation_id: root.id, chain_position: 0 },
+      { delegation_id: child.id, chain_position: 1 },
+    ]);
+
+    const revokeRoot = await request(
+      `/api/v1/spaces/${spaceId}/agent-delegations/${root.id}`,
+      { method: "DELETE", headers: { authorization: `Bearer ${directUser}` } },
+      publicKey,
+    );
+    expect(revokeRoot.status).toBe(204);
+
+    const denied = await request(`/api/v1/spaces/${spaceId}/models/event/records`, {
+      method: "POST",
+      headers: { ...auth(representedB), "x-lifespace-delegation-id": child.id },
+      body: JSON.stringify({
+        summary: "Denied through revoked ancestor",
+        when: { kind: "date", start: "2026-10-06", endExclusive: "2026-10-07" },
+      }),
+    }, publicKey);
+    expect(denied.status).toBe(403);
+  });
+
+  it("does not consume a single-use parent on Child issuance and lets its subtree succeed only once", async () => {
+    const { privateKey, publicKey } = await keys();
+    const userId = `usr_${crypto.randomUUID().replaceAll("-", "")}`;
+    const agentA = `agt_${crypto.randomUUID().replaceAll("-", "")}`;
+    const agentB = `agt_${crypto.randomUUID().replaceAll("-", "")}`;
+    const agentC = `agt_${crypto.randomUUID().replaceAll("-", "")}`;
+    const spaceId = `spc_${crypto.randomUUID().replaceAll("-", "")}`;
+    await seedSpaceAndCatalog(userId, spaceId);
+
+    const directUser = await userToken(privateKey, userId, ["resources:read", "resources:write"]);
+    const rootResponse = await request(`/api/v1/spaces/${spaceId}/agent-delegations`, {
+      method: "POST",
+      headers: auth(directUser),
+      body: JSON.stringify({
+        agentId: agentA,
+        scope: { target: { type: "model", id: "event" }, maxAccess: "write" },
+        constraints: { maxUses: 1, remainingRedelegationDepth: 1 },
+      }),
+    }, publicKey);
+    const root = await jsonData(rootResponse);
+    const representedA = await generalizedAgentToken(
+      privateKey, "user", userId, agentA, ["resources:read", "resources:write"],
+    );
+
+    const createChild = async (agentId: string) => {
+      const response = await request(`/api/v1/spaces/${spaceId}/agent-delegations`, {
+        method: "POST",
+        headers: auth(representedA),
+        body: JSON.stringify({
+          agentId,
+          parentDelegationId: root.id,
+          scope: { target: { type: "model", id: "event" }, maxAccess: "write" },
+        }),
+      }, publicKey);
+      expect(response.status).toBe(201);
+      return jsonData(response);
+    };
+
+    const childB = await createChild(agentB);
+    const childC = await createChild(agentC);
+    const beforeUse = await (env as unknown as TestEnv).DB.prepare(
+      "SELECT consumed_at FROM delegations WHERE id=?",
+    ).bind(root.id).first<{ consumed_at: string | null }>();
+    expect(beforeUse?.consumed_at).toBeNull();
+
+    const representedB = await generalizedAgentToken(
+      privateKey, "user", userId, agentB, ["resources:read", "resources:write"],
+    );
+    const first = await request(`/api/v1/spaces/${spaceId}/models/event/records`, {
+      method: "POST",
+      headers: { ...auth(representedB), "x-lifespace-delegation-id": childB.id },
+      body: JSON.stringify({
+        summary: "First descendant wins",
+        when: { kind: "date", start: "2026-10-07", endExclusive: "2026-10-08" },
+      }),
+    }, publicKey);
+    expect(first.status).toBe(201);
+
+    const consumed = await (env as unknown as TestEnv).DB.prepare(
+      "SELECT consumed_at,consumed_by_change_id FROM delegations WHERE id=?",
+    ).bind(root.id).first<{ consumed_at: string | null; consumed_by_change_id: string | null }>();
+    expect(consumed?.consumed_at).not.toBeNull();
+    expect(consumed?.consumed_by_change_id).toMatch(/^chg_/);
+
+    const representedC = await generalizedAgentToken(
+      privateKey, "user", userId, agentC, ["resources:read", "resources:write"],
+    );
+    const second = await request(`/api/v1/spaces/${spaceId}/models/event/records`, {
+      method: "POST",
+      headers: { ...auth(representedC), "x-lifespace-delegation-id": childC.id },
+      body: JSON.stringify({
+        summary: "Second descendant must fail",
+        when: { kind: "date", start: "2026-10-08", endExclusive: "2026-10-09" },
+      }),
+    }, publicKey);
+    expect(second.status).toBe(403);
+  });
+
 });
