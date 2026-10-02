@@ -1,0 +1,202 @@
+import type { Permission } from "./authorization";
+import type { ActorType, Bindings, Principal, PrincipalType } from "./env";
+import { ApiError } from "./http";
+
+export type DelegationTargetType = "space" | "model" | "record";
+
+export type DelegationChainRow = {
+  root_leaf_id: string;
+  delegation_id: string;
+  parent_delegation_id: string | null;
+  remaining_redelegation_depth: number;
+  principal_type: PrincipalType;
+  principal_id: string;
+  actor_type: ActorType;
+  actor_id: string;
+  application_id: string;
+  source_space_id: string;
+  created_by_type: ActorType;
+  created_by_id: string;
+  delegation_revoked_at: string | null;
+  delegation_expires_at: string | null;
+  delegation_max_uses: number | null;
+  delegation_consumed_at: string | null;
+  delegation_target_type: DelegationTargetType;
+  delegation_target_id: string;
+  delegation_target_model_key: string | null;
+  delegation_max_access: Permission;
+  chain_depth: number;
+};
+
+const permissionRank: Record<Permission, number> = {
+  free_busy: 1,
+  read: 2,
+  write: 3,
+  manage: 4,
+};
+
+function executionActor(principal: Principal) {
+  return principal.actor ?? { type: principal.type, id: principal.id };
+}
+
+export function delegationChainStatement(
+  env: Bindings,
+  delegationIds: readonly string[],
+): D1PreparedStatement {
+  if (!delegationIds.length) {
+    throw new Error("Delegation chain query requires at least one leaf");
+  }
+  const placeholders = delegationIds.map(() => "?").join(",");
+  return env.DB.prepare(`
+    WITH RECURSIVE chain(
+      root_leaf_id,delegation_id,parent_delegation_id,remaining_redelegation_depth,
+      principal_type,principal_id,actor_type,actor_id,application_id,source_space_id,
+      created_by_type,created_by_id,delegation_revoked_at,delegation_expires_at,
+      delegation_max_uses,delegation_consumed_at,chain_depth
+    ) AS (
+      SELECT
+        d.id,d.id,d.parent_delegation_id,d.remaining_redelegation_depth,
+        d.principal_type,d.principal_id,d.actor_type,d.actor_id,d.application_id,d.source_space_id,
+        d.created_by_type,d.created_by_id,d.revoked_at,d.expires_at,d.max_uses,d.consumed_at,0
+      FROM delegations d
+      WHERE d.id IN (${placeholders})
+      UNION ALL
+      SELECT
+        c.root_leaf_id,p.id,p.parent_delegation_id,p.remaining_redelegation_depth,
+        p.principal_type,p.principal_id,p.actor_type,p.actor_id,p.application_id,p.source_space_id,
+        p.created_by_type,p.created_by_id,p.revoked_at,p.expires_at,p.max_uses,p.consumed_at,c.chain_depth+1
+      FROM chain c
+      JOIN delegations p ON p.id=c.parent_delegation_id
+      WHERE c.chain_depth < 3
+    )
+    SELECT
+      c.*,
+      ds.target_type AS delegation_target_type,
+      ds.target_id AS delegation_target_id,
+      ds.target_model_key AS delegation_target_model_key,
+      ds.max_access AS delegation_max_access
+    FROM chain c
+    JOIN delegation_scopes ds ON ds.delegation_id=c.delegation_id
+    ORDER BY c.root_leaf_id,c.chain_depth
+  `).bind(...delegationIds);
+}
+
+export function delegationCurrent(row: DelegationChainRow | null): boolean {
+  if (!row || row.delegation_revoked_at || row.delegation_consumed_at) return false;
+  if (!row.delegation_expires_at) return true;
+  return Date.parse(row.delegation_expires_at) > Date.now();
+}
+
+export function delegationScopeContains(
+  parent: DelegationChainRow,
+  child: Pick<
+    DelegationChainRow,
+    "delegation_target_type" | "delegation_target_id" | "delegation_target_model_key" | "delegation_max_access" | "source_space_id"
+  >,
+): boolean {
+  if (permissionRank[parent.delegation_max_access] < permissionRank[child.delegation_max_access]) return false;
+  if (parent.delegation_target_type === "space") {
+    return parent.delegation_target_id === parent.source_space_id
+      && child.source_space_id === parent.source_space_id;
+  }
+  if (parent.delegation_target_type === "model") {
+    if (child.delegation_target_type === "model") {
+      return child.delegation_target_id === parent.delegation_target_id;
+    }
+    return child.delegation_target_type === "record"
+      && child.delegation_target_model_key === parent.delegation_target_id;
+  }
+  return child.delegation_target_type === "record"
+    && child.delegation_target_id === parent.delegation_target_id
+    && child.delegation_target_model_key === parent.delegation_target_model_key;
+}
+
+export function delegationExpiryNarrows(
+  parentExpiresAt: string | null,
+  childExpiresAt: string | null,
+): boolean {
+  if (!parentExpiresAt) return true;
+  if (!childExpiresAt) return false;
+  return Date.parse(childExpiresAt) <= Date.parse(parentExpiresAt);
+}
+
+export function validateStructuralDelegationChain(
+  principal: Principal,
+  spaceId: string,
+  leafDelegationId: string,
+  rows: readonly DelegationChainRow[],
+): DelegationChainRow[] {
+  if (!rows.length) {
+    throw new ApiError("DELEGATION_INVALID", "Delegation chain was not found", 403);
+  }
+
+  const orderedLeafToRoot = [...rows].sort((left, right) => left.chain_depth - right.chain_depth);
+  const leaf = orderedLeafToRoot[0]!;
+  const actor = executionActor(principal);
+  if (
+    leaf.delegation_id !== leafDelegationId
+    || leaf.principal_type !== principal.type
+    || leaf.principal_id !== principal.id
+    || leaf.actor_type !== actor.type
+    || leaf.actor_id !== actor.id
+    || leaf.application_id !== principal.clientId
+    || leaf.source_space_id !== spaceId
+  ) {
+    throw new ApiError("DELEGATION_INVALID", "Leaf Delegation does not match the verified Execution Context", 403);
+  }
+
+  if (new Set(orderedLeafToRoot.map((row) => row.delegation_id)).size !== orderedLeafToRoot.length) {
+    throw new ApiError("DELEGATION_INVALID", "Delegation chain contains a cycle", 403);
+  }
+
+  for (let index = 0; index < orderedLeafToRoot.length; index += 1) {
+    const row = orderedLeafToRoot[index]!;
+    if (
+      row.principal_type !== principal.type
+      || row.principal_id !== principal.id
+      || row.application_id !== principal.clientId
+      || row.source_space_id !== spaceId
+      || !delegationCurrent(row)
+    ) {
+      throw new ApiError(
+        "DELEGATION_INVALID",
+        "Delegation chain is revoked, expired, consumed or outside the verified Execution Context",
+        403,
+      );
+    }
+
+    const parent = orderedLeafToRoot[index + 1];
+    if (!parent) {
+      if (row.parent_delegation_id !== null) {
+        throw new ApiError("DELEGATION_INVALID", "Delegation chain exceeds the supported depth or has a missing parent", 403);
+      }
+      continue;
+    }
+
+    if (
+      row.parent_delegation_id !== parent.delegation_id
+      || row.created_by_type !== parent.actor_type
+      || row.created_by_id !== parent.actor_id
+      || parent.remaining_redelegation_depth <= 0
+      || row.remaining_redelegation_depth >= parent.remaining_redelegation_depth
+      || !delegationScopeContains(parent, row)
+      || !delegationExpiryNarrows(parent.delegation_expires_at, row.delegation_expires_at)
+    ) {
+      throw new ApiError("DELEGATION_INVALID", "Delegation chain violates bounded re-delegation invariants", 403);
+    }
+  }
+
+  return orderedLeafToRoot.reverse();
+}
+
+export function groupDelegationChainRows(
+  rows: readonly DelegationChainRow[],
+): Map<string, DelegationChainRow[]> {
+  const result = new Map<string, DelegationChainRow[]>();
+  for (const row of rows) {
+    const existing = result.get(row.root_leaf_id) ?? [];
+    existing.push(row);
+    result.set(row.root_leaf_id, existing);
+  }
+  return result;
+}
