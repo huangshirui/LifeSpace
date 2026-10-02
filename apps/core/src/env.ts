@@ -1,15 +1,22 @@
-export const PRINCIPAL_TYPES = ["user", "service", "device"] as const;
-export type PrincipalType = typeof PRINCIPAL_TYPES[number];
+import {
+  canBeActor,
+  canBePrincipal,
+  ENTITY_ROLE_CAPABILITIES,
+  type EntityType,
+} from "./entity-role-capability";
 
-export const ACTOR_TYPES = [...PRINCIPAL_TYPES, "agent"] as const;
-export type ActorType = typeof ACTOR_TYPES[number];
+export const PRINCIPAL_TYPES = Object.keys(ENTITY_ROLE_CAPABILITIES) as EntityType[];
+export type PrincipalType = EntityType;
+
+export const ACTOR_TYPES = Object.keys(ENTITY_ROLE_CAPABILITIES) as EntityType[];
+export type ActorType = EntityType;
 
 export function isPrincipalType(value: unknown): value is PrincipalType {
-  return typeof value === "string" && (PRINCIPAL_TYPES as readonly string[]).includes(value);
+  return canBePrincipal(value);
 }
 
 export function isActorType(value: unknown): value is ActorType {
-  return typeof value === "string" && (ACTOR_TYPES as readonly string[]).includes(value);
+  return canBeActor(value);
 }
 
 export type Actor = {
@@ -25,7 +32,7 @@ export type Principal = {
   scopes: string[];
   tokenId: string;
   actor?: Actor;
-  purpose?: "delegated_agent";
+  purpose?: "delegated_agent" | "agent_execution";
 };
 
 export type Bindings = CloudflareBindings & {
