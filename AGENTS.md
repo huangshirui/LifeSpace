@@ -12,13 +12,14 @@ Read in this order:
 4. `docs/application-authentication.md` for Web/Access/application identity work;
 5. `docs/service-authentication.md` for service, Agent, automation, device or machine credentials;
 6. `docs/contracts.md`;
-7. `docs/agent-ready.md` for Principal / Actor / Delegation / governed Change rules when changing Agent-facing authority;
-8. `docs/model-definition-spec.md` for the normative human-readable Model Definition / Policy / Workflow / Capability DSL semantics;
-9. `docs/model-platform-architecture.md` for business-model/runtime architecture;
-10. `docs/runtime-storage-performance.md` for ordinary-model storage, Registry runtime lookup, query hydration, authorization I/O or performance-sensitive paths;
-11. `docs/generic-consumer-contract.md` when changing discovery, semantic projection, reference resolution or consumer-facing genericity;
-12. `apps/AGENTS.md` and the nearest nested `AGENTS.md` for every directory changed;
-13. relevant OpenAPI contracts, tests, migrations, implementation, Model Definitions and generated artifacts.
+7. `docs/authority-role-capability-redelegation.md` for the accepted Entity Role Capability, Agent-as-Principal and bounded re-delegation target architecture;
+8. `docs/agent-ready.md` for Principal / Actor / Delegation / governed Change rules and the distinction between current released profiles and accepted target behavior;
+9. `docs/model-definition-spec.md` for the normative human-readable Model Definition / Policy / Workflow / Capability DSL semantics;
+10. `docs/model-platform-architecture.md` for business-model/runtime architecture;
+11. `docs/runtime-storage-performance.md` for ordinary-model storage, Registry runtime lookup, query hydration, authorization I/O or performance-sensitive paths;
+12. `docs/generic-consumer-contract.md` when changing discovery, semantic projection, reference resolution or consumer-facing genericity;
+13. `apps/AGENTS.md` and the nearest nested `AGENTS.md` for every directory changed;
+14. relevant OpenAPI contracts, tests, migrations, implementation, Model Definitions and generated artifacts.
 
 If a required source does not yet exist during initial scaffold, create/update it before implementing behavior that depends on it.
 
@@ -30,7 +31,8 @@ If a required source does not yet exist during initial scaffold, create/update i
 - Application/Cloudflare Access identity: `docs/application-authentication.md`
 - Service/machine credential policy: `docs/service-authentication.md`
 - Contract ownership/versioning/publication/downstream consumption: `docs/contracts.md`
-- Agent execution-context, Delegation and governed Change invariants: `docs/agent-ready.md`
+- Accepted Entity Role Capability, Agent Principal and bounded re-delegation target architecture: `docs/authority-role-capability-redelegation.md`
+- Agent execution-context, Delegation and governed Change invariants, including current released-profile boundaries: `docs/agent-ready.md`
 - Model Definition / Policy / Workflow / Capability DSL semantics: `docs/model-definition-spec.md`
 - Metadata business-model architecture: `docs/model-platform-architecture.md`
 - Runtime performance/typed persistence: `docs/runtime-storage-performance.md`
