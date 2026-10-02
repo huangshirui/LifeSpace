@@ -227,5 +227,4 @@ export function registerAgentAuthenticationRoutes(app: App): void {
       purpose: legacyPayload ? "delegated_agent" : "agent_execution",
     }));
   });
-  });
 }
