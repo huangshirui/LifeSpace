@@ -1,5 +1,5 @@
 import type { Permission, SpaceRole } from "./authorization";
-import type { Actor, Bindings, Principal } from "./env";
+import type { Actor, ActorType, Bindings, Principal, PrincipalType } from "./env";
 import { ApiError } from "./http";
 import type { ModelAccess } from "./model-definition";
 import type { PublishedModel } from "./model-registry";
@@ -47,6 +47,8 @@ export type ModelAuthorityDecision = {
   catalogAccess: ModelAccess;
   spaceAuthority: SpaceRole | "grant";
   delegationId: string | null;
+  delegationChain: string[];
+  singleUseDelegationIds: string[];
   singleUse: boolean;
 };
 
@@ -69,7 +71,18 @@ type BaseAuthoritySnapshotRow = {
 };
 
 type DelegationSnapshotRow = {
+  root_leaf_id: string;
   delegation_id: string;
+  parent_delegation_id: string | null;
+  remaining_redelegation_depth: number;
+  principal_type: PrincipalType;
+  principal_id: string;
+  actor_type: ActorType;
+  actor_id: string;
+  application_id: string;
+  source_space_id: string;
+  created_by_type: ActorType;
+  created_by_id: string;
   delegation_revoked_at: string | null;
   delegation_expires_at: string | null;
   delegation_max_uses: number | null;
@@ -78,6 +91,7 @@ type DelegationSnapshotRow = {
   delegation_target_id: string;
   delegation_target_model_key: string | null;
   delegation_max_access: Permission;
+  chain_depth: number;
 };
 
 type PreparedAccess = {
@@ -91,11 +105,6 @@ type PreparedAccess = {
 type PreparedBaseAuthority = {
   key: string;
   model: PublishedModel;
-  statement: D1PreparedStatement;
-};
-
-type PreparedDelegation = {
-  key: string;
   statement: D1PreparedStatement;
 };
 
@@ -214,43 +223,43 @@ function baseAuthorityStatement(
   );
 }
 
-function delegationStatement(
+function delegationChainStatement(
   env: Bindings,
-  principal: Principal,
-  spaceId: string,
-  delegationId: string,
+  delegationIds: readonly string[],
 ): D1PreparedStatement {
-  const actor = executionActor(principal);
+  const placeholders = delegationIds.map(() => "?").join(",");
   return env.DB.prepare(`
+    WITH RECURSIVE chain(
+      root_leaf_id,delegation_id,parent_delegation_id,remaining_redelegation_depth,
+      principal_type,principal_id,actor_type,actor_id,application_id,source_space_id,
+      created_by_type,created_by_id,delegation_revoked_at,delegation_expires_at,
+      delegation_max_uses,delegation_consumed_at,chain_depth
+    ) AS (
+      SELECT
+        d.id,d.id,d.parent_delegation_id,d.remaining_redelegation_depth,
+        d.principal_type,d.principal_id,d.actor_type,d.actor_id,d.application_id,d.source_space_id,
+        d.created_by_type,d.created_by_id,d.revoked_at,d.expires_at,d.max_uses,d.consumed_at,0
+      FROM delegations d
+      WHERE d.id IN (${placeholders})
+      UNION ALL
+      SELECT
+        c.root_leaf_id,p.id,p.parent_delegation_id,p.remaining_redelegation_depth,
+        p.principal_type,p.principal_id,p.actor_type,p.actor_id,p.application_id,p.source_space_id,
+        p.created_by_type,p.created_by_id,p.revoked_at,p.expires_at,p.max_uses,p.consumed_at,c.chain_depth+1
+      FROM chain c
+      JOIN delegations p ON p.id=c.parent_delegation_id
+      WHERE c.chain_depth < 3
+    )
     SELECT
-      d.id AS delegation_id,
-      d.revoked_at AS delegation_revoked_at,
-      d.expires_at AS delegation_expires_at,
-      d.max_uses AS delegation_max_uses,
-      d.consumed_at AS delegation_consumed_at,
+      c.*,
       ds.target_type AS delegation_target_type,
       ds.target_id AS delegation_target_id,
       ds.target_model_key AS delegation_target_model_key,
       ds.max_access AS delegation_max_access
-    FROM delegations d
-    JOIN delegation_scopes ds ON ds.delegation_id=d.id
-    WHERE d.id=?
-      AND d.principal_type=?
-      AND d.principal_id=?
-      AND d.actor_type=?
-      AND d.actor_id=?
-      AND d.application_id=?
-      AND d.source_space_id=?
-    LIMIT 1
-  `).bind(
-    delegationId,
-    principal.type,
-    principal.id,
-    actor.type,
-    actor.id,
-    principal.clientId,
-    spaceId,
-  );
+    FROM chain c
+    JOIN delegation_scopes ds ON ds.delegation_id=c.delegation_id
+    ORDER BY c.root_leaf_id,c.chain_depth
+  `).bind(...delegationIds);
 }
 
 function delegationCurrent(row: DelegationSnapshotRow | null): boolean {
@@ -272,6 +281,122 @@ function delegationScopeAllows(
   return Boolean(recordId)
     && row.delegation_target_id === recordId
     && row.delegation_target_model_key === modelKey;
+}
+
+function scopeContains(parent: DelegationSnapshotRow, child: DelegationSnapshotRow): boolean {
+  if (permissionRank[parent.delegation_max_access] < permissionRank[child.delegation_max_access]) return false;
+  if (parent.delegation_target_type === "space") {
+    return parent.delegation_target_id === parent.source_space_id
+      && child.source_space_id === parent.source_space_id;
+  }
+  if (parent.delegation_target_type === "model") {
+    if (child.delegation_target_type === "model") {
+      return child.delegation_target_id === parent.delegation_target_id;
+    }
+    return child.delegation_target_type === "record"
+      && child.delegation_target_model_key === parent.delegation_target_id;
+  }
+  return child.delegation_target_type === "record"
+    && child.delegation_target_id === parent.delegation_target_id
+    && child.delegation_target_model_key === parent.delegation_target_model_key;
+}
+
+function expiryNarrows(parent: DelegationSnapshotRow, child: DelegationSnapshotRow): boolean {
+  if (!parent.delegation_expires_at) return true;
+  if (!child.delegation_expires_at) return false;
+  return Date.parse(child.delegation_expires_at) <= Date.parse(parent.delegation_expires_at);
+}
+
+function validateDelegationChain(
+  principal: Principal,
+  spaceId: string,
+  prepared: PreparedAccess,
+  rows: readonly DelegationSnapshotRow[],
+): {
+  delegationId: string;
+  delegationChain: string[];
+  singleUseDelegationIds: string[];
+} {
+  if (!prepared.delegationId || !rows.length) {
+    throw new ApiError("DELEGATION_INVALID", "Delegation chain was not found", 403);
+  }
+
+  const orderedLeafToRoot = [...rows].sort((left, right) => left.chain_depth - right.chain_depth);
+  const leaf = orderedLeafToRoot[0]!;
+  const actor = executionActor(principal);
+  if (
+    leaf.delegation_id !== prepared.delegationId
+    || leaf.principal_type !== principal.type
+    || leaf.principal_id !== principal.id
+    || leaf.actor_type !== actor.type
+    || leaf.actor_id !== actor.id
+    || leaf.application_id !== principal.clientId
+    || leaf.source_space_id !== spaceId
+  ) {
+    throw new ApiError("DELEGATION_INVALID", "Leaf Delegation does not match the verified Execution Context", 403);
+  }
+
+  if (new Set(orderedLeafToRoot.map((row) => row.delegation_id)).size !== orderedLeafToRoot.length) {
+    throw new ApiError("DELEGATION_INVALID", "Delegation chain contains a cycle", 403);
+  }
+
+  for (let index = 0; index < orderedLeafToRoot.length; index += 1) {
+    const row = orderedLeafToRoot[index]!;
+    if (
+      row.principal_type !== principal.type
+      || row.principal_id !== principal.id
+      || row.application_id !== principal.clientId
+      || row.source_space_id !== spaceId
+      || !delegationCurrent(row)
+    ) {
+      throw new ApiError(
+        "DELEGATION_INVALID",
+        "Delegation chain is revoked, expired, consumed or outside the verified Execution Context",
+        403,
+      );
+    }
+    if (!delegationScopeAllows(
+      row,
+      spaceId,
+      prepared.request.model.key,
+      prepared.recordId,
+      prepared.request.required,
+    )) {
+      throw new ApiError(
+        "DELEGATION_SCOPE_INSUFFICIENT",
+        `Delegation chain does not allow ${prepared.request.required} access to this target`,
+        403,
+      );
+    }
+
+    const parent = orderedLeafToRoot[index + 1];
+    if (!parent) {
+      if (row.parent_delegation_id !== null) {
+        throw new ApiError("DELEGATION_INVALID", "Delegation chain exceeds the supported depth or has a missing parent", 403);
+      }
+      continue;
+    }
+    if (
+      row.parent_delegation_id !== parent.delegation_id
+      || row.created_by_type !== parent.actor_type
+      || row.created_by_id !== parent.actor_id
+      || parent.remaining_redelegation_depth <= 0
+      || row.remaining_redelegation_depth >= parent.remaining_redelegation_depth
+      || !scopeContains(parent, row)
+      || !expiryNarrows(parent, row)
+    ) {
+      throw new ApiError("DELEGATION_INVALID", "Delegation chain violates bounded re-delegation invariants", 403);
+    }
+  }
+
+  const rootToLeaf = [...orderedLeafToRoot].reverse();
+  return {
+    delegationId: leaf.delegation_id,
+    delegationChain: rootToLeaf.map((row) => row.delegation_id),
+    singleUseDelegationIds: rootToLeaf
+      .filter((row) => row.delegation_max_uses === 1)
+      .map((row) => row.delegation_id),
+  };
 }
 
 function baseDecision(
@@ -337,35 +462,18 @@ function decisionFromSnapshots(
   spaceId: string,
   prepared: PreparedAccess,
   baseRow: BaseAuthoritySnapshotRow | null,
-  delegationRow: DelegationSnapshotRow | null,
+  delegationRows: readonly DelegationSnapshotRow[],
 ): ModelAccessDecision {
   const base = baseDecision(principal, spaceId, prepared.request, baseRow);
   let resolvedDelegationId: string | null = null;
-  let singleUse = false;
+  let delegationChain: string[] = [];
+  let singleUseDelegationIds: string[] = [];
 
   if (principal.actor) {
-    if (!prepared.delegationId || !delegationCurrent(delegationRow)) {
-      throw new ApiError(
-        "DELEGATION_INVALID",
-        "Delegation is missing, revoked, expired or already consumed",
-        403,
-      );
-    }
-    if (!delegationRow || !delegationScopeAllows(
-      delegationRow,
-      spaceId,
-      prepared.request.model.key,
-      prepared.recordId,
-      prepared.request.required,
-    )) {
-      throw new ApiError(
-        "DELEGATION_SCOPE_INSUFFICIENT",
-        `Delegation scope does not allow ${prepared.request.required} access to this target`,
-        403,
-      );
-    }
-    resolvedDelegationId = delegationRow.delegation_id;
-    singleUse = delegationRow.delegation_max_uses === 1;
+    const chain = validateDelegationChain(principal, spaceId, prepared, delegationRows);
+    resolvedDelegationId = chain.delegationId;
+    delegationChain = chain.delegationChain;
+    singleUseDelegationIds = chain.singleUseDelegationIds;
   }
 
   if (!baseRow) {
@@ -379,7 +487,9 @@ function decisionFromSnapshots(
       required: prepared.request.required,
       ...base,
       delegationId: resolvedDelegationId,
-      singleUse,
+      delegationChain,
+      singleUseDelegationIds,
+      singleUse: singleUseDelegationIds.length > 0,
     },
     policyIdentity: policyIdentity(principal, baseRow),
   };
@@ -411,7 +521,7 @@ export async function requireModelAccessMany(
 
   const prepared = requests.map((request) => prepareAccess(principal, spaceId, request));
   const baseEntries = new Map<string, PreparedBaseAuthority>();
-  const delegationEntries = new Map<string, PreparedDelegation>();
+  const leafIds = new Set<string>();
 
   for (const entry of prepared) {
     if (!baseEntries.has(entry.baseKey)) {
@@ -421,20 +531,16 @@ export async function requireModelAccessMany(
         statement: baseAuthorityStatement(env, principal, spaceId, entry.request.model),
       });
     }
-    if (entry.delegationKey && entry.delegationId && !delegationEntries.has(entry.delegationKey)) {
-      delegationEntries.set(entry.delegationKey, {
-        key: entry.delegationKey,
-        statement: delegationStatement(env, principal, spaceId, entry.delegationId),
-      });
-    }
+    if (entry.delegationId) leafIds.add(entry.delegationId);
   }
 
   const uniqueBases = [...baseEntries.values()];
-  const uniqueDelegations = [...delegationEntries.values()];
-  const results = await env.DB.batch<Record<string, unknown>>([
+  const uniqueLeafIds = [...leafIds];
+  const statements = [
     ...uniqueBases.map((entry) => entry.statement),
-    ...uniqueDelegations.map((entry) => entry.statement),
-  ]);
+    ...(uniqueLeafIds.length ? [delegationChainStatement(env, uniqueLeafIds)] : []),
+  ];
+  const results = await env.DB.batch<Record<string, unknown>>(statements);
 
   const baseRows = new Map<string, BaseAuthoritySnapshotRow | null>();
   uniqueBases.forEach((entry, index) => {
@@ -442,19 +548,22 @@ export async function requireModelAccessMany(
     baseRows.set(entry.key, row ?? null);
   });
 
-  const delegationRows = new Map<string, DelegationSnapshotRow | null>();
-  uniqueDelegations.forEach((entry, index) => {
-    const resultIndex = uniqueBases.length + index;
-    const row = (results[resultIndex]?.results ?? [])[0] as DelegationSnapshotRow | undefined;
-    delegationRows.set(entry.key, row ?? null);
-  });
+  const chainsByLeaf = new Map<string, DelegationSnapshotRow[]>();
+  if (uniqueLeafIds.length) {
+    const chainRows = (results[uniqueBases.length]?.results ?? []) as DelegationSnapshotRow[];
+    for (const row of chainRows) {
+      const rows = chainsByLeaf.get(row.root_leaf_id) ?? [];
+      rows.push(row);
+      chainsByLeaf.set(row.root_leaf_id, rows);
+    }
+  }
 
   return prepared.map((entry) => decisionFromSnapshots(
     principal,
     spaceId,
     entry,
     baseRows.get(entry.baseKey) ?? null,
-    entry.delegationKey ? delegationRows.get(entry.delegationKey) ?? null : null,
+    entry.delegationId ? chainsByLeaf.get(entry.delegationId) ?? [] : [],
   ));
 }
 
@@ -478,22 +587,36 @@ export async function consumeSingleUseRead(
   env: Bindings,
   decision: ModelAccessDecision,
 ): Promise<void> {
-  if (!decision.authority.singleUse || !decision.authority.delegationId) return;
+  const ids = decision.authority.singleUseDelegationIds;
+  if (!ids.length) return;
+
   const consumedAt = new Date().toISOString();
+  const placeholders = ids.map(() => "?").join(",");
+  const expected = ids.length;
   const result = await env.DB.prepare(`UPDATE delegations
     SET consumed_at=?,consumed_by_change_id=NULL
-    WHERE id=?
+    WHERE id IN (${placeholders})
       AND max_uses=1
       AND consumed_at IS NULL
       AND revoked_at IS NULL
-      AND (expires_at IS NULL OR julianday(expires_at)>julianday('now'))`)
-    .bind(consumedAt, decision.authority.delegationId)
-    .run();
-  if (result.meta.changes !== 1) {
+      AND (expires_at IS NULL OR julianday(expires_at)>julianday('now'))
+      AND (
+        SELECT COUNT(*)
+        FROM delegations required
+        WHERE required.id IN (${placeholders})
+          AND required.max_uses=1
+          AND required.consumed_at IS NULL
+          AND required.revoked_at IS NULL
+          AND (required.expires_at IS NULL OR julianday(required.expires_at)>julianday('now'))
+      )=?
+  `).bind(consumedAt, ...ids, ...ids, expected).run();
+
+  if (result.meta.changes !== expected) {
     throw new ApiError(
       "DELEGATION_INVALID",
-      "Single-use Delegation was consumed, revoked or expired before the read completed",
+      "Single-use Delegation chain was consumed, revoked or expired before the read completed",
       403,
     );
   }
 }
+
