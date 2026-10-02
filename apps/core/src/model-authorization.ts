@@ -96,7 +96,6 @@ type DelegationSnapshotRow = {
 
 type PreparedAccess = {
   baseKey: string;
-  delegationKey: string | null;
   request: ModelAccessRequest;
   delegationId: string | null;
   recordId: string | null;
@@ -150,23 +149,6 @@ function baseAuthorityKey(
     principal.id,
     spaceId,
     model.key,
-  ].join("\u001f");
-}
-
-function delegationKey(
-  principal: Principal,
-  spaceId: string,
-  delegationId: string,
-): string {
-  const actor = executionActor(principal);
-  return [
-    principal.clientId,
-    principal.type,
-    principal.id,
-    actor.type,
-    actor.id,
-    spaceId,
-    delegationId,
   ].join("\u001f");
 }
 
@@ -504,7 +486,6 @@ function prepareAccess(
   const { delegationId, recordId } = selectorValues(principal, request.selector);
   return {
     baseKey: baseAuthorityKey(principal, spaceId, request.model),
-    delegationKey: delegationId ? delegationKey(principal, spaceId, delegationId) : null,
     request,
     delegationId,
     recordId,
