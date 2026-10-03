@@ -79,6 +79,7 @@ replaceIn("apps/core/scripts/check-openapi.mjs", (text) => text
   .replaceAll("AgentDelegation", "Delegation")
   .replaceAll("Agent Delegation", "Delegation")
   .replaceAll("agentDelegations", "delegations")
+  .replaceAll('required?.join(",") !== "agentId,scope"', 'required?.join(",") !== "actor,scope"')
 );
 replaceIn("apps/core/scripts/check-authority-contract.mjs", (text) => text
   .replaceAll("Agent Delegation", "Delegation")
