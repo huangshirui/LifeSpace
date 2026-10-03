@@ -1,0 +1,40 @@
+name: Authority v3 agent-ready doc fix
+
+on:
+  push:
+    branches:
+      - docs/authority-role-capability-redelegation
+    paths:
+      - .github/workflows/authority-v3-doc-fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: docs/authority-role-capability-redelegation
+      - name: Align active Agent-ready specification
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('docs/agent-ready.md')
+          text = path.read_text()
+          old = '- Delegation 只能缩小 Principal **当前** Authority，不能扩大。当前已发布 Runtime 仍只执行 single-hop User -> Agent；已确认的目标架构支持父 Delegation 显式允许、严格收窄且有深度上限的 re-delegation / delegation chain，见 `docs/authority-role-capability-redelegation.md`；'
+          new = '- Delegation 只能缩小 Principal **当前** Authority，不能扩大。当前 Runtime 已支持显式、严格收窄、同 Application 且有深度上限的 re-delegation / delegation chain，并始终保留 Root Principal；详细约束见 `docs/authority-role-capability-redelegation.md`；'
+          if old not in text:
+              raise SystemExit('expected stale Agent-ready sentence not found')
+          path.write_text(text.replace(old, new, 1))
+          PY
+      - name: Commit documentation fix
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/agent-ready.md
+          git commit -m "docs(authority): align Agent-ready with implemented re-delegation"
+          git push origin HEAD:docs/authority-role-capability-redelegation
