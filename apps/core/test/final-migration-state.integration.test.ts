@@ -15,6 +15,31 @@ describe("final migration state", () => {
     expect(rows.results).toEqual([]);
   });
 
+  it("keeps resource_records in place and adds exact Entity Type audit columns", async () => {
+    const db = (env as unknown as TestEnv).DB;
+    const columns = await db.prepare("PRAGMA table_info(resource_records)").all<{ name: string }>();
+    expect(columns.results.map((row) => row.name)).toEqual(expect.arrayContaining([
+      "created_by_type",
+      "created_by_entity_type",
+      "created_by_id",
+      "updated_by_type",
+      "updated_by_entity_type",
+      "updated_by_id",
+    ]));
+
+    const indexes = await db.prepare(`SELECT name FROM sqlite_master
+      WHERE type='index' AND tbl_name='resource_records' ORDER BY name`).all<{ name: string }>();
+    expect(indexes.results.map((row) => row.name)).toEqual(expect.arrayContaining([
+      "idx_resource_records_model",
+      "idx_resource_records_space_model",
+      "idx_resource_records_space_model_updated",
+    ]));
+
+    const staleExactTypes = await db.prepare(`SELECT COUNT(*) AS count FROM resource_records
+      WHERE created_by_entity_type IS NULL OR updated_by_entity_type IS NULL`).first<{ count: number }>();
+    expect(Number(staleExactTypes?.count ?? -1)).toBe(0);
+  });
+
   it("keeps generic Delegation persistence and bounded chain evidence after schema 48", async () => {
     const db = (env as unknown as TestEnv).DB;
     const tables = await db.prepare(`SELECT name FROM sqlite_master
