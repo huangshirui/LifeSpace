@@ -12,7 +12,7 @@ LifeSpace 将 **Principal（权利主体）**、**Actor（执行者）**、**App
 - `Principal == Actor` 时不需要 Delegation；`Principal != Actor` 时必须提供并验证显式 `delegationId`；
 - `delegationId` 只是 opaque selector（不透明选择器），不是 bearer capability，也不需要写入 Agent JWT；
 - 一个 Delegation 只包含一个 Scope：一个 target（Space / Model / Record）+ 一个 `maxAccess`；
-- Delegation 只能缩小 Principal **当前** Authority，不能扩大，也不支持 re-delegation / delegation chain；
+- Delegation 只能缩小 Principal **当前** Authority，不能扩大。当前 Runtime 已支持显式、严格收窄、同 Application 且有深度上限的 re-delegation / delegation chain，并始终保留 Root Principal；详细约束见 `docs/authority-role-capability-redelegation.md`；
 - Application 内部 Main Agent -> Sub Agent 的调度，只要 LifeSpace 边界上的 Actor 没变，就属于应用内部实现，不进入 LifeSpace Delegation；
 - single-use Delegation 只在一次**成功执行**后消费；mutation 的业务 Change 与消费状态必须原子提交；
 - Batch create/update/delete 是 Generic Runtime 的一等能力，不允许通过循环调用单条 API 或 N 次串行 Authority check 实现；
@@ -52,7 +52,7 @@ An application may internally dispatch from a Main Agent to specialist Sub Agent
 
 If a Sub Agent instead becomes an independently identified LifeSpace Actor and calls Core as that Actor, it must have its own valid platform Delegation when it uses another Principal's Authority.
 
-LifeSpace does not support re-delegation of another Principal's delegated Authority.
+The currently released execution profile does not yet execute re-delegation. The accepted target architecture supports explicit bounded re-delegation while preserving the original Root Principal; see `docs/authority-role-capability-redelegation.md` and #302.
 
 Space Person (`per_*`) is business Policy context, not an Authority-bearing identity. A User Principal may resolve to `principal.personId`; a User Actor may independently resolve to `actor.personId`. For represented User -> Agent execution, the expected current profile is `principal.personId=per_*` and `actor.personId=null`. Co-fetching those policy-context values with current Authority state is only a D1 optimization and must not turn Person into Membership/Grant/Delegation authority.
 
@@ -86,7 +86,7 @@ azp            = Application
 principal_type = user
 actor_type     = agent
 actor_id       = agt_*
-purpose        = delegated_agent
+purpose        = agent_execution
 scope          = stable credential scopes
 ```
 
@@ -161,7 +161,7 @@ Rules:
 7. `record` scope applies only to the known concrete record. Record-level read does not permit list/query/search/enumeration of the model collection.
 8. V1 does not add field-level or predicate-level Delegation.
 9. Delegation is not a bearer capability and is not transferable.
-10. No delegation chain / re-delegation.
+10. Current released execution remains single-hop. Target architecture supports explicit bounded delegation chains: parent permission is required, the Root Principal is preserved, every child narrows scope/access/expiry/depth, and Core resolves the full chain from one leaf selector. See `docs/authority-role-capability-redelegation.md`.
 11. No Session Delegation / AuthorizationSession.
 12. No separate Approval Grant. Single-use, time-bounded and long-lived behavior use the same Delegation model.
 13. Delegation fields defining Principal/Actor/Application/Scope/constraints are immutable after issuance. Runtime lifecycle changes only through consumption or revocation.

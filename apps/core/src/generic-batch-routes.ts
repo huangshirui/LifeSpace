@@ -201,15 +201,16 @@ function authorityRequests(
 function rejectRepeatedSingleUse(decisions: readonly ModelAccessDecision[]): void {
   const seen = new Set<string>();
   for (const decision of decisions) {
-    if (!decision.authority.singleUse || !decision.authority.delegationId) continue;
-    if (seen.has(decision.authority.delegationId)) {
-      throw new ApiError(
-        "DELEGATION_INVALID",
-        "One single-use Delegation cannot authorize two operations in the same Batch",
-        403,
-      );
+    for (const delegationId of decision.authority.singleUseDelegationIds) {
+      if (seen.has(delegationId)) {
+        throw new ApiError(
+          "DELEGATION_INVALID",
+          "One single-use Delegation ancestor cannot authorize two operations in the same Batch",
+          403,
+        );
+      }
+      seen.add(delegationId);
     }
-    seen.add(decision.authority.delegationId);
   }
 }
 
@@ -354,6 +355,7 @@ async function buildPlans(
   for (const entry of prepared) {
     const attribution = {
       delegationId: entry.decision.authority.delegationId,
+      delegationChain: entry.decision.authority.delegationChain,
       changeSetId,
     };
     if (entry.operation.operation === "create") {

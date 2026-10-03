@@ -52,10 +52,10 @@ async function token(
   return sign({
     iss: "lifespace-identity",
     aud: "lifespace-core",
-    sub: principalId,
+    sub: actor?.id ?? principalId,
     azp: clientId,
     principal_type: principalType,
-    ...(actor ? { actor_type: "agent", actor_id: actor.id, purpose: "delegated_agent" } : {}),
+    ...(actor ? { principal_id: principalId, actor_type: "agent", actor_id: actor.id, purpose: "agent_execution" } : {}),
     scope: scopes.join(" "),
     iat,
     exp: iat + 900,

@@ -6,7 +6,12 @@ type AppEnv = { Bindings: Bindings; Variables: Variables };
 type App = Hono<AppEnv>;
 
 type AgentBody = { displayName?: unknown };
-type AgentTokenBody = { subjectId?: unknown; agentId?: unknown; scopes?: unknown };
+type AgentTokenBody = {
+  principalType?: unknown;
+  principalId?: unknown;
+  agentId?: unknown;
+  scopes?: unknown;
+};
 
 type AgentRow = {
   id: string;
@@ -18,7 +23,7 @@ type AgentRow = {
 
 const TOKEN_ISSUER = "lifespace-identity";
 const TOKEN_AUDIENCE = "lifespace-core";
-const MAX_DELEGATED_AGENT_TOKEN_TTL_SECONDS = 900;
+const MAX_AGENT_EXECUTION_TOKEN_TTL_SECONDS = 900;
 const ok = <T>(data: T) => ({ data });
 const fail = (code: string, message: string, requestId: string) => ({ error: { code, message, requestId } });
 const id = (prefix: string) => `${prefix}_${crypto.randomUUID().replaceAll("-", "")}`;
@@ -80,16 +85,14 @@ export function registerAgentAuthenticationRoutes(app: App): void {
     return c.json(ok({ id: agentId, displayName, status: "active", createdAt: timestamp, updatedAt: timestamp }), 201);
   });
 
-  app.post("/internal/v1/agent-tokens", async (c) => {
+  app.post("/internal/v1/agent-execution-tokens", async (c) => {
     const body = (await c.req.json<AgentTokenBody>().catch(() => ({}))) as AgentTokenBody;
-    const unknownKey = Object.keys(body as Record<string, unknown>).find((key) => !["subjectId", "agentId", "scopes"].includes(key));
+    const unknownKey = Object.keys(body as Record<string, unknown>)
+      .find((key) => !["principalType", "principalId", "agentId", "scopes"].includes(key));
     if (unknownKey) {
       return c.json(fail("INVALID_REQUEST", `Unsupported field ${unknownKey}`, c.get("requestId")), 400);
     }
-    if (typeof body.subjectId !== "string" || !body.subjectId.startsWith("usr_")) {
-      return c.json(fail("VALIDATION_ERROR", "subjectId must be a LifeSpace user ID", c.get("requestId")), 422);
-    }
-    if (typeof body.agentId !== "string" || !body.agentId.startsWith("agt_")) {
+    if (typeof body.agentId !== "string" || !/^agt_[A-Za-z0-9_-]+$/u.test(body.agentId)) {
       return c.json(fail("VALIDATION_ERROR", "agentId must be a LifeSpace Agent ID", c.get("requestId")), 422);
     }
     const requested = scopes(body.scopes);
@@ -97,19 +100,66 @@ export function registerAgentAuthenticationRoutes(app: App): void {
       return c.json(fail("VALIDATION_ERROR", "scopes must be a unique string array", c.get("requestId")), 422);
     }
 
-    const user = await c.env.DB.prepare("SELECT status FROM users WHERE id=?")
-      .bind(body.subjectId).first<{ status: string }>();
-    if (!user || user.status !== "active") {
-      return c.json(fail("FORBIDDEN", "User is not active", c.get("requestId")), 403);
+    const principalTypeProvided = body.principalType !== undefined;
+    const principalIdProvided = body.principalId !== undefined;
+    if (principalTypeProvided !== principalIdProvided) {
+      return c.json(fail(
+        "INVALID_REQUEST",
+        "principalType and principalId must be provided together",
+        c.get("requestId"),
+      ), 400);
+    }
+
+    let principalType: "user" | "agent";
+    let principalId: string;
+    if (!principalTypeProvided) {
+      // Direct Agent execution is the default profile.
+      principalType = "agent";
+      principalId = body.agentId;
+    } else {
+      if (body.principalType !== "user" && body.principalType !== "agent") {
+        return c.json(fail(
+          "VALIDATION_ERROR",
+          "principalType currently supports user or agent for Agent execution",
+          c.get("requestId"),
+        ), 422);
+      }
+      if (typeof body.principalId !== "string" || !body.principalId.trim()) {
+        return c.json(fail("VALIDATION_ERROR", "principalId is required with principalType", c.get("requestId")), 422);
+      }
+      principalType = body.principalType;
+      principalId = body.principalId.trim();
+      if (principalType === "user" && !/^usr_[A-Za-z0-9_-]+$/u.test(principalId)) {
+        return c.json(fail("VALIDATION_ERROR", "user Principal must use a usr_* ID", c.get("requestId")), 422);
+      }
+      if (principalType === "agent" && !/^agt_[A-Za-z0-9_-]+$/u.test(principalId)) {
+        return c.json(fail("VALIDATION_ERROR", "agent Principal must use an agt_* ID", c.get("requestId")), 422);
+      }
     }
 
     const applicationId = c.get("currentApplicationId");
-    const agent = await c.env.DB.prepare(`SELECT a.status
+    const actor = await c.env.DB.prepare(`SELECT a.status
       FROM agents a JOIN agent_applications aa ON aa.agent_id=a.id
       WHERE a.id=? AND aa.application_id=? AND aa.status='active' AND aa.revoked_at IS NULL`)
       .bind(body.agentId, applicationId).first<{ status: string }>();
-    if (!agent || agent.status !== "active") {
-      return c.json(fail("FORBIDDEN", "Agent is not active for this application", c.get("requestId")), 403);
+    if (!actor || actor.status !== "active") {
+      return c.json(fail("FORBIDDEN", "Agent Actor is not active for this application", c.get("requestId")), 403);
+    }
+
+    if (principalType === "user") {
+      const user = await c.env.DB.prepare("SELECT status FROM users WHERE id=?")
+        .bind(principalId).first<{ status: string }>();
+      if (!user || user.status !== "active") {
+        return c.json(fail("FORBIDDEN", "User Principal is not active", c.get("requestId")), 403);
+      }
+    } else {
+      const principalAgent = await c.env.DB.prepare(`SELECT a.status
+        FROM agents a JOIN agent_applications aa ON aa.agent_id=a.id
+        WHERE a.id=? AND aa.application_id=? AND aa.status='active' AND aa.revoked_at IS NULL`)
+        .bind(principalId, applicationId).first<{ status: string }>();
+      if (!principalAgent || principalAgent.status !== "active") {
+        return c.json(fail("FORBIDDEN", "Agent Principal is not active for this application", c.get("requestId")), 403);
+      }
     }
 
     const allowed = c.get("currentApplicationScopes");
@@ -120,33 +170,38 @@ export function registerAgentAuthenticationRoutes(app: App): void {
       return c.json(fail("IDENTITY_NOT_CONFIGURED", "Token signing key is not configured", c.get("requestId")), 500);
     }
 
-    const tokenTtlSeconds = Math.min(c.get("currentApplicationTokenTtlSeconds"), MAX_DELEGATED_AGENT_TOKEN_TTL_SECONDS);
+    const tokenTtlSeconds = Math.min(c.get("currentApplicationTokenTtlSeconds"), MAX_AGENT_EXECUTION_TOKEN_TTL_SECONDS);
     const iat = Math.floor(Date.now() / 1000);
     const exp = iat + tokenTtlSeconds;
     const jti = id("tok");
-    const token = await sign({
+    const payload = {
       iss: TOKEN_ISSUER,
       aud: TOKEN_AUDIENCE,
-      sub: body.subjectId,
+      sub: body.agentId,
       azp: applicationId,
-      principal_type: "user",
+      principal_type: principalType,
+      principal_id: principalId,
       actor_type: "agent",
       actor_id: body.agentId,
-      purpose: "delegated_agent",
+      purpose: "agent_execution",
       scope: requested.join(" "),
       iat,
       exp,
       jti,
-    }, c.env.TOKEN_PRIVATE_KEY, "RS256");
+    };
+
+    const token = await sign(payload, c.env.TOKEN_PRIVATE_KEY, "RS256");
 
     return c.json(ok({
       accessToken: token,
       tokenType: "Bearer",
       expiresIn: tokenTtlSeconds,
       scope: requested.join(" "),
-      principalId: body.subjectId,
+      principalId,
+      principalType,
       actor: { type: "agent", id: body.agentId },
       applicationId,
+      purpose: "agent_execution",
     }));
   });
 }

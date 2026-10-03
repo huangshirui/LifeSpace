@@ -29,13 +29,14 @@ async function token(privateKey: string, userId: string, agentId?: string) {
   return sign({
     iss: "lifespace-identity",
     aud: "lifespace-core",
-    sub: userId,
+    sub: agentId ?? userId,
     azp: "authority-v2-test-app",
     principal_type: "user",
     ...(agentId ? {
+      principal_id: userId,
       actor_type: "agent",
       actor_id: agentId,
-      purpose: "delegated_agent",
+      purpose: "agent_execution",
     } : {}),
     scope: "resources:read resources:write",
     iat,
@@ -90,10 +91,10 @@ async function issue(
   maxAccess: "read" | "write",
   maxUses?: 1,
 ) {
-  const response = await request(publicKey, `/api/v1/spaces/${spaceId}/agent-delegations`, direct, {
+  const response = await request(publicKey, `/api/v1/spaces/${spaceId}/delegations`, direct, {
     method: "POST",
     body: JSON.stringify({
-      agentId,
+      actor: { type: "agent", id: agentId },
       scope: { target, maxAccess },
       ...(maxUses ? { constraints: { maxUses } } : {}),
     }),

@@ -231,7 +231,7 @@ export function registerGenericResourceRoutes(app: App): void {
         resolved,
         input,
         undefined,
-        { delegationId: access.authority.delegationId },
+        { delegationId: access.authority.delegationId, delegationChain: access.authority.delegationChain },
       ),
     );
     const response = await measurePerformancePhase(
@@ -311,7 +311,7 @@ export function registerGenericResourceRoutes(app: App): void {
         changes,
         prepared.resource,
         undefined,
-        { delegationId: access.authority.delegationId },
+        { delegationId: access.authority.delegationId, delegationChain: access.authority.delegationChain },
       ),
     );
     const response = await measurePerformancePhase(
@@ -341,7 +341,7 @@ export function registerGenericResourceRoutes(app: App): void {
       resolved,
       resource.id,
       positiveVersion(input.version),
-      { delegationId: access.authority.delegationId },
+      { delegationId: access.authority.delegationId, delegationChain: access.authority.delegationChain },
     );
     return context.body(null, 204);
   };
@@ -390,7 +390,7 @@ export function registerGenericResourceRoutes(app: App): void {
         recordId,
         actionKey,
         input,
-        { delegationId: access.authority.delegationId },
+        { delegationId: access.authority.delegationId, delegationChain: access.authority.delegationChain },
       );
       return context.json(success(await dto(context.env, spaceId, resolved, updated)));
     }
@@ -404,7 +404,7 @@ export function registerGenericResourceRoutes(app: App): void {
       actionKey,
       positiveVersion(input.version),
       { principalPersonId: access.policyIdentity.principalPersonId, actorPersonId: access.policyIdentity.actorPersonId },
-      { delegationId: access.authority.delegationId },
+      { delegationId: access.authority.delegationId, delegationChain: access.authority.delegationChain },
     );
     return context.json(success(await dto(context.env, spaceId, resolved, updated)));
   };

@@ -2,7 +2,7 @@ import fs from "node:fs";
 import YAML from "yaml";
 
 const doc = YAML.parse(fs.readFileSync(new URL("../openapi.yaml",import.meta.url),"utf8"));
-if (doc.openapi !== "3.1.0" || doc.info?.version !== "0.6.0") {
+if (doc.openapi !== "3.1.0" || doc.info?.version !== "0.8.0") {
   throw new Error("Identity OpenAPI version metadata is invalid");
 }
 
@@ -25,7 +25,7 @@ for (const path of [
   "/internal/v1/access/registrations",
   "/internal/v1/access/link-challenges",
   "/internal/v1/agents",
-  "/internal/v1/agent-tokens",
+  "/internal/v1/agent-execution-tokens",
   "/api/v1/service-principals",
   "/api/v1/service-principals/{principalId}",
   "/api/v1/service-principals/{principalId}/tokens",
@@ -111,7 +111,7 @@ if (doc.components?.securitySchemes?.serviceToken?.bearerFormat !== "lsp_pat_ op
 
 console.log("Identity OpenAPI contract sanity check passed");
 
-const agentTokenPost = doc.paths?.["/internal/v1/agent-tokens"]?.post;
+const agentTokenPost = doc.paths?.["/internal/v1/agent-execution-tokens"]?.post;
 if (!String(agentTokenPost?.description ?? "").includes("Core-only") || !String(agentTokenPost?.description ?? "").includes("Delegation")) {
   throw new Error("Agent token contract must remain Core-only and delegate current authority to Core");
 }

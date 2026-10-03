@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import type { Bindings, Variables } from "./env";
 import { authenticate } from "./auth";
-import { registerAgentDelegationRoutes } from "./agent-delegation";
+import { registerDelegationRoutes } from "./delegation-routes";
 import { registerChangeHistoryRoutes } from "./change-history";
 import { registerRegistryCreationDraftRoutes } from "./registry-creation-draft-jobs";
 import { registerGenericResourceRoutes } from "./generic-resource-routes";
@@ -31,6 +31,18 @@ async function schemaVersion(env: Bindings) {
   return row.value;
 }
 
+function knownDatabaseApiError(error: unknown): ApiError | null {
+  const message = error instanceof Error ? error.message : String(error);
+  if (message.includes("DELEGATION_SINGLE_USE_UNAVAILABLE")) {
+    return new ApiError(
+      "DELEGATION_INVALID",
+      "A single-use Delegation was consumed, revoked or expired before commit",
+      403,
+    );
+  }
+  return null;
+}
+
 export function createApp() {
   const app = new Hono<AppEnv>();
   app.use("*", async (context, next) => {
@@ -52,7 +64,7 @@ export function createApp() {
   app.get("/health", (context) => context.json(success({ status: "ok" })));
   app.get("/api/v1/status", async (context) => context.json(success({
     status: "ok", service: "core", environment: context.env.ENVIRONMENT ?? "local", database: "available",
-    schemaVersion: await schemaVersion(context.env), contractVersion: "0.40.0",
+    schemaVersion: await schemaVersion(context.env), contractVersion: "0.42.0",
   })));
   app.use("/api/v1/me", authenticate());
   app.use("/api/v1/me/*", authenticate());
@@ -77,7 +89,7 @@ export function createApp() {
   registerPlatformInspectorRoutes(app);
   registerRegistryCreationDraftRoutes(app);
   registerEventSubscriptionRoutes(app);
-  registerAgentDelegationRoutes(app);
+  registerDelegationRoutes(app);
   registerChangeHistoryRoutes(app);
   registerRuntimeDiscoveryRoutes(app);
   registerRuntimeModelSemanticDetailRoutes(app);
@@ -88,6 +100,10 @@ export function createApp() {
   app.onError((error, context) => {
     const requestId = context.get("requestId");
     if (error instanceof ApiError) return context.json(failure(error.code, error.message, requestId), error.status);
+    const databaseError = knownDatabaseApiError(error);
+    if (databaseError) {
+      return context.json(failure(databaseError.code, databaseError.message, requestId), databaseError.status);
+    }
     console.error(JSON.stringify({ message: "Unhandled Core API error", requestId, error: error instanceof Error ? error.message : String(error) }));
     return context.json(failure("INTERNAL_ERROR", "Internal server error", requestId), 500);
   });

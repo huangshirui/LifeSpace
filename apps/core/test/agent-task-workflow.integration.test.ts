@@ -44,12 +44,13 @@ async function agentToken(privateKey: string, userId: string, agentId: string) {
   return sign({
     iss: "lifespace-identity",
     aud: "lifespace-core",
-    sub: userId,
+    sub: agentId,
     azp: "test-app",
     principal_type: "user",
+    principal_id: userId,
     actor_type: "agent",
     actor_id: agentId,
-    purpose: "delegated_agent",
+    purpose: "agent_execution",
     scope: "resources:read resources:write",
     iat,
     exp: iat + 900,
@@ -108,11 +109,11 @@ describe("Delegated Agent Task Workflow", () => {
     const task = await data<{ id: string; version: number; status: string }>(created);
     expect(task.status).toBe("pending");
 
-    const delegated = await request(publicKey, `/api/v1/spaces/${spaceId}/agent-delegations`, {
+    const delegated = await request(publicKey, `/api/v1/spaces/${spaceId}/delegations`, {
       method: "POST",
       headers: auth(direct),
       body: JSON.stringify({
-        agentId,
+        actor: { type: "agent", id: agentId },
         scope: { target: { type: "model", id: "task" }, maxAccess: "write" },
       }),
     });
