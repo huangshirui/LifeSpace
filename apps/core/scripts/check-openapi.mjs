@@ -41,8 +41,8 @@ const requiredPaths = [
   "/api/v1/spaces/{spaceId}/_discovery/models/{modelKey}",
   "/api/v1/spaces/{spaceId}/_relation-targets/{modelKey}/{fieldKey}",
   "/api/v1/spaces/{spaceId}/_reference-resolutions/{modelKey}/{fieldKey}",
-  "/api/v1/spaces/{spaceId}/agent-delegations",
-  "/api/v1/spaces/{spaceId}/agent-delegations/{delegationId}",
+  "/api/v1/spaces/{spaceId}/delegations",
+  "/api/v1/spaces/{spaceId}/delegations/{delegationId}",
   "/api/v1/spaces/{spaceId}/changes",
   "/api/v1/spaces/{spaceId}/changes/{recordId}",
   "/api/v1/spaces/{spaceId}/changes/by-id/{changeId}",
@@ -580,8 +580,8 @@ if (schemas.StatusResponse?.properties?.data?.properties?.contractVersion?.const
 
 console.log("Core Kernel OpenAPI contract sanity check passed");
 
-const agentDelegations = document.paths?.["/api/v1/spaces/{spaceId}/agent-delegations"];
-if (!agentDelegations?.get || !agentDelegations?.post || !document.paths?.["/api/v1/spaces/{spaceId}/agent-delegations/{delegationId}"]?.delete) {
+const agentDelegations = document.paths?.["/api/v1/spaces/{spaceId}/delegations"];
+if (!agentDelegations?.get || !agentDelegations?.post || !document.paths?.["/api/v1/spaces/{spaceId}/delegations/{delegationId}"]?.delete) {
   throw new Error("Agent Delegation lifecycle is incomplete");
 }
 if (schemas.AgentDelegationModelAccess || schemas.AgentDelegation?.properties?.models || schemas.CreateAgentDelegationRequest?.properties?.models) {

@@ -575,7 +575,7 @@ Each resulting Delegation remains an independent immutable one-scope `dlg_*` obj
 Until #302 is implemented and released:
 
 - current Core executable represented Agent profile remains direct User -> Agent;
-- current Identity `/internal/v1/agent-tokens` remains the existing `purpose=delegated_agent` contract;
+- current Identity `/internal/v1/agent-execution-tokens` remains the existing `purpose=agent_execution` contract;
 - current public Agent Delegation API remains the existing direct User -> Agent management surface;
 - current clients must not assume Agent-as-Principal or re-delegation is already executable.
 

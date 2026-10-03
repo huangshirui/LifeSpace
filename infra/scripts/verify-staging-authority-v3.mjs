@@ -60,7 +60,7 @@ async function issueAgentToken({ agentId, principalType, principalId }) {
     scopes: ["resources:read", "resources:write"],
     ...(principalType ? { principalType, principalId } : {}),
   };
-  const result = await request(identityBase, "/internal/v1/agent-tokens", {
+  const result = await request(identityBase, "/internal/v1/agent-execution-tokens", {
     method: "POST",
     bearer: applicationSecret,
     body,
@@ -142,11 +142,11 @@ try {
   }
 
   const rootExpiry = new Date(Date.now() + 15 * 60 * 1000).toISOString();
-  const root = await request(coreBase, `/api/v1/spaces/${spaceId}/agent-delegations`, {
+  const root = await request(coreBase, `/api/v1/spaces/${spaceId}/delegations`, {
     method: "POST",
     bearer: userBearer,
     body: {
-      agentId: agentA,
+      actor: { type: "agent", id: agentA },
       scope: { target: { type: "model", id: "task" }, maxAccess: "write" },
       constraints: { expiresAt: rootExpiry, remainingRedelegationDepth: 1 },
     },
@@ -163,11 +163,11 @@ try {
     principalId: userId,
   });
   const childExpiry = new Date(Date.now() + 10 * 60 * 1000).toISOString();
-  const child = await request(coreBase, `/api/v1/spaces/${spaceId}/agent-delegations`, {
+  const child = await request(coreBase, `/api/v1/spaces/${spaceId}/delegations`, {
     method: "POST",
     bearer: representedA,
     body: {
-      agentId: agentB,
+      actor: { type: "agent", id: agentB },
       parentDelegationId: rootDelegationId,
       scope: { target: { type: "model", id: "task" }, maxAccess: "write" },
       constraints: { expiresAt: childExpiry, remainingRedelegationDepth: 0 },
@@ -212,7 +212,7 @@ try {
 
   const revokeRoot = await request(
     coreBase,
-    `/api/v1/spaces/${spaceId}/agent-delegations/${encodeURIComponent(rootDelegationId)}`,
+    `/api/v1/spaces/${spaceId}/delegations/${encodeURIComponent(rootDelegationId)}`,
     { method: "DELETE", bearer: userBearer },
   );
   expectStatus(revokeRoot, 204, "Root Delegation revoke");
@@ -244,7 +244,7 @@ try {
     try {
       await request(
         coreBase,
-        `/api/v1/spaces/${spaceId}/agent-delegations/${encodeURIComponent(rootDelegationId)}`,
+        `/api/v1/spaces/${spaceId}/delegations/${encodeURIComponent(rootDelegationId)}`,
         { method: "DELETE", bearer: userBearer },
       );
     } catch (error) {

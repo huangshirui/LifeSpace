@@ -108,11 +108,11 @@ describe("Delegated Agent Task Workflow", () => {
     const task = await data<{ id: string; version: number; status: string }>(created);
     expect(task.status).toBe("pending");
 
-    const delegated = await request(publicKey, `/api/v1/spaces/${spaceId}/agent-delegations`, {
+    const delegated = await request(publicKey, `/api/v1/spaces/${spaceId}/delegations`, {
       method: "POST",
       headers: auth(direct),
       body: JSON.stringify({
-        agentId,
+        actor: { type: "agent", id: agentId },
         scope: { target: { type: "model", id: "task" }, maxAccess: "write" },
       }),
     });

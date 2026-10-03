@@ -59,8 +59,8 @@ async function createTask(publicKey: string, bearer: string, spaceId: string, na
   return (await json(response)).data;
 }
 async function singleUse(publicKey: string, direct: string, spaceId: string, agentId: string) {
-  const response = await call(publicKey, direct, `/api/v1/spaces/${spaceId}/agent-delegations`, {
-    agentId,
+  const response = await call(publicKey, direct, `/api/v1/spaces/${spaceId}/delegations`, {
+    actor: { type: "agent", id: agentId },
     scope: { target: { type: "model", id: "task" }, maxAccess: "write" },
     constraints: { maxUses: 1 },
   });

@@ -31,7 +31,7 @@ type UpdateApplicationBody = {
   status?: unknown;
 };
 
-export const IDENTITY_CONTRACT_VERSION = "0.7.0";
+export const IDENTITY_CONTRACT_VERSION = "0.8.0";
 export const DEFAULT_ACCESS_TOKEN_TTL_SECONDS = 900;
 export const MIN_ACCESS_TOKEN_TTL_SECONDS = 300;
 export const MAX_ACCESS_TOKEN_TTL_SECONDS = 3600;

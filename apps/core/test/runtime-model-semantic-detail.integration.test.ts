@@ -281,10 +281,10 @@ describe("Progressive single-model semantic detail", () => {
     const directData = await responseData(directResponse);
 
     const agentId = `agt_${crypto.randomUUID().replaceAll("-", "")}`;
-    const delegationResponse = await request(f.publicKey, direct, `/api/v1/spaces/${f.spaceId}/agent-delegations`, {
+    const delegationResponse = await request(f.publicKey, direct, `/api/v1/spaces/${f.spaceId}/delegations`, {
       method: "POST",
       body: JSON.stringify({
-        agentId,
+        actor: { type: "agent", id: agentId },
         scope: { target: { type: "model", id: f.modelKey }, maxAccess: "read" },
       }),
     });
@@ -299,7 +299,7 @@ describe("Progressive single-model semantic detail", () => {
     const revokeResponse = await request(
       f.publicKey,
       direct,
-      `/api/v1/spaces/${f.spaceId}/agent-delegations/${delegation.id}`,
+      `/api/v1/spaces/${f.spaceId}/delegations/${delegation.id}`,
       { method: "DELETE" },
     );
     expect(revokeResponse.status).toBe(204);

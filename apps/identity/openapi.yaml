@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: LifeSpace Identity API
-  version: 0.7.0
+  version: 0.8.0
   description: Global LifeSpace user identity, profile, trusted application exchange, Cloudflare Access principal resolution/linking, application credential lifecycle, Agent identity/execution-token issuance, service principals and credential issuance API.
 paths:
   /health:
@@ -250,9 +250,9 @@ paths:
         '400': { $ref: '#/components/responses/InvalidRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '422': { $ref: '#/components/responses/ValidationError' }
-  /internal/v1/agent-tokens:
+  /internal/v1/agent-execution-tokens:
     post:
-      description: Issue a short-lived Core-only Agent execution JWT. Legacy subjectId requests preserve purpose=delegated_agent for direct User -> Agent compatibility. Generalized requests use principalType/principalId (or omit both for direct Agent execution), authenticate the actual Agent Actor in sub, and use purpose=agent_execution. Identity verifies entity/application identity; Core remains authoritative for current Delegation or Delegation-chain and Space/model authorization.
+      description: Issue one short-lived Core-only Agent Execution Token. sub authenticates the actual Agent Actor; Principal is an independent signed claim. Omitting principalType/principalId means direct Agent execution. Current executable Principal types are user and agent; Core remains authoritative for Delegation and business Authority.
       security: [{ applicationCredential: [] }]
       requestBody:
         required: true
@@ -441,9 +441,8 @@ components:
       type: object
       additionalProperties: false
       required: [agentId]
-      description: Legacy callers may send subjectId (usr_*) for User -> Agent delegated execution. Generalized callers send principalType + principalId; omitting both means direct Agent execution with Principal=Actor=agentId. subjectId is mutually exclusive with principalType/principalId.
+      description: Omit principalType/principalId for direct Agent execution; otherwise provide both. Current executable Principal types are user and agent.
       properties:
-        subjectId: { type: string, pattern: ^usr_ }
         principalType: { type: string, enum: [user, agent] }
         principalId: { type: string, pattern: '^(usr_|agt_)' }
         agentId: { type: string, pattern: ^agt_ }
@@ -472,7 +471,7 @@ components:
                 type: { const: agent }
                 id: { type: string, pattern: ^agt_ }
             applicationId: { type: string, minLength: 1 }
-            purpose: { type: string, enum: [delegated_agent, agent_execution] }
+            purpose: { type: string, const: agent_execution }
     ErrorResponse:
       type: object
       additionalProperties: false

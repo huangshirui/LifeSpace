@@ -113,13 +113,13 @@ async function issueRoot(
   publicKey: string,
   direct: string,
   spaceId: string,
-  agentId: string,
+  actor: { type: "agent", id: string },
   scope: { target: { type: "space" | "model" | "record"; id: string }; maxAccess: "read" | "write" },
   constraints?: { maxUses?: 1; expiresAt?: string; remainingRedelegationDepth?: number },
 ) {
-  return request(publicKey, `/api/v1/spaces/${spaceId}/agent-delegations`, direct, {
+  return request(publicKey, `/api/v1/spaces/${spaceId}/delegations`, direct, {
     method: "POST",
-    body: JSON.stringify({ agentId, scope, ...(constraints ? { constraints } : {}) }),
+    body: JSON.stringify({ actor: { type: "agent", id: agentId }, scope, ...(constraints ? { constraints } : {}) }),
   });
 }
 
@@ -128,14 +128,14 @@ async function issueChild(
   representedIssuer: string,
   spaceId: string,
   parentDelegationId: string,
-  agentId: string,
+  actor: { type: "agent", id: string },
   scope: { target: { type: "space" | "model" | "record"; id: string }; maxAccess: "read" | "write" },
   constraints?: { maxUses?: 1; expiresAt?: string; remainingRedelegationDepth?: number },
 ) {
-  return request(publicKey, `/api/v1/spaces/${spaceId}/agent-delegations`, representedIssuer, {
+  return request(publicKey, `/api/v1/spaces/${spaceId}/delegations`, representedIssuer, {
     method: "POST",
     body: JSON.stringify({
-      agentId,
+      actor: { type: "agent", id: agentId },
       parentDelegationId,
       scope,
       ...(constraints ? { constraints } : {}),

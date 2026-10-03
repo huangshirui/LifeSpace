@@ -128,11 +128,11 @@ describe("Agent-ready Authority + Change", () => {
     await seedSpaceAndCatalog(userId, spaceId);
 
     const direct = await userToken(privateKey, userId, ["resources:read", "resources:write"]);
-    const createdDelegation = await request(`/api/v1/spaces/${spaceId}/agent-delegations`, {
+    const createdDelegation = await request(`/api/v1/spaces/${spaceId}/delegations`, {
       method: "POST",
       headers: auth(direct),
       body: JSON.stringify({
-        agentId,
+        actor: { type: "agent", id: agentId },
         scope: { target: { type: "model", id: "event" }, maxAccess: "write" },
       }),
     }, publicKey);
@@ -140,11 +140,11 @@ describe("Agent-ready Authority + Change", () => {
     const delegation = await jsonData(createdDelegation);
     expect(delegation.agentId).toBe(agentId);
 
-    const createdTaskDelegation = await request(`/api/v1/spaces/${spaceId}/agent-delegations`, {
+    const createdTaskDelegation = await request(`/api/v1/spaces/${spaceId}/delegations`, {
       method: "POST",
       headers: auth(direct),
       body: JSON.stringify({
-        agentId,
+        actor: { type: "agent", id: agentId },
         scope: { target: { type: "model", id: "task" }, maxAccess: "read" },
       }),
     }, publicKey);
@@ -285,17 +285,17 @@ describe("Agent-ready Authority + Change", () => {
     expect(legacy.items).toHaveLength(2);
     expect(legacy.nextCursor).toBeUndefined();
 
-    const agentCannotSelfGrant = await request(`/api/v1/spaces/${spaceId}/agent-delegations`, {
+    const agentCannotSelfGrant = await request(`/api/v1/spaces/${spaceId}/delegations`, {
       method: "POST",
       headers: auth(delegated),
       body: JSON.stringify({
-        agentId,
+        actor: { type: "agent", id: agentId },
         scope: { target: { type: "model", id: "task" }, maxAccess: "write" },
       }),
     }, publicKey);
     expect(agentCannotSelfGrant.status).toBe(403);
 
-    const revoked = await request(`/api/v1/spaces/${spaceId}/agent-delegations/${delegation.id}`, {
+    const revoked = await request(`/api/v1/spaces/${spaceId}/delegations/${delegation.id}`, {
       method: "DELETE",
       headers: { authorization: `Bearer ${direct}` },
     }, publicKey);
@@ -429,11 +429,11 @@ describe("Agent-ready Authority + Change", () => {
     const directA = await generalizedAgentToken(
       privateKey, "agent", agentA, agentA, ["resources:read", "resources:write"],
     );
-    const rootResponse = await request(`/api/v1/spaces/${spaceId}/agent-delegations`, {
+    const rootResponse = await request(`/api/v1/spaces/${spaceId}/delegations`, {
       method: "POST",
       headers: auth(directA),
       body: JSON.stringify({
-        agentId: agentB,
+        actor: { type: "agent", id: agentB },
         scope: { target: { type: "model", id: "event" }, maxAccess: "write" },
       }),
     }, publicKey);
@@ -441,7 +441,7 @@ describe("Agent-ready Authority + Change", () => {
     const root = await jsonData(rootResponse);
     expect(root).toMatchObject({
       principal: { type: "agent", id: agentA },
-      agentId: agentB,
+      actor: { type: "agent", id: agentB },
       parentDelegationId: null,
       constraints: { remainingRedelegationDepth: 0 },
     });
@@ -489,11 +489,11 @@ describe("Agent-ready Authority + Change", () => {
     await seedSpaceAndCatalog(userId, spaceId);
 
     const directUser = await userToken(privateKey, userId, ["resources:read", "resources:write"]);
-    const rootResponse = await request(`/api/v1/spaces/${spaceId}/agent-delegations`, {
+    const rootResponse = await request(`/api/v1/spaces/${spaceId}/delegations`, {
       method: "POST",
       headers: auth(directUser),
       body: JSON.stringify({
-        agentId: agentA,
+        actor: { type: "agent", id: agentA },
         scope: { target: { type: "model", id: "event" }, maxAccess: "write" },
         constraints: { remainingRedelegationDepth: 1 },
       }),
@@ -504,11 +504,11 @@ describe("Agent-ready Authority + Change", () => {
     const representedA = await generalizedAgentToken(
       privateKey, "user", userId, agentA, ["resources:read", "resources:write"],
     );
-    const childResponse = await request(`/api/v1/spaces/${spaceId}/agent-delegations`, {
+    const childResponse = await request(`/api/v1/spaces/${spaceId}/delegations`, {
       method: "POST",
       headers: auth(representedA),
       body: JSON.stringify({
-        agentId: agentB,
+        actor: { type: "agent", id: agentB },
         parentDelegationId: root.id,
         scope: { target: { type: "model", id: "event" }, maxAccess: "write" },
         constraints: { remainingRedelegationDepth: 0 },
@@ -518,7 +518,7 @@ describe("Agent-ready Authority + Change", () => {
     const child = await jsonData(childResponse);
     expect(child).toMatchObject({
       principal: { type: "user", id: userId },
-      agentId: agentB,
+      actor: { type: "agent", id: agentB },
       parentDelegationId: root.id,
       createdBy: { type: "agent", id: agentA },
     });
@@ -547,7 +547,7 @@ describe("Agent-ready Authority + Change", () => {
     ]);
 
     const revokeRoot = await request(
-      `/api/v1/spaces/${spaceId}/agent-delegations/${root.id}`,
+      `/api/v1/spaces/${spaceId}/delegations/${root.id}`,
       { method: "DELETE", headers: { authorization: `Bearer ${directUser}` } },
       publicKey,
     );
@@ -574,11 +574,11 @@ describe("Agent-ready Authority + Change", () => {
     await seedSpaceAndCatalog(userId, spaceId);
 
     const directUser = await userToken(privateKey, userId, ["resources:read", "resources:write"]);
-    const rootResponse = await request(`/api/v1/spaces/${spaceId}/agent-delegations`, {
+    const rootResponse = await request(`/api/v1/spaces/${spaceId}/delegations`, {
       method: "POST",
       headers: auth(directUser),
       body: JSON.stringify({
-        agentId: agentA,
+        actor: { type: "agent", id: agentA },
         scope: { target: { type: "model", id: "event" }, maxAccess: "write" },
         constraints: { maxUses: 1, remainingRedelegationDepth: 1 },
       }),
@@ -589,11 +589,11 @@ describe("Agent-ready Authority + Change", () => {
     );
 
     const createChild = async (agentId: string) => {
-      const response = await request(`/api/v1/spaces/${spaceId}/agent-delegations`, {
+      const response = await request(`/api/v1/spaces/${spaceId}/delegations`, {
         method: "POST",
         headers: auth(representedA),
         body: JSON.stringify({
-          agentId,
+          actor: { type: "agent", id: agentId },
           parentDelegationId: root.id,
           scope: { target: { type: "model", id: "event" }, maxAccess: "write" },
         }),

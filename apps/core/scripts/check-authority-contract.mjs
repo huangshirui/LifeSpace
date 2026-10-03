@@ -35,7 +35,7 @@ for (const values of [principalPropertyTypes, issuerTypes]) {
   }
 }
 
-const postDescription = document.paths?.["/api/v1/spaces/{spaceId}/agent-delegations"]?.post?.description ?? "";
+const postDescription = document.paths?.["/api/v1/spaces/{spaceId}/delegations"]?.post?.description ?? "";
 if (!postDescription.includes("preserves the Root Principal")
     || !postDescription.includes("Child issuance does not consume a single-use parent")) {
   throw new Error("Agent Delegation contract must document Root Principal preservation and non-consuming Child issuance");

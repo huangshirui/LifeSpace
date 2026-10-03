@@ -139,7 +139,7 @@ The extra Service Binding + Identity current-state read applies only to deliveri
 
 ## Delegated Agent execution is not service automation
 
-An Agent acting under a user's authority uses a distinct execution context from a `service` principal. Identity registers a stable Agent identity (`agt_*`) inside an application context and may issue a short-lived Core-only JWT carrying `principal_type=user`, `actor_type=agent`, `actor_id=agt_*` and `purpose=delegated_agent`. Core then intersects that credential with the user's current Space/model authority and an explicit current User -> Agent Delegation.
+An Agent acting under a user's authority uses a distinct execution context from a `service` principal. Identity registers a stable Agent identity (`agt_*`) inside an application context and may issue a short-lived Core-only JWT carrying `principal_type=user`, `actor_type=agent`, `actor_id=agt_*` and `purpose=agent_execution`. Core then intersects that credential with the user's current Space/model authority and an explicit current User -> Agent Delegation.
 
 The Agent token does not grant authority by itself, cannot be reused against Identity user-profile APIs, and does not turn the Agent into a Space member. Revoking the Core Delegation blocks later requests immediately even if the short-lived token remains cryptographically valid.
 

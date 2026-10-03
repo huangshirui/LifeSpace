@@ -90,10 +90,10 @@ async function issue(
   maxAccess: "read" | "write",
   maxUses?: 1,
 ) {
-  const response = await request(publicKey, `/api/v1/spaces/${spaceId}/agent-delegations`, direct, {
+  const response = await request(publicKey, `/api/v1/spaces/${spaceId}/delegations`, direct, {
     method: "POST",
     body: JSON.stringify({
-      agentId,
+      actor: { type: "agent", id: agentId },
       scope: { target, maxAccess },
       ...(maxUses ? { constraints: { maxUses } } : {}),
     }),

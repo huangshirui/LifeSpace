@@ -139,7 +139,7 @@
           "id": "identity-agent-execution",
           "maturity": "candidate",
           "visibility": "public",
-          "operationPattern": "^(GET|POST) /internal/v1/agents$|^POST /internal/v1/agent-tokens$"
+          "operationPattern": "^(GET|POST) /internal/v1/agents$|^POST /internal/v1/agent-execution-tokens$"
         },
         {
           "id": "identity-service-principal-administration",
@@ -230,7 +230,7 @@
           "id": "core-agent-delegation",
           "maturity": "candidate",
           "visibility": "public",
-          "operationPattern": "^(GET|POST) /api/v1/spaces/\\{spaceId\\}/agent-delegations$|^(GET|PATCH|DELETE) /api/v1/spaces/\\{spaceId\\}/agent-delegations/\\{delegationId\\}$"
+          "operationPattern": "^(GET|POST) /api/v1/spaces/\\{spaceId\\}/delegations$|^(GET|PATCH|DELETE) /api/v1/spaces/\\{spaceId\\}/delegations/\\{delegationId\\}$"
         },
         {
           "id": "core-change-history",
