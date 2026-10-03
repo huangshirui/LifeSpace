@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import type { Bindings, Variables } from "./env";
 import { authenticate } from "./auth";
-import { registerAgentDelegationRoutes } from "./agent-delegation";
+import { registerDelegationRoutes } from "./delegation-routes";
 import { registerChangeHistoryRoutes } from "./change-history";
 import { registerRegistryCreationDraftRoutes } from "./registry-creation-draft-jobs";
 import { registerGenericResourceRoutes } from "./generic-resource-routes";
@@ -89,7 +89,7 @@ export function createApp() {
   registerPlatformInspectorRoutes(app);
   registerRegistryCreationDraftRoutes(app);
   registerEventSubscriptionRoutes(app);
-  registerAgentDelegationRoutes(app);
+  registerDelegationRoutes(app);
   registerChangeHistoryRoutes(app);
   registerRuntimeDiscoveryRoutes(app);
   registerRuntimeModelSemanticDetailRoutes(app);
