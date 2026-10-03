@@ -12,7 +12,7 @@ LifeSpace 将 **Principal（权利主体）**、**Actor（执行者）**、**App
 - `Principal == Actor` 时不需要 Delegation；`Principal != Actor` 时必须提供并验证显式 `delegationId`；
 - `delegationId` 只是 opaque selector（不透明选择器），不是 bearer capability，也不需要写入 Agent JWT；
 - 一个 Delegation 只包含一个 Scope：一个 target（Space / Model / Record）+ 一个 `maxAccess`；
-- Delegation 只能缩小 Principal **当前** Authority，不能扩大。当前已发布 Runtime 仍只执行 single-hop User -> Agent；已确认的目标架构支持父 Delegation 显式允许、严格收窄且有深度上限的 re-delegation / delegation chain，见 `docs/authority-role-capability-redelegation.md`；
+- Delegation 只能缩小 Principal **当前** Authority，不能扩大。当前 Runtime 已支持显式、严格收窄、同 Application 且有深度上限的 re-delegation / delegation chain，并始终保留 Root Principal；详细约束见 `docs/authority-role-capability-redelegation.md`；
 - Application 内部 Main Agent -> Sub Agent 的调度，只要 LifeSpace 边界上的 Actor 没变，就属于应用内部实现，不进入 LifeSpace Delegation；
 - single-use Delegation 只在一次**成功执行**后消费；mutation 的业务 Change 与消费状态必须原子提交；
 - Batch create/update/delete 是 Generic Runtime 的一等能力，不允许通过循环调用单条 API 或 N 次串行 Authority check 实现；
