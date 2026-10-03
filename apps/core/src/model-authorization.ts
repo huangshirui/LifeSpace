@@ -1,5 +1,4 @@
 import type { Permission, SpaceRole } from "./authorization";
-import type { Actor, Bindings, Principal } from "./env";
 import {
   delegationChainStatement,
   delegationCurrent,
@@ -7,6 +6,8 @@ import {
   validateStructuralDelegationChain,
   type DelegationChainRow,
 } from "./delegation-chain";
+import { ENTITY_ROLE_CAPABILITIES, type AuthoritySource } from "./entity-role-capability";
+import type { Actor, Bindings, Principal } from "./env";
 import { ApiError } from "./http";
 import type { ModelAccess } from "./model-definition";
 import type { PublishedModel } from "./model-registry";
@@ -135,26 +136,35 @@ function baseAuthorityKey(
   ].join("\u001f");
 }
 
+function authoritySources(principal: Principal): readonly AuthoritySource[] {
+  return ENTITY_ROLE_CAPABILITIES[principal.type].authoritySources as readonly AuthoritySource[];
+}
+
 function baseAuthorityStatement(
   env: Bindings,
   principal: Principal,
   spaceId: string,
   model: PublishedModel,
 ): D1PreparedStatement {
-  return env.DB.prepare(`
-    SELECT
-      CASE WHEN EXISTS(
-        SELECT 1 FROM spaces WHERE id=? AND deleted_at IS NULL
-      ) THEN 1 ELSE 0 END AS space_exists,
-      (
-        SELECT max_access FROM application_model_access
-        WHERE application_id=? AND model_key=? LIMIT 1
-      ) AS catalog_access,
-      (
+  const sources = authoritySources(principal);
+  const bindings: unknown[] = [
+    spaceId,
+    principal.clientId,
+    model.key,
+  ];
+
+  const membershipProjection = sources.includes("membership")
+    ? `(
         SELECT role FROM space_memberships
-        WHERE ?='user' AND space_id=? AND user_id=? AND deleted_at IS NULL LIMIT 1
-      ) AS membership_role,
-      (
+        WHERE space_id=? AND user_id=? AND deleted_at IS NULL LIMIT 1
+      )`
+    : "NULL";
+  if (sources.includes("membership")) {
+    bindings.push(spaceId, principal.id);
+  }
+
+  const dataGrantProjection = sources.includes("dataGrant")
+    ? `(
         SELECT permission FROM data_grants
         WHERE source_space_id=? AND grantee_type=? AND grantee_id=?
           AND (
@@ -166,26 +176,32 @@ function baseAuthorityStatement(
         ORDER BY CASE permission
           WHEN 'manage' THEN 4 WHEN 'write' THEN 3 WHEN 'read' THEN 2 ELSE 1 END DESC
         LIMIT 1
-      ) AS grant_permission,
+      )`
+    : "NULL";
+  if (sources.includes("dataGrant")) {
+    bindings.push(spaceId, principal.type, principal.id, model.key);
+  }
+
+  // Space Person is Policy Identity, not an Authority Source. Keep this bridge
+  // independent from Entity Role Capability.authoritySources.
+  bindings.push(principal.type, spaceId, principal.id);
+
+  return env.DB.prepare(`
+    SELECT
+      CASE WHEN EXISTS(
+        SELECT 1 FROM spaces WHERE id=? AND deleted_at IS NULL
+      ) THEN 1 ELSE 0 END AS space_exists,
+      (
+        SELECT max_access FROM application_model_access
+        WHERE application_id=? AND model_key=? LIMIT 1
+      ) AS catalog_access,
+      ${membershipProjection} AS membership_role,
+      ${dataGrantProjection} AS grant_permission,
       (
         SELECT id FROM space_people
         WHERE ?='user' AND space_id=? AND linked_user_id=? AND deleted_at IS NULL LIMIT 1
       ) AS principal_person_id
-  `).bind(
-    spaceId,
-    principal.clientId,
-    model.key,
-    principal.type,
-    spaceId,
-    principal.id,
-    spaceId,
-    principal.type,
-    principal.id,
-    model.key,
-    principal.type,
-    spaceId,
-    principal.id,
-  );
+  `).bind(...bindings);
 }
 
 function delegationScopeAllows(
@@ -464,4 +480,3 @@ export async function consumeSingleUseRead(
     );
   }
 }
-
