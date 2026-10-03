@@ -52,7 +52,7 @@ async function bootstrapApp(privateKey: string, appId: string) {
 }
 
 describe("Agent Identity and execution credential", () => {
-  it("registers an app-bound Agent and signs a Core-only delegated execution token", async () => {
+  it("registers an app-bound Agent and signs a represented User Agent execution token", async () => {
     const privateKey = await privateKeyPem();
     const appId = `agent-app-${crypto.randomUUID()}`;
     const secret = await bootstrapApp(privateKey, appId);
@@ -80,10 +80,15 @@ describe("Agent Identity and execution credential", () => {
     expect(list.status).toBe(200);
     expect(((await list.json()) as any).data.items.map((item: any) => item.id)).toContain(agent.id);
 
-    const tokenResponse = await request("/internal/v1/agent-tokens", {
+    const tokenResponse = await request("/internal/v1/agent-execution-tokens", {
       method: "POST",
       headers: { authorization: `Bearer ${secret}`, "content-type": "application/json" },
-      body: JSON.stringify({ subjectId: userId, agentId: agent.id, scopes: ["resources:read", "resources:write"] }),
+      body: JSON.stringify({
+        principalType: "user",
+        principalId: userId,
+        agentId: agent.id,
+        scopes: ["resources:read", "resources:write"],
+      }),
     }, privateKey);
     expect(tokenResponse.status).toBe(200);
     const tokenData = ((await tokenResponse.json()) as any).data;
@@ -93,39 +98,51 @@ describe("Agent Identity and execution credential", () => {
       principalType: "user",
       actor: { type: "agent", id: agent.id },
       applicationId: appId,
-      purpose: "delegated_agent",
+      purpose: "agent_execution",
     });
 
     const payload = decodePayload(tokenData.accessToken);
     expect(payload).toMatchObject({
       iss: "lifespace-identity",
       aud: "lifespace-core",
-      sub: userId,
+      sub: agent.id,
       azp: appId,
       principal_type: "user",
+      principal_id: userId,
       actor_type: "agent",
       actor_id: agent.id,
-      purpose: "delegated_agent",
+      purpose: "agent_execution",
       scope: "resources:read resources:write",
     });
     expect((payload.exp as number) - (payload.iat as number)).toBe(900);
 
-    const escalation = await request("/internal/v1/agent-tokens", {
+    const escalation = await request("/internal/v1/agent-execution-tokens", {
       method: "POST",
       headers: { authorization: `Bearer ${secret}`, "content-type": "application/json" },
-      body: JSON.stringify({ subjectId: userId, agentId: agent.id, scopes: ["resources:manage"] }),
+      body: JSON.stringify({
+        principalType: "user",
+        principalId: userId,
+        agentId: agent.id,
+        scopes: ["resources:manage"],
+      }),
     }, privateKey);
     expect(escalation.status).toBe(403);
 
     const otherAppSecret = await bootstrapApp(privateKey, `other-app-${crypto.randomUUID()}`);
-    const crossApp = await request("/internal/v1/agent-tokens", {
+    const crossApp = await request("/internal/v1/agent-execution-tokens", {
       method: "POST",
       headers: { authorization: `Bearer ${otherAppSecret}`, "content-type": "application/json" },
-      body: JSON.stringify({ subjectId: userId, agentId: agent.id, scopes: ["resources:read"] }),
+      body: JSON.stringify({
+        principalType: "user",
+        principalId: userId,
+        agentId: agent.id,
+        scopes: ["resources:read"],
+      }),
     }, privateKey);
     expect(crossApp.status).toBe(403);
   });
-  it("issues generalized direct and represented Agent execution tokens without changing the legacy profile", async () => {
+
+  it("issues direct and represented Agent execution tokens through one contract", async () => {
     const privateKey = await privateKeyPem();
     const appId = `agent-generalized-${crypto.randomUUID()}`;
     const secret = await bootstrapApp(privateKey, appId);
@@ -151,7 +168,7 @@ describe("Agent Identity and execution credential", () => {
     const agentA = await createAgent("Agent A");
     const agentB = await createAgent("Agent B");
 
-    const directResponse = await request("/internal/v1/agent-tokens", {
+    const directResponse = await request("/internal/v1/agent-execution-tokens", {
       method: "POST",
       headers: { authorization: `Bearer ${secret}`, "content-type": "application/json" },
       body: JSON.stringify({ agentId: agentA, scopes: ["resources:read"] }),
@@ -175,7 +192,7 @@ describe("Agent Identity and execution credential", () => {
       purpose: "agent_execution",
     });
 
-    const representedAgentResponse = await request("/internal/v1/agent-tokens", {
+    const representedAgentResponse = await request("/internal/v1/agent-execution-tokens", {
       method: "POST",
       headers: { authorization: `Bearer ${secret}`, "content-type": "application/json" },
       body: JSON.stringify({
@@ -202,7 +219,7 @@ describe("Agent Identity and execution credential", () => {
       purpose: "agent_execution",
     });
 
-    const representedUserResponse = await request("/internal/v1/agent-tokens", {
+    const representedUserResponse = await request("/internal/v1/agent-execution-tokens", {
       method: "POST",
       headers: { authorization: `Bearer ${secret}`, "content-type": "application/json" },
       body: JSON.stringify({
@@ -222,18 +239,23 @@ describe("Agent Identity and execution credential", () => {
       purpose: "agent_execution",
     });
 
-    const mixedLegacyAndGeneralized = await request("/internal/v1/agent-tokens", {
+    const partialPrincipal = await request("/internal/v1/agent-execution-tokens", {
+      method: "POST",
+      headers: { authorization: `Bearer ${secret}`, "content-type": "application/json" },
+      body: JSON.stringify({ principalType: "user", agentId: agentA, scopes: ["resources:read"] }),
+    }, privateKey);
+    expect(partialPrincipal.status).toBe(400);
+
+    const unsupportedPrincipalType = await request("/internal/v1/agent-execution-tokens", {
       method: "POST",
       headers: { authorization: `Bearer ${secret}`, "content-type": "application/json" },
       body: JSON.stringify({
-        subjectId: userId,
-        principalType: "user",
-        principalId: userId,
+        principalType: "service",
+        principalId: "svc_not_enabled_for_agent_execution",
         agentId: agentA,
         scopes: ["resources:read"],
       }),
     }, privateKey);
-    expect(mixedLegacyAndGeneralized.status).toBe(400);
+    expect(unsupportedPrincipalType.status).toBe(422);
   });
-
 });
