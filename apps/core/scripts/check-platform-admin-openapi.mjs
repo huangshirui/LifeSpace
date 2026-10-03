@@ -3,7 +3,7 @@ import YAML from "yaml";
 
 const document = YAML.parse(fs.readFileSync(new URL("../platform-admin.openapi.yaml", import.meta.url), "utf8"));
 
-if (document.openapi !== "3.1.0" || document.info?.version !== "0.3.0") {
+if (document.openapi !== "3.1.0" || document.info?.version !== "0.4.0") {
   throw new Error("Core Platform Admin OpenAPI version metadata is invalid");
 }
 if (!document.info?.title?.includes("Platform Admin")) {
@@ -38,6 +38,10 @@ if (!spaces?.get || spaces.post || spaces.patch || spaces.delete || !space?.get 
 }
 if (!String(spaces.get.description ?? "").includes("does not create or imply Space membership")) {
   throw new Error("Platform Space Inspector must document that it does not grant Space membership");
+}
+const grantTypes = document.components?.schemas?.PlatformDataGrant?.properties?.granteeType?.enum ?? [];
+if (!grantTypes.includes("agent")) {
+  throw new Error("Platform Space Inspector must expose Agent Data Grants");
 }
 
 const modelAccess = document.paths?.["/api/v1/platform-admin/applications/{applicationId}/model-access"];
