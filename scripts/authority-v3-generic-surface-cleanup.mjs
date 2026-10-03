@@ -131,4 +131,21 @@ for (const file of ["apps/identity/AGENTS.md", "docs/contracts.md"]) {
   replaceIn(file, (text) => text.replaceAll("0.7.0", "0.8.0"));
 }
 
+// This is a deliberate Candidate Public breaking cleanup. No Stable operation-group
+// digest changed; refresh only the two code-owned operation-set digests affected by
+// retiring the unused Agent-specific routes, and align the Candidate group name.
+{
+  const file = "docs/contract-stability-baseline.json";
+  const baseline = JSON.parse(read(file));
+  const identity = baseline.contractSources.find((entry) => entry.id === "identity-application");
+  const core = baseline.contractSources.find((entry) => entry.id === "core-kernel");
+  if (!identity || !core) throw new Error("Contract stability baseline is missing Identity/Core sources");
+  identity.operationSetSha256 = "sha256:5c0c96b33e541439b63f27cfa9c4b3f56720838580139ad167b17aaf8b2d92f7";
+  core.operationSetSha256 = "sha256:942920a88e65a0bb56ab8c3c7fbd968927aad2089796768d61577c46689b2c48";
+  const delegationGroup = core.groups.find((group) => group.id === "core-agent-delegation" || group.id === "core-delegation");
+  if (!delegationGroup) throw new Error("Core Delegation contract classification is missing");
+  delegationGroup.id = "core-delegation";
+  write(file, `${JSON.stringify(baseline, null, 2)}\n`);
+}
+
 console.log("Authority v3 generic surface cleanup complete");
