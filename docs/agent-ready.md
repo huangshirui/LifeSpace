@@ -86,7 +86,7 @@ azp            = Application
 principal_type = user
 actor_type     = agent
 actor_id       = agt_*
-purpose        = delegated_agent
+purpose        = agent_execution
 scope          = stable credential scopes
 ```
 

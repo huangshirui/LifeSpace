@@ -34,25 +34,43 @@ export async function verifyAccessToken(rawToken: string, publicKey: string): Pr
     if (!isPrincipalType(payload.principal_type)) throw unauthorized();
     const scopes = typeof payload.scope === "string" ? payload.scope.split(/\s+/).filter(Boolean) : [];
 
-    const hasDelegatedAgentClaims = payload.actor_type !== undefined
+    const hasAgentExecutionClaims = payload.actor_type !== undefined
       || payload.actor_id !== undefined
-      || payload.purpose === "delegated_agent";
-    if (hasDelegatedAgentClaims) {
+      || payload.principal_id !== undefined
+      || payload.purpose === "agent_execution";
+    if (hasAgentExecutionClaims) {
       if (
-        payload.principal_type !== "user"
-        || payload.purpose !== "delegated_agent"
+        payload.purpose !== "agent_execution"
         || payload.actor_type !== "agent"
         || typeof payload.actor_id !== "string"
-        || !/^agt_[A-Za-z0-9]+$/.test(payload.actor_id)
+        || !/^agt_[A-Za-z0-9_-]+$/u.test(payload.actor_id)
+        || payload.sub !== payload.actor_id
+        || typeof payload.principal_id !== "string"
+        || !payload.principal_id
       ) throw unauthorized();
+
+      // Agent execution currently has two complete Identity/Authority profiles:
+      // direct Agent authority and User authority represented by an Agent. Service
+      // and Device remain ordinary Principal types but are not accepted here until
+      // their Agent-delegation issuance/identity lifecycle is deliberately enabled.
+      const principalId = payload.principal_id;
+      if (payload.principal_type === "user") {
+        if (!/^usr_[A-Za-z0-9_-]+$/u.test(principalId)) throw unauthorized();
+      } else if (payload.principal_type === "agent") {
+        if (!/^agt_[A-Za-z0-9_-]+$/u.test(principalId)) throw unauthorized();
+      } else {
+        throw unauthorized();
+      }
+
+      const directAgent = payload.principal_type === "agent" && principalId === payload.actor_id;
       return {
-        type: "user",
-        id: payload.sub,
+        type: payload.principal_type,
+        id: principalId,
         clientId: payload.azp,
         scopes,
         tokenId: payload.jti,
-        actor: { type: "agent", id: payload.actor_id },
-        purpose: "delegated_agent",
+        ...(directAgent ? {} : { actor: { type: "agent" as const, id: payload.actor_id } }),
+        purpose: "agent_execution",
       };
     }
 

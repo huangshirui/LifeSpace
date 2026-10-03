@@ -12,7 +12,7 @@ type ResourceType = "space" | "model";
 type GrantRow = {
   id: string;
   source_space_id: string;
-  grantee_type: "user" | "space" | "service" | "device";
+  grantee_type: "user" | "space" | "service" | "device" | "agent";
   grantee_id: string;
   resource_type: ResourceType;
   resource_id: string | null;
@@ -126,11 +126,14 @@ export function registerGrantRoutes(app: App): void {
     if (Object.keys(input).some((key) => !allowedFields.has(key))) {
       throw new ApiError("INVALID_REQUEST", "Request contains unsupported fields", 400);
     }
-    if (!['user', 'space', 'service', 'device'].includes(input.granteeType as string)) {
+    if (!['user', 'space', 'service', 'device', 'agent'].includes(input.granteeType as string)) {
       throw new ApiError("VALIDATION_ERROR", "granteeType is invalid", 422);
     }
     if (typeof input.granteeId !== "string" || !input.granteeId.trim()) {
       throw new ApiError("VALIDATION_ERROR", "granteeId is required", 422);
+    }
+    if (input.granteeType === "agent" && !/^agt_[A-Za-z0-9_-]+$/u.test(input.granteeId.trim())) {
+      throw new ApiError("VALIDATION_ERROR", "Agent granteeId must be a valid agt_* identifier", 422);
     }
     const permission = parsePermission(input.permission);
     const resource = await parseResource(c.env, input);

@@ -1,4 +1,12 @@
 import type { Permission, SpaceRole } from "./authorization";
+import {
+  delegationChainStatement,
+  delegationCurrent,
+  groupDelegationChainRows,
+  validateStructuralDelegationChain,
+  type DelegationChainRow,
+} from "./delegation-chain";
+import { ENTITY_ROLE_CAPABILITIES, type AuthoritySource } from "./entity-role-capability";
 import type { Actor, Bindings, Principal } from "./env";
 import { ApiError } from "./http";
 import type { ModelAccess } from "./model-definition";
@@ -47,6 +55,8 @@ export type ModelAuthorityDecision = {
   catalogAccess: ModelAccess;
   spaceAuthority: SpaceRole | "grant";
   delegationId: string | null;
+  delegationChain: string[];
+  singleUseDelegationIds: string[];
   singleUse: boolean;
 };
 
@@ -68,21 +78,8 @@ type BaseAuthoritySnapshotRow = {
   principal_person_id: string | null;
 };
 
-type DelegationSnapshotRow = {
-  delegation_id: string;
-  delegation_revoked_at: string | null;
-  delegation_expires_at: string | null;
-  delegation_max_uses: number | null;
-  delegation_consumed_at: string | null;
-  delegation_target_type: "space" | "model" | "record";
-  delegation_target_id: string;
-  delegation_target_model_key: string | null;
-  delegation_max_access: Permission;
-};
-
 type PreparedAccess = {
   baseKey: string;
-  delegationKey: string | null;
   request: ModelAccessRequest;
   delegationId: string | null;
   recordId: string | null;
@@ -91,11 +88,6 @@ type PreparedAccess = {
 type PreparedBaseAuthority = {
   key: string;
   model: PublishedModel;
-  statement: D1PreparedStatement;
-};
-
-type PreparedDelegation = {
-  key: string;
   statement: D1PreparedStatement;
 };
 
@@ -144,21 +136,8 @@ function baseAuthorityKey(
   ].join("\u001f");
 }
 
-function delegationKey(
-  principal: Principal,
-  spaceId: string,
-  delegationId: string,
-): string {
-  const actor = executionActor(principal);
-  return [
-    principal.clientId,
-    principal.type,
-    principal.id,
-    actor.type,
-    actor.id,
-    spaceId,
-    delegationId,
-  ].join("\u001f");
+function authoritySources(principal: Principal): readonly AuthoritySource[] {
+  return ENTITY_ROLE_CAPABILITIES[principal.type].authoritySources as readonly AuthoritySource[];
 }
 
 function baseAuthorityStatement(
@@ -167,20 +146,25 @@ function baseAuthorityStatement(
   spaceId: string,
   model: PublishedModel,
 ): D1PreparedStatement {
-  return env.DB.prepare(`
-    SELECT
-      CASE WHEN EXISTS(
-        SELECT 1 FROM spaces WHERE id=? AND deleted_at IS NULL
-      ) THEN 1 ELSE 0 END AS space_exists,
-      (
-        SELECT max_access FROM application_model_access
-        WHERE application_id=? AND model_key=? LIMIT 1
-      ) AS catalog_access,
-      (
+  const sources = authoritySources(principal);
+  const bindings: unknown[] = [
+    spaceId,
+    principal.clientId,
+    model.key,
+  ];
+
+  const membershipProjection = sources.includes("membership")
+    ? `(
         SELECT role FROM space_memberships
-        WHERE ?='user' AND space_id=? AND user_id=? AND deleted_at IS NULL LIMIT 1
-      ) AS membership_role,
-      (
+        WHERE space_id=? AND user_id=? AND deleted_at IS NULL LIMIT 1
+      )`
+    : "NULL";
+  if (sources.includes("membership")) {
+    bindings.push(spaceId, principal.id);
+  }
+
+  const dataGrantProjection = sources.includes("dataGrant")
+    ? `(
         SELECT permission FROM data_grants
         WHERE source_space_id=? AND grantee_type=? AND grantee_id=?
           AND (
@@ -192,75 +176,36 @@ function baseAuthorityStatement(
         ORDER BY CASE permission
           WHEN 'manage' THEN 4 WHEN 'write' THEN 3 WHEN 'read' THEN 2 ELSE 1 END DESC
         LIMIT 1
-      ) AS grant_permission,
+      )`
+    : "NULL";
+  if (sources.includes("dataGrant")) {
+    bindings.push(spaceId, principal.type, principal.id, model.key);
+  }
+
+  // Space Person is Policy Identity, not an Authority Source. Keep this bridge
+  // independent from Entity Role Capability.authoritySources.
+  bindings.push(principal.type, spaceId, principal.id);
+
+  return env.DB.prepare(`
+    SELECT
+      CASE WHEN EXISTS(
+        SELECT 1 FROM spaces WHERE id=? AND deleted_at IS NULL
+      ) THEN 1 ELSE 0 END AS space_exists,
+      (
+        SELECT max_access FROM application_model_access
+        WHERE application_id=? AND model_key=? LIMIT 1
+      ) AS catalog_access,
+      ${membershipProjection} AS membership_role,
+      ${dataGrantProjection} AS grant_permission,
       (
         SELECT id FROM space_people
         WHERE ?='user' AND space_id=? AND linked_user_id=? AND deleted_at IS NULL LIMIT 1
       ) AS principal_person_id
-  `).bind(
-    spaceId,
-    principal.clientId,
-    model.key,
-    principal.type,
-    spaceId,
-    principal.id,
-    spaceId,
-    principal.type,
-    principal.id,
-    model.key,
-    principal.type,
-    spaceId,
-    principal.id,
-  );
-}
-
-function delegationStatement(
-  env: Bindings,
-  principal: Principal,
-  spaceId: string,
-  delegationId: string,
-): D1PreparedStatement {
-  const actor = executionActor(principal);
-  return env.DB.prepare(`
-    SELECT
-      d.id AS delegation_id,
-      d.revoked_at AS delegation_revoked_at,
-      d.expires_at AS delegation_expires_at,
-      d.max_uses AS delegation_max_uses,
-      d.consumed_at AS delegation_consumed_at,
-      ds.target_type AS delegation_target_type,
-      ds.target_id AS delegation_target_id,
-      ds.target_model_key AS delegation_target_model_key,
-      ds.max_access AS delegation_max_access
-    FROM delegations d
-    JOIN delegation_scopes ds ON ds.delegation_id=d.id
-    WHERE d.id=?
-      AND d.principal_type=?
-      AND d.principal_id=?
-      AND d.actor_type=?
-      AND d.actor_id=?
-      AND d.application_id=?
-      AND d.source_space_id=?
-    LIMIT 1
-  `).bind(
-    delegationId,
-    principal.type,
-    principal.id,
-    actor.type,
-    actor.id,
-    principal.clientId,
-    spaceId,
-  );
-}
-
-function delegationCurrent(row: DelegationSnapshotRow | null): boolean {
-  if (!row || row.delegation_revoked_at || row.delegation_consumed_at) return false;
-  if (!row.delegation_expires_at) return true;
-  return Date.parse(row.delegation_expires_at) > Date.now();
+  `).bind(...bindings);
 }
 
 function delegationScopeAllows(
-  row: DelegationSnapshotRow,
+  row: DelegationChainRow,
   spaceId: string,
   modelKey: string,
   recordId: string | null,
@@ -272,6 +217,52 @@ function delegationScopeAllows(
   return Boolean(recordId)
     && row.delegation_target_id === recordId
     && row.delegation_target_model_key === modelKey;
+}
+
+function validateDelegationChain(
+  principal: Principal,
+  spaceId: string,
+  prepared: PreparedAccess,
+  rows: readonly DelegationChainRow[],
+): {
+  delegationId: string;
+  delegationChain: string[];
+  singleUseDelegationIds: string[];
+} {
+  if (!prepared.delegationId) {
+    throw new ApiError("DELEGATION_INVALID", "Delegation chain was not selected", 403);
+  }
+
+  const rootToLeaf = validateStructuralDelegationChain(
+    principal,
+    spaceId,
+    prepared.delegationId,
+    rows,
+  );
+
+  for (const row of rootToLeaf) {
+    if (!delegationScopeAllows(
+      row,
+      spaceId,
+      prepared.request.model.key,
+      prepared.recordId,
+      prepared.request.required,
+    )) {
+      throw new ApiError(
+        "DELEGATION_SCOPE_INSUFFICIENT",
+        `Delegation chain does not allow ${prepared.request.required} access to this target`,
+        403,
+      );
+    }
+  }
+
+  return {
+    delegationId: prepared.delegationId,
+    delegationChain: rootToLeaf.map((row) => row.delegation_id),
+    singleUseDelegationIds: rootToLeaf
+      .filter((row) => row.delegation_max_uses === 1)
+      .map((row) => row.delegation_id),
+  };
 }
 
 function baseDecision(
@@ -337,35 +328,18 @@ function decisionFromSnapshots(
   spaceId: string,
   prepared: PreparedAccess,
   baseRow: BaseAuthoritySnapshotRow | null,
-  delegationRow: DelegationSnapshotRow | null,
+  delegationRows: readonly DelegationChainRow[],
 ): ModelAccessDecision {
   const base = baseDecision(principal, spaceId, prepared.request, baseRow);
   let resolvedDelegationId: string | null = null;
-  let singleUse = false;
+  let delegationChain: string[] = [];
+  let singleUseDelegationIds: string[] = [];
 
   if (principal.actor) {
-    if (!prepared.delegationId || !delegationCurrent(delegationRow)) {
-      throw new ApiError(
-        "DELEGATION_INVALID",
-        "Delegation is missing, revoked, expired or already consumed",
-        403,
-      );
-    }
-    if (!delegationRow || !delegationScopeAllows(
-      delegationRow,
-      spaceId,
-      prepared.request.model.key,
-      prepared.recordId,
-      prepared.request.required,
-    )) {
-      throw new ApiError(
-        "DELEGATION_SCOPE_INSUFFICIENT",
-        `Delegation scope does not allow ${prepared.request.required} access to this target`,
-        403,
-      );
-    }
-    resolvedDelegationId = delegationRow.delegation_id;
-    singleUse = delegationRow.delegation_max_uses === 1;
+    const chain = validateDelegationChain(principal, spaceId, prepared, delegationRows);
+    resolvedDelegationId = chain.delegationId;
+    delegationChain = chain.delegationChain;
+    singleUseDelegationIds = chain.singleUseDelegationIds;
   }
 
   if (!baseRow) {
@@ -379,7 +353,9 @@ function decisionFromSnapshots(
       required: prepared.request.required,
       ...base,
       delegationId: resolvedDelegationId,
-      singleUse,
+      delegationChain,
+      singleUseDelegationIds,
+      singleUse: singleUseDelegationIds.length > 0,
     },
     policyIdentity: policyIdentity(principal, baseRow),
   };
@@ -394,7 +370,6 @@ function prepareAccess(
   const { delegationId, recordId } = selectorValues(principal, request.selector);
   return {
     baseKey: baseAuthorityKey(principal, spaceId, request.model),
-    delegationKey: delegationId ? delegationKey(principal, spaceId, delegationId) : null,
     request,
     delegationId,
     recordId,
@@ -411,7 +386,7 @@ export async function requireModelAccessMany(
 
   const prepared = requests.map((request) => prepareAccess(principal, spaceId, request));
   const baseEntries = new Map<string, PreparedBaseAuthority>();
-  const delegationEntries = new Map<string, PreparedDelegation>();
+  const leafIds = new Set<string>();
 
   for (const entry of prepared) {
     if (!baseEntries.has(entry.baseKey)) {
@@ -421,20 +396,16 @@ export async function requireModelAccessMany(
         statement: baseAuthorityStatement(env, principal, spaceId, entry.request.model),
       });
     }
-    if (entry.delegationKey && entry.delegationId && !delegationEntries.has(entry.delegationKey)) {
-      delegationEntries.set(entry.delegationKey, {
-        key: entry.delegationKey,
-        statement: delegationStatement(env, principal, spaceId, entry.delegationId),
-      });
-    }
+    if (entry.delegationId) leafIds.add(entry.delegationId);
   }
 
   const uniqueBases = [...baseEntries.values()];
-  const uniqueDelegations = [...delegationEntries.values()];
-  const results = await env.DB.batch<Record<string, unknown>>([
+  const uniqueLeafIds = [...leafIds];
+  const statements = [
     ...uniqueBases.map((entry) => entry.statement),
-    ...uniqueDelegations.map((entry) => entry.statement),
-  ]);
+    ...(uniqueLeafIds.length ? [delegationChainStatement(env, uniqueLeafIds)] : []),
+  ];
+  const results = await env.DB.batch<Record<string, unknown>>(statements);
 
   const baseRows = new Map<string, BaseAuthoritySnapshotRow | null>();
   uniqueBases.forEach((entry, index) => {
@@ -442,19 +413,18 @@ export async function requireModelAccessMany(
     baseRows.set(entry.key, row ?? null);
   });
 
-  const delegationRows = new Map<string, DelegationSnapshotRow | null>();
-  uniqueDelegations.forEach((entry, index) => {
-    const resultIndex = uniqueBases.length + index;
-    const row = (results[resultIndex]?.results ?? [])[0] as DelegationSnapshotRow | undefined;
-    delegationRows.set(entry.key, row ?? null);
-  });
+  const chainsByLeaf = uniqueLeafIds.length
+    ? groupDelegationChainRows(
+        (results[uniqueBases.length]?.results ?? []) as DelegationChainRow[],
+      )
+    : new Map<string, DelegationChainRow[]>();
 
   return prepared.map((entry) => decisionFromSnapshots(
     principal,
     spaceId,
     entry,
     baseRows.get(entry.baseKey) ?? null,
-    entry.delegationKey ? delegationRows.get(entry.delegationKey) ?? null : null,
+    entry.delegationId ? chainsByLeaf.get(entry.delegationId) ?? [] : [],
   ));
 }
 
@@ -478,21 +448,34 @@ export async function consumeSingleUseRead(
   env: Bindings,
   decision: ModelAccessDecision,
 ): Promise<void> {
-  if (!decision.authority.singleUse || !decision.authority.delegationId) return;
+  const ids = decision.authority.singleUseDelegationIds;
+  if (!ids.length) return;
+
   const consumedAt = new Date().toISOString();
+  const placeholders = ids.map(() => "?").join(",");
+  const expected = ids.length;
   const result = await env.DB.prepare(`UPDATE delegations
     SET consumed_at=?,consumed_by_change_id=NULL
-    WHERE id=?
+    WHERE id IN (${placeholders})
       AND max_uses=1
       AND consumed_at IS NULL
       AND revoked_at IS NULL
-      AND (expires_at IS NULL OR julianday(expires_at)>julianday('now'))`)
-    .bind(consumedAt, decision.authority.delegationId)
-    .run();
-  if (result.meta.changes !== 1) {
+      AND (expires_at IS NULL OR julianday(expires_at)>julianday('now'))
+      AND (
+        SELECT COUNT(*)
+        FROM delegations required
+        WHERE required.id IN (${placeholders})
+          AND required.max_uses=1
+          AND required.consumed_at IS NULL
+          AND required.revoked_at IS NULL
+          AND (required.expires_at IS NULL OR julianday(required.expires_at)>julianday('now'))
+      )=?
+  `).bind(consumedAt, ...ids, ...ids, expected).run();
+
+  if (result.meta.changes !== expected) {
     throw new ApiError(
       "DELEGATION_INVALID",
-      "Single-use Delegation was consumed, revoked or expired before the read completed",
+      "Single-use Delegation chain was consumed, revoked or expired before the read completed",
       403,
     );
   }

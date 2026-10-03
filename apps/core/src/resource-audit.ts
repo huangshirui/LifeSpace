@@ -13,13 +13,17 @@ export type ResourceAudit = {
   updatedBy: ResourceAuditActor;
 };
 
+type LegacyResourceAuditType = Exclude<Principal["type"], "agent">;
+
 export type ResourceAuditStorageRow = {
   id: string;
-  created_by_type: Principal["type"];
+  created_by_type: LegacyResourceAuditType;
+  created_by_entity_type?: Principal["type"] | null;
   created_by_id: string;
   created_by_name_snapshot: string;
   created_current_name: string | null;
-  updated_by_type: Principal["type"];
+  updated_by_type: LegacyResourceAuditType;
+  updated_by_entity_type?: Principal["type"] | null;
   updated_by_id: string;
   updated_by_name_snapshot: string;
   updated_current_name: string | null;
@@ -40,28 +44,54 @@ export function resourceAuditActor(
   };
 }
 
+/**
+ * resource_records predates Agent-as-Principal and its legacy type columns have a
+ * closed SQLite CHECK. Schema 48 therefore retains those columns as compatibility
+ * carriers and persists the authoritative Entity Type in additive exact columns.
+ * The carrier is never exposed as business/audit truth.
+ */
+export function resourceAuditStorageType(type: Principal["type"]): LegacyResourceAuditType {
+  return type === "agent" ? "service" : type;
+}
+
 function storedPrincipalType(value: unknown): value is Principal["type"] {
-  return value === "user" || value === "service" || value === "device";
+  return value === "user" || value === "service" || value === "device" || value === "agent";
+}
+
+function exactStoredType(
+  exact: unknown,
+  legacy: unknown,
+  id: unknown,
+): Principal["type"] | null {
+  if (storedPrincipalType(exact)) return exact;
+  if (!storedPrincipalType(legacy)) return null;
+  // Compatibility fallback for typed projections that still select the pre-48
+  // column subset. Schema 48 writes the exact column; the ID prefix is only a
+  // representation fallback and never grants Authority.
+  if (legacy === "service" && typeof id === "string" && id.startsWith("agt_")) return "agent";
+  return legacy;
 }
 
 export function resourceAuditFromStorage(row: Partial<ResourceAuditStorageRow>): ResourceAudit | undefined {
+  const createdType = exactStoredType(row.created_by_entity_type, row.created_by_type, row.created_by_id);
+  const updatedType = exactStoredType(row.updated_by_entity_type, row.updated_by_type, row.updated_by_id);
   if (
-    !storedPrincipalType(row.created_by_type)
+    !createdType
     || typeof row.created_by_id !== "string"
     || typeof row.created_by_name_snapshot !== "string"
-    || !storedPrincipalType(row.updated_by_type)
+    || !updatedType
     || typeof row.updated_by_id !== "string"
     || typeof row.updated_by_name_snapshot !== "string"
   ) return undefined;
   return {
     createdBy: resourceAuditActor(
-      row.created_by_type,
+      createdType,
       row.created_by_id,
       row.created_by_name_snapshot,
       row.created_current_name ?? null,
     ),
     updatedBy: resourceAuditActor(
-      row.updated_by_type,
+      updatedType,
       row.updated_by_id,
       row.updated_by_name_snapshot,
       row.updated_current_name ?? null,
@@ -89,18 +119,18 @@ export async function loadResourceAudits(
 
   const statements = chunkD1Values(ids, 1).map((chunk) => env.DB.prepare(`SELECT
       r.id,
-      r.created_by_type,r.created_by_id,r.created_by_name_snapshot,
+      r.created_by_type,r.created_by_entity_type,r.created_by_id,r.created_by_name_snapshot,
       created_person.display_name AS created_current_name,
-      r.updated_by_type,r.updated_by_id,r.updated_by_name_snapshot,
+      r.updated_by_type,r.updated_by_entity_type,r.updated_by_id,r.updated_by_name_snapshot,
       updated_person.display_name AS updated_current_name
     FROM resource_records r
     LEFT JOIN space_people created_person
-      ON r.created_by_type='user'
+      ON COALESCE(r.created_by_entity_type,r.created_by_type)='user'
       AND created_person.space_id=r.space_id
       AND created_person.linked_user_id=r.created_by_id
       AND created_person.deleted_at IS NULL
     LEFT JOIN space_people updated_person
-      ON r.updated_by_type='user'
+      ON COALESCE(r.updated_by_entity_type,r.updated_by_type)='user'
       AND updated_person.space_id=r.space_id
       AND updated_person.linked_user_id=r.updated_by_id
       AND updated_person.deleted_at IS NULL
@@ -110,20 +140,11 @@ export async function loadResourceAudits(
 
   const result = new Map<string, ResourceAudit>();
   for (const row of rows) {
-    result.set(row.id, {
-      createdBy: resourceAuditActor(
-        row.created_by_type,
-        row.created_by_id,
-        row.created_by_name_snapshot,
-        row.created_current_name,
-      ),
-      updatedBy: resourceAuditActor(
-        row.updated_by_type,
-        row.updated_by_id,
-        row.updated_by_name_snapshot,
-        row.updated_current_name,
-      ),
-    });
+    const audit = resourceAuditFromStorage(row);
+    if (!audit) {
+      throw new ApiError("RESOURCE_STORAGE_CORRUPT", `Audit envelope is invalid for resource ${row.id}`, 500);
+    }
+    result.set(row.id, audit);
   }
   return result;
 }

@@ -109,7 +109,7 @@
     {
       "id": "identity-application",
       "source": "apps/identity/openapi.yaml",
-      "operationSetSha256": "sha256:faadef24a4ed047a13a4c9413774b3e56a83ae3850e1ade00bf4af99954539c5",
+      "operationSetSha256": "sha256:5c0c96b33e541439b63f27cfa9c4b3f56720838580139ad167b17aaf8b2d92f7",
       "groups": [
         {
           "id": "identity-operational",
@@ -139,7 +139,7 @@
           "id": "identity-agent-execution",
           "maturity": "candidate",
           "visibility": "public",
-          "operationPattern": "^(GET|POST) /internal/v1/agents$|^POST /internal/v1/agent-tokens$"
+          "operationPattern": "^(GET|POST) /internal/v1/agents$|^POST /internal/v1/agent-execution-tokens$"
         },
         {
           "id": "identity-service-principal-administration",
@@ -176,7 +176,7 @@
     {
       "id": "core-kernel",
       "source": "apps/core/openapi.yaml",
-      "operationSetSha256": "sha256:22ffd2ea787b1fa9cc74c27f24d3875224324041c44bce135f647a925a32ae12",
+      "operationSetSha256": "sha256:942920a88e65a0bb56ab8c3c7fbd968927aad2089796768d61577c46689b2c48",
       "groups": [
         {
           "id": "core-operational",
@@ -227,10 +227,10 @@
           "operationPattern": "^POST /api/v1/spaces/\\{spaceId\\}/_reference-resolutions/\\{modelKey\\}/\\{fieldKey\\}$"
         },
         {
-          "id": "core-agent-delegation",
+          "id": "core-delegation",
           "maturity": "candidate",
           "visibility": "public",
-          "operationPattern": "^(GET|POST) /api/v1/spaces/\\{spaceId\\}/agent-delegations$|^(GET|PATCH|DELETE) /api/v1/spaces/\\{spaceId\\}/agent-delegations/\\{delegationId\\}$"
+          "operationPattern": "^(GET|POST) /api/v1/spaces/\\{spaceId\\}/delegations$|^(GET|PATCH|DELETE) /api/v1/spaces/\\{spaceId\\}/delegations/\\{delegationId\\}$"
         },
         {
           "id": "core-change-history",

@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: LifeSpace Identity API
-  version: 0.6.0
+  version: 0.8.0
   description: Global LifeSpace user identity, profile, trusted application exchange, Cloudflare Access principal resolution/linking, application credential lifecycle, Agent identity/execution-token issuance, service principals and credential issuance API.
 paths:
   /health:
@@ -250,15 +250,15 @@ paths:
         '400': { $ref: '#/components/responses/InvalidRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '422': { $ref: '#/components/responses/ValidationError' }
-  /internal/v1/agent-tokens:
+  /internal/v1/agent-execution-tokens:
     post:
-      description: Issue a short-lived Core-only delegated Agent execution JWT for an active user and an active Agent bound to the calling application. Identity authenticates the application and Agent identity, but Core remains authoritative for current User -> Agent Delegation and Space/model authorization on every execution. The token uses purpose=delegated_agent and never carries lifespace-identity audience.
+      description: Issue one short-lived Core-only Agent Execution Token. sub authenticates the actual Agent Actor; Principal is an independent signed claim. Omitting principalType/principalId means direct Agent execution. Current executable Principal types are user and agent; Core remains authoritative for Delegation and business Authority.
       security: [{ applicationCredential: [] }]
       requestBody:
         required: true
         content: { application/json: { schema: { $ref: '#/components/schemas/AgentTokenRequest' } } }
       responses:
-        '200': { description: Core-only delegated Agent execution token, content: { application/json: { schema: { $ref: '#/components/schemas/AgentTokenResponse' } } } }
+        '200': { description: Core-only Agent execution token, content: { application/json: { schema: { $ref: '#/components/schemas/AgentTokenResponse' } } } }
         '400': { $ref: '#/components/responses/InvalidRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
@@ -440,9 +440,11 @@ components:
     AgentTokenRequest:
       type: object
       additionalProperties: false
-      required: [subjectId, agentId]
+      required: [agentId]
+      description: Omit principalType/principalId for direct Agent execution; otherwise provide both. Current executable Principal types are user and agent.
       properties:
-        subjectId: { type: string, pattern: ^usr_ }
+        principalType: { type: string, enum: [user, agent] }
+        principalId: { type: string, pattern: '^(usr_|agt_)' }
         agentId: { type: string, pattern: ^agt_ }
         scopes: { type: array, uniqueItems: true, items: { type: string, minLength: 1, maxLength: 100 }, default: [] }
     AgentTokenResponse:
@@ -453,13 +455,14 @@ components:
         data:
           type: object
           additionalProperties: false
-          required: [accessToken, tokenType, expiresIn, scope, principalId, actor, applicationId]
+          required: [accessToken, tokenType, expiresIn, scope, principalId, principalType, actor, applicationId, purpose]
           properties:
             accessToken: { type: string, writeOnly: true }
             tokenType: { const: Bearer }
             expiresIn: { type: integer, minimum: 1, maximum: 900 }
             scope: { type: string }
-            principalId: { type: string, pattern: ^usr_ }
+            principalId: { type: string, pattern: '^(usr_|agt_)' }
+            principalType: { type: string, enum: [user, agent] }
             actor:
               type: object
               additionalProperties: false
@@ -468,6 +471,7 @@ components:
                 type: { const: agent }
                 id: { type: string, pattern: ^agt_ }
             applicationId: { type: string, minLength: 1 }
+            purpose: { type: string, const: agent_execution }
     ErrorResponse:
       type: object
       additionalProperties: false

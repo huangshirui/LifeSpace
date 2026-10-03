@@ -23,7 +23,7 @@ Read:
 Core owns:
 
 - Spaces, memberships and Space People;
-- Data Grants, User -> Agent Delegations and current authorization evaluation;
+- Data Grants, User -> Delegations and current authorization evaluation;
 - Application × Model Access;
 - Model Definition validation, Registry/version lifecycle and Model Admin;
 - Generic Runtime/storage for ordinary Space-owned models;
@@ -161,7 +161,7 @@ Business-facing Core Kernel contract:
 
 ```text
 apps/core/openapi.yaml
-current Kernel version: 0.40.0
+current Kernel version: 0.42.0
 ```
 
 Integration/Eventing public contract (same Worker, independent lifecycle):

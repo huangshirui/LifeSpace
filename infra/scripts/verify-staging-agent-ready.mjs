@@ -217,7 +217,7 @@ async function issueUserToken(context) {
 }
 
 async function issueAgentToken(context) {
-  const result = await request(identityBase, "/internal/v1/agent-tokens", {
+  const result = await request(identityBase, "/internal/v1/agent-execution-tokens", {
     method: "POST",
     bearer: context.credential,
     body: { subjectId: userId, agentId: context.agentId, scopes: applicationScopes },
@@ -231,12 +231,12 @@ async function issueAgentToken(context) {
 }
 
 async function revokeActiveDelegations(context, spaceId) {
-  const result = await request(coreBase, `/api/v1/spaces/${encodeURIComponent(spaceId)}/agent-delegations`, { bearer: context.userBearer });
+  const result = await request(coreBase, `/api/v1/spaces/${encodeURIComponent(spaceId)}/delegations`, { bearer: context.userBearer });
   const data = expectStatus(`${context.key} Delegation list`, result, 200);
   for (const item of data?.items ?? []) {
     if (item.agentId !== context.agentId || item.revokedAt != null) continue;
     const revoked = await request(coreBase,
-      `/api/v1/spaces/${encodeURIComponent(spaceId)}/agent-delegations/${encodeURIComponent(item.id)}`,
+      `/api/v1/spaces/${encodeURIComponent(spaceId)}/delegations/${encodeURIComponent(item.id)}`,
       { method: "DELETE", bearer: context.userBearer });
     if (![204, 404].includes(revoked.response.status)) throw new Error(`${context.key} prior Delegation revoke returned HTTP ${revoked.response.status}`);
   }
@@ -245,11 +245,11 @@ async function revokeActiveDelegations(context, spaceId) {
 async function createDelegations(context, spaceId) {
   const ids = {};
   for (const scope of context.delegationScopes) {
-    const result = await request(coreBase, `/api/v1/spaces/${encodeURIComponent(spaceId)}/agent-delegations`, {
+    const result = await request(coreBase, `/api/v1/spaces/${encodeURIComponent(spaceId)}/delegations`, {
       method: "POST",
       bearer: context.userBearer,
       body: {
-        agentId: context.agentId,
+        agentId: context.actor: { type: "agent", id: agentId },
         scope: {
           target: { type: "model", id: scope.modelKey },
           maxAccess: scope.maxAccess,
@@ -345,7 +345,7 @@ async function revokeDelegation(context, spaceId, modelKey) {
     const delegationId = context?.delegationIds?.[key];
     if (!delegationId) continue;
     const result = await request(coreBase,
-      `/api/v1/spaces/${encodeURIComponent(spaceId)}/agent-delegations/${encodeURIComponent(delegationId)}`,
+      `/api/v1/spaces/${encodeURIComponent(spaceId)}/delegations/${encodeURIComponent(delegationId)}`,
       { method: "DELETE", bearer: context.userBearer });
     if (![204, 404].includes(result.response.status)) {
       throw new Error(`${context.key} ${key} Delegation revoke returned HTTP ${result.response.status}`);
@@ -416,7 +416,7 @@ try {
   const agentB = contexts.find((item) => item.key === "agentB");
   if (!agentA || !agentB) throw new Error("Agent contexts are incomplete");
 
-  const wrongApplication = await request(identityBase, "/internal/v1/agent-tokens", {
+  const wrongApplication = await request(identityBase, "/internal/v1/agent-execution-tokens", {
     method: "POST",
     bearer: agentB.credential,
     body: { subjectId: userId, agentId: agentA.agentId, scopes: applicationScopes },
@@ -439,9 +439,9 @@ try {
     throw new Error(`Agent A crossed Space Delegation boundary: HTTP ${wrongSpaceProbe.response.status}`);
   }
 
-  const selfGrant = await request(coreBase, `/api/v1/spaces/${encodeURIComponent(spaceId)}/agent-delegations`, {
+  const selfGrant = await request(coreBase, `/api/v1/spaces/${encodeURIComponent(spaceId)}/delegations`, {
     method: "POST", bearer: agentA.agentBearer, body: {
-      agentId: agentA.agentId,
+      agentId: agentA.actor: { type: "agent", id: agentId },
       scope: { target: { type: "model", id: "task" }, maxAccess: "write" },
     },
   });

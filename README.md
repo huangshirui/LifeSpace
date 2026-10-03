@@ -46,7 +46,10 @@ Identity owns verified Access principal resolution/linking. Individual applicati
 - Sharing uses current Data Grants; it never moves or duplicates the authoritative source record.
 - Whole-Space Data Grants authorize the Space boundary; Kernel 0.13.0 also supports model-collection Grants so one service principal can receive different read/write authority for different published models in the same Space.
 - Effective permission is the intersection of verified principal, credential scope, Application × Model Access, current Space membership/Data Grant authority, published model access capability, and model policy/Capability restrictions.
-- The authenticated actor always comes from verified credentials; clients cannot assert an arbitrary current `userId`.
+- Entity type and operation role are distinct: User/Service/Device/Agent capability determines whether an entity may participate, while Principal is whose Authority is exercised and Actor is who/what executes the operation.
+- An Agent may be a direct Principal only when it owns explicit Authority such as an Agent Data Grant; Agent identity alone grants nothing.
+- Represented Agent execution preserves the Root Principal and uses an explicit current Delegation or bounded Delegation-chain. Re-delegation may narrow scope/access/expiry/depth but never change the Root Principal.
+- The authenticated actor always comes from verified credentials; clients cannot assert an arbitrary current `userId` or Agent identity.
 
 ### Metadata-driven Core
 
@@ -73,6 +76,7 @@ Applications pin explicit compatible contract versions instead of consuming an u
 | Owner-controlled Web/PWA/Admin | Cloudflare Access + same-origin BFF + LifeSpace Identity Access exchange |
 | Mini Program / application-specific provider | Application backend resolves provider identity, then `lsa_*` trusted application exchange |
 | Owner-controlled automation/script/backend | Opaque revocable `lsp_pat_*` Service API Token |
+| Agent execution | Application-authenticated short-lived Core-only Agent execution token; direct Agent uses its own Authority, represented Agent additionally requires current Delegation |
 | Third-party/policy-controlled service | OAuth 2.0 `client_credentials` |
 
 Browser, Mini Program and downloadable client code must never contain `lsa_*`, service credentials, signing keys, provider secrets or other backend secrets.
@@ -80,9 +84,9 @@ Browser, Mini Program and downloadable client code must never contain `lsa_*`, s
 
 ## Current contracts and Identity × Cloudflare Access work
 
-The current repository Core Kernel contract is **0.40.0**. Ordinary business-model routes remain outside the Kernel OpenAPI and are pinned through immutable `mct_*` Model Contract revisions. Kernel evolution since 0.13.0 has added explicit Principal / Actor / Application / single-scope Delegation authority, governed Change/ChangeSet evidence, cross-Space Runtime Discovery, authoritative server defaults, explicit Action semantic-input/concurrency metadata, ordered multi-field Generic Query sorting, canonical human-facing field titles, authorized source-field-aware Person relation target lookup, and progressive single-model static semantic detail while preserving the Stable Spine invariants. The progressive detail route uses a known Space only as a current visibility gate, returns static Model semantics derived from the shared semantic projection compiler, and does not expose effective Membership/Data Grant/Delegation state or replace execution-time authority checks. Relation lookup returns only minimal `{id,label}` references and remains a current capability projection rather than mutation authority.
+The current repository Core Kernel contract is **0.41.0**. Ordinary business-model routes remain outside the Kernel OpenAPI and are pinned through immutable `mct_*` Model Contract revisions. Kernel 0.41.0 adds code-owned Entity Role Capability, Agent-as-Principal backed only by explicit Authority, bounded parent Delegation chains, chain-aware governed Change evidence and atomic single-use ancestor consumption while preserving the existing Principal / Actor / Application authorization intersection. Runtime Batch resolves all selected Delegation chains set-wise rather than adding per-item/per-depth D1 round trips. Existing user/service/device authority and legacy `purpose=delegated_agent` execution remain compatible.
 
-The current repository Identity Application Contract is **0.6.0**. It extends the accepted Cloudflare Access platform-identity architecture with first-class Agent identity and short-lived Core-only delegated Agent execution credentials. The Access architecture includes:
+The current repository Identity Application Contract is **0.7.0**. It preserves the legacy delegated-Agent token request and adds generalized short-lived `purpose=agent_execution` Core-only credentials where the actual Agent Actor is authenticated independently from the signed Principal operation role. Identity verifies entity/application identity; Core remains authoritative for current Data Grant, Delegation-chain, Space/model authorization and governed Change semantics. The Access architecture also includes:
 
 - independently verified Access RS256 JWTs and JWKS key rotation;
 - environment-pinned Access issuer;
@@ -127,6 +131,7 @@ Start with `AGENTS.md`, then the relevant source-of-truth documents:
 
 - `docs/architecture.md` — platform/runtime and Identity boundaries
 - `docs/permissions.md` — authorization model
+- `docs/authority-role-capability-redelegation.md` — accepted Entity Role Capability, Agent Principal and bounded re-delegation architecture
 - `docs/model-scoped-data-grants.md` — whole-Space vs model-collection Grant semantics
 - `docs/service-authentication.md` — service/Agent/machine credentials
 - `docs/contracts.md` — Kernel/model contract ownership and publication
