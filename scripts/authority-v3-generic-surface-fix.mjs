@@ -8,12 +8,10 @@ function replaceIn(file, replacer) {
   if (after !== before) fs.writeFileSync(file, after);
 }
 
-// Undo one over-broad mechanical replacement in helper parameter declarations.
 replaceIn("apps/core/test/authority-v3-boundaries.integration.test.ts", (text) => text
   .replaceAll('  actor: { type: "agent", id: string },\n  scope:', '  agentId: string,\n  scope:')
 );
 
-// DTO assertions now use the generic actor object.
 for (const file of [
   "apps/core/test/agent-ready.integration.test.ts",
   "apps/core/test/authority-v3-boundaries.integration.test.ts",
@@ -25,8 +23,6 @@ for (const file of [
   );
 }
 
-// Required User -> Agent token helpers: sub authenticates the Agent Actor and
-// principal_id preserves the independent Root User Principal.
 for (const file of [
   "apps/core/test/agent-ready.integration.test.ts",
   "apps/core/test/agent-task-workflow.integration.test.ts",
@@ -37,7 +33,6 @@ for (const file of [
   ));
 }
 
-// Optional represented-token helpers retain the direct User branch.
 for (const file of [
   "apps/core/test/authority-v2.integration.test.ts",
   "apps/core/test/performance-budget.integration.test.ts",
@@ -58,7 +53,6 @@ replaceIn("apps/core/test/batch-runtime.integration.test.ts", (text) => text
   )
 );
 
-// Discovery helpers can serve direct callers and represented User callers.
 for (const file of [
   "apps/core/test/runtime-discovery-inventory.integration.test.ts",
   "apps/core/test/runtime-model-semantic-detail.integration.test.ts",
@@ -72,7 +66,6 @@ for (const file of [
   );
 }
 
-// In-memory Principal fixtures do not encode JWT shape; only the marker changes.
 for (const file of [
   "apps/core/test/authority-v2-performance.integration.test.ts",
   "apps/core/test/authority-v3-performance.integration.test.ts",
@@ -80,8 +73,9 @@ for (const file of [
   replaceIn(file, (text) => text.replaceAll('purpose: "delegated_agent"', 'purpose: "agent_execution"'));
 }
 
-// Contract checker terminology/schema names follow the generic public surface.
 replaceIn("apps/core/scripts/check-openapi.mjs", (text) => text
+  .replaceAll('document.info?.version !== "0.41.0"', 'document.info?.version !== "0.42.0"')
+  .replaceAll('contractVersion?.const !== "0.41.0"', 'contractVersion?.const !== "0.42.0"')
   .replaceAll("AgentDelegation", "Delegation")
   .replaceAll("Agent Delegation", "Delegation")
   .replaceAll("agentDelegations", "delegations")
@@ -92,6 +86,8 @@ replaceIn("apps/core/scripts/check-authority-contract.mjs", (text) => text
 );
 
 replaceIn("apps/identity/scripts/check-openapi.mjs", (text) => text
+  .replaceAll('document.info?.version !== "0.7.0"', 'document.info?.version !== "0.8.0"')
+  .replaceAll('contractVersion?.const !== "0.7.0"', 'contractVersion?.const !== "0.8.0"')
   .replaceAll("/internal/v1/agent-tokens", "/internal/v1/agent-execution-tokens")
   .replaceAll("delegated_agent", "agent_execution")
 );
