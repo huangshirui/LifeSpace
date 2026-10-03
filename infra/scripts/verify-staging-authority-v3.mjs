@@ -118,10 +118,13 @@ try {
   if (!agentGrantId) throw new Error("Agent A task Data Grant omitted id");
 
   const directAgentA = await issueAgentToken({ agentId: agentA });
-  const me = await request(coreBase, "/api/v1/me", { bearer: directAgentA });
-  const meData = expectStatus(me, 200, "Direct Agent /me");
-  if (meData?.principal?.type !== "agent" || meData?.principal?.id !== agentA) {
-    throw new Error(`Direct Agent /me attribution mismatch: ${JSON.stringify(meData?.principal)}`);
+  const profileProbe = await request(coreBase, "/api/v1/me", { bearer: directAgentA });
+  if (
+    profileProbe.response.status !== 403
+    || profileProbe.payload?.error?.code !== "FORBIDDEN"
+    || !String(profileProbe.payload?.error?.message ?? "").includes("profile:read")
+  ) {
+    throw new Error(`Direct Agent profile scope boundary was not enforced: HTTP ${profileProbe.response.status} ${JSON.stringify(profileProbe.payload)}`);
   }
 
   const directCreate = await createTask(directAgentA, `Authority v3 direct Agent ${runId}`);
@@ -227,6 +230,7 @@ try {
   console.log(JSON.stringify({
     ok: true,
     scenario: "Agent Principal + bounded re-delegation",
+    directAgentProfileScopeDenied: true,
     directAgentAuthority: true,
     directAgentChangeAttribution: true,
     rootDelegationId,
