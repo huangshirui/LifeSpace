@@ -4,7 +4,7 @@ import { ApiError } from "./http";
 import { applyModelDefaults } from "./model-defaults";
 import { isFirstClassRangeFieldType, rangeFieldValueType, type FieldDefinition, type ModelDefinition } from "./model-definition";
 import { validateRangeValue } from "./range-value";
-import { resourceAuditActor, type ResourceAudit } from "./resource-audit";
+import { resourceAuditActor, resourceAuditStorageType, type ResourceAudit } from "./resource-audit";
 import { validateTemporalRangeValue } from "./temporal-range";
 import { assertIanaTimezone, normalizeRfc3339Instant } from "./time-semantics";
 import { getRuntimeModel, type PublishedModel } from "./model-registry";
@@ -581,18 +581,23 @@ export async function planCreateGenericMutation(
 ): Promise<ResourceMutationPlan> {
   const id = createId();
   const mutationToken = changeId();
+  const storageType = resourceAuditStorageType(principal.type);
   const statements: D1PreparedStatement[] = [
     env.DB.prepare(`INSERT INTO resource_records(
-      id,space_id,model_key,model_version,created_by_type,created_by_id,created_by_name_snapshot,
-      updated_by_type,updated_by_id,updated_by_name_snapshot,version,mutation_token,created_at,updated_at
-    ) VALUES(?,?,?,?,?,?,?,?,?,?,1,?,?,?)`).bind(
+      id,space_id,model_key,model_version,
+      created_by_type,created_by_entity_type,created_by_id,created_by_name_snapshot,
+      updated_by_type,updated_by_entity_type,updated_by_id,updated_by_name_snapshot,
+      version,mutation_token,created_at,updated_at
+    ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,1,?,?,?)`).bind(
       id,
       spaceId,
       model.key,
       model.version,
+      storageType,
       principal.type,
       principal.id,
       principalAuditName(principal),
+      storageType,
       principal.type,
       principal.id,
       principalAuditName(principal),
@@ -678,12 +683,15 @@ export async function planUpdateGenericMutation(
 
   const mutationToken = changeId();
   const nextVersion = previous.version + 1;
+  const storageType = resourceAuditStorageType(principal.type);
   const statements: D1PreparedStatement[] = [
     env.DB.prepare(`UPDATE resource_records SET
-      model_version=?,updated_by_type=?,updated_by_id=?,updated_by_name_snapshot=?,version=?,updated_at=?,mutation_token=?
+      model_version=?,updated_by_type=?,updated_by_entity_type=?,updated_by_id=?,updated_by_name_snapshot=?,
+      version=?,updated_at=?,mutation_token=?
       WHERE id=? AND space_id=? AND model_key=? AND deleted_at IS NULL AND version=?`)
       .bind(
         model.version,
+        storageType,
         principal.type,
         principal.id,
         principalAuditName(principal),
@@ -770,14 +778,16 @@ export function planDeleteGenericMutation(
   }
   const mutationToken = changeId();
   const nextVersion = expectedVersion + 1;
+  const storageType = resourceAuditStorageType(principal.type);
   const statements: D1PreparedStatement[] = [
     env.DB.prepare(`UPDATE resource_records SET
-      deleted_at=?,updated_at=?,updated_by_type=?,updated_by_id=?,updated_by_name_snapshot=?,
+      deleted_at=?,updated_at=?,updated_by_type=?,updated_by_entity_type=?,updated_by_id=?,updated_by_name_snapshot=?,
       version=version+1,mutation_token=?
       WHERE id=? AND space_id=? AND model_key=? AND deleted_at IS NULL AND version=?`)
       .bind(
         timestamp,
         timestamp,
+        storageType,
         principal.type,
         principal.id,
         principalAuditName(principal),
