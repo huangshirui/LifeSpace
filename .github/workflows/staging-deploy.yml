@@ -65,6 +65,7 @@ jobs:
           node --check infra/scripts/verify-staging-eventing.mjs
           node --check infra/scripts/verify-staging-eventing-principal-revocation.mjs
           node --check infra/scripts/verify-staging-creation-draft.mjs
+          node --check infra/scripts/verify-staging-authority-v3.mjs
           node --check infra/scripts/baseline-model-semantics.mjs
           node --check infra/scripts/publish-staging-baseline-model-semantics.mjs
 
@@ -151,6 +152,9 @@ jobs:
       - name: Verify authenticated Kernel and Model Contract
         run: node infra/scripts/verify-staging-http.mjs
 
+      - name: Verify Agent Principal and bounded re-delegation
+        run: node infra/scripts/verify-staging-authority-v3.mjs
+
       - name: Verify active Model Contract D1 pointer
         env:
           REQUIRE_ACTIVE_MODEL_CONTRACT: "1"
@@ -186,6 +190,7 @@ jobs:
           - Identity: schema v${LIFESPACE_EXPECTED_IDENTITY_SCHEMA_VERSION} / contract ${LIFESPACE_EXPECTED_IDENTITY_CONTRACT_VERSION}
           - Platform D1 convergence: passed
           - Trusted application credential replacement/revocation lifecycle: passed
+          - Agent Principal own-Authority + User→Agent→Agent bounded re-delegation/revocation: passed
           - Typed model storage / legacy JSON cleanup: passed
           - D1 hot-path budgets: passed in repository validation
           - Staging HTTP performance benchmark: recorded in workflow logs
@@ -199,4 +204,3 @@ jobs:
           - Ephemeral smoke PAT: maximum 15-minute lifetime; cleanup attempted
           - Production traffic/data were not touched.
           EOF
-
