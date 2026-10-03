@@ -92,6 +92,10 @@ ALTER TABLE _migration_0048_resource_records RENAME TO resource_records;
 
 CREATE INDEX idx_resource_records_space_model
   ON resource_records(space_id, model_key, deleted_at, created_at DESC, id DESC);
+-- Migration 0038 added the query-shape-aligned updated_at envelope index. Rebuild
+-- it explicitly because rebuilding resource_records drops every attached index.
+CREATE INDEX idx_resource_records_space_model_updated
+  ON resource_records(space_id, model_key, deleted_at, updated_at DESC, id DESC);
 CREATE INDEX idx_resource_records_model
   ON resource_records(model_key, deleted_at, updated_at DESC, id DESC);
 
