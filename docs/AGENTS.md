@@ -16,3 +16,16 @@ This directory defines stable platform decisions. Documentation here is normativ
 - When changing service, Agent, automation, device, API-token, or OAuth machine authentication, update `service-authentication.md` and keep planned behavior visibly separate from deployed behavior.
 - When changing runtime/service boundaries, update `architecture.md`.
 - When changing contract publication/versioning rules, update `contracts.md`.
+
+## Production documentation
+
+`docs/production/` is the human-readable source for **what the current production deployment actually provides**. It must not drift into a description of main, staging, planned architecture or work in progress.
+
+- `docs/production/capability-guide.md` is the primary human-readable Production Capability Guide.
+- `docs/production/feature-matrix.md` is the quick-search feature inventory.
+- `docs/production/changelog.md` records only successfully deployed production changes.
+- A capability may be marked `✅ Production` only after the exact candidate SHA has completed the production deployment workflow successfully. Merge, main, PR completion or staging success are insufficient.
+- After every successful `Deploy LifeSpace platform production` run, update release SHA/date, capability changes, Feature Matrix status, known limitations and Changelog. Even a release with no user-visible capability change must update release metadata and explicitly record that fact.
+- If production deployment succeeds but `docs/production/` has not been synchronized to that deployment, the release is not considered fully closed out from an engineering-process perspective.
+- Development-only or planned capabilities may be listed for clarity only when explicitly marked `🚧 In development` or `🧭 Planned`; do not let them read as deployed facts.
+- When historical production evidence is insufficient to bind a claim to a release, use `❓ Needs verification` rather than guessing.
