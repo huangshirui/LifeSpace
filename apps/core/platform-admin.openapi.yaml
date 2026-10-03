@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: LifeSpace Core Platform Admin API
-  version: 0.3.0
+  version: 0.4.0
   description: >-
     Privileged LifeSpace Core control-plane contract for the LifeSpace Console and approved
     platform automation. This contract is separate from both the downstream Core Kernel Contract and the service-automation Model Control Plane Contract:
@@ -313,7 +313,7 @@ components:
       required: [id, granteeType, granteeId, resourceType, resourceId, permission, createdByUserId, createdAt, expiresAt, revokedAt]
       properties:
         id: { type: string, pattern: '^grt_' }
-        granteeType: { type: string, enum: [user, space, service, device] }
+        granteeType: { type: string, enum: [user, space, service, device, agent] }
         granteeId: { type: string }
         resourceType: { type: string }
         resourceId: { anyOf: [{ type: string }, { type: 'null' }] }
