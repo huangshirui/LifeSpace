@@ -87,7 +87,7 @@ replaceIn("apps/core/scripts/check-authority-contract.mjs", (text) => text
 );
 
 replaceIn("apps/identity/scripts/check-openapi.mjs", (text) => text
-  .replaceAll('document.info?.version !== "0.7.0"', 'document.info?.version !== "0.8.0"')
+  .replaceAll('doc.info?.version !== "0.7.0"', 'doc.info?.version !== "0.8.0"')
   .replaceAll('contractVersion?.const !== "0.7.0"', 'contractVersion?.const !== "0.8.0"')
   .replaceAll("/internal/v1/agent-tokens", "/internal/v1/agent-execution-tokens")
   .replaceAll("delegated_agent", "agent_execution")
