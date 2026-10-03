@@ -48,7 +48,7 @@ function countedDatabase(database: D1Database, counter: Counter): D1Database {
 }
 
 describe("Authority v2 structural Batch resolution", () => {
-  it("de-duplicates base Authority independently from per-request record targets and Delegations", async () => {
+  it("de-duplicates base Authority and resolves all Delegation chains set-wise", async () => {
     const db = (env as unknown as TestEnv).DB;
     const suffix = crypto.randomUUID().replaceAll("-", "");
     const userId = `usr_auth_perf_${suffix}`;
@@ -146,6 +146,7 @@ describe("Authority v2 structural Batch resolution", () => {
     expect(counter.roundTrips).toBe(1);
     expect(counter.batchSizes).toEqual([2]);
     expect(counter.preparedSql).toHaveLength(2);
+    expect(counter.preparedSql.some((sql) => sql.includes("WITH RECURSIVE chain"))).toBe(true);
     expect(counter.preparedSql.reduce(
       (count, sql) => count + (sql.match(/FROM space_people/g) ?? []).length,
       0,
@@ -219,7 +220,9 @@ describe("Authority v2 structural Batch resolution", () => {
       })),
     );
     expect(counter.roundTrips).toBe(1);
-    expect(counter.batchSizes).toEqual([21]);
+    expect(counter.batchSizes).toEqual([2]);
+    expect(counter.preparedSql).toHaveLength(2);
+    expect(counter.preparedSql.filter((sql) => sql.includes("WITH RECURSIVE chain"))).toHaveLength(1);
     expect(recordScoped).toHaveLength(20);
   });
 });
