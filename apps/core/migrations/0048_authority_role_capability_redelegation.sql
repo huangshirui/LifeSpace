@@ -4,11 +4,12 @@
 -- exact meaning. Existing single-hop Delegations become root rows with
 -- parent_delegation_id=NULL and remaining_redelegation_depth=0.
 --
--- Runtime attribution columns intentionally stop encoding the closed Entity Type
--- vocabulary as table CHECK constraints. Verified Execution Context + code-owned
--- Entity Role Capability is authoritative for role eligibility.
-
-PRAGMA foreign_keys = OFF;
+-- IMPORTANT D1 migration invariant:
+-- resource_records is a heavily referenced parent of generated mdl_* tables,
+-- relations, Change evidence and Capability storage. D1 remote migrations enforce
+-- those foreign keys while applying a migration, so this migration must never
+-- rebuild/drop resource_records. Its closed legacy audit type columns are retained
+-- as compatibility carriers and paired with additive exact Entity Type columns.
 
 -- Data Grant may now target Agent and future verified principal-capable entity
 -- types without rebuilding this table for every vocabulary extension.
@@ -43,126 +44,25 @@ CREATE INDEX idx_data_grants_grantee
 CREATE INDEX idx_data_grants_source
   ON data_grants(source_space_id, resource_type, resource_id, revoked_at);
 
--- Generic Resource audit attribution must accept any verified Principal type.
--- Remove only the historical closed-list type CHECKs; preserve all other shape.
--- Drop every trigger that directly references resource_records before rebuilding
--- that table; D1 validates trigger dependencies during DROP/RENAME even with
--- foreign_keys disabled.
-DROP TRIGGER IF EXISTS trg_resource_records_insert_actor_names;
-DROP TRIGGER IF EXISTS trg_resource_records_update_actor_name;
+-- Generic Resource audit attribution must preserve the exact verified Entity Type
+-- without rebuilding resource_records. The historical created_by_type /
+-- updated_by_type columns keep their pre-48 CHECK constraints solely as D1-safe
+-- compatibility carriers. New Runtime code writes the exact type here and uses a
+-- legacy-safe carrier value only for those historical columns.
+ALTER TABLE resource_records ADD COLUMN created_by_entity_type TEXT;
+ALTER TABLE resource_records ADD COLUMN updated_by_entity_type TEXT;
+
+UPDATE resource_records
+SET created_by_entity_type=created_by_type,
+    updated_by_entity_type=updated_by_type
+WHERE created_by_entity_type IS NULL OR updated_by_entity_type IS NULL;
+
+-- Eventing must publish the exact Entity Type rather than the compatibility
+-- carrier retained in the legacy audit columns.
 DROP TRIGGER IF EXISTS trg_domain_event_resource_created;
 DROP TRIGGER IF EXISTS trg_domain_event_resource_updated;
 DROP TRIGGER IF EXISTS trg_domain_event_resource_deleted;
-DROP TRIGGER IF EXISTS trg_temporal_occurrences_insert_actor_name;
 
-CREATE TABLE _migration_0048_resource_records (
-  id TEXT PRIMARY KEY CHECK(id GLOB 'rec_*'),
-  space_id TEXT NOT NULL REFERENCES spaces(id),
-  model_key TEXT NOT NULL,
-  model_version INTEGER NOT NULL CHECK(model_version >= 1),
-  created_by_type TEXT NOT NULL,
-  created_by_id TEXT NOT NULL,
-  created_by_name_snapshot TEXT NOT NULL,
-  updated_by_type TEXT NOT NULL,
-  updated_by_id TEXT NOT NULL,
-  updated_by_name_snapshot TEXT NOT NULL,
-  version INTEGER NOT NULL DEFAULT 1 CHECK(version >= 1),
-  mutation_token TEXT,
-  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
-  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
-  deleted_at TEXT,
-  FOREIGN KEY(model_key, model_version) REFERENCES model_definitions(model_key, version)
-);
-
-INSERT INTO _migration_0048_resource_records(
-  id,space_id,model_key,model_version,
-  created_by_type,created_by_id,created_by_name_snapshot,
-  updated_by_type,updated_by_id,updated_by_name_snapshot,
-  version,mutation_token,created_at,updated_at,deleted_at
-)
-SELECT
-  id,space_id,model_key,model_version,
-  created_by_type,created_by_id,created_by_name_snapshot,
-  updated_by_type,updated_by_id,updated_by_name_snapshot,
-  version,mutation_token,created_at,updated_at,deleted_at
-FROM resource_records;
-
-DROP TABLE resource_records;
-ALTER TABLE _migration_0048_resource_records RENAME TO resource_records;
-
-CREATE INDEX idx_resource_records_space_model
-  ON resource_records(space_id, model_key, deleted_at, created_at DESC, id DESC);
--- Migration 0038 added the query-shape-aligned updated_at envelope index. Rebuild
--- it explicitly because rebuilding resource_records drops every attached index.
-CREATE INDEX idx_resource_records_space_model_updated
-  ON resource_records(space_id, model_key, deleted_at, updated_at DESC, id DESC);
-CREATE INDEX idx_resource_records_model
-  ON resource_records(model_key, deleted_at, updated_at DESC, id DESC);
-
--- Preserve immutable User display-name snapshot behavior. Non-User Principals,
--- including Agent, keep the immutable display/id snapshot supplied by Runtime.
-CREATE TRIGGER trg_resource_records_insert_actor_names
-AFTER INSERT ON resource_records
-WHEN
-  (NEW.created_by_type = 'user' AND NEW.created_by_name_snapshot = NEW.created_by_id)
-  OR
-  (NEW.updated_by_type = 'user' AND NEW.updated_by_name_snapshot = NEW.updated_by_id)
-BEGIN
-  UPDATE resource_records
-  SET
-    created_by_name_snapshot = CASE
-      WHEN NEW.created_by_type = 'user' AND NEW.created_by_name_snapshot = NEW.created_by_id
-      THEN COALESCE(
-        (
-          SELECT p.display_name
-          FROM space_people p
-          WHERE p.space_id = NEW.space_id
-            AND p.linked_user_id = NEW.created_by_id
-          ORDER BY (p.deleted_at IS NULL) DESC, p.updated_at DESC, p.created_at DESC
-          LIMIT 1
-        ),
-        NEW.created_by_name_snapshot
-      )
-      ELSE NEW.created_by_name_snapshot
-    END,
-    updated_by_name_snapshot = CASE
-      WHEN NEW.updated_by_type = 'user' AND NEW.updated_by_name_snapshot = NEW.updated_by_id
-      THEN COALESCE(
-        (
-          SELECT p.display_name
-          FROM space_people p
-          WHERE p.space_id = NEW.space_id
-            AND p.linked_user_id = NEW.updated_by_id
-          ORDER BY (p.deleted_at IS NULL) DESC, p.updated_at DESC, p.created_at DESC
-          LIMIT 1
-        ),
-        NEW.updated_by_name_snapshot
-      )
-      ELSE NEW.updated_by_name_snapshot
-    END
-  WHERE id = NEW.id;
-END;
-
-CREATE TRIGGER trg_resource_records_update_actor_name
-AFTER UPDATE OF updated_by_type, updated_by_id, updated_by_name_snapshot ON resource_records
-WHEN NEW.updated_by_type = 'user' AND NEW.updated_by_name_snapshot = NEW.updated_by_id
-BEGIN
-  UPDATE resource_records
-  SET updated_by_name_snapshot = COALESCE(
-    (
-      SELECT p.display_name
-      FROM space_people p
-      WHERE p.space_id = NEW.space_id
-        AND p.linked_user_id = NEW.updated_by_id
-      ORDER BY (p.deleted_at IS NULL) DESC, p.updated_at DESC, p.created_at DESC
-      LIMIT 1
-    ),
-    NEW.updated_by_name_snapshot
-  )
-  WHERE id = NEW.id;
-END;
-
--- Recreate current governed Eventing triggers after the envelope table rebuild.
 CREATE TRIGGER trg_domain_event_resource_created
 AFTER INSERT ON resource_records
 WHEN NEW.deleted_at IS NULL
@@ -177,7 +77,7 @@ BEGIN
     NEW.id,
     NEW.version,
     NEW.mutation_token,
-    NEW.created_by_type,
+    COALESCE(NEW.created_by_entity_type,NEW.created_by_type),
     NEW.created_by_id,
     NEW.created_at
   );
@@ -199,7 +99,7 @@ BEGIN
     NEW.id,
     NEW.version,
     NEW.mutation_token,
-    NEW.updated_by_type,
+    COALESCE(NEW.updated_by_entity_type,NEW.updated_by_type),
     NEW.updated_by_id,
     NEW.updated_at
   );
@@ -221,13 +121,15 @@ BEGIN
     NEW.id,
     NEW.version,
     NEW.mutation_token,
-    NEW.updated_by_type,
+    COALESCE(NEW.updated_by_entity_type,NEW.updated_by_type),
     NEW.updated_by_id,
     NEW.updated_at
   );
 END;
 
--- Temporal Capability audit uses the same Principal vocabulary as resource audit.
+-- Temporal Capability audit uses the same open Principal vocabulary as runtime
+-- Change evidence. This table is a leaf over resource_records, so it can be
+-- rebuilt safely without dropping the referenced parent.
 CREATE TABLE _migration_0048_temporal_occurrences (
   id TEXT PRIMARY KEY CHECK(id GLOB 'tmo_*'),
   record_id TEXT NOT NULL REFERENCES resource_records(id) ON DELETE CASCADE,
@@ -436,5 +338,3 @@ BEGIN
 END;
 
 UPDATE schema_metadata SET value='48' WHERE key='schema_version';
-
-PRAGMA foreign_keys = ON;
