@@ -45,11 +45,15 @@ CREATE INDEX idx_data_grants_source
 
 -- Generic Resource audit attribution must accept any verified Principal type.
 -- Remove only the historical closed-list type CHECKs; preserve all other shape.
+-- Drop every trigger that directly references resource_records before rebuilding
+-- that table; D1 validates trigger dependencies during DROP/RENAME even with
+-- foreign_keys disabled.
 DROP TRIGGER IF EXISTS trg_resource_records_insert_actor_names;
 DROP TRIGGER IF EXISTS trg_resource_records_update_actor_name;
 DROP TRIGGER IF EXISTS trg_domain_event_resource_created;
 DROP TRIGGER IF EXISTS trg_domain_event_resource_updated;
 DROP TRIGGER IF EXISTS trg_domain_event_resource_deleted;
+DROP TRIGGER IF EXISTS trg_temporal_occurrences_insert_actor_name;
 
 CREATE TABLE _migration_0048_resource_records (
   id TEXT PRIMARY KEY CHECK(id GLOB 'rec_*'),
@@ -220,8 +224,6 @@ BEGIN
 END;
 
 -- Temporal Capability audit uses the same Principal vocabulary as resource audit.
-DROP TRIGGER IF EXISTS trg_temporal_occurrences_insert_actor_name;
-
 CREATE TABLE _migration_0048_temporal_occurrences (
   id TEXT PRIMARY KEY CHECK(id GLOB 'tmo_*'),
   record_id TEXT NOT NULL REFERENCES resource_records(id) ON DELETE CASCADE,
