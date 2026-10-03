@@ -25,6 +25,7 @@ function replaceIn(file, replacer) {
     .replaceAll("revokeAgentDelegation", "revokeDelegation")
     .replaceAll("Agent Delegation", "Delegation");
   api = JSON.parse(raw);
+  api.components.schemas.StatusResponse.properties.data.properties.contractVersion.const = "0.42.0";
   const schemas = api.components.schemas;
   schemas.DelegationActor = {
     type: "object",
@@ -47,7 +48,7 @@ function replaceIn(file, replacer) {
 
   const collection = api.paths["/api/v1/spaces/{spaceId}/delegations"];
   collection.get.description = "Lists Delegations rooted in the direct Principal for this Application and source Space. Represented execution cannot use listing as Delegation discovery.";
-  collection.post.description = "Creates one immutable-scope Delegation. A direct eligible Principal creates a Root Delegation from its own current Authority. A represented Actor may create a Child only from an explicit parent that permits re-delegation; Core preserves the Root Principal and enforces strict narrowing. The requested Actor type must currently allow canReceiveDelegation.";
+  collection.post.description = "Creates one immutable-scope Delegation. A direct eligible Principal creates a Root Delegation from its own current Authority. A represented Actor may create a Child only from an explicit parent that permits re-delegation; Core preserves the Root Principal and enforces strict narrowing. The requested Actor type must currently allow canReceiveDelegation. Child issuance does not consume a single-use parent.";
   const item = api.paths["/api/v1/spaces/{spaceId}/delegations/{delegationId}"];
   item.delete.description = "Revokes one active Delegation. The direct Root Principal may revoke any Delegation in its rooted chain. The immediate issuer may revoke a Child Delegation it created. Descendants are not cascade-updated; current-state chain resolution invalidates them when an ancestor is revoked.";
   write(file, JSON.stringify(api));
@@ -56,6 +57,7 @@ function replaceIn(file, replacer) {
 // Identity Agent execution contract: one current profile, no unused legacy subjectId/delegated_agent syntax.
 replaceIn("apps/identity/openapi.yaml", (text) => text
   .replace("version: 0.7.0", "version: 0.8.0")
+  .replace("const: 0.7.0", "const: 0.8.0")
   .replaceAll("/internal/v1/agent-tokens", "/internal/v1/agent-execution-tokens")
   .replace(/description: Issue a short-lived Core-only Agent execution JWT\.[^\n]*/,
     "description: Issue one short-lived Core-only Agent Execution Token. sub authenticates the actual Agent Actor; Principal is an independent signed claim. Omitting principalType/principalId means direct Agent execution. Current executable Principal types are user and agent; Core remains authoritative for Delegation and business Authority.")
@@ -112,7 +114,6 @@ for (const file of coreDelegationFiles) {
   );
 }
 
-// Current documentation must describe the one unified Agent Execution Token.
 for (const file of [
   "docs/agent-ready.md", "docs/permissions.md", "docs/service-authentication.md",
   "docs/authority-role-capability-redelegation.md", "apps/identity/AGENTS.md",
@@ -123,20 +124,11 @@ for (const file of [
   );
 }
 
-// Current contract/version pointers only; historical decision files remain untouched.
 for (const file of ["apps/core/AGENTS.md", "docs/contracts.md"]) {
   replaceIn(file, (text) => text.replaceAll("0.41.0", "0.42.0"));
 }
 for (const file of ["apps/identity/AGENTS.md", "docs/contracts.md"]) {
   replaceIn(file, (text) => text.replaceAll("0.7.0", "0.8.0"));
-}
-
-// Stage expectation uses the candidate contracts from this branch.
-for (const file of ["infra/scripts/staging-expectations.mjs"]) {
-  replaceIn(file, (text) => text
-    .replace(/core:\s*\{\s*contractVersion:\s*"0\.41\.0"/, 'core: { contractVersion: "0.42.0"')
-    .replace(/identity:\s*\{\s*contractVersion:\s*"0\.7\.0"/, 'identity: { contractVersion: "0.8.0"')
-  );
 }
 
 console.log("Authority v3 generic surface cleanup complete");
