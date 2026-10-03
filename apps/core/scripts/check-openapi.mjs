@@ -3,7 +3,7 @@ import YAML from "yaml";
 
 const document = YAML.parse(fs.readFileSync(new URL("../openapi.yaml", import.meta.url), "utf8"));
 
-if (document.openapi !== "3.1.0" || document.info?.version !== "0.41.0") {
+if (document.openapi !== "3.1.0" || document.info?.version !== "0.42.0") {
   throw new Error("Core Kernel OpenAPI version metadata is invalid");
 }
 if (!document.info?.title?.includes("Kernel")) {
@@ -574,26 +574,26 @@ if (!schemas.CreationDraftProcessing?.required?.includes("modelContractRevision"
   throw new Error("Creation Draft jobs must expose their pinned Model Contract Revision");
 }
 
-if (schemas.StatusResponse?.properties?.data?.properties?.contractVersion?.const !== "0.41.0") {
+if (schemas.StatusResponse?.properties?.data?.properties?.contractVersion?.const !== "0.42.0") {
   throw new Error("Core Kernel status contract version drifted");
 }
 
 console.log("Core Kernel OpenAPI contract sanity check passed");
 
-const agentDelegations = document.paths?.["/api/v1/spaces/{spaceId}/delegations"];
-if (!agentDelegations?.get || !agentDelegations?.post || !document.paths?.["/api/v1/spaces/{spaceId}/delegations/{delegationId}"]?.delete) {
-  throw new Error("Agent Delegation lifecycle is incomplete");
+const delegations = document.paths?.["/api/v1/spaces/{spaceId}/delegations"];
+if (!delegations?.get || !delegations?.post || !document.paths?.["/api/v1/spaces/{spaceId}/delegations/{delegationId}"]?.delete) {
+  throw new Error("Delegation lifecycle is incomplete");
 }
-if (schemas.AgentDelegationModelAccess || schemas.AgentDelegation?.properties?.models || schemas.CreateAgentDelegationRequest?.properties?.models) {
+if (schemas.DelegationModelAccess || schemas.Delegation?.properties?.models || schemas.CreateDelegationRequest?.properties?.models) {
   throw new Error("Legacy multi-model Delegation contract must not remain");
 }
-if (schemas.AgentDelegationScope?.properties?.target?.$ref !== "#/components/schemas/AgentDelegationTarget"
-    || JSON.stringify(schemas.AgentDelegationTarget?.properties?.type?.enum) !== JSON.stringify(["space", "model", "record"])
-    || JSON.stringify(schemas.AgentDelegationScope?.properties?.maxAccess?.enum) !== JSON.stringify(["free_busy", "read", "write", "manage"])
-    || schemas.AgentDelegationConstraints?.properties?.maxUses?.const !== 1
-    || !schemas.AgentDelegation?.required?.includes("effectiveStatus")
-    || schemas.CreateAgentDelegationRequest?.required?.join(",") !== "agentId,scope") {
-  throw new Error("Agent Delegation must remain one immutable scope with bounded lifecycle constraints");
+if (schemas.DelegationScope?.properties?.target?.$ref !== "#/components/schemas/DelegationTarget"
+    || JSON.stringify(schemas.DelegationTarget?.properties?.type?.enum) !== JSON.stringify(["space", "model", "record"])
+    || JSON.stringify(schemas.DelegationScope?.properties?.maxAccess?.enum) !== JSON.stringify(["free_busy", "read", "write", "manage"])
+    || schemas.DelegationConstraints?.properties?.maxUses?.const !== 1
+    || !schemas.Delegation?.required?.includes("effectiveStatus")
+    || schemas.CreateDelegationRequest?.required?.join(",") !== "actor,scope") {
+  throw new Error("Delegation must remain one immutable scope with bounded lifecycle constraints");
 }
 if (!schemas.ResourceChangeActor?.properties?.type?.enum?.includes("agent")
     || !schemas.ResourceChange?.required?.includes("delegationId")

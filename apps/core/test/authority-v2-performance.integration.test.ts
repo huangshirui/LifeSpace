@@ -85,7 +85,7 @@ describe("Authority v2 structural Batch resolution", () => {
       ...direct,
       tokenId: `tok_agent_${suffix}`,
       actor: { type: "agent", id: agentId },
-      purpose: "delegated_agent",
+      purpose: "agent_execution",
     };
 
     const counter: Counter = { roundTrips: 0, batchSizes: [], preparedSql: [] };

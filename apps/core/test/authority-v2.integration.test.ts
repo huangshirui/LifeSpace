@@ -29,13 +29,14 @@ async function token(privateKey: string, userId: string, agentId?: string) {
   return sign({
     iss: "lifespace-identity",
     aud: "lifespace-core",
-    sub: userId,
+    sub: agentId ?? userId,
     azp: "authority-v2-test-app",
     principal_type: "user",
     ...(agentId ? {
+      principal_id: userId,
       actor_type: "agent",
       actor_id: agentId,
-      purpose: "delegated_agent",
+      purpose: "agent_execution",
     } : {}),
     scope: "resources:read resources:write",
     iat,

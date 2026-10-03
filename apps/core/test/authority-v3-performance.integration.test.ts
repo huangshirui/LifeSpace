@@ -203,7 +203,7 @@ describe("Authority v3 structural performance", () => {
       scopes: ["resources:read", "resources:write"],
       tokenId: `tok_v3_depth_${suffix}`,
       actor: { type: "agent", id: agents[3]! },
-      purpose: "delegated_agent",
+      purpose: "agent_execution",
     };
     const counter: Counter = { roundTrips: 0, batchSizes: [], preparedSql: [], resultRows: [] };
     const bindings = { DB: countedDatabase(db, counter) } as Bindings;
@@ -278,7 +278,7 @@ describe("Authority v3 structural performance", () => {
       scopes: ["resources:read", "resources:write"],
       tokenId: `tok_v3_shared_${suffix}`,
       actor: { type: "agent", id: finalAgent },
-      purpose: "delegated_agent",
+      purpose: "agent_execution",
     };
     const counter: Counter = { roundTrips: 0, batchSizes: [], preparedSql: [], resultRows: [] };
     const bindings = { DB: countedDatabase(db, counter) } as Bindings;

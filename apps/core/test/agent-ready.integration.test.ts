@@ -45,12 +45,13 @@ async function agentToken(privateKey: string, userId: string, agentId: string, s
   return sign({
     iss: "lifespace-identity",
     aud: "lifespace-core",
-    sub: userId,
+    sub: agentId,
     azp: "test-app",
     principal_type: "user",
+    principal_id: userId,
     actor_type: "agent",
     actor_id: agentId,
-    purpose: "delegated_agent",
+    purpose: "agent_execution",
     scope: scopes.join(" "),
     iat,
     exp: iat + 900,
@@ -138,7 +139,7 @@ describe("Agent-ready Authority + Change", () => {
     }, publicKey);
     expect(createdDelegation.status).toBe(201);
     const delegation = await jsonData(createdDelegation);
-    expect(delegation.agentId).toBe(agentId);
+    expect(delegation.actor.id).toBe(agentId);
 
     const createdTaskDelegation = await request(`/api/v1/spaces/${spaceId}/delegations`, {
       method: "POST",

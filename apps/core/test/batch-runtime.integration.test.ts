@@ -24,10 +24,10 @@ async function keys() {
 async function token(privateKey: string, userId: string, agentId?: string) {
   const iat = Math.floor(Date.now() / 1000);
   return sign({
-    iss: "lifespace-identity", aud: "lifespace-core", sub: userId, azp: "batch-test-app",
+    iss: "lifespace-identity", aud: "lifespace-core", sub: agentId ?? userId, azp: "batch-test-app",
     principal_type: "user", scope: "resources:read resources:write", iat, exp: iat + 900,
     jti: `tok_${crypto.randomUUID()}`,
-    ...(agentId ? { actor_type: "agent", actor_id: agentId, purpose: "delegated_agent" } : {}),
+    ...(agentId ? { principal_id: userId, actor_type: "agent", actor_id: agentId, purpose: "agent_execution" } : {}),
   }, privateKey, "RS256");
 }
 function auth(value: string) { return { authorization: `Bearer ${value}`, "content-type": "application/json" }; }

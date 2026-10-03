@@ -113,7 +113,7 @@ async function issueRoot(
   publicKey: string,
   direct: string,
   spaceId: string,
-  actor: { type: "agent", id: string },
+  agentId: string,
   scope: { target: { type: "space" | "model" | "record"; id: string }; maxAccess: "read" | "write" },
   constraints?: { maxUses?: 1; expiresAt?: string; remainingRedelegationDepth?: number },
 ) {
@@ -128,7 +128,7 @@ async function issueChild(
   representedIssuer: string,
   spaceId: string,
   parentDelegationId: string,
-  actor: { type: "agent", id: string },
+  agentId: string,
   scope: { target: { type: "space" | "model" | "record"; id: string }; maxAccess: "read" | "write" },
   constraints?: { maxUses?: 1; expiresAt?: string; remainingRedelegationDepth?: number },
 ) {
@@ -247,6 +247,82 @@ describe("Authority v3 bounded re-delegation boundaries", () => {
       { target: { type: "model", id: "event" }, maxAccess: "write" },
       { remainingRedelegationDepth: 4 },
     ), 400, "INVALID_REQUEST");
+  });
+
+  it("allows Root Principal and immediate issuer revocation without widening management authority", async () => {
+    const { privateKey, publicKey } = await keys();
+    const userId = `usr_${crypto.randomUUID().replaceAll("-", "")}`;
+    const agentA = `agt_${crypto.randomUUID().replaceAll("-", "")}`;
+    const agentB = `agt_${crypto.randomUUID().replaceAll("-", "")}`;
+    const agentC = `agt_${crypto.randomUUID().replaceAll("-", "")}`;
+    const spaceId = `spc_${crypto.randomUUID().replaceAll("-", "")}`;
+    await seed(userId, spaceId);
+
+    const direct = await token(privateKey, { principalType: "user", principalId: userId });
+    const rootResponse = await issueRoot(
+      publicKey,
+      direct,
+      spaceId,
+      agentA,
+      { target: { type: "model", id: "event" }, maxAccess: "write" },
+      { remainingRedelegationDepth: 1 },
+    );
+    expect(rootResponse.status).toBe(201);
+    const root = (await payload(rootResponse)).data;
+    const representedA = await token(privateKey, { principalType: "user", principalId: userId, actorId: agentA });
+
+    const childForIssuerResponse = await issueChild(
+      publicKey, representedA, spaceId, root.id, agentB,
+      { target: { type: "model", id: "event" }, maxAccess: "write" },
+      { remainingRedelegationDepth: 0 },
+    );
+    expect(childForIssuerResponse.status).toBe(201);
+    const childForIssuer = (await payload(childForIssuerResponse)).data;
+
+    const childForRootResponse = await issueChild(
+      publicKey, representedA, spaceId, root.id, agentC,
+      { target: { type: "model", id: "event" }, maxAccess: "write" },
+      { remainingRedelegationDepth: 0 },
+    );
+    expect(childForRootResponse.status).toBe(201);
+    const childForRoot = (await payload(childForRootResponse)).data;
+
+    const unrelated = await token(privateKey, { principalType: "user", principalId: userId, actorId: agentC });
+    await expectError(await request(
+      publicKey,
+      `/api/v1/spaces/${spaceId}/delegations/${childForIssuer.id}`,
+      unrelated,
+      { method: "DELETE" },
+    ), 404, "DELEGATION_NOT_FOUND");
+
+    const issuerRevoke = await request(
+      publicKey,
+      `/api/v1/spaces/${spaceId}/delegations/${childForIssuer.id}`,
+      representedA,
+      { method: "DELETE" },
+    );
+    expect(issuerRevoke.status).toBe(204);
+
+    await expectError(await request(
+      publicKey,
+      `/api/v1/spaces/${spaceId}/delegations/${root.id}`,
+      representedA,
+      { method: "DELETE" },
+    ), 404, "DELEGATION_NOT_FOUND");
+
+    const rootRevoke = await request(
+      publicKey,
+      `/api/v1/spaces/${spaceId}/delegations/${childForRoot.id}`,
+      direct,
+      { method: "DELETE" },
+    );
+    expect(rootRevoke.status).toBe(204);
+
+    const rows = await (env as unknown as TestEnv).DB.prepare(
+      "SELECT id,revoked_at FROM delegations WHERE id IN (?,?) ORDER BY id",
+    ).bind(childForIssuer.id, childForRoot.id).all<{ id: string; revoked_at: string | null }>();
+    expect(rows.results).toHaveLength(2);
+    expect(rows.results.every((row) => row.revoked_at !== null)).toBe(true);
   });
 
   it("supports the maximum depth and rejects propagation beyond it", async () => {

@@ -14,9 +14,9 @@ if (!granteeTypes.includes("agent")) {
   throw new Error("Kernel Data Grant contract must allow Agent grantees");
 }
 
-const delegation = schemas.AgentDelegation;
-const createDelegation = schemas.CreateAgentDelegationRequest;
-const constraints = schemas.AgentDelegationConstraints;
+const delegation = schemas.Delegation;
+const createDelegation = schemas.CreateDelegationRequest;
+const constraints = schemas.DelegationConstraints;
 if (!delegation?.required?.includes("principal")
     || !delegation.required.includes("parentDelegationId")
     || !delegation.required.includes("createdBy")
@@ -24,21 +24,21 @@ if (!delegation?.required?.includes("principal")
     || constraints?.properties?.remainingRedelegationDepth?.minimum !== 0
     || constraints?.properties?.remainingRedelegationDepth?.maximum !== 3
     || constraints?.properties?.remainingRedelegationDepth?.default !== 0) {
-  throw new Error("Agent Delegation contract must expose Root Principal evidence and bounded parent-chain depth");
+  throw new Error("Delegation contract must expose Root Principal evidence and bounded parent-chain depth");
 }
 
 const principalPropertyTypes = delegation?.properties?.principal?.properties?.type?.enum ?? [];
 const issuerTypes = delegation?.properties?.createdBy?.properties?.type?.enum ?? [];
 for (const values of [principalPropertyTypes, issuerTypes]) {
   if (!values.includes("agent")) {
-    throw new Error("Agent Delegation Principal/issuer evidence must support Agent Entity type");
+    throw new Error("Delegation Principal/issuer evidence must support Agent Entity type");
   }
 }
 
 const postDescription = document.paths?.["/api/v1/spaces/{spaceId}/delegations"]?.post?.description ?? "";
 if (!postDescription.includes("preserves the Root Principal")
     || !postDescription.includes("Child issuance does not consume a single-use parent")) {
-  throw new Error("Agent Delegation contract must document Root Principal preservation and non-consuming Child issuance");
+  throw new Error("Delegation contract must document Root Principal preservation and non-consuming Child issuance");
 }
 
 console.log("Core Authority v3 contract sanity check passed");
