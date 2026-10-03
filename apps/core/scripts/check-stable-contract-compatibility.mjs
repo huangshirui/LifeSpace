@@ -10,7 +10,6 @@ import {
 const root = resolve(import.meta.dirname, "../../..");
 const classificationPath = resolve(root, "docs/contract-stability-baseline.json");
 const acceptedPath = resolve(root, "docs/stable-public-schema-baseline.json.gz.b64");
-const agentPrincipalDecisionPath = resolve(root, "docs/decisions/2026-10-03-agent-grantee-stable-contract.md");
 
 const classification = JSON.parse(await readFile(classificationPath, "utf8"));
 const documentsBySource = {};
@@ -46,35 +45,8 @@ if (process.argv.includes("--print-accepted")) {
   process.exit(0);
 }
 
-let errors = compareStablePublicBaselines(accepted, current);
+const errors = compareStablePublicBaselines(accepted, current);
 console.log(`[stable-schema] checked ${Object.keys(current.operations).length} Stable Public operations across ${current.classifiedGroups.length} representation groups`);
-
-// Kernel 0.41.0 intentionally widens Stable/Public PrincipalType and GranteeType
-// responses with `agent`. Keep the ordinary accepted baseline unchanged while the
-// full implementation is being proven, but allow only the four reviewed deltas
-// below and only when the explicit accepted migration decision is present. This
-// temporary gate and baseline print are removed after the new evidence is checked in.
-if (documentsBySource["apps/core/openapi.yaml"]?.info?.version === "0.41.0") {
-  const decision = await readFile(agentPrincipalDecisionPath, "utf8").catch(() => "");
-  if (!decision.includes("Status: **Accepted**")) {
-    throw new Error("Kernel 0.41.0 Agent Principal representation migration requires an accepted decision record");
-  }
-  const acceptedAgentPrincipalErrors = new Set([
-    'core-kernel::GET /api/v1/me.responses.200.application/json.properties.data.properties.principal.properties.type: response enum added unsupported value "agent"',
-    'core-kernel::GET /api/v1/spaces/{spaceId}/grants.responses.200.application/json.properties.data.items.properties.granteeType: response enum added unsupported value "agent"',
-    'core-kernel::PATCH /api/v1/spaces/{spaceId}/grants/{grantId}.responses.200.application/json.properties.data.properties.granteeType: response enum added unsupported value "agent"',
-    'core-kernel::POST /api/v1/spaces/{spaceId}/grants.responses.201.application/json.properties.data.properties.granteeType: response enum added unsupported value "agent"',
-  ]);
-  const acceptedCount = errors.filter((error) => acceptedAgentPrincipalErrors.has(error)).length;
-  if (acceptedCount > 0) {
-    console.log(`[stable-schema] temporarily accepted ${acceptedCount} reviewed Agent Principal representation migration delta(s) for Kernel 0.41.0`);
-    errors = errors.filter((error) => !acceptedAgentPrincipalErrors.has(error));
-  }
-  if (errors.length === 0 && acceptedCount > 0) {
-    console.log(`[stable-schema] CURRENT_STABLE_BASELINE_B64=${encodedCurrent()}`);
-  }
-}
-
 if (errors.length > 0) {
   throw new Error(`[stable-schema] backward compatibility check failed:\n- ${errors.join("\n- ")}\nStable Public breaking changes require explicit deprecation/migration rather than refreshing this baseline.`);
 }
