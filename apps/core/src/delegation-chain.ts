@@ -5,7 +5,6 @@ import { ApiError } from "./http";
 export type DelegationTargetType = "space" | "model" | "record";
 
 export type DelegationChainRow = {
-  root_leaf_id: string;
   delegation_id: string;
   parent_delegation_id: string | null;
   remaining_redelegation_depth: number;
@@ -25,7 +24,6 @@ export type DelegationChainRow = {
   delegation_target_id: string;
   delegation_target_model_key: string | null;
   delegation_max_access: Permission;
-  chain_depth: number;
 };
 
 const permissionRank: Record<Permission, number> = {
@@ -48,36 +46,42 @@ export function delegationChainStatement(
   }
   const placeholders = delegationIds.map(() => "?").join(",");
   return env.DB.prepare(`
-    WITH RECURSIVE chain(
-      root_leaf_id,delegation_id,parent_delegation_id,remaining_redelegation_depth,
-      principal_type,principal_id,actor_type,actor_id,application_id,source_space_id,
-      created_by_type,created_by_id,delegation_revoked_at,delegation_expires_at,
-      delegation_max_uses,delegation_consumed_at,chain_depth
-    ) AS (
-      SELECT
-        d.id,d.id,d.parent_delegation_id,d.remaining_redelegation_depth,
-        d.principal_type,d.principal_id,d.actor_type,d.actor_id,d.application_id,d.source_space_id,
-        d.created_by_type,d.created_by_id,d.revoked_at,d.expires_at,d.max_uses,d.consumed_at,0
+    WITH RECURSIVE chain(delegation_id) AS (
+      SELECT d.id
       FROM delegations d
       WHERE d.id IN (${placeholders})
-      UNION ALL
-      SELECT
-        c.root_leaf_id,p.id,p.parent_delegation_id,p.remaining_redelegation_depth,
-        p.principal_type,p.principal_id,p.actor_type,p.actor_id,p.application_id,p.source_space_id,
-        p.created_by_type,p.created_by_id,p.revoked_at,p.expires_at,p.max_uses,p.consumed_at,c.chain_depth+1
+      UNION
+      SELECT p.id
       FROM chain c
-      JOIN delegations p ON p.id=c.parent_delegation_id
-      WHERE c.chain_depth < 3
+      JOIN delegations d ON d.id=c.delegation_id
+      JOIN delegations p ON p.id=d.parent_delegation_id
+      WHERE p.remaining_redelegation_depth > d.remaining_redelegation_depth
+        AND p.remaining_redelegation_depth <= 3
     )
     SELECT
-      c.*,
+      d.id AS delegation_id,
+      d.parent_delegation_id,
+      d.remaining_redelegation_depth,
+      d.principal_type,
+      d.principal_id,
+      d.actor_type,
+      d.actor_id,
+      d.application_id,
+      d.source_space_id,
+      d.created_by_type,
+      d.created_by_id,
+      d.revoked_at AS delegation_revoked_at,
+      d.expires_at AS delegation_expires_at,
+      d.max_uses AS delegation_max_uses,
+      d.consumed_at AS delegation_consumed_at,
       ds.target_type AS delegation_target_type,
       ds.target_id AS delegation_target_id,
       ds.target_model_key AS delegation_target_model_key,
       ds.max_access AS delegation_max_access
     FROM chain c
-    JOIN delegation_scopes ds ON ds.delegation_id=c.delegation_id
-    ORDER BY c.root_leaf_id,c.chain_depth
+    JOIN delegations d ON d.id=c.delegation_id
+    JOIN delegation_scopes ds ON ds.delegation_id=d.id
+    ORDER BY d.id
   `).bind(...delegationIds);
 }
 
@@ -129,8 +133,11 @@ export function validateStructuralDelegationChain(
   if (!rows.length) {
     throw new ApiError("DELEGATION_INVALID", "Delegation chain was not found", 403);
   }
+  if (rows.length > 4) {
+    throw new ApiError("DELEGATION_INVALID", "Delegation chain exceeds the supported depth", 403);
+  }
 
-  const orderedLeafToRoot = [...rows].sort((left, right) => left.chain_depth - right.chain_depth);
+  const orderedLeafToRoot = [...rows];
   const leaf = orderedLeafToRoot[0]!;
   const actor = executionActor(principal);
   if (
@@ -191,12 +198,28 @@ export function validateStructuralDelegationChain(
 
 export function groupDelegationChainRows(
   rows: readonly DelegationChainRow[],
+  leafDelegationIds: readonly string[],
 ): Map<string, DelegationChainRow[]> {
+  const byId = new Map(rows.map((row) => [row.delegation_id, row]));
   const result = new Map<string, DelegationChainRow[]>();
-  for (const row of rows) {
-    const existing = result.get(row.root_leaf_id) ?? [];
-    existing.push(row);
-    result.set(row.root_leaf_id, existing);
+
+  for (const leafDelegationId of leafDelegationIds) {
+    const chain: DelegationChainRow[] = [];
+    const seen = new Set<string>();
+    let currentId: string | null = leafDelegationId;
+
+    while (currentId) {
+      const row = byId.get(currentId);
+      if (!row) break;
+      chain.push(row);
+      if (seen.has(currentId)) break;
+      seen.add(currentId);
+      if (chain.length > 4) break;
+      currentId = row.parent_delegation_id;
+    }
+
+    result.set(leafDelegationId, chain);
   }
+
   return result;
 }
