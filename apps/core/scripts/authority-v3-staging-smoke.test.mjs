@@ -17,6 +17,9 @@ test("Authority v3 staging verifier remains syntax-valid, staging-only and bound
   assert.match(source, /auth-staging\.aisr\.online/u);
   assert.doesNotMatch(source, /core\.aisr\.online/u);
   assert.doesNotMatch(source, /auth\.aisr\.online/u);
+  assert.match(source, /scopes:\s*\["resources:read", "resources:write"\]/u, "Agent smoke credential must stay resource-scoped");
+  assert.match(source, /profileProbe\.response\.status !== 403/u, "Agent smoke must verify profile access is denied without profile:read");
+  assert.match(source, /Direct Agent profile scope boundary was not enforced/u, "least-privilege profile denial must be a release assertion");
   assert.match(source, /granteeType:\s*"agent"/u, "staging must exercise Agent-owned Data Grant authority");
   assert.match(source, /principalType:\s*"user"/u, "staging must exercise represented User Principal execution");
   assert.match(source, /remainingRedelegationDepth:\s*1/u, "Root Delegation must explicitly permit one child hop");
