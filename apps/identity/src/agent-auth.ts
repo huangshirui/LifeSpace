@@ -7,7 +7,6 @@ type App = Hono<AppEnv>;
 
 type AgentBody = { displayName?: unknown };
 type AgentTokenBody = {
-  subjectId?: unknown;
   principalType?: unknown;
   principalId?: unknown;
   agentId?: unknown;
@@ -86,14 +85,14 @@ export function registerAgentAuthenticationRoutes(app: App): void {
     return c.json(ok({ id: agentId, displayName, status: "active", createdAt: timestamp, updatedAt: timestamp }), 201);
   });
 
-  app.post("/internal/v1/agent-tokens", async (c) => {
+  app.post("/internal/v1/agent-execution-tokens", async (c) => {
     const body = (await c.req.json<AgentTokenBody>().catch(() => ({}))) as AgentTokenBody;
     const unknownKey = Object.keys(body as Record<string, unknown>)
-      .find((key) => !["subjectId", "principalType", "principalId", "agentId", "scopes"].includes(key));
+      .find((key) => !["principalType", "principalId", "agentId", "scopes"].includes(key));
     if (unknownKey) {
       return c.json(fail("INVALID_REQUEST", `Unsupported field ${unknownKey}`, c.get("requestId")), 400);
     }
-    if (typeof body.agentId !== "string" || !body.agentId.startsWith("agt_")) {
+    if (typeof body.agentId !== "string" || !/^agt_[A-Za-z0-9_-]+$/u.test(body.agentId)) {
       return c.json(fail("VALIDATION_ERROR", "agentId must be a LifeSpace Agent ID", c.get("requestId")), 422);
     }
     const requested = scopes(body.scopes);
@@ -101,25 +100,20 @@ export function registerAgentAuthenticationRoutes(app: App): void {
       return c.json(fail("VALIDATION_ERROR", "scopes must be a unique string array", c.get("requestId")), 422);
     }
 
-    const legacyDelegatedUser = body.subjectId !== undefined;
-    if (legacyDelegatedUser && (body.principalType !== undefined || body.principalId !== undefined)) {
+    const principalTypeProvided = body.principalType !== undefined;
+    const principalIdProvided = body.principalId !== undefined;
+    if (principalTypeProvided !== principalIdProvided) {
       return c.json(fail(
         "INVALID_REQUEST",
-        "subjectId cannot be combined with principalType/principalId",
+        "principalType and principalId must be provided together",
         c.get("requestId"),
       ), 400);
     }
 
     let principalType: "user" | "agent";
     let principalId: string;
-    if (legacyDelegatedUser) {
-      if (typeof body.subjectId !== "string" || !body.subjectId.startsWith("usr_")) {
-        return c.json(fail("VALIDATION_ERROR", "subjectId must be a LifeSpace user ID", c.get("requestId")), 422);
-      }
-      principalType = "user";
-      principalId = body.subjectId;
-    } else if (body.principalType === undefined && body.principalId === undefined) {
-      // Direct Agent execution is the default generalized profile.
+    if (!principalTypeProvided) {
+      // Direct Agent execution is the default profile.
       principalType = "agent";
       principalId = body.agentId;
     } else {
@@ -135,10 +129,10 @@ export function registerAgentAuthenticationRoutes(app: App): void {
       }
       principalType = body.principalType;
       principalId = body.principalId.trim();
-      if (principalType === "user" && !principalId.startsWith("usr_")) {
+      if (principalType === "user" && !/^usr_[A-Za-z0-9_-]+$/u.test(principalId)) {
         return c.json(fail("VALIDATION_ERROR", "user Principal must use a usr_* ID", c.get("requestId")), 422);
       }
-      if (principalType === "agent" && !principalId.startsWith("agt_")) {
+      if (principalType === "agent" && !/^agt_[A-Za-z0-9_-]+$/u.test(principalId)) {
         return c.json(fail("VALIDATION_ERROR", "agent Principal must use an agt_* ID", c.get("requestId")), 422);
       }
     }
@@ -180,38 +174,21 @@ export function registerAgentAuthenticationRoutes(app: App): void {
     const iat = Math.floor(Date.now() / 1000);
     const exp = iat + tokenTtlSeconds;
     const jti = id("tok");
-
-    const legacyPayload = legacyDelegatedUser;
-    const payload = legacyPayload
-      ? {
-          iss: TOKEN_ISSUER,
-          aud: TOKEN_AUDIENCE,
-          sub: principalId,
-          azp: applicationId,
-          principal_type: "user",
-          actor_type: "agent",
-          actor_id: body.agentId,
-          purpose: "delegated_agent",
-          scope: requested.join(" "),
-          iat,
-          exp,
-          jti,
-        }
-      : {
-          iss: TOKEN_ISSUER,
-          aud: TOKEN_AUDIENCE,
-          sub: body.agentId,
-          azp: applicationId,
-          principal_type: principalType,
-          principal_id: principalId,
-          actor_type: "agent",
-          actor_id: body.agentId,
-          purpose: "agent_execution",
-          scope: requested.join(" "),
-          iat,
-          exp,
-          jti,
-        };
+    const payload = {
+      iss: TOKEN_ISSUER,
+      aud: TOKEN_AUDIENCE,
+      sub: body.agentId,
+      azp: applicationId,
+      principal_type: principalType,
+      principal_id: principalId,
+      actor_type: "agent",
+      actor_id: body.agentId,
+      purpose: "agent_execution",
+      scope: requested.join(" "),
+      iat,
+      exp,
+      jti,
+    };
 
     const token = await sign(payload, c.env.TOKEN_PRIVATE_KEY, "RS256");
 
@@ -224,7 +201,7 @@ export function registerAgentAuthenticationRoutes(app: App): void {
       principalType,
       actor: { type: "agent", id: body.agentId },
       applicationId,
-      purpose: legacyPayload ? "delegated_agent" : "agent_execution",
+      purpose: "agent_execution",
     }));
   });
 }
