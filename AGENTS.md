@@ -17,8 +17,9 @@ Read in this order:
 9. `docs/model-platform-architecture.md` for business-model/runtime architecture;
 10. `docs/runtime-storage-performance.md` for ordinary-model storage, Registry runtime lookup, query hydration, authorization I/O or performance-sensitive paths;
 11. `docs/generic-consumer-contract.md` when changing discovery, semantic projection, reference resolution or consumer-facing genericity;
-12. `apps/AGENTS.md` and the nearest nested `AGENTS.md` for every directory changed;
-13. relevant OpenAPI contracts, tests, migrations, implementation, Model Definitions and generated artifacts.
+12. `docs/production/README.md` and `docs/production/capability-guide.md` when the task changes, verifies or releases production behavior;
+13. `apps/AGENTS.md` and the nearest nested `AGENTS.md` for every directory changed;
+14. relevant OpenAPI contracts, tests, migrations, implementation, Model Definitions and generated artifacts.
 
 If a required source does not yet exist during initial scaffold, create/update it before implementing behavior that depends on it.
 
@@ -35,6 +36,7 @@ If a required source does not yet exist during initial scaffold, create/update i
 - Metadata business-model architecture: `docs/model-platform-architecture.md`
 - Runtime performance/typed persistence: `docs/runtime-storage-performance.md`
 - Generic consumer projection/authority boundary: `docs/generic-consumer-contract.md`
+- Human-readable current production capability truth: `docs/production/`
 - Core business-facing Kernel API: `apps/core/openapi.yaml`
 - Core Integration/Eventing API: `apps/core/integration-eventing.openapi.yaml`
 - Core Model Registry / Model Contract governance API: `apps/core/model-control-plane.openapi.yaml`
@@ -46,7 +48,20 @@ If a required source does not yet exist during initial scaffold, create/update i
 - Verified behavior: automated tests
 - Implementation details: source code
 
-The North Star is directional rather than a claim of already-implemented behavior. Current architecture/contracts/tests remain authoritative for what exists now. Do not silently reconcile disagreements between these sources. Preserve deployed behavior unless the task explicitly changes the contract/boundary.
+The North Star is directional rather than a claim of already-implemented behavior. Current architecture/contracts/tests remain authoritative for what exists now. `docs/production/` is the human-readable projection of what has actually completed production deployment. Do not silently reconcile disagreements between these sources. Preserve deployed behavior unless the task explicitly changes the contract/boundary.
+
+## Production documentation and release closeout
+
+`docs/production/` exists to answer one question for people: **what does the current production deployment actually provide?** It must describe deployed production, not main, staging, an open PR, a target architecture or a planned feature.
+
+- `docs/production/capability-guide.md` is the primary Production Capability Guide.
+- `docs/production/feature-matrix.md` is the quick-search production feature inventory.
+- `docs/production/changelog.md` records only successfully deployed production changes.
+- A capability may be marked `✅ Production` only after the exact candidate SHA has completed `Deploy LifeSpace platform production` successfully. Merge, main, PR completion and staging success are insufficient.
+- Development or planned capabilities may appear only when explicitly marked `🚧 In development` or `🧭 Planned`. If historical evidence cannot bind a claim to a production release, use `❓ Needs verification`; never guess.
+- After every successful production deployment, update the release SHA/date, capability additions/removals/behavior changes, Feature Matrix statuses, known limitations and Changelog. A release with no capability-level change must still update release metadata and explicitly record that there was no capability-level change.
+- A production deployment whose `docs/production/` snapshot has not been synchronized is not fully closed out from an engineering-process perspective.
+- When production behavior and the guide disagree, machine-verifiable deployed evidence wins; fix the production docs immediately and record material drift as an Issue when it represents more than a trivial documentation edit.
 
 ## Long-term architecture lens
 
@@ -268,5 +283,7 @@ GitHub Issues are the durable engineering backlog for discovered repository prob
 ## Change completion
 
 Before declaring a platform change complete, inspect all coupled surfaces: North Star assumptions/axioms, Identity, Access/application auth, Principal/Actor attribution, platform-admin actor/executor state, Space/Grant rules, Application × Model Access, Registry, runtime descriptor cache, physical schema, Generic Runtime, Capabilities, all applicable contract layers, migrations, tests, SDK/client generation, docs, infrastructure and downstream compatibility.
+
+For a successful production deployment, `docs/production/` synchronization is part of change completion: bind the exact deployed SHA and update Capability Guide, Feature Matrix and Changelog before treating the release as fully closed out.
 
 For platform-level work, explicitly state whether the durable abstraction belongs to Shared World, Shared Knowledge, Authority or Change; whether supporting work is Semantics/Context Projection/Adapter/Experience; and which North Star axiom it serves. Fix drift in the same change or record an explicit approved follow-up while keeping unsupported behavior unavailable.
