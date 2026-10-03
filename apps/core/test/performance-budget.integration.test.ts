@@ -557,7 +557,8 @@ describe("Core D1 round-trip budgets", () => {
       2,
     );
     expect((await singleUseBatch.json<{ data: { items: unknown[] } }>()).data.items).toHaveLength(20);
-    expect(f.counter.batchSizes[0]).toBe(21);
+    // One base-Authority statement + one set-wise recursive Delegation-chain statement.
+    expect(f.counter.batchSizes[0]).toBe(2);
     const consumed = await f.DB.prepare(`SELECT COUNT(*) count FROM delegations
       WHERE id IN (${singleUseIds.map(() => "?").join(",")}) AND consumed_at IS NOT NULL`)
       .bind(...singleUseIds)
@@ -566,4 +567,3 @@ describe("Core D1 round-trip budgets", () => {
 
   }, PERFORMANCE_TEST_TIMEOUT_MS);
 });
-
