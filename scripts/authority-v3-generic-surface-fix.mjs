@@ -25,6 +25,61 @@ for (const file of [
   );
 }
 
+// Required User -> Agent token helpers: sub authenticates the Agent Actor and
+// principal_id preserves the independent Root User Principal.
+for (const file of [
+  "apps/core/test/agent-ready.integration.test.ts",
+  "apps/core/test/agent-task-workflow.integration.test.ts",
+]) {
+  replaceIn(file, (text) => text.replace(
+    /sub: userId,\n(\s+)azp: ([^\n]+),\n\1principal_type: "user",\n\1actor_type: "agent",\n\1actor_id: agentId,\n\1purpose: "delegated_agent",/u,
+    (_match, indent, azp) => `sub: agentId,\n${indent}azp: ${azp},\n${indent}principal_type: "user",\n${indent}principal_id: userId,\n${indent}actor_type: "agent",\n${indent}actor_id: agentId,\n${indent}purpose: "agent_execution",`,
+  ));
+}
+
+// Optional represented-token helpers retain the direct User branch.
+for (const file of [
+  "apps/core/test/authority-v2.integration.test.ts",
+  "apps/core/test/performance-budget.integration.test.ts",
+]) {
+  replaceIn(file, (text) => text
+    .replace("    sub: userId,", "    sub: agentId ?? userId,")
+    .replace(
+      '    ...(agentId ? {\n      actor_type: "agent",\n      actor_id: agentId,\n      purpose: "delegated_agent",\n    } : {}),',
+      '    ...(agentId ? {\n      principal_id: userId,\n      actor_type: "agent",\n      actor_id: agentId,\n      purpose: "agent_execution",\n    } : {}),',
+    )
+  );
+}
+replaceIn("apps/core/test/batch-runtime.integration.test.ts", (text) => text
+  .replace("sub: userId, azp:", "sub: agentId ?? userId, azp:")
+  .replace(
+    '...(agentId ? { actor_type: "agent", actor_id: agentId, purpose: "delegated_agent" } : {}),',
+    '...(agentId ? { principal_id: userId, actor_type: "agent", actor_id: agentId, purpose: "agent_execution" } : {}),',
+  )
+);
+
+// Discovery helpers can serve direct callers and represented User callers.
+for (const file of [
+  "apps/core/test/runtime-discovery-inventory.integration.test.ts",
+  "apps/core/test/runtime-model-semantic-detail.integration.test.ts",
+]) {
+  replaceIn(file, (text) => text
+    .replace("    sub: principalId,", "    sub: actor?.id ?? principalId,")
+    .replace(
+      '    ...(actor ? { actor_type: "agent", actor_id: actor.id, purpose: "delegated_agent" } : {}),',
+      '    ...(actor ? { principal_id: principalId, actor_type: "agent", actor_id: actor.id, purpose: "agent_execution" } : {}),',
+    )
+  );
+}
+
+// In-memory Principal fixtures do not encode JWT shape; only the marker changes.
+for (const file of [
+  "apps/core/test/authority-v2-performance.integration.test.ts",
+  "apps/core/test/authority-v3-performance.integration.test.ts",
+]) {
+  replaceIn(file, (text) => text.replaceAll('purpose: "delegated_agent"', 'purpose: "agent_execution"'));
+}
+
 // Contract checker terminology/schema names follow the generic public surface.
 replaceIn("apps/core/scripts/check-openapi.mjs", (text) => text
   .replaceAll("AgentDelegation", "Delegation")
@@ -36,13 +91,11 @@ replaceIn("apps/core/scripts/check-authority-contract.mjs", (text) => text
   .replaceAll("AgentDelegation", "Delegation")
 );
 
-// Identity checker should require only the unified endpoint/profile.
 replaceIn("apps/identity/scripts/check-openapi.mjs", (text) => text
   .replaceAll("/internal/v1/agent-tokens", "/internal/v1/agent-execution-tokens")
   .replaceAll("delegated_agent", "agent_execution")
 );
 
-// Current runtime/docs naming, excluding immutable historical migrations/decisions.
 for (const file of [
   "docs/agent-ready.md",
   "docs/permissions.md",
@@ -55,10 +108,10 @@ for (const file of [
     .replaceAll("Agent Delegation management", "Delegation management")
     .replaceAll("Agent Delegations", "Delegations")
     .replaceAll("Agent Delegation", "Delegation")
+    .replaceAll("delegated_agent", "agent_execution")
   );
 }
 
-// Print remaining current-surface legacy references for CI logs. Historical decision/migration evidence is intentionally excluded.
 const grep = (pattern, areas) => {
   try {
     return execFileSync("git", ["grep", "-nE", pattern, "--", ...areas], { encoding: "utf8" }).trim();
