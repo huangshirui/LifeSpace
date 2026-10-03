@@ -24,6 +24,7 @@ export type DelegationChainRow = {
   delegation_target_id: string;
   delegation_target_model_key: string | null;
   delegation_max_access: Permission;
+  selected_leaf: number;
 };
 
 const permissionRank: Record<Permission, number> = {
@@ -77,12 +78,13 @@ export function delegationChainStatement(
       ds.target_type AS delegation_target_type,
       ds.target_id AS delegation_target_id,
       ds.target_model_key AS delegation_target_model_key,
-      ds.max_access AS delegation_max_access
+      ds.max_access AS delegation_max_access,
+      CASE WHEN d.id IN (${placeholders}) THEN 1 ELSE 0 END AS selected_leaf
     FROM chain c
     JOIN delegations d ON d.id=c.delegation_id
     JOIN delegation_scopes ds ON ds.delegation_id=d.id
     ORDER BY d.id
-  `).bind(...delegationIds);
+  `).bind(...delegationIds, ...delegationIds);
 }
 
 export function delegationCurrent(row: DelegationChainRow | null): boolean {
@@ -124,20 +126,42 @@ export function delegationExpiryNarrows(
   return Date.parse(childExpiresAt) <= Date.parse(parentExpiresAt);
 }
 
+function chainFromRows(
+  rows: readonly DelegationChainRow[],
+  leafDelegationId: string,
+): DelegationChainRow[] {
+  const byId = new Map(rows.map((row) => [row.delegation_id, row]));
+  const chain: DelegationChainRow[] = [];
+  const seen = new Set<string>();
+  let currentId: string | null = leafDelegationId;
+
+  while (currentId) {
+    const row = byId.get(currentId);
+    if (!row) break;
+    chain.push(row);
+    if (seen.has(currentId)) break;
+    seen.add(currentId);
+    if (chain.length > 4) break;
+    currentId = row.parent_delegation_id;
+  }
+
+  return chain;
+}
+
 export function validateStructuralDelegationChain(
   principal: Principal,
   spaceId: string,
   leafDelegationId: string,
   rows: readonly DelegationChainRow[],
 ): DelegationChainRow[] {
-  if (!rows.length) {
+  const orderedLeafToRoot = chainFromRows(rows, leafDelegationId);
+  if (!orderedLeafToRoot.length) {
     throw new ApiError("DELEGATION_INVALID", "Delegation chain was not found", 403);
   }
-  if (rows.length > 4) {
+  if (orderedLeafToRoot.length > 4) {
     throw new ApiError("DELEGATION_INVALID", "Delegation chain exceeds the supported depth", 403);
   }
 
-  const orderedLeafToRoot = [...rows];
   const leaf = orderedLeafToRoot[0]!;
   const actor = executionActor(principal);
   if (
@@ -198,28 +222,12 @@ export function validateStructuralDelegationChain(
 
 export function groupDelegationChainRows(
   rows: readonly DelegationChainRow[],
-  leafDelegationIds: readonly string[],
 ): Map<string, DelegationChainRow[]> {
-  const byId = new Map(rows.map((row) => [row.delegation_id, row]));
   const result = new Map<string, DelegationChainRow[]>();
-
-  for (const leafDelegationId of leafDelegationIds) {
-    const chain: DelegationChainRow[] = [];
-    const seen = new Set<string>();
-    let currentId: string | null = leafDelegationId;
-
-    while (currentId) {
-      const row = byId.get(currentId);
-      if (!row) break;
-      chain.push(row);
-      if (seen.has(currentId)) break;
-      seen.add(currentId);
-      if (chain.length > 4) break;
-      currentId = row.parent_delegation_id;
+  for (const row of rows) {
+    if (row.selected_leaf === 1) {
+      result.set(row.delegation_id, chainFromRows(rows, row.delegation_id));
     }
-
-    result.set(leafDelegationId, chain);
   }
-
   return result;
 }
