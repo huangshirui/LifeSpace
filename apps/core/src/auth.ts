@@ -37,43 +37,30 @@ export async function verifyAccessToken(rawToken: string, publicKey: string): Pr
     const hasAgentExecutionClaims = payload.actor_type !== undefined
       || payload.actor_id !== undefined
       || payload.principal_id !== undefined
-      || payload.purpose === "delegated_agent"
       || payload.purpose === "agent_execution";
     if (hasAgentExecutionClaims) {
       if (
-        payload.actor_type !== "agent"
-        || typeof payload.actor_id !== "string"
-        || !/^agt_[A-Za-z0-9]+$/.test(payload.actor_id)
-      ) throw unauthorized();
-
-      // Backwards-compatible Authority v2 credential profile.
-      if (payload.purpose === "delegated_agent") {
-        if (payload.principal_type !== "user" || !/^usr_[A-Za-z0-9_-]+$/.test(payload.sub)) throw unauthorized();
-        return {
-          type: "user",
-          id: payload.sub,
-          clientId: payload.azp,
-          scopes,
-          tokenId: payload.jti,
-          actor: { type: "agent", id: payload.actor_id },
-          purpose: "delegated_agent",
-        };
-      }
-
-      // Generalized Agent Execution Token: sub authenticates the actual Agent
-      // Actor while Principal is an independent signed operation-role claim.
-      if (
         payload.purpose !== "agent_execution"
+        || payload.actor_type !== "agent"
+        || typeof payload.actor_id !== "string"
+        || !/^agt_[A-Za-z0-9_-]+$/u.test(payload.actor_id)
         || payload.sub !== payload.actor_id
         || typeof payload.principal_id !== "string"
         || !payload.principal_id
       ) throw unauthorized();
 
+      // Agent execution currently has two complete Identity/Authority profiles:
+      // direct Agent authority and User authority represented by an Agent. Service
+      // and Device remain ordinary Principal types but are not accepted here until
+      // their Agent-delegation issuance/identity lifecycle is deliberately enabled.
       const principalId = payload.principal_id;
-      if (payload.principal_type === "user" && !/^usr_[A-Za-z0-9_-]+$/.test(principalId)) throw unauthorized();
-      if (payload.principal_type === "agent" && !/^agt_[A-Za-z0-9_-]+$/.test(principalId)) throw unauthorized();
-      if (payload.principal_type === "service" && !/^svc_[A-Za-z0-9_-]+$/.test(principalId)) throw unauthorized();
-      if (payload.principal_type === "device" && !/^dev_[A-Za-z0-9_-]+$/.test(principalId)) throw unauthorized();
+      if (payload.principal_type === "user") {
+        if (!/^usr_[A-Za-z0-9_-]+$/u.test(principalId)) throw unauthorized();
+      } else if (payload.principal_type === "agent") {
+        if (!/^agt_[A-Za-z0-9_-]+$/u.test(principalId)) throw unauthorized();
+      } else {
+        throw unauthorized();
+      }
 
       const directAgent = payload.principal_type === "agent" && principalId === payload.actor_id;
       return {
