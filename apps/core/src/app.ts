@@ -31,6 +31,18 @@ async function schemaVersion(env: Bindings) {
   return row.value;
 }
 
+function knownDatabaseApiError(error: unknown): ApiError | null {
+  const message = error instanceof Error ? error.message : String(error);
+  if (message.includes("DELEGATION_SINGLE_USE_UNAVAILABLE")) {
+    return new ApiError(
+      "DELEGATION_INVALID",
+      "A single-use Delegation was consumed, revoked or expired before commit",
+      403,
+    );
+  }
+  return null;
+}
+
 export function createApp() {
   const app = new Hono<AppEnv>();
   app.use("*", async (context, next) => {
@@ -88,6 +100,10 @@ export function createApp() {
   app.onError((error, context) => {
     const requestId = context.get("requestId");
     if (error instanceof ApiError) return context.json(failure(error.code, error.message, requestId), error.status);
+    const databaseError = knownDatabaseApiError(error);
+    if (databaseError) {
+      return context.json(failure(databaseError.code, databaseError.message, requestId), databaseError.status);
+    }
     console.error(JSON.stringify({ message: "Unhandled Core API error", requestId, error: error instanceof Error ? error.message : String(error) }));
     return context.json(failure("INTERNAL_ERROR", "Internal server error", requestId), 500);
   });
