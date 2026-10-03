@@ -6,6 +6,8 @@ on:
       - feature/authority-role-capability-redelegation
     paths:
       - .github/workflows/authority-v3-generic-surface-cleanup.yml
+      - scripts/authority-v3-generic-surface-cleanup.mjs
+      - scripts/authority-v3-generic-surface-fix.mjs
 
 permissions:
   contents: write
