@@ -1,0 +1,73 @@
+name: Provenance cleanup
+
+on:
+  push:
+    branches:
+      - chore/retire-provenance-platform-capability
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Remove provenance platform remnants
+        shell: python
+        run: |
+          from pathlib import Path
+
+          Path('docs/information-provenance.md').write_text('''# Information Provenance\n\nStatus: **Concept only — no current platform capability**\n\n## 中文摘要\n\nLifeSpace 当前不提供平台级 Information Provenance 能力。Provenance 保留为概念，等待未来出现可验证、稳定且具有平台价值的真实需求后再重新设计。\n\n当前明确边界：\n\n- 不提供通用 Resource Provenance envelope；\n- 不提供独立 Provenance 存储；\n- 不提供 `semanticRole: provenance_source`；\n- 不提供 External Reference / Provenance graph / lineage 平台语义；\n- Core 不接受或自动生成通用 `provenance` 字段；\n- 业务 Model 如自身存在“来源报告 / 来源记录 / 上游对象”等业务关系，继续使用普通业务字段 / Relation 表达，LifeSpace 不把它解释为平台级 Provenance；\n- 调用方声明“来源于 X”本身不等于可验证证据，因此现阶段不为这种声明建设通用平台机制。\n\n## Current durable evidence\n\n当前可靠且已实现的是 **Change / Operation Attribution**。\n\n每个已提交 Change 可记录：\n\n```text\nApplication\nPrincipal\nActor\nDelegation?\nChangeSet?\noperation\nversion before / after\nchanged fields\noccurredAt\n```\n\n因此 LifeSpace 可以可靠回答一条 Record：\n\n- 从哪个 Application 进入 / 被修改；\n- 当时的 Principal / Actor 是谁；\n- 何时创建、何时修改；\n- 发生了什么 mutation。\n\n这部分由 LifeSpace 自己验证和提交，不依赖调用方额外声称 Provenance。\n\n## Historical note\n\n早期曾实现过通用 Resource Provenance V0.1，包括 `resource_provenance` 存储以及 `source / sourceRef / derivedFrom` 等平台 metadata。该设计已经退役。\n\n历史 migration 保留为不可变迁移历史；当前 Runtime / Contract / Model Definition 不保留该能力。Schema 47 已删除旧 `resource_provenance` 表。\n\n## Revisit trigger\n\n只有当出现可验证的真实场景时再重新讨论平台级 Provenance，例如：\n\n- LifeSpace 自身执行确定性派生并能证明输入/输出；\n- 可信 Connector / Federated Truth 提供稳定且可验证的 source identity；\n- 需要平台级、可验证的转换链或 lineage，而不仅是调用方提交一个来源字符串。\n\n重新设计时不得默认继承旧 V0.1 envelope、存储结构或 `semanticRole` 候选方案。\n''', encoding='utf-8')
+
+          p = Path('docs/agent-ready.md')
+          s = p.read_text(encoding='utf-8')
+          old = '''## 8. Operation Attribution vs Information Provenance\n\nThese are independent concerns.\n\n- **Operation Attribution** — Application / Principal / Actor / Delegation / ChangeSet describe who executed a Change and under whose Authority.\n- **Information Provenance** — business-model relations describe what source/business fact a record derives from.\n\nAuthority/Delegation/Change must not pre-seed external-source or federation fields.\n'''
+          new = '''## 8. Operation Attribution and Provenance boundary\n\n**Operation Attribution is a current platform capability.** Application / Principal / Actor / Delegation / ChangeSet and `occurredAt` describe who executed a committed Change, under whose Authority, through which Application and when.\n\nInformation Provenance is currently **concept only**. LifeSpace does not provide a generic provenance envelope, provenance storage, semantic role, external-source reference type or lineage graph. A business Model may still define ordinary source/report/upstream relations when those are genuine business semantics, but Core does not interpret them as platform Provenance.\n\nAuthority/Delegation/Change must not pre-seed external-source, provenance or federation fields.\n'''
+          if old not in s:
+              raise SystemExit('agent-ready provenance section not found')
+          p.write_text(s.replace(old, new), encoding='utf-8')
+
+          p = Path('docs/north-star.md')
+          s = p.read_text(encoding='utf-8')
+          s = s.replace('`Shared Reality` is what persists. `Authority` governs who may know, decide or act. `Change` governs how durable reality may be altered. `Semantics` makes these concepts structured and computable. `Context` is a runtime projection. `History` and provenance are cross-cutting evidence about durable reality and change.', '`Shared Reality` is what persists. `Authority` governs who may know, decide or act. `Change` governs how durable reality may be altered. `Semantics` makes these concepts structured and computable. `Context` is a runtime projection. `History` and operation attribution are durable evidence about change; information provenance remains a possible future cross-cutting concept rather than a required Kernel capability.')
+          s = s.replace('Shared World does not mean infallible objective truth. A record may later be corrected. Where material, provenance and history explain how a state was asserted, derived and changed.', 'Shared World does not mean infallible objective truth. A record may later be corrected. Current Change history explains how durable state was created and altered; richer information provenance may be added only when concrete, verifiable use cases justify a platform abstraction.')
+          old = '''## Attribution, provenance and history are cross-cutting\n\nA shared digital reality must be able to explain important state and changes when attribution or provenance matters.\n\nKeep two related but distinct groups clear.\n\n### Operation attribution\n\n```text\nprincipal           = whose authority was exercised\nactor               = who/what executed or initiated the operation\napplicationContext  = through which application context it occurred\n```\n\n### Information provenance\n\n```text\nsource       = where the information originated\nsourceRef    = reference to original material/system\nderivedFrom  = inputs used to derive information\n```\n\nA domain record may be created through a Web form, Mini Program, Agent acting for a user, service integration, external authoritative system or AI extraction. These are different entry paths into the same Shared World/Knowledge semantics, not different domain worlds.\n\nInformation quality should not be determined merely by "human vs AI". A user assertion relayed through an Agent may be direct user evidence, while an AI conclusion from video may be an inference. Source and derivation matter.\n\nHistory, events, audit, attribution and provenance should support meaningful questions such as: what changed, who caused it, under whose authority, through which application context and, where important, why do we believe it?\n'''
+          new = '''## Attribution, history and future provenance\n\nA shared digital reality must be able to explain important committed changes. Current platform evidence is centered on Change / Operation Attribution:\n\n```text\nprincipal           = whose authority was exercised\nactor               = who/what executed or initiated the operation\napplicationContext  = through which application context it occurred\noccurredAt           = when the committed Change occurred\n```\n\nA domain record may be created through a Web form, Mini Program, Agent acting for a user, service integration or another adapter. These are different entry paths into the same Shared World/Knowledge semantics, not different domain worlds.\n\nInformation provenance — why a fact should be believed or what upstream material it derives from — may eventually become useful as a cross-cutting concept. It is **not currently a required LifeSpace Kernel capability**. Do not introduce a generic provenance envelope, source metadata plane or lineage abstraction until concrete, verifiable scenarios justify it.\n'''
+          if old not in s:
+              raise SystemExit('north-star provenance section not found')
+          p.write_text(s.replace(old, new), encoding='utf-8')
+
+          p = Path('infra/scripts/verify-staging-agent-ready.mjs')
+          s = p.read_text(encoding='utf-8')
+          s = s.replace('Intent/Action -> Execution Context -> Effective Authority -> Semantic Validation -> Commit Change -> Attribution/Provenance/Event evidence', 'Intent/Action -> Execution Context -> Effective Authority -> Semantic Validation -> Commit Change -> Attribution/Event evidence')
+          p.write_text(s, encoding='utf-8')
+
+          test = Path('apps/core/test/resource-provenance-model-contract.test.ts')
+          if test.exists():
+              test.unlink()
+
+          Path('.github/workflows/provenance-cleanup.yml').unlink()
+      - name: Verify no current provenance platform surface remains
+        run: |
+          ! grep -R "semanticRole = provenance_source\|semanticRole: provenance_source" docs apps/core/src apps/core/test infra --exclude-dir=node_modules
+          ! test -e apps/core/test/resource-provenance-model-contract.test.ts
+      - run: pnpm check
+      - name: Commit cleanup
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet && exit 0
+          git commit -m "chore: keep provenance conceptual and retain Change attribution"
+          git push
