@@ -1,0 +1,52 @@
+name: Apply issue 298 implementation
+
+on:
+  push:
+    branches:
+      - feature/atomic-multi-delegation-issuance
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: ${{ !contains(github.event.head_commit.message, '[issue-298-applied]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.13.1
+          run_install: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Apply #298 implementation
+        run: python3 infra/scripts/apply_issue_298.py
+      - name: Verify Core
+        run: pnpm --filter @lifespace/core check
+      - name: Verify repository
+        run: pnpm check
+      - name: Commit implementation
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add apps/core/src/delegation-routes.ts \
+            apps/core/openapi.yaml \
+            apps/core/scripts/check-openapi.mjs \
+            apps/core/scripts/check-authority-contract.mjs \
+            apps/core/package.json \
+            apps/core/AGENTS.md \
+            docs/contract-stability-baseline.json \
+            docs/authority-role-capability-redelegation.md \
+            docs/agent-ready.md \
+            docs/contracts.md \
+            README.md
+          git diff --cached --check
+          git commit -m "feat(authority): atomic multi-delegation issuance (#298) [issue-298-applied]"
+          git push
