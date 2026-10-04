@@ -1,4 +1,4 @@
-name: Apply issue 298 implementation
+name: Finalize issue 298 candidate
 
 on:
   push:
@@ -9,8 +9,7 @@ permissions:
   contents: write
 
 jobs:
-  apply:
-    if: ${{ !contains(github.event.head_commit.message, '[issue-298-applied]') }}
+  finalize:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -26,30 +25,34 @@ jobs:
           cache: pnpm
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
-      - name: Apply #298 implementation
+      - name: Align current contract strategy text
         run: |
-          sed -i 's/One user confirmation may authorize several independent Delegations\./One user confirmation may issue multiple independent Delegations\./' infra/scripts/apply_issue_298.py
-          sed -i 's/# LifeSpace Contracts\\n/# LifeSpace Contract Strategy\\n/' infra/scripts/apply_issue_298.py
-          python3 infra/scripts/apply_issue_298.py
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          path = Path('docs/contracts.md')
+          text = path.read_text(encoding='utf-8')
+          replacement = '''1. **Kernel Contract** — explicit application/runtime APIs such as Space, Membership, Data Grant, Runtime Discovery, Registry-driven Creation Draft orchestration and governed Change History. The checked-in contract is `apps/core/openapi.yaml`; Kernel `0.43.0` includes the generalized Authority v3 Root/Child Delegation model and adds bounded atomic `1..20` multi-Delegation issuance for one confirmed business intent. Every resulting `dlg_*` remains an independent immutable single-scope Delegation; all requested current Principal Authority and parent-chain narrowing checks complete before one all-or-none D1 commit, and Child issuance does not consume a single-use parent. First-class Generic Runtime resource Batch remains ordinary-model syntax projected through immutable Model Contracts rather than the Kernel. Production availability remains separately tracked under `docs/production/*`.'''
+          text, count = re.subn(
+              r'1\. \*\*Kernel Contract\*\*[^\n]*\nKernel `0\.39\.0`',
+              replacement + '\nKernel `0.39.0`',
+              text,
+              count=1,
+          )
+          if count != 1:
+              raise SystemExit(f'expected one current Kernel Contract paragraph, found {count}')
+          path.write_text(text, encoding='utf-8')
+          PY
       - name: Verify Core
         run: pnpm --filter @lifespace/core check
       - name: Verify repository
         run: pnpm check
-      - name: Commit implementation
+      - name: Remove temporary implementation tooling and commit
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add apps/core/src/delegation-routes.ts \
-            apps/core/openapi.yaml \
-            apps/core/scripts/check-openapi.mjs \
-            apps/core/scripts/check-authority-contract.mjs \
-            apps/core/package.json \
-            apps/core/AGENTS.md \
-            docs/contract-stability-baseline.json \
-            docs/authority-role-capability-redelegation.md \
-            docs/agent-ready.md \
-            docs/contracts.md \
-            README.md
+          git rm .github/workflows/apply-issue-298.yml infra/scripts/apply_issue_298.py
+          git add docs/contracts.md apps/core/test/atomic-delegation-issuance.performance.integration.test.ts
           git diff --cached --check
-          git commit -m "feat(authority): atomic multi-delegation issuance (#298) [issue-298-applied]"
+          git commit -m "chore(authority): finalize #298 candidate and remove temporary tooling"
           git push
