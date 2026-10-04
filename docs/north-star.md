@@ -30,7 +30,7 @@ SPACE
 └── Change
 ```
 
-`Shared Reality` is what persists. `Authority` governs who may know, decide or act. `Change` governs how durable reality may be altered. `Semantics` makes these concepts structured and computable. `Context` is a runtime projection. `History` and provenance are cross-cutting evidence about durable reality and change.
+`Shared Reality` is what persists. `Authority` governs who may know, decide or act. `Change` governs how durable reality may be altered. `Semantics` makes these concepts structured and computable. `Context` is a runtime projection. `History` and operation attribution are durable evidence about change; information provenance remains a possible future cross-cutting concept rather than a required Kernel capability.
 
 This refinement does not declare new speculative Kernel tables and does not invalidate the current Model Registry, Generic Runtime, typed persistence, Identity, Space/Data Grant, Capability, Eventing or service-authentication architecture.
 
@@ -155,7 +155,7 @@ It includes durable domain entities, relationships, state, occurrences, plans an
 
 A traditional UI and an Agent operate on the same World object. A football match entered through a Mini Program form and the same match created by an Agent acting for the user must become the same domain record type under the same authorization and validation rules. LifeSpace must not create separate "AI data" and "application data" worlds.
 
-Shared World does not mean infallible objective truth. A record may later be corrected. Where material, provenance and history explain how a state was asserted, derived and changed.
+Shared World does not mean infallible objective truth. A record may later be corrected. Current Change history explains how durable state was created and altered; richer information provenance may be added only when concrete, verifiable use cases justify a platform abstraction.
 
 The current metadata-driven ordinary Model system is an important semantic and execution mechanism for Shared World. The North Star does **not** require graph storage, RDF, a universal entity table or another speculative persistence model.
 
@@ -266,33 +266,20 @@ LifeSpace may provide Context Projection capabilities that select the correct au
 
 That projection is a runtime result. It does not imply that prompts, intermediate reasoning, embeddings, conversations, scratch memory or every external observation become permanent LifeSpace data.
 
-## Attribution, provenance and history are cross-cutting
+## Attribution, history and future provenance
 
-A shared digital reality must be able to explain important state and changes when attribution or provenance matters.
-
-Keep two related but distinct groups clear.
-
-### Operation attribution
+A shared digital reality must be able to explain important committed changes. Current platform evidence is centered on Change / Operation Attribution:
 
 ```text
 principal           = whose authority was exercised
 actor               = who/what executed or initiated the operation
 applicationContext  = through which application context it occurred
+occurredAt           = when the committed Change occurred
 ```
 
-### Information provenance
+A domain record may be created through a Web form, Mini Program, Agent acting for a user, service integration or another adapter. These are different entry paths into the same Shared World/Knowledge semantics, not different domain worlds.
 
-```text
-source       = where the information originated
-sourceRef    = reference to original material/system
-derivedFrom  = inputs used to derive information
-```
-
-A domain record may be created through a Web form, Mini Program, Agent acting for a user, service integration, external authoritative system or AI extraction. These are different entry paths into the same Shared World/Knowledge semantics, not different domain worlds.
-
-Information quality should not be determined merely by "human vs AI". A user assertion relayed through an Agent may be direct user evidence, while an AI conclusion from video may be an inference. Source and derivation matter.
-
-History, events, audit, attribution and provenance should support meaningful questions such as: what changed, who caused it, under whose authority, through which application context and, where important, why do we believe it?
+Information provenance — why a fact should be believed or what upstream material it derives from — may eventually become useful as a cross-cutting concept. It is **not currently a required LifeSpace Kernel capability**. Do not introduce a generic provenance envelope, source metadata plane or lineage abstraction until concrete, verifiable scenarios justify it.
 
 ## Traditional software and Agents share one platform
 

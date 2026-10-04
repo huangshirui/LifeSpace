@@ -1,58 +1,60 @@
 # Information Provenance
 
-Status: **Current architecture boundary**
+Status: **Concept only — no current platform capability**
 
 ## 中文摘要
 
-LifeSpace 不再提供通用 Resource Provenance envelope，也不再维护 `resource_provenance` 这一套独立存储/版本继承协议。
+LifeSpace 当前不提供平台级 Information Provenance 能力。Provenance 保留为概念，等待未来出现可验证、稳定且具有平台价值的真实需求后再重新设计。
 
-Provenance（信息来源）与 Operation Attribution（操作归因）是两件不同的事：
+当前明确边界：
 
-```text
-Operation Attribution
-  Application / Principal / Actor / Delegation / Change
+- 不提供通用 Resource Provenance envelope；
+- 不提供独立 Provenance 存储；
+- 不提供 `semanticRole: provenance_source`；
+- 不提供 External Reference / Provenance graph / lineage 平台语义；
+- Core 不接受或自动生成通用 `provenance` 字段；
+- 业务 Model 如自身存在“来源报告 / 来源记录 / 上游对象”等业务关系，继续使用普通业务字段 / Relation 表达，LifeSpace 不把它解释为平台级 Provenance；
+- 调用方声明“来源于 X”本身不等于可验证证据，因此现阶段不为这种声明建设通用平台机制。
 
-Information Provenance
-  某个业务事实或记录来源于什么业务对象/来源
-```
+## Current durable evidence
 
-当前规则：
+当前可靠且已实现的是 **Change / Operation Attribution**。
 
-- Provenance 不属于所有 Resource 都必须携带的平台 envelope；
-- Core 不接受通用 `provenance` create/update 字段；
-- Model Contract 不自动生成 `provenance` 字段；
-- 不保留旧 `resource_provenance` 表或旧数据兼容；
-- Provenance 应通过普通业务 Relation 表达；
-- 当前 Model Definition v1 还没有 `semanticRole` 语法；计划中的轻量 Relation semantic role（例如 `provenance_source`）由 #297 单独实现，在该 Issue 完成前不得把 `semanticRole` 描述为已发布契约；
-- 是否需要固定 source version、同步模式、外部查询方式等，属于具体业务 Model / 外部数据源模型语义，不放进 Authority / Delegation / Change；
-- Federated Truth 另行设计，不预埋到当前 Provenance 或 Authority 模型。
-
-## Boundary
-
-LifeSpace treats Information Provenance as **business modeling semantics**, not a universal resource metadata plane.
-
-A durable provenance relationship is represented by an ordinary model relation when the business model needs it. The relation participates in the same model validation, query, authority and lifecycle rules as other business relations.
-
-Conceptually, the intended follow-up (#297) is:
+每个已提交 Change 可记录：
 
 ```text
-Business Record
-  relation -> Source Record
-  semanticRole = provenance_source   // planned, not yet Model Definition v1 syntax
+Application
+Principal
+Actor
+Delegation?
+ChangeSet?
+operation
+version before / after
+changed fields
+occurredAt
 ```
 
-Until #297 lands, ordinary Relation fields remain available, but there is no platform-recognized provenance semantic-role annotation.
+因此 LifeSpace 可以可靠回答一条 Record：
 
-The platform does not infer trust, truth quality, medical authority, confidence, synchronization authority or federation semantics merely because a provenance relationship exists. Those meanings remain explicit domain-model semantics.
+- 从哪个 Application 进入 / 被修改；
+- 当时的 Principal / Actor 是谁；
+- 何时创建、何时修改；
+- 发生了什么 mutation。
 
-## Retired design
+这部分由 LifeSpace 自己验证和提交，不依赖调用方额外声称 Provenance。
 
-The following former V0.1 design is intentionally removed without compatibility migration:
+## Historical note
 
-- generic `provenance` request/response envelope;
-- `source / sourceRef / derivedFrom` platform metadata shape;
-- `resource_provenance` versioned storage table;
-- inherited effective Provenance across resource versions;
-- special single-record GET Provenance projection.
+早期曾实现过通用 Resource Provenance V0.1，包括 `resource_provenance` 存储以及 `source / sourceRef / derivedFrom` 等平台 metadata。该设计已经退役。
 
-Existing data in that representation is not migrated. Consumers must model required source relationships explicitly under the new business model.
+历史 migration 保留为不可变迁移历史；当前 Runtime / Contract / Model Definition 不保留该能力。Schema 47 已删除旧 `resource_provenance` 表。
+
+## Revisit trigger
+
+只有当出现可验证的真实场景时再重新讨论平台级 Provenance，例如：
+
+- LifeSpace 自身执行确定性派生并能证明输入/输出；
+- 可信 Connector / Federated Truth 提供稳定且可验证的 source identity；
+- 需要平台级、可验证的转换链或 lineage，而不仅是调用方提交一个来源字符串。
+
+重新设计时不得默认继承旧 V0.1 envelope、存储结构或 `semanticRole` 候选方案。
