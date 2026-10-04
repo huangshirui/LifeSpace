@@ -1,5 +1,10 @@
 # LifeSpace Contract Strategy
 
+## Kernel 0.43.0 — Atomic multi-Delegation issuance
+
+Kernel 0.43.0 adds `POST /api/v1/spaces/{spaceId}/delegations/batch` for one confirmed business intent that must materialize 1..20 independent Delegations atomically. The operation reuses the generalized Root/Child Delegation primitive, validates all requested Authority/chain narrowing before one all-or-none commit, preserves one immutable scope per `dlg_*`, and never consumes a single-use parent merely by issuing a Child.
+
+
 ## Ownership
 
 Canonical service contracts live with the service implementation in this repository.
@@ -11,7 +16,7 @@ Identity now has two explicit contract surfaces:
 
 Core has five contract layers:
 
-1. **Kernel Contract** — explicit application/runtime APIs such as Space, Membership, Data Grant, Runtime Discovery, Registry-driven Creation Draft orchestration and governed Change History. The checked-in contract is `apps/core/openapi.yaml`; Kernel `0.40.0` owns neither Model Registry governance nor Eventing wire representation. Kernel 0.40.0 converges execution-time authority on verified Application / Principal / Actor plus an explicit opaque Delegation selector when Principal and Actor differ, makes Delegation one immutable Space/Model/Record scope, and adds nullable `changeSetId` correlation to governed Change evidence. First-class Generic Runtime Batch remains ordinary-model syntax projected through immutable Model Contracts rather than the Kernel.
+1. **Kernel Contract** — explicit application/runtime APIs such as Space, Membership, Data Grant, Runtime Discovery, Registry-driven Creation Draft orchestration and governed Change History. The checked-in contract is `apps/core/openapi.yaml`; Kernel `0.43.0` includes the generalized Authority v3 Root/Child Delegation model and adds bounded atomic `1..20` multi-Delegation issuance for one confirmed business intent. Every resulting `dlg_*` remains an independent immutable single-scope Delegation; all requested current Principal Authority and parent-chain narrowing checks complete before one all-or-none D1 commit, and Child issuance does not consume a single-use parent. First-class Generic Runtime resource Batch remains ordinary-model syntax projected through immutable Model Contracts rather than the Kernel. Production availability remains separately tracked under `docs/production/*`.
 Kernel `0.39.0` completes the explicit breaking removal of deprecated `Space.kind` from Space create/read and invitation-preview representations and migration 0045 removes the storage column. Kernel 0.38.0 had already removed every behavioral dependency on the field and made create-time `kind` optional/deprecated. There is no replacement Kernel field because business classification is not a platform semantic. The Stable `core-space-membership` group remains Stable; after the recorded deprecation and breaking-removal decision, the accepted Stable schema evidence is deliberately regenerated for the 0.39.0 representation rather than downgrading maturity or silently refreshing evidence to bypass compatibility review.
 
 2. **Integration / Eventing Contract** — `apps/core/integration-eventing.openapi.yaml`, the independently versioned public contract for Webhook Endpoint/Event Subscription management, delivery diagnostics/test-send and signed reference-only outbound Webhook representation. Current version `0.3.0` preserves the ordinary reference-only `recordChange` webhook and adds `changeSetCommitted`: one explicit atomic Runtime Batch keeps N governed Changes / N Domain Event references but is transported as one signed callback envelope per eligible Webhook Endpoint. Unrelated changes are never time-window coalesced; the same Core Worker still executes the routes.

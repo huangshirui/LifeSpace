@@ -176,7 +176,7 @@
     {
       "id": "core-kernel",
       "source": "apps/core/openapi.yaml",
-      "operationSetSha256": "sha256:942920a88e65a0bb56ab8c3c7fbd968927aad2089796768d61577c46689b2c48",
+      "operationSetSha256": "sha256:ebd4ce97da2dd0da48ef6906a69b2264334107dfe5d9eb8e16c5da64b69d636b",
       "groups": [
         {
           "id": "core-operational",
@@ -230,7 +230,7 @@
           "id": "core-delegation",
           "maturity": "candidate",
           "visibility": "public",
-          "operationPattern": "^(GET|POST) /api/v1/spaces/\\{spaceId\\}/delegations$|^(GET|PATCH|DELETE) /api/v1/spaces/\\{spaceId\\}/delegations/\\{delegationId\\}$"
+          "operationPattern": "^(GET|POST) /api/v1/spaces/\\{spaceId\\}/delegations$|^POST /api/v1/spaces/\\{spaceId\\}/delegations/batch$|^(GET|PATCH|DELETE) /api/v1/spaces/\\{spaceId\\}/delegations/\\{delegationId\\}$"
         },
         {
           "id": "core-change-history",

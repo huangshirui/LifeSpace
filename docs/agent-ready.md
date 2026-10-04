@@ -161,7 +161,7 @@ Rules:
 7. `record` scope applies only to the known concrete record. Record-level read does not permit list/query/search/enumeration of the model collection.
 8. V1 does not add field-level or predicate-level Delegation.
 9. Delegation is not a bearer capability and is not transferable.
-10. Current released execution remains single-hop. Target architecture supports explicit bounded delegation chains: parent permission is required, the Root Principal is preserved, every child narrows scope/access/expiry/depth, and Core resolves the full chain from one leaf selector. See `docs/authority-role-capability-redelegation.md`.
+10. Current repository execution supports explicit bounded same-Application Delegation chains: parent permission is required, the Root Principal is preserved, every child narrows scope/access/expiry/depth, and Core resolves the full chain from one leaf selector. Production status remains separately tracked in `docs/production/*`. See `docs/authority-role-capability-redelegation.md`.
 11. No Session Delegation / AuthorizationSession.
 12. No separate Approval Grant. Single-use, time-bounded and long-lived behavior use the same Delegation model.
 13. Delegation fields defining Principal/Actor/Application/Scope/constraints are immutable after issuance. Runtime lifecycle changes only through consumption or revocation.
@@ -199,6 +199,8 @@ For a single-use read, data must not be returned unless that request wins the co
 ### 4.3 Multiple business actions
 
 One user confirmation may issue multiple independent Delegations.
+
+For that case Core exposes bounded atomic multi-issuance (`POST /api/v1/spaces/{spaceId}/delegations/batch`, 1..20 items). Every item is still one immutable single-scope Delegation. Validation of all Root Principal Authority and any existing parent chains completes before one all-or-none D1 commit. Direct execution issues Roots; represented execution issues Children from explicit existing parents. Child issuance does not consume single-use ancestors, and v1 does not allow intra-request parent references.
 
 If one business intent contains two separately authorized actions, such as deleting an Event and creating a Task, each action may use its own single-use Delegation. If the caller requests atomic execution, the resulting Changes belong to one ChangeSet and Delegation consumption must commit atomically with that ChangeSet.
 

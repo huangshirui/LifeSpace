@@ -41,4 +41,15 @@ if (!postDescription.includes("preserves the Root Principal")
   throw new Error("Delegation contract must document Root Principal preservation and non-consuming Child issuance");
 }
 
+
+const batchPost = document.paths?.["/api/v1/spaces/{spaceId}/delegations/batch"]?.post;
+const batchRequest = schemas.CreateDelegationBatchRequest;
+if (!batchPost?.description?.includes("any failure commits none")
+    || !batchPost.description.includes("Child issuance does not consume a single-use parent")
+    || batchRequest?.properties?.items?.items?.$ref !== "#/components/schemas/CreateDelegationRequest"
+    || batchRequest?.properties?.items?.minItems !== 1
+    || batchRequest?.properties?.items?.maxItems !== 20) {
+  throw new Error("Authority contract must expose bounded all-or-none multi-Delegation issuance over the same single-scope primitive");
+}
+
 console.log("Core Authority v3 contract sanity check passed");

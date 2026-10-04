@@ -4,6 +4,7 @@ import {
   delegationChainStatement,
   delegationExpiryNarrows,
   delegationScopeContains,
+  groupDelegationChainRows,
   validateStructuralDelegationChain,
   type DelegationChainRow,
 } from "./delegation-chain";
@@ -14,7 +15,7 @@ import {
 } from "./entity-role-capability";
 import type { Actor, Bindings, Principal, Variables } from "./env";
 import { ApiError, success } from "./http";
-import { requireModelAccess } from "./model-authorization";
+import { requireModelAccessMany } from "./model-authorization";
 import type { ModelAccess } from "./model-definition";
 import { getRuntimeModel } from "./model-registry";
 
@@ -36,6 +37,20 @@ type CreateDelegationBody = {
   parentDelegationId?: unknown;
   scope?: unknown;
   constraints?: unknown;
+};
+type CreateDelegationBatchBody = { items?: unknown };
+type ParsedDelegationIssue = {
+  actor: Actor;
+  parentDelegationId: string | null;
+  scope: ParsedScope;
+  constraints: ParsedConstraints;
+};
+type PreparedDelegationIssue = ParsedDelegationIssue & {
+  delegationId: string;
+  targetModelKey: string | null;
+  parent: DelegationChainRow | null;
+  createdAt: string;
+  issuer: Actor;
 };
 
 type DelegationRow = {
@@ -73,7 +88,9 @@ type ParsedConstraints = {
 };
 
 const MAX_REDELEGATION_DEPTH = 3;
+const MAX_ATOMIC_DELEGATION_ISSUES = 20;
 const delegationAccess = new Set<DelegationAccess>(["free_busy", "read", "write", "manage"]);
+const delegationAccessRank: Record<DelegationAccess, number> = { free_busy: 1, read: 2, write: 3, manage: 4 };
 const id = (prefix: string) => `${prefix}_${crypto.randomUUID().replaceAll("-", "")}`;
 
 function executionActor(principal: Principal): Actor {
@@ -217,6 +234,43 @@ function parseParentDelegationId(value: unknown): string | null {
   return value;
 }
 
+
+function parseCreateDelegationBody(value: unknown): ParsedDelegationIssue {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new ApiError("INVALID_REQUEST", "Delegation item must be a JSON object", 400);
+  }
+  const body = value as CreateDelegationBody;
+  const unknown = Object.keys(body)
+    .find((key) => !["actor", "parentDelegationId", "scope", "constraints"].includes(key));
+  if (unknown) throw new ApiError("INVALID_REQUEST", `Unsupported Delegation field ${unknown}`, 400);
+  return {
+    actor: parseActor(body.actor),
+    parentDelegationId: parseParentDelegationId(body.parentDelegationId),
+    scope: parseScope(body.scope),
+    constraints: parseConstraints(body.constraints),
+  };
+}
+
+function assertIssuanceProfile(principal: Principal, issue: ParsedDelegationIssue): void {
+  if (principal.actor && !issue.parentDelegationId) {
+    throw new ApiError(
+      "DELEGATION_REQUIRED",
+      "Represented Actor may issue only a Child Delegation from an explicit parent",
+      403,
+    );
+  }
+  if (!principal.actor && issue.parentDelegationId) {
+    throw new ApiError(
+      "INVALID_REQUEST",
+      "Direct Principal delegation does not use parentDelegationId",
+      400,
+    );
+  }
+  if (!principal.actor && !canDelegateOwnAuthority(principal.type)) {
+    throw new ApiError("FORBIDDEN", "Principal is not allowed to delegate its own Authority", 403);
+  }
+}
+
 function effectiveStatus(
   row: Pick<DelegationRow, "revoked_at" | "consumed_at" | "expires_at">,
 ): "active" | "revoked" | "consumed" | "expired" {
@@ -251,56 +305,103 @@ function dto(row: DelegationRow) {
   };
 }
 
-async function validateScopeAuthority(
+async function validateScopesAuthorityMany(
   env: Bindings,
   principal: Principal,
   spaceId: string,
-  scope: ParsedScope,
-): Promise<string | null> {
-  if (scope.target.type === "space") {
-    if (scope.target.id !== spaceId) {
-      throw new ApiError("INVALID_REQUEST", "Space Delegation target must equal the route Space", 400);
+  scopes: readonly ParsedScope[],
+): Promise<(string | null)[]> {
+  const rootPrincipal = directPrincipal(principal);
+  const targetModelKeys = Array<string | null>(scopes.length).fill(null);
+
+  let strongestSpacePermission: Permission | null = null;
+  const recordIndexes: number[] = [];
+  for (let index = 0; index < scopes.length; index += 1) {
+    const scope = scopes[index]!;
+    if (scope.target.type === "space") {
+      if (scope.target.id !== spaceId) {
+        throw new ApiError("INVALID_REQUEST", "Space Delegation target must equal the route Space", 400);
+      }
+      if (!strongestSpacePermission
+          || delegationAccessRank[scope.maxAccess] > delegationAccessRank[strongestSpacePermission]) {
+        strongestSpacePermission = scope.maxAccess;
+      }
+    } else if (scope.target.type === "model") {
+      targetModelKeys[index] = scope.target.id;
+    } else {
+      recordIndexes.push(index);
     }
-    await requireSpacePermission(env, principal, spaceId, scope.maxAccess);
-    return null;
   }
 
-  if (scope.target.type === "model") {
-    const model = await getRuntimeModel(env, scope.target.id);
-    if (!model) throw new ApiError("MODEL_NOT_FOUND", `Published model ${scope.target.id} not found`, 404);
-    await requireModelAccess(env, principal, spaceId, model, scope.maxAccess as ModelAccess);
-    return model.key;
+  if (recordIndexes.length) {
+    const recordIds = [...new Set(recordIndexes.map((index) => scopes[index]!.target.id))];
+    const placeholders = recordIds.map(() => "?").join(",");
+    const rows = await env.DB.prepare(`SELECT id,model_key FROM resource_records
+      WHERE space_id=? AND deleted_at IS NULL AND id IN (${placeholders})`)
+      .bind(spaceId, ...recordIds)
+      .all<{ id: string; model_key: string }>();
+    const byId = new Map(rows.results.map((row) => [row.id, row.model_key]));
+    for (const index of recordIndexes) {
+      const recordId = scopes[index]!.target.id;
+      const modelKey = byId.get(recordId);
+      if (!modelKey) throw new ApiError("RESOURCE_NOT_FOUND", "Record Delegation target was not found", 404);
+      targetModelKeys[index] = modelKey;
+    }
   }
 
-  const resource = await env.DB.prepare(`SELECT model_key FROM resource_records
-    WHERE id=? AND space_id=? AND deleted_at IS NULL LIMIT 1`)
-    .bind(scope.target.id, spaceId)
-    .first<{ model_key: string }>();
-  if (!resource) throw new ApiError("RESOURCE_NOT_FOUND", "Record Delegation target was not found", 404);
-  const model = await getRuntimeModel(env, resource.model_key);
-  if (!model) throw new ApiError("MODEL_NOT_FOUND", `Published model ${resource.model_key} not found`, 404);
-  await requireModelAccess(
-    env,
-    principal,
-    spaceId,
-    model,
-    scope.maxAccess as ModelAccess,
-    { recordId: scope.target.id },
-  );
-  return model.key;
+  const distinctModelKeys = [...new Set(targetModelKeys.filter((value): value is string => Boolean(value)))];
+  const models = new Map<string, Awaited<ReturnType<typeof getRuntimeModel>>>();
+  await Promise.all(distinctModelKeys.map(async (modelKey) => {
+    const model = await getRuntimeModel(env, modelKey);
+    if (!model) throw new ApiError("MODEL_NOT_FOUND", `Published model ${modelKey} not found`, 404);
+    models.set(modelKey, model);
+  }));
+
+  if (strongestSpacePermission) {
+    await requireSpacePermission(env, rootPrincipal, spaceId, strongestSpacePermission);
+  }
+
+  const modelRequests = scopes.flatMap((scope, index) => {
+    const modelKey = targetModelKeys[index];
+    if (!modelKey) return [];
+    const model = models.get(modelKey);
+    if (!model) throw new Error(`Prepared model ${modelKey} missing`);
+    return [{
+      model,
+      required: scope.maxAccess as ModelAccess,
+      selector: scope.target.type === "record" ? { recordId: scope.target.id } : {},
+    }];
+  });
+  await requireModelAccessMany(env, rootPrincipal, spaceId, modelRequests);
+  return targetModelKeys;
 }
 
-async function loadCurrentParentChain(
+async function loadCurrentParentChains(
   env: Bindings,
   principal: Principal,
   spaceId: string,
-  parentDelegationId: string,
-): Promise<DelegationChainRow[]> {
+  parentDelegationIds: readonly string[],
+): Promise<Map<string, DelegationChainRow[]>> {
+  if (!parentDelegationIds.length) return new Map();
+  const uniqueParentIds = [...new Set(parentDelegationIds)];
   const [result] = await env.DB.batch<Record<string, unknown>>([
-    delegationChainStatement(env, [parentDelegationId]),
+    delegationChainStatement(env, uniqueParentIds),
   ]);
   const rows = (result?.results ?? []) as DelegationChainRow[];
-  return validateStructuralDelegationChain(principal, spaceId, parentDelegationId, rows);
+  const grouped = groupDelegationChainRows(rows);
+  const validated = new Map<string, DelegationChainRow[]>();
+  for (const parentDelegationId of uniqueParentIds) {
+    validated.set(
+      parentDelegationId,
+      validateStructuralDelegationChain(
+        principal,
+        spaceId,
+        parentDelegationId,
+        grouped.get(parentDelegationId) ?? [],
+      ),
+    );
+  }
+  return validated;
 }
 
 function childScopeShape(
@@ -345,6 +446,127 @@ function assertChildNarrowing(
   }
 }
 
+
+async function prepareDelegationIssues(
+  env: Bindings,
+  principal: Principal,
+  spaceId: string,
+  values: readonly unknown[],
+): Promise<PreparedDelegationIssue[]> {
+  const issues = values.map(parseCreateDelegationBody);
+  for (const issue of issues) assertIssuanceProfile(principal, issue);
+
+  // Validate every requested scope against the Root Principal's current Authority
+  // before any Delegation row is written. Model/record Authority is set-wise and
+  // record target lookup is bounded independently of item count.
+  const targetModelKeys = await validateScopesAuthorityMany(
+    env,
+    principal,
+    spaceId,
+    issues.map((issue) => issue.scope),
+  );
+
+  const parentIds = issues.flatMap((issue) => issue.parentDelegationId ? [issue.parentDelegationId] : []);
+  const parentChains = await loadCurrentParentChains(env, principal, spaceId, parentIds);
+
+  const createdAt = new Date().toISOString();
+  const issuer = executionActor(principal);
+  return issues.map((issue, index) => {
+    let parent: DelegationChainRow | null = null;
+    if (issue.parentDelegationId) {
+      const chain = parentChains.get(issue.parentDelegationId);
+      if (!chain?.length) throw new ApiError("DELEGATION_INVALID", "Parent Delegation was not found", 403);
+      parent = chain[chain.length - 1]!;
+      assertChildNarrowing(parent, spaceId, issue.scope, targetModelKeys[index]!, issue.constraints);
+    }
+    return {
+      ...issue,
+      delegationId: id("dlg"),
+      targetModelKey: targetModelKeys[index] ?? null,
+      parent,
+      createdAt,
+      issuer,
+    };
+  });
+}
+
+async function commitDelegationIssues(
+  env: Bindings,
+  principal: Principal,
+  spaceId: string,
+  issues: readonly PreparedDelegationIssue[],
+): Promise<ReturnType<typeof dto>[]> {
+  const statements = issues.flatMap((issue) => [
+    env.DB.prepare(`INSERT INTO delegations(
+      id,principal_type,principal_id,actor_type,actor_id,application_id,source_space_id,
+      created_by_type,created_by_id,created_at,expires_at,max_uses,
+      parent_delegation_id,remaining_redelegation_depth
+    ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(
+      issue.delegationId,
+      principal.type,
+      principal.id,
+      issue.actor.type,
+      issue.actor.id,
+      principal.clientId,
+      spaceId,
+      issue.issuer.type,
+      issue.issuer.id,
+      issue.createdAt,
+      issue.constraints.expiresAt,
+      issue.constraints.maxUses,
+      issue.parent?.delegation_id ?? null,
+      issue.constraints.remainingRedelegationDepth,
+    ),
+    env.DB.prepare(`INSERT INTO delegation_scopes(
+      delegation_id,target_type,target_id,target_model_key,max_access
+    ) VALUES(?,?,?,?,?)`).bind(
+      issue.delegationId,
+      issue.scope.target.type,
+      issue.scope.target.id,
+      issue.targetModelKey,
+      issue.scope.maxAccess,
+    ),
+  ]);
+
+  // Cloudflare D1 batch is the atomic commit boundary: all Delegation/scopes are
+  // persisted together, or the batch rolls back. Child issuance intentionally
+  // does not consume any single-use ancestor.
+  await env.DB.batch(statements);
+
+  return issues.map((issue) => dto({
+    id: issue.delegationId,
+    principal_type: principal.type,
+    principal_id: principal.id,
+    actor_type: issue.actor.type,
+    actor_id: issue.actor.id,
+    application_id: principal.clientId,
+    source_space_id: spaceId,
+    parent_delegation_id: issue.parent?.delegation_id ?? null,
+    remaining_redelegation_depth: issue.constraints.remainingRedelegationDepth,
+    created_by_type: issue.issuer.type,
+    created_by_id: issue.issuer.id,
+    created_at: issue.createdAt,
+    expires_at: issue.constraints.expiresAt,
+    revoked_at: null,
+    max_uses: issue.constraints.maxUses,
+    consumed_at: null,
+    target_type: issue.scope.target.type,
+    target_id: issue.scope.target.id,
+    target_model_key: issue.targetModelKey,
+    max_access: issue.scope.maxAccess,
+  }));
+}
+
+async function issueDelegations(
+  env: Bindings,
+  principal: Principal,
+  spaceId: string,
+  values: readonly unknown[],
+): Promise<ReturnType<typeof dto>[]> {
+  const prepared = await prepareDelegationIssues(env, principal, spaceId, values);
+  return commitDelegationIssues(env, principal, spaceId, prepared);
+}
+
 function selectRowsSql(): string {
   return `SELECT
     d.id,d.principal_type,d.principal_id,d.actor_type,d.actor_id,d.application_id,d.source_space_id,
@@ -375,96 +597,40 @@ export function registerDelegationRoutes(app: App): void {
     if (!body || typeof body !== "object" || Array.isArray(body)) {
       throw new ApiError("INVALID_REQUEST", "Request body must be a JSON object", 400);
     }
-    const unknown = Object.keys(body)
-      .find((key) => !["actor", "parentDelegationId", "scope", "constraints"].includes(key));
-    if (unknown) throw new ApiError("INVALID_REQUEST", `Unsupported field ${unknown}`, 400);
+    const [created] = await issueDelegations(
+      context.env,
+      principal,
+      context.req.param("spaceId"),
+      [body],
+    );
+    return context.json(success(created!), 201);
+  });
 
-    const delegatedActor = parseActor(body.actor);
-    const parentDelegationId = parseParentDelegationId(body.parentDelegationId);
-    const scope = parseScope(body.scope);
-    const constraints = parseConstraints(body.constraints);
-    const spaceId = context.req.param("spaceId");
-
-    if (principal.actor && !parentDelegationId) {
-      throw new ApiError(
-        "DELEGATION_REQUIRED",
-        "Represented Actor may issue only a Child Delegation from an explicit parent",
-        403,
-      );
+  app.post("/api/v1/spaces/:spaceId/delegations/batch", async (context) => {
+    const principal = context.get("principal");
+    const body = await context.req.json<CreateDelegationBatchBody>().catch(() => null);
+    if (!body || typeof body !== "object" || Array.isArray(body)) {
+      throw new ApiError("INVALID_REQUEST", "Request body must be a JSON object", 400);
     }
-    if (!principal.actor && parentDelegationId) {
+    const unknown = Object.keys(body).find((key) => key !== "items");
+    if (unknown) throw new ApiError("INVALID_REQUEST", `Unsupported field ${unknown}`, 400);
+    if (!Array.isArray(body.items)
+        || body.items.length < 1
+        || body.items.length > MAX_ATOMIC_DELEGATION_ISSUES) {
       throw new ApiError(
         "INVALID_REQUEST",
-        "Direct Principal delegation does not use parentDelegationId",
+        `items must contain between 1 and ${MAX_ATOMIC_DELEGATION_ISSUES} Delegation specs`,
         400,
       );
     }
-    if (!principal.actor && !canDelegateOwnAuthority(principal.type)) {
-      throw new ApiError("FORBIDDEN", "Principal is not allowed to delegate its own Authority", 403);
-    }
 
-    // Delegation can never outlive or widen the Root Principal's current Authority.
-    // For represented issuance we deliberately inspect the Root Principal's own
-    // current Authority independently from the parent chain.
-    const targetModelKey = await validateScopeAuthority(
+    const created = await issueDelegations(
       context.env,
-      directPrincipal(principal),
-      spaceId,
-      scope,
+      principal,
+      context.req.param("spaceId"),
+      body.items,
     );
-
-    let parent: DelegationChainRow | null = null;
-    if (parentDelegationId) {
-      const parentChain = await loadCurrentParentChain(
-        context.env,
-        principal,
-        spaceId,
-        parentDelegationId,
-      );
-      parent = parentChain[parentChain.length - 1]!;
-      assertChildNarrowing(parent, spaceId, scope, targetModelKey, constraints);
-    }
-
-    const delegationId = id("dlg");
-    const timestamp = new Date().toISOString();
-    const issuer = executionActor(principal);
-    await context.env.DB.batch([
-      context.env.DB.prepare(`INSERT INTO delegations(
-        id,principal_type,principal_id,actor_type,actor_id,application_id,source_space_id,
-        created_by_type,created_by_id,created_at,expires_at,max_uses,
-        parent_delegation_id,remaining_redelegation_depth
-      ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(
-        delegationId,
-        principal.type,
-        principal.id,
-        delegatedActor.type,
-        delegatedActor.id,
-        principal.clientId,
-        spaceId,
-        issuer.type,
-        issuer.id,
-        timestamp,
-        constraints.expiresAt,
-        constraints.maxUses,
-        parent?.delegation_id ?? null,
-        constraints.remainingRedelegationDepth,
-      ),
-      context.env.DB.prepare(`INSERT INTO delegation_scopes(
-        delegation_id,target_type,target_id,target_model_key,max_access
-      ) VALUES(?,?,?,?,?)`).bind(
-        delegationId,
-        scope.target.type,
-        scope.target.id,
-        targetModelKey,
-        scope.maxAccess,
-      ),
-    ]);
-
-    const row = await context.env.DB.prepare(`${selectRowsSql()} WHERE d.id=?`)
-      .bind(delegationId)
-      .first<DelegationRow>();
-    if (!row) throw new Error("Delegation missing after create");
-    return context.json(success(dto(row)), 201);
+    return context.json(success({ items: created }), 201);
   });
 
   app.delete("/api/v1/spaces/:spaceId/delegations/:delegationId", async (context) => {
