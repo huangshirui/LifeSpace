@@ -27,7 +27,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
       - name: Apply #298 implementation
-        run: python3 infra/scripts/apply_issue_298.py
+        run: |
+          sed -i 's/One user confirmation may authorize several independent Delegations\./One user confirmation may issue multiple independent Delegations\./' infra/scripts/apply_issue_298.py
+          python3 infra/scripts/apply_issue_298.py
       - name: Verify Core
         run: pnpm --filter @lifespace/core check
       - name: Verify repository
