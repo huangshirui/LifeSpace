@@ -3,7 +3,7 @@ import YAML from "yaml";
 
 const document = YAML.parse(fs.readFileSync(new URL("../openapi.yaml", import.meta.url), "utf8"));
 
-if (document.openapi !== "3.1.0" || document.info?.version !== "0.42.0") {
+if (document.openapi !== "3.1.0" || document.info?.version !== "0.43.0") {
   throw new Error("Core Kernel OpenAPI version metadata is invalid");
 }
 if (!document.info?.title?.includes("Kernel")) {
@@ -42,6 +42,7 @@ const requiredPaths = [
   "/api/v1/spaces/{spaceId}/_relation-targets/{modelKey}/{fieldKey}",
   "/api/v1/spaces/{spaceId}/_reference-resolutions/{modelKey}/{fieldKey}",
   "/api/v1/spaces/{spaceId}/delegations",
+  "/api/v1/spaces/{spaceId}/delegations/batch",
   "/api/v1/spaces/{spaceId}/delegations/{delegationId}",
   "/api/v1/spaces/{spaceId}/changes",
   "/api/v1/spaces/{spaceId}/changes/{recordId}",
@@ -110,6 +111,18 @@ if (document.paths?.["/api/v1/spaces/{spaceId}/creation-drafts/{draftId}/choose-
 }
 
 const schemas = document.components?.schemas ?? {};
+const atomicDelegations = document.paths?.["/api/v1/spaces/{spaceId}/delegations/batch"]?.post;
+if (atomicDelegations?.operationId !== "issueDelegationsAtomically"
+    || atomicDelegations?.requestBody?.content?.["application/json"]?.schema?.$ref !== "#/components/schemas/CreateDelegationBatchRequest"
+    || atomicDelegations?.responses?.["201"]?.content?.["application/json"]?.schema?.$ref !== "#/components/schemas/DelegationBatchResponse") {
+  throw new Error("Atomic multi-Delegation issuance contract is missing or malformed");
+}
+if (schemas.CreateDelegationBatchRequest?.properties?.items?.minItems !== 1
+    || schemas.CreateDelegationBatchRequest?.properties?.items?.maxItems !== 20
+    || schemas.DelegationBatchResponse?.properties?.data?.properties?.items?.maxItems !== 20) {
+  throw new Error("Atomic multi-Delegation issuance must remain bounded to 1..20 items");
+}
+
 for (const name of Object.keys(schemas)) {
   if (name === "DomainEventType" || name.startsWith("Webhook") || name.startsWith("EventSubscription")) {
     throw new Error(`Integration/Eventing schema leaked into Kernel OpenAPI: ${name}`);

@@ -1,6 +1,6 @@
 # Authority Role Capability, Agent Principal and Bounded Re-delegation
 
-Status: **Accepted architecture; implementation pending in #302**
+Status: **Implemented architecture (#302 / PR #304); atomic multi-issuance completed by #298**
 
 Date: 2026-10-02
 
@@ -559,24 +559,30 @@ Add structural/integration coverage for at least:
 
 ## 19. Relationship to #298
 
-#298 still represents a valid need: one confirmed business intent may atomically issue multiple independent Delegations.
+#298 closes the remaining issuance consistency gap for one confirmed business intent that materializes as multiple independent Delegations.
 
-Its previous explicit non-goal of delegation chains is obsolete after this accepted architecture.
+Core exposes bounded atomic multi-issuance over the generalized Delegation primitive:
 
-Do not implement the old #298 shape first and then refactor it. Re-specify atomic multi-issue against the generalized Delegation primitive so each issued item may be either:
+- request size is `1..20`;
+- every item remains an independent immutable one-scope `dlg_*` object;
+- a direct Principal may atomically issue multiple Root Delegations;
+- a represented Actor may atomically issue multiple Child Delegations from explicit already-existing propagatable parents;
+- all Root Principal Authority and parent-chain/narrowing checks complete before the write boundary;
+- the D1 commit is all-or-none;
+- Child issuance never consumes a single-use parent;
+- v1 deliberately does not allow one item to reference a parent created by another item in the same request.
 
-- a Root Delegation; or
-- a valid Child Delegation of an explicitly propagatable parent.
+The multi-issue operation is an issuance atomicity primitive only. It does not create a Session Delegation, Approval Grant or multi-scope Delegation.
 
-Each resulting Delegation remains an independent immutable one-scope `dlg_*` object.
+## 20. Implementation State
 
-## 20. Current vs Target State
+The repository implementation now includes:
 
-Until #302 is implemented and released:
+- code-owned Entity Role Capability;
+- Agent-as-Principal backed by explicit Data Grant Authority;
+- bounded same-Application re-delegation with Root Principal preservation;
+- set-wise chain resolution and chain-aware governed Change evidence;
+- atomic single-use ancestor consumption on successful business exercise;
+- bounded atomic multi-Delegation issuance for one confirmed business intent.
 
-- current Core executable represented Agent profile remains direct User -> Agent;
-- current Identity `/internal/v1/agent-execution-tokens` remains the existing `purpose=agent_execution` contract;
-- current public Delegation API remains the existing direct User -> Agent management surface;
-- current clients must not assume Agent-as-Principal or re-delegation is already executable.
-
-The architecture above is accepted target state and implementation constraint, not a claim that current production already supports it.
+Production support remains a deployment fact and must be read from `docs/production/*`; repository/main/staging implementation alone must not be described as Production.

@@ -1,5 +1,10 @@
 # LifeSpace Contract Strategy
 
+## Kernel 0.43.0 — Atomic multi-Delegation issuance
+
+Kernel 0.43.0 adds `POST /api/v1/spaces/{spaceId}/delegations/batch` for one confirmed business intent that must materialize 1..20 independent Delegations atomically. The operation reuses the generalized Root/Child Delegation primitive, validates all requested Authority/chain narrowing before one all-or-none commit, preserves one immutable scope per `dlg_*`, and never consumes a single-use parent merely by issuing a Child.
+
+
 ## Ownership
 
 Canonical service contracts live with the service implementation in this repository.
