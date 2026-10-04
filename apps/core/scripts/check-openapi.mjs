@@ -587,8 +587,13 @@ if (!schemas.CreationDraftProcessing?.required?.includes("modelContractRevision"
   throw new Error("Creation Draft jobs must expose their pinned Model Contract Revision");
 }
 
-if (schemas.StatusResponse?.properties?.data?.properties?.contractVersion?.const !== "0.42.0") {
-  throw new Error("Core Kernel status contract version drifted");
+const runtimeKernelContract = fs.readFileSync(new URL("../src/kernel-contract.ts", import.meta.url), "utf8")
+  .match(/CORE_KERNEL_CONTRACT_VERSION\s*=\s*"([^"]+)"/)?.[1];
+if (runtimeKernelContract !== document.info?.version) {
+  throw new Error("Core runtime Kernel contract version must match OpenAPI info.version");
+}
+if (schemas.StatusResponse?.properties?.data?.properties?.contractVersion?.const !== document.info?.version) {
+  throw new Error("Core Kernel status response contract version must match OpenAPI info.version");
 }
 
 console.log("Core Kernel OpenAPI contract sanity check passed");
