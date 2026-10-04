@@ -549,7 +549,7 @@ try {
 
   resultSummary = {
     ok: true,
-    mergeGate: "Intent/Action -> Execution Context -> Effective Authority -> Semantic Validation -> Commit Change -> Attribution/Provenance/Event evidence",
+    mergeGate: "Intent/Action -> Execution Context -> Effective Authority -> Semantic Validation -> Commit Change -> Attribution/Event evidence",
     space: { id: spaceId },
     principalId: userId,
     agentA: {

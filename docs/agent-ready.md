@@ -295,14 +295,13 @@ Ordinary authorization does not create a generic Proposal/Approval/ChangeAction 
 
 A ChangeSet exists only where an explicit atomic multi-change boundary is needed, including first-class Batch. Ordinary single CRUD does not require a ChangeSet.
 
-## 8. Operation Attribution vs Information Provenance
+## 8. Operation Attribution and Provenance boundary
 
-These are independent concerns.
+**Operation Attribution is a current platform capability.** Application / Principal / Actor / Delegation / ChangeSet and `occurredAt` describe who executed a committed Change, under whose Authority, through which Application and when.
 
-- **Operation Attribution** — Application / Principal / Actor / Delegation / ChangeSet describe who executed a Change and under whose Authority.
-- **Information Provenance** — business-model relations describe what source/business fact a record derives from.
+Information Provenance is currently **concept only**. LifeSpace does not provide a generic provenance envelope, provenance storage, semantic role, external-source reference type or lineage graph. A business Model may still define ordinary source/report/upstream relations when those are genuine business semantics, but Core does not interpret them as platform Provenance.
 
-Authority/Delegation/Change must not pre-seed external-source or federation fields.
+Authority/Delegation/Change must not pre-seed external-source, provenance or federation fields.
 
 ## 9. Event evidence boundary
 
