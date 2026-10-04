@@ -21,6 +21,7 @@ import { registerSpaceLifecycleRoutes } from "./space-lifecycle";
 import { registerSpaceAvatarRoutes } from "./space-avatars";
 import { registerGrantRoutes } from "./grants";
 import { logPerformanceTiming, startPerformanceTiming } from "./performance-timing";
+import { CORE_KERNEL_CONTRACT_VERSION } from "./kernel-contract";
 
 type AppEnv = { Bindings: Bindings; Variables: Variables };
 const defaultOrigins = ["http://localhost:5173", "http://127.0.0.1:5173"];
@@ -64,7 +65,7 @@ export function createApp() {
   app.get("/health", (context) => context.json(success({ status: "ok" })));
   app.get("/api/v1/status", async (context) => context.json(success({
     status: "ok", service: "core", environment: context.env.ENVIRONMENT ?? "local", database: "available",
-    schemaVersion: await schemaVersion(context.env), contractVersion: "0.42.0",
+    schemaVersion: await schemaVersion(context.env), contractVersion: CORE_KERNEL_CONTRACT_VERSION,
   })));
   app.use("/api/v1/me", authenticate());
   app.use("/api/v1/me/*", authenticate());
