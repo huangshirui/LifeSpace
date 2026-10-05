@@ -1,0 +1,53 @@
+name: Apply LifeSpace issue 306
+
+on:
+  push:
+    branches:
+      - feat/306-authorization-request
+    paths:
+      - scripts/apply_issue_306.py
+      - .github/workflows/issue-306-apply.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: feat/306-authorization-request
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v4.4.0
+        with:
+          version: 10.13.1
+          run_install: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Apply #306 implementation
+        run: python3 scripts/apply_issue_306.py
+      - name: Validate repository
+        run: pnpm check
+      - name: Commit verified implementation
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            apps/core/src/delegation-routes.ts \
+            apps/core/src/authorization-request-routes.ts \
+            apps/core/src/app.ts \
+            apps/core/src/kernel-contract.ts \
+            apps/core/AGENTS.md \
+            apps/core/migrations/0049_authorization_requests.sql \
+            apps/core/openapi.yaml \
+            apps/core/scripts/check-openapi.mjs \
+            apps/core/test/authorization-request.integration.test.ts \
+            docs/agent-ready.md \
+            docs/contracts.md
+          git diff --cached --quiet && exit 0
+          git commit -m "feat(core): add first-class authorization requests"
+          git push origin HEAD:feat/306-authorization-request
