@@ -81,7 +81,7 @@ Do not create a separately hand-maintained contract repository.
 
 It does **not** own ordinary-model Change production, model mutation semantics or a separate authorization model. The same Core Worker remains authoritative for Endpoint/Subscription state, Application × Model Access, Data Grants, subscriber Service Principal/application eligibility, Queue delivery and current revocation. Splitting the contract lifecycle therefore does not split the runtime or create another truth source.
 
-Runtime-only consumers omit this contract. Eventing consumers pin `Integration/Eventing 0.3.0` independently so future Eventing representation changes do not force unrelated Runtime consumers to repin Kernel, and vice versa.
+Runtime-only consumers omit this contract. Eventing consumers pin `Integration/Eventing 0.4.0` independently so future Eventing representation changes do not force unrelated Runtime consumers to repin Kernel, and vice versa.
 
 ## Platform Admin control-plane contract
 
