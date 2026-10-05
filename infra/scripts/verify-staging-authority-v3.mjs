@@ -71,6 +71,34 @@ async function issueAgentToken({ agentId, principalType, principalId }) {
   return data.accessToken;
 }
 
+async function issueAgentApiCredential(agentId, label) {
+  const result = await request(identityBase, `/internal/v1/agents/${encodeURIComponent(agentId)}/api-credentials`, {
+    method: "POST",
+    bearer: applicationSecret,
+    body: {
+      label: `Staging ${label} ${runId}`,
+      scopes: ["resources:read", "resources:write"],
+      expiresAt: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
+    },
+  });
+  const data = expectStatus(result, 201, `Agent API credential for ${agentId}`);
+  if (!data?.id?.startsWith("agc_") || !data?.token?.startsWith("lsp_agt_")) {
+    throw new Error(`Agent API credential for ${agentId} is invalid: ${JSON.stringify(data)}`);
+  }
+  console.log(`::add-mask::${data.token}`);
+  return { id: data.id, token: data.token };
+}
+
+async function revokeAgentApiCredential(agentId, credentialId) {
+  const result = await request(identityBase, `/internal/v1/agents/${encodeURIComponent(agentId)}/api-credentials/${encodeURIComponent(credentialId)}`, {
+    method: "DELETE",
+    bearer: applicationSecret,
+  });
+  if (result.response.status !== 204 && result.response.status !== 404) {
+    throw new Error(`Agent API credential revoke failed: HTTP ${result.response.status} ${JSON.stringify(result.payload)}`);
+  }
+}
+
 async function createTask(bearer, name, delegationId) {
   return request(coreBase, `/api/v1/spaces/${spaceId}/models/task/records`, {
     method: "POST",
@@ -95,6 +123,9 @@ async function firstChange(recordId) {
 let agentGrantId = "";
 let rootDelegationId = "";
 let rootRevoked = false;
+let opaqueAgentId = "";
+let opaqueCredentialId = "";
+let opaqueCredentialRevoked = false;
 
 try {
   const agentA = await createAgent("Authority Agent A");
@@ -127,6 +158,24 @@ try {
     throw new Error(`Direct Agent profile scope boundary was not enforced: HTTP ${profileProbe.response.status} ${JSON.stringify(profileProbe.payload)}`);
   }
 
+  const opaque = await issueAgentApiCredential(agentA, "opaque Agent A");
+  opaqueAgentId = agentA;
+  opaqueCredentialId = opaque.id;
+
+  const opaqueDirectCreate = await createTask(opaque.token, `Authority v3 opaque direct Agent ${runId}`);
+  const opaqueDirectTask = expectStatus(opaqueDirectCreate, 201, "Opaque Direct Agent task create");
+  if (!opaqueDirectTask?.id) throw new Error("Opaque Direct Agent task create omitted record id");
+  const opaqueDirectChange = await firstChange(opaqueDirectTask.id);
+  if (
+    opaqueDirectChange.principal?.type !== "agent"
+    || opaqueDirectChange.principal?.id !== agentA
+    || opaqueDirectChange.actor?.type !== "agent"
+    || opaqueDirectChange.actor?.id !== agentA
+    || opaqueDirectChange.delegationId !== null
+  ) {
+    throw new Error(`Opaque Direct Agent governed Change attribution mismatch: ${JSON.stringify(opaqueDirectChange)}`);
+  }
+
   const directCreate = await createTask(directAgentA, `Authority v3 direct Agent ${runId}`);
   const directTask = expectStatus(directCreate, 201, "Direct Agent task create");
   if (!directTask?.id) throw new Error("Direct Agent task create omitted record id");
@@ -155,6 +204,31 @@ try {
   rootDelegationId = rootData?.id ?? "";
   if (!rootDelegationId || rootData?.parentDelegationId !== null || rootData?.constraints?.remainingRedelegationDepth !== 1) {
     throw new Error(`Root Delegation representation mismatch: ${JSON.stringify(rootData)}`);
+  }
+
+  const opaqueRepresentedCreate = await createTask(
+    opaque.token,
+    `Authority v3 opaque represented User Agent ${runId}`,
+    rootDelegationId,
+  );
+  const opaqueRepresentedTask = expectStatus(opaqueRepresentedCreate, 201, "Opaque Agent User Delegation task create");
+  if (!opaqueRepresentedTask?.id) throw new Error("Opaque Agent User Delegation task create omitted record id");
+  const opaqueRepresentedChange = await firstChange(opaqueRepresentedTask.id);
+  if (
+    opaqueRepresentedChange.principal?.type !== "user"
+    || opaqueRepresentedChange.principal?.id !== userId
+    || opaqueRepresentedChange.actor?.type !== "agent"
+    || opaqueRepresentedChange.actor?.id !== agentA
+    || opaqueRepresentedChange.delegationId !== rootDelegationId
+  ) {
+    throw new Error(`Opaque Agent User Delegation governed Change attribution mismatch: ${JSON.stringify(opaqueRepresentedChange)}`);
+  }
+
+  await revokeAgentApiCredential(agentA, opaque.id);
+  opaqueCredentialRevoked = true;
+  const deniedOpaqueAfterRevoke = await createTask(opaque.token, `Must be denied after opaque credential revoke ${runId}`);
+  if (deniedOpaqueAfterRevoke.response.status !== 401) {
+    throw new Error(`Revoked Agent API credential remained usable: HTTP ${deniedOpaqueAfterRevoke.response.status} ${JSON.stringify(deniedOpaqueAfterRevoke.payload)}`);
   }
 
   const representedA = await issueAgentToken({
@@ -233,6 +307,10 @@ try {
     directAgentProfileScopeDenied: true,
     directAgentAuthority: true,
     directAgentChangeAttribution: true,
+    opaqueAgentCredentialDirectAuthority: true,
+    opaqueAgentCredentialUserDelegation: true,
+    opaqueAgentCredentialChangeAttribution: true,
+    opaqueAgentCredentialRevocation: true,
     rootDelegationId,
     childDelegationId,
     rootPrincipalPreserved: true,
@@ -240,6 +318,13 @@ try {
     ancestorRevocationInvalidatesChild: true,
   }, null, 2));
 } finally {
+  if (opaqueAgentId && opaqueCredentialId && !opaqueCredentialRevoked) {
+    try {
+      await revokeAgentApiCredential(opaqueAgentId, opaqueCredentialId);
+    } catch (error) {
+      console.warn(`Agent API credential cleanup failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
   if (rootDelegationId && !rootRevoked) {
     try {
       await request(

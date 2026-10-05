@@ -79,6 +79,11 @@ const cleanup = {
   tokenId: "",
   tokenSecret: "",
   tokenRevoked: false,
+  agentId: "",
+  agentCredentialId: "",
+  agentCredentialSecret: "",
+  agentCredentialRevoked: false,
+  agentDisabled: false,
   principalDisabled: false,
   audienceRevoked: false,
   initialCredentialRevoked: false,
@@ -106,6 +111,23 @@ async function revokeToken() {
   const result = await admin(`/internal/v1/platform-admin/applications/${encodeURIComponent(cleanup.targetApplicationId)}/service-principals/${encodeURIComponent(cleanup.principalId)}/tokens/${encodeURIComponent(cleanup.tokenId)}`, { method: "DELETE" });
   if (result.response.status !== 204 && result.response.status !== 404) throw new Error(`Token cleanup failed: ${result.response.status} ${JSON.stringify(result.payload)}`);
   cleanup.tokenRevoked = true;
+}
+
+async function revokeAgentCredential() {
+  if (!cleanup.targetApplicationId || !cleanup.agentId || !cleanup.agentCredentialId || cleanup.agentCredentialRevoked) return;
+  const result = await admin(`/internal/v1/platform-admin/applications/${encodeURIComponent(cleanup.targetApplicationId)}/agents/${encodeURIComponent(cleanup.agentId)}/api-credentials/${encodeURIComponent(cleanup.agentCredentialId)}`, { method: "DELETE" });
+  if (result.response.status !== 204 && result.response.status !== 404) throw new Error(`Agent credential cleanup failed: ${result.response.status} ${JSON.stringify(result.payload)}`);
+  cleanup.agentCredentialRevoked = true;
+}
+
+async function disableAgent() {
+  if (!cleanup.targetApplicationId || !cleanup.agentId || cleanup.agentDisabled) return;
+  const result = await admin(`/internal/v1/platform-admin/applications/${encodeURIComponent(cleanup.targetApplicationId)}/agents/${encodeURIComponent(cleanup.agentId)}`, {
+    method: "PATCH",
+    body: { displayName: `Disabled staging acceptance Agent ${runSuffix}`, status: "disabled" },
+  });
+  if (result.response.status !== 200 && result.response.status !== 404) throw new Error(`Agent cleanup failed: ${result.response.status} ${JSON.stringify(result.payload)}`);
+  cleanup.agentDisabled = true;
 }
 
 async function disablePrincipal() {
@@ -255,6 +277,52 @@ try {
   if (!Array.isArray(credentialRows) || !credentialRows.some((entry) => entry?.id === cleanup.targetReplacementCredentialId)) throw new Error("Replacement credential did not appear in metadata list");
   if (serializedCredentials.includes(cleanup.targetInitialSecret) || serializedCredentials.includes(cleanup.targetReplacementSecret)) throw new Error("Credential metadata list leaked plaintext");
 
+
+  const agent = requireStatus(await admin(`/internal/v1/platform-admin/applications/${encodeURIComponent(cleanup.targetApplicationId)}/agents`, {
+    method: "POST",
+    body: { displayName: `MVP acceptance Agent ${runSuffix}` },
+  }), 201, "Create target Agent identity");
+  cleanup.agentId = agent?.id ?? "";
+  if (!/^agt_[0-9A-Za-z_-]+$/u.test(cleanup.agentId)) throw new Error(`Agent id is invalid: ${cleanup.agentId}`);
+
+  const agentCredential = requireStatus(await admin(`/internal/v1/platform-admin/applications/${encodeURIComponent(cleanup.targetApplicationId)}/agents/${encodeURIComponent(cleanup.agentId)}/api-credentials`, {
+    method: "POST",
+    body: {
+      label: `MVP acceptance Agent credential ${runSuffix}`,
+      scopes: ["resources:read", "resources:write"],
+      expiresAt: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
+    },
+  }), 201, "Create target Agent API credential");
+  cleanup.agentCredentialId = agentCredential?.id ?? "";
+  cleanup.agentCredentialSecret = agentCredential?.token ?? "";
+  if (!/^agc_[0-9A-Za-z_-]+$/u.test(cleanup.agentCredentialId) || !cleanup.agentCredentialSecret.startsWith("lsp_agt_")) throw new Error("Agent API credential result is invalid");
+  mask(cleanup.agentCredentialSecret);
+
+  const reducedAgentCredential = requireStatus(await admin(`/internal/v1/platform-admin/applications/${encodeURIComponent(cleanup.targetApplicationId)}/agents/${encodeURIComponent(cleanup.agentId)}/api-credentials/${encodeURIComponent(cleanup.agentCredentialId)}`, {
+    method: "PATCH",
+    body: { scopes: ["resources:read"], expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString() },
+  }), 200, "Reduce target Agent API credential scope");
+  if (!Array.isArray(reducedAgentCredential?.scopes) || reducedAgentCredential.scopes.length !== 1 || reducedAgentCredential.scopes[0] !== "resources:read") {
+    throw new Error(`Agent credential scope reduction did not persist: ${JSON.stringify(reducedAgentCredential)}`);
+  }
+
+  const agentExpansion = await admin(`/internal/v1/platform-admin/applications/${encodeURIComponent(cleanup.targetApplicationId)}/agents/${encodeURIComponent(cleanup.agentId)}/api-credentials/${encodeURIComponent(cleanup.agentCredentialId)}`, {
+    method: "PATCH",
+    body: { scopes: ["resources:read", "resources:write"] },
+  });
+  if (agentExpansion.response.status !== 422 && agentExpansion.response.status !== 403) {
+    throw new Error(`Agent credential scope expansion should be denied, got ${agentExpansion.response.status}: ${JSON.stringify(agentExpansion.payload)}`);
+  }
+
+  const agentCredentialRows = requireStatus(await admin(`/internal/v1/platform-admin/applications/${encodeURIComponent(cleanup.targetApplicationId)}/agents/${encodeURIComponent(cleanup.agentId)}/api-credentials`), 200, "List Agent API credential metadata");
+  if (!Array.isArray(agentCredentialRows) || !agentCredentialRows.some((entry) => entry?.id === cleanup.agentCredentialId && entry?.scopes?.length === 1 && entry?.scopes?.[0] === "resources:read")) {
+    throw new Error("Reduced Agent API credential did not appear in metadata list");
+  }
+  if (JSON.stringify(agentCredentialRows).includes(cleanup.agentCredentialSecret)) throw new Error("Agent credential metadata list leaked plaintext");
+
+  await revokeAgentCredential();
+  await disableAgent();
+
   const principal = requireStatus(await admin(`/internal/v1/platform-admin/applications/${encodeURIComponent(cleanup.targetApplicationId)}/service-principals`, {
     method: "POST",
     body: {
@@ -302,6 +370,8 @@ try {
   if (JSON.stringify(tokenRows).includes(cleanup.tokenSecret)) throw new Error("Service token metadata list leaked plaintext");
 
   await revokeToken();
+  await revokeAgentCredential();
+  await disableAgent();
   await disablePrincipal();
   await revokeAudience();
   await revokeTargetCredential(cleanup.targetReplacementCredentialId, "replacementCredentialRevoked");
@@ -320,11 +390,16 @@ try {
     cleanup.audienceId,
     cleanup.principalId,
     cleanup.tokenId,
+    cleanup.agentId,
+    cleanup.agentCredentialId,
   ].filter(Boolean));
   const relevantAudit = newAuditRows.filter((entry) => entry?.actorUserId === adminUserId && targetIds.has(entry?.targetId));
-  if (relevantAudit.length < 8) throw new Error(`Expected at least 8 human-attributed target audit entries, found ${relevantAudit.length}: ${JSON.stringify(relevantAudit)}`);
+  if (relevantAudit.length < 13) throw new Error(`Expected at least 13 human-attributed target audit entries, found ${relevantAudit.length}: ${JSON.stringify(relevantAudit)}`);
+  for (const operation of ["agent.create", "agent.update", "agent.api_credential.create", "agent.api_credential.update", "agent.api_credential.revoke"]) {
+    if (!relevantAudit.some((entry) => entry?.operation === operation)) throw new Error(`Missing human-attributed ${operation} audit entry: ${JSON.stringify(relevantAudit)}`);
+  }
   const auditSerialized = JSON.stringify(relevantAudit);
-  for (const secret of [cleanup.targetInitialSecret, cleanup.targetReplacementSecret, cleanup.tokenSecret]) {
+  for (const secret of [cleanup.targetInitialSecret, cleanup.targetReplacementSecret, cleanup.tokenSecret, cleanup.agentCredentialSecret]) {
     if (secret && auditSerialized.includes(secret)) throw new Error("Platform-admin audit leaked credential plaintext");
   }
 
@@ -340,6 +415,8 @@ try {
     applicationCredentialRotationProven: true,
     servicePrincipalLifecycleProven: true,
     serviceTokenCreateReduceExpansionDenyRevokeProven: true,
+    agentIdentityLifecycleProven: true,
+    agentCredentialCreateReduceExpansionDenyRevokeProven: true,
     auditEntriesObserved: relevantAudit.length,
     plaintextMetadataLeak: false,
     productionTouched: false,
@@ -349,6 +426,8 @@ try {
   console.error(error instanceof Error ? error.stack ?? error.message : String(error));
 } finally {
   await bestEffort("Cleanup token", revokeToken);
+  await bestEffort("Cleanup Agent credential", revokeAgentCredential);
+  await bestEffort("Cleanup Agent", disableAgent);
   await bestEffort("Cleanup principal", disablePrincipal);
   await bestEffort("Cleanup audience", revokeAudience);
   await bestEffort("Cleanup replacement credential", () => revokeTargetCredential(cleanup.targetReplacementCredentialId, "replacementCredentialRevoked"));
