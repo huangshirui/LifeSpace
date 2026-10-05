@@ -5,8 +5,7 @@ on:
     branches:
       - feat/307-agent-api-credential
     paths:
-      - scripts/apply_issue_307.py
-      - scripts/fix_issue_307_v2.py
+      - scripts/fix_issue_307_v3.py
       - .github/workflows/issue-307-apply.yml
 
 permissions:
@@ -25,10 +24,8 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
-      - name: Apply issue 307 changes
-        run: |
-          python3 scripts/apply_issue_307.py
-          python3 scripts/fix_issue_307_v2.py
+      - name: Apply issue 307 closeout
+        run: python3 scripts/fix_issue_307_v3.py
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
       - name: Validate repository
@@ -39,5 +36,5 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
           git diff --cached --quiet && exit 0
-          git commit -m "feat(identity): add first-class Agent API credential (#307)"
+          git commit -m "feat(identity): complete Agent API credential lifecycle (#307)"
           git push origin HEAD:feat/307-agent-api-credential
