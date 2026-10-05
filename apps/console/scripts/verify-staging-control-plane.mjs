@@ -7,7 +7,6 @@ const applicationId = (process.env.LIFESPACE_STAGING_CONSOLE_APPLICATION_ID ?? "
 const explicitAdminUserId = (process.env.LIFESPACE_STAGING_PLATFORM_ADMIN_USER_ID ?? "").trim();
 const runSuffix = String(process.env.GITHUB_RUN_ID ?? Date.now()).replace(/\D/gu, "").slice(-18) || String(Date.now());
 const modelKey = `console_acceptance_${runSuffix}`.slice(0, 63);
-const modelRoute = `console-acceptance-${runSuffix}`.slice(0, 63);
 const executorName = "LifeSpace Console Core executor (staging)";
 const executorScopes = ["applications:manage", "models:manage", "spaces:inspect", "audit:read"];
 
@@ -73,7 +72,6 @@ function definitionV1() {
   return {
     definitionVersion: 1,
     key: modelKey,
-    route: modelRoute,
     description: "Ephemeral staging-only model used to verify the LifeSpace Console control-plane publication path.",
     display: { singular: "Console Acceptance", plural: "Console Acceptances" },
     fields: {
