@@ -8,6 +8,7 @@ on:
       - scripts/apply_issue_306.py
       - scripts/fix_issue_306_round2.py
       - scripts/fix_issue_306_round3.py
+      - scripts/fix_issue_306_round4.py
       - .github/workflows/issue-306-apply.yml
 
 permissions:
@@ -35,6 +36,7 @@ jobs:
           python3 scripts/apply_issue_306.py
           python3 scripts/fix_issue_306_round2.py
           python3 scripts/fix_issue_306_round3.py
+          python3 scripts/fix_issue_306_round4.py
       - name: Validate repository
         run: pnpm check
       - name: Commit verified implementation
@@ -54,7 +56,8 @@ jobs:
             apps/core/test/authorization-request.integration.test.ts \
             apps/core/test/final-migration-state.integration.test.ts \
             docs/agent-ready.md \
-            docs/contracts.md
+            docs/contracts.md \
+            docs/contract-stability-baseline.json
           git diff --cached --quiet && exit 0
           git commit -m "feat(core): add first-class authorization requests"
           git push origin HEAD:feat/306-authorization-request
