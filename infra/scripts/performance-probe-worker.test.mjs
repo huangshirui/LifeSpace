@@ -20,6 +20,18 @@ function probeRequest(body) {
   });
 }
 
+test("APAC probe health reports the configured placement", async () => {
+  const response = await handleProbeRequest(
+    new Request("https://probe.example/health", {
+      headers: { "x-lifespace-probe-token": env.PROBE_TOKEN },
+    }),
+    env,
+  );
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { ok: true, placementRegion: "aws:ap-southeast-1" });
+});
+
 test("APAC probe returns the Core result envelope on success", async () => {
   const response = await handleProbeRequest(
     probeRequest({ method: "GET", path: "/api/v1/spaces/spc_test/models/task/records?limit=1" }),
