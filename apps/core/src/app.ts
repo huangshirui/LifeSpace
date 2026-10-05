@@ -8,6 +8,7 @@ import { registerChangeHistoryRoutes } from "./change-history";
 import { registerRegistryCreationDraftRoutes } from "./registry-creation-draft-jobs";
 import { registerGenericResourceRoutes } from "./generic-resource-routes";
 import { registerGenericBatchRoutes } from "./generic-batch-routes";
+import { registerGenericBulkRoutes } from "./generic-bulk-routes";
 import { registerRuntimeDiscoveryRoutes } from "./runtime-discovery";
 import { registerRuntimeModelSemanticDetailRoutes } from "./runtime-model-semantic-detail";
 import { registerRelationTargetRoutes } from "./relation-targets";
@@ -98,6 +99,7 @@ export function createApp() {
   registerRuntimeModelSemanticDetailRoutes(app);
   registerRelationTargetRoutes(app);
   registerGenericBatchRoutes(app);
+  registerGenericBulkRoutes(app);
   registerGenericResourceRoutes(app);
   app.notFound((context) => context.json(failure("NOT_FOUND", "Route not found", context.get("requestId")), 404));
   app.onError((error, context) => {

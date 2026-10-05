@@ -72,6 +72,10 @@ export type ModelAccessDecision = {
   policyIdentity: ModelPolicyIdentity;
 };
 
+export type ModelAccessEvaluation =
+  | { ok: true; decision: ModelAccessDecision }
+  | { ok: false; error: ApiError };
+
 type BaseAuthoritySnapshotRow = {
   space_exists: number;
   catalog_access: ModelAccess | null;
@@ -379,20 +383,33 @@ function prepareAccess(
   };
 }
 
-async function requireModelAccessManyResolved(
+function asApiError(error: unknown): ApiError {
+  if (error instanceof ApiError) return error;
+  throw error;
+}
+
+async function evaluateModelAccessManyResolved(
   env: Bindings,
   principal: Principal,
   spaceId: string,
   requests: readonly ModelAccessRequest[],
   preloadedChains: Map<string, DelegationChainRow[]> | null = null,
-): Promise<ModelAccessDecision[]> {
+): Promise<ModelAccessEvaluation[]> {
   if (!requests.length) return [];
 
-  const prepared = requests.map((request) => prepareAccess(principal, spaceId, request));
+  const prepared = requests.map((request) => {
+    try {
+      return { ok: true as const, value: prepareAccess(principal, spaceId, request) };
+    } catch (error) {
+      return { ok: false as const, error: asApiError(error) };
+    }
+  });
   const baseEntries = new Map<string, PreparedBaseAuthority>();
   const leafIds = new Set<string>();
 
-  for (const entry of prepared) {
+  for (const result of prepared) {
+    if (!result.ok) continue;
+    const entry = result.value;
     if (!baseEntries.has(entry.baseKey)) {
       baseEntries.set(entry.baseKey, {
         key: entry.baseKey,
@@ -410,7 +427,9 @@ async function requireModelAccessManyResolved(
     ...uniqueBases.map((entry) => entry.statement),
     ...(shouldLoadChains ? [delegationChainStatement(env, uniqueLeafIds)] : []),
   ];
-  const results = await env.DB.batch<Record<string, unknown>>(statements);
+  const results = statements.length
+    ? await env.DB.batch<Record<string, unknown>>(statements)
+    : [];
 
   const baseRows = new Map<string, BaseAuthoritySnapshotRow | null>();
   uniqueBases.forEach((entry, index) => {
@@ -424,13 +443,106 @@ async function requireModelAccessManyResolved(
       )
     : new Map<string, DelegationChainRow[]>());
 
-  return prepared.map((entry) => decisionFromSnapshots(
-    principal,
+  return prepared.map((result) => {
+    if (!result.ok) return { ok: false as const, error: result.error };
+    const entry = result.value;
+    try {
+      return {
+        ok: true as const,
+        decision: decisionFromSnapshots(
+          principal,
+          spaceId,
+          entry,
+          baseRows.get(entry.baseKey) ?? null,
+          entry.delegationId ? chainsByLeaf.get(entry.delegationId) ?? [] : [],
+        ),
+      };
+    } catch (error) {
+      return { ok: false as const, error: asApiError(error) };
+    }
+  });
+}
+
+async function requireModelAccessManyResolved(
+  env: Bindings,
+  principal: Principal,
+  spaceId: string,
+  requests: readonly ModelAccessRequest[],
+  preloadedChains: Map<string, DelegationChainRow[]> | null = null,
+): Promise<ModelAccessDecision[]> {
+  const evaluated = await evaluateModelAccessManyResolved(env, principal, spaceId, requests, preloadedChains);
+  return evaluated.map((entry) => {
+    if (!entry.ok) throw entry.error;
+    return entry.decision;
+  });
+}
+
+export async function evaluateModelAccessMany(
+  env: Bindings,
+  principal: Principal,
+  spaceId: string,
+  requests: readonly ModelAccessRequest[],
+): Promise<ModelAccessEvaluation[]> {
+  if (!requests.length) return [];
+
+  const agentApiCredential = principal.type === "agent" && !principal.actor && principal.purpose === "agent_api";
+  if (!agentApiCredential) return evaluateModelAccessManyResolved(env, principal, spaceId, requests);
+
+  const delegationIds = requests.map((request) => request.selector?.delegationId?.trim() || null);
+  const selected = delegationIds.filter((value): value is string => Boolean(value));
+  if (!selected.length) return evaluateModelAccessManyResolved(env, principal, spaceId, requests);
+  if (selected.length !== delegationIds.length) {
+    throw new ApiError(
+      "DELEGATION_INVALID",
+      "One Agent API credential Bulk cannot mix direct Agent authority and represented Delegation authority",
+      403,
+    );
+  }
+
+  const uniqueLeafIds = [...new Set(selected)];
+  const [result] = await env.DB.batch<Record<string, unknown>>([
+    delegationChainStatement(env, uniqueLeafIds),
+  ]);
+  const chainsByLeaf = groupDelegationChainRows((result?.results ?? []) as DelegationChainRow[]);
+  const resolved = selected.map((delegationId) => {
+    try {
+      return { ok: true as const, principal: resolveAgentApiDelegatedPrincipal(
+        principal,
+        spaceId,
+        delegationId,
+        chainsByLeaf.get(delegationId) ?? [],
+      ) };
+    } catch (error) {
+      return { ok: false as const, error: asApiError(error) };
+    }
+  });
+  const valid = resolved.filter((entry): entry is Extract<typeof entry, { ok: true }> => entry.ok);
+  if (!valid.length) {
+    return resolved.map((entry) => entry.ok
+      ? { ok: false as const, error: new ApiError("DELEGATION_INVALID", "Delegation could not resolve a Root Principal", 403) }
+      : { ok: false as const, error: entry.error });
+  }
+  const first = valid[0]!.principal;
+  if (valid.some((entry) => entry.principal.type !== first.type || entry.principal.id !== first.id || entry.principal.actor?.id !== first.actor?.id)) {
+    throw new ApiError(
+      "DELEGATION_INVALID",
+      "One Agent API credential Bulk must resolve to one Root Principal",
+      403,
+    );
+  }
+
+  const validIndexes = resolved.flatMap((entry, index) => entry.ok ? [index] : []);
+  const evaluatedValid = await evaluateModelAccessManyResolved(
+    env,
+    first,
     spaceId,
-    entry,
-    baseRows.get(entry.baseKey) ?? null,
-    entry.delegationId ? chainsByLeaf.get(entry.delegationId) ?? [] : [],
-  ));
+    validIndexes.map((index) => requests[index]!),
+    chainsByLeaf,
+  );
+  const byIndex = new Map(validIndexes.map((index, offset) => [index, evaluatedValid[offset]!]));
+  return resolved.map((entry, index) => entry.ok
+    ? byIndex.get(index)!
+    : { ok: false as const, error: entry.error });
 }
 
 export async function requireModelAccessMany(
