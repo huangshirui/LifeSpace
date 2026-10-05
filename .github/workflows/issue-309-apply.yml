@@ -23,6 +23,8 @@ jobs:
         with:
           node-version: 24
       - run: pnpm install --frozen-lockfile
+      - name: Normalize compact Kernel OpenAPI marker
+        run: sed -i 's/"version":"0.45.0"/"version": "0.45.0"/' apps/core/openapi.yaml
       - name: Apply #309 implementation
         run: python3 scripts/apply_issue_309.py
       - name: Remove temporary transformer
