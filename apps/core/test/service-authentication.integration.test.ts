@@ -167,7 +167,7 @@ describe("Core service authentication", () => {
 
     const grantId = await grantSpaceRead(home, principalId, publicKey);
 
-    const serviceToken = "lsp_pat_test_secret_that_is_long_enough_for_core_authentication";
+    const serviceToken = "lsp_svc_test_secret_that_is_long_enough_for_core_authentication";
     const identity = identityBinding(principalId, ["spaces:read"]);
     const allowed = await request(`/api/v1/spaces/${home.spaceId}`, serviceToken, publicKey, identity);
     expect(allowed.status).toBe(200);

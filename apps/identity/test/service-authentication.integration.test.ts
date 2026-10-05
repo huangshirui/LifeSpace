@@ -36,6 +36,11 @@ function bindings(privateKey: string, publicKey: string) {
   };
 }
 
+async function sha256Hex(value: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
 async function waitForLastUsedAt(db: D1Database, table: "service_api_tokens" | "service_oauth_credentials", id: string): Promise<string | null> {
   for (let attempt = 0; attempt < 20; attempt += 1) {
     const row = await db.prepare(`SELECT last_used_at lastUsedAt FROM ${table} WHERE id=?`).bind(id).first<{ lastUsedAt: string | null }>();
@@ -87,7 +92,7 @@ describe("Identity service authentication", () => {
     }, b);
     expect(created.status).toBe(201);
     const createdBody = await created.json() as { data: { id: string; token: string; displayPrefix: string; lastFour: string } };
-    expect(createdBody.data.token).toMatch(/^lsp_pat_[A-Za-z0-9_-]{40,}$/);
+    expect(createdBody.data.token).toMatch(/^lsp_svc_[A-Za-z0-9_-]{40,}$/);
     expect(createdBody.data.displayPrefix).toBe(createdBody.data.token.slice(0, 16));
     expect(createdBody.data.lastFour).toBe(createdBody.data.token.slice(-4));
 
@@ -131,6 +136,28 @@ describe("Identity service authentication", () => {
       headers: { authorization: `Bearer ${createdBody.data.token}`, "x-lifespace-internal-secret": b.CORE_IDENTITY_SHARED_SECRET },
     }, b);
     expect(await revokedIntrospection.json()).toEqual({ data: { active: false } });
+  });
+
+  it("keeps already-issued legacy lsp_pat_* tokens introspectable until normal revocation/rotation", async () => {
+    const { app, b, clientSecret, userId, principalId } = await setup(["events:read"]);
+    const created = await app.request(`http://identity.test/api/v1/service-principals/${principalId}/tokens`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${clientSecret}`, "content-type": "application/json" },
+      body: JSON.stringify({ label: "legacy migration", scopes: ["events:read"], createdByUserId: userId }),
+    }, b);
+    expect(created.status).toBe(201);
+    const tokenId = (await created.json() as { data: { id: string } }).data.id;
+    const legacyToken = `lsp_pat_${crypto.randomUUID().replaceAll("-", "")}${crypto.randomUUID().replaceAll("-", "")}`;
+    await b.DB.prepare("UPDATE service_api_tokens SET token_hash=?, display_prefix=?, last_four=? WHERE id=?")
+      .bind(await sha256Hex(legacyToken), legacyToken.slice(0, 16), legacyToken.slice(-4), tokenId)
+      .run();
+
+    const introspected = await app.request("http://identity.test/introspection/v1/service-tokens", {
+      method: "POST",
+      headers: { authorization: `Bearer ${legacyToken}`, "x-lifespace-internal-secret": b.CORE_IDENTITY_SHARED_SECRET },
+    }, b);
+    expect(introspected.status).toBe(200);
+    expect(await introspected.json()).toMatchObject({ data: { active: true, principal: { type: "service", id: principalId, scopes: ["events:read"] } } });
   });
 
   it("enforces application/principal ceilings and disabled-principal current state", async () => {

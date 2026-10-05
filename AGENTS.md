@@ -189,7 +189,7 @@ Do not silently redefine LifeSpace through a local feature implementation. If a 
 
 - Owner-controlled trusted services may use opaque, individually scoped, revocable `lsp_pat_*` Service API Tokens.
 - OAuth `client_credentials` remains available for third-party/policy-controlled services; it is not mandatory for every owner-controlled integration.
-- `lsa_*` authenticates a trusted application backend to Identity; `lsp_pat_*`/service JWT authenticates a service identity/principal context to Core. Do not conflate them.
+- `lsa_*` authenticates a trusted application backend to Identity; `lsp_svc_*`/service JWT authenticates a service identity/principal context to Core. Existing `lsp_pat_*` is legacy migration input only. Do not conflate them.
 - Service/device identities receive only explicit credential scopes, Application × Model Access and Data Grants.
 - Permanent personal-user API tokens are not a service-authentication substitute.
 - An Agent acting on behalf of a user must preserve delegated user authority and Actor attribution; a permanent service administrator is not a substitute for user delegation.

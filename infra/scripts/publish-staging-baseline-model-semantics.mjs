@@ -12,7 +12,7 @@ const bearer = process.env.LIFESPACE_STAGING_MODEL_ADMIN_BEARER ?? "";
 if (coreBase !== "https://core-staging.aisr.online") {
   throw new Error(`Refusing non-staging Core URL: ${coreBase}`);
 }
-if (!bearer.startsWith("lsp_pat_")) {
+if (!bearer.startsWith("lsp_svc_") && !bearer.startsWith("lsp_pat_")) {
   throw new Error("LIFESPACE_STAGING_MODEL_ADMIN_BEARER is required");
 }
 

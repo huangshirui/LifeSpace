@@ -67,7 +67,7 @@ test("Service PAT benchmark covers bounded Task read/create/update/action reques
   const adapter = benchmarkAdapter();
   const result = await runStagingServicePerformanceBenchmark({
     coreBaseUrl: "https://core-staging.example.test",
-    bearer: "lsp_pat_test_only_not_a_real_secret",
+    bearer: "lsp_svc_test_only_not_a_real_secret",
     spaceId: "spc_test",
     benchmarkProfile: "apac",
     source: "unit-test APAC-shaped adapter",

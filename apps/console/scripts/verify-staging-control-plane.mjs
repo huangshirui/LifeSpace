@@ -214,7 +214,7 @@ try {
   const tokenData = requireStatus(tempToken, 201, "Create temporary Core executor token");
   cleanup.serviceTokenId = tokenData.id;
   cleanup.serviceToken = tokenData.token;
-  if (!cleanup.serviceTokenId || !cleanup.serviceToken?.startsWith("lsp_pat_")) throw new Error("Temporary Core token is invalid");
+  if (!cleanup.serviceTokenId || !cleanup.serviceToken?.startsWith("lsp_svc_")) throw new Error("Temporary Core token is invalid");
   mask(cleanup.serviceToken);
 
   const userTokenResult = await request(identityBase, "/internal/v1/tokens", {

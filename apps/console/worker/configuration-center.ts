@@ -262,7 +262,7 @@ async function openReveal(env: Env, ticket: string): Promise<RevealPayload | nul
     const label = stringValue(decoded.label);
     if ((kind !== "application-credential" && kind !== "service-token") || !secret || !label) return null;
     if (kind === "application-credential" && !secret.startsWith("lsa_")) return null;
-    if (kind === "service-token" && !secret.startsWith("lsp_pat_")) return null;
+    if (kind === "service-token" && !secret.startsWith("lsp_svc_")) return null;
     return { kind, secret, label };
   } catch { return null; }
 }
@@ -441,7 +441,7 @@ async function createServiceToken(request: Request, env: Env, applicationId: str
   if (result.response.status !== 201) return upstreamFailure(request, result, "SERVICE_TOKEN_CREATE_FAILED", "Service API Token creation failed");
   const created = dataRecord(result.payload);
   const secret = created ? stringValue(created.token) : null;
-  if (!created || !secret?.startsWith("lsp_pat_")) return failure("UPSTREAM_RESPONSE_INVALID", "LifeSpace Identity did not return a valid one-time Service API Token", 502, requestId(request));
+  if (!created || !secret?.startsWith("lsp_svc_")) return failure("UPSTREAM_RESPONSE_INVALID", "LifeSpace Identity did not return a valid one-time Service API Token", 502, requestId(request));
   let path: string;
   try { path = await revealPath(env, { kind: "service-token", secret, label: `${label} (${principalId})` }); }
   catch { return failure("CREDENTIAL_REVEAL_HANDOFF_FAILED", "Service API Token was created but its secure reveal handoff could not be sealed. Revoke it and create a replacement.", 502, requestId(request)); }

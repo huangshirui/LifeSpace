@@ -276,7 +276,7 @@ try {
   }), 201, "Create target Service API Token");
   cleanup.tokenId = token?.id ?? "";
   cleanup.tokenSecret = token?.token ?? "";
-  if (!/^sat_[0-9A-Za-z_-]+$/u.test(cleanup.tokenId) || !cleanup.tokenSecret.startsWith("lsp_pat_")) throw new Error("Service API Token result is invalid");
+  if (!/^sat_[0-9A-Za-z_-]+$/u.test(cleanup.tokenId) || !cleanup.tokenSecret.startsWith("lsp_svc_")) throw new Error("Service API Token result is invalid");
   mask(cleanup.tokenSecret);
 
   const reduced = requireStatus(await admin(`/internal/v1/platform-admin/applications/${encodeURIComponent(cleanup.targetApplicationId)}/service-principals/${encodeURIComponent(cleanup.principalId)}/tokens/${encodeURIComponent(cleanup.tokenId)}`, {

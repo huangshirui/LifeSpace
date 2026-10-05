@@ -52,8 +52,13 @@ type OAuthCredentialRow = {
 const TOKEN_ISSUER = "lifespace-identity";
 const TOKEN_AUDIENCE = "lifespace-core";
 const TOKEN_HASH_VERSION = 1;
-const SERVICE_TOKEN_PREFIX = "lsp_pat_";
+const SERVICE_TOKEN_PREFIX = "lsp_svc_";
+const LEGACY_SERVICE_TOKEN_PREFIX = "lsp_pat_";
 const OAUTH_SECRET_PREFIX = "lsp_client_";
+
+export function isOpaqueServiceApiToken(value: string): boolean {
+  return value.startsWith(SERVICE_TOKEN_PREFIX) || value.startsWith(LEGACY_SERVICE_TOKEN_PREFIX);
+}
 
 const ok = <T>(data: T) => ({ data });
 const fail = (code: string, message: string, requestId: string) => ({ error: { code, message, requestId } });
@@ -485,7 +490,7 @@ export function registerServiceAuthenticationRoutes(app: App): void {
     }
     const authorization = c.req.header("authorization");
     const plaintext = authorization?.startsWith("Bearer ") ? authorization.slice(7).trim() : "";
-    if (!plaintext.startsWith(SERVICE_TOKEN_PREFIX) || plaintext.length < 40) return c.json(ok({ active: false }));
+    if (!isOpaqueServiceApiToken(plaintext) || plaintext.length < 40) return c.json(ok({ active: false }));
     const tokenHash = await sha256(plaintext);
     const row = await measurePerformancePhase(c, "identity.service_token_lookup", () =>
       c.env.DB.prepare(`SELECT t.id tokenId,t.principal_id principalId,t.scopes,t.audience,t.expires_at expiresAt,t.revoked_at revokedAt,

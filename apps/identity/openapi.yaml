@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: LifeSpace Identity API
-  version: 0.8.0
+  version: 0.9.0
   description: Global LifeSpace user identity, profile, trusted application exchange, Cloudflare Access principal resolution/linking, application credential lifecycle, Agent identity/execution-token issuance, service principals and credential issuance API.
 paths:
   /health:
@@ -390,7 +390,7 @@ components:
     serviceToken:
       type: http
       scheme: bearer
-      bearerFormat: lsp_pat_ opaque token
+      bearerFormat: lsp_svc_ opaque token
     internalServiceSecret:
       type: apiKey
       in: header
@@ -726,7 +726,7 @@ components:
             - { $ref: '#/components/schemas/ServiceToken' }
             - type: object
               required: [token]
-              properties: { token: { type: string, pattern: '^lsp_pat_', writeOnly: true } }
+              properties: { token: { type: string, pattern: '^lsp_svc_', writeOnly: true } }
     OAuthCredential:
       type: object
       additionalProperties: false

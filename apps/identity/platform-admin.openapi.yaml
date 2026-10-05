@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: LifeSpace Identity Platform Admin API
-  version: 0.2.0
+  version: 0.3.0
   description: >-
     Privileged LifeSpace Identity control-plane contract for the LifeSpace Console and break-glass
     platform provisioning. It is intentionally versioned separately from the downstream Identity
@@ -368,7 +368,7 @@ paths:
     post:
       tags: [Service Admin]
       operationId: createPlatformServiceToken
-      description: Create lsp_pat_* for the target principal. Plaintext is returned exactly once; scopes must fit both target application and principal ceilings.
+      description: Create lsp_svc_* for the target principal. Plaintext is returned exactly once; scopes must fit both target application and principal ceilings.
       security: [{ applicationCredential: [], platformAdminActor: [] }]
       requestBody:
         required: true

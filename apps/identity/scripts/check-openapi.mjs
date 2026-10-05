@@ -2,7 +2,7 @@ import fs from "node:fs";
 import YAML from "yaml";
 
 const doc = YAML.parse(fs.readFileSync(new URL("../openapi.yaml",import.meta.url),"utf8"));
-if (doc.openapi !== "3.1.0" || doc.info?.version !== "0.8.0") {
+if (doc.openapi !== "3.1.0" || doc.info?.version !== "0.9.0") {
   throw new Error("Identity OpenAPI version metadata is invalid");
 }
 
@@ -95,8 +95,8 @@ if (!serviceToken || serviceToken.properties?.token || serviceToken.properties?.
   throw new Error("Listed Service API Token metadata must never expose plaintext or hashes");
 }
 const createdToken = doc.components?.schemas?.CreateServiceTokenResponse?.properties?.data?.allOf?.[1]?.properties?.token;
-if (createdToken?.writeOnly !== true || !String(createdToken?.pattern ?? "").includes("lsp_pat_")) {
-  throw new Error("New lsp_pat plaintext must be one-time/write-only");
+if (createdToken?.writeOnly !== true || !String(createdToken?.pattern ?? "").includes("lsp_svc_")) {
+  throw new Error("New lsp_svc plaintext must be one-time/write-only");
 }
 const oauthSecret = doc.components?.schemas?.CreateOAuthCredentialResponse?.properties?.data?.allOf?.[1]?.properties?.clientSecret;
 if (oauthSecret?.writeOnly !== true || !String(oauthSecret?.pattern ?? "").includes("lsp_client_")) {
@@ -107,7 +107,7 @@ const introspectionSecurity = doc.paths?.["/introspection/v1/service-tokens"]?.p
 if (!introspectionSecurity.some((entry) => entry?.internalServiceSecret && entry?.serviceToken)) {
   throw new Error("Opaque token introspection must require both internal Core authentication and the presented service token");
 }
-if (doc.components?.securitySchemes?.serviceToken?.bearerFormat !== "lsp_pat_ opaque token") throw new Error("Identity contract must distinguish opaque Service API Tokens from JWTs");
+if (doc.components?.securitySchemes?.serviceToken?.bearerFormat !== "lsp_svc_ opaque token") throw new Error("Identity contract must distinguish opaque Service API Tokens from JWTs");
 
 console.log("Identity OpenAPI contract sanity check passed");
 

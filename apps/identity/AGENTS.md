@@ -27,7 +27,7 @@ Identity owns:
 - explicit Access new-account registration and existing-account link challenges;
 - registered LifeSpace applications and revocable `lsa_*` trusted-backend credentials;
 - application scope ceilings and short-lived user-token issuance;
-- service principals, opaque `lsp_pat_*` Service API Tokens and optional OAuth `client_credentials`;
+- service principals, canonical opaque `lsp_svc_*` Service API Tokens, legacy `lsp_pat_*` migration tokens and optional OAuth `client_credentials`;
 - signing-key lifecycle and opaque-token introspection;
 - explicit `platform_administrators` assignment state;
 - dedicated `purpose=platform_admin_actor` proofs with maximum five-minute lifetime;
@@ -97,10 +97,11 @@ The global bootstrap secret is provisioning/break-glass authority, not a normal 
 
 Identity owns service principals plus:
 
-- opaque `lsp_pat_*` tokens for owner-controlled trusted workloads;
+- canonical opaque `lsp_svc_*` tokens for owner-controlled trusted workloads;
+- existing legacy `lsp_pat_*` tokens as migration-compatible inputs until each token is individually rotated or revoked;
 - OAuth service client credentials and short-lived service JWT issuance where needed.
 
-Opaque tokens remain individually scoped, optionally expiring and immediately revocable. Plaintext is one-time only. Existing opaque-token scope updates may reduce authority but must not silently expand an already-issued token.
+New issuance must never mint `lsp_pat_*`. Both opaque prefixes use the same current-state hash lookup, scope, expiry, principal/application status and revocation checks. Opaque tokens remain individually scoped, optionally expiring and immediately revocable. Plaintext is one-time only. Existing opaque-token scope updates may reduce authority but must not silently expand an already-issued token.
 
 See `docs/service-authentication.md` for normative service rules.
 
@@ -159,14 +160,14 @@ Normal application/user/service contract:
 
 ```text
 apps/identity/openapi.yaml
-current version: 0.8.0
+current version: 0.9.0
 ```
 
 Privileged LifeSpace Console control-plane contract:
 
 ```text
 apps/identity/platform-admin.openapi.yaml
-current version: 0.2.0
+current version: 0.3.0
 ```
 
 Do not place a Console-only privileged endpoint into the product-facing Identity OpenAPI merely because both are implemented by the same Worker. Conversely, do not implement a privileged route without adding it to the Platform Admin companion contract and its contract checks.
@@ -178,7 +179,8 @@ Platform-admin audit must distinguish human actor from backend executor and may 
 Never audit or return stored:
 
 - `lsa_*` plaintext;
-- `lsp_pat_*` plaintext;
+- `lsp_svc_*` plaintext;
+- legacy `lsp_pat_*` plaintext;
 - OAuth client secret plaintext;
 - credential hashes;
 - Authorization headers.

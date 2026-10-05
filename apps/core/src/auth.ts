@@ -7,7 +7,11 @@ import { measurePerformancePhase } from "./performance-timing";
 
 type AppEnv = { Bindings: Bindings; Variables: Variables };
 const MAX_ACCESS_TOKEN_TTL_SECONDS = 3600;
-const SERVICE_TOKEN_PREFIX = "lsp_pat_";
+const SERVICE_TOKEN_PREFIXES = ["lsp_svc_", "lsp_pat_"] as const;
+
+export function isOpaqueServiceApiToken(value: string): boolean {
+  return SERVICE_TOKEN_PREFIXES.some((prefix) => value.startsWith(prefix));
+}
 
 function unauthorized(): ApiError {
   return new ApiError("UNAUTHORIZED", "Authentication is required", 401);
@@ -146,7 +150,7 @@ export function authenticate(): MiddlewareHandler<AppEnv> {
     if (!rawToken) throw unauthorized();
 
     let principal: Principal;
-    if (rawToken.startsWith(SERVICE_TOKEN_PREFIX)) {
+    if (isOpaqueServiceApiToken(rawToken)) {
       principal = await measurePerformancePhase(
         context,
         "security.service_token_check",

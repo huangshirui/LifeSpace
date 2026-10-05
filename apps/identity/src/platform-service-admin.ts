@@ -39,7 +39,7 @@ type ServiceTokenRow = {
   revoked_at: string | null;
 };
 
-const SERVICE_TOKEN_PREFIX = "lsp_pat_";
+const SERVICE_TOKEN_PREFIX = "lsp_svc_";
 const SERVICE_TOKEN_AUDIENCE = "lifespace-core";
 const TOKEN_HASH_VERSION = 1;
 const ok = <T>(data: T) => ({ data });
