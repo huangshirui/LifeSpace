@@ -7,6 +7,7 @@ on:
     paths:
       - scripts/apply_issue_306.py
       - scripts/fix_issue_306_round2.py
+      - scripts/fix_issue_306_round3.py
       - .github/workflows/issue-306-apply.yml
 
 permissions:
@@ -33,6 +34,7 @@ jobs:
         run: |
           python3 scripts/apply_issue_306.py
           python3 scripts/fix_issue_306_round2.py
+          python3 scripts/fix_issue_306_round3.py
       - name: Validate repository
         run: pnpm check
       - name: Commit verified implementation
