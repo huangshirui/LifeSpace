@@ -7,6 +7,10 @@ function json(data, status = 200) {
   });
 }
 
+function errorMessage(error) {
+  return (error instanceof Error ? error.message : String(error)).slice(0, 500);
+}
+
 export function isAllowedBenchmarkRequest(path, method, spaceId) {
   let url;
   try {
@@ -40,74 +44,95 @@ export function isAllowedBenchmarkRequest(path, method, spaceId) {
   return rules.some(([allowedMethod, pattern]) => allowedMethod === method && pattern.test(url.pathname));
 }
 
+export async function handleProbeRequest(request, env, fetchImpl = fetch) {
+  if (!env.PROBE_TOKEN || !env.USER_BEARER || !env.SERVICE_BEARER || !env.SPACE_ID) {
+    return json({ error: "probe_not_configured" }, 503);
+  }
+
+  if (request.headers.get("x-lifespace-probe-token") !== env.PROBE_TOKEN) {
+    return json({ error: "not_found" }, 404);
+  }
+
+  const url = new URL(request.url);
+  if (request.method === "GET" && url.pathname === "/health") {
+    return json({ ok: true, placementRegion: "aws:ap-southeast-1" });
+  }
+  if (request.method !== "POST" || url.pathname !== "/run") {
+    return json({ error: "not_found" }, 404);
+  }
+
+  let input;
+  try {
+    input = await request.json();
+  } catch {
+    return json({ error: "invalid_json" }, 400);
+  }
+
+  const method = typeof input?.method === "string" ? input.method.toUpperCase() : "GET";
+  const path = typeof input?.path === "string" ? input.path : "";
+  if (!isAllowedBenchmarkRequest(path, method, env.SPACE_ID)) {
+    return json({ error: "benchmark_request_not_allowed" }, 403);
+  }
+
+  const credentialMode = input?.credentialMode ?? "user";
+  if (credentialMode !== "user" && credentialMode !== "service") {
+    return json({ error: "benchmark_credential_mode_not_allowed" }, 403);
+  }
+  const bearer = credentialMode === "service" ? env.SERVICE_BEARER : env.USER_BEARER;
+
+  const started = performance.now();
+  let response;
+  try {
+    response = await fetchImpl(CORE_BASE_URL + path, {
+      method,
+      headers: {
+        authorization: "Bearer " + bearer,
+        ...(input.body === undefined ? {} : { "content-type": "application/json" }),
+      },
+      ...(input.body === undefined ? {} : { body: JSON.stringify(input.body) }),
+    });
+  } catch (error) {
+    return json({
+      error: "core_fetch_failed",
+      message: errorMessage(error),
+      method,
+      path,
+    }, 502);
+  }
+
+  const elapsedMs = performance.now() - started;
+  let text;
+  try {
+    text = await response.text();
+  } catch (error) {
+    return json({
+      error: "core_response_read_failed",
+      message: errorMessage(error),
+      upstreamStatus: response.status,
+      elapsedMs,
+      method,
+      path,
+    }, 502);
+  }
+
+  let payload = null;
+  if (text) {
+    try {
+      payload = JSON.parse(text);
+    } catch {
+      return json({ error: "core_returned_non_json", status: response.status, elapsedMs, method, path }, 502);
+    }
+  }
+
+  return json({ status: response.status, payload, elapsedMs, credentialMode });
+}
+
 export default {
   async fetch(request, env) {
-    if (!env.PROBE_TOKEN || !env.USER_BEARER || !env.SERVICE_BEARER || !env.SPACE_ID) {
-      return json({ error: "probe_not_configured" }, 503);
-    }
-
-    if (request.headers.get("x-lifespace-probe-token") !== env.PROBE_TOKEN) {
-      return json({ error: "not_found" }, 404);
-    }
-
-    const url = new URL(request.url);
-    if (request.method === "GET" && url.pathname === "/health") {
-      return json({ ok: true, placementRegion: "aws:ap-southeast-1" });
-    }
-    if (request.method !== "POST" || url.pathname !== "/run") {
-      return json({ error: "not_found" }, 404);
-    }
-
-    let input;
     try {
-      input = await request.json();
-    } catch {
-      return json({ error: "invalid_json" }, 400);
-    }
-
-    const method = typeof input?.method === "string" ? input.method.toUpperCase() : "GET";
-    const path = typeof input?.path === "string" ? input.path : "";
-    if (!isAllowedBenchmarkRequest(path, method, env.SPACE_ID)) {
-      return json({ error: "benchmark_request_not_allowed" }, 403);
-    }
-
-    const credentialMode = input?.credentialMode ?? "user";
-    if (credentialMode !== "user" && credentialMode !== "service") {
-      return json({ error: "benchmark_credential_mode_not_allowed" }, 403);
-    }
-    const bearer = credentialMode === "service" ? env.SERVICE_BEARER : env.USER_BEARER;
-
-    const started = performance.now();
-    let response;
-    try {
-      response = await fetch(CORE_BASE_URL + path, {
-        method,
-        headers: {
-          authorization: "Bearer " + bearer,
-          ...(input.body === undefined ? {} : { "content-type": "application/json" }),
-        },
-        ...(input.body === undefined ? {} : { body: JSON.stringify(input.body) }),
-      });
+      return await handleProbeRequest(request, env);
     } catch (error) {
-      return json({
-        error: "core_fetch_failed",
-        message: error instanceof Error ? error.message : String(error),
-        method,
-        path,
-      }, 502);
+      return json({ error: "probe_internal_error", message: errorMessage(error) }, 500);
     }
-
-    const elapsedMs = performance.now() - started;
-    const text = await response.text();
-    let payload = null;
-    if (text) {
-      try {
-        payload = JSON.parse(text);
-      } catch {
-        return json({ error: "core_returned_non_json", status: response.status, elapsedMs }, 502);
-      }
-    }
-
-    return json({ status: response.status, payload, elapsedMs, credentialMode });
   },
 };
