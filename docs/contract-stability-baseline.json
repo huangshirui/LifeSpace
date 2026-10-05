@@ -109,7 +109,7 @@
     {
       "id": "identity-application",
       "source": "apps/identity/openapi.yaml",
-      "operationSetSha256": "sha256:5c0c96b33e541439b63f27cfa9c4b3f56720838580139ad167b17aaf8b2d92f7",
+      "operationSetSha256": "sha256:a25c36e4ac6ff3eb022406422a092146566eb2a941d9cbb63d5b7d5f264f7ef0",
       "groups": [
         {
           "id": "identity-operational",
@@ -139,7 +139,7 @@
           "id": "identity-agent-execution",
           "maturity": "candidate",
           "visibility": "public",
-          "operationPattern": "^(GET|POST) /internal/v1/agents$|^POST /internal/v1/agent-execution-tokens$"
+          "operationPattern": "^(GET|POST) /internal/v1/agents$|^POST /internal/v1/agent-execution-tokens$|^(GET|POST) /internal/v1/agents/\\{agentId\\}/api-credentials$|^(PATCH|DELETE) /internal/v1/agents/\\{agentId\\}/api-credentials/\\{credentialId\\}$"
         },
         {
           "id": "identity-service-principal-administration",
@@ -157,7 +157,13 @@
           "id": "identity-core-introspection",
           "maturity": "stable",
           "visibility": "internal",
-          "operationPattern": "^POST /introspection/v1/.*$"
+          "operationPattern": "^POST /introspection/v1/service-tokens$"
+        },
+        {
+          "id": "identity-agent-credential-introspection",
+          "maturity": "candidate",
+          "visibility": "internal",
+          "operationPattern": "^POST /introspection/v1/agent-credentials$"
         },
         {
           "id": "identity-platform-admin-elevation",

@@ -435,6 +435,15 @@ export function registerGenericBatchRoutes(app: App): void {
       authorityRequests(operations, models),
     );
     rejectRepeatedSingleUse(decisions);
+    const executionPrincipal = decisions[0]!.principal;
+    if (decisions.some((decision) =>
+      decision.principal.type !== executionPrincipal.type
+      || decision.principal.id !== executionPrincipal.id
+      || decision.principal.actor?.type !== executionPrincipal.actor?.type
+      || decision.principal.actor?.id !== executionPrincipal.actor?.id
+    )) {
+      throw new ApiError("DELEGATION_INVALID", "Batch operations must resolve to one Execution Principal", 403);
+    }
 
     const previousById = await loadExistingResources(
       context.env,
@@ -444,7 +453,7 @@ export function registerGenericBatchRoutes(app: App): void {
     );
     const prepared = await prepareOperations(
       context.env,
-      principal,
+      executionPrincipal,
       spaceId,
       operations,
       models,
@@ -462,13 +471,13 @@ export function registerGenericBatchRoutes(app: App): void {
     const timestamp = new Date().toISOString();
     const plans = await buildPlans(
       context.env,
-      principal,
+      executionPrincipal,
       spaceId,
       prepared,
       changeSetId,
       timestamp,
     );
-    const executedBy = actor(principal);
+    const executedBy = actor(executionPrincipal);
 
     const statements: D1PreparedStatement[] = [
       context.env.DB.prepare(`INSERT INTO resource_change_sets(
@@ -477,9 +486,9 @@ export function registerGenericBatchRoutes(app: App): void {
       ) VALUES(?,?,?,?,?,?,?,?,?,NULL)`).bind(
         changeSetId,
         spaceId,
-        principal.clientId,
-        principal.type,
-        principal.id,
+        executionPrincipal.clientId,
+        executionPrincipal.type,
+        executionPrincipal.id,
         executedBy.type,
         executedBy.id,
         operations.length,

@@ -3,6 +3,7 @@ import {
   delegationChainStatement,
   delegationCurrent,
   groupDelegationChainRows,
+  resolveAgentApiDelegatedPrincipal,
   validateStructuralDelegationChain,
   type DelegationChainRow,
 } from "./delegation-chain";
@@ -66,6 +67,7 @@ export type ModelPolicyIdentity = {
 };
 
 export type ModelAccessDecision = {
+  principal: Principal;
   authority: ModelAuthorityDecision;
   policyIdentity: ModelPolicyIdentity;
 };
@@ -347,6 +349,7 @@ function decisionFromSnapshots(
   }
 
   return {
+    principal,
     authority: {
       applicationId: principal.clientId,
       modelKey: prepared.request.model.key,
@@ -376,11 +379,12 @@ function prepareAccess(
   };
 }
 
-export async function requireModelAccessMany(
+async function requireModelAccessManyResolved(
   env: Bindings,
   principal: Principal,
   spaceId: string,
   requests: readonly ModelAccessRequest[],
+  preloadedChains: Map<string, DelegationChainRow[]> | null = null,
 ): Promise<ModelAccessDecision[]> {
   if (!requests.length) return [];
 
@@ -401,9 +405,10 @@ export async function requireModelAccessMany(
 
   const uniqueBases = [...baseEntries.values()];
   const uniqueLeafIds = [...leafIds];
+  const shouldLoadChains = preloadedChains === null && uniqueLeafIds.length > 0;
   const statements = [
     ...uniqueBases.map((entry) => entry.statement),
-    ...(uniqueLeafIds.length ? [delegationChainStatement(env, uniqueLeafIds)] : []),
+    ...(shouldLoadChains ? [delegationChainStatement(env, uniqueLeafIds)] : []),
   ];
   const results = await env.DB.batch<Record<string, unknown>>(statements);
 
@@ -413,11 +418,11 @@ export async function requireModelAccessMany(
     baseRows.set(entry.key, row ?? null);
   });
 
-  const chainsByLeaf = uniqueLeafIds.length
+  const chainsByLeaf = preloadedChains ?? (shouldLoadChains
     ? groupDelegationChainRows(
         (results[uniqueBases.length]?.results ?? []) as DelegationChainRow[],
       )
-    : new Map<string, DelegationChainRow[]>();
+    : new Map<string, DelegationChainRow[]>());
 
   return prepared.map((entry) => decisionFromSnapshots(
     principal,
@@ -426,6 +431,53 @@ export async function requireModelAccessMany(
     baseRows.get(entry.baseKey) ?? null,
     entry.delegationId ? chainsByLeaf.get(entry.delegationId) ?? [] : [],
   ));
+}
+
+export async function requireModelAccessMany(
+  env: Bindings,
+  principal: Principal,
+  spaceId: string,
+  requests: readonly ModelAccessRequest[],
+): Promise<ModelAccessDecision[]> {
+  if (!requests.length) return [];
+
+  const agentApiCredential = principal.type === "agent" && !principal.actor && principal.purpose === "agent_api";
+  if (!agentApiCredential) return requireModelAccessManyResolved(env, principal, spaceId, requests);
+
+  const delegationIds = requests.map((request) => request.selector?.delegationId?.trim() || null);
+  const selected = delegationIds.filter((value): value is string => Boolean(value));
+  if (!selected.length) return requireModelAccessManyResolved(env, principal, spaceId, requests);
+  if (selected.length !== delegationIds.length) {
+    throw new ApiError(
+      "DELEGATION_INVALID",
+      "One Agent API credential request batch cannot mix direct Agent authority and represented Delegation authority",
+      403,
+    );
+  }
+
+  // Principal identity is deliberately not supplied by the adapter. Resolve it from
+  // the current Delegation chain selected by dlg_*. This is one bounded extra D1 RTT
+  // for opaque Agent credentials and never becomes an item-by-item waterfall.
+  const uniqueLeafIds = [...new Set(selected)];
+  const [result] = await env.DB.batch<Record<string, unknown>>([
+    delegationChainStatement(env, uniqueLeafIds),
+  ]);
+  const chainsByLeaf = groupDelegationChainRows((result?.results ?? []) as DelegationChainRow[]);
+  const resolved = selected.map((delegationId) => resolveAgentApiDelegatedPrincipal(
+    principal,
+    spaceId,
+    delegationId,
+    chainsByLeaf.get(delegationId) ?? [],
+  ));
+  const first = resolved[0]!;
+  if (resolved.some((entry) => entry.type !== first.type || entry.id !== first.id || entry.actor?.id !== first.actor?.id)) {
+    throw new ApiError(
+      "DELEGATION_INVALID",
+      "One Agent API credential request batch must resolve to one Root Principal",
+      403,
+    );
+  }
+  return requireModelAccessManyResolved(env, first, spaceId, requests, chainsByLeaf);
 }
 
 export async function requireModelAccess(

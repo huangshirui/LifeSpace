@@ -8,9 +8,14 @@ import { measurePerformancePhase } from "./performance-timing";
 type AppEnv = { Bindings: Bindings; Variables: Variables };
 const MAX_ACCESS_TOKEN_TTL_SECONDS = 3600;
 const SERVICE_TOKEN_PREFIXES = ["lsp_svc_", "lsp_pat_"] as const;
+const AGENT_API_TOKEN_PREFIX = "lsp_agt_";
 
 export function isOpaqueServiceApiToken(value: string): boolean {
   return SERVICE_TOKEN_PREFIXES.some((prefix) => value.startsWith(prefix));
+}
+
+export function isOpaqueAgentApiCredential(value: string): boolean {
+  return value.startsWith(AGENT_API_TOKEN_PREFIX);
 }
 
 function unauthorized(): ApiError {
@@ -142,6 +147,52 @@ export async function introspectServiceToken(rawToken: string, env: Bindings): P
   };
 }
 
+
+export async function introspectAgentCredential(rawToken: string, env: Bindings): Promise<Principal> {
+  if (!env.IDENTITY || !env.CORE_IDENTITY_SHARED_SECRET) {
+    throw notConfigured("Identity Agent credential introspection binding is not configured");
+  }
+  let response: Response;
+  try {
+    response = await env.IDENTITY.fetch("https://identity.internal/introspection/v1/agent-credentials", {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${rawToken}`,
+        "x-lifespace-internal-secret": env.CORE_IDENTITY_SHARED_SECRET,
+      },
+    });
+  } catch {
+    throw unauthorized();
+  }
+  if (!response.ok) throw unauthorized();
+  const payload = await response.json<{ data?: { active?: boolean; principal?: Principal; audience?: string } }>().catch(() => null);
+  const principal = payload?.data?.principal;
+  if (
+    payload?.data?.active !== true
+    || payload.data.audience !== "lifespace-core"
+    || !principal
+    || principal.type !== "agent"
+    || !/^agt_[A-Za-z0-9_-]+$/u.test(principal.id)
+    || typeof principal.clientId !== "string"
+    || typeof principal.tokenId !== "string"
+    || !Array.isArray(principal.scopes)
+    || principal.scopes.some((scope) => typeof scope !== "string")
+    || principal.purpose !== "agent_api"
+    || principal.actor !== undefined
+  ) throw unauthorized();
+  return {
+    type: "agent",
+    id: principal.id,
+    ...(typeof principal.displayName === "string" && principal.displayName.trim()
+      ? { displayName: principal.displayName.trim() }
+      : {}),
+    clientId: principal.clientId,
+    scopes: [...principal.scopes],
+    tokenId: principal.tokenId,
+    purpose: "agent_api",
+  };
+}
+
 export function authenticate(): MiddlewareHandler<AppEnv> {
   return async (context, next) => {
     const authorization = context.req.header("authorization");
@@ -155,6 +206,12 @@ export function authenticate(): MiddlewareHandler<AppEnv> {
         context,
         "security.service_token_check",
         () => introspectServiceToken(rawToken, context.env),
+      );
+    } else if (isOpaqueAgentApiCredential(rawToken)) {
+      principal = await measurePerformancePhase(
+        context,
+        "security.agent_credential_check",
+        () => introspectAgentCredential(rawToken, context.env),
       );
     } else if (context.env.IDENTITY_PUBLIC_KEY) {
       principal = await measurePerformancePhase(

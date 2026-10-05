@@ -32,7 +32,7 @@ export type Principal = {
   scopes: string[];
   tokenId: string;
   actor?: Actor;
-  purpose?: "agent_execution";
+  purpose?: "agent_execution" | "agent_api";
 };
 
 export type Bindings = CloudflareBindings & {
