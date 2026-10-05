@@ -34,6 +34,11 @@ replace_once(
     'current Kernel version: 0.45.0',
     'current Kernel version: 0.46.0',
 )
+replace_once(
+    'apps/core/test/final-migration-state.integration.test.ts',
+    'expect(row?.value).toBe("49");',
+    'expect(row?.value).toBe("50");',
+)
 
 # Preserve 0.45 history while documenting the new contract surface.
 contracts = read('docs/contracts.md')
