@@ -75,7 +75,7 @@ Applications pin explicit compatible contract versions instead of consuming an u
 | --- | --- |
 | Owner-controlled Web/PWA/Admin | Cloudflare Access + same-origin BFF + LifeSpace Identity Access exchange |
 | Mini Program / application-specific provider | Application backend resolves provider identity, then `lsa_*` trusted application exchange |
-| Owner-controlled automation/script/backend | Opaque revocable `lsp_svc_*` Service API Token (legacy `lsp_pat_*` remains accepted until rotate/revoke) |
+| Owner-controlled automation/script/backend | Opaque revocable `lsp_svc_*` Service API Token (legacy `lsp_svc_*` remains accepted until rotate/revoke) |
 | Agent execution | Application-authenticated short-lived Core-only Agent execution token; direct Agent uses its own Authority, represented Agent additionally requires current Delegation |
 | Third-party/policy-controlled service | OAuth 2.0 `client_credentials` |
 

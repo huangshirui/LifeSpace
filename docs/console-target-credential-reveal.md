@@ -11,7 +11,7 @@ This is a narrow output boundary for credentials the operator is creating for an
 The following remain strictly server-only and are never revealable:
 
 - the Console `IDENTITY_APPLICATION_CREDENTIAL` / executor `lsa_*`;
-- the Console Core executor `lsp_pat_*`;
+- the Console Core executor `lsp_svc_*`;
 - raw Cloudflare Access assertions;
 - LifeSpace user bearer tokens;
 - platform-admin actor proofs;
@@ -22,7 +22,7 @@ Ordinary React/JavaScript responses also never receive target credential plainte
 
 ## Why this exception exists
 
-Identity correctly returns newly created `lsa_*` and `lsp_pat_*` plaintext exactly once. A usable platform configuration center must let an authorized operator install that new target credential into the intended backend/integration without turning React, local storage, cookies, logs, audit or another database into a credential store.
+Identity correctly returns newly created `lsa_*` and `lsp_svc_*` plaintext exactly once. A usable platform configuration center must let an authorized operator install that new target credential into the intended backend/integration without turning React, local storage, cookies, logs, audit or another database into a credential store.
 
 A normal JSON `fetch()` response containing the secret is therefore rejected. A plaintext `HttpOnly` cookie is also rejected: JavaScript cannot read it, but it still places recoverable credential plaintext in browser cookie storage and sends it back over later requests.
 

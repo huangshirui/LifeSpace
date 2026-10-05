@@ -28,6 +28,7 @@ Identity owns:
 - registered LifeSpace applications and revocable `lsa_*` trusted-backend credentials;
 - application scope ceilings and short-lived user-token issuance;
 - service principals, canonical opaque `lsp_svc_*` Service API Tokens, legacy `lsp_pat_*` migration tokens and optional OAuth `client_credentials`;
+- stable Agent identities and opaque `lsp_agt_*` Agent API credentials that bind Application + Agent Actor but grant no Space/model/User Authority;
 - signing-key lifecycle and opaque-token introspection;
 - explicit `platform_administrators` assignment state;
 - dedicated `purpose=platform_admin_actor` proofs with maximum five-minute lifetime;

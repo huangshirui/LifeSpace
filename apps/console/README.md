@@ -98,7 +98,7 @@ Cloudflare Access assertion
 -> fixed Identity/Core control-plane operation
 ```
 
-Identity control-plane calls use the Console `lsa_*` application credential plus actor proof. Core control-plane calls use the dedicated Console `lsp_pat_*` service executor plus actor proof. Actor and executor must belong to the same Console application context.
+Identity control-plane calls use the Console `lsa_*` application credential plus actor proof. Core control-plane calls use the dedicated Console `lsp_svc_*` service executor plus actor proof. Actor and executor must belong to the same Console application context.
 
 The following never cross the normal Worker/browser JavaScript boundary:
 
@@ -106,7 +106,7 @@ The following never cross the normal Worker/browser JavaScript boundary:
 - LifeSpace user bearer;
 - platform-admin actor JWT;
 - Console `lsa_*` application credential;
-- Console `lsp_pat_*` Core executor;
+- Console `lsp_svc_*` Core executor;
 - bootstrap secret.
 
 Newly issued **target** Application credentials and Service API Tokens use the separately documented operator reveal boundary in `docs/console-target-credential-reveal.md`: plaintext exists only server-side until a current platform administrator opens a short-lived AES-GCM-sealed reveal URL. The reveal response is no-script/no-store. No plaintext target secret is placed in React JSON, cookies, storage, query parameters, logs or audit.
@@ -162,7 +162,7 @@ Worker secrets in full-admin mode:
 
 ```text
 IDENTITY_APPLICATION_CREDENTIAL  # server-only Console lsa_*
-CORE_EXECUTOR_BEARER             # dedicated Console lsp_pat_* executor
+CORE_EXECUTOR_BEARER             # dedicated Console lsp_svc_* executor
 ```
 
 The global bootstrap secret is deliberately not a Console Worker secret.

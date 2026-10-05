@@ -39,7 +39,12 @@ Mini Program / untrusted client
   -> LifeSpace Core
 
 Owner-controlled automation / script / protocol adapter / backend
-  -> opaque lsp_pat_* Service API Token
+  -> opaque lsp_svc_* Service API Token
+  -> LifeSpace Core
+
+Agent adapter / n8n User Delegation mode
+  -> opaque lsp_agt_* Agent API credential authenticates Application + Agent Actor
+  -> explicit dlg_* selects current User authority when User/Agent execution is intended
   -> LifeSpace Core
 
 Third-party or policy-controlled service
@@ -193,7 +198,7 @@ Identity is not a general-purpose Google/Microsoft/email IdP. Those upstream log
 
 ## Web/BFF and cookie boundary
 
-Each Web application owns its own same-origin BFF boundary. Browser JavaScript must not receive `lsa_*`, `lsp_pat_*`, bootstrap secrets or equivalent backend credentials.
+Each Web application owns its own same-origin BFF boundary. Browser JavaScript must not receive `lsa_*`, `lsp_svc_*`, legacy `lsp_pat_*`, `lsp_agt_*`, bootstrap secrets or equivalent backend credentials.
 
 Identity/session cookies are host-only; LifeSpace does not use a parent-domain `Domain=aisr.online` cookie to share authority between applications. SSO is established by Cloudflare Access and explicit Identity exchange rather than by a shared parent cookie.
 
@@ -203,7 +208,7 @@ Core remains a bearer/service-authenticated API and must not infer application i
 
 LifeSpace supports two service modes:
 
-- opaque, revocable `lsp_pat_*` Service API Tokens for owner-controlled trusted workloads;
+- opaque, revocable `lsp_svc_*` Service API Tokens for owner-controlled trusted workloads (`lsp_pat_*` remains legacy input only);
 - OAuth `client_credentials` for short-lived service JWTs when required by third-party or policy constraints.
 
 Both authenticate the current `service` principal representation and are bounded by application/service scope ceilings, Application × Model Access, current Data Grants and model policy.

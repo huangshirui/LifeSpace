@@ -1,6 +1,6 @@
 # LifeSpace Contract Strategy
 
-## Identity 0.9.0 / Platform Admin 0.3.0 — canonical Service API Token prefix
+## Identity 0.10.0 / Platform Admin 0.4.0 — first-class Agent API credential
 
 New opaque Service API Tokens are represented as `lsp_svc_*`. Existing `lsp_pat_*` tokens remain compatibility inputs and continue through the identical current-state introspection/revocation path until individually rotated or revoked. Service Principal identity, token-hash storage, scope ceilings, Data Grants, Application × Model Access and Core authorization semantics are unchanged.
 
@@ -15,8 +15,8 @@ Canonical service contracts live with the service implementation in this reposit
 
 Identity now has two explicit contract surfaces:
 
-1. **Identity Application Contract** — `apps/identity/openapi.yaml`, used by ordinary user/application authentication, profile, trusted application exchange, Cloudflare Access principal linking and application-owned service authentication. Its current version is `0.6.0`; 0.6.0 adds first-class Agent identity and Core-only delegated Agent execution-token issuance.
-2. **Identity Platform Admin Contract** — `apps/identity/platform-admin.openapi.yaml`, used only by the LifeSpace Console and approved break-glass/platform-control workflows. Its current version is `0.2.0`; 0.2.0 adds Application-scoped Agent identity governance while preserving the existing dual actor/executor control-plane boundary.
+1. **Identity Application Contract** — `apps/identity/openapi.yaml`, used by ordinary user/application authentication, profile, trusted application exchange, Cloudflare Access principal linking, service authentication and application-owned Agent authentication. Its current version is `0.10.0`; 0.10.0 adds revocable opaque `lsp_agt_*` Agent API credentials without granting Authority by credential possession.
+2. **Identity Platform Admin Contract** — `apps/identity/platform-admin.openapi.yaml`, used only by the LifeSpace Console and approved break-glass/platform-control workflows. Its current version is `0.4.0`; 0.4.0 adds Agent API credential lifecycle governance while preserving the existing dual actor/executor control-plane boundary.
 
 Core has five contract layers:
 
@@ -67,7 +67,7 @@ The Model Semantic Fingerprint is content-addressed over the selected applicatio
 A platform operator surface such as LifeSpace Console additionally pins the two Platform Admin companion contracts:
 
 ```text
-Identity Platform Admin Contract: 0.3.0
+Identity Platform Admin Contract: 0.4.0
 Core Platform Admin Contract:     0.3.0
 ```
 
@@ -92,13 +92,13 @@ They are companion contracts rather than alternative service implementations: th
 Normative rules:
 
 - `apps/identity/platform-admin.openapi.yaml` and `apps/core/platform-admin.openapi.yaml` are the only editable OpenAPI sources for the new Console control plane.
-- Identity Platform Admin is `0.3.0`; Core Platform Admin is `0.3.0`. Their versions advance independently when each service's admin syntax changes.
+- Identity Platform Admin is `0.4.0`; Core Platform Admin is `0.3.0`. Their versions advance independently when each service's admin syntax changes.
 - Console privileged operations use the dual identity model from `docs/permissions.md`: a controlled server-side executor plus `X-LifeSpace-Actor-Token` carrying the dedicated short-lived human actor proof.
 - The actor proof is not a reusable general user credential. Identity issues it only from an ordinary authenticated LifeSpace user session after current `platform_administrators` assignment checks, and the proof is bound to `purpose=platform_admin_actor` with a maximum five-minute lifetime.
 - Bootstrap administrator-assignment routes are included only as provisioning/break-glass control-plane syntax. The bootstrap secret is never a Console runtime credential.
 - Core's Console Model Admin paths reuse the Model Control Plane request/response schemas rather than authoring a second Model Definition contract. The Model Control Plane owns governance wire syntax; the Platform Admin contract adds the human-proof/audit profile.
 - Read-only User/Access-principal and Space/member/Grant inspector surfaces remain control-plane-only. They do not create ordinary user/Space permissions.
-- One-time `lsa_*` and `lsp_pat_*` plaintext fields remain write-only contract data and are never returned by list/read surfaces.
+- One-time `lsa_*`, `lsp_svc_*` and `lsp_agt_*` plaintext fields remain write-only contract data; legacy `lsp_pat_*` is accepted input only and are never returned by list/read surfaces.
 
 A Console release should pin the ordinary contracts it needs for normal profile/session/model metadata reads plus explicit Platform Admin versions. The future `apps/console` build must not call an unversioned undocumented admin route.
 

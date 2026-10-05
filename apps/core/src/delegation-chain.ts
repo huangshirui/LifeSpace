@@ -237,8 +237,8 @@ export function resolveAgentApiDelegatedPrincipal(
     || leaf.actor_id !== authenticatedAgent.id
     || leaf.application_id !== authenticatedAgent.clientId
     || leaf.source_space_id !== spaceId
-    || (leaf.principal_type === "agent" && leaf.principal_id === authenticatedAgent.id)) {
-    throw new ApiError("DELEGATION_INVALID", "Delegation does not represent this authenticated Agent credential", 403);
+    || leaf.principal_type !== "user") {
+    throw new ApiError("DELEGATION_INVALID", "Agent API credential Delegation must represent User authority for this authenticated Agent", 403);
   }
   const resolved: Principal = {
     type: leaf.principal_type,

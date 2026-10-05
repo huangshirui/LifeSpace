@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import AgentCredentialsDialog from "./AgentCredentialsDialog";
 import "./application-configuration.css";
 
 type ErrorEnvelope = { error?: { code?: string; message?: string; requestId?: string } };
@@ -64,6 +65,7 @@ export default function AgentIdentitiesDialog({ applicationId, onClose }: { appl
   const [agents, setAgents] = useState<AgentIdentity[]>([]);
   const [displayName, setDisplayName] = useState("");
   const [editing, setEditing] = useState<AgentIdentity>();
+  const [credentialAgent, setCredentialAgent] = useState<AgentIdentity>();
   const [editName, setEditName] = useState("");
   const [editStatus, setEditStatus] = useState<"active" | "disabled">("active");
   const [globalConfirmed, setGlobalConfirmed] = useState(false);
@@ -125,7 +127,8 @@ export default function AgentIdentitiesDialog({ applicationId, onClose }: { appl
   const active = agents.filter((agent) => agent.binding.status === "active");
   const history = agents.filter((agent) => agent.binding.status !== "active");
 
-  return <div className="cp-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+  return <>
+  <div className="cp-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
     <section className="cp-dialog" role="dialog" aria-modal="true" aria-label="Agent identities">
       <header className="cp-dialog-header">
         <div><div className="cp-eyebrow">Application control plane</div><h2>Agent identities</h2><p>管理 Identity 权威的稳定 Agent 身份。display name 与 status 属于全局 agt_* identity；Application binding 是独立关系。创建 Agent 不会自动授予 Space / Model 权限，也不会创建 Delegation。</p></div>
@@ -150,10 +153,12 @@ export default function AgentIdentitiesDialog({ applicationId, onClose }: { appl
         </div>}
 
         <ErrorNotice error={error} />
-        <div className="acp-section"><div className="acp-section-title"><strong>Active bindings</strong><span>{active.length}</span></div>{loading ? <div className="cp-loading">正在读取 Agent identities…</div> : active.length ? active.map((agent) => <div className="acp-audience" key={agent.id}><div><strong>{agent.displayName}</strong><code>{agent.id}</code><small>global {agent.status} · binding {agent.binding.status}</small></div><button disabled={busy} onClick={() => beginEdit(agent)}>Edit</button></div>) : <div className="cp-loading">当前没有 Agent identity。</div>}</div>
+        <div className="acp-section"><div className="acp-section-title"><strong>Active bindings</strong><span>{active.length}</span></div>{loading ? <div className="cp-loading">正在读取 Agent identities…</div> : active.length ? active.map((agent) => <div className="acp-audience" key={agent.id}><div><strong>{agent.displayName}</strong><code>{agent.id}</code><small>global {agent.status} · binding {agent.binding.status}</small></div><div className="acp-inline-form"><button disabled={busy} onClick={() => setCredentialAgent(agent)}>Credentials</button><button disabled={busy} onClick={() => beginEdit(agent)}>Edit</button></div></div>) : <div className="cp-loading">当前没有 Agent identity。</div>}</div>
         {!!history.length && <div className="acp-section"><div className="acp-section-title"><strong>Binding history</strong><span>{history.length}</span></div>{history.map((agent) => <div className="acp-audience acp-muted" key={agent.id}><div><strong>{agent.displayName}</strong><code>{agent.id}</code><small>{agent.binding.status} {agent.binding.revokedAt ? `· ${new Date(agent.binding.revokedAt).toLocaleString()}` : ""}</small></div></div>)}</div>}
       </div>
       <footer className="cp-dialog-footer"><button className="cp-secondary" onClick={onClose}>关闭</button></footer>
     </section>
-  </div>;
+  </div>
+  {credentialAgent && <AgentCredentialsDialog applicationId={applicationId} agent={credentialAgent} onClose={() => setCredentialAgent(undefined)} />}
+  </>;
 }

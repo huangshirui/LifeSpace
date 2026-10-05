@@ -100,7 +100,7 @@ describe("Identity cross-application Platform Agent Admin", () => {
     const pair = await keys();
     const console = await provisionConsole(pair, ["platform:admin", "applications:manage", "audit:read"]);
     const targetId = `agent-target-${crypto.randomUUID().replaceAll("-", "")}`;
-    await bootstrapApplication(pair, targetId, ["profile:read"], true);
+    await bootstrapApplication(pair, targetId, ["resources:read", "resources:write"], true);
 
     const createdResponse = await request(`/internal/v1/platform-admin/applications/${targetId}/agents`, {
       method: "POST",
@@ -126,6 +126,38 @@ describe("Identity cross-application Platform Agent Admin", () => {
       expect.objectContaining({ id: created.id, displayName: "Scheduling Assistant", status: "active" }),
     ]));
 
+
+    const credentialCreated = await request(`/internal/v1/platform-admin/applications/${targetId}/agents/${created.id}/api-credentials`, {
+      method: "POST",
+      headers: adminHeaders(console.secret, console.actorToken, true),
+      body: JSON.stringify({ label: "n8n", scopes: ["resources:read", "resources:write"] }),
+    }, pair);
+    expect(credentialCreated.status).toBe(201);
+    const agentCredential = (await credentialCreated.json() as any).data;
+    expect(agentCredential.token).toMatch(/^lsp_agt_/u);
+
+    const credentialList = await request(`/internal/v1/platform-admin/applications/${targetId}/agents/${created.id}/api-credentials`, {
+      method: "GET",
+      headers: adminHeaders(console.secret, console.actorToken),
+    }, pair);
+    expect(credentialList.status).toBe(200);
+    const listedCredential = (await credentialList.json() as any).data[0];
+    expect(listedCredential.id).toBe(agentCredential.id);
+    expect(listedCredential.token).toBeUndefined();
+
+    const credentialReduced = await request(`/internal/v1/platform-admin/applications/${targetId}/agents/${created.id}/api-credentials/${agentCredential.id}`, {
+      method: "PATCH",
+      headers: adminHeaders(console.secret, console.actorToken, true),
+      body: JSON.stringify({ scopes: ["resources:read"] }),
+    }, pair);
+    expect(credentialReduced.status).toBe(200);
+    expect((await credentialReduced.json() as any).data.scopes).toEqual(["resources:read"]);
+
+    const credentialRevoked = await request(`/internal/v1/platform-admin/applications/${targetId}/agents/${created.id}/api-credentials/${agentCredential.id}`, {
+      method: "DELETE",
+      headers: adminHeaders(console.secret, console.actorToken),
+    }, pair);
+    expect(credentialRevoked.status).toBe(204);
     const disabled = await request(`/internal/v1/platform-admin/applications/${targetId}/agents/${created.id}`, {
       method: "PATCH",
       headers: adminHeaders(console.secret, console.actorToken, true),
@@ -156,6 +188,9 @@ describe("Identity cross-application Platform Agent Admin", () => {
     expect(entries).toEqual(expect.arrayContaining([
       expect.objectContaining({ operation: "agent.create", actorUserId: console.userId, targetId: created.id }),
       expect.objectContaining({ operation: "agent.update", actorUserId: console.userId, targetId: created.id }),
+      expect.objectContaining({ operation: "agent.api_credential.create", actorUserId: console.userId, targetId: agentCredential.id }),
+      expect.objectContaining({ operation: "agent.api_credential.update", actorUserId: console.userId, targetId: agentCredential.id }),
+      expect.objectContaining({ operation: "agent.api_credential.revoke", actorUserId: console.userId, targetId: agentCredential.id }),
     ]));
     expect(JSON.stringify(entries)).toContain('"authorityGranted":false');
     expect(JSON.stringify(entries)).toContain('"delegationCreated":false');

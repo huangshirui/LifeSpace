@@ -93,7 +93,7 @@ Rules:
 - request `userId` is never current actor identity;
 - revoking membership/Grant/model access must take effect from current state;
 - closed Spaces are never ordinary authorization targets, even if stale membership or Grant rows remain;
-- Core normalizes verified RS256 JWTs and Identity-introspected opaque `lsp_svc_*` tokens (plus legacy `lsp_pat_*` migration tokens) into one principal context;
+- Core normalizes verified RS256 JWTs and Identity-introspected opaque `lsp_svc_*` tokens (plus legacy `lsp_svc_*` / legacy `lsp_pat_*` migration tokens) into one principal context;
 - service credentials still require explicit application/Data Grant/model authority;
 - whole-Space Data Grants use `resource_type=space, resource_id=NULL`;
 - model-collection Data Grants use `resource_type=model, resource_id=<published model key>` and authorize only Generic Runtime access to that model in the source Space;
@@ -214,3 +214,10 @@ A Core change is incomplete until:
 - Platform Admin changes cover service-only executor, missing/wrong-purpose/mismatched actor proof and no-hidden-Space-authority behavior;
 - performance-sensitive changes preserve D1 round-trip/N+1 rules;
 - downstream Kernel/model-contract impact is explicitly assessed.
+
+
+### Agent API credential execution
+
+- `lsp_agt_*` is introspected through Identity and normalizes initially to direct `agent` Principal context.
+- An explicit `dlg_*` may resolve represented execution only to `Principal=user / Actor=agent`; no caller-supplied user identity is trusted.
+- Keep Delegation resolution set-wise/bounded for Batch; never add per-item Identity/D1 waterfalls.

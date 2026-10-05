@@ -14,7 +14,7 @@ interface Env {
 type JsonRecord = Record<string, unknown>;
 type UpstreamResult = { response: Response; payload: unknown };
 type IdentityAdminContext = { actorToken: string; identityCredential: string };
-type RevealPayload = { kind: "application-credential" | "service-token"; secret: string; label: string };
+type RevealPayload = { kind: "application-credential" | "service-token" | "agent-credential"; secret: string; label: string };
 type RevealEnvelope = RevealPayload & { expiresAt: number };
 
 const ACCESS_ASSERTION_HEADER = "cf-access-jwt-assertion";
@@ -33,6 +33,9 @@ const intents = {
   createServiceToken: "create-service-token",
   updateServiceToken: "update-service-token",
   revokeServiceToken: "revoke-service-token",
+  createAgentCredential: "create-agent-api-credential",
+  updateAgentCredential: "update-agent-api-credential",
+  revokeAgentCredential: "revoke-agent-api-credential",
 } as const;
 
 function isRecord(value: unknown): value is JsonRecord {
@@ -176,6 +179,8 @@ function validApplicationId(value: string): boolean { return /^[A-Za-z0-9][A-Za-
 function validCredentialId(value: string): boolean { return /^apc_[A-Za-z0-9_-]+$/u.test(value); }
 function validPrincipalId(value: string): boolean { return /^svc_[A-Za-z0-9_-]+$/u.test(value); }
 function validTokenId(value: string): boolean { return /^sat_[A-Za-z0-9_-]+$/u.test(value); }
+function validAgentId(value: string): boolean { return /^agt_[A-Za-z0-9_-]+$/u.test(value); }
+function validAgentCredentialId(value: string): boolean { return /^agc_[A-Za-z0-9_-]+$/u.test(value); }
 
 function normalizeScopes(value: unknown): string[] | null {
   if (!Array.isArray(value) || value.length > MAX_SCOPES) return null;
@@ -204,6 +209,10 @@ function sanitizePrincipal(data: JsonRecord): JsonRecord {
 
 function sanitizeToken(data: JsonRecord): JsonRecord {
   return allowlist(data, ["id", "principalId", "displayPrefix", "lastFour", "label", "scopes", "audience", "expiresAt", "createdAt", "createdByUserId", "lastUsedAt", "revokedAt"]);
+}
+
+function sanitizeAgentCredential(data: JsonRecord): JsonRecord {
+  return allowlist(data, ["id", "agentId", "applicationId", "displayPrefix", "lastFour", "label", "scopes", "audience", "status", "expiresAt", "createdAt", "createdByUserId", "lastUsedAt", "revokedAt", "revokedByUserId"]);
 }
 
 function bytesToBase64Url(bytes: Uint8Array): string {
@@ -260,9 +269,10 @@ async function openReveal(env: Env, ticket: string): Promise<RevealPayload | nul
     const kind = decoded.kind;
     const secret = stringValue(decoded.secret);
     const label = stringValue(decoded.label);
-    if ((kind !== "application-credential" && kind !== "service-token") || !secret || !label) return null;
+    if ((kind !== "application-credential" && kind !== "service-token" && kind !== "agent-credential") || !secret || !label) return null;
     if (kind === "application-credential" && !secret.startsWith("lsa_")) return null;
     if (kind === "service-token" && !secret.startsWith("lsp_svc_")) return null;
+    if (kind === "agent-credential" && !secret.startsWith("lsp_agt_")) return null;
     return { kind, secret, label };
   } catch { return null; }
 }
@@ -273,7 +283,7 @@ function escapeHtml(value: string): string {
 
 function revealHtml(payload: RevealPayload | null): string {
   if (!payload) return "<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width\"><title>Credential unavailable</title></head><body><main><h1>Credential unavailable</h1><p>The short-lived reveal ticket has expired or is invalid. Revoke the unrecovered credential and create a replacement.</p></main></body></html>";
-  const kindLabel = payload.kind === "application-credential" ? "Application credential" : "Service API Token";
+  const kindLabel = payload.kind === "application-credential" ? "Application credential" : payload.kind === "service-token" ? "Service API Token" : "Agent API credential";
   return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${escapeHtml(kindLabel)}</title><style>body{font-family:system-ui,sans-serif;margin:0;background:#f5f7fb;color:#15233b}main{max-width:820px;margin:8vh auto;padding:28px;background:white;border:1px solid #dfe6f0;border-radius:16px;box-shadow:0 20px 60px rgba(20,40,75,.12)}h1{font-size:24px;margin:0 0 8px}p{color:#5f6f86;line-height:1.55}label{display:block;margin-top:22px;font-size:12px;font-weight:700;color:#40516d}textarea{box-sizing:border-box;width:100%;min-height:112px;margin-top:8px;padding:14px;border:1px solid #cdd8e6;border-radius:10px;background:#f9fbfe;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px;word-break:break-all}.note{margin-top:18px;padding:12px;border-radius:10px;background:#fff7e8;color:#72561b;font-size:12px}</style></head><body><main><h1>${escapeHtml(kindLabel)}</h1><p>${escapeHtml(payload.label)}</p><label>Copy now</label><textarea readonly spellcheck="false">${escapeHtml(payload.secret)}</textarea><div class="note">This isolated reveal document contains no JavaScript and is not cacheable. The encrypted reveal ticket expires quickly; store the credential in the target system and close this tab.</div></main></body></html>`;
 }
 
@@ -499,7 +509,101 @@ async function revokeServiceToken(request: Request, env: Env, applicationId: str
   return json({ data: { applicationId, principalId, tokenId, revoked: true } });
 }
 
-function parsePath(pathname: string): { applicationId: string; credentialId?: string; principalId?: string; tokenId?: string; resource: "credentials" | "principals" | "tokens" } | null {
+async function listAgentCredentials(request: Request, env: Env, applicationId: string, agentId: string): Promise<Response> {
+  const context = await requireIdentityAdminContext(request, env);
+  if (context instanceof Response) return context;
+  const result = await serviceRequest(env.IDENTITY, env.IDENTITY_BASE_URL, `/internal/v1/platform-admin/applications/${encodeURIComponent(applicationId)}/agents/${encodeURIComponent(agentId)}/api-credentials`, {
+    headers: identityHeaders(context),
+  });
+  if (result.response.status !== 200) return upstreamFailure(request, result, "AGENT_CREDENTIAL_LIST_FAILED", "Agent API credential metadata lookup failed");
+  const rows = dataArray(result.payload);
+  return rows ? json({ data: rows.filter(isRecord).map(sanitizeAgentCredential) }) : failure("UPSTREAM_RESPONSE_INVALID", "LifeSpace Identity returned invalid Agent credential metadata", 502, requestId(request));
+}
+
+async function createAgentCredential(request: Request, env: Env, applicationId: string, agentId: string): Promise<Response> {
+  const guard = exactSameOriginMutation(request, intents.createAgentCredential);
+  if (guard) return guard;
+  const body = await readJsonObject(request);
+  if (body instanceof Response) return body;
+  const allowed = new Set(["label", "scopes", "expiresAt", "confirmApplicationId", "confirmAgentId"]);
+  if (Object.keys(body).some((key) => !allowed.has(key)) || body.confirmApplicationId !== applicationId || body.confirmAgentId !== agentId) {
+    return failure("CONFIRMATION_REQUIRED", "Agent credential creation requires exact application and Agent confirmation", 422, requestId(request));
+  }
+  const label = stringValue(body.label)?.trim() ?? "";
+  const scopes = normalizeScopes(body.scopes);
+  const expiresAt = body.expiresAt === undefined || body.expiresAt === null || body.expiresAt === "" ? null : typeof body.expiresAt === "string" ? body.expiresAt : undefined;
+  if (!label || label.length > 100 || !scopes || expiresAt === undefined || (expiresAt !== null && !Number.isFinite(Date.parse(expiresAt)))) {
+    return failure("VALIDATION_ERROR", "Agent credential fields are invalid", 422, requestId(request));
+  }
+  const context = await requireIdentityAdminContext(request, env);
+  if (context instanceof Response) return context;
+  const result = await serviceRequest(env.IDENTITY, env.IDENTITY_BASE_URL, `/internal/v1/platform-admin/applications/${encodeURIComponent(applicationId)}/agents/${encodeURIComponent(agentId)}/api-credentials`, {
+    method: "POST", headers: identityHeaders(context, true), body: JSON.stringify({ label, scopes, expiresAt }),
+  });
+  if (result.response.status !== 201) return upstreamFailure(request, result, "AGENT_CREDENTIAL_CREATE_FAILED", "Agent API credential creation failed");
+  const created = dataRecord(result.payload);
+  const secret = created ? stringValue(created.token) : null;
+  if (!created || !secret?.startsWith("lsp_agt_")) return failure("UPSTREAM_RESPONSE_INVALID", "LifeSpace Identity did not return a valid one-time Agent API credential", 502, requestId(request));
+  let path: string;
+  try { path = await revealPath(env, { kind: "agent-credential", secret, label: `${label} (${agentId})` }); }
+  catch { return failure("CREDENTIAL_REVEAL_HANDOFF_FAILED", "Agent API credential was created but its secure reveal handoff could not be sealed. Revoke it and create a replacement.", 502, requestId(request)); }
+  return json({ data: { credential: sanitizeAgentCredential(created), revealPath: path } }, 201);
+}
+
+async function updateAgentCredential(request: Request, env: Env, applicationId: string, agentId: string, credentialId: string): Promise<Response> {
+  const guard = exactSameOriginMutation(request, intents.updateAgentCredential);
+  if (guard) return guard;
+  const body = await readJsonObject(request);
+  if (body instanceof Response) return body;
+  const allowed = new Set(["label", "scopes", "expiresAt", "confirmApplicationId", "confirmAgentId", "confirmCredentialId"]);
+  if (Object.keys(body).some((key) => !allowed.has(key)) || body.confirmApplicationId !== applicationId || body.confirmAgentId !== agentId || body.confirmCredentialId !== credentialId) {
+    return failure("CONFIRMATION_REQUIRED", "Agent credential update requires exact application, Agent and credential confirmation", 422, requestId(request));
+  }
+  const patch: JsonRecord = {};
+  if (body.label !== undefined) {
+    const label = stringValue(body.label)?.trim() ?? "";
+    if (!label || label.length > 100) return failure("VALIDATION_ERROR", "label must contain 1-100 characters", 422, requestId(request));
+    patch.label = label;
+  }
+  if (body.scopes !== undefined) {
+    const scopes = normalizeScopes(body.scopes);
+    if (!scopes) return failure("VALIDATION_ERROR", "scopes are invalid", 422, requestId(request));
+    patch.scopes = scopes;
+  }
+  if (body.expiresAt !== undefined) {
+    const expiresAt = body.expiresAt === null || body.expiresAt === "" ? null : typeof body.expiresAt === "string" ? body.expiresAt : undefined;
+    if (expiresAt === undefined || (expiresAt !== null && !Number.isFinite(Date.parse(expiresAt)))) return failure("VALIDATION_ERROR", "expiresAt must be ISO date-time or null", 422, requestId(request));
+    patch.expiresAt = expiresAt;
+  }
+  if (!Object.keys(patch).length) return failure("INVALID_REQUEST", "At least one mutable Agent credential field is required", 400, requestId(request));
+  const context = await requireIdentityAdminContext(request, env);
+  if (context instanceof Response) return context;
+  const result = await serviceRequest(env.IDENTITY, env.IDENTITY_BASE_URL, `/internal/v1/platform-admin/applications/${encodeURIComponent(applicationId)}/agents/${encodeURIComponent(agentId)}/api-credentials/${encodeURIComponent(credentialId)}`, {
+    method: "PATCH", headers: identityHeaders(context, true), body: JSON.stringify(patch),
+  });
+  if (result.response.status !== 200) return upstreamFailure(request, result, "AGENT_CREDENTIAL_UPDATE_FAILED", "Agent API credential update failed");
+  const updated = dataRecord(result.payload);
+  return updated ? json({ data: sanitizeAgentCredential(updated) }) : failure("UPSTREAM_RESPONSE_INVALID", "LifeSpace Identity returned invalid Agent credential metadata", 502, requestId(request));
+}
+
+async function revokeAgentCredential(request: Request, env: Env, applicationId: string, agentId: string, credentialId: string): Promise<Response> {
+  const guard = exactSameOriginMutation(request, intents.revokeAgentCredential);
+  if (guard) return guard;
+  const body = await readJsonObject(request);
+  if (body instanceof Response) return body;
+  if (Object.keys(body).some((key) => !["confirmApplicationId", "confirmAgentId", "confirmCredentialId"].includes(key)) || body.confirmApplicationId !== applicationId || body.confirmAgentId !== agentId || body.confirmCredentialId !== credentialId) {
+    return failure("CONFIRMATION_REQUIRED", "Agent credential revocation requires exact application, Agent and credential confirmation", 422, requestId(request));
+  }
+  const context = await requireIdentityAdminContext(request, env);
+  if (context instanceof Response) return context;
+  const result = await serviceRequest(env.IDENTITY, env.IDENTITY_BASE_URL, `/internal/v1/platform-admin/applications/${encodeURIComponent(applicationId)}/agents/${encodeURIComponent(agentId)}/api-credentials/${encodeURIComponent(credentialId)}`, {
+    method: "DELETE", headers: identityHeaders(context),
+  });
+  if (result.response.status !== 204) return upstreamFailure(request, result, "AGENT_CREDENTIAL_REVOKE_FAILED", "Agent API credential revocation failed");
+  return json({ data: { applicationId, agentId, credentialId, revoked: true } });
+}
+
+function parsePath(pathname: string): { applicationId: string; credentialId?: string; principalId?: string; tokenId?: string; agentId?: string; agentCredentialId?: string; resource: "credentials" | "principals" | "tokens" | "agent-credentials" } | null {
   let match = /^\/api\/credential-governance\/applications\/([^/]+)\/credentials(?:\/([^/]+))?$/u.exec(pathname);
   if (match) {
     try {
@@ -507,6 +611,16 @@ function parsePath(pathname: string): { applicationId: string; credentialId?: st
       const credentialId = match[2] ? decodeURIComponent(match[2]) : undefined;
       if (!validApplicationId(applicationId) || (credentialId && !validCredentialId(credentialId))) return null;
       return { applicationId, credentialId, resource: "credentials" };
+    } catch { return null; }
+  }
+  match = /^\/api\/credential-governance\/applications\/([^/]+)\/agents\/([^/]+)\/api-credentials(?:\/([^/]+))?$/u.exec(pathname);
+  if (match) {
+    try {
+      const applicationId = decodeURIComponent(match[1]);
+      const agentId = decodeURIComponent(match[2]);
+      const agentCredentialId = match[3] ? decodeURIComponent(match[3]) : undefined;
+      if (!validApplicationId(applicationId) || !validAgentId(agentId) || (agentCredentialId && !validAgentCredentialId(agentCredentialId))) return null;
+      return { applicationId, agentId, agentCredentialId, resource: "agent-credentials" };
     } catch { return null; }
   }
   match = /^\/api\/credential-governance\/applications\/([^/]+)\/service-principals(?:\/([^/]+))?(?:\/tokens(?:\/([^/]+))?)?$/u.exec(pathname);
@@ -529,6 +643,12 @@ async function configurationCenterRoute(request: Request, env: Env): Promise<Res
   if (target.resource === "credentials") {
     if (request.method === "POST" && !target.credentialId) return createApplicationCredential(request, env, target.applicationId);
     if (request.method === "DELETE" && target.credentialId) return revokeApplicationCredential(request, env, target.applicationId, target.credentialId);
+  }
+  if (target.resource === "agent-credentials" && target.agentId) {
+    if (request.method === "GET" && !target.agentCredentialId) return listAgentCredentials(request, env, target.applicationId, target.agentId);
+    if (request.method === "POST" && !target.agentCredentialId) return createAgentCredential(request, env, target.applicationId, target.agentId);
+    if (request.method === "PATCH" && target.agentCredentialId) return updateAgentCredential(request, env, target.applicationId, target.agentId, target.agentCredentialId);
+    if (request.method === "DELETE" && target.agentCredentialId) return revokeAgentCredential(request, env, target.applicationId, target.agentId, target.agentCredentialId);
   }
   if (target.resource === "principals") {
     if (request.method === "POST" && !target.principalId) return createServicePrincipal(request, env, target.applicationId);
