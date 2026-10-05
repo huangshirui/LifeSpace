@@ -6,6 +6,8 @@ ROOT = Path(__file__).resolve().parents[1]
 baseline_path = ROOT / "docs/contract-stability-baseline.json"
 openapi_path = ROOT / "apps/core/openapi.yaml"
 
+# #306 adds a new Candidate Public API family. Keep the operation classifier and
+# full Core operation-set digest aligned with the generated OpenAPI in the same gate.
 baseline = json.loads(baseline_path.read_text())
 core = next((item for item in baseline.get("contractSources", []) if item.get("id") == "core-kernel"), None)
 if core is None:
