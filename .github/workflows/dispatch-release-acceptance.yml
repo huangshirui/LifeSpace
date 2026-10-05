@@ -1,0 +1,19 @@
+name: Dispatch release acceptance
+
+on:
+  push:
+    branches:
+      - ops/dispatch-issue-298-staging
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch merged main staging acceptance
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run staging-deploy.yml --repo huangshirui/LifeSpace --ref main
