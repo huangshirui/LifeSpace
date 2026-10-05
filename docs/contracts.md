@@ -351,3 +351,5 @@ Identity Application Contract `0.6.0` owns Agent identity (`agt_*`) and trusted-
 Runtime Discovery `query.canonical` and each immutable generated Model Contract expose the same metadata-derived Canonical Query descriptor: invocation, searchable fields, typed filter targets/operators, ordered sort, pagination limits and opaque cursor bindings. Consumers must use that descriptor instead of selecting between Generic/Standard and Capability Query modes.
 
 The remaining GET parameter and Capability Query fields in Runtime Discovery are deprecated compatibility metadata. They may guide migration of an existing caller, but they are no longer an independent semantic authority.
+
+- Kernel 0.45.0 adds transport-independent `arq_*` Authorization Request lifecycle endpoints. Request creation is non-authorizing; the trusted adapter/workflow supplies `principalUserId` as identity context (never as Authority or an LLM argument), Confirm/Deny bind the decision to that same User, and Confirm reuses atomic Delegation issuance with current Authority checks. No separate User Proof/token exchange is introduced.

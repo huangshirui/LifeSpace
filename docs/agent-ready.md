@@ -382,3 +382,11 @@ Future Agent-as-Principal or other entity combinations may be enabled without ch
 - Batch cannot partially commit;
 - Application/internal Sub Agent routing cannot bypass the LifeSpace trust-boundary Actor;
 - no Agent adapter or Batch path may bypass normal Runtime semantics.
+
+## Authorization Request protocol
+
+`arq_*` is the durable transport-independent pending user-confirmation state for Agent integrations. Request creation grants no Authority. The authenticated Agent/Application may carry an already-resolved trusted workflow `usr_*` as identity context; no extra User Proof/token exchange is required. This value is not Authority, must never become an AI/LLM argument, and Confirm/Deny must present the current trusted workflow `usr_*` again so Core can require an exact match with the immutable request Principal. Core owns immutable requested scopes, request TTL (default 60 minutes, bounded 1..1440), pending reuse, terminal state, and canonical confirmation projection.
+
+Lifecycle is `pending -> approved | denied | cancelled | expired`. `denied` means the trusted presentation workflow reports explicit user rejection; `cancelled` means the requesting Agent/Application no longer needs the request. `sessionId` / `conversationId` are correlation only.
+
+Confirm re-reads canonical request state, optionally validates structured confirmation equality, rechecks current User Authority + credential scope + Application × Model Access, and atomically records approval together with the independent single-scope `dlg_*` rows by reusing the same #298 Delegation issuance primitive. A terminal-transition uniqueness row is the concurrency boundary, so concurrent confirm/deny/cancel cannot create partial approval. Chat/WeCom/n8n presentation and routing remain adapter/application concerns, not Core orchestration.

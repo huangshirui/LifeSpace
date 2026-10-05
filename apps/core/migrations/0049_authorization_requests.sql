@@ -12,6 +12,7 @@ CREATE TABLE authorization_requests (
   source_space_id TEXT NOT NULL REFERENCES spaces(id),
   request_ttl_minutes INTEGER NOT NULL CHECK(request_ttl_minutes BETWEEN 1 AND 1440),
   fingerprint TEXT NOT NULL,
+  reuse_key TEXT NOT NULL,
   correlation_json TEXT,
   created_at TEXT NOT NULL,
   expires_at TEXT NOT NULL
@@ -21,6 +22,11 @@ CREATE INDEX idx_authorization_requests_pending_reuse
   ON authorization_requests(
     application_id,requesting_agent_id,intended_user_id,source_space_id,fingerprint,expires_at
   );
+
+CREATE TABLE authorization_request_reuse_keys (
+  reuse_key TEXT PRIMARY KEY,
+  request_id TEXT NOT NULL UNIQUE REFERENCES authorization_requests(id) ON DELETE CASCADE
+);
 
 CREATE TABLE authorization_request_items (
   request_id TEXT NOT NULL REFERENCES authorization_requests(id) ON DELETE CASCADE,
@@ -42,6 +48,18 @@ CREATE TABLE authorization_request_transitions (
   actor_type TEXT NOT NULL,
   actor_id TEXT NOT NULL
 );
+
+CREATE TRIGGER trg_authorization_request_transition_not_expired
+BEFORE INSERT ON authorization_request_transitions
+BEGIN
+  SELECT (CASE
+    WHEN NOT EXISTS(
+      SELECT 1 FROM authorization_requests r
+      WHERE r.id=NEW.request_id AND julianday(r.expires_at)>julianday('now')
+    )
+    THEN RAISE(ABORT, 'AUTHORIZATION_REQUEST_EXPIRED')
+  END);
+END;
 
 CREATE TABLE authorization_request_delegations (
   request_id TEXT NOT NULL REFERENCES authorization_requests(id) ON DELETE CASCADE,
