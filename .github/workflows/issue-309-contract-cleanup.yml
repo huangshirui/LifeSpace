@@ -1,0 +1,39 @@
+name: Verify issue 309 Bulk contract cleanup
+
+on:
+  push:
+    branches:
+      - feat/issue-309-non-atomic-bulk
+
+permissions:
+  contents: write
+
+jobs:
+  fix-and-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: feat/issue-309-non-atomic-bulk
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v4.4.0
+        with:
+          version: 10.13.1
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+      - run: pnpm install --frozen-lockfile
+      - name: Apply Bulk contract cleanup
+        run: python3 scripts/fix_issue_309_bulk_contract.py
+      - name: Remove temporary transformer
+        run: rm scripts/fix_issue_309_bulk_contract.py .github/workflows/issue-309-contract-cleanup.yml
+      - name: Verify repository
+        run: pnpm check
+      - name: Commit verified cleanup
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add apps/core/src/model-contract.ts .github/workflows/issue-309-contract-cleanup.yml scripts/fix_issue_309_bulk_contract.py
+          git diff --cached --quiet && exit 0
+          git commit -m "fix(core): separate Bulk operation contract semantics"
+          git push origin HEAD:feat/issue-309-non-atomic-bulk
