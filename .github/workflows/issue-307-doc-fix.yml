@@ -19,6 +19,13 @@ jobs:
         with:
           ref: feat/307-agent-api-credential
           fetch-depth: 0
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
       - name: Apply documentation fixes
         run: python3 scripts/fix_issue_307_docs.py
       - name: Verify contract/documentation consistency
