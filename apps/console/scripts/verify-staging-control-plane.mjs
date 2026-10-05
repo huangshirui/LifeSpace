@@ -308,7 +308,7 @@ try {
     environment: "staging",
     actorUserId: adminUserId,
     actorApplicationId: applicationId,
-    acceptanceModel: { key: modelKey, route: modelRoute, publishedVersions: [1, 2], retired: true },
+    acceptanceModel: { key: modelKey, publishedVersions: [1, 2], retired: true },
     modelContract: {
       before: beforeContract?.id ?? null,
       afterV1: afterV1Contract?.id ?? null,
