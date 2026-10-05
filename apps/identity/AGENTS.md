@@ -27,7 +27,7 @@ Identity owns:
 - explicit Access new-account registration and existing-account link challenges;
 - registered LifeSpace applications and revocable `lsa_*` trusted-backend credentials;
 - application scope ceilings and short-lived user-token issuance;
-- service principals, opaque `lsp_pat_*` Service API Tokens and optional OAuth `client_credentials`;
+- service principals, canonical opaque `lsp_svc_*` Service API Tokens, legacy `lsp_pat_*` migration tokens and optional OAuth `client_credentials`;
 - signing-key lifecycle and opaque-token introspection;
 - explicit `platform_administrators` assignment state;
 - dedicated `purpose=platform_admin_actor` proofs with maximum five-minute lifetime;
@@ -97,10 +97,11 @@ The global bootstrap secret is provisioning/break-glass authority, not a normal 
 
 Identity owns service principals plus:
 
-- opaque `lsp_pat_*` tokens for owner-controlled trusted workloads;
+- canonical opaque `lsp_svc_*` tokens for owner-controlled trusted workloads;
+- existing legacy `lsp_pat_*` tokens as migration-compatible inputs until each token is individually rotated or revoked;
 - OAuth service client credentials and short-lived service JWT issuance where needed.
 
-Opaque tokens remain individually scoped, optionally expiring and immediately revocable. Plaintext is one-time only. Existing opaque-token scope updates may reduce authority but must not silently expand an already-issued token.
+New issuance must never mint `lsp_pat_*`. Both opaque prefixes use the same current-state hash lookup, scope, expiry, principal/application status and revocation checks. Opaque tokens remain individually scoped, optionally expiring and immediately revocable. Plaintext is one-time only. Existing opaque-token scope updates may reduce authority but must not silently expand an already-issued token.
 
 See `docs/service-authentication.md` for normative service rules.
 
@@ -179,7 +180,7 @@ Never audit or return stored:
 
 - `lsa_*` plaintext;
 - `lsp_svc_*` plaintext;
-- legacy `lsp_pat_*` plaintext only during migration;
+- legacy `lsp_pat_*` plaintext;
 - OAuth client secret plaintext;
 - credential hashes;
 - Authorization headers.
