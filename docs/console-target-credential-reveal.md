@@ -4,7 +4,7 @@ Status: **accepted for Configuration & Publishing Center Slice C**
 
 ## Decision
 
-LifeSpace Console may present the plaintext of a **newly created target Application credential or Service API Token** to the current human platform administrator only through a dedicated, isolated reveal document.
+LifeSpace Console may present the plaintext of a **newly created target Application credential, Service API Token or Agent API credential** to the current human platform administrator only through a dedicated, isolated reveal document.
 
 This is a narrow output boundary for credentials the operator is creating for another trusted backend/service. It is **not** permission to expose any credential used to authorize the Console itself.
 
@@ -22,7 +22,7 @@ Ordinary React/JavaScript responses also never receive target credential plainte
 
 ## Why this exception exists
 
-Identity correctly returns newly created `lsa_*` and `lsp_svc_*` plaintext exactly once. A usable platform configuration center must let an authorized operator install that new target credential into the intended backend/integration without turning React, local storage, cookies, logs, audit or another database into a credential store.
+Identity correctly returns newly created `lsa_*`, `lsp_svc_*` and `lsp_agt_*` plaintext exactly once. A usable platform configuration center must let an authorized operator install that new target credential into the intended backend/integration without turning React, local storage, cookies, logs, audit or another database into a credential store.
 
 A normal JSON `fetch()` response containing the secret is therefore rejected. A plaintext `HttpOnly` cookie is also rejected: JavaScript cannot read it, but it still places recoverable credential plaintext in browser cookie storage and sends it back over later requests.
 
@@ -85,7 +85,7 @@ The Console check gate requires:
 - static credential/reveal boundary guards;
 - TypeScript and Vite build;
 - `node --check` of the built Worker bundle so edge-parser failures are caught before Cloudflare deployment;
-- staging lifecycle acceptance proving generated Application credential / Service API Token plaintext does not appear in metadata or platform-admin audit.
+- staging lifecycle acceptance proving generated Application credential / Service API Token / Agent API credential plaintext does not appear in metadata or platform-admin audit.
 
 The first staging deployment attempt of Slice C exposed a Worker parser incompatibility that TypeScript/Vite alone had not caught. The implementation was then consolidated and built-Worker syntax validation became part of the normal Console check gate before the successful staging deployment.
 

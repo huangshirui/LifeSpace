@@ -40,6 +40,7 @@ Credentials / external systems
   Create / revoke target Application credential
   Create / update / disable Service Principal
   Create / reduce / update / revoke Service API Token
+  Create / list / reduce / revoke Agent API credential
 ```
 
 All operations reuse authoritative Core/Identity control planes. Console does **not** add an independent model schema, credential database, Core/Identity migrations, handwritten ordinary-model CRUD, direct DDL/SQL execution or hidden Space impersonation.
@@ -109,7 +110,7 @@ The following never cross the normal Worker/browser JavaScript boundary:
 - Console `lsp_svc_*` Core executor;
 - bootstrap secret.
 
-Newly issued **target** Application credentials and Service API Tokens use the separately documented operator reveal boundary in `docs/console-target-credential-reveal.md`: plaintext exists only server-side until a current platform administrator opens a short-lived AES-GCM-sealed reveal URL. The reveal response is no-script/no-store. No plaintext target secret is placed in React JSON, cookies, storage, query parameters, logs or audit.
+Newly issued **target** Application credentials, Service API Tokens and Agent API credentials use the separately documented operator reveal boundary in `docs/console-target-credential-reveal.md`: plaintext exists only server-side until a current platform administrator opens a short-lived AES-GCM-sealed reveal URL. The reveal response is no-script/no-store. No plaintext target secret is placed in React JSON, cookies, storage, query parameters, logs or audit.
 
 Browser mutations additionally require exact same-origin evidence, `Sec-Fetch-Site: same-origin`, JSON Content-Type and an operation-specific `x-lifespace-console-intent`. Destructive/whole-catalog operations must carry explicit confirmation that is validated by the BFF, not only by React UI state.
 

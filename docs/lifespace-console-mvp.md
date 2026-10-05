@@ -36,7 +36,7 @@ PR #42 已将 Console 所需的控制面安全基础合并到 `main`：
 - human actor + controlled executor 双重授权；
 - Identity Platform Admin Application 管理；
 - Application credential 与 Access audience 管理；
-- cross-application Service Principal / `lsp_svc_*` 管理；
+- cross-application Service Principal / `lsp_pat_*` 管理；
 - 全局只读 User + Access-principal inspector；
 - Core Application × Model Access 管理；
 - 全局只读 Space/member/Data Grant/model-record-count inspector；
@@ -374,7 +374,7 @@ Browser JavaScript never receives：
 - LifeSpace user bearer；
 - actor proof；
 - Console `lsa_*`；
-- Core `lsp_svc_*`；
+- Core `lsp_pat_*`；
 - bootstrap secret。
 
 The BFF validates fixed route shapes, identifier formats, query allow-lists, duplicate query parameters and bounded result limits before composing upstream calls。It never accepts client-controlled upstream URLs/paths/Authorization headers。
