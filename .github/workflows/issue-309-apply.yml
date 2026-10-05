@@ -1,0 +1,40 @@
+name: Apply issue 309 non-atomic Bulk
+
+on:
+  push:
+    branches:
+      - feat/issue-309-non-atomic-bulk
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/issue-309-non-atomic-bulk
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Apply #309 implementation
+        run: python3 scripts/apply_issue_309.py
+      - name: Remove temporary transformer
+        run: rm scripts/apply_issue_309.py .github/workflows/issue-309-apply.yml
+      - name: Verify repository
+        run: pnpm check
+      - name: Commit implementation
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add apps/core docs/runtime-storage-performance.md .github/workflows/issue-309-apply.yml scripts/apply_issue_309.py
+          git diff --cached --quiet && exit 0
+          git commit -m "feat(core): add first-class non-atomic Bulk CRUD"
+          git push origin HEAD:feat/issue-309-non-atomic-bulk
