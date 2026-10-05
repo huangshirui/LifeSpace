@@ -5,7 +5,7 @@ on:
     branches:
       - feat/307-agent-api-credential
     paths:
-      - scripts/fix_issue_307_staging_acceptance.py
+      - scripts/fix_issue_307_staging_acceptance_v2.py
       - .github/workflows/issue-307-staging-acceptance-fix.yml
 
 permissions:
@@ -29,14 +29,14 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - name: Apply staging acceptance coverage
-        run: python3 scripts/fix_issue_307_staging_acceptance.py
+        run: python3 scripts/fix_issue_307_staging_acceptance_v2.py
       - name: Validate repository
         run: pnpm check
       - name: Commit verified staging acceptance coverage
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
+          git add infra/scripts/verify-staging-authority-v3.mjs apps/console/scripts/verify-staging-configuration-center.mjs
           git diff --cached --quiet && exit 0
           git commit -m "test(staging): cover Agent API credential lifecycle (#307)"
           git push origin HEAD:feat/307-agent-api-credential
