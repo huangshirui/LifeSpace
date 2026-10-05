@@ -1,0 +1,37 @@
+name: Fix issue 307 documentation drift
+
+on:
+  push:
+    branches:
+      - feat/307-agent-api-credential
+    paths:
+      - scripts/fix_issue_307_docs.py
+      - .github/workflows/issue-307-doc-fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply-doc-fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/307-agent-api-credential
+          fetch-depth: 0
+      - name: Apply documentation fixes
+        run: python3 scripts/fix_issue_307_docs.py
+      - name: Verify contract/documentation consistency
+        run: |
+          node infra/scripts/check-contract-stability.mjs
+          node apps/core/scripts/check-openapi.mjs
+          node apps/identity/scripts/check-openapi.mjs
+          node apps/identity/scripts/check-platform-admin-openapi.mjs
+      - name: Commit documentation fixes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet && exit 0
+          git commit -m "docs: align Agent credential current-state references (#307)"
+          git push origin HEAD:feat/307-agent-api-credential
