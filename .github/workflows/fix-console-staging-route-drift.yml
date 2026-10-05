@@ -1,0 +1,42 @@
+name: Fix Console staging route drift
+
+on:
+  push:
+    branches:
+      - fix/console-staging-acceptance-route-drift
+    paths:
+      - scripts/fix_console_staging_route_drift.py
+      - .github/workflows/fix-console-staging-route-drift.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: fix/console-staging-acceptance-route-drift
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v4.4.0
+        with:
+          version: 10.13.1
+          run_install: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Apply fixture repair
+        run: python3 scripts/fix_console_staging_route_drift.py
+      - name: Validate repository
+        run: pnpm check
+      - name: Commit verified fixture repair
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add apps/console/scripts/verify-staging-control-plane.mjs
+          git diff --cached --quiet && exit 0
+          git commit -m "test(console): align staging Model Definition fixture"
+          git push origin HEAD:fix/console-staging-acceptance-route-drift
