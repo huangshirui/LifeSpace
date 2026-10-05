@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: LifeSpace Identity API
-  version: 0.9.0
+  version: 0.10.0
   description: Global LifeSpace user identity, profile, trusted application exchange, Cloudflare Access principal resolution/linking, application credential lifecycle, Agent identity/execution-token issuance, service principals and credential issuance API.
 paths:
   /health:
@@ -250,6 +250,74 @@ paths:
         '400': { $ref: '#/components/responses/InvalidRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '422': { $ref: '#/components/responses/ValidationError' }
+  /internal/v1/agents/{agentId}/api-credentials:
+    parameters:
+      - name: agentId
+        in: path
+        required: true
+        schema: { type: string, pattern: ^agt_ }
+    get:
+      description: List opaque Agent API credential metadata for an Agent bound to the authenticated trusted Application. Plaintext and hashes are never returned.
+      security: [{ applicationCredential: [] }]
+      responses:
+        '200': { description: Agent API credential metadata list }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { description: Agent binding not found }
+    post:
+      description: Create a revocable opaque lsp_agt_* Agent API credential. The credential binds Application + Agent Actor but grants no Space/model/User Authority. Plaintext is returned exactly once.
+      security: [{ applicationCredential: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [label, scopes]
+              properties:
+                label: { type: string, minLength: 1, maxLength: 100 }
+                scopes: { type: array, uniqueItems: true, items: { type: string } }
+                expiresAt: { type: [string, 'null'], format: date-time }
+      responses:
+        '201': { description: Agent API credential created; response data includes one-time write-only token matching ^lsp_agt_ }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { description: Agent binding not found }
+        '409': { description: Agent/Application binding is not active }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /internal/v1/agents/{agentId}/api-credentials/{credentialId}:
+    parameters:
+      - name: agentId
+        in: path
+        required: true
+        schema: { type: string, pattern: ^agt_ }
+      - name: credentialId
+        in: path
+        required: true
+        schema: { type: string, pattern: ^agc_ }
+    patch:
+      description: Update Agent API credential metadata. scopes and expiry may only be narrowed; authority cannot be expanded in place.
+      security: [{ applicationCredential: [] }]
+      responses:
+        '200': { description: Updated Agent API credential metadata }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { description: Active Agent API credential not found }
+        '422': { $ref: '#/components/responses/ValidationError' }
+    delete:
+      description: Immediately revoke one Agent API credential.
+      security: [{ applicationCredential: [] }]
+      responses:
+        '204': { description: Agent API credential revoked }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { description: Active Agent API credential not found }
+  /introspection/v1/agent-credentials:
+    post:
+      description: Internal Core-to-Identity lsp_agt_* introspection through the Cloudflare Service Binding. Returns the authenticated Application + Agent Actor and credential scope ceiling only; it never resolves User Authority.
+      security: [{ internalServiceSecret: [], agentCredential: [] }]
+      responses:
+        '200': { description: Active Agent credential execution identity or active=false }
+        '401': { description: Internal service authentication failed }
   /internal/v1/agent-execution-tokens:
     post:
       description: Issue one short-lived Core-only Agent Execution Token. sub authenticates the actual Agent Actor; Principal is an independent signed claim. Omitting principalType/principalId means direct Agent execution. Current executable Principal types are user and agent; Core remains authoritative for Delegation and business Authority.
@@ -391,6 +459,11 @@ components:
       type: http
       scheme: bearer
       bearerFormat: lsp_svc_ opaque token
+    agentCredential:
+      type: http
+      scheme: bearer
+      bearerFormat: lsp_agt_ opaque credential
+      description: Opaque lsp_agt_* Agent API credential; accepted only on the internal introspection route.
     internalServiceSecret:
       type: apiKey
       in: header

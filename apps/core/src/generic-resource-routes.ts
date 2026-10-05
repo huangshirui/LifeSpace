@@ -139,19 +139,19 @@ export function registerGenericResourceRoutes(app: App): void {
     await measurePerformancePhase(
       context,
       "runtime.policy",
-      () => requireModelPolicy(context.env, principal, spaceId, resolved, "read", undefined, undefined, { principalPersonId: access.policyIdentity.principalPersonId, actorPersonId: access.policyIdentity.actorPersonId }),
+      () => requireModelPolicy(context.env, access.principal, spaceId, resolved, "read", undefined, undefined, { principalPersonId: access.policyIdentity.principalPersonId, actorPersonId: access.policyIdentity.actorPersonId }),
     );
     const params = new URL(context.req.url).searchParams;
     const result = await measurePerformancePhase(context, "runtime.query", async () =>
       isTemporalSpecialQuery(resolved, params)
-        ? queryTemporalResources(context.env, principal, spaceId, resolved, params)
+        ? queryTemporalResources(context.env, access.principal, spaceId, resolved, params)
         : isCalendarSpecialQuery(resolved, params)
-          ? queryCalendarResources(context.env, principal, spaceId, resolved, params)
+          ? queryCalendarResources(context.env, access.principal, spaceId, resolved, params)
           : hasLegacyGenericCursor(params)
             ? queryGenericResources(context.env, spaceId, resolved, params)
             : queryCanonicalResources(
                 context.env,
-                principal,
+                access.principal,
                 spaceId,
                 resolved,
                 translateGenericGetQuery(resolved, params),
@@ -180,7 +180,7 @@ export function registerGenericResourceRoutes(app: App): void {
     await measurePerformancePhase(
       context,
       "runtime.policy",
-      () => requireModelPolicy(context.env, principal, spaceId, resolved, "read", undefined, undefined, { principalPersonId: access.policyIdentity.principalPersonId, actorPersonId: access.policyIdentity.actorPersonId }),
+      () => requireModelPolicy(context.env, access.principal, spaceId, resolved, "read", undefined, undefined, { principalPersonId: access.policyIdentity.principalPersonId, actorPersonId: access.policyIdentity.actorPersonId }),
     );
     const input = await body(context);
     const result = await measurePerformancePhase(
@@ -188,7 +188,7 @@ export function registerGenericResourceRoutes(app: App): void {
       "runtime.query",
       () => queryCanonicalResources(
         context.env,
-        principal,
+        access.principal,
         spaceId,
         resolved,
         input,
@@ -219,14 +219,14 @@ export function registerGenericResourceRoutes(app: App): void {
     await measurePerformancePhase(
       context,
       "runtime.policy",
-      () => requireModelPolicy(context.env, principal, spaceId, resolved, "create", undefined, prepared, { principalPersonId: access.policyIdentity.principalPersonId, actorPersonId: access.policyIdentity.actorPersonId }),
+      () => requireModelPolicy(context.env, access.principal, spaceId, resolved, "create", undefined, prepared, { principalPersonId: access.policyIdentity.principalPersonId, actorPersonId: access.policyIdentity.actorPersonId }),
     );
     const created = await measurePerformancePhase(
       context,
       "runtime.create_write",
       () => createCapabilityAwareResource(
         context.env,
-        principal,
+        access.principal,
         spaceId,
         resolved,
         input,
@@ -262,7 +262,7 @@ export function registerGenericResourceRoutes(app: App): void {
     await measurePerformancePhase(
       context,
       "runtime.policy",
-      () => requireModelPolicy(context.env, principal, spaceId, resolved, "read", resource, undefined, { principalPersonId: access.policyIdentity.principalPersonId, actorPersonId: access.policyIdentity.actorPersonId }),
+      () => requireModelPolicy(context.env, access.principal, spaceId, resolved, "read", resource, undefined, { principalPersonId: access.policyIdentity.principalPersonId, actorPersonId: access.policyIdentity.actorPersonId }),
     );
     const response = await measurePerformancePhase(
       context,
@@ -296,14 +296,14 @@ export function registerGenericResourceRoutes(app: App): void {
     await measurePerformancePhase(
       context,
       "runtime.policy",
-      () => requireModelPolicy(context.env, principal, spaceId, resolved, "update", prepared.resource, prepared.prepared, { principalPersonId: access.policyIdentity.principalPersonId, actorPersonId: access.policyIdentity.actorPersonId }),
+      () => requireModelPolicy(context.env, access.principal, spaceId, resolved, "update", prepared.resource, prepared.prepared, { principalPersonId: access.policyIdentity.principalPersonId, actorPersonId: access.policyIdentity.actorPersonId }),
     );
     const updated = await measurePerformancePhase(
       context,
       "runtime.update_write",
       () => updateCapabilityAwareResource(
         context.env,
-        principal,
+        access.principal,
         spaceId,
         resolved,
         prepared.resource.id,
@@ -333,10 +333,10 @@ export function registerGenericResourceRoutes(app: App): void {
     if (Object.keys(input).some((key) => key !== "version")) throw new ApiError("INVALID_REQUEST", "Delete accepts only version", 400);
     const resource = await getGenericResource(context.env, spaceId, resolved, recordId);
     if (!resource) throw new ApiError("RESOURCE_NOT_FOUND", "Resource not found", 404);
-    await requireModelPolicy(context.env, principal, spaceId, resolved, "delete", resource, undefined, { principalPersonId: access.policyIdentity.principalPersonId, actorPersonId: access.policyIdentity.actorPersonId });
+    await requireModelPolicy(context.env, access.principal, spaceId, resolved, "delete", resource, undefined, { principalPersonId: access.policyIdentity.principalPersonId, actorPersonId: access.policyIdentity.actorPersonId });
     await deleteGenericResource(
       context.env,
-      principal,
+      access.principal,
       spaceId,
       resolved,
       resource.id,
@@ -355,7 +355,7 @@ export function registerGenericResourceRoutes(app: App): void {
     const access = await requireModelAccess(context.env, principal, spaceId, resolved, "read", accessSelector(context, recordId));
     const resource = await getGenericResource(context.env, spaceId, resolved, recordId);
     if (!resource) throw new ApiError("RESOURCE_NOT_FOUND", "Resource not found", 404);
-    await requireModelPolicy(context.env, principal, spaceId, resolved, "read", resource, undefined, { principalPersonId: access.policyIdentity.principalPersonId, actorPersonId: access.policyIdentity.actorPersonId });
+    await requireModelPolicy(context.env, access.principal, spaceId, resolved, "read", resource, undefined, { principalPersonId: access.policyIdentity.principalPersonId, actorPersonId: access.policyIdentity.actorPersonId });
     const rawLimit = new URL(context.req.url).searchParams.get("limit");
     const limit = rawLimit === null ? 100 : Number(rawLimit);
     if (!Number.isInteger(limit) || limit < 1 || limit > 200) throw new ApiError("INVALID_QUERY", "limit must be between 1 and 200", 400);
@@ -384,7 +384,7 @@ export function registerGenericResourceRoutes(app: App): void {
     if (capabilityAccess) {
       const updated = await executeCapabilityAction(
         context.env,
-        context.get("principal"),
+        access.principal,
         spaceId,
         resolved,
         recordId,
@@ -397,7 +397,7 @@ export function registerGenericResourceRoutes(app: App): void {
     if (Object.keys(input).some((key) => key !== "version")) throw new ApiError("INVALID_REQUEST", "Action accepts only version in Model Definition v1", 400);
     const updated = await executeWorkflowAction(
       context.env,
-      context.get("principal"),
+      access.principal,
       spaceId,
       resolved,
       recordId,

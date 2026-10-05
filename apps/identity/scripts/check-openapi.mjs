@@ -2,7 +2,7 @@ import fs from "node:fs";
 import YAML from "yaml";
 
 const doc = YAML.parse(fs.readFileSync(new URL("../openapi.yaml",import.meta.url),"utf8"));
-if (doc.openapi !== "3.1.0" || doc.info?.version !== "0.9.0") {
+if (doc.openapi !== "3.1.0" || doc.info?.version !== "0.10.0") {
   throw new Error("Identity OpenAPI version metadata is invalid");
 }
 
@@ -34,6 +34,7 @@ for (const path of [
   "/api/v1/service-principals/{principalId}/oauth-credentials/{credentialId}",
   "/oauth/token",
   "/introspection/v1/service-tokens",
+  "/introspection/v1/agent-credentials",
 ]) {
   if (!doc.paths?.[path]) throw new Error(`Identity OpenAPI missing ${path}`);
 }

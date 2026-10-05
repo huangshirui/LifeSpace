@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: LifeSpace Identity Platform Admin API
-  version: 0.3.0
+  version: 0.4.0
   description: >-
     Privileged LifeSpace Identity control-plane contract for the LifeSpace Console and break-glass
     platform provisioning. It is intentionally versioned separately from the downstream Identity
@@ -267,6 +267,85 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { description: Agent binding is revoked or target Application cannot reactivate the Agent }
         '422': { $ref: '#/components/responses/ValidationError' }
+  /internal/v1/platform-admin/applications/{applicationId}/agents/{agentId}/api-credentials:
+    parameters:
+      - $ref: '#/components/parameters/ApplicationId'
+      - $ref: '#/components/parameters/AgentId'
+    get:
+      tags: [Agent Admin]
+      operationId: listPlatformAgentApiCredentials
+      description: List Agent API credential metadata only. Plaintext and hashes are never returned.
+      security: [{ applicationCredential: [], platformAdminActor: [] }]
+      responses:
+        '200': { description: Agent API credential metadata list }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      tags: [Agent Admin]
+      operationId: createPlatformAgentApiCredential
+      description: Create a revocable opaque lsp_agt_* credential for the target Application + Agent Actor. It grants no Space/model/User Authority; plaintext is returned exactly once.
+      security: [{ applicationCredential: [], platformAdminActor: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [label, scopes]
+              properties:
+                label: { type: string, minLength: 1, maxLength: 100 }
+                scopes: { type: array, uniqueItems: true, items: { type: string } }
+                expiresAt: { type: [string, 'null'], format: date-time }
+      responses:
+        '201': { description: Agent API credential created; response includes one-time write-only lsp_agt_* plaintext }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { description: Agent/Application binding is not active }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /internal/v1/platform-admin/applications/{applicationId}/agents/{agentId}/api-credentials/{credentialId}:
+    parameters:
+      - $ref: '#/components/parameters/ApplicationId'
+      - $ref: '#/components/parameters/AgentId'
+      - name: credentialId
+        in: path
+        required: true
+        schema: { type: string, pattern: ^agc_ }
+    patch:
+      tags: [Agent Admin]
+      operationId: updatePlatformAgentApiCredential
+      description: Reduce Agent API credential scopes, shorten expiry, or update its label. Scope/expiry authority can never be expanded.
+      security: [{ applicationCredential: [], platformAdminActor: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                label: { type: string, minLength: 1, maxLength: 100 }
+                scopes: { type: array, uniqueItems: true, items: { type: string } }
+                expiresAt: { type: [string, 'null'], format: date-time }
+      responses:
+        '200': { description: Agent API credential metadata updated }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+    delete:
+      tags: [Agent Admin]
+      operationId: revokePlatformAgentApiCredential
+      description: Immediately revoke one Agent API credential without changing Agent identity, bindings or Delegations.
+      security: [{ applicationCredential: [], platformAdminActor: [] }]
+      responses:
+        '204': { description: Agent API credential revoked }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
   /internal/v1/platform-admin/users:
     get:
       tags: [Identity Inspector]

@@ -156,7 +156,7 @@ human actor
               ∩
 controlled executor
   Identity admin: server-only Console lsa_* application credential
-  Core admin:     Console service principal / lsp_pat_* or equivalent service JWT
+  Core admin:     Console service principal / lsp_svc_* (legacy lsp_pat_* accepted) or equivalent service JWT
   operation-specific capability
               ∩
 same LifeSpace application context (azp / clientId)
@@ -317,3 +317,8 @@ This document describes the **current permission architecture**. It intentionall
 - **Governed Change**: authorization is evaluated before durable changes commit. Exact Change Detail is immutable audit evidence but is not a bypass around current authorization: reading historical before/after values rechecks current model read authority, including after soft deletion; revoked Delegations/Grants lose access immediately.
 
 A future implementation of richer Agent identity, delegation, consent or approval must extend these foundations deliberately and update contracts/tests before being described as supported behavior.
+
+
+## Opaque Agent API credential boundary
+
+`lsp_agt_*` authenticates an active registered Application + active Agent Actor only. With no Delegation selector, Core evaluates direct Agent Authority. With an explicit current `dlg_*`, Core may resolve only a User Root Principal and executes as `Principal=User / Actor=Agent`; the adapter does not submit a `principalUserId`. Service/Agent or other represented Principal types are rejected on this credential profile. Credential scope, Application × Model Access, current User Authority and current Delegation all remain intersected at execution.

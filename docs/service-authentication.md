@@ -139,6 +139,30 @@ Failure semantics are deliberately asymmetric:
 
 The extra Service Binding + Identity current-state read applies only to deliveries that survive Core's own current authority checks. This preserves Identity as the status source of truth while avoiding a second service-principal-state store in Core.
 
+## Opaque Agent API credential
+
+A trusted application may issue an opaque `lsp_agt_*` credential for one stable `agt_*` identity. The credential authenticates exactly **Application + Agent Actor** and is accepted by Core through current Identity introspection. It is not a User credential, not a Service API Token, and does not grant Space/model/User authority by itself.
+
+Two execution modes are intentionally distinct:
+
+```text
+Direct Agent
+  lsp_agt_* -> Principal=Agent / Actor=Agent
+  -> only the Agent's own current Data Grant / model authority may be used
+
+User Delegation
+  lsp_agt_* + explicit dlg_*
+  -> Core resolves the current Delegation chain
+  -> Principal=User / Actor=Agent
+  -> the adapter never supplies principalUserId
+```
+
+Opaque Agent credential represented mode is deliberately limited to **User/Agent**. A `dlg_*` cannot use `lsp_agt_*` to turn the same credential into a Service/Agent or arbitrary Principal execution context. Direct Agent and represented User operations also cannot be mixed inside one batch, and all represented items in one batch must resolve to the same Root User Principal.
+
+Identity owns the credential hash, Agent/Application binding, scope ceiling, expiry, last-used metadata and revocation. Existing credential scopes/expiry are reduction-only. Core owns Delegation, Data Grant, Application × Model Access and execution-time business Authority. Successful opaque Agent authentication adds one current-state Identity Service Binding read; represented execution adds one bounded Delegation-chain D1 read per business request/batch, not per item.
+
+LifeSpace Console may create/list/reduce/revoke these credentials through Identity Platform Admin. Plaintext is returned exactly once by Identity, immediately sealed by the Console BFF into the existing <=60-second AES-GCM no-script reveal handoff, and is never returned to React as ordinary JSON.
+
 ## Delegated Agent execution is not service automation
 
 An Agent acting under a user's authority uses a distinct execution context from a `service` principal. Identity registers a stable Agent identity (`agt_*`) inside an application context and may issue a short-lived Core-only JWT carrying `principal_type=user`, `actor_type=agent`, `actor_id=agt_*` and `purpose=agent_execution`. Core then intersects that credential with the user's current Space/model authority and an explicit current User -> Delegation.
@@ -164,7 +188,7 @@ application backend resolves external provider identity -> usr_*
 -> user JWT calls Identity/Core
 ```
 
-`lsa_*`, `lsp_svc_*`, legacy `lsp_pat_*` and OAuth client credentials must never be exposed to browser/Mini Program/mobile client code.
+`lsa_*`, `lsp_svc_*`, legacy `lsp_pat_*`, `lsp_agt_*` and OAuth client credentials must never be exposed to browser/Mini Program/mobile client code.
 
 See `docs/application-authentication.md` for the application and Cloudflare Access boundary.
 
@@ -193,7 +217,7 @@ The application cannot escape its own registered application context or exceed i
 
 LifeSpace Console needs platform governance across registered applications. It must not accomplish this by borrowing the target application's `lsa_*` credential or by using the bootstrap secret as a normal runtime credential.
 
-Identity Platform Admin `0.3.0` therefore exposes a separate cross-application control plane under:
+Identity Platform Admin `0.4.0` therefore exposes a separate cross-application control plane under:
 
 ```text
 /internal/v1/platform-admin/applications/{applicationId}/service-principals*
@@ -254,7 +278,7 @@ For an owner-controlled workflow automation instance, use one Header Auth creden
 
 ```text
 Name: Authorization
-Value: Bearer lsp_pat_xxxxx
+Value: Bearer lsp_svc_xxxxx
 ```
 
 Then call Core directly. No token-acquisition node is needed for opaque-token mode.

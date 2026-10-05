@@ -3,7 +3,7 @@ import YAML from "yaml";
 
 const document = YAML.parse(fs.readFileSync(new URL("../platform-admin.openapi.yaml", import.meta.url), "utf8"));
 
-if (document.openapi !== "3.1.0" || document.info?.version !== "0.3.0") {
+if (document.openapi !== "3.1.0" || document.info?.version !== "0.4.0") {
   throw new Error("Identity Platform Admin OpenAPI version metadata is invalid");
 }
 if (!document.info?.title?.includes("Platform Admin")) {
@@ -22,6 +22,8 @@ const requiredPaths = [
   "/internal/v1/platform-admin/applications/{applicationId}/access-audiences/{audienceId}",
   "/internal/v1/platform-admin/applications/{applicationId}/agents",
   "/internal/v1/platform-admin/applications/{applicationId}/agents/{agentId}",
+  "/internal/v1/platform-admin/applications/{applicationId}/agents/{agentId}/api-credentials",
+  "/internal/v1/platform-admin/applications/{applicationId}/agents/{agentId}/api-credentials/{credentialId}",
   "/internal/v1/platform-admin/users",
   "/internal/v1/platform-admin/users/{userId}",
   "/internal/v1/platform-admin/applications/{applicationId}/service-principals",
@@ -68,6 +70,10 @@ dualSecurity(document.paths?.["/internal/v1/platform-admin/applications"]?.get, 
 dualSecurity(document.paths?.["/internal/v1/platform-admin/applications/{applicationId}/agents"]?.get, "Agent Admin");
 dualSecurity(document.paths?.["/internal/v1/platform-admin/applications/{applicationId}/agents"]?.post, "Agent Admin create");
 dualSecurity(document.paths?.["/internal/v1/platform-admin/applications/{applicationId}/agents/{agentId}"]?.patch, "Agent Admin update");
+dualSecurity(document.paths?.["/internal/v1/platform-admin/applications/{applicationId}/agents/{agentId}/api-credentials"]?.get, "Agent credential list");
+dualSecurity(document.paths?.["/internal/v1/platform-admin/applications/{applicationId}/agents/{agentId}/api-credentials"]?.post, "Agent credential create");
+dualSecurity(document.paths?.["/internal/v1/platform-admin/applications/{applicationId}/agents/{agentId}/api-credentials/{credentialId}"]?.patch, "Agent credential update");
+dualSecurity(document.paths?.["/internal/v1/platform-admin/applications/{applicationId}/agents/{agentId}/api-credentials/{credentialId}"]?.delete, "Agent credential revoke");
 dualSecurity(document.paths?.["/internal/v1/platform-admin/users"]?.get, "Identity Inspector");
 dualSecurity(document.paths?.["/internal/v1/platform-admin/applications/{applicationId}/service-principals"]?.get, "Service Admin");
 dualSecurity(document.paths?.["/internal/v1/platform-admin/audit"]?.get, "Identity audit");
@@ -85,6 +91,17 @@ if (!String(agentCreate?.description ?? "").includes("no Space/model authority")
 const agentUpdate = document.paths?.["/internal/v1/platform-admin/applications/{applicationId}/agents/{agentId}"]?.patch;
 if (!String(agentUpdate?.description ?? "").includes("Global status affects every Application binding")) {
   throw new Error("Platform Agent status must remain explicitly global across Application bindings");
+}
+
+const agentCredentialCreate = document.paths?.["/internal/v1/platform-admin/applications/{applicationId}/agents/{agentId}/api-credentials"]?.post;
+if (!String(agentCredentialCreate?.description ?? "").includes("lsp_agt_*")
+  || !String(agentCredentialCreate?.description ?? "").includes("no Space/model/User Authority")
+  || !String(agentCredentialCreate?.description ?? "").includes("exactly once")) {
+  throw new Error("Platform-managed Agent API credential must preserve no-authority and one-time-secret semantics");
+}
+const agentCredentialPatch = document.paths?.["/internal/v1/platform-admin/applications/{applicationId}/agents/{agentId}/api-credentials/{credentialId}"]?.patch;
+if (!String(agentCredentialPatch?.description ?? "").includes("never be expanded")) {
+  throw new Error("Platform-managed Agent API credential authority must remain reduction-only");
 }
 
 const tokenPatch = document.paths?.["/internal/v1/platform-admin/applications/{applicationId}/service-principals/{principalId}/tokens/{tokenId}"]?.patch;

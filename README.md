@@ -76,7 +76,7 @@ Applications pin explicit compatible contract versions instead of consuming an u
 | Owner-controlled Web/PWA/Admin | Cloudflare Access + same-origin BFF + LifeSpace Identity Access exchange |
 | Mini Program / application-specific provider | Application backend resolves provider identity, then `lsa_*` trusted application exchange |
 | Owner-controlled automation/script/backend | Opaque revocable `lsp_svc_*` Service API Token (legacy `lsp_pat_*` remains accepted until rotate/revoke) |
-| Agent execution | Application-authenticated short-lived Core-only Agent execution token; direct Agent uses its own Authority, represented Agent additionally requires current Delegation |
+| Agent execution / adapters / n8n | Opaque revocable `lsp_agt_*` Agent API credential; direct mode uses Agent Authority, User/Agent mode additionally supplies an explicit current `dlg_*` |
 | Third-party/policy-controlled service | OAuth 2.0 `client_credentials` |
 
 Browser, Mini Program and downloadable client code must never contain `lsa_*`, service credentials, signing keys, provider secrets or other backend secrets.
@@ -84,9 +84,9 @@ Browser, Mini Program and downloadable client code must never contain `lsa_*`, s
 
 ## Current contracts and Identity × Cloudflare Access work
 
-The current repository Core Kernel contract is **0.43.0**. Ordinary business-model routes remain outside the Kernel OpenAPI and are pinned through immutable `mct_*` Model Contract revisions. Kernel 0.43.0 includes the generalized Authority v3 foundation plus bounded atomic 1..20 multi-Delegation issuance; every issued `dlg_*` remains an independent single-scope object. Production availability remains separately frozen under `docs/production/*`.
+The current repository Core Kernel contract is **0.44.0**. Ordinary business-model routes remain outside the Kernel OpenAPI and are pinned through immutable `mct_*` Model Contract revisions. Kernel 0.44.0 accepts first-class opaque `lsp_agt_*` Agent API credentials while keeping business Authority in current Data Grants/Delegations; represented execution resolves only `Principal=User / Actor=Agent` from an explicit `dlg_*`. Production availability remains separately frozen under `docs/production/*`.
 
-The current repository Identity Application Contract is **0.7.0**. It preserves the legacy delegated-Agent token request and adds generalized short-lived `purpose=agent_execution` Core-only credentials where the actual Agent Actor is authenticated independently from the signed Principal operation role. Identity verifies entity/application identity; Core remains authoritative for current Data Grant, Delegation-chain, Space/model authorization and governed Change semantics. The Access architecture also includes:
+The current repository Identity Application Contract is **0.10.0**. It adds first-class revocable opaque `lsp_agt_*` Agent API credentials bound to one active Application + Agent Actor; credential possession itself grants no Space/model/User Authority. Identity verifies credential, Agent and Application current state; Core remains authoritative for current Data Grant, Delegation-chain, Space/model authorization and governed Change semantics. The Access architecture also includes:
 
 - independently verified Access RS256 JWTs and JWKS key rotation;
 - environment-pinned Access issuer;

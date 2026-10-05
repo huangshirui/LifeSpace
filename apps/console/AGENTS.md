@@ -43,7 +43,7 @@ Console does not own:
 - Cloudflare Access protects the Console hostname, but Access entry alone is not LifeSpace platform-admin authority.
 - For LifeSpace-dependent requests, read the original `Cf-Access-Jwt-Assertion` request header server-side and forward the raw assertion to Identity's approved exchange. Never trust browser-supplied decoded `sub`, email, audience or `userId`.
 - Do not parse an Access token in browser JavaScript to infer LifeSpace identity/authority.
-- Browser JavaScript must never receive `lsa_*`, `lsp_pat_*`, bootstrap secrets, OAuth client secrets, LifeSpace user bearer tokens, raw Access JWTs or platform-admin actor JWTs.
+- Browser JavaScript must never receive `lsa_*`, `lsp_svc_*`, legacy `lsp_pat_*`, `lsp_agt_*`, bootstrap secrets, OAuth client secrets, LifeSpace user bearer tokens, raw Access JWTs or platform-admin actor JWTs.
 - The BFF may obtain the <=5-minute `purpose=platform_admin_actor` proof but keeps it server-side and uses it only for the current privileged operation.
 - Identity control-plane calls use the Console `lsa_*` executor plus actor proof.
 - Core control-plane calls use the dedicated Console service executor plus actor proof.
@@ -164,3 +164,9 @@ A Console change is incomplete until the relevant items below are proven:
 - staging/prod Vite build/deployment configuration is isolated;
 - real staging browser verification covers both established read pages and every newly added mutation before the write slice is Ready;
 - production remains untouched unless production rollout was explicitly approved.
+
+
+### Agent API credential reveal
+
+- Agent API credential plaintext is handled exactly like other one-time target credentials: Identity returns it once to the Console BFF, the BFF seals it into the <=60-second AES-GCM no-script reveal handoff, and React receives only metadata plus the opaque reveal locator.
+- Console may create/list/reduce/revoke Agent credentials but must never treat credential possession as Space/model/User Authority.

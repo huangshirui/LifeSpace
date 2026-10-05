@@ -182,7 +182,7 @@ Do not silently redefine LifeSpace through a local feature implementation. If a 
 - Applications unrelated to LifeSpace may use Access without LifeSpace Identity. LifeSpace-dependent Web apps use same-origin BFF -> verified Access assertion -> Identity exchange -> Core.
 - BFFs must not create a second Access-subject -> `usr_*` database or business-data source of truth.
 - Core does not use a browser-wide ambient cookie as its primary authentication mechanism.
-- Browser JavaScript/Mini Program/downloadable clients must never receive `lsa_*`, `lsp_pat_*`, bootstrap secrets or signing keys.
+- Browser JavaScript/Mini Program/downloadable clients must never receive `lsa_*`, `lsp_svc_*`, legacy `lsp_pat_*`, `lsp_agt_*`, bootstrap secrets or signing keys.
 - CORS is not authorization. If direct browser-to-Core access exists, use exact Origin allowlists and still enforce all credential/app/data/model checks.
 
 ## Service/authentication rules
@@ -287,3 +287,9 @@ Before declaring a platform change complete, inspect all coupled surfaces: North
 For a successful production deployment, `docs/production/` synchronization is part of change completion: bind the exact deployed SHA and update Capability Guide, Feature Matrix and Changelog before treating the release as fully closed out.
 
 For platform-level work, explicitly state whether the durable abstraction belongs to Shared World, Shared Knowledge, Authority or Change; whether supporting work is Semantics/Context Projection/Adapter/Experience; and which North Star axiom it serves. Fix drift in the same change or record an explicit approved follow-up while keeping unsupported behavior unavailable.
+
+### Agent API credential invariant
+
+- `lsp_agt_*` authenticates Application + Agent Actor only; it is never proof of User Authority.
+- Direct use is `Principal=Agent / Actor=Agent`. Represented use requires an explicit current `dlg_*` and may resolve only `Principal=User / Actor=Agent`; adapters must not supply `principalUserId`.
+- Agent credential scope/expiry updates are reduction-only and plaintext is one-time-only.

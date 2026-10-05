@@ -1,8 +1,8 @@
 # LifeSpace Contract Strategy
 
-## Identity 0.9.0 / Platform Admin 0.3.0 — canonical Service API Token prefix
+## Identity 0.10.0 / Platform Admin 0.4.0 — first-class Agent API credential
 
-New opaque Service API Tokens are represented as `lsp_svc_*`. Existing `lsp_pat_*` tokens remain compatibility inputs and continue through the identical current-state introspection/revocation path until individually rotated or revoked. Service Principal identity, token-hash storage, scope ceilings, Data Grants, Application × Model Access and Core authorization semantics are unchanged.
+Identity 0.10.0 adds revocable opaque `lsp_agt_*` Agent API credentials bound to Application + Agent Actor. Credential possession grants no Space/model/User Authority: direct execution remains `Principal=Agent / Actor=Agent`, while represented execution requires an explicit current `dlg_*` and resolves only `Principal=User / Actor=Agent`. Platform Admin 0.4.0 adds create/list/reduce/revoke governance for the same credential lifecycle; one-time plaintext remains write-only. Canonical Service API Tokens remain `lsp_svc_*`, with legacy `lsp_pat_*` accepted only as migration input until rotate/revoke.
 
 ## Kernel 0.43.0 — Atomic multi-Delegation issuance
 
@@ -15,12 +15,12 @@ Canonical service contracts live with the service implementation in this reposit
 
 Identity now has two explicit contract surfaces:
 
-1. **Identity Application Contract** — `apps/identity/openapi.yaml`, used by ordinary user/application authentication, profile, trusted application exchange, Cloudflare Access principal linking and application-owned service authentication. Its current version is `0.6.0`; 0.6.0 adds first-class Agent identity and Core-only delegated Agent execution-token issuance.
-2. **Identity Platform Admin Contract** — `apps/identity/platform-admin.openapi.yaml`, used only by the LifeSpace Console and approved break-glass/platform-control workflows. Its current version is `0.2.0`; 0.2.0 adds Application-scoped Agent identity governance while preserving the existing dual actor/executor control-plane boundary.
+1. **Identity Application Contract** — `apps/identity/openapi.yaml`, used by ordinary user/application authentication, profile, trusted application exchange, Cloudflare Access principal linking, service authentication and application-owned Agent authentication. Its current version is `0.10.0`; 0.10.0 adds revocable opaque `lsp_agt_*` Agent API credentials without granting Authority by credential possession.
+2. **Identity Platform Admin Contract** — `apps/identity/platform-admin.openapi.yaml`, used only by the LifeSpace Console and approved break-glass/platform-control workflows. Its current version is `0.4.0`; 0.4.0 adds Agent API credential lifecycle governance while preserving the existing dual actor/executor control-plane boundary.
 
 Core has five contract layers:
 
-1. **Kernel Contract** — explicit application/runtime APIs such as Space, Membership, Data Grant, Runtime Discovery, Registry-driven Creation Draft orchestration and governed Change History. The checked-in contract is `apps/core/openapi.yaml`; Kernel `0.43.0` includes the generalized Authority v3 Root/Child Delegation model and adds bounded atomic `1..20` multi-Delegation issuance for one confirmed business intent. Every resulting `dlg_*` remains an independent immutable single-scope Delegation; all requested current Principal Authority and parent-chain narrowing checks complete before one all-or-none D1 commit, and Child issuance does not consume a single-use parent. First-class Generic Runtime resource Batch remains ordinary-model syntax projected through immutable Model Contracts rather than the Kernel. Production availability remains separately tracked under `docs/production/*`.
+1. **Kernel Contract** — explicit application/runtime APIs such as Space, Membership, Data Grant, Runtime Discovery, Registry-driven Creation Draft orchestration and governed Change History. The checked-in contract is `apps/core/openapi.yaml`; Kernel `0.44.0` adds first-class opaque Agent API credential authentication on top of the generalized Authority v3 Root/Child Delegation model and bounded atomic `1..20` multi-Delegation issuance. Every resulting `dlg_*` remains an independent immutable single-scope Delegation; all requested current Principal Authority and parent-chain narrowing checks complete before one all-or-none D1 commit, and Child issuance does not consume a single-use parent. First-class Generic Runtime resource Batch remains ordinary-model syntax projected through immutable Model Contracts rather than the Kernel. Production availability remains separately tracked under `docs/production/*`.
 Kernel `0.39.0` completes the explicit breaking removal of deprecated `Space.kind` from Space create/read and invitation-preview representations and migration 0045 removes the storage column. Kernel 0.38.0 had already removed every behavioral dependency on the field and made create-time `kind` optional/deprecated. There is no replacement Kernel field because business classification is not a platform semantic. The Stable `core-space-membership` group remains Stable; after the recorded deprecation and breaking-removal decision, the accepted Stable schema evidence is deliberately regenerated for the 0.39.0 representation rather than downgrading maturity or silently refreshing evidence to bypass compatibility review.
 
 2. **Integration / Eventing Contract** — `apps/core/integration-eventing.openapi.yaml`, the independently versioned public contract for Webhook Endpoint/Event Subscription management, delivery diagnostics/test-send and signed reference-only outbound Webhook representation. Current version `0.3.0` preserves the ordinary reference-only `recordChange` webhook and adds `changeSetCommitted`: one explicit atomic Runtime Batch keeps N governed Changes / N Domain Event references but is transported as one signed callback envelope per eligible Webhook Endpoint. Unrelated changes are never time-window coalesced; the same Core Worker still executes the routes.
@@ -67,7 +67,7 @@ The Model Semantic Fingerprint is content-addressed over the selected applicatio
 A platform operator surface such as LifeSpace Console additionally pins the two Platform Admin companion contracts:
 
 ```text
-Identity Platform Admin Contract: 0.3.0
+Identity Platform Admin Contract: 0.4.0
 Core Platform Admin Contract:     0.3.0
 ```
 
@@ -92,13 +92,13 @@ They are companion contracts rather than alternative service implementations: th
 Normative rules:
 
 - `apps/identity/platform-admin.openapi.yaml` and `apps/core/platform-admin.openapi.yaml` are the only editable OpenAPI sources for the new Console control plane.
-- Identity Platform Admin is `0.3.0`; Core Platform Admin is `0.3.0`. Their versions advance independently when each service's admin syntax changes.
+- Identity Platform Admin is `0.4.0`; Core Platform Admin is `0.3.0`. Their versions advance independently when each service's admin syntax changes.
 - Console privileged operations use the dual identity model from `docs/permissions.md`: a controlled server-side executor plus `X-LifeSpace-Actor-Token` carrying the dedicated short-lived human actor proof.
 - The actor proof is not a reusable general user credential. Identity issues it only from an ordinary authenticated LifeSpace user session after current `platform_administrators` assignment checks, and the proof is bound to `purpose=platform_admin_actor` with a maximum five-minute lifetime.
 - Bootstrap administrator-assignment routes are included only as provisioning/break-glass control-plane syntax. The bootstrap secret is never a Console runtime credential.
 - Core's Console Model Admin paths reuse the Model Control Plane request/response schemas rather than authoring a second Model Definition contract. The Model Control Plane owns governance wire syntax; the Platform Admin contract adds the human-proof/audit profile.
 - Read-only User/Access-principal and Space/member/Grant inspector surfaces remain control-plane-only. They do not create ordinary user/Space permissions.
-- One-time `lsa_*` and `lsp_pat_*` plaintext fields remain write-only contract data and are never returned by list/read surfaces.
+- One-time `lsa_*`, `lsp_svc_*` and `lsp_agt_*` plaintext fields remain write-only contract data; legacy `lsp_pat_*` is accepted input only and are never returned by list/read surfaces.
 
 A Console release should pin the ordinary contracts it needs for normal profile/session/model metadata reads plus explicit Platform Admin versions. The future `apps/console` build must not call an unversioned undocumented admin route.
 

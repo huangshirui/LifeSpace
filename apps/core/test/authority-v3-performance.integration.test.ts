@@ -170,6 +170,54 @@ describe("Authority v3 structural performance", () => {
     expect(counter.resultRows).toEqual([[1]]);
   });
 
+  it("keeps opaque Agent represented execution bounded at two D1 round trips for 20 operations", async () => {
+    const db = (env as unknown as TestEnv).DB;
+    const suffix = crypto.randomUUID().replaceAll("-", "");
+    const userId = `usr_v3_agent_api_${suffix}`;
+    const agentId = `agt_v3_agent_api_${suffix}`;
+    const spaceId = `spc_v3_agent_api_${suffix}`;
+    const applicationId = `app_v3_agent_api_${suffix}`;
+    await seed(userId, agentId, spaceId, applicationId);
+
+    const delegationId = `dlg_v3_agent_api_${suffix}`;
+    await insertDelegation(db, {
+      id: delegationId, principalId: userId, actorId: agentId, applicationId, spaceId,
+      createdByType: "user", createdById: userId, parentId: null, remainingDepth: 0,
+    });
+
+    const model = await getRuntimeModel({ DB: db } as Bindings, "task");
+    expect(model).not.toBeNull();
+    if (!model) throw new Error("Task model missing");
+    const authenticatedAgent: Principal = {
+      type: "agent",
+      id: agentId,
+      clientId: applicationId,
+      scopes: ["resources:read", "resources:write"],
+      tokenId: `agc_v3_${suffix}`,
+      purpose: "agent_api",
+    };
+    const counter: Counter = { roundTrips: 0, batchSizes: [], preparedSql: [], resultRows: [] };
+    const bindings = { DB: countedDatabase(db, counter) } as Bindings;
+
+    const decisions = await requireModelAccessMany(
+      bindings,
+      authenticatedAgent,
+      spaceId,
+      Array.from({ length: 20 }, (_, index) => ({
+        model,
+        required: "write" as const,
+        selector: { delegationId, recordId: `rec_v3_agent_api_${suffix}_${index}` },
+      })),
+    );
+
+    expect(decisions).toHaveLength(20);
+    expect(decisions.every((decision) => decision.principal.type === "user" && decision.principal.actor?.id === agentId)).toBe(true);
+    expect(counter.roundTrips).toBe(2);
+    expect(counter.batchSizes).toEqual([1, 1]);
+    expect(counter.preparedSql).toHaveLength(2);
+    expect(counter.preparedSql.filter((sql) => sql.includes("WITH RECURSIVE chain"))).toHaveLength(1);
+  });
+
   it("resolves the maximum supported Delegation depth in one Authority round trip", async () => {
     const db = (env as unknown as TestEnv).DB;
     const suffix = crypto.randomUUID().replaceAll("-", "");

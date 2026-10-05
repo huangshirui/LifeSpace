@@ -11,6 +11,7 @@ import {
   validApplicationTokenTtl,
 } from "./application-admin";
 import { registerAgentAuthenticationRoutes } from "./agent-auth";
+import { registerAgentApiCredentialRoutes } from "./agent-api-credential";
 import { registerPlatformAdminRoutes } from "./platform-admin";
 import { registerServiceAuthenticationRoutes } from "./service-auth";
 import type { Bindings, Variables } from "./env";
@@ -355,6 +356,7 @@ export function createApp() {
   });
 
   registerAgentAuthenticationRoutes(app);
+  registerAgentApiCredentialRoutes(app);
   registerServiceAuthenticationRoutes(app);
 
   app.notFound((c) => c.json(fail("NOT_FOUND", "Route not found", c.get("requestId")), 404));

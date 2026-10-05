@@ -220,6 +220,39 @@ export function validateStructuralDelegationChain(
   return orderedLeafToRoot.reverse();
 }
 
+
+export function resolveAgentApiDelegatedPrincipal(
+  authenticatedAgent: Principal,
+  spaceId: string,
+  leafDelegationId: string,
+  rows: readonly DelegationChainRow[],
+): Principal {
+  if (authenticatedAgent.type !== "agent" || authenticatedAgent.actor || authenticatedAgent.purpose !== "agent_api") {
+    throw new ApiError("DELEGATION_INVALID", "Agent API credential execution context is invalid", 403);
+  }
+  const leafToRoot = chainFromRows(rows, leafDelegationId);
+  const leaf = leafToRoot[0];
+  if (!leaf
+    || leaf.actor_type !== "agent"
+    || leaf.actor_id !== authenticatedAgent.id
+    || leaf.application_id !== authenticatedAgent.clientId
+    || leaf.source_space_id !== spaceId
+    || leaf.principal_type !== "user") {
+    throw new ApiError("DELEGATION_INVALID", "Agent API credential Delegation must represent User authority for this authenticated Agent", 403);
+  }
+  const resolved: Principal = {
+    type: leaf.principal_type,
+    id: leaf.principal_id,
+    clientId: authenticatedAgent.clientId,
+    scopes: [...authenticatedAgent.scopes],
+    tokenId: authenticatedAgent.tokenId,
+    actor: { type: "agent", id: authenticatedAgent.id },
+    purpose: "agent_api",
+  };
+  validateStructuralDelegationChain(resolved, spaceId, leafDelegationId, rows);
+  return resolved;
+}
+
 export function groupDelegationChainRows(
   rows: readonly DelegationChainRow[],
 ): Map<string, DelegationChainRow[]> {
