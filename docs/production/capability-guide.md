@@ -7,7 +7,7 @@
 ## Production baseline
 
 - Release date: **2026-10-05**
-- Release SHA: `0b28eeb202f0a5535a4b802f6d474f7289b2e382`
+- Deployed release SHA: `0b28eeb202f0a5535a4b802f6d474f7289b2e382`
 - Production workflow: **Deploy LifeSpace platform production #30** (`37248751610`) ✅
 - Production Core: `https://core.aisr.online` — Kernel `0.43.0`, schema `48`
 - Production Identity: `https://auth.aisr.online` — contract `0.8.0`, schema `8`
@@ -184,7 +184,7 @@ LifeSpace Console 是平台自身的管理界面，不是普通消费者应用�
 
 每次 production 成功后，本页至少更新：
 
-- `Release SHA` 与发布日期；
+- `Deployed release SHA` 与发布日期；
 - 新增/删除/改变的 production 能力；
 - active model / contract 有实质变化时的说明；
 - 已知限制；
