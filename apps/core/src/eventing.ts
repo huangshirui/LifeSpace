@@ -10,6 +10,12 @@ export type WebhookDeliveryQueueMessage =
       deliveryIds: string[];
       changeSetId: string;
       endpointId: string;
+    }
+  | {
+      kind: "webhook-delivery-bulk";
+      deliveryIds: string[];
+      bulkId: string;
+      endpointId: string;
     };
 
 type OutboxRow = {
@@ -21,6 +27,7 @@ type OutboxRow = {
   record_version: number;
   change_id: string | null;
   change_set_id: string | null;
+  bulk_id: string | null;
   occurred_at: string;
 };
 
@@ -363,9 +370,65 @@ async function dispatchChangeSet(env: Bindings, events: readonly OutboxRow[]): P
   await markEventsDispatched(env, events);
 }
 
+
+async function dispatchBulk(env: Bindings, events: readonly OutboxRow[]): Promise<void> {
+  if (!events.length) return;
+  const bulkId = events[0]!.bulk_id;
+  if (!bulkId || events.some((event) => event.bulk_id !== bulkId)) {
+    throw new Error("Bulk Eventing requires one coherent Bulk identity");
+  }
+
+  const eligible = await eligibleSubscriptionsForChangeSet(env, events);
+  const deliveries = await ensureChangeSetDeliveries(env, eligible);
+  const endpointByPair = new Map(
+    eligible.map((entry) => [
+      `${entry.event_id}\u001f${entry.subscription_id}`,
+      entry.endpoint_id,
+    ]),
+  );
+  const deliveriesByEndpoint = new Map<string, string[]>();
+  for (const delivery of deliveries) {
+    if (
+      delivery.status === "queued"
+      || delivery.status === "succeeded"
+      || delivery.status === "cancelled"
+    ) continue;
+    const endpointId = endpointByPair.get(
+      `${delivery.event_id}\u001f${delivery.subscription_id}`,
+    );
+    if (!endpointId) continue;
+    const ids = deliveriesByEndpoint.get(endpointId) ?? [];
+    ids.push(delivery.id);
+    deliveriesByEndpoint.set(endpointId, ids);
+  }
+
+  const groups = [...deliveriesByEndpoint.entries()].filter(([, ids]) => ids.length);
+  await Promise.all(groups.map(([endpointId, deliveryIds]) =>
+    env.EVENT_DELIVERY_QUEUE.send({
+      kind: "webhook-delivery-bulk",
+      deliveryIds,
+      bulkId,
+      endpointId,
+    } satisfies WebhookDeliveryQueueMessage)
+  ));
+
+  if (groups.length) {
+    const timestamp = now();
+    await env.DB.batch(groups.map(([, deliveryIds]) => {
+      const placeholders = deliveryIds.map(() => "?").join(",");
+      return env.DB.prepare(`UPDATE webhook_deliveries
+        SET status='queued',queued_at=?,updated_at=?,last_error=NULL
+        WHERE id IN (${placeholders}) AND status IN ('pending','failed')`)
+        .bind(timestamp, timestamp, ...deliveryIds);
+    }));
+  }
+
+  await markEventsDispatched(env, events);
+}
+
 function outboxSelect(): string {
   return `SELECT id,event_type,space_id,model_key,record_id,record_version,
-      change_id,change_set_id,occurred_at
+      change_id,change_set_id,bulk_id,occurred_at
     FROM domain_event_outbox`;
 }
 
@@ -390,6 +453,28 @@ async function expandSelectedChangeSets(
   );
 }
 
+
+async function expandSelectedBulks(
+  env: Bindings,
+  selected: readonly OutboxRow[],
+): Promise<OutboxRow[]> {
+  const bulkIds = [...new Set(
+    selected.map((event) => event.bulk_id).filter((value): value is string => Boolean(value)),
+  )];
+  if (!bulkIds.length) return [...selected];
+  const placeholders = bulkIds.map(() => "?").join(",");
+  const related = await env.DB.prepare(`${outboxSelect()}
+    WHERE dispatched_at IS NULL AND bulk_id IN (${placeholders})
+    ORDER BY occurred_at,id`)
+    .bind(...bulkIds)
+    .all<OutboxRow>();
+  const byId = new Map(selected.map((event) => [event.id, event]));
+  for (const event of related.results) byId.set(event.id, event);
+  return [...byId.values()].sort((left, right) =>
+    left.occurred_at.localeCompare(right.occurred_at) || left.id.localeCompare(right.id)
+  );
+}
+
 async function markDispatchFailure(
   env: Bindings,
   events: readonly OutboxRow[],
@@ -404,6 +489,7 @@ async function markDispatchFailure(
   console.error("Domain event dispatch failed", {
     eventIds: events.map((event) => event.id),
     changeSetId: events[0]?.change_set_id ?? null,
+    bulkId: events[0]?.bulk_id ?? null,
     error: message,
   });
 }
@@ -413,18 +499,26 @@ export async function dispatchPendingDomainEvents(env: Bindings, limit = 50): Pr
     WHERE dispatched_at IS NULL ORDER BY occurred_at,id LIMIT ?`)
     .bind(limit)
     .all<OutboxRow>();
-  const rows = await expandSelectedChangeSets(env, selected.results);
+  const withChangeSets = await expandSelectedChangeSets(env, selected.results);
+  const rows = await expandSelectedBulks(env, withChangeSets);
 
   const singles: OutboxRow[] = [];
-  const groups = new Map<string, OutboxRow[]>();
+  const changeSetGroups = new Map<string, OutboxRow[]>();
+  const bulkGroups = new Map<string, OutboxRow[]>();
   for (const event of rows) {
-    if (!event.change_set_id) {
-      singles.push(event);
+    if (event.change_set_id) {
+      const group = changeSetGroups.get(event.change_set_id) ?? [];
+      group.push(event);
+      changeSetGroups.set(event.change_set_id, group);
       continue;
     }
-    const group = groups.get(event.change_set_id) ?? [];
-    group.push(event);
-    groups.set(event.change_set_id, group);
+    if (event.bulk_id) {
+      const group = bulkGroups.get(event.bulk_id) ?? [];
+      group.push(event);
+      bulkGroups.set(event.bulk_id, group);
+      continue;
+    }
+    singles.push(event);
   }
 
   let dispatched = 0;
@@ -436,9 +530,17 @@ export async function dispatchPendingDomainEvents(env: Bindings, limit = 50): Pr
       await markDispatchFailure(env, [event], error);
     }
   }
-  for (const events of groups.values()) {
+  for (const events of changeSetGroups.values()) {
     try {
       await dispatchChangeSet(env, events);
+      dispatched += events.length;
+    } catch (error) {
+      await markDispatchFailure(env, events, error);
+    }
+  }
+  for (const events of bulkGroups.values()) {
+    try {
+      await dispatchBulk(env, events);
       dispatched += events.length;
     } catch (error) {
       await markDispatchFailure(env, events, error);
@@ -507,7 +609,7 @@ async function deliverOne(env: Bindings, deliveryId: string): Promise<"ack" | "r
       .bind(now(), deliveryId).run();
     return "ack";
   }
-  const event = await env.DB.prepare(`SELECT id,event_type,space_id,model_key,record_id,record_version,change_id,change_set_id,occurred_at
+  const event = await env.DB.prepare(`SELECT id,event_type,space_id,model_key,record_id,record_version,change_id,change_set_id,bulk_id,occurred_at
     FROM domain_event_outbox WHERE id=?`)
     .bind(delivery.event_id).first<OutboxRow>();
   if (!event) {
@@ -651,7 +753,7 @@ async function deliverBatch(
   const eventIds = [...new Set(active.map((delivery) => delivery.event_id))];
   const placeholders = eventIds.map(() => "?").join(",");
   const eventRows = await env.DB.prepare(`SELECT
-      id,event_type,space_id,model_key,record_id,record_version,change_id,change_set_id,occurred_at
+      id,event_type,space_id,model_key,record_id,record_version,change_id,change_set_id,bulk_id,occurred_at
     FROM domain_event_outbox
     WHERE id IN (${placeholders})`)
     .bind(...eventIds)
@@ -791,6 +893,179 @@ async function deliverBatch(
   }
 }
 
+
+async function deliverBulk(
+  env: Bindings,
+  message: Extract<WebhookDeliveryQueueMessage, { kind: "webhook-delivery-bulk" }>,
+): Promise<"ack" | "retry"> {
+  const requestedIds = [...new Set(message.deliveryIds)];
+  if (!requestedIds.length || requestedIds.length > 20) return "ack";
+  const deliveries = await loadDeliveries(env, requestedIds);
+  const active = deliveries.filter((delivery) =>
+    delivery.status !== "succeeded" && delivery.status !== "cancelled"
+  );
+  if (!active.length) return "ack";
+
+  const first = active[0]!;
+  if (!first.endpoint_id
+      || first.endpoint_id !== message.endpointId
+      || !first.webhook_url
+      || !first.signing_secret
+      || !first.endpoint_enabled
+      || !first.application_id
+      || !first.subscriber_service_principal_id) {
+    await updateDeliveryGroup(
+      env,
+      active.map((delivery) => delivery.id),
+      "status='cancelled',updated_at=?,last_error='batch endpoint unavailable'",
+      [now()],
+    );
+    return "ack";
+  }
+
+  const eventIds = [...new Set(active.map((delivery) => delivery.event_id))];
+  const placeholders = eventIds.map(() => "?").join(",");
+  const eventRows = await env.DB.prepare(`SELECT
+      id,event_type,space_id,model_key,record_id,record_version,change_id,bulk_id,bulk_id,occurred_at
+    FROM domain_event_outbox
+    WHERE id IN (${placeholders})`)
+    .bind(...eventIds)
+    .all<OutboxRow>();
+  const eventById = new Map(eventRows.results.map((event) => [event.id, event]));
+  const models = active.map((delivery) => eventById.get(delivery.event_id)?.model_key).filter((value): value is string => Boolean(value));
+  const firstEvent = eventById.get(first.event_id);
+  if (!firstEvent || firstEvent.bulk_id !== message.bulkId) {
+    await updateDeliveryGroup(
+      env,
+      active.map((delivery) => delivery.id),
+      "status='cancelled',updated_at=?,last_error='bulk evidence unavailable'",
+      [now()],
+    );
+    return "ack";
+  }
+
+  const allowedModels = await batchAllowedModels(
+    env,
+    first.application_id,
+    first.subscriber_service_principal_id,
+    firstEvent.space_id,
+    models,
+  );
+
+  const valid: Array<{ delivery: DeliveryRow; event: OutboxRow }> = [];
+  const cancelled: string[] = [];
+  for (const delivery of active) {
+    const event = eventById.get(delivery.event_id);
+    const validEndpoint = delivery.endpoint_id === message.endpointId
+      && delivery.endpoint_id === first.endpoint_id
+      && delivery.application_id === first.application_id
+      && delivery.subscriber_service_principal_id === first.subscriber_service_principal_id
+      && Boolean(delivery.endpoint_enabled)
+      && Boolean(delivery.subscription_enabled)
+      && delivery.webhook_url === first.webhook_url
+      && delivery.signing_secret === first.signing_secret;
+    if (!event
+        || event.bulk_id !== message.bulkId
+        || event.space_id !== firstEvent.space_id
+        || !delivery.model_key
+        || delivery.model_key !== event.model_key
+        || !validEndpoint
+        || !allowedModels.has(event.model_key)) {
+      cancelled.push(delivery.id);
+      continue;
+    }
+    valid.push({ delivery, event });
+  }
+
+  await updateDeliveryGroup(
+    env,
+    cancelled,
+    "status='cancelled',updated_at=?,last_error='endpoint/subscription unavailable or access revoked'",
+    [now()],
+  );
+  if (!valid.length) return "ack";
+
+  let subscriberActive: boolean;
+  try {
+    subscriberActive = await servicePrincipalIsActive(env, first.subscriber_service_principal_id);
+  } catch (error) {
+    const reason = error instanceof Error ? error.message.slice(0, 240) : "subscriber identity status unavailable";
+    await updateDeliveryGroup(
+      env,
+      valid.map((entry) => entry.delivery.id),
+      "status='failed',updated_at=?,last_error=?",
+      [now(), `subscriber identity status unavailable: ${reason}`],
+    );
+    return "retry";
+  }
+  if (!subscriberActive) {
+    await updateDeliveryGroup(
+      env,
+      valid.map((entry) => entry.delivery.id),
+      "status='cancelled',updated_at=?,last_error='subscriber service principal inactive'",
+      [now()],
+    );
+    return "ack";
+  }
+
+  const validIds = valid.map((entry) => entry.delivery.id);
+  const batchDeliveryId = await deterministicBatchDeliveryId(
+    message.bulkId,
+    message.endpointId,
+    validIds,
+  );
+  const uniqueEvents = [...new Map(valid.map((entry) => [entry.event.id, entry.event])).values()]
+    .sort((left, right) => left.occurred_at.localeCompare(right.occurred_at) || left.id.localeCompare(right.id));
+  const body = JSON.stringify({
+    id: message.bulkId,
+    type: "bulk.completed",
+    bulkId: message.bulkId,
+    spaceId: firstEvent.space_id,
+    events: uniqueEvents.map(eventPayload),
+    occurredAt: uniqueEvents[0]!.occurred_at,
+  });
+  const attemptedAt = now();
+  await updateDeliveryGroup(
+    env,
+    validIds,
+    "attempt_count=attempt_count+1,updated_at=?",
+    [attemptedAt],
+  );
+
+  try {
+    const response = await signedFetch(first.webhook_url, first.signing_secret, body, {
+      "x-lifespace-bulk-id": message.bulkId,
+      "x-lifespace-delivery-id": batchDeliveryId,
+      "x-lifespace-webhook-endpoint-id": message.endpointId,
+    });
+    if (response.ok) {
+      await updateDeliveryGroup(
+        env,
+        validIds,
+        "status='succeeded',delivered_at=?,last_status_code=?,last_error=NULL,updated_at=?",
+        [now(), response.status, now()],
+      );
+      return "ack";
+    }
+    await updateDeliveryGroup(
+      env,
+      validIds,
+      "status='failed',last_status_code=?,last_error=?,updated_at=?",
+      [response.status, `HTTP ${response.status}`, now()],
+    );
+    return "retry";
+  } catch (error) {
+    const reason = error instanceof Error ? error.message.slice(0, 300) : "webhook request failed";
+    await updateDeliveryGroup(
+      env,
+      validIds,
+      "status='failed',last_error=?,updated_at=?",
+      [reason, now()],
+    );
+    return "retry";
+  }
+}
+
 export async function processWebhookDeliveryQueue(
   batch: MessageBatch<WebhookDeliveryQueueMessage>,
   env: Bindings,
@@ -812,6 +1087,14 @@ export async function processWebhookDeliveryQueue(
       && typeof body.endpointId === "string"
     ) {
       result = await deliverBatch(env, body);
+    } else if (
+      body.kind === "webhook-delivery-bulk"
+      && Array.isArray(body.deliveryIds)
+      && body.deliveryIds.every((value) => typeof value === "string")
+      && typeof body.bulkId === "string"
+      && typeof body.endpointId === "string"
+    ) {
+      result = await deliverBulk(env, body);
     } else {
       message.ack();
       continue;

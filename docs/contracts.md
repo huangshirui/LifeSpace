@@ -81,7 +81,7 @@ Do not create a separately hand-maintained contract repository.
 
 It does **not** own ordinary-model Change production, model mutation semantics or a separate authorization model. The same Core Worker remains authoritative for Endpoint/Subscription state, Application × Model Access, Data Grants, subscriber Service Principal/application eligibility, Queue delivery and current revocation. Splitting the contract lifecycle therefore does not split the runtime or create another truth source.
 
-Runtime-only consumers omit this contract. Eventing consumers pin `Integration/Eventing 0.3.0` independently so future Eventing representation changes do not force unrelated Runtime consumers to repin Kernel, and vice versa.
+Runtime-only consumers omit this contract. Eventing consumers pin `Integration/Eventing 0.4.0` independently so future Eventing representation changes do not force unrelated Runtime consumers to repin Kernel, and vice versa.
 
 ## Platform Admin control-plane contract
 
@@ -353,3 +353,4 @@ Runtime Discovery `query.canonical` and each immutable generated Model Contract 
 The remaining GET parameter and Capability Query fields in Runtime Discovery are deprecated compatibility metadata. They may guide migration of an existing caller, but they are no longer an independent semantic authority.
 
 - Kernel 0.45.0 adds transport-independent `arq_*` Authorization Request lifecycle endpoints. Request creation is non-authorizing; the trusted adapter/workflow supplies `principalUserId` as identity context (never as Authority or an LLM argument), Confirm/Deny bind the decision to that same User, and Confirm reuses atomic Delegation issuance with current Authority checks. No separate User Proof/token exchange is introduced.
+- Kernel 0.46.0 adds first-class non-atomic ordinary-model Bulk mutation through generated Model Contracts. `/models/bulk` is a bounded 1..20 transport/performance grouping with independent per-item results and `blk_*` correlation; existing `/models/batch` remains atomic `cgs_*` ChangeSet semantics.

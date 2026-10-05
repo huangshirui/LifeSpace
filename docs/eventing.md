@@ -2,7 +2,7 @@
 
 LifeSpace Eventing is the platform-owned mechanism for publishing ordinary-model changes to authorized external subscribers. Applications own product-facing configuration UX; they do not create parallel event, webhook, delivery, or retry stores.
 
-Canonical public contract: `apps/core/integration-eventing.openapi.yaml` (Integration/Eventing `0.3.0`). It is independently versioned and compatibility-checked from the Core Kernel contract while remaining implemented in the same Core Worker.
+Canonical public contract: `apps/core/integration-eventing.openapi.yaml` (Integration/Eventing `0.4.0`). It is independently versioned and compatibility-checked from the Core Kernel contract while remaining implemented in the same Core Worker.
 
 ## Event model
 
@@ -107,6 +107,8 @@ Delivery semantics are at-least-once. For an ordinary independent Change, receiv
 An explicit first-class Runtime Batch is delivered differently at the transport envelope only. Every committed resource mutation still owns one governed Change, one Domain Event reference and one durable per-subscription delivery row. Events that share the same explicit `changeSetId` are grouped by Webhook Endpoint and sent as one signed `change_set.committed` callback containing `1..20` reference-only `events[]`. The batch callback uses `X-LifeSpace-Change-Set-Id` plus `X-LifeSpace-Delivery-Id` as its idempotency identity. This aggregation applies only to the explicit atomic ChangeSet; unrelated operations are never merged by a time window.
 
 Batch delivery re-runs the same send-time endpoint/subscription, Application × Model Access, subscriber Data Grant and Service Principal eligibility checks before the outbound request. Aggregation therefore changes transport fan-out, not authority or individual Change/Event evidence.
+
+An explicit non-atomic Bulk uses the same transport aggregation rule without pretending to be a ChangeSet. Successful events sharing one `bulkId` are grouped by Webhook Endpoint and sent as one signed `bulk.completed` callback containing `1..20` reference-only `events[]`; failed Bulk items produce no committed Change/Event and are absent from that envelope. The callback uses `X-LifeSpace-Bulk-Id` plus `X-LifeSpace-Delivery-Id` as its idempotency identity. Unrelated operations are never time-window coalesced.
 
 ChangeSet dispatch is also a structural performance boundary: subscription eligibility for all 1..20 events is resolved set-wise, delivery rows are materialized/read through bounded D1 I/O, and queued-state updates are batched after endpoint grouping. D1 round trips therefore remain bounded in ChangeSet item count; outbound Queue sends may scale with the number of distinct eligible endpoints, not with duplicate per-event database loops.
 

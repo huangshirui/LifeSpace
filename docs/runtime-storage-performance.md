@@ -103,6 +103,8 @@ Current hot-path budgets:
 | PATCH with relation validation | 4 | authority batch, current resource read, batched target validation, atomic mutation |
 | Batch CREATE, 1-20 operations, no relation targets | 2 | one de-duplicated authority batch, one atomic ChangeSet mutation batch |
 | General Batch mutation, 1-20 operations | O(1) in item count | authority once; bounded grouped record/relation preparation; one atomic ChangeSet mutation batch |
+| Non-atomic Bulk mutation, 1-20 operations | O(1) common path in item count | set-wise authority/target/relation preparation; one grouped mutation batch with independent guarded item outcomes |
+| Bulk single-use contention slow path | O(N), bounded N<=20 | only after grouped commit is aborted by current single-use Delegation contention; replay survivors independently so unrelated items still commit |
 | Single-use mutation | no extra standalone RTT | consume inside the same atomic mutation/Change batch |
 | Single-use read | ordinary read budget + at most 1 | conditional successful-use consumption is an explicit slow-path exception |
 | Ordinary list mapping | O(1) in result count | no per-record D1 calls |
@@ -136,6 +138,7 @@ Mutation performance optimizations must preserve:
 - governed Change evidence;
 - Principal / Actor / Application / Delegation attribution;
 - one Change per committed resource mutation and one ChangeSet correlation for an explicit atomic Batch;
+- one `blk_*` correlation for an explicit non-atomic Bulk while every successful item remains its own committed Change and every failed item commits no Change;
 - atomic single-use Delegation consumption with the Change it authorizes;
 - atomicity of the committed logical mutation.
 

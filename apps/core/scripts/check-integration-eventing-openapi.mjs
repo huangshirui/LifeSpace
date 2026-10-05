@@ -3,7 +3,7 @@ import YAML from "yaml";
 
 const document = YAML.parse(fs.readFileSync(new URL("../integration-eventing.openapi.yaml", import.meta.url), "utf8"));
 
-if (document.openapi !== "3.1.0" || document.info?.version !== "0.3.0") {
+if (document.openapi !== "3.1.0" || document.info?.version !== "0.4.0") {
   throw new Error("Integration/Eventing OpenAPI version metadata is invalid");
 }
 const lifecycleDescription = document.info?.description?.toLowerCase() ?? "";
@@ -87,8 +87,9 @@ if (testPayload?.additionalProperties !== false
 
 const recordWebhook = document.webhooks?.recordChange?.post;
 const changeSetWebhook = document.webhooks?.changeSetCommitted?.post;
+const bulkWebhook = document.webhooks?.bulkCompleted?.post;
 const testWebhook = document.webhooks?.endpointTest?.post;
-if (!recordWebhook || !changeSetWebhook || !testWebhook) throw new Error("Outbound Webhook contracts are missing");
+if (!recordWebhook || !changeSetWebhook || !bulkWebhook || !testWebhook) throw new Error("Outbound Webhook contracts are missing");
 if (!referencePayload?.properties?.changeId?.anyOf?.some((entry) => entry?.type === "null")) {
   throw new Error("Domain Event changeId must preserve explicit nullable legacy evidence");
 }
@@ -108,6 +109,19 @@ if (changeSetPayload?.additionalProperties !== false
 if (changeSetWebhook.requestBody?.content?.["application/json"]?.schema?.$ref !== "#/components/schemas/ChangeSetReferencePayload") {
   throw new Error("changeSetCommitted Webhook must use the canonical ChangeSet reference payload");
 }
+const bulkPayload = schemas.BulkReferencePayload;
+const expectedBulkFields = ["id", "type", "bulkId", "spaceId", "events", "occurredAt"].sort();
+if (bulkPayload?.additionalProperties !== false
+    || bulkPayload?.properties?.type?.const !== "bulk.completed"
+    || bulkPayload?.properties?.events?.maxItems !== 20
+    || bulkPayload?.properties?.events?.items?.$ref !== "#/components/schemas/DomainEventReferencePayload"
+    || JSON.stringify([...(bulkPayload?.required ?? [])].sort()) !== JSON.stringify(expectedBulkFields)
+    || JSON.stringify(Object.keys(bulkPayload?.properties ?? {}).sort()) !== JSON.stringify(expectedBulkFields)) {
+  throw new Error("Bulk Webhook must remain a bounded reference-only event envelope");
+}
+if (bulkWebhook.requestBody?.content?.["application/json"]?.schema?.$ref !== "#/components/schemas/BulkReferencePayload") {
+  throw new Error("bulkCompleted Webhook must use the canonical Bulk reference payload");
+}
 if (testWebhook.requestBody?.content?.["application/json"]?.schema?.$ref !== "#/components/schemas/WebhookEndpointTestPayload") {
   throw new Error("endpointTest Webhook must use the canonical test payload");
 }
@@ -115,7 +129,7 @@ if (testWebhook.requestBody?.content?.["application/json"]?.schema?.$ref !== "#/
 function header(operation, name) {
   return operation.parameters?.find((parameter) => parameter?.in === "header" && parameter?.name === name);
 }
-for (const operation of [recordWebhook, changeSetWebhook, testWebhook]) {
+for (const operation of [recordWebhook, changeSetWebhook, bulkWebhook, testWebhook]) {
   if (header(operation, "X-LifeSpace-Timestamp")?.required !== true
       || header(operation, "X-LifeSpace-Signature")?.required !== true
       || !header(operation, "X-LifeSpace-Signature")?.description?.includes("timestamp + '.' + the exact raw UTF-8 request body")) {
@@ -131,6 +145,12 @@ for (const name of ["X-LifeSpace-Change-Set-Id", "X-LifeSpace-Delivery-Id", "X-L
 if (header(changeSetWebhook, "X-LifeSpace-Event-Id")) {
   throw new Error("ChangeSet Webhook must not pretend one event is the batch idempotency key");
 }
+for (const name of ["X-LifeSpace-Bulk-Id", "X-LifeSpace-Delivery-Id", "X-LifeSpace-Webhook-Endpoint-Id"]) {
+  if (header(bulkWebhook, name)?.required !== true) throw new Error(`bulkCompleted Webhook missing required ${name}`);
+}
+if (header(bulkWebhook, "X-LifeSpace-Event-Id")) {
+  throw new Error("Bulk Webhook must not pretend one event is the Bulk idempotency key");
+}
 if (header(testWebhook, "X-LifeSpace-Test")?.schema?.const !== "true") {
   throw new Error("endpoint.test Webhook must carry X-LifeSpace-Test: true");
 }
@@ -142,6 +162,7 @@ if (semantics?.delivery !== "at-least-once"
     || semantics?.signatureInput !== "<X-LifeSpace-Timestamp>.<exact raw body>"
     || JSON.stringify(semantics?.singleEventIdempotencyHeaders) !== JSON.stringify(["X-LifeSpace-Event-Id", "X-LifeSpace-Delivery-Id"])
     || JSON.stringify(semantics?.changeSetIdempotencyHeaders) !== JSON.stringify(["X-LifeSpace-Change-Set-Id", "X-LifeSpace-Delivery-Id"])
+    || JSON.stringify(semantics?.bulkIdempotencyHeaders) !== JSON.stringify(["X-LifeSpace-Bulk-Id", "X-LifeSpace-Delivery-Id"])
     || !String(semantics?.explicitBatchAggregation ?? "").includes("never time-window coalesced")) {
   throw new Error("Integration/Eventing delivery semantics drifted");
 }

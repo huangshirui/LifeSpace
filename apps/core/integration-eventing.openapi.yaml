@@ -2,8 +2,8 @@
   "openapi": "3.1.0",
   "info": {
     "title": "LifeSpace Integration / Eventing API",
-    "version": "0.3.0",
-    "description": "Independently versioned LifeSpace Integration/Eventing contract for Webhook endpoint configuration, model/event subscriptions, delivery diagnostics, test sends, reference-only signed ordinary-record Webhooks, and explicit ChangeSet batch Webhook envelopes. Eventing remains implemented by LifeSpace Core and derives from authoritative ordinary-model Change/event facts; this contract does not create a second mutation or authorization source."
+    "version": "0.4.0",
+    "description": "Independently versioned LifeSpace Integration/Eventing contract for Webhook endpoint configuration, model/event subscriptions, delivery diagnostics, test sends, reference-only signed ordinary-record Webhooks, explicit ChangeSet batch Webhook envelopes, and explicit non-atomic Bulk Webhook envelopes. Eventing remains implemented by LifeSpace Core and derives from authoritative ordinary-model Change/event facts; this contract does not create a second mutation or authorization source."
   },
   "security": [
     {
@@ -605,6 +605,77 @@
         "responses": {
           "2XX": {
             "description": "Receiver accepted the ChangeSet delivery. Non-2xx responses are retryable according to LifeSpace Queue delivery policy."
+          }
+        }
+      }
+    },
+    "bulkCompleted": {
+      "post": {
+        "summary": "Reference-only explicit non-atomic Bulk delivery",
+        "description": "At-least-once outbound Webhook delivery for one explicit non-atomic Runtime Bulk. The envelope contains only Bulk identity plus the same reference-only committed Domain Event items used by recordChange; failed Bulk items produce no Domain Event and are therefore absent. LifeSpace does not time-window coalesce unrelated changes. Delivery rechecks endpoint/subscription state, managing Application × Model Access, subscriber Data Grant, and subscriber Service Principal/application eligibility immediately before the outbound attempt.",
+        "parameters": [
+          {
+            "name": "X-LifeSpace-Bulk-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^blk_[A-Za-z0-9_-]+$"
+            },
+            "description": "Stable explicit non-atomic Bulk correlation identity."
+          },
+          {
+            "name": "X-LifeSpace-Delivery-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^(?:dlv|bdl)_[A-Za-z0-9_-]+$"
+            }
+          },
+          {
+            "name": "X-LifeSpace-Webhook-Endpoint-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^(?:whk|wep)_[A-Za-z0-9_-]+$"
+            }
+          },
+          {
+            "name": "X-LifeSpace-Timestamp",
+            "in": "header",
+            "required": true,
+            "description": "Unix timestamp in seconds used in the HMAC input.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9]+$"
+            }
+          },
+          {
+            "name": "X-LifeSpace-Signature",
+            "in": "header",
+            "required": true,
+            "description": "v1=<lowercase hex HMAC-SHA256> over timestamp + '.' + the exact raw UTF-8 request body, using the Webhook Endpoint signing secret.",
+            "schema": {
+              "type": "string",
+              "pattern": "^v1=[a-f0-9]{64}$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BulkReferencePayload"
+              }
+            }
+          }
+        },
+        "responses": {
+          "2XX": {
+            "description": "Receiver accepted the Bulk delivery. Non-2xx responses are retryable according to LifeSpace Queue delivery policy."
           }
         }
       }
@@ -1354,6 +1425,48 @@
             "format": "date-time"
           }
         }
+      },
+      "BulkReferencePayload": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "type",
+          "bulkId",
+          "spaceId",
+          "events",
+          "occurredAt"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^cgs_[A-Za-z0-9_-]+$"
+          },
+          "type": {
+            "type": "string",
+            "const": "bulk.completed"
+          },
+          "spaceId": {
+            "type": "string",
+            "pattern": "^spc_"
+          },
+          "events": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 20,
+            "items": {
+              "$ref": "#/components/schemas/DomainEventReferencePayload"
+            }
+          },
+          "occurredAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "bulkId": {
+            "type": "string",
+            "pattern": "^blk_[A-Za-z0-9_-]+$"
+          }
+        }
       }
     }
   },
@@ -1371,6 +1484,10 @@
     "signatureInput": "<X-LifeSpace-Timestamp>.<exact raw body>",
     "signatureHeader": "X-LifeSpace-Signature: v1=<lowercase hex digest>",
     "payloadMode": "reference-only",
-    "explicitBatchAggregation": "one explicit ChangeSet -> one callback envelope per eligible Webhook Endpoint; unrelated changes are never time-window coalesced"
+    "explicitBatchAggregation": "one explicit ChangeSet or Bulk -> one callback envelope per eligible Webhook Endpoint; unrelated changes are never time-window coalesced",
+    "bulkIdempotencyHeaders": [
+      "X-LifeSpace-Bulk-Id",
+      "X-LifeSpace-Delivery-Id"
+    ]
   }
 }

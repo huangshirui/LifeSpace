@@ -58,6 +58,7 @@ export type MutationAttribution = {
   delegationId?: string | null;
   delegationChain?: readonly string[];
   changeSetId?: string | null;
+  bulkId?: string | null;
 };
 
 export type RelationProjection = {
@@ -177,6 +178,7 @@ function changeStatement(
     principal.clientId,
     attribution.delegationId ?? null,
     attribution.changeSetId ?? null,
+    attribution.bulkId ?? null,
     JSON.stringify([...new Set(changedFields)].sort()),
     JSON.stringify(fieldChanges),
     timestamp,
@@ -184,15 +186,15 @@ function changeStatement(
   if (!mutationToken) {
     return env.DB.prepare(`INSERT INTO resource_changes(
       id,record_id,space_id,model_key,operation,action_key,version_before,version_after,
-      principal_type,principal_id,actor_type,actor_id,application_id,delegation_id,change_set_id,
+      principal_type,principal_id,actor_type,actor_id,application_id,delegation_id,change_set_id,bulk_id,
       changed_fields_json,field_changes_json,occurred_at
-    ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(...values);
+    ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(...values);
   }
   return env.DB.prepare(`INSERT INTO resource_changes(
       id,record_id,space_id,model_key,operation,action_key,version_before,version_after,
-      principal_type,principal_id,actor_type,actor_id,application_id,delegation_id,change_set_id,
+      principal_type,principal_id,actor_type,actor_id,application_id,delegation_id,change_set_id,bulk_id,
       changed_fields_json,field_changes_json,occurred_at
-    ) SELECT ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
+    ) SELECT ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
       WHERE EXISTS(SELECT 1 FROM resource_records WHERE id=? AND mutation_token=?)`)
     .bind(...values, recordId, mutationToken);
 }
@@ -236,8 +238,21 @@ function appendChangeSetOutboxLink(
   if (!attribution.changeSetId) return;
   statements.push(env.DB.prepare(`UPDATE domain_event_outbox
     SET change_set_id=?
-    WHERE change_id=? AND change_set_id IS NULL`)
+    WHERE change_id=? AND change_set_id IS NULL AND bulk_id IS NULL`)
     .bind(attribution.changeSetId, changeId));
+}
+
+function appendBulkOutboxLink(
+  statements: D1PreparedStatement[],
+  env: Bindings,
+  changeId: string,
+  attribution: MutationAttribution,
+): void {
+  if (!attribution.bulkId) return;
+  statements.push(env.DB.prepare(`UPDATE domain_event_outbox
+    SET bulk_id=?
+    WHERE change_id=? AND bulk_id IS NULL AND change_set_id IS NULL`)
+    .bind(attribution.bulkId, changeId));
 }
 
 function parseDate(value: unknown, fieldKey: string): string {
@@ -403,71 +418,89 @@ export function collectRelationProjections(
   return relations;
 }
 
-export async function validateRelationProjections(
+export async function validateRelationProjectionGroups(
   env: Bindings,
   spaceId: string,
-  relations: readonly RelationProjection[],
-): Promise<void> {
-  const personIds = new Set(
-    relations.filter((relation) => relation.targetType === "person").map((relation) => relation.targetId),
-  );
+  groups: readonly (readonly RelationProjection[])[],
+): Promise<Array<ApiError | null>> {
+  const personIds = new Set<string>();
   const recordIdsByModel = new Map<string, Set<string>>();
-  for (const relation of relations) {
-    if (relation.targetType !== "record") continue;
-    if (!relation.targetModelKey) {
-      throw new ApiError("INVALID_RESOURCE_RELATION", "Record relation is missing its target model", 500);
+  for (const relations of groups) {
+    for (const relation of relations) {
+      if (relation.targetType === "person") {
+        personIds.add(relation.targetId);
+        continue;
+      }
+      if (!relation.targetModelKey) {
+        return groups.map((group) => group.some((entry) => entry === relation)
+          ? new ApiError("INVALID_RESOURCE_RELATION", "Record relation is missing its target model", 500)
+          : null);
+      }
+      const ids = recordIdsByModel.get(relation.targetModelKey) ?? new Set<string>();
+      ids.add(relation.targetId);
+      recordIdsByModel.set(relation.targetModelKey, ids);
     }
-    const ids = recordIdsByModel.get(relation.targetModelKey) ?? new Set<string>();
-    ids.add(relation.targetId);
-    recordIdsByModel.set(relation.targetModelKey, ids);
   }
 
-  const validations: Array<{
-    expected: Set<string>;
-    statements: D1PreparedStatement[];
-    message: string;
-  }> = [];
-
+  const queries: Array<{ kind: "person" | "record"; modelKey?: string; statements: D1PreparedStatement[] }> = [];
   if (personIds.size) {
-    validations.push({
-      expected: personIds,
+    queries.push({
+      kind: "person",
       statements: chunkD1Values([...personIds], 1).map((chunk) =>
         env.DB.prepare(`SELECT id FROM space_people
           WHERE space_id=? AND deleted_at IS NULL AND id IN (${chunk.map(() => "?").join(",")})`)
           .bind(spaceId, ...chunk),
       ),
-      message: "Every Person relation must reference an active Person in the same Space",
     });
   }
-
   for (const [targetModel, ids] of recordIdsByModel) {
-    validations.push({
-      expected: ids,
+    queries.push({
+      kind: "record",
+      modelKey: targetModel,
       statements: chunkD1Values([...ids], 2).map((chunk) =>
         env.DB.prepare(`SELECT id FROM resource_records
           WHERE space_id=? AND model_key=? AND deleted_at IS NULL
             AND id IN (${chunk.map(() => "?").join(",")})`)
           .bind(spaceId, targetModel, ...chunk),
       ),
-      message: `Every record relation must reference an active ${targetModel} record in the same Space`,
     });
   }
-
-  const statements = validations.flatMap((validation) => validation.statements);
-  if (!statements.length) return;
-
+  const statements = queries.flatMap((query) => query.statements);
+  if (!statements.length) return groups.map(() => null);
   const results = await env.DB.batch<{ id: string }>(statements);
+  const foundPeople = new Set<string>();
+  const foundRecords = new Map<string, Set<string>>();
   let offset = 0;
-  for (const validation of validations) {
+  for (const query of queries) {
     const found = new Set<string>();
-    for (let index = 0; index < validation.statements.length; index += 1) {
+    for (let index = 0; index < query.statements.length; index += 1) {
       for (const row of results[offset + index]?.results ?? []) found.add(row.id);
     }
-    offset += validation.statements.length;
-    if (found.size !== validation.expected.size) {
-      throw new ApiError("INVALID_RESOURCE_RELATION", validation.message, 400);
-    }
+    offset += query.statements.length;
+    if (query.kind === "person") for (const id of found) foundPeople.add(id);
+    else foundRecords.set(query.modelKey!, found);
   }
+
+  return groups.map((relations) => {
+    for (const relation of relations) {
+      if (relation.targetType === "person" && !foundPeople.has(relation.targetId)) {
+        return new ApiError("INVALID_RESOURCE_RELATION", "Every Person relation must reference an active Person in the same Space", 400);
+      }
+      if (relation.targetType === "record" && !foundRecords.get(relation.targetModelKey!)?.has(relation.targetId)) {
+        return new ApiError("INVALID_RESOURCE_RELATION", `Every record relation must reference an active ${relation.targetModelKey} record in the same Space`, 400);
+      }
+    }
+    return null;
+  });
+}
+
+export async function validateRelationProjections(
+  env: Bindings,
+  spaceId: string,
+  relations: readonly RelationProjection[],
+): Promise<void> {
+  const [error] = await validateRelationProjectionGroups(env, spaceId, [relations]);
+  if (error) throw error;
 }
 
 export function prepareCreateGenericMutation(
@@ -638,6 +671,7 @@ export async function planCreateGenericMutation(
   ));
   appendDelegationChainEvidence(statements, env, mutationToken, attribution);
   appendChangeSetOutboxLink(statements, env, mutationToken, attribution);
+  appendBulkOutboxLink(statements, env, mutationToken, attribution);
   statements.push(
     env.DB.prepare("UPDATE resource_records SET mutation_token=NULL WHERE id=? AND mutation_token=?")
       .bind(id, mutationToken),
@@ -736,6 +770,7 @@ export async function planUpdateGenericMutation(
   ));
   appendDelegationChainEvidence(statements, env, mutationToken, attribution);
   appendChangeSetOutboxLink(statements, env, mutationToken, attribution);
+  appendBulkOutboxLink(statements, env, mutationToken, attribution);
   statements.push(
     env.DB.prepare("UPDATE resource_records SET mutation_token=NULL WHERE id=? AND mutation_token=?")
       .bind(previous.id, mutationToken),
@@ -822,8 +857,14 @@ export function planDeleteGenericMutation(
     ...(attribution.changeSetId
       ? [env.DB.prepare(`UPDATE domain_event_outbox
           SET change_set_id=?
-          WHERE change_id=? AND change_set_id IS NULL`)
+          WHERE change_id=? AND change_set_id IS NULL AND bulk_id IS NULL`)
           .bind(attribution.changeSetId, mutationToken)]
+      : []),
+    ...(attribution.bulkId
+      ? [env.DB.prepare(`UPDATE domain_event_outbox
+          SET bulk_id=?
+          WHERE change_id=? AND bulk_id IS NULL AND change_set_id IS NULL`)
+          .bind(attribution.bulkId, mutationToken)]
       : []),
     env.DB.prepare(`DELETE FROM resource_relations WHERE source_record_id=?
       AND EXISTS(SELECT 1 FROM resource_records WHERE id=? AND mutation_token=?)`)

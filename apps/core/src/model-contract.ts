@@ -391,6 +391,76 @@ function addBatchContract(
       version: { type: "integer", minimum: 1 },
     },
   };
+  schemas.BulkMutationResultItem = {
+    oneOf: [
+      {
+        type: "object",
+        additionalProperties: false,
+        required: ["index", "operation", "modelKey", "status", "recordId", "version"],
+        properties: {
+          index: { type: "integer", minimum: 0, maximum: 19 },
+          operation: { type: "string", enum: ["create", "update", "delete"] },
+          modelKey: { type: "string", enum: models.map((model) => model.key) },
+          status: { const: "succeeded" },
+          recordId: { type: "string", pattern: "^rec_[A-Za-z0-9_-]+$" },
+          version: { type: "integer", minimum: 1 },
+        },
+      },
+      {
+        type: "object",
+        additionalProperties: false,
+        required: ["index", "status", "error"],
+        properties: {
+          index: { type: "integer", minimum: 0, maximum: 19 },
+          operation: { anyOf: [{ type: "string", enum: ["create", "update", "delete"] }, { type: "null" }] },
+          modelKey: { anyOf: [{ type: "string" }, { type: "null" }] },
+          status: { const: "failed" },
+          error: {
+            type: "object",
+            additionalProperties: false,
+            required: ["code", "message", "status"],
+            properties: {
+              code: { type: "string" },
+              message: { type: "string" },
+              status: { type: "integer", minimum: 400, maximum: 599 },
+            },
+          },
+        },
+      },
+    ],
+  };
+  schemas.BulkOperation = {
+    oneOf: [
+      ...createVariants,
+      ...updateVariants,
+      { $ref: "#/components/schemas/BatchDeleteOperation" },
+    ],
+    description: "One non-atomic Bulk create/update/delete item. Items share one bounded transport/performance request but are validated and committed independently; one item failure does not roll back another successful item. One existing record may appear at most once in a Bulk. Update/delete version is optional: supplied values enforce caller-known optimistic concurrency; omitted values are resolved from the current set-wise target snapshot before that item commits.",
+  };
+  schemas.BulkMutationRequest = {
+    type: "object",
+    additionalProperties: false,
+    required: ["operations"],
+    properties: {
+      operations: { type: "array", minItems: 1, maxItems: 20, items: { $ref: "#/components/schemas/BulkOperation" } },
+    },
+  };
+  schemas.BulkMutationResponse = {
+    type: "object",
+    additionalProperties: false,
+    required: ["data"],
+    properties: {
+      data: {
+        type: "object",
+        additionalProperties: false,
+        required: ["bulkId", "items"],
+        properties: {
+          bulkId: { type: "string", pattern: "^blk_[A-Za-z0-9_-]+$" },
+          items: { type: "array", minItems: 1, maxItems: 20, items: { $ref: "#/components/schemas/BulkMutationResultItem" } },
+        },
+      },
+    },
+  };
   schemas.BatchMutationResponse = {
     type: "object",
     additionalProperties: false,
@@ -409,6 +479,28 @@ function addBatchContract(
             items: { $ref: "#/components/schemas/BatchMutationResultItem" },
           },
         },
+      },
+    },
+  };
+  paths["/api/v1/spaces/{spaceId}/models/bulk"] = {
+    parameters: [{ $ref: "#/components/parameters/SpaceId" }],
+    post: {
+      operationId: "bulk_mutate_models",
+      tags: ["Batch"],
+      description: "Applies 1-20 create/update/delete operations in one source Space with independent per-item outcomes. Shared execution and Authority work is resolved set-wise; successful items commit ordinary governed Changes correlated by one Bulk ID while failures commit no Change.",
+      requestBody: { required: true, content: { "application/json": { schema: { $ref: "#/components/schemas/BulkMutationRequest" } } } },
+      responses: {
+        "200": { description: "Bulk completed with independent per-item results", content: { "application/json": { schema: { $ref: "#/components/schemas/BulkMutationResponse" } } } },
+        "400": { description: "Invalid Bulk envelope" },
+        "403": { description: "Request-level Execution Context inconsistency" },
+      },
+      "x-lifespace-batch-semantics": {
+        atomic: false,
+        maxOperations: 20,
+        result: "independent-per-item",
+        changeEvidence: "one-change-per-success-plus-one-bulk-id",
+        authority: "verified-once-and-de-duplicated-by-authority-key",
+        concurrency: "per-item-optional-client-version-or-current-set-wise-snapshot",
       },
     },
   };
