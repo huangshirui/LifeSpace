@@ -24,7 +24,7 @@ const required = [
   ["principal response allowlist", "sanitizePrincipal"],
   ["token response allowlist", "sanitizeToken"],
   ["one-time application secret validation", "secret.startsWith(\"lsa_\")"],
-  ["one-time token validation", "secret.startsWith(\"lsp_pat_\")"],
+  ["one-time token validation", "secret.startsWith(\"lsp_svc_\")"],
   ["sealed reveal locator", "revealPath: path"],
 ];
 

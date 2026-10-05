@@ -314,11 +314,11 @@ LifeSpace has separate contracts for product runtime and privileged control-plan
 ```text
 Application / user / service contract
   apps/identity/openapi.yaml
-  current business-facing contract: 0.6.0
+  current business-facing contract: 0.9.0
 
 Platform Admin Control-Plane Contract
   apps/identity/platform-admin.openapi.yaml
-  independent companion contract: 0.2.0
+  independent companion contract: 0.3.0
 ```
 
 ### Core
@@ -341,7 +341,7 @@ Model Control Plane Contract
 
 Platform Admin Control-Plane Contract
   apps/core/platform-admin.openapi.yaml
-  independent companion contract: 0.2.0
+  independent companion contract: 0.3.0
 
 Model Contract Revision
   mct_<sha256>

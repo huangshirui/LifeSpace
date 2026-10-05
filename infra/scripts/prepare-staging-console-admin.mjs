@@ -54,8 +54,8 @@ if (!/^usr_[0-9A-Za-z_-]+$/u.test(platformAdminUserId)) throw new Error("LIFESPA
 if (suppliedApplicationCredential && !suppliedApplicationCredential.startsWith("lsa_")) {
   throw new Error("LIFESPACE_STAGING_CONSOLE_APPLICATION_CREDENTIAL must be an lsa_* credential");
 }
-if (suppliedCoreBearer && !suppliedCoreBearer.startsWith("lsp_pat_") && suppliedCoreBearer.split(".").length !== 3) {
-  throw new Error("LIFESPACE_STAGING_CONSOLE_CORE_BEARER must be an lsp_pat_* token or service JWT");
+if (suppliedCoreBearer && !suppliedCoreBearer.startsWith("lsp_svc_") && !suppliedCoreBearer.startsWith("lsp_pat_") && suppliedCoreBearer.split(".").length !== 3) {
+  throw new Error("LIFESPACE_STAGING_CONSOLE_CORE_BEARER must be an lsp_svc_*/legacy lsp_pat_* token or service JWT");
 }
 
 function mask(value) {
@@ -318,7 +318,7 @@ async function ensureCoreExecutorToken(applicationCredential, principalId) {
       createdByUserId: platformAdminUserId,
     },
   });
-  if (created.response.status !== 201 || typeof created.payload?.data?.token !== "string" || !created.payload.data.token.startsWith("lsp_pat_")) {
+  if (created.response.status !== 201 || typeof created.payload?.data?.token !== "string" || !created.payload.data.token.startsWith("lsp_svc_")) {
     throw new Error(`Console Core executor token creation failed: ${created.response.status} ${JSON.stringify(created.payload)}`);
   }
   persistSecret("LIFESPACE_STAGING_CONSOLE_CORE_BEARER", created.payload.data.token);
@@ -338,7 +338,7 @@ async function verifyCoreBearer(applicationCredential, coreBearer, principal, ac
   }
 
   let tokenScopes = CORE_EXECUTOR_SCOPES;
-  if (coreBearer.startsWith("lsp_pat_")) {
+  if (coreBearer.startsWith("lsp_svc_") || coreBearer.startsWith("lsp_pat_")) {
     const tokens = await request(identityBase, `/api/v1/service-principals/${encodeURIComponent(principal.id)}/tokens`, { bearer: applicationCredential });
     if (tokens.response.status !== 200 || !Array.isArray(tokens.payload?.data)) {
       throw new Error(`Console Core executor token metadata lookup failed: ${tokens.response.status} ${JSON.stringify(tokens.payload)}`);
@@ -395,7 +395,7 @@ console.log(JSON.stringify({
   contracts: {
     identity: convergence.identity.contractVersion,
     coreKernel: convergence.core.contractVersion,
-    identityPlatformAdmin: "0.2.0",
+    identityPlatformAdmin: "0.3.0",
     corePlatformAdmin: "0.2.0",
   },
   schemas: {

@@ -159,14 +159,14 @@ Normal application/user/service contract:
 
 ```text
 apps/identity/openapi.yaml
-current version: 0.8.0
+current version: 0.9.0
 ```
 
 Privileged LifeSpace Console control-plane contract:
 
 ```text
 apps/identity/platform-admin.openapi.yaml
-current version: 0.2.0
+current version: 0.3.0
 ```
 
 Do not place a Console-only privileged endpoint into the product-facing Identity OpenAPI merely because both are implemented by the same Worker. Conversely, do not implement a privileged route without adding it to the Platform Admin companion contract and its contract checks.
@@ -178,7 +178,8 @@ Platform-admin audit must distinguish human actor from backend executor and may 
 Never audit or return stored:
 
 - `lsa_*` plaintext;
-- `lsp_pat_*` plaintext;
+- `lsp_svc_*` plaintext;
+- legacy `lsp_pat_*` plaintext only during migration;
 - OAuth client secret plaintext;
 - credential hashes;
 - Authorization headers.

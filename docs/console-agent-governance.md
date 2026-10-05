@@ -11,8 +11,8 @@ This boundary is platform-wide and applies uniformly to every Agent-capable down
 Agent identity governance is part of the independent Identity Platform Admin companion contract:
 
 ```text
-Identity Application Contract:    0.6.0
-Identity Platform Admin Contract: 0.2.0
+Identity Application Contract:    0.9.0
+Identity Platform Admin Contract: 0.3.0
 Core Platform Admin Contract:     0.2.0
 ```
 

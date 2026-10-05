@@ -21,7 +21,7 @@ for (const [name, value] of Object.entries({
   if (!value) throw new Error(`${name} is required`);
 }
 if (!applicationCredential.startsWith("lsa_")) throw new Error("Console application credential must be lsa_*");
-if (!coreBearer.startsWith("lsp_pat_") && coreBearer.split(".").length !== 3) throw new Error("Console Core bearer must be lsp_pat_* or service JWT");
+if (!coreBearer.startsWith("lsp_svc_") && !coreBearer.startsWith("lsp_pat_") && coreBearer.split(".").length !== 3) throw new Error("Console Core bearer must be lsp_pat_* or service JWT");
 if (!/^usr_[0-9A-Za-z_-]+$/u.test(expectedUserId)) throw new Error("Expected platform administrator must use usr_* identifier");
 if (accessAssertion.split(".").length !== 3) throw new Error("LIFESPACE_STAGING_CONSOLE_ACCESS_ASSERTION must be a raw compact JWT");
 
@@ -217,7 +217,7 @@ console.log(JSON.stringify({
   contracts: {
     identity: convergence.identity.contractVersion,
     coreKernel: convergence.core.contractVersion,
-    identityPlatformAdmin: "0.2.0",
+    identityPlatformAdmin: "0.3.0",
     corePlatformAdmin: "0.2.0",
   },
   actor: {

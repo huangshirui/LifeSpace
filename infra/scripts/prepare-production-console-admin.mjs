@@ -307,7 +307,7 @@ async function rotateCoreToken(applicationCredential, principalId, adminUserId) 
   });
   const tokenId = created.payload?.data?.id ?? "";
   const token = created.payload?.data?.token ?? "";
-  if (created.response.status !== 201 || !tokenId.startsWith("sat_") || !token.startsWith("lsp_pat_")) {
+  if (created.response.status !== 201 || !tokenId.startsWith("sat_") || !token.startsWith("lsp_svc_")) {
     throw new Error(`Production Console Core token rotation failed: ${created.response.status} ${JSON.stringify(created.payload)}`);
   }
   mask(token);
@@ -345,7 +345,7 @@ console.log(JSON.stringify({
   contracts: {
     identity: convergence.identity.contractVersion,
     coreKernel: convergence.core.contractVersion,
-    identityPlatformAdmin: "0.2.0",
+    identityPlatformAdmin: "0.3.0",
     corePlatformAdmin: "0.2.0",
   },
   schemas: { identity: convergence.identity.schemaVersion, core: convergence.core.schemaVersion },

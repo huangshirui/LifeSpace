@@ -1,5 +1,9 @@
 # LifeSpace Contract Strategy
 
+## Identity 0.9.0 / Platform Admin 0.3.0 — canonical Service API Token prefix
+
+New opaque Service API Tokens are represented as `lsp_svc_*`. Existing `lsp_pat_*` tokens remain compatibility inputs and continue through the identical current-state introspection/revocation path until individually rotated or revoked. Service Principal identity, token-hash storage, scope ceilings, Data Grants, Application × Model Access and Core authorization semantics are unchanged.
+
 ## Kernel 0.43.0 — Atomic multi-Delegation issuance
 
 Kernel 0.43.0 adds `POST /api/v1/spaces/{spaceId}/delegations/batch` for one confirmed business intent that must materialize 1..20 independent Delegations atomically. The operation reuses the generalized Root/Child Delegation primitive, validates all requested Authority/chain narrowing before one all-or-none commit, preserves one immutable scope per `dlg_*`, and never consumes a single-use parent merely by issuing a Child.
@@ -63,7 +67,7 @@ The Model Semantic Fingerprint is content-addressed over the selected applicatio
 A platform operator surface such as LifeSpace Console additionally pins the two Platform Admin companion contracts:
 
 ```text
-Identity Platform Admin Contract: 0.2.0
+Identity Platform Admin Contract: 0.3.0
 Core Platform Admin Contract:     0.3.0
 ```
 
@@ -88,7 +92,7 @@ They are companion contracts rather than alternative service implementations: th
 Normative rules:
 
 - `apps/identity/platform-admin.openapi.yaml` and `apps/core/platform-admin.openapi.yaml` are the only editable OpenAPI sources for the new Console control plane.
-- Identity Platform Admin is `0.2.0`; Core Platform Admin is `0.3.0`. Their versions advance independently when each service's admin syntax changes.
+- Identity Platform Admin is `0.3.0`; Core Platform Admin is `0.3.0`. Their versions advance independently when each service's admin syntax changes.
 - Console privileged operations use the dual identity model from `docs/permissions.md`: a controlled server-side executor plus `X-LifeSpace-Actor-Token` carrying the dedicated short-lived human actor proof.
 - The actor proof is not a reusable general user credential. Identity issues it only from an ordinary authenticated LifeSpace user session after current `platform_administrators` assignment checks, and the proof is bound to `purpose=platform_admin_actor` with a maximum five-minute lifetime.
 - Bootstrap administrator-assignment routes are included only as provisioning/break-glass control-plane syntax. The bootstrap secret is never a Console runtime credential.

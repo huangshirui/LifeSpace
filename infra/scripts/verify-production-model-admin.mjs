@@ -123,7 +123,7 @@ try {
   });
   serviceTokenId = token.payload?.data?.id ?? "";
   const serviceBearer = token.payload?.data?.token ?? "";
-  if (token.response.status !== 201 || !serviceTokenId.startsWith("sat_") || !serviceBearer.startsWith("lsp_pat_")) {
+  if (token.response.status !== 201 || !serviceTokenId.startsWith("sat_") || !serviceBearer.startsWith("lsp_svc_")) {
     throw new Error(`Production Model Admin service token creation failed: ${token.response.status} ${JSON.stringify(token.payload)}`);
   }
   mask(serviceBearer);
@@ -225,7 +225,7 @@ try {
 
   console.log(JSON.stringify({
     ok: true,
-    serviceAuthentication: "lsp_pat_to_core_introspection_passed",
+    serviceAuthentication: "lsp_svc_to_core_introspection_passed",
     modelAdminServiceBoundary: true,
     publishedSemanticModels,
     activeModelContract: active.id,

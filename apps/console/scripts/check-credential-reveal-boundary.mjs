@@ -23,7 +23,7 @@ const required = [
   ["no-referrer reveal document", '"referrer-policy": "no-referrer"', source],
   ["same-origin resource policy", '"cross-origin-resource-policy": "same-origin"', source],
   ["application credential prefix validation", 'secret.startsWith("lsa_")', source],
-  ["service token prefix validation", 'secret.startsWith("lsp_pat_")', source],
+  ["service token prefix validation", 'secret.startsWith("lsp_svc_")', source],
 ];
 
 for (const [label, token, haystack] of required) {

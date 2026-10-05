@@ -3,7 +3,7 @@ import YAML from "yaml";
 
 const document = YAML.parse(fs.readFileSync(new URL("../platform-admin.openapi.yaml", import.meta.url), "utf8"));
 
-if (document.openapi !== "3.1.0" || document.info?.version !== "0.2.0") {
+if (document.openapi !== "3.1.0" || document.info?.version !== "0.3.0") {
   throw new Error("Identity Platform Admin OpenAPI version metadata is invalid");
 }
 if (!document.info?.title?.includes("Platform Admin")) {
@@ -94,6 +94,9 @@ if (!String(tokenPatch?.description ?? "").includes("never be expanded")) {
 const createdSecret = document.paths?.["/internal/v1/platform-admin/applications/{applicationId}/service-principals/{principalId}/tokens"]?.post;
 if (!String(createdSecret?.description ?? "").includes("exactly once")) {
   throw new Error("Platform-managed Service API Token plaintext must be one-time-only");
+}
+if (!String(createdSecret?.description ?? "").includes("lsp_svc_*")) {
+  throw new Error("Platform-managed Service API Token issuance must advertise canonical lsp_svc_*");
 }
 
 const serialized = JSON.stringify(document);

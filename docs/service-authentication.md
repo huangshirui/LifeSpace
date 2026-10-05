@@ -13,14 +13,16 @@ Normal service syntax is part of the Identity application/user/service contract.
 Recommended for owner-controlled workflow automation, scripts, cron jobs, MCP servers and trusted backend automation:
 
 ```text
-lsp_pat_<cryptographically-random-secret>
+lsp_svc_<cryptographically-random-secret>
 ```
 
 The caller sends it directly to Core:
 
 ```http
-Authorization: Bearer lsp_pat_...
+Authorization: Bearer lsp_svc_...
 ```
+
+`lsp_svc_*` is the canonical prefix for every newly issued opaque Service API Token. Existing `lsp_pat_*` tokens remain accepted as migration credentials until each token is normally rotated or revoked. No database rewrite is required because Identity stores only the hash plus display metadata; both prefixes pass through the same current-state hash lookup, scope, expiry, principal/application status and revocation checks.
 
 From the caller's point of view this remains one business HTTP request. Core recognizes the opaque token and asks Identity for current introspection through the internal service boundary.
 
@@ -103,7 +105,7 @@ RS256 service JWT
   -> local signature/claim/lifetime verification
   -> current Service Principal + owning Application eligibility through the internal Service Binding
 
-opaque lsp_pat_*
+opaque lsp_svc_* / legacy lsp_pat_*
   -> Identity introspection through internal Service Binding
   -> current token + principal state
 ```
@@ -114,7 +116,7 @@ Positive opaque-token or service-principal-eligibility caching is not part of th
 
 ### Passive Eventing subscriber eligibility
 
-Normal Eventing Webhook delivery is different from an inbound Core API request: the subscriber does not present its `lsp_pat_*` or service JWT to LifeSpace for every outgoing notification. A stale Data Grant or subscription must therefore never become a substitute for current service identity state.
+Normal Eventing Webhook delivery is different from an inbound Core API request: the subscriber does not present its `lsp_svc_*`, legacy `lsp_pat_*` or service JWT to LifeSpace for every outgoing notification. A stale Data Grant or subscription must therefore never become a substitute for current service identity state.
 
 Core keeps only the stable subscriber `svc_*` reference. After current Core-owned Endpoint/Subscription, Application × Model Access and Data Grant checks pass, the Queue consumer performs a final current-state eligibility read against Identity through the existing authenticated Core -> Identity Service Binding immediately before any outbound Webhook attempt. The internal implementation route is:
 
@@ -162,7 +164,7 @@ application backend resolves external provider identity -> usr_*
 -> user JWT calls Identity/Core
 ```
 
-`lsa_*`, `lsp_pat_*` and OAuth client credentials must never be exposed to browser/Mini Program/mobile client code.
+`lsa_*`, `lsp_svc_*`, legacy `lsp_pat_*` and OAuth client credentials must never be exposed to browser/Mini Program/mobile client code.
 
 See `docs/application-authentication.md` for the application and Cloudflare Access boundary.
 
@@ -191,7 +193,7 @@ The application cannot escape its own registered application context or exceed i
 
 LifeSpace Console needs platform governance across registered applications. It must not accomplish this by borrowing the target application's `lsa_*` credential or by using the bootstrap secret as a normal runtime credential.
 
-Identity Platform Admin `0.2.0` therefore exposes a separate cross-application control plane under:
+Identity Platform Admin `0.3.0` therefore exposes a separate cross-application control plane under:
 
 ```text
 /internal/v1/platform-admin/applications/{applicationId}/service-principals*
@@ -335,7 +337,7 @@ Normal service/application syntax:
 
 ```text
 apps/identity/openapi.yaml
-Identity contract 0.6.0
+Identity contract 0.9.0
 ```
 
 LifeSpace Console privileged service administration:

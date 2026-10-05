@@ -129,7 +129,7 @@ describe("Identity cross-application Platform Service Admin", () => {
     }, pair);
     expect(createToken.status).toBe(201);
     const createdToken = (await createToken.json() as any).data;
-    expect(createdToken.token).toMatch(/^lsp_pat_/u);
+    expect(createdToken.token).toMatch(/^lsp_svc_/u);
     expect(createdToken.createdByUserId).toBe(console.userId);
 
     const stored = await (env as unknown as TestEnv).DB.prepare(
