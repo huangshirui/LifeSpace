@@ -182,7 +182,7 @@
     {
       "id": "core-kernel",
       "source": "apps/core/openapi.yaml",
-      "operationSetSha256": "sha256:ebd4ce97da2dd0da48ef6906a69b2264334107dfe5d9eb8e16c5da64b69d636b",
+      "operationSetSha256": "sha256:3bb217845af5a6bb56cab1598bd47c90ed79a51868bb187d2511a288606871f0",
       "groups": [
         {
           "id": "core-operational",
@@ -237,6 +237,12 @@
           "maturity": "candidate",
           "visibility": "public",
           "operationPattern": "^(GET|POST) /api/v1/spaces/\\{spaceId\\}/delegations$|^POST /api/v1/spaces/\\{spaceId\\}/delegations/batch$|^(GET|PATCH|DELETE) /api/v1/spaces/\\{spaceId\\}/delegations/\\{delegationId\\}$"
+        },
+        {
+          "id": "core-authorization-requests",
+          "maturity": "candidate",
+          "visibility": "public",
+          "operationPattern": "^(GET|POST) /api/v1/spaces/\\{spaceId\\}/authorization-requests$|^(GET|POST) /api/v1/spaces/\\{spaceId\\}/authorization-requests/\\{requestId\\}$|^POST /api/v1/spaces/\\{spaceId\\}/authorization-requests/\\{requestId\\}/(confirm|deny|cancel)$"
         },
         {
           "id": "core-change-history",

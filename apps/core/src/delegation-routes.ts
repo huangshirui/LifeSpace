@@ -45,7 +45,7 @@ type ParsedDelegationIssue = {
   scope: ParsedScope;
   constraints: ParsedConstraints;
 };
-type PreparedDelegationIssue = ParsedDelegationIssue & {
+export type PreparedDelegationIssue = ParsedDelegationIssue & {
   delegationId: string;
   targetModelKey: string | null;
   parent: DelegationChainRow | null;
@@ -76,12 +76,12 @@ type DelegationRow = {
   max_access: DelegationAccess;
 };
 
-type ParsedScope = {
+export type ParsedScope = {
   target: { type: DelegationTargetType; id: string };
   maxAccess: DelegationAccess;
 };
 
-type ParsedConstraints = {
+export type ParsedConstraints = {
   maxUses: 1 | null;
   expiresAt: string | null;
   remainingRedelegationDepth: number;
@@ -249,6 +249,20 @@ function parseCreateDelegationBody(value: unknown): ParsedDelegationIssue {
     scope: parseScope(body.scope),
     constraints: parseConstraints(body.constraints),
   };
+}
+
+export function parseAuthorizationRequestItem(
+  actor: Actor,
+  value: unknown,
+): { scope: ParsedScope; constraints: ParsedConstraints } {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new ApiError("INVALID_REQUEST", "Authorization Request item must be a JSON object", 400);
+  }
+  const input = value as Record<string, unknown>;
+  const unknown = Object.keys(input).find((key) => !["scope", "constraints"].includes(key));
+  if (unknown) throw new ApiError("INVALID_REQUEST", `Unsupported Authorization Request item field ${unknown}`, 400);
+  const parsed = parseCreateDelegationBody({ actor, scope: input.scope, constraints: input.constraints });
+  return { scope: parsed.scope, constraints: parsed.constraints };
 }
 
 function assertIssuanceProfile(principal: Principal, issue: ParsedDelegationIssue): void {
@@ -447,11 +461,12 @@ function assertChildNarrowing(
 }
 
 
-async function prepareDelegationIssues(
+export async function prepareDelegationIssues(
   env: Bindings,
   principal: Principal,
   spaceId: string,
   values: readonly unknown[],
+  issuerOverride?: Actor,
 ): Promise<PreparedDelegationIssue[]> {
   const issues = values.map(parseCreateDelegationBody);
   for (const issue of issues) assertIssuanceProfile(principal, issue);
@@ -470,7 +485,7 @@ async function prepareDelegationIssues(
   const parentChains = await loadCurrentParentChains(env, principal, spaceId, parentIds);
 
   const createdAt = new Date().toISOString();
-  const issuer = executionActor(principal);
+  const issuer = issuerOverride ?? executionActor(principal);
   return issues.map((issue, index) => {
     let parent: DelegationChainRow | null = null;
     if (issue.parentDelegationId) {
@@ -490,13 +505,13 @@ async function prepareDelegationIssues(
   });
 }
 
-async function commitDelegationIssues(
+export function delegationIssueStatements(
   env: Bindings,
   principal: Principal,
   spaceId: string,
   issues: readonly PreparedDelegationIssue[],
-): Promise<ReturnType<typeof dto>[]> {
-  const statements = issues.flatMap((issue) => [
+): D1PreparedStatement[] {
+  return issues.flatMap((issue) => [
     env.DB.prepare(`INSERT INTO delegations(
       id,principal_type,principal_id,actor_type,actor_id,application_id,source_space_id,
       created_by_type,created_by_id,created_at,expires_at,max_uses,
@@ -527,12 +542,13 @@ async function commitDelegationIssues(
       issue.scope.maxAccess,
     ),
   ]);
+}
 
-  // Cloudflare D1 batch is the atomic commit boundary: all Delegation/scopes are
-  // persisted together, or the batch rolls back. Child issuance intentionally
-  // does not consume any single-use ancestor.
-  await env.DB.batch(statements);
-
+export function delegationIssueDtos(
+  principal: Principal,
+  spaceId: string,
+  issues: readonly PreparedDelegationIssue[],
+): ReturnType<typeof dto>[] {
   return issues.map((issue) => dto({
     id: issue.delegationId,
     principal_type: principal.type,
@@ -557,6 +573,19 @@ async function commitDelegationIssues(
   }));
 }
 
+async function commitDelegationIssues(
+  env: Bindings,
+  principal: Principal,
+  spaceId: string,
+  issues: readonly PreparedDelegationIssue[],
+): Promise<ReturnType<typeof dto>[]> {
+  // Cloudflare D1 batch is the atomic commit boundary: all Delegation/scopes are
+  // persisted together, or the batch rolls back. Child issuance intentionally
+  // does not consume any single-use ancestor.
+  await env.DB.batch(delegationIssueStatements(env, principal, spaceId, issues));
+  return delegationIssueDtos(principal, spaceId, issues);
+}
+
 async function issueDelegations(
   env: Bindings,
   principal: Principal,
@@ -575,6 +604,21 @@ function selectRowsSql(): string {
     s.target_type,s.target_id,s.target_model_key,s.max_access
   FROM delegations d
   JOIN delegation_scopes s ON s.delegation_id=d.id`;
+}
+
+export async function loadDelegationDtosByIds(
+  env: Bindings,
+  delegationIds: readonly string[],
+): Promise<ReturnType<typeof dto>[]> {
+  if (!delegationIds.length) return [];
+  const placeholders = delegationIds.map(() => "?").join(",");
+  const rows = await env.DB.prepare(`${selectRowsSql()} WHERE d.id IN (${placeholders})`)
+    .bind(...delegationIds).all<DelegationRow>();
+  const byId = new Map(rows.results.map((row) => [row.id, dto(row)]));
+  return delegationIds.flatMap((delegationId) => {
+    const item = byId.get(delegationId);
+    return item ? [item] : [];
+  });
 }
 
 export function registerDelegationRoutes(app: App): void {

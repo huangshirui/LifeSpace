@@ -3,6 +3,7 @@ import { cors } from "hono/cors";
 import type { Bindings, Variables } from "./env";
 import { authenticate } from "./auth";
 import { registerDelegationRoutes } from "./delegation-routes";
+import { registerAuthorizationRequestRoutes } from "./authorization-request-routes";
 import { registerChangeHistoryRoutes } from "./change-history";
 import { registerRegistryCreationDraftRoutes } from "./registry-creation-draft-jobs";
 import { registerGenericResourceRoutes } from "./generic-resource-routes";
@@ -91,6 +92,7 @@ export function createApp() {
   registerRegistryCreationDraftRoutes(app);
   registerEventSubscriptionRoutes(app);
   registerDelegationRoutes(app);
+  registerAuthorizationRequestRoutes(app);
   registerChangeHistoryRoutes(app);
   registerRuntimeDiscoveryRoutes(app);
   registerRuntimeModelSemanticDetailRoutes(app);

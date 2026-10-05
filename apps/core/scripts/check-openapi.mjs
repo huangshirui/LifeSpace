@@ -3,7 +3,7 @@ import YAML from "yaml";
 
 const document = YAML.parse(fs.readFileSync(new URL("../openapi.yaml", import.meta.url), "utf8"));
 
-if (document.openapi !== "3.1.0" || document.info?.version !== "0.44.0") {
+if (document.openapi !== "3.1.0" || document.info?.version !== "0.45.0") {
   throw new Error("Core Kernel OpenAPI version metadata is invalid");
 }
 if (!document.info?.title?.includes("Kernel")) {
@@ -41,6 +41,11 @@ const requiredPaths = [
   "/api/v1/spaces/{spaceId}/_discovery/models/{modelKey}",
   "/api/v1/spaces/{spaceId}/_relation-targets/{modelKey}/{fieldKey}",
   "/api/v1/spaces/{spaceId}/_reference-resolutions/{modelKey}/{fieldKey}",
+  "/api/v1/spaces/{spaceId}/authorization-requests",
+  "/api/v1/spaces/{spaceId}/authorization-requests/{requestId}",
+  "/api/v1/spaces/{spaceId}/authorization-requests/{requestId}/confirm",
+  "/api/v1/spaces/{spaceId}/authorization-requests/{requestId}/deny",
+  "/api/v1/spaces/{spaceId}/authorization-requests/{requestId}/cancel",
   "/api/v1/spaces/{spaceId}/delegations",
   "/api/v1/spaces/{spaceId}/delegations/batch",
   "/api/v1/spaces/{spaceId}/delegations/{delegationId}",
@@ -117,6 +122,24 @@ if (atomicDelegations?.operationId !== "issueDelegationsAtomically"
     || atomicDelegations?.responses?.["201"]?.content?.["application/json"]?.schema?.$ref !== "#/components/schemas/DelegationBatchResponse") {
   throw new Error("Atomic multi-Delegation issuance contract is missing or malformed");
 }
+const authorizationCreate = document.paths?.["/api/v1/spaces/{spaceId}/authorization-requests"]?.post;
+const authorizationConfirm = document.paths?.["/api/v1/spaces/{spaceId}/authorization-requests/{requestId}/confirm"]?.post;
+if (authorizationCreate?.operationId !== "createAuthorizationRequest"
+    || authorizationCreate?.requestBody?.content?.["application/json"]?.schema?.$ref !== "#/components/schemas/CreateAuthorizationRequest"
+    || authorizationConfirm?.operationId !== "confirmAuthorizationRequest"
+    || authorizationConfirm?.requestBody?.content?.["application/json"]?.schema?.$ref !== "#/components/schemas/ConfirmAuthorizationRequest") {
+  throw new Error("Authorization Request lifecycle contract is missing or malformed");
+}
+if (schemas.CreateAuthorizationRequest?.properties?.items?.minItems !== 1
+    || schemas.CreateAuthorizationRequest?.properties?.items?.maxItems !== 20
+    || schemas.CreateAuthorizationRequest?.properties?.requestTtlMinutes?.default !== 60
+    || schemas.CreateAuthorizationRequest?.properties?.requestTtlMinutes?.maximum !== 1440
+    || !schemas.ConfirmAuthorizationRequest?.required?.includes("principalUserId")
+    || !schemas.DenyAuthorizationRequest?.required?.includes("principalUserId")
+    || JSON.stringify(schemas.AuthorizationRequest?.properties?.status?.enum) !== JSON.stringify(["pending", "approved", "denied", "cancelled", "expired"])) {
+  throw new Error("Authorization Request bounds/lifecycle semantics drifted");
+}
+
 if (schemas.CreateDelegationBatchRequest?.properties?.items?.minItems !== 1
     || schemas.CreateDelegationBatchRequest?.properties?.items?.maxItems !== 20
     || schemas.DelegationBatchResponse?.properties?.data?.properties?.items?.maxItems !== 20) {
