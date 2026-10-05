@@ -12,17 +12,16 @@ jobs:
   apply-and-check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: feat/issue-309-non-atomic-bulk
           fetch-depth: 0
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v4.4.0
         with:
-          version: 10
-      - uses: actions/setup-node@v4
+          version: 10.13.1
+      - uses: actions/setup-node@v6
         with:
-          node-version: 22
-          cache: pnpm
+          node-version: 24
       - run: pnpm install --frozen-lockfile
       - name: Apply #309 implementation
         run: python3 scripts/apply_issue_309.py
