@@ -429,12 +429,20 @@ function addBatchContract(
       },
     ],
   };
+  schemas.BulkOperation = {
+    oneOf: [
+      ...createVariants,
+      ...updateVariants,
+      { $ref: "#/components/schemas/BatchDeleteOperation" },
+    ],
+    description: "One non-atomic Bulk create/update/delete item. Items share one bounded transport/performance request but are validated and committed independently; one item failure does not roll back another successful item. One existing record may appear at most once in a Bulk. Update/delete version is optional: supplied values enforce caller-known optimistic concurrency; omitted values are resolved from the current set-wise target snapshot before that item commits.",
+  };
   schemas.BulkMutationRequest = {
     type: "object",
     additionalProperties: false,
     required: ["operations"],
     properties: {
-      operations: { type: "array", minItems: 1, maxItems: 20, items: { $ref: "#/components/schemas/BatchOperation" } },
+      operations: { type: "array", minItems: 1, maxItems: 20, items: { $ref: "#/components/schemas/BulkOperation" } },
     },
   };
   schemas.BulkMutationResponse = {
