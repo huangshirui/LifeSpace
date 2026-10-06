@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   DAY_RECORD_MODEL_DEFINITION,
   EVENT_MODEL_DEFINITION,
+  PERSON_GROUP_MODEL_DEFINITION,
   TASK_MODEL_DEFINITION,
   WISH_MODEL_DEFINITION,
 } from "../src/builtin-models";
@@ -31,6 +32,7 @@ const BASELINE_MODELS = [
   WISH_MODEL_DEFINITION,
   DAY_RECORD_MODEL_DEFINITION,
   EVENT_MODEL_DEFINITION,
+  PERSON_GROUP_MODEL_DEFINITION,
 ] as const;
 
 const RELEASE_HISTORY = Object.freeze({
@@ -38,7 +40,15 @@ const RELEASE_HISTORY = Object.freeze({
   wish: Object.freeze({ previousVersion: 6, previousHash: "4d34e89df332b9b2c34549699e4210a3166db6eaddabe0ac59de5d4770c206c3", previousRoute: "wishes", currentVersion: 8, currentCompatibility: "compatible" }),
   day_record: Object.freeze({ previousVersion: 3, previousHash: "7793d9959277e45d9af52c6c71820040034f9c84ee487d8f0e6b00320e5c10aa", previousRoute: "day-records", currentVersion: 5, currentCompatibility: "compatible" }),
   event: Object.freeze({ previousVersion: 4, previousHash: "66832c4dae9fd9f99b1f4f49cfdb53e7c91a55512c0b3cf8b8cddaee2111f6c4", previousRoute: "events", currentVersion: 6, currentCompatibility: "breaking" }),
+  person_group: Object.freeze({ currentVersion: 1, currentCompatibility: "initial" }),
 });
+
+const HISTORICAL_BASELINE_MODELS = [
+  TASK_MODEL_DEFINITION,
+  WISH_MODEL_DEFINITION,
+  DAY_RECORD_MODEL_DEFINITION,
+  EVENT_MODEL_DEFINITION,
+] as const;
 
 describe("canonical baseline Model Catalog", () => {
   it("matches the published Registry produced by a fresh migration chain", async () => {
@@ -73,8 +83,12 @@ describe("canonical baseline Model Catalog", () => {
   it("keeps the pre-0.32 route-bearing versions immutable as superseded evidence", async () => {
     const db = (env as unknown as TestEnv).DB;
 
-    for (const canonical of BASELINE_MODELS) {
-      const release = RELEASE_HISTORY[canonical.key as keyof typeof RELEASE_HISTORY];
+    for (const canonical of HISTORICAL_BASELINE_MODELS) {
+      const release = RELEASE_HISTORY[canonical.key as keyof typeof RELEASE_HISTORY] as {
+        previousVersion: number;
+        previousHash: string;
+        previousRoute: string;
+      };
       const historical = await db.prepare(`SELECT version,state,definition_json,schema_hash
           FROM model_definitions
           WHERE model_key=? AND version=? AND schema_hash=?`)
