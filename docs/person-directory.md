@@ -11,6 +11,8 @@ Space Person (`per_*`) is Kernel-owned Shared Reality. It is the stable same-Spa
 - Alternate names are lookup keys only. Matching an alternate name still returns the canonical `displayName` as the reference label.
 - Names are trimmed and NFC-normalized before Person Directory persistence.
 - Alternate names must be unique within one Person under case-insensitive comparison and must not duplicate the current canonical display name.
+- The same spelling may belong to multiple different Persons in one Space. Real-world names and role-like names are not globally unique; lookup may therefore return multiple Persons for client/Agent disambiguation.
+- Changing `displayName` does **not** automatically retain the previous display name as an alternate name. A caller that wants the old name to remain searchable must include it explicitly in `alternateNames`; this avoids preserving corrections/typos as durable lookup keys.
 - `linked_user_id` is never writable through Person Directory. Only Membership/Invite lifecycle may establish or reactivate User ↔ Space Person linkage.
 
 ## Kernel API
@@ -27,7 +29,7 @@ DELETE /api/v1/spaces/{spaceId}/people/{personId}
 
 List/search accepts `q`, opaque `cursor`, and `limit` (1–100, default 50). `q` matches the active canonical display name or any active alternate name in the same Space. Pagination is keyset-based on canonical display name + Person ID.
 
-Create accepts `displayName` and optional `alternateNames`; it always creates an unlinked Person. Update accepts `version` plus one or both of `displayName` / `alternateNames`. Supplying `alternateNames` replaces the active alternate-name set atomically. Delete accepts `version` and soft-deletes the unlinked Person plus its active alternate names.
+Create accepts `displayName` and optional `alternateNames`; it always creates an unlinked Person. Update accepts `version` plus one or both of `displayName` / `alternateNames`. Supplying `alternateNames` replaces the active alternate-name set atomically; there is deliberately no separate per-alias CRUD/version surface. Delete accepts `version` and soft-deletes the unlinked Person plus its active alternate names.
 
 A Person response intentionally exposes only:
 
@@ -43,7 +45,7 @@ A Person response intentionally exposes only:
 }
 ```
 
-`linkedUser` is a boolean boundary fact. Person Directory does not expose the global `usr_*` identifier, Membership role, email or other Identity metadata.
+`linkedUser` is a boolean boundary fact. Person Directory does not expose the global `usr_*` identifier, Membership role, email or other Identity metadata. The boolean exists because Membership linkage changes Person lifecycle/edit/delete semantics and consumers need to distinguish that boundary without learning Identity identifiers.
 
 ## Authority
 
@@ -83,6 +85,8 @@ Direct Agent execution may use current Agent Data Grant Authority. `User / Agent
 Membership/Space lifecycle changes that rename, deactivate or reactivate a linked Space Person also advance the same version, so Person Directory concurrency cannot silently overwrite a lifecycle change.
 
 Committed Person Directory mutations write durable `pchg_*` evidence containing operation, version before/after, Principal, Actor, Application, Delegation selector and changed field keys. Delegation-chain evidence is stored separately. Single-use Delegations are consumed by D1 trigger in the same transaction as the committed Person change; a failed Person mutation cannot consume a single-use Delegation by itself.
+
+The `pchg_*` evidence is governance/audit state rather than a new public end-user history API in Kernel 0.47.0. A public Person history surface should be added only when a concrete consumer needs it, instead of exposing another contract merely because the durable evidence exists.
 
 ## Search performance boundary
 
