@@ -1,5 +1,7 @@
 name: Deploy LifeSpace platform production
 
+# Safety invariant: this canonical environment-changing workflow must be started
+# explicitly by the repository owner. Never dispatch it from another workflow.
 on:
   workflow_dispatch:
     inputs:
@@ -24,6 +26,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          test "$GITHUB_EVENT_NAME" = "workflow_dispatch" || { echo "production deployment must use workflow_dispatch" >&2; exit 1; }
+          test "$GITHUB_ACTOR" = "huangshirui" || { echo "production deployment must be initiated directly by repository owner huangshirui; actor=$GITHUB_ACTOR" >&2; exit 1; }
+          test "$GITHUB_TRIGGERING_ACTOR" = "huangshirui" || { echo "production deployment must be triggered directly by repository owner huangshirui; triggering_actor=$GITHUB_TRIGGERING_ACTOR" >&2; exit 1; }
           test "${{ inputs.confirmation }}" = "DEPLOY_PRODUCTION" || { echo "confirmation must be DEPLOY_PRODUCTION" >&2; exit 1; }
           test "$GITHUB_REF_NAME" = "main" || { echo "production deployment must run from main" >&2; exit 1; }
 
