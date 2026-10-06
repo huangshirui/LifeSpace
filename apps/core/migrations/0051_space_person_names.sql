@@ -2,14 +2,20 @@
 -- Stored names are normalized before insertion by callers; display_name remains the
 -- canonical label projected by Person reference lookup/resolution.
 
+-- Space Person IDs are globally unique already; this composite key exists so child
+-- Kernel state can enforce that its denormalized space_id matches the referenced Person.
+CREATE UNIQUE INDEX uq_space_people_space_person
+  ON space_people(space_id, id);
+
 CREATE TABLE space_person_names (
   id TEXT PRIMARY KEY CHECK(id GLOB 'spn_*'),
   space_id TEXT NOT NULL REFERENCES spaces(id),
-  person_id TEXT NOT NULL REFERENCES space_people(id),
+  person_id TEXT NOT NULL,
   name TEXT NOT NULL CHECK(length(trim(name)) BETWEEN 1 AND 100),
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
-  deleted_at TEXT
+  deleted_at TEXT,
+  FOREIGN KEY(space_id, person_id) REFERENCES space_people(space_id, id)
 );
 
 CREATE UNIQUE INDEX uq_active_space_person_name
