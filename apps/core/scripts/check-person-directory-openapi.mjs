@@ -46,10 +46,29 @@ if (schemas.CreateSpacePersonRequest?.properties?.linkedUserId
     || schemas.CreateSpacePersonRequest?.properties?.userId) {
   throw new Error("Person Directory must never establish User linkage");
 }
-if (!schemas.UpdateSpacePersonRequest?.required?.includes("version")
-    || schemas.UpdateSpacePersonRequest?.minProperties !== 2
-    || schemas.UpdateSpacePersonRequest?.properties?.alternateNames?.maxItems !== 20) {
-  throw new Error("Person update must use optimistic concurrency and atomic alternate-name replacement");
+
+const update = schemas.UpdateSpacePersonRequest;
+const mutation = schemas.AlternateNameMutation;
+const rename = schemas.AlternateNameRename;
+if (!update?.required?.includes("version")
+    || update.minProperties !== 2
+    || update.properties?.alternateNames?.$ref !== "#/components/schemas/AlternateNameMutation") {
+  throw new Error("Person update must use optimistic concurrency and the canonical alternate-name mutation object");
+}
+for (const key of ["set", "add", "remove"]) {
+  if (mutation?.properties?.[key]?.maxItems !== 20
+      || mutation.properties[key]?.items?.maxLength !== 100) {
+    throw new Error(`alternateNames.${key} must remain bounded to 20 names of at most 100 characters`);
+  }
+}
+if (mutation?.properties?.rename?.maxItems !== 20
+    || mutation.properties.rename?.items?.$ref !== "#/components/schemas/AlternateNameRename"
+    || !rename?.required?.includes("from")
+    || !rename.required.includes("to")) {
+  throw new Error("alternateNames.rename contract drifted");
+}
+if (!Array.isArray(mutation?.oneOf) || mutation.oneOf.length !== 2) {
+  throw new Error("alternateNames.set must remain mutually exclusive with incremental operations");
 }
 if (!schemas.DeleteSpacePersonRequest?.required?.includes("version")) {
   throw new Error("Person delete must use optimistic concurrency");
@@ -64,8 +83,9 @@ for (const operation of [collection.get, collection.post, item.get, item.patch, 
   }
 }
 
-if (!item.patch?.description?.includes("does not implicitly preserve the old name")) {
-  throw new Error("Person rename contract must keep old-name retention explicit rather than automatic");
+if (!item.patch?.description?.includes("incremental add/remove/rename")
+    || !item.patch.description.includes("does not implicitly preserve the old name")) {
+  throw new Error("Person alternate-name mutation and rename semantics must remain explicit");
 }
 if (!item.delete?.description?.includes("active ordinary record still references")) {
   throw new Error("Person deletion must document active-reference protection");
