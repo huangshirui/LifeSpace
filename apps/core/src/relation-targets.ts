@@ -104,7 +104,7 @@ function parseLimit(params: URLSearchParams): number {
 function parseSearch(params: URLSearchParams): string | null {
   const raw = one(params, "q");
   if (raw === undefined || raw.trim() === "") return null;
-  const value = raw.trim();
+  const value = raw.trim().normalize("NFC");
   if (value.length > 100) throw new ApiError("INVALID_QUERY", "q must contain at most 100 characters", 400);
   return value;
 }
@@ -149,21 +149,26 @@ async function listPersonTargets(
     kind: "person", spaceId, modelKey, fieldKey, targetModel,
   });
 
-  const clauses = ["space_id=?", "deleted_at IS NULL"];
+  const clauses = ["p.space_id=?", "p.deleted_at IS NULL"];
   const bindings: unknown[] = [spaceId];
   if (q) {
-    clauses.push("display_name LIKE ? ESCAPE '\\' COLLATE NOCASE");
-    bindings.push(`%${escapeLike(q)}%`);
+    const pattern = `%${escapeLike(q)}%`;
+    clauses.push(`(p.display_name LIKE ? ESCAPE '\\' COLLATE NOCASE OR EXISTS (
+      SELECT 1 FROM space_person_names n
+      WHERE n.space_id=p.space_id AND n.person_id=p.id AND n.deleted_at IS NULL
+        AND n.name LIKE ? ESCAPE '\\' COLLATE NOCASE
+    ))`);
+    bindings.push(pattern, pattern);
   }
   if (cursor) {
-    clauses.push("(display_name COLLATE NOCASE > ? OR (display_name COLLATE NOCASE = ? AND id > ?))");
+    clauses.push("(p.display_name COLLATE NOCASE > ? OR (p.display_name COLLATE NOCASE = ? AND p.id > ?))");
     bindings.push(cursor.label, cursor.label, cursor.id);
   }
 
-  const rows = await env.DB.prepare(`SELECT id,display_name label
-    FROM space_people
+  const rows = await env.DB.prepare(`SELECT p.id,p.display_name label
+    FROM space_people p
     WHERE ${clauses.join(" AND ")}
-    ORDER BY display_name COLLATE NOCASE ASC,id ASC
+    ORDER BY p.display_name COLLATE NOCASE ASC,p.id ASC
     LIMIT ?`)
     .bind(...bindings, limit + 1)
     .all<RelationTarget>();
