@@ -158,7 +158,7 @@ async function insertSingleUseDelegation(
 }
 
 describe("Space Person Directory", () => {
-  it("creates, searches and atomically updates alternate names with optimistic concurrency", async () => {
+  it("creates, searches and atomically applies incremental alternate-name mutations with optimistic concurrency", async () => {
     const f = await fixture();
     const created = await createPerson(f, "黄小天", ["小天", "Harry"]);
     expect(created).toMatchObject({
@@ -182,7 +182,11 @@ describe("Space Person Directory", () => {
       method: "PATCH",
       body: JSON.stringify({
         displayName: "黄天",
-        alternateNames: ["Harry", "天天"],
+        alternateNames: {
+          add: ["天天"],
+          remove: ["小天"],
+          rename: [{ from: "Harry", to: "Henry" }],
+        },
         version: 1,
       }),
     });
@@ -190,7 +194,7 @@ describe("Space Person Directory", () => {
     expect((await updated.json<{ data: PersonDto }>()).data).toMatchObject({
       id: created.id,
       displayName: "黄天",
-      alternateNames: ["Harry", "天天"],
+      alternateNames: ["Henry", "天天"],
       version: 2,
     });
 
@@ -240,12 +244,69 @@ describe("Space Person Directory", () => {
     ]);
   });
 
+  it("supports full set replacement and requires explicit alias removal when promoting an alias to displayName", async () => {
+    const f = await fixture();
+    const created = await createPerson(f, "黄小天", ["小天", "Harry"]);
+
+    const implicitPromotion = await request(f.publicKey, f.token, `/api/v1/spaces/${f.spaceId}/people/${created.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ displayName: "小天", version: 1 }),
+    });
+    expect(implicitPromotion.status).toBe(422);
+
+    const promoted = await request(f.publicKey, f.token, `/api/v1/spaces/${f.spaceId}/people/${created.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        displayName: "小天",
+        alternateNames: { remove: ["小天"] },
+        version: 1,
+      }),
+    });
+    expect(promoted.status).toBe(200);
+    expect((await promoted.json<{ data: PersonDto }>()).data).toMatchObject({
+      displayName: "小天",
+      alternateNames: ["Harry"],
+      version: 2,
+    });
+
+    const replaced = await request(f.publicKey, f.token, `/api/v1/spaces/${f.spaceId}/people/${created.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        alternateNames: { set: ["天天", "Henry"] },
+        version: 2,
+      }),
+    });
+    expect(replaced.status).toBe(200);
+    expect((await replaced.json<{ data: PersonDto }>()).data).toMatchObject({
+      alternateNames: ["Henry", "天天"],
+      version: 3,
+    });
+
+    const mixedSet = await request(f.publicKey, f.token, `/api/v1/spaces/${f.spaceId}/people/${created.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        alternateNames: { set: ["A"], add: ["B"] },
+        version: 3,
+      }),
+    });
+    expect(mixedSet.status).toBe(422);
+
+    const duplicateAdd = await request(f.publicKey, f.token, `/api/v1/spaces/${f.spaceId}/people/${created.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        alternateNames: { add: ["Henry"] },
+        version: 3,
+      }),
+    });
+    expect(duplicateAdd.status).toBe(422);
+  });
+
   it("allows viewer self-service but keeps other Person and membership-bound lifecycle protected", async () => {
     const f = await fixture("viewer");
 
     const selfUpdate = await request(f.publicKey, f.token, `/api/v1/spaces/${f.spaceId}/people/${f.linkedPersonId}`, {
       method: "PATCH",
-      body: JSON.stringify({ displayName: "My Space Name", alternateNames: ["Me"], version: 1 }),
+      body: JSON.stringify({ displayName: "My Space Name", alternateNames: { set: ["Me"] }, version: 1 }),
     });
     expect(selfUpdate.status).toBe(200);
     expect((await selfUpdate.json<{ data: PersonDto }>()).data.version).toBe(2);
