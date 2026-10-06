@@ -64,3 +64,14 @@ jobs:
         if: steps.validation.outputs.run_full == 'true'
       - run: pnpm check
         if: steps.validation.outputs.run_full == 'true'
+      - name: Export finalized Person contract
+        if: steps.validation.outputs.run_full == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: person-directory-finalized-contract
+          path: |
+            apps/core/openapi.yaml
+            apps/core/scripts/check-openapi.mjs
+            infra/contract-stability-baseline.json
+          if-no-files-found: error
+          retention-days: 1
