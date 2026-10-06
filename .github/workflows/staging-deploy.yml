@@ -1,5 +1,7 @@
 name: Deploy LifeSpace platform staging
 
+# Safety invariant: this canonical environment-changing workflow must be started
+# explicitly by the repository owner. Never dispatch it from another workflow.
 on:
   workflow_dispatch:
 
@@ -11,7 +13,21 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  validate:
+    name: Validate manual staging release intent
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require explicit human dispatch
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_EVENT_NAME" = "workflow_dispatch" || { echo "staging deployment must use workflow_dispatch" >&2; exit 1; }
+          test "$GITHUB_ACTOR" = "huangshirui" || { echo "staging deployment must be initiated directly by repository owner huangshirui; actor=$GITHUB_ACTOR" >&2; exit 1; }
+          test "$GITHUB_TRIGGERING_ACTOR" = "huangshirui" || { echo "staging deployment must be triggered directly by repository owner huangshirui; triggering_actor=$GITHUB_TRIGGERING_ACTOR" >&2; exit 1; }
+          test "$GITHUB_REF_NAME" = "main" || { echo "staging deployment must run from main" >&2; exit 1; }
+
   deploy:
+    needs: validate
     name: Migrate, deploy and verify staging
     runs-on: ubuntu-latest
     environment: staging
