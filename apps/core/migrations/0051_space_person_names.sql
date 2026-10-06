@@ -5,6 +5,22 @@
 ALTER TABLE space_people
   ADD COLUMN version INTEGER NOT NULL DEFAULT 1 CHECK(version >= 1);
 
+-- Membership/Space lifecycle code predates Person optimistic concurrency. When those
+-- existing Kernel paths reactivate/deactivate/rename a linked Person without explicitly
+-- touching version, advance it in the same D1 statement. Person Directory writes set
+-- version themselves, so the WHEN clause prevents a second increment.
+CREATE TRIGGER trg_space_people_advance_version
+AFTER UPDATE OF display_name,linked_user_id,deleted_at ON space_people
+WHEN NEW.version=OLD.version
+  AND (
+    NEW.display_name IS NOT OLD.display_name
+    OR NEW.linked_user_id IS NOT OLD.linked_user_id
+    OR NEW.deleted_at IS NOT OLD.deleted_at
+  )
+BEGIN
+  UPDATE space_people SET version=version+1 WHERE id=NEW.id;
+END;
+
 -- Space Person IDs are globally unique already; this composite key exists so child
 -- Kernel state can enforce that its denormalized space_id matches the referenced Person.
 CREATE UNIQUE INDEX uq_space_people_space_person
