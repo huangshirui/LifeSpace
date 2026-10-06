@@ -134,5 +134,20 @@
         "attendeePersonField": "attendeePersonIds"
       }
     }
+  },
+  "person_group": {
+    "definitionVersion": 1,
+    "key": "person_group",
+    "description": "A durable named grouping of Space People used to refer to a set of people together, such as family, classmates, teammates, colleagues, or another user-defined circle. Membership expresses grouping only and does not imply authority or a typed interpersonal relationship.",
+    "display": { "singular": "Person Group", "plural": "Person Groups" },
+    "fields": {
+      "name": { "type": "string", "title": "Name", "description": "Human-readable name of the group or circle.", "required": true, "minLength": 1, "maxLength": 100 },
+      "description": { "type": "text", "title": "Description", "description": "Optional context describing what the group represents.", "nullable": true, "maxLength": 2000 },
+      "memberPersonIds": { "type": "person_list", "title": "Members", "description": "Space People included in this group." }
+    },
+    "referenceLabel": { "field": "name" },
+    "query": { "searchable": ["name", "description"], "filterable": ["memberPersonIds"], "sortable": ["name"] },
+    "access": ["read", "write"],
+    "lifecycle": { "optimisticConcurrency": true, "softDelete": true }
   }
 }
