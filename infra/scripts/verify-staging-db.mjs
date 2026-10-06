@@ -12,12 +12,14 @@ const REQUIRED_PLATFORM_TABLES = [
   "mdl_wish",
   "mdl_day_record",
   "mdl_event",
+  "mdl_person_group",
   "temporal_occurrences",
   "model_definitions",
   "application_model_access",
   "model_contract_revisions",
   "model_contract_state",
   "model_definition_drafts",
+  "space_person_names",
 ];
 
 const REQUIRED_TYPED_COLUMNS = new Map([
@@ -25,6 +27,7 @@ const REQUIRED_TYPED_COLUMNS = new Map([
   ["mdl_wish", ["record_id", "space_id", "description", "desiredDate", "fulfilledAt", "status", "title"]],
   ["mdl_day_record", ["record_id", "space_id", "anchorDate", "attentionAfterDays", "attentionBeforeDays", "cycleDays", "description", "icon", "kind", "name", "status"]],
   ["mdl_event", ["record_id", "space_id", "summary", "description", "location", "__tr_when_kind", "__tr_when_start", "__tr_when_end", "status"]],
+  ["mdl_person_group", ["record_id", "space_id", "name", "description"]],
 ]);
 
 const FORBIDDEN_TYPED_COLUMNS = new Map([
@@ -37,6 +40,7 @@ const MODEL_TABLES = new Map([
   ["wish", "mdl_wish"],
   ["day_record", "mdl_day_record"],
   ["event", "mdl_event"],
+  ["person_group", "mdl_person_group"],
 ]);
 
 const RETIRED_TABLES = [
@@ -111,7 +115,6 @@ for (const [key, expected] of EXPECTED_MODELS) {
   assertEqual(row.schema_hash, expected.hash, `${key} schema hash`);
   verifiedModelVersions[key] = Number(row.version);
 }
-
 
 const tableSet = new Set(runSql("SELECT name FROM sqlite_master WHERE type='table'").map((row) => row.name));
 for (const table of REQUIRED_PLATFORM_TABLES) assertTruthy(tableSet.has(table), `Required platform table ${table} is missing`);
