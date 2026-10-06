@@ -6,7 +6,7 @@ const checkOpenapiUrl = new URL("./check-openapi.mjs", import.meta.url);
 const document = JSON.parse(fs.readFileSync(openapiUrl, "utf8"));
 document.info.version = "0.47.0";
 if (!document.info.description.includes("Kernel 0.47.0")) {
-  document.info.description += " Kernel 0.47.0 adds the first-class Space Person Directory with canonical display names, bounded alternate-name lookup, optimistic concurrency, governed Person changes and explicit current Space-target Delegation support for represented execution.";
+  document.info.description += " Kernel 0.47.0 adds the first-class Space Person Directory with canonical display names, bounded alternate-name lookup and incremental mutation, optimistic concurrency, governed Person changes and explicit current Space-target Delegation support for represented execution.";
 }
 
 document.tags ??= [];
@@ -30,13 +30,13 @@ const errorResponses = {
   "422": { $ref: "#/components/responses/ValidationError" },
 };
 
-const alternateNames = {
+const alternateNameArray = (description) => ({
   type: "array",
   maxItems: 20,
   uniqueItems: true,
   items: { type: "string", minLength: 1, maxLength: 100 },
-  description: "Explicit alternate lookup names for this Space Person. The active set is bounded to 20 names and is replaced atomically when supplied on update.",
-};
+  description,
+});
 
 document.components.schemas.SpacePerson = {
   type: "object",
@@ -45,7 +45,7 @@ document.components.schemas.SpacePerson = {
   properties: {
     id: { type: "string", pattern: "^per_[A-Za-z0-9_-]+$" },
     displayName: { type: "string", minLength: 1, maxLength: 100, description: "Canonical same-Space display/reference label." },
-    alternateNames,
+    alternateNames: alternateNameArray("Active alternate lookup names for this Space Person."),
     linkedUser: { type: "boolean", description: "Whether Membership lifecycle currently owns a global User linkage. The global usr_* identifier is intentionally not exposed." },
     version: { type: "integer", minimum: 1 },
     createdAt: { type: "string", format: "date-time" },
@@ -79,8 +79,44 @@ document.components.schemas.CreateSpacePersonRequest = {
   required: ["displayName"],
   properties: {
     displayName: { type: "string", minLength: 1, maxLength: 100 },
-    alternateNames,
+    alternateNames: alternateNameArray("Initial alternate lookup names for the new Space Person."),
   },
+};
+document.components.schemas.AlternateNameRename = {
+  type: "object",
+  additionalProperties: false,
+  required: ["from", "to"],
+  properties: {
+    from: { type: "string", minLength: 1, maxLength: 100 },
+    to: { type: "string", minLength: 1, maxLength: 100 },
+  },
+};
+document.components.schemas.AlternateNameMutation = {
+  type: "object",
+  additionalProperties: false,
+  minProperties: 1,
+  description: "Mutates alternate names as part of one optimistic-concurrency Person update. set replaces the complete active set and is mutually exclusive with add/remove/rename. add, remove and rename may be combined in one atomic mutation.",
+  properties: {
+    set: alternateNameArray("Complete replacement set. Mutually exclusive with add, remove and rename."),
+    add: alternateNameArray("Names to add to the current active set."),
+    remove: alternateNameArray("Currently active names to remove."),
+    rename: {
+      type: "array",
+      maxItems: 20,
+      items: { $ref: "#/components/schemas/AlternateNameRename" },
+      description: "Currently active names to rename. from must exist and to must not collide with another active or concurrently mutated name.",
+    },
+  },
+  oneOf: [
+    {
+      required: ["set"],
+      not: { anyOf: [{ required: ["add"] }, { required: ["remove"] }, { required: ["rename"] }] },
+    },
+    {
+      anyOf: [{ required: ["add"] }, { required: ["remove"] }, { required: ["rename"] }],
+      not: { required: ["set"] },
+    },
+  ],
 };
 document.components.schemas.UpdateSpacePersonRequest = {
   type: "object",
@@ -90,7 +126,7 @@ document.components.schemas.UpdateSpacePersonRequest = {
   properties: {
     version: { type: "integer", minimum: 1 },
     displayName: { type: "string", minLength: 1, maxLength: 100 },
-    alternateNames,
+    alternateNames: { $ref: "#/components/schemas/AlternateNameMutation" },
   },
 };
 document.components.schemas.DeleteSpacePersonRequest = {
@@ -149,7 +185,7 @@ document.paths["/api/v1/spaces/{spaceId}/people/{personId}"] = {
   patch: {
     tags: ["Person Directory"],
     operationId: "updateSpacePerson",
-    description: "Atomically updates the canonical displayName and/or the complete active alternateNames set under optimistic concurrency. Changing displayName does not implicitly preserve the old name as an alternate name. A linked User may update their own Space Person with current read Authority; owner/admin may update linked Persons; other actors require current Space manage Authority for linked Persons.",
+    description: "Atomically updates the canonical displayName and/or alternate names under optimistic concurrency. alternateNames supports complete set replacement or incremental add/remove/rename without exposing aliases as independent resources. Changing displayName does not implicitly preserve the old name as an alternate name. A linked User may update their own Space Person with current read Authority; owner/admin may update linked Persons; other actors require current Space manage Authority for linked Persons.",
     requestBody: { required: true, content: { "application/json": { schema: { $ref: "#/components/schemas/UpdateSpacePersonRequest" } } } },
     responses: {
       "200": { description: "Space Person updated", content: { "application/json": { schema: { $ref: "#/components/schemas/SpacePersonResponse" } } } },
