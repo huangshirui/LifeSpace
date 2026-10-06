@@ -1,7 +1,9 @@
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 
 const openapiUrl = new URL("../openapi.yaml", import.meta.url);
 const checkOpenapiUrl = new URL("./check-openapi.mjs", import.meta.url);
+const contractStabilityBaselineUrl = new URL("../../../docs/contract-stability-baseline.json", import.meta.url);
 
 const document = JSON.parse(fs.readFileSync(openapiUrl, "utf8"));
 document.info.version = "0.47.0";
@@ -214,6 +216,37 @@ checkOpenapi = checkOpenapi.replace(
 );
 fs.writeFileSync(checkOpenapiUrl, checkOpenapi, "utf8");
 
+const httpMethods = new Set(["get", "post", "put", "patch", "delete", "options", "head", "trace"]);
+const coreOperations = [];
+for (const [path, item] of Object.entries(document.paths ?? {})) {
+  if (!item || typeof item !== "object" || Array.isArray(item)) continue;
+  for (const method of Object.keys(item)) {
+    if (httpMethods.has(method.toLowerCase())) coreOperations.push(`${method.toUpperCase()} ${path}`);
+  }
+}
+const coreOperationSetSha256 = `sha256:${createHash("sha256")
+  .update([...new Set(coreOperations)].sort().join("\n"))
+  .digest("hex")}`;
+
+const contractStabilityBaseline = JSON.parse(fs.readFileSync(contractStabilityBaselineUrl, "utf8"));
+const coreKernel = contractStabilityBaseline.contractSources?.find((source) => source?.id === "core-kernel");
+if (!coreKernel) throw new Error("contract-stability baseline is missing core-kernel");
+coreKernel.groups ??= [];
+const personDirectoryGroup = {
+  id: "core-person-directory",
+  maturity: "candidate",
+  visibility: "public",
+  operationPattern: "^(GET|POST) /api/v1/spaces/\\{spaceId\\}/people$|^(GET|PATCH|DELETE) /api/v1/spaces/\\{spaceId\\}/people/\\{personId\\}$",
+};
+const existingPersonDirectoryGroupIndex = coreKernel.groups.findIndex((group) => group?.id === personDirectoryGroup.id);
+if (existingPersonDirectoryGroupIndex >= 0) {
+  coreKernel.groups[existingPersonDirectoryGroupIndex] = personDirectoryGroup;
+} else {
+  coreKernel.groups.push(personDirectoryGroup);
+}
+coreKernel.operationSetSha256 = coreOperationSetSha256;
+fs.writeFileSync(contractStabilityBaselineUrl, `${JSON.stringify(contractStabilityBaseline, null, 2)}\n`, "utf8");
+
 function printChunks(label, text) {
   const encoded = Buffer.from(text, "utf8").toString("base64");
   const size = 4000;
@@ -226,3 +259,4 @@ function printChunks(label, text) {
 
 printChunks("PERSON_OPENAPI", fs.readFileSync(openapiUrl, "utf8"));
 printChunks("PERSON_CHECK_OPENAPI", fs.readFileSync(checkOpenapiUrl, "utf8"));
+printChunks("PERSON_CONTRACT_STABILITY_BASELINE", fs.readFileSync(contractStabilityBaselineUrl, "utf8"));
