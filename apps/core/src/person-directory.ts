@@ -77,6 +77,12 @@ function nameKey(value: string): string {
   return value.toLowerCase();
 }
 
+function compareNames(left: string, right: string): number {
+  const leftKey = nameKey(left);
+  const rightKey = nameKey(right);
+  return leftKey < rightKey ? -1 : leftKey > rightKey ? 1 : left < right ? -1 : left > right ? 1 : 0;
+}
+
 function alternateNames(value: unknown, displayName: string): string[] {
   if (value === undefined) return [];
   if (!Array.isArray(value) || value.length > MAX_ALTERNATE_NAMES) {
@@ -95,7 +101,7 @@ function alternateNames(value: unknown, displayName: string): string[] {
     }
     unique.set(key, name);
   }
-  return [...unique.values()].sort((left, right) => left.localeCompare(right));
+  return [...unique.values()].sort(compareNames);
 }
 
 function version(value: unknown): number {
@@ -170,6 +176,7 @@ async function requireDirectoryAccess(
   context: Context<AppEnv>,
   spaceId: string,
   required: "read" | "write",
+  spacePermission: Permission = required,
 ): Promise<DirectoryAccess> {
   const authenticated = context.get("principal");
   const selectedDelegationId = delegationHeader(context);
@@ -185,12 +192,7 @@ async function requireDirectoryAccess(
 
   if (agentApiCredential && selectedDelegationId) {
     const rows = await delegationRows(context.env, selectedDelegationId);
-    principal = resolveAgentApiDelegatedPrincipal(
-      authenticated,
-      spaceId,
-      selectedDelegationId,
-      rows,
-    );
+    principal = resolveAgentApiDelegatedPrincipal(authenticated, spaceId, selectedDelegationId, rows);
     chain = validateStructuralDelegationChain(principal, spaceId, selectedDelegationId, rows);
   } else if (authenticated.actor) {
     if (!selectedDelegationId) {
@@ -219,7 +221,7 @@ async function requireDirectoryAccess(
     }
   }
 
-  const spaceAuthority = await requireSpacePermission(context.env, principal, spaceId, required);
+  const spaceAuthority = await requireSpacePermission(context.env, principal, spaceId, spacePermission);
   return {
     principal,
     spaceAuthority,
@@ -263,7 +265,7 @@ function personDto(row: PersonRow, names: readonly string[]) {
   return {
     id: row.id,
     displayName: row.display_name,
-    alternateNames: [...names],
+    alternateNames: [...names].sort(compareNames),
     linkedUser: row.linked_user_id !== null,
     version: row.version,
     createdAt: row.created_at,
@@ -281,7 +283,7 @@ async function findPerson(env: Bindings, spaceId: string, personId: string): Pro
   ]);
   const row = (results[0]?.results?.[0] ?? null) as PersonRow | null;
   if (!row) throw new ApiError("PERSON_NOT_FOUND", "Active Space Person not found", 404);
-  const names = (results[1]?.results ?? []).map((entry) => String((entry as { name: string }).name));
+  const names = (results[1]?.results ?? []).map((entry) => String((entry as { name: string }).name)).sort(compareNames);
   return { row, names };
 }
 
@@ -349,7 +351,9 @@ async function listPeople(
 
 function namesEqual(left: readonly string[], right: readonly string[]): boolean {
   if (left.length !== right.length) return false;
-  return left.every((value, index) => value === right[index]);
+  const sortedLeft = [...left].sort(compareNames);
+  const sortedRight = [...right].sort(compareNames);
+  return sortedLeft.every((value, index) => value === sortedRight[index]);
 }
 
 function changeStatement(
@@ -398,13 +402,16 @@ function delegationEvidenceStatements(
   ).bind(changeId, delegationId, chainPosition));
 }
 
-async function assertLinkedPersonWriteAllowed(
+async function assertPersonMutationTarget(
   context: Context<AppEnv>,
   spaceId: string,
   access: DirectoryAccess,
   row: PersonRow,
 ): Promise<void> {
-  if (!row.linked_user_id) return;
+  if (!row.linked_user_id) {
+    await requireSpacePermission(context.env, access.principal, spaceId, "write");
+    return;
+  }
   if (access.principal.type === "user" && access.principal.id === row.linked_user_id) return;
   if (access.spaceAuthority === "owner" || access.spaceAuthority === "admin") return;
   await requireSpacePermission(context.env, access.principal, spaceId, "manage");
@@ -432,7 +439,7 @@ export function registerPersonDirectoryRoutes(app: App): void {
     const statements: D1PreparedStatement[] = [
       context.env.DB.prepare(`INSERT INTO space_people(
         id,space_id,linked_user_id,display_name,created_at,updated_at,version
-      ) VALUES(?,?,NULL,?,?,?,?,1)`).bind(personId, spaceId, displayName, timestamp, timestamp),
+      ) VALUES(?,?,NULL,?,?,?,1)`).bind(personId, spaceId, displayName, timestamp, timestamp),
       ...names.map((name) => context.env.DB.prepare(`INSERT INTO space_person_names(
         id,space_id,person_id,name,created_at,updated_at
       ) VALUES(?,?,?,?,?,?)`).bind(id("spn"), spaceId, personId, name, timestamp, timestamp)),
@@ -473,9 +480,12 @@ export function registerPersonDirectoryRoutes(app: App): void {
   app.patch("/api/v1/spaces/:spaceId/people/:personId", requireScope("resources:write"), async (context) => {
     const spaceId = context.req.param("spaceId");
     const personId = context.req.param("personId");
-    const access = await requireDirectoryAccess(context, spaceId, "write");
+    // A Person mutation always requires write credential/delegation capability. Space
+    // read is enough for the linked user's self-service case; unlinked/other-person
+    // mutations are tightened after the target is loaded.
+    const access = await requireDirectoryAccess(context, spaceId, "write", "read");
     const current = await findPerson(context.env, spaceId, personId);
-    await assertLinkedPersonWriteAllowed(context, spaceId, access, current.row);
+    await assertPersonMutationTarget(context, spaceId, access, current.row);
     const input = await body(context);
     fields(input, ["displayName", "alternateNames", "version"]);
     const expected = version(input.version);
