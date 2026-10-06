@@ -72,6 +72,6 @@ jobs:
           path: |
             apps/core/openapi.yaml
             apps/core/scripts/check-openapi.mjs
-            infra/contract-stability-baseline.json
+            docs/contract-stability-baseline.json
           if-no-files-found: error
           retention-days: 1
