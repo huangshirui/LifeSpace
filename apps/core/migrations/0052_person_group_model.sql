@@ -5,8 +5,8 @@
 CREATE TABLE "mdl_person_group" (
   record_id TEXT PRIMARY KEY REFERENCES resource_records(id) ON DELETE CASCADE,
   space_id TEXT NOT NULL REFERENCES spaces(id),
-  "name" TEXT NOT NULL,
   "description" TEXT,
+  "name" TEXT NOT NULL,
   UNIQUE(space_id,record_id)
 );
 
