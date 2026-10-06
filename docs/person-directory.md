@@ -12,7 +12,7 @@ Space Person (`per_*`) is Kernel-owned Shared Reality. It is the stable same-Spa
 - Names are trimmed and NFC-normalized before Person Directory persistence.
 - Alternate names must be unique within one Person under case-insensitive comparison and must not duplicate the current canonical display name.
 - The same spelling may belong to multiple different Persons in one Space. Real-world names and role-like names are not globally unique; lookup may therefore return multiple Persons for client/Agent disambiguation.
-- Changing `displayName` does **not** automatically retain the previous display name as an alternate name. A caller that wants the old name to remain searchable must include it explicitly in `alternateNames`; this avoids preserving corrections/typos as durable lookup keys.
+- Changing `displayName` does **not** automatically retain the previous display name as an alternate name. A caller that wants the old name to remain searchable must add it explicitly; this avoids preserving corrections/typos as durable lookup keys.
 - `linked_user_id` is never writable through Person Directory. Only Membership/Invite lifecycle may establish or reactivate User ↔ Space Person linkage.
 
 ## Kernel API
@@ -29,7 +29,35 @@ DELETE /api/v1/spaces/{spaceId}/people/{personId}
 
 List/search accepts `q`, opaque `cursor`, and `limit` (1–100, default 50). `q` matches the active canonical display name or any active alternate name in the same Space. Pagination is keyset-based on canonical display name + Person ID.
 
-Create accepts `displayName` and optional `alternateNames`; it always creates an unlinked Person. Update accepts `version` plus one or both of `displayName` / `alternateNames`. Supplying `alternateNames` replaces the active alternate-name set atomically; there is deliberately no separate per-alias CRUD/version surface. Delete accepts `version` and soft-deletes the unlinked Person plus its active alternate names.
+Create accepts `displayName` and optional initial `alternateNames`; it always creates an unlinked Person.
+
+Update accepts `version` plus one or both of `displayName` / `alternateNames`. `alternateNames` is an operation object on the Person aggregate rather than an independent Alias resource:
+
+```json
+{
+  "version": 3,
+  "alternateNames": {
+    "add": ["天天"],
+    "remove": ["Harry"],
+    "rename": [{ "from": "小天", "to": "小天同学" }]
+  }
+}
+```
+
+Supported operations:
+
+- `set`: replace the complete active alternate-name set;
+- `add`: add one or more active alternate names;
+- `remove`: remove one or more currently active alternate names;
+- `rename`: rename one or more currently active alternate names.
+
+`set` is mutually exclusive with `add/remove/rename`. `add/remove/rename` may be combined in one PATCH. All requested name changes are validated against the same current Person version, resolved in memory, then committed atomically as one Person Change. The Person version advances exactly once regardless of how many aliases change.
+
+Aliases are not first-class resources: there is no public `spn_*` CRUD/version surface. Internally Core diffs the resulting aggregate and inserts, updates, reactivates or soft-deletes only the rows that changed.
+
+Changing `displayName` to a currently active alternate name requires the caller to explicitly remove that alternate name in the same request. Core does not silently mutate the alias set merely to make a display-name update valid.
+
+Delete accepts `version` and soft-deletes the unlinked Person plus its active alternate names.
 
 A Person response intentionally exposes only:
 
@@ -46,6 +74,19 @@ A Person response intentionally exposes only:
 ```
 
 `linkedUser` is a boolean boundary fact. Person Directory does not expose the global `usr_*` identifier, Membership role, email or other Identity metadata. The boolean exists because Membership linkage changes Person lifecycle/edit/delete semantics and consumers need to distinguish that boundary without learning Identity identifiers.
+
+## Ordinary Person-related models
+
+Person-related business information that is not a Kernel identity/lifecycle concern remains metadata-driven ordinary model data.
+
+Examples include:
+
+- `person_profile` — descriptive/profile information about a Space Person;
+- `person_group` — named groups/circles whose members are `person_list` relations.
+
+These models are created/published through the Model Registry / Console and use Generic Runtime. They do not require handwritten Person-specific CRUD in Core merely because they refer to `per_*`.
+
+A model may still be included in the repository baseline catalog when LifeSpace intentionally ships it as a standard model across fresh/staging/production environments. That is a reproducibility/publication decision, not evidence that the model belongs to Kernel.
 
 ## Authority
 
@@ -88,7 +129,7 @@ Committed Person Directory mutations write durable `pchg_*` evidence containing 
 
 The `pchg_*` evidence is governance/audit state rather than a new public end-user history API in Kernel 0.47.0. A public Person history surface should be added only when a concrete consumer needs it, instead of exposing another contract merely because the durable evidence exists.
 
-## Search performance boundary
+## Search and mutation performance boundary
 
 Person lookup is always Space-scoped and set-based. Listing/searching one page must not cause one D1 query per Person or per alternate name.
 
@@ -101,12 +142,13 @@ Current strategy:
 
 Substring search currently uses escaped `LIKE '%q%'`. Ordinary B-tree indexes cannot seek on a leading wildcard, but the Space prefix and active-row index still bound the working set. LifeSpace deliberately does not introduce FTS5/trigram in this release: common Chinese Person queries are frequently two characters, while SQLite trigram acceleration requires at least three consecutive Unicode characters for an indexed substring constraint. FTS introduces additional storage, write amplification, synchronization triggers and migration cost. It should be introduced only when measured directory scale/latency evidence justifies it.
 
+Incremental alternate-name mutation adds **no additional Worker→D1 round trip** compared with full-set replacement. Core already loads the current Person + active aliases for optimistic concurrency, computes the target alias set in Worker memory, then reuses one atomic D1 mutation batch. `add/remove/rename` therefore improve Agent/API ergonomics without turning aliases into separately fetched resources or introducing N+1 I/O.
+
 CI includes a 500-Person lookup probe covering a 1-item page, a 100-item page, canonical-name search and short Chinese alternate-name search. The acceptance invariant is constant Worker→D1 request shape with no per-Person waterfall and bounded D1 bindings; local wall-clock time is diagnostic only and is not treated as APAC production latency evidence.
 
 ## Explicitly out of scope
 
 - typed interpersonal Relationship model;
-- a `person_profile` model before the Model Definition DSL can express its required one-Person/one-Profile invariant cleanly;
 - assigning a global User identity through Person Directory;
 - fuzzy/phonetic/semantic search ranking;
 - FTS5 until measured need justifies its operational cost.
