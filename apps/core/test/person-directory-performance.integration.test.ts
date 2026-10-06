@@ -79,7 +79,7 @@ async function bearer(privateKey: string, userId: string, clientId: string) {
     sub: userId,
     azp: clientId,
     principal_type: "user",
-    scope: "resources:read",
+    scope: "resources:read resources:write",
     iat,
     exp: iat + 900,
     jti: `tok_${crypto.randomUUID()}`,
@@ -180,4 +180,82 @@ describe("Space Person Directory performance", () => {
       noPerPersonWaterfall: one.roundTrips === maxPage.roundTrips && maxPage.roundTrips === shortChineseAlias.roundTrips,
     }));
   }, 20_000);
+
+  it("keeps incremental alternate-name mutation at the same D1 round-trip shape as full set replacement", async () => {
+    const realDb = (env as unknown as TestEnv).DB;
+    const suffix = crypto.randomUUID().replaceAll("-", "");
+    const userId = `usr_person_mut_perf_${suffix}`;
+    const clientId = `app_person_mut_perf_${suffix}`;
+    const spaceId = `spc_person_mut_perf_${suffix}`;
+    const personId = `per_person_mut_perf_${suffix}`;
+    const timestamp = new Date().toISOString();
+
+    await realDb.batch([
+      realDb.prepare(`INSERT INTO spaces(id,name,created_by_user_id,created_at,updated_at,timezone)
+        VALUES(?,?,?,?,?,?)`).bind(spaceId, "Person Mutation Performance", userId, timestamp, timestamp, "UTC"),
+      realDb.prepare(`INSERT INTO space_memberships(id,space_id,user_id,role,created_at,updated_at)
+        VALUES(?,?,?,?,?,?)`).bind(`mem_person_mut_perf_${suffix}`, spaceId, userId, "owner", timestamp, timestamp),
+      realDb.prepare(`INSERT INTO space_people(id,space_id,linked_user_id,display_name,created_at,updated_at)
+        VALUES(?,?,?,?,?,?)`).bind(personId, spaceId, null, "Mutation Person", timestamp, timestamp),
+      realDb.prepare(`INSERT INTO space_person_names(id,space_id,person_id,name,created_at,updated_at)
+        VALUES(?,?,?,?,?,?)`).bind(`spn_person_mut_perf_a_${suffix}`, spaceId, personId, "Old A", timestamp, timestamp),
+      realDb.prepare(`INSERT INTO space_person_names(id,space_id,person_id,name,created_at,updated_at)
+        VALUES(?,?,?,?,?,?)`).bind(`spn_person_mut_perf_b_${suffix}`, spaceId, personId, "Old B", timestamp, timestamp),
+    ]);
+
+    const counter: Counter = { roundTrips: 0, maxBindings: 0 };
+    const countedDb = countedDatabase(realDb, counter);
+    const { privateKey, publicKey } = await keys();
+    const token = await bearer(privateKey, userId, clientId);
+    const app = createApp();
+
+    const patch = async (requestBody: unknown) => {
+      reset(counter);
+      const response = await app.request(
+        `http://localhost/api/v1/spaces/${spaceId}/people/${personId}`,
+        {
+          method: "PATCH",
+          headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+          body: JSON.stringify(requestBody),
+        },
+        { DB: countedDb, IDENTITY_PUBLIC_KEY: publicKey, ENVIRONMENT: "test" },
+      );
+      expect(response.status).toBe(200);
+      await response.text();
+      return { roundTrips: counter.roundTrips, maxBindings: counter.maxBindings };
+    };
+
+    const singleAdd = await patch({
+      version: 1,
+      alternateNames: { add: ["One"] },
+    });
+    const multiIncremental = await patch({
+      version: 2,
+      alternateNames: {
+        add: ["N1", "N2", "N3", "N4", "N5", "N6", "N7", "N8", "N9", "N10"],
+        remove: ["Old A"],
+        rename: [{ from: "Old B", to: "Renamed" }],
+      },
+    });
+    const fullSet = await patch({
+      version: 3,
+      alternateNames: { set: ["Final A", "Final B"] },
+    });
+
+    expect(singleAdd.roundTrips).toBe(fullSet.roundTrips);
+    expect(multiIncremental.roundTrips).toBe(fullSet.roundTrips);
+    expect(fullSet.roundTrips).toBeLessThanOrEqual(4);
+    for (const result of [singleAdd, multiIncremental, fullSet]) {
+      expect(result.maxBindings).toBeLessThanOrEqual(20);
+    }
+
+    console.log("PERSON_DIRECTORY_MUTATION_PERFORMANCE", JSON.stringify({
+      environment: "Cloudflare Vitest local D1; wall time omitted as non-APAC diagnostic",
+      singleAdd,
+      multiIncremental,
+      fullSet,
+      incrementalAddsNoRoundTrip: singleAdd.roundTrips === fullSet.roundTrips
+        && multiIncremental.roundTrips === fullSet.roundTrips,
+    }));
+  });
 });
