@@ -20,6 +20,8 @@ const REQUIRED_PLATFORM_TABLES = [
   "model_contract_state",
   "model_definition_drafts",
   "space_person_names",
+  "space_person_changes",
+  "space_person_change_delegations",
 ];
 
 const REQUIRED_TYPED_COLUMNS = new Map([
@@ -123,6 +125,13 @@ for (const table of RETIRED_TABLES) if (tableSet.has(table)) fail(`Retired table
 const resourceColumns = new Set(runSql("SELECT name FROM pragma_table_info('resource_records')").map((row) => row.name));
 if (resourceColumns.has("data_json")) fail("Legacy resource_records.data_json column still exists");
 
+const personColumns = new Set(runSql("SELECT name FROM pragma_table_info('space_people')").map((row) => row.name));
+assertTruthy(personColumns.has("version"), "Space Person optimistic-concurrency version is missing");
+const personIndexes = new Set(runSql("SELECT name FROM pragma_index_list('space_people')").map((row) => row.name));
+assertTruthy(personIndexes.has("idx_space_people_lookup"), "Space Person lookup index is missing");
+const personNameIndexes = new Set(runSql("SELECT name FROM pragma_index_list('space_person_names')").map((row) => row.name));
+assertTruthy(personNameIndexes.has("idx_space_person_names_lookup"), "Space Person alternate-name lookup index is missing");
+
 for (const [table, expectedColumns] of REQUIRED_TYPED_COLUMNS) {
   const actualColumns = new Set(runSql(`SELECT name FROM pragma_table_info('${table}')`).map((row) => row.name));
   for (const column of expectedColumns) assertTruthy(actualColumns.has(column), `Typed model table ${table} is missing column ${column}`);
@@ -154,6 +163,15 @@ const trigger = single(`SELECT name FROM sqlite_master
   WHERE type='trigger' AND name='finalize_claimed_ai_model_proposal_after_publication'`, "AI proposal audit trigger");
 assertEqual(trigger.name, "finalize_claimed_ai_model_proposal_after_publication", "AI proposal audit trigger");
 
+for (const triggerName of [
+  "trg_space_people_advance_version",
+  "trg_space_person_change_validate",
+  "trg_space_person_change_delegation_consume_single_use",
+]) {
+  const row = single(`SELECT name FROM sqlite_master WHERE type='trigger' AND name='${triggerName}'`, triggerName);
+  assertEqual(row.name, triggerName, `${triggerName} trigger`);
+}
+
 const contractRows = runSql(`SELECT s.active_contract_id,s.registry_revision,r.contract_hash
   FROM model_contract_state s JOIN model_contract_revisions r ON r.id=s.active_contract_id`);
 if (process.env.REQUIRE_ACTIVE_MODEL_CONTRACT === "1") {
@@ -171,6 +189,7 @@ console.log(JSON.stringify({
   schemaVersion: STAGING_EXPECTATIONS.core.schemaVersion,
   models: verifiedModelVersions,
   typedModelTables: [...REQUIRED_TYPED_COLUMNS.keys()],
+  personDirectoryGovernedStorage: true,
   typedEnvelopeConsistency: true,
   legacyGenericStorageRemoved: true,
   activeModelContract: contractRows[0]?.active_contract_id ?? null,
