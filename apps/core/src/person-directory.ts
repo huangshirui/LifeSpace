@@ -38,6 +38,7 @@ type PersonCursor = {
   label: string;
   id: string;
 };
+type AlternateNameRename = { from: string; to: string };
 
 const MAX_ALTERNATE_NAMES = 20;
 const MAX_PAGE_SIZE = 100;
@@ -83,25 +84,127 @@ function compareNames(left: string, right: string): number {
   return leftKey < rightKey ? -1 : leftKey > rightKey ? 1 : left < right ? -1 : left > right ? 1 : 0;
 }
 
-function alternateNames(value: unknown, displayName: string): string[] {
-  if (value === undefined) return [];
+function nameList(value: unknown, field: string): string[] {
   if (!Array.isArray(value) || value.length > MAX_ALTERNATE_NAMES) {
-    throw new ApiError("VALIDATION_ERROR", `alternateNames must contain at most ${MAX_ALTERNATE_NAMES} names`, 422);
+    throw new ApiError("VALIDATION_ERROR", `${field} must contain at most ${MAX_ALTERNATE_NAMES} names`, 422);
   }
-  const displayKey = nameKey(displayName);
   const unique = new Map<string, string>();
   for (let index = 0; index < value.length; index += 1) {
-    const name = personName(value[index], `alternateNames[${index}]`);
+    const name = personName(value[index], `${field}[${index}]`);
     const key = nameKey(name);
-    if (key === displayKey) {
-      throw new ApiError("VALIDATION_ERROR", "alternateNames must not duplicate displayName", 422);
-    }
     if (unique.has(key)) {
-      throw new ApiError("VALIDATION_ERROR", "alternateNames must not contain duplicates", 422);
+      throw new ApiError("VALIDATION_ERROR", `${field} must not contain duplicates`, 422);
     }
     unique.set(key, name);
   }
   return [...unique.values()].sort(compareNames);
+}
+
+function alternateNames(value: unknown, displayName: string, field = "alternateNames"): string[] {
+  if (value === undefined) return [];
+  const names = nameList(value, field);
+  const displayKey = nameKey(displayName);
+  if (names.some((name) => nameKey(name) === displayKey)) {
+    throw new ApiError("VALIDATION_ERROR", `${field} must not duplicate displayName`, 422);
+  }
+  return names;
+}
+
+function renameList(value: unknown): AlternateNameRename[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.length > MAX_ALTERNATE_NAMES) {
+    throw new ApiError("VALIDATION_ERROR", `alternateNames.rename must contain at most ${MAX_ALTERNATE_NAMES} entries`, 422);
+  }
+  return value.map((entry, index) => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      throw new ApiError("VALIDATION_ERROR", `alternateNames.rename[${index}] must be an object`, 422);
+    }
+    const input = entry as Body;
+    fields(input, ["from", "to"]);
+    if (!Object.hasOwn(input, "from") || !Object.hasOwn(input, "to")) {
+      throw new ApiError("VALIDATION_ERROR", `alternateNames.rename[${index}] requires from and to`, 422);
+    }
+    return {
+      from: personName(input.from, `alternateNames.rename[${index}].from`),
+      to: personName(input.to, `alternateNames.rename[${index}].to`),
+    };
+  });
+}
+
+function applyAlternateNamePatch(value: unknown, currentNames: readonly string[], displayName: string): string[] {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new ApiError("VALIDATION_ERROR", "alternateNames must be an operation object", 422);
+  }
+  const input = value as Body;
+  fields(input, ["set", "add", "remove", "rename"]);
+  const hasSet = Object.hasOwn(input, "set");
+  const hasIncremental = ["add", "remove", "rename"].some((key) => Object.hasOwn(input, key));
+  if (!hasSet && !hasIncremental) {
+    throw new ApiError("VALIDATION_ERROR", "alternateNames requires set or at least one incremental operation", 422);
+  }
+  if (hasSet && hasIncremental) {
+    throw new ApiError("VALIDATION_ERROR", "alternateNames.set cannot be combined with add, remove or rename", 422);
+  }
+  if (hasSet) return alternateNames(input.set, displayName, "alternateNames.set");
+
+  const add = input.add === undefined ? [] : nameList(input.add, "alternateNames.add");
+  const remove = input.remove === undefined ? [] : nameList(input.remove, "alternateNames.remove");
+  const rename = renameList(input.rename);
+  const operationKeys = new Map<string, string>();
+  const claim = (name: string, role: string, allowSameRole = false) => {
+    const key = nameKey(name);
+    const existing = operationKeys.get(key);
+    if (existing && !(allowSameRole && existing === role)) {
+      throw new ApiError("VALIDATION_ERROR", `alternate name ${name} participates in multiple operations`, 422);
+    }
+    operationKeys.set(key, role);
+  };
+  add.forEach((name) => claim(name, "add"));
+  remove.forEach((name) => claim(name, "remove"));
+  rename.forEach((entry, index) => {
+    const fromKey = nameKey(entry.from);
+    const toKey = nameKey(entry.to);
+    claim(entry.from, `rename[${index}]`);
+    claim(entry.to, `rename[${index}]`, fromKey === toKey);
+  });
+
+  const next = new Map(currentNames.map((name) => [nameKey(name), name]));
+  for (const name of remove) {
+    const key = nameKey(name);
+    if (!next.has(key)) {
+      throw new ApiError("VALIDATION_ERROR", `alternateNames.remove name ${name} is not active`, 422);
+    }
+    next.delete(key);
+  }
+  for (const entry of rename) {
+    const fromKey = nameKey(entry.from);
+    const toKey = nameKey(entry.to);
+    if (!next.has(fromKey)) {
+      throw new ApiError("VALIDATION_ERROR", `alternateNames.rename source ${entry.from} is not active`, 422);
+    }
+    if (fromKey !== toKey && next.has(toKey)) {
+      throw new ApiError("VALIDATION_ERROR", `alternateNames.rename target ${entry.to} is already active`, 422);
+    }
+    next.delete(fromKey);
+    next.set(toKey, entry.to);
+  }
+  for (const name of add) {
+    const key = nameKey(name);
+    if (next.has(key)) {
+      throw new ApiError("VALIDATION_ERROR", `alternateNames.add name ${name} is already active`, 422);
+    }
+    next.set(key, name);
+  }
+
+  const names = [...next.values()].sort(compareNames);
+  if (names.length > MAX_ALTERNATE_NAMES) {
+    throw new ApiError("VALIDATION_ERROR", `alternateNames must contain at most ${MAX_ALTERNATE_NAMES} active names`, 422);
+  }
+  const displayKey = nameKey(displayName);
+  if (names.some((name) => nameKey(name) === displayKey)) {
+    throw new ApiError("VALIDATION_ERROR", "alternateNames must not duplicate displayName", 422);
+  }
+  return names;
 }
 
 function version(value: unknown): number {
@@ -499,7 +602,7 @@ export function registerPersonDirectoryRoutes(app: App): void {
       : personName(input.displayName, "displayName");
     const nextNames = input.alternateNames === undefined
       ? current.names
-      : alternateNames(input.alternateNames, nextDisplayName);
+      : applyAlternateNamePatch(input.alternateNames, current.names, nextDisplayName);
     if (input.alternateNames === undefined && current.names.some((name) => nameKey(name) === nameKey(nextDisplayName))) {
       throw new ApiError("VALIDATION_ERROR", "displayName must not duplicate an alternate name", 422);
     }
