@@ -79,9 +79,20 @@ unavailable
 
 ## Person v1
 
-`person` and `person_list` are supported immediately because Space Person already owns one canonical reference label: `displayName`.
+`person` and `person_list` are supported because Space Person owns one canonical reference label: `displayName`.
 
 The target read is restricted to active `space_people` in the source Space. It returns only `{id,label}`. It must not expose Membership, linked global User identity, role, email or other Person metadata.
+
+Space Person may also own active alternate names in Kernel `space_person_names`. These names extend **lookup matching**, not canonical identity or presentation:
+
+- Relation Target Lookup `q` matches either `space_people.display_name` or an active `space_person_names.name` in the same Space;
+- a match through an alternate name still returns `label = displayName`;
+- alternate names never replace the canonical reference label and are not returned by Batch Reference Resolution;
+- soft-deleted alternate names do not participate in lookup;
+- alternate-name lookup remains one set-based Person query and must not introduce per-Person D1 I/O;
+- stored alternate names are normalized before persistence; Core does not keep a duplicate normalized-name column.
+
+This preserves a single stable Person label while allowing users and Agents to find the same `per_*` through names such as a nickname or another commonly used name.
 
 ## Ordinary record relations
 
@@ -135,6 +146,8 @@ For Person v1 the target-resolution work must remain bounded O(1) in Worker→D1
 1. bounded current source authority/Policy evaluation;
 2. one set-based active Space Person target read;
 3. in-memory mapping back to input positions.
+
+Relation Target Lookup with alternate-name matching is likewise a single set-based Person query; it may use a correlated `EXISTS` against active `space_person_names`, but it must not perform a second request per Person.
 
 No per-ID Worker→D1 or HTTP waterfall, positive authority cache, KV, Durable Object, TTL or push invalidation belongs in this representation.
 

@@ -12,12 +12,16 @@ const REQUIRED_PLATFORM_TABLES = [
   "mdl_wish",
   "mdl_day_record",
   "mdl_event",
+  "mdl_person_group",
   "temporal_occurrences",
   "model_definitions",
   "application_model_access",
   "model_contract_revisions",
   "model_contract_state",
   "model_definition_drafts",
+  "space_person_names",
+  "space_person_changes",
+  "space_person_change_delegations",
 ];
 
 const REQUIRED_TYPED_COLUMNS = new Map([
@@ -25,6 +29,7 @@ const REQUIRED_TYPED_COLUMNS = new Map([
   ["mdl_wish", ["record_id", "space_id", "description", "desiredDate", "fulfilledAt", "status", "title"]],
   ["mdl_day_record", ["record_id", "space_id", "anchorDate", "attentionAfterDays", "attentionBeforeDays", "cycleDays", "description", "icon", "kind", "name", "status"]],
   ["mdl_event", ["record_id", "space_id", "summary", "description", "location", "__tr_when_kind", "__tr_when_start", "__tr_when_end", "status"]],
+  ["mdl_person_group", ["record_id", "space_id", "name", "description"]],
 ]);
 
 const FORBIDDEN_TYPED_COLUMNS = new Map([
@@ -37,6 +42,7 @@ const MODEL_TABLES = new Map([
   ["wish", "mdl_wish"],
   ["day_record", "mdl_day_record"],
   ["event", "mdl_event"],
+  ["person_group", "mdl_person_group"],
 ]);
 
 const RETIRED_TABLES = [
@@ -112,13 +118,19 @@ for (const [key, expected] of EXPECTED_MODELS) {
   verifiedModelVersions[key] = Number(row.version);
 }
 
-
 const tableSet = new Set(runSql("SELECT name FROM sqlite_master WHERE type='table'").map((row) => row.name));
 for (const table of REQUIRED_PLATFORM_TABLES) assertTruthy(tableSet.has(table), `Required platform table ${table} is missing`);
 for (const table of RETIRED_TABLES) if (tableSet.has(table)) fail(`Retired table ${table} still exists`);
 
 const resourceColumns = new Set(runSql("SELECT name FROM pragma_table_info('resource_records')").map((row) => row.name));
 if (resourceColumns.has("data_json")) fail("Legacy resource_records.data_json column still exists");
+
+const personColumns = new Set(runSql("SELECT name FROM pragma_table_info('space_people')").map((row) => row.name));
+assertTruthy(personColumns.has("version"), "Space Person optimistic-concurrency version is missing");
+const personIndexes = new Set(runSql("SELECT name FROM pragma_index_list('space_people')").map((row) => row.name));
+assertTruthy(personIndexes.has("idx_space_people_lookup"), "Space Person lookup index is missing");
+const personNameIndexes = new Set(runSql("SELECT name FROM pragma_index_list('space_person_names')").map((row) => row.name));
+assertTruthy(personNameIndexes.has("idx_space_person_names_lookup"), "Space Person alternate-name lookup index is missing");
 
 for (const [table, expectedColumns] of REQUIRED_TYPED_COLUMNS) {
   const actualColumns = new Set(runSql(`SELECT name FROM pragma_table_info('${table}')`).map((row) => row.name));
@@ -151,6 +163,15 @@ const trigger = single(`SELECT name FROM sqlite_master
   WHERE type='trigger' AND name='finalize_claimed_ai_model_proposal_after_publication'`, "AI proposal audit trigger");
 assertEqual(trigger.name, "finalize_claimed_ai_model_proposal_after_publication", "AI proposal audit trigger");
 
+for (const triggerName of [
+  "trg_space_people_advance_version",
+  "trg_space_person_change_validate",
+  "trg_space_person_change_delegation_consume_single_use",
+]) {
+  const row = single(`SELECT name FROM sqlite_master WHERE type='trigger' AND name='${triggerName}'`, triggerName);
+  assertEqual(row.name, triggerName, `${triggerName} trigger`);
+}
+
 const contractRows = runSql(`SELECT s.active_contract_id,s.registry_revision,r.contract_hash
   FROM model_contract_state s JOIN model_contract_revisions r ON r.id=s.active_contract_id`);
 if (process.env.REQUIRE_ACTIVE_MODEL_CONTRACT === "1") {
@@ -168,6 +189,7 @@ console.log(JSON.stringify({
   schemaVersion: STAGING_EXPECTATIONS.core.schemaVersion,
   models: verifiedModelVersions,
   typedModelTables: [...REQUIRED_TYPED_COLUMNS.keys()],
+  personDirectoryGovernedStorage: true,
   typedEnvelopeConsistency: true,
   legacyGenericStorageRemoved: true,
   activeModelContract: contractRows[0]?.active_contract_id ?? null,

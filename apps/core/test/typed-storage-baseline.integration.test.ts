@@ -44,7 +44,7 @@ async function assertPublishedModelPhysicalSchema(modelKey: string): Promise<voi
 
 describe("Typed model storage baseline", () => {
   it("matches the Physical Schema Compiler for every built-in published model", async () => {
-    for (const modelKey of ["task", "wish", "day_record", "event"]) {
+    for (const modelKey of ["task", "wish", "day_record", "event", "person_group"]) {
       await assertPublishedModelPhysicalSchema(modelKey);
     }
   });

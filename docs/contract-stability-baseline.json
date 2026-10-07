@@ -182,7 +182,7 @@
     {
       "id": "core-kernel",
       "source": "apps/core/openapi.yaml",
-      "operationSetSha256": "sha256:3bb217845af5a6bb56cab1598bd47c90ed79a51868bb187d2511a288606871f0",
+      "operationSetSha256": "sha256:4a1c2c1dfd39a9b31efbafe826ca4430c83af7f392644d2c35319261d6359e72",
       "groups": [
         {
           "id": "core-operational",
@@ -255,6 +255,12 @@
           "maturity": "experimental",
           "visibility": "public",
           "operationPattern": "^(GET|POST|PATCH|DELETE) /api/v1/spaces/\\{spaceId\\}/creation-drafts(?:/.*)?$"
+        },
+        {
+          "id": "core-person-directory",
+          "maturity": "candidate",
+          "visibility": "public",
+          "operationPattern": "^(GET|POST) /api/v1/spaces/\\{spaceId\\}/people$|^(GET|PATCH|DELETE) /api/v1/spaces/\\{spaceId\\}/people/\\{personId\\}$"
         }
       ]
     },

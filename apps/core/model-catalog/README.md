@@ -6,6 +6,7 @@
 - Wish（愿望）
 - Day Record（日子记录）
 - Event（日程事件）
+- Person Group（人员圈子）
 
 ## What is canonical
 

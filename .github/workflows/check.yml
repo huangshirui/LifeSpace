@@ -64,3 +64,14 @@ jobs:
         if: steps.validation.outputs.run_full == 'true'
       - run: pnpm check
         if: steps.validation.outputs.run_full == 'true'
+      - name: Export Kernel contract snapshot
+        if: steps.validation.outputs.run_full == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-contract-snapshot
+          path: |
+            apps/core/openapi.yaml
+            apps/core/scripts/check-openapi.mjs
+            docs/contract-stability-baseline.json
+          if-no-files-found: error
+          retention-days: 1

@@ -11,3 +11,4 @@ export const TASK_MODEL_DEFINITION = modelDefinition(baselineModels.task);
 export const WISH_MODEL_DEFINITION = modelDefinition(baselineModels.wish);
 export const DAY_RECORD_MODEL_DEFINITION = modelDefinition(baselineModels.day_record);
 export const EVENT_MODEL_DEFINITION = modelDefinition(baselineModels.event);
+export const PERSON_GROUP_MODEL_DEFINITION = modelDefinition(baselineModels.person_group);

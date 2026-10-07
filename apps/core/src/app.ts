@@ -12,6 +12,7 @@ import { registerGenericBulkRoutes } from "./generic-bulk-routes";
 import { registerRuntimeDiscoveryRoutes } from "./runtime-discovery";
 import { registerRuntimeModelSemanticDetailRoutes } from "./runtime-model-semantic-detail";
 import { registerRelationTargetRoutes } from "./relation-targets";
+import { registerPersonDirectoryRoutes } from "./person-directory";
 import { registerEventSubscriptionRoutes } from "./event-subscription-routes";
 import { ApiError, failure, success } from "./http";
 import { registerModelAdminRoutes } from "./model-admin";
@@ -42,6 +43,15 @@ function knownDatabaseApiError(error: unknown): ApiError | null {
       "A single-use Delegation was consumed, revoked or expired before commit",
       403,
     );
+  }
+  if (message.includes("PERSON_VERSION_CONFLICT")) {
+    return new ApiError("PERSON_VERSION_CONFLICT", "Person version conflict", 409);
+  }
+  if (message.includes("PERSON_LINKED_USER")) {
+    return new ApiError("PERSON_LINKED_USER", "A Person linked to a current User is managed by Membership lifecycle", 409);
+  }
+  if (message.includes("PERSON_IN_USE")) {
+    return new ApiError("PERSON_IN_USE", "Person is still referenced by active Space records", 409);
   }
   return null;
 }
@@ -86,6 +96,7 @@ export function createApp() {
   registerGrantRoutes(app);
   registerSpaceLifecycleRoutes(app);
   registerSpaceRoutes(app);
+  registerPersonDirectoryRoutes(app);
   registerModelAdminRoutes(app);
   registerModelAdminAiRoutes(app);
   registerPlatformAdminRoutes(app);
