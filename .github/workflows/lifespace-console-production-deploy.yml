@@ -138,7 +138,7 @@ jobs:
           const identityCredential = process.env.LIFESPACE_PRODUCTION_CONSOLE_APPLICATION_CREDENTIAL;
           const coreExecutor = process.env.LIFESPACE_PRODUCTION_CONSOLE_CORE_BEARER;
           if (!identityCredential?.startsWith('lsa_')) throw new Error('Console Identity credential is unavailable');
-          if (!coreExecutor?.startsWith('lsp_pat_')) throw new Error('Console Core executor token is unavailable');
+          if (!coreExecutor?.startsWith('lsp_svc_')) throw new Error('Console Core executor token is unavailable or not canonical lsp_svc_*');
           console.log(`::add-mask::${identityCredential}`);
           console.log(`::add-mask::${coreExecutor}`);
 
