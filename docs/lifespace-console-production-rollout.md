@@ -4,6 +4,34 @@ Status: **production active; permanent deployment path is manual-only and main-o
 
 ## Production evidence
 
+### Current rollout — 2026-10-08
+
+The current isolated LifeSpace Console production rollout completed successfully on 2026-10-08.
+
+```text
+Source SHA:       017656d758a3a1b504ae8d9bfe43e31c0ecc2a78
+Actions run:      37704065998
+Workflow run:     Deploy LifeSpace Console production #8
+Worker:           lifespace-console
+Worker version:   0ae52317-7959-4d4f-b877-73e9953585b3
+Hostname:         https://lifespace.aisr.online
+```
+
+The rollout verified `lifespace.aisr.online` as reachable with HTTP `302`, the expected unauthenticated Cloudflare Access redirect. The existing self-hosted Access application and explicit owner-only policy were verified before deployment; the existing platform-administrator assignment was reused without email-based authority inference.
+
+Authoritative platform dependencies were verified, not redeployed:
+
+```text
+Identity: schema 9 / contract 0.10.0
+Core:     schema 53 / Kernel 0.48.0
+```
+
+The rollout rotated both Console executor credentials with zero-downtime ordering: a new `lsa_*` Identity application credential and canonical `lsp_svc_*` Core executor were installed first, hostname verification completed, then one superseded Identity credential and one superseded Core token were revoked. Credential plaintext was not logged and the ephemeral `0600` secrets file was removed.
+
+The successful rollout did **not** run Core/Identity migrations, did **not** deploy Core/Identity, did **not** mutate ordinary Space/business records, and did **not** perform downstream application migration/cutover.
+
+### First isolated rollout — 2026-08-26
+
 The first isolated LifeSpace Console production rollout completed successfully on 2026-08-26.
 
 ```text
@@ -171,7 +199,7 @@ verify Cloudflare Access
 
 Credential plaintext is masked and exists only in the Actions process environment and an ephemeral `0600` secrets file. Plaintext is not committed, logged or written into audit/summary output.
 
-The first successful rollout created the initial executor set, so there were no superseded production credentials to revoke. The finalizer nevertheless completed successfully and the ephemeral secrets file was removed.
+The first successful rollout created the initial executor set, so there were no superseded production credentials to revoke. The finalizer nevertheless completed successfully and the ephemeral secrets file was removed. The 2026-10-08 rollout exercised the normal rotation path and revoked one superseded Identity credential plus one superseded Core token only after hostname verification.
 
 ## Isolation invariants
 
