@@ -1,0 +1,195 @@
+name: Fix 326 contract metadata
+
+on:
+  push:
+    branches:
+      - fix/core-service-token-contract-metadata
+
+permissions:
+  contents: write
+
+jobs:
+  codemod:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout fix branch
+        uses: actions/checkout@v5
+        with:
+          ref: fix/core-service-token-contract-metadata
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4.4.0
+        with:
+          version: 10.13.1
+          run_install: false
+
+      - name: Setup Node.js 24
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Align canonical Service API Token metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          from pathlib import Path
+
+          def replace(path, old, new):
+              p = Path(path)
+              text = p.read_text()
+              if old not in text:
+                  raise SystemExit(f"expected text not found in {path}: {old!r}")
+              p.write_text(text.replace(old, new))
+
+          canonical = "JWT or lsp_svc_* Service API Token (legacy lsp_pat_* accepted)"
+          for path in [
+              "apps/core/openapi.yaml",
+              "apps/core/integration-eventing.openapi.yaml",
+              "apps/core/model-control-plane.openapi.yaml",
+              "apps/core/src/model-contract.ts",
+              "apps/core/scripts/check-openapi.mjs",
+              "apps/core/scripts/check-integration-eventing-openapi.mjs",
+          ]:
+              replace(path, "JWT or lsp_pat_", canonical)
+
+          replace(
+              "apps/core/platform-admin.openapi.yaml",
+              "service JWT or lsp_pat_ opaque Service API Token",
+              "service JWT or lsp_svc_* Service API Token (legacy lsp_pat_* accepted)",
+          )
+
+          replace(
+              "apps/identity/openapi.yaml",
+              "Create an opaque lsp_pat_* Service API Token. Plaintext is returned exactly once",
+              "Create a canonical opaque lsp_svc_* Service API Token. Legacy lsp_pat_* tokens remain accepted only as migration input. Plaintext is returned exactly once",
+          )
+
+          replace(
+              "infra/scripts/verify-staging-apac-performance.mjs",
+              "opaque lsp_pat_*",
+              "opaque lsp_svc_* Service API Token",
+          )
+
+          replace(
+              "AGENTS.md",
+              "Owner-controlled trusted services may use opaque, individually scoped, revocable `lsp_pat_*` Service API Tokens.",
+              "Owner-controlled trusted services use opaque, individually scoped, revocable `lsp_svc_*` Service API Tokens; legacy `lsp_pat_*` is accepted only as migration input until rotate/revoke.",
+          )
+          replace(
+              "AGENTS.md",
+              "plaintext `lsp_pat_*`;",
+              "plaintext `lsp_svc_*` or legacy `lsp_pat_*`;",
+          )
+          replace(
+              "apps/core/AGENTS.md",
+              "opaque `lsp_svc_*` tokens (plus legacy `lsp_svc_*` / legacy `lsp_pat_*` migration tokens)",
+              "opaque `lsp_svc_*` tokens (plus legacy `lsp_pat_*` migration tokens)",
+          )
+          replace(
+              "docs/application-authentication.md",
+              "`lsp_pat_*` and OAuth service credentials authenticate service principals.",
+              "`lsp_svc_*` and OAuth service credentials authenticate service principals; legacy `lsp_pat_*` remains accepted only as migration input.",
+          )
+          replace(
+              "docs/permissions.md",
+              "A service may authenticate either with an opaque `lsp_pat_*` Service API Token or with a short-lived service JWT obtained through OAuth `client_credentials`.",
+              "A service may authenticate either with a canonical opaque `lsp_svc_*` Service API Token (legacy `lsp_pat_*` accepted only as migration input) or with a short-lived service JWT obtained through OAuth `client_credentials`.",
+          )
+          replace(
+              "docs/lifespace-console-mvp.md",
+              "cross-application Service Principal / `lsp_pat_*` 管理",
+              "cross-application Service Principal / `lsp_svc_*` 管理（legacy `lsp_pat_*` 仅迁移兼容）",
+          )
+          replace(
+              "docs/lifespace-console-configuration-center.md",
+              "Ordinary Console React/JavaScript never receives `lsa_*` or `lsp_pat_*` plaintext.",
+              "Ordinary Console React/JavaScript never receives `lsa_*`, canonical `lsp_svc_*`, or legacy `lsp_pat_*` plaintext.",
+          )
+          replace(
+              "docs/service-authentication.md",
+              "- plaintext `lsp_pat_*`;",
+              "- plaintext `lsp_svc_*` or legacy `lsp_pat_*`;",
+          )
+
+          # Tighten per-contract checks that already own these security schemes.
+          p = Path("apps/core/scripts/check-model-control-plane-openapi.mjs")
+          text = p.read_text()
+          needle = 'if (document.components?.securitySchemes?.platformAdminActor) throw new Error("Human actor proof must remain a Platform Admin overlay, not Model Control Plane baseline authority");\n'
+          insert = needle + 'if (document.components?.securitySchemes?.bearerAuth?.bearerFormat !== "' + canonical + '") {\n  throw new Error("Model Control Plane must advertise canonical lsp_svc_* Service API Tokens and legacy lsp_pat_* migration compatibility");\n}\n'
+          if needle not in text:
+              raise SystemExit("Model Control Plane guard insertion point not found")
+          p.write_text(text.replace(needle, insert))
+
+          p = Path("apps/core/scripts/check-platform-admin-openapi.mjs")
+          text = p.read_text()
+          needle = 'if (schemes.bearerAuth?.type !== "http" || schemes.platformAdminActor?.name !== "X-LifeSpace-Actor-Token") {\n  throw new Error("Core Platform Admin dual-auth security schemes are incomplete");\n}\n'
+          insert = needle + 'if (schemes.bearerAuth?.bearerFormat !== "service JWT or lsp_svc_* Service API Token (legacy lsp_pat_* accepted)") {\n  throw new Error("Core Platform Admin must advertise canonical lsp_svc_* Service API Tokens and legacy lsp_pat_* migration compatibility");\n}\n'
+          if needle not in text:
+              raise SystemExit("Platform Admin guard insertion point not found")
+          p.write_text(text.replace(needle, insert))
+
+          guard = '''import fs from "node:fs";
+          import path from "node:path";
+          import { fileURLToPath } from "node:url";
+
+          const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
+          const read = (relativePath) => fs.readFileSync(path.join(repoRoot, relativePath), "utf8");
+          const requireText = (relativePath, expected) => {
+            const source = read(relativePath);
+            if (!source.includes(expected)) throw new Error(`${relativePath} is missing canonical Service API Token metadata: ${expected}`);
+          };
+          const rejectText = (relativePath, forbidden) => {
+            const source = read(relativePath);
+            if (source.includes(forbidden)) throw new Error(`${relativePath} still advertises legacy-only Service API Token metadata: ${forbidden}`);
+          };
+
+          const canonical = "lsp_svc_* Service API Token (legacy lsp_pat_* accepted)";
+          for (const relativePath of [
+            "apps/core/openapi.yaml",
+            "apps/core/integration-eventing.openapi.yaml",
+            "apps/core/model-control-plane.openapi.yaml",
+            "apps/core/src/model-contract.ts",
+          ]) {
+            requireText(relativePath, canonical);
+            rejectText(relativePath, "JWT or lsp_pat_");
+          }
+          requireText("apps/core/platform-admin.openapi.yaml", `service JWT or ${canonical}`);
+          rejectText("apps/core/platform-admin.openapi.yaml", "service JWT or lsp_pat_");
+          requireText("apps/identity/openapi.yaml", "Create a canonical opaque lsp_svc_* Service API Token");
+          rejectText("apps/identity/openapi.yaml", "Create an opaque lsp_pat_* Service API Token");
+          requireText("apps/core/src/auth.ts", 'SERVICE_TOKEN_PREFIXES = ["lsp_svc_", "lsp_pat_"] as const');
+          requireText("infra/scripts/verify-staging-apac-performance.mjs", "opaque lsp_svc_* Service API Token");
+
+          console.log("Canonical Service API Token contract metadata check passed");
+          '''
+          # Strip workflow indentation from the generated JS.
+          import textwrap
+          Path("infra/scripts/check-service-token-contract-metadata.mjs").write_text(textwrap.dedent(guard))
+
+          p = Path("package.json")
+          text = p.read_text()
+          old = '"check": "pnpm -r --if-present check && node infra/scripts/check-contract-stability.mjs'
+          new = '"check": "pnpm -r --if-present check && node infra/scripts/check-service-token-contract-metadata.mjs && node infra/scripts/check-contract-stability.mjs'
+          if old not in text:
+              raise SystemExit("root check script insertion point not found")
+          p.write_text(text.replace(old, new))
+          PY
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify repository
+        run: pnpm check
+
+      - name: Commit fix and remove temporary workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm .github/workflows/fix-326-codemod.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "fix: align service token contract metadata"
+          git push origin HEAD:fix/core-service-token-contract-metadata
