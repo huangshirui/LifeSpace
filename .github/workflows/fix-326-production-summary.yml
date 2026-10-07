@@ -38,16 +38,16 @@ jobs:
 
           workflow = Path('.github/workflows/production-deploy.yml')
           text = workflow.read_text()
-          old = 'Opaque `lsp_pat_*` Task'
+          old = r'Opaque \`lsp_pat_*\` Task'
+          new = r'Canonical \`lsp_svc_*\` Service API Token Task'
           if text.count(old) != 2:
               raise SystemExit(f'expected exactly two legacy production summary labels, found {text.count(old)}')
-          text = text.replace(old, 'Canonical `lsp_svc_*` Service API Token Task')
-          workflow.write_text(text)
+          workflow.write_text(text.replace(old, new))
 
           guard = Path('infra/scripts/check-service-token-contract-metadata.mjs')
           text = guard.read_text()
           needle = 'requireText("infra/scripts/verify-staging-apac-performance.mjs", "opaque lsp_svc_* Service API Token");\n'
-          addition = needle + 'requireText(".github/workflows/production-deploy.yml", "Canonical `lsp_svc_*` Service API Token Task");\nrejectText(".github/workflows/production-deploy.yml", "Opaque `lsp_pat_*` Task");\n'
+          addition = needle + 'requireText(".github/workflows/production-deploy.yml", "lsp_svc_*");\nrejectText(".github/workflows/production-deploy.yml", "lsp_pat_*");\n'
           if needle not in text:
               raise SystemExit('service token metadata guard insertion point not found')
           guard.write_text(text.replace(needle, addition))
