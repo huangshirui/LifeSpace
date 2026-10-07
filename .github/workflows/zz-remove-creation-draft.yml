@@ -1,0 +1,75 @@
+name: One-time Creation Draft cleanup
+
+on:
+  push:
+    branches:
+      - cleanup/remove-creation-draft
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout cleanup branch
+        uses: actions/checkout@v5
+        with:
+          ref: cleanup/remove-creation-draft
+          fetch-depth: 0
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4.4.0
+        with:
+          version: 10.13.1
+          run_install: false
+
+      - name: Setup Node.js 24
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Apply repository cleanup
+        run: node tools/remove-creation-draft.mjs
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Rebaseline current contract inventory
+        run: pnpm --filter @lifespace/core stable-contract:baseline
+
+      - name: Remove one-time maintenance entrypoints
+        run: rm tools/remove-creation-draft.mjs .github/workflows/zz-remove-creation-draft.yml
+
+      - name: Assert no current Creation Draft surface remains
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add -A
+          if git grep --cached -n -E 'Creation Draft|creation-draft|creation_draft|CREATION_DRAFT|creation-drafts' -- \
+            ':!apps/core/migrations/0009_creation_draft_jobs.sql' \
+            ':!apps/core/migrations/0015_registry_creation_drafts.sql' \
+            ':!apps/core/migrations/0053_remove_creation_draft_jobs.sql'; then
+            echo 'Current Creation Draft content remains outside immutable/retirement migrations.' >&2
+            exit 1
+          fi
+          leftovers="$(git ls-files --cached | grep -E 'creation[-_]draft' | grep -Ev '^apps/core/migrations/(0009_creation_draft_jobs|0015_registry_creation_drafts|0053_remove_creation_draft_jobs)\.sql$' || true)"
+          if [ -n "$leftovers" ]; then
+            printf 'Current Creation Draft filenames remain:\n%s\n' "$leftovers" >&2
+            exit 1
+          fi
+
+      - name: Validate repository
+        run: pnpm check
+
+      - name: Commit validated cleanup
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf apps/core/dist
+          git add -A
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'refactor(core): remove Creation Draft capability and infrastructure'
+          git push origin HEAD:cleanup/remove-creation-draft
