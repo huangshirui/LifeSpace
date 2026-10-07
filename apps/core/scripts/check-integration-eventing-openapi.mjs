@@ -167,7 +167,7 @@ if (semantics?.delivery !== "at-least-once"
   throw new Error("Integration/Eventing delivery semantics drifted");
 }
 
-if (document.components?.securitySchemes?.bearerAuth?.bearerFormat !== "JWT or lsp_pat_") {
+if (document.components?.securitySchemes?.bearerAuth?.bearerFormat !== "JWT or lsp_svc_* Service API Token (legacy lsp_pat_* accepted)") {
   throw new Error("Integration/Eventing management APIs must use the existing Core bearer contract");
 }
 

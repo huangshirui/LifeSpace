@@ -159,7 +159,7 @@ Reconciliation order:
 ```text
 verify Cloudflare Access
 -> resolve explicit platform administrator
--> create/rotate Console lsa_* and lsp_pat_* executors
+-> create/rotate Console lsa_* and canonical lsp_svc_* executors (legacy lsp_pat_* accepted only for migration)
 -> verify the Core executor
 -> build and deploy lifespace-console
 -> verify production hostname behind Access

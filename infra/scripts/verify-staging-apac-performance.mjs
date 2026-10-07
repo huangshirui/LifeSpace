@@ -87,7 +87,7 @@ const serviceResult = await runStagingServicePerformanceBenchmark({
   bearer: serviceBearer,
   spaceId,
   benchmarkProfile: "apac",
-  source: "Temporary Cloudflare Worker explicitly targeted near aws:ap-southeast-1 -> LifeSpace Core staging (opaque lsp_pat_*)",
+  source: "Temporary Cloudflare Worker explicitly targeted near aws:ap-southeast-1 -> LifeSpace Core staging (opaque lsp_svc_* Service API Token)",
   requestAdapter: requestThroughApacProbe("service"),
 });
 

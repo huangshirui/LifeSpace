@@ -268,7 +268,7 @@ The global bootstrap secret must never be copied into Console Worker/BFF runtime
 
 ## Service principals are separate
 
-`lsp_pat_*` and OAuth service credentials authenticate service principals. They are not interchangeable with `lsa_*`.
+`lsp_svc_*` and OAuth service credentials authenticate service principals; legacy `lsp_pat_*` remains accepted only as migration input. They are not interchangeable with `lsa_*`.
 
 A Console executor may be allowed to manage service principals across applications through `services:manage`, but the resulting service credentials remain bound to the target application/service-principal scope ceilings and normal Core Data Grant/model authorization.
 

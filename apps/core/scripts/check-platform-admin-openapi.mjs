@@ -26,6 +26,9 @@ const schemes = document.components?.securitySchemes ?? {};
 if (schemes.bearerAuth?.type !== "http" || schemes.platformAdminActor?.name !== "X-LifeSpace-Actor-Token") {
   throw new Error("Core Platform Admin dual-auth security schemes are incomplete");
 }
+if (schemes.bearerAuth?.bearerFormat !== "service JWT or lsp_svc_* Service API Token (legacy lsp_pat_* accepted)") {
+  throw new Error("Core Platform Admin must advertise canonical lsp_svc_* Service API Tokens and legacy lsp_pat_* migration compatibility");
+}
 const globalSecurity = document.security ?? [];
 if (!globalSecurity.some((entry) => entry?.bearerAuth && entry?.platformAdminActor)) {
   throw new Error("Core Platform Admin operations must require executor and actor proof together");

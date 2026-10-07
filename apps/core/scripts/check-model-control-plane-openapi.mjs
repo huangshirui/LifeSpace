@@ -36,6 +36,9 @@ if (!String(document.info?.description ?? "").includes("not become a second sema
   throw new Error("Model Control Plane must preserve Model Definition semantic ownership");
 }
 if (document.components?.securitySchemes?.platformAdminActor) throw new Error("Human actor proof must remain a Platform Admin overlay, not Model Control Plane baseline authority");
+if (document.components?.securitySchemes?.bearerAuth?.bearerFormat !== "JWT or lsp_svc_* Service API Token (legacy lsp_pat_* accepted)") {
+  throw new Error("Model Control Plane must advertise canonical lsp_svc_* Service API Tokens and legacy lsp_pat_* migration compatibility");
+}
 for (const name of ["ModelDefinition","PublishModelRequest","PublishedModelResponse","ModelContractResponse","AiModelProposalResponse","PublishAiModelProposalResponse"]) {
   if (!schemas[name]) throw new Error(`Model Control Plane missing schema ${name}`);
 }

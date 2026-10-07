@@ -336,7 +336,8 @@ Platform/service audit may record:
 It must never record:
 
 - plaintext `lsa_*`;
-- plaintext `lsp_pat_*`;
+- plaintext `lsp_svc_*`;
+- legacy plaintext `lsp_pat_*`;
 - OAuth client secrets;
 - credential hashes;
 - Authorization headers.
