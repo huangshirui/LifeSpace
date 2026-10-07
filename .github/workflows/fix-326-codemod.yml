@@ -35,6 +35,7 @@ jobs:
           set -euo pipefail
           python3 <<'PY'
           from pathlib import Path
+          import textwrap
 
           def replace(path, old, new):
               p = Path(path)
@@ -59,13 +60,11 @@ jobs:
               "service JWT or lsp_pat_ opaque Service API Token",
               "service JWT or lsp_svc_* Service API Token (legacy lsp_pat_* accepted)",
           )
-
           replace(
               "apps/identity/openapi.yaml",
               "Create an opaque lsp_pat_* Service API Token. Plaintext is returned exactly once",
               "Create a canonical opaque lsp_svc_* Service API Token. Legacy lsp_pat_* tokens remain accepted only as migration input. Plaintext is returned exactly once",
           )
-
           replace(
               "infra/scripts/verify-staging-apac-performance.mjs",
               "opaque lsp_pat_*",
@@ -76,11 +75,6 @@ jobs:
               "AGENTS.md",
               "Owner-controlled trusted services may use opaque, individually scoped, revocable `lsp_pat_*` Service API Tokens.",
               "Owner-controlled trusted services use opaque, individually scoped, revocable `lsp_svc_*` Service API Tokens; legacy `lsp_pat_*` is accepted only as migration input until rotate/revoke.",
-          )
-          replace(
-              "AGENTS.md",
-              "plaintext `lsp_pat_*`;",
-              "plaintext `lsp_svc_*` or legacy `lsp_pat_*`;",
           )
           replace(
               "apps/core/AGENTS.md",
@@ -110,10 +104,19 @@ jobs:
           replace(
               "docs/service-authentication.md",
               "- plaintext `lsp_pat_*`;",
-              "- plaintext `lsp_svc_*` or legacy `lsp_pat_*`;",
+              "- plaintext `lsp_svc_*`;\n- legacy plaintext `lsp_pat_*`;",
+          )
+          replace(
+              "docs/architecture.md",
+              "service principal credential / lsp_pat_* or equivalent service JWT",
+              "service principal credential / canonical lsp_svc_* (legacy lsp_pat_* accepted) or equivalent service JWT",
+          )
+          replace(
+              "docs/lifespace-console-production-rollout.md",
+              "create/rotate Console lsa_* and lsp_pat_* executors",
+              "create/rotate Console lsa_* and canonical lsp_svc_* executors (legacy lsp_pat_* accepted only for migration)",
           )
 
-          # Tighten per-contract checks that already own these security schemes.
           p = Path("apps/core/scripts/check-model-control-plane-openapi.mjs")
           text = p.read_text()
           needle = 'if (document.components?.securitySchemes?.platformAdminActor) throw new Error("Human actor proof must remain a Platform Admin overlay, not Model Control Plane baseline authority");\n'
@@ -164,8 +167,6 @@ jobs:
 
           console.log("Canonical Service API Token contract metadata check passed");
           '''
-          # Strip workflow indentation from the generated JS.
-          import textwrap
           Path("infra/scripts/check-service-token-contract-metadata.mjs").write_text(textwrap.dedent(guard))
 
           p = Path("package.json")
