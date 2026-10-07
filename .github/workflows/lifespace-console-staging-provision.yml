@@ -242,7 +242,7 @@ jobs:
           const applicationCredential = process.env.LIFESPACE_STAGING_CONSOLE_APPLICATION_CREDENTIAL;
           const coreBearer = process.env.LIFESPACE_STAGING_CONSOLE_CORE_BEARER;
           if (!applicationCredential?.startsWith('lsa_')) throw new Error('Console application credential was not produced');
-          if (!coreBearer?.startsWith('lsp_pat_')) throw new Error('Console Core executor token was not produced');
+          if (!coreBearer?.startsWith('lsp_svc_')) throw new Error('Console Core executor token was not produced as canonical lsp_svc_*');
           console.log(`::add-mask::${applicationCredential}`);
           console.log(`::add-mask::${coreBearer}`);
 
@@ -289,7 +289,7 @@ jobs:
           const identityCredential = process.env.LIFESPACE_STAGING_CONSOLE_APPLICATION_CREDENTIAL;
           const coreExecutor = process.env.LIFESPACE_STAGING_CONSOLE_CORE_BEARER?.trim() || '';
           if (!identityCredential?.startsWith('lsa_')) throw new Error('Console Identity credential is unavailable');
-          if (coreExecutor && !coreExecutor.startsWith('lsp_pat_')) throw new Error('Console Core executor token is invalid');
+          if (coreExecutor && !coreExecutor.startsWith('lsp_svc_')) throw new Error('Console Core executor token is invalid or not canonical lsp_svc_*');
 
           console.log(`::add-mask::${identityCredential}`);
           if (coreExecutor) console.log(`::add-mask::${coreExecutor}`);
