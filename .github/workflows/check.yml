@@ -6,7 +6,7 @@ on:
     branches: [main]
 
 permissions:
-  contents: write
+  contents: read
   pull-requests: read
 
 jobs:
@@ -64,50 +64,11 @@ jobs:
         if: steps.validation.outputs.run_full == 'true'
       - run: pnpm check
         if: steps.validation.outputs.run_full == 'true'
-      - name: Persist finalized Person contract
-        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
-        shell: bash
-        env:
-          HEAD_REF: ${{ github.head_ref }}
-        run: |
-          set -euo pipefail
-          contract_files=(
-            apps/core/openapi.yaml
-            apps/core/scripts/check-openapi.mjs
-            docs/contract-stability-baseline.json
-          )
-          if git diff --quiet -- "${contract_files[@]}"; then
-            echo "Finalized Person contract is already checked in."
-            exit 0
-          fi
-
-          temp_dir="$(mktemp -d)"
-          trap 'rm -rf "${temp_dir}"' EXIT
-          for file in "${contract_files[@]}"; do
-            mkdir -p "${temp_dir}/$(dirname "${file}")"
-            cp "${file}" "${temp_dir}/${file}"
-          done
-
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git fetch origin "${HEAD_REF}"
-          git checkout -B "${HEAD_REF}" "origin/${HEAD_REF}"
-          for file in "${contract_files[@]}"; do
-            cp "${temp_dir}/${file}" "${file}"
-          done
-
-          if git diff --quiet -- "${contract_files[@]}"; then
-            echo "Finalized Person contract was already persisted on the latest PR head."
-            exit 0
-          fi
-          git add -- "${contract_files[@]}"
-          git commit -m "chore(core): persist Kernel 0.47 contract"
-          git push origin "HEAD:${HEAD_REF}"
-      - name: Export finalized Person contract
+      - name: Export Kernel contract snapshot
         if: steps.validation.outputs.run_full == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: person-directory-finalized-contract
+          name: kernel-contract-snapshot
           path: |
             apps/core/openapi.yaml
             apps/core/scripts/check-openapi.mjs
