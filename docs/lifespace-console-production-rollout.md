@@ -39,8 +39,10 @@ Runtime secrets remain server-only:
 
 ```text
 IDENTITY_APPLICATION_CREDENTIAL  # Console app lsa_*
-CORE_EXECUTOR_BEARER             # dedicated Console lsp_pat_*
+CORE_EXECUTOR_BEARER             # dedicated Console canonical lsp_svc_*
 ```
+
+Legacy `lsp_pat_*` remains accepted only for migration compatibility and is not the canonical Console executor credential.
 
 The production bootstrap secret is provisioning/break-glass authority only. It is available to the controlled GitHub Actions `production` environment during reconciliation, but it is never installed in the Console Worker and never enters browser code.
 

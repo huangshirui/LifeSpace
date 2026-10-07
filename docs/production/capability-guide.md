@@ -6,144 +6,172 @@
 
 ## Production baseline
 
-- Release date: **2026-10-05**
-- Deployed release SHA: `0b28eeb202f0a5535a4b802f6d474f7289b2e382`
-- Production workflow: **Deploy LifeSpace platform production #30** (`37248751610`) ✅
-- Production Core: `https://core.aisr.online` — Kernel `0.43.0`, schema `48`
-- Production Identity: `https://auth.aisr.online` — contract `0.8.0`, schema `8`
-- Active Model Contract: `mct_90595ab8f69914ddf156ae699361204db0fba5fb95fcc93bed06881ef44efcab`
-- Active ordinary models: Task v8, Wish v9, Day Record v5, Event v6
+- Release date: **2026-10-08**
+- Deployed release SHA: `cc60fa13071b72b2f4d75db43999be38648cacd6`
+- Production workflow: **Deploy LifeSpace platform production #34** (`37651204090`) ✅
+- Production Core: `https://core.aisr.online` — Kernel `0.48.0`, schema `53`
+- Production Identity: `https://auth.aisr.online` — contract `0.10.0`, schema `9`
+- Active Model Contract: `mct_bc784389d406c580cbaf1a9cafaa48a155732771e1b24f058fcb884bffcb2345`
+- Active ordinary models: Task v8, Wish v9, Day Record v5, Event v6, Person Group v1
 - Release confidence: **exact release-bound production evidence**
 
-> 这是 Production Documentation 机制建立后的第一份与成功 production workflow 精确绑定的能力快照。后续 production 发布必须继续更新本页、Feature Matrix 与 Changelog。
+> 本页与成功的 production workflow 精确绑定。main、PR 或 staging 中的能力不能自动视为 Production。
 
 ## 1. LifeSpace 是什么
 
-LifeSpace 是 Shared Reality 与 Governed Change 的平台基座。它负责统一身份、Space 与数据授权、通用模型运行时、Authority / Delegation、Change、契约、事件集成以及平台级部署配置；ALOHA、HomeMew、n8n 等是其消费者或适配层，而不是平台边界本身。
+LifeSpace 是 Shared Reality 与 Governed Change 的平台基座。它负责统一 Identity、Space 与数据授权、Person Directory、通用模型运行时、Authority / Delegation、Change、契约、事件集成以及平台级部署配置；ALOHA、HomeMew、n8n 等是其消费者或适配层，而不是平台边界本身。
 
 理解 production 时建议按下面顺序：
 
 1. 先看本页了解“线上能做什么”；
 2. 再看 [`feature-matrix.md`](./feature-matrix.md) 快速检索单项能力；
-3. 需要设计原因时再进入 `north-star.md`、`architecture.md`、`permissions.md`、`agent-ready.md` 等规范文档；
+3. 需要设计原因时再进入 `north-star.md`、`architecture.md`、`permissions.md`、`agent-ready.md`、`person-directory.md` 等规范文档；
 4. 需要接口细节时查看对应 OpenAPI / Model Contract。
 
 ## 2. 当前核心能力
 
-### 2.1 Identity / 身份
+### 2.1 Identity / 身份与 Credential
 
-Production 已形成独立 Identity 服务，并与 Core 分离部署。现有体系支持 LifeSpace 全局用户身份、应用后端身份交换、Service / machine credential、Agent principal，以及 Cloudflare Access 场景下的平台 Web 身份映射。
+Production 已形成独立 Identity 服务，并与 Core 分离部署。当前支持 LifeSpace 全局用户身份、应用后端身份交换、Service / machine credential、Agent identity / Agent credential，以及 Cloudflare Access 场景的平台 Web 身份映射。
 
 关键理解：
 
-- LifeSpace User 是跨应用的全局身份，而不是某个应用自己的账号。
-- 外部应用身份（例如 WeChat `openid`）由应用/BFF 负责映射，不直接成为 LifeSpace 身份。
-- `lsa_*` 用于可信应用后端与 Identity；`lsp_pat_*` / service JWT 用于 Service 主体访问 Core。
-- Agent 是正式 Identity-capable Entity，可作为 Principal / Actor 参与 Authority 与 Change attribution，但其实际能力仍受当前 Authority 与 Application exposure 约束。
+- LifeSpace User 是跨应用的全局身份，不是某个应用自己的账号。
+- 外部应用身份（例如微信 `openid`）由应用/BFF 映射，不直接成为 LifeSpace 身份。
+- `lsa_*` 用于可信 Application backend 与 Identity。
+- `lsp_svc_*` 是 canonical Service API Token；legacy `lsp_pat_*` 只保留运行时/迁移兼容，不再是消费者应采用的 canonical 前缀。
+- `lsp_agt_*` 是 revocable Agent API Credential，绑定 Application + Agent；持有 credential 本身不会获得 Space / Model / User Authority。
+- Agent 是正式 Identity-capable Entity，可作为 Principal / Actor 参与 Authority 与 Change attribution，但实际能力仍受当前 Authority、Application exposure 与 Delegation 约束。
 
-### 2.2 Space / Grant / 授权
+### 2.2 Space / Grant / Authorization / Delegation
 
 Space 是普通业务数据的所有权与默认授权边界。Production 已支持：
 
-- Space 成员关系；
+- Space Membership；
 - Data Grant；
 - Application × Model Access；
-- credential scope 与模型能力共同参与 effective authorization；
+- credential scope 与模型 capability / policy 共同参与 effective authorization；
 - Core 作为最终授权判断边界，而不是依赖 UI/BFF 隐藏按钮；
 - Principal 与 Actor 分离的执行上下文与 Change attribution；
-- Entity capability 驱动的 Principal / Delegation eligibility，而不是只靠固定身份类型硬编码。
+- Entity capability 驱动的 Principal / Delegation eligibility；
+- Root / Child Delegation、bounded re-delegation、single-use ancestor consumption；
+- `POST /api/v1/spaces/{spaceId}/delegations/batch` 原子签发 `1..20` 个独立 single-scope Delegation。
+
+本 release 进一步将 **Authorization Request** 作为标准授权协议入口投入 Production：Agent/Application 可提出待确认的授权请求，用户确认后产生明确 Delegation；拒绝、取消或未确认的 request 不产生业务 Authority。Production promotion 前的 exact-candidate Golden Flow 已真实验证 `Agent Credential -> Authorization Request -> Confirm -> Delegation -> governed mutation`。
 
 跨 Space 的共享不会改变原始记录所有权，也不应生成第二份权威副本。
 
-### 2.3 Generic Model Runtime / 通用模型运行时
+### 2.3 Person Directory / 人物目录
 
-LifeSpace 的普通业务模型已经走 metadata-driven 路线，而不是每个模型手写一套路由、service 和表。
+Space Person (`per_*`) 是 Kernel 的 first-class Person Directory 能力，不是普通 metadata model，也不是 Authority-bearing identity。
 
-Production 已具备的主要运行时能力包括：
+Production 当前支持：
+
+- Person create / read / update / delete；
+- bounded list / search；
+- primary display name；
+- alternate names / aliases，并参与人物检索；
+- Relation Target Lookup / Reference Resolution 使用同一 Space Person 语义；
+- Person 作为模型 Policy / relation 的业务上下文，但 Membership / Grant / Delegation Authority 仍以 User / Principal 等身份体系为准。
+
+### 2.4 Generic Model Runtime / 通用模型运行时
+
+普通业务模型采用 metadata-driven Runtime，而不是每个模型手写一套路由、service 和表。Production 已具备：
 
 - Model Definition / Registry；
 - immutable Model Contract revision；
 - Generic CRUD；
 - Canonical Query；
 - optimistic concurrency / version 约束；
-- 模型级 Capability / Action 机制；
-- ordinary model typed persistence 与 runtime descriptor；
-- Application × Model Access 与模型策略共同参与运行时授权。
+- 模型级 Capability / Action；
+- typed persistence 与 runtime descriptor；
+- Application × Model Access 与模型 Policy；
+- Relation Target Lookup / Reference Resolution。
 
-当前 release 的 active Model Contract 激活 4 个普通模型：Task v8、Wish v9、Day Record v5、Event v6。
+当前 active Model Contract 激活 5 个普通模型：Task v8、Wish v9、Day Record v5、Event v6、Person Group v1。`person_group` 是普通 metadata-driven model；它与 Kernel Person Directory 的边界保持分离。
 
-### 2.4 Query / 时间语义
+### 2.5 Query / 时间语义
 
-Production 的查询能力不是简单的“按表查记录”，而是由统一 Query Contract 与模型语义驱动。当前体系包括：
+Production 查询能力由统一 Query Contract 与模型语义驱动，包括：
 
 - Canonical Query；
 - Space 内查询；
-- `/api/v1/me/...` 类跨 Space aggregate 能力；
-- Temporal / date 相关查询能力由模型定义和对应 Capability 决定。
+- `/api/v1/me/...` 跨 Space aggregate；
+- typed comparison / sorting；
+- Calendar / TemporalRange / date / instant 语义由模型定义及 Capability 决定。
 
-### 2.5 Write / Batch / Change
+### 2.6 Write / Atomic Batch / Non-atomic Bulk / Change
 
-普通模型支持 create / update / delete 等写操作，并执行授权、模型约束、版本并发控制及 Domain Event 生成。
+普通模型 create / update / delete 均执行当前授权、模型约束、乐观并发与 Governed Change。
 
-Production 已验证 First-class Runtime Batch：
+**Atomic Batch**：
 
 - `POST /api/v1/spaces/{spaceId}/models/batch`；
 - bounded `1..20`，同一 Space 内可跨普通 Model；
 - 支持 atomic `create / update / delete`；
 - 一个显式 `cgs_*` ChangeSet 作为原子边界，整批全成功或整批回滚；
-- update / delete 可由服务端解析当前 version，同时仍保持同一 atomic ChangeSet；
-- Authority 校验走 set-wise 路径，不使用逐 item HTTP/D1 waterfall；
-- 每条 mutation 保留独立 Change / Domain Event evidence；同一显式 ChangeSet 可聚合为 `change_set.committed` Webhook delivery。
+- update / delete 可省略 caller-known version，由 Core 从当前 snapshot 解析，同时仍进行并发保护；
+- Authority / target preparation 走 set-wise bounded I/O，不实现为逐 item HTTP waterfall。
 
-**当前限制**：通用 Execute Action Batch 尚未作为 production contract 提供；不能因为客户端可循环调用 Action 就把它视为平台 Batch 能力。
+**Non-atomic Bulk**：
 
-### 2.6 Eventing / Integration
+- `POST /api/v1/spaces/{spaceId}/models/bulk`；
+- bounded mixed `create / update / delete`；
+- 每个 item 独立 success / failure，可部分成功；
+- common path 使用 set-wise authority / target / relation preparation，而不是把 Bulk 简化成客户端 N 次单条调用；
+- 成功 item 产生各自 Governed Change，失败 item 不产生 Change；同一请求保留 `blk_*` correlation。
 
-Core 提供独立的 Integration / Eventing contract。Production 架构包括：
+**当前限制**：通用 Execute Action Batch 尚未作为 production contract 提供；客户端可循环调用 Action 不等于平台提供了 Action Batch。
+
+### 2.7 Eventing / Integration
+
+Core 提供独立 Integration / Eventing contract。Production 包括：
 
 - Domain Event；
 - Outbox / Queue；
 - Subscription / Webhook delivery；
 - HMAC signing；
-- `change_set.committed` 的显式 ChangeSet 聚合投递；
-- Service / Principal current-authority revocation 边界。
+- atomic ChangeSet 的 `change_set.committed` 聚合投递；
+- Service / Principal current-authority revocation boundary。
 
-事件契约与 Kernel contract 分开维护，以避免集成生命周期与核心业务 API 强绑定。
+独立 Non-atomic Bulk 的成功 mutation 保留逐 Change / Event evidence；它不被伪装成一个 atomic ChangeSet。
 
-### 2.7 Agent-ready Authority / Delegation
+### 2.8 Agent-ready execution
 
-本 release 已将 Authority v3 相关能力正式发布到 production：
+本 release 的生产 Agent 路径已经形成完整闭环：
 
-- User / Agent / Service 等实体是否可作为 Principal、是否可接收 Delegation，由平台 entity capability 约束；
-- Principal 与 Actor 分离，Agent 可直接以自身 Principal 执行，也可在有效 Delegation 下代表 Root Principal 执行；
-- Root / Child Delegation 与 bounded re-delegation chain；
-- Child 必须收窄 parent scope / access / expiry / remaining re-delegation depth；
-- single-use Delegation 的 ancestor consumption 在真实 mutation commit 时原子执行，避免同一 single-use Authority 被重复消费；
-- 一个业务确认需要多个独立 scope 时，可使用 `POST /api/v1/spaces/{spaceId}/delegations/batch` 原子签发 `1..20` 个独立单-scope `dlg_*`；任一项失败则零落地；
-- Child issuance 本身不消费 single-use parent，Authority 只在受治理业务变更提交时消费。
+```text
+lsp_agt_* Agent API Credential
+  -> verified Application + Agent identity
+  -> Authorization Request（需要用户代表权限时）
+  -> Confirm / Delegation
+  -> current Effective Authority
+  -> Generic Runtime / Person / Bulk 等平台能力
+  -> Governed Change attribution
+```
 
-Delegation 不是业务数据字段；它属于执行 Authority evidence，并与 Change attribution 保持分离。
+Credential 负责认证“谁在调用”，Delegation 负责表达“该 Actor 可以代表谁做什么”；二者不能互相替代。
 
-### 2.8 Operation Attribution 与 Provenance 边界
+### 2.9 Operation Attribution 与 Provenance 边界
 
-Production 保留 Change / Operation Attribution 作为平台可验证证据：Application、Principal、Actor、Delegation、ChangeSet、operation/version/changed fields/occurredAt 用于回答“谁在什么 Authority 下做了什么变更”。
+Production 保留 Change / Operation Attribution 作为平台可验证证据：Application、Principal、Actor、Delegation、ChangeSet/Bulk correlation、operation/version/changed fields/occurredAt 用于回答“谁在什么 Authority 下做了什么变更”。
 
-Information Provenance 当前仍是 **concept only**：Production 不提供通用 Resource Provenance envelope、独立 Provenance 存储、`semanticRole: provenance_source`、External Reference 或 lineage graph。业务模型若确有“来源报告 / 上游记录”等领域事实，应使用普通字段 / Relation 表达。
+Information Provenance 当前仍是 **concept only**：Production 不提供通用 Resource Provenance envelope、独立 Provenance storage、External Reference 或 lineage graph。业务模型确有“来源报告 / 上游记录”等领域事实时，应使用普通字段 / Relation 表达。
 
-### 2.9 Platform Console / Control Plane
+### 2.10 Platform Console / Control Plane
 
-LifeSpace Console 是平台自身的管理界面，不是普通消费者应用。平台控制面与普通业务权限分离，Production 体系区分：
+LifeSpace Console 是平台自身的管理界面，不是普通消费者应用。平台控制面与普通业务权限分离，Production contract 体系包括：
 
 - Identity Platform Admin；
 - Core Platform Admin；
 - Model Control Plane；
 - 普通 Kernel / Integration API。
 
-交互式平台管理需要 human actor proof 与 server-side executor credential 的组合，而不是把平台管理员伪装成所有 Space 的成员。
+交互式平台管理使用 human actor proof + server-side executor credential，而不是把平台管理员伪装成所有 Space 的成员。本次 **Core/Identity Platform Production release 不等价于 Console application rollout**；Console 有独立 production deployment workflow。
 
 ## 3. API / Contract surfaces
 
-当前代码与部署体系将契约分为：
+当前 Production 契约分为：
 
 - Identity application/user/service/agent API；
 - Identity Platform Admin API；
@@ -153,32 +181,39 @@ LifeSpace Console 是平台自身的管理界面，不是普通消费者应用�
 - Core Platform Admin API；
 - ordinary models 的 immutable Model Contract revision。
 
-消费者应依赖明确的兼容版本，而不是默认追踪“最新”。
+消费者应依赖明确兼容版本，而不是默认追踪“最新”。
 
 ## 4. Production deployment guarantees
 
-`Deploy LifeSpace platform production` 当前会对精确 candidate SHA 执行：
+`Deploy LifeSpace platform production` 对 exact candidate SHA 执行：
 
 1. main / release intent 校验；
-2. staging candidate identity / schema / Model Contract 对齐；
-3. APAC performance gate；
+2. exact candidate 的 staging identity / schema / Model Contract 对齐；
+3. APAC performance gate，并重新执行 staging Platform Golden Flow；
 4. production Core migration + deploy；
 5. production Identity migration + deploy；
-6. production HTTP convergence verification；
+6. production HTTP convergence；
 7. Cloudflare isolation / bindings verification；
-8. active Model Contract verification。
+8. canonical `lsp_svc_*` service authentication + active Model Contract verification。
 
-2026-10-05 release 已完整通过以上 gate。Production Core 本次应用 migrations `0047_authority_v2_batch_changeset.sql` 与 `0048_authority_role_capability_redelegation.sql`；Identity schema 保持 v8。HTTP convergence 曾在第一次探测看到旧 Identity contract `0.6.0`，下一次探测即收敛到 `0.8.0`，workflow 按设计等待成功后才继续验收。
+2026-10-08 release #34 已完整通过上述 gate。Core 从 schema 48 升至 53，应用 `0049_authorization_requests.sql`、`0050_non_atomic_bulk.sql`、`0051_space_person_names.sql`、`0052_person_group_model.sql`、`0053_remove_creation_draft_jobs.sql`；Identity 应用 `0009_agent_api_credentials.sql`，schema 从 8 升至 9。
+
+本次第一次 Production 尝试在最终 service-auth gate 暴露了历史 `CORE_IDENTITY_SHARED_SECRET` 两端值漂移。PR #329 增加 **default-off、operator explicit opt-in** 的 repair 机制；成功 run #34 显式执行 repair 后，真实 `lsp_svc_* -> Core -> Identity introspection` 验证通过。普通 release 不会自动轮换该 runtime secret，bootstrap secret 也不会被复用为 runtime shared secret。
+
+### Creation Draft retirement
+
+Creation Draft 已从当前 Production 能力中完全退出：当前 API / contract / runtime / tests 不再提供 Creation Draft，migration `0053_remove_creation_draft_jobs.sql` 已删除其运行时表。历史 migration 文件继续保留，因为已执行 migration history 必须不可变；这不代表 Creation Draft 仍是当前平台能力。
 
 ## 5. 不应从本文推断的内容
 
-以下内容不能因为出现在设计文档、Issue、PR、main 或 staging 就视为 production：
+以下内容不能因为出现在设计文档、Issue、PR、main 或 staging 就视为 Production：
 
 - 通用 Execute Action Batch；
 - planned Federated Truth；
 - 通用 Information Provenance / lineage 平台能力；
-- 尚未发布的模型、Capability、Console 页面；
-- consumer application 自己实现、但并非 LifeSpace 平台保证的行为。
+- downstream n8n / HomeMew / ALOHA 的适配或发布状态；
+- Console application 的某个新版本已经 rollout（其 production workflow 独立）；
+- 尚未进入成功 production workflow 的模型或 Capability。
 
 ## 6. 发布后的维护要求
 
