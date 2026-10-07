@@ -82,6 +82,7 @@ jobs:
           node --check infra/scripts/verify-staging-eventing-principal-revocation.mjs
           node --check infra/scripts/verify-staging-creation-draft.mjs
           node --check infra/scripts/verify-staging-authority-v3.mjs
+          node --check infra/scripts/verify-staging-platform-golden-flow.mjs
           node --check infra/scripts/baseline-model-semantics.mjs
           node --check infra/scripts/publish-staging-baseline-model-semantics.mjs
 
@@ -179,6 +180,9 @@ jobs:
       - name: Verify proving-model platform regression
         run: node infra/scripts/verify-staging-models.mjs
 
+      - name: Verify LifeSpace platform Golden Flow
+        run: node infra/scripts/verify-staging-platform-golden-flow.mjs
+
       - name: Verify Registry-driven Creation Draft Queue
         run: node infra/scripts/verify-staging-creation-draft.mjs
 
@@ -207,6 +211,7 @@ jobs:
           - Platform D1 convergence: passed
           - Trusted application credential replacement/revocation lifecycle: passed
           - Agent Principal own-Authority + User→Agent→Agent bounded re-delegation/revocation: passed
+          - Platform Golden Flow: Agent Credential -> Authorization Request -> Confirm -> Delegation -> Person/Person Group/Bulk governed mutation passed
           - Typed model storage / legacy JSON cleanup: passed
           - D1 hot-path budgets: passed in repository validation
           - Staging HTTP performance benchmark: recorded in workflow logs
