@@ -89,16 +89,24 @@ requireTokens("Production deployment workflow", productionDeploy, [
   "environment: production",
   "confirmation:",
   "DEPLOY_PRODUCTION",
+  "repair_core_identity_shared_secret:",
   "group: lifespace-production-change",
   "apac_performance:",
   "needs: apac_performance",
   "LIFESPACE_PRODUCTION_BOOTSTRAP_SECRET",
+  "LIFESPACE_REPAIR_CORE_IDENTITY_SHARED_SECRET:",
   "ref: ${{ github.sha }}",
   "production deployment must run from main",
   "db:migrate:production",
   "wrangler deploy --env production",
   "node infra/scripts/verify-production-model-admin.mjs",
 ]);
+if (!/repair_core_identity_shared_secret:[\s\S]*?type:\s*boolean[\s\S]*?default:\s*false/u.test(productionDeploy)) {
+  throw new Error("Production shared-secret repair input must remain an explicit boolean with default false");
+}
+if (!productionDeploy.includes("LIFESPACE_REPAIR_CORE_IDENTITY_SHARED_SECRET: ${{ inputs.repair_core_identity_shared_secret && '1' || '0' }}")) {
+  throw new Error("Production shared-secret repair input must be wired explicitly to the runtime initializer");
+}
 forbidTokens("Production deployment workflow", productionDeploy, [
   "apac_gate_run_id",
   "verify-production-apac-gate",
@@ -106,6 +114,18 @@ forbidTokens("Production deployment workflow", productionDeploy, [
   "phase6_bringup",
   "provision-production.mjs",
 ]);
+
+const productionRuntimeInitializer = readFileSync(resolve(ROOT, "infra/scripts/initialize-production-runtime.mjs"), "utf8");
+requireTokens("Production runtime initializer", productionRuntimeInitializer, [
+  "LIFESPACE_REPAIR_CORE_IDENTITY_SHARED_SECRET",
+  "repairSharedSecret === \"1\"",
+  "sharedPresenceCount === 1 && !repairSharedSecretRequested",
+  "Re-synchronized production Core↔Identity shared authentication secret by explicit operator request",
+  "secret values are write-only and equality is verified by the service-auth release gate",
+]);
+if (/CORE_IDENTITY_SHARED_SECRET\s*:\s*bootstrapSecret/u.test(productionRuntimeInitializer)) {
+  throw new Error("Production Core↔Identity runtime authentication must never reuse the bootstrap secret");
+}
 
 const productionProvision = readFileSync(resolve(ROOT, ".github/workflows/production-provision.yml"), "utf8");
 requireTokens("Production provisioning workflow", productionProvision, [
@@ -165,4 +185,5 @@ console.log(JSON.stringify({
   productionApacGateRequired: true,
   productionApacGateAutomatic: true,
   apacGateCandidateIdentityRequired: true,
+  productionSharedSecretRepairExplicitOnly: true,
 }, null, 2));
