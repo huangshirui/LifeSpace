@@ -15,6 +15,15 @@ rewrite("apps/core/scripts/check-openapi.mjs", (current) => {
   return `${current.slice(0, start)}${current.slice(end + 3)}`;
 });
 
+rewrite("apps/core/scripts/check-person-directory-openapi.mjs", (current) => current
+  .replace('document.info?.version !== "0.47.0"', 'document.info?.version !== "0.48.0"')
+  .replace('Person Directory requires Core Kernel 0.47.0', 'Person Directory requires Core Kernel 0.48.0'));
+
+rewrite("apps/core/AGENTS.md", (current) => current.replace(
+  "current Kernel version: 0.47.0",
+  "current Kernel version: 0.48.0",
+));
+
 rewrite("docs/architecture.md", (current) => current.replace(
   "explicit product-facing Space / Grant / Runtime Discovery / Change History / Creation Draft primitives",
   "explicit product-facing Space / Grant / Runtime Discovery / Change History primitives",
