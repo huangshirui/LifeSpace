@@ -374,7 +374,7 @@ paths:
       responses:
         '200': { description: Token metadata list, content: { application/json: { schema: { $ref: '#/components/schemas/ServiceTokenListResponse' } } } }
     post:
-      description: Create an opaque lsp_pat_* Service API Token. Plaintext is returned exactly once. expiresAt may be null for owner-controlled trusted workloads.
+      description: Create a canonical opaque lsp_svc_* Service API Token. Legacy lsp_pat_* tokens remain accepted only as migration input. Plaintext is returned exactly once. expiresAt may be null for owner-controlled trusted workloads.
       security: [{ applicationCredential: [] }]
       requestBody:
         required: true

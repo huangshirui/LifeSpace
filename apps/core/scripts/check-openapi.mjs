@@ -215,7 +215,7 @@ if (joinInvite?.requestBody?.content?.["application/json"]?.schema?.$ref !== "#/
   throw new Error("Invitation join must accept token/displayName through its bounded JSON body and create/reactivate a Space Person");
 }
 
-if (document.components?.securitySchemes?.bearerAuth?.bearerFormat !== "JWT or lsp_pat_") {
+if (document.components?.securitySchemes?.bearerAuth?.bearerFormat !== "JWT or lsp_svc_* Service API Token (legacy lsp_pat_* accepted)") {
   throw new Error("Core bearer contract must expose JWT and opaque service-token authentication");
 }
 if (!schemas.CreateDataGrantRequest?.properties?.granteeType?.enum && !schemas.GranteeType?.enum) {

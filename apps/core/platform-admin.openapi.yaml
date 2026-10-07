@@ -164,7 +164,7 @@ components:
     bearerAuth:
       type: http
       scheme: bearer
-      bearerFormat: service JWT or lsp_pat_ opaque Service API Token
+      bearerFormat: service JWT or lsp_svc_* Service API Token (legacy lsp_pat_* accepted)
     platformAdminActor:
       type: apiKey
       in: header

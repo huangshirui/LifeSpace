@@ -256,7 +256,7 @@ Identity control plane:
   lsa_* trusted application credential
 
 Core control plane:
-  service principal credential / lsp_pat_* or equivalent service JWT
+  service principal credential / canonical lsp_svc_* (legacy lsp_pat_* accepted) or equivalent service JWT
 ```
 
 Executor capabilities are operation-specific, for example:

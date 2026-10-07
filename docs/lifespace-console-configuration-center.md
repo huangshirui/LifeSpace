@@ -138,7 +138,7 @@ Scope:
 - list/read credential/token metadata without plaintext or hashes;
 - provide an explicit safe operator handoff for newly created target credentials.
 
-Ordinary Console React/JavaScript never receives `lsa_*` or `lsp_pat_*` plaintext. The accepted handoff is defined in `docs/console-target-credential-reveal.md`:
+Ordinary Console React/JavaScript never receives `lsa_*`, canonical `lsp_svc_*`, or legacy `lsp_pat_*` plaintext. The accepted handoff is defined in `docs/console-target-credential-reveal.md`:
 
 ```text
 Identity one-time plaintext

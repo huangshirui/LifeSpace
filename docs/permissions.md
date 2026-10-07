@@ -211,7 +211,7 @@ Any policy evaluation error fails closed.
 
 The deployed service credential model remains authoritative. See `docs/service-authentication.md`.
 
-A service may authenticate either with an opaque `lsp_pat_*` Service API Token or with a short-lived service JWT obtained through OAuth `client_credentials`. OAuth is optional for owner-controlled trusted services.
+A service may authenticate either with a canonical opaque `lsp_svc_*` Service API Token (legacy `lsp_pat_*` accepted only as migration input) or with a short-lived service JWT obtained through OAuth `client_credentials`. OAuth is optional for owner-controlled trusted services.
 
 The credential authenticates the current service-principal representation; it does not itself confer Space membership or broad data access. Identity constrains the credential to the application's stable scope ceiling and the service principal's maximum scopes. Core then intersects those scopes with current Application × Model Access, current Data Grants and model rules on every request.
 

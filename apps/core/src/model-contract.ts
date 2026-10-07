@@ -1145,7 +1145,7 @@ export async function generateModelContract(input: PublishedModel[]): Promise<Mo
     paths,
     components: {
       securitySchemes: {
-        bearerAuth: { type: "http", scheme: "bearer", bearerFormat: "JWT or lsp_pat_" },
+        bearerAuth: { type: "http", scheme: "bearer", bearerFormat: "JWT or lsp_svc_* Service API Token (legacy lsp_pat_* accepted)" },
       },
       parameters: {
         SpaceId: {
