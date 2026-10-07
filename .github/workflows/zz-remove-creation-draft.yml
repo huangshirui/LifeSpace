@@ -31,7 +31,10 @@ jobs:
           cache: pnpm
 
       - name: Apply repository cleanup
-        run: node tools/remove-creation-draft.mjs
+        run: |
+          node tools/cleanup-pass2.mjs
+          rm tools/cleanup-pass2.mjs
+          node tools/remove-creation-draft.mjs
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
