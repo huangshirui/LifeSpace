@@ -5,12 +5,16 @@ import process from "node:process";
 const token = process.env.CLOUDFLARE_API_TOKEN ?? "";
 const accountId = process.env.CLOUDFLARE_ACCOUNT_ID ?? "";
 const bootstrapSecret = process.env.LIFESPACE_PRODUCTION_BOOTSTRAP_SECRET ?? "";
+const repairSharedSecret = process.env.LIFESPACE_REPAIR_CORE_IDENTITY_SHARED_SECRET ?? "0";
 const CORE_DIR = new URL("../../apps/core/", import.meta.url);
 const IDENTITY_DIR = new URL("../../apps/identity/", import.meta.url);
 
 if (!token) throw new Error("CLOUDFLARE_API_TOKEN is required");
 if (!accountId) throw new Error("CLOUDFLARE_ACCOUNT_ID is required");
 if (bootstrapSecret.length < 32) throw new Error("LIFESPACE_PRODUCTION_BOOTSTRAP_SECRET must contain at least 32 characters");
+if (repairSharedSecret !== "0" && repairSharedSecret !== "1") {
+  throw new Error("LIFESPACE_REPAIR_CORE_IDENTITY_SHARED_SECRET must be exactly 0 or 1");
+}
 
 function wranglerSecretBulk(cwd, secrets) {
   execFileSync("pnpm", ["exec", "wrangler", "secret", "bulk", "--env", "production"], {
@@ -71,18 +75,29 @@ if (!signingExists) {
 
 identitySecrets = await secretNames("lifespace-identity");
 coreSecrets = await secretNames("lifespace-core");
-const sharedExists = assertAllOrNone("production Core↔Identity shared authentication secret", [
+const sharedPresence = [
   identitySecrets.has("CORE_IDENTITY_SHARED_SECRET"),
   coreSecrets.has("CORE_IDENTITY_SHARED_SECRET"),
-]);
+];
+const sharedPresenceCount = sharedPresence.filter(Boolean).length;
+const repairSharedSecretRequested = repairSharedSecret === "1";
 
-if (!sharedExists) {
+if (sharedPresenceCount === 1 && !repairSharedSecretRequested) {
+  throw new Error("production Core↔Identity shared authentication secret is only partially configured; explicit repair is required");
+}
+
+let sharedAuthenticationSecret;
+if (sharedPresenceCount === 0 || repairSharedSecretRequested) {
   const shared = randomBytes(32).toString("base64url");
   wranglerSecretBulk(IDENTITY_DIR, { CORE_IDENTITY_SHARED_SECRET: shared });
   wranglerSecretBulk(CORE_DIR, { CORE_IDENTITY_SHARED_SECRET: shared });
-  console.log("Initialized production Core↔Identity shared authentication secret");
+  sharedAuthenticationSecret = repairSharedSecretRequested ? "repaired" : "initialized";
+  console.log(repairSharedSecretRequested
+    ? "Re-synchronized production Core↔Identity shared authentication secret by explicit operator request"
+    : "Initialized production Core↔Identity shared authentication secret");
 } else {
-  console.log("Preserved existing production Core↔Identity shared authentication secret");
+  sharedAuthenticationSecret = "preserved";
+  console.log("Preserved existing production Core↔Identity shared authentication secret bindings; secret values are write-only and equality is verified by the service-auth release gate");
 }
 
 identitySecrets = await secretNames("lifespace-identity");
@@ -97,7 +112,7 @@ for (const required of ["IDENTITY_PUBLIC_KEY", "CORE_IDENTITY_SHARED_SECRET"]) {
 console.log(JSON.stringify({
   ok: true,
   signingMaterial: signingExists ? "preserved" : "initialized",
-  sharedAuthenticationSecret: sharedExists ? "preserved" : "initialized",
+  sharedAuthenticationSecret,
   bootstrapSecret: "synchronized",
   secretValuesExposed: false,
 }, null, 2));
