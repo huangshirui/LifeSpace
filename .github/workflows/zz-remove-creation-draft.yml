@@ -47,8 +47,8 @@ jobs:
       - name: Rebaseline current contract inventory
         run: pnpm --filter @lifespace/core stable-contract:baseline
 
-      - name: Remove one-time maintenance entrypoints
-        run: rm tools/remove-creation-draft.mjs .github/workflows/zz-remove-creation-draft.yml
+      - name: Remove one-time maintenance tool
+        run: rm tools/remove-creation-draft.mjs
 
       - name: Assert no current Creation Draft surface remains
         shell: bash
@@ -58,11 +58,12 @@ jobs:
           if git grep --cached -n -E 'Creation Draft|creation-draft|creation_draft|CREATION_DRAFT|creation-drafts' -- \
             ':!apps/core/migrations/0009_creation_draft_jobs.sql' \
             ':!apps/core/migrations/0015_registry_creation_drafts.sql' \
-            ':!apps/core/migrations/0053_remove_creation_draft_jobs.sql'; then
-            echo 'Current Creation Draft content remains outside immutable/retirement migrations.' >&2
+            ':!apps/core/migrations/0053_remove_creation_draft_jobs.sql' \
+            ':!.github/workflows/zz-remove-creation-draft.yml'; then
+            echo 'Current Creation Draft content remains outside immutable/retirement migrations and the one-time workflow.' >&2
             exit 1
           fi
-          leftovers="$(git ls-files --cached | grep -E 'creation[-_]draft' | grep -Ev '^apps/core/migrations/(0009_creation_draft_jobs|0015_registry_creation_drafts|0053_remove_creation_draft_jobs)\.sql$' || true)"
+          leftovers="$(git ls-files --cached | grep -E 'creation[-_]draft' | grep -Ev '^apps/core/migrations/(0009_creation_draft_jobs|0015_registry_creation_drafts|0053_remove_creation_draft_jobs)\.sql$|^\.github/workflows/zz-remove-creation-draft\.yml$' || true)"
           if [ -n "$leftovers" ]; then
             printf 'Current Creation Draft filenames remain:\n%s\n' "$leftovers" >&2
             exit 1
@@ -71,11 +72,12 @@ jobs:
       - name: Validate repository
         run: pnpm check
 
-      - name: Commit validated cleanup
+      - name: Commit validated non-workflow cleanup
         shell: bash
         run: |
           set -euo pipefail
           rm -rf apps/core/dist
+          git checkout HEAD -- .github/workflows/staging-deploy.yml .github/workflows/zz-remove-creation-draft.yml
           git add -A
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
