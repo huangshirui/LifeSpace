@@ -65,6 +65,22 @@ test("APAC user benchmark exercises Event v6 TemporalRange through Canonical Que
 });
 
 
+test("APAC release gate re-proves platform Golden Flow before timed performance acceptance", () => {
+  const verifier = readFileSync(new URL("../../../infra/scripts/verify-staging-apac-performance.mjs", import.meta.url), "utf8");
+  const goldenFlowIndex = verifier.indexOf("requirePlatformGoldenFlow();");
+  const userBenchmarkIndex = verifier.indexOf("const userResult = await runStagingPerformanceBenchmark");
+  const serviceBenchmarkIndex = verifier.indexOf("const serviceResult = await runStagingServicePerformanceBenchmark");
+
+  assert.match(verifier, /verify-staging-platform-golden-flow\.mjs/u);
+  assert.match(verifier, /spawnSync\(process\.execPath/u);
+  assert.notEqual(goldenFlowIndex, -1, "APAC promotion gate must invoke the platform Golden Flow");
+  assert.notEqual(userBenchmarkIndex, -1, "APAC promotion gate must retain user benchmark");
+  assert.notEqual(serviceBenchmarkIndex, -1, "APAC promotion gate must retain Service benchmark");
+  assert.ok(goldenFlowIndex < userBenchmarkIndex, "platform Golden Flow must pass before user performance acceptance");
+  assert.ok(goldenFlowIndex < serviceBenchmarkIndex, "platform Golden Flow must pass before Service performance acceptance");
+});
+
+
 test("APAC release gate enforces scenario targets for reads and mutations", () => {
   const userBenchmark = readFileSync(new URL("../../../infra/scripts/staging-canonical-performance-benchmark.mjs", import.meta.url), "utf8");
   const serviceBenchmark = readFileSync(new URL("../../../infra/scripts/staging-service-performance-benchmark.mjs", import.meta.url), "utf8");

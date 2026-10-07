@@ -1,4 +1,6 @@
+import { spawnSync } from "node:child_process";
 import process from "node:process";
+import { fileURLToPath } from "node:url";
 import { runStagingPerformanceBenchmark } from "./staging-canonical-performance-benchmark.mjs";
 import { runStagingServicePerformanceBenchmark } from "./staging-service-performance-benchmark.mjs";
 
@@ -20,6 +22,19 @@ for (const [name, value] of Object.entries({
   LIFESPACE_APAC_PROBE_TOKEN: probeToken,
 })) {
   if (!value) throw new Error(`${name} is required`);
+}
+
+function requirePlatformGoldenFlow() {
+  const verifier = fileURLToPath(new URL("./verify-staging-platform-golden-flow.mjs", import.meta.url));
+  console.log("Re-validating the LifeSpace platform staging Golden Flow before Production promotion...");
+  const result = spawnSync(process.execPath, [verifier], {
+    env: process.env,
+    stdio: "inherit",
+  });
+  if (result.error) throw result.error;
+  if (result.status !== 0) {
+    throw new Error(`LifeSpace platform staging Golden Flow failed before APAC promotion (exit ${String(result.status)})`);
+  }
 }
 
 function requestThroughApacProbe(credentialMode) {
@@ -51,6 +66,11 @@ function requestThroughApacProbe(credentialMode) {
     return payload;
   };
 }
+
+// Production promotion must prove functional governance semantics immediately before
+// performance acceptance. This prevents any alternate staging mutation/provisioning
+// path from satisfying version/schema checks while bypassing the canonical Golden Flow.
+requirePlatformGoldenFlow();
 
 const userResult = await runStagingPerformanceBenchmark({
   coreBaseUrl,
