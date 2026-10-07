@@ -2,6 +2,65 @@
 
 本文件只记录**已经成功发布到 production** 的变化。开发中、staging、PR 或 main 上的变化不得提前写成 production changelog。
 
+## 2026-10-08 — Agent Credential / Authorization Request、Person Directory、Non-atomic Bulk 与 Creation Draft retirement
+
+### Release metadata
+
+- SHA: `cc60fa13071b72b2f4d75db43999be38648cacd6`
+- Production workflow: **Deploy LifeSpace platform production #34** / run `37651204090` — ✅ success
+- Core: Kernel `0.48.0` / schema `53`
+- Identity: contract `0.10.0` / schema `9`
+- Active Model Contract: `mct_bc784389d406c580cbaf1a9cafaa48a155732771e1b24f058fcb884bffcb2345`
+- Active models: Task v8 / Wish v9 / Day Record v5 / Event v6 / Person Group v1
+- Exact-candidate APAC performance gate + Platform Golden Flow: ✅ passed before production mutation
+- Production HTTP convergence, Cloudflare isolation/bindings, canonical `lsp_svc_*` service authentication and active Model Contract verification: ✅ passed
+
+### Added / production-confirmed
+
+- First-class Agent API Credential：canonical `lsp_agt_*`，绑定 Application + Agent，可撤销；持有 credential 本身不授予 Space / Model / User Authority。
+- Authorization Request protocol：Agent/Application 可提交待确认授权请求；用户 Confirm 后产生 Delegation，deny/cancel/pending 均不产生代表 Authority。
+- Exact-candidate Platform Golden Flow 已验证 `Agent Credential -> Authorization Request -> Confirm -> Delegation -> governed mutation`。
+- First-class Person Directory CRUD/list/search：Space Person (`per_*`) 继续是 Kernel business-policy context，而不是 Authority-bearing identity。
+- Person alternate names / aliases：primary display name 与 alternate names 可用于人物检索。
+- Person Group v1：作为普通 metadata-driven model 进入 active Model Contract，用于人物分组/圈子等领域关系，不把 Person Group 硬编码进 Kernel。
+- Non-atomic Runtime Bulk：`POST /api/v1/spaces/{spaceId}/models/bulk`，bounded mixed create/update/delete；每项独立 success/failure，允许部分成功，同时保持 set-wise preparation 与 `blk_*` correlation。
+
+### Changed
+
+- Canonical Service API Token 前缀统一为 `lsp_svc_*`；legacy `lsp_pat_*` 只保留运行时/迁移兼容。Consumer-facing OpenAPI/contract metadata 已由 CI guard 防止回退。
+- Core 从 Kernel `0.43.0` / schema `48` 升至 `0.48.0` / schema `53`，Production 应用 migrations `0049_authorization_requests.sql`、`0050_non_atomic_bulk.sql`、`0051_space_person_names.sql`、`0052_person_group_model.sql`、`0053_remove_creation_draft_jobs.sql`。
+- Identity 从 contract `0.8.0` / schema `8` 升至 `0.10.0` / schema `9`，Production 应用 `0009_agent_api_credentials.sql`。
+- Production promotion 的 APAC prerequisite 不再只做版本/性能检查：同一 exact candidate 会重新执行 Platform Golden Flow，避免 alternate staging path 绕过 Agent Credential / Authorization Request / Person / Bulk 治理闭环。
+- Active Model Contract 从 4 个普通模型扩展为 5 个，新增 Person Group v1。
+
+### Removed / retired
+
+- Creation Draft 已退出当前 Production：当前 API / contracts / runtime / tests 不再提供该能力，schema 53 删除 `creation_draft_jobs` runtime table。
+- 历史 `0009_creation_draft_jobs.sql`、`0015_registry_creation_drafts.sql` 等 migration 文件继续保留，原因是已执行 migration history 必须不可变；它们不是当前能力声明。
+
+### Production incident / operational hardening
+
+本 release 第一次 Production 尝试在最终 Model Admin service-auth gate 暴露了历史 Core↔Identity `CORE_IDENTITY_SHARED_SECRET` 值漂移：Cloudflare secret API 只能证明两端**存在同名 secret**，不能证明 write-only secret 的值相同。
+
+PR #329 因此增加显式、default-off 的 recovery control：只有 operator 明确请求时才重新生成并同步两端 runtime shared secret；普通 release 不自动轮换，bootstrap secret 也不复用为 runtime authentication secret。成功 run #34 执行一次 repair 后，真实 `lsp_svc_* -> Core -> Identity introspection` 与 Model Contract gate 通过。
+
+### Known limitations
+
+- 通用 Execute Action Batch 尚未作为 production contract 提供。
+- Federated Truth / Own-Mirror-Reference-Query 仍是后续专项，不属于当前 production capability。
+- 通用 Information Provenance / External Reference / transformation lineage 尚未提供平台级 contract。
+- n8n / HomeMew / ALOHA 的适配与发布是 downstream lifecycle，不由本次平台 Production workflow 自动完成。
+- Console application 有独立 Production rollout；本 release 的 Core/Identity 成功不等价于新 Console application version 已 rollout。
+
+### Human-readable impact
+
+- Agent 现在可以只持有一个正式 `lsp_agt_*` credential，并通过标准 Authorization Request / Delegation 流程获得用户明确确认后的代表权限。
+- “人物”成为可检索、支持多个称呼的 first-class Space Directory；人物分组则保持普通模型，可独立演进。
+- Consumer 可以按业务需求选择 Atomic Batch（全部成功或回滚）或 Non-atomic Bulk（逐项独立结果、允许部分成功），不再把“性能批量”和“原子一致性”混为一件事。
+- Creation Draft 不再是平台当前概念，减少了一套不再需要的 API/runtime/storage 基础设施。
+
+---
+
 ## 2026-10-05 — Authority v3、First-class Batch 与首个 exact-SHA production baseline
 
 这是 Production Documentation 机制建立后的第一条与成功 production workflow 精确绑定的 release 记录。
