@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
+import { createApacProbeRequestAdapter } from "./apac-probe-client.mjs";
 import { runStagingPerformanceBenchmark } from "./staging-canonical-performance-benchmark.mjs";
 import { runStagingServicePerformanceBenchmark } from "./staging-service-performance-benchmark.mjs";
 
@@ -38,33 +39,11 @@ function requirePlatformGoldenFlow() {
 }
 
 function requestThroughApacProbe(credentialMode) {
-  return async (path, { method = "GET", body } = {}) => {
-    const response = await fetch(`${probeUrl}/run`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-lifespace-probe-token": probeToken,
-      },
-      body: JSON.stringify({ path, method, credentialMode, ...(body === undefined ? {} : { body }) }),
-    });
-    const text = await response.text();
-    let payload;
-    try {
-      payload = text ? JSON.parse(text) : null;
-    } catch {
-      throw new Error(`APAC probe returned non-JSON ${response.status}: ${text.slice(0, 500)}`);
-    }
-    if (!response.ok) {
-      throw new Error(`APAC probe failed ${response.status}: ${JSON.stringify(payload)}`);
-    }
-    if (!payload || !Number.isInteger(payload.status) || typeof payload.elapsedMs !== "number") {
-      throw new Error(`APAC probe returned an invalid benchmark result: ${JSON.stringify(payload)}`);
-    }
-    if (payload.credentialMode !== credentialMode) {
-      throw new Error(`APAC probe credential mode mismatch: expected ${credentialMode}, got ${JSON.stringify(payload.credentialMode)}`);
-    }
-    return payload;
-  };
+  return createApacProbeRequestAdapter({
+    probeUrl,
+    probeToken,
+    credentialMode,
+  });
 }
 
 // Production promotion must prove functional governance semantics immediately before
