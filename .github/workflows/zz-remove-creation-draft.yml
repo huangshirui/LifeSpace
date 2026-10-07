@@ -39,6 +39,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Regenerate Core bindings
+        run: pnpm --dir apps/core exec wrangler types src/worker-configuration.d.ts --env-interface CloudflareBindings --include-runtime false
+
       - name: Rebaseline current contract inventory
         run: pnpm --filter @lifespace/core stable-contract:baseline
 
