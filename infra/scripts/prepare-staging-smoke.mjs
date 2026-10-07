@@ -33,8 +33,6 @@ const applicationScopes = [
   "grants:manage",
   "resources:read",
   "resources:write",
-  "creation-drafts:read",
-  "creation-drafts:write",
   "models:manage",
 ];
 const userScopes = [...applicationScopes];

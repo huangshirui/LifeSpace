@@ -25,7 +25,6 @@ const expected = {
   d1: new Set(["lifespace-identity", "lifespace-core"]),
   r2: new Set(["lifespace-assets"]),
   queues: new Set([
-    "lifespace-creation-drafts",
     "lifespace-event-deliveries",
     "lifespace-event-deliveries-dlq",
   ]),
@@ -69,7 +68,6 @@ for (const [label, source, required] of [
     "\"name\": \"lifespace-core\"",
     "\"database_name\": \"lifespace-core\"",
     "\"bucket_name\": \"lifespace-assets\"",
-    "\"queue\": \"lifespace-creation-drafts\"",
     "\"queue\": \"lifespace-event-deliveries\"",
     "\"dead_letter_queue\": \"lifespace-event-deliveries-dlq\"",
     "\"pattern\": \"core.aisr.online\"",

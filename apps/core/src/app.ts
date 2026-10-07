@@ -5,7 +5,6 @@ import { authenticate } from "./auth";
 import { registerDelegationRoutes } from "./delegation-routes";
 import { registerAuthorizationRequestRoutes } from "./authorization-request-routes";
 import { registerChangeHistoryRoutes } from "./change-history";
-import { registerRegistryCreationDraftRoutes } from "./registry-creation-draft-jobs";
 import { registerGenericResourceRoutes } from "./generic-resource-routes";
 import { registerGenericBatchRoutes } from "./generic-batch-routes";
 import { registerGenericBulkRoutes } from "./generic-bulk-routes";
@@ -101,7 +100,6 @@ export function createApp() {
   registerModelAdminAiRoutes(app);
   registerPlatformAdminRoutes(app);
   registerPlatformInspectorRoutes(app);
-  registerRegistryCreationDraftRoutes(app);
   registerEventSubscriptionRoutes(app);
   registerDelegationRoutes(app);
   registerAuthorizationRequestRoutes(app);

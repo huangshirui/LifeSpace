@@ -103,7 +103,6 @@ Kernel concepts remain explicit platform concepts and cannot be created as ordin
 - Data Grant and authorization state;
 - Model Registry administration and publication state;
 - Application × Model Access;
-- Registry-driven Creation Draft orchestration;
 - platform administration and audit;
 - Eventing Webhook Endpoint/subscription/delivery state;
 - security/signing/deployment state.
@@ -331,7 +330,7 @@ Platform Admin Control-Plane Contract
 ```text
 Kernel Contract
   apps/core/openapi.yaml
-  explicit product-facing Space / Grant / Runtime Discovery / Change History / Creation Draft primitives
+  explicit product-facing Space / Grant / Runtime Discovery / Change History primitives
   current Kernel contract: 0.40.0
 
 Integration / Eventing Contract

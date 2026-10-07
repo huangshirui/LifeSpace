@@ -30,7 +30,7 @@ import {
 } from "./model-registry";
 import {
   OpenAICompatibleProviderError,
-  type CreationProviderResult,
+  type AiProviderResult,
 } from "./registry-openai-provider";
 
 type AppEnv = { Bindings: Bindings; Variables: Variables };
@@ -68,7 +68,7 @@ type ProposalRow = {
 export type ModelAdminAiProvider = {
   generate(input: ModelAdminAiInput): Promise<{
     output: ModelAdminAiOutput;
-    metadata: CreationProviderResult["metadata"];
+    metadata: AiProviderResult["metadata"];
   }>;
 };
 

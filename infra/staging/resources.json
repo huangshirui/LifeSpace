@@ -18,9 +18,6 @@
   ],
   "queues": [
     {
-      "name": "lifespace-staging-creation-drafts"
-    },
-    {
       "name": "lifespace-staging-event-deliveries"
     },
     {

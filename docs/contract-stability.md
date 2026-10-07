@@ -85,7 +85,7 @@ Candidate is supported, not disposable. A Candidate breaking change must be deli
 
 The first Baseline does not promote these to the Stable Spine:
 
-- Creation Draft / natural-language interpretation representation;
+- product-side creation interpretation / natural-language interpretation representation;
 - AI Model Designer interaction mechanics;
 - speculative Domain Pack packaging;
 - future approval/proposal/compensation frameworks not yet demanded by a concrete high-risk operation;

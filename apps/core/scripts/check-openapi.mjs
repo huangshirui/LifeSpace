@@ -3,7 +3,7 @@ import YAML from "yaml";
 
 const document = YAML.parse(fs.readFileSync(new URL("../openapi.yaml", import.meta.url), "utf8"));
 
-if (document.openapi !== "3.1.0" || document.info?.version !== "0.47.0") {
+if (document.openapi !== "3.1.0" || document.info?.version !== "0.48.0") {
   throw new Error("Core Kernel OpenAPI version metadata is invalid");
 }
 if (!document.info?.title?.includes("Kernel")) {
@@ -52,9 +52,6 @@ const requiredPaths = [
   "/api/v1/spaces/{spaceId}/changes",
   "/api/v1/spaces/{spaceId}/changes/{recordId}",
   "/api/v1/spaces/{spaceId}/changes/by-id/{changeId}",
-  "/api/v1/spaces/{spaceId}/creation-drafts",
-  "/api/v1/spaces/{spaceId}/creation-drafts/{draftId}",
-  "/api/v1/spaces/{spaceId}/creation-drafts/{draftId}/choose-model",
 ];
 for (const path of requiredPaths) {
   if (!document.paths?.[path]) throw new Error(`Core Kernel OpenAPI missing ${path}`);
@@ -111,9 +108,6 @@ for (const path of Object.keys(document.paths ?? {})) {
   }
 }
 
-if (document.paths?.["/api/v1/spaces/{spaceId}/creation-drafts/{draftId}/choose-kind"]) {
-  throw new Error("Hard-coded Creation Draft choose-kind route must not remain");
-}
 
 const schemas = document.components?.schemas ?? {};
 const atomicDelegations = document.paths?.["/api/v1/spaces/{spaceId}/delegations/batch"]?.post;
@@ -150,7 +144,7 @@ for (const name of Object.keys(schemas)) {
   if (name === "DomainEventType" || name.startsWith("Webhook") || name.startsWith("EventSubscription")) {
     throw new Error(`Integration/Eventing schema leaked into Kernel OpenAPI: ${name}`);
   }
-  if (/^(Event|Task|DayRecord|Wish|CreationDraftEvent|CreationDraftTask|CreationDraftDayRecord|CreationDraftWish)/.test(name)) {
+  if (/^(Event|Task|DayRecord|Wish)/.test(name)) {
     throw new Error(`Ordinary-model schema leaked into Kernel OpenAPI: ${name}`);
   }
   if (name.startsWith("Legacy")) {
@@ -596,19 +590,6 @@ if (inventoryData?.additionalProperties !== false
   throw new Error("Compact capability inventory must point deterministically to progressive single-model semantic detail");
 }
 
-const creationDraft = document.paths?.["/api/v1/spaces/{spaceId}/creation-drafts"]?.post;
-if (!creationDraft?.description?.includes("active user Space member")) {
-  throw new Error("Creation Drafts must document user-member-only access");
-}
-if (!creationDraft?.description?.includes("Model Contract Revision")) {
-  throw new Error("Creation Drafts must document the pinned Model Contract Revision");
-}
-if (!schemas.ChooseCreationDraftModelRequest?.required?.includes("targetModelKey")) {
-  throw new Error("Registry Creation Draft model choice is missing targetModelKey");
-}
-if (!schemas.CreationDraftProcessing?.required?.includes("modelContractRevision")) {
-  throw new Error("Creation Draft jobs must expose their pinned Model Contract Revision");
-}
 
 const runtimeKernelContract = fs.readFileSync(new URL("../src/kernel-contract.ts", import.meta.url), "utf8")
   .match(/CORE_KERNEL_CONTRACT_VERSION\s*=\s*"([^"]+)"/)?.[1];

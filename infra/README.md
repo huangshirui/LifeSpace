@@ -48,7 +48,6 @@ Normal staging and production releases use Core-first -> Identity ordering so a 
 - `verify-staging-db.mjs`: verifies staging schema/platform persistence/active model contract state.
 - `verify-staging-http.mjs`: verifies authenticated Kernel/Model Contract/Model Admin boundaries.
 - `verify-staging-models.mjs`: verifies Task/Wish/Day Record/Event platform semantics.
-- `verify-staging-creation-draft.mjs`: verifies Registry-driven Creation Draft + Queue terminal behavior.
 - `cleanup-staging-smoke.mjs`: revokes temporary authority best-effort.
 
 ## Production scripts

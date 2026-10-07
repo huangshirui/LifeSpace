@@ -369,7 +369,7 @@ Implemented in the Canonical Typed Query / TemporalRange platform foundation:
 - first-class `range<date>` / `range<instant>` values and typed range predicates;
 - legacy structural time-range predicates for already-published compatibility;
 - first-class `temporal_range` Model Definition values, typed physical storage and CRUD hydration/dehydration;
-- generated TemporalRange contracts and Creation Draft validation;
+- generated TemporalRange contracts and product-side creation interpretation validation;
 - direct filterable `TemporalRange` predicates with Date/Instant/local-date-window operands;
 - direct TemporalRange sort projection with `context.viewingTimezone` and stream-aware cursor continuation;
 - Calendar-backed `when` compatibility projection;

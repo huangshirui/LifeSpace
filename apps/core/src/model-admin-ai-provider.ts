@@ -1,4 +1,4 @@
-import { OpenAICompatibleProviderError, type CreationProviderResult, type OpenAICompatibleProviderConfig } from "./registry-openai-provider";
+import { OpenAICompatibleProviderError, type AiProviderResult, type OpenAICompatibleProviderConfig } from "./registry-openai-provider";
 
 export type ModelAdminAiInput = {
   instruction: string;
@@ -115,7 +115,7 @@ function providerErrorCode(status: number) {
   return "AI_UPSTREAM_UNAVAILABLE" as const;
 }
 
-function usage(value: unknown): CreationProviderResult["metadata"]["usage"] {
+function usage(value: unknown): AiProviderResult["metadata"]["usage"] {
   if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
   const row = value as Record<string, unknown>;
   const result = {
@@ -156,7 +156,7 @@ export function createModelAdminAiProvider(config: OpenAICompatibleProviderConfi
   const timeoutMs = config.timeoutMs ?? 60_000;
 
   return {
-    async generate(input: ModelAdminAiInput): Promise<{ output: ModelAdminAiOutput; metadata: CreationProviderResult["metadata"] }> {
+    async generate(input: ModelAdminAiInput): Promise<{ output: ModelAdminAiOutput; metadata: AiProviderResult["metadata"] }> {
       if (!config.baseUrl?.trim() || !config.apiKey?.trim() || !config.model?.trim()) {
         throw new OpenAICompatibleProviderError("AI_NOT_CONFIGURED", "AI provider configuration is incomplete");
       }
