@@ -29,5 +29,7 @@ requireText("apps/identity/openapi.yaml", "Create a canonical opaque lsp_svc_* S
 rejectText("apps/identity/openapi.yaml", "Create an opaque lsp_pat_* Service API Token");
 requireText("apps/core/src/auth.ts", 'SERVICE_TOKEN_PREFIXES = ["lsp_svc_", "lsp_pat_"] as const');
 requireText("infra/scripts/verify-staging-apac-performance.mjs", "opaque lsp_svc_* Service API Token");
+requireText(".github/workflows/production-deploy.yml", "lsp_svc_*");
+rejectText(".github/workflows/production-deploy.yml", "lsp_pat_*");
 
 console.log("Canonical Service API Token contract metadata check passed");
