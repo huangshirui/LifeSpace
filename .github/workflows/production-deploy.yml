@@ -9,6 +9,11 @@ on:
         description: "Type DEPLOY_PRODUCTION"
         required: true
         type: string
+      repair_core_identity_shared_secret:
+        description: "Recovery only: re-synchronize the Core↔Identity shared runtime secret"
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -285,7 +290,9 @@ jobs:
       - name: Ensure production custom domains
         run: node infra/scripts/ensure-production-domains.mjs
 
-      - name: Initialize or preserve production runtime secrets
+      - name: Initialize, preserve or explicitly repair production runtime secrets
+        env:
+          LIFESPACE_REPAIR_CORE_IDENTITY_SHARED_SECRET: ${{ inputs.repair_core_identity_shared_secret && '1' || '0' }}
         run: node infra/scripts/initialize-production-runtime.mjs
 
       - name: Wait for production HTTP convergence
@@ -328,5 +335,6 @@ jobs:
           - Custom domains: \`core.aisr.online\`, \`auth.aisr.online\`
           - Production D1/R2/Queue/Worker isolation: passed
           - Production runtime signing/shared-secret presence: passed
+          - Core↔Identity shared-secret repair requested: \`${{ inputs.repair_core_identity_shared_secret }}\`
           - Infrastructure provisioning: **not performed by this workflow**
           EOF
