@@ -1,0 +1,71 @@
+name: Finish 326 release metadata cleanup
+
+on:
+  push:
+    branches:
+      - fix/core-service-token-contract-metadata
+
+permissions:
+  contents: write
+
+jobs:
+  finish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout fix branch
+        uses: actions/checkout@v5
+        with:
+          ref: fix/core-service-token-contract-metadata
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4.4.0
+        with:
+          version: 10.13.1
+          run_install: false
+
+      - name: Setup Node.js 24
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Align production release summary and guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          from pathlib import Path
+
+          workflow = Path('.github/workflows/production-deploy.yml')
+          text = workflow.read_text()
+          old = 'Opaque `lsp_pat_*` Task'
+          if text.count(old) != 2:
+              raise SystemExit(f'expected exactly two legacy production summary labels, found {text.count(old)}')
+          text = text.replace(old, 'Canonical `lsp_svc_*` Service API Token Task')
+          workflow.write_text(text)
+
+          guard = Path('infra/scripts/check-service-token-contract-metadata.mjs')
+          text = guard.read_text()
+          needle = 'requireText("infra/scripts/verify-staging-apac-performance.mjs", "opaque lsp_svc_* Service API Token");\n'
+          addition = needle + 'requireText(".github/workflows/production-deploy.yml", "Canonical `lsp_svc_*` Service API Token Task");\nrejectText(".github/workflows/production-deploy.yml", "Opaque `lsp_pat_*` Task");\n'
+          if needle not in text:
+              raise SystemExit('service token metadata guard insertion point not found')
+          guard.write_text(text.replace(needle, addition))
+          PY
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify repository
+        run: pnpm check
+
+      - name: Commit final cleanup and remove temporary workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm .github/workflows/fix-326-production-summary.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "fix: finish canonical service token release metadata"
+          git push origin HEAD:fix/core-service-token-contract-metadata
