@@ -35,6 +35,8 @@ jobs:
           node tools/cleanup-pass2.mjs
           rm tools/cleanup-pass2.mjs
           node tools/remove-creation-draft.mjs
+          node tools/cleanup-pass3.mjs
+          rm tools/cleanup-pass3.mjs
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
