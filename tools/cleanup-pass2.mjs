@@ -19,6 +19,11 @@ rewrite("apps/core/scripts/check-person-directory-openapi.mjs", (current) => cur
   .replace('document.info?.version !== "0.47.0"', 'document.info?.version !== "0.48.0"')
   .replace('Person Directory requires Core Kernel 0.47.0', 'Person Directory requires Core Kernel 0.48.0'));
 
+rewrite("apps/core/test/final-migration-state.integration.test.ts", (current) => current.replace(
+  'expect(row?.value).toBe("52");',
+  'expect(row?.value).toBe("53");',
+));
+
 rewrite("apps/core/AGENTS.md", (current) => current.replace(
   "current Kernel version: 0.47.0",
   "current Kernel version: 0.48.0",
