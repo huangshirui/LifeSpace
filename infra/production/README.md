@@ -16,7 +16,6 @@ Neither operation may read or migrate any consumer application's production busi
 - Identity D1: `lifespace-identity`
 - Core D1: `lifespace-core`
 - R2: `lifespace-assets`
-- Creation Draft Queue: `lifespace-creation-drafts`
 - Event Delivery Queue: `lifespace-event-deliveries`
 - Event Delivery DLQ: `lifespace-event-deliveries-dlq`
 - Identity Worker: `lifespace-identity` -> `auth.aisr.online`

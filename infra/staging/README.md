@@ -22,7 +22,6 @@ Routine deployment does not provision shared infrastructure.
 - Identity D1: `lifespace-identity-staging`
 - Core D1: `lifespace-core-staging`
 - R2: `lifespace-staging-assets`
-- Creation Draft Queue: `lifespace-staging-creation-drafts`
 - Event delivery Queue: `lifespace-staging-event-deliveries`
 - Event delivery DLQ: `lifespace-staging-event-deliveries-dlq`
 - Identity Worker custom domain: `auth-staging.aisr.online`

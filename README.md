@@ -55,7 +55,7 @@ Identity owns verified Access principal resolution/linking. Individual applicati
 
 LifeSpace Core is a modular monolith. Ordinary business models are published metadata interpreted by a fixed Generic Runtime rather than handwritten CRUD modules.
 
-Published Model Definitions drive schema validation, typed physical storage, CRUD/query behavior, relations, optimistic concurrency, actions and Capability contributions. Current reusable platform capabilities include Calendar, Temporal/Cycle, Workflow/Policy, Registry-driven AI Creation Drafts, and Queue/async orchestration.
+Published Model Definitions drive schema validation, typed physical storage, CRUD/query behavior, relations, optimistic concurrency, actions and Capability contributions. Current reusable platform capabilities include Calendar, Temporal/Cycle, Workflow/Policy, Registry-driven AI product-side creation interpretations, and Queue/async orchestration.
 
 Core contract surface is split into:
 

@@ -91,11 +91,6 @@ for (const desired of manifest.queues ?? []) {
 
 const queues = await cf(`/accounts/${accountId}/queues`);
 const queueByName = new Map((queues ?? []).map((item) => [item.queue_name, item]));
-const productionQueue = queueByName.get("lifespace-creation-drafts");
-const stagingQueue = queueByName.get("lifespace-staging-creation-drafts");
-if (productionQueue && stagingQueue && productionQueue.queue_id === stagingQueue.queue_id) {
-  throw new Error("Production creation-draft Queue unexpectedly reuses staging Queue ID");
-}
 for (const [productionName, stagingName] of [
   ["lifespace-event-deliveries", "lifespace-staging-event-deliveries"],
   ["lifespace-event-deliveries-dlq", "lifespace-staging-event-deliveries-dlq"],
@@ -181,7 +176,6 @@ const coreBindings = coreSettings.bindings;
 requireBinding(coreBindings, { name: "DB", type: "d1", fields: { database_id: productionD1.get("lifespace-core") } }, "lifespace-core");
 requireBinding(coreBindings, { name: "ASSETS", type: "r2_bucket", fields: { bucket_name: "lifespace-assets" } }, "lifespace-core");
 requireBinding(coreBindings, { name: "IDENTITY", type: "service", fields: { service: "lifespace-identity" } }, "lifespace-core");
-requireBinding(coreBindings, { name: "CREATION_DRAFT_QUEUE", type: "queue", fields: { queue_name: "lifespace-creation-drafts" } }, "lifespace-core");
 requireBinding(coreBindings, { name: "EVENT_DELIVERY_QUEUE", type: "queue", fields: { queue_name: "lifespace-event-deliveries" } }, "lifespace-core");
 
 const identityBindings = identitySettings.bindings;
@@ -218,7 +212,7 @@ console.log(JSON.stringify({
   eventDeliveryPolicyVerified: true,
   workers: ["lifespace-core", "lifespace-identity"],
   deployedBindingsVerified: {
-    core: ["DB", "ASSETS", "IDENTITY", "CREATION_DRAFT_QUEUE", "EVENT_DELIVERY_QUEUE"],
+    core: ["DB", "ASSETS", "IDENTITY", "EVENT_DELIVERY_QUEUE"],
     identity: ["DB", "ASSETS"],
   },
   smartPlacementVerified: placement,

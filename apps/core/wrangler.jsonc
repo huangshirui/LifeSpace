@@ -11,11 +11,9 @@
   "r2_buckets": [{ "binding": "ASSETS", "bucket_name": "lifespace-local-assets" }],
   "queues": {
     "producers": [
-      { "binding": "CREATION_DRAFT_QUEUE", "queue": "lifespace-local-creation-drafts" },
       { "binding": "EVENT_DELIVERY_QUEUE", "queue": "lifespace-local-event-deliveries" }
     ],
     "consumers": [
-      { "queue": "lifespace-local-creation-drafts", "max_batch_size": 1, "max_batch_timeout": 1, "max_retries": 2 },
       { "queue": "lifespace-local-event-deliveries", "max_batch_size": 10, "max_batch_timeout": 1, "max_retries": 5, "dead_letter_queue": "lifespace-local-event-deliveries-dlq" }
     ]
   },
@@ -31,11 +29,9 @@
       "services": [{ "binding": "IDENTITY", "service": "lifespace-identity-staging" }],
       "queues": {
         "producers": [
-          { "binding": "CREATION_DRAFT_QUEUE", "queue": "lifespace-staging-creation-drafts" },
           { "binding": "EVENT_DELIVERY_QUEUE", "queue": "lifespace-staging-event-deliveries" }
         ],
         "consumers": [
-          { "queue": "lifespace-staging-creation-drafts", "max_batch_size": 1, "max_batch_timeout": 1, "max_retries": 2 },
           { "queue": "lifespace-staging-event-deliveries", "max_batch_size": 10, "max_batch_timeout": 1, "max_retries": 5, "dead_letter_queue": "lifespace-staging-event-deliveries-dlq" }
         ]
       },
@@ -51,11 +47,9 @@
       "services": [{ "binding": "IDENTITY", "service": "lifespace-identity" }],
       "queues": {
         "producers": [
-          { "binding": "CREATION_DRAFT_QUEUE", "queue": "lifespace-creation-drafts" },
           { "binding": "EVENT_DELIVERY_QUEUE", "queue": "lifespace-event-deliveries" }
         ],
         "consumers": [
-          { "queue": "lifespace-creation-drafts", "max_batch_size": 1, "max_batch_timeout": 1, "max_retries": 2 },
           { "queue": "lifespace-event-deliveries", "max_batch_size": 10, "max_batch_timeout": 1, "max_retries": 5, "dead_letter_queue": "lifespace-event-deliveries-dlq" }
         ]
       },
