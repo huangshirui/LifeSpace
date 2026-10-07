@@ -29,6 +29,11 @@ rewrite("apps/core/AGENTS.md", (current) => current.replace(
   "current Kernel version: 0.48.0",
 ));
 
+rewrite("docs/contract-stability-baseline.json", (current) => current.replace(
+  "sha256:4a1c2c1dfd39a9b31efbafe826ca4430c83af7f392644d2c35319261d6359e72",
+  "sha256:419788e729c03f79bba4c4915e495bcda544be1adbb995db90c03e602fe11a54",
+));
+
 rewrite("docs/architecture.md", (current) => current.replace(
   "explicit product-facing Space / Grant / Runtime Discovery / Change History / Creation Draft primitives",
   "explicit product-facing Space / Grant / Runtime Discovery / Change History primitives",
