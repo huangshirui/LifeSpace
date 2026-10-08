@@ -21,8 +21,8 @@ async function fixture() {
   const principalId = `svc_${suffix}`;
   const timestamp = new Date().toISOString();
   await b.DB.batch([
-    b.DB.prepare(`INSERT INTO applications(id,name,client_type,allowed_scopes,status,created_at,updated_at)
-      VALUES(?,?,'service','[]','active',?,?)`).bind(applicationId, "Introspection test", timestamp, timestamp),
+    b.DB.prepare(`INSERT INTO applications(id,name,allowed_scopes,status,created_at,updated_at)
+      VALUES(?,?,'[]','active',?,?)`).bind(applicationId, "Introspection test", timestamp, timestamp),
     b.DB.prepare(`INSERT INTO service_principals(id,application_id,display_name,max_scopes,status,created_at,updated_at)
       VALUES(?,?,?,'[]','active',?,?)`).bind(principalId, applicationId, "Webhook subscriber", timestamp, timestamp),
   ]);
