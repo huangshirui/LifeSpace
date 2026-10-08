@@ -44,7 +44,6 @@ async function bootstrapApplication(
     body: JSON.stringify({
       id: applicationId,
       name: applicationId,
-      clientType: "web",
       trustedBackend,
       allowedScopes,
       accessTokenTtlSeconds: 900,
@@ -125,7 +124,6 @@ describe("Identity cross-application Platform Agent Admin", () => {
     expect((await listed.json() as any).data).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: created.id, displayName: "Scheduling Assistant", status: "active" }),
     ]));
-
 
     const credentialCreated = await request(`/internal/v1/platform-admin/applications/${targetId}/agents/${created.id}/api-credentials`, {
       method: "POST",
