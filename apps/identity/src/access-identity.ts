@@ -27,7 +27,6 @@ type AccessAudienceRow = {
 
 type AccessApplicationRow = {
   id: string;
-  client_type: string;
   trusted_backend: number;
   status: string;
 };
@@ -116,7 +115,7 @@ function accessErrorResponse(c: Context<AppEnv>, error: unknown) {
 
 async function loadApplication(db: D1Database, applicationId: string): Promise<AccessApplicationRow | null> {
   return db.prepare(`
-    SELECT id,client_type,trusted_backend,status
+    SELECT id,trusted_backend,status
     FROM applications WHERE id=?
   `).bind(applicationId).first<AccessApplicationRow>();
 }
@@ -207,8 +206,8 @@ export function registerAccessIdentityRoutes(app: Hono<AppEnv>, options: AccessR
   app.post("/bootstrap/v1/applications/:applicationId/access-audiences", async (c) => {
     const application = await loadApplication(c.env.DB, c.req.param("applicationId"));
     if (!application) return c.json(fail("APPLICATION_NOT_FOUND", "Application not found", c.get("requestId")), 404);
-    if (application.client_type !== "web" || application.trusted_backend !== 1) {
-      return c.json(fail("APPLICATION_NOT_ACCESS_WEB", "Access audiences require a trusted Web application", c.get("requestId")), 409);
+    if (application.trusted_backend !== 1) {
+      return c.json(fail("APPLICATION_NOT_TRUSTED", "Access audiences require a trusted application backend", c.get("requestId")), 409);
     }
     if (application.status !== "active") {
       return c.json(fail("APPLICATION_DISABLED", "Application is disabled", c.get("requestId")), 409);
