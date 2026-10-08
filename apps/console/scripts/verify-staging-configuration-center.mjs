@@ -228,7 +228,6 @@ try {
     method: "POST",
     body: {
       name: targetName,
-      clientType: "web",
       allowedScopes: ["resources:read", "resources:write"],
       trustedBackend: true,
       accessTokenTtlSeconds: 900,
@@ -276,7 +275,6 @@ try {
   const serializedCredentials = JSON.stringify(credentialRows);
   if (!Array.isArray(credentialRows) || !credentialRows.some((entry) => entry?.id === cleanup.targetReplacementCredentialId)) throw new Error("Replacement credential did not appear in metadata list");
   if (serializedCredentials.includes(cleanup.targetInitialSecret) || serializedCredentials.includes(cleanup.targetReplacementSecret)) throw new Error("Credential metadata list leaked plaintext");
-
 
   const agent = requireStatus(await admin(`/internal/v1/platform-admin/applications/${encodeURIComponent(cleanup.targetApplicationId)}/agents`, {
     method: "POST",
