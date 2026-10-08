@@ -22,7 +22,6 @@ type UserBody = { displayName?: string };
 type ApplicationBody = {
   id?: string;
   name?: string;
-  clientType?: string;
   allowedScopes?: string[];
   trustedBackend?: boolean;
   accessTokenTtlSeconds?: number;
@@ -258,8 +257,8 @@ export function createApp() {
 
   app.post("/bootstrap/v1/applications", async (c) => {
     const body = (await c.req.json<ApplicationBody>().catch(() => ({}))) as ApplicationBody;
-    if (!body.id || !body.name || !body.clientType || !["web", "mini_program", "service", "device"].includes(body.clientType)) {
-      return c.json(fail("VALIDATION_ERROR", "id, name and valid clientType are required", c.get("requestId")), 422);
+    if (!body.id || !body.name) {
+      return c.json(fail("VALIDATION_ERROR", "id and name are required", c.get("requestId")), 422);
     }
     const tokenTtlSeconds = body.accessTokenTtlSeconds ?? DEFAULT_ACCESS_TOKEN_TTL_SECONDS;
     if (!validApplicationTokenTtl(tokenTtlSeconds)) {
@@ -273,9 +272,9 @@ export function createApp() {
     try {
       await c.env.DB.batch([
         c.env.DB.prepare(`
-          INSERT INTO applications(id,name,client_type,allowed_scopes,trusted_backend,access_token_ttl_seconds,created_at,updated_at)
-          VALUES(?,?,?,?,?,?,?,?)
-        `).bind(body.id, body.name, body.clientType, JSON.stringify(allowedScopes), trustedBackend ? 1 : 0, tokenTtlSeconds, ts, ts),
+          INSERT INTO applications(id,name,allowed_scopes,trusted_backend,access_token_ttl_seconds,created_at,updated_at)
+          VALUES(?,?,?,?,?,?,?)
+        `).bind(body.id, body.name, JSON.stringify(allowedScopes), trustedBackend ? 1 : 0, tokenTtlSeconds, ts, ts),
         ...(secret ? [c.env.DB.prepare(`
           INSERT INTO application_credentials(id,application_id,secret_hash,secret_suffix,created_at)
           VALUES(?,?,?,?,?)
