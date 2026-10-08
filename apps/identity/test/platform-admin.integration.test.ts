@@ -40,7 +40,6 @@ async function provisionConsole(pair: Awaited<ReturnType<typeof keys>>) {
     body: JSON.stringify({
       id: applicationId,
       name: "LifeSpace Console Test",
-      clientType: "web",
       trustedBackend: true,
       allowedScopes: ["platform:admin", "applications:manage", "audit:read"],
       accessTokenTtlSeconds: 900,
@@ -104,7 +103,6 @@ describe("Identity Platform Admin API", () => {
       body: JSON.stringify({
         id: noExecutorScopeId,
         name: "No Admin Scope",
-        clientType: "web",
         trustedBackend: true,
         allowedScopes: ["platform:admin"],
       }),
@@ -139,8 +137,7 @@ describe("Identity Platform Admin API", () => {
       method: "POST",
       headers: { ...adminHeaders(console.applicationSecret, console.actorToken), "content-type": "application/json" },
       body: JSON.stringify({
-        name: "Managed Web App",
-        clientType: "web",
+        name: "Managed Application",
         trustedBackend: true,
         allowedScopes: ["profile:read"],
         accessTokenTtlSeconds: 900,
@@ -149,6 +146,7 @@ describe("Identity Platform Admin API", () => {
     expect(create.status).toBe(201);
     const created = (await create.json() as any).data;
     expect(created.id).toMatch(/^app_/u);
+    expect(created.clientType).toBeUndefined();
     expect(created.clientSecret).toMatch(/^lsa_/u);
     expect(created.credential.secretSuffix).toBe(created.clientSecret.slice(-8));
 
@@ -191,14 +189,13 @@ describe("Identity Platform Admin API", () => {
   it("reads and updates an existing semantic application id while new application creation remains app_*", async () => {
     const pair = await keys();
     const console = await provisionConsole(pair);
-    const applicationId = `legacy-web-${crypto.randomUUID().replaceAll("-", "")}`;
+    const applicationId = `legacy-app-${crypto.randomUUID().replaceAll("-", "")}`;
     const existing = await request("/bootstrap/v1/applications", {
       method: "POST",
       headers: { "content-type": "application/json", "x-bootstrap-secret": "bootstrap-test" },
       body: JSON.stringify({
         id: applicationId,
-        name: "Legacy Semantic Web App",
-        clientType: "web",
+        name: "Legacy Semantic Application",
         trustedBackend: true,
         allowedScopes: ["profile:read"],
         accessTokenTtlSeconds: 900,
@@ -216,9 +213,9 @@ describe("Identity Platform Admin API", () => {
     const updated = await request(`/internal/v1/platform-admin/applications/${applicationId}`, {
       method: "PATCH",
       headers: { ...adminHeaders(console.applicationSecret, console.actorToken), "content-type": "application/json" },
-      body: JSON.stringify({ name: "Legacy Semantic Web App Updated" }),
+      body: JSON.stringify({ name: "Legacy Semantic Application Updated" }),
     }, pair);
     expect(updated.status).toBe(200);
-    expect((await updated.json() as any).data).toMatchObject({ id: applicationId, name: "Legacy Semantic Web App Updated" });
+    expect((await updated.json() as any).data).toMatchObject({ id: applicationId, name: "Legacy Semantic Application Updated" });
   });
 });
