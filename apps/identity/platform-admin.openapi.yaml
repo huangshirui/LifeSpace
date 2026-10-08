@@ -472,7 +472,7 @@ paths:
         required: true
         content: { application/json: { schema: { $ref: '#/components/schemas/UpdatePlatformServiceTokenRequest' } } }
       responses:
-        '200': { description: Updated token metadata, content: { application/json: { schema: { $ref: './openapi.yaml#/components/schemas/ServiceTokenResponse' } } }
+        '200': { description: Updated token metadata, content: { application/json: { schema: { $ref: './openapi.yaml#/components/schemas/ServiceTokenResponse' } } } }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationError' }
