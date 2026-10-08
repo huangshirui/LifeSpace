@@ -44,7 +44,6 @@ async function bootstrapApplication(
     body: JSON.stringify({
       id: applicationId,
       name,
-      clientType: "web",
       trustedBackend: true,
       allowedScopes,
       accessTokenTtlSeconds: 900,
@@ -106,7 +105,7 @@ describe("Identity cross-application Platform Service Admin", () => {
     const pair = await keys();
     const console = await provisionConsole(pair, ["platform:admin", "services:manage", "audit:read"]);
     const targetId = `legacy-service-target-${crypto.randomUUID().replaceAll("-", "")}`;
-    await bootstrapApplication(pair, targetId, "Target Service App", ["resources:read", "resources:write"]);
+    await bootstrapApplication(pair, targetId, "Target Application", ["resources:read", "resources:write"]);
 
     const createPrincipal = await request(`/internal/v1/platform-admin/applications/${targetId}/service-principals`, {
       method: "POST",
