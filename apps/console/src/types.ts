@@ -39,7 +39,6 @@ export type OverviewData = {
 export type Application = {
   id: string;
   name: string;
-  clientType: "web" | "mini_program" | "service" | "device" | string;
   allowedScopes: string[];
   trustedBackend: boolean;
   accessTokenTtlSeconds: number;
