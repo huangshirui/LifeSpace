@@ -1,5 +1,9 @@
 # LifeSpace Contract Strategy
 
+## Identity 0.11.0 / Platform Admin 0.5.0 — client-agnostic Application subject
+
+Identity `0.11.0` removes the obsolete Application `clientType` classification. `Application` remains the stable registered application access subject while Web, Mini Program, PWA, BFF, Worker and deployment topology stay inside the owning product. One Application may hold multiple independently rotatable/revocable `lsa_*` trusted-backend credentials without creating additional Application identities. Cloudflare Access audiences bind protected entry points to active trusted Applications and no longer imply a `web` Application type. Platform Admin `0.5.0` removes the same client classification from Application administration while preserving the existing dual human-actor/executor boundary and the Agent credential governance introduced in `0.4.0`.
+
 ## Identity 0.10.0 / Platform Admin 0.4.0 — first-class Agent API credential
 
 Identity 0.10.0 adds revocable opaque `lsp_agt_*` Agent API credentials bound to Application + Agent Actor. Credential possession grants no Space/model/User Authority: direct execution remains `Principal=Agent / Actor=Agent`, while represented execution requires an explicit current `dlg_*` and resolves only `Principal=User / Actor=Agent`. Platform Admin 0.4.0 adds create/list/reduce/revoke governance for the same credential lifecycle; one-time plaintext remains write-only. Canonical Service API Tokens remain `lsp_svc_*`, with legacy `lsp_pat_*` accepted only as migration input until rotate/revoke.
@@ -15,8 +19,8 @@ Canonical service contracts live with the service implementation in this reposit
 
 Identity now has two explicit contract surfaces:
 
-1. **Identity Application Contract** — `apps/identity/openapi.yaml`, used by ordinary user/application authentication, profile, trusted application exchange, Cloudflare Access principal linking, service authentication and application-owned Agent authentication. Its current version is `0.10.0`; 0.10.0 adds revocable opaque `lsp_agt_*` Agent API credentials without granting Authority by credential possession.
-2. **Identity Platform Admin Contract** — `apps/identity/platform-admin.openapi.yaml`, used only by the LifeSpace Console and approved break-glass/platform-control workflows. Its current version is `0.4.0`; 0.4.0 adds Agent API credential lifecycle governance while preserving the existing dual actor/executor control-plane boundary.
+1. **Identity Application Contract** — `apps/identity/openapi.yaml`, used by ordinary user/application authentication, profile, trusted application exchange, Cloudflare Access principal linking, service authentication and application-owned Agent authentication. Its current version is `0.11.0`; 0.11.0 removes the obsolete Application client classification while retaining the first-class `lsp_agt_*` Agent API credential capability introduced in 0.10.0.
+2. **Identity Platform Admin Contract** — `apps/identity/platform-admin.openapi.yaml`, used only by the LifeSpace Console and approved break-glass/platform-control workflows. Its current version is `0.5.0`; 0.5.0 removes `clientType` from Application administration while retaining the Agent API credential governance and dual actor/executor control-plane boundary introduced in 0.4.0.
 
 Core has five contract layers:
 
@@ -67,7 +71,7 @@ The Model Semantic Fingerprint is content-addressed over the selected applicatio
 A platform operator surface such as LifeSpace Console additionally pins the two Platform Admin companion contracts:
 
 ```text
-Identity Platform Admin Contract: 0.4.0
+Identity Platform Admin Contract: 0.5.0
 Core Platform Admin Contract:     0.3.0
 ```
 
@@ -92,7 +96,7 @@ They are companion contracts rather than alternative service implementations: th
 Normative rules:
 
 - `apps/identity/platform-admin.openapi.yaml` and `apps/core/platform-admin.openapi.yaml` are the only editable OpenAPI sources for the new Console control plane.
-- Identity Platform Admin is `0.4.0`; Core Platform Admin is `0.3.0`. Their versions advance independently when each service's admin syntax changes.
+- Identity Platform Admin is `0.5.0`; Core Platform Admin is `0.3.0`. Their versions advance independently when each service's admin syntax changes.
 - Console privileged operations use the dual identity model from `docs/permissions.md`: a controlled server-side executor plus `X-LifeSpace-Actor-Token` carrying the dedicated short-lived human actor proof.
 - The actor proof is not a reusable general user credential. Identity issues it only from an ordinary authenticated LifeSpace user session after current `platform_administrators` assignment checks, and the proof is bound to `purpose=platform_admin_actor` with a maximum five-minute lifetime.
 - Bootstrap administrator-assignment routes are included only as provisioning/break-glass control-plane syntax. The bootstrap secret is never a Console runtime credential.

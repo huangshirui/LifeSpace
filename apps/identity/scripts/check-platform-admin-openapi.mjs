@@ -3,7 +3,7 @@ import YAML from "yaml";
 
 const document = YAML.parse(fs.readFileSync(new URL("../platform-admin.openapi.yaml", import.meta.url), "utf8"));
 
-if (document.openapi !== "3.1.0" || document.info?.version !== "0.4.0") {
+if (document.openapi !== "3.1.0" || document.info?.version !== "0.5.0") {
   throw new Error("Identity Platform Admin OpenAPI version metadata is invalid");
 }
 if (!document.info?.title?.includes("Platform Admin")) {
@@ -77,6 +77,11 @@ dualSecurity(document.paths?.["/internal/v1/platform-admin/applications/{applica
 dualSecurity(document.paths?.["/internal/v1/platform-admin/users"]?.get, "Identity Inspector");
 dualSecurity(document.paths?.["/internal/v1/platform-admin/applications/{applicationId}/service-principals"]?.get, "Service Admin");
 dualSecurity(document.paths?.["/internal/v1/platform-admin/audit"]?.get, "Identity audit");
+
+const createApplication = document.components?.schemas?.CreatePlatformApplicationRequest;
+if (!createApplication?.required?.includes("name") || createApplication?.properties?.clientType) {
+  throw new Error("Platform Application creation must model the application subject, not a client/deployment type");
+}
 
 const users = document.paths?.["/internal/v1/platform-admin/users"];
 const user = document.paths?.["/internal/v1/platform-admin/users/{userId}"];

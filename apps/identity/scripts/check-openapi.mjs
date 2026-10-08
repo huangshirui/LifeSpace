@@ -2,7 +2,7 @@ import fs from "node:fs";
 import YAML from "yaml";
 
 const doc = YAML.parse(fs.readFileSync(new URL("../openapi.yaml",import.meta.url),"utf8"));
-if (doc.openapi !== "3.1.0" || doc.info?.version !== "0.10.0") {
+if (doc.openapi !== "3.1.0" || doc.info?.version !== "0.11.0") {
   throw new Error("Identity OpenAPI version metadata is invalid");
 }
 
@@ -61,8 +61,11 @@ if (createdApplicationSecret?.writeOnly !== true || !String(createdApplicationSe
   throw new Error("New lsa_ application credential plaintext must be one-time/write-only");
 }
 const applicationPatch = doc.paths?.["/bootstrap/v1/applications/{applicationId}"]?.patch;
-if (!applicationPatch || doc.components?.schemas?.UpdateApplicationRequest?.properties?.trustedBackend || doc.components?.schemas?.UpdateApplicationRequest?.properties?.clientType) {
-  throw new Error("Application admin must expose bounded mutable policy without changing trust/client classification");
+if (!applicationPatch || doc.components?.schemas?.UpdateApplicationRequest?.properties?.trustedBackend) {
+  throw new Error("Application admin must expose bounded mutable policy without changing trust classification");
+}
+if (doc.components?.schemas?.Application?.properties?.clientType) {
+  throw new Error("LifeSpace Application must not model application-owned client or deployment type");
 }
 
 const accessAudience = doc.components?.schemas?.AccessAudience;

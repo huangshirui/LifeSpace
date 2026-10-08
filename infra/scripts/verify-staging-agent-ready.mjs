@@ -130,7 +130,6 @@ async function ensureApplication(spec) {
       body: {
         id: spec.applicationId,
         name: spec.applicationName,
-        clientType: "service",
         allowedScopes: applicationScopes,
         trustedBackend: true,
         accessTokenTtlSeconds: 900,
@@ -146,8 +145,8 @@ async function ensureApplication(spec) {
     credentialId = current[0].id;
   } else if (existing.response.status === 200) {
     const current = existing.payload?.data;
-    if (current?.clientType !== "service" || current?.trustedBackend !== true) {
-      throw new Error(`${spec.applicationId} exists with incompatible immutable trust/client type`);
+    if (current?.trustedBackend !== true) {
+      throw new Error(`${spec.applicationId} exists without the required trusted-backend boundary`);
     }
     const scopes = Array.isArray(current.allowedScopes) ? [...current.allowedScopes] : [];
     const patch = {};

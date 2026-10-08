@@ -40,7 +40,6 @@ async function provision(pair: Awaited<ReturnType<typeof keys>>) {
     body: JSON.stringify({
       id: appId,
       name: "Inspector Console",
-      clientType: "web",
       trustedBackend: true,
       allowedScopes: ["platform:admin", "identities:read"],
       accessTokenTtlSeconds: 900,

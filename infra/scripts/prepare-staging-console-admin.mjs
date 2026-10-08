@@ -154,7 +154,6 @@ async function createApplication() {
     body: {
       id: applicationId,
       name: applicationName,
-      clientType: "web",
       allowedScopes: APPLICATION_SCOPES,
       trustedBackend: true,
       accessTokenTtlSeconds: TOKEN_TTL_SECONDS,
@@ -170,8 +169,8 @@ async function createApplication() {
 }
 
 async function reconcileApplication(existing) {
-  if (existing.clientType !== "web" || existing.trustedBackend !== true) {
-    throw new Error(`Existing Console application ${applicationId} has incompatible immutable classification: ${JSON.stringify({ clientType: existing.clientType, trustedBackend: existing.trustedBackend })}`);
+  if (existing.trustedBackend !== true) {
+    throw new Error(`Existing Console application ${applicationId} is not a trusted backend Application`);
   }
   const patch = {};
   if (existing.name !== applicationName) patch.name = applicationName;
@@ -395,7 +394,7 @@ console.log(JSON.stringify({
   contracts: {
     identity: convergence.identity.contractVersion,
     coreKernel: convergence.core.contractVersion,
-    identityPlatformAdmin: "0.3.0",
+    identityPlatformAdmin: "0.5.0",
     corePlatformAdmin: "0.2.0",
   },
   schemas: {

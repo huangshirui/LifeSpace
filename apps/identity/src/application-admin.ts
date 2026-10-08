@@ -6,7 +6,6 @@ type AppEnv = { Bindings: Bindings; Variables: Variables };
 type ApplicationRow = {
   id: string;
   name: string;
-  client_type: string;
   allowed_scopes: string;
   trusted_backend: number;
   access_token_ttl_seconds: number;
@@ -31,7 +30,7 @@ type UpdateApplicationBody = {
   status?: unknown;
 };
 
-export const IDENTITY_CONTRACT_VERSION = "0.10.0";
+export const IDENTITY_CONTRACT_VERSION = "0.11.0";
 export const DEFAULT_ACCESS_TOKEN_TTL_SECONDS = 900;
 export const MIN_ACCESS_TOKEN_TTL_SECONDS = 300;
 export const MAX_ACCESS_TOKEN_TTL_SECONDS = 3600;
@@ -73,7 +72,6 @@ function applicationDto(row: ApplicationRow) {
   return {
     id: row.id,
     name: row.name,
-    clientType: row.client_type,
     allowedScopes: parseScopes(row.allowed_scopes),
     trustedBackend: row.trusted_backend === 1,
     accessTokenTtlSeconds: row.access_token_ttl_seconds,
@@ -96,7 +94,7 @@ function credentialDto(row: CredentialRow) {
 
 async function loadApplication(db: D1Database, applicationId: string): Promise<ApplicationRow | null> {
   return db.prepare(`
-    SELECT id,name,client_type,allowed_scopes,trusted_backend,access_token_ttl_seconds,status,created_at,updated_at
+    SELECT id,name,allowed_scopes,trusted_backend,access_token_ttl_seconds,status,created_at,updated_at
     FROM applications WHERE id=?
   `).bind(applicationId).first<ApplicationRow>();
 }

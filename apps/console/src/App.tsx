@@ -203,12 +203,12 @@ function ApplicationsPage({ id }: { id?: string }) {
   if (remote.error) return <ErrorState error={remote.error} />;
   const rows = remote.data ?? [];
   return <>
-    <PageHeader eyebrow="Platform" title="Applications" description="查看应用身份、scope ceiling 与受控后端配置。本 slice 不提供写操作。" />
+    <PageHeader eyebrow="Platform" title="Applications" description="查看平台注册应用主体、scope ceiling 与受控后端配置。Application 不表示 Web、Mini Program、PWA、BFF 或部署单元。" />
     <Section title="Registered applications" description="既有语义 Application ID 与平台生成的 app_* ID 都是合法目标。">
-      {!rows.length ? <Empty /> : <div className="table-wrap"><table><thead><tr><th>应用</th><th>类型</th><th>Trusted backend</th><th>Scopes</th><th>状态</th><th /></tr></thead><tbody>
+      {!rows.length ? <Empty /> : <div className="table-wrap"><table><thead><tr><th>应用</th><th>Trusted backend</th><th>Scopes</th><th>状态</th><th /></tr></thead><tbody>
         {rows.map((app: Application) => <tr key={app.id}>
           <td><strong>{app.name}</strong><small>{app.id}</small></td>
-          <td>{app.clientType}</td><td>{app.trustedBackend ? "Yes" : "No"}</td><td>{app.allowedScopes.length}</td><td><Badge value={app.status} /></td>
+          <td>{app.trustedBackend ? "Yes" : "No"}</td><td>{app.allowedScopes.length}</td><td><Badge value={app.status} /></td>
           <td><button className="link-button" onClick={() => navigate(`/applications/${encodeURIComponent(app.id)}`)}>查看</button></td>
         </tr>)}
       </tbody></table></div>}
@@ -226,13 +226,13 @@ function ApplicationDetailPage({ id }: { id: string }) {
     <PageHeader eyebrow="Application" title={app.name} description={app.id} actions={<button className="secondary-button" onClick={() => navigate("/applications")}>返回列表</button>} />
     <Section title="Application identity">
       <KeyValue rows={[
-        ["ID", <Code>{app.id}</Code>], ["Client type", app.clientType], ["Status", <Badge value={app.status} />],
+        ["ID", <Code>{app.id}</Code>], ["Status", <Badge value={app.status} />],
         ["Trusted backend", app.trustedBackend ? "Yes" : "No"], ["Token TTL", `${app.accessTokenTtlSeconds}s`], ["Updated", formatDate(app.updatedAt)],
       ]} />
       <div className="chip-list">{app.allowedScopes.map((scope) => <span className="chip" key={scope}>{scope}</span>)}</div>
     </Section>
     <div className="two-column">
-      <Section title="Application credentials" description="只展示 suffix 和状态；明文与 hash 永不返回 Console 浏览器。">
+      <Section title="Application credentials" description="只展示 suffix 和状态；明文与 hash 永不返回 Console 浏览器。多把 lsa_* 代表同一 Application 的凭证生命周期，不代表不同客户端。">
         {!data.credentials.length ? <Empty /> : <div className="stack-list">{data.credentials.map((item) => <div className="stack-row" key={item.id}><div><strong>•••• {item.secretSuffix}</strong><small>{item.id}</small></div><Badge value={item.status} /></div>)}</div>}
       </Section>
       <Section title="Cloudflare Access audiences">

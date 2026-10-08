@@ -193,7 +193,7 @@ function normalizeScopes(value: unknown): string[] | null {
 }
 
 function sanitizeApplication(data: JsonRecord): JsonRecord {
-  const allowed = ["id", "name", "clientType", "allowedScopes", "trustedBackend", "accessTokenTtlSeconds", "status", "createdAt", "updatedAt"];
+  const allowed = ["id", "name", "allowedScopes", "trustedBackend", "accessTokenTtlSeconds", "status", "createdAt", "updatedAt"];
   return Object.fromEntries(allowed.filter((key) => data[key] !== undefined).map((key) => [key, data[key]]));
 }
 
@@ -207,16 +207,14 @@ async function createApplication(request: Request, env: Env): Promise<Response> 
   if (guard) return guard;
   const body = await readJsonObject(request);
   if (body instanceof Response) return body;
-  const allowedKeys = new Set(["name", "clientType", "allowedScopes", "trustedBackend", "accessTokenTtlSeconds", "confirmName"]);
+  const allowedKeys = new Set(["name", "allowedScopes", "trustedBackend", "accessTokenTtlSeconds", "confirmName"]);
   if (Object.keys(body).some((key) => !allowedKeys.has(key))) return failure("INVALID_REQUEST", "Application creation contains unsupported fields", 400, requestId(request));
 
   const name = stringValue(body.name)?.trim() ?? "";
-  const clientType = body.clientType;
   const scopes = normalizeScopes(body.allowedScopes ?? []);
   const trustedBackend = body.trustedBackend ?? false;
   const ttl = body.accessTokenTtlSeconds ?? 900;
   if (!name || name.length > 100 || body.confirmName !== name) return failure("CONFIRMATION_REQUIRED", "Application creation requires confirmName to exactly match name", 422, requestId(request));
-  if (clientType !== "web" && clientType !== "mini_program" && clientType !== "service" && clientType !== "device") return failure("VALIDATION_ERROR", "clientType is invalid", 422, requestId(request));
   if (!scopes) return failure("VALIDATION_ERROR", "allowedScopes must contain at most 64 non-empty scope strings", 422, requestId(request));
   if (typeof trustedBackend !== "boolean") return failure("VALIDATION_ERROR", "trustedBackend must be boolean", 422, requestId(request));
   if (!Number.isInteger(ttl) || Number(ttl) < 300 || Number(ttl) > 3600) return failure("VALIDATION_ERROR", "accessTokenTtlSeconds must be an integer between 300 and 3600", 422, requestId(request));
@@ -226,7 +224,7 @@ async function createApplication(request: Request, env: Env): Promise<Response> 
   const result = await serviceRequest(env.IDENTITY, env.IDENTITY_BASE_URL, "/internal/v1/platform-admin/applications", {
     method: "POST",
     headers: identityHeaders(context, true),
-    body: JSON.stringify({ name, clientType, allowedScopes: scopes, trustedBackend, accessTokenTtlSeconds: Number(ttl) }),
+    body: JSON.stringify({ name, allowedScopes: scopes, trustedBackend, accessTokenTtlSeconds: Number(ttl) }),
   });
   if (result.response.status !== 201) return upstreamFailure(request, result, "APPLICATION_CREATE_FAILED", "Application creation failed");
   const created = dataRecord(result.payload);

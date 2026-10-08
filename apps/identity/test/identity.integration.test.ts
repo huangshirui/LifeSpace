@@ -44,7 +44,6 @@ describe("D1-backed Identity trust flow", () => {
       body: JSON.stringify({
         id: appId,
         name: "Test Application",
-        clientType: "mini_program",
         trustedBackend: true,
         allowedScopes: ["spaces:read", "spaces:write"],
         accessTokenTtlSeconds: 3600,
@@ -90,7 +89,7 @@ describe("D1-backed Identity trust flow", () => {
     const bootstrap = await request("/bootstrap/v1/applications", {
       method: "POST",
       headers: { "content-type": "application/json", "x-bootstrap-secret": "bootstrap-test" },
-      body: JSON.stringify({ id: appId, name: "Test App", clientType: "service", trustedBackend: true, allowedScopes: ["spaces:read"] }),
+      body: JSON.stringify({ id: appId, name: "Test App", trustedBackend: true, allowedScopes: ["spaces:read"] }),
     }, privateKey);
     const secret = ((await bootstrap.json()) as any).data.clientSecret as string;
 
@@ -134,7 +133,6 @@ describe("D1-backed Identity trust flow", () => {
       body: JSON.stringify({
         id: appId,
         name: "Rotation Test",
-        clientType: "mini_program",
         trustedBackend: true,
         allowedScopes: ["spaces:read"],
         accessTokenTtlSeconds: 900,
@@ -150,7 +148,6 @@ describe("D1-backed Identity trust flow", () => {
     expect(metadata.status).toBe(200);
     expect((await metadata.json() as any).data).toMatchObject({
       id: appId,
-      clientType: "mini_program",
       allowedScopes: ["spaces:read"],
       trustedBackend: true,
       accessTokenTtlSeconds: 900,

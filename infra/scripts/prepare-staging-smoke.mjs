@@ -170,7 +170,6 @@ const app = await requestUntil(
     body: {
       id: applicationId,
       name: `LifeSpace staging smoke ${smokeId}`,
-      clientType: "service",
       allowedScopes: applicationScopes,
       trustedBackend: true,
       accessTokenTtlSeconds: 900,

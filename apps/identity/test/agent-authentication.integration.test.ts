@@ -41,7 +41,6 @@ async function bootstrapApp(privateKey: string, appId: string) {
     body: JSON.stringify({
       id: appId,
       name: appId,
-      clientType: "service",
       trustedBackend: true,
       allowedScopes: ["resources:read", "resources:write"],
       accessTokenTtlSeconds: 3600,

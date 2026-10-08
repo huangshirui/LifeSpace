@@ -23,6 +23,8 @@ Service-owned D1 migrations live with the service that owns the database, for ex
 
 A human has one global LifeSpace `usr_*` identity across applications and Spaces.
 
+A LifeSpace **Application** is a registered, trusted and governed application access subject. It is not a Web/Mini Program/PWA/BFF/Worker/deployment classification. How many clients or deployment units an application owns is application-layer implementation and is intentionally not modeled by LifeSpace. One Application may hold one or several active `lsa_*` trusted-backend credentials for rotation, independent deployment and revocation without turning those credentials into separate application identities.
+
 Application-specific provider identities remain application-owned. Applications resolve provider subjects to LifeSpace `usr_*` identities through their own adapters/BFFs; LifeSpace Identity does not become a generic external-provider identity store.
 
 Cloudflare Access is the deliberate Web exception and the long-term authentication/SSO layer for owner-controlled LifeSpace Web/PWA/Admin applications:
@@ -38,7 +40,7 @@ Browser
   -> LifeSpace Core
 ```
 
-Identity owns verified Access principal resolution/linking. Individual applications must not maintain their own Access-subject -> `usr_*` mapping. Google OAuth, Microsoft OAuth and email OTP remain upstream Cloudflare Access login methods rather than separate LifeSpace IdP implementations.
+Identity owns verified Access principal resolution/linking. A registered Access audience may bind to any active trusted LifeSpace Application; the audience expresses a protected Access entry point and does not classify the Application as a Web client. Individual applications must not maintain their own Access-subject -> `usr_*` mapping. Google OAuth, Microsoft OAuth and email OTP remain upstream Cloudflare Access login methods rather than separate LifeSpace IdP implementations.
 
 ### Space, data and authorization
 
@@ -86,11 +88,11 @@ Browser, Mini Program and downloadable client code must never contain `lsa_*`, s
 
 The current repository Core Kernel contract is **0.44.0**. Ordinary business-model routes remain outside the Kernel OpenAPI and are pinned through immutable `mct_*` Model Contract revisions. Kernel 0.44.0 accepts first-class opaque `lsp_agt_*` Agent API credentials while keeping business Authority in current Data Grants/Delegations; represented execution resolves only `Principal=User / Actor=Agent` from an explicit `dlg_*`. Production availability remains separately frozen under `docs/production/*`.
 
-The current repository Identity Application Contract is **0.10.0**. It adds first-class revocable opaque `lsp_agt_*` Agent API credentials bound to one active Application + Agent Actor; credential possession itself grants no Space/model/User Authority. Identity verifies credential, Agent and Application current state; Core remains authoritative for current Data Grant, Delegation-chain, Space/model authorization and governed Change semantics. The Access architecture also includes:
+The current repository Identity Application Contract is **0.11.0**. It removes the obsolete Application `clientType` classification so Application remains the stable platform access subject while Web/Mini/PWA/BFF/deployment topology stays inside the owning product. It preserves first-class revocable opaque `lsp_agt_*` Agent API credentials bound to one active Application + Agent Actor; credential possession itself grants no Space/model/User Authority. Identity verifies credential, Agent and Application current state; Core remains authoritative for current Data Grant, Delegation-chain, Space/model authorization and governed Change semantics. The Access architecture also includes:
 
 - independently verified Access RS256 JWTs and JWKS key rotation;
 - environment-pinned Access issuer;
-- Access audience registration bound to trusted LifeSpace Web applications;
+- Access audience registration bound to an active trusted LifeSpace Application without client-type classification;
 - `(iss, sub)` principal -> global `usr_*` resolution;
 - strict Access `aud` + `lsa_*` application agreement;
 - explicit atomic new-user registration without email-based merging;
