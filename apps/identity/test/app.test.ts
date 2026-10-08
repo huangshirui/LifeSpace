@@ -38,7 +38,7 @@ describe("LifeSpace Identity foundation", () => {
       {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ id: "app_test_identity", name: "Test Application", clientType: "mini_program", trustedBackend: true }),
+        body: JSON.stringify({ id: "app_test_identity", name: "Test Application", trustedBackend: true }),
       },
       { BOOTSTRAP_SECRET: "expected" } as any,
     );
