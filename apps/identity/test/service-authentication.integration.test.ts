@@ -58,7 +58,7 @@ async function setup(allowedScopes = ["spaces:read", "events:read", "events:writ
   const registered = await app.request("http://identity.test/bootstrap/v1/applications", {
     method: "POST",
     headers: { "content-type": "application/json", "x-bootstrap-secret": b.BOOTSTRAP_SECRET },
-    body: JSON.stringify({ id: appId, name: "Service auth test", clientType: "service", trustedBackend: true, allowedScopes, accessTokenTtlSeconds: 300 }),
+    body: JSON.stringify({ id: appId, name: "Service auth test", trustedBackend: true, allowedScopes, accessTokenTtlSeconds: 300 }),
   }, b);
   expect(registered.status).toBe(201);
   const registeredBody = await registered.json() as { data: { clientSecret: string } };
