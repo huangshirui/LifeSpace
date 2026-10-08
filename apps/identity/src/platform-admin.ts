@@ -15,7 +15,6 @@ type App = Hono<AppEnv>;
 type ApplicationRow = {
   id: string;
   name: string;
-  client_type: "web" | "mini_program" | "service" | "device";
   allowed_scopes: string;
   trusted_backend: number;
   access_token_ttl_seconds: number;
@@ -63,7 +62,6 @@ function applicationDto(row: ApplicationRow) {
   return {
     id: row.id,
     name: row.name,
-    clientType: row.client_type,
     allowedScopes: parseScopes(row.allowed_scopes),
     trustedBackend: row.trusted_backend === 1,
     accessTokenTtlSeconds: row.access_token_ttl_seconds,
@@ -97,7 +95,7 @@ function audienceDto(row: AudienceRow) {
 }
 
 async function loadApplication(db: D1Database, applicationId: string): Promise<ApplicationRow | null> {
-  return db.prepare(`SELECT id,name,client_type,allowed_scopes,trusted_backend,access_token_ttl_seconds,status,created_at,updated_at
+  return db.prepare(`SELECT id,name,allowed_scopes,trusted_backend,access_token_ttl_seconds,status,created_at,updated_at
     FROM applications WHERE id=?`).bind(applicationId).first<ApplicationRow>();
 }
 
@@ -138,7 +136,7 @@ export function registerPlatformAdminRoutes(app: App): void {
   app.get("/internal/v1/platform-admin/applications", async (c) => {
     const actor = await admin(c);
     if (actor instanceof Response) return actor;
-    const rows = await c.env.DB.prepare(`SELECT id,name,client_type,allowed_scopes,trusted_backend,access_token_ttl_seconds,status,created_at,updated_at
+    const rows = await c.env.DB.prepare(`SELECT id,name,allowed_scopes,trusted_backend,access_token_ttl_seconds,status,created_at,updated_at
       FROM applications ORDER BY created_at,id`).all<ApplicationRow>();
     return c.json(ok(rows.results.map(applicationDto)));
   });
@@ -148,15 +146,12 @@ export function registerPlatformAdminRoutes(app: App): void {
     if (actor instanceof Response) return actor;
     const body = await jsonBody(c);
     if (!body) return c.json(fail("INVALID_REQUEST", "JSON body is required", c.get("requestId")), 400);
-    const allowedKeys = new Set(["name", "clientType", "allowedScopes", "trustedBackend", "accessTokenTtlSeconds"]);
+    const allowedKeys = new Set(["name", "allowedScopes", "trustedBackend", "accessTokenTtlSeconds"]);
     if (Object.keys(body).some((key) => !allowedKeys.has(key))) {
       return c.json(fail("INVALID_REQUEST", "Application request contains unsupported fields", c.get("requestId")), 400);
     }
     if (typeof body.name !== "string" || !body.name.trim() || body.name.trim().length > 100) {
       return c.json(fail("VALIDATION_ERROR", "name must contain 1-100 characters", c.get("requestId")), 422);
-    }
-    if (body.clientType !== "web" && body.clientType !== "mini_program" && body.clientType !== "service" && body.clientType !== "device") {
-      return c.json(fail("VALIDATION_ERROR", "clientType is invalid", c.get("requestId")), 422);
     }
     const scopes = normalizeScopes(body.allowedScopes ?? []);
     if (!scopes) return c.json(fail("VALIDATION_ERROR", "allowedScopes must contain unique non-empty scope strings", c.get("requestId")), 422);
@@ -173,8 +168,8 @@ export function registerPlatformAdminRoutes(app: App): void {
     const clientSecret = trustedBackend ? newApplicationSecret() : null;
     const timestamp = now();
     const statements: D1PreparedStatement[] = [
-      c.env.DB.prepare(`INSERT INTO applications(id,name,client_type,allowed_scopes,trusted_backend,access_token_ttl_seconds,created_at,updated_at)
-        VALUES(?,?,?,?,?,?,?,?)`).bind(applicationId, body.name.trim(), body.clientType, JSON.stringify(scopes), trustedBackend ? 1 : 0, ttl, timestamp, timestamp),
+      c.env.DB.prepare(`INSERT INTO applications(id,name,allowed_scopes,trusted_backend,access_token_ttl_seconds,created_at,updated_at)
+        VALUES(?,?,?,?,?,?,?)`).bind(applicationId, body.name.trim(), JSON.stringify(scopes), trustedBackend ? 1 : 0, ttl, timestamp, timestamp),
     ];
     let credential: CredentialRow | null = null;
     if (clientSecret) {
@@ -183,7 +178,7 @@ export function registerPlatformAdminRoutes(app: App): void {
         VALUES(?,?,?,?,?,?,NULL)`).bind(credential.id, applicationId, await hashApplicationSecret(clientSecret), credential.secret_suffix, "active", timestamp));
     }
     statements.push(auditStatement(c.env, actor, c.get("currentApplicationId"), c.get("requestId"), "application.create", "application", applicationId, {
-      name: body.name.trim(), clientType: body.clientType, allowedScopes: scopes, trustedBackend, accessTokenTtlSeconds: ttl,
+      name: body.name.trim(), allowedScopes: scopes, trustedBackend, accessTokenTtlSeconds: ttl,
     }));
     await c.env.DB.batch(statements);
     const row = await loadApplication(c.env.DB, applicationId);
@@ -296,8 +291,8 @@ export function registerPlatformAdminRoutes(app: App): void {
     const applicationId = c.req.param("applicationId");
     const application = await loadApplication(c.env.DB, applicationId);
     if (!application) return c.json(fail("APPLICATION_NOT_FOUND", "Application not found", c.get("requestId")), 404);
-    if (application.client_type !== "web" || application.trusted_backend !== 1 || application.status !== "active") {
-      return c.json(fail("APPLICATION_NOT_ACCESS_WEB", "Access audiences require an active trusted Web application", c.get("requestId")), 409);
+    if (application.trusted_backend !== 1 || application.status !== "active") {
+      return c.json(fail("APPLICATION_NOT_TRUSTED", "Access audiences require an active trusted application backend", c.get("requestId")), 409);
     }
     const body = await jsonBody(c);
     const audience = typeof body?.audience === "string" ? body.audience.trim() : "";
