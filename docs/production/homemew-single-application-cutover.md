@@ -1,7 +1,7 @@
 # HomeMew single-LifeSpace-Application production cutover
 
 Date: 2026-10-08
-Status: Planned / not executed
+Status: Ready for execution / not yet cut over
 
 ## Goal
 
@@ -33,8 +33,8 @@ Do not execute the production cutover until all of the following are true:
 1. LifeSpace Identity `0.11.0` / schema `>=10` is deployed to production and the Application representation no longer contains `clientType`.
 2. HomeMew single-Application consumer changes are merged but not yet deployed.
 3. HomeMew Web/backend no longer require retired `creation-drafts:*` scopes. The canonical Application must not reintroduce those scopes.
-4. Current production state of all three legacy Applications has been read from LifeSpace Console and recorded in the execution notes: status, allowed scopes, access-token TTL, active credential count/suffix metadata, Access audiences and Application × Model Access.
-5. Existing HomeMew external systems have been inventoried and the operator accepts that they will be disabled/revoked and recreated after cutover rather than migrated across Application ownership.
+4. The current production Cloudflare Access issuer/audience binding has been recorded from the legacy Web Application. The canonical Application must reuse the same issuer and audience value.
+5. Existing HomeMew external systems may be disabled/revoked and recreated after cutover rather than migrated across Application ownership.
 6. No unrelated LifeSpace staging/production deployment is running during the cutover.
 
 ## Canonical Application policy
@@ -53,7 +53,7 @@ Trusted backend:
 true
 ```
 
-Canonical allowed-scope ceiling, subject to final source-code/preflight verification immediately before execution:
+Canonical allowed-scope ceiling:
 
 ```text
 profile:read
@@ -70,9 +70,22 @@ Do not mechanically union legacy Application scopes. In particular, do not inclu
 
 ### Token TTL
 
-`accessTokenTtlSeconds` is Application-level policy. Do not guess it from historical discussion.
+Canonical HomeMew uses:
 
-Before creating the canonical Application, read the actual current TTL of all three legacy production Applications. Record the values and choose the HomeMew policy deliberately. If Mini/Web currently differ, document why the chosen unified value is safe for both; Web browser-session lifetime remains a separate HomeMew concern.
+```text
+accessTokenTtlSeconds = 3600
+```
+
+Known legacy production values were:
+
+```text
+HomeMew Web  = 900s
+HomeMew Mini = 3600s
+```
+
+The legacy difference came from modeling Web and Mini as different LifeSpace Applications. It is not carried forward as separate Application policy.
+
+This cutover does **not** add a HomeMew Web `900s` session cap, `WEB_SESSION_TTL_SECONDS`, or `min(tokenTTL, 900)` behavior. HomeMew Web currently derives its signed session lifetime from the LifeSpace token `expiresIn`, so after cutover its session lifetime also becomes 3600s. If a shorter Web session is later required, treat it as a separate HomeMew application-security decision rather than a migration compatibility rule.
 
 ## Application × Model Access
 
@@ -86,8 +99,6 @@ wish        write
 ```
 
 This is only the Application ceiling. External Service Principals/Agents remain narrowed by their own credential scopes, Data Grants/Delegations and model policy. Do not add models merely because they happen to be published in LifeSpace.
-
-Before applying, compare this list against the active HomeMew code and the legacy Applications' current model-access state. Any additional model requires an explicit HomeMew product reason.
 
 Use the LifeSpace Console / Core Platform Admin model-access surface so the change is human-attributed and audited; do not write `application_model_access` directly in production D1 for this migration.
 
@@ -111,13 +122,19 @@ Plaintext is returned once. Move each secret directly into the corresponding Clo
 
 The existing `homemew.aisr.online` Access audience must ultimately be active under the canonical HomeMew Application.
 
-The audience is the actual Cloudflare Access `aud` value, not the hostname string. Obtain it from the current production Access configuration / legacy Web Application metadata.
+Known production audience:
+
+```text
+aud = 8ea260290c2fd462af1d60c8b9c43e3239e294d217219842acff95cf302cc81f
+```
+
+Reuse the issuer from the current legacy Web Application Audience record unchanged. Do not create a new Cloudflare Access application or invent a new audience.
 
 Because one `(issuer, audience)` can be actively owned by only one LifeSpace Application, perform the ownership switch as a controlled cutover:
 
-1. record the current audience registration and legacy Web Application ID;
-2. revoke/disable the old active audience registration only when the canonical Application is ready;
-3. register the same verified audience under canonical HomeMew;
+1. record the current issuer plus the audience above and the legacy Web Application ID;
+2. revoke/disable the old active audience registration only when the canonical Application is otherwise ready;
+3. register the same issuer and audience under canonical HomeMew;
 4. immediately verify HomeMew Web Access exchange with the new Web `lsa_*`;
 5. if exchange fails, restore the audience to the legacy Web Application before changing any other legacy Application status.
 
@@ -143,36 +160,34 @@ After the single-Application cutover is verified, recreate required n8n / Agent 
 
 ### Phase A — read-only preflight
 
-Record:
+Record only what is still needed for safe cutover:
 
 ```text
 Identity contract/schema
 Core contract/schema
 legacy App IDs + status
-legacy allowed scopes
-legacy accessTokenTtlSeconds
-legacy active lsa_* metadata (IDs/suffixes only)
-legacy Access audience owner/value
-legacy Application × Model Access
-existing HomeMew external-system inventory
+legacy Web Access issuer + audience
+existing HomeMew external-system inventory that will be removed/recreated
 ```
+
+Do not copy legacy scopes, Model Access or credential layout into the new Application. Those are intentionally rebuilt from the canonical policy above.
 
 Abort on any unknown Application ownership, unexpected active Access audience, unresolved external system, or contract mismatch.
 
 ### Phase B — prepare canonical HomeMew
 
-1. Create canonical `HomeMew` Application in LifeSpace Console with verified scopes and selected TTL.
-2. Configure the canonical Application × Model Access.
+1. Create canonical `HomeMew` Application in LifeSpace Console with the canonical scopes and `accessTokenTtlSeconds=3600`.
+2. Configure the canonical Application × Model Access: `event/task/day_record/wish = write`.
 3. Create `lsa_backend_new` and `lsa_web_new`; install them directly into the two HomeMew production Worker secret stores, but do not deploy the single-Application code yet.
 4. Keep all three legacy Applications active at this point.
 
 ### Phase C — remove legacy external systems
 
-Clean/revoke existing HomeMew external systems under `app_homemew_integrations_production` as described above. Confirm the operator is comfortable recreating them after cutover.
+Clean/revoke existing HomeMew external systems under `app_homemew_integrations_production` as described above. They will be recreated after cutover rather than migrated.
 
 ### Phase D — Access audience + HomeMew deployment cutover
 
-1. Move the `homemew.aisr.online` Access audience from legacy Web Application to canonical HomeMew.
+1. Move the existing `homemew.aisr.online` Access issuer/audience binding from legacy Web Application to canonical HomeMew, preserving the issuer and `aud=8ea260290c2fd462af1d60c8b9c43e3239e294d217219842acff95cf302cc81f` exactly.
 2. Deploy `homemew-backend-production` with `lsa_backend_new`.
 3. Verify Mini provider token exchange and an authenticated Mini business read/write.
 4. Deploy `homemew-web-production` with `lsa_web_new` and the single-Application HomeMew release.
@@ -185,7 +200,7 @@ HomeMew's release baseline must reject production before Identity `0.11.0` / sch
 
 Do not immediately revoke/disable the three legacy Applications. Existing user JWTs carry their legacy `azp` until expiry.
 
-Wait at least the maximum actual legacy HomeMew user-token TTL observed in Phase A, plus a small operational buffer, while monitoring for normal traffic still using a legacy Application context.
+The maximum known legacy HomeMew user-token TTL is `3600s`. After successful cutover, wait at least 60 minutes plus an operational buffer; use approximately **75 minutes** before disabling the legacy Applications unless telemetry clearly proves no legacy Application traffic remains earlier.
 
 Then:
 
@@ -200,7 +215,7 @@ Then:
 The cutover is complete only when all are true:
 
 - LifeSpace Console Applications shows one active HomeMew Application and the three legacy HomeMew registrations are disabled;
-- canonical HomeMew has the intended scope ceiling and selected TTL;
+- canonical HomeMew has the intended scope ceiling and `accessTokenTtlSeconds=3600`;
 - canonical HomeMew has exactly the intended Application × Model Access;
 - Mini `openid -> usr_*` mappings still resolve to the same users;
 - Web `(iss, sub) -> usr_*` mappings still resolve to the same users without relinking;
@@ -229,6 +244,7 @@ After the legacy Applications are disabled, reactivation is still possible throu
 
 - No LifeSpace `Client` model.
 - No credential-level scope ceiling in this migration.
+- No HomeMew Web 900s session cap added as migration compatibility logic.
 - No Service Principal ownership migration.
 - No historical audit rewrite.
 - No automatic HomeMew production deploy from LifeSpace.
