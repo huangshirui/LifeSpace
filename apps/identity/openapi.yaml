@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: LifeSpace Identity API
-  version: 0.10.0
+  version: 0.11.0
   description: Global LifeSpace user identity, profile, trusted application exchange, Cloudflare Access principal resolution/linking, application credential lifecycle, Agent identity/execution-token issuance, service principals and credential issuance API.
 paths:
   /health:
@@ -95,7 +95,7 @@ paths:
         '409': { description: Challenge expired/consumed, audience was revoked, or the Access principal became linked concurrently }
   /bootstrap/v1/applications:
     post:
-      description: Platform-admin bootstrap endpoint. Registers an application, configures its access-token TTL (300-3600 seconds), and returns a backend credential once when trustedBackend is true.
+      description: Platform-admin bootstrap endpoint. Registers an application access subject, configures its access-token TTL (300-3600 seconds), and returns a backend credential once when trustedBackend is true.
       responses:
         '201': { description: Application registered }
         '401': { description: Bootstrap authentication required }
@@ -110,7 +110,7 @@ paths:
         '401': { description: Bootstrap authentication required }
         '404': { description: Application not found }
     patch:
-      description: Platform-admin update of mutable application policy. Client type and trusted-backend classification are intentionally immutable through this endpoint.
+      description: Platform-admin update of mutable application policy. Trusted-backend classification is intentionally immutable through this endpoint.
       requestBody:
         required: true
         content: { application/json: { schema: { $ref: '#/components/schemas/UpdateApplicationRequest' } } }
@@ -156,7 +156,7 @@ paths:
         '401': { description: Bootstrap authentication required }
         '404': { description: Application not found }
     post:
-      description: Bind one Cloudflare Access application audience to an active trusted LifeSpace Web application under the configured Access issuer. A given (issuer, audience) may belong to only one LifeSpace application.
+      description: Bind one Cloudflare Access application audience to an active trusted LifeSpace application under the configured Access issuer. A given (issuer, audience) may belong to only one LifeSpace application.
       requestBody:
         required: true
         content: { application/json: { schema: { $ref: '#/components/schemas/RegisterAccessAudienceRequest' } } }
@@ -165,7 +165,7 @@ paths:
         '201': { description: Audience registered, content: { application/json: { schema: { $ref: '#/components/schemas/AccessAudienceResponse' } } } }
         '401': { description: Bootstrap authentication required }
         '404': { description: Application not found }
-        '409': { description: Application is not an active trusted Web application, or audience is bound to another application }
+        '409': { description: Application is not an active trusted backend, or audience is bound to another application }
         '422': { $ref: '#/components/responses/ValidationError' }
   /bootstrap/v1/applications/{applicationId}/access-audiences/{audienceId}:
     parameters:
@@ -192,7 +192,7 @@ paths:
         '403': { description: User/application/scope is not allowed }
   /internal/v1/access/tokens:
     post:
-      description: Trusted Web BFF exchanges a raw Cloudflare Access JWT for an app-scoped LifeSpace user token. Identity independently verifies RS256 signature, configured issuer, expiry and subject, then requires one JWT audience to be actively registered to the calling lsa_* application. User identity is resolved only by (iss, sub); email is metadata and never merges accounts.
+      description: Trusted application backend/BFF exchanges a raw Cloudflare Access JWT for an app-scoped LifeSpace user token. Identity independently verifies RS256 signature, configured issuer, expiry and subject, then requires one JWT audience to be actively registered to the calling lsa_* application. User identity is resolved only by (iss, sub); email is metadata and never merges accounts.
       security: [{ applicationCredential: [] }]
       requestBody:
         required: true
@@ -591,11 +591,10 @@ components:
     Application:
       type: object
       additionalProperties: false
-      required: [id, name, clientType, allowedScopes, trustedBackend, accessTokenTtlSeconds, status, createdAt, updatedAt]
+      required: [id, name, allowedScopes, trustedBackend, accessTokenTtlSeconds, status, createdAt, updatedAt]
       properties:
         id: { type: string }
         name: { type: string, minLength: 1, maxLength: 100 }
-        clientType: { type: string, enum: [web, mini_program, service, device] }
         allowedScopes: { type: array, uniqueItems: true, items: { type: string } }
         trustedBackend: { type: boolean }
         accessTokenTtlSeconds: { type: integer, minimum: 300, maximum: 3600 }
