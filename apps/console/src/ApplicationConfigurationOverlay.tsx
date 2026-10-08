@@ -106,7 +106,6 @@ function ErrorNotice({ error }: { error?: unknown }) {
 function ApplicationSummary({ application }: { application: Application }) {
   return <div className="acp-summary">
     <div><span>Application ID</span><code>{application.id}</code></div>
-    <div><span>Client type</span><strong>{application.clientType}</strong></div>
     <div><span>Trusted backend</span><strong>{application.trustedBackend ? "Yes" : "No"}</strong></div>
     <div><span>Status</span><strong>{application.status}</strong></div>
   </div>;
@@ -114,7 +113,6 @@ function ApplicationSummary({ application }: { application: Application }) {
 
 function CreateApplicationDialog({ onClose }: { onClose: () => void }) {
   const [name, setName] = useState("");
-  const [clientType, setClientType] = useState<Application["clientType"]>("web");
   const [trustedBackend, setTrustedBackend] = useState(false);
   const [ttl, setTtl] = useState(900);
   const [scopes, setScopes] = useState("profile:read\nresources:read");
@@ -128,7 +126,6 @@ function CreateApplicationDialog({ onClose }: { onClose: () => void }) {
     try {
       const result = await mutate<CreateApplicationResult>("/api/application-config/applications", "POST", "create-platform-application", {
         name: name.trim(),
-        clientType,
         allowedScopes: parseScopes(scopes),
         trustedBackend,
         accessTokenTtlSeconds: ttl,
@@ -140,13 +137,12 @@ function CreateApplicationDialog({ onClose }: { onClose: () => void }) {
     }
   }
 
-  return <DialogShell title="Create Application" description="创建一个 Identity 权威 Application。Application ID 由 Identity 生成；Model Access、Service Principal 与 Space/Data Grant 不会被隐式创建。" onClose={onClose}>
+  return <DialogShell title="Create Application" description="创建一个 Identity 权威 Application 接入主体。Application ID 由 Identity 生成；客户端、PWA、BFF 与部署拓扑属于应用自身，不由 LifeSpace 建模。" onClose={onClose}>
     <div className="cp-dialog-body">
       <div className="acp-form-grid">
-        <label className="cp-field"><span>Name</span><input value={name} maxLength={100} onChange={(event) => { setName(event.target.value); setConfirmName(""); }} placeholder="例如 Customer Portal" /></label>
-        <label className="cp-field cp-compact"><span>Client type</span><select value={clientType} onChange={(event) => setClientType(event.target.value as Application["clientType"])}><option value="web">web</option><option value="mini_program">mini_program</option><option value="service">service</option><option value="device">device</option></select></label>
+        <label className="cp-field"><span>Name</span><input value={name} maxLength={100} onChange={(event) => { setName(event.target.value); setConfirmName(""); }} placeholder="例如 HomeMew" /></label>
         <label className="cp-field cp-compact"><span>Access token TTL (seconds)</span><input type="number" min={300} max={3600} value={ttl} onChange={(event) => setTtl(Number(event.target.value))} /></label>
-        <label className="acp-toggle"><input type="checkbox" checked={trustedBackend} onChange={(event) => setTrustedBackend(event.target.checked)} /><span><strong>Trusted backend</strong><small>这是创建时的不可变分类。</small></span></label>
+        <label className="acp-toggle"><input type="checkbox" checked={trustedBackend} onChange={(event) => setTrustedBackend(event.target.checked)} /><span><strong>Trusted backend</strong><small>允许该 Application 的受信后端持有 server-only lsa_*；这是创建时的不可变信任分类。</small></span></label>
       </div>
       <label className="cp-field"><span>Allowed scopes</span><textarea className="acp-scopes" value={scopes} onChange={(event) => setScopes(event.target.value)} spellCheck={false} /><small>空格、逗号或换行分隔。Identity 仍是最终 scope 校验与签发权威。</small></label>
       {trustedBackend && <div className="acp-warning"><strong>当前 Slice B 不向浏览器返回 lsa_* 明文</strong><span>Identity 在 trusted-backend 创建时产生的初始一次性 credential 会由 Console BFF 立即撤销，因此不会形成浏览器可见的长期后端密钥。后端凭证生命周期将在独立 Credential slice 中按安全边界补齐。</span></div>}
@@ -206,7 +202,7 @@ function ApplicationSettingsDialog({ applicationId, onClose }: { applicationId: 
     } catch (cause) { setError(cause); setBusy(false); }
   }
 
-  return <DialogShell title="Application settings" description="只修改 Identity 合同允许变更的字段：name、allowedScopes、token TTL、status。clientType 与 trustedBackend 不可变。" onClose={onClose}>
+  return <DialogShell title="Application settings" description="只修改 Identity 合同允许变更的字段：name、allowedScopes、token TTL、status。trustedBackend 信任分类不可变。" onClose={onClose}>
     <div className="cp-dialog-body">
       {loading ? <div className="cp-loading">正在读取 Application…</div> : detail && <>
         <ApplicationSummary application={detail.application} />
@@ -274,12 +270,12 @@ function AccessAudiencesDialog({ applicationId, onClose }: { applicationId: stri
   const activeAudiences = detail?.accessAudiences.filter((item) => item.status === "active" && !item.revokedAt) ?? [];
   const historicalAudiences = detail?.accessAudiences.filter((item) => item.status !== "active" || item.revokedAt) ?? [];
 
-  return <DialogShell title="Cloudflare Access audiences" description="Access aud 只绑定 Web 登录的 Application context，不识别用户本人；(iss, sub) -> usr_* 仍由 Identity 独立解析。" onClose={onClose}>
+  return <DialogShell title="Cloudflare Access audiences" description="Access aud 把一个受 Cloudflare Access 保护的入口绑定到该 LifeSpace Application context；它不把 Application 分类成 Web，也不识别用户本人。用户仍由 (iss, sub) -> usr_* 独立解析。" onClose={onClose}>
     <div className="cp-dialog-body">
       {loading && !detail ? <div className="cp-loading">正在读取 Access audiences…</div> : detail && <>
         <ApplicationSummary application={detail.application} />
-        {detail.application.clientType !== "web" || !detail.application.trustedBackend
-          ? <div className="acp-warning"><strong>此 Application 不符合 Access audience 注册条件</strong><span>Identity 只允许 active trusted Web Application 注册 Cloudflare Access audience。</span></div>
+        {detail.application.status !== "active" || !detail.application.trustedBackend
+          ? <div className="acp-warning"><strong>此 Application 不符合 Access audience 注册条件</strong><span>Identity 只允许 active trusted Application 注册 Cloudflare Access audience。</span></div>
           : <div className="acp-inline-form"><label className="cp-field"><span>New audience (AUD)</span><input value={audience} maxLength={256} onChange={(event) => setAudience(event.target.value)} placeholder="Cloudflare Access Application AUD" /></label><button className="cp-primary" disabled={busy || !audience.trim()} onClick={() => void register()}>Register</button></div>}
         <div className="acp-section"><div className="acp-section-title"><strong>Active</strong><span>{activeAudiences.length}</span></div>{activeAudiences.length ? activeAudiences.map((item) => <div className="acp-audience" key={item.id}><div><code>{item.audience}</code><small>{item.issuer}</small></div><button disabled={busy} onClick={() => void revoke(item)}>Revoke</button></div>) : <div className="cp-loading">当前没有 active audience。</div>}</div>
         {!!historicalAudiences.length && <div className="acp-section"><div className="acp-section-title"><strong>Revoked history</strong><span>{historicalAudiences.length}</span></div>{historicalAudiences.map((item) => <div className="acp-audience acp-muted" key={item.id}><div><code>{item.audience}</code><small>{item.revokedAt ?? item.status}</small></div></div>)}</div>}
