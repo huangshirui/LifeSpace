@@ -74,7 +74,6 @@ try {
     body: {
       id: applicationId,
       name: probeLabel,
-      clientType: "service",
       allowedScopes: ["models:manage"],
       trustedBackend: true,
       accessTokenTtlSeconds: 900,
