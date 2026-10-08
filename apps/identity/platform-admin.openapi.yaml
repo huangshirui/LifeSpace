@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: LifeSpace Identity Platform Admin API
-  version: 0.4.0
+  version: 0.5.0
   description: >-
     Privileged LifeSpace Identity control-plane contract for the LifeSpace Console and break-glass
     platform provisioning. It is intentionally versioned separately from the downstream Identity
@@ -93,7 +93,7 @@ paths:
       tags: [Application Admin]
       operationId: createPlatformApplication
       description: >-
-        Create a registered LifeSpace application with a generated app_* id. When trustedBackend is
+        Create a registered LifeSpace application access subject with a generated app_* id. When trustedBackend is
         true an lsa_* credential is returned exactly once and only non-secret metadata enters audit.
       security: [{ applicationCredential: [], platformAdminActor: [] }]
       requestBody:
@@ -127,7 +127,7 @@ paths:
     patch:
       tags: [Application Admin]
       operationId: updatePlatformApplication
-      description: Update only name, allowedScopes, accessTokenTtlSeconds, or active/disabled status; client/trust classification remains immutable.
+      description: Update only name, allowedScopes, accessTokenTtlSeconds, or active/disabled status; trusted-backend classification remains immutable.
       security: [{ applicationCredential: [], platformAdminActor: [] }]
       requestBody:
         required: true
@@ -191,7 +191,7 @@ paths:
     post:
       tags: [Application Admin]
       operationId: registerPlatformAccessAudience
-      description: Bind one configured-issuer Cloudflare Access audience to exactly one active trusted LifeSpace Web application.
+      description: Bind one configured-issuer Cloudflare Access audience to exactly one active trusted LifeSpace application.
       security: [{ applicationCredential: [], platformAdminActor: [] }]
       requestBody:
         required: true
@@ -472,7 +472,7 @@ paths:
         required: true
         content: { application/json: { schema: { $ref: '#/components/schemas/UpdatePlatformServiceTokenRequest' } } }
       responses:
-        '200': { description: Updated token metadata, content: { application/json: { schema: { $ref: './openapi.yaml#/components/schemas/ServiceTokenResponse' } } } }
+        '200': { description: Updated token metadata, content: { application/json: { schema: { $ref: './openapi.yaml#/components/schemas/ServiceTokenResponse' } } }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationError' }
@@ -593,10 +593,9 @@ components:
     CreatePlatformApplicationRequest:
       type: object
       additionalProperties: false
-      required: [name, clientType]
+      required: [name]
       properties:
         name: { type: string, minLength: 1, maxLength: 100 }
-        clientType: { type: string, enum: [web, mini_program, service, device] }
         allowedScopes: { type: array, uniqueItems: true, items: { type: string, minLength: 1, maxLength: 100 }, default: [] }
         trustedBackend: { type: boolean, default: false }
         accessTokenTtlSeconds: { type: integer, minimum: 300, maximum: 3600 }
