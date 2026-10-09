@@ -58,9 +58,10 @@ function opaqueNotFound(): ApiError {
 /**
  * Configuration-time model semantics are deliberately separate from Space data Authority.
  *
- * These routes answer which published models the authenticated credential/application may
- * configure and what those models mean. They never answer which Space records are readable
- * or writable. Runtime execution still rechecks Data Grant/Membership/Delegation and Policy.
+ * This Candidate Public Kernel surface answers which published models the authenticated
+ * credential/application may configure and what those models mean. It never answers which
+ * Space records are readable or writable, and successful projection grants no Space Authority.
+ * Runtime execution still rechecks Data Grant/Membership/Delegation and Policy.
  */
 export function registerConfigurationModelDiscoveryRoutes(app: App): void {
   app.get("/api/v1/me/_discovery/models", async (context) => {
