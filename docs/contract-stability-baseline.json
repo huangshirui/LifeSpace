@@ -182,7 +182,7 @@
     {
       "id": "core-kernel",
       "source": "apps/core/openapi.yaml",
-      "operationSetSha256": "sha256:419788e729c03f79bba4c4915e495bcda544be1adbb995db90c03e602fe11a54",
+      "operationSetSha256": "sha256:ac0fc113879de3573613daaf0f773a6e984ee8852081d1b5f6218b7be872901b",
       "groups": [
         {
           "id": "core-operational",
@@ -219,6 +219,12 @@
           "maturity": "candidate",
           "visibility": "public",
           "operationPattern": "^GET /api/v1/me/_discovery(?:/inventory)?$|^GET /api/v1/spaces/\\{spaceId\\}/_discovery$|^GET /api/v1/spaces/\\{spaceId\\}/_discovery/models/\\{modelKey\\}$"
+        },
+        {
+          "id": "core-configuration-model-discovery",
+          "maturity": "candidate",
+          "visibility": "public",
+          "operationPattern": "^GET /api/v1/me/_discovery/models(?:/\\{modelKey\\})?$"
         },
         {
           "id": "core-relation-target-lookup",

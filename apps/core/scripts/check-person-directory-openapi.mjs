@@ -6,8 +6,8 @@ const collection = document.paths?.["/api/v1/spaces/{spaceId}/people"];
 const item = document.paths?.["/api/v1/spaces/{spaceId}/people/{personId}"];
 const schemas = document.components?.schemas ?? {};
 
-if (document.info?.version !== "0.48.0") {
-  throw new Error("Person Directory requires Core Kernel 0.48.0");
+if (document.info?.version !== "0.49.0") {
+  throw new Error("Person Directory requires Core Kernel 0.49.0");
 }
 if (!document.tags?.some((tag) => tag?.name === "Person Directory")) {
   throw new Error("Person Directory Kernel tag is missing");
