@@ -22,3 +22,16 @@ if (!check.includes(configurationPaths)) {
   check = check.replace(inventoryPath, inventoryPath + configurationPaths);
 }
 fs.writeFileSync(checkPath, check);
+
+const personCheckPath = 'apps/core/scripts/check-person-directory-openapi.mjs';
+let personCheck = fs.readFileSync(personCheckPath, 'utf8');
+const personVersionOld = 'document.info?.version !== "0.48.0"';
+const personVersionNew = 'document.info?.version !== "0.49.0"';
+const personMessageOld = 'Person Directory requires Core Kernel 0.48.0';
+const personMessageNew = 'Person Directory requires Core Kernel 0.49.0';
+if (personCheck.includes(personVersionOld)) personCheck = personCheck.replace(personVersionOld, personVersionNew);
+if (personCheck.includes(personMessageOld)) personCheck = personCheck.replace(personMessageOld, personMessageNew);
+if (!personCheck.includes(personVersionNew) || !personCheck.includes(personMessageNew)) {
+  throw new Error('Person Directory Kernel version guard was not updated');
+}
+fs.writeFileSync(personCheckPath, personCheck);
