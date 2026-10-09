@@ -2,6 +2,51 @@
 
 本文件只记录**已经成功发布到 production** 的变化。开发中、staging、PR 或 main 上的变化不得提前写成 production changelog。
 
+## 2026-10-09 — Configuration-time Model Semantic Discovery 与当前 0.49/0.11 Production 基线
+
+### Release metadata
+
+- SHA: `6659ad86c5ea8a893f22f28a42f89f2e0371523c`
+- Production workflow: **Deploy LifeSpace platform production #37** / run `37936055161` — ✅ success
+- Core: Kernel `0.49.0` / schema `53`
+- Identity: contract `0.11.0` / schema `11`
+- Active Model Contract: `mct_bc784389d406c580cbaf1a9cafaa48a155732771e1b24f058fcb884bffcb2345`
+- Active models: Task v8 / Wish v9 / Day Record v5 / Event v6 / Person Group v1
+- Exact-candidate APAC performance gate + Platform Golden Flow: ✅ passed before production mutation
+- Production HTTP convergence, Cloudflare isolation/bindings, canonical `lsp_svc_*` service authentication and active Model Contract verification: ✅ passed
+- Core↔Identity shared-secret repair requested: `false`
+
+### Added / production-confirmed
+
+- Configuration-time Model Semantic Discovery：新增 `GET /api/v1/me/_discovery/models` 与 `GET /api/v1/me/_discovery/models/{modelKey}`，让消费者在配置阶段获取当前 Application 可配置的静态模型语义，而不要求调用方已经拥有某个具体 Space 的 Membership、Data Grant 或 Delegation。
+- 配置期可见性与运行时数据 Authority 正式分离：选择/填写某个 Space 或 Record Type 不等于获得对应数据权限；真正执行仍由 Direct Authority 或有效 Delegation 决定。
+- Exact-candidate production gate 再次验证现有 Agent Credential / Authorization Request / Delegation / Runtime / Model Contract 闭环，并确认新增配置期 discovery 不改变运行时授权边界。
+
+### Changed
+
+- Core Kernel 从 `0.48.0` 升至 `0.49.0`；schema 保持 `53`，本次 release 无新的 Core D1 migration。
+- 当前 Production Identity 基线为 contract `0.11.0` / schema `11`；本次 #37 exact candidate 无新的 Identity D1 migration，production verifier 对该状态重新确认。
+- Active Model Contract 与普通模型集合保持不变，仍为 5 个模型：Task v8 / Wish v9 / Day Record v5 / Event v6 / Person Group v1。
+- Production runtime signing material 与 Core↔Identity shared authentication secret 均保留既有值；真实 `lsp_svc_* -> Core -> Identity introspection` gate 通过，因此本次未触发 shared-secret repair。
+
+### Known limitations
+
+- 通用 Execute Action Batch 尚未作为 production contract 提供。
+- Federated Truth / Own-Mirror-Reference-Query 仍是后续专项，不属于当前 production capability。
+- 通用 Information Provenance / External Reference / transformation lineage 尚未提供平台级 contract。
+- n8n / HomeMew / ALOHA 的适配与发布是 downstream lifecycle，不由本次平台 Production workflow 自动完成。
+- Console application 有独立 Production rollout；本 release 的 Core/Identity 成功不等价于新 Console application version 已 rollout。
+
+### Human-readable impact
+
+- Consumer 可以先配置“目标 Space + Record Type”，即使 Agent 当前还没有这个 Space 的 Direct Data Grant；配置动作本身不会越权。
+- Agent 运行时有 Direct Grant 就直接执行；需要代表 User 时仍通过 Authorization Request / Confirm / `dlg_*` 获取受限 Authority；没有任何有效 Authority 时继续 fail closed。
+- n8n 等 adapter 可以把 Space 选择器作为便利功能、允许直接填写 `spc_*`，同时通过新的静态 Model Semantic Discovery 获取 Record Type schema，而不再把编辑器配置能力错误地绑定到当前 Space 数据权限。
+
+> 注：`docs/production` 在 #37 成功后补齐到当前 exact-candidate 基线。Identity `0.11.0` / schema `11` 是 #37 production verifier 已确认的当前状态；本条不反向推断此前未记录 release 的首次上线时点。
+
+---
+
 ## 2026-10-08 — Agent Credential / Authorization Request、Person Directory、Non-atomic Bulk 与 Creation Draft retirement
 
 ### Release metadata
