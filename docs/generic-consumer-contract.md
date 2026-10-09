@@ -1,6 +1,6 @@
 # LifeSpace Generic Consumer Contract
 
-Updated: 2026-09-23
+Updated: 2026-10-09
 
 ## 中文摘要
 
@@ -48,6 +48,14 @@ Owns current facts such as:
 
 Dynamic projection is a current-state view. It is never a lease of authority.
 
+### 2.3 Configuration-time model semantics
+
+A generic consumer may need model semantics before the current Principal has data Authority in the target Space. Configuration-time model discovery therefore intersects only the authenticated credential scope, current Application × Model Access and the published model's declared access capability. It does **not** require Space Membership, Data Grant or Delegation and returns no Space business data.
+
+This allows a consumer to bind an explicit `spc_*` target and a model such as `event` before execution Authority exists. The binding itself grants nothing. Runtime read/write/action execution still rechecks the complete current Authority intersection and may require a later User Delegation.
+
+Configuration-time model eligibility is current application/credential policy, while the returned model semantics remain versioned static facts. Consumers must not turn either into proof that a concrete Space operation is authorized.
+
 ## 3. Ownership boundary
 
 ### LifeSpace Core owns
@@ -55,6 +63,7 @@ Dynamic projection is a current-state view. It is never a lease of authority.
 - canonical model semantics;
 - current authority evaluation;
 - Runtime Discovery;
+- configuration-time model semantic discovery;
 - relation-target lookup;
 - reference resolution/hydration;
 - immutable Model Contract publication;
@@ -85,19 +94,22 @@ Core must not become a product-level intent router merely to make one consumer e
 A consumer should be able to progress through:
 
 ```text
-compact capability inventory
-  -> selected model semantic detail
+configuration model inventory
+  -> selected configuration model semantic detail
+  -> explicit Space binding when the product/workflow chooses one
+  -> current Runtime Discovery / execution Authority when data access is needed
   -> immutable Model Contract when exact wire/schema identity is required
   -> dynamic relation/reference context when a concrete task needs it
 ```
 
-A full cross-Space aggregate is allowed as an explicit projection, but it must not become a mandatory first step for every interaction.
+A full cross-Space aggregate is allowed as an explicit projection, but it must not become a mandatory first step for every interaction. A consumer that already has a stable `spc_*` target does not need to discover that Space merely to configure a future operation.
 
 ## 5. Projection is not authority
 
 Discovery and semantic projection answer questions such as:
 
-- what models are currently reachable;
+- what models the authenticated application/credential may configure;
+- what models are currently reachable in a Space;
 - what operations are currently visible;
 - what fields/actions/capabilities exist;
 - what references may currently be resolved.

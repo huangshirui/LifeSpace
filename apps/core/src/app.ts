@@ -5,6 +5,7 @@ import { authenticate } from "./auth";
 import { registerDelegationRoutes } from "./delegation-routes";
 import { registerAuthorizationRequestRoutes } from "./authorization-request-routes";
 import { registerChangeHistoryRoutes } from "./change-history";
+import { registerConfigurationModelDiscoveryRoutes } from "./configuration-model-discovery";
 import { registerGenericResourceRoutes } from "./generic-resource-routes";
 import { registerGenericBatchRoutes } from "./generic-batch-routes";
 import { registerGenericBulkRoutes } from "./generic-bulk-routes";
@@ -105,6 +106,7 @@ export function createApp() {
   registerAuthorizationRequestRoutes(app);
   registerChangeHistoryRoutes(app);
   registerRuntimeDiscoveryRoutes(app);
+  registerConfigurationModelDiscoveryRoutes(app);
   registerRuntimeModelSemanticDetailRoutes(app);
   registerRelationTargetRoutes(app);
   registerGenericBatchRoutes(app);
