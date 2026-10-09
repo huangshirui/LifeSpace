@@ -30,6 +30,7 @@
 | Authorization | Principal / Actor attribution | ✅ | Change 记录执行主体与代表关系 |
 | Authorization | Generalized entity capability | ✅ | `canBePrincipal` / delegation eligibility 由平台能力控制 |
 | Authorization | Authorization Request -> Confirm -> Delegation | ✅ | 用户确认后才产生代表 Authority；exact-candidate Golden Flow 已验证 |
+| Discovery | Configuration-time Model Semantic Discovery | ✅ | `/api/v1/me/_discovery/models` 与 `/{modelKey}`；静态模型语义与具体 Space Membership / Data Grant / Delegation 分离，不授予 Space 数据 Authority |
 | Delegation | Root / Child Delegation | ✅ | 独立 immutable single-scope `dlg_*` |
 | Delegation | Delegation chain / bounded re-delegation | ✅ | Child 必须收窄 parent Authority |
 | Delegation | Single-use ancestor consumption | ✅ | mutation commit 时原子消费 Authority chain |
@@ -65,7 +66,7 @@
 
 ## Current ordinary models
 
-本 release 的 production active Model Contract 已验证 5 个普通模型：
+当前 production active Model Contract 已验证 5 个普通模型：
 
 | Model | Version | Status | Typical use |
 |---|---:|---:|---|
@@ -81,12 +82,14 @@ Active Model Contract: `mct_bc784389d406c580cbaf1a9cafaa48a155732771e1b24f058fcb
 
 ## Release binding
 
-- Release date: **2026-10-08**
-- Exact production SHA: `cc60fa13071b72b2f4d75db43999be38648cacd6`
-- Production workflow: **#34** / run `37651204090` — ✅ success
-- Core: Kernel `0.48.0` / schema `53`
-- Identity: contract `0.10.0` / schema `9`
+- Release date: **2026-10-09**
+- Exact production SHA: `6659ad86c5ea8a893f22f28a42f89f2e0371523c`
+- Production workflow: **#37** / run `37936055161` — ✅ success
+- Core: Kernel `0.49.0` / schema `53`
+- Identity: contract `0.11.0` / schema `11`
 - APAC exact-candidate performance + Platform Golden Flow prerequisite: ✅ success
+- Production HTTP convergence + Cloudflare isolation/bindings: ✅ success
 - Production `lsp_svc_* -> Core -> Identity introspection` + active Model Contract verification: ✅ success
+- Core↔Identity shared-secret repair requested: **false**；既有 runtime secret 通过真实 service-auth gate 继续验证有效
 
 Feature Matrix 状态必须由成功的 production workflow 明确推进，不以 main / staging / downstream consumer 状态代替 production 事实。
