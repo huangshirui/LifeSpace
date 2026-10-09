@@ -302,24 +302,34 @@ export function registerPlatformAdminRoutes(app: App): void {
     let issuer: string;
     try { issuer = configuredAccessIssuer(c.env.ACCESS_TEAM_DOMAIN); }
     catch { return c.json(fail("ACCESS_NOT_CONFIGURED", "Cloudflare Access verification is not configured", c.get("requestId")), 500); }
+
     const existing = await c.env.DB.prepare(`SELECT id,application_id,issuer,audience,status,created_at,revoked_at
-      FROM access_audiences WHERE issuer=? AND audience=?`).bind(issuer, audience).first<AudienceRow>();
-    if (existing && existing.application_id !== applicationId) return c.json(fail("ACCESS_AUDIENCE_IN_USE", "Access audience is already registered to another application", c.get("requestId")), 409);
-    let row: AudienceRow;
+      FROM access_audiences WHERE issuer=? AND audience=? AND status='active'`).bind(issuer, audience).first<AudienceRow>();
     if (existing) {
-      row = { ...existing, status: "active", revoked_at: null };
-      await c.env.DB.batch([
-        c.env.DB.prepare("UPDATE access_audiences SET status='active',revoked_at=NULL WHERE id=?").bind(existing.id),
-        auditStatement(c.env, actor, c.get("currentApplicationId"), c.get("requestId"), "access_audience.activate", "access_audience", existing.id, { applicationId, issuer, audience }),
-      ]);
-      return c.json(ok(audienceDto(row)));
+      if (existing.application_id !== applicationId) {
+        return c.json(fail("ACCESS_AUDIENCE_IN_USE", "Access audience is already registered to another application", c.get("requestId")), 409);
+      }
+      return c.json(ok(audienceDto(existing)));
     }
-    row = { id: id("aud"), application_id: applicationId, issuer, audience, status: "active", created_at: now(), revoked_at: null };
-    await c.env.DB.batch([
-      c.env.DB.prepare(`INSERT INTO access_audiences(id,application_id,issuer,audience,status,created_at,revoked_at)
-        VALUES(?,?,?,?,?,?,NULL)`).bind(row.id, applicationId, issuer, audience, "active", row.created_at),
-      auditStatement(c.env, actor, c.get("currentApplicationId"), c.get("requestId"), "access_audience.create", "access_audience", row.id, { applicationId, issuer, audience }),
-    ]);
+
+    const row: AudienceRow = { id: id("aud"), application_id: applicationId, issuer, audience, status: "active", created_at: now(), revoked_at: null };
+    try {
+      await c.env.DB.batch([
+        c.env.DB.prepare(`INSERT INTO access_audiences(id,application_id,issuer,audience,status,created_at,revoked_at)
+          VALUES(?,?,?,?,?,?,NULL)`).bind(row.id, applicationId, issuer, audience, "active", row.created_at),
+        auditStatement(c.env, actor, c.get("currentApplicationId"), c.get("requestId"), "access_audience.create", "access_audience", row.id, { applicationId, issuer, audience }),
+      ]);
+    } catch (error) {
+      const raced = await c.env.DB.prepare(`SELECT id,application_id,issuer,audience,status,created_at,revoked_at
+        FROM access_audiences WHERE issuer=? AND audience=? AND status='active'`).bind(issuer, audience).first<AudienceRow>();
+      if (raced) {
+        if (raced.application_id !== applicationId) {
+          return c.json(fail("ACCESS_AUDIENCE_IN_USE", "Access audience became registered to another application concurrently", c.get("requestId")), 409);
+        }
+        return c.json(ok(audienceDto(raced)));
+      }
+      throw error;
+    }
     return c.json(ok(audienceDto(row)), 201);
   });
 

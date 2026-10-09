@@ -226,15 +226,13 @@ export function registerAccessIdentityRoutes(app: Hono<AppEnv>, options: AccessR
 
     const existing = await c.env.DB.prepare(`
       SELECT id,application_id,issuer,audience,status,created_at,revoked_at
-      FROM access_audiences WHERE issuer=? AND audience=?
+      FROM access_audiences WHERE issuer=? AND audience=? AND status='active'
     `).bind(issuer, audience).first<AccessAudienceRow>();
-    if (existing && existing.application_id !== application.id) {
-      return c.json(fail("ACCESS_AUDIENCE_IN_USE", "Access audience is already registered to another application", c.get("requestId")), 409);
-    }
-    if (existing?.status === "active") return c.json(ok(audienceDto(existing)));
     if (existing) {
-      await c.env.DB.prepare("UPDATE access_audiences SET status='active',revoked_at=NULL WHERE id=?").bind(existing.id).run();
-      return c.json(ok(audienceDto({ ...existing, status: "active", revoked_at: null })));
+      if (existing.application_id !== application.id) {
+        return c.json(fail("ACCESS_AUDIENCE_IN_USE", "Access audience is already registered to another application", c.get("requestId")), 409);
+      }
+      return c.json(ok(audienceDto(existing)));
     }
 
     const row: AccessAudienceRow = {
@@ -246,10 +244,24 @@ export function registerAccessIdentityRoutes(app: Hono<AppEnv>, options: AccessR
       created_at: new Date().toISOString(),
       revoked_at: null,
     };
-    await c.env.DB.prepare(`
-      INSERT INTO access_audiences(id,application_id,issuer,audience,status,created_at,revoked_at)
-      VALUES(?,?,?,?,?,?,NULL)
-    `).bind(row.id, row.application_id, row.issuer, row.audience, row.status, row.created_at).run();
+    try {
+      await c.env.DB.prepare(`
+        INSERT INTO access_audiences(id,application_id,issuer,audience,status,created_at,revoked_at)
+        VALUES(?,?,?,?,?,?,NULL)
+      `).bind(row.id, row.application_id, row.issuer, row.audience, row.status, row.created_at).run();
+    } catch (error) {
+      const raced = await c.env.DB.prepare(`
+        SELECT id,application_id,issuer,audience,status,created_at,revoked_at
+        FROM access_audiences WHERE issuer=? AND audience=? AND status='active'
+      `).bind(issuer, audience).first<AccessAudienceRow>();
+      if (raced) {
+        if (raced.application_id !== application.id) {
+          return c.json(fail("ACCESS_AUDIENCE_IN_USE", "Access audience became registered to another application concurrently", c.get("requestId")), 409);
+        }
+        return c.json(ok(audienceDto(raced)));
+      }
+      throw error;
+    }
     return c.json(ok(audienceDto(row)), 201);
   });
 
