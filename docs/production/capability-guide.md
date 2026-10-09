@@ -6,11 +6,11 @@
 
 ## Production baseline
 
-- Release date: **2026-10-08**
-- Deployed release SHA: `cc60fa13071b72b2f4d75db43999be38648cacd6`
-- Production workflow: **Deploy LifeSpace platform production #34** (`37651204090`) ✅
-- Production Core: `https://core.aisr.online` — Kernel `0.48.0`, schema `53`
-- Production Identity: `https://auth.aisr.online` — contract `0.10.0`, schema `9`
+- Release date: **2026-10-09**
+- Deployed release SHA: `6659ad86c5ea8a893f22f28a42f89f2e0371523c`
+- Production workflow: **Deploy LifeSpace platform production #37** (`37936055161`) ✅
+- Production Core: `https://core.aisr.online` — Kernel `0.49.0`, schema `53`
+- Production Identity: `https://auth.aisr.online` — contract `0.11.0`, schema `11`
 - Active Model Contract: `mct_bc784389d406c580cbaf1a9cafaa48a155732771e1b24f058fcb884bffcb2345`
 - Active ordinary models: Task v8, Wish v9, Day Record v5, Event v6, Person Group v1
 - Release confidence: **exact release-bound production evidence**
@@ -57,7 +57,7 @@ Space 是普通业务数据的所有权与默认授权边界。Production 已支
 - Root / Child Delegation、bounded re-delegation、single-use ancestor consumption；
 - `POST /api/v1/spaces/{spaceId}/delegations/batch` 原子签发 `1..20` 个独立 single-scope Delegation。
 
-本 release 进一步将 **Authorization Request** 作为标准授权协议入口投入 Production：Agent/Application 可提出待确认的授权请求，用户确认后产生明确 Delegation；拒绝、取消或未确认的 request 不产生业务 Authority。Production promotion 前的 exact-candidate Golden Flow 已真实验证 `Agent Credential -> Authorization Request -> Confirm -> Delegation -> governed mutation`。
+Authorization Request 是标准授权协议入口：Agent/Application 可提出待确认的授权请求，用户确认后产生明确 Delegation；拒绝、取消或未确认的 request 不产生业务 Authority。Production promotion 的 exact-candidate Golden Flow 已真实验证 `Agent Credential -> Authorization Request -> Confirm -> Delegation -> governed mutation`。
 
 跨 Space 的共享不会改变原始记录所有权，也不应生成第二份权威副本。
 
@@ -86,7 +86,8 @@ Production 当前支持：
 - 模型级 Capability / Action；
 - typed persistence 与 runtime descriptor；
 - Application × Model Access 与模型 Policy；
-- Relation Target Lookup / Reference Resolution。
+- Relation Target Lookup / Reference Resolution；
+- configuration-time Model Semantic Discovery：`GET /api/v1/me/_discovery/models` 与 `GET /api/v1/me/_discovery/models/{modelKey}`，用于消费者在配置阶段获取当前 Application 可配置的静态模型语义；该能力与具体 Space 的 Membership / Data Grant / Delegation 分离，不授予任何 Space 数据 Authority。
 
 当前 active Model Contract 激活 5 个普通模型：Task v8、Wish v9、Day Record v5、Event v6、Person Group v1。`person_group` 是普通 metadata-driven model；它与 Kernel Person Directory 的边界保持分离。
 
@@ -138,11 +139,12 @@ Core 提供独立 Integration / Eventing contract。Production 包括：
 
 ### 2.8 Agent-ready execution
 
-本 release 的生产 Agent 路径已经形成完整闭环：
+当前生产 Agent 路径已经形成完整闭环：
 
 ```text
 lsp_agt_* Agent API Credential
   -> verified Application + Agent identity
+  -> configuration-time model semantics（不等于 Space Authority）
   -> Authorization Request（需要用户代表权限时）
   -> Confirm / Delegation
   -> current Effective Authority
@@ -150,7 +152,7 @@ lsp_agt_* Agent API Credential
   -> Governed Change attribution
 ```
 
-Credential 负责认证“谁在调用”，Delegation 负责表达“该 Actor 可以代表谁做什么”；二者不能互相替代。
+Credential 负责认证“谁在调用”，configuration-time discovery 负责说明“可配置哪些模型及其静态语义”，Delegation 负责表达“该 Actor 可以代表谁做什么”；三者不能互相替代。配置某个 Space / Model 目标本身不会产生对应数据 Authority，运行时仍必须通过 Direct Authority 或有效 Delegation。
 
 ### 2.9 Operation Attribution 与 Provenance 边界
 
@@ -196,9 +198,9 @@ LifeSpace Console 是平台自身的管理界面，不是普通消费者应用�
 7. Cloudflare isolation / bindings verification；
 8. canonical `lsp_svc_*` service authentication + active Model Contract verification。
 
-2026-10-08 release #34 已完整通过上述 gate。Core 从 schema 48 升至 53，应用 `0049_authorization_requests.sql`、`0050_non_atomic_bulk.sql`、`0051_space_person_names.sql`、`0052_person_group_model.sql`、`0053_remove_creation_draft_jobs.sql`；Identity 应用 `0009_agent_api_credentials.sql`，schema 从 8 升至 9。
+2026-10-09 release #37 已完整通过上述 gate。Production 当前为 Core Kernel `0.49.0` / schema `53`，Identity contract `0.11.0` / schema `11`；本次 exact candidate 没有新的 D1 migration 需要应用，active Model Contract 仍为 5 个普通模型。该 release 将 configuration-time Model Semantic Discovery 正式推进到 Production，同时保持运行时 Space/Data Authority 规则不变。
 
-本次第一次 Production 尝试在最终 service-auth gate 暴露了历史 `CORE_IDENTITY_SHARED_SECRET` 两端值漂移。PR #329 增加 **default-off、operator explicit opt-in** 的 repair 机制；成功 run #34 显式执行 repair 后，真实 `lsp_svc_* -> Core -> Identity introspection` 验证通过。普通 release 不会自动轮换该 runtime secret，bootstrap secret 也不会被复用为 runtime shared secret。
+Production runtime signing material 与 Core↔Identity shared authentication secret 在本次发布中均按既有值保留；release gate 继续通过真实 `lsp_svc_* -> Core -> Identity introspection` 验证其可用性，未触发 shared-secret repair。
 
 ### Creation Draft retirement
 
