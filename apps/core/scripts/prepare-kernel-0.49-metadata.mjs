@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 
 const packagePath = 'apps/core/package.json';
@@ -35,3 +36,34 @@ if (!personCheck.includes(personVersionNew) || !personCheck.includes(personMessa
   throw new Error('Person Directory Kernel version guard was not updated');
 }
 fs.writeFileSync(personCheckPath, personCheck);
+
+const baselinePath = 'docs/contract-stability-baseline.json';
+const baseline = JSON.parse(fs.readFileSync(baselinePath, 'utf8'));
+const coreKernel = baseline.contractSources?.find((source) => source.id === 'core-kernel');
+if (!coreKernel || !Array.isArray(coreKernel.groups)) {
+  throw new Error('core-kernel contract stability source is missing');
+}
+const configurationGroupId = 'core-configuration-model-discovery';
+if (!coreKernel.groups.some((group) => group.id === configurationGroupId)) {
+  const runtimeIndex = coreKernel.groups.findIndex((group) => group.id === 'core-runtime-discovery');
+  if (runtimeIndex < 0) throw new Error('core-runtime-discovery classification group is missing');
+  coreKernel.groups.splice(runtimeIndex + 1, 0, {
+    id: configurationGroupId,
+    maturity: 'candidate',
+    visibility: 'public',
+    operationPattern: '^GET /api/v1/me/_discovery/models(?:/\\{modelKey\\})?$',
+  });
+}
+
+const openapi = JSON.parse(fs.readFileSync('apps/core/openapi.yaml', 'utf8'));
+const httpMethods = new Set(['get', 'post', 'put', 'patch', 'delete', 'options', 'head', 'trace']);
+const operations = [];
+for (const [path, item] of Object.entries(openapi.paths ?? {})) {
+  if (!item || typeof item !== 'object' || Array.isArray(item)) continue;
+  for (const method of Object.keys(item)) {
+    if (httpMethods.has(method.toLowerCase())) operations.push(`${method.toUpperCase()} ${path}`);
+  }
+}
+const canonicalOperations = [...new Set(operations)].sort();
+coreKernel.operationSetSha256 = `sha256:${createHash('sha256').update(canonicalOperations.join('\n')).digest('hex')}`;
+fs.writeFileSync(baselinePath, `${JSON.stringify(baseline, null, 2)}\n`);
