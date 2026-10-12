@@ -17,7 +17,7 @@ type State = {
 };
 type Occurrence = { id: string; plan_record_id: string; revision: number; due_date: string; task_record_id: string; predecessor_id: string | null; outcome: string; anchor_date: string | null };
 type Entry = { model: PublishedModel; recordId?: string; data: Record<string, unknown>; previous?: GenericResource; attribution?: MutationAttribution; actionKey?: string };
-type Prepared = { generatedChangeSets: Map<string, string>; errors: Map<string, ApiError>; enrolmentByRecord: Map<string, ModelAccessDecision[]>; remaining: number; validatedRefs: Set<string>; states: Map<string, State>; occurrences: Map<string, Occurrence>; resources: Map<string, GenericResource>; models: Map<string, PublishedModel>; timezone: string; task: PublishedModel; decisions: Map<string, ModelAccessDecision>; enrolment: ModelAccessDecision[] };
+type Prepared = { reservedCompletionSlots: number; generatedChangeSets: Map<string, string>; errors: Map<string, ApiError>; enrolmentByRecord: Map<string, ModelAccessDecision[]>; remaining: number; validatedRefs: Set<string>; states: Map<string, State>; occurrences: Map<string, Occurrence>; resources: Map<string, GenericResource>; models: Map<string, PublishedModel>; timezone: string; task: PublishedModel; decisions: Map<string, ModelAccessDecision>; enrolment: ModelAccessDecision[] };
 // Request-owned Principal objects are never shared across requests/cron invocations.
 const preparedRequests = new WeakMap<Principal, Prepared>();
 const id = (prefix: string) => `${prefix}_${crypto.randomUUID().replaceAll("-", "")}`;
@@ -135,7 +135,17 @@ export async function prepareRecurrenceMutations(env: Bindings, principal: Princ
   });
   const relationErrors = await validateRelationProjectionGroups(env, spaceId, relationGroups);
   relationErrors.forEach((error, index) => { if (error) errors.set(relationEntries[index]!.recordId ?? "", error); });
-  preparedRequests.set(principal, { generatedChangeSets: new Map(), errors, enrolmentByRecord, remaining: 20, validatedRefs, states, occurrences, resources, models, timezone, task, decisions, enrolment: enrolment.flatMap(value => value.ok ? [value.decision] : []) });
+  const reservedCompletionSlots = active.filter(entry => {
+    const binding = entry.model.definition.capabilities?.recurrence;
+    if (!binding) return false;
+    const data = preloadedStates ? resources.get(entry.recordId!)?.data ?? {} : entry.data;
+    if ((data[binding.ruleField] as RecurrenceRule | undefined)?.mode !== "after_completion") return false;
+    const state = states.get(entry.recordId!);
+    if (!state || state.config_json !== config(entry.model, data)) return true;
+    const current = state.current_occurrence_id ? occurrences.get(state.current_occurrence_id) : undefined;
+    return !state.stopped && (!current || current.outcome !== "active" && current.outcome !== "cancelled") && (!current || resources.get(current.task_record_id)?.data.status !== "pending");
+  }).length;
+  preparedRequests.set(principal, { reservedCompletionSlots, generatedChangeSets: new Map(), errors, enrolmentByRecord, remaining: 20, validatedRefs, states, occurrences, resources, models, timezone, task, decisions, enrolment: enrolment.flatMap(value => value.ok ? [value.decision] : []) });
 }
 
 function guard(env: Bindings, recordId: string, token: string): D1PreparedStatement[] {
@@ -210,8 +220,9 @@ async function materialize(env: Bindings, prepared: Prepared, state: State, plan
   if (rule.mode === "calendar") {
     const through = endDate && endDate < addRecurrenceDays(today, windowDays(env)) ? endDate : addRecurrenceDays(today, windowDays(env));
     const from = resume ? (state.cursor_date && state.cursor_date > today ? state.cursor_date : today) : state.cursor_date ?? String(plan.data[b.firstDueDateField]);
-    if (prepared.remaining === 0) { state.cursor_date = from; state.next_materialize_date = today; return []; }
-    const result = calendarOccurrences(rule, String(plan.data[b.firstDueDateField]), from, through, prepared.remaining);
+    const capacity = prepared.remaining - prepared.reservedCompletionSlots;
+    if (capacity <= 0) { state.cursor_date = from; state.next_materialize_date = today; return []; }
+    const result = calendarOccurrences(rule, String(plan.data[b.firstDueDateField]), from, through, capacity);
     const statements = await generate(env, prepared, state, plan, result.dates, timestamp);
     state.cursor_date = result.nextDate ?? addRecurrenceDays(through, 1);
     state.next_materialize_date = result.nextDate ? today : addRecurrenceDays(today, 1);
@@ -224,6 +235,7 @@ async function materialize(env: Bindings, prepared: Prepared, state: State, plan
   if (resume && due < today) due = today;
   if (endDate && due > endDate) return [];
   if (prepared.remaining === 0) { state.next_materialize_date = today; return []; }
+  if (prepared.reservedCompletionSlots > 0) prepared.reservedCompletionSlots--;
   return generate(env, prepared, state, plan, [due], timestamp, current?.id);
 }
 

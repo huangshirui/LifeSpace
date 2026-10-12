@@ -109,7 +109,7 @@
     {
       "id": "identity-application",
       "source": "apps/identity/openapi.yaml",
-      "operationSetSha256": "sha256:a25c36e4ac6ff3eb022406422a092146566eb2a941d9cbb63d5b7d5f264f7ef0",
+      "operationSetSha256": "sha256:729564012b346b7d72d293bad164608bb945089306e0b05705e33496a37e7049",
       "groups": [
         {
           "id": "identity-operational",
@@ -176,6 +176,12 @@
           "maturity": "experimental",
           "visibility": "internal",
           "operationPattern": "^(GET|POST|PATCH|PUT|DELETE) /bootstrap/v1/.*$"
+        },
+        {
+          "id": "identity-recurring-intent-introspection",
+          "maturity": "candidate",
+          "visibility": "internal",
+          "operationPattern": "^POST /introspection/v1/recurrence-roots$"
         }
       ]
     },

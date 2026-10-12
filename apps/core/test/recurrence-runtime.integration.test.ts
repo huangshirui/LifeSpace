@@ -101,6 +101,13 @@ describe("Metadata-driven Recurrence runtime", () => {
     await expect(createGenericResource(f.bindings, f.fresh(), f.spaceId, f.planModel, { title: "Denied", firstDue: "2026-11-01", repeat: completion })).rejects.toThrow();
     expect(await rollRecurrenceWindow(f.bindings)).toBe(0);
   });
+  it("reserves completion-based first Tasks when a mixed batch also expands calendar windows", async () => {
+    const f = await fixture();
+    const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+    const result = await executeNativeModelBatch(f.bindings, f.fresh(), f.spaceId, { operations: Array.from({ length: 20 }, (_, index) => ({ operation: "create", modelKey: f.modelKey, data: { title: `Mixed ${index}`, firstDue: index === 0 ? today : "2026-11-01", repeat: index === 0 ? { mode: "calendar", frequency: "daily", interval: 1 } : completion } })) });
+    for (const item of result.items) expect(await f.tasks(String(item.recordId))).toHaveLength(1);
+    expect((await f.db.prepare("SELECT COUNT(*) n FROM recurrence_occurrences WHERE plan_record_id IN (SELECT plan_record_id FROM recurrence_plans WHERE space_id=?)").bind(f.spaceId).first<any>()).n).toBe(20);
+  });
   it("rolls through indexed due plans among 1000 parked plans and retries without duplicates", async () => {
     const f = await fixture();
     const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
