@@ -626,9 +626,14 @@ export async function querySemanticRelations(
     query.hydrate,
   );
   const page = visible.rows.slice(0, query.limit);
-  const scannedTo = candidates[candidates.length - 1]!;
-  const hasMoreCandidates = candidates.length === scanLimit || visible.rows.length > query.limit;
-  const nextCursor = hasMoreCandidates ? encodeCursor(scannedTo) : null;
+  let nextCursor: string | null = null;
+  if (visible.rows.length > query.limit) {
+    nextCursor = encodeCursor(page[page.length - 1]!);
+  } else if (candidates.length === scanLimit) {
+    nextCursor = page.length === query.limit
+      ? encodeCursor(page[page.length - 1]!)
+      : encodeCursor(candidates[candidates.length - 1]!);
+  }
 
   if (page.length && visible.decisions.length) {
     // One request carries one selected Delegation leaf. Consuming one successful
