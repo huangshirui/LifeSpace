@@ -51,6 +51,7 @@ Task dueDate remains date-only. Completion instant is converted to a date in the
 - Pausing retains existing Tasks and stops new generation. Completing while paused records the anchor without creating a successor. Resume retains a current unfinished Task; otherwise it creates the next Task, clamping a past candidate to the resume date. Calendar resume skips paused history and preserves already materialized future Tasks.
 - Rule/firstDueDate edits cancel old-rule unfinished future Tasks, preserve due/completed history, increment scheduling revision and create replacement future occurrences. Removing the rule cancels future unfinished generated Tasks and stops scheduling. EndDate stops generation beyond it; already materialized Tasks remain independent records.
 - Task title/description/subject/assignees are copied at generation. Task.subject is a first-class Person/Record entity_ref; generated_from is the existing Semantic Relation. The read-only immutable recurrenceOccurrenceId lets ordinary Task completion avoid any recurrence query.
+- The current completion-based Task cannot be deleted while its occurrence is active/cancelled. Use cancel to stop, skip-occurrence to advance, or remove the Plan rule before deletion. A database guard enforces this for single, atomic Batch and non-atomic Batch deletion, including concurrent completion. Historical and calendar Tasks remain independently deletable. 删除当前任务不能静默推进或留下不可操作的游标。
 
 ## Authority / 权限与内部执行
 

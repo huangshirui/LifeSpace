@@ -1,5 +1,9 @@
 # LifeSpace Permission Model
 
+## External Model Authority / 外部模型权限
+
+A source Space model target resolves to a Native published model **or** that Space's active External registration. Both use the same current scopes, Application × Model Access, Membership/Data Grant and Delegation evaluation. Registration never creates application access or Data Grants. Declared access and provider capability only narrow execution. Connection provisioning requires service-only `models:manage`; Space management alone cannot create a connection from an arbitrary credential reference. Direct provider edits are outside LifeSpace Authority. External single-use delegated writes are rejected until provider success and consumption can be honestly guaranteed; ordinary Delegations and conditional single-use reads remain supported. Known external record identity linkage permits existing record-scoped Delegations, without storing provider payloads.
+
 ## Core concepts
 
 - **User**: global human LifeSpace identity (`usr_*`) resolved by LifeSpace Identity after an approved authentication path. For owner-controlled Web/PWA applications, Cloudflare Access proves the Web user and Identity resolves the verified Access principal to the global LifeSpace user.

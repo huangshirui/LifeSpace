@@ -17,7 +17,7 @@ import type { Actor, Bindings, Principal, Variables } from "./env";
 import { ApiError, success } from "./http";
 import { requireModelAccessMany } from "./model-authorization";
 import type { ModelAccess } from "./model-definition";
-import { getRuntimeModel } from "./model-registry";
+import { resolveSpaceAuthorityModel } from "./external-model";
 
 type AppEnv = { Bindings: Bindings; Variables: Variables };
 type App = Hono<AppEnv>;
@@ -355,6 +355,11 @@ async function validateScopesAuthorityMany(
       .bind(spaceId, ...recordIds)
       .all<{ id: string; model_key: string }>();
     const byId = new Map(rows.results.map((row) => [row.id, row.model_key]));
+    const externalIds=recordIds.filter(id=>id.startsWith("rec_external_"));
+    if(externalIds.length){
+      const external=await env.DB.prepare(`SELECT i.record_id id,i.model_key FROM external_record_identities i JOIN external_models m ON m.model_key=i.model_key JOIN external_sources s ON s.id=m.source_id WHERE i.space_id=? AND m.status!='disabled' AND s.status='active' AND i.record_id IN (${externalIds.map(()=>"?").join(",")})`).bind(spaceId,...externalIds).all<{id:string;model_key:string}>();
+      for(const row of external.results)byId.set(row.id,row.model_key);
+    }
     for (const index of recordIndexes) {
       const recordId = scopes[index]!.target.id;
       const modelKey = byId.get(recordId);
@@ -364,9 +369,9 @@ async function validateScopesAuthorityMany(
   }
 
   const distinctModelKeys = [...new Set(targetModelKeys.filter((value): value is string => Boolean(value)))];
-  const models = new Map<string, Awaited<ReturnType<typeof getRuntimeModel>>>();
+  const models = new Map<string, Awaited<ReturnType<typeof resolveSpaceAuthorityModel>>>();
   await Promise.all(distinctModelKeys.map(async (modelKey) => {
-    const model = await getRuntimeModel(env, modelKey);
+    const model = await resolveSpaceAuthorityModel(env, spaceId, modelKey);
     if (!model) throw new ApiError("MODEL_NOT_FOUND", `Published model ${modelKey} not found`, 404);
     models.set(modelKey, model);
   }));

@@ -2,6 +2,10 @@
 
 Updated: 2026-08-23
 
+## External model targets / 外部模型授权目标
+
+The `published modelKey` requirement below is the Native case. A model-collection Grant now targets a Model resolvable in its **source Space**: Native published model or active Space-local External registration. No new Grant/ACL table or principal semantics are introduced. Disabled registration/connection cannot be authorized by stale Grant rows. Existing whole-Space fallback and current-state revocation remain unchanged. This does not enable External Eventing or distributed transactions.
+
 ## Purpose
 
 LifeSpace Data Grants provide current, revocable authority from one source Space to a grantee principal. Collection-level model semantics allow external integrations to receive bounded model authority without introducing model-specific credential scopes.

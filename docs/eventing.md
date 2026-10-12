@@ -4,6 +4,10 @@ LifeSpace Eventing is the platform-owned mechanism for publishing ordinary-model
 
 Canonical public contract: `apps/core/integration-eventing.openapi.yaml` (Integration/Eventing `0.4.0`). It is independently versioned and compatibility-checked from the Core Kernel contract while remaining implemented in the same Core Worker.
 
+## External origin boundary / 外部来源边界
+
+Authoritative mutation + D1 outbox guarantees in this document apply only to LifeSpace-owned Native storage. External provider writes and provider-direct edits do not generate Native record.* events in V1. External operation audit is independent non-atomic execution evidence, not a surrogate outbox. Any later external Eventing capability must separately define delivery, crash-window and idempotency semantics.
+
 ## Event model
 
 All ordinary models emit model-agnostic event types:

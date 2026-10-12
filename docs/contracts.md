@@ -1,5 +1,9 @@
 # LifeSpace Contract Strategy
 
+## External Model companion / 外部模型契约
+
+`apps/core/external-model.openapi.yaml` 0.1.0 owns provider-neutral connection/model registration and the dynamic External Runtime representation. `apps/core/external-adapter.contract.json` version 1 owns the authenticated internal Adapter execution contract. Kernel 0.50.0 owns the Native/External Discovery union. External registration is Space-local and provider-authoritative: only the latest compatible snapshot exists, with schemaHash/observedAt and honest execution capability downgrade. It never enters Native immutable publication/mct history or invents Native record versions. Native Model Contract generation, existing stable representations and auth semantics remain unchanged. This companion is Candidate Public; Source provisioning is the service-only Model Admin profile, while model registration/status/refresh uses ordinary Space manage. It is not a privileged Console proof bypass.
+
 ## Identity 0.11.0 / Platform Admin 0.5.0 — client-agnostic Application subject
 
 Identity `0.11.0` removes the obsolete Application `clientType` classification. `Application` remains the stable registered application access subject while Web, Mini Program, PWA, BFF, Worker and deployment topology stay inside the owning product. One Application may hold multiple independently rotatable/revocable `lsa_*` trusted-backend credentials without creating additional Application identities. Cloudflare Access audiences bind protected entry points to active trusted Applications and no longer imply a `web` Application type. Platform Admin `0.5.0` removes the same client classification from Application administration while preserving the existing dual human-actor/executor boundary and the Agent credential governance introduced in `0.4.0`.

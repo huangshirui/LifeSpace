@@ -1,6 +1,7 @@
 import type { RecurrenceCapabilityDefinition } from "./recurrence-definition";
 import { recurrenceRuleSchema } from "./recurrence-rule";
 import { entityRefSchema } from "./entity-ref";
+import { visibleExternalModels } from "./external-runtime";
 import type { Context, Hono } from "hono";
 import type { Permission, SpaceRole } from "./authorization";
 import { capabilityActionAccess } from "./capability-runtime";
@@ -361,6 +362,7 @@ async function aggregateDiscoveryState(context: AppContext): Promise<AggregateDi
 export function registerRuntimeDiscoveryRoutes(app: App): void {
   app.get("/api/v1/me/_discovery", async (context) => {
     const state = await aggregateDiscoveryState(context);
+    const external = await visibleExternalModels(context.env,state.principal,state.candidateSpaceIds,context.req.header("x-lifespace-delegation-id"));
     const spaces = state.candidateSpaceIds.flatMap((spaceId) => {
       const visible = visibleModels(
         state.principal,
@@ -370,7 +372,8 @@ export function registerRuntimeDiscoveryRoutes(app: App): void {
         state.grantsBySpace.get(spaceId) ?? [],
         state.delegatedAgent ? (state.delegatedBySpace.get(spaceId) ?? new Map<string, ModelAccess>()) : undefined,
       );
-      return visible.length ? [{ spaceId, spaceName: state.spaceNamesById.get(spaceId)!, models: visible }] : [];
+      const combined = [...visible,...(external.get(spaceId)??[])];
+      return combined.length ? [{ spaceId, spaceName: state.spaceNamesById.get(spaceId)!, models: combined }] : [];
     });
 
     return context.json(success({ spaces }));
@@ -379,6 +382,7 @@ export function registerRuntimeDiscoveryRoutes(app: App): void {
   app.get("/api/v1/me/_discovery/inventory", async (context) => {
     const state = await aggregateDiscoveryState(context);
     const visibleModelKeys = new Set<string>();
+    const external = await visibleExternalModels(context.env,state.principal,state.candidateSpaceIds,context.req.header("x-lifespace-delegation-id"));
     const spaces = state.candidateSpaceIds.flatMap((spaceId) => {
       const visible = visibleModelAccess(
         state.principal,
@@ -389,18 +393,20 @@ export function registerRuntimeDiscoveryRoutes(app: App): void {
         state.delegatedAgent ? (state.delegatedBySpace.get(spaceId) ?? new Map<string, ModelAccess>()) : undefined,
       );
       for (const entry of visible) visibleModelKeys.add(entry.model.key);
-      return visible.length ? [{
+      const externalHere=external.get(spaceId)??[];
+      return visible.length||externalHere.length ? [{
         spaceId,
         spaceName: state.spaceNamesById.get(spaceId)!,
-        models: visible.map(({ model, access }) => ({ modelKey: model.key, access })),
+        models: [...visible.map(({ model, access }) => ({ modelKey: model.key, access })),...externalHere.map(m=>({modelKey:m.key,access:m.access}))],
       }] : [];
     });
     const models = state.models
       .filter((model) => visibleModelKeys.has(model.key))
       .sort((left, right) => left.key.localeCompare(right.key))
       .map(inventoryModel);
+    const externalInventory=[...external.values()].flat().map(m=>({key:m.key,origin:m.origin,spaceId:m.spaceId,schemaHash:m.schemaHash,display:m.display,runtimeCapabilities:m.runtimeCapabilities,contract:m.contract}));
 
-    return context.json(success({ semanticDetailPathTemplate, models, spaces }));
+    return context.json(success({ semanticDetailPathTemplate, models: [...models,...externalInventory], spaces }));
   });
 
   app.get("/api/v1/spaces/:spaceId/_discovery", async (context) => {
@@ -473,7 +479,9 @@ export function registerRuntimeDiscoveryRoutes(app: App): void {
       delegatedAgent ? delegatedByModel : undefined,
     );
 
-    return context.json(success({ spaceId, spaceName: visible.length ? space.name : null, models: visible }));
+    const external = await visibleExternalModels(context.env,principal,[spaceId],context.req.header("x-lifespace-delegation-id"));
+    const combined = [...visible,...(external.get(spaceId)??[])];
+    return context.json(success({ spaceId, spaceName: combined.length ? space.name : null, models: combined }));
   });
 }
 

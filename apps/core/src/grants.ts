@@ -3,7 +3,7 @@ import { requireSpacePermission } from "./authorization";
 import type { Bindings, Principal, Variables } from "./env";
 import { ApiError, success } from "./http";
 import { requireScope } from "./auth";
-import { getRuntimeModel } from "./model-registry";
+import { resolveSpaceAuthorityModel } from "./external-model";
 
 type AppEnv = { Bindings: Bindings; Variables: Variables };
 type App = Hono<AppEnv>;
@@ -63,7 +63,7 @@ function parsePermission(value: unknown): Permission {
   return value as Permission;
 }
 
-async function parseResource(env: Bindings, input: GrantInput): Promise<{ resourceType: ResourceType; resourceId: string | null }> {
+async function parseResource(env: Bindings, spaceId: string, input: GrantInput): Promise<{ resourceType: ResourceType; resourceId: string | null }> {
   const resourceType = input.resourceType === undefined ? "space" : input.resourceType;
   if (resourceType === "space") {
     if (input.resourceId !== undefined && input.resourceId !== null) {
@@ -78,7 +78,7 @@ async function parseResource(env: Bindings, input: GrantInput): Promise<{ resour
     throw new ApiError("VALIDATION_ERROR", "resourceId must be a published model key for a model Data Grant", 422);
   }
   const resourceId = input.resourceId.trim();
-  if (!await getRuntimeModel(env, resourceId)) {
+  if (!await resolveSpaceAuthorityModel(env, spaceId, resourceId)) {
     throw new ApiError("MODEL_NOT_FOUND", `Published model ${resourceId} was not found`, 404);
   }
   return { resourceType: "model", resourceId };
@@ -136,7 +136,7 @@ export function registerGrantRoutes(app: App): void {
       throw new ApiError("VALIDATION_ERROR", "Agent granteeId must be a valid agt_* identifier", 422);
     }
     const permission = parsePermission(input.permission);
-    const resource = await parseResource(c.env, input);
+    const resource = await parseResource(c.env, spaceId, input);
     validateModelPermission(resource.resourceType, permission);
     const expiresAt = parseExpiry(input.expiresAt);
     const grantId = createId("grt");

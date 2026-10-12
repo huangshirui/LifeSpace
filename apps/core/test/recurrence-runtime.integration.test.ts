@@ -3,7 +3,7 @@ import { sign } from "hono/jwt";
 import { describe, expect, it } from "vitest";
 import type { Bindings, Principal } from "../src/env";
 import { getRuntimeModel, publishModelDefinition } from "../src/model-registry";
-import { createGenericResource, getGenericResource, updateGenericResource } from "../src/generic-resource";
+import { createGenericResource, deleteGenericResource, getGenericResource, updateGenericResource } from "../src/generic-resource";
 import { executeWorkflowAction } from "../src/workflow";
 import { executeNativeModelBatch } from "../src/native-model-batch";
 import { rollRecurrenceWindow } from "../src/recurrence-runtime";
@@ -37,6 +37,19 @@ async function fixture() {
 const completion = { mode: "after_completion", interval: { value: 30, unit: "day" } };
 
 describe("Metadata-driven Recurrence runtime", () => {
+  it("protects the current completion Task in single and batch deletes; historical tasks remain deletable", async () => {
+    const f = await fixture();
+    const plan = await createGenericResource(f.bindings, f.fresh(), f.spaceId, f.planModel, { title: "Delete", firstDue: "2026-11-01", repeat: completion });
+    const task = (await f.tasks(plan.id))[0];
+    await expect(deleteGenericResource(f.bindings, f.fresh(), f.spaceId, f.taskModel, task.record_id, 1)).rejects.toThrow("RECURRENCE_CURRENT_TASK_DELETE_FORBIDDEN");
+    const result = await executeNativeModelBatch(f.bindings, f.fresh(), f.spaceId, { atomicConsistency: false, operations: [{ operation: "delete", modelKey: "task", recordId: task.record_id, version: 1 }] });
+    expect(result.items[0]?.status).toBe("failed");
+    expect(await getGenericResource(f.bindings, f.spaceId, f.taskModel, task.record_id)).not.toBeNull();
+    await executeWorkflowAction(f.bindings, f.fresh(), f.spaceId, f.taskModel, task.record_id, "complete", 1);
+    await deleteGenericResource(f.bindings, f.fresh(), f.spaceId, f.taskModel, task.record_id, 2);
+    expect(await getGenericResource(f.bindings, f.spaceId, f.taskModel, task.record_id)).toBeNull();
+    expect(await f.tasks(plan.id)).toHaveLength(2);
+  });
   it("requires firstDueDate only with a rule; creates Task subject/link/occurrence atomically", async () => {
     const f = await fixture();
     await expect(createGenericResource(f.bindings, f.fresh(), f.spaceId, f.planModel, { title: "Invalid", repeat: completion })).rejects.toThrow("firstDueDate");

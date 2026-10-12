@@ -99,6 +99,10 @@ export function registerSpaceLifecycleRoutes(app: App): void {
         SET revoked_at=?
         WHERE source_space_id=? AND revoked_at IS NULL AND ${closedSpaceExists}`)
         .bind(closedAt, spaceId, spaceId, closedAt, closedAt),
+      c.env.DB.prepare(`UPDATE external_models SET status='disabled',updated_at=? WHERE space_id=? AND ${closedSpaceExists}`)
+        .bind(closedAt,spaceId,spaceId,closedAt,closedAt),
+      c.env.DB.prepare(`UPDATE external_sources SET status='disabled',updated_at=? WHERE space_id=? AND ${closedSpaceExists}`)
+        .bind(closedAt,spaceId,spaceId,closedAt,closedAt),
       c.env.DB.prepare(`UPDATE webhook_endpoints
         SET enabled=0,updated_at=?
         WHERE space_id=? AND deleted_at IS NULL AND enabled=1 AND ${closedSpaceExists}`)

@@ -3,22 +3,34 @@ import type { Bindings } from "../src/env";
 import { ApiError } from "../src/http";
 import worker from "../src/index";
 
-function fixture(rollingError?: Error, outboxError?: Error) {
+function fixture(rollingError?: Error, outboxError?: Error, externalError?: Error) {
   const queries: string[] = [];
   const prepare = vi.fn((sql: string) => {
     queries.push(sql);
     const rolling = sql.includes("FROM recurrence_plans");
-    const error = rolling ? rollingError : outboxError;
+    const external = sql.includes("FROM external_models");
+    const error = external ? externalError : rolling ? rollingError : outboxError;
     return { bind: () => ({ all: async () => {
       if (error) throw error;
       return { results: [] };
     } }) };
   });
-  return { env: { DB: { prepare } } as unknown as Bindings, queries };
+  return { env: { DB: { prepare }, ...(externalError ? { EXTERNAL_ADAPTER: {}, EXTERNAL_SCHEMA_REFRESH_SECONDS: "60" } : {}) } as unknown as Bindings, queries };
 }
 
 describe("Scheduled job failure isolation", () => {
   const controller = {} as ScheduledController;
+  it("runs rolling and outbox after an External refresh failure", async () => {
+    const error = new Error("External refresh unavailable"), f = fixture(undefined, undefined, error);
+    await expect(worker.scheduled(controller, f.env)).rejects.toBe(error);
+    expect(f.queries).toHaveLength(3);
+    expect(f.queries[2]).toContain("dispatched_at IS NULL");
+  });
+  it("retains both background failures while still dispatching", async () => {
+    const f = fixture(new Error("Rolling"), undefined, new Error("External"));
+    await expect(worker.scheduled(controller, f.env)).rejects.toBeInstanceOf(AggregateError);
+    expect(f.queries[2]).toContain("dispatched_at IS NULL");
+  });
   it("dispatches after rolling so newly generated events can be delivered", async () => {
     const f = fixture();
     await worker.scheduled(controller, f.env);

@@ -2,6 +2,10 @@
 
 Updated: 2026-09-23
 
+## Native and External / 原生与外部模型
+
+The DSL/publication/typed-storage/default version guarantees in this document describe **Native** models. The composite resolver is `(spaceId,modelKey) -> Native published descriptor | active local External registration`. Native resolution keeps its existing hot path; reserved `ext_*` addresses use current registration/connection state and latest compatible provider snapshot. External registration is not Native draft/publish/supersede, does not generate mct revisions, and does not inherit Policy/Workflow/Temporal/Calendar or transaction/concurrency guarantees. `docs/external-models.md` owns that boundary.
+
 ## 中文摘要
 
 LifeSpace 的普通业务模型采用 metadata-driven runtime。新增一个普通业务模型，不应要求修改 Core 的运行时代码；只有当平台增加新的 Kernel 能力或可复用 Capability 时，才需要新增平台代码。
@@ -132,7 +136,7 @@ DELETE /api/v1/spaces/{spaceId}/models/{modelKey}/records/{recordId}
 POST   /api/v1/spaces/{spaceId}/models/{modelKey}/records/{recordId}/actions/{actionKey}
 ```
 
-The Runtime resolves `modelKey` to a published compiled descriptor. It must not dispatch ordinary models to generated per-model routers/services.
+Native Runtime resolves `modelKey` to a published compiled descriptor; External resolution also binds the source `spaceId`. It must not dispatch ordinary models to generated per-model routers/services.
 
 ## 7. Physical storage
 

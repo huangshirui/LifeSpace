@@ -1,3 +1,6 @@
+import { registerExternalModelControlRoutes } from "./external-model-routes";
+import { registerExternalRuntimeRoutes } from "./external-runtime";
+import { registerExternalBatchRoutes } from "./external-batch";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import type { Bindings, Variables } from "./env";
@@ -48,6 +51,7 @@ function knownDatabaseApiError(error: unknown): ApiError | null {
       403,
     );
   }
+  if (message.includes("RECURRENCE_CURRENT_TASK_DELETE_FORBIDDEN")) return new ApiError("RECURRENCE_CURRENT_TASK_DELETE_FORBIDDEN", "Use skip-occurrence or remove the Plan recurrence before deleting the current Task; cancel stops without deletion", 409);
   if (message.includes("RECURRENCE_VERSION_CONFLICT")) return new ApiError("VERSION_CONFLICT", "Recurring plan changed before commit", 409);
   if (message.includes("RECURRENCE_AUTHORITY_UNAVAILABLE")) return new ApiError("RECURRENCE_AUTHORITY_UNAVAILABLE", "Current recurring intent authority is unavailable", 403);
   if (message.includes("PERSON_VERSION_CONFLICT")) {
@@ -116,6 +120,9 @@ export function createApp() {
   registerRuntimeModelSemanticDetailRoutes(app);
   registerRelationTargetRoutes(app);
   registerSemanticRelationRoutes(app);
+  registerExternalModelControlRoutes(app);
+  registerExternalBatchRoutes(app);
+  registerExternalRuntimeRoutes(app);
   registerGenericBatchRoutes(app);
   registerGenericBulkRoutes(app);
   registerGenericResourceRoutes(app);

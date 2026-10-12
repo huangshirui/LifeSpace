@@ -2,6 +2,10 @@
 
 Updated: 2026-10-09
 
+## External dynamic contracts / 外部动态契约
+
+Kernel 0.50.0 adds `origin: external` Space-local models beside the unchanged Native shapes. Native entries without `origin` continue to mean Native. External detail/inventory binds `(spaceId,key,schemaHash)`, has dynamic contract metadata and explicit runtime capabilities, and has no Native `version` or immutable mct revision. Unsupported provider fields are absent; normal requests must use the current fields/operator subset. External sorting/null placement/ties are provider-defined rather than Native-guaranteed. Consumers that require Native guarantees must hide External operations they cannot represent. Configuration-time `/me/_discovery/models` remains Native/global; External schema discovery requires the source Space visibility gate. MCP/n8n consumers must intentionally support dynamic contracts before advertising External CRUD; raw API uses the same model-addressed paths.
+
 ## 中文摘要
 
 LifeSpace 的消费方可以是传统应用、Agent、工作流、协议适配器或生成式 UI，但它们都只能消费平台已经发布的语义与授权结果，不能成为 LifeSpace Core 的语义来源。

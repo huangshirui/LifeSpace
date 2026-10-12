@@ -2,6 +2,10 @@
 
 Updated: 2026-09-28
 
+## External runtime budgets / 外部运行时预算
+
+The typed-storage and Native RTT budgets below apply to Native models. Adding External support adds zero required External metadata D1/Provider I/O to Native CRUD. External metadata/connection state is checked locally before execution; record payloads are never persisted. Ordinary External Get/Query uses one Adapter call and no schema preflight. External Bulk (1–20 items) loads one joined catalog, de-duplicates Authority once, writes pending operation audit together, fans out at concurrency <=3, and finalizes audit/identity linkage together: four normal-path D1 round trips, independent of item count. Schema mismatch/revocation/uncertain-write paths are separate bounded exceptions. Provider client quotas/retry and wall-time are Adapter concerns; local synthetic timings are not a live Provider p50/p95 SLO. `docs/external-models.md` specifies measurement/rollout prerequisites.
+
 ## 中文摘要
 
 LifeSpace 的性能目标不是通过牺牲一致性或授权实时性来换取速度，而是减少不必要的 Worker↔D1 往返、N+1 查询和重复 Registry 解析。

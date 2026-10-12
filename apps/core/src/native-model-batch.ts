@@ -36,6 +36,7 @@ const asError = (error: unknown): ApiError => {
   const message = error instanceof Error ? error.message : String(error);
   if (message.includes("SEMANTIC_RELATION_ENDPOINT_UNAVAILABLE")) return new ApiError("RESOURCE_NOT_FOUND", "Resource not found", 404);
   if (message.includes("DELEGATION_SINGLE_USE_UNAVAILABLE")) return new ApiError("DELEGATION_INVALID", "Delegation unavailable at commit", 403);
+  if (message.includes("RECURRENCE_CURRENT_TASK_DELETE_FORBIDDEN")) return new ApiError("RECURRENCE_CURRENT_TASK_DELETE_FORBIDDEN", "Use skip-occurrence or remove the Plan recurrence before deleting the current Task", 409);
   if (message.includes("RECURRENCE_VERSION_CONFLICT")) return new ApiError("VERSION_CONFLICT", "Recurring plan changed before commit", 409);
   if (message.includes("CHANGE_SET_INCOMPLETE")) return new ApiError("VERSION_CONFLICT", "Batch target changed before commit", 409);
   throw error;
