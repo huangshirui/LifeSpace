@@ -5,6 +5,7 @@ import { isFirstClassRangeFieldType, type FieldDefinition, type ModelAccess } fr
 import type { PublishedModel } from "./model-registry";
 import { referenceLabelSemantic, type ReferenceLabelSemantic } from "./reference-label";
 import { relationSemanticMetadata, type RelationResolutionDescriptor } from "./relation-semantic";
+import { semanticRelationDiscovery } from "./semantic-relation-definition";
 import { genericComparisonFieldSemantics, type GenericComparisonFieldSemantic } from "./query-semantics";
 import { projectTimeRangeSemantics, type TimeRangeSemantic } from "./time-range-definition";
 
@@ -67,6 +68,7 @@ export type ModelSemanticQueryParameter = {
 };
 
 export type ModelSemanticCapabilityQuery = ReturnType<typeof calendarViewingWindowSemanticQuery>;
+export type ModelSemanticRelations = ReturnType<typeof semanticRelationDiscovery>;
 
 export type ModelSemanticQueryFacts = {
   canonical: CanonicalQuerySemanticDescriptor;
@@ -122,6 +124,7 @@ export type ModelSemanticProjection = {
   referenceLabel: ReferenceLabelSemantic;
   declaredAccess: ModelAccess[];
   fields: ModelSemanticField[];
+  semanticRelations: ModelSemanticRelations;
   timeRanges: TimeRangeSemantic[];
   defaults: Record<string, unknown>;
   query: ModelSemanticQueryFacts;
@@ -323,6 +326,7 @@ export function projectModelSemanticFacts(model: PublishedModel): ModelSemanticP
     referenceLabel: referenceLabelSemantic(model.definition),
     declaredAccess: [...model.definition.access],
     fields: modelFieldSemanticFacts(model),
+    semanticRelations: semanticRelationDiscovery(model.key, model.definition.semanticRelations),
     timeRanges: projectTimeRangeSemantics(model.definition),
     defaults: structuredClone(model.definition.defaults ?? {}),
     query: modelQuerySemanticFacts(model),
