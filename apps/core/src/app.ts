@@ -12,6 +12,7 @@ import { registerGenericBulkRoutes } from "./generic-bulk-routes";
 import { registerRuntimeDiscoveryRoutes } from "./runtime-discovery";
 import { registerRuntimeModelSemanticDetailRoutes } from "./runtime-model-semantic-detail";
 import { registerRelationTargetRoutes } from "./relation-targets";
+import { registerSemanticRelationRoutes } from "./semantic-relation-routes";
 import { registerPersonDirectoryRoutes } from "./person-directory";
 import { registerEventSubscriptionRoutes } from "./event-subscription-routes";
 import { ApiError, failure, success } from "./http";
@@ -109,6 +110,7 @@ export function createApp() {
   registerConfigurationModelDiscoveryRoutes(app);
   registerRuntimeModelSemanticDetailRoutes(app);
   registerRelationTargetRoutes(app);
+  registerSemanticRelationRoutes(app);
   registerGenericBatchRoutes(app);
   registerGenericBulkRoutes(app);
   registerGenericResourceRoutes(app);
