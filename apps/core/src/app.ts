@@ -38,6 +38,9 @@ async function schemaVersion(env: Bindings) {
 
 function knownDatabaseApiError(error: unknown): ApiError | null {
   const message = error instanceof Error ? error.message : String(error);
+  if (message.includes("SEMANTIC_RELATION_ENDPOINT_UNAVAILABLE")) {
+    return new ApiError("RESOURCE_NOT_FOUND", "Resource not found", 404);
+  }
   if (message.includes("DELEGATION_SINGLE_USE_UNAVAILABLE")) {
     return new ApiError(
       "DELEGATION_INVALID",
@@ -127,3 +130,4 @@ export function createApp() {
   });
   return app;
 }
+

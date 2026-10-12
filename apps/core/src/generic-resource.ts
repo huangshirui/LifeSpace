@@ -611,8 +611,9 @@ export async function planCreateGenericMutation(
   extension?: ResourceMutationExtension,
   attribution: MutationAttribution = {},
   timestamp = new Date().toISOString(),
+  reservedRecordId?: string,
 ): Promise<ResourceMutationPlan> {
-  const id = createId();
+  const id = reservedRecordId ?? createId();
   const mutationToken = changeId();
   const storageType = resourceAuditStorageType(principal.type);
   const statements: D1PreparedStatement[] = [

@@ -9,7 +9,7 @@ import {
   type ModelAccessEvaluation,
   type ModelAccessRequest,
 } from "./model-authorization";
-import { getRuntimeModel, type PublishedModel } from "./model-registry";
+import { getRuntimeModel, listRuntimeModels, type PublishedModel } from "./model-registry";
 import { requireModelPolicy } from "./policy";
 import {
   isSemanticRelationPredicate,
@@ -17,6 +17,7 @@ import {
   type SemanticRelationPredicate,
 } from "./semantic-relation-definition";
 import { getTypedResourcesByModels } from "./typed-resource-batch";
+import { renderReferenceLabel } from "./reference-label";
 
 export type SemanticEntityRef = {
   kind: "record";
@@ -33,6 +34,8 @@ export type SemanticRelation = {
   createdAt: string;
   sourceRecord?: Record<string, unknown>;
   targetRecord?: Record<string, unknown>;
+  sourceLabel?: string;
+  targetLabel?: string;
 };
 
 export type SemanticRelationCreateInput = {
@@ -76,7 +79,6 @@ const MODEL_KEY = /^[a-z][a-z0-9_]{1,62}$/u;
 const RECORD_ID = /^rec_[A-Za-z0-9_-]+$/u;
 const RELATION_ID = /^rel_[A-Za-z0-9_-]+$/u;
 const MAX_QUERY_LIMIT = 100;
-const MAX_VISIBILITY_SCAN = 200;
 
 const relationId = () => `rel_${crypto.randomUUID().replaceAll("-", "")}`;
 const changeId = () => `chg_${crypto.randomUUID().replaceAll("-", "")}`;
@@ -350,19 +352,24 @@ export async function createSemanticRelation(
         target_model_key,target_record_id,created_at
       FROM semantic_relations
       WHERE space_id=? AND source_model_key=? AND source_record_id=? AND predicate=?
-        AND target_model_key=? AND target_record_id=?`).bind(
+        AND target_model_key=? AND target_record_id=?
+        AND NOT EXISTS(SELECT 1 FROM delegations d WHERE d.id IN (SELECT value FROM json_each(?))
+          AND (d.revoked_at IS NOT NULL OR (d.expires_at IS NOT NULL AND julianday(d.expires_at)<=julianday('now'))
+            OR (d.consumed_at IS NOT NULL AND d.consumed_by_change_id<>?)))`).bind(
       spaceId,
       input.source.modelKey,
       input.source.recordId,
       input.predicate,
       input.target.modelKey,
       input.target.recordId,
+      JSON.stringify(attribution.chain),
+      relationChangeId,
     ),
   ];
 
   const results = await env.DB.batch<SemanticRelationRow>(statements);
   const row = (results[results.length - 1]?.results ?? [])[0] as SemanticRelationRow | undefined;
-  if (!row) throw new ApiError("INTERNAL_ERROR", "Semantic Relation commit did not produce a readable edge", 500);
+  if (!row) throw new ApiError("DELEGATION_INVALID", "Delegation unavailable at commit", 403);
   return relationFromRow(row);
 }
 
@@ -374,7 +381,12 @@ async function relationRowById(
   if (!RELATION_ID.test(id)) return null;
   return env.DB.prepare(`SELECT id,space_id,source_model_key,source_record_id,predicate,
       target_model_key,target_record_id,created_at
-    FROM semantic_relations WHERE space_id=? AND id=?`).bind(spaceId, id).first<SemanticRelationRow>();
+    FROM semantic_relations e WHERE space_id=? AND id=?
+      AND EXISTS(SELECT 1 FROM resource_records r WHERE r.id=e.source_record_id
+        AND r.space_id=e.space_id AND r.model_key=e.source_model_key AND r.deleted_at IS NULL)
+      AND EXISTS(SELECT 1 FROM resource_records r WHERE r.id=e.target_record_id
+        AND r.space_id=e.space_id AND r.model_key=e.target_model_key AND r.deleted_at IS NULL)
+    `).bind(spaceId, id).first<SemanticRelationRow>();
 }
 
 export async function deleteSemanticRelation(
@@ -452,13 +464,18 @@ function relationWithHydration(
   row: SemanticRelationRow,
   resources: Map<string, GenericResource>,
   hydrate: SemanticRelationQuery["hydrate"],
+  models: Map<string, PublishedModel>,
 ): SemanticRelation {
   const relation = relationFromRow(row);
   if ((hydrate === "source" || hydrate === "both") && resources.has(row.source_record_id)) {
     relation.sourceRecord = recordView(resources.get(row.source_record_id)!);
+    relation.sourceLabel = renderReferenceLabel(models.get(row.source_model_key)!.definition,
+      row.source_record_id, resources.get(row.source_record_id)!.data);
   }
   if ((hydrate === "target" || hydrate === "both") && resources.has(row.target_record_id)) {
     relation.targetRecord = recordView(resources.get(row.target_record_id)!);
+    relation.targetLabel = renderReferenceLabel(models.get(row.target_model_key)!.definition,
+      row.target_record_id, resources.get(row.target_record_id)!.data);
   }
   return relation;
 }
@@ -480,10 +497,10 @@ async function visibleCandidates(
   rows: readonly SemanticRelationRow[],
   delegationId: string | null | undefined,
   hydrate: SemanticRelationQuery["hydrate"],
-): Promise<{ rows: SemanticRelationRow[]; resources: Map<string, GenericResource>; decisions: ModelAccessDecision[] }> {
+): Promise<{ rows: SemanticRelationRow[]; resources: Map<string, GenericResource>; decisions: ModelAccessDecision[]; models: Map<string, PublishedModel> }> {
   const modelKeys = [...new Set(rows.flatMap((row) => [row.source_model_key, row.target_model_key]))];
   const resolvedModels = await Promise.all(modelKeys.map(async (key) => [key, await getRuntimeModel(env, key)] as const));
-  const models = new Map(resolvedModels.filter((entry): entry is readonly [string, PublishedModel] => Boolean(entry[1])));
+  const models = new Map<string, PublishedModel>(resolvedModels.flatMap(([key, model]) => model ? [[key, model] as const] : []));
 
   const endpoints = new Map<string, { model: PublishedModel; recordId: string }>();
   for (const row of rows) {
@@ -570,6 +587,7 @@ async function visibleCandidates(
     ),
     resources,
     decisions: visibleDecisions,
+    models,
   };
 }
 
@@ -607,44 +625,84 @@ export async function querySemanticRelations(
     args.push(cursor.createdAt, cursor.createdAt, cursor.id);
   }
 
-  const scanLimit = Math.min(MAX_VISIBILITY_SCAN, Math.max(query.limit * 4, 40));
+  // Current read Policy is identity-only. Resolve all model/scope keys once,
+  // then constrain live endpoints in SQL before pagination, never refill pages.
+  const models = await listRuntimeModels(env);
+  const requests = models.flatMap((model) => {
+    const refs = [query.source, query.target].filter((ref) => ref?.modelKey === model.key);
+    const ids = [...new Set(refs.map((ref) => ref!.recordId))];
+    return [null, ...ids].map((recordId) => ({
+      model, required: "read" as const,
+      selector: { delegationId: query.delegationId ?? null, recordId },
+    }));
+  });
+  const evaluations = await evaluateModelAccessMany(env, principal, spaceId, requests);
+  const eligible: Array<{ modelKey: string; recordId: string | null; decision: ModelAccessDecision }> = [];
+  for (let index = 0; index < requests.length; index += 1) {
+    const evaluation = evaluations[index]!;
+    if (!evaluation.ok) continue;
+    const request = requests[index]!;
+    try {
+      await requireModelPolicy(env, evaluation.decision.principal, spaceId, request.model,
+        "read", undefined, undefined, evaluation.decision.policyIdentity);
+    } catch (error) {
+      if (!policyVisible(error)) continue;
+      throw error;
+    }
+    eligible.push({ modelKey: request.model.key, recordId: request.selector.recordId,
+      decision: evaluation.decision });
+  }
+  if (!eligible.length) return { items: [], nextCursor: null };
+  const scopes = JSON.stringify(eligible.map(({ modelKey, recordId }) => ({ modelKey, recordId })));
+  for (const side of ["source", "target"] as const) {
+    where.push(`EXISTS (SELECT 1 FROM json_each(?) allowed
+      WHERE json_extract(allowed.value,'$.modelKey')=e.${side}_model_key
+        AND (json_extract(allowed.value,'$.recordId') IS NULL
+          OR json_extract(allowed.value,'$.recordId')=e.${side}_record_id))`);
+    args.push(scopes);
+    where.push(`EXISTS (SELECT 1 FROM resource_records r
+      WHERE r.id=e.${side}_record_id AND r.space_id=e.space_id
+        AND r.model_key=e.${side}_model_key AND r.deleted_at IS NULL)`);
+  }
   const result = await env.DB.prepare(`SELECT id,space_id,source_model_key,source_record_id,predicate,
       target_model_key,target_record_id,created_at
-    FROM semantic_relations
+    FROM semantic_relations e
     WHERE ${where.join(" AND ")}
-    ORDER BY created_at DESC,id DESC
-    LIMIT ?`).bind(...args, scanLimit).all<SemanticRelationRow>();
-  const candidates = result.results;
-  if (!candidates.length) return { items: [], nextCursor: null };
-
-  const visible = await visibleCandidates(
-    env,
-    principal,
-    spaceId,
-    candidates,
-    query.delegationId,
-    query.hydrate,
-  );
-  const page = visible.rows.slice(0, query.limit);
-  let nextCursor: string | null = null;
-  if (visible.rows.length > query.limit) {
-    nextCursor = encodeCursor(page[page.length - 1]!);
-  } else if (candidates.length === scanLimit) {
-    nextCursor = page.length === query.limit
-      ? encodeCursor(page[page.length - 1]!)
-      : encodeCursor(candidates[candidates.length - 1]!);
+    ORDER BY created_at DESC,id DESC LIMIT ?`).bind(...args, query.limit + 1).all<SemanticRelationRow>();
+  const page = result.results.slice(0, query.limit);
+  const nextCursor = result.results.length > query.limit ? encodeCursor(page[page.length - 1]!) : null;
+  const resources = new Map<string, GenericResource>();
+  if (page.length && query.hydrate) {
+    const groups = new Map<string, Set<string>>();
+    for (const row of page) {
+      for (const side of ["source", "target"] as const) {
+        if (query.hydrate !== "both" && query.hydrate !== side) continue;
+        const key = row[`${side}_model_key`];
+        const ids = groups.get(key) ?? new Set<string>();
+        ids.add(row[`${side}_record_id`]); groups.set(key, ids);
+      }
+    }
+    const byKey = new Map(models.map((model) => [model.key, model]));
+    const loaded = await getTypedResourcesByModels(env, spaceId,
+      [...groups].map(([key, ids]) => ({ model: byKey.get(key)!, ids: [...ids] })));
+    for (const [id, resource] of loaded) resources.set(id, resource);
+    // A concurrent endpoint deletion between selection and hydration remains opaque.
+    for (let index = page.length - 1; index >= 0; index -= 1) {
+      const row = page[index]!;
+      if ((query.hydrate === "both" || query.hydrate === "source") && !resources.has(row.source_record_id)
+        || (query.hydrate === "both" || query.hydrate === "target") && !resources.has(row.target_record_id)) {
+        throw new ApiError("RESOURCE_NOT_FOUND", "Resource not found", 404);
+      }
+    }
   }
-
-  if (page.length && visible.decisions.length) {
-    // One request carries one selected Delegation leaf. Consuming one successful
-    // read decision therefore consumes the shared single-use chain exactly once.
-    await consumeSingleUseRead(env, visible.decisions[0]!);
+  if (page.length) {
+    const first = page[0]!;
+    const decision = eligible.find((entry) => entry.modelKey === first.source_model_key
+      && (entry.recordId === null || entry.recordId === first.source_record_id))!.decision;
+    await consumeSingleUseRead(env, decision);
   }
-
-  return {
-    items: page.map((row) => relationWithHydration(row, visible.resources, query.hydrate)),
-    nextCursor,
-  };
+  return { items: page.map((row) => relationWithHydration(row, resources, query.hydrate,
+    new Map(models.map(model => [model.key, model])))), nextCursor };
 }
 
 export async function getSemanticRelation(
@@ -660,5 +718,6 @@ export async function getSemanticRelation(
   const visible = await visibleCandidates(env, principal, spaceId, [row], delegationId, hydrate);
   if (!visible.rows.length) return null;
   if (visible.decisions.length) await consumeSingleUseRead(env, visible.decisions[0]!);
-  return relationWithHydration(row, visible.resources, hydrate);
+  return relationWithHydration(row, visible.resources, hydrate, visible.models);
 }
+

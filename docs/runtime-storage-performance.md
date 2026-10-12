@@ -226,3 +226,10 @@ Any Runtime/storage/performance change must answer:
 - Does it affect governed Change/audit attribution?
 - Is a new cache storing stable metadata or mutable authority?
 - Is the optimization justified by measurement rather than anticipated scale?
+
+
+## Semantic Relation gates / 语义关系性能门禁
+
+Hot Native Relation paths use isolate registry metadata and set-wise current Authority. Direct User JWT and Service Token Core RTT budgets: create 3, get 3 with hydration, query 3 with hydration (2 without), delete 4; single-use read may add 1. Represented opaque Agent Token adds one bounded chain-resolution RTT and one Identity introspection HTTP call. A 20-action mixed Batch is at most 3 Core RTT with existing endpoints, 2 when all endpoints are request-local creates; represented opaque Agent adds 1. Non-atomic common path uses one grouped commit; only endpoint/single-use commit contention allows bounded <=20 independent replay, preserving per-item atomicity.
+
+Relation tests cover 1060 edges with 1000 hidden before 60 visible, 50+10 complete pages, no hidden continuation and query hydration <=3 RTT / <12000 D1 rows read on this fixture; this rows-read gate is fixture-specific, not an arbitrary-scale SLA. Predicate-free source/target/Space indexes preserve stable sorting; predicate-specific indexes remain. High-connectivity Native delete tests cover 2000 incident edges. Local test duration is not deployed latency; staging JWT/Service/Agent wall-time gates remain required before release. Ordinary paths keep existing budgets and no semantic hydration tax.

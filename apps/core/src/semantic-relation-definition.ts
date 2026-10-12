@@ -52,6 +52,14 @@ export type SemanticRelationDefinition = {
   outgoing?: SemanticRelationPredicate[];
 };
 
+export const SEMANTIC_RELATION_RUNTIME = {
+  endpointOrigin: "native",
+  atomicBatch: true,
+  crossStoreAtomic: false,
+  externalEndpointResolution: false,
+  batchPathTemplate: "/api/v1/spaces/{spaceId}/models/batch",
+} as const;
+
 export function isSemanticRelationPredicate(value: string): value is SemanticRelationPredicate {
   return Object.prototype.hasOwnProperty.call(SEMANTIC_RELATION_PREDICATES, value);
 }
@@ -94,3 +102,4 @@ export function semanticRelationDiscovery(
     };
   });
 }
+

@@ -322,3 +322,8 @@ A future implementation of richer Agent identity, delegation, consent or approva
 ## Opaque Agent API credential boundary
 
 `lsp_agt_*` authenticates an active registered Application + active Agent Actor only. With no Delegation selector, Core evaluates direct Agent Authority. With an explicit current `dlg_*`, Core may resolve only a User Root Principal and executes as `Principal=User / Actor=Agent`; the adapter does not submit a `principalUserId`. Service/Agent or other represented Principal types are rejected on this credential profile. Credential scope, Application × Model Access, current User Authority and current Delegation all remain intersected at execution.
+
+
+## Semantic Relation authority / 语义关系授权
+
+Create/delete require source write and target read; target write is not required. Query/get return an edge only when both same-Space Native endpoints are live and readable, including current Application exposure, Membership/Data Grant, explicit Delegation and identity-only read Policy. Query eligibility participates before pagination. Neither cached projection nor a known edge ID grants mutation authority. Single-use consumption is atomic with the relation Change; idempotent retries recheck current authority, including commit-time consumed/revoked state. See [semantic-relations.md](semantic-relations.md).

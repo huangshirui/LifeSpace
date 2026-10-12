@@ -1187,3 +1187,8 @@ Do not add one-off domain runtime code merely because the DSL needs extension.
 - `apps/core/src/capability-definition.ts` and Capability runtime modules — Capability syntax/runtime.
 - `apps/core/src/model-contract.ts` — deterministic generated OpenAPI/JSON Schema projection.
 - `apps/core/src/model-registry.ts` — publication/version/Registry semantics.
+
+
+## Semantic Relation declarations / 语义关系声明
+
+Optional top-level semanticRelations contains only outgoing: an array of unique registered predicates. This declares source participation, not stored field values. Predicate registry owns descriptions and source/target constraints; unknown predicates or invalid source combinations fail validation. Actual directed instances are independent same-Space relations. Fixed record/person fields remain unchanged. See [semantic-relations.md](semantic-relations.md); this does not enable record-aware read Policy.

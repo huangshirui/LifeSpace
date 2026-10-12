@@ -254,3 +254,8 @@ A healthy Model Platform satisfies all of the following:
 - list/query hydration remains bounded and non-N+1;
 - ordinary mutations preserve Principal / Actor / Application / Delegation attribution where applicable;
 - consumer applications remain downstream dependencies only.
+
+
+## Independent business relations / 独立业务关系
+
+Semantic Relation is a generic junction resource above ordinary record storage. Model declarations and the platform predicate registry govern participation; no new semantic_relation field type or graph engine exists. Contract publication/reconciliation use the same canonical contribution before computing mct identity. Native endpoints use same-D1 liveness/cleanup, while External capabilities remain a separate #340 resolver boundary. See [semantic-relations.md](semantic-relations.md).

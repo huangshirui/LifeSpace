@@ -161,7 +161,7 @@ Business-facing Core Kernel contract:
 
 ```text
 apps/core/openapi.yaml
-current Kernel version: 0.49.0
+current Kernel version: 0.50.0
 ```
 
 Integration/Eventing public contract (same Worker, independent lifecycle):
@@ -221,3 +221,4 @@ A Core change is incomplete until:
 - `lsp_agt_*` is introspected through Identity and normalizes initially to direct `agent` Principal context.
 - An explicit `dlg_*` may resolve represented execution only to `Principal=user / Actor=agent`; no caller-supplied user identity is trusted.
 - Keep Delegation resolution set-wise/bounded for Batch; never add per-item Identity/D1 waterfalls.
+

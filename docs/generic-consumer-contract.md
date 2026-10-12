@@ -214,3 +214,8 @@ Core does not own:
 ## 12. Governing invariant
 
 > LifeSpace publishes one semantic and authority model. Every consumer is a projection over that model, and no consumer becomes a second semantic source or a prerequisite for the platform's own release lifecycle.
+
+
+## Semantic Relation consumption / 语义关系消费
+
+Discovery exposes outgoing predicates, meanings, endpoint model constraints and Native-only execution capability. Consumers use generated Relation request/response schemas and the unified Batch; request-local clientRef never becomes persistent identity. Hydration projects canonical reference labels plus requested record views under both endpoint read permissions. Consumers must honor explicit atomic support and must not infer a Provider transaction from a local D1 capability.

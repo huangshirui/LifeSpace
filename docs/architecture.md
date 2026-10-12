@@ -405,3 +405,8 @@ Publishing a compatible ordinary Model Definition does not itself require a Work
 - No browser receives Access/LifeSpace/actor/executor/backend/bootstrap bearer material.
 - No Cloudflare Access session alone equals LifeSpace platform-admin authority.
 - No privileged Console mutation may replace the signed human actor proof with an unsigned identity field.
+
+
+## Semantic Relation foundation / 语义关系基座
+
+PR #339 adds a Shared World relationship independent of ordinary fixed-field references. Semantic contract and governed predicate registry sit above one generic junction table; current Authority/Policy and Change are reused. Native endpoint liveness/cleanup and local D1 atomicity are enforced at commit. External resolution remains unavailable until #340 integration is verified; Provider/D1 operations never inherit local transaction guarantees. See [semantic-relations.md](semantic-relations.md). Not yet production.

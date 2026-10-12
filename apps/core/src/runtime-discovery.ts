@@ -9,7 +9,7 @@ import { listPublishedModels, type PublishedModel } from "./model-registry";
 import { projectModelSemanticFacts } from "./model-semantic-projection";
 import { referenceLabelSemantic } from "./reference-label";
 import { relationDiscoveryMetadata } from "./relation-targets";
-import { semanticRelationDiscovery } from "./semantic-relation-definition";
+import { semanticRelationDiscovery, SEMANTIC_RELATION_RUNTIME } from "./semantic-relation-definition";
 
 type AppEnv = { Bindings: Bindings; Variables: Variables };
 type App = Hono<AppEnv>;
@@ -181,6 +181,7 @@ function dto(model: PublishedModel, allowed: ModelAccess[]) {
       return { key, ...field, ...(relation ? { relation } : {}) };
     }),
     semanticRelations: semanticRelationDiscovery(model.key, model.definition.semanticRelations),
+    semanticRelationRuntime: SEMANTIC_RELATION_RUNTIME,
     defaults: structuredClone(model.definition.defaults ?? {}),
     query: {
       searchable: [...(model.definition.query?.searchable ?? [])],
@@ -470,3 +471,4 @@ export function registerRuntimeDiscoveryRoutes(app: App): void {
     return context.json(success({ spaceId, spaceName: visible.length ? space.name : null, models: visible }));
   });
 }
+

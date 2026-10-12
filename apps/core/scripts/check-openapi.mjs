@@ -3,7 +3,7 @@ import YAML from "yaml";
 
 const document = YAML.parse(fs.readFileSync(new URL("../openapi.yaml", import.meta.url), "utf8"));
 
-if (document.openapi !== "3.1.0" || document.info?.version !== "0.49.0") {
+if (document.openapi !== "3.1.0" || document.info?.version !== "0.50.0") {
   throw new Error("Core Kernel OpenAPI version metadata is invalid");
 }
 if (!document.info?.title?.includes("Kernel")) {
@@ -463,7 +463,7 @@ const semanticDetail = schemas.RuntimeModelSemanticDetail;
 const semanticDetailProperties = Object.keys(semanticDetail?.properties ?? {}).sort();
 const expectedSemanticDetailProperties = [
   "actions", "capabilities", "capabilityBindings", "declaredAccess", "defaults", "description", "display",
-  "fields", "key", "query", "referenceLabel", "schemaHash", "timeRanges", "version",
+  "fields", "key", "query", "referenceLabel", "schemaHash", "semanticRelations", "semanticRelationRuntime", "timeRanges", "version",
 ].sort();
 if (semanticDetail?.additionalProperties !== false
     || JSON.stringify(semanticDetailProperties) !== JSON.stringify(expectedSemanticDetailProperties)
@@ -652,3 +652,4 @@ for (const path of [
     throw new Error(`Authority-sensitive Kernel route missing Delegation selector: ${path}`);
   }
 }
+

@@ -152,6 +152,11 @@ export async function getRuntimeModel(env: Bindings, key: string): Promise<Runti
   return (await runtimeRegistrySnapshot(env)).byKey.get(key) ?? null;
 }
 
+/** Stable metadata only; querying this catalog never caches mutable Authority. */
+export async function listRuntimeModels(env: Bindings): Promise<RuntimeModelDescriptor[]> {
+  return [...(await runtimeRegistrySnapshot(env)).byKey.values()];
+}
+
 export async function validateDefinition(input: unknown): Promise<
   | { valid: true; definition: ModelDefinition; schemaHash: string }
   | { valid: false; issues: ModelValidationIssue[] }
@@ -383,3 +388,4 @@ export async function retireModel(env: Bindings, principal: Principal, key: stri
   }
   invalidateRuntimeModelRegistry(env);
 }
+

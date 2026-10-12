@@ -1,5 +1,7 @@
 import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
+import { getRuntimeModel } from "../src/model-registry";
+import type { Bindings } from "../src/env";
 
 type TestEnv = { DB: D1Database };
 
@@ -12,6 +14,19 @@ async function plan(sql: string, bindings: unknown[]): Promise<string> {
 }
 
 describe("Semantic Relation performance gates", () => {
+  it("keeps predicate-free and cursor traversal ordered by an index", async () => {
+    for (const side of ["source", "target"] as const) {
+      const query = await plan(`SELECT id FROM semantic_relations
+        WHERE space_id=? AND ${side}_model_key=? AND ${side}_record_id=?
+          AND (created_at<? OR (created_at=? AND id<?))
+        ORDER BY created_at DESC,id DESC LIMIT ?`,
+      ["spc_plan", "some_model", "rec_endpoint", "2026-10-12", "2026-10-12", "rel_cursor", 51]);
+      expect(query).toContain(`idx_semantic_relations_${side}_time`);
+      expect(query).not.toContain("TEMP B-TREE");
+    }
+    const space = await plan("SELECT id FROM semantic_relations WHERE space_id=? ORDER BY created_at DESC,id DESC LIMIT ?", ["spc_plan", 51]);
+    expect(space).toContain("idx_semantic_relations_space_time"); expect(space).not.toContain("TEMP B-TREE");
+  });
   it("uses the source, target, and predicate indexes for bounded traversal", async () => {
     const source = await plan(
       `SELECT id FROM semantic_relations
@@ -61,21 +76,23 @@ describe("Semantic Relation performance gates", () => {
     const spaceId = `spc_perf_${suffix}`;
     const endpointId = `rec_endpoint_${suffix}`;
     const now = new Date().toISOString();
+    const models = await Promise.all(["task", "wish"].map(key => getRuntimeModel({DB: db} as Bindings, key)));
+    const version = new Map(models.map(model => [model!.key, model!.version]));
 
     await db.batch([
       db.prepare("INSERT INTO spaces(id,name,created_by_user_id,created_at,updated_at,timezone) VALUES(?,?,?,?,?,?)")
         .bind(spaceId, "Relation perf", userId, now, now, "UTC"),
       db.prepare(`INSERT INTO resource_records(
-        id,space_id,model_key,model_version,data_json,version,
+        id,space_id,model_key,model_version,version,
         created_by_type,created_by_id,created_by_entity_type,created_by_name_snapshot,created_at,
         updated_by_type,updated_by_id,updated_by_entity_type,updated_by_name_snapshot,updated_at,
-        deleted_at,search_text,mutation_token
-      ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NULL)`)
+        deleted_at,mutation_token
+      ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NULL)`)
         .bind(
-          endpointId, spaceId, "endpoint_model", 1, "{}", 1,
+          endpointId, spaceId, "task", version.get("task")!, 1,
           "user", userId, "user", "Perf", now,
           "user", userId, "user", "Perf", now,
-          null, "",
+          null,
         ),
     ]);
 
@@ -84,26 +101,26 @@ describe("Semantic Relation performance gates", () => {
       const otherId = `rec_other_${index}_${suffix}`;
       statements.push(
         db.prepare(`INSERT INTO resource_records(
-          id,space_id,model_key,model_version,data_json,version,
+          id,space_id,model_key,model_version,version,
           created_by_type,created_by_id,created_by_entity_type,created_by_name_snapshot,created_at,
           updated_by_type,updated_by_id,updated_by_entity_type,updated_by_name_snapshot,updated_at,
-          deleted_at,search_text,mutation_token
-        ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NULL)`)
+          deleted_at,mutation_token
+        ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NULL)`)
           .bind(
-            otherId, spaceId, "other_model", 1, "{}", 1,
+            otherId, spaceId, "wish", version.get("wish")!, 1,
             "user", userId, "user", "Perf", now,
             "user", userId, "user", "Perf", now,
-            null, "",
+            null,
           ),
         db.prepare(`INSERT INTO semantic_relations(
           id,space_id,source_model_key,source_record_id,predicate,target_model_key,target_record_id,created_at
         ) VALUES(?,?,?,?,?,?,?,?)`).bind(
           `rel_out_${index}_${suffix}`,
           spaceId,
-          "endpoint_model",
+          "task",
           endpointId,
           "relates_to",
-          "other_model",
+          "wish",
           otherId,
           now,
         ),
@@ -112,10 +129,10 @@ describe("Semantic Relation performance gates", () => {
         ) VALUES(?,?,?,?,?,?,?,?)`).bind(
           `rel_in_${index}_${suffix}`,
           spaceId,
-          "other_model",
+          "wish",
           otherId,
           "relates_to",
-          "endpoint_model",
+          "task",
           endpointId,
           now,
         ),
@@ -134,7 +151,7 @@ describe("Semantic Relation performance gates", () => {
       changeId,
       endpointId,
       spaceId,
-      "endpoint_model",
+      "task",
       "delete",
       null,
       1,
@@ -162,3 +179,4 @@ describe("Semantic Relation performance gates", () => {
     expect(Number(evidence?.count ?? -1)).toBe(2000);
   });
 });
+

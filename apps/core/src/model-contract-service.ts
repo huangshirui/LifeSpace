@@ -1,6 +1,6 @@
 import type { Bindings, Principal } from "./env";
 import { ApiError } from "./http";
-import { generateModelContract } from "./semantic-relation-model-contract";
+import { generateModelContract } from "./model-contract";
 import {
   getActiveModelContract,
   getModelContract,
@@ -67,3 +67,4 @@ export async function readModelContract(env: Bindings, contractId: string): Prom
   if (!contract) throw new ApiError("MODEL_CONTRACT_NOT_FOUND", "Model contract revision not found", 404);
   return contract;
 }
+

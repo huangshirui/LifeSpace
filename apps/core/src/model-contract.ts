@@ -1,3 +1,4 @@
+import { applySemanticRelationContract } from "./semantic-relation-model-contract";
 import { calendarViewingWindowSemanticQuery } from "./calendar-query-semantics";
 import { canonicalQueryContractSchemas } from "./canonical-query-contract";
 import type { FieldDefinition, ModelDefinition } from "./model-definition";
@@ -1172,6 +1173,8 @@ export async function generateModelContract(input: PublishedModel[]): Promise<Mo
     },
   };
   const jsonSchema = jsonSchemaBundle(models);
+  applySemanticRelationContract(models, openapi, jsonSchema);
   const hash = await sha256(canonicalJson({ manifest, openapi, jsonSchema }));
   return { id: `mct_${hash}`, hash, manifest, openapi, jsonSchema };
 }
+

@@ -954,7 +954,31 @@
       "ModelDefinition": {
         "type": "object",
         "description": "Closed declarative Model Definition v1 validated by Core. The full shape is governed by the Model Definition validator and generated model-contract schemas; arbitrary executable code, SQL or shell fragments are not supported.",
-        "additionalProperties": true
+        "additionalProperties": true,
+        "properties": {
+          "semanticRelations": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "outgoing": {
+                "type": "array",
+                "uniqueItems": true,
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "relates_to",
+                    "monitors",
+                    "based_on",
+                    "generated_from",
+                    "follows_up",
+                    "observed_during",
+                    "addresses"
+                  ]
+                }
+              }
+            }
+          }
+        }
       },
       "ErrorResponse": {
         "type": "object",
