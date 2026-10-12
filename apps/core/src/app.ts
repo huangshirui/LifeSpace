@@ -1,3 +1,6 @@
+import { registerExternalModelControlRoutes } from "./external-model-routes";
+import { registerExternalRuntimeRoutes } from "./external-runtime";
+import { registerExternalBatchRoutes } from "./external-batch";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import type { Bindings, Variables } from "./env";
@@ -109,6 +112,9 @@ export function createApp() {
   registerConfigurationModelDiscoveryRoutes(app);
   registerRuntimeModelSemanticDetailRoutes(app);
   registerRelationTargetRoutes(app);
+  registerExternalModelControlRoutes(app);
+  registerExternalBatchRoutes(app);
+  registerExternalRuntimeRoutes(app);
   registerGenericBatchRoutes(app);
   registerGenericBulkRoutes(app);
   registerGenericResourceRoutes(app);

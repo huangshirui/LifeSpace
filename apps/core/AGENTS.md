@@ -61,6 +61,10 @@ Core does not own:
 - Metadata must not contain arbitrary JavaScript, SQL, shell code or unrestricted expressions.
 - Ordinary model mutations participate in platform Eventing generically; do not add model-specific event names or handwritten Webhook calls for new business models.
 
+## External Model boundary
+
+Read `docs/external-models.md`, `external-model.openapi.yaml` and `external-adapter.contract.json` before changing External registration/runtime behavior. `ext_*` is reserved; Native models retain Registry/typed storage/immutable mct. External credentials belong in the Adapter Secret store, Source provisioning is service-only Model Admin, and provider business records never enter D1. Unsupported provider fields are absent. Do not promise Native versions/transactions/outbox or single-use delegated mutation guarantees over an external write.
+
 ## Runtime performance rules
 
 - D1 Registry state is durable authority, but hot ordinary requests resolve published model metadata from the Worker-isolate runtime snapshot instead of re-reading Registry rows per request.
@@ -161,7 +165,7 @@ Business-facing Core Kernel contract:
 
 ```text
 apps/core/openapi.yaml
-current Kernel version: 0.49.0
+current Kernel version: 0.50.0
 ```
 
 Integration/Eventing public contract (same Worker, independent lifecycle):

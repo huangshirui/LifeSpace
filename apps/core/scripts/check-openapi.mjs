@@ -3,7 +3,7 @@ import YAML from "yaml";
 
 const document = YAML.parse(fs.readFileSync(new URL("../openapi.yaml", import.meta.url), "utf8"));
 
-if (document.openapi !== "3.1.0" || document.info?.version !== "0.49.0") {
+if (document.openapi !== "3.1.0" || document.info?.version !== "0.50.0") {
   throw new Error("Core Kernel OpenAPI version metadata is invalid");
 }
 if (!document.info?.title?.includes("Kernel")) {
@@ -587,7 +587,7 @@ if (!exactProperties(inventoryEdge, ["modelKey", "access"])
 if (inventoryData?.additionalProperties !== false
     || JSON.stringify(inventoryData?.required) !== JSON.stringify(["semanticDetailPathTemplate", "models", "spaces"])
     || inventoryData?.properties?.semanticDetailPathTemplate?.const !== "/api/v1/spaces/{spaceId}/_discovery/models/{modelKey}"
-    || inventoryData?.properties?.models?.items?.$ref !== "#/components/schemas/RuntimeDiscoveryInventoryModel"
+    || JSON.stringify(inventoryData?.properties?.models?.items?.oneOf?.map(entry=>entry.$ref)) !== JSON.stringify(["#/components/schemas/RuntimeDiscoveryInventoryModel","#/components/schemas/ExternalRuntimeInventoryModel"])
     || inventoryData?.properties?.spaces?.items?.$ref !== "#/components/schemas/RuntimeDiscoveryInventorySpace") {
   throw new Error("Compact capability inventory must point deterministically to progressive single-model semantic detail");
 }

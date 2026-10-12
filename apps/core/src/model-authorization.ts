@@ -11,7 +11,7 @@ import { ENTITY_ROLE_CAPABILITIES, type AuthoritySource } from "./entity-role-ca
 import type { Actor, Bindings, Principal } from "./env";
 import { ApiError } from "./http";
 import type { ModelAccess } from "./model-definition";
-import type { PublishedModel } from "./model-registry";
+export type ModelAuthorityTarget = { key: string; definition: { access: ModelAccess[] } };
 
 const accessRank: Record<ModelAccess, number> = { read: 2, write: 3, manage: 4 };
 const permissionRank: Record<Permission, number> = { free_busy: 1, read: 2, write: 3, manage: 4 };
@@ -44,7 +44,7 @@ export type DelegationSelector = {
 };
 
 export type ModelAccessRequest = {
-  model: PublishedModel;
+  model: ModelAuthorityTarget;
   required: ModelAccess;
   selector?: DelegationSelector;
 };
@@ -93,7 +93,7 @@ type PreparedAccess = {
 
 type PreparedBaseAuthority = {
   key: string;
-  model: PublishedModel;
+  model: ModelAuthorityTarget;
   statement: D1PreparedStatement;
 };
 
@@ -131,7 +131,7 @@ function preflight(principal: Principal, request: ModelAccessRequest): void {
 function baseAuthorityKey(
   principal: Principal,
   spaceId: string,
-  model: PublishedModel,
+  model: ModelAuthorityTarget,
 ): string {
   return [
     principal.clientId,
@@ -150,7 +150,7 @@ function baseAuthorityStatement(
   env: Bindings,
   principal: Principal,
   spaceId: string,
-  model: PublishedModel,
+  model: ModelAuthorityTarget,
 ): D1PreparedStatement {
   const sources = authoritySources(principal);
   const bindings: unknown[] = [
@@ -596,7 +596,7 @@ export async function requireModelAccess(
   env: Bindings,
   principal: Principal,
   spaceId: string,
-  model: PublishedModel,
+  model: ModelAuthorityTarget,
   required: ModelAccess,
   selector: DelegationSelector = {},
 ): Promise<ModelAccessDecision> {

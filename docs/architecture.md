@@ -1,5 +1,9 @@
 # LifeSpace Architecture
 
+## Federated model origins / 联邦模型来源
+
+Native ordinary models retain the global Published Registry, isolate Runtime Descriptor, typed D1 storage and immutable mct lifecycle described below. External Models use the provider-neutral framework in `docs/external-models.md`: one provider resource belongs to one source Space, registration uses reserved `ext_*`, the Space Catalog combines active Native + local External models, and only the latest compatible snapshot is stored. External business records stay provider-authoritative under Query. Runtime authority stays Core-owned; provider APIs and credentials are Adapter-owned. External mutations have operation audit, no Native version/transaction/outbox guarantee. Connection provisioning is service-only Model Admin; ordinary Space manage cannot select arbitrary Secret references.
+
 ## Purpose
 
 LifeSpace is a shared platform for replaceable applications, Agents, services and protocol adapters. It is the source of truth for global Identity, Space/Data Grant authorization, metadata-driven domain models, migrations, contracts and Cloudflare deployment configuration.
