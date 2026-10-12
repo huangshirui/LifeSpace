@@ -41,7 +41,7 @@ CREATE TABLE semantic_relation_changes (
   actor_type TEXT NOT NULL,
   actor_id TEXT NOT NULL,
   application_id TEXT NOT NULL,
-  delegation_id TEXT,
+  delegation_id TEXT REFERENCES delegations(id),
   occurred_at TEXT NOT NULL
 );
 
@@ -51,5 +51,49 @@ CREATE INDEX idx_semantic_relation_changes_space_time
   ON semantic_relation_changes(space_id,occurred_at DESC,id DESC);
 CREATE INDEX idx_semantic_relation_changes_actor
   ON semantic_relation_changes(actor_type,actor_id,occurred_at DESC,id DESC);
+
+-- Keep the exact Delegation chain used by a Relation mutation. As with ordinary
+-- resource Change evidence, inserting a single-use ancestor is the atomic consume
+-- point and aborts the whole D1 batch when the grant is no longer current.
+CREATE TABLE semantic_relation_change_delegations (
+  change_id TEXT NOT NULL REFERENCES semantic_relation_changes(id) ON DELETE CASCADE,
+  delegation_id TEXT NOT NULL REFERENCES delegations(id),
+  chain_position INTEGER NOT NULL CHECK(chain_position BETWEEN 0 AND 3),
+  PRIMARY KEY(change_id,chain_position),
+  UNIQUE(change_id,delegation_id)
+);
+
+CREATE INDEX idx_semantic_relation_change_delegations_delegation
+  ON semantic_relation_change_delegations(delegation_id,change_id);
+
+CREATE TRIGGER trg_semantic_relation_change_delegation_consume_single_use
+BEFORE INSERT ON semantic_relation_change_delegations
+WHEN EXISTS(
+  SELECT 1 FROM delegations
+  WHERE id=NEW.delegation_id AND max_uses=1
+)
+BEGIN
+  UPDATE delegations
+  SET consumed_at=(
+        SELECT occurred_at FROM semantic_relation_changes WHERE id=NEW.change_id
+      ),
+      consumed_by_change_id=NEW.change_id
+  WHERE id=NEW.delegation_id
+    AND max_uses=1
+    AND consumed_at IS NULL
+    AND revoked_at IS NULL
+    AND (expires_at IS NULL OR julianday(expires_at)>julianday('now'));
+
+  SELECT (CASE
+    WHEN NOT EXISTS(
+      SELECT 1
+      FROM delegations
+      WHERE id=NEW.delegation_id
+        AND max_uses=1
+        AND consumed_by_change_id=NEW.change_id
+    )
+    THEN RAISE(ABORT, 'DELEGATION_SINGLE_USE_UNAVAILABLE')
+  END);
+END;
 
 UPDATE schema_metadata SET value='54' WHERE key='schema_version';
