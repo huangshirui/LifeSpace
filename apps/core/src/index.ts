@@ -11,8 +11,13 @@ export default {
     await processWebhookDeliveryQueue(batch, env);
   },
   async scheduled(_controller: ScheduledController, env: Bindings): Promise<void> {
-    await rollRecurrenceWindow(env);
-    const dispatched = await dispatchPendingDomainEvents(env);
-    if (dispatched > 0) console.log("Domain events dispatched", { dispatched });
+    try {
+      await rollRecurrenceWindow(env);
+    } finally {
+      // A failed recurrence dependency must not starve the existing outbox.
+      // Preserve the rejection so the scheduler still reports failed rolling.
+      const dispatched = await dispatchPendingDomainEvents(env);
+      if (dispatched > 0) console.log("Domain events dispatched", { dispatched });
+    }
   },
 };
