@@ -761,6 +761,8 @@ describe("Space-local External Model framework", () => {
       "succeeded",
       "succeeded",
     ]);
+    expect(data.nativeBulkId).toMatch(/^blk_/);
+    expect(data.nativeBulkId).toMatch(/^blk_/);
     expect(data.items[0].version).toBe(1);
     expect(data.items[1].version).toBeUndefined();
   });

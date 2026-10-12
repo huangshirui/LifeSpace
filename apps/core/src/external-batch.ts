@@ -134,6 +134,7 @@ export function registerExternalBatchRoutes(app: Hono<AppEnv>) {
       )
         native.push({ index: i, op });
     }
+    let nativeBulkId: string | undefined;
     if (native.length) {
       const response = await app.request(
         c.req.url,
@@ -145,7 +146,7 @@ export function registerExternalBatchRoutes(app: Hono<AppEnv>) {
         c.env,
       );
       const data = (await response.json()) as {
-        data?: { items: Record<string, unknown>[] };
+        data?: { bulkId: string; items: Record<string, unknown>[] };
         error?: { code: string; message: string };
       };
       if (!response.ok)
@@ -154,6 +155,7 @@ export function registerExternalBatchRoutes(app: Hono<AppEnv>) {
           data.error?.message ?? "Native Bulk rejected",
           response.status as 400,
         );
+      nativeBulkId = data.data!.bulkId;
       for (let n = 0; n < native.length; n++)
         items[native[n]!.index] = {
           ...data.data!.items[n],
@@ -214,7 +216,9 @@ export function registerExternalBatchRoutes(app: Hono<AppEnv>) {
               status: 503,
             },
           };
-        return c.json(success({ bulkId, items }));
+        return c.json(
+          success({ bulkId, ...(nativeBulkId ? { nativeBulkId } : {}), items }),
+        );
       }
     for (let offset = 0; offset < externalIndexes.length; offset += 3)
       await Promise.all(
@@ -345,6 +349,8 @@ export function registerExternalBatchRoutes(app: Hono<AppEnv>) {
               },
             };
       }
-    return c.json(success({ bulkId, items }));
+    return c.json(
+      success({ bulkId, ...(nativeBulkId ? { nativeBulkId } : {}), items }),
+    );
   });
 }

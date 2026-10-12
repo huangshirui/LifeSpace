@@ -332,7 +332,7 @@
     {
       "id": "core-external-model",
       "source": "apps/core/external-model.openapi.yaml",
-      "operationSetSha256": "sha256:29bc9a6fea8617afe3bc21a50fa0eb74b2053744fc74e6fde41e7aeeb6ff7d74",
+      "operationSetSha256": "sha256:5c9600393af3c18803fdfd0c8d4efcde096104dcb74e720e0dd7274ee1c79979",
       "groups": [
         {
           "id": "external-source-provisioning",
