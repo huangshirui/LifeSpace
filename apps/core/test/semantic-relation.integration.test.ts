@@ -277,8 +277,8 @@ describe("Semantic Relation Runtime", () => {
     const deleted = await request(
       f.publicKey,
       f.bearer,
-      `/api/v1/spaces/${f.spaceId}/models/${f.targetModelKey}/records/${target.id}?version=${target.version}`,
-      { method: "DELETE" },
+      `/api/v1/spaces/${f.spaceId}/models/${f.targetModelKey}/records/${target.id}`,
+      { method: "DELETE", body: JSON.stringify({ version: target.version }) },
     );
     expect(deleted.status).toBe(204);
 
