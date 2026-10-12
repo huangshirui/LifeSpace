@@ -69,6 +69,7 @@ describe("Metadata-driven Recurrence runtime", () => {
     const paused = await updateGenericResource(f.bindings, f.fresh(), f.spaceId, f.planModel, plan.id, 1, { status: "paused" });
     await executeWorkflowAction(f.bindings, f.fresh(), f.spaceId, f.taskModel, first.record_id, "complete", 1);
     expect(await f.tasks(plan.id)).toHaveLength(1);
+    await expect(executeWorkflowAction(f.bindings, f.fresh(), f.spaceId, f.taskModel, first.record_id, "skip-occurrence", 2)).rejects.toThrow("completed occurrence");
     await updateGenericResource(f.bindings, f.fresh(), f.spaceId, f.planModel, plan.id, paused.version, { status: "active" });
     expect(await f.tasks(plan.id)).toHaveLength(2);
     const second = (await f.tasks(plan.id)).find(t => t.outcome === "active");

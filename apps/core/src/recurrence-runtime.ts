@@ -289,6 +289,7 @@ export async function recurrenceMutationStatements(env: Bindings, principal: Pri
     return statements;
   }
   if (!previous || !["complete", "cancel", "skip-occurrence"].includes(actionKey ?? "")) return [];
+  if (actionKey === "skip-occurrence" && previous.data.status === "completed") throw new ApiError("ACTION_NOT_AVAILABLE", "A completed occurrence cannot be skipped", 409);
   prepared.resources.set(recordId, { ...previous, data, version: previous.version + 1, updatedAt: timestamp });
   const occurrence = prepared.occurrences.get(String(data.recurrenceOccurrenceId));
   const old = occurrence ? prepared.states.get(occurrence.plan_record_id) : undefined;
