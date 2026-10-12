@@ -6,6 +6,12 @@ import {
   type ReferenceLabelDefinition,
 } from "./reference-label-syntax";
 import {
+  isSemanticRelationPredicate,
+  semanticRelationAllowsSource,
+  type SemanticRelationDefinition,
+  type SemanticRelationPredicate,
+} from "./semantic-relation-definition";
+import {
   validateCalendarTimeRangeCollisions,
   validateTimeRanges,
   type TimeRangeDefinitions,
@@ -14,6 +20,7 @@ import { isRfc3339Instant } from "./time-semantics";
 import { validateWorkflowActions, type WorkflowActionsDefinition } from "./workflow-definition";
 
 export type { ReferenceLabelDefinition } from "./reference-label-syntax";
+export type { SemanticRelationDefinition, SemanticRelationPredicate } from "./semantic-relation-definition";
 export type { TimeRangeBounds, TimeRangeDefinition, TimeRangeDefinitions } from "./time-range-definition";
 
 export const MODEL_DEFINITION_VERSION = 1 as const;
@@ -92,6 +99,7 @@ export type ModelDefinition = {
     plural: string;
   };
   fields: Record<string, FieldDefinition>;
+  semanticRelations?: SemanticRelationDefinition;
   timeRanges?: TimeRangeDefinitions;
   referenceLabel?: ReferenceLabelDefinition;
   defaults?: Record<string, ModelDefaultValue>;
@@ -199,6 +207,69 @@ function stringArray(
     issue(issues, path, "DUPLICATE_VALUE", `${path} must not contain duplicates`);
   }
   return [...value];
+}
+
+function validateSemanticRelations(
+  raw: unknown,
+  modelKey: string,
+  issues: ModelValidationIssue[],
+): SemanticRelationDefinition | undefined {
+  if (raw === undefined) return undefined;
+  if (!isObject(raw)) {
+    issue(issues, "semanticRelations", "INVALID_SEMANTIC_RELATIONS", "semanticRelations must be an object");
+    return undefined;
+  }
+  for (const property of Object.keys(raw)) {
+    if (property !== "outgoing") {
+      issue(
+        issues,
+        `semanticRelations.${property}`,
+        "UNKNOWN_PROPERTY",
+        `Unsupported semanticRelations property ${property}`,
+      );
+    }
+  }
+  const outgoingInput = stringArray(issues, raw.outgoing, "semanticRelations.outgoing");
+  if (!outgoingInput?.length) {
+    issue(
+      issues,
+      "semanticRelations.outgoing",
+      "SEMANTIC_RELATIONS_OUTGOING_REQUIRED",
+      "semanticRelations.outgoing must contain at least one registered predicate",
+    );
+    return undefined;
+  }
+  if (outgoingInput.length > 20) {
+    issue(
+      issues,
+      "semanticRelations.outgoing",
+      "TOO_MANY_SEMANTIC_RELATIONS",
+      "semanticRelations.outgoing may contain at most 20 predicates",
+    );
+  }
+  const outgoing: SemanticRelationPredicate[] = [];
+  for (const predicate of outgoingInput) {
+    if (!isSemanticRelationPredicate(predicate)) {
+      issue(
+        issues,
+        "semanticRelations.outgoing",
+        "UNKNOWN_SEMANTIC_RELATION_PREDICATE",
+        `${predicate} is not registered by LifeSpace`,
+      );
+      continue;
+    }
+    if (MODEL_KEY.test(modelKey) && !semanticRelationAllowsSource(predicate, modelKey)) {
+      issue(
+        issues,
+        "semanticRelations.outgoing",
+        "SEMANTIC_RELATION_SOURCE_NOT_ALLOWED",
+        `${predicate} is not registered for source model ${modelKey}`,
+      );
+      continue;
+    }
+    outgoing.push(predicate);
+  }
+  return outgoing.length ? { outgoing } : undefined;
 }
 
 function canonicalize(value: unknown): unknown {
@@ -366,6 +437,7 @@ export function validateModelDefinition(input: unknown): ModelValidationResult {
     "description",
     "display",
     "fields",
+    "semanticRelations",
     "timeRanges",
     "referenceLabel",
     "defaults",
@@ -395,6 +467,7 @@ export function validateModelDefinition(input: unknown): ModelValidationResult {
   if (!MODEL_KEY.test(key)) {
     issue(issues, "key", "INVALID_MODEL_KEY", "key must match /^[a-z][a-z0-9_]{1,62}$/");
   }
+  const semanticRelations = validateSemanticRelations(input.semanticRelations, key, issues);
 
   const description = boundedText(issues, input.description, "description", 500);
 
@@ -778,6 +851,7 @@ export function validateModelDefinition(input: unknown): ModelValidationResult {
     ...(description ? { description } : {}),
     display: { singular, plural },
     fields,
+    ...(semanticRelations ? { semanticRelations } : {}),
     ...(timeRangeResult.timeRanges ? { timeRanges: timeRangeResult.timeRanges } : {}),
     ...(referenceLabel ? { referenceLabel } : {}),
     ...(Object.keys(defaults).length ? { defaults } : {}),
