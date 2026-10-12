@@ -1,3 +1,7 @@
+import { isRecurrenceExecutor, recurrenceMutationStatements } from "./recurrence-runtime";
+import { parseEntityRef } from "./entity-ref";
+import { parseRecurrenceRule } from "./recurrence-rule";
+import { validateRecurrenceData } from "./recurrence-definition";
 import type { Bindings, Principal } from "./env";
 import { chunkD1Values } from "./d1-batch";
 import { ApiError } from "./http";
@@ -152,7 +156,7 @@ function changeStatement(
   attribution: MutationAttribution = {},
   mutationToken?: string,
 ): D1PreparedStatement {
-  if (principal.actor && !attribution.delegationId) {
+  if (principal.actor && !attribution.delegationId && !isRecurrenceExecutor(principal)) {
     throw new ApiError("DELEGATION_REQUIRED", "Represented mutation requires current Delegation authority", 403);
   }
   if (operation === "action" && !actionKey) {
@@ -317,6 +321,8 @@ function validateFieldValue(fieldKey: string, field: FieldDefinition, value: unk
     throw new ApiError("INVALID_RESOURCE", `${fieldKey} cannot be null`, 400);
   }
   switch (field.type) {
+    case "recurrence_rule": return parseRecurrenceRule(value);
+    case "entity_ref": return parseEntityRef(value);
     case "string":
     case "text": return stringValue(value, fieldKey, field);
     case "integer":
@@ -390,6 +396,7 @@ export function validateResourceData(
     }
     result[fieldKey] = validateFieldValue(fieldKey, field, effectiveInput[fieldKey]);
   }
+  validateRecurrenceData(definition.capabilities?.recurrence, result);
   return result;
 }
 
@@ -401,6 +408,12 @@ export function collectRelationProjections(
   for (const [fieldKey, field] of Object.entries(definition.fields)) {
     const value = data[fieldKey];
     if (value === undefined || value === null) continue;
+    if (field.type === "entity_ref") {
+      const ref = parseEntityRef(value);
+      relations.push(ref.kind === "person"
+        ? { fieldKey, targetType: "person", targetId: ref.personId, ordinal: 0 }
+        : { fieldKey, targetType: "record", targetId: ref.recordId, targetModelKey: ref.modelKey, ordinal: 0 });
+    }
     if (field.type === "person" || field.type === "person_list") {
       const ids = relationIds(value, fieldKey, field.type === "person_list");
       ids.forEach((targetId, ordinal) => {
@@ -653,6 +666,7 @@ export async function planCreateGenericMutation(
       mutationToken,
     }));
   }
+  statements.push(...await recurrenceMutationStatements(env, principal, spaceId, model, id, prepared.data, undefined, mutationToken, timestamp, attribution));
   statements.push(changeStatement(
     env,
     principal,
@@ -752,6 +766,7 @@ export async function planUpdateGenericMutation(
       mutationToken,
     }));
   }
+  statements.push(...await recurrenceMutationStatements(env, principal, spaceId, model, previous.id, prepared.data, previous, mutationToken, timestamp, attribution, actionKey));
   statements.push(changeStatement(
     env,
     principal,

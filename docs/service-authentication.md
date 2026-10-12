@@ -390,3 +390,8 @@ Downstream applications do not need to repin their business contract merely beca
 - Bootstrap secret as normal Console/service runtime authority.
 - One universal service token reused across environments/workloads.
 - OAuth as a mandatory indirection for every owner-controlled trusted service.
+
+
+## Recurrence current-root projection / 周期计划身份复核（Identity 0.12.0，开发中）
+
+`POST /introspection/v1/recurrence-roots` is internal Core-to-Identity traffic authenticated by the existing shared secret through the Service Binding. It accepts 1..40 already-enrolled User/Service/Agent root identities, checks current Application and identity/binding state and returns scope ceilings set-wise in one D1 batch. It issues no credential, Delegation or data Authority. Core intersects the enrolled scope ceiling with this fresh projection and its own current business authority. A credential used to enroll the Plan is not retained; application/principal disable and ceiling reduction still stop subsequent materialization. Identity must be deployed before a Core candidate that calls this new projection; missing/unavailable Identity fails closed.

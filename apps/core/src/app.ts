@@ -48,6 +48,8 @@ function knownDatabaseApiError(error: unknown): ApiError | null {
       403,
     );
   }
+  if (message.includes("RECURRENCE_VERSION_CONFLICT")) return new ApiError("VERSION_CONFLICT", "Recurring plan changed before commit", 409);
+  if (message.includes("RECURRENCE_AUTHORITY_UNAVAILABLE")) return new ApiError("RECURRENCE_AUTHORITY_UNAVAILABLE", "Current recurring intent authority is unavailable", 403);
   if (message.includes("PERSON_VERSION_CONFLICT")) {
     return new ApiError("PERSON_VERSION_CONFLICT", "Person version conflict", 409);
   }

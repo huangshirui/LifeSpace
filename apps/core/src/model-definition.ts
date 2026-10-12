@@ -36,6 +36,8 @@ export const CANONICAL_FIELD_TYPES = [
   "range<date>",
   "range<instant>",
   "temporal_range",
+  "recurrence_rule",
+  "entity_ref",
   "timezone",
   "enum",
   "person",
@@ -299,7 +301,7 @@ function validTimezone(value: string): boolean {
 }
 
 function validDefault(field: FieldDefinition, value: unknown): value is ModelDefaultValue {
-  if (field.type === "temporal_range" || isFirstClassRangeFieldType(field.type)) return false;
+  if (["recurrence_rule", "entity_ref"].includes(field.type) || field.type === "temporal_range" || isFirstClassRangeFieldType(field.type)) return false;
   if (value === null) return field.nullable === true;
 
   if (field.type === "person" || field.type === "record") return false;
@@ -748,7 +750,9 @@ export function validateModelDefinition(input: unknown): ModelValidationResult {
     for (const [kind, fieldKeys] of Object.entries(query)) {
       for (const fieldKey of fieldKeys ?? []) {
         const field = fields[fieldKey];
-        if (!field) {
+        if (field && ["recurrence_rule", "entity_ref"].includes(field.type)) {
+          issue(issues, `query.${kind}`, "UNSUPPORTED_QUERY_FIELD_TYPE", "Structured recurrence and entity reference fields have no scalar query ordering");
+        } else if (!field) {
           issue(issues, `query.${kind}`, "UNKNOWN_QUERY_FIELD", `${fieldKey} is not a declared field`);
         } else if ((field.type === "temporal_range" || isFirstClassRangeFieldType(field.type)) && kind === "searchable") {
           issue(
@@ -809,6 +813,7 @@ export function validateModelDefinition(input: unknown): ModelValidationResult {
 
   const capabilityResult = validateCapabilities(input.capabilities, fields);
   issues.push(...capabilityResult.issues);
+  if (key === "task" && capabilityResult.capabilities?.recurrence) issue(issues, "capabilities.recurrence", "RECURSIVE_RECURRENCE_TARGET", "The generated Task target cannot itself be a recurring plan");
   issues.push(...validateCalendarTimeRangeCollisions(
     timeRangeResult.timeRanges,
     capabilityResult.capabilities?.calendar,

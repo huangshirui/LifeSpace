@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: LifeSpace Identity API
-  version: 0.11.0
+  version: 0.12.0
   description: Global LifeSpace user identity, profile, trusted application exchange, Cloudflare Access principal resolution/linking, application credential lifecycle, Agent identity/execution-token issuance, service principals and credential issuance API.
 paths:
   /health:
@@ -311,6 +311,57 @@ paths:
         '204': { description: Agent API credential revoked }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { description: Active Agent API credential not found }
+  /introspection/v1/recurrence-roots:
+    post:
+      description: Internal Core-to-Identity set-wise current identity/application status and scope ceilings for already-enrolled recurring intents. This authenticates no end user and grants no Space/model Authority. No credentials or Delegations are stored or returned.
+      security: [{ internalServiceSecret: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [roots]
+              properties:
+                roots:
+                  type: array
+                  minItems: 1
+                  maxItems: 40
+                  items:
+                    type: object
+                    additionalProperties: false
+                    required: [type, id, applicationId]
+                    properties:
+                      type: { type: string, enum: [user, service, agent] }
+                      id: { type: string, maxLength: 100 }
+                      applicationId: { type: string, maxLength: 100 }
+      responses:
+        '200':
+          description: Ordered current root identity results, without data Authority
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: object
+                    required: [roots]
+                    properties:
+                      roots:
+                        type: array
+                        maxItems: 40
+                        items:
+                          type: object
+                          required: [type, id, applicationId, active, scopes]
+                          properties:
+                            type: { type: string, enum: [user, service, agent] }
+                            id: { type: string }
+                            applicationId: { type: string }
+                            active: { type: boolean }
+                            scopes: { type: array, items: { type: string } }
+        '400': { description: Invalid bounded roots }
+        '401': { description: Internal service authentication required }
   /introspection/v1/agent-credentials:
     post:
       description: Internal Core-to-Identity lsp_agt_* introspection through the Cloudflare Service Binding. Returns the authenticated Application + Agent Actor and credential scope ceiling only; it never resolves User Authority.

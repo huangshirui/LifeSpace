@@ -175,6 +175,8 @@ function instant(value: unknown, field: string): string {
 
 function scalarValue(field: FieldDefinition, raw: unknown, path: string): string | number {
   switch (field.type) {
+    case "recurrence_rule":
+    case "entity_ref": throw new ApiError("INVALID_QUERY", "Structured field is not a scalar comparison", 400);
     case "string":
       if (typeof raw !== "string") throw new ApiError("INVALID_QUERY", `${path} must be a string`, 400);
       return raw.trim();

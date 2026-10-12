@@ -219,3 +219,8 @@ Core does not own:
 ## Semantic Relation consumption / 语义关系消费
 
 Discovery exposes outgoing predicates, meanings, endpoint model constraints and Native-only execution capability. Consumers use generated Relation request/response schemas and the unified Batch; request-local clientRef never becomes persistent identity. Hydration projects canonical reference labels plus requested record views under both endpoint read permissions. Consumers must honor explicit atomic support and must not infer a Provider transaction from a local D1 capability.
+
+
+## Recurrence consumption / 周期计划消费（#338，开发中）
+
+Consumers discover capabilityBindings.recurrence and structured field valueSchema mechanically in configuration/Space semantic detail or the pinned immutable Model Contract. Binding names are semantic roles, not fixed business fields or UI layout. Task.subject accepts the exposed Person/Record entity_ref schema; generated_from uses the existing Semantic Relation API. Use canonical model CRUD/Task Actions (including skip-occurrence), honor required authority and optimistic versions, and let Core materialize the Tasks. n8n/MCP/Agent/generated UI must not guess plan field names or invent separate scheduler/association syntax.

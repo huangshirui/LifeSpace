@@ -20,11 +20,7 @@ export const SEMANTIC_RELATION_PREDICATES = {
   generated_from: {
     title: "Generated from",
     description: "The source was generated from the target plan, regimen, or other governing business object.",
-    pairs: [
-      { sourceModel: "task", targetModel: "health_regimen" },
-      { sourceModel: "task", targetModel: "maintenance_plan" },
-      { sourceModel: "task", targetModel: "payment_plan" },
-    ],
+    pairs: [{ sourceModel: "task", targetModel: "*" }],
   },
   follows_up: {
     title: "Follows up",

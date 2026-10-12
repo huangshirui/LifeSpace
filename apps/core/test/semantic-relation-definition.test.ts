@@ -48,7 +48,7 @@ describe("Semantic Relation Model Definition", () => {
 
   it("discovers registered endpoint constraints from a model declaration", () => {
     expect(semanticRelationAllowsEndpoints("generated_from", "task", "health_regimen")).toBe(true);
-    expect(semanticRelationAllowsEndpoints("generated_from", "task", "health_document")).toBe(false);
+    expect(semanticRelationAllowsEndpoints("generated_from", "task", "custom_plan")).toBe(true);
 
     const discovery = semanticRelationDiscovery("task", {
       outgoing: ["generated_from", "relates_to"],
@@ -57,7 +57,7 @@ describe("Semantic Relation Model Definition", () => {
       expect.objectContaining({
         predicate: "generated_from",
         direction: "outgoing",
-        targetModels: ["health_regimen", "maintenance_plan", "payment_plan"],
+        targetModels: ["*"],
       }),
       expect.objectContaining({
         predicate: "relates_to",

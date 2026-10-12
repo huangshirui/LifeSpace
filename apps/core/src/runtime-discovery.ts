@@ -1,3 +1,6 @@
+import type { RecurrenceCapabilityDefinition } from "./recurrence-definition";
+import { recurrenceRuleSchema } from "./recurrence-rule";
+import { entityRefSchema } from "./entity-ref";
 import type { Context, Hono } from "hono";
 import type { Permission, SpaceRole } from "./authorization";
 import { capabilityActionAccess } from "./capability-runtime";
@@ -30,7 +33,7 @@ type DelegationSpaceAccessRow = DelegationAccessRow & { source_space_id: string 
 
 type DiscoveryActionInputField = {
   key: string;
-  type: "string" | "text" | "integer" | "number" | "boolean" | "date" | "instant" | "range<date>" | "range<instant>" | "temporal_range" | "timezone" | "enum" | "person" | "person_list" | "record" | "record_list";
+  type: "string" | "text" | "integer" | "number" | "boolean" | "date" | "instant" | "range<date>" | "range<instant>" | "temporal_range" | "recurrence_rule" | "entity_ref" | "timezone" | "enum" | "person" | "person_list" | "record" | "record_list";
   title?: string;
   description?: string;
   required?: boolean;
@@ -59,6 +62,7 @@ type DiscoveryAction = {
 type DiscoveryCalendarCapabilityBinding = CalendarCapabilityDefinition;
 
 type DiscoveryCapabilityBindings = {
+  recurrence?: RecurrenceCapabilityDefinition;
   calendar?: DiscoveryCalendarCapabilityBinding;
 };
 
@@ -164,7 +168,8 @@ function actions(model: PublishedModel, allowed: ModelAccess[]): DiscoveryAction
 
 function capabilityBindings(model: PublishedModel): DiscoveryCapabilityBindings {
   const calendar = model.definition.capabilities?.calendar;
-  return calendar ? { calendar: structuredClone(calendar) } : {};
+  const recurrence = model.definition.capabilities?.recurrence;
+  return { ...(calendar ? { calendar: structuredClone(calendar) } : {}), ...(recurrence ? { recurrence: structuredClone(recurrence) } : {}) };
 }
 
 function dto(model: PublishedModel, allowed: ModelAccess[]) {
@@ -178,7 +183,7 @@ function dto(model: PublishedModel, allowed: ModelAccess[]) {
     access: allowed,
     fields: Object.entries(model.definition.fields).map(([key, field]) => {
       const relation = relationDiscoveryMetadata(field);
-      return { key, ...field, ...(relation ? { relation } : {}) };
+      return { key, ...field, ...(field.type === "recurrence_rule" ? { valueSchema: recurrenceRuleSchema() } : field.type === "entity_ref" ? { valueSchema: entityRefSchema() } : {}), ...(relation ? { relation } : {}) };
     }),
     semanticRelations: semanticRelationDiscovery(model.key, model.definition.semanticRelations),
     semanticRelationRuntime: SEMANTIC_RELATION_RUNTIME,

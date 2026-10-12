@@ -388,6 +388,31 @@ function asApiError(error: unknown): ApiError {
   throw error;
 }
 
+/** Internal durable-intent executor: direct roots only, current-state facts in one batch.
+ * This is not a credential resolver and must never receive request-supplied identities.
+ */
+export async function evaluateRecurrenceRoots(env: Bindings, entries: readonly {
+  principal: Principal; spaceId: string; request: ModelAccessRequest;
+}[]): Promise<ModelAccessEvaluation[]> {
+  const bases = new Map<string, D1PreparedStatement>();
+  const prepared = entries.map(entry => {
+    try {
+      if (entry.principal.actor || entry.request.selector?.delegationId) throw new ApiError("DELEGATION_INVALID", "Recurring intent uses its enrolled root", 403);
+      const value = prepareAccess(entry.principal, entry.spaceId, entry.request);
+      if (!bases.has(value.baseKey)) bases.set(value.baseKey, baseAuthorityStatement(env, entry.principal, entry.spaceId, entry.request.model));
+      return { value };
+    } catch (error) { return { error: asApiError(error) }; }
+  });
+  const keys = [...bases.keys()];
+  const results = keys.length ? await env.DB.batch<BaseAuthoritySnapshotRow>([...bases.values()]) : [];
+  const rows = new Map(keys.map((key, index) => [key, results[index]?.results[0] ?? null]));
+  return prepared.map((item, index) => {
+    if (!item.value) return { ok: false, error: item.error! };
+    try { return { ok: true, decision: decisionFromSnapshots(entries[index]!.principal, entries[index]!.spaceId, item.value, rows.get(item.value.baseKey) ?? null, []) }; }
+    catch (error) { return { ok: false, error: asApiError(error) }; }
+  });
+}
+
 async function evaluateModelAccessManyResolved(
   env: Bindings,
   principal: Principal,

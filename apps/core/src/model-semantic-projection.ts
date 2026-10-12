@@ -1,3 +1,6 @@
+import { recurrenceRuleSchema } from "./recurrence-rule";
+import { entityRefSchema } from "./entity-ref";
+import type { RecurrenceCapabilityDefinition } from "./recurrence-definition";
 import { isCanonicalCalendarCapability, type CalendarCapabilityDefinition, type TemporalCapabilityDefinition } from "./capability-definition";
 import { canonicalQuerySemanticDescriptor, type CanonicalQuerySemanticDescriptor } from "./canonical-query-contract";
 import { calendarViewingWindowSemanticQuery } from "./calendar-query-semantics";
@@ -16,6 +19,7 @@ export type ModelRelationSemantic = {
 };
 
 export type ModelSemanticField = FieldDefinition & {
+  valueSchema?: Record<string, unknown>;
   key: string;
   relation?: ModelRelationSemantic;
 };
@@ -111,6 +115,7 @@ export type ModelSemanticQueryFacts = {
 };
 
 export type ModelSemanticCapabilityBindings = {
+  recurrence?: RecurrenceCapabilityDefinition;
   calendar?: CalendarCapabilityDefinition;
   temporal?: TemporalCapabilityDefinition;
 };
@@ -156,6 +161,7 @@ export function modelFieldSemanticFacts(model: PublishedModel): ModelSemanticFie
       return {
         key,
         ...structuredClone(field),
+        ...(field.type === "recurrence_rule" ? { valueSchema: recurrenceRuleSchema() } : field.type === "entity_ref" ? { valueSchema: entityRefSchema() } : {}),
         ...(relation ? { relation } : {}),
       };
     });
@@ -312,6 +318,7 @@ export function modelCapabilitySemanticFacts(model: PublishedModel): {
     capabilityBindings: {
       ...(calendar ? { calendar: structuredClone(calendar) } : {}),
       ...(temporal ? { temporal: structuredClone(temporal) } : {}),
+      ...(model.definition.capabilities?.recurrence ? { recurrence: structuredClone(model.definition.capabilities.recurrence) } : {}),
     },
   };
 }

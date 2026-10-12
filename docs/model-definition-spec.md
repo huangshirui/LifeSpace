@@ -1192,3 +1192,10 @@ Do not add one-off domain runtime code merely because the DSL needs extension.
 ## Semantic Relation declarations / 语义关系声明
 
 Optional top-level semanticRelations contains only outgoing: an array of unique registered predicates. This declares source participation, not stored field values. Predicate registry owns descriptions and source/target constraints; unknown predicates or invalid source combinations fail validation. Actual directed instances are independent same-Space relations. Fixed record/person fields remain unchanged. See [semantic-relations.md](semantic-relations.md); this does not enable record-aware read Policy.
+
+
+## Recurrence and entity references / 周期与实体引用（#338，开发中）
+
+`recurrence_rule` is a closed structured field type; calendar daily/weekly/monthly/yearly and after_completion share the canonical schemas in the registered Recurrence capability. Yearly uses `dates: [{month,day}]`; weekly weeks start Monday. `entity_ref` is exactly a Person `{kind:"person",personId}` or native Record `{kind:"record",modelKey,recordId}` reference. Both have dedicated typed TEXT columns with validated structured values, no scalar search/filter/sort or literal defaults. Entity references also participate in same-Space reference-integrity projections.
+
+Recurrence metadata binds ruleField, firstDueDateField, statusField, optional endDateField and task name/description/subject/assignee roles. A non-null rule requires firstDueDate; endDate cannot precede it. These cross-field rules are evaluated against merged update data. Bindings must refer to declared fields of the required types; unknown properties, duplicate core bindings and recursive opt-in on the generated Task target are rejected. Runtime/configuration Discovery publishes valueSchema for structured fields and capabilityBindings.recurrence. Full behavior and authority rules are normative in [recurrence.md](./recurrence.md); Temporal cycle keeps its existing semantics.

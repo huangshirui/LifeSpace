@@ -120,6 +120,8 @@ function dateTime(value: string, field: string): string {
 
 function scalarValue(field: FieldDefinition, raw: string, key: string): string | number {
   switch (field.type) {
+    case "recurrence_rule":
+    case "entity_ref": throw new ApiError("INVALID_QUERY", "Structured field is not a scalar comparison", 400);
     case "string": return raw.trim();
     case "text": return raw;
     case "enum":

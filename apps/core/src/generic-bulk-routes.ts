@@ -1,3 +1,4 @@
+import { prepareRecurrenceMutations } from "./recurrence-runtime";
 import type { Context, Hono } from "hono";
 import {
   hasTemporalCapability,
@@ -34,6 +35,7 @@ type AppEnv = { Bindings: Bindings; Variables: Variables };
 type App = Hono<AppEnv>;
 type OperationKind = "create" | "update" | "delete";
 type BulkOperation = {
+  newRecordId?: string;
   operation: OperationKind;
   modelKey: string;
   recordId: string | null;
@@ -118,6 +120,9 @@ function parseEnvelope(value: unknown): unknown[] {
 }
 function asApiError(error: unknown): ApiError {
   if (error instanceof ApiError) return error;
+  const message = error instanceof Error ? error.message : String(error);
+  if (message.includes("RECURRENCE_VERSION_CONFLICT")) return new ApiError("VERSION_CONFLICT", "Recurring plan changed before commit", 409);
+  if (message.includes("RECURRENCE_AUTHORITY_UNAVAILABLE")) return new ApiError("RECURRENCE_AUTHORITY_UNAVAILABLE", "Current enrolled authority is unavailable", 403);
   throw error;
 }
 function errorDto(error: ApiError): BulkError { return { code: error.code, message: error.message, status: error.status }; }
@@ -170,7 +175,7 @@ async function prepareItems(env: Bindings, principal: Principal, spaceId: string
 
 async function buildPlan(env: Bindings, principal: Principal, spaceId: string, entry: PreparedBulkItem, bulkId: string, timestamp: string): Promise<ResourceMutationPlan> {
   const attribution = { delegationId: entry.decision.authority.delegationId, delegationChain: entry.decision.authority.delegationChain, bulkId };
-  if (entry.operation.operation === "create") return planCreateGenericMutation(env, principal, spaceId, entry.model, entry.preparedCreate!, entry.extension, attribution, timestamp);
+  if (entry.operation.operation === "create") return planCreateGenericMutation(env, principal, spaceId, entry.model, entry.preparedCreate!, entry.extension, attribution, timestamp, entry.operation.newRecordId);
   if (entry.operation.operation === "update") return planUpdateGenericMutation(env, principal, spaceId, entry.model, entry.previous!, entry.operation.version ?? entry.previous!.version, entry.preparedUpdate!, "client", undefined, undefined, attribution, timestamp);
   return planDeleteGenericMutation(env, principal, spaceId, entry.model, entry.previous!, entry.operation.version ?? entry.previous!.version, attribution, timestamp);
 }
@@ -218,6 +223,7 @@ export function registerGenericBulkRoutes(app: App): void {
     for (const item of items) {
       try {
         item.operation = parseOperation(item.raw, item.index);
+        if (item.operation.operation === "create") item.operation.newRecordId = `rec_${crypto.randomUUID().replaceAll("-", "")}`;
         if (item.operation.recordId) {
           const key = `${item.operation.modelKey}\u001f${item.operation.recordId}`;
           if (seenTargets.has(key)) throw new ApiError("INVALID_REQUEST", "One existing record may appear at most once in a Bulk", 400);
@@ -260,11 +266,18 @@ export function registerGenericBulkRoutes(app: App): void {
     const relationErrors = await validateRelationProjectionGroups(context.env, spaceId, relationGroups);
     relationErrors.forEach((error, offset) => { if (error) preparedItems[offset]!.error = error; });
 
+    await prepareRecurrenceMutations(context.env, executionPrincipal, spaceId, items.filter(item => !item.error && item.prepared && item.operation?.operation !== "delete").map(item => ({
+      model: item.model!, recordId: item.operation!.recordId ?? item.operation!.newRecordId,
+      previous: item.prepared!.previous ?? undefined,
+      data: item.prepared!.preparedCreate?.data ?? item.prepared!.preparedUpdate!.data,
+      attribution: { delegationId: item.decision?.authority.delegationId },
+    })));
     const bulkId = `blk_${crypto.randomUUID().replaceAll("-", "")}`;
     const timestamp = new Date().toISOString();
     for (const item of items) {
       if (item.error || !item.prepared) continue;
-      item.plan = await buildPlan(context.env, executionPrincipal, spaceId, item.prepared, bulkId, timestamp);
+      try { item.plan = await buildPlan(context.env, executionPrincipal, spaceId, item.prepared, bulkId, timestamp); }
+      catch (error) { item.error = asApiError(error); }
     }
     const planned = items.filter((item) => item.plan && !item.error);
     const executedBy = actor(executionPrincipal);

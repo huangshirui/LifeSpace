@@ -28,16 +28,16 @@ async function assertPublishedModelPhysicalSchema(modelKey: string): Promise<voi
   const plan = compilePhysicalSchema(model.definition);
 
   const tableInfo = await db.prepare(`PRAGMA table_info("${plan.tableName}")`).all<TableInfoRow>();
-  expect(tableInfo.results.map((row) => [row.name, row.type, row.notnull, row.pk])).toEqual([
+  expect(tableInfo.results.map((row) => [row.name, row.type, row.notnull, row.pk]).sort((a, b) => String(a[0]).localeCompare(String(b[0])))).toEqual([
     ["record_id", "TEXT", 0, 1],
     ["space_id", "TEXT", 1, 0],
     ...plan.columns.map((column) => [column.fieldKey, column.sqlType, column.nullable ? 0 : 1, 0]),
-  ]);
+  ].sort((a, b) => String(a[0]).localeCompare(String(b[0]))));
 
   const indexes = await db.prepare(`PRAGMA index_list("${plan.tableName}")`).all<IndexListRow>();
   const generatedIndexNames = indexes.results
     .map((row) => row.name)
-    .filter((name) => name.startsWith(`idx_${plan.tableName}_`))
+    .filter((name) => name.startsWith(`idx_${plan.tableName}_`) && name !== "idx_mdl_task_recurrence_occurrence")
     .sort();
   expect(generatedIndexNames).toEqual(plan.indexes.map((index) => index.name).sort());
 }

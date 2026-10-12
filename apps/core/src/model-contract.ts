@@ -1,3 +1,5 @@
+import { recurrenceRuleSchema } from "./recurrence-rule";
+import { entityRefSchema } from "./entity-ref";
 import { applySemanticRelationContract } from "./semantic-relation-model-contract";
 import { calendarViewingWindowSemanticQuery } from "./calendar-query-semantics";
 import { canonicalQueryContractSchemas } from "./canonical-query-contract";
@@ -43,6 +45,7 @@ function nullable(schema: JsonSchema, field: FieldDefinition): JsonSchema {
 
 function relationMetadata(field: FieldDefinition): JsonSchema | null {
   switch (field.type) {
+
     case "person":
       return { targetModel: "person", cardinality: "one" };
     case "person_list":
@@ -59,6 +62,8 @@ function relationMetadata(field: FieldDefinition): JsonSchema | null {
 function fieldSchema(field: FieldDefinition): JsonSchema {
   let schema: JsonSchema;
   switch (field.type) {
+    case "recurrence_rule": schema = recurrenceRuleSchema(); break;
+    case "entity_ref": schema = entityRefSchema(); break;
     case "string":
     case "text":
       schema = {
@@ -234,7 +239,10 @@ function createSchema(model: PublishedModel): JsonSchema {
       .map(([key]) => key),
   };
   const calendar = calendarCreateConstraint(model);
-  return calendar ? { ...base, allOf: [calendar] } : base;
+  const recurrence = model.definition.capabilities?.recurrence;
+  const conditions: JsonSchema[] = calendar ? [calendar] : [];
+  if (recurrence) conditions.push({ if: { required: [recurrence.ruleField], properties: { [recurrence.ruleField]: { type: "object" } } }, then: { required: [recurrence.firstDueDateField], properties: { [recurrence.firstDueDateField]: { type: "string", format: "date" } } } });
+  return conditions.length ? { ...base, allOf: conditions } : base;
 }
 
 function concurrencyVersionSchema(): JsonSchema {
@@ -1110,6 +1118,7 @@ function jsonSchemaBundle(models: PublishedModel[]): JsonSchema {
       canonicalQuerySchema: `#/$defs/${canonicalQueryName}`,
       actions: [...Object.keys(model.definition.actions ?? {}).sort(), ...capabilityActions],
       capabilities: Object.keys(model.definition.capabilities ?? {}).sort(),
+      capabilityBindings: structuredClone(model.definition.capabilities ?? {}),
     };
   }
   return {

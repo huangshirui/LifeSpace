@@ -327,3 +327,10 @@ A future implementation of richer Agent identity, delegation, consent or approva
 ## Semantic Relation authority / 语义关系授权
 
 Create/delete require source write and target read; target write is not required. Query/get return an edge only when both same-Space Native endpoints are live and readable, including current Application exposure, Membership/Data Grant, explicit Delegation and identity-only read Policy. Query eligibility participates before pagination. Neither cached projection nor a known edge ID grants mutation authority. Single-use consumption is atomic with the relation Change; idempotent retries recheck current authority, including commit-time consumed/revoked state. See [semantic-relations.md](semantic-relations.md).
+
+
+## Durable recurring intent / 持续计划授权（#338，开发中）
+
+Activating/materially replacing a Plan's Recurrence requires current Plan write plus Task write under the verified caller and the same selected Delegation, when represented. This enrolls a bounded durable intent for that Plan in its source Space. It does not persist a credential or short-lived Delegation. Subsequent background execution uses its enrolled Root/Application, current Identity status/scope ceilings, current Space/Membership/Grant/Application Model Access and model Policy. Current Core authority is also guarded inside the generation transaction.
+
+The recurrence engine alone may construct an unforgeable in-process internal service Actor context for executing that intent; ordinary represented HTTP operations retain their mandatory current Delegation rule. The internal context is limited to validated Plan materialization/cancellation and carries exact governed Change attribution. It cannot be supplied in a body, inferred from an actor ID or reused as general platform administration. Pausing/removing the rule or revoking/disabling current enrolled authority stops generation. Credential/Delegation expiry of the original enrollment invocation does not itself cancel the durable Plan. For denied completion-based successor generation, the active complete/skip transaction fails atomically. See [recurrence.md](./recurrence.md).

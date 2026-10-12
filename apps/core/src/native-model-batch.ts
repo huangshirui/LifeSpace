@@ -1,3 +1,4 @@
+import { prepareRecurrenceMutations } from "./recurrence-runtime";
 import { hasTemporalCapability } from "./capability-runtime";
 import type { Bindings, Principal } from "./env";
 import { ApiError } from "./http";
@@ -35,6 +36,7 @@ const asError = (error: unknown): ApiError => {
   const message = error instanceof Error ? error.message : String(error);
   if (message.includes("SEMANTIC_RELATION_ENDPOINT_UNAVAILABLE")) return new ApiError("RESOURCE_NOT_FOUND", "Resource not found", 404);
   if (message.includes("DELEGATION_SINGLE_USE_UNAVAILABLE")) return new ApiError("DELEGATION_INVALID", "Delegation unavailable at commit", 403);
+  if (message.includes("RECURRENCE_VERSION_CONFLICT")) return new ApiError("VERSION_CONFLICT", "Recurring plan changed before commit", 409);
   if (message.includes("CHANGE_SET_INCOMPLETE")) return new ApiError("VERSION_CONFLICT", "Batch target changed before commit", 409);
   throw error;
 };
@@ -232,6 +234,12 @@ export async function executeNativeModelBatch(env: Bindings, principal: Principa
     ? await loadSpaceTemporalContext(env, spaceId) : undefined;
   const correlationId = randomId(atomic ? "cgs" : "blk");
   const timestamp = new Date().toISOString();
+  await prepareRecurrenceMutations(env, execution, spaceId, items.filter(item => !item.error && item.record && item.record.operation !== "delete").map(item => ({
+    model: item.model!, recordId: item.record!.recordId ?? item.record!.newRecordId,
+    previous: item.record!.recordId ? resources.get(item.record!.recordId) : undefined,
+    data: { ...(item.record!.recordId ? resources.get(item.record!.recordId)?.data : {}), ...item.record!.data },
+    attribution: { delegationId: item.decisions[0]?.authority.delegationId },
+  })));
   for (const item of items) {
     if (item.error || !item.record) continue;
     try {
