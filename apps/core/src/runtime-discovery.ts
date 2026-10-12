@@ -9,6 +9,7 @@ import { listPublishedModels, type PublishedModel } from "./model-registry";
 import { projectModelSemanticFacts } from "./model-semantic-projection";
 import { referenceLabelSemantic } from "./reference-label";
 import { relationDiscoveryMetadata } from "./relation-targets";
+import { semanticRelationDiscovery } from "./semantic-relation-definition";
 
 type AppEnv = { Bindings: Bindings; Variables: Variables };
 type App = Hono<AppEnv>;
@@ -179,6 +180,7 @@ function dto(model: PublishedModel, allowed: ModelAccess[]) {
       const relation = relationDiscoveryMetadata(field);
       return { key, ...field, ...(relation ? { relation } : {}) };
     }),
+    semanticRelations: semanticRelationDiscovery(model.key, model.definition.semanticRelations),
     defaults: structuredClone(model.definition.defaults ?? {}),
     query: {
       searchable: [...(model.definition.query?.searchable ?? [])],
