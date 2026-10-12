@@ -27,6 +27,14 @@ import {
 } from "./model-authorization";
 import { getRuntimeModel, type PublishedModel } from "./model-registry";
 import { requireModelPolicy } from "./policy";
+import {
+  planBatchSemanticRelations,
+  validateBatchSemanticRelation,
+  validateBatchSemanticRelationAuthority,
+  type BatchSemanticRelationSpec,
+  type PreparedBatchSemanticRelation,
+} from "./semantic-relation-batch";
+import { isSemanticRelationPredicate } from "./semantic-relation-definition";
 import { loadSpaceTemporalContext, type SpaceTemporalContext } from "./temporal-capability";
 import { getTypedResourcesByModels } from "./typed-resource-batch";
 
@@ -41,6 +49,7 @@ type BatchOperation = {
   version: number | null;
   data: Record<string, unknown> | null;
   delegationId: string | null;
+  semanticRelations: BatchSemanticRelationSpec[];
 };
 type PlannedInput = {
   operation: BatchOperation;
@@ -51,8 +60,14 @@ type PlannedInput = {
   preparedUpdate?: PreparedUpdateMutation;
   extension?: ResourceMutationExtension;
 };
+type RelationTarget = {
+  operationIndex: number;
+  spec: BatchSemanticRelationSpec;
+  model: PublishedModel;
+};
 
 const MAX_BATCH_OPERATIONS = 20;
+const MAX_BATCH_SEMANTIC_RELATIONS = 20;
 const modelKeyPattern = /^[A-Za-z][A-Za-z0-9_]{0,99}$/u;
 const recordIdPattern = /^rec_[A-Za-z0-9_-]+$/u;
 const delegationIdPattern = /^dlg_[A-Za-z0-9_-]+$/u;
@@ -80,6 +95,58 @@ function optionalDelegationId(value: unknown): string | null {
   return value;
 }
 
+function parseSemanticRelations(value: unknown, index: number): BatchSemanticRelationSpec[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) {
+    throw new ApiError("INVALID_REQUEST", `Batch create ${index} semanticRelations must be an array`, 400);
+  }
+  const relations = value.map((entry, relationIndex) => {
+    const input = object(entry, `Batch create ${index} semanticRelations[${relationIndex}] must be an object`);
+    const extra = Object.keys(input).find((key) => !["predicate", "target"].includes(key));
+    if (extra) {
+      throw new ApiError(
+        "INVALID_REQUEST",
+        `Batch create ${index} semanticRelations[${relationIndex}] does not allow ${extra}`,
+        400,
+      );
+    }
+    if (typeof input.predicate !== "string" || !isSemanticRelationPredicate(input.predicate)) {
+      throw new ApiError(
+        "INVALID_REQUEST",
+        `Batch create ${index} semanticRelations[${relationIndex}] predicate is not registered`,
+        400,
+      );
+    }
+    const target = object(
+      input.target,
+      `Batch create ${index} semanticRelations[${relationIndex}].target must be a record entity_ref`,
+    );
+    if (Object.keys(target).some((key) => !["kind", "modelKey", "recordId"].includes(key))
+        || target.kind !== "record"
+        || typeof target.modelKey !== "string"
+        || !modelKeyPattern.test(target.modelKey)
+        || typeof target.recordId !== "string"
+        || !recordIdPattern.test(target.recordId)) {
+      throw new ApiError(
+        "INVALID_REQUEST",
+        `Batch create ${index} semanticRelations[${relationIndex}].target is invalid`,
+        400,
+      );
+    }
+    return {
+      predicate: input.predicate,
+      target: { kind: "record" as const, modelKey: target.modelKey, recordId: target.recordId },
+    };
+  });
+  const identities = relations.map((relation) =>
+    `${relation.predicate}\u0000${relation.target.modelKey}\u0000${relation.target.recordId}`
+  );
+  if (new Set(identities).size !== identities.length) {
+    throw new ApiError("INVALID_REQUEST", `Batch create ${index} contains duplicate semanticRelations`, 400);
+  }
+  return relations;
+}
+
 function parseOperation(value: unknown, index: number): BatchOperation {
   const input = object(value, `Batch operation ${index} must be an object`);
   const operation = input.operation;
@@ -92,7 +159,7 @@ function parseOperation(value: unknown, index: number): BatchOperation {
   const delegationId = optionalDelegationId(input.delegationId);
 
   if (operation === "create") {
-    const allowed = new Set(["operation", "modelKey", "data", "delegationId"]);
+    const allowed = new Set(["operation", "modelKey", "data", "delegationId", "semanticRelations"]);
     const extra = Object.keys(input).find((key) => !allowed.has(key));
     if (extra) throw new ApiError("INVALID_REQUEST", `Batch create ${index} does not allow ${extra}`, 400);
     return {
@@ -102,6 +169,7 @@ function parseOperation(value: unknown, index: number): BatchOperation {
       version: null,
       data: object(input.data, `Batch create ${index} data must be an object`),
       delegationId,
+      semanticRelations: parseSemanticRelations(input.semanticRelations, index),
     };
   }
 
@@ -120,6 +188,7 @@ function parseOperation(value: unknown, index: number): BatchOperation {
       version,
       data: null,
       delegationId,
+      semanticRelations: [],
     };
   }
 
@@ -137,6 +206,7 @@ function parseOperation(value: unknown, index: number): BatchOperation {
     version,
     data,
     delegationId,
+    semanticRelations: [],
   };
 }
 
@@ -155,6 +225,17 @@ function parseBatch(value: unknown): BatchOperation[] {
     );
   }
   const operations = input.operations.map(parseOperation);
+  const semanticRelationCount = operations.reduce(
+    (count, operation) => count + operation.semanticRelations.length,
+    0,
+  );
+  if (semanticRelationCount > MAX_BATCH_SEMANTIC_RELATIONS) {
+    throw new ApiError(
+      "INVALID_REQUEST",
+      `One Batch may create at most ${MAX_BATCH_SEMANTIC_RELATIONS} Semantic Relations`,
+      400,
+    );
+  }
   const existingTargets = operations
     .filter((operation) => operation.recordId)
     .map((operation) => operation.recordId!);
@@ -165,37 +246,82 @@ function parseBatch(value: unknown): BatchOperation[] {
       400,
     );
   }
+  const mutatedTargets = new Set(existingTargets);
+  for (const operation of operations) {
+    for (const relation of operation.semanticRelations) {
+      if (mutatedTargets.has(relation.target.recordId)) {
+        throw new ApiError(
+          "INVALID_REQUEST",
+          "A Semantic Relation target cannot also be updated or deleted by the same Batch",
+          400,
+        );
+      }
+    }
+  }
   return operations;
 }
 
 async function modelsForOperations(
   env: Bindings,
   operations: readonly BatchOperation[],
-): Promise<PublishedModel[]> {
+): Promise<{ operationModels: PublishedModel[]; modelByKey: Map<string, PublishedModel> }> {
   const cache = new Map<string, PublishedModel>();
-  for (const operation of operations) {
-    if (cache.has(operation.modelKey)) continue;
-    const model = await getRuntimeModel(env, operation.modelKey);
+  const keys = [...new Set(operations.flatMap((operation) => [
+    operation.modelKey,
+    ...operation.semanticRelations.map((relation) => relation.target.modelKey),
+  ]))];
+  for (const key of keys) {
+    const model = await getRuntimeModel(env, key);
     if (!model) {
-      throw new ApiError("MODEL_NOT_FOUND", `Published model ${operation.modelKey} not found`, 404);
+      throw new ApiError("MODEL_NOT_FOUND", `Published model ${key} not found`, 404);
     }
-    cache.set(operation.modelKey, model);
+    cache.set(key, model);
   }
-  return operations.map((operation) => cache.get(operation.modelKey)!);
+  return {
+    operationModels: operations.map((operation) => cache.get(operation.modelKey)!),
+    modelByKey: cache,
+  };
+}
+
+function relationTargets(
+  operations: readonly BatchOperation[],
+  operationModels: readonly PublishedModel[],
+  modelByKey: Map<string, PublishedModel>,
+): RelationTarget[] {
+  const targets: RelationTarget[] = [];
+  operations.forEach((operation, operationIndex) => {
+    for (const spec of operation.semanticRelations) {
+      const targetModel = modelByKey.get(spec.target.modelKey)!;
+      validateBatchSemanticRelation(operationModels[operationIndex]!, targetModel, spec);
+      targets.push({ operationIndex, spec, model: targetModel });
+    }
+  });
+  return targets;
 }
 
 function authorityRequests(
   operations: readonly BatchOperation[],
   models: readonly PublishedModel[],
+  targets: readonly RelationTarget[],
 ): ModelAccessRequest[] {
-  return operations.map((operation, index) => ({
-    model: models[index]!,
-    required: "write",
-    selector: {
-      delegationId: operation.delegationId,
-      ...(operation.recordId ? { recordId: operation.recordId } : {}),
-    },
-  }));
+  return [
+    ...operations.map((operation, index) => ({
+      model: models[index]!,
+      required: "write" as const,
+      selector: {
+        delegationId: operation.delegationId,
+        ...(operation.recordId ? { recordId: operation.recordId } : {}),
+      },
+    })),
+    ...targets.map((target) => ({
+      model: target.model,
+      required: "read" as const,
+      selector: {
+        delegationId: operations[target.operationIndex]!.delegationId,
+        recordId: target.spec.target.recordId,
+      },
+    })),
+  ];
 }
 
 function rejectRepeatedSingleUse(decisions: readonly ModelAccessDecision[]): void {
@@ -219,16 +345,26 @@ async function loadExistingResources(
   spaceId: string,
   operations: readonly BatchOperation[],
   models: readonly PublishedModel[],
+  targets: readonly RelationTarget[],
 ): Promise<Map<string, GenericResource>> {
-  const idsByModel = new Map<string, { model: PublishedModel; ids: string[] }>();
+  const idsByModel = new Map<string, { model: PublishedModel; ids: Set<string> }>();
   operations.forEach((operation, index) => {
     if (!operation.recordId) return;
     const model = models[index]!;
-    const group = idsByModel.get(model.key) ?? { model, ids: [] };
-    group.ids.push(operation.recordId);
+    const group = idsByModel.get(model.key) ?? { model, ids: new Set<string>() };
+    group.ids.add(operation.recordId);
     idsByModel.set(model.key, group);
   });
-  return getTypedResourcesByModels(env, spaceId, [...idsByModel.values()]);
+  for (const target of targets) {
+    const group = idsByModel.get(target.model.key) ?? { model: target.model, ids: new Set<string>() };
+    group.ids.add(target.spec.target.recordId);
+    idsByModel.set(target.model.key, group);
+  }
+  return getTypedResourcesByModels(
+    env,
+    spaceId,
+    [...idsByModel.values()].map((group) => ({ model: group.model, ids: [...group.ids] })),
+  );
 }
 
 function actor(principal: Principal) {
@@ -343,6 +479,55 @@ async function prepareOperations(
   return output;
 }
 
+async function prepareSemanticRelations(
+  env: Bindings,
+  principal: Principal,
+  spaceId: string,
+  operations: readonly BatchOperation[],
+  targets: readonly RelationTarget[],
+  operationDecisions: readonly ModelAccessDecision[],
+  targetDecisions: readonly ModelAccessDecision[],
+  resources: Map<string, GenericResource>,
+): Promise<Map<number, PreparedBatchSemanticRelation[]>> {
+  const prepared = new Map<number, PreparedBatchSemanticRelation[]>();
+  for (let index = 0; index < targets.length; index += 1) {
+    const target = targets[index]!;
+    const targetDecision = targetDecisions[index]!;
+    const sourceDecision = operationDecisions[target.operationIndex]!;
+    validateBatchSemanticRelationAuthority(sourceDecision, targetDecision);
+    const targetResource = resources.get(target.spec.target.recordId);
+    if (!targetResource || targetResource.modelKey !== target.model.key) {
+      throw new ApiError(
+        "RESOURCE_NOT_FOUND",
+        `Semantic Relation target ${target.spec.target.recordId} was not found in model ${target.model.key}`,
+        404,
+      );
+    }
+    await requireModelPolicy(
+      env,
+      principal,
+      spaceId,
+      target.model,
+      "read",
+      targetResource,
+      undefined,
+      {
+        principalPersonId: targetDecision.policyIdentity.principalPersonId,
+        actorPersonId: targetDecision.policyIdentity.actorPersonId,
+      },
+    );
+    const list = prepared.get(target.operationIndex) ?? [];
+    list.push({
+      spec: target.spec,
+      targetModel: target.model,
+      targetResource,
+      targetDecision,
+    });
+    prepared.set(target.operationIndex, list);
+  }
+  return prepared;
+}
+
 async function buildPlans(
   env: Bindings,
   principal: Principal,
@@ -426,16 +611,20 @@ export function registerGenericBatchRoutes(app: App): void {
     if (!spaceId) throw new ApiError("INVALID_REQUEST", "spaceId is required", 400);
     const body = await context.req.json<unknown>().catch(() => null);
     const operations = parseBatch(body);
-    const models = await modelsForOperations(context.env, operations);
+    const loadedModels = await modelsForOperations(context.env, operations);
+    const models = loadedModels.operationModels;
+    const targets = relationTargets(operations, models, loadedModels.modelByKey);
 
     const decisions = await requireModelAccessMany(
       context.env,
       principal,
       spaceId,
-      authorityRequests(operations, models),
+      authorityRequests(operations, models, targets),
     );
-    rejectRepeatedSingleUse(decisions);
-    const executionPrincipal = decisions[0]!.principal;
+    const operationDecisions = decisions.slice(0, operations.length);
+    const targetDecisions = decisions.slice(operations.length);
+    rejectRepeatedSingleUse(operationDecisions);
+    const executionPrincipal = operationDecisions[0]!.principal;
     if (decisions.some((decision) =>
       decision.principal.type !== executionPrincipal.type
       || decision.principal.id !== executionPrincipal.id
@@ -450,6 +639,7 @@ export function registerGenericBatchRoutes(app: App): void {
       spaceId,
       operations,
       models,
+      targets,
     );
     const prepared = await prepareOperations(
       context.env,
@@ -457,7 +647,17 @@ export function registerGenericBatchRoutes(app: App): void {
       spaceId,
       operations,
       models,
-      decisions,
+      operationDecisions,
+      previousById,
+    );
+    const preparedSemanticRelations = await prepareSemanticRelations(
+      context.env,
+      executionPrincipal,
+      spaceId,
+      operations,
+      targets,
+      operationDecisions,
+      targetDecisions,
       previousById,
     );
 
@@ -477,6 +677,25 @@ export function registerGenericBatchRoutes(app: App): void {
       changeSetId,
       timestamp,
     );
+    const semanticPlans = plans.map((plan, index) => {
+      const relations = preparedSemanticRelations.get(index) ?? [];
+      if (!relations.length) return { statements: [] as D1PreparedStatement[], relationIds: [] as string[] };
+      if (operations[index]!.operation !== "create" || !plan.resource) {
+        throw new ApiError("INVALID_REQUEST", "Semantic Relations are supported only for Batch create operations", 400);
+      }
+      return planBatchSemanticRelations(
+        context.env,
+        executionPrincipal,
+        spaceId,
+        models[index]!,
+        plan.resource,
+        plan.changeId,
+        operationDecisions[index]!,
+        relations,
+        changeSetId,
+        timestamp,
+      );
+    });
     const executedBy = actor(executionPrincipal);
 
     const statements: D1PreparedStatement[] = [
@@ -495,6 +714,7 @@ export function registerGenericBatchRoutes(app: App): void {
         timestamp,
       ),
       ...plans.flatMap((plan) => plan.statements),
+      ...semanticPlans.flatMap((plan) => plan.statements),
       context.env.DB.prepare(`UPDATE resource_change_sets
         SET committed_at=?
         WHERE id=? AND committed_at IS NULL`).bind(timestamp, changeSetId),
@@ -514,6 +734,9 @@ export function registerGenericBatchRoutes(app: App): void {
         modelKey: operations[index]!.modelKey,
         recordId: plan.resource?.id ?? operations[index]!.recordId!,
         version: plan.resource?.version ?? (prepared[index]!.previous!.version + 1),
+        ...(semanticPlans[index]!.relationIds.length
+          ? { semanticRelationIds: semanticPlans[index]!.relationIds }
+          : {}),
       })),
     }));
   });
