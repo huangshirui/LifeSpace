@@ -26,6 +26,8 @@ CREATE INDEX idx_semantic_relations_predicate
 
 -- Append-only execution evidence for Relation mutations. Endpoints are copied as
 -- immutable snapshots so deleting an edge or endpoint never destroys attribution.
+-- source_resource_change_id/change_set_id link relation extensions back to the
+-- ordinary governed Change that owns one atomic Batch operation.
 CREATE TABLE semantic_relation_changes (
   id TEXT PRIMARY KEY CHECK(id GLOB 'chg_*'),
   relation_id TEXT NOT NULL CHECK(relation_id GLOB 'rel_*'),
@@ -42,6 +44,8 @@ CREATE TABLE semantic_relation_changes (
   actor_id TEXT NOT NULL,
   application_id TEXT NOT NULL,
   delegation_id TEXT REFERENCES delegations(id),
+  source_resource_change_id TEXT REFERENCES resource_changes(id),
+  change_set_id TEXT REFERENCES resource_change_sets(id),
   occurred_at TEXT NOT NULL
 );
 
@@ -51,10 +55,12 @@ CREATE INDEX idx_semantic_relation_changes_space_time
   ON semantic_relation_changes(space_id,occurred_at DESC,id DESC);
 CREATE INDEX idx_semantic_relation_changes_actor
   ON semantic_relation_changes(actor_type,actor_id,occurred_at DESC,id DESC);
+CREATE INDEX idx_semantic_relation_changes_change_set
+  ON semantic_relation_changes(change_set_id,occurred_at,id) WHERE change_set_id IS NOT NULL;
 
--- Keep the exact Delegation chain used by a Relation mutation. As with ordinary
--- resource Change evidence, inserting a single-use ancestor is the atomic consume
--- point and aborts the whole D1 batch when the grant is no longer current.
+-- Keep the exact Delegation chain used by a standalone Relation mutation. As with
+-- ordinary resource Change evidence, inserting a single-use ancestor is the atomic
+-- consume point and aborts the whole D1 batch when the grant is no longer current.
 CREATE TABLE semantic_relation_change_delegations (
   change_id TEXT NOT NULL REFERENCES semantic_relation_changes(id) ON DELETE CASCADE,
   delegation_id TEXT NOT NULL REFERENCES delegations(id),
@@ -111,12 +117,14 @@ BEGIN
   INSERT INTO semantic_relation_changes(
     id,relation_id,space_id,source_model_key,source_record_id,predicate,
     target_model_key,target_record_id,operation,principal_type,principal_id,
-    actor_type,actor_id,application_id,delegation_id,occurred_at
+    actor_type,actor_id,application_id,delegation_id,source_resource_change_id,
+    change_set_id,occurred_at
   )
   SELECT
     'chg_' || lower(hex(randomblob(16))),id,space_id,source_model_key,source_record_id,predicate,
     target_model_key,target_record_id,'endpoint_delete',NEW.principal_type,NEW.principal_id,
-    NEW.actor_type,NEW.actor_id,NEW.application_id,NEW.delegation_id,NEW.occurred_at
+    NEW.actor_type,NEW.actor_id,NEW.application_id,NEW.delegation_id,NEW.id,
+    NEW.change_set_id,NEW.occurred_at
   FROM semantic_relations
   WHERE space_id=NEW.space_id
     AND source_model_key=NEW.model_key
@@ -125,12 +133,14 @@ BEGIN
   INSERT INTO semantic_relation_changes(
     id,relation_id,space_id,source_model_key,source_record_id,predicate,
     target_model_key,target_record_id,operation,principal_type,principal_id,
-    actor_type,actor_id,application_id,delegation_id,occurred_at
+    actor_type,actor_id,application_id,delegation_id,source_resource_change_id,
+    change_set_id,occurred_at
   )
   SELECT
     'chg_' || lower(hex(randomblob(16))),id,space_id,source_model_key,source_record_id,predicate,
     target_model_key,target_record_id,'endpoint_delete',NEW.principal_type,NEW.principal_id,
-    NEW.actor_type,NEW.actor_id,NEW.application_id,NEW.delegation_id,NEW.occurred_at
+    NEW.actor_type,NEW.actor_id,NEW.application_id,NEW.delegation_id,NEW.id,
+    NEW.change_set_id,NEW.occurred_at
   FROM semantic_relations
   WHERE space_id=NEW.space_id
     AND target_model_key=NEW.model_key
