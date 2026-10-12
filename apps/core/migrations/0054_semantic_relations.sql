@@ -96,4 +96,46 @@ BEGIN
   END);
 END;
 
+-- Record deletion already commits one resource_changes row inside the same D1
+-- transaction. Use that authoritative delete event to remove incoming/outgoing
+-- semantic edges atomically without adding work to ordinary Record read/write paths.
+-- The edge snapshot is preserved before deletion. We intentionally do not insert
+-- semantic_relation_change_delegations here: the parent resource Change already
+-- carries and consumes the exact Delegation chain for this mutation.
+CREATE TRIGGER trg_semantic_relations_cleanup_on_record_delete
+AFTER INSERT ON resource_changes
+WHEN NEW.operation='delete'
+BEGIN
+  INSERT INTO semantic_relation_changes(
+    id,relation_id,space_id,source_model_key,source_record_id,predicate,
+    target_model_key,target_record_id,operation,principal_type,principal_id,
+    actor_type,actor_id,application_id,delegation_id,occurred_at
+  )
+  SELECT
+    'chg_' || lower(hex(randomblob(16))),id,space_id,source_model_key,source_record_id,predicate,
+    target_model_key,target_record_id,'endpoint_delete',NEW.principal_type,NEW.principal_id,
+    NEW.actor_type,NEW.actor_id,NEW.application_id,NEW.delegation_id,NEW.occurred_at
+  FROM semantic_relations
+  WHERE space_id=NEW.space_id AND source_record_id=NEW.record_id;
+
+  INSERT INTO semantic_relation_changes(
+    id,relation_id,space_id,source_model_key,source_record_id,predicate,
+    target_model_key,target_record_id,operation,principal_type,principal_id,
+    actor_type,actor_id,application_id,delegation_id,occurred_at
+  )
+  SELECT
+    'chg_' || lower(hex(randomblob(16))),id,space_id,source_model_key,source_record_id,predicate,
+    target_model_key,target_record_id,'endpoint_delete',NEW.principal_type,NEW.principal_id,
+    NEW.actor_type,NEW.actor_id,NEW.application_id,NEW.delegation_id,NEW.occurred_at
+  FROM semantic_relations
+  WHERE space_id=NEW.space_id AND target_record_id=NEW.record_id
+    AND source_record_id<>NEW.record_id;
+
+  DELETE FROM semantic_relations
+  WHERE space_id=NEW.space_id AND source_record_id=NEW.record_id;
+
+  DELETE FROM semantic_relations
+  WHERE space_id=NEW.space_id AND target_record_id=NEW.record_id;
+END;
+
 UPDATE schema_metadata SET value='54' WHERE key='schema_version';
