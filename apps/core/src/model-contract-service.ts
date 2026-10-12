@@ -1,6 +1,6 @@
 import type { Bindings, Principal } from "./env";
 import { ApiError } from "./http";
-import { generateModelContract } from "./model-contract";
+import { generateModelContract } from "./semantic-relation-model-contract";
 import {
   getActiveModelContract,
   getModelContract,
