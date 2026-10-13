@@ -16,10 +16,13 @@ import {
   ExternalError,
   getExternalModel,
   isExternalModelKey,
+  isExternalModelAddress,
+  externalBusinessKey,
   listExternalModels,
   objectInput,
   onlyKeys,
   refreshExternalModel,
+  nextExternalRefresh,
   type ExternalField,
   type ExternalModel,
   type ExternalOperation,
@@ -38,6 +41,7 @@ function capabilities(m: ExternalModel, allowed: string[]) {
     update: write && m.snapshot.capabilities.update,
     delete: write && m.snapshot.capabilities.delete,
     batchWrite: write && m.snapshot.capabilities.batchWrite,
+    relationTargetResolution: read && Boolean(m.businessDefinition) && m.snapshot.capabilities.get,
   };
 }
 export function externalSemanticDetail(
@@ -50,13 +54,15 @@ export function externalSemanticDetail(
       f.writable && allowed.includes("write") && m.declared_access === "write",
   }));
   return {
-    key: m.model_key,
-    modelKey: m.model_key,
+    key: externalBusinessKey(m),
+    modelKey: externalBusinessKey(m),
+    registrationId: m.model_key,
+    ...(m.businessDefinition ? { definition: { key: m.businessDefinition.key, version: m.businessDefinition.version, schemaHash: m.businessDefinition.schemaHash }, description: m.businessDefinition.definition.description ?? null, semanticRelations: m.businessDefinition.definition.semanticRelations ?? {} } : {}),
     origin: "external",
     spaceId: m.space_id,
     schemaHash: m.schema_hash,
     schemaObservedAt: m.schema_observed_at,
-    display: { singular: m.display_name, plural: m.display_name },
+    display: m.businessDefinition?.definition.display ?? { singular: m.display_name, plural: m.display_name },
     access: allowed,
     status: m.status,
     fields: readable,
@@ -375,6 +381,7 @@ export async function externalRecordDto(m: ExternalModel, raw: unknown) {
   const r = objectInput(raw),
     data = objectInput(r.data);
   boundedString(r.id, "recordId");
+  if (typeof r.id !== "string" || !/^rec_external_[A-Za-z0-9_-]+$/.test(r.id)) throw new ExternalError("EXTERNAL_CONTRACT_INVALID", 502);
   for (const [key, value] of Object.entries(data)) {
     const f = m.snapshot.fields.find((x) => x.key === key);
     if (!f) throw new ExternalError("EXTERNAL_CONTRACT_INVALID", 502);
@@ -385,7 +392,7 @@ export async function externalRecordDto(m: ExternalModel, raw: unknown) {
   return {
     id: r.id,
     spaceId: m.space_id,
-    modelKey: m.model_key,
+    modelKey: externalBusinessKey(m),
     origin: "external",
     schemaHash: m.schema_hash,
     ...data,
@@ -395,6 +402,7 @@ export async function externalRecordDto(m: ExternalModel, raw: unknown) {
 }
 export type ExternalAuditContext = {
   auditId: string;
+  deferReadConsumption?: boolean;
   finalizers: D1PreparedStatement[];
 };
 export function externalAuditPlan(
@@ -557,7 +565,8 @@ export async function executeExternalOperation(
       };
     } else if (operation === "delete") response = { id: recordId };
     else response = await externalRecordDto(m, result);
-    if (!write) await consumeSingleUseRead(env, decision);
+    if (recordId && operation !== "query" && operation !== "create" && objectInput(result).id !== recordId) throw new ExternalError("EXTERNAL_CONTRACT_INVALID", 502);
+    if (!write && !auditContext?.deferReadConsumption) await consumeSingleUseRead(env, decision);
     const identityRecords =
       operation === "query"
         ? (response as { items: { id: string }[] }).items
@@ -565,10 +574,11 @@ export async function executeExternalOperation(
           ? []
           : [response as { id: string }];
     const finalizers = [
+      ...(operation === "delete" ? [env.DB.prepare("DELETE FROM external_record_identities WHERE record_id=? AND model_key=? AND space_id=?").bind(recordId, m.model_key, m.space_id)] : []),
       ...identityRecords.map((r) =>
         env.DB.prepare(
-          "INSERT OR IGNORE INTO external_record_identities(record_id,model_key,space_id) VALUES(?,?,?)",
-        ).bind(r.id, m.model_key, m.space_id),
+          "INSERT INTO external_record_identities(record_id,model_key,space_id,availability,observed_at,next_check_at) VALUES(?,?,?,'active',?,?) ON CONFLICT(record_id) DO UPDATE SET availability='active',observed_at=excluded.observed_at,next_check_at=excluded.next_check_at WHERE model_key=excluded.model_key AND space_id=excluded.space_id",
+        ).bind(r.id, m.model_key, m.space_id, new Date().toISOString(), m.businessDefinition ? nextExternalRefresh(env) : null),
       ),
       env.DB.prepare(
         "UPDATE external_operation_audit SET result='succeeded',record_id=?,completed_at=? WHERE id=?",
@@ -666,7 +676,7 @@ export function registerExternalRuntimeRoutes(app: App) {
   const collection = "/api/v1/spaces/:spaceId/models/:modelKey/records";
   const handler = async (c: Context<AppEnv>, next: () => Promise<void>) => {
     const key = c.req.param("modelKey")!;
-    if (!isExternalModelKey(key)) {
+    if (!(await isExternalModelAddress(c.env, key))) {
       await next();
       return;
     }

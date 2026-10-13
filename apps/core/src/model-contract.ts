@@ -1096,6 +1096,10 @@ function jsonSchemaBundle(models: PublishedModel[]): JsonSchema {
   const defs: Record<string, JsonSchema> = {};
   const metadata: Record<string, unknown> = {};
   for (const model of models) {
+    if (model.definition.origin === "external") {
+      metadata[model.key] = { origin: "external", version: model.version, schemaHash: model.schemaHash, display: model.definition.display, description: model.definition.description ?? null, access: model.definition.access, semanticRelations: model.definition.semanticRelations ?? {}, schemaAuthority: "provider", runtimeSchema: "Space Discovery", immutableFields: false };
+      continue;
+    }
     const prefix = schemaName(model, "");
     const canonicalFilterName = `${prefix}CanonicalFilter`;
     const canonicalQueryName = `${prefix}CanonicalQuery`;
@@ -1141,8 +1145,8 @@ export async function generateModelContract(input: PublishedModel[]): Promise<Mo
   };
   const schemas: Record<string, JsonSchema> = {};
   const paths: Record<string, unknown> = {};
-  for (const model of models) modelOpenApi(model, schemas, paths);
-  addBatchContract(models, schemas, paths);
+  for (const model of models) if (model.definition.origin !== "external") modelOpenApi(model, schemas, paths);
+  addBatchContract(models.filter(model => model.definition.origin !== "external"), schemas, paths);
 
   const openapi: OpenApiDocument = {
     openapi: "3.1.0",

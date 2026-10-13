@@ -977,6 +977,13 @@
                 }
               }
             }
+          },
+          "origin": {
+            "enum": [
+              "native",
+              "external"
+            ],
+            "description": "Omitted means native. External declares business semantics with fields:{}, no Native storage/capabilities/policies/actions. Provider fields are Space-local and dynamic."
           }
         }
       },

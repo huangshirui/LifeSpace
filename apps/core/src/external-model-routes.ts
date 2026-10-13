@@ -19,6 +19,7 @@ import {
   type ExternalSource,
 } from "./external-model";
 import { externalSemanticDetail } from "./external-runtime";
+import { getRuntimeModel } from "./model-registry";
 
 type AppEnv = { Bindings: Bindings; Variables: Variables };
 type App = Hono<AppEnv>;
@@ -170,7 +171,9 @@ export function registerExternalModelControlRoutes(app: App) {
     return c.json(
       success({
         items: rows.results.map((r) => ({
-          modelKey: r.model_key,
+          modelKey: r.definition_key ?? r.model_key,
+          registrationId: r.model_key,
+          definitionKey: r.definition_key ?? null,
           spaceId: r.space_id,
           sourceId: r.source_id,
           displayName: r.display_name,
@@ -185,7 +188,9 @@ export function registerExternalModelControlRoutes(app: App) {
   app.post(modelPath, async (c) => {
     await manager(c);
     const input = await body(c);
-    onlyKeys(input, ["sourceId", "resourceId", "declaredAccess"]);
+    onlyKeys(input, ["sourceId", "resourceId", "declaredAccess", "definitionKey"]);
+    const definitionKey = input.definitionKey === undefined ? null : boundedString(input.definitionKey, "definitionKey", 63);
+    if (definitionKey && (await getRuntimeModel(c.env, definitionKey))?.definition.origin !== "external") throw new ApiError("EXTERNAL_DEFINITION_UNAVAILABLE", "Publish an External business definition before binding it", 422);
     const source = await getExternalSource(
       c.env,
       boundedString(input.sourceId, "sourceId"),
@@ -209,10 +214,11 @@ export function registerExternalModelControlRoutes(app: App) {
     );
     const hash = await externalHash(snapshot);
     const previous = await c.env.DB.prepare(
-      "SELECT model_key,space_id,status FROM external_models WHERE provider_key=? AND resource_id=?",
+      "SELECT model_key,space_id,status,definition_key FROM external_models WHERE provider_key=? AND resource_id=?",
     )
       .bind(source.provider_key, snapshot.resourceId)
-      .first<{ model_key: string; space_id: string; status: string }>();
+      .first<{ model_key: string; space_id: string; status: string; definition_key: string | null }>();
+    if (previous?.definition_key && definitionKey !== null && previous.definition_key !== definitionKey) throw new ApiError("EXTERNAL_DEFINITION_IMMUTABLE", "A binding cannot change its business definition", 409);
     if (
       previous &&
       (previous.space_id !== source.space_id || previous.status !== "disabled")
@@ -227,9 +233,10 @@ export function registerExternalModelControlRoutes(app: App) {
     try {
       if (previous) {
         const reactivated = await c.env.DB.prepare(
-          `UPDATE external_models SET source_id=?,snapshot_json=?,schema_hash=?,schema_observed_at=?,display_name=?,declared_access=?,status='active',last_successful_refresh_at=?,last_error_code=NULL,next_refresh_at=?,updated_at=? WHERE model_key=? AND space_id=? AND status='disabled'`,
+          `UPDATE external_models SET definition_key=COALESCE(definition_key,?),source_id=?,snapshot_json=?,schema_hash=?,schema_observed_at=?,display_name=?,declared_access=?,status='active',last_successful_refresh_at=?,last_error_code=NULL,next_refresh_at=?,updated_at=? WHERE model_key=? AND space_id=? AND status='disabled'`,
         )
           .bind(
+            definitionKey,
             source.id,
             JSON.stringify(snapshot),
             hash,
@@ -251,7 +258,7 @@ export function registerExternalModelControlRoutes(app: App) {
           );
       } else
         await c.env.DB.prepare(
-          `INSERT INTO external_models(model_key,space_id,source_id,provider_key,resource_id,display_name,declared_access,snapshot_json,schema_hash,schema_observed_at,status,last_successful_refresh_at,next_refresh_at,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,'active',?,?,?,?)`,
+          `INSERT INTO external_models(model_key,space_id,source_id,provider_key,resource_id,display_name,declared_access,snapshot_json,schema_hash,schema_observed_at,status,last_successful_refresh_at,next_refresh_at,created_at,updated_at,definition_key) VALUES(?,?,?,?,?,?,?,?,?,?,'active',?,?,?,?,?)`,
         )
           .bind(
             key,
@@ -268,6 +275,7 @@ export function registerExternalModelControlRoutes(app: App) {
             nextExternalRefresh(c.env),
             timestamp,
             timestamp,
+            definitionKey,
           )
           .run();
     } catch (error) {

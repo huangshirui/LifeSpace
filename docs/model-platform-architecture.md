@@ -4,7 +4,7 @@ Updated: 2026-09-23
 
 ## Native and External / 原生与外部模型
 
-The DSL/publication/typed-storage/default version guarantees in this document describe **Native** models. The composite resolver is `(spaceId,modelKey) -> Native published descriptor | active local External registration`. Native resolution keeps its existing hot path; reserved `ext_*` addresses use current registration/connection state and latest compatible provider snapshot. External registration is not Native draft/publish/supersede, does not generate mct revisions, and does not inherit Policy/Workflow/Temporal/Calendar or transaction/concurrency guarantees. `docs/external-models.md` owns that boundary.
+Typed storage and record-version guarantees in this document describe **Native** models. Native and External business definitions share the Registry publication lifecycle; an External immutable mct pins business semantics only, without Provider fields or Native CRUD guarantees. The composite resolver is `(spaceId,modelKey) -> Native published descriptor | active local External business binding`. Native resolution keeps its existing hot path. External bindings and legacy reserved `ext_*` addresses use current registration/connection state and the latest compatible Provider snapshot. Binding/schema refresh is separate from definition publication and does not generate mct revisions or inherit Policy/Workflow/Temporal/Calendar or transaction/concurrency guarantees. `docs/external-models.md` owns that boundary.
 
 ## 中文摘要
 
@@ -263,3 +263,7 @@ A healthy Model Platform satisfies all of the following:
 ## Independent business relations / 独立业务关系
 
 Semantic Relation is a generic junction resource above ordinary record storage. Model declarations and the platform predicate registry govern participation; no new semantic_relation field type or graph engine exists. Contract publication/reconciliation use the same canonical contribution before computing mct identity. Native endpoints use same-D1 liveness/cleanup, while External capabilities remain a separate #340 resolver boundary. See [semantic-relations.md](semantic-relations.md).
+
+### External business model binding (development candidate)
+
+A globally registered `origin: external` business definition is referenceable metadata, not global data availability. Each Space explicitly binds the definition to one connection/data source; business modelKey is the Runtime/Application Access/Grant/Delegation key, ext_* is registration identity. Authority requires a current binding and connection in addition to existing current-state checks. No payload mirror or second ACL is created. The same business definition can have different Provider fields/schemaHash in different Spaces. Consumers must use inventory `(spaceId,modelKey,schemaHash)` for dynamic fields, not reuse one Space's field schema across all Spaces. Native descriptor hot paths remain unchanged. Production remains unchanged until release acceptance.

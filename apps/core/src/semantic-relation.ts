@@ -16,7 +16,7 @@ import {
   semanticRelationAllowsEndpoints,
   type SemanticRelationPredicate,
 } from "./semantic-relation-definition";
-import { getTypedResourcesByModels } from "./typed-resource-batch";
+import { bindEndpointModel, endpointModels, endpointExists, loadEndpointResources, type EndpointResource } from "./semantic-endpoints";
 import { renderReferenceLabel } from "./reference-label";
 
 export type SemanticEntityRef = {
@@ -122,8 +122,9 @@ function relationDeclaredBySource(model: PublishedModel, predicate: SemanticRela
   return model.definition.semanticRelations?.outgoing?.includes(predicate) === true;
 }
 
-async function modelOr404(env: Bindings, key: string): Promise<PublishedModel> {
-  const model = await getRuntimeModel(env, key);
+async function modelOr404(env: Bindings, key: string, space: string): Promise<PublishedModel> {
+  const published = await getRuntimeModel(env, key);
+  const model = published ? await bindEndpointModel(env, space, published) : null;
   if (!model) throw new ApiError("RESOURCE_NOT_FOUND", "Resource not found", 404);
   return model;
 }
@@ -181,11 +182,12 @@ async function mutationContext(
   spaceId: string,
   input: SemanticRelationCreateInput,
   delegationId?: string | null,
+  knownExternal = false,
 ): Promise<RelationMutationContext> {
   validateCreateInput(input);
   const [sourceModel, targetModel] = await Promise.all([
-    modelOr404(env, input.source.modelKey),
-    modelOr404(env, input.target.modelKey),
+    modelOr404(env, input.source.modelKey, spaceId),
+    modelOr404(env, input.target.modelKey, spaceId),
   ]);
   if (!relationDeclaredBySource(sourceModel, input.predicate)
       || !semanticRelationAllowsEndpoints(input.predicate, sourceModel.key, targetModel.key)) {
@@ -213,10 +215,10 @@ async function mutationContext(
     throw new ApiError("DELEGATION_INVALID", "Semantic Relation endpoints must resolve to one Execution Principal", 403);
   }
 
-  const resources = await getTypedResourcesByModels(env, spaceId, [
+  const resources = await loadEndpointResources(env, spaceId, [
     { model: sourceModel, ids: [input.source.recordId] },
     { model: targetModel, ids: [input.target.recordId] },
-  ]);
+  ], new Map([[endpointKey(sourceModel.key, input.source.recordId), sourceDecision], [endpointKey(targetModel.key, input.target.recordId), targetDecision]]), knownExternal);
   const sourceResource = resources.get(input.source.recordId) as GenericResource | undefined;
   const targetResource = resources.get(input.target.recordId) as GenericResource | undefined;
   if (!sourceResource || !targetResource) {
@@ -377,15 +379,13 @@ async function relationRowById(
   env: Bindings,
   spaceId: string,
   id: string,
+  includeUnavailable = false,
 ): Promise<SemanticRelationRow | null> {
   if (!RELATION_ID.test(id)) return null;
   return env.DB.prepare(`SELECT id,space_id,source_model_key,source_record_id,predicate,
       target_model_key,target_record_id,created_at
     FROM semantic_relations e WHERE space_id=? AND id=?
-      AND EXISTS(SELECT 1 FROM resource_records r WHERE r.id=e.source_record_id
-        AND r.space_id=e.space_id AND r.model_key=e.source_model_key AND r.deleted_at IS NULL)
-      AND EXISTS(SELECT 1 FROM resource_records r WHERE r.id=e.target_record_id
-        AND r.space_id=e.space_id AND r.model_key=e.target_model_key AND r.deleted_at IS NULL)
+      AND ${endpointExists("source", true, includeUnavailable)} AND ${endpointExists("target", true, includeUnavailable)}
     `).bind(spaceId, id).first<SemanticRelationRow>();
 }
 
@@ -396,7 +396,7 @@ export async function deleteSemanticRelation(
   id: string,
   delegationId?: string | null,
 ): Promise<void> {
-  const row = await relationRowById(env, spaceId, id);
+  const row = await relationRowById(env, spaceId, id, true);
   if (!row) throw new ApiError("RESOURCE_NOT_FOUND", "Resource not found", 404);
   const relation = relationFromRow(row);
   const input: SemanticRelationCreateInput = {
@@ -404,7 +404,7 @@ export async function deleteSemanticRelation(
     predicate: relation.predicate,
     target: relation.target,
   };
-  const resolved = await mutationContext(env, principal, spaceId, input, delegationId);
+  const resolved = await mutationContext(env, principal, spaceId, input, delegationId, true);
   const attribution = mutationDelegation([resolved.sourceDecision, resolved.targetDecision]);
   const relationChangeId = changeId();
   const timestamp = new Date().toISOString();
@@ -447,7 +447,8 @@ function encodeCursor(row: SemanticRelationRow): string {
   return btoa(JSON.stringify({ createdAt: row.created_at, id: row.id }));
 }
 
-function recordView(resource: GenericResource): Record<string, unknown> {
+function recordView(resource: EndpointResource): Record<string, unknown> {
+  if (resource.externalView) return resource.externalView;
   return {
     id: resource.id,
     spaceId: resource.spaceId,
@@ -499,7 +500,7 @@ async function visibleCandidates(
   hydrate: SemanticRelationQuery["hydrate"],
 ): Promise<{ rows: SemanticRelationRow[]; resources: Map<string, GenericResource>; decisions: ModelAccessDecision[]; models: Map<string, PublishedModel> }> {
   const modelKeys = [...new Set(rows.flatMap((row) => [row.source_model_key, row.target_model_key]))];
-  const resolvedModels = await Promise.all(modelKeys.map(async (key) => [key, await getRuntimeModel(env, key)] as const));
+  const resolvedModels = await Promise.all(modelKeys.map(async (key) => [key, await getRuntimeModel(env, key).then(m => m ? bindEndpointModel(env, spaceId, m) : null)] as const));
   const models = new Map<string, PublishedModel>(resolvedModels.flatMap(([key, model]) => model ? [[key, model] as const] : []));
 
   const endpoints = new Map<string, { model: PublishedModel; recordId: string }>();
@@ -538,7 +539,7 @@ async function visibleCandidates(
     needsResource.set(endpoint.model.key, group);
   });
 
-  const loaded = await getTypedResourcesByModels(env, spaceId, [...needsResource.values()]);
+  const loaded = await loadEndpointResources(env, spaceId, [...needsResource.values()], new Map(endpointEntries.flatMap(([key]) => { const e = evaluationByEndpoint.get(key); return e?.ok ? [[key, e.decision] as const] : []; })));
   const resources = new Map<string, GenericResource>();
   for (const [id, resource] of loaded) resources.set(id, resource as GenericResource);
   const visibleEndpoints = new Map<string, boolean>();
@@ -551,6 +552,7 @@ async function visibleCandidates(
       continue;
     }
     const decision = evaluation.decision;
+    if (needsResource.get(endpoint.model.key)?.ids.includes(endpoint.recordId) && !resources.has(endpoint.recordId)) { visibleEndpoints.set(key, false); continue; }
     if (endpoint.model.definition.policies?.read) {
       const resource = resources.get(endpoint.recordId);
       if (!resource) {
@@ -627,7 +629,7 @@ export async function querySemanticRelations(
 
   // Current read Policy is identity-only. Resolve all model/scope keys once,
   // then constrain live endpoints in SQL before pagination, never refill pages.
-  const models = await listRuntimeModels(env);
+  const models = await endpointModels(env, spaceId, await listRuntimeModels(env));
   const requests = models.flatMap((model) => {
     const refs = [query.source, query.target].filter((ref) => ref?.modelKey === model.key);
     const ids = [...new Set(refs.map((ref) => ref!.recordId))];
@@ -660,9 +662,7 @@ export async function querySemanticRelations(
         AND (json_extract(allowed.value,'$.recordId') IS NULL
           OR json_extract(allowed.value,'$.recordId')=e.${side}_record_id))`);
     args.push(scopes);
-    where.push(`EXISTS (SELECT 1 FROM resource_records r
-      WHERE r.id=e.${side}_record_id AND r.space_id=e.space_id
-        AND r.model_key=e.${side}_model_key AND r.deleted_at IS NULL)`);
+    where.push(endpointExists(side, models.some(m => m.definition.origin === "external")));
   }
   const result = await env.DB.prepare(`SELECT id,space_id,source_model_key,source_record_id,predicate,
       target_model_key,target_record_id,created_at
@@ -683,8 +683,12 @@ export async function querySemanticRelations(
       }
     }
     const byKey = new Map(models.map((model) => [model.key, model]));
-    const loaded = await getTypedResourcesByModels(env, spaceId,
-      [...groups].map(([key, ids]) => ({ model: byKey.get(key)!, ids: [...ids] })));
+    const loaded = await loadEndpointResources(env, spaceId,
+      [...groups].map(([key, ids]) => ({ model: byKey.get(key)!, ids: [...ids] })),
+      new Map([...groups].flatMap(([key, ids]) => [...ids].flatMap(id => {
+        const entry = eligible.find(e => e.modelKey === key && (e.recordId === null || e.recordId === id));
+        return entry ? [[endpointKey(key, id), entry.decision] as const] : [];
+      }))));
     for (const [id, resource] of loaded) resources.set(id, resource);
     // A concurrent endpoint deletion between selection and hydration remains opaque.
     for (let index = page.length - 1; index >= 0; index -= 1) {

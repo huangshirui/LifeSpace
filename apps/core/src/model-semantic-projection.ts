@@ -127,6 +127,8 @@ export type ModelSemanticProjection = {
   display: { singular: string; plural: string };
   description: string | null;
   referenceLabel: ReferenceLabelSemantic;
+  origin?: "external";
+  fieldsDynamic?: boolean;
   declaredAccess: ModelAccess[];
   fields: ModelSemanticField[];
   semanticRelations: ModelSemanticRelations;
@@ -327,6 +329,7 @@ export function projectModelSemanticFacts(model: PublishedModel): ModelSemanticP
   const capability = modelCapabilitySemanticFacts(model);
   return {
     key: model.key,
+    ...(model.definition.origin === "external" ? { origin: "external" as const, fieldsDynamic: true } : {}),
     version: model.version,
     schemaHash: model.schemaHash,
     display: structuredClone(model.definition.display),

@@ -18,3 +18,13 @@ test("Console Core executor verifier preserves least privilege", () => {
   assert.doesNotMatch(fn, /\/api\/v1\/me/u);
   assert.match(fn, /sameStringSet\(tokenScopes, CORE_EXECUTOR_SCOPES\)/u);
 });
+
+test("Console ordinary Space configuration uses User scope without extending the platform executor", () => {
+ for (const name of ["prepare-staging-console-admin.mjs", "prepare-production-console-admin.mjs"]) {
+  const text = fs.readFileSync(new URL(name, import.meta.url), "utf8");
+  const start = text.indexOf("const APPLICATION_SCOPES = ["); const end = text.indexOf("];", start);
+  assert.match(text.slice(start, end), /"spaces:manage"/u);
+  const executor = text.indexOf("const CORE_EXECUTOR_SCOPES = [");
+  assert.doesNotMatch(text.slice(executor, text.indexOf("];", executor)), /"spaces:manage"/u);
+ }
+});

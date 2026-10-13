@@ -211,6 +211,7 @@ export async function validateDefinitionForPublication(
   if (!validation.valid) return validation;
   const current = await getPublishedModel(env, validation.definition.key);
   const issues = validateCanonicalTemporalDslTransition(current?.definition ?? null, validation.definition);
+  if (current && current.definition.origin !== validation.definition.origin) issues.push({ path: "origin", code: "MODEL_ORIGIN_IMMUTABLE", message: "Model origin cannot change" });
   if (issues.length) return { valid: false, issues };
   return validation;
 }
@@ -254,6 +255,7 @@ export async function publishModelDefinition(
   const expectedRevision = await getModelRegistryRevision(env);
   const currentModels = await listPublishedModels(env);
   const current = currentModels.find((model) => model.key === validation.definition.key) ?? null;
+  if (current && current.definition.origin !== validation.definition.origin) throw new ApiError("MODEL_ORIGIN_IMMUTABLE", "A published Model cannot change Native/External origin", 409);
   const temporalDslIssues = validateCanonicalTemporalDslTransition(current?.definition ?? null, validation.definition);
   if (temporalDslIssues.length) {
     throw new ApiError("INVALID_MODEL_DEFINITION", JSON.stringify(temporalDslIssues), 422);

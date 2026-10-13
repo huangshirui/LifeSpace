@@ -22,14 +22,14 @@ describe("Scheduled job failure isolation", () => {
   const controller = {} as ScheduledController;
   it("runs rolling and outbox after an External refresh failure", async () => {
     const error = new Error("External refresh unavailable"), f = fixture(undefined, undefined, error);
-    await expect(worker.scheduled(controller, f.env)).rejects.toBe(error);
-    expect(f.queries).toHaveLength(3);
-    expect(f.queries[2]).toContain("dispatched_at IS NULL");
+    await expect(worker.scheduled(controller, f.env)).rejects.toBeInstanceOf(AggregateError);
+    expect(f.queries).toHaveLength(4);
+    expect(f.queries.at(-1)).toContain("dispatched_at IS NULL");
   });
   it("retains both background failures while still dispatching", async () => {
     const f = fixture(new Error("Rolling"), undefined, new Error("External"));
     await expect(worker.scheduled(controller, f.env)).rejects.toBeInstanceOf(AggregateError);
-    expect(f.queries[2]).toContain("dispatched_at IS NULL");
+    expect(f.queries.at(-1)).toContain("dispatched_at IS NULL");
   });
   it("dispatches after rolling so newly generated events can be delivered", async () => {
     const f = fixture();

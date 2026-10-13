@@ -7,7 +7,7 @@ const api = JSON.parse(
 const adapter = JSON.parse(
   readFileSync(new URL("external-adapter.contract.json", root), "utf8"),
 );
-assert.equal(api.info.version, "0.1.0");
+assert.equal(api.info.version, "0.2.0");
 assert.equal(adapter.properties.contractVersion.const, 1);
 for (const op of [
   "connection",
@@ -30,9 +30,10 @@ for (const key of [
   "transaction",
   "versionedWrite",
   "actions",
-  "relationTargetResolution",
 ])
   assert.equal(caps.properties[key].const, false);
+assert.equal(caps.properties.relationTargetResolution.type, "boolean");
+assert(api.components.schemas.RegisterModel.properties.definitionKey);
 const requestSchema =
   api.paths["/api/v1/spaces/{spaceId}/models/{modelKey}/records/{recordId}"]
     .delete.requestBody.content["application/json"].schema;

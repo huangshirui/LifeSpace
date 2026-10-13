@@ -58,7 +58,7 @@ export async function getTypedResourcesByModels(
       model: request.model,
       ids: [...new Set(request.ids.filter(Boolean))],
     }))
-    .filter((request) => request.ids.length > 0);
+    .filter((request) => request.ids.length > 0 && request.model.definition.origin !== "external");
   if (!groups.length) return new Map();
 
   const scalarStatements: D1PreparedStatement[] = [];

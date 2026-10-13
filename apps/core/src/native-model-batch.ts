@@ -12,7 +12,7 @@ import {
 import { evaluateModelAccessMany, type ModelAccessDecision, type ModelAccessRequest } from "./model-authorization";
 import { getRuntimeModel, type PublishedModel } from "./model-registry";
 import { requireModelPolicy } from "./policy";
-import { getTypedResourcesByModels } from "./typed-resource-batch";
+import { bindEndpointModel, loadEndpointResources } from "./semantic-endpoints";
 import { loadSpaceTemporalContext } from "./temporal-capability";
 import { isSemanticRelationPredicate, type SemanticRelationPredicate } from "./semantic-relation-definition";
 import { validateBatchSemanticRelation, validateBatchSemanticRelationAuthority } from "./semantic-relation-batch";
@@ -172,7 +172,9 @@ export async function executeNativeModelBatch(env: Bindings, principal: Principa
         if (key.startsWith("ext_")) throw new ApiError(atomic ? "ATOMIC_CONSISTENCY_UNSUPPORTED" : "MODEL_OPERATION_UNSUPPORTED",
           "External endpoint execution requires Provider resolution; cross-store atomicity is unsupported", 400);
         if (!models.has(key)) {
-          const model = await getRuntimeModel(env, key);
+          const published = await getRuntimeModel(env, key);
+          if (published?.definition.origin === "external" && (atomic || item.record?.modelKey === key)) throw new ApiError(atomic ? "ATOMIC_CONSISTENCY_UNSUPPORTED" : "MODEL_OPERATION_UNSUPPORTED", "External CRUD requires the Provider executor; external edges require atomicConsistency=false", 422);
+          const model = published ? await bindEndpointModel(env, spaceId, published) : null;
           if (!model) throw new ApiError("MODEL_NOT_FOUND", "Model not found", 404);
           models.set(key, model);
         }
@@ -221,16 +223,27 @@ export async function executeNativeModelBatch(env: Bindings, principal: Principa
   }
   failAtomic();
   const groups = new Map<string, Set<string>>();
+  const knownExternalGroups = new Map<string, Set<string>>();
   for (const item of items) {
     if (item.error) continue;
     const endpoints = item.edges.flatMap((edge) => [edge.source, edge.target]);
     if (item.record?.recordId) endpoints.push({ kind: "record", modelKey: item.record.modelKey, recordId: item.record.recordId });
     for (const endpoint of endpoints) if (!newIds.has(endpoint.recordId!)) {
-      const ids = groups.get(endpoint.modelKey) ?? new Set<string>(); ids.add(endpoint.recordId!); groups.set(endpoint.modelKey, ids);
+      const collection = item.operation === "relation_delete" && models.get(endpoint.modelKey)?.definition.origin === "external" ? knownExternalGroups : groups;
+      const ids = collection.get(endpoint.modelKey) ?? new Set<string>(); ids.add(endpoint.recordId!); collection.set(endpoint.modelKey, ids);
     }
   }
-  const resources = await getTypedResourcesByModels(env, spaceId,
-    [...groups].map(([key, ids]) => ({ model: models.get(key)!, ids: [...ids] }))) as Map<string, GenericResource>;
+  const endpointDecisions = new Map<string, ModelAccessDecision>();
+  for (let index = 0; index < requests.length; index++) {
+    const request = requests[index]!; const evaluation = evaluations[index]!;
+    if (evaluation.ok && request.selector?.recordId) endpointDecisions.set(request.model.key + "\0" + request.selector.recordId, evaluation.decision);
+  }
+  const resources = await loadEndpointResources(env, spaceId,
+    [...groups].map(([key, ids]) => ({ model: models.get(key)!, ids: [...ids] })), endpointDecisions);
+  if (knownExternalGroups.size) {
+    const known = await loadEndpointResources(env, spaceId, [...knownExternalGroups].map(([key, ids]) => ({ model: models.get(key)!, ids: [...ids] })), endpointDecisions, true);
+    for (const [id, resource] of known) if (!resources.has(id)) resources.set(id, resource);
+  }
   const temporal = items.some((item) => !item.error && item.record?.operation === "create" && hasTemporalCapability(item.model!))
     ? await loadSpaceTemporalContext(env, spaceId) : undefined;
   const correlationId = randomId(atomic ? "cgs" : "blk");
@@ -271,7 +284,7 @@ export async function executeNativeModelBatch(env: Bindings, principal: Principa
         const sourceDecision = item.decisions[offset++]!; const targetDecision = item.decisions[offset++]!;
         validateBatchSemanticRelationAuthority(sourceDecision, targetDecision);
         const source = resources.get(edge.source.recordId!); const target = resources.get(edge.target.recordId!);
-        if (!source || !target || source.modelKey !== edge.source.modelKey || target.modelKey !== edge.target.modelKey) throw new ApiError("RESOURCE_NOT_FOUND", "Resource not found", 404);
+        if (!source || !target || source.modelKey !== edge.source.modelKey || target.modelKey !== edge.target.modelKey || (item.operation !== "relation_delete" && ((models.get(edge.source.modelKey)!.definition.origin === "external" && !source.externalView) || (models.get(edge.target.modelKey)!.definition.origin === "external" && !target.externalView)))) throw new ApiError("RESOURCE_NOT_FOUND", "Resource not found", 404);
         await requireModelPolicy(env, execution, spaceId, models.get(edge.source.modelKey)!, "update", source, undefined, sourceDecision.policyIdentity);
         await requireModelPolicy(env, execution, spaceId, models.get(edge.target.modelKey)!, "read", target, undefined, targetDecision.policyIdentity);
       }

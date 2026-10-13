@@ -3,7 +3,7 @@ import YAML from "yaml";
 
 const document = YAML.parse(fs.readFileSync(new URL("../openapi.yaml", import.meta.url), "utf8"));
 
-if (document.openapi !== "3.1.0" || document.info?.version !== "0.51.0") {
+if (document.openapi !== "3.1.0" || document.info?.version !== "0.52.0") {
   throw new Error("Core Kernel OpenAPI version metadata is invalid");
 }
 if (!document.info?.title?.includes("Kernel")) {
@@ -463,14 +463,16 @@ const semanticDetail = schemas.RuntimeModelSemanticDetail;
 const semanticDetailProperties = Object.keys(semanticDetail?.properties ?? {}).sort();
 const expectedSemanticDetailProperties = [
   "actions", "capabilities", "capabilityBindings", "declaredAccess", "defaults", "description", "display",
-  "fields", "key", "query", "referenceLabel", "schemaHash", "semanticRelations", "semanticRelationRuntime", "timeRanges", "version",
+  "fields", "fieldsDynamic", "key", "origin", "query", "referenceLabel", "schemaHash", "semanticRelations", "semanticRelationRuntime", "timeRanges", "version",
 ].sort();
 if (semanticDetail?.additionalProperties !== false
     || JSON.stringify(semanticDetailProperties) !== JSON.stringify(expectedSemanticDetailProperties)
     || !semanticDetail?.required?.includes("declaredAccess")
     || semanticDetail?.properties?.access
     || semanticDetail?.properties?.spaceId
-    || semanticDetail?.properties?.spaceName) {
+    || semanticDetail?.properties?.spaceName
+    || semanticDetail?.properties?.origin?.const !== "external"
+    || semanticDetail?.properties?.fieldsDynamic?.type !== "boolean") {
   throw new Error("Single-model semantic detail must expose only static model semantics without effective Space authority state");
 }
 const semanticTimeRange = schemas.RuntimeModelSemanticTimeRange;

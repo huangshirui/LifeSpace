@@ -218,6 +218,7 @@ function visibleModelAccess(
   delegatedByModel?: Map<string, ModelAccess>,
 ): VisibleModel[] {
   return models.flatMap((model) => {
+    if (model.definition.origin === "external") return [];
     const catalogAccess = catalogByModel.get(model.key);
     if (!catalogAccess) return [];
     const allowed = effectiveAccess(

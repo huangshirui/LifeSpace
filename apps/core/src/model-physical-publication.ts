@@ -7,6 +7,7 @@ export function physicalPublicationStatements(
   current: ModelDefinition | null,
   next: ModelDefinition,
 ): D1PreparedStatement[] {
+  if (next.origin === "external") return [];
   const sql = current
     ? compileCompatiblePhysicalChange(current, next).statements
     : (() => {

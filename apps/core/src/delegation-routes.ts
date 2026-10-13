@@ -357,7 +357,7 @@ async function validateScopesAuthorityMany(
     const byId = new Map(rows.results.map((row) => [row.id, row.model_key]));
     const externalIds=recordIds.filter(id=>id.startsWith("rec_external_"));
     if(externalIds.length){
-      const external=await env.DB.prepare(`SELECT i.record_id id,i.model_key FROM external_record_identities i JOIN external_models m ON m.model_key=i.model_key JOIN external_sources s ON s.id=m.source_id WHERE i.space_id=? AND m.status!='disabled' AND s.status='active' AND i.record_id IN (${externalIds.map(()=>"?").join(",")})`).bind(spaceId,...externalIds).all<{id:string;model_key:string}>();
+      const external=await env.DB.prepare(`SELECT i.record_id id,COALESCE(m.definition_key,i.model_key) model_key FROM external_record_identities i JOIN external_models m ON m.model_key=i.model_key JOIN external_sources s ON s.id=m.source_id WHERE i.space_id=? AND m.status!='disabled' AND s.status='active' AND i.record_id IN (${externalIds.map(()=>"?").join(",")})`).bind(spaceId,...externalIds).all<{id:string;model_key:string}>();
       for(const row of external.results)byId.set(row.id,row.model_key);
     }
     for (const index of recordIndexes) {

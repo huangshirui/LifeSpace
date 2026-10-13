@@ -12,7 +12,7 @@ const pem = (label: string, bytes: ArrayBuffer) =>
   )
     .match(/.{1,64}/g)
     ?.join("\n")}\n-----END ${label}-----`;
-async function fixture() {
+async function fixture(definitionKey?: string) {
   const db = (env as unknown as { DB: D1Database }).DB,
     app = createApp(),
     suffix = crypto.randomUUID().replaceAll("-", "");
@@ -74,6 +74,7 @@ async function fixture() {
     error: null as string | null,
     mismatch: 0,
     failAudit: false,
+    returnedRecordId: null as string | null,
   };
   const snapshot = () => ({
     resourceId: resource,
@@ -110,7 +111,7 @@ async function fixture() {
     },
   });
   const record = (id = "rec_external_" + suffix) => ({
-    id,
+    id: state.returnedRecordId ?? id,
     data: { [field]: state.type === "number" ? 8 : "eight" },
     createdAt: "2026-01-01T00:00:00Z",
     updatedAt: "2026-01-01T00:00:00Z",
@@ -151,7 +152,7 @@ async function fixture() {
             : r.operation === "query"
               ? { items: [record()], nextCursor: state.cursor }
               : r.operation === "delete"
-                ? { id: r.recordId }
+                ? { id: state.returnedRecordId ?? r.recordId }
                 : record(
                     r.recordId ??
                       "rec_external_" + crypto.randomUUID().replaceAll("-", ""),
@@ -281,10 +282,15 @@ async function fixture() {
   );
   expect(sr.status).toBe(201);
   const source = ((await sr.json()) as any).data.id;
+  if (definitionKey) {
+    const published = await request("/api/v1/model-admin/models", "POST", { definition: { definitionVersion: 1, origin: "external", key: definitionKey, display: { singular: "Document", plural: "Documents" }, fields: {}, access: ["read", "write"], semanticRelations: { outgoing: ["relates_to"] } }, compatibility: "initial" }, sourceAdmin);
+    expect(published.status, JSON.stringify(await published.clone().json())).toBe(201);
+  }
   const mr = await request(`/api/v1/spaces/${space}/external-models`, "POST", {
     sourceId: source,
     resourceId: resource,
     declaredAccess: "write",
+    ...(definitionKey ? { definitionKey } : {}),
   });
   expect(mr.status).toBe(201);
   const model = ((await mr.json()) as any).data.key;
@@ -302,6 +308,7 @@ async function fixture() {
     user,
     application,
     source,
+    sourceAdmin,
     model,
     path,
     state,
@@ -314,6 +321,86 @@ async function fixture() {
   };
 }
 describe("Space-local External Model framework", () => {
+  it("rejects Provider identity substitution and preserves uncertain mutation outcomes", async () => {
+    const f = await fixture(); await f.authorize();
+    const target = "rec_external_expected";
+    for (const id of ["rec_external_other", "rec_native_collision"]) {
+      f.state.returnedRecordId = id;
+      const read = await f.request(`${f.path}/${target}`);
+      expect(read.status).toBe(502);
+      expect((await read.json<any>()).error.code).toBe("EXTERNAL_CONTRACT_INVALID");
+      const write = await f.request(`${f.path}/${target}`, "PATCH", { [field]: 9 });
+      expect(write.status).toBe(502);
+      expect((await write.json<any>()).error.code).toBe("EXTERNAL_WRITE_UNKNOWN");
+      const removed = await f.request(`${f.path}/${target}`, "DELETE", {});
+      expect(removed.status).toBe(502);
+      expect((await removed.json<any>()).error.code).toBe("EXTERNAL_WRITE_UNKNOWN");
+    }
+    expect((await f.db.prepare("SELECT record_id FROM external_record_identities WHERE space_id=?").bind(f.space).all()).results).toEqual([]);
+  });
+  it("publishes an External definition without Native storage, binds it and uses the business key in CRUD/Batch", async () => {
+    const f = await fixture("external_document_test"); await f.authorize();
+    expect(f.model).toBe("external_document_test");
+    const row = await f.db.prepare("SELECT definition_key,model_key FROM external_models WHERE space_id=?").bind(f.space).first<any>();
+    expect(row.definition_key).toBe("external_document_test"); expect(row.model_key).toMatch(/^ext_/);
+    expect((await f.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name LIKE '%external_document_test%'").all()).results).toEqual([]);
+    const created = await f.request(f.path, "POST", { [field]: 4 });
+    expect(created.status).toBe(201); const record = (await created.json<any>()).data;
+    expect(record.modelKey).toBe("external_document_test"); expect(record.version).toBeUndefined();
+    f.state.calls = [];
+    const result = await f.request(`/api/v1/spaces/${f.space}/models/batch`, "POST", { atomicConsistency: false, operations: [{ operation: "create", modelKey: f.model, data: { [field]: 5 } }] });
+    expect(result.status).toBe(200); expect((await result.json<any>()).data.items[0].status).toBe("succeeded"); expect(f.state.calls).toEqual(["create"]);
+    const duplicate = await f.request(`/api/v1/spaces/${f.space}/external-models`, "POST", { sourceId: f.source, definitionKey: f.model, resourceId: f.resource });
+    expect(duplicate.status).toBe(409);
+  });
+  it("links Native assessment to the bound External document and preserves authority/honest hydration", async () => {
+    const f = await fixture("health_document"); await f.authorize();
+    const published = await f.request("/api/v1/model-admin/models", "POST", { definition: { definitionVersion: 1, key: "health_assessment", display: { singular: "Assessment", plural: "Assessments" }, fields: { name: { type: "string" } }, access: ["read", "write"], semanticRelations: { outgoing: ["based_on"] } }, compatibility: "initial" }, f.sourceAdmin);
+    expect(published.status).toBe(201);
+    await f.db.prepare("INSERT INTO application_model_access(application_id,model_key,max_access,created_by_type,created_by_id) VALUES(?, 'health_assessment','write','service','svc_synthetic')").bind(f.application).run();
+    const native = await f.request(`/api/v1/spaces/${f.space}/models/health_assessment/records`, "POST", { name: "Assessment" });
+    expect(native.status).toBe(201); const sourceId = (await native.json<any>()).data.id;
+    const targetId = "rec_external_evidence";
+    const input = { source: { kind: "record", modelKey: "health_assessment", recordId: sourceId }, predicate: "based_on", target: { kind: "record", modelKey: f.model, recordId: targetId } };
+    const base = `/api/v1/spaces/${f.space}/semantic-relations`;
+    const created = await f.request(base, "POST", input); expect(created.status).toBe(200);
+    const id = (await created.json<any>()).data.id;
+    const hydrated = await f.request(`${base}/${id}?hydrate=both`); expect(hydrated.status).toBe(200);
+    const edge = (await hydrated.json<any>()).data; expect(edge.targetRecord.origin).toBe("external"); expect(edge.targetRecord.version).toBeUndefined();
+    f.state.calls = [];
+    const atomic = await f.request(`/api/v1/spaces/${f.space}/models/batch`, "POST", { operations: [{ operation: "relation_create", ...input }] });
+    expect(atomic.status).toBe(422); expect(f.state.calls).toEqual([]);
+    const bulk = await f.request(`/api/v1/spaces/${f.space}/models/batch`, "POST", { atomicConsistency: false, operations: [{ operation: "relation_create", ...input }] });
+    expect(bulk.status).toBe(200); expect((await bulk.json<any>()).data.items[0].status).toBe("succeeded");
+    const combined = await f.request(`/api/v1/spaces/${f.space}/models/batch`, "POST", { atomicConsistency: false, operations: [
+      { operation: "relation_create", source: input.source, predicate: "based_on", target: { kind: "record", modelKey: f.model, clientRef: "document" } },
+      { operation: "create", modelKey: f.model, clientRef: "document", data: { [field]: 6 } },
+    ] });
+    expect(combined.status).toBe(200); expect((await combined.json<any>()).data.items.map(i => i.status)).toEqual(["succeeded", "succeeded"]);
+    f.metric.d1 = 0; f.state.calls = []; f.state.maxActive = 0;
+    const twenty = await f.request(`/api/v1/spaces/${f.space}/models/batch`, "POST", { atomicConsistency: false, operations: Array.from({ length: 20 }, (_, i) => ({ operation: "relation_create", ...input, target: { ...input.target, recordId: `rec_external_many_${i}` } })) });
+    expect(twenty.status).toBe(200); const twentyData = (await twenty.json<any>()).data; expect(twentyData.items.every(i => i.status === "succeeded")).toBe(true);
+    expect(f.metric.d1).toBeLessThanOrEqual(10); expect(f.state.calls.filter(c => c === "get")).toHaveLength(20); expect(f.state.maxActive).toBeLessThanOrEqual(3);
+    f.state.error = "EXTERNAL_UNAVAILABLE"; f.state.calls = [];
+    const deleteBatch = await f.request(`/api/v1/spaces/${f.space}/models/batch`, "POST", { atomicConsistency: false, operations: [{ operation: "relation_delete", relationId: twentyData.items[0].relationId }] });
+    expect(deleteBatch.status).toBe(200); expect((await deleteBatch.json<any>()).data.items[0].status).toBe("succeeded"); expect(f.state.calls).toEqual([]); f.state.error = null;
+    const externalEdge = await f.request(base, "POST", { source: { ...input.target, recordId: "rec_external_source" }, predicate: "relates_to", target: input.target });
+    expect(externalEdge.status).toBe(200);
+    const externalEdgeId = (await externalEdge.json<any>()).data.id;
+    await f.db.prepare("UPDATE external_record_identities SET next_check_at='2000-01-01T00:00:00.000Z' WHERE record_id=? AND space_id=?").bind(targetId, f.space).run();
+    f.state.error = "EXTERNAL_RESOURCE_UNAVAILABLE";
+    await reconcileExternalModels(f.bindings);
+    expect((await f.db.prepare("SELECT availability FROM external_record_identities WHERE record_id=?").bind(targetId).first<any>()).availability).toBe("unavailable");
+    f.state.error = "EXTERNAL_RESOURCE_UNAVAILABLE";
+    expect((await f.request(`${base}/${externalEdgeId}?hydrate=both`)).status).toBe(404);
+    f.state.calls = [];
+    expect((await f.request(`${base}/${externalEdgeId}`, "DELETE")).status).toBe(204); expect(f.state.calls).toEqual([]);
+    f.state.error = null;
+    expect((await f.request(`${f.path}/${targetId}`, "DELETE", {})).status).toBe(204);
+    expect((await f.db.prepare("SELECT id FROM semantic_relations WHERE id=?").bind(id).all()).results).toEqual([]);
+    await f.db.prepare("DELETE FROM application_model_access WHERE application_id=? AND model_key=?").bind(f.application, f.model).run();
+    f.state.calls = []; expect((await f.request(`${base}/${id}?hydrate=both`)).status).toBe(404); expect(f.state.calls).toEqual([]);
+  });
   it("uses indexed executable refresh work; disabled sources do not occupy the queue and reactivation resumes", async () => {
     const f = await fixture();
     await f.db.prepare("UPDATE external_models SET next_refresh_at='2099-01-01T00:00:00.000Z'").run();
@@ -593,7 +680,7 @@ describe("Space-local External Model framework", () => {
     const scenarios = [
       {
         name: "Get",
-        path: f.path + "/rec_synthetic",
+        path: f.path + "/rec_external_synthetic",
         method: "GET",
         input: undefined,
         adapterCalls: 1,
@@ -617,7 +704,7 @@ describe("Space-local External Model framework", () => {
       },
       {
         name: "Update",
-        path: f.path + "/rec_synthetic",
+        path: f.path + "/rec_external_synthetic",
         method: "PATCH",
         input: { [field]: 2 },
         adapterCalls: 1,

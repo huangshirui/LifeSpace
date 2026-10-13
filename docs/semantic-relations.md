@@ -48,8 +48,8 @@ use separate requests for that V1 shape. If no operation can be resolved for
 authorization, the request is rejected before persisting batch metadata.
 
 Native records/relations on one D1 support atomic commit. Capability support is a
-precondition, not a transaction invented by Core. External endpoint resolution is
-not enabled by this PR; #340 owns provider-neutral resolution and capability discovery.
+precondition, not a transaction invented by Core. The integrated #340 candidate adds
+bound External endpoint resolution and capability discovery as described below.
 External Provider operations mixed with D1 are never a distributed transaction,
 even if the Provider supports its own transactions. Unsupported atomic requests
 must fail explicitly, never silently downgrade. Notion atomicBatch=false.
@@ -67,3 +67,7 @@ relations. Test Native create/query/get/delete, 20-item mixed batches, 1000+ edg
 sparse visibility, query plans/rows read, concurrency and all credential profiles.
 Local test duration is not a Provider or deployed latency SLA. Staging and controlled
 JWT/Service/Agent wall-time measurements precede a production capability claim.
+
+## Bound External endpoints (development candidate)
+
+Native/External and External/External edges use the same business-key entity_ref. External business definitions declare outgoing predicates; binding and current read/write ceilings are resolved in the source Space. Existence/hydration uses Provider reads after current Authority, grouped local audit and concurrency <=3. External CRUD + independent edges can share atomicConsistency=false requests using clientRefs, with per-item dependency failure; no cross-store rollback. Native-Native transactions remain intact. Confirmed Provider delete cleans local identity/edges afterward. Provider-direct missing/denied hydrations are opaque; links can be removed locally with current authority even while Provider unavailable. Bounded scheduled presence observation logically invalidates unavailable external identities before relation pagination, retains links for explicit removal, and can restore availability after a successful read. It stores only identity metadata and publishes no external payload/change attribution. Real Provider freshness remains a release gate.

@@ -413,9 +413,13 @@ Publishing a compatible ordinary Model Definition does not itself require a Work
 
 ## Semantic Relation foundation / 语义关系基座
 
-PR #339 adds a Shared World relationship independent of ordinary fixed-field references. Semantic contract and governed predicate registry sit above one generic junction table; current Authority/Policy and Change are reused. Native endpoint liveness/cleanup and local D1 atomicity are enforced at commit. External resolution remains unavailable until #340 integration is verified; Provider/D1 operations never inherit local transaction guarantees. See [semantic-relations.md](semantic-relations.md). Not yet production.
+PR #339 adds a Shared World relationship independent of ordinary fixed-field references. Semantic contract and governed predicate registry sit above one generic junction table; current Authority/Policy and Change are reused. Native endpoint liveness/cleanup and local D1 atomicity are enforced at commit. The integrated #340 candidate resolves bound External business endpoints under current Space authority with bounded Provider reads and identity observation. Provider/D1 operations never inherit local transaction guarantees. See [semantic-relations.md](semantic-relations.md). Not yet production; deployed Provider acceptance remains required.
 
 
 ## Recurrence Plan-to-Task capability / 通用周期任务（#338，开发中）
 
 Recurrence is a reusable model-bound capability over durable Space-owned Plan/Task/occurrence state, not a Health-specific scheduler or application-owned job. It composes typed Generic Runtime mutation plans and native Semantic Relations in one D1 transaction. The existing Core Scheduled handler advances an indexed, bounded one-Space batch; no new per-domain Worker, graph database or generic Trigger engine is introduced. Identity contributes only current enrolled-root/application status and scope ceilings; Core retains Membership/Grant/model/Policy authority. See [recurrence.md](./recurrence.md) for the internal execution boundary, rollout order and performance gates. Production availability is tracked separately.
+
+### External business model binding (development candidate)
+
+A globally registered `origin: external` business definition is referenceable metadata, not global data availability. Each Space explicitly binds the definition to one connection/data source; business modelKey is the Runtime/Application Access/Grant/Delegation key, ext_* is registration identity. Authority requires a current binding and connection in addition to existing current-state checks. No payload mirror or second ACL is created. The same business definition can have different Provider fields/schemaHash in different Spaces. Consumers must use inventory `(spaceId,modelKey,schemaHash)` for dynamic fields, not reuse one Space's field schema across all Spaces. Native descriptor hot paths remain unchanged. Production remains unchanged until release acceptance.

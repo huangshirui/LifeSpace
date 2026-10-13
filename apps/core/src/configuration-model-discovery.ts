@@ -32,6 +32,7 @@ function inventoryModel(model: PublishedModel, access: ModelAccess[]) {
   const semantic = projectModelSemanticFacts(model);
   return {
     key: semantic.key,
+    ...(model.definition.origin === "external" ? { origin: "external", fieldsDynamic: true } : {}),
     version: semantic.version,
     schemaHash: semantic.schemaHash,
     display: semantic.display,

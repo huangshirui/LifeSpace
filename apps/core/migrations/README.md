@@ -12,3 +12,7 @@ Preserve canonical Core-first → Identity rollout. Apply Core migrations in num
 ## 0058 Runtime review fixes / 审核修复
 
 Adds the indexed executable External refresh queue and Source disable/reactivate lifecycle, plus a commit-time guard against deleting the current completion-based Task. Historical generated Tasks remain deletable; cancel/skip/removing the recurrence rule remain explicit operations. Apply this additive migration before the integrated Worker; do not edit historical migration snapshots.
+
+## 0059–0061 External business bindings / 外部业务绑定
+
+Continue numeric order after 0058: 0059 binds a published External business definition to one active Space registration; 0060 extends the semantic junction to external identity metadata while retaining Native live-endpoint and atomic cleanup guards; 0061 adds bounded identity-presence observation and lifecycle queue parking. Existing payloads and Native history are retained. Apply all three before the integrated Core Worker. No Provider payload is copied into D1. Provider writes and local links have separate failure boundaries; rollback requires pausing affected bindings and retaining migration history. Staging must verify the exact candidate and isolated Provider Service Binding/Secrets before production rollout.

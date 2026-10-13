@@ -94,6 +94,7 @@ export type QueryDefinition = {
 
 export type ModelDefinition = {
   definitionVersion: typeof MODEL_DEFINITION_VERSION;
+  origin?: "external";
   key: string;
   description?: string;
   display: {
@@ -435,6 +436,7 @@ export function validateModelDefinition(input: unknown): ModelValidationResult {
 
   const allowedTopLevel = new Set([
     "definitionVersion",
+    "origin",
     "key",
     "description",
     "display",
@@ -470,6 +472,7 @@ export function validateModelDefinition(input: unknown): ModelValidationResult {
     issue(issues, "key", "INVALID_MODEL_KEY", "key must match /^[a-z][a-z0-9_]{1,62}$/");
   }
   const semanticRelations = validateSemanticRelations(input.semanticRelations, key, issues);
+  if (input.origin !== undefined && input.origin !== "native" && input.origin !== "external") issue(issues, "origin", "INVALID_MODEL_ORIGIN", "origin must be native or external");
 
   const description = boundedText(issues, input.description, "description", 500);
 
@@ -499,6 +502,17 @@ export function validateModelDefinition(input: unknown): ModelValidationResult {
   }
 
   const fieldsInput = isObject(input.fields) ? input.fields : null;
+  if (input.origin === "external") {
+    if (!fieldsInput || Object.keys(fieldsInput).length) issue(issues, "fields", "EXTERNAL_FIELDS_PROVIDER_OWNED", "External definitions require fields: {}; provider schema is discovered per Space binding");
+    for (const property of ["defaults", "query", "lifecycle", "capabilities", "policies", "actions", "timeRanges", "referenceLabel"]) {
+      if (input[property] !== undefined) issue(issues, property, "EXTERNAL_NATIVE_SEMANTICS_UNSUPPORTED", "External definitions do not inherit Native runtime semantics");
+    }
+    const access = input.access;
+    if (!Array.isArray(access) || !access.length || access.some(value => value !== "read" && value !== "write") || new Set(access).size !== access.length) issue(issues, "access", "INVALID_ACCESS", "External access must contain unique read/write values");
+    if (issues.length) return { valid: false, issues };
+    const definition: ModelDefinition = { definitionVersion: MODEL_DEFINITION_VERSION, origin: "external", key, ...(description ? { description } : {}), display: { singular, plural }, fields: {}, access: access as ModelAccess[], ...(semanticRelations ? { semanticRelations } : {}) };
+    return { valid: true, definition, hashInput: canonicalModelDefinition(definition) };
+  }
   if (!fieldsInput || Object.keys(fieldsInput).length === 0) {
     issue(issues, "fields", "FIELDS_REQUIRED", "At least one field is required");
   }

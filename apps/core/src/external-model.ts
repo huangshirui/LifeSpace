@@ -1,11 +1,15 @@
 import type { Bindings } from "./env";
 import { ApiError } from "./http";
 import type { ModelAccess } from "./model-definition";
-import { getRuntimeModel } from "./model-registry";
+import { getRuntimeModel, type PublishedModel } from "./model-registry";
 
 export const EXTERNAL_PREFIX = "ext_";
 export const isExternalModelKey = (key: string) =>
   key.startsWith(EXTERNAL_PREFIX);
+export async function isExternalModelAddress(env: Bindings, key: string): Promise<boolean> {
+  return isExternalModelKey(key) || (await getRuntimeModel(env, key))?.definition.origin === "external";
+}
+export const externalBusinessKey = (model: ExternalModel) => model.definition_key ?? model.model_key;
 export type ExternalCapabilities = {
   get: boolean;
   query: boolean;
@@ -17,7 +21,7 @@ export type ExternalCapabilities = {
   transaction: false;
   versionedWrite: false;
   actions: false;
-  relationTargetResolution: false;
+  relationTargetResolution: boolean;
 };
 export type ExternalField = {
   key: string;
@@ -54,6 +58,7 @@ export type ExternalSource = {
   updated_at: string;
 };
 export type ExternalModelRow = {
+  definition_key?: string | null;
   model_key: string;
   space_id: string;
   source_id: string;
@@ -74,6 +79,7 @@ export type ExternalModelRow = {
 export type ExternalModel = ExternalModelRow & {
   snapshot: ExternalSnapshot;
   source: ExternalSource;
+  businessDefinition?: PublishedModel;
 };
 export type ExternalOperation =
   | "connection"
@@ -234,7 +240,7 @@ export function validateExternalSnapshot(value: unknown): ExternalSnapshot {
     "actions",
     "relationTargetResolution",
   ]);
-  for (const k of ["get", "query", "create", "update", "delete", "batchWrite"])
+  for (const k of ["get", "query", "create", "update", "delete", "batchWrite", "relationTargetResolution"])
     if (typeof caps[k] !== "boolean")
       throw new ExternalError("EXTERNAL_CONTRACT_INVALID", 502);
   for (const k of [
@@ -242,7 +248,6 @@ export function validateExternalSnapshot(value: unknown): ExternalSnapshot {
     "transaction",
     "versionedWrite",
     "actions",
-    "relationTargetResolution",
   ])
     if (caps[k] !== false)
       throw new ExternalError("EXTERNAL_CONTRACT_INVALID", 502);
@@ -345,14 +350,19 @@ export async function getExternalSource(
     .bind(id)
     .first<ExternalSource>();
 }
-function rowModel(
+async function rowModel(
+  env: Bindings,
   row: ExternalModelRow,
   source: ExternalSource,
-): ExternalModel {
+  includeDisabled = false,
+): Promise<ExternalModel | null> {
+  const definition = row.definition_key ? await getRuntimeModel(env, row.definition_key) : null;
+  if (!includeDisabled && row.definition_key && definition?.definition.origin !== "external") return null;
   return {
     ...row,
     snapshot: validateExternalSnapshot(JSON.parse(row.snapshot_json)),
     source,
+    ...(definition ? { businessDefinition: definition } : {}),
   };
 }
 export async function getExternalModel(
@@ -362,14 +372,14 @@ export async function getExternalModel(
   includeDisabled = false,
 ): Promise<ExternalModel | null> {
   const row = await env.DB.prepare(
-    "SELECT * FROM external_models WHERE space_id=? AND model_key=?",
+    "SELECT * FROM external_models WHERE space_id=? AND (model_key=? OR definition_key=?) ORDER BY (status!='disabled') DESC,updated_at DESC LIMIT 1",
   )
-    .bind(spaceId, key)
+    .bind(spaceId, key, key)
     .first<ExternalModelRow>();
   if (!row || (!includeDisabled && row.status === "disabled")) return null;
   const source = await getExternalSource(env, row.source_id);
   if (!source || (!includeDisabled && source.status !== "active")) return null;
-  return rowModel(row, source);
+  return rowModel(env, row, source, includeDisabled);
 }
 export async function listExternalModels(
   env: Bindings,
@@ -391,9 +401,8 @@ export async function listExternalModels(
           source_updated_at: string;
         }
       >();
-    for (const r of rows.results)
-      items.push(
-        rowModel(r, {
+    for (const r of rows.results) {
+      const model = await rowModel(env, r, {
           id: r.source_id,
           space_id: r.space_id,
           provider_key: r.provider_key,
@@ -401,8 +410,9 @@ export async function listExternalModels(
           status: r.source_status,
           created_at: r.source_created_at,
           updated_at: r.source_updated_at,
-        }),
-      );
+        });
+      if (model) items.push(model);
+    }
   }
   return items;
 }
@@ -420,14 +430,15 @@ export function externalAuthorityModel(model: ExternalModel) {
     ].some(Boolean)
   )
     access.push("write");
-  return { key: model.model_key, definition: { access } };
+  const ceiling = model.businessDefinition?.definition.access;
+  return { key: externalBusinessKey(model), definition: { access: ceiling ? access.filter(value => ceiling.includes(value)) : access } };
 }
 export async function resolveSpaceAuthorityModel(
   env: Bindings,
   spaceId: string,
   key: string,
 ) {
-  if (isExternalModelKey(key)) {
+  if (await isExternalModelAddress(env, key)) {
     const model = await getExternalModel(env, spaceId, key);
     return model ? externalAuthorityModel(model) : null;
   }
@@ -500,7 +511,7 @@ export async function refreshExternalModel(
     throw error;
   }
 }
-export async function reconcileExternalModels(env: Bindings): Promise<void> {
+async function reconcileExternalSchemas(env: Bindings): Promise<void> {
   if (!env.EXTERNAL_ADAPTER || !schemaRefreshInterval(env)) return;
   const rows = await env.DB.prepare(
     "SELECT space_id,model_key FROM external_models m WHERE status!='disabled' AND next_refresh_at IS NOT NULL AND next_refresh_at<=? AND EXISTS(SELECT 1 FROM external_sources s WHERE s.id=m.source_id AND s.status='active') AND EXISTS(SELECT 1 FROM spaces s WHERE s.id=m.space_id AND s.deleted_at IS NULL) ORDER BY next_refresh_at,model_key LIMIT 20",
@@ -515,4 +526,35 @@ export async function reconcileExternalModels(env: Bindings): Promise<void> {
           await refreshExternalModel(env, model).catch(() => undefined);
       }),
     );
+}
+
+// This observes only Provider presence through the trusted connection. It does not
+// exercise a user's data authority or publish Provider payload/attribution.
+async function reconcileExternalIdentities(env: Bindings): Promise<void> {
+  if (!env.EXTERNAL_ADAPTER || !schemaRefreshInterval(env)) return;
+  const now = new Date().toISOString();
+  const due = await env.DB.prepare(`SELECT i.record_id,i.model_key,i.space_id FROM external_record_identities i
+    WHERE i.next_check_at IS NOT NULL AND i.next_check_at<=?
+      AND EXISTS(SELECT 1 FROM external_models m JOIN external_sources s ON s.id=m.source_id JOIN model_definitions d ON d.model_key=m.definition_key AND d.state='published'
+        WHERE m.model_key=i.model_key AND m.space_id=i.space_id AND json_extract(m.snapshot_json,'$.capabilities.get')=1 AND m.status!='disabled' AND s.status='active' AND json_extract(d.definition_json,'$.origin')='external')
+      AND EXISTS(SELECT 1 FROM spaces s WHERE s.id=i.space_id AND s.deleted_at IS NULL)
+    ORDER BY i.next_check_at,i.record_id LIMIT 20`).bind(now).all<{ record_id: string; model_key: string; space_id: string }>();
+  if (!due.results.length) return;
+  const models = new Map((await listExternalModels(env, [...new Set(due.results.map(r => r.space_id))])).map(m => [m.model_key, m]));
+  const updates: D1PreparedStatement[] = [];
+  for (let offset = 0; offset < due.results.length; offset += 3) await Promise.all(due.results.slice(offset, offset + 3).map(async row => {
+    const model = models.get(row.model_key); if (!model) return;
+    let availability: string | null = null;
+    try { const result = objectInput(await callExternalAdapter(env, model.source, "get", model.resource_id, model.snapshot, {}, row.record_id)); if (result.id === row.record_id && /^rec_external_[A-Za-z0-9_-]+$/.test(row.record_id)) availability = "active"; }
+    catch (error) { if (error instanceof ApiError && error.code === "EXTERNAL_RESOURCE_UNAVAILABLE") availability = "unavailable"; }
+    updates.push(env.DB.prepare(`UPDATE external_record_identities SET availability=COALESCE(?,availability),observed_at=?,next_check_at=? WHERE record_id=? AND model_key=? AND space_id=?
+      AND EXISTS(SELECT 1 FROM external_models m JOIN external_sources s ON s.id=m.source_id WHERE m.model_key=? AND m.status!='disabled' AND s.status='active')`)
+      .bind(availability, now, nextExternalRefresh(env), row.record_id, row.model_key, row.space_id, row.model_key));
+  }));
+  if (updates.length) await env.DB.batch(updates);
+}
+export async function reconcileExternalModels(env: Bindings): Promise<void> {
+  const results = await Promise.allSettled([reconcileExternalSchemas(env), reconcileExternalIdentities(env)]);
+  const failures = results.flatMap(result => result.status === "rejected" ? [result.reason] : []);
+  if (failures.length) throw new AggregateError(failures, "External reconciliation failed");
 }

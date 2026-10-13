@@ -49,7 +49,7 @@ export function registerRuntimeModelSemanticDetailRoutes(app: App): void {
     const principal = context.get("principal");
     const spaceId = context.req.param("spaceId");
     const key = context.req.param("modelKey");
-    if (isExternalModelKey(key)) {
+    if (isExternalModelKey(key) || (await getRuntimeModel(context.env, key))?.definition.origin === "external") {
       const external = await getExternalModel(context.env,spaceId,key);
       if (!external) throw opaqueNotFound();
       const access = await requireModelAccess(context.env,principal,spaceId,externalAuthorityModel(external),"read",{delegationId:context.req.header("x-lifespace-delegation-id")}).catch(error=>{if(error instanceof ApiError&&[403,404,405].includes(error.status))throw opaqueNotFound();throw error;});

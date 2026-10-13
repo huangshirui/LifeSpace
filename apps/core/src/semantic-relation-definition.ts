@@ -49,10 +49,10 @@ export type SemanticRelationDefinition = {
 };
 
 export const SEMANTIC_RELATION_RUNTIME = {
-  endpointOrigin: "native",
+  endpointOrigin: "native_or_bound_external",
   atomicBatch: true,
   crossStoreAtomic: false,
-  externalEndpointResolution: false,
+  externalEndpointResolution: true,
   batchPathTemplate: "/api/v1/spaces/{spaceId}/models/batch",
 } as const;
 
