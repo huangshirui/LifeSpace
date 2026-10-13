@@ -161,7 +161,7 @@ function addSemanticRelationSchemas(
 function response(schema: string, description: string) {
   return { description, content: { "application/json": { schema: { $ref: `#/components/schemas/${schema}` } } } };
 }
-const errors = Object.fromEntries([400, 401, 403, 404, 409, 500, 503].map((status) => [String(status), response("SemanticRelationError", "Invalid, denied, unavailable or conflicted operation")]));
+const errors = Object.fromEntries([400, 401, 403, 404, 409, 422, 429, 500, 502, 503].map((status) => [String(status), response("SemanticRelationError", "Invalid, denied, unavailable or conflicted operation")]));
 
 function addSemanticRelationPaths(openapi: OpenApiDocument): void {
   const paths = openapi.paths as Record<string, unknown>;
