@@ -616,12 +616,14 @@ export async function executeExternalOperation(
     else await failure.run().catch(() => undefined);
     if (
       ["EXTERNAL_ACCESS_DENIED", "EXTERNAL_RESOURCE_UNAVAILABLE"].includes(code)
-    )
-      await env.DB.prepare(
+    ) {
+      const degraded = env.DB.prepare(
         "UPDATE external_models SET status='degraded',last_error_code=? WHERE model_key=? AND status!='disabled'",
       )
-        .bind(code, m.model_key)
-        .run();
+        .bind(code, m.model_key);
+      if (auditContext) auditContext.finalizers.push(degraded);
+      else await degraded.run();
+    }
     if (unknown) throw new ExternalError("EXTERNAL_WRITE_UNKNOWN", 502);
     throw error;
   }

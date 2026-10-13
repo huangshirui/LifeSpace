@@ -71,6 +71,10 @@ describe("generated Authority v2 and Batch Model Contract", () => {
     expect(semanticPaths.get.responses["200"].content["application/json"].schema.$ref).toBe("#/components/schemas/SemanticRelationQueryResponse");
     expect(semanticPaths.post.responses["200"].content["application/json"].schema.$ref).toBe("#/components/schemas/SemanticRelationResponse");
     expect(semanticPaths.get.responses["404"].content["application/json"].schema.$ref).toBe("#/components/schemas/SemanticRelationError");
+    for (const status of ["422", "429", "502"]) {
+      expect(semanticPaths.get.responses[status].content["application/json"].schema.$ref).toBe("#/components/schemas/SemanticRelationError");
+      expect(semanticPaths.post.responses[status].content["application/json"].schema.$ref).toBe("#/components/schemas/SemanticRelationError");
+    }
 
     expect(document.components.schemas.AlphaBatchCreateOperation.properties.delegationId.pattern)
       .toBe("^dlg_[A-Za-z0-9_-]+$");

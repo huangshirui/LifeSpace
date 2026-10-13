@@ -514,7 +514,7 @@ export async function refreshExternalModel(
 async function reconcileExternalSchemas(env: Bindings): Promise<void> {
   if (!env.EXTERNAL_ADAPTER || !schemaRefreshInterval(env)) return;
   const rows = await env.DB.prepare(
-    "SELECT space_id,model_key FROM external_models m WHERE status!='disabled' AND next_refresh_at IS NOT NULL AND next_refresh_at<=? AND EXISTS(SELECT 1 FROM external_sources s WHERE s.id=m.source_id AND s.status='active') AND EXISTS(SELECT 1 FROM spaces s WHERE s.id=m.space_id AND s.deleted_at IS NULL) ORDER BY next_refresh_at,model_key LIMIT 20",
+    "SELECT space_id,model_key FROM external_models m WHERE status!='disabled' AND next_refresh_at IS NOT NULL AND next_refresh_at<=? AND (definition_key IS NULL OR EXISTS(SELECT 1 FROM model_definitions d WHERE d.model_key=m.definition_key AND d.state='published' AND json_extract(d.definition_json,'$.origin')='external')) AND EXISTS(SELECT 1 FROM external_sources s WHERE s.id=m.source_id AND s.status='active') AND EXISTS(SELECT 1 FROM spaces s WHERE s.id=m.space_id AND s.deleted_at IS NULL) ORDER BY next_refresh_at,model_key LIMIT 20",
   )
     .bind(new Date().toISOString())
     .all<{ space_id: string; model_key: string }>();
