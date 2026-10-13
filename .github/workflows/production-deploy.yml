@@ -214,6 +214,13 @@ jobs:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID || secrets.CLOUDFLARE_ACCOUNT_ID }}
       LIFESPACE_PRODUCTION_BOOTSTRAP_SECRET: ${{ secrets.LIFESPACE_PRODUCTION_BOOTSTRAP_SECRET }}
+      LIFESPACE_EXTERNAL_PROVIDER_ENABLED: ${{ vars.LIFESPACE_EXTERNAL_PROVIDER_ENABLED || '0' }}
+      LIFESPACE_EXTERNAL_ADAPTER_WORKER: ${{ vars.LIFESPACE_EXTERNAL_ADAPTER_WORKER }}
+      EXTERNAL_ADAPTER_SHARED_SECRET: ${{ secrets.EXTERNAL_ADAPTER_SHARED_SECRET }}
+      NOTION_CONNECTIONS: ${{ secrets.NOTION_CONNECTIONS }}
+      LIFESPACE_EXTERNAL_SMOKE_CREDENTIAL_REF: ${{ vars.LIFESPACE_EXTERNAL_SMOKE_CREDENTIAL_REF }}
+      LIFESPACE_EXTERNAL_SMOKE_RESOURCE_ID: ${{ secrets.LIFESPACE_EXTERNAL_SMOKE_RESOURCE_ID }}
+      LIFESPACE_EXTERNAL_SMOKE_SYNTHETIC_CONFIRMED: ${{ vars.LIFESPACE_EXTERNAL_SMOKE_SYNTHETIC_CONFIRMED }}
       LIFESPACE_CORE_PRODUCTION_URL: https://core.aisr.online
       LIFESPACE_IDENTITY_PRODUCTION_URL: https://auth.aisr.online
 
@@ -262,6 +269,18 @@ jobs:
       - name: Validate production scripts
         run: node infra/scripts/check-production-infra.mjs
 
+      - name: Validate External provider prerequisites before mutation
+        run: node infra/scripts/external-provider-deployment.mjs prepare production
+
+      - name: Checkout pinned External provider
+        if: env.LIFESPACE_EXTERNAL_PROVIDER_ACTIVE == '1'
+        uses: actions/checkout@v5
+        with:
+          repository: huangshirui/lifespace-adapters
+          ref: ${{ env.LIFESPACE_EXTERNAL_PROVIDER_REVISION }}
+          path: .external-provider
+          persist-credentials: false
+
       - name: Resolve expected production versions
         run: node infra/scripts/production-expectations.mjs
 
@@ -275,11 +294,23 @@ jobs:
 
       # Normal releases use the same compatibility-preserving ordering as staging:
       # newer Core verifier/runtime first, then Identity may issue against it.
+      - name: Deploy and configure private External provider before Core
+        if: env.LIFESPACE_EXTERNAL_PROVIDER_ACTIVE == '1'
+        run: node infra/scripts/external-provider-deployment.mjs deploy-adapter production
+
       - name: Apply Core migrations
         run: pnpm --filter @lifespace/core db:migrate:production
 
       - name: Deploy Core first
         run: pnpm --dir apps/core exec wrangler deploy --env production
+
+      - name: Synchronize independent Core External provider secret
+        if: env.LIFESPACE_EXTERNAL_PROVIDER_ACTIVE == '1'
+        run: node infra/scripts/external-provider-deployment.mjs sync-core production
+
+      - name: Verify live private External provider wiring
+        if: env.LIFESPACE_EXTERNAL_PROVIDER_ACTIVE == '1'
+        run: node infra/scripts/external-provider-deployment.mjs verify production
 
       - name: Apply Identity migrations
         run: pnpm --filter @lifespace/identity db:migrate:production
@@ -331,6 +362,7 @@ jobs:
           - APAC performance gate: passed automatically for this exact candidate SHA before production mutation
           - Core: schema v${LIFESPACE_EXPECTED_CORE_SCHEMA_VERSION} / Kernel contract ${LIFESPACE_EXPECTED_CORE_CONTRACT_VERSION}
           - Identity: schema v${LIFESPACE_EXPECTED_IDENTITY_SCHEMA_VERSION} / contract ${LIFESPACE_EXPECTED_IDENTITY_CONTRACT_VERSION}
+          - External Provider enabled: ${LIFESPACE_EXTERNAL_PROVIDER_ACTIVE}; live private wiring verified when enabled, production Provider data not used for destructive smoke
           - Production active Model Contract consistency: passed
           - Custom domains: \`core.aisr.online\`, \`auth.aisr.online\`
           - Production D1/R2/Queue/Worker isolation: passed

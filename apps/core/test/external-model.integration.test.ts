@@ -2,6 +2,7 @@ import { env } from "cloudflare:workers";
 import { sign } from "hono/jwt";
 import { describe, it, expect } from "vitest";
 import { createApp } from "../src/app";
+import { runExternalProviderSmoke } from "../../../infra/scripts/external-provider-smoke.mjs";
 import type { Bindings } from "../src/env";
 import { reconcileExternalModels } from "../src/external-model";
 const field = "f_" + "a".repeat(32),
@@ -1023,4 +1024,38 @@ describe("Space-local External Model framework", () => {
     expect(data.items[1].error.code).toBe("EXTERNAL_AUDIT_UNAVAILABLE");
     expect(f.state.calls).toEqual([]);
   });
+  it("runs the exact staging External acceptance against real HTTP routes and migrated D1", async () => {
+    const f = await fixture();
+    await f.db.prepare("DELETE FROM external_models WHERE model_key=?").bind(f.model).run();
+    await f.db.prepare("DELETE FROM external_sources WHERE id=?").bind(f.source).run();
+    const title = "f_" + "b".repeat(32);
+    const snapshot = { resourceId: f.resource, displayName: "Synthetic acceptance", fields: [
+      { key: title, sourceFieldId: "title", title: "Name", type: "string", nullable: true, readable: true, writable: true, operators: ["eq"], sortable: true },
+      { key: field, sourceFieldId: "amount", title: "Amount", type: "number", nullable: true, readable: true, writable: true, operators: ["eq"], sortable: true },
+    ], capabilities: { get: true, query: true, create: true, update: true, delete: true, batchWrite: true, atomicBatch: false, transaction: false, versionedWrite: false, actions: false, relationTargetResolution: false }, queryLimits: { maxDepth: 2, maxNodes: 20, maxSort: 3, maxPageSize: 100 }, adapterState: {} };
+    const records = new Map<string, any>();
+    f.bindings.EXTERNAL_ADAPTER = { fetch: async (_url: any, init: any) => {
+      const body = JSON.parse(init.body); let data: any;
+      if (body.operation === "connection") data = { read: true, write: true };
+      else if (body.operation === "discover") data = snapshot;
+      else if (body.operation === "create") { const id = "rec_external_" + crypto.randomUUID().replaceAll("-", ""); data = { id, data: { [title]: null, [field]: null, ...body.input } }; records.set(id, data); }
+      else if (body.operation === "query") data = { items: [...records.values()], nextCursor: null };
+      else if (body.operation === "delete") { records.delete(body.recordId); data = { id: body.recordId }; }
+      else { data = records.get(body.recordId); if (body.operation === "update" && data) Object.assign(data.data, body.input); }
+      return data ? Response.json({ contractVersion: 1, data }) : Response.json({ contractVersion: 1, error: { code: "EXTERNAL_RESOURCE_UNAVAILABLE", retrySafe: true } }, { status: 404 });
+    } } as unknown as Fetcher;
+    const result = await runExternalProviderSmoke({ marker: crypto.randomUUID().replaceAll("-", "").slice(0, 8), spaceId: f.space, resourceId: f.resource, credentialRef: "synthetic_ref",
+      request: async (path: string, { method, body, role }: any) => { const response = await f.request(path, method, body, role === "admin" ? f.sourceAdmin : undefined); return { status: response.status, payload: response.status === 204 ? null : await response.json() }; },
+      allowModels: async (keys: string[]) => { for (const key of keys) await f.db.prepare("INSERT INTO application_model_access(application_id,model_key,max_access,created_by_type,created_by_id) VALUES(?,?,'write','service','svc_synthetic')").bind(f.application, key).run(); },
+      verifyScheduledRefresh: async (registration: string) => { await f.db.prepare("UPDATE external_models SET next_refresh_at='2000-01-01T00:00:00.000Z' WHERE model_key=?").bind(registration).run(); await reconcileExternalModels(f.bindings); expect((await f.db.prepare("SELECT status FROM external_models WHERE model_key=?").bind(registration).first<any>()).status).toBe("active"); },
+      cleanupMetadata: async ({ source, externalKey, nativeKey }: any) => {
+        await f.db.prepare("DELETE FROM external_record_identities WHERE model_key IN (SELECT model_key FROM external_models WHERE space_id=? AND source_id=?)").bind(f.space, source).run();
+        await f.db.prepare("DELETE FROM external_models WHERE space_id=? AND source_id=?").bind(f.space, source).run();
+        await f.db.prepare("DELETE FROM external_sources WHERE id=? AND space_id=?").bind(source, f.space).run();
+        await f.db.prepare("DELETE FROM application_model_access WHERE application_id=? AND model_key IN (?,?)").bind(f.application, externalKey, nativeKey).run();
+      },
+    });
+    expect(result.crud).toBe(true); expect(result.partialBatch).toBe(true); expect(records.size).toBe(0);
+  });
+
 });

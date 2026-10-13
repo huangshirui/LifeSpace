@@ -92,7 +92,7 @@ The Custom Domain is intentional rather than cosmetic. Cloudflare Worker-to-Work
 
 ## Deploy staging
 
-Run the long-lived **Deploy staging** workflow manually for the branch/ref that should be verified.
+Run **Deploy LifeSpace platform staging** manually from `main` for the exact candidate to be verified.
 
 The workflow has read-only repository permissions and never commits generated changes back to the branch. Source generation/bindings must already be reproducible and committed before deployment.
 
@@ -117,3 +117,5 @@ The staging workflow proves LifeSpace's own deployed contract/schema/model/runti
 Eventing verification goes beyond the direct subscription test endpoint. `infra/scripts/verify-staging-eventing.mjs` creates an ephemeral staging-only Worker and Custom Domain, verifies the HMAC signature and exact reference-only payload shape, creates a real `event` record, waits for the scheduled outbox dispatcher and Cloudflare Queue consumer to produce a successful Webhook delivery, then proves subscriber Grant revocation is enforced. The subscription, test record, temporary authorization, subscriber state, Custom Domain and receiver Worker are cleaned up after the check. No workers.dev target and no webhook.site/httpbin-style third-party collector is part of canonical staging acceptance.
 
 Smoke data is staging-only and is identified by the GitHub Actions run ID/attempt. Production resources and external application traffic/data are not modified by the staging workflow.
+
+Recurrence enrollment/completion now has automatic live acceptance after both services converge. External Provider deployment is an explicit environment opt-in: its pinned private Worker, matching secrets, Core Binding and real synthetic Notion/relations/batch/Scheduled-refresh acceptance run in the same workflow. Complete [External Provider rollout](../external-provider-rollout.md) prerequisites before enabling it. A green Native-only release does not claim External acceptance. Console has a separate staging release and browser gate.

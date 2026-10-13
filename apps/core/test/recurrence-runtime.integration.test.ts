@@ -9,6 +9,7 @@ import { executeNativeModelBatch } from "../src/native-model-batch";
 import { rollRecurrenceWindow } from "../src/recurrence-runtime";
 import { countingDatabase, type DatabaseCost } from "./support/counting-database";
 import { createApp } from "../src/app";
+import { runRecurrenceSmoke } from "../../../infra/scripts/recurrence-staging-smoke.mjs";
 
 async function fixture() {
   const db = (env as unknown as { DB: D1Database }).DB;
@@ -212,4 +213,27 @@ describe("Metadata-driven Recurrence runtime", () => {
       }
     }
   });
+  it("runs the exact staging Recurrence acceptance against real HTTP routes and migrated D1", async () => {
+    const f = await fixture();
+    const pair = await crypto.subtle.generateKey({ name: "RSASSA-PKCS1-v1_5", modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: "SHA-256" }, true, ["sign", "verify"]);
+    const pem = (label: string, bytes: ArrayBuffer) => `-----BEGIN ${label}-----\n${btoa(String.fromCharCode(...new Uint8Array(bytes))).match(/.{1,64}/g)!.join("\n")}\n-----END ${label}-----`;
+    const privateKey = pem("PRIVATE KEY", await crypto.subtle.exportKey("pkcs8", pair.privateKey));
+    f.bindings.IDENTITY_PUBLIC_KEY = pem("PUBLIC KEY", await crypto.subtle.exportKey("spki", pair.publicKey));
+    const now = Math.floor(Date.now() / 1000);
+    const token = async (admin: boolean) => sign({ iss: "lifespace-identity", aud: "lifespace-core", sub: admin ? "svc_staging_smoke" : f.principal.id, azp: f.principal.clientId, principal_type: admin ? "service" : "user", scope: admin ? "models:manage" : "resources:read resources:write", iat: now, exp: now + 900, jti: crypto.randomUUID() }, privateKey, "RS256");
+    const roots = f.bindings.IDENTITY!;
+    f.bindings.IDENTITY = { fetch: async (url: any, init: any) => String(url).includes("/service-principals/") ? Response.json({ data: { active: true } }) : roots.fetch(url, init) } as unknown as Fetcher;
+    const app = createApp();
+    const result = await runRecurrenceSmoke({ marker: crypto.randomUUID().replaceAll("-", "").slice(0, 8), spaceId: f.spaceId,
+      request: async (path: string, { method, body, role }: any) => {
+        const response = await app.request(`http://test${path}`, { method, headers: { authorization: `Bearer ${await token(role === "admin")}`, "content-type": "application/json" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) }, f.bindings);
+        return { status: response.status, payload: response.status === 204 ? null : await response.json() };
+      },
+      allowModel: async (key: string) => { await f.db.prepare("INSERT INTO application_model_access(application_id,model_key,max_access,created_by_type,created_by_id) VALUES(?,?,'write','user',?)").bind(f.principal.clientId, key, f.principal.id).run(); },
+      tasksForPlan: async (id: string) => (await f.db.prepare("SELECT o.task_record_id id,r.version FROM recurrence_occurrences o JOIN resource_records r ON r.id=o.task_record_id WHERE o.plan_record_id=? AND r.space_id=? AND r.deleted_at IS NULL ORDER BY o.due_date,o.id").bind(id, f.spaceId).all()).results,
+      cleanupAccess: async (key: string) => { await f.db.prepare("DELETE FROM application_model_access WHERE application_id=? AND model_key=?").bind(f.principal.clientId, key).run(); },
+    });
+    expect(result.completionSuccessor).toBe(true);
+  });
+
 });
