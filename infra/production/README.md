@@ -1,5 +1,7 @@
 # LifeSpace production operations
 
+External Provider support is an independent environment opt-in. Follow [External Provider rollout](../external-provider-rollout.md) for pinned Adapter packaging, private bindings, matching secret injection, staging evidence and production isolation. Native-only release success does not claim External availability; production Provider data is never used for destructive smoke.
+
 ## Scope
 
 This runbook covers the long-lived LifeSpace production operation paths after the platform has already been established:

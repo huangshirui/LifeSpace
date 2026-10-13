@@ -22,7 +22,7 @@
     "staging": {
       "name": "lifespace-core-staging",
       "placement": { "mode": "smart" },
-      "vars": { "ENVIRONMENT": "staging", "AI_BASE_URL": "https://openrouter.ai/api/v1" },
+      "vars": { "ENVIRONMENT": "staging", "AI_BASE_URL": "https://openrouter.ai/api/v1", "EXTERNAL_SCHEMA_REFRESH_SECONDS": "300" },
       "routes": [{ "pattern": "core-staging.aisr.online", "custom_domain": true }],
       "d1_databases": [{ "binding": "DB", "database_name": "lifespace-core-staging", "database_id": "00000000-0000-0000-0000-000000000002", "migrations_dir": "migrations" }],
       "r2_buckets": [{ "binding": "ASSETS", "bucket_name": "lifespace-staging-assets" }],
@@ -40,7 +40,7 @@
     "production": {
       "name": "lifespace-core",
       "placement": { "mode": "smart" },
-      "vars": { "ENVIRONMENT": "production", "AI_BASE_URL": "https://openrouter.ai/api/v1" },
+      "vars": { "ENVIRONMENT": "production", "AI_BASE_URL": "https://openrouter.ai/api/v1", "EXTERNAL_SCHEMA_REFRESH_SECONDS": "300" },
       "routes": [{ "pattern": "core.aisr.online", "custom_domain": true }],
       "d1_databases": [{ "binding": "DB", "database_name": "lifespace-core", "database_id": "00000000-0000-0000-0000-000000000003", "migrations_dir": "migrations" }],
       "r2_buckets": [{ "binding": "ASSETS", "bucket_name": "lifespace-assets" }],

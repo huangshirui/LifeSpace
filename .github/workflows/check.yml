@@ -64,6 +64,19 @@ jobs:
         if: steps.validation.outputs.run_full == 'true'
       - run: pnpm check
         if: steps.validation.outputs.run_full == 'true'
+      - name: Checkout pinned provider packaging for offline validation
+        if: steps.validation.outputs.run_full == 'true'
+        uses: actions/checkout@v5
+        with:
+          repository: huangshirui/lifespace-adapters
+          ref: e8c1650db7dfb188b2ba135b169144f82373bd71
+          path: .external-provider
+          persist-credentials: false
+      - name: Validate private provider Worker packaging
+        if: steps.validation.outputs.run_full == 'true'
+        run: |
+          pnpm --dir apps/core exec wrangler deploy --dry-run --config ../../.external-provider/adapters/notion/wrangler.jsonc --env staging
+          pnpm --dir apps/core exec wrangler deploy --dry-run --config ../../.external-provider/adapters/notion/wrangler.jsonc --env production
       - name: Export Kernel contract snapshot
         if: steps.validation.outputs.run_full == 'true'
         uses: actions/upload-artifact@v4
