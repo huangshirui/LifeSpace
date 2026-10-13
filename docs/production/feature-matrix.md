@@ -93,3 +93,7 @@ Active Model Contract: `mct_bc784389d406c580cbaf1a9cafaa48a155732771e1b24f058fcb
 - Core↔Identity shared-secret repair requested: **false**；既有 runtime secret 通过真实 service-auth gate 继续验证有效
 
 Feature Matrix 状态必须由成功的 production workflow 明确推进，不以 main / staging / downstream consumer 状态代替 production 事实。
+
+## Development-only addition / 尚未部署
+
+Recurrence Plan-to-Task (#338): 🚧 In development. calendar / after_completion, structured rule/subject, native atomic generation and indexed scheduling are under development review. This entry does not change the production release binding above.

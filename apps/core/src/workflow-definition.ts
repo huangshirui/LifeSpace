@@ -67,6 +67,8 @@ function literalCompatible(field: FieldDefinition, value: WorkflowLiteral): bool
   if (field.type === "temporal_range" || field.type === "range<date>" || field.type === "range<instant>") return false;
   if (value === null) return field.nullable === true;
   switch (field.type) {
+    case "recurrence_rule":
+    case "entity_ref": return false;
     case "string":
     case "text":
     case "date":

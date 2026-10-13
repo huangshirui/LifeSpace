@@ -509,3 +509,7 @@ The read-only React/Vite slice is Ready only when：
 13. real staging browser/E2E evidence is complete before production rollout is considered。
 
 Write-capable Console administration is a separate subsequent slice and must preserve the same actor/executor, one-time-secret and audit boundaries。
+
+## External model configuration (development candidate)
+
+Model registration reuses the governed Model Definition publication dialog (`origin: external`, fields {}). Space detail offers binding to a published External definition, an existing Space connection and concrete Data Source ID. Binding is a separate approved platform configuration use case: BFF exchanges the current Access assertion for a server-only User token with profile:read/spaces:manage and calls only bounded Core Space configuration routes. Core checks current manage membership; platform inspection grants no hidden authority. Existing Console application credentials must explicitly allow spaces:manage; no production credential or scope is changed by this candidate. Connection Secret provisioning remains controlled service-only Model Admin. Real staging browser acceptance is still required.

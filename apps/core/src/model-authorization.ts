@@ -11,7 +11,7 @@ import { ENTITY_ROLE_CAPABILITIES, type AuthoritySource } from "./entity-role-ca
 import type { Actor, Bindings, Principal } from "./env";
 import { ApiError } from "./http";
 import type { ModelAccess } from "./model-definition";
-import type { PublishedModel } from "./model-registry";
+export type ModelAuthorityTarget = { key: string; definition: { access: ModelAccess[] } };
 
 const accessRank: Record<ModelAccess, number> = { read: 2, write: 3, manage: 4 };
 const permissionRank: Record<Permission, number> = { free_busy: 1, read: 2, write: 3, manage: 4 };
@@ -44,7 +44,7 @@ export type DelegationSelector = {
 };
 
 export type ModelAccessRequest = {
-  model: PublishedModel;
+  model: ModelAuthorityTarget;
   required: ModelAccess;
   selector?: DelegationSelector;
 };
@@ -93,7 +93,7 @@ type PreparedAccess = {
 
 type PreparedBaseAuthority = {
   key: string;
-  model: PublishedModel;
+  model: ModelAuthorityTarget;
   statement: D1PreparedStatement;
 };
 
@@ -131,7 +131,7 @@ function preflight(principal: Principal, request: ModelAccessRequest): void {
 function baseAuthorityKey(
   principal: Principal,
   spaceId: string,
-  model: PublishedModel,
+  model: ModelAuthorityTarget,
 ): string {
   return [
     principal.clientId,
@@ -150,7 +150,7 @@ function baseAuthorityStatement(
   env: Bindings,
   principal: Principal,
   spaceId: string,
-  model: PublishedModel,
+  model: ModelAuthorityTarget,
 ): D1PreparedStatement {
   const sources = authoritySources(principal);
   const bindings: unknown[] = [
@@ -388,6 +388,31 @@ function asApiError(error: unknown): ApiError {
   throw error;
 }
 
+/** Internal durable-intent executor: direct roots only, current-state facts in one batch.
+ * This is not a credential resolver and must never receive request-supplied identities.
+ */
+export async function evaluateRecurrenceRoots(env: Bindings, entries: readonly {
+  principal: Principal; spaceId: string; request: ModelAccessRequest;
+}[]): Promise<ModelAccessEvaluation[]> {
+  const bases = new Map<string, D1PreparedStatement>();
+  const prepared = entries.map(entry => {
+    try {
+      if (entry.principal.actor || entry.request.selector?.delegationId) throw new ApiError("DELEGATION_INVALID", "Recurring intent uses its enrolled root", 403);
+      const value = prepareAccess(entry.principal, entry.spaceId, entry.request);
+      if (!bases.has(value.baseKey)) bases.set(value.baseKey, baseAuthorityStatement(env, entry.principal, entry.spaceId, entry.request.model));
+      return { value };
+    } catch (error) { return { error: asApiError(error) }; }
+  });
+  const keys = [...bases.keys()];
+  const results = keys.length ? await env.DB.batch<BaseAuthoritySnapshotRow>([...bases.values()]) : [];
+  const rows = new Map(keys.map((key, index) => [key, results[index]?.results[0] ?? null]));
+  return prepared.map((item, index) => {
+    if (!item.value) return { ok: false, error: item.error! };
+    try { return { ok: true, decision: decisionFromSnapshots(entries[index]!.principal, entries[index]!.spaceId, item.value, rows.get(item.value.baseKey) ?? null, []) }; }
+    catch (error) { return { ok: false, error: asApiError(error) }; }
+  });
+}
+
 async function evaluateModelAccessManyResolved(
   env: Bindings,
   principal: Principal,
@@ -596,7 +621,7 @@ export async function requireModelAccess(
   env: Bindings,
   principal: Principal,
   spaceId: string,
-  model: PublishedModel,
+  model: ModelAuthorityTarget,
   required: ModelAccess,
   selector: DelegationSelector = {},
 ): Promise<ModelAccessDecision> {

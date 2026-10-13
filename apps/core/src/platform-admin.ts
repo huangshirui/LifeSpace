@@ -1,3 +1,4 @@
+import { getExternalModel, isExternalModelKey, externalAuthorityModel } from "./external-model";
 import type { Context, Hono } from "hono";
 import type { Bindings, Variables } from "./env";
 import { ApiError, success } from "./http";
@@ -62,8 +63,16 @@ async function normalizeEntries(context: Context<AppEnv>, value: unknown): Promi
   const byKey = new Map(rows.results.map((row) => [row.key, row]));
   for (const entry of requested) {
     const model = byKey.get(entry.modelKey);
-    if (!model) throw new ApiError("MODEL_NOT_FOUND", `Published model ${entry.modelKey} was not found`, 404);
-    const exposed = parseDefinitionAccess(model);
+    let exposed: AccessLevel[];
+    if (!model && isExternalModelKey(entry.modelKey)) {
+      const row = await context.env.DB.prepare("SELECT space_id FROM external_models WHERE model_key=? AND status!='disabled'").bind(entry.modelKey).first<{space_id:string}>();
+      const external = row ? await getExternalModel(context.env,row.space_id,entry.modelKey) : null;
+      if (!external) throw new ApiError("MODEL_NOT_FOUND", "Model not found",404);
+      exposed = externalAuthorityModel(external).definition.access;
+    } else {
+      if (!model) throw new ApiError("MODEL_NOT_FOUND", `Published model ${entry.modelKey} was not found`,404);
+      exposed = parseDefinitionAccess(model);
+    }
     if (!exposed.includes(entry.maxAccess)) {
       const strongest = exposed.reduce<AccessLevel | null>((best, candidate) => best === null || ACCESS_RANK[candidate] > ACCESS_RANK[best] ? candidate : best, null);
       throw new ApiError("VALIDATION_ERROR", `Model ${entry.modelKey} does not expose ${entry.maxAccess} access${strongest ? `; maximum is ${strongest}` : ""}`, 422);

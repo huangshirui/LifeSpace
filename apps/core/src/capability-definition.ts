@@ -1,3 +1,4 @@
+import { validateRecurrenceCapability, type RecurrenceCapabilityDefinition } from "./recurrence-definition";
 import type { FieldDefinition, ModelValidationIssue } from "./model-definition";
 
 export type TemporalCapabilityDefinition = {
@@ -36,6 +37,7 @@ export function isCanonicalCalendarCapability(
 }
 
 export type CapabilityDefinitions = {
+  recurrence?: RecurrenceCapabilityDefinition;
   temporal?: TemporalCapabilityDefinition;
   calendar?: CalendarCapabilityDefinition;
 };
@@ -203,7 +205,7 @@ export function validateCapabilities(
     return { issues };
   }
   for (const key of Object.keys(raw)) {
-    if (key !== "temporal" && key !== "calendar") issue(issues, `capabilities.${key}`, "UNSUPPORTED_CAPABILITY", `Capability ${key} is not registered`);
+    if (key !== "temporal" && key !== "calendar" && key !== "recurrence") issue(issues, `capabilities.${key}`, "UNSUPPORTED_CAPABILITY", `Capability ${key} is not registered`);
   }
   const capabilities: CapabilityDefinitions = {};
   if (raw.temporal !== undefined) {
@@ -215,6 +217,11 @@ export function validateCapabilities(
     const calendar = validateCalendar(raw.calendar, fields);
     issues.push(...calendar.issues);
     if (calendar.definition) capabilities.calendar = calendar.definition;
+  }
+  if (raw.recurrence !== undefined) {
+    const recurrence = validateRecurrenceCapability(raw.recurrence, fields);
+    issues.push(...recurrence.issues);
+    if (recurrence.definition) capabilities.recurrence = recurrence.definition;
   }
   return { ...(Object.keys(capabilities).length ? { capabilities } : {}), issues };
 }

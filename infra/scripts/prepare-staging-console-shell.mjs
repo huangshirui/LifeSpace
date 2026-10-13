@@ -12,6 +12,7 @@ const githubEnv = (process.env.GITHUB_ENV ?? "").trim();
 const TOKEN_TTL_SECONDS = 900;
 const APPLICATION_SCOPES = [
   "profile:read",
+  "spaces:manage",
   "platform:admin",
   "applications:manage",
   "services:manage",

@@ -3,3 +3,16 @@
 Numbered Core database migrations will live here once implementation begins.
 
 Migration history is append-only after deployment. Do not edit an already-applied production migration to change its meaning; add a new migration instead.
+
+
+## 0057 Recurrence rollout
+
+Preserve canonical Core-first → Identity rollout. Apply Core migrations in numeric order (0054 Relations, 0055 External, 0056 Relation integrity, 0057 Recurrence, 0058 review fixes), deploy Core, then deploy Identity 0.12.0. New generation fails closed until current-root introspection is available. Task subject/occurrence columns preserve existing data; the catalog snapshot is compatible and prior Registry/Contract history remains. Recurrence tables/indexes are capability projections, not per-business-model CRUD tables. Rollback pauses Plans/rolls back Workers and retains additive migrations; never delete history as a rollback shortcut.
+
+## 0058 Runtime review fixes / 审核修复
+
+Adds the indexed executable External refresh queue and Source disable/reactivate lifecycle, plus a commit-time guard against deleting the current completion-based Task. Historical generated Tasks remain deletable; cancel/skip/removing the recurrence rule remain explicit operations. Apply this additive migration before the integrated Worker; do not edit historical migration snapshots.
+
+## 0059–0061 External business bindings / 外部业务绑定
+
+Continue numeric order after 0058: 0059 binds a published External business definition to one active Space registration; 0060 extends the semantic junction to external identity metadata while retaining Native live-endpoint and atomic cleanup guards; 0061 adds bounded identity-presence observation and lifecycle queue parking. Existing payloads and Native history are retained. Apply all three before the integrated Core Worker. No Provider payload is copied into D1. Provider writes and local links have separate failure boundaries; rollback requires pausing affected bindings and retaining migration history. Staging must verify the exact candidate and isolated Provider Service Binding/Secrets before production rollout.

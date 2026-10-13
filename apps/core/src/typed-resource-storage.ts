@@ -1,3 +1,5 @@
+import { parseEntityRef } from "./entity-ref";
+import { parseRecurrenceRule } from "./recurrence-rule";
 import type { Bindings } from "./env";
 import { allD1Batched, chunkD1Values } from "./d1-batch";
 import { ApiError } from "./http";
@@ -173,12 +175,17 @@ export function typedSelectColumns(model: PublishedModel, alias = "m"): string {
 
 function encodedValue(field: FieldDefinition, value: unknown): unknown {
   if (value === undefined || value === null) return null;
+  if (["recurrence_rule", "entity_ref"].includes(field.type)) return JSON.stringify(value);
   if (field.type === "boolean") return value ? 1 : 0;
   return value;
 }
 
 function decodedValue(field: FieldDefinition, value: unknown): unknown {
   if (value === null || value === undefined) return value;
+  if (field.type === "recurrence_rule" || field.type === "entity_ref") {
+    try { return field.type === "recurrence_rule" ? parseRecurrenceRule(JSON.parse(String(value))) : parseEntityRef(JSON.parse(String(value))); }
+    catch { throw new ApiError("RESOURCE_STORAGE_CORRUPT", "Stored structured field is invalid", 500); }
+  }
   if (field.type === "boolean") {
     if (value !== 0 && value !== 1) throw new ApiError("RESOURCE_STORAGE_CORRUPT", "Stored boolean is invalid", 500);
     return value === 1;

@@ -3,37 +3,202 @@
     "definitionVersion": 1,
     "key": "task",
     "description": "Actionable work that someone intends or needs to complete. Use for chores, errands, reminders, follow-ups, purchases, submissions, calls, and other concrete to-dos. A due date is a deadline, not a scheduled time block. Do not use for an event merely because it has a date, or for a future aspiration with no concrete commitment. Examples: 明天交电费；提醒我买牛奶；周五前提交报告。",
-    "display": { "singular": "Task", "plural": "Tasks" },
-    "fields": {
-      "name": { "type": "string", "title": "Name", "description": "The concrete action or to-do to complete.", "required": true, "minLength": 1, "maxLength": 100 },
-      "description": { "type": "text", "title": "Description", "description": "Supporting details about how or why to complete the task.", "nullable": true, "maxLength": 5000 },
-      "dueDate": { "type": "date", "title": "Due Date", "description": "The deadline date for completing the task, not a calendar time block.", "nullable": true },
-      "status": { "type": "enum", "title": "Status", "description": "Current lifecycle state of the task.", "required": true, "readOnly": true, "values": ["pending", "completed", "cancelled"] },
-      "assigneePersonIds": { "type": "person_list", "title": "Assignees", "description": "People responsible for completing the task." },
-      "completedAt": { "type": "datetime", "title": "Completed At", "description": "When the task was completed, set by the authoritative completion Action.", "nullable": true, "readOnly": true },
-      "completedByType": { "type": "enum", "title": "Completed By Type", "description": "Type of Actor that completed the task, set by the authoritative completion Action.", "nullable": true, "readOnly": true, "values": ["user", "service", "device", "agent"] },
-      "completedById": { "type": "string", "title": "Completed By", "description": "Identifier of the Actor that completed the task, set by the authoritative completion Action.", "nullable": true, "readOnly": true, "maxLength": 100 }
+    "display": {
+      "singular": "Task",
+      "plural": "Tasks"
     },
-    "defaults": { "status": "pending" },
-    "query": { "searchable": ["name", "description"], "filterable": ["status", "dueDate", "assigneePersonIds"], "sortable": ["dueDate", "name"] },
-    "access": ["read", "write"],
-    "lifecycle": { "optimisticConcurrency": true, "softDelete": true },
+    "fields": {
+      "name": {
+        "type": "string",
+        "title": "Name",
+        "description": "The concrete action or to-do to complete.",
+        "required": true,
+        "minLength": 1,
+        "maxLength": 100
+      },
+      "description": {
+        "type": "text",
+        "title": "Description",
+        "description": "Supporting details about how or why to complete the task.",
+        "nullable": true,
+        "maxLength": 5000
+      },
+      "dueDate": {
+        "type": "date",
+        "title": "Due Date",
+        "description": "The deadline date for completing the task, not a calendar time block.",
+        "nullable": true
+      },
+      "status": {
+        "type": "enum",
+        "title": "Status",
+        "description": "Current lifecycle state of the task.",
+        "required": true,
+        "readOnly": true,
+        "values": [
+          "pending",
+          "completed",
+          "cancelled"
+        ]
+      },
+      "assigneePersonIds": {
+        "type": "person_list",
+        "title": "Assignees",
+        "description": "People responsible for completing the task."
+      },
+      "completedAt": {
+        "type": "datetime",
+        "title": "Completed At",
+        "description": "When the task was completed, set by the authoritative completion Action.",
+        "nullable": true,
+        "readOnly": true
+      },
+      "completedByType": {
+        "type": "enum",
+        "title": "Completed By Type",
+        "description": "Type of Actor that completed the task, set by the authoritative completion Action.",
+        "nullable": true,
+        "readOnly": true,
+        "values": [
+          "user",
+          "service",
+          "device",
+          "agent"
+        ]
+      },
+      "completedById": {
+        "type": "string",
+        "title": "Completed By",
+        "description": "Identifier of the Actor that completed the task, set by the authoritative completion Action.",
+        "nullable": true,
+        "readOnly": true,
+        "maxLength": 100
+      },
+      "subject": {
+        "type": "entity_ref",
+        "title": "Subject",
+        "description": "Business subject of the work: a Space Person or native Record.",
+        "nullable": true
+      },
+      "recurrenceOccurrenceId": {
+        "type": "string",
+        "title": "Recurrence Occurrence",
+        "description": "Platform-owned stable occurrence identity for generated tasks.",
+        "readOnly": true,
+        "immutable": true,
+        "nullable": true
+      }
+    },
+    "defaults": {
+      "status": "pending"
+    },
+    "query": {
+      "searchable": [
+        "name",
+        "description"
+      ],
+      "filterable": [
+        "status",
+        "dueDate",
+        "assigneePersonIds"
+      ],
+      "sortable": [
+        "dueDate",
+        "name"
+      ]
+    },
+    "access": [
+      "read",
+      "write"
+    ],
+    "lifecycle": {
+      "optimisticConcurrency": true,
+      "softDelete": true
+    },
     "actions": {
       "complete": {
         "access": "write",
-        "guards": [{ "field": "status", "op": "neq", "value": "completed", "errorCode": "TASK_ALREADY_COMPLETED", "message": "Task is already completed" }],
-        "set": { "status": "completed", "completedAt": { "$ref": "now" }, "completedByType": { "$ref": "actor.type" }, "completedById": { "$ref": "actor.id" } }
+        "guards": [
+          {
+            "field": "status",
+            "op": "neq",
+            "value": "completed",
+            "errorCode": "TASK_ALREADY_COMPLETED",
+            "message": "Task is already completed"
+          }
+        ],
+        "set": {
+          "status": "completed",
+          "completedAt": {
+            "$ref": "now"
+          },
+          "completedByType": {
+            "$ref": "actor.type"
+          },
+          "completedById": {
+            "$ref": "actor.id"
+          }
+        }
       },
       "cancel": {
         "access": "write",
-        "guards": [{ "field": "status", "op": "neq", "value": "cancelled", "errorCode": "TASK_ALREADY_CANCELLED", "message": "Task is already cancelled" }],
-        "set": { "status": "cancelled", "completedAt": null, "completedByType": null, "completedById": null }
+        "guards": [
+          {
+            "field": "status",
+            "op": "neq",
+            "value": "cancelled",
+            "errorCode": "TASK_ALREADY_CANCELLED",
+            "message": "Task is already cancelled"
+          }
+        ],
+        "set": {
+          "status": "cancelled",
+          "completedAt": null,
+          "completedByType": null,
+          "completedById": null
+        }
       },
       "reopen": {
         "access": "write",
-        "guards": [{ "field": "status", "op": "neq", "value": "pending", "errorCode": "TASK_ALREADY_PENDING", "message": "Task is already pending" }],
-        "set": { "status": "pending", "completedAt": null, "completedByType": null, "completedById": null }
+        "guards": [
+          {
+            "field": "status",
+            "op": "neq",
+            "value": "pending",
+            "errorCode": "TASK_ALREADY_PENDING",
+            "message": "Task is already pending"
+          }
+        ],
+        "set": {
+          "status": "pending",
+          "completedAt": null,
+          "completedByType": null,
+          "completedById": null
+        }
+      },
+      "skip-occurrence": {
+        "access": "write",
+        "guards": [
+          {
+            "field": "recurrenceOccurrenceId",
+            "op": "neq",
+            "value": null,
+            "errorCode": "ACTION_NOT_AVAILABLE",
+            "message": "Only generated Tasks have a recurrence occurrence"
+          }
+        ],
+        "set": {
+          "status": "cancelled",
+          "completedAt": null,
+          "completedByType": null,
+          "completedById": null
+        }
       }
+    },
+    "semanticRelations": {
+      "outgoing": [
+        "generated_from"
+      ]
     }
   },
   "wish": {

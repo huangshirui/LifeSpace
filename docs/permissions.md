@@ -1,5 +1,9 @@
 # LifeSpace Permission Model
 
+## External Model Authority / 外部模型权限
+
+A source Space model target resolves to a Native published model **or** that Space's active External registration. Both use the same current scopes, Application × Model Access, Membership/Data Grant and Delegation evaluation. Registration never creates application access or Data Grants. Declared access and provider capability only narrow execution. Connection provisioning requires service-only `models:manage`; Space management alone cannot create a connection from an arbitrary credential reference. Direct provider edits are outside LifeSpace Authority. External single-use delegated writes are rejected until provider success and consumption can be honestly guaranteed; ordinary Delegations and conditional single-use reads remain supported. Known external record identity linkage permits existing record-scoped Delegations, without storing provider payloads.
+
 ## Core concepts
 
 - **User**: global human LifeSpace identity (`usr_*`) resolved by LifeSpace Identity after an approved authentication path. For owner-controlled Web/PWA applications, Cloudflare Access proves the Web user and Identity resolves the verified Access principal to the global LifeSpace user.
@@ -322,3 +326,19 @@ A future implementation of richer Agent identity, delegation, consent or approva
 ## Opaque Agent API credential boundary
 
 `lsp_agt_*` authenticates an active registered Application + active Agent Actor only. With no Delegation selector, Core evaluates direct Agent Authority. With an explicit current `dlg_*`, Core may resolve only a User Root Principal and executes as `Principal=User / Actor=Agent`; the adapter does not submit a `principalUserId`. Service/Agent or other represented Principal types are rejected on this credential profile. Credential scope, Application × Model Access, current User Authority and current Delegation all remain intersected at execution.
+
+
+## Semantic Relation authority / 语义关系授权
+
+Create/delete require source write and target read; target write is not required. Query/get return an edge only when both same-Space Native endpoints are live and readable, including current Application exposure, Membership/Data Grant, explicit Delegation and identity-only read Policy. Query eligibility participates before pagination. Neither cached projection nor a known edge ID grants mutation authority. Single-use consumption is atomic with the relation Change; idempotent retries recheck current authority, including commit-time consumed/revoked state. See [semantic-relations.md](semantic-relations.md).
+
+
+## Durable recurring intent / 持续计划授权（#338，开发中）
+
+Activating/materially replacing a Plan's Recurrence requires current Plan write plus Task write under the verified caller and the same selected Delegation, when represented. This enrolls a bounded durable intent for that Plan in its source Space. It does not persist a credential or short-lived Delegation. Subsequent background execution uses its enrolled Root/Application, current Identity status/scope ceilings, current Space/Membership/Grant/Application Model Access and model Policy. Current Core authority is also guarded inside the generation transaction.
+
+The recurrence engine alone may construct an unforgeable in-process internal service Actor context for executing that intent; ordinary represented HTTP operations retain their mandatory current Delegation rule. The internal context is limited to validated Plan materialization/cancellation and carries exact governed Change attribution. It cannot be supplied in a body, inferred from an actor ID or reused as general platform administration. Pausing/removing the rule or revoking/disabling current enrolled authority stops generation. Credential/Delegation expiry of the original enrollment invocation does not itself cancel the durable Plan. For denied completion-based successor generation, the active complete/skip transaction fails atomically. See [recurrence.md](./recurrence.md).
+
+### External business model binding (development candidate)
+
+A globally registered `origin: external` business definition is referenceable metadata, not global data availability. Each Space explicitly binds the definition to one connection/data source; business modelKey is the Runtime/Application Access/Grant/Delegation key, ext_* is registration identity. Authority requires a current binding and connection in addition to existing current-state checks. No payload mirror or second ACL is created. The same business definition can have different Provider fields/schemaHash in different Spaces. Consumers must use inventory `(spaceId,modelKey,schemaHash)` for dynamic fields, not reuse one Space's field schema across all Spaces. Native descriptor hot paths remain unchanged. Production remains unchanged until release acceptance.

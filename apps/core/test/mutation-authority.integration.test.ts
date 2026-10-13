@@ -249,7 +249,7 @@ describe("Mutation Authority", () => {
     const task = discovery.data.models.find((model) => model.key === "task");
     const wish = discovery.data.models.find((model) => model.key === "wish");
     expect(task?.fields.find((field) => field.key === "status")).toMatchObject({ readOnly: true });
-    expect(task?.actions.map((action) => action.key).sort()).toEqual(["cancel", "complete", "reopen"]);
+    expect(task?.actions.map((action) => action.key).sort()).toEqual(["cancel", "complete", "reopen", "skip-occurrence"]);
     expect(wish?.fields.find((field) => field.key === "status")).toMatchObject({ readOnly: true });
     expect(wish?.actions.map((action) => action.key).sort()).toEqual(["fulfill", "reopen"]);
   });

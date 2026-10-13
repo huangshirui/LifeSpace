@@ -1,3 +1,6 @@
+import { recurrenceRuleSchema } from "./recurrence-rule";
+import { entityRefSchema } from "./entity-ref";
+import { applySemanticRelationContract } from "./semantic-relation-model-contract";
 import { calendarViewingWindowSemanticQuery } from "./calendar-query-semantics";
 import { canonicalQueryContractSchemas } from "./canonical-query-contract";
 import type { FieldDefinition, ModelDefinition } from "./model-definition";
@@ -42,6 +45,7 @@ function nullable(schema: JsonSchema, field: FieldDefinition): JsonSchema {
 
 function relationMetadata(field: FieldDefinition): JsonSchema | null {
   switch (field.type) {
+
     case "person":
       return { targetModel: "person", cardinality: "one" };
     case "person_list":
@@ -58,6 +62,8 @@ function relationMetadata(field: FieldDefinition): JsonSchema | null {
 function fieldSchema(field: FieldDefinition): JsonSchema {
   let schema: JsonSchema;
   switch (field.type) {
+    case "recurrence_rule": schema = recurrenceRuleSchema(); break;
+    case "entity_ref": schema = entityRefSchema(); break;
     case "string":
     case "text":
       schema = {
@@ -233,7 +239,10 @@ function createSchema(model: PublishedModel): JsonSchema {
       .map(([key]) => key),
   };
   const calendar = calendarCreateConstraint(model);
-  return calendar ? { ...base, allOf: [calendar] } : base;
+  const recurrence = model.definition.capabilities?.recurrence;
+  const conditions: JsonSchema[] = calendar ? [calendar] : [];
+  if (recurrence) conditions.push({ if: { required: [recurrence.ruleField], properties: { [recurrence.ruleField]: { type: "object" } } }, then: { required: [recurrence.firstDueDateField], properties: { [recurrence.firstDueDateField]: { type: "string", format: "date" } } } });
+  return conditions.length ? { ...base, allOf: conditions } : base;
 }
 
 function concurrencyVersionSchema(): JsonSchema {
@@ -1087,6 +1096,10 @@ function jsonSchemaBundle(models: PublishedModel[]): JsonSchema {
   const defs: Record<string, JsonSchema> = {};
   const metadata: Record<string, unknown> = {};
   for (const model of models) {
+    if (model.definition.origin === "external") {
+      metadata[model.key] = { origin: "external", version: model.version, schemaHash: model.schemaHash, display: model.definition.display, description: model.definition.description ?? null, access: model.definition.access, semanticRelations: model.definition.semanticRelations ?? {}, schemaAuthority: "provider", runtimeSchema: "Space Discovery", immutableFields: false };
+      continue;
+    }
     const prefix = schemaName(model, "");
     const canonicalFilterName = `${prefix}CanonicalFilter`;
     const canonicalQueryName = `${prefix}CanonicalQuery`;
@@ -1109,6 +1122,7 @@ function jsonSchemaBundle(models: PublishedModel[]): JsonSchema {
       canonicalQuerySchema: `#/$defs/${canonicalQueryName}`,
       actions: [...Object.keys(model.definition.actions ?? {}).sort(), ...capabilityActions],
       capabilities: Object.keys(model.definition.capabilities ?? {}).sort(),
+      capabilityBindings: structuredClone(model.definition.capabilities ?? {}),
     };
   }
   return {
@@ -1131,8 +1145,8 @@ export async function generateModelContract(input: PublishedModel[]): Promise<Mo
   };
   const schemas: Record<string, JsonSchema> = {};
   const paths: Record<string, unknown> = {};
-  for (const model of models) modelOpenApi(model, schemas, paths);
-  addBatchContract(models, schemas, paths);
+  for (const model of models) if (model.definition.origin !== "external") modelOpenApi(model, schemas, paths);
+  addBatchContract(models.filter(model => model.definition.origin !== "external"), schemas, paths);
 
   const openapi: OpenApiDocument = {
     openapi: "3.1.0",
@@ -1172,6 +1186,8 @@ export async function generateModelContract(input: PublishedModel[]): Promise<Mo
     },
   };
   const jsonSchema = jsonSchemaBundle(models);
+  applySemanticRelationContract(models, openapi, jsonSchema);
   const hash = await sha256(canonicalJson({ manifest, openapi, jsonSchema }));
   return { id: `mct_${hash}`, hash, manifest, openapi, jsonSchema };
 }
+

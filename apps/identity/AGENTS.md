@@ -161,7 +161,7 @@ Normal application/user/service contract:
 
 ```text
 apps/identity/openapi.yaml
-current version: 0.9.0
+current version: 0.12.0
 ```
 
 Privileged LifeSpace Console control-plane contract:

@@ -1,3 +1,5 @@
+import { rollRecurrenceWindow } from "./recurrence-runtime";
+import { reconcileExternalModels } from "./external-model";
 import { createApp } from "./app";
 import { dispatchPendingDomainEvents, processWebhookDeliveryQueue, type WebhookDeliveryQueueMessage } from "./eventing";
 import type { Bindings } from "./env";
@@ -10,7 +12,11 @@ export default {
     await processWebhookDeliveryQueue(batch, env);
   },
   async scheduled(_controller: ScheduledController, env: Bindings): Promise<void> {
-    const dispatched = await dispatchPendingDomainEvents(env);
-    if (dispatched > 0) console.log("Domain events dispatched", { dispatched });
+    const failures: unknown[] = [];
+    for (const work of [reconcileExternalModels, rollRecurrenceWindow, dispatchPendingDomainEvents]) {
+      try { await work(env); } catch (error) { failures.push(error); }
+    }
+    if (failures.length === 1) throw failures[0];
+    if (failures.length) throw new AggregateError(failures, "Scheduled jobs failed");
   },
 };

@@ -67,3 +67,4 @@ export async function readModelContract(env: Bindings, contractId: string): Prom
   if (!contract) throw new ApiError("MODEL_CONTRACT_NOT_FOUND", "Model contract revision not found", 404);
   return contract;
 }
+

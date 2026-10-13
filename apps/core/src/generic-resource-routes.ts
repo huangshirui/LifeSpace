@@ -62,6 +62,7 @@ async function model(context: Context<AppEnv>): Promise<PublishedModel> {
   return measurePerformancePhase(context, "runtime.model_resolution", async () => {
     const resolved = await getRuntimeModel(context.env, requestModelKey(context));
     if (!resolved) throw new ApiError("MODEL_NOT_FOUND", "Published model not found", 404);
+    if (resolved.definition.origin === "external") throw new ApiError("MODEL_OPERATION_UNSUPPORTED", "External operations require an active Space binding", 405);
     return resolved;
   });
 }

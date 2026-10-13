@@ -1,3 +1,5 @@
+import { getExternalModel,isExternalModelKey,externalAuthorityModel } from "./external-model";
+import { externalSemanticDetail } from "./external-runtime";
 import type { Hono } from "hono";
 import type { Bindings, Principal, Variables } from "./env";
 import { ApiError, success } from "./http";
@@ -46,7 +48,20 @@ export function registerRuntimeModelSemanticDetailRoutes(app: App): void {
   app.get("/api/v1/spaces/:spaceId/_discovery/models/:modelKey", async (context) => {
     const principal = context.get("principal");
     const spaceId = context.req.param("spaceId");
-    const model = await getRuntimeModel(context.env, context.req.param("modelKey"));
+    const key = context.req.param("modelKey");
+    if (isExternalModelKey(key) || (await getRuntimeModel(context.env, key))?.definition.origin === "external") {
+      const external = await getExternalModel(context.env,spaceId,key);
+      if (!external) throw opaqueNotFound();
+      const access = await requireModelAccess(context.env,principal,spaceId,externalAuthorityModel(external),"read",{delegationId:context.req.header("x-lifespace-delegation-id")}).catch(error=>{if(error instanceof ApiError&&[403,404,405].includes(error.status))throw opaqueNotFound();throw error;});
+      const allowed: ModelAccess[] = ["read"];
+      if(externalAuthorityModel(external).definition.access.includes("write")) {
+        const write = await requireModelAccess(context.env,principal,spaceId,externalAuthorityModel(external),"write",{delegationId:context.req.header("x-lifespace-delegation-id")}).catch(()=>null);
+        if(write)allowed.push("write");
+      }
+      await consumeSingleUseRead(context.env,access);
+      return context.json(success(externalSemanticDetail(external,allowed)));
+    }
+    const model = await getRuntimeModel(context.env,key);
     if (!model) throw opaqueNotFound();
 
     const access = await requireCurrentVisibility(

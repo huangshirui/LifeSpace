@@ -52,6 +52,8 @@ function issue(issues: ModelValidationIssue[], path: string, code: string, messa
 
 function fieldType(field: FieldDefinition): OperandType {
   switch (field.type) {
+    case "recurrence_rule":
+    case "entity_ref": return { kind: "unknown", nullable: field.nullable };
     case "integer":
     case "number": return { kind: "number", nullable: field.nullable };
     case "boolean": return { kind: "boolean", nullable: field.nullable };

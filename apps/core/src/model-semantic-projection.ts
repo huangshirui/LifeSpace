@@ -1,3 +1,6 @@
+import { recurrenceRuleSchema } from "./recurrence-rule";
+import { entityRefSchema } from "./entity-ref";
+import type { RecurrenceCapabilityDefinition } from "./recurrence-definition";
 import { isCanonicalCalendarCapability, type CalendarCapabilityDefinition, type TemporalCapabilityDefinition } from "./capability-definition";
 import { canonicalQuerySemanticDescriptor, type CanonicalQuerySemanticDescriptor } from "./canonical-query-contract";
 import { calendarViewingWindowSemanticQuery } from "./calendar-query-semantics";
@@ -5,6 +8,7 @@ import { isFirstClassRangeFieldType, type FieldDefinition, type ModelAccess } fr
 import type { PublishedModel } from "./model-registry";
 import { referenceLabelSemantic, type ReferenceLabelSemantic } from "./reference-label";
 import { relationSemanticMetadata, type RelationResolutionDescriptor } from "./relation-semantic";
+import { semanticRelationDiscovery, SEMANTIC_RELATION_RUNTIME } from "./semantic-relation-definition";
 import { genericComparisonFieldSemantics, type GenericComparisonFieldSemantic } from "./query-semantics";
 import { projectTimeRangeSemantics, type TimeRangeSemantic } from "./time-range-definition";
 
@@ -15,6 +19,7 @@ export type ModelRelationSemantic = {
 };
 
 export type ModelSemanticField = FieldDefinition & {
+  valueSchema?: Record<string, unknown>;
   key: string;
   relation?: ModelRelationSemantic;
 };
@@ -67,6 +72,7 @@ export type ModelSemanticQueryParameter = {
 };
 
 export type ModelSemanticCapabilityQuery = ReturnType<typeof calendarViewingWindowSemanticQuery>;
+export type ModelSemanticRelations = ReturnType<typeof semanticRelationDiscovery>;
 
 export type ModelSemanticQueryFacts = {
   canonical: CanonicalQuerySemanticDescriptor;
@@ -109,6 +115,7 @@ export type ModelSemanticQueryFacts = {
 };
 
 export type ModelSemanticCapabilityBindings = {
+  recurrence?: RecurrenceCapabilityDefinition;
   calendar?: CalendarCapabilityDefinition;
   temporal?: TemporalCapabilityDefinition;
 };
@@ -120,8 +127,12 @@ export type ModelSemanticProjection = {
   display: { singular: string; plural: string };
   description: string | null;
   referenceLabel: ReferenceLabelSemantic;
+  origin?: "external";
+  fieldsDynamic?: boolean;
   declaredAccess: ModelAccess[];
   fields: ModelSemanticField[];
+  semanticRelations: ModelSemanticRelations;
+  semanticRelationRuntime: typeof SEMANTIC_RELATION_RUNTIME;
   timeRanges: TimeRangeSemantic[];
   defaults: Record<string, unknown>;
   query: ModelSemanticQueryFacts;
@@ -152,6 +163,7 @@ export function modelFieldSemanticFacts(model: PublishedModel): ModelSemanticFie
       return {
         key,
         ...structuredClone(field),
+        ...(field.type === "recurrence_rule" ? { valueSchema: recurrenceRuleSchema() } : field.type === "entity_ref" ? { valueSchema: entityRefSchema() } : {}),
         ...(relation ? { relation } : {}),
       };
     });
@@ -308,6 +320,7 @@ export function modelCapabilitySemanticFacts(model: PublishedModel): {
     capabilityBindings: {
       ...(calendar ? { calendar: structuredClone(calendar) } : {}),
       ...(temporal ? { temporal: structuredClone(temporal) } : {}),
+      ...(model.definition.capabilities?.recurrence ? { recurrence: structuredClone(model.definition.capabilities.recurrence) } : {}),
     },
   };
 }
@@ -316,6 +329,7 @@ export function projectModelSemanticFacts(model: PublishedModel): ModelSemanticP
   const capability = modelCapabilitySemanticFacts(model);
   return {
     key: model.key,
+    ...(model.definition.origin === "external" ? { origin: "external" as const, fieldsDynamic: true } : {}),
     version: model.version,
     schemaHash: model.schemaHash,
     display: structuredClone(model.definition.display),
@@ -323,6 +337,8 @@ export function projectModelSemanticFacts(model: PublishedModel): ModelSemanticP
     referenceLabel: referenceLabelSemantic(model.definition),
     declaredAccess: [...model.definition.access],
     fields: modelFieldSemanticFacts(model),
+    semanticRelations: semanticRelationDiscovery(model.key, model.definition.semanticRelations),
+    semanticRelationRuntime: SEMANTIC_RELATION_RUNTIME,
     timeRanges: projectTimeRangeSemantics(model.definition),
     defaults: structuredClone(model.definition.defaults ?? {}),
     query: modelQuerySemanticFacts(model),

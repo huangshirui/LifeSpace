@@ -2,6 +2,10 @@
 
 Updated: 2026-09-28
 
+## External runtime budgets / 外部运行时预算
+
+The typed-storage and Native RTT budgets below apply to Native models. Adding External support adds zero required External metadata D1/Provider I/O to Native CRUD. External metadata/connection state is checked locally before execution; record payloads are never persisted. Ordinary External Get/Query uses one Adapter call and no schema preflight. External Bulk (1–20 items) loads one joined catalog, de-duplicates Authority once, writes pending operation audit together, fans out at concurrency <=3, and finalizes audit/identity linkage together: four normal-path D1 round trips, independent of item count. Schema mismatch/revocation/uncertain-write paths are separate bounded exceptions. Provider client quotas/retry and wall-time are Adapter concerns; local synthetic timings are not a live Provider p50/p95 SLO. `docs/external-models.md` specifies measurement/rollout prerequisites.
+
 ## 中文摘要
 
 LifeSpace 的性能目标不是通过牺牲一致性或授权实时性来换取速度，而是减少不必要的 Worker↔D1 往返、N+1 查询和重复 Registry 解析。
@@ -226,3 +230,15 @@ Any Runtime/storage/performance change must answer:
 - Does it affect governed Change/audit attribution?
 - Is a new cache storing stable metadata or mutable authority?
 - Is the optimization justified by measurement rather than anticipated scale?
+
+
+## Semantic Relation gates / 语义关系性能门禁
+
+Hot Native Relation paths use isolate registry metadata and set-wise current Authority. Direct User JWT and Service Token Core RTT budgets: create 3, get 3 with hydration, query 3 with hydration (2 without), delete 4; single-use read may add 1. Represented opaque Agent Token adds one bounded chain-resolution RTT and one Identity introspection HTTP call. A 20-action mixed Batch is at most 3 Core RTT with existing endpoints, 2 when all endpoints are request-local creates; represented opaque Agent adds 1. Non-atomic common path uses one grouped commit; only endpoint/single-use commit contention allows bounded <=20 independent replay, preserving per-item atomicity.
+
+Relation tests cover 1060 edges with 1000 hidden before 60 visible, 50+10 complete pages, no hidden continuation and query hydration <=3 RTT / <12000 D1 rows read on this fixture; this rows-read gate is fixture-specific, not an arbitrary-scale SLA. Predicate-free source/target/Space indexes preserve stable sorting; predicate-specific indexes remain. High-connectivity Native delete tests cover 2000 incident edges. Local test duration is not deployed latency; staging JWT/Service/Agent wall-time gates remain required before release. Ordinary paths keep existing budgets and no semantic hydration tax.
+
+
+## Recurrence gates / 周期计划性能门禁（#338）
+
+No recurrence query is added to ordinary Task completion or to records with no recurring intent. One-Space 20-Plan preparation uses grouped scheduling state, grouped typed hydration, de-duplicated current Authority and one current-root Identity HTTP call; opaque Service/Agent authentication adds one credential introspection. Warm User JWT/Service Token mutation budget <=8 Core D1 RTT; represented opaque Agent <=9. Indexed rolling same-Space batch budget <=8 D1 RTT. Global/Space-local next_materialize_at indexes select due work, and an active-future partial occurrence index plus stable-ID current/history lookup avoid full-plan/history scans. The 1000 parked-Plan test gates <1000 D1 rows read and uses query-plan evidence; its local wall time is not a deployed latency promise. Window 0..90 days and total <=20 materialized Tasks per invocation are internal bounded settings. Cursor/CAS/unique occurrence constraints preserve concurrent retry correctness. Exact-candidate deployed JWT/Service/Agent latency remains a release gate; ordinary Runtime budgets are unchanged.

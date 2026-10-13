@@ -1,3 +1,6 @@
+import { registerExternalModelControlRoutes } from "./external-model-routes";
+import { registerExternalRuntimeRoutes } from "./external-runtime";
+import { registerExternalBatchRoutes } from "./external-batch";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import type { Bindings, Variables } from "./env";
@@ -12,6 +15,7 @@ import { registerGenericBulkRoutes } from "./generic-bulk-routes";
 import { registerRuntimeDiscoveryRoutes } from "./runtime-discovery";
 import { registerRuntimeModelSemanticDetailRoutes } from "./runtime-model-semantic-detail";
 import { registerRelationTargetRoutes } from "./relation-targets";
+import { registerSemanticRelationRoutes } from "./semantic-relation-routes";
 import { registerPersonDirectoryRoutes } from "./person-directory";
 import { registerEventSubscriptionRoutes } from "./event-subscription-routes";
 import { ApiError, failure, success } from "./http";
@@ -37,6 +41,9 @@ async function schemaVersion(env: Bindings) {
 
 function knownDatabaseApiError(error: unknown): ApiError | null {
   const message = error instanceof Error ? error.message : String(error);
+  if (message.includes("SEMANTIC_RELATION_ENDPOINT_UNAVAILABLE")) {
+    return new ApiError("RESOURCE_NOT_FOUND", "Resource not found", 404);
+  }
   if (message.includes("DELEGATION_SINGLE_USE_UNAVAILABLE")) {
     return new ApiError(
       "DELEGATION_INVALID",
@@ -44,6 +51,9 @@ function knownDatabaseApiError(error: unknown): ApiError | null {
       403,
     );
   }
+  if (message.includes("RECURRENCE_CURRENT_TASK_DELETE_FORBIDDEN")) return new ApiError("RECURRENCE_CURRENT_TASK_DELETE_FORBIDDEN", "Use skip-occurrence or remove the Plan recurrence before deleting the current Task; cancel stops without deletion", 409);
+  if (message.includes("RECURRENCE_VERSION_CONFLICT")) return new ApiError("VERSION_CONFLICT", "Recurring plan changed before commit", 409);
+  if (message.includes("RECURRENCE_AUTHORITY_UNAVAILABLE")) return new ApiError("RECURRENCE_AUTHORITY_UNAVAILABLE", "Current recurring intent authority is unavailable", 403);
   if (message.includes("PERSON_VERSION_CONFLICT")) {
     return new ApiError("PERSON_VERSION_CONFLICT", "Person version conflict", 409);
   }
@@ -109,6 +119,10 @@ export function createApp() {
   registerConfigurationModelDiscoveryRoutes(app);
   registerRuntimeModelSemanticDetailRoutes(app);
   registerRelationTargetRoutes(app);
+  registerSemanticRelationRoutes(app);
+  registerExternalModelControlRoutes(app);
+  registerExternalBatchRoutes(app);
+  registerExternalRuntimeRoutes(app);
   registerGenericBatchRoutes(app);
   registerGenericBulkRoutes(app);
   registerGenericResourceRoutes(app);
@@ -125,3 +139,4 @@ export function createApp() {
   });
   return app;
 }
+

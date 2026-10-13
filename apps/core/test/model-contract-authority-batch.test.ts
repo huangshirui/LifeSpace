@@ -62,7 +62,15 @@ describe("generated Authority v2 and Batch Model Contract", () => {
       "#/components/schemas/AlphaBatchUpdateOperation",
       "#/components/schemas/BetaBatchUpdateOperation",
       "#/components/schemas/BatchDeleteOperation",
+      "#/components/schemas/BatchSemanticRelationOperation",
     ]);
+    expect(request.properties.atomicConsistency).toMatchObject({ type: "boolean", default: true });
+    expect(request.properties.delegationId.pattern).toBe("^dlg_");
+    expect(document.components.schemas.BatchSemanticEntityRef.oneOf[1].required).toContain("clientRef");
+    const semanticPaths = document.paths["/api/v1/spaces/{spaceId}/semantic-relations"];
+    expect(semanticPaths.get.responses["200"].content["application/json"].schema.$ref).toBe("#/components/schemas/SemanticRelationQueryResponse");
+    expect(semanticPaths.post.responses["200"].content["application/json"].schema.$ref).toBe("#/components/schemas/SemanticRelationResponse");
+    expect(semanticPaths.get.responses["404"].content["application/json"].schema.$ref).toBe("#/components/schemas/SemanticRelationError");
 
     expect(document.components.schemas.AlphaBatchCreateOperation.properties.delegationId.pattern)
       .toBe("^dlg_[A-Za-z0-9_-]+$");
@@ -92,3 +100,4 @@ describe("generated Authority v2 and Batch Model Contract", () => {
     });
   });
 });
+

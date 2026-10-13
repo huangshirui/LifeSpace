@@ -1,5 +1,9 @@
 # LifeSpace Contract Strategy
 
+## External Model companion / 外部模型契约
+
+`apps/core/external-model.openapi.yaml` 0.2.0 owns provider-neutral connection/model registration and the dynamic External Runtime representation. `apps/core/external-adapter.contract.json` version 1 owns the authenticated internal Adapter execution contract. Kernel 0.52.0 owns the Native/External Discovery union and business-definition binding identity. External registration is Space-local and provider-authoritative: only the latest compatible snapshot exists, with schemaHash/observedAt and honest execution capability downgrade. External business definitions use Registry/mct for stable business semantics only; Provider schema snapshots have no immutable history and external records have no Native versions. Native Model Contract generation, existing stable representations and auth semantics remain unchanged. This companion is Candidate Public; Source provisioning is the service-only Model Admin profile, while model registration/status/refresh uses ordinary Space manage. It is not a privileged Console proof bypass.
+
 ## Identity 0.11.0 / Platform Admin 0.5.0 — client-agnostic Application subject
 
 Identity `0.11.0` removes the obsolete Application `clientType` classification. `Application` remains the stable registered application access subject while Web, Mini Program, PWA, BFF, Worker and deployment topology stay inside the owning product. One Application may hold multiple independently rotatable/revocable `lsa_*` trusted-backend credentials without creating additional Application identities. Cloudflare Access audiences bind protected entry points to active trusted Applications and no longer imply a `web` Application type. Platform Admin `0.5.0` removes the same client classification from Application administration while preserving the existing dual human-actor/executor boundary and the Agent credential governance introduced in `0.4.0`.
@@ -361,3 +365,12 @@ The remaining GET parameter and Capability Query fields in Runtime Discovery are
 
 - Kernel 0.45.0 adds transport-independent `arq_*` Authorization Request lifecycle endpoints. Request creation is non-authorizing; the trusted adapter/workflow supplies `principalUserId` as identity context (never as Authority or an LLM argument), Confirm/Deny bind the decision to that same User, and Confirm reuses atomic Delegation issuance with current Authority checks. No separate User Proof/token exchange is introduced.
 - Kernel 0.46.0 adds first-class non-atomic ordinary-model Bulk mutation through generated Model Contracts. `/models/bulk` is a bounded 1..20 transport/performance grouping with independent per-item results and `blk_*` correlation; existing `/models/batch` remains atomic `cgs_*` ChangeSet semantics.
+
+## Kernel 0.50.0 / Semantic Relation contribution（开发中）
+
+Kernel discovery gains governed outgoing predicates and explicit Native-only relation execution capabilities. Relation CRUD/query and the extended unified Batch belong to generated immutable Model Contracts. One canonical generator applies the contribution before hashing on both publication and active reconciliation. Batch adds relation_create/relation_delete, clientRef and atomicConsistency; omitted atomicConsistency preserves existing atomic Batch behavior, false returns independent item results. Existing models/bulk remains compatible. Full request/response/error schemas and hydration fields are projected mechanically. External endpoints and cross-store atomicity are not advertised. Production documentation remains tied to actual deployed SHAs.
+
+
+## Kernel 0.51.0 / Identity 0.12.0 / Recurrence（开发中）
+
+Kernel semantic Discovery adds recurrence_rule and Person/Record entity_ref field types, their closed valueSchema and Recurrence capability bindings. The canonical immutable Model Contract generator projects full value schemas, conditional creation requirements, Recurrence role metadata and the generated Task skip Action. Task baseline convergence is additive (subject/immutable read-only occurrence identity/skip Action); prior immutable revisions remain available. Strict generated clients should pin a compatible new Kernel/Model revision and handle new structured types. Identity 0.12.0 adds only the internal set-wise recurrence-roots status/scope projection. Deployment and production consumer pins are not advanced by this development change. See [recurrence.md](./recurrence.md).

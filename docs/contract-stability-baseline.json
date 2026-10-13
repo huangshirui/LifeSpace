@@ -72,6 +72,13 @@
       "maturity": "candidate",
       "visibility": "public",
       "commitment": "All generated ordinary-model CRUD, query, Action and Capability wire representations are Candidate Public contracts for the first Baseline; new models inherit this declared class while canonical Model Definition publication remains the semantic and compatibility authority."
+    },
+    {
+      "id": "external-dynamic-model-contract",
+      "source": "Space-local External Model compatible latest snapshot / external-model.openapi.yaml",
+      "maturity": "candidate",
+      "visibility": "public",
+      "commitment": "Provider-authoritative dynamic schema with explicit capability downgrades; no Native version, immutable mct, ordering or transaction guarantee."
     }
   ],
   "stableLocks": {
@@ -109,7 +116,7 @@
     {
       "id": "identity-application",
       "source": "apps/identity/openapi.yaml",
-      "operationSetSha256": "sha256:a25c36e4ac6ff3eb022406422a092146566eb2a941d9cbb63d5b7d5f264f7ef0",
+      "operationSetSha256": "sha256:729564012b346b7d72d293bad164608bb945089306e0b05705e33496a37e7049",
       "groups": [
         {
           "id": "identity-operational",
@@ -176,6 +183,12 @@
           "maturity": "experimental",
           "visibility": "internal",
           "operationPattern": "^(GET|POST|PATCH|PUT|DELETE) /bootstrap/v1/.*$"
+        },
+        {
+          "id": "identity-recurring-intent-introspection",
+          "maturity": "candidate",
+          "visibility": "internal",
+          "operationPattern": "^POST /introspection/v1/recurrence-roots$"
         }
       ]
     },
@@ -319,6 +332,25 @@
           "maturity": "candidate",
           "visibility": "internal",
           "operationPattern": "^(GET|POST|PATCH|PUT|DELETE) /.*$"
+        }
+      ]
+    },
+    {
+      "id": "core-external-model",
+      "source": "apps/core/external-model.openapi.yaml",
+      "operationSetSha256": "sha256:8c991e47b28ecb40fb169400d0aa22e9608b6953b42450b901a97b82e6eec3be",
+      "groups": [
+        {
+          "id": "external-source-provisioning",
+          "maturity": "candidate",
+          "visibility": "internal",
+          "operationPattern": "^POST /api/v1/model-admin/external-sources$"
+        },
+        {
+          "id": "external-model-runtime",
+          "maturity": "candidate",
+          "visibility": "public",
+          "operationPattern": "^(GET|POST|PATCH|DELETE) /api/v1/spaces/.*$"
         }
       ]
     }

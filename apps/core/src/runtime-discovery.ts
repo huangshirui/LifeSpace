@@ -1,3 +1,7 @@
+import type { RecurrenceCapabilityDefinition } from "./recurrence-definition";
+import { recurrenceRuleSchema } from "./recurrence-rule";
+import { entityRefSchema } from "./entity-ref";
+import { visibleExternalModels } from "./external-runtime";
 import type { Context, Hono } from "hono";
 import type { Permission, SpaceRole } from "./authorization";
 import { capabilityActionAccess } from "./capability-runtime";
@@ -9,6 +13,7 @@ import { listPublishedModels, type PublishedModel } from "./model-registry";
 import { projectModelSemanticFacts } from "./model-semantic-projection";
 import { referenceLabelSemantic } from "./reference-label";
 import { relationDiscoveryMetadata } from "./relation-targets";
+import { semanticRelationDiscovery, SEMANTIC_RELATION_RUNTIME } from "./semantic-relation-definition";
 
 type AppEnv = { Bindings: Bindings; Variables: Variables };
 type App = Hono<AppEnv>;
@@ -29,7 +34,7 @@ type DelegationSpaceAccessRow = DelegationAccessRow & { source_space_id: string 
 
 type DiscoveryActionInputField = {
   key: string;
-  type: "string" | "text" | "integer" | "number" | "boolean" | "date" | "instant" | "range<date>" | "range<instant>" | "temporal_range" | "timezone" | "enum" | "person" | "person_list" | "record" | "record_list";
+  type: "string" | "text" | "integer" | "number" | "boolean" | "date" | "instant" | "range<date>" | "range<instant>" | "temporal_range" | "recurrence_rule" | "entity_ref" | "timezone" | "enum" | "person" | "person_list" | "record" | "record_list";
   title?: string;
   description?: string;
   required?: boolean;
@@ -58,6 +63,7 @@ type DiscoveryAction = {
 type DiscoveryCalendarCapabilityBinding = CalendarCapabilityDefinition;
 
 type DiscoveryCapabilityBindings = {
+  recurrence?: RecurrenceCapabilityDefinition;
   calendar?: DiscoveryCalendarCapabilityBinding;
 };
 
@@ -163,7 +169,8 @@ function actions(model: PublishedModel, allowed: ModelAccess[]): DiscoveryAction
 
 function capabilityBindings(model: PublishedModel): DiscoveryCapabilityBindings {
   const calendar = model.definition.capabilities?.calendar;
-  return calendar ? { calendar: structuredClone(calendar) } : {};
+  const recurrence = model.definition.capabilities?.recurrence;
+  return { ...(calendar ? { calendar: structuredClone(calendar) } : {}), ...(recurrence ? { recurrence: structuredClone(recurrence) } : {}) };
 }
 
 function dto(model: PublishedModel, allowed: ModelAccess[]) {
@@ -177,8 +184,10 @@ function dto(model: PublishedModel, allowed: ModelAccess[]) {
     access: allowed,
     fields: Object.entries(model.definition.fields).map(([key, field]) => {
       const relation = relationDiscoveryMetadata(field);
-      return { key, ...field, ...(relation ? { relation } : {}) };
+      return { key, ...field, ...(field.type === "recurrence_rule" ? { valueSchema: recurrenceRuleSchema() } : field.type === "entity_ref" ? { valueSchema: entityRefSchema() } : {}), ...(relation ? { relation } : {}) };
     }),
+    semanticRelations: semanticRelationDiscovery(model.key, model.definition.semanticRelations),
+    semanticRelationRuntime: SEMANTIC_RELATION_RUNTIME,
     defaults: structuredClone(model.definition.defaults ?? {}),
     query: {
       searchable: [...(model.definition.query?.searchable ?? [])],
@@ -209,6 +218,7 @@ function visibleModelAccess(
   delegatedByModel?: Map<string, ModelAccess>,
 ): VisibleModel[] {
   return models.flatMap((model) => {
+    if (model.definition.origin === "external") return [];
     const catalogAccess = catalogByModel.get(model.key);
     if (!catalogAccess) return [];
     const allowed = effectiveAccess(
@@ -353,6 +363,7 @@ async function aggregateDiscoveryState(context: AppContext): Promise<AggregateDi
 export function registerRuntimeDiscoveryRoutes(app: App): void {
   app.get("/api/v1/me/_discovery", async (context) => {
     const state = await aggregateDiscoveryState(context);
+    const external = await visibleExternalModels(context.env,state.principal,state.candidateSpaceIds,context.req.header("x-lifespace-delegation-id"));
     const spaces = state.candidateSpaceIds.flatMap((spaceId) => {
       const visible = visibleModels(
         state.principal,
@@ -362,7 +373,8 @@ export function registerRuntimeDiscoveryRoutes(app: App): void {
         state.grantsBySpace.get(spaceId) ?? [],
         state.delegatedAgent ? (state.delegatedBySpace.get(spaceId) ?? new Map<string, ModelAccess>()) : undefined,
       );
-      return visible.length ? [{ spaceId, spaceName: state.spaceNamesById.get(spaceId)!, models: visible }] : [];
+      const combined = [...visible,...(external.get(spaceId)??[])];
+      return combined.length ? [{ spaceId, spaceName: state.spaceNamesById.get(spaceId)!, models: combined }] : [];
     });
 
     return context.json(success({ spaces }));
@@ -371,6 +383,7 @@ export function registerRuntimeDiscoveryRoutes(app: App): void {
   app.get("/api/v1/me/_discovery/inventory", async (context) => {
     const state = await aggregateDiscoveryState(context);
     const visibleModelKeys = new Set<string>();
+    const external = await visibleExternalModels(context.env,state.principal,state.candidateSpaceIds,context.req.header("x-lifespace-delegation-id"));
     const spaces = state.candidateSpaceIds.flatMap((spaceId) => {
       const visible = visibleModelAccess(
         state.principal,
@@ -381,18 +394,20 @@ export function registerRuntimeDiscoveryRoutes(app: App): void {
         state.delegatedAgent ? (state.delegatedBySpace.get(spaceId) ?? new Map<string, ModelAccess>()) : undefined,
       );
       for (const entry of visible) visibleModelKeys.add(entry.model.key);
-      return visible.length ? [{
+      const externalHere=external.get(spaceId)??[];
+      return visible.length||externalHere.length ? [{
         spaceId,
         spaceName: state.spaceNamesById.get(spaceId)!,
-        models: visible.map(({ model, access }) => ({ modelKey: model.key, access })),
+        models: [...visible.map(({ model, access }) => ({ modelKey: model.key, access })),...externalHere.map(m=>({modelKey:m.key,access:m.access}))],
       }] : [];
     });
     const models = state.models
       .filter((model) => visibleModelKeys.has(model.key))
       .sort((left, right) => left.key.localeCompare(right.key))
       .map(inventoryModel);
+    const externalInventory=[...external.values()].flat().map(m=>({key:m.key,origin:m.origin,spaceId:m.spaceId,schemaHash:m.schemaHash,display:m.display,runtimeCapabilities:m.runtimeCapabilities,contract:m.contract}));
 
-    return context.json(success({ semanticDetailPathTemplate, models, spaces }));
+    return context.json(success({ semanticDetailPathTemplate, models: [...models,...externalInventory], spaces }));
   });
 
   app.get("/api/v1/spaces/:spaceId/_discovery", async (context) => {
@@ -465,6 +480,9 @@ export function registerRuntimeDiscoveryRoutes(app: App): void {
       delegatedAgent ? delegatedByModel : undefined,
     );
 
-    return context.json(success({ spaceId, spaceName: visible.length ? space.name : null, models: visible }));
+    const external = await visibleExternalModels(context.env,principal,[spaceId],context.req.header("x-lifespace-delegation-id"));
+    const combined = [...visible,...(external.get(spaceId)??[])];
+    return context.json(success({ spaceId, spaceName: combined.length ? space.name : null, models: combined }));
   });
 }
+

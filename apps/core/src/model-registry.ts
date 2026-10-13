@@ -152,12 +152,18 @@ export async function getRuntimeModel(env: Bindings, key: string): Promise<Runti
   return (await runtimeRegistrySnapshot(env)).byKey.get(key) ?? null;
 }
 
+/** Stable metadata only; querying this catalog never caches mutable Authority. */
+export async function listRuntimeModels(env: Bindings): Promise<RuntimeModelDescriptor[]> {
+  return [...(await runtimeRegistrySnapshot(env)).byKey.values()];
+}
+
 export async function validateDefinition(input: unknown): Promise<
   | { valid: true; definition: ModelDefinition; schemaHash: string }
   | { valid: false; issues: ModelValidationIssue[] }
 > {
   const validation = validateModelDefinition(input);
   if (!validation.valid) return validation;
+  if (validation.definition.key.startsWith("ext_")) return { valid: false, issues: [{ path: "key", code: "RESERVED_MODEL_KEY", message: "ext_ is reserved for Space-local External Models" }] };
   return {
     valid: true,
     definition: validation.definition,
@@ -205,6 +211,7 @@ export async function validateDefinitionForPublication(
   if (!validation.valid) return validation;
   const current = await getPublishedModel(env, validation.definition.key);
   const issues = validateCanonicalTemporalDslTransition(current?.definition ?? null, validation.definition);
+  if (current && current.definition.origin !== validation.definition.origin) issues.push({ path: "origin", code: "MODEL_ORIGIN_IMMUTABLE", message: "Model origin cannot change" });
   if (issues.length) return { valid: false, issues };
   return validation;
 }
@@ -248,6 +255,7 @@ export async function publishModelDefinition(
   const expectedRevision = await getModelRegistryRevision(env);
   const currentModels = await listPublishedModels(env);
   const current = currentModels.find((model) => model.key === validation.definition.key) ?? null;
+  if (current && current.definition.origin !== validation.definition.origin) throw new ApiError("MODEL_ORIGIN_IMMUTABLE", "A published Model cannot change Native/External origin", 409);
   const temporalDslIssues = validateCanonicalTemporalDslTransition(current?.definition ?? null, validation.definition);
   if (temporalDslIssues.length) {
     throw new ApiError("INVALID_MODEL_DEFINITION", JSON.stringify(temporalDslIssues), 422);
@@ -383,3 +391,4 @@ export async function retireModel(env: Bindings, principal: Principal, key: stri
   }
   invalidateRuntimeModelRegistry(env);
 }
+

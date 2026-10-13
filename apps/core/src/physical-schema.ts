@@ -79,7 +79,9 @@ function scalarColumn(fieldKey: string, field: FieldDefinition): PhysicalColumn 
       : "TEXT";
   const nullable = field.required !== true;
   let checkSql: string | undefined;
-  if (field.type === "boolean") {
+  if (["recurrence_rule", "entity_ref"].includes(field.type)) {
+    checkSql = `${identifier(fieldKey)} IS NULL OR (json_valid(${identifier(fieldKey)}) AND json_type(${identifier(fieldKey)})='object')`;
+  } else if (field.type === "boolean") {
     checkSql = `${identifier(fieldKey)} IS NULL OR ${identifier(fieldKey)} IN (0,1)`;
   } else if (field.type === "enum" && field.values?.length) {
     checkSql = `${identifier(fieldKey)} IS NULL OR ${identifier(fieldKey)} IN (${field.values.map(literal).join(",")})`;

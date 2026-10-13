@@ -36,7 +36,11 @@ export type Principal = {
 };
 
 export type Bindings = CloudflareBindings & {
+  EXTERNAL_ADAPTER?: Fetcher;
+  EXTERNAL_ADAPTER_SHARED_SECRET?: string;
+  EXTERNAL_SCHEMA_REFRESH_SECONDS?: string;
   IDENTITY_PUBLIC_KEY: string;
+  RECURRENCE_WINDOW_DAYS?: string;
   IDENTITY?: Fetcher;
   CORE_IDENTITY_SHARED_SECRET?: string;
   ASSETS: R2Bucket;

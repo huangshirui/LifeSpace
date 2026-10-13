@@ -6,6 +6,12 @@ import {
   type ReferenceLabelDefinition,
 } from "./reference-label-syntax";
 import {
+  isSemanticRelationPredicate,
+  semanticRelationAllowsSource,
+  type SemanticRelationDefinition,
+  type SemanticRelationPredicate,
+} from "./semantic-relation-definition";
+import {
   validateCalendarTimeRangeCollisions,
   validateTimeRanges,
   type TimeRangeDefinitions,
@@ -14,6 +20,7 @@ import { isRfc3339Instant } from "./time-semantics";
 import { validateWorkflowActions, type WorkflowActionsDefinition } from "./workflow-definition";
 
 export type { ReferenceLabelDefinition } from "./reference-label-syntax";
+export type { SemanticRelationDefinition, SemanticRelationPredicate } from "./semantic-relation-definition";
 export type { TimeRangeBounds, TimeRangeDefinition, TimeRangeDefinitions } from "./time-range-definition";
 
 export const MODEL_DEFINITION_VERSION = 1 as const;
@@ -29,6 +36,8 @@ export const CANONICAL_FIELD_TYPES = [
   "range<date>",
   "range<instant>",
   "temporal_range",
+  "recurrence_rule",
+  "entity_ref",
   "timezone",
   "enum",
   "person",
@@ -85,6 +94,7 @@ export type QueryDefinition = {
 
 export type ModelDefinition = {
   definitionVersion: typeof MODEL_DEFINITION_VERSION;
+  origin?: "external";
   key: string;
   description?: string;
   display: {
@@ -92,6 +102,7 @@ export type ModelDefinition = {
     plural: string;
   };
   fields: Record<string, FieldDefinition>;
+  semanticRelations?: SemanticRelationDefinition;
   timeRanges?: TimeRangeDefinitions;
   referenceLabel?: ReferenceLabelDefinition;
   defaults?: Record<string, ModelDefaultValue>;
@@ -201,6 +212,69 @@ function stringArray(
   return [...value];
 }
 
+function validateSemanticRelations(
+  raw: unknown,
+  modelKey: string,
+  issues: ModelValidationIssue[],
+): SemanticRelationDefinition | undefined {
+  if (raw === undefined) return undefined;
+  if (!isObject(raw)) {
+    issue(issues, "semanticRelations", "INVALID_SEMANTIC_RELATIONS", "semanticRelations must be an object");
+    return undefined;
+  }
+  for (const property of Object.keys(raw)) {
+    if (property !== "outgoing") {
+      issue(
+        issues,
+        `semanticRelations.${property}`,
+        "UNKNOWN_PROPERTY",
+        `Unsupported semanticRelations property ${property}`,
+      );
+    }
+  }
+  const outgoingInput = stringArray(issues, raw.outgoing, "semanticRelations.outgoing");
+  if (!outgoingInput?.length) {
+    issue(
+      issues,
+      "semanticRelations.outgoing",
+      "SEMANTIC_RELATIONS_OUTGOING_REQUIRED",
+      "semanticRelations.outgoing must contain at least one registered predicate",
+    );
+    return undefined;
+  }
+  if (outgoingInput.length > 20) {
+    issue(
+      issues,
+      "semanticRelations.outgoing",
+      "TOO_MANY_SEMANTIC_RELATIONS",
+      "semanticRelations.outgoing may contain at most 20 predicates",
+    );
+  }
+  const outgoing: SemanticRelationPredicate[] = [];
+  for (const predicate of outgoingInput) {
+    if (!isSemanticRelationPredicate(predicate)) {
+      issue(
+        issues,
+        "semanticRelations.outgoing",
+        "UNKNOWN_SEMANTIC_RELATION_PREDICATE",
+        `${predicate} is not registered by LifeSpace`,
+      );
+      continue;
+    }
+    if (MODEL_KEY.test(modelKey) && !semanticRelationAllowsSource(predicate, modelKey)) {
+      issue(
+        issues,
+        "semanticRelations.outgoing",
+        "SEMANTIC_RELATION_SOURCE_NOT_ALLOWED",
+        `${predicate} is not registered for source model ${modelKey}`,
+      );
+      continue;
+    }
+    outgoing.push(predicate);
+  }
+  return outgoing.length ? { outgoing } : undefined;
+}
+
 function canonicalize(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(canonicalize);
   if (!isObject(value)) return value;
@@ -228,7 +302,7 @@ function validTimezone(value: string): boolean {
 }
 
 function validDefault(field: FieldDefinition, value: unknown): value is ModelDefaultValue {
-  if (field.type === "temporal_range" || isFirstClassRangeFieldType(field.type)) return false;
+  if (["recurrence_rule", "entity_ref"].includes(field.type) || field.type === "temporal_range" || isFirstClassRangeFieldType(field.type)) return false;
   if (value === null) return field.nullable === true;
 
   if (field.type === "person" || field.type === "record") return false;
@@ -362,10 +436,12 @@ export function validateModelDefinition(input: unknown): ModelValidationResult {
 
   const allowedTopLevel = new Set([
     "definitionVersion",
+    "origin",
     "key",
     "description",
     "display",
     "fields",
+    "semanticRelations",
     "timeRanges",
     "referenceLabel",
     "defaults",
@@ -395,6 +471,8 @@ export function validateModelDefinition(input: unknown): ModelValidationResult {
   if (!MODEL_KEY.test(key)) {
     issue(issues, "key", "INVALID_MODEL_KEY", "key must match /^[a-z][a-z0-9_]{1,62}$/");
   }
+  const semanticRelations = validateSemanticRelations(input.semanticRelations, key, issues);
+  if (input.origin !== undefined && input.origin !== "native" && input.origin !== "external") issue(issues, "origin", "INVALID_MODEL_ORIGIN", "origin must be native or external");
 
   const description = boundedText(issues, input.description, "description", 500);
 
@@ -424,6 +502,17 @@ export function validateModelDefinition(input: unknown): ModelValidationResult {
   }
 
   const fieldsInput = isObject(input.fields) ? input.fields : null;
+  if (input.origin === "external") {
+    if (!fieldsInput || Object.keys(fieldsInput).length) issue(issues, "fields", "EXTERNAL_FIELDS_PROVIDER_OWNED", "External definitions require fields: {}; provider schema is discovered per Space binding");
+    for (const property of ["defaults", "query", "lifecycle", "capabilities", "policies", "actions", "timeRanges", "referenceLabel"]) {
+      if (input[property] !== undefined) issue(issues, property, "EXTERNAL_NATIVE_SEMANTICS_UNSUPPORTED", "External definitions do not inherit Native runtime semantics");
+    }
+    const access = input.access;
+    if (!Array.isArray(access) || !access.length || access.some(value => value !== "read" && value !== "write") || new Set(access).size !== access.length) issue(issues, "access", "INVALID_ACCESS", "External access must contain unique read/write values");
+    if (issues.length) return { valid: false, issues };
+    const definition: ModelDefinition = { definitionVersion: MODEL_DEFINITION_VERSION, origin: "external", key, ...(description ? { description } : {}), display: { singular, plural }, fields: {}, access: access as ModelAccess[], ...(semanticRelations ? { semanticRelations } : {}) };
+    return { valid: true, definition, hashInput: canonicalModelDefinition(definition) };
+  }
   if (!fieldsInput || Object.keys(fieldsInput).length === 0) {
     issue(issues, "fields", "FIELDS_REQUIRED", "At least one field is required");
   }
@@ -675,7 +764,9 @@ export function validateModelDefinition(input: unknown): ModelValidationResult {
     for (const [kind, fieldKeys] of Object.entries(query)) {
       for (const fieldKey of fieldKeys ?? []) {
         const field = fields[fieldKey];
-        if (!field) {
+        if (field && ["recurrence_rule", "entity_ref"].includes(field.type)) {
+          issue(issues, `query.${kind}`, "UNSUPPORTED_QUERY_FIELD_TYPE", "Structured recurrence and entity reference fields have no scalar query ordering");
+        } else if (!field) {
           issue(issues, `query.${kind}`, "UNKNOWN_QUERY_FIELD", `${fieldKey} is not a declared field`);
         } else if ((field.type === "temporal_range" || isFirstClassRangeFieldType(field.type)) && kind === "searchable") {
           issue(
@@ -736,6 +827,7 @@ export function validateModelDefinition(input: unknown): ModelValidationResult {
 
   const capabilityResult = validateCapabilities(input.capabilities, fields);
   issues.push(...capabilityResult.issues);
+  if (key === "task" && capabilityResult.capabilities?.recurrence) issue(issues, "capabilities.recurrence", "RECURSIVE_RECURRENCE_TARGET", "The generated Task target cannot itself be a recurring plan");
   issues.push(...validateCalendarTimeRangeCollisions(
     timeRangeResult.timeRanges,
     capabilityResult.capabilities?.calendar,
@@ -778,6 +870,7 @@ export function validateModelDefinition(input: unknown): ModelValidationResult {
     ...(description ? { description } : {}),
     display: { singular, plural },
     fields,
+    ...(semanticRelations ? { semanticRelations } : {}),
     ...(timeRangeResult.timeRanges ? { timeRanges: timeRangeResult.timeRanges } : {}),
     ...(referenceLabel ? { referenceLabel } : {}),
     ...(Object.keys(defaults).length ? { defaults } : {}),
