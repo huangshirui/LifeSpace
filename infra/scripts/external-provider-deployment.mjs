@@ -14,12 +14,12 @@ export function deploymentSettings(env, environment) {
   if (!/^[a-z][a-z0-9-]{1,62}$/.test(worker) || worker.startsWith("example-") || ["lifespace-core", "lifespace-identity", "lifespace-console"].some(prefix => worker.startsWith(prefix))) throw new Error("A dedicated non-placeholder Adapter Worker name is required");
   if ((environment === "staging") !== worker.endsWith("-staging")) throw new Error("Adapter Worker must be environment-isolated: staging names end in -staging; production names must not");
   const secret = env.EXTERNAL_ADAPTER_SHARED_SECRET ?? "";
-  if (secret.length < 32 || secret === env.LIFESPACE_STAGING_BOOTSTRAP_SECRET || secret === env.LIFESPACE_PRODUCTION_BOOTSTRAP_SECRET) throw new Error("An independent External Adapter shared secret of at least 32 characters is required");
+  if (!/^[\x21-\x7e]{32,512}$/.test(secret) || secret === env.LIFESPACE_STAGING_BOOTSTRAP_SECRET || secret === env.LIFESPACE_PRODUCTION_BOOTSTRAP_SECRET) throw new Error("An independent External Adapter shared secret of 32-512 printable ASCII characters without whitespace is required");
   let connections;
   try { connections = JSON.parse(env.NOTION_CONNECTIONS ?? ""); } catch { throw new Error("NOTION_CONNECTIONS must be a valid secret JSON object"); }
   if (!connections || Array.isArray(connections) || typeof connections !== "object" || !Object.keys(connections).length) throw new Error("NOTION_CONNECTIONS must contain at least one connection");
   for (const [ref, connection] of Object.entries(connections)) {
-    if (!/^[A-Za-z0-9_-]{1,128}$/.test(ref) || !connection || typeof connection !== "object" || Array.isArray(connection) || typeof connection.token !== "string" || !connection.token.trim() || typeof connection.read !== "boolean" || typeof connection.write !== "boolean" || (connection.disabled !== undefined && typeof connection.disabled !== "boolean")) throw new Error("NOTION_CONNECTIONS contains an invalid connection entry");
+    if (!/^[A-Za-z0-9_-]{1,128}$/.test(ref) || !connection || typeof connection !== "object" || Array.isArray(connection) || typeof connection.token !== "string" || !connection.token || connection.token !== connection.token.trim() || /[\r\n]/.test(connection.token) || typeof connection.read !== "boolean" || typeof connection.write !== "boolean" || (connection.disabled !== undefined && typeof connection.disabled !== "boolean")) throw new Error("NOTION_CONNECTIONS contains an invalid connection entry");
   }
   if (environment === "staging") {
     const ref = env.LIFESPACE_EXTERNAL_SMOKE_CREDENTIAL_REF ?? "";

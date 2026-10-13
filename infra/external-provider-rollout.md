@@ -12,7 +12,7 @@ Configure the LifeSpace repository's **staging GitHub Environment**:
 | --- | --- | --- |
 | Variable | `LIFESPACE_EXTERNAL_PROVIDER_ENABLED` | `1`; unset/`0` keeps optional Native-only deployment and does **not** accept External |
 | Variable | `LIFESPACE_EXTERNAL_ADAPTER_WORKER` | Dedicated Worker name ending in `-staging`, separate from Core/Identity/Console |
-| Secret | `EXTERNAL_ADAPTER_SHARED_SECRET` | Independent random value of at least 32 characters; never bootstrap or production secret |
+| Secret | `EXTERNAL_ADAPTER_SHARED_SECRET` | Independent random value of 32–512 printable ASCII characters without whitespace (for example random hex); never bootstrap or production secret |
 | Secret | `NOTION_CONNECTIONS` | JSON map of opaque references to `{token,read:true,write:boolean,disabled?:boolean}` |
 | Variable | `LIFESPACE_EXTERNAL_SMOKE_CREDENTIAL_REF` | Reference of the active read/write synthetic test connection in that map |
 | Secret | `LIFESPACE_EXTERNAL_SMOKE_RESOURCE_ID` | Concrete synthetic Notion data source UUID |

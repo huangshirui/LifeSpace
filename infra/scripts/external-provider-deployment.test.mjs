@@ -24,6 +24,8 @@ test("enabled staging validates full synthetic provider prerequisites; disabled 
   }
   assert.throws(() => deploymentSettings({ ...environment(), LIFESPACE_STAGING_BOOTSTRAP_SECRET: environment().EXTERNAL_ADAPTER_SHARED_SECRET }, "staging"));
   assert.throws(() => deploymentSettings(environment(), "production"));
+  assert.throws(() => deploymentSettings({ ...environment(), EXTERNAL_ADAPTER_SHARED_SECRET: "x".repeat(32) + "\n" }, "staging"));
+  assert.throws(() => deploymentSettings({ ...environment(), NOTION_CONNECTIONS: JSON.stringify({ smoke: { token: "synthetic\ntoken", read: true, write: true } }) }, "staging"));
 });
 test("optional Core binding preserves opposite environment and all platform bindings", () => {
   const config = JSON.parse(readFileSync(new URL("../../apps/core/wrangler.jsonc", import.meta.url), "utf8"));
