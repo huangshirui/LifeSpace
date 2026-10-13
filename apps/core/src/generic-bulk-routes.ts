@@ -121,6 +121,7 @@ function parseEnvelope(value: unknown): unknown[] {
 function asApiError(error: unknown): ApiError {
   if (error instanceof ApiError) return error;
   const message = error instanceof Error ? error.message : String(error);
+  if (message.includes("RECURRENCE_CURRENT_TASK_DELETE_FORBIDDEN")) return new ApiError("RECURRENCE_CURRENT_TASK_DELETE_FORBIDDEN", "Use skip-occurrence or remove the Plan recurrence before deleting the current Task", 409);
   if (message.includes("RECURRENCE_VERSION_CONFLICT")) return new ApiError("VERSION_CONFLICT", "Recurring plan changed before commit", 409);
   if (message.includes("RECURRENCE_AUTHORITY_UNAVAILABLE")) return new ApiError("RECURRENCE_AUTHORITY_UNAVAILABLE", "Current enrolled authority is unavailable", 403);
   throw error;
@@ -184,6 +185,9 @@ function singleUseFailure(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
   return message.includes("DELEGATION_SINGLE_USE_UNAVAILABLE");
 }
+function currentOccurrenceDeleteFailure(error: unknown): boolean {
+  return (error instanceof Error ? error.message : String(error)).includes("RECURRENCE_CURRENT_TASK_DELETE_FORBIDDEN");
+}
 function commitRaceError(): ApiError { return new ApiError("VERSION_CONFLICT", "Bulk item target changed concurrently before commit", 409); }
 function delegationRaceError(): ApiError { return new ApiError("DELEGATION_INVALID", "Single-use Delegation was consumed, revoked or expired before Bulk item commit", 403); }
 
@@ -204,6 +208,7 @@ async function commitIndependently(env: Bindings, bulkId: string, plans: ItemSta
       if (!results[0]?.meta.changes) item.error = commitRaceError();
     } catch (error) {
       if (singleUseFailure(error)) item.error = delegationRaceError();
+      else if (currentOccurrenceDeleteFailure(error)) item.error = asApiError(error);
       else throw error;
     }
   }
@@ -307,7 +312,7 @@ export function registerGenericBulkRoutes(app: App): void {
         if (!firstResult?.meta.changes) item.error = commitRaceError();
       }
     } catch (error) {
-      if (!singleUseFailure(error)) throw error;
+      if (!singleUseFailure(error) && !currentOccurrenceDeleteFailure(error)) throw error;
       // The grouped D1 transaction was rolled back. Recreate the durable Bulk row,
       // then replay only surviving items independently. This bounded contention
       // slow path preserves partial success without making the normal path N RTTs.

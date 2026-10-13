@@ -198,6 +198,18 @@ describe("Metadata-driven Recurrence runtime", () => {
       expect(response.status, JSON.stringify(await response.clone().json())).toBe(200);
       expect(cost.roundTrips).toBeLessThanOrEqual(profile.budget);
       expect(authenticationCalls).toBe(profile.introspections); expect(rootCalls).toBe(1);
+      if (profile.introspections === 0) {
+        const firstPlan = (await response.clone().json<any>()).data.items[0].recordId;
+        const current = (await f.tasks(firstPlan))[0];
+        const bulk = await app.request(`http://test/api/v1/spaces/${f.spaceId}/models/bulk`, { method: "POST", headers: { authorization: `Bearer ${profile.token}`, "content-type": "application/json" }, body: JSON.stringify({ operations: [
+          { operation: "delete", modelKey: "task", recordId: current.record_id, version: 1 },
+          { operation: "create", modelKey: "task", data: { name: "Independent Task" } },
+        ] }) }, bindings);
+        expect(bulk.status).toBe(200);
+        const items = (await bulk.json<any>()).data.items;
+        expect(items[0].error.code).toBe("RECURRENCE_CURRENT_TASK_DELETE_FORBIDDEN");
+        expect(items[1].status).toBe("succeeded");
+      }
     }
   });
 });
