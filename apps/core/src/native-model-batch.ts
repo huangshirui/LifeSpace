@@ -238,8 +238,14 @@ export async function executeNativeModelBatch(env: Bindings, principal: Principa
     const request = requests[index]!; const evaluation = evaluations[index]!;
     if (evaluation.ok && request.selector?.recordId) endpointDecisions.set(request.model.key + "\0" + request.selector.recordId, evaluation.decision);
   }
+  const endpointFailures = new Map<string, ApiError>();
   const resources = await loadEndpointResources(env, spaceId,
-    [...groups].map(([key, ids]) => ({ model: models.get(key)!, ids: [...ids] })), endpointDecisions);
+    [...groups].map(([key, ids]) => ({ model: models.get(key)!, ids: [...ids] })), endpointDecisions, false, endpointFailures);
+  for (const item of items) if (!item.error) {
+    const failure = item.edges.flatMap(edge => [edge.source, edge.target])
+      .map(endpoint => endpointFailures.get(endpoint.modelKey + "\0" + endpoint.recordId)).find(Boolean);
+    if (failure) item.error = failure;
+  }
   if (knownExternalGroups.size) {
     const known = await loadEndpointResources(env, spaceId, [...knownExternalGroups].map(([key, ids]) => ({ model: models.get(key)!, ids: [...ids] })), endpointDecisions, true);
     for (const [id, resource] of known) if (!resources.has(id)) resources.set(id, resource);

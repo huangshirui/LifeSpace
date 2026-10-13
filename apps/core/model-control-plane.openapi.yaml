@@ -53,7 +53,7 @@
           "Model Registry"
         ],
         "operationId": "publishModelDefinition",
-        "description": "Service-principal-only validated publication. Successful mutation atomically activates a new Model Contract Revision.",
+        "description": "Service-principal-only validated publication. Successful mutation atomically activates a new Model Contract Revision. Historical keys, including retired models, retain their latest origin/compatibility/physical-schema baseline and publish the next version; only a never-published key uses initial.",
         "requestBody": {
           "required": true,
           "content": {

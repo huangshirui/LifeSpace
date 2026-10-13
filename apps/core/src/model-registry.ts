@@ -209,7 +209,7 @@ export async function validateDefinitionForPublication(
 > {
   const validation = await validateDefinition(input);
   if (!validation.valid) return validation;
-  const current = await getPublishedModel(env, validation.definition.key);
+  const current = await getLatestModel(env, validation.definition.key);
   const issues = validateCanonicalTemporalDslTransition(current?.definition ?? null, validation.definition);
   if (current && current.definition.origin !== validation.definition.origin) issues.push({ path: "origin", code: "MODEL_ORIGIN_IMMUTABLE", message: "Model origin cannot change" });
   if (issues.length) return { valid: false, issues };
@@ -219,6 +219,15 @@ export async function validateDefinitionForPublication(
 export async function getPublishedModel(env: Bindings, key: string): Promise<PublishedModel | null> {
   const row = await env.DB.prepare(`SELECT id,model_key,version,state,definition_json,schema_hash,compatibility,published_at
     FROM model_definitions WHERE model_key=? AND state='published' LIMIT 1`)
+    .bind(key).first<ModelRow>();
+  return row ? rowToPublished(row) : null;
+}
+
+// Control-plane history is the compatibility/origin/version baseline even when
+// a model is retired. Runtime still resolves only current published descriptors.
+async function getLatestModel(env: Bindings, key: string): Promise<PublishedModel | null> {
+  const row = await env.DB.prepare(`SELECT id,model_key,version,state,definition_json,schema_hash,compatibility,published_at
+    FROM model_definitions WHERE model_key=? ORDER BY version DESC LIMIT 1`)
     .bind(key).first<ModelRow>();
   return row ? rowToPublished(row) : null;
 }
@@ -254,7 +263,8 @@ export async function publishModelDefinition(
 
   const expectedRevision = await getModelRegistryRevision(env);
   const currentModels = await listPublishedModels(env);
-  const current = currentModels.find((model) => model.key === validation.definition.key) ?? null;
+  const active = currentModels.find((model) => model.key === validation.definition.key) ?? null;
+  const current = active ?? await getLatestModel(env, validation.definition.key);
   if (current && current.definition.origin !== validation.definition.origin) throw new ApiError("MODEL_ORIGIN_IMMUTABLE", "A published Model cannot change Native/External origin", 409);
   const temporalDslIssues = validateCanonicalTemporalDslTransition(current?.definition ?? null, validation.definition);
   if (temporalDslIssues.length) {
@@ -266,7 +276,7 @@ export async function publishModelDefinition(
   if (current && compatibility === "initial") {
     throw new ApiError("INVALID_MODEL_COMPATIBILITY", "A subsequent model version cannot use compatibility=initial", 400);
   }
-  if (current?.schemaHash === validation.schemaHash) {
+  if (active?.schemaHash === validation.schemaHash) {
     throw new ApiError("MODEL_DEFINITION_UNCHANGED", "The published model definition is unchanged", 409);
   }
   const compatibilityDiff = diffModelDefinition(current, validation.definition);

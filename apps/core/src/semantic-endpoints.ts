@@ -24,7 +24,7 @@ export function endpointExists(side: "source" | "target", external = true, inclu
   const native = `EXISTS(SELECT 1 FROM resource_records r WHERE r.id=e.${side}_record_id AND r.space_id=e.space_id AND r.model_key=e.${side}_model_key AND r.deleted_at IS NULL)`;
   return external ? `(${native} OR EXISTS(SELECT 1 FROM external_record_identities i JOIN external_models m ON m.model_key=i.model_key JOIN external_sources s ON s.id=m.source_id JOIN model_definitions d ON d.model_key=m.definition_key AND d.state='published' WHERE i.record_id=e.${side}_record_id AND i.space_id=e.space_id ${includeUnavailable ? '' : "AND i.availability='active'"} AND m.space_id=e.space_id AND m.definition_key=e.${side}_model_key AND m.status!='disabled' AND s.status='active' AND json_extract(d.definition_json,'$.origin')='external'))` : native;
 }
-export async function loadEndpointResources(env: Bindings, space: string, groups: { model: PublishedModel; ids: string[] }[], decisions: Map<string, ModelAccessDecision>, knownExternal = false): Promise<Map<string, EndpointResource>> {
+export async function loadEndpointResources(env: Bindings, space: string, groups: { model: PublishedModel; ids: string[] }[], decisions: Map<string, ModelAccessDecision>, knownExternal = false, failures?: Map<string, ApiError>): Promise<Map<string, EndpointResource>> {
   const resources = await getTypedResourcesByModels(env, space, groups.filter(g => g.model.definition.origin !== "external")) as Map<string, EndpointResource>;
   const external = groups.filter(g => g.model.definition.origin === "external");
   if (!external.length) return resources;
@@ -57,7 +57,9 @@ export async function loadEndpointResources(env: Bindings, space: string, groups
       resources.set(w.id, { id: w.id, spaceId: space, modelKey: w.model.key, modelVersion: 0, version: 0,
         data: {}, createdAt: String(view.createdAt ?? ""), updatedAt: String(view.updatedAt ?? ""), externalView: view });
     } catch (error) {
-      if (!(error instanceof ApiError) || ![403, 404].includes(error.status)) throw error;
+      if (!(error instanceof ApiError)) throw error;
+      if (failures) failures.set(w.model.key + "\0" + w.id, error);
+      else if (![403, 404].includes(error.status)) throw error;
       if (error.status === 404) finalizers.push(env.DB.prepare("UPDATE external_record_identities SET availability='unavailable',observed_at=? WHERE record_id=? AND model_key=? AND space_id=?").bind(new Date().toISOString(), w.id, w.binding.model_key, space));
     }
   }));

@@ -16,3 +16,7 @@ Adds the indexed executable External refresh queue and Source disable/reactivate
 ## 0059–0061 External business bindings / 外部业务绑定
 
 Continue numeric order after 0058: 0059 binds a published External business definition to one active Space registration; 0060 extends the semantic junction to external identity metadata while retaining Native live-endpoint and atomic cleanup guards; 0061 adds bounded identity-presence observation and lifecycle queue parking. Existing payloads and Native history are retained. Apply all three before the integrated Core Worker. No Provider payload is copied into D1. Provider writes and local links have separate failure boundaries; rollback requires pausing affected bindings and retaining migration history. Staging must verify the exact candidate and isolated Provider Service Binding/Secrets before production rollout.
+
+## 0062 Definition queue lifecycle / 定义生命周期调度
+
+Parks existing schema work for retired External definitions, parks future retire operations, and resumes eligible schema/identity work after same-origin republication. Source reactivation retains the published-definition gate; legacy untyped registrations remain executable. Apply after 0061 before the repaired Worker. It retains bindings, observed identities, Provider records and Registry history; no Provider write or secret migration occurs.

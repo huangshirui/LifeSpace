@@ -115,6 +115,8 @@ draft
 
 Published definitions are immutable. A change creates a new version.
 
+Retirement retains history and records. Republishing a historical key compares against its latest definition, preserves origin and compatible physical storage, and allocates the next version. It does not reset the key to a first publication or manufacture a new data identity.
+
 Publication rejects invalid model keys, field collisions, unsafe policy/workflow expressions, incompatible relations, unsupported Capability combinations and unsafe physical changes.
 
 Publication records actor, timestamp, schema hash and compatibility classification.
