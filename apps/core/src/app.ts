@@ -1,3 +1,4 @@
+import { registerExternalConnectionRoutes } from "./external-connection-routes";
 import { registerExternalModelControlRoutes } from "./external-model-routes";
 import { registerExternalRuntimeRoutes } from "./external-runtime";
 import { registerExternalBatchRoutes } from "./external-batch";
@@ -120,6 +121,7 @@ export function createApp() {
   registerRuntimeModelSemanticDetailRoutes(app);
   registerRelationTargetRoutes(app);
   registerSemanticRelationRoutes(app);
+  registerExternalConnectionRoutes(app);
   registerExternalModelControlRoutes(app);
   registerExternalBatchRoutes(app);
   registerExternalRuntimeRoutes(app);
@@ -139,4 +141,3 @@ export function createApp() {
   });
   return app;
 }
-
