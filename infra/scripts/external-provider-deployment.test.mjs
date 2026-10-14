@@ -13,9 +13,17 @@ const environment = () => ({
   LIFESPACE_EXTERNAL_SMOKE_RESOURCE_ID: "10000000000000000000000000000001",
   LIFESPACE_EXTERNAL_SMOKE_SYNTHETIC_CONFIRMED: "1",
 });
-test("enabled staging validates encrypted provider prerequisites; disabled remains optional", () => {
+const productionEnvironment = () => ({
+  LIFESPACE_EXTERNAL_PROVIDER_ENABLED: "1",
+  LIFESPACE_EXTERNAL_ADAPTER_WORKER: "synthetic-provider",
+  EXTERNAL_ADAPTER_SHARED_SECRET: "synthetic-independent-production-shared-secret",
+  CONNECTION_VAULT_MASTER_KEY: "33".repeat(32),
+});
+test("enabled staging validates encrypted provider prerequisites; dynamic-only production needs no static Provider token", () => {
   assert.equal(deploymentSettings({}, "production").enabled, false);
   assert.equal(deploymentSettings(environment(), "staging").enabled, true);
+  assert.equal(deploymentSettings(productionEnvironment(), "production").enabled, true);
+  assert.equal(deploymentSettings({ ...productionEnvironment(), NOTION_CONNECTIONS: "{}" }, "production").enabled, true);
   assert.throws(() => deploymentSettings({}, "local"));
   for (const [key, value] of Object.entries({ LIFESPACE_EXTERNAL_PROVIDER_ENABLED: "yes", LIFESPACE_EXTERNAL_ADAPTER_WORKER: "synthetic-production", EXTERNAL_ADAPTER_SHARED_SECRET: "short", CONNECTION_VAULT_MASTER_KEY: "short", NOTION_CONNECTIONS: "null", LIFESPACE_EXTERNAL_SMOKE_CREDENTIAL_REF: "missing", LIFESPACE_EXTERNAL_SMOKE_RESOURCE_ID: "bad", LIFESPACE_EXTERNAL_SMOKE_SYNTHETIC_CONFIRMED: "0" })) {
     assert.throws(() => deploymentSettings({ ...environment(), [key]: value }, "staging"), key);
@@ -30,6 +38,7 @@ test("enabled staging validates encrypted provider prerequisites; disabled remai
   assert.throws(() => deploymentSettings({ ...environment(), CONNECTION_VAULT_MASTER_KEY: "g".repeat(64) }, "staging"));
   assert.throws(() => deploymentSettings({ ...environment(), NOTION_CONNECTIONS: JSON.stringify({ smoke: { token: "synthetic\ntoken", read: true, write: true } }) }, "staging"));
   assert.throws(() => deploymentSettings({ ...environment(), CONNECTION_VAULT_MASTER_KEY: "ab".repeat(32), NOTION_CONNECTIONS: JSON.stringify({ smoke: { token: "ab".repeat(32), read: true, write: true } }) }, "staging"));
+  assert.throws(() => deploymentSettings({ ...productionEnvironment(), NOTION_CONNECTIONS: "[]" }, "production"));
 });
 test("optional Core binding preserves opposite environment and all platform bindings", () => {
   const config = JSON.parse(readFileSync(new URL("../../apps/core/wrangler.jsonc", import.meta.url), "utf8"));
