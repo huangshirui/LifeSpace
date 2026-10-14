@@ -1,0 +1,154 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "LifeSpace External Connection Configuration API",
+    "version": "0.1.0",
+    "description": "Product-facing Space configuration contract shared by Console and downstream applications. A direct User with spaces:manage plus current Space manage authority can discover providers, create/rotate/disable Connections, discover provider resources, and bind a published External Model Definition. Provider credential plaintext is transient input only: Core generates an opaque Adapter credential reference and never returns or persists provider plaintext. Connection creation grants no runtime data authority."
+  },
+  "security": [{ "bearerAuth": [] }],
+  "paths": {
+    "/api/v1/spaces/{spaceId}/external-providers": {
+      "get": {
+        "operationId": "listExternalProviders",
+        "parameters": [{ "$ref": "#/components/parameters/SpaceId" }],
+        "responses": { "200": { "$ref": "#/components/responses/ProviderList" }, "401": { "$ref": "#/components/responses/Denied" }, "403": { "$ref": "#/components/responses/Denied" }, "503": { "$ref": "#/components/responses/Unavailable" } }
+      }
+    },
+    "/api/v1/spaces/{spaceId}/external-connections": {
+      "get": {
+        "operationId": "listExternalConnections",
+        "parameters": [{ "$ref": "#/components/parameters/SpaceId" }],
+        "responses": { "200": { "$ref": "#/components/responses/ConnectionList" }, "401": { "$ref": "#/components/responses/Denied" }, "403": { "$ref": "#/components/responses/Denied" } }
+      },
+      "post": {
+        "operationId": "createExternalConnection",
+        "parameters": [{ "$ref": "#/components/parameters/SpaceId" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateConnection" } } } },
+        "responses": { "201": { "$ref": "#/components/responses/Connection" }, "400": { "$ref": "#/components/responses/Invalid" }, "401": { "$ref": "#/components/responses/Denied" }, "403": { "$ref": "#/components/responses/Denied" }, "413": { "$ref": "#/components/responses/Invalid" }, "422": { "$ref": "#/components/responses/Invalid" }, "429": { "$ref": "#/components/responses/Unavailable" }, "502": { "$ref": "#/components/responses/Unavailable" }, "503": { "$ref": "#/components/responses/Unavailable" } }
+      }
+    },
+    "/api/v1/spaces/{spaceId}/external-connections/{connectionId}": {
+      "patch": {
+        "operationId": "updateExternalConnection",
+        "parameters": [{ "$ref": "#/components/parameters/SpaceId" }, { "$ref": "#/components/parameters/ConnectionId" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UpdateConnection" } } } },
+        "responses": { "200": { "$ref": "#/components/responses/Connection" }, "400": { "$ref": "#/components/responses/Invalid" }, "401": { "$ref": "#/components/responses/Denied" }, "403": { "$ref": "#/components/responses/Denied" }, "404": { "$ref": "#/components/responses/Unavailable" }, "409": { "$ref": "#/components/responses/Invalid" }, "413": { "$ref": "#/components/responses/Invalid" }, "422": { "$ref": "#/components/responses/Invalid" }, "503": { "$ref": "#/components/responses/Unavailable" } }
+      }
+    },
+    "/api/v1/spaces/{spaceId}/external-connections/{connectionId}/resources": {
+      "get": {
+        "operationId": "listExternalConnectionResources",
+        "parameters": [
+          { "$ref": "#/components/parameters/SpaceId" },
+          { "$ref": "#/components/parameters/ConnectionId" },
+          { "name": "query", "in": "query", "schema": { "type": "string", "maxLength": 200 } },
+          { "name": "cursor", "in": "query", "schema": { "type": "string", "maxLength": 2048 } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 100, "default": 50 } }
+        ],
+        "responses": { "200": { "$ref": "#/components/responses/ResourceList" }, "401": { "$ref": "#/components/responses/Denied" }, "403": { "$ref": "#/components/responses/Denied" }, "404": { "$ref": "#/components/responses/Unavailable" }, "409": { "$ref": "#/components/responses/Invalid" }, "422": { "$ref": "#/components/responses/Invalid" }, "429": { "$ref": "#/components/responses/Unavailable" }, "503": { "$ref": "#/components/responses/Unavailable" } }
+      }
+    },
+    "/api/v1/spaces/{spaceId}/external-models": {
+      "post": {
+        "operationId": "bindExternalModelByConnection",
+        "description": "Binds a published External business definition to one resource visible through a Space Connection. The older sourceId request member in the External Model 0.2 contract remains an accepted compatibility alias for the same persisted Connection row.",
+        "parameters": [{ "$ref": "#/components/parameters/SpaceId" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BindExternalModel" } } } },
+        "responses": { "201": { "description": "External model binding and provider field discovery succeeded" }, "400": { "$ref": "#/components/responses/Invalid" }, "401": { "$ref": "#/components/responses/Denied" }, "403": { "$ref": "#/components/responses/Denied" }, "404": { "$ref": "#/components/responses/Unavailable" }, "409": { "$ref": "#/components/responses/Invalid" }, "422": { "$ref": "#/components/responses/Invalid" }, "429": { "$ref": "#/components/responses/Unavailable" }, "502": { "$ref": "#/components/responses/Unavailable" }, "503": { "$ref": "#/components/responses/Unavailable" } }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": { "bearerAuth": { "type": "http", "scheme": "bearer" } },
+    "parameters": {
+      "SpaceId": { "name": "spaceId", "in": "path", "required": true, "schema": { "type": "string", "pattern": "^spc_[A-Za-z0-9_-]+$" } },
+      "ConnectionId": { "name": "connectionId", "in": "path", "required": true, "schema": { "type": "string", "pattern": "^(?:exc|exs)_[a-f0-9]{32}$" } }
+    },
+    "schemas": {
+      "Credential": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["type", "token"],
+        "properties": {
+          "type": { "const": "bearer_token" },
+          "token": { "type": "string", "minLength": 1, "maxLength": 8192, "writeOnly": true, "description": "Provider credential plaintext. Transient request input only; never stored in Core D1 or returned." }
+        }
+      },
+      "Provider": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["key", "displayName", "credential", "resource", "access"],
+        "properties": {
+          "key": { "type": "string" },
+          "displayName": { "type": "string" },
+          "credential": { "type": "object", "required": ["type", "displayName"], "properties": { "type": { "const": "bearer_token" }, "displayName": { "type": "string" } } },
+          "resource": { "type": "object", "required": ["type", "displayName"], "properties": { "type": { "type": "string" }, "displayName": { "type": "string" } } },
+          "access": { "type": "array", "items": { "enum": ["read", "write"] } }
+        }
+      },
+      "Connection": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "providerKey", "displayName", "access", "status", "credentialMode", "createdAt", "updatedAt"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^(?:exc|exs)_[a-f0-9]{32}$" },
+          "providerKey": { "type": "string" },
+          "displayName": { "type": "string" },
+          "access": { "enum": ["read", "write"] },
+          "status": { "enum": ["active", "disabled"] },
+          "credentialMode": { "enum": ["managed", "bootstrap"], "description": "managed is product-configured; bootstrap is deployment-managed compatibility and cannot expose credential mutation/resource discovery through the product API." },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "updatedAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "CreateConnection": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["providerKey", "displayName", "credential", "access"],
+        "properties": {
+          "providerKey": { "type": "string", "pattern": "^[a-z][a-z0-9_-]{1,31}$" },
+          "displayName": { "type": "string", "minLength": 1, "maxLength": 100 },
+          "credential": { "$ref": "#/components/schemas/Credential" },
+          "access": { "enum": ["read", "write"] }
+        }
+      },
+      "UpdateConnection": {
+        "type": "object",
+        "additionalProperties": false,
+        "minProperties": 1,
+        "properties": {
+          "displayName": { "type": "string", "minLength": 1, "maxLength": 100 },
+          "credential": { "$ref": "#/components/schemas/Credential" },
+          "access": { "enum": ["read", "write"] },
+          "status": { "enum": ["active", "disabled"] }
+        }
+      },
+      "Resource": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "type", "displayName"],
+        "properties": { "id": { "type": "string" }, "type": { "type": "string" }, "displayName": { "type": "string" } }
+      },
+      "BindExternalModel": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["definitionKey", "connectionId", "resourceId", "declaredAccess"],
+        "properties": {
+          "definitionKey": { "type": "string", "pattern": "^[a-z][a-z0-9_]{1,62}$" },
+          "connectionId": { "type": "string", "pattern": "^(?:exc|exs)_[a-f0-9]{32}$" },
+          "resourceId": { "type": "string", "minLength": 1, "maxLength": 256 },
+          "declaredAccess": { "enum": ["read", "write"] }
+        }
+      }
+    },
+    "responses": {
+      "ProviderList": { "description": "Provider setup descriptors", "content": { "application/json": { "schema": { "type": "object", "required": ["data"], "properties": { "data": { "type": "object", "required": ["items"], "properties": { "items": { "type": "array", "items": { "$ref": "#/components/schemas/Provider" } } } } } } } } },
+      "Connection": { "description": "Connection metadata; provider credential and opaque Adapter credential reference are absent", "content": { "application/json": { "schema": { "type": "object", "required": ["data"], "properties": { "data": { "$ref": "#/components/schemas/Connection" } } } } } },
+      "ConnectionList": { "description": "Space Connections", "content": { "application/json": { "schema": { "type": "object", "required": ["data"], "properties": { "data": { "type": "object", "required": ["items"], "properties": { "items": { "type": "array", "items": { "$ref": "#/components/schemas/Connection" } } } } } } } } },
+      "ResourceList": { "description": "Provider resources visible through one managed Connection", "content": { "application/json": { "schema": { "type": "object", "required": ["data"], "properties": { "data": { "type": "object", "required": ["items", "nextCursor"], "properties": { "items": { "type": "array", "items": { "$ref": "#/components/schemas/Resource" } }, "nextCursor": { "type": ["string", "null"] } } } } } } } },
+      "Invalid": { "description": "Invalid request or incompatible connection state" },
+      "Denied": { "description": "Authentication or current User/Space authority denied" },
+      "Unavailable": { "description": "Provider/Adapter/resource unavailable or uncertain" }
+    }
+  }
+}
