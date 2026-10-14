@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "LifeSpace External Connection Adapter Contract",
+  "type": "object",
+  "required": ["contractVersion", "operation"],
+  "properties": {
+    "contractVersion": { "const": 1 },
+    "providerKey": { "type": "string", "pattern": "^[a-z][a-z0-9_-]{1,31}$" },
+    "credentialRef": { "type": "string", "pattern": "^cnx_[a-f0-9]{32}$" },
+    "operation": { "enum": ["describe", "create", "update", "delete", "listResources"] },
+    "credential": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "token"],
+      "properties": {
+        "type": { "const": "bearer_token" },
+        "token": { "type": "string", "minLength": 1, "maxLength": 8192, "writeOnly": true }
+      }
+    },
+    "access": { "enum": ["read", "write"] },
+    "input": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "query": { "type": "string", "maxLength": 200 },
+        "cursor": { "type": "string", "maxLength": 2048 },
+        "limit": { "type": "integer", "minimum": 1, "maximum": 100 }
+      }
+    }
+  },
+  "description": "Private Core→Adapter connection-management contract. Authentication is x-lifespace-internal-secret. describe is provider discovery and does not require credentialRef. create/update credential plaintext is transient and must never be returned or logged. Adapter owns provider credential storage only; LifeSpace Authority remains in Core."
+}
