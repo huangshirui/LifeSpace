@@ -50,9 +50,13 @@ const definitions = readFileSync(new URL("src/external-connection-definition-rou
 assert(definitions.includes('model.definition.origin === "external"'));
 assert(definitions.includes('requireScope("spaces:manage")'));
 
-const migration = readFileSync(new URL("migrations/0063_external_connections.sql", root), "utf8");
-assert(migration.includes("ADD COLUMN access_mode"));
-assert(migration.includes("ADD COLUMN revoked_at"));
-assert(migration.includes("value='63'"));
+const metadataMigration = readFileSync(new URL("migrations/0063_external_connections.sql", root), "utf8");
+assert(metadataMigration.includes("ADD COLUMN access_mode"));
+assert(metadataMigration.includes("ADD COLUMN revoked_at"));
+assert(metadataMigration.includes("value='63'"));
+const ceilingMigration = readFileSync(new URL("migrations/0064_external_connection_access_ceiling.sql", root), "utf8");
+assert(ceilingMigration.includes("CREATE TRIGGER external_sources_read_ceiling"));
+assert(ceilingMigration.includes("declared_access = 'read'"));
+assert(ceilingMigration.includes("value='64'"));
 
 console.log("External Connection routed public/Adapter contract sanity check passed");
