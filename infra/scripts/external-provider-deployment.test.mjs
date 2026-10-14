@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { deploymentSettings, bindProvider, validateProviderProfile, validateLiveBindings } from "./external-provider-deployment.mjs";
+import { deploymentSettings, bindProvider, validateProviderProfile, validateLiveBindings, adapterWranglerCommands } from "./external-provider-deployment.mjs";
 
 const environment = () => ({
   LIFESPACE_EXTERNAL_PROVIDER_ENABLED: "1",
@@ -48,6 +48,14 @@ test("private profiles and live secret/binding metadata fail closed", () => {
   validateLiveBindings(core, adapter, settings);
   for (let i = 0; i < core.bindings.length; i++) assert.throws(() => validateLiveBindings({ bindings: core.bindings.filter((_, j) => i !== j) }, adapter, settings));
   assert.throws(() => validateLiveBindings(core, { bindings: [] }, settings));
+});
+test("Adapter code deploy and secret upload target the same exact Worker name", () => {
+  for (const [environmentName, worker] of [["staging", "synthetic-provider-staging"], ["production", "synthetic-provider"]]) {
+    const commands = adapterWranglerCommands("/tmp/notion-wrangler.jsonc", environmentName, worker);
+    assert.deepEqual(commands.deploy, ["deploy", "--config", "/tmp/notion-wrangler.jsonc", "--env", environmentName, "--name", worker]);
+    assert.deepEqual(commands.secrets, ["secret", "bulk", "--config", "/tmp/notion-wrangler.jsonc", "--name", worker]);
+    assert.equal(commands.secrets.includes("--env"), false);
+  }
 });
 test("canonical release deploys pinned Adapter before Core and gates provider acceptance", () => {
   const manifest = JSON.parse(readFileSync(new URL("../external-provider.json", import.meta.url), "utf8"));
