@@ -17,6 +17,13 @@ const result = await runRecurrenceSmoke({ marker, spaceId: space,
     const now = new Date().toISOString();
     await sql(`INSERT INTO application_model_access(application_id,model_key,max_access,created_by_type,created_by_id,created_at,updated_at) VALUES(${quote(app)},${quote(key)},'write','service',${quote(env.LIFESPACE_STAGING_SMOKE_SERVICE_PRINCIPAL_ID)},${quote(now)},${quote(now)})`);
   },
+  async waitForModelVisibility() {
+    // Runtime Model Registry descriptors are cached per Worker isolate for 60s.
+    // Publication invalidates only the isolate that handled the control-plane write,
+    // so acceptance must wait past that documented bound before exercising the
+    // newly published key through arbitrary staging isolates.
+    await new Promise(resolve => setTimeout(resolve, 65000));
+  },
   async tasksForPlan(id) {
     return (await sql(`SELECT o.task_record_id id,r.version FROM recurrence_occurrences o JOIN resource_records r ON r.id=o.task_record_id WHERE o.plan_record_id=${quote(id)} AND r.space_id=${quote(space)} AND r.deleted_at IS NULL ORDER BY o.due_date,o.id`)).flatMap(result => result.results ?? []);
   },

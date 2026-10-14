@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
 
-export async function runRecurrenceSmoke({ request, allowModel, tasksForPlan, cleanupAccess, marker, spaceId }) {
+export async function runRecurrenceSmoke({ request, allowModel, waitForModelVisibility = async () => {}, tasksForPlan, cleanupAccess, marker, spaceId }) {
   const key = `smoke_repeat_${marker}`, path = `/api/v1/spaces/${spaceId}/models/${key}/records`;
   let published = false, plan;
   const taskVersions = new Map();
   async function call(url, method = "GET", body, role = "user", status = 200) {
     const result = await request(url, { method, body, role });
-    assert.equal(result.status, status, `${method} Recurrence staging check failed: HTTP ${result.status}, code=${result.payload?.error?.code ?? "none"}`);
+    assert.equal(result.status, status, `${method} ${url} Recurrence staging check failed: HTTP ${result.status}, code=${result.payload?.error?.code ?? "none"}`);
     return result.payload?.data;
   }
   let failure;
@@ -18,6 +18,7 @@ export async function runRecurrenceSmoke({ request, allowModel, tasksForPlan, cl
     } }, "admin", 201);
     published = true;
     await allowModel(key);
+    await waitForModelVisibility(key);
     const detail = await call(`/api/v1/spaces/${spaceId}/_discovery/models/${key}`);
     assert.equal(detail.capabilityBindings.recurrence.ruleField, "repeat");
     plan = await call(path, "POST", { name: `Synthetic recurrence ${marker}`, firstDue: new Date().toISOString().slice(0, 10), repeat: { mode: "after_completion", interval: { value: 1, unit: "day" } } }, "user", 201);
