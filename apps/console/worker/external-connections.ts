@@ -110,6 +110,13 @@ async function forward(request: Request, env: Env, corePath: string, method: str
 
 async function externalConnectionApi(request: Request, env: Env): Promise<Response | null> {
   const url = new URL(request.url);
+  const definitions = /^\/api\/spaces\/(spc_[A-Za-z0-9_-]+)\/external-model-definitions$/u.exec(url.pathname);
+  if (definitions) {
+    if (request.method !== "GET") return failure("METHOD_NOT_ALLOWED", "Method not allowed", 405, requestId(request));
+    if (url.search) return failure("VALIDATION_ERROR", "Query parameters are not accepted", 422, requestId(request));
+    return forward(request, env, `/api/v1/spaces/${encodeURIComponent(definitions[1]!)}/external-model-definitions`, "GET");
+  }
+
   const binding = /^\/api\/spaces\/(spc_[A-Za-z0-9_-]+)\/external-models$/u.exec(url.pathname);
   if (binding && request.method === "POST") {
     const spaceId = binding[1]!;
