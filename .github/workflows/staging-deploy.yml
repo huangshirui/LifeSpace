@@ -38,6 +38,7 @@ jobs:
       LIFESPACE_EXTERNAL_PROVIDER_ENABLED: ${{ vars.LIFESPACE_EXTERNAL_PROVIDER_ENABLED || '0' }}
       LIFESPACE_EXTERNAL_ADAPTER_WORKER: ${{ vars.LIFESPACE_EXTERNAL_ADAPTER_WORKER }}
       EXTERNAL_ADAPTER_SHARED_SECRET: ${{ secrets.EXTERNAL_ADAPTER_SHARED_SECRET }}
+      CONNECTION_VAULT_MASTER_KEY: ${{ secrets.CONNECTION_VAULT_MASTER_KEY }}
       NOTION_CONNECTIONS: ${{ secrets.NOTION_CONNECTIONS }}
       LIFESPACE_EXTERNAL_SMOKE_CREDENTIAL_REF: ${{ vars.LIFESPACE_EXTERNAL_SMOKE_CREDENTIAL_REF }}
       LIFESPACE_EXTERNAL_SMOKE_RESOURCE_ID: ${{ secrets.LIFESPACE_EXTERNAL_SMOKE_RESOURCE_ID }}
@@ -176,7 +177,7 @@ jobs:
               process.exit(data.environment === "staging" && String(data.schemaVersion) === process.env.EXPECTED_SCHEMA && data.contractVersion === process.env.EXPECTED_CONTRACT ? 0 : 1);
             '; then
               echo "$STATUS"
-              echo "Identity staging converged to schema v${LIFESPACE_EXPECTED_IDENTITY_SCHEMA_VERSION} / contract ${LIFESPACE_EXPECTED_IDENTITY_CONTRACT_VERSION}"
+              echo "Identity staging converged to schema v${LIFESPACE_EXPECTED_IDENTITY_CONTRACT_VERSION} / contract ${LIFESPACE_EXPECTED_IDENTITY_CONTRACT_VERSION}"
               break
             fi
             echo "Identity staging has not converged yet (attempt ${attempt}/12): ${STATUS:-<no response>}"
@@ -244,7 +245,7 @@ jobs:
           - Identity: schema v${LIFESPACE_EXPECTED_IDENTITY_SCHEMA_VERSION} / contract ${LIFESPACE_EXPECTED_IDENTITY_CONTRACT_VERSION}
           - Recurrence real enrollment / Identity root projection / completion successor / pause: passed
           - External Provider enabled: ${LIFESPACE_EXTERNAL_PROVIDER_ACTIVE}; disabled means not accepted
-          - Enabled External Provider: pinned private packaging, bindings/secrets, synthetic CRUD/relations/partial batch/Scheduled refresh and cleanup passed
+          - Enabled External Provider: pinned private packaging, bindings/secrets, AES-GCM connection vault, synthetic CRUD/relations/partial batch/Scheduled refresh and cleanup passed
           - Platform D1 convergence: passed
           - Trusted application credential replacement/revocation lifecycle: passed
           - Agent Principal own-Authority + User→Agent→Agent bounded re-delegation/revocation: passed
