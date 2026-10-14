@@ -57,16 +57,34 @@ function envValue(env: Bindings, name: string): unknown {
   return (env as unknown as Record<string, unknown>)[name];
 }
 
+function legacyNotionRoute(env: Bindings): ExternalProviderRoute | null {
+  if (
+    env.EXTERNAL_PROVIDER_ROUTES ||
+    !env.EXTERNAL_ADAPTER ||
+    typeof env.EXTERNAL_ADAPTER.fetch !== "function" ||
+    typeof env.EXTERNAL_ADAPTER_SHARED_SECRET !== "string" ||
+    env.EXTERNAL_ADAPTER_SHARED_SECRET.length < 32
+  ) return null;
+  return {
+    providerKey: "notion",
+    bindingName: "EXTERNAL_ADAPTER",
+    sharedSecretName: "EXTERNAL_ADAPTER_SHARED_SECRET",
+    adapter: env.EXTERNAL_ADAPTER,
+    sharedSecret: env.EXTERNAL_ADAPTER_SHARED_SECRET,
+  };
+}
+
 export function configuredExternalProviderKeys(env: Bindings): string[] {
   const routes = parseRoutes(env.EXTERNAL_PROVIDER_ROUTES);
-  return Object.entries(routes)
+  const configured = Object.entries(routes)
     .filter(([, route]) => {
       const adapter = envValue(env, route.binding);
       const secret = envValue(env, route.sharedSecret);
       return Boolean(adapter && typeof (adapter as Fetcher).fetch === "function" && typeof secret === "string" && secret.length >= 32);
     })
-    .map(([providerKey]) => providerKey)
-    .sort();
+    .map(([providerKey]) => providerKey);
+  if (!configured.length && legacyNotionRoute(env)) configured.push("notion");
+  return configured.sort();
 }
 
 export function hasExternalProviderRoute(env: Bindings, providerKey: string): boolean {
@@ -85,6 +103,8 @@ export function resolveExternalProviderRoute(
   const routes = parseRoutes(env.EXTERNAL_PROVIDER_ROUTES);
   const config = routes[providerKey];
   if (!config) {
+    const legacy = providerKey === "notion" ? legacyNotionRoute(env) : null;
+    if (legacy) return legacy;
     if (required) throw new ApiError("EXTERNAL_PROVIDER_UNAVAILABLE", "External provider is not configured", 422);
     return null;
   }
