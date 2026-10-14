@@ -32,7 +32,7 @@ export function loadProviderManifest() {
   return manifest;
 }
 
-function validateStaticConnections(raw, environment, providerKey, vaultKey) {
+function validateStaticConnections(raw, environment, providerKey, vaultKey, env) {
   let connections;
   try { connections = JSON.parse(raw); } catch { throw new Error(`${providerKey} deployment-managed connections must be valid secret JSON`); }
   if (!connections || Array.isArray(connections) || typeof connections !== "object") throw new Error(`${providerKey} deployment-managed connections must be a JSON object`);
@@ -42,12 +42,12 @@ function validateStaticConnections(raw, environment, providerKey, vaultKey) {
     if (connection.token === vaultKey) throw new Error(`${providerKey} vault master key must not reuse a provider credential`);
   }
   if (environment === "staging" && providerKey === "notion") {
-    const ref = process.env.LIFESPACE_EXTERNAL_SMOKE_CREDENTIAL_REF ?? "";
+    const ref = env.LIFESPACE_EXTERNAL_SMOKE_CREDENTIAL_REF ?? "";
     if (!Object.hasOwn(connections, ref) || connections[ref].disabled || !connections[ref].read || !connections[ref].write)
       throw new Error("Staging requires an active read/write synthetic Notion smoke connection");
-    if (!/^[0-9a-f]{32}$|^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(process.env.LIFESPACE_EXTERNAL_SMOKE_RESOURCE_ID ?? ""))
+    if (!/^[0-9a-f]{32}$|^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(env.LIFESPACE_EXTERNAL_SMOKE_RESOURCE_ID ?? ""))
       throw new Error("Staging requires a synthetic Notion data source UUID");
-    if (process.env.LIFESPACE_EXTERNAL_SMOKE_SYNTHETIC_CONFIRMED !== "1")
+    if (env.LIFESPACE_EXTERNAL_SMOKE_SYNTHETIC_CONFIRMED !== "1")
       throw new Error("Confirm the dedicated smoke data source contains synthetic data only");
   }
   return connections;
@@ -87,7 +87,7 @@ export function deploymentSettings(env, environment, manifest = loadProviderMani
     const staticConnections = definition.staticConnectionsEnv
       ? (env[definition.staticConnectionsEnv]?.trim() || (environment === "production" ? "{}" : ""))
       : "{}";
-    if (definition.staticConnectionsEnv) validateStaticConnections(staticConnections, environment, providerKey, vaultMasterKey);
+    if (definition.staticConnectionsEnv) validateStaticConnections(staticConnections, environment, providerKey, vaultMasterKey, env);
 
     providers.push({
       key: providerKey,
@@ -106,7 +106,7 @@ export function bindProvider(config, settings) {
   const result = structuredClone(config);
   const profile = result.env[settings.environment];
   if (!profile) throw new Error("Core deployment profile is missing");
-  const knownBindings = new Set(Object.values(settings.manifest.providers).map(provider => provider.coreBinding));
+  const knownBindings = new Set(["EXTERNAL_ADAPTER", ...Object.values(settings.manifest.providers).map(provider => provider.coreBinding)]);
   profile.services = (profile.services ?? []).filter(binding => !knownBindings.has(binding.binding));
   if (!profile.vars) profile.vars = {};
   delete profile.vars.EXTERNAL_PROVIDER_ROUTES;
@@ -129,8 +129,11 @@ export function validateProviderProfile(config, environment, provider) {
 
 export function validateLiveCoreBindings(core, settings) {
   const bindings = core.bindings ?? [];
-  if (!bindings.some(binding => binding.type === "secret_text" && binding.name === "EXTERNAL_CURSOR_SECRET"))
-    throw new Error("Live Core External cursor secret is absent");
+  if (bindings.some(binding => binding.type === "service" && binding.name === "EXTERNAL_ADAPTER"))
+    throw new Error("Live Core must not use the legacy generic External Adapter Service Binding");
+  for (const name of ["EXTERNAL_CURSOR_SECRET", "EXTERNAL_ADAPTER_SHARED_SECRET"])
+    if (!bindings.some(binding => binding.type === "secret_text" && binding.name === name))
+      throw new Error(`Live Core ${name} is absent`);
   if (!bindings.some(binding => binding.type === "plain_text" && binding.name === "EXTERNAL_SCHEMA_REFRESH_SECONDS" && Number.isInteger(Number(binding.text)) && Number(binding.text) >= 60 && Number(binding.text) <= 86400))
     throw new Error("Live External schema refresh configuration is invalid");
   const routeBinding = bindings.find(binding => binding.type === "plain_text" && binding.name === "EXTERNAL_PROVIDER_ROUTES");
@@ -152,7 +155,6 @@ export function validateLiveAdapterBindings(adapter, provider) {
     throw new Error(`Live ${provider.key} Adapter per-connection Durable Object vault binding is absent`);
 }
 
-// Backward-compatible test helper name while the deployment implementation is now multi-provider.
 export function validateLiveBindings(core, adapter, settings, provider = settings.providers[0]) {
   validateLiveCoreBindings(core, settings);
   if (!provider) throw new Error("A provider is required for Adapter verification");
@@ -162,10 +164,6 @@ export function validateLiveBindings(core, adapter, settings, provider = setting
 export function adapterWranglerCommands(configPath, environment, worker) {
   return {
     deploy: ["deploy", "--config", configPath, "--env", environment, "--name", worker],
-    // The Worker name is already explicitly environment-isolated. Passing --env
-    // together with --name to `secret bulk` makes Wrangler environment-qualify
-    // the explicit name again (for example `*-staging-staging`). Target the exact
-    // deployed Worker name instead.
     secrets: ["secret", "bulk", "--config", configPath, "--name", worker],
   };
 }
@@ -215,7 +213,12 @@ async function main() {
       console.log(`Private ${provider.key} provider deployed at pinned revision ${manifest.revision}`);
     }
   } else if (mode === "sync-core") {
-    const secrets = { EXTERNAL_CURSOR_SECRET: settings.cursorSecret };
+    // EXTERNAL_ADAPTER_SHARED_SECRET is a temporary cursor-HMAC compatibility alias;
+    // provider transport authentication uses only provider-specific Core secrets.
+    const secrets = {
+      EXTERNAL_CURSOR_SECRET: settings.cursorSecret,
+      EXTERNAL_ADAPTER_SHARED_SECRET: settings.cursorSecret,
+    };
     for (const provider of settings.providers) secrets[provider.definition.coreSharedSecret] = provider.sharedSecret;
     wrangler(["secret", "bulk", "--env", environment], secrets);
   } else if (mode === "verify") {
