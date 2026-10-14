@@ -4,6 +4,7 @@ import ControlPlaneApp from "./ControlPlaneApp";
 import ApplicationConfigurationOverlay from "./ApplicationConfigurationOverlay";
 import CredentialGovernanceOverlay from "./CredentialGovernanceOverlay";
 import ExternalConnectionsOverlay from "./ExternalConnectionsOverlay";
+import ExternalBindingManagerOverlay from "./ExternalBindingManagerOverlay";
 import "./styles.css";
 
 const root = document.getElementById("root");
@@ -15,5 +16,6 @@ createRoot(root).render(
     <ApplicationConfigurationOverlay />
     <CredentialGovernanceOverlay />
     <ExternalConnectionsOverlay />
+    <ExternalBindingManagerOverlay />
   </StrictMode>,
 );
