@@ -172,6 +172,10 @@ describe("Space External Connection self-service", () => {
     expect(rotated.status).toBe(200);
     expect((await rotated.json<any>()).data.access).toBe("read");
     expect(f.vault.get(row.credential_ref)?.token).toBe("secret-token-v2");
+    expect((await f.db.prepare("SELECT declared_access FROM external_models WHERE source_id=?").bind(connection.id).first<any>()).declared_access).toBe("read");
+    const bindingList = await f.request(`/api/v1/spaces/${f.space}/external-models`);
+    expect(bindingList.status).toBe(200);
+    expect((await bindingList.json<any>()).data.items[0].declaredAccess).toBe("read");
 
     const writeDenied = await f.request(`/api/v1/spaces/${f.space}/external-models`, "POST", {
       connectionId: connection.id,
