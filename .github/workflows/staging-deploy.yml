@@ -95,6 +95,7 @@ jobs:
           node --check infra/scripts/baseline-model-semantics.mjs
           node --check infra/scripts/publish-staging-baseline-model-semantics.mjs
           node --check infra/scripts/reconcile-staging-console-space-scope.mjs
+          node --check infra/scripts/verify-staging-external-self-service.mjs
 
       - name: Validate External provider prerequisites before mutation
         run: node infra/scripts/external-provider-deployment.mjs prepare staging
@@ -217,9 +218,13 @@ jobs:
       - name: Verify real Recurrence enrollment and completion successor
         run: node infra/scripts/verify-staging-recurrence.mjs
 
-      - name: Verify real synthetic External provider flow
+      - name: Verify real synthetic External provider bootstrap flow
         if: env.LIFESPACE_EXTERNAL_PROVIDER_ACTIVE == '1'
         run: node infra/scripts/verify-staging-external-provider.mjs
+
+      - name: Verify real dynamic External self-service product flow
+        if: env.LIFESPACE_EXTERNAL_PROVIDER_ACTIVE == '1'
+        run: node infra/scripts/verify-staging-external-self-service.mjs
 
       - name: Verify proving-model platform regression
         run: node infra/scripts/verify-staging-models.mjs
@@ -252,7 +257,9 @@ jobs:
           - Console Application ordinary Space-management scope ceiling, including \`spaces:manage\`: converged without credential rotation
           - Recurrence real enrollment / Identity root projection / completion successor / pause: passed
           - External Providers enabled: ${LIFESPACE_EXTERNAL_PROVIDER_ACTIVE}; disabled means not accepted
-          - Enabled External Providers: provider-specific private bindings/secrets, encrypted connection vault, synthetic CRUD/relations/partial batch/Scheduled refresh and cleanup passed
+          - External Provider routing: provider-specific private Service Bindings/shared secrets and Core-only cursor secret verified
+          - Dynamic External product path: Connection create -> encrypted DO Vault -> Resource Discovery -> binding -> Runtime -> access downgrade/rotation -> disable/enable -> revoke passed
+          - Bootstrap External smoke remains compatibility-only and passed separately
           - Platform D1 convergence: passed
           - Trusted application credential replacement/revocation lifecycle: passed
           - Agent Principal own-Authority + User→Agent→Agent bounded re-delegation/revocation: passed
