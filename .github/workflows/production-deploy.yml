@@ -215,9 +215,10 @@ jobs:
       CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID || secrets.CLOUDFLARE_ACCOUNT_ID }}
       LIFESPACE_PRODUCTION_BOOTSTRAP_SECRET: ${{ secrets.LIFESPACE_PRODUCTION_BOOTSTRAP_SECRET }}
       LIFESPACE_EXTERNAL_PROVIDER_ENABLED: ${{ vars.LIFESPACE_EXTERNAL_PROVIDER_ENABLED || '0' }}
-      LIFESPACE_EXTERNAL_ADAPTER_WORKER: ${{ vars.LIFESPACE_EXTERNAL_ADAPTER_WORKER }}
-      EXTERNAL_ADAPTER_SHARED_SECRET: ${{ secrets.EXTERNAL_ADAPTER_SHARED_SECRET }}
-      CONNECTION_VAULT_MASTER_KEY: ${{ secrets.CONNECTION_VAULT_MASTER_KEY }}
+      EXTERNAL_CURSOR_SECRET: ${{ secrets.EXTERNAL_CURSOR_SECRET }}
+      LIFESPACE_NOTION_ADAPTER_WORKER: ${{ vars.LIFESPACE_NOTION_ADAPTER_WORKER }}
+      NOTION_ADAPTER_SHARED_SECRET: ${{ secrets.NOTION_ADAPTER_SHARED_SECRET }}
+      NOTION_CONNECTION_VAULT_MASTER_KEY: ${{ secrets.NOTION_CONNECTION_VAULT_MASTER_KEY }}
       NOTION_CONNECTIONS: ${{ secrets.NOTION_CONNECTIONS }}
       LIFESPACE_EXTERNAL_SMOKE_CREDENTIAL_REF: ${{ vars.LIFESPACE_EXTERNAL_SMOKE_CREDENTIAL_REF }}
       LIFESPACE_EXTERNAL_SMOKE_RESOURCE_ID: ${{ secrets.LIFESPACE_EXTERNAL_SMOKE_RESOURCE_ID }}
@@ -270,7 +271,7 @@ jobs:
       - name: Validate production scripts
         run: node infra/scripts/check-production-infra.mjs
 
-      - name: Validate External provider prerequisites before mutation
+      - name: Validate External provider routing prerequisites before mutation
         run: node infra/scripts/external-provider-deployment.mjs prepare production
 
       - name: Checkout pinned External provider
@@ -293,9 +294,7 @@ jobs:
           PRODUCTION_DOMAIN_PREFLIGHT_ONLY: "1"
         run: node infra/scripts/ensure-production-domains.mjs
 
-      # Normal releases use the same compatibility-preserving ordering as staging:
-      # newer Core verifier/runtime first, then Identity may issue against it.
-      - name: Deploy and configure private External provider before Core
+      - name: Deploy and configure private External providers before Core
         if: env.LIFESPACE_EXTERNAL_PROVIDER_ACTIVE == '1'
         run: node infra/scripts/external-provider-deployment.mjs deploy-adapter production
 
@@ -305,11 +304,11 @@ jobs:
       - name: Deploy Core first
         run: pnpm --dir apps/core exec wrangler deploy --env production
 
-      - name: Synchronize independent Core External provider secret
+      - name: Synchronize independent Core External provider routing secrets
         if: env.LIFESPACE_EXTERNAL_PROVIDER_ACTIVE == '1'
         run: node infra/scripts/external-provider-deployment.mjs sync-core production
 
-      - name: Verify live private External provider wiring
+      - name: Verify live private External provider routing
         if: env.LIFESPACE_EXTERNAL_PROVIDER_ACTIVE == '1'
         run: node infra/scripts/external-provider-deployment.mjs verify production
 
@@ -343,14 +342,9 @@ jobs:
       - name: Verify production Cloudflare isolation and bindings
         run: node infra/scripts/verify-production-cloudflare.mjs
 
-      # Model Admin verification proves service authentication plus exact agreement
-      # between the production active mct_* snapshot and the current production Registry.
       - name: Initialize and verify Model Contract through service authentication
         run: node infra/scripts/verify-production-model-admin.mjs
 
-      # Kernel + Identity + Integration/Eventing versions + model key/schemaHash
-      # fingerprint. The production mct_* remains immutable environment-local
-      # deployment evidence.
       - name: Summarize production deployment
         if: ${{ success() }}
         shell: bash
@@ -363,7 +357,7 @@ jobs:
           - APAC performance gate: passed automatically for this exact candidate SHA before production mutation
           - Core: schema v${LIFESPACE_EXPECTED_CORE_SCHEMA_VERSION} / Kernel contract ${LIFESPACE_EXPECTED_CORE_CONTRACT_VERSION}
           - Identity: schema v${LIFESPACE_EXPECTED_IDENTITY_SCHEMA_VERSION} / contract ${LIFESPACE_EXPECTED_IDENTITY_CONTRACT_VERSION}
-          - External Provider enabled: ${LIFESPACE_EXTERNAL_PROVIDER_ACTIVE}; live private wiring and AES-GCM connection vault secret verified when enabled, production Provider data not used for destructive smoke
+          - External Providers enabled: ${LIFESPACE_EXTERNAL_PROVIDER_ACTIVE}; provider-specific private routing, Core cursor secret and encrypted connection vault verified when enabled; production Provider data not used for destructive smoke
           - Production active Model Contract consistency: passed
           - Custom domains: \`core.aisr.online\`, \`auth.aisr.online\`
           - Production D1/R2/Queue/Worker isolation: passed
