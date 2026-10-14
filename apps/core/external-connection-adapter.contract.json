@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.com/lifespace/external-connection-adapter/v1",
+  "title": "LifeSpace provider-neutral External Connection Adapter request v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contractVersion", "operation"],
+  "properties": {
+    "contractVersion": {"const": 1},
+    "operation": {"enum": ["describe", "create", "update", "delete", "listResources"]},
+    "providerKey": {"type": "string", "pattern": "^[a-z][a-z0-9_-]{1,31}$"},
+    "credentialRef": {"type": "string", "pattern": "^cnx_[a-f0-9]{32}$"},
+    "credential": {
+      "type": "object",
+      "description": "Provider credential accepted transiently by Core and persisted only by the private Adapter vault.",
+      "writeOnly": true,
+      "additionalProperties": true,
+      "maxProperties": 8
+    },
+    "access": {"enum": ["read", "write"]},
+    "input": {"type": "object", "additionalProperties": true}
+  },
+  "x-lifespace-response": {
+    "describe": "{ contractVersion:1, data:{key,displayName,credential,resource,access[]} }",
+    "create-update": "{ contractVersion:1, data:{read:true,write:boolean} }",
+    "listResources": "{ contractVersion:1, data:{items:[{id,type,displayName}],nextCursor:string|null} }",
+    "delete": "{ contractVersion:1, data:{deleted:true} }",
+    "authentication": "fixed private Service Binding + independent shared Secret",
+    "credentialPersistence": "Adapter-owned Durable Object only; never Core D1 or public response"
+  }
+}
