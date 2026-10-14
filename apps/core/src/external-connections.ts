@@ -1,6 +1,9 @@
 import type { Bindings } from "./env";
 import { ApiError } from "./http";
-import { resolveExternalProviderRoute } from "./external-provider-router";
+import {
+  configuredExternalProviderKeys,
+  resolveExternalProviderRoute,
+} from "./external-provider-router";
 import { ExternalError, boundedString, objectInput } from "./external-model";
 
 export type ExternalConnectionRow = {
@@ -25,6 +28,15 @@ export type ExternalProviderDescriptor = {
   access: Array<"read" | "write">;
 };
 
+type ConnectionAdapterRequest = {
+  operation: "describe" | "create" | "update" | "delete" | "listResources";
+  providerKey?: string;
+  credentialRef?: string;
+  credential?: Record<string, unknown>;
+  access?: "read" | "write";
+  input?: Record<string, unknown>;
+};
+
 const errorStatus: Record<string, 400 | 404 | 409 | 422 | 429 | 502 | 503> = {
   EXTERNAL_UNAVAILABLE: 503,
   EXTERNAL_ACCESS_DENIED: 503,
@@ -44,15 +56,12 @@ async function responsePayload(response: Response): Promise<unknown> {
 
 export async function callExternalConnectionAdapter(
   env: Bindings,
-  providerKey: string,
-  request: {
-    operation: "describe" | "create" | "update" | "delete" | "listResources";
-    credentialRef?: string;
-    credential?: Record<string, unknown>;
-    access?: "read" | "write";
-    input?: Record<string, unknown>;
-  },
+  request: ConnectionAdapterRequest,
 ): Promise<unknown> {
+  const configured = configuredExternalProviderKeys(env);
+  const providerKey = request.providerKey ?? (configured.length === 1 ? configured[0] : undefined);
+  if (!providerKey)
+    throw new ApiError("EXTERNAL_PROVIDER_UNAVAILABLE", "External provider is not configured", 422);
   const route = resolveExternalProviderRoute(env, providerKey);
   if (!route) throw new ExternalError("EXTERNAL_UNAVAILABLE", 503);
   let response: Response;
@@ -65,7 +74,7 @@ export async function callExternalConnectionAdapter(
           "content-type": "application/json",
           "x-lifespace-internal-secret": route.sharedSecret,
         },
-        body: JSON.stringify({ contractVersion: 1, providerKey, ...request }),
+        body: JSON.stringify({ contractVersion: 1, ...request, providerKey }),
         signal: AbortSignal.timeout(30000),
       },
     );
@@ -87,6 +96,19 @@ export async function callExternalConnectionAdapter(
     );
   }
   return parsed.data;
+}
+
+export async function listExternalProviderDescriptors(env: Bindings): Promise<ExternalProviderDescriptor[]> {
+  const items: ExternalProviderDescriptor[] = [];
+  for (const providerKey of configuredExternalProviderKeys(env)) {
+    const descriptor = validateProviderDescriptor(
+      await callExternalConnectionAdapter(env, { operation: "describe", providerKey }),
+    );
+    if (descriptor.key !== providerKey)
+      throw new ExternalError("EXTERNAL_CONTRACT_INVALID", 502);
+    items.push(descriptor);
+  }
+  return items;
 }
 
 export function validateProviderDescriptor(value: unknown): ExternalProviderDescriptor {
