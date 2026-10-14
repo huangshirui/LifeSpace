@@ -29,7 +29,7 @@ function requestId(request: Request): string {
 function json(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store", "x-content-type-options": "nosniff", "referrer-policy": "no-referrer" } });
 }
-function failure(code: string, message: string, status: number, id = crypto.randomUUID()): Response {
+function failure(code: string, message: string, status: number, id: string = crypto.randomUUID()): Response {
   return json({ error: { code, message, requestId: id } }, status);
 }
 async function readPayload(response: Response): Promise<unknown> {
@@ -168,9 +168,9 @@ async function externalConnectionApi(request: Request, env: Env): Promise<Respon
 }
 
 export default {
-  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+  async fetch(request: Request, env: Env): Promise<Response> {
     const handled = await externalConnectionApi(request, env);
     if (handled) return handled;
-    return downstreamWorker.fetch(request, env, ctx);
+    return downstreamWorker.fetch(request, env);
   },
 } satisfies ExportedHandler<Env>;
