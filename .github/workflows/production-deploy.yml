@@ -217,6 +217,7 @@ jobs:
       LIFESPACE_EXTERNAL_PROVIDER_ENABLED: ${{ vars.LIFESPACE_EXTERNAL_PROVIDER_ENABLED || '0' }}
       LIFESPACE_EXTERNAL_ADAPTER_WORKER: ${{ vars.LIFESPACE_EXTERNAL_ADAPTER_WORKER }}
       EXTERNAL_ADAPTER_SHARED_SECRET: ${{ secrets.EXTERNAL_ADAPTER_SHARED_SECRET }}
+      CONNECTION_VAULT_MASTER_KEY: ${{ secrets.CONNECTION_VAULT_MASTER_KEY }}
       NOTION_CONNECTIONS: ${{ secrets.NOTION_CONNECTIONS }}
       LIFESPACE_EXTERNAL_SMOKE_CREDENTIAL_REF: ${{ vars.LIFESPACE_EXTERNAL_SMOKE_CREDENTIAL_REF }}
       LIFESPACE_EXTERNAL_SMOKE_RESOURCE_ID: ${{ secrets.LIFESPACE_EXTERNAL_SMOKE_RESOURCE_ID }}
@@ -362,7 +363,7 @@ jobs:
           - APAC performance gate: passed automatically for this exact candidate SHA before production mutation
           - Core: schema v${LIFESPACE_EXPECTED_CORE_SCHEMA_VERSION} / Kernel contract ${LIFESPACE_EXPECTED_CORE_CONTRACT_VERSION}
           - Identity: schema v${LIFESPACE_EXPECTED_IDENTITY_SCHEMA_VERSION} / contract ${LIFESPACE_EXPECTED_IDENTITY_CONTRACT_VERSION}
-          - External Provider enabled: ${LIFESPACE_EXTERNAL_PROVIDER_ACTIVE}; live private wiring verified when enabled, production Provider data not used for destructive smoke
+          - External Provider enabled: ${LIFESPACE_EXTERNAL_PROVIDER_ACTIVE}; live private wiring and AES-GCM connection vault secret verified when enabled, production Provider data not used for destructive smoke
           - Production active Model Contract consistency: passed
           - Custom domains: \`core.aisr.online\`, \`auth.aisr.online\`
           - Production D1/R2/Queue/Worker isolation: passed

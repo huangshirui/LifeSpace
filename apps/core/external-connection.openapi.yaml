@@ -1,0 +1,255 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "LifeSpace External Connection API",
+    "version": "0.1.0",
+    "description": "Complete Space-scoped External setup contract for Console and downstream applications: provider discovery, secure Connection lifecycle, Provider Resource discovery, bindable External Model Definition discovery and binding. Direct User spaces:manage plus current Space manage is required. Provider credential plaintext is accepted only on create/rotation, forwarded to the private Adapter vault, and never persisted in Core or returned."
+  },
+  "security": [{ "bearerAuth": [] }],
+  "paths": {
+    "/api/v1/spaces/{spaceId}/external-providers": {
+      "get": {
+        "operationId": "listExternalProviders",
+        "description": "List currently configured provider setup descriptors. This is capability discovery, not authorization proof.",
+        "parameters": [{ "$ref": "#/components/parameters/SpaceId" }],
+        "responses": {
+          "200": { "description": "Provider descriptors", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ProviderListEnvelope" } } } },
+          "401": { "description": "Unauthenticated" },
+          "403": { "description": "Current Space management authority denied" },
+          "503": { "description": "External Adapter unavailable" }
+        }
+      }
+    },
+    "/api/v1/spaces/{spaceId}/external-model-definitions": {
+      "get": {
+        "operationId": "listBindableExternalModelDefinitions",
+        "description": "List currently published External business Model Definitions that a Space manager may choose when creating a binding. This does not grant runtime model/data access.",
+        "parameters": [{ "$ref": "#/components/parameters/SpaceId" }],
+        "responses": {
+          "200": { "description": "Bindable External business definitions", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ExternalModelDefinitionListEnvelope" } } } },
+          "401": { "description": "Unauthenticated" },
+          "403": { "description": "Current Space management authority denied" }
+        }
+      }
+    },
+    "/api/v1/spaces/{spaceId}/external-connections": {
+      "get": {
+        "operationId": "listExternalConnections",
+        "parameters": [{ "$ref": "#/components/parameters/SpaceId" }],
+        "responses": {
+          "200": { "description": "Connections", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConnectionListEnvelope" } } } },
+          "401": { "description": "Unauthenticated" },
+          "403": { "description": "Current Space management authority denied" }
+        }
+      },
+      "post": {
+        "operationId": "createExternalConnection",
+        "description": "Validate and persist a provider credential in the private Adapter vault, then create Space-scoped connection metadata. The client never supplies credentialRef.",
+        "parameters": [{ "$ref": "#/components/parameters/SpaceId" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateExternalConnection" } } } },
+        "responses": {
+          "201": { "description": "Created connection", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConnectionEnvelope" } } } },
+          "400": { "description": "Invalid request shape" },
+          "401": { "description": "Unauthenticated" },
+          "403": { "description": "Current Space management authority denied" },
+          "422": { "description": "Provider credential/access validation failed" },
+          "429": { "description": "Provider rate limited" },
+          "502": { "description": "Provider/Adapter contract failure" },
+          "503": { "description": "Provider/Adapter unavailable" }
+        }
+      }
+    },
+    "/api/v1/spaces/{spaceId}/external-connections/{connectionId}": {
+      "patch": {
+        "operationId": "updateExternalConnection",
+        "description": "Rename, enable/disable, change the access ceiling, or rotate the provider credential. Credential/access mutation is available only for dynamic connections created through this API.",
+        "parameters": [{ "$ref": "#/components/parameters/SpaceId" }, { "$ref": "#/components/parameters/ConnectionId" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UpdateExternalConnection" } } } },
+        "responses": {
+          "200": { "description": "Updated connection", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConnectionEnvelope" } } } },
+          "400": { "description": "No change or unsupported request field" },
+          "401": { "description": "Unauthenticated" },
+          "403": { "description": "Current Space management authority denied" },
+          "404": { "description": "Connection unavailable" },
+          "409": { "description": "Revoked or deployment-managed connection cannot perform requested mutation" },
+          "422": { "description": "Provider credential/access validation failed" },
+          "503": { "description": "Provider/Adapter unavailable" }
+        }
+      },
+      "delete": {
+        "operationId": "revokeExternalConnection",
+        "description": "Delete the dynamic provider vault credential, revoke the connection and disable its active bindings. Deployment-managed bootstrap connections must be revoked through deployment configuration.",
+        "parameters": [{ "$ref": "#/components/parameters/SpaceId" }, { "$ref": "#/components/parameters/ConnectionId" }],
+        "responses": {
+          "204": { "description": "Revoked, or already revoked" },
+          "401": { "description": "Unauthenticated" },
+          "403": { "description": "Current Space management authority denied" },
+          "404": { "description": "Connection unavailable" },
+          "409": { "description": "Deployment-managed connection" },
+          "503": { "description": "Provider/Adapter unavailable; local metadata remains fail-closed/unmodified" }
+        }
+      }
+    },
+    "/api/v1/spaces/{spaceId}/external-connections/{connectionId}/resources": {
+      "get": {
+        "operationId": "listExternalConnectionResources",
+        "description": "List provider resources visible to one active dynamic connection. For Notion these are concrete Data Sources.",
+        "parameters": [
+          { "$ref": "#/components/parameters/SpaceId" },
+          { "$ref": "#/components/parameters/ConnectionId" },
+          { "name": "query", "in": "query", "schema": { "type": "string", "maxLength": 200 } },
+          { "name": "cursor", "in": "query", "schema": { "type": "string", "maxLength": 2048 } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 100, "default": 50 } }
+        ],
+        "responses": {
+          "200": { "description": "Provider resources", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ResourceListEnvelope" } } } },
+          "401": { "description": "Unauthenticated" },
+          "403": { "description": "Current Space management authority denied" },
+          "404": { "description": "Connection unavailable" },
+          "409": { "description": "Connection disabled/revoked or resource discovery unavailable for deployment-managed connection" },
+          "429": { "description": "Provider rate limited" },
+          "503": { "description": "Provider/Adapter unavailable" }
+        }
+      }
+    },
+    "/api/v1/spaces/{spaceId}/external-models": {
+      "post": {
+        "operationId": "bindExternalModel",
+        "description": "Bind one published External business Model Definition to a Connection and one Provider Resource. Provider fields are discovered automatically during binding. Legacy sourceId input remains an implementation compatibility path but is not part of this product contract.",
+        "parameters": [{ "$ref": "#/components/parameters/SpaceId" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BindExternalModel" } } } },
+        "responses": {
+          "201": { "description": "External binding created and schema discovered", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ExternalBindingEnvelope" } } } },
+          "400": { "description": "Invalid request" },
+          "401": { "description": "Unauthenticated" },
+          "403": { "description": "Current Space management authority denied" },
+          "404": { "description": "Connection/resource unavailable" },
+          "409": { "description": "Provider resource or definition already bound/conflicts" },
+          "422": { "description": "Definition unavailable, access exceeds Connection ceiling or Provider schema invalid" },
+          "429": { "description": "Provider rate limited" },
+          "502": { "description": "Adapter/provider contract failure" },
+          "503": { "description": "Provider/Adapter unavailable" }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": { "bearerAuth": { "type": "http", "scheme": "bearer" } },
+    "parameters": {
+      "SpaceId": { "name": "spaceId", "in": "path", "required": true, "schema": { "type": "string", "pattern": "^spc_[A-Za-z0-9_-]+$" } },
+      "ConnectionId": { "name": "connectionId", "in": "path", "required": true, "schema": { "type": "string", "pattern": "^exs_[a-f0-9]{32}$" } }
+    },
+    "schemas": {
+      "ExternalProvider": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["key", "displayName", "credential", "resource", "access"],
+        "properties": {
+          "key": { "type": "string", "pattern": "^[a-z][a-z0-9_-]{1,31}$" },
+          "displayName": { "type": "string", "minLength": 1, "maxLength": 80 },
+          "credential": { "type": "object", "additionalProperties": false, "required": ["type", "displayName"], "properties": { "type": { "type": "string" }, "displayName": { "type": "string" } } },
+          "resource": { "type": "object", "additionalProperties": false, "required": ["type", "displayName"], "properties": { "type": { "type": "string" }, "displayName": { "type": "string" } } },
+          "access": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "enum": ["read", "write"] } }
+        }
+      },
+      "ExternalModelDefinition": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["key", "displayName", "description", "access", "schemaHash"],
+        "properties": {
+          "key": { "type": "string" },
+          "displayName": { "type": "string" },
+          "description": { "type": ["string", "null"] },
+          "access": { "type": "array", "items": { "enum": ["read", "write"] } },
+          "schemaHash": { "type": "string" }
+        }
+      },
+      "ExternalConnection": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "spaceId", "providerKey", "displayName", "status", "managementMode", "resourceDiscovery", "createdAt", "updatedAt"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^exs_[a-f0-9]{32}$" },
+          "spaceId": { "type": "string" },
+          "providerKey": { "type": "string" },
+          "displayName": { "type": "string" },
+          "access": { "type": ["string", "null"], "enum": ["read", "write", null] },
+          "status": { "enum": ["active", "disabled", "revoked"] },
+          "managementMode": { "enum": ["dynamic", "deployment"] },
+          "resourceDiscovery": { "type": "boolean" },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "updatedAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "ProviderCredential": {
+        "type": "object",
+        "writeOnly": true,
+        "description": "Provider-specific credential object. Current Notion descriptor uses {type:'bearer_token',token:'...'}. Plaintext is transient and never returned by LifeSpace.",
+        "minProperties": 1,
+        "maxProperties": 8,
+        "additionalProperties": true
+      },
+      "CreateExternalConnection": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["providerKey", "displayName", "credential", "access"],
+        "properties": {
+          "providerKey": { "type": "string", "pattern": "^[a-z][a-z0-9_-]{1,31}$" },
+          "displayName": { "type": "string", "minLength": 1, "maxLength": 100 },
+          "credential": { "$ref": "#/components/schemas/ProviderCredential", "writeOnly": true },
+          "access": { "enum": ["read", "write"] }
+        }
+      },
+      "UpdateExternalConnection": {
+        "type": "object",
+        "additionalProperties": false,
+        "minProperties": 1,
+        "properties": {
+          "displayName": { "type": "string", "minLength": 1, "maxLength": 100 },
+          "credential": { "$ref": "#/components/schemas/ProviderCredential", "writeOnly": true },
+          "access": { "enum": ["read", "write"] },
+          "status": { "enum": ["active", "disabled"] }
+        }
+      },
+      "ExternalResource": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "type", "displayName"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1, "maxLength": 256 },
+          "type": { "type": "string", "minLength": 1, "maxLength": 64 },
+          "displayName": { "type": "string", "minLength": 1, "maxLength": 256 }
+        }
+      },
+      "BindExternalModel": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["definitionKey", "connectionId", "resourceId", "declaredAccess"],
+        "properties": {
+          "definitionKey": { "type": "string", "minLength": 1, "maxLength": 63 },
+          "connectionId": { "$ref": "#/components/parameters/ConnectionId/schema" },
+          "resourceId": { "type": "string", "minLength": 1, "maxLength": 256 },
+          "declaredAccess": { "enum": ["read", "write"] }
+        }
+      },
+      "ExternalBinding": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["modelKey", "connectionId", "spaceId", "origin", "schemaHash"],
+        "properties": {
+          "modelKey": { "type": "string" },
+          "connectionId": { "type": "string" },
+          "spaceId": { "type": "string" },
+          "origin": { "const": "external" },
+          "schemaHash": { "type": "string" }
+        }
+      },
+      "ProviderListEnvelope": { "type": "object", "required": ["data"], "properties": { "data": { "type": "object", "required": ["items"], "properties": { "items": { "type": "array", "items": { "$ref": "#/components/schemas/ExternalProvider" } } } } } },
+      "ExternalModelDefinitionListEnvelope": { "type": "object", "required": ["data"], "properties": { "data": { "type": "object", "required": ["items"], "properties": { "items": { "type": "array", "items": { "$ref": "#/components/schemas/ExternalModelDefinition" } } } } } },
+      "ConnectionListEnvelope": { "type": "object", "required": ["data"], "properties": { "data": { "type": "object", "required": ["items"], "properties": { "items": { "type": "array", "items": { "$ref": "#/components/schemas/ExternalConnection" } } } } } },
+      "ConnectionEnvelope": { "type": "object", "required": ["data"], "properties": { "data": { "$ref": "#/components/schemas/ExternalConnection" } } },
+      "ResourceListEnvelope": { "type": "object", "required": ["data"], "properties": { "data": { "type": "object", "required": ["items", "nextCursor"], "properties": { "items": { "type": "array", "items": { "$ref": "#/components/schemas/ExternalResource" } }, "nextCursor": { "type": ["string", "null"] } } } } },
+      "ExternalBindingEnvelope": { "type": "object", "required": ["data"], "properties": { "data": { "$ref": "#/components/schemas/ExternalBinding" } } }
+    }
+  }
+}

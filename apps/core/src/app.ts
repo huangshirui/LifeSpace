@@ -1,4 +1,5 @@
 import { registerExternalModelControlRoutes } from "./external-model-routes";
+import { registerExternalConnectionDefinitionRoutes } from "./external-connection-definition-routes";
 import { registerExternalRuntimeRoutes } from "./external-runtime";
 import { registerExternalBatchRoutes } from "./external-batch";
 import { Hono } from "hono";
@@ -120,6 +121,7 @@ export function createApp() {
   registerRuntimeModelSemanticDetailRoutes(app);
   registerRelationTargetRoutes(app);
   registerSemanticRelationRoutes(app);
+  registerExternalConnectionDefinitionRoutes(app);
   registerExternalModelControlRoutes(app);
   registerExternalBatchRoutes(app);
   registerExternalRuntimeRoutes(app);
@@ -139,4 +141,3 @@ export function createApp() {
   });
   return app;
 }
-

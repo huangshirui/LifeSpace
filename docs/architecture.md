@@ -2,7 +2,7 @@
 
 ## Federated model origins / 联邦模型来源
 
-Native ordinary models retain the global Published Registry, isolate Runtime Descriptor, typed D1 storage and immutable mct lifecycle described below. External Models use the provider-neutral framework in `docs/external-models.md`: one provider resource belongs to one source Space, registration uses reserved `ext_*`, the Space Catalog combines active Native + local External models, and only the latest compatible snapshot is stored. External business records stay provider-authoritative under Query. Runtime authority stays Core-owned; provider APIs and credentials are Adapter-owned. External mutations have operation audit, no Native version/transaction/outbox guarantee. Connection provisioning is service-only Model Admin; ordinary Space manage cannot select arbitrary Secret references.
+Native ordinary models retain the global Published Registry, isolate Runtime Descriptor, typed D1 storage and immutable mct lifecycle described below. External Models use the provider-neutral framework in `docs/external-models.md`: one provider resource belongs to one source Space, registration uses reserved `ext_*`, the Space Catalog combines active Native + local External models, and only the latest compatible snapshot is stored. External business records stay provider-authoritative under Query. Runtime authority stays Core-owned; provider APIs and credentials are Adapter-owned. External mutations have operation audit, no Native version/transaction/outbox guarantee. Normal product setup uses the Space-scoped External Connection control plane: a direct User with `spaces:manage` and current Space `manage` may create/rotate/revoke a dynamic Connection, while Core owns the opaque `cnx_*` reference and never lets the caller select an arbitrary Secret reference. Provider credential plaintext is persisted only as AES-256-GCM ciphertext in the Adapter-owned per-Connection Durable Object. Service-only Model Admin provisioning remains only for deployment/bootstrap Sources that bind a server-owned static credential reference.
 
 ## Purpose
 
@@ -343,6 +343,11 @@ Integration / Eventing Contract
   independent public companion contract: 0.3.0
   executed by the same Core Worker; not part of the Kernel version/fingerprint
 
+External Connection Contract
+  apps/core/external-connection.openapi.yaml
+  Space-scoped Provider discovery, dynamic Connection lifecycle, Provider Resource discovery and bindable External Model Definition/binding setup
+  independent public companion contract: 0.1.0
+
 Model Control Plane Contract
   apps/core/model-control-plane.openapi.yaml
   independent governance contract: 0.2.0
@@ -356,7 +361,7 @@ Model Contract Revision
   concrete published ordinary-model CRUD/query/action/Capability contract
 ```
 
-The separate Model Control Plane prevents Model Registry governance and optional AI proposal syntax from being pinned by ordinary Runtime consumers. The independent Integration/Eventing contract does the same for Webhook/Eventing representation: Runtime-only consumers pin Identity/Core Kernel/Model semantics without Eventing, while consumers that use Eventing add its version. The separate Platform Admin contract prevents Console-only privileged APIs from forcing unrelated downstream business-contract pin changes. All three contract families may still execute through the same Core Worker without sharing a compatibility lifecycle.
+The separate Model Control Plane prevents Model Registry governance and optional AI proposal syntax from being pinned by ordinary Runtime consumers. The independent Integration/Eventing contract does the same for Webhook/Eventing representation. The External Connection contract isolates provider setup/configuration from both the Kernel and privileged Model Registry governance so Console and downstream apps can implement the same Space-scoped setup journey without becoming platform administrators. The separate Platform Admin contract prevents Console-only privileged APIs from forcing unrelated downstream business-contract pin changes. All contract families may still execute through the same Core Worker without sharing a compatibility lifecycle.
 
 Contract publication/versioning rules are normative in `docs/contracts.md`.
 

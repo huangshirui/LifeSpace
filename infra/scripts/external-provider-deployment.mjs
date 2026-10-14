@@ -15,11 +15,17 @@ export function deploymentSettings(env, environment) {
   if ((environment === "staging") !== worker.endsWith("-staging")) throw new Error("Adapter Worker must be environment-isolated: staging names end in -staging; production names must not");
   const secret = env.EXTERNAL_ADAPTER_SHARED_SECRET ?? "";
   if (!/^[\x21-\x7e]{32,512}$/.test(secret) || secret === env.LIFESPACE_STAGING_BOOTSTRAP_SECRET || secret === env.LIFESPACE_PRODUCTION_BOOTSTRAP_SECRET) throw new Error("An independent External Adapter shared secret of 32-512 printable ASCII characters without whitespace is required");
+  const vaultKey = env.CONNECTION_VAULT_MASTER_KEY ?? "";
+  if (!/^[0-9a-fA-F]{64}$/.test(vaultKey)) throw new Error("CONNECTION_VAULT_MASTER_KEY must be exactly 32 random bytes encoded as 64 hexadecimal characters");
+  if (vaultKey === secret || vaultKey === env.LIFESPACE_STAGING_BOOTSTRAP_SECRET || vaultKey === env.LIFESPACE_PRODUCTION_BOOTSTRAP_SECRET) throw new Error("Connection vault master key must be independent from platform and Adapter shared secrets");
+  const rawConnections = env.NOTION_CONNECTIONS?.trim() || (environment === "production" ? "{}" : "");
   let connections;
-  try { connections = JSON.parse(env.NOTION_CONNECTIONS ?? ""); } catch { throw new Error("NOTION_CONNECTIONS must be a valid secret JSON object"); }
-  if (!connections || Array.isArray(connections) || typeof connections !== "object" || !Object.keys(connections).length) throw new Error("NOTION_CONNECTIONS must contain at least one connection");
+  try { connections = JSON.parse(rawConnections); } catch { throw new Error("NOTION_CONNECTIONS must be a valid secret JSON object when configured"); }
+  if (!connections || Array.isArray(connections) || typeof connections !== "object") throw new Error("NOTION_CONNECTIONS must be a JSON object");
+  if (environment === "staging" && !Object.keys(connections).length) throw new Error("Staging NOTION_CONNECTIONS must contain the synthetic smoke connection");
   for (const [ref, connection] of Object.entries(connections)) {
     if (!/^[A-Za-z0-9_-]{1,128}$/.test(ref) || !connection || typeof connection !== "object" || Array.isArray(connection) || typeof connection.token !== "string" || !connection.token || connection.token !== connection.token.trim() || /[\r\n]/.test(connection.token) || typeof connection.read !== "boolean" || typeof connection.write !== "boolean" || (connection.disabled !== undefined && typeof connection.disabled !== "boolean")) throw new Error("NOTION_CONNECTIONS contains an invalid connection entry");
+    if (connection.token === vaultKey) throw new Error("Connection vault master key must not reuse a provider credential");
   }
   if (environment === "staging") {
     const ref = env.LIFESPACE_EXTERNAL_SMOKE_CREDENTIAL_REF ?? "";
@@ -40,7 +46,9 @@ export function bindProvider(config, settings) {
 
 export function validateProviderProfile(config, environment) {
   const profile = config.env?.[environment];
+  const vault = profile?.durable_objects?.bindings?.find(binding => binding.name === "CONNECTIONS");
   if (!profile || config.workers_dev !== false || config.preview_urls !== false || profile.workers_dev !== false || profile.preview_urls !== false || !Array.isArray(profile.routes) || profile.routes.length || config.routes?.length) throw new Error("Adapter packaging must have an explicit private deployment profile");
+  if (!vault || vault.class_name !== "NotionConnectionVault") throw new Error("Adapter packaging must bind the per-connection Durable Object vault as CONNECTIONS");
 }
 
 export function validateLiveBindings(core, adapter, settings) {
@@ -48,9 +56,10 @@ export function validateLiveBindings(core, adapter, settings) {
   if (!bindings.some(b => b.type === "service" && b.name === "EXTERNAL_ADAPTER" && b.service === settings.worker)) throw new Error("Live Core External Adapter binding does not match the release");
   if (!bindings.some(b => b.type === "secret_text" && b.name === "EXTERNAL_ADAPTER_SHARED_SECRET")) throw new Error("Live Core External Adapter shared secret is absent");
   if (!bindings.some(b => b.type === "plain_text" && b.name === "EXTERNAL_SCHEMA_REFRESH_SECONDS" && Number.isInteger(Number(b.text)) && Number(b.text) >= 60 && Number(b.text) <= 86400)) throw new Error("Live External schema refresh configuration is invalid");
-  for (const name of ["EXTERNAL_ADAPTER_SHARED_SECRET", "NOTION_CONNECTIONS"]) {
+  for (const name of ["EXTERNAL_ADAPTER_SHARED_SECRET", "NOTION_CONNECTIONS", "CONNECTION_VAULT_MASTER_KEY"]) {
     if (!adapter.bindings?.some(b => b.type === "secret_text" && b.name === name)) throw new Error("Live Adapter required secret binding is absent");
   }
+  if (!adapter.bindings?.some(b => b.type === "durable_object_namespace" && b.name === "CONNECTIONS")) throw new Error("Live Adapter per-connection Durable Object vault binding is absent");
 }
 
 export function adapterWranglerCommands(configPath, environment, worker) {
@@ -94,7 +103,14 @@ async function main() {
     validateProviderProfile(JSON.parse(readFileSync(configPath, "utf8")), environment);
     const commands = adapterWranglerCommands(configPath, environment, settings.worker);
     wrangler(commands.deploy);
-    wrangler(commands.secrets, { EXTERNAL_ADAPTER_SHARED_SECRET: process.env.EXTERNAL_ADAPTER_SHARED_SECRET, NOTION_CONNECTIONS: process.env.NOTION_CONNECTIONS });
+    wrangler(commands.secrets, {
+      EXTERNAL_ADAPTER_SHARED_SECRET: process.env.EXTERNAL_ADAPTER_SHARED_SECRET,
+      CONNECTION_VAULT_MASTER_KEY: process.env.CONNECTION_VAULT_MASTER_KEY,
+      // Production may have no deployment-managed connection at all. Writing an
+      // explicit empty object also removes any stale static references from the
+      // canonical Adapter configuration while keeping the secret-shaped boundary.
+      NOTION_CONNECTIONS: process.env.NOTION_CONNECTIONS?.trim() || "{}",
+    });
     console.log(`Private provider deployed at pinned revision ${manifest.revision}`);
   } else if (mode === "sync-core") {
     wrangler(["secret", "bulk", "--env", environment], { EXTERNAL_ADAPTER_SHARED_SECRET: process.env.EXTERNAL_ADAPTER_SHARED_SECRET });
@@ -123,7 +139,7 @@ async function main() {
       if (attempt < 7) await new Promise(resolve => setTimeout(resolve, 2000));
     }
     if (lastError) throw lastError;
-    console.log("Live private Adapter binding, secret presence and refresh configuration verified; shared-secret equality is checked by staging Source creation");
+    console.log("Live private Adapter binding, shared secret, encrypted credential-vault secret, per-connection Durable Object vault and refresh configuration verified; shared-secret equality is checked by staging Source creation");
   } else throw new Error("Unknown External provider deployment mode");
 }
 

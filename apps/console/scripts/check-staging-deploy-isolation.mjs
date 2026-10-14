@@ -8,12 +8,14 @@ const workflowSource = readFileSync(workflowUrl, "utf8");
 const workflowRequired = [
   "workflow_dispatch:",
   "run_control_plane_acceptance:",
-  "external_acceptance_space_id:",
   "if: ${{ inputs.run_control_plane_acceptance }}",
 ];
 
 for (const token of workflowRequired) {
   if (!workflowSource.includes(token)) throw new Error(`${workflowPath} must include ${token}`);
+}
+for (const obsolete of ["external_acceptance_space_id", "provision-staging-external-source.mjs", "LIFESPACE_EXTERNAL_TARGET_SPACE_ID", "LIFESPACE_EXTERNAL_SMOKE_CREDENTIAL_REF"] ) {
+  if (workflowSource.includes(obsolete)) throw new Error(`${workflowPath} must not preserve obsolete External Source preprovisioning: ${obsolete}`);
 }
 
 const pinnedCheckoutCount = (workflowSource.match(/ref: \$\{\{ github\.sha \}\}/gu) ?? []).length;
@@ -47,6 +49,7 @@ const deployRequired = [
   "CLOUDFLARE_ENV=staging pnpm exec vite build",
   "pnpm exec wrangler deploy",
   "lifespace-staging.aisr.online",
+  "External browser setup is fully self-service",
 ];
 
 for (const token of deployRequired) {
@@ -59,7 +62,8 @@ const deployForbidden = [
   ["Identity migration", /identity-migrations/iu],
   ["Identity deployment", /apps\/identity[^\n]*wrangler deploy|identity-deploy/iu],
   ["bootstrap authority", /LIFESPACE_STAGING_BOOTSTRAP_SECRET|x-bootstrap-secret/iu],
-  ["Console provisioning mutation", /prepare-staging-console-(?:admin|shell)/iu],
+  ["Console provisioning mutation", /prepare-staging-console-(?:admin|shell)|reconcile-staging-console-space-scope/iu],
+  ["External Source provisioning", /provision-staging-external-source/iu],
   ["secret replacement file", /--secrets-file/iu],
   ["production deployment target", /CLOUDFLARE_ENV=production|lifespace-console-production|lifespace\.aisr\.online/iu],
 ];
@@ -75,12 +79,9 @@ const acceptanceRequired = [
   "LIFESPACE_STAGING_BOOTSTRAP_SECRET",
   "https://auth-staging.aisr.online",
   "https://core-staging.aisr.online",
-  "node infra/scripts/reconcile-staging-console-space-scope.mjs",
   "node apps/console/scripts/verify-staging-control-plane.mjs",
   "node apps/console/scripts/verify-staging-configuration-center.mjs",
-  "node infra/scripts/provision-staging-external-source.mjs",
-  "LIFESPACE_EXTERNAL_TARGET_SPACE_ID",
-  "LIFESPACE_EXTERNAL_SMOKE_CREDENTIAL_REF",
+  "No External Source or provider credential is provisioned by this workflow",
 ];
 
 for (const token of acceptanceRequired) {
@@ -92,6 +93,8 @@ const acceptanceForbidden = [
   ["platform migration during acceptance", /db:migrate|core-migrations|identity-migrations/iu],
   ["Core deployment during acceptance", /core-deploy/iu],
   ["Identity deployment during acceptance", /identity-deploy/iu],
+  ["essential Console scope reconciliation", /reconcile-staging-console-space-scope/iu],
+  ["External Source provisioning", /provision-staging-external-source|LIFESPACE_EXTERNAL_TARGET_SPACE_ID|external_acceptance_space_id/iu],
   ["production Console target", /CLOUDFLARE_ENV=production|lifespace-console-production|https:\/\/lifespace\.aisr\.online/iu],
   ["production Core target", /https:\/\/core\.aisr\.online/iu],
   ["production Identity target", /https:\/\/auth\.aisr\.online/iu],
@@ -101,6 +104,11 @@ for (const [label, pattern] of acceptanceForbidden) {
   if (pattern.test(acceptanceSource)) throw new Error(`${workflowPath} acceptance job violates staging acceptance isolation: ${label}`);
 }
 
+const platformWorkflow = readFileSync(new URL("../../../.github/workflows/staging-deploy.yml", import.meta.url), "utf8");
+if (!platformWorkflow.includes("node infra/scripts/reconcile-staging-console-space-scope.mjs")) {
+  throw new Error("Canonical platform staging release must converge the Console spaces:manage scope ceiling before isolated Console deployment");
+}
+
 console.log(JSON.stringify({
   ok: true,
   workflow: ".github/workflows/lifespace-console-staging-deploy.yml",
@@ -108,8 +116,9 @@ console.log(JSON.stringify({
   acceptanceExplicitOptIn: true,
   coreIdentityMutationAbsentFromDeploy: true,
   bootstrapAuthorityAbsentFromDeploy: true,
-  acceptanceReconcilesSpaceManageScope: true,
-  acceptanceCoversExternalSourceProvisioning: true,
+  platformReleaseOwnsSpaceManageScopeConvergence: true,
+  externalSetupIsSelfService: true,
+  externalSourcePreprovisionAbsent: true,
   acceptanceCoversModelPublishing: true,
   acceptanceCoversApplicationCredentialGovernance: true,
   acceptanceDoesNotDeployPlatformServices: true,

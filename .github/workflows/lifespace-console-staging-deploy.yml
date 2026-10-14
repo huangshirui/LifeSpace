@@ -8,11 +8,6 @@ on:
         required: false
         default: false
         type: boolean
-      external_acceptance_space_id:
-        description: "Optional existing staging spc_* to provision/reuse the configured Notion connection for browser External binding acceptance"
-        required: false
-        default: ""
-        type: string
 
 permissions:
   contents: read
@@ -127,7 +122,9 @@ jobs:
           - No Core or Identity Worker was deployed.
           - No bootstrap secret was used.
           - Existing Console Worker secrets were preserved rather than rotated.
-          - Next: use the explicit acceptance job for bounded control-plane verification and optional External binding setup.
+          - Required Console Application scope convergence, including `spaces:manage`, belongs to the canonical platform staging release.
+          - External browser setup is fully self-service: create a Dynamic Connection, discover Provider resources and bind an External Model through the public Space-scoped API. No Source preprovision is performed here.
+          - Optional acceptance below exercises bounded platform control-plane lifecycles only.
           EOF
 
   acceptance:
@@ -144,8 +141,6 @@ jobs:
       LIFESPACE_IDENTITY_STAGING_URL: https://auth-staging.aisr.online
       LIFESPACE_CORE_STAGING_URL: https://core-staging.aisr.online
       LIFESPACE_STAGING_CONSOLE_APPLICATION_ID: app_lifespace_console_staging
-      LIFESPACE_EXTERNAL_SMOKE_CREDENTIAL_REF: ${{ vars.LIFESPACE_EXTERNAL_SMOKE_CREDENTIAL_REF }}
-      LIFESPACE_EXTERNAL_TARGET_SPACE_ID: ${{ inputs.external_acceptance_space_id }}
 
     steps:
       - name: Checkout LifeSpace
@@ -171,18 +166,9 @@ jobs:
           test ${#LIFESPACE_STAGING_BOOTSTRAP_SECRET} -ge 32 || { echo "LIFESPACE_STAGING_BOOTSTRAP_SECRET is not configured" >&2; exit 1; }
           [[ "$LIFESPACE_IDENTITY_STAGING_URL" == "https://auth-staging.aisr.online" ]]
           [[ "$LIFESPACE_CORE_STAGING_URL" == "https://core-staging.aisr.online" ]]
-          if [ -n "${LIFESPACE_EXTERNAL_TARGET_SPACE_ID:-}" ]; then
-            [[ "$LIFESPACE_EXTERNAL_TARGET_SPACE_ID" =~ ^spc_[0-9a-f]{32}$ ]] || { echo "external_acceptance_space_id must be a canonical staging spc_*" >&2; exit 1; }
-            test -n "${CLOUDFLARE_API_TOKEN:-}" || { echo "CLOUDFLARE_API_TOKEN is required for External Source acceptance" >&2; exit 1; }
-            test -n "${CLOUDFLARE_ACCOUNT_ID:-}" || { echo "CLOUDFLARE_ACCOUNT_ID is required for External Source acceptance" >&2; exit 1; }
-            test -n "${LIFESPACE_EXTERNAL_SMOKE_CREDENTIAL_REF:-}" || { echo "staging External credential reference is required" >&2; exit 1; }
-          fi
 
       - name: Install repository dependencies
         run: pnpm install --frozen-lockfile
-
-      - name: Reconcile staging Console Space-management scope ceiling
-        run: node infra/scripts/reconcile-staging-console-space-scope.mjs
 
       - name: Validate Console before acceptance
         run: pnpm --filter @lifespace/console check
@@ -193,11 +179,6 @@ jobs:
       - name: Exercise Application and service identity lifecycle
         run: node apps/console/scripts/verify-staging-configuration-center.mjs
 
-      - name: Provision/reuse UI-acceptance External Source
-        id: external-source
-        if: ${{ inputs.external_acceptance_space_id != '' }}
-        run: node infra/scripts/provision-staging-external-source.mjs
-
       - name: Summarize acceptance
         if: ${{ success() }}
         run: |
@@ -205,7 +186,6 @@ jobs:
           ## LifeSpace Console Configuration & Publishing Center — staging acceptance
 
           Slice A:
-          - Reconciled the staging Console Application scope ceiling, including `spaces:manage`, without rotating credentials.
           - Used the current active staging platform administrator as human actor.
           - Validated/published an ephemeral model v1 (`initial`) and additive v2 (`compatible`).
           - Observed Model Contract revision advancement.
@@ -221,10 +201,10 @@ jobs:
           - Verified human-attributed Identity audit and no plaintext credential leakage.
           - Left the generated acceptance Application disabled because the platform contract has no delete-Application lifecycle.
 
-          External browser acceptance preparation:
-          - When `external_acceptance_space_id` is supplied, a Notion Source is created or reused through the service-only Model Admin API.
-          - Provider credential plaintext remains Adapter-owned; only the configured opaque credential reference is used.
-          - The Source itself grants no Membership, Data Grant, Application × Model Access or model binding.
+          External setup boundary:
+          - No External Source or provider credential is provisioned by this workflow.
+          - Normal browser acceptance uses the public Space-scoped Dynamic Connection API end to end.
+          - Connection creation itself grants no Membership, Data Grant, Application × Model Access or model binding.
 
           Boundaries:
           - Temporary acceptance executors/credentials are revoked during cleanup.

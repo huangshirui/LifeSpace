@@ -4,6 +4,18 @@ import { requireSpacePermission } from "./authorization";
 import type { Bindings, Variables } from "./env";
 import { ApiError, success } from "./http";
 import {
+  callExternalConnectionAdapter,
+  externalConnectionDto,
+  getExternalConnection,
+  isDynamicExternalConnection,
+  listExternalConnections,
+  validateConnectionCredential,
+  validateConnectionDisplayName,
+  validateConnectionProjection,
+  validateConnectionResources,
+  validateProviderDescriptor,
+} from "./external-connections";
+import {
   boundedString,
   callExternalAdapter,
   externalHash,
@@ -28,6 +40,7 @@ async function manager(c: Context<AppEnv>) {
   if (p.type !== "user" || p.actor)
     throw new ApiError("FORBIDDEN", "Direct User management is required", 403);
   await requireSpacePermission(c.env, p, c.req.param("spaceId")!, "manage");
+  return p;
 }
 async function body(c: Context<AppEnv>) {
   return objectInput(await c.req.json<unknown>().catch(() => null));
@@ -45,13 +58,216 @@ function sourceDto(s: ExternalSource) {
     updatedAt: s.updated_at,
   };
 }
+function providerKey(value: unknown): string {
+  const key = boundedString(value, "providerKey", 32);
+  if (!/^[a-z][a-z0-9_-]{1,31}$/u.test(key))
+    throw new ApiError("VALIDATION_ERROR", "providerKey is invalid", 422);
+  return key;
+}
+function connectionAccess(value: unknown): "read" | "write" {
+  if (value !== "read" && value !== "write")
+    throw new ApiError("VALIDATION_ERROR", "access must be read or write", 422);
+  return value;
+}
+function resourceListInput(c: Context<AppEnv>): Record<string, unknown> {
+  const url = new URL(c.req.url);
+  for (const key of url.searchParams.keys()) {
+    if (!["query", "cursor", "limit"].includes(key) || url.searchParams.getAll(key).length !== 1)
+      throw new ApiError("VALIDATION_ERROR", "Invalid resource discovery query", 422);
+  }
+  const query = url.searchParams.get("query");
+  const cursor = url.searchParams.get("cursor");
+  const rawLimit = url.searchParams.get("limit");
+  if (query !== null && query.length > 200)
+    throw new ApiError("VALIDATION_ERROR", "query is too long", 422);
+  if (cursor !== null && cursor.length > 2048)
+    throw new ApiError("VALIDATION_ERROR", "cursor is too long", 422);
+  let limit: number | undefined;
+  if (rawLimit !== null) {
+    limit = Number(rawLimit);
+    if (!Number.isInteger(limit) || limit < 1 || limit > 100)
+      throw new ApiError("VALIDATION_ERROR", "limit is invalid", 422);
+  }
+  return {
+    ...(query !== null ? { query } : {}),
+    ...(cursor !== null ? { cursor } : {}),
+    ...(limit !== undefined ? { limit } : {}),
+  };
+}
+
 export function registerExternalModelControlRoutes(app: App) {
+  const providerPath = "/api/v1/spaces/:spaceId/external-providers";
+  const connectionPath = "/api/v1/spaces/:spaceId/external-connections";
   const sourcePath = "/api/v1/spaces/:spaceId/external-sources";
   const modelPath = "/api/v1/spaces/:spaceId/external-models";
-  app.use(sourcePath, requireScope("spaces:manage"));
-  app.use(sourcePath + "/*", requireScope("spaces:manage"));
-  app.use(modelPath, requireScope("spaces:manage"));
-  app.use(modelPath + "/*", requireScope("spaces:manage"));
+  for (const path of [providerPath, connectionPath, sourcePath, modelPath]) {
+    app.use(path, requireScope("spaces:manage"));
+    app.use(path + "/*", requireScope("spaces:manage"));
+  }
+
+  app.get(providerPath, async (c) => {
+    await manager(c);
+    const descriptor = validateProviderDescriptor(
+      await callExternalConnectionAdapter(c.env, { operation: "describe" }),
+    );
+    return c.json(success({ items: [descriptor] }));
+  });
+
+  app.get(connectionPath, async (c) => {
+    await manager(c);
+    const rows = await listExternalConnections(c.env, c.req.param("spaceId")!);
+    return c.json(success({ items: rows.map(externalConnectionDto) }));
+  });
+
+  app.post(connectionPath, async (c) => {
+    const principal = await manager(c);
+    if (!schemaRefreshInterval(c.env))
+      throw new ApiError("EXTERNAL_UNAVAILABLE", "External schema refresh is not configured", 503);
+    const input = await body(c);
+    onlyKeys(input, ["providerKey", "displayName", "credential", "access"]);
+    const provider = providerKey(input.providerKey);
+    const displayName = validateConnectionDisplayName(input.displayName);
+    const credential = validateConnectionCredential(input.credential);
+    const access = connectionAccess(input.access);
+    const descriptor = validateProviderDescriptor(
+      await callExternalConnectionAdapter(c.env, { operation: "describe" }),
+    );
+    if (descriptor.key !== provider || !descriptor.access.includes(access))
+      throw new ApiError("EXTERNAL_PROVIDER_UNAVAILABLE", "External provider configuration is unavailable", 422);
+
+    const sourceId = id("exs");
+    const credentialRef = id("cnx");
+    const projection = validateConnectionProjection(
+      await callExternalConnectionAdapter(c.env, {
+        operation: "create",
+        providerKey: provider,
+        credentialRef,
+        credential,
+        access,
+      }),
+    );
+    if (access === "write" && !projection.write) {
+      try {
+        await callExternalConnectionAdapter(c.env, { operation: "delete", providerKey: provider, credentialRef });
+      } catch { /* fail closed: unusable vault state has no Core metadata */ }
+      throw new ApiError("EXTERNAL_VALIDATION_FAILED", "Provider connection does not allow write access", 422);
+    }
+    const timestamp = now();
+    try {
+      await c.env.DB.prepare(
+        "INSERT INTO external_sources(id,space_id,provider_key,credential_ref,status,display_name,access_mode,created_by_user_id,revoked_at,created_at,updated_at) VALUES(?,?,?,?,'active',?,?,?,?,?,?)",
+      ).bind(
+        sourceId,
+        c.req.param("spaceId")!,
+        provider,
+        credentialRef,
+        displayName,
+        projection.write ? "write" : "read",
+        principal.id,
+        null,
+        timestamp,
+        timestamp,
+      ).run();
+    } catch (error) {
+      try {
+        await callExternalConnectionAdapter(c.env, { operation: "delete", providerKey: provider, credentialRef });
+      } catch { /* best-effort compensation; orphan vault has no Core address */ }
+      throw error;
+    }
+    const created = await getExternalConnection(c.env, sourceId);
+    if (!created) throw new ApiError("EXTERNAL_UNAVAILABLE", "Connection metadata is unavailable", 503);
+    return c.json(success(externalConnectionDto(created)), 201);
+  });
+
+  app.get(connectionPath + "/:connectionId/resources", async (c) => {
+    await manager(c);
+    const connection = await getExternalConnection(c.env, c.req.param("connectionId")!);
+    if (!connection || connection.space_id !== c.req.param("spaceId")!)
+      throw new ApiError("NOT_FOUND", "Connection not found", 404);
+    if (connection.revoked_at || connection.status !== "active")
+      throw new ApiError("EXTERNAL_CONNECTION_DISABLED", "Connection is not active", 409);
+    if (!isDynamicExternalConnection(connection))
+      throw new ApiError("EXTERNAL_CONNECTION_MANAGED_EXTERNALLY", "Deployment-managed connections do not expose resource discovery", 409);
+    const result = validateConnectionResources(
+      await callExternalConnectionAdapter(c.env, {
+        operation: "listResources",
+        providerKey: connection.provider_key,
+        credentialRef: connection.credential_ref,
+        input: resourceListInput(c),
+      }),
+    );
+    return c.json(success(result));
+  });
+
+  app.patch(connectionPath + "/:connectionId", async (c) => {
+    await manager(c);
+    const connection = await getExternalConnection(c.env, c.req.param("connectionId")!);
+    if (!connection || connection.space_id !== c.req.param("spaceId")!)
+      throw new ApiError("NOT_FOUND", "Connection not found", 404);
+    if (connection.revoked_at)
+      throw new ApiError("EXTERNAL_CONNECTION_REVOKED", "Connection has been revoked", 409);
+    const input = await body(c);
+    onlyKeys(input, ["displayName", "credential", "access", "status"]);
+    if (!Object.keys(input).length) throw new ApiError("INVALID_REQUEST", "A change is required", 400);
+    const nextDisplayName = input.displayName === undefined
+      ? connection.display_name
+      : validateConnectionDisplayName(input.displayName);
+    let nextAccess = connection.access_mode;
+    if (input.access !== undefined || input.credential !== undefined) {
+      if (!isDynamicExternalConnection(connection))
+        throw new ApiError("EXTERNAL_CONNECTION_MANAGED_EXTERNALLY", "Deployment-managed credentials cannot be changed through this API", 409);
+      const requestedAccess = input.access === undefined ? undefined : connectionAccess(input.access);
+      const credential = input.credential === undefined ? undefined : validateConnectionCredential(input.credential);
+      const projection = validateConnectionProjection(
+        await callExternalConnectionAdapter(c.env, {
+          operation: "update",
+          providerKey: connection.provider_key,
+          credentialRef: connection.credential_ref,
+          ...(credential ? { credential } : {}),
+          ...(requestedAccess ? { access: requestedAccess } : {}),
+        }),
+      );
+      if (requestedAccess === "write" && !projection.write)
+        throw new ApiError("EXTERNAL_VALIDATION_FAILED", "Provider connection does not allow write access", 422);
+      nextAccess = projection.write ? "write" : "read";
+    }
+    const nextStatus = input.status === undefined ? connection.status : String(input.status);
+    if (nextStatus !== "active" && nextStatus !== "disabled")
+      throw new ApiError("VALIDATION_ERROR", "status must be active or disabled", 422);
+    const timestamp = now();
+    await c.env.DB.prepare(
+      "UPDATE external_sources SET display_name=?,access_mode=?,status=?,updated_at=? WHERE id=? AND revoked_at IS NULL",
+    ).bind(nextDisplayName, nextAccess, nextStatus, timestamp, connection.id).run();
+    const updated = await getExternalConnection(c.env, connection.id);
+    if (!updated) throw new ApiError("EXTERNAL_UNAVAILABLE", "Connection metadata is unavailable", 503);
+    return c.json(success(externalConnectionDto(updated)));
+  });
+
+  app.delete(connectionPath + "/:connectionId", async (c) => {
+    await manager(c);
+    const connection = await getExternalConnection(c.env, c.req.param("connectionId")!);
+    if (!connection || connection.space_id !== c.req.param("spaceId")!)
+      throw new ApiError("NOT_FOUND", "Connection not found", 404);
+    if (connection.revoked_at) return c.body(null, 204);
+    if (!isDynamicExternalConnection(connection))
+      throw new ApiError("EXTERNAL_CONNECTION_MANAGED_EXTERNALLY", "Deployment-managed credentials must be revoked through deployment configuration", 409);
+    await callExternalConnectionAdapter(c.env, {
+      operation: "delete",
+      providerKey: connection.provider_key,
+      credentialRef: connection.credential_ref,
+    });
+    const timestamp = now();
+    await c.env.DB.batch([
+      c.env.DB.prepare(
+        "UPDATE external_sources SET status='disabled',revoked_at=?,updated_at=? WHERE id=? AND revoked_at IS NULL",
+      ).bind(timestamp, timestamp, connection.id),
+      c.env.DB.prepare(
+        "UPDATE external_models SET status='disabled',next_refresh_at=NULL,updated_at=? WHERE source_id=? AND status!='disabled'",
+      ).bind(timestamp, connection.id),
+    ]);
+    return c.body(null, 204);
+  });
+
   app.get(sourcePath, async (c) => {
     await manager(c);
     const r = await c.env.DB.prepare(
@@ -61,6 +277,7 @@ export function registerExternalModelControlRoutes(app: App) {
       .all<ExternalSource>();
     return c.json(success({ items: r.results.map(sourceDto) }));
   });
+
   app.post(
     "/api/v1/model-admin/external-sources",
     requireScope("models:manage"),
@@ -130,7 +347,7 @@ export function registerExternalModelControlRoutes(app: App) {
           502,
         );
       await c.env.DB.prepare(
-        "INSERT INTO external_sources(id,space_id,provider_key,credential_ref,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?)",
+        "INSERT INTO external_sources(id,space_id,provider_key,credential_ref,status,access_mode,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)",
       )
         .bind(
           source.id,
@@ -138,6 +355,7 @@ export function registerExternalModelControlRoutes(app: App) {
           source.provider_key,
           source.credential_ref,
           source.status,
+          connection.write === true ? "write" : "read",
           source.created_at,
           source.updated_at,
         )
@@ -145,22 +363,26 @@ export function registerExternalModelControlRoutes(app: App) {
       return c.json(success(sourceDto(source)), 201);
     },
   );
+
   app.patch(sourcePath + "/:sourceId", async (c) => {
     await manager(c);
-    const source = await getExternalSource(c.env, c.req.param("sourceId")!);
+    const source = await getExternalConnection(c.env, c.req.param("sourceId")!);
     if (!source || source.space_id !== c.req.param("spaceId")!)
       throw new ApiError("NOT_FOUND", "Connection not found", 404);
+    if (source.revoked_at)
+      throw new ApiError("EXTERNAL_CONNECTION_REVOKED", "Connection has been revoked", 409);
     const input = await body(c);
     onlyKeys(input, ["status"]);
     if (!["active", "disabled"].includes(String(input.status)))
       throw new ApiError("VALIDATION_ERROR", "Invalid connection status", 422);
     await c.env.DB.prepare(
-      "UPDATE external_sources SET status=?,updated_at=? WHERE id=?",
+      "UPDATE external_sources SET status=?,updated_at=? WHERE id=? AND revoked_at IS NULL",
     )
       .bind(input.status, now(), source.id)
       .run();
     return c.json(success({ ...sourceDto(source), status: input.status }));
   });
+
   app.get(modelPath, async (c) => {
     await manager(c);
     const rows = await c.env.DB.prepare(
@@ -175,6 +397,7 @@ export function registerExternalModelControlRoutes(app: App) {
           registrationId: r.model_key,
           definitionKey: r.definition_key ?? null,
           spaceId: r.space_id,
+          connectionId: r.source_id,
           sourceId: r.source_id,
           displayName: r.display_name,
           status: r.status,
@@ -185,15 +408,20 @@ export function registerExternalModelControlRoutes(app: App) {
       }),
     );
   });
+
   app.post(modelPath, async (c) => {
     await manager(c);
     const input = await body(c);
-    onlyKeys(input, ["sourceId", "resourceId", "declaredAccess", "definitionKey"]);
+    onlyKeys(input, ["connectionId", "sourceId", "resourceId", "declaredAccess", "definitionKey"]);
+    if (input.connectionId !== undefined && input.sourceId !== undefined)
+      throw new ApiError("INVALID_REQUEST", "Use connectionId; sourceId is legacy compatibility only", 400);
+    const sourceAddress = input.connectionId ?? input.sourceId;
     const definitionKey = input.definitionKey === undefined ? null : boundedString(input.definitionKey, "definitionKey", 63);
-    if (definitionKey && (await getRuntimeModel(c.env, definitionKey))?.definition.origin !== "external") throw new ApiError("EXTERNAL_DEFINITION_UNAVAILABLE", "Publish an External business definition before binding it", 422);
+    if (definitionKey && (await getRuntimeModel(c.env, definitionKey))?.definition.origin !== "external")
+      throw new ApiError("EXTERNAL_DEFINITION_UNAVAILABLE", "Publish an External business definition before binding it", 422);
     const source = await getExternalSource(
       c.env,
-      boundedString(input.sourceId, "sourceId"),
+      boundedString(sourceAddress, "connectionId"),
     );
     if (
       !source ||
@@ -201,6 +429,9 @@ export function registerExternalModelControlRoutes(app: App) {
       source.status !== "active"
     )
       throw new ApiError("NOT_FOUND", "Connection not found", 404);
+    const connection = await getExternalConnection(c.env, source.id);
+    if (connection?.revoked_at)
+      throw new ApiError("EXTERNAL_CONNECTION_REVOKED", "Connection has been revoked", 409);
     const resource = boundedString(input.resourceId, "resourceId");
     const declared = input.declaredAccess ?? "read";
     if (declared !== "read" && declared !== "write")
@@ -209,6 +440,8 @@ export function registerExternalModelControlRoutes(app: App) {
         "declaredAccess must be read or write",
         422,
       );
+    if (declared === "write" && connection?.access_mode === "read")
+      throw new ApiError("EXTERNAL_VALIDATION_FAILED", "Connection is read-only", 422);
     const snapshot = validateExternalSnapshot(
       await callExternalAdapter(c.env, source, "discover", resource),
     );
@@ -218,7 +451,8 @@ export function registerExternalModelControlRoutes(app: App) {
     )
       .bind(source.provider_key, snapshot.resourceId)
       .first<{ model_key: string; space_id: string; status: string; definition_key: string | null }>();
-    if (previous?.definition_key && definitionKey !== null && previous.definition_key !== definitionKey) throw new ApiError("EXTERNAL_DEFINITION_IMMUTABLE", "A binding cannot change its business definition", 409);
+    if (previous?.definition_key && definitionKey !== null && previous.definition_key !== definitionKey)
+      throw new ApiError("EXTERNAL_DEFINITION_IMMUTABLE", "A binding cannot change its business definition", 409);
     if (
       previous &&
       (previous.space_id !== source.space_id || previous.status !== "disabled")
@@ -294,8 +528,9 @@ export function registerExternalModelControlRoutes(app: App) {
         "Registration unavailable",
         503,
       );
-    return c.json(success(externalSemanticDetail(model)), 201);
+    return c.json(success({ ...externalSemanticDetail(model), connectionId: source.id }), 201);
   });
+
   app.post(modelPath + "/:modelKey/refresh", async (c) => {
     await manager(c);
     const input = await body(c);
@@ -310,6 +545,7 @@ export function registerExternalModelControlRoutes(app: App) {
       success(externalSemanticDetail(await refreshExternalModel(c.env, m))),
     );
   });
+
   app.patch(modelPath + "/:modelKey", async (c) => {
     await manager(c);
     const input = await body(c);
