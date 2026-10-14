@@ -1,57 +1,106 @@
 # Space-local External Models / 空间外部模型
 
-Status: implementation contract for #340; not a production capability.
+Status: implementation contract for Federated Truth / External Data; not production availability evidence until the exact candidate passes production rollout.
 
-External Model is a **Query** relationship to provider-authoritative Shared World/Knowledge. Core owns Semantics, Authority and Context Projection (A1/A3/A5); the provider owns record payload/schema. Core never mirrors external business records.
+External Model is a **Query** relationship to provider-authoritative Shared World/Knowledge. Core owns Semantics, Authority and Context Projection; the provider owns record payload/schema. Core never mirrors external business records.
 
-## Identity and lifecycle / 身份与生命周期
+## Business definition and Space binding / 业务定义与空间绑定
 
-## External business definition and Space binding / 外部业务定义与空间绑定（开发中）
+External models first publish a provider-neutral business definition through the existing Model Registry / Console Model publishing flow. The closed definition declares `origin: external`, stable business `key`, display/description, access ceiling and outgoing Semantic Relations, with `fields: {}`. It does not prescribe provider fields, generate a native table or inherit Native Actions/Capabilities/versioning.
 
-External models first publish a provider-neutral business definition through the existing Model Registry / Console Model publishing flow. The closed definition declares `origin: external`, stable business `key`, display/description, access ceiling and outgoing Semantic Relations, with `fields: {}`. It does not prescribe or mirror provider fields, generate a native table, or inherit Native Actions/Capabilities/concurrency. Other model definitions can declare this stable key as a relation target before any database is bound.
+A Space then configures:
 
-A Space then binds that published External definition to an existing Connection and concrete Provider Data Source. One active binding per `(spaceId, definitionKey)` is allowed; one provider resource still belongs to exactly one source Space. The public model address and Authority key are the stable business key; `ext_*` remains the binding identity. Unbound/disabled/retired definitions never create runtime availability or Authority. Legacy untyped registrations keep their explicit `ext_*` CRUD addressing; type-constrained relations require a published business definition and binding. A Native model cannot change origin to External or vice versa.
+```text
+Provider
+  → Connection
+  → Provider Resource / Data Source
+  → published External Model Definition binding
+```
 
-Provider schema discovery remains automatic and latest-only. The immutable Registry contract pins business semantics only; External field/wire constraints remain dynamic and must be read from Space Discovery. A description/type declaration cannot change provider fields or grant access. Model definition registration uses the existing actor-aware Model Admin boundary; Space binding uses the existing direct User Space-management boundary, without hidden platform membership.
+The **same Space API is the canonical product setup contract for Console and downstream applications** such as ALOHA/HomeMew. Console is only one client; it is not a hidden provisioning authority.
 
-`Space Model Catalog = global active Native Models + active External registrations for this Space`. External binding IDs reserve `ext_<32 hex>`; business runtime keys come from the published External definition. Native publication cannot use `ext_`. Identity is unrelated to display name. Provider/resource identity is unique across **all** connections and Spaces, including disabled registrations. Re-registration in the same Space restores a disabled identity, never moves it to another Space. Active duplicate registration is a conflict. Disable removes runtime availability without deleting provider data or old Grants. Sources are configured under a managing Space; they are execution connections, not ACLs.
+A binding stores the latest compatible Provider snapshot and associates it with the stable business definition. One active binding per `(spaceId, definitionKey)` is allowed; one provider resource still belongs to exactly one source Space. The public model address and Authority key are the stable business key; `ext_*` remains the binding identity. Legacy untyped registrations keep explicit `ext_*` CRUD addressing.
 
-Native resolver retains its isolate descriptor path with zero additional D1/HTTP tax. External resolution checks current registration/connection status and reads the latest compatible snapshot. Immutable Registry/mct pins business definitions; Provider fields stay latest-only and dynamic. External detail binds `(spaceId,modelKey,schemaHash)` and has no Native model version.
+Provider schema discovery is automatic and latest-only. Immutable Registry/mct pins business semantics only; Provider fields stay dynamic and are read from Space Discovery. Unsupported Provider fields are absent rather than represented as provider-specific pseudo-types.
 
-## Credentials / 凭据
+`Space Model Catalog = global active Native Models + active External registrations for this Space`. Native publication cannot use `ext_`. Provider/resource identity is unique across connections and Spaces, including disabled registrations. Disabling a binding removes runtime availability without deleting provider data or old Grants.
 
-Provider tokens live only in a provider Adapter Worker Secret. D1 stores a bounded opaque credential reference. Rotation replaces the Secret at the same reference; revocation disables the connection in Core and removes/disables the Secret. Core connects to one fixed Service Binding, authenticated with an independent >=32 character shared Secret. There is no caller-controlled URL, token forwarding from ordinary callers or public unauthenticated adapter endpoint. Deployment must keep workers_dev/preview URLs disabled and bind matching isolated environments.
+## Product Connection configuration / 产品连接配置
 
-Source provisioning is service-only `models:manage` at `/api/v1/model-admin/external-sources`, binding a connection to a Space. A credential reference is not Authority: ordinary Space managers cannot create Sources from guessed server Secret references. Model registration/refresh/disable and Source status/list are Space-management (`spaces:manage`, direct User and current Space manage). Connection creation grants no application/model/data authority. Runtime uses the **same** current Application × Model Access, Membership/Data Grant, scope and Delegation functions as Native.
+Normative product contract: `apps/core/external-connection.openapi.yaml`.
 
-## Adapter contract / 适配器契约
+A direct User with `spaces:manage` plus current Space `manage` authority can:
 
-Canonical internal contract: `apps/core/external-adapter.contract.json`, version `1`. A POST to the fixed `/internal/v1/external-models` accepts providerKey, credentialRef, operation, resourceId and the latest compatible snapshot. It returns normalized data or a bounded generic error code. Provider messages/bodies/headers never enter client errors or audit.
+- discover supported Providers;
+- create/list/update Space Connections;
+- rotate a managed credential or reduce/restore its read/write ceiling;
+- discover Provider resources visible through one managed Connection;
+- bind a published External Model Definition to a selected resource.
 
-Snapshot contains only supported fields: stable canonical key, source field identity, canonical type, title, nullable/readable/writable/filter operators/sortable and optional enum values. Private bounded `adapterState` holds codecs for **supported** fields only; it is never exposed by Discovery. Unsupported fields do not appear anywhere in the LifeSpace model. Stable source property identity survives rename; types are automatically replaced, without request/data coercion. A schema hash identifies current semantics, not a revision history.
+The public create/update API **never accepts a server-side `credentialRef`**. It accepts the Provider credential as transient authenticated request input. Core generates an opaque `cnx_*` reference, immediately forwards the credential through the fixed private Adapter Service Binding and persists only Space Connection metadata plus the opaque reference. Provider plaintext is never returned and never stored in Core D1, Model Registry, audit payloads or Console/application state.
 
-Read/query/write use the same `/models/{modelKey}/records` paths. Response is an external envelope (`id,spaceId,modelKey,origin,schemaHash,data fields,provider timestamps`); it omits fabricated version/createdBy/updatedBy. Query pushes a declared typed subset to the provider and rejects unsupported operators/values. No unbounded scans. Opaque authenticated cursor binds Space/model/schema/query/provider continuation. Pagination is live, not a snapshot; provider sorting/null placement/tie behavior is explicitly provider-defined rather than Native-guaranteed.
+The public Connection ID is `exc_*`. The persisted table is still `external_sources` for compatibility; `sourceId` remains an accepted legacy alias in External Model 0.2 while new product callers use `connectionId`.
+
+`credentialMode=managed` means product-configured and supports resource discovery/credential update. `credentialMode=bootstrap` means deployment-managed compatibility. Bootstrap connections may be inspected/disabled but their credential cannot be changed and their resource catalog is not exposed through the product API.
+
+Connection creation grants **no** Application × Model Access, Membership, Data Grant, Delegation or record permission. Runtime uses the same current Application × Model Access, Membership/Data Grant, scope and Delegation functions as Native.
+
+## Credential ownership / 凭据归属
+
+Dynamic Provider credentials are owned by the private Provider Adapter. The Notion Adapter maps each generated `cnx_*` to one SQLite-backed Cloudflare Durable Object. That object stores the token and connection read/write ceiling and performs Provider execution for that connection; the credential therefore does not need to be returned to the outer Adapter Worker after setup.
+
+The Durable Object is a credential/runtime isolation mechanism, **not** a second authorization system. LifeSpace Space/Grant/Application/Delegation authority remains exclusively in Core. Different connections use different Durable Objects; one connection naturally shares pacing/circuit state without serializing unrelated connections.
+
+Deployment-managed `NOTION_CONNECTIONS` remains supported only for bootstrap/staging/ops use. `POST /api/v1/model-admin/external-sources` remains service-only `models:manage` for binding such a preconfigured opaque reference to a Space. An ordinary Space manager cannot submit or guess these server-side references.
+
+Core and Adapter authenticate over one fixed Service Binding with an independent >=32-character shared Secret. The Adapter has no public workers.dev/preview/custom-domain endpoint. Staging and production use separate Workers, Durable Object namespaces, secrets and Connection state.
+
+## Adapter contracts / 适配器契约
+
+Runtime execution contract: `apps/core/external-adapter.contract.json`, version `1`, on private `/internal/v1/external-models`.
+
+Connection-management contract: `apps/core/external-connection-adapter.contract.json`, version `1`, on private `/internal/v1/external-connections`. Operations are `describe`, `create`, `update`, `delete`, `listResources`. Credential plaintext may appear only in create/update input and must never be echoed or logged. Provider-specific resource discovery is normalized to `{id,type,displayName}` plus opaque pagination cursor.
+
+Snapshot contains only supported fields: stable canonical key, source field identity, canonical type, title, nullable/readable/writable/filter operators/sortable and optional enum values. Private bounded `adapterState` holds codecs for supported fields only; it is never exposed by Discovery. Stable source property identity survives rename. A schema hash identifies current semantics, not a revision history.
+
+Read/query/write use the same `/models/{modelKey}/records` paths. Response is an External envelope without fabricated Native version/createdBy/updatedBy. Query pushes a declared typed subset to the provider and rejects unsupported operators/values. No unbounded scans. Cursor binds Space/model/schema/query/provider continuation. Provider sorting/null placement/tie behavior remains provider-defined.
 
 ## Capability and change boundary / 能力与变更边界
 
-get/query/create/update/delete and bounded per-item bulk may be supported. `atomicBatch`, `transaction`, `versionedWrite`, `actions`, Native Eventing and Native record history are false. Caller-supplied version is rejected. Unified `/models/batch` accepts External CRUD with explicit `atomicConsistency=false` and optional request-wide `delegationId`; atomic/default requests reject before any write. `/models/bulk` remains compatible. Mixed Native/external CRUD requests retain per-item semantics with no distributed transaction; independent relation_create/relation_delete actions can follow Provider CRUD in an explicitly non-atomic request. Request-local create clientRefs resolve after successful record creation; failed or unknown creates fail dependent relations. Provider record writes and D1 edges do not roll back together. Attached semanticRelations on a Provider create remain unavailable; use independent relation_create.
+get/query/create/update/delete and bounded per-item bulk may be supported. `atomicBatch`, `transaction`, `versionedWrite`, `actions`, Native Eventing and Native record history are false. Caller-supplied version is rejected. Unified `/models/batch` accepts External CRUD only with `atomicConsistency=false`; atomic/default requests reject before Provider I/O.
 
-External operation audit is `pending -> succeeded | failed | unknown`. It captures verified Application/Principal/Actor/Delegation chain, operation, identity, timestamp and status; no record payload, secret or historical schema. Write audit is persisted **before** provider execution. Crash/network ambiguity remains pending/unknown; it is never reported as a guaranteed failure and never retried blindly. This is operation attribution, not Native Change/outbox or Information Provenance. Single-use delegated writes are rejected because provider success and D1 consumption cannot be atomically guaranteed. Single-use reads use the existing conditional consumption before returning data.
+External operation audit is `pending -> succeeded | failed | unknown`. It records verified Application/Principal/Actor/Delegation chain, operation, identity, timestamp and status; it does not store record payload, credential or historical schema. Write audit is persisted before Provider execution. Crash/network ambiguity is never reported as guaranteed failure and is never retried blindly. Single-use delegated writes remain rejected because Provider success and D1 consumption cannot be atomically guaranteed.
 
 ## Freshness and failures / 新鲜度与失败
 
-Registration discovers once; manual refresh and a bounded scheduled reconciliation update only the latest snapshot. Source provisioning requires deployment-supplied `EXTERNAL_SCHEMA_REFRESH_SECONDS` (60–86400); no speculative default SLO is presented as measured. Reconciliation selects at most 20 executable due registrations through the partial next_refresh_at/model_key index, with 2 concurrent refreshes. Disabling a Source or retiring its business definition parks its queue entries; reactivation schedules only registrations with a current published definition (legacy untyped bindings remain supported). Source, Space and business-definition liveness filter before LIMIT. Republishing the same origin resumes eligible binding/identity queues without resetting Registry versions or deleting records. External reconciliation, Recurrence rolling and existing outbox dispatch run with independent failure isolation; all failures remain observable. No ordinary operation fetches schema first. An explicitly unexecuted schema-mismatch response permits one refresh and one retry; uncertain writes never retry. Metadata status uses current-state checks. Provider access removal and connection revoke fail closed.
+Registration discovers once; manual refresh and bounded scheduled reconciliation update only the latest snapshot. `EXTERNAL_SCHEMA_REFRESH_SECONDS` is deployment configuration, not a measured freshness SLO. Reconciliation selects bounded indexed work and keeps disabled Connections/bindings out of executable queues. No ordinary operation fetches schema first. An explicitly unexecuted schema mismatch may refresh and retry once; uncertain writes never retry.
 
-For non-atomic relation batches, a Provider endpoint read failure belongs to the items depending on that endpoint. Independent Native mutations and successful endpoint items continue; Get/Query retain their strict failure semantics. Provider read audit and degraded metadata finalize in grouped D1 writes rather than one D1 update per failed endpoint.
+Provider access removal, Connection disable/revoke and missing business definition fail closed. Provider errors are normalized; raw Provider bodies/messages/headers do not enter client errors or audit.
 
 ## Relations / 关系
 
-Published, active External business bindings participate in the same Semantic Relation API using business model keys. Source write and target read are checked before Provider resolution; grouped identity-only metadata, pending/final audit batches and <=3 concurrent Provider reads avoid per-endpoint D1 waterfalls. Native-Native commit/cleanup remains atomic. External endpoints reject atomic batch before Provider I/O, expose opaque unavailable on failed/missing hydration, and never invent Native versions. Confirmed through-LifeSpace Provider deletion invalidates observed identity and cleans local edges afterward; this local cleanup is not atomic with the Provider write. Provider-direct absence remains opaque: missing and denied cannot reliably prove deletion, so retained links can be explicitly removed under current source-write/target-read authority without contacting the Provider. Bounded periodic identity observation checks at most 20 due IDs with <=3 concurrent Provider reads, stores only availability/observation/next-check metadata, and marks missing/hidden endpoints unavailable before SQL pagination. It uses the trusted connection only for metadata observation, never saved User/Delegation tokens, and publishes no Provider payload or fabricated User attribution. Links are retained for explicit local removal; successful later reads restore availability. Queue indexes and Source/binding parking keep disabled connections out of executable work. Actual Provider latency/freshness remains a staging gate. Legacy untyped ext_* registrations remain CRUD-only; fixed record/record_list field targets remain Native-only.
+Published active External business bindings participate in the same Semantic Relation API using business model keys. Source write and target read are checked before Provider resolution. Native-Native commit/cleanup remains atomic; External endpoints reject atomic batch before Provider I/O and never invent Native versions. Provider record writes and D1 edges do not roll back together.
+
+Confirmed through-LifeSpace Provider deletion invalidates observed identity and cleans local edges afterward. Provider-direct absence remains opaque because missing and denied cannot reliably prove deletion. Periodic observation is bounded and stores only availability/observation metadata, never Provider payload or saved User/Delegation tokens.
+
+## Console and application UX / Console 与应用入口
+
+Normal UX belongs to the application managing the Space. Console exposes the same flow as a reference/governance client:
+
+1. select Provider;
+2. enter credential and create a named Connection;
+3. select a Provider resource discovered through that Connection;
+4. select an already published External Model Definition;
+5. bind with read/write ceiling.
+
+The browser sends credential only to its own bounded same-origin BFF/application backend. The backend obtains a LifeSpace User token with `spaces:manage` and calls the public Core API. Console does not use its platform Core executor or hidden membership for this flow. Downstream apps should use the same Core contract rather than duplicating credential storage or calling the Provider directly.
+
+External Model Definition publication remains platform Model Registry governance and can stay in Console/Model Admin. Ordinary application settings bind already-published definitions to that Space.
 
 ## Verification and rollout / 验证与发布
 
-Synthetic contract/integration tests and structural call-count tests are reproducible. Provider wall latency/freshness SLO, real credential permissions and staging acceptance require an isolated deployed Adapter binding and synthetic Notion data source. Local timings are not provider p50/p95. No production docs may mark this available before successful production deployment.
+Synthetic unit/integration tests prove contract boundaries. Real Provider acceptance requires an isolated Adapter deployment and synthetic Notion resources. Deployment remains code-owned by canonical manual platform workflows: deploy the immutable Adapter revision in `infra/external-provider.json` before Core, synchronize the independent shared Secret, run migrations, verify private bindings/DO packaging, then run real staging acceptance.
 
-Deployment wiring is code-owned by the canonical manual platform workflows. An enabled environment deploys the immutable Adapter revision in `infra/external-provider.json` before Core, injects matching independent secrets over stdin, resolves optional `EXTERNAL_ADAPTER` in the ephemeral checkout and verifies live private exposure/binding/refresh settings. Remote profiles explicitly configure a 300-second schema refresh interval; this is configuration, not a measured SLO. Staging runs the same External and Recurrence acceptance orchestration covered by HTTP/D1 integration tests. See [deployment prerequisites and acceptance](../infra/external-provider-rollout.md) for one-time Environment setup, automatic checks, cleanup and the separate Console browser gate. A Native-only release must not be reported as External acceptance.
+Staging browser acceptance must exercise the **product flow** above: create a managed Connection, discover the second synthetic Data Source, bind it and verify descriptor-driven fields/read/write behavior. It must not rely on staging-only direct D1 provisioning as proof of product completeness.
 
-Console: register the External definition through existing human actor + controlled executor Model Admin. In a Space, choose the definition, an already provisioned connection and concrete Data Source ID; binding uses a verified User token with spaces:manage, never the platform executor or hidden membership. The Console Application scope ceiling must explicitly allow spaces:manage; provisioning/real staging verification is a release gate.
+No production document may mark this capability available until the exact candidate passes staging, APAC gates where applicable, production deployment and post-deploy verification.
