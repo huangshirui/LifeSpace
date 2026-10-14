@@ -110,10 +110,11 @@ async function fixture() {
     }, privateKey, "RS256");
   }
 
-  async function request(path: string, method = "GET", body?: unknown, bearer = await token()) {
+  async function request(path: string, method = "GET", body?: unknown, bearer?: string) {
+    const authorization = bearer ?? await token();
     return app.request(`https://example.com${path}`, {
       method,
-      headers: { authorization: `Bearer ${bearer}`, accept: "application/json", "content-type": "application/json" },
+      headers: { authorization: `Bearer ${authorization}`, accept: "application/json", "content-type": "application/json" },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     }, bindings);
   }
