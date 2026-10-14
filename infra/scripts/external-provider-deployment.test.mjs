@@ -7,25 +7,29 @@ const environment = () => ({
   LIFESPACE_EXTERNAL_PROVIDER_ENABLED: "1",
   LIFESPACE_EXTERNAL_ADAPTER_WORKER: "synthetic-provider-staging",
   EXTERNAL_ADAPTER_SHARED_SECRET: "synthetic-independent-shared-secret-value",
+  CONNECTION_VAULT_MASTER_KEY: "22".repeat(32),
   NOTION_CONNECTIONS: JSON.stringify({ smoke: { token: "synthetic-token", read: true, write: true } }),
   LIFESPACE_EXTERNAL_SMOKE_CREDENTIAL_REF: "smoke",
   LIFESPACE_EXTERNAL_SMOKE_RESOURCE_ID: "10000000000000000000000000000001",
   LIFESPACE_EXTERNAL_SMOKE_SYNTHETIC_CONFIRMED: "1",
 });
-test("enabled staging validates full synthetic provider prerequisites; disabled remains optional", () => {
+test("enabled staging validates encrypted provider prerequisites; disabled remains optional", () => {
   assert.equal(deploymentSettings({}, "production").enabled, false);
   assert.equal(deploymentSettings(environment(), "staging").enabled, true);
   assert.throws(() => deploymentSettings({}, "local"));
-  for (const [key, value] of Object.entries({ LIFESPACE_EXTERNAL_PROVIDER_ENABLED: "yes", LIFESPACE_EXTERNAL_ADAPTER_WORKER: "synthetic-production", EXTERNAL_ADAPTER_SHARED_SECRET: "short", NOTION_CONNECTIONS: "null", LIFESPACE_EXTERNAL_SMOKE_CREDENTIAL_REF: "missing", LIFESPACE_EXTERNAL_SMOKE_RESOURCE_ID: "bad", LIFESPACE_EXTERNAL_SMOKE_SYNTHETIC_CONFIRMED: "0" })) {
+  for (const [key, value] of Object.entries({ LIFESPACE_EXTERNAL_PROVIDER_ENABLED: "yes", LIFESPACE_EXTERNAL_ADAPTER_WORKER: "synthetic-production", EXTERNAL_ADAPTER_SHARED_SECRET: "short", CONNECTION_VAULT_MASTER_KEY: "short", NOTION_CONNECTIONS: "null", LIFESPACE_EXTERNAL_SMOKE_CREDENTIAL_REF: "missing", LIFESPACE_EXTERNAL_SMOKE_RESOURCE_ID: "bad", LIFESPACE_EXTERNAL_SMOKE_SYNTHETIC_CONFIRMED: "0" })) {
     assert.throws(() => deploymentSettings({ ...environment(), [key]: value }, "staging"), key);
   }
   for (const connections of [[], {}, { smoke: { token: "sensitive-synthetic-value", read: true, write: false } }, { smoke: { token: "sensitive-synthetic-value", read: true, write: true, disabled: true } }]) {
     assert.throws(() => deploymentSettings({ ...environment(), NOTION_CONNECTIONS: JSON.stringify(connections) }, "staging"), error => !error.message.includes("sensitive-synthetic-value"));
   }
   assert.throws(() => deploymentSettings({ ...environment(), LIFESPACE_STAGING_BOOTSTRAP_SECRET: environment().EXTERNAL_ADAPTER_SHARED_SECRET }, "staging"));
+  assert.throws(() => deploymentSettings({ ...environment(), LIFESPACE_STAGING_BOOTSTRAP_SECRET: environment().CONNECTION_VAULT_MASTER_KEY }, "staging"));
   assert.throws(() => deploymentSettings(environment(), "production"));
   assert.throws(() => deploymentSettings({ ...environment(), EXTERNAL_ADAPTER_SHARED_SECRET: "x".repeat(32) + "\n" }, "staging"));
+  assert.throws(() => deploymentSettings({ ...environment(), CONNECTION_VAULT_MASTER_KEY: "g".repeat(64) }, "staging"));
   assert.throws(() => deploymentSettings({ ...environment(), NOTION_CONNECTIONS: JSON.stringify({ smoke: { token: "synthetic\ntoken", read: true, write: true } }) }, "staging"));
+  assert.throws(() => deploymentSettings({ ...environment(), CONNECTION_VAULT_MASTER_KEY: "ab".repeat(32), NOTION_CONNECTIONS: JSON.stringify({ smoke: { token: "ab".repeat(32), read: true, write: true } }) }, "staging"));
 });
 test("optional Core binding preserves opposite environment and all platform bindings", () => {
   const config = JSON.parse(readFileSync(new URL("../../apps/core/wrangler.jsonc", import.meta.url), "utf8"));
@@ -36,7 +40,7 @@ test("optional Core binding preserves opposite environment and all platform bind
   assert.deepEqual(bindProvider(bound, settings), bound);
   assert.deepEqual(bindProvider(bound, deploymentSettings({}, "staging")), config);
 });
-test("private profiles and live secret/binding/vault metadata fail closed", () => {
+test("private profiles and live secret/binding/encrypted-vault metadata fail closed", () => {
   const profile = {
     workers_dev: false,
     preview_urls: false,
@@ -51,13 +55,14 @@ test("private profiles and live secret/binding/vault metadata fail closed", () =
   const settings = deploymentSettings(environment(), "staging");
   const core = { bindings: [{ name: "EXTERNAL_ADAPTER", type: "service", service: settings.worker }, { name: "EXTERNAL_ADAPTER_SHARED_SECRET", type: "secret_text" }, { name: "EXTERNAL_SCHEMA_REFRESH_SECONDS", type: "plain_text", text: "300" }] };
   const adapter = { bindings: [
-    ...["EXTERNAL_ADAPTER_SHARED_SECRET", "NOTION_CONNECTIONS"].map(name => ({ name, type: "secret_text" })),
+    ...["EXTERNAL_ADAPTER_SHARED_SECRET", "NOTION_CONNECTIONS", "CONNECTION_VAULT_MASTER_KEY"].map(name => ({ name, type: "secret_text" })),
     { name: "CONNECTIONS", type: "durable_object_namespace" },
   ] };
   validateLiveBindings(core, adapter, settings);
   for (let i = 0; i < core.bindings.length; i++) assert.throws(() => validateLiveBindings({ bindings: core.bindings.filter((_, j) => i !== j) }, adapter, settings));
   assert.throws(() => validateLiveBindings(core, { bindings: [] }, settings));
-  assert.throws(() => validateLiveBindings(core, { bindings: adapter.bindings.filter(binding => binding.name !== "CONNECTIONS") }, settings));
+  for (const required of ["EXTERNAL_ADAPTER_SHARED_SECRET", "NOTION_CONNECTIONS", "CONNECTION_VAULT_MASTER_KEY", "CONNECTIONS"])
+    assert.throws(() => validateLiveBindings(core, { bindings: adapter.bindings.filter(binding => binding.name !== required) }, settings));
 });
 test("Adapter code deploy and secret upload target the same exact Worker name", () => {
   for (const [environmentName, worker] of [["staging", "synthetic-provider-staging"], ["production", "synthetic-provider"]]) {
@@ -67,11 +72,11 @@ test("Adapter code deploy and secret upload target the same exact Worker name", 
     assert.equal(commands.secrets.includes("--env"), false);
   }
 });
-test("canonical release deploys pinned Adapter before Core and gates provider acceptance", () => {
+test("canonical release deploys encrypted pinned Adapter before Core and gates provider acceptance", () => {
   const manifest = JSON.parse(readFileSync(new URL("../external-provider.json", import.meta.url), "utf8"));
   assert.match(manifest.revision, /^[a-f0-9]{40}$/);
   assert.equal(manifest.repository, "huangshirui/lifespace-adapters");
-  assert.equal(manifest.revision, "85a569df6b5f2305c4a0a42d3762f5bb118944aa");
+  assert.equal(manifest.revision, "f552145159332f1cf088a803d48c94ae54eec2c0");
   assert.ok(readFileSync(new URL("../../.github/workflows/check.yml", import.meta.url), "utf8").includes(`ref: ${manifest.revision}`));
   for (const env of ["staging", "production"]) {
     const workflow = readFileSync(new URL(`../../.github/workflows/${env === "staging" ? "staging" : "production"}-deploy.yml`, import.meta.url), "utf8");
@@ -81,6 +86,7 @@ test("canonical release deploys pinned Adapter before Core and gates provider ac
     assert.ok(prepare >= 0 && prepare < adapter && adapter < core);
     assert.ok(workflow.indexOf(`external-provider-deployment.mjs sync-core ${env}`) > core);
     assert.ok(workflow.includes("ref: ${{ env.LIFESPACE_EXTERNAL_PROVIDER_REVISION }}"));
+    assert.ok(workflow.includes("CONNECTION_VAULT_MASTER_KEY: ${{ secrets.CONNECTION_VAULT_MASTER_KEY }}"));
     assert.ok(workflow.includes(`external-provider-deployment.mjs verify ${env}`));
   }
 });
