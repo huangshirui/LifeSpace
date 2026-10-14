@@ -36,18 +36,28 @@ test("optional Core binding preserves opposite environment and all platform bind
   assert.deepEqual(bindProvider(bound, settings), bound);
   assert.deepEqual(bindProvider(bound, deploymentSettings({}, "staging")), config);
 });
-test("private profiles and live secret/binding metadata fail closed", () => {
-  const profile = { workers_dev: false, preview_urls: false, routes: [] };
+test("private profiles and live secret/binding/vault metadata fail closed", () => {
+  const profile = {
+    workers_dev: false,
+    preview_urls: false,
+    routes: [],
+    durable_objects: { bindings: [{ name: "CONNECTIONS", class_name: "NotionConnectionVault" }] },
+  };
   const config = { ...profile, env: { staging: profile } };
   validateProviderProfile(config, "staging");
   assert.throws(() => validateProviderProfile({ ...config, workers_dev: true }, "staging"));
+  assert.throws(() => validateProviderProfile({ ...config, env: { staging: { ...profile, durable_objects: { bindings: [] } } } }, "staging"));
   assert.throws(() => validateProviderProfile(config, "production"));
   const settings = deploymentSettings(environment(), "staging");
   const core = { bindings: [{ name: "EXTERNAL_ADAPTER", type: "service", service: settings.worker }, { name: "EXTERNAL_ADAPTER_SHARED_SECRET", type: "secret_text" }, { name: "EXTERNAL_SCHEMA_REFRESH_SECONDS", type: "plain_text", text: "300" }] };
-  const adapter = { bindings: ["EXTERNAL_ADAPTER_SHARED_SECRET", "NOTION_CONNECTIONS"].map(name => ({ name, type: "secret_text" })) };
+  const adapter = { bindings: [
+    ...["EXTERNAL_ADAPTER_SHARED_SECRET", "NOTION_CONNECTIONS"].map(name => ({ name, type: "secret_text" })),
+    { name: "CONNECTIONS", type: "durable_object_namespace" },
+  ] };
   validateLiveBindings(core, adapter, settings);
   for (let i = 0; i < core.bindings.length; i++) assert.throws(() => validateLiveBindings({ bindings: core.bindings.filter((_, j) => i !== j) }, adapter, settings));
   assert.throws(() => validateLiveBindings(core, { bindings: [] }, settings));
+  assert.throws(() => validateLiveBindings(core, { bindings: adapter.bindings.filter(binding => binding.name !== "CONNECTIONS") }, settings));
 });
 test("Adapter code deploy and secret upload target the same exact Worker name", () => {
   for (const [environmentName, worker] of [["staging", "synthetic-provider-staging"], ["production", "synthetic-provider"]]) {
@@ -61,6 +71,7 @@ test("canonical release deploys pinned Adapter before Core and gates provider ac
   const manifest = JSON.parse(readFileSync(new URL("../external-provider.json", import.meta.url), "utf8"));
   assert.match(manifest.revision, /^[a-f0-9]{40}$/);
   assert.equal(manifest.repository, "huangshirui/lifespace-adapters");
+  assert.equal(manifest.revision, "85a569df6b5f2305c4a0a42d3762f5bb118944aa");
   assert.ok(readFileSync(new URL("../../.github/workflows/check.yml", import.meta.url), "utf8").includes(`ref: ${manifest.revision}`));
   for (const env of ["staging", "production"]) {
     const workflow = readFileSync(new URL(`../../.github/workflows/${env === "staging" ? "staging" : "production"}-deploy.yml`, import.meta.url), "utf8");
