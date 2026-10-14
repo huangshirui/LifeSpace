@@ -14,6 +14,7 @@ type JsonRecord = Record<string, unknown>;
 type UpstreamResult = { response: Response; payload: unknown };
 const ACCESS_ASSERTION_HEADER = "cf-access-jwt-assertion";
 const INTENT_HEADER = "x-lifespace-console-intent";
+const CONFIRM_CONNECTION_HEADER = "x-lifespace-console-confirm-connection-id";
 const MAX_BODY_BYTES = 20 * 1024;
 
 function isRecord(value: unknown): value is JsonRecord {
@@ -109,6 +110,19 @@ async function forward(request: Request, env: Env, corePath: string, method: str
 
 async function externalConnectionApi(request: Request, env: Env): Promise<Response | null> {
   const url = new URL(request.url);
+  const binding = /^\/api\/spaces\/(spc_[A-Za-z0-9_-]+)\/external-models$/u.exec(url.pathname);
+  if (binding && request.method === "POST") {
+    const spaceId = binding[1]!;
+    if (url.search) return failure("VALIDATION_ERROR", "Query parameters are not accepted", 422, requestId(request));
+    const guard = browserMutation(request, "bind-external-model"); if (guard) return guard;
+    const input = await readJsonObject(request, ["definitionKey", "connectionId", "resourceId", "declaredAccess"]); if (input instanceof Response) return input;
+    if (!stringValue(input.definitionKey) || !stringValue(input.connectionId) || !stringValue(input.resourceId) || !["read", "write"].includes(String(input.declaredAccess)))
+      return failure("VALIDATION_ERROR", "External model binding requires definitionKey, connectionId, resourceId and declaredAccess", 422, requestId(request));
+    if (!validConnectionId(String(input.connectionId))) return failure("VALIDATION_ERROR", "connectionId is invalid", 422, requestId(request));
+    return forward(request, env, `/api/v1/spaces/${encodeURIComponent(spaceId)}/external-models`, "POST", input);
+  }
+  if (binding) return null;
+
   const base = /^\/api\/spaces\/(spc_[A-Za-z0-9_-]+)\/(external-providers|external-connections)(?:\/(exs_[a-f0-9]{32}))?(?:\/(resources))?$/u.exec(url.pathname);
   if (!base) return null;
   const [, spaceId, resource, connectionId, child] = base;
@@ -125,7 +139,6 @@ async function externalConnectionApi(request: Request, env: Env): Promise<Respon
     if (request.method === "POST") {
       const guard = browserMutation(request, "create-external-connection"); if (guard) return guard;
       const input = await readJsonObject(request, ["providerKey", "displayName", "credential", "access"]); if (input instanceof Response) return input;
-      if ("credentialRef" in input) return failure("VALIDATION_ERROR", "credentialRef is server-owned", 422, requestId(request));
       return forward(request, env, `/api/v1/spaces/${encodeURIComponent(spaceId)}/external-connections`, "POST", input);
     }
     return failure("METHOD_NOT_ALLOWED", "Method not allowed", 405, requestId(request));
@@ -148,6 +161,7 @@ async function externalConnectionApi(request: Request, env: Env): Promise<Respon
   }
   if (request.method === "DELETE") {
     const guard = browserMutation(request, "revoke-external-connection", false); if (guard) return guard;
+    if (request.headers.get(CONFIRM_CONNECTION_HEADER) !== connectionId) return failure("CONFIRMATION_REQUIRED", "Connection revocation requires exact connection-id confirmation", 409, requestId(request));
     return forward(request, env, `/api/v1/spaces/${encodeURIComponent(spaceId)}/external-connections/${encodeURIComponent(connectionId)}`, "DELETE");
   }
   return failure("METHOD_NOT_ALLOWED", "Method not allowed", 405, requestId(request));
