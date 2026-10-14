@@ -18,9 +18,11 @@ export function deploymentSettings(env, environment) {
   const vaultKey = env.CONNECTION_VAULT_MASTER_KEY ?? "";
   if (!/^[0-9a-fA-F]{64}$/.test(vaultKey)) throw new Error("CONNECTION_VAULT_MASTER_KEY must be exactly 32 random bytes encoded as 64 hexadecimal characters");
   if (vaultKey === secret || vaultKey === env.LIFESPACE_STAGING_BOOTSTRAP_SECRET || vaultKey === env.LIFESPACE_PRODUCTION_BOOTSTRAP_SECRET) throw new Error("Connection vault master key must be independent from platform and Adapter shared secrets");
+  const rawConnections = env.NOTION_CONNECTIONS?.trim() || (environment === "production" ? "{}" : "");
   let connections;
-  try { connections = JSON.parse(env.NOTION_CONNECTIONS ?? ""); } catch { throw new Error("NOTION_CONNECTIONS must be a valid secret JSON object"); }
-  if (!connections || Array.isArray(connections) || typeof connections !== "object" || !Object.keys(connections).length) throw new Error("NOTION_CONNECTIONS must contain at least one connection");
+  try { connections = JSON.parse(rawConnections); } catch { throw new Error("NOTION_CONNECTIONS must be a valid secret JSON object when configured"); }
+  if (!connections || Array.isArray(connections) || typeof connections !== "object") throw new Error("NOTION_CONNECTIONS must be a JSON object");
+  if (environment === "staging" && !Object.keys(connections).length) throw new Error("Staging NOTION_CONNECTIONS must contain the synthetic smoke connection");
   for (const [ref, connection] of Object.entries(connections)) {
     if (!/^[A-Za-z0-9_-]{1,128}$/.test(ref) || !connection || typeof connection !== "object" || Array.isArray(connection) || typeof connection.token !== "string" || !connection.token || connection.token !== connection.token.trim() || /[\r\n]/.test(connection.token) || typeof connection.read !== "boolean" || typeof connection.write !== "boolean" || (connection.disabled !== undefined && typeof connection.disabled !== "boolean")) throw new Error("NOTION_CONNECTIONS contains an invalid connection entry");
     if (connection.token === vaultKey) throw new Error("Connection vault master key must not reuse a provider credential");
@@ -104,7 +106,10 @@ async function main() {
     wrangler(commands.secrets, {
       EXTERNAL_ADAPTER_SHARED_SECRET: process.env.EXTERNAL_ADAPTER_SHARED_SECRET,
       CONNECTION_VAULT_MASTER_KEY: process.env.CONNECTION_VAULT_MASTER_KEY,
-      NOTION_CONNECTIONS: process.env.NOTION_CONNECTIONS,
+      // Production may have no deployment-managed connection at all. Writing an
+      // explicit empty object also removes any stale static references from the
+      // canonical Adapter configuration while keeping the secret-shaped boundary.
+      NOTION_CONNECTIONS: process.env.NOTION_CONNECTIONS?.trim() || "{}",
     });
     console.log(`Private provider deployed at pinned revision ${manifest.revision}`);
   } else if (mode === "sync-core") {
