@@ -3,7 +3,7 @@ import { requireScope } from "./auth";
 import { requireSpacePermission } from "./authorization";
 import type { Bindings, Variables } from "./env";
 import { ApiError, success } from "./http";
-import { listRuntimeModels } from "./model-registry";
+import { getRuntimeModel, listRuntimeModels } from "./model-registry";
 
 type AppEnv = { Bindings: Bindings; Variables: Variables };
 type App = Hono<AppEnv>;
@@ -31,5 +31,21 @@ export function registerExternalConnectionDefinitionRoutes(app: App) {
         schemaHash: model.schemaHash,
       }));
     return c.json(success({ items }));
+  });
+
+  // Binding is a Space-management operation. Enforce the business-definition
+  // access ceiling before Provider discovery so a direct API client cannot bind
+  // a read-only External definition as write merely by bypassing Console UX.
+  const bindingPath = "/api/v1/spaces/:spaceId/external-models";
+  app.use(bindingPath, requireScope("spaces:manage"), async (c, next) => {
+    if (c.req.method !== "POST") return next();
+    await manager(c);
+    const input = await c.req.raw.clone().json<Record<string, unknown>>().catch(() => null);
+    if (input?.declaredAccess !== "write" || typeof input.definitionKey !== "string") return next();
+    const model = await getRuntimeModel(c.env, input.definitionKey);
+    if (model?.definition.origin === "external" && !model.definition.access.includes("write")) {
+      throw new ApiError("EXTERNAL_VALIDATION_FAILED", "External Model Definition is read-only", 422);
+    }
+    return next();
   });
 }
