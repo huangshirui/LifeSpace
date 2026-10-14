@@ -40,7 +40,9 @@ export function bindProvider(config, settings) {
 
 export function validateProviderProfile(config, environment) {
   const profile = config.env?.[environment];
+  const vault = profile?.durable_objects?.bindings?.find(binding => binding.name === "CONNECTIONS");
   if (!profile || config.workers_dev !== false || config.preview_urls !== false || profile.workers_dev !== false || profile.preview_urls !== false || !Array.isArray(profile.routes) || profile.routes.length || config.routes?.length) throw new Error("Adapter packaging must have an explicit private deployment profile");
+  if (!vault || vault.class_name !== "NotionConnectionVault") throw new Error("Adapter packaging must bind the per-connection Durable Object vault as CONNECTIONS");
 }
 
 export function validateLiveBindings(core, adapter, settings) {
@@ -51,6 +53,7 @@ export function validateLiveBindings(core, adapter, settings) {
   for (const name of ["EXTERNAL_ADAPTER_SHARED_SECRET", "NOTION_CONNECTIONS"]) {
     if (!adapter.bindings?.some(b => b.type === "secret_text" && b.name === name)) throw new Error("Live Adapter required secret binding is absent");
   }
+  if (!adapter.bindings?.some(b => b.type === "durable_object_namespace" && b.name === "CONNECTIONS")) throw new Error("Live Adapter per-connection Durable Object vault binding is absent");
 }
 
 export function adapterWranglerCommands(configPath, environment, worker) {
@@ -123,7 +126,7 @@ async function main() {
       if (attempt < 7) await new Promise(resolve => setTimeout(resolve, 2000));
     }
     if (lastError) throw lastError;
-    console.log("Live private Adapter binding, secret presence and refresh configuration verified; shared-secret equality is checked by staging Source creation");
+    console.log("Live private Adapter binding, secrets, per-connection Durable Object vault and refresh configuration verified; shared-secret equality is checked by staging Source creation");
   } else throw new Error("Unknown External provider deployment mode");
 }
 
