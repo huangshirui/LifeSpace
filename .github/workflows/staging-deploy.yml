@@ -36,9 +36,10 @@ jobs:
       CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID || secrets.CLOUDFLARE_ACCOUNT_ID }}
       LIFESPACE_STAGING_BOOTSTRAP_SECRET: ${{ secrets.LIFESPACE_STAGING_BOOTSTRAP_SECRET }}
       LIFESPACE_EXTERNAL_PROVIDER_ENABLED: ${{ vars.LIFESPACE_EXTERNAL_PROVIDER_ENABLED || '0' }}
-      LIFESPACE_EXTERNAL_ADAPTER_WORKER: ${{ vars.LIFESPACE_EXTERNAL_ADAPTER_WORKER }}
-      EXTERNAL_ADAPTER_SHARED_SECRET: ${{ secrets.EXTERNAL_ADAPTER_SHARED_SECRET }}
-      CONNECTION_VAULT_MASTER_KEY: ${{ secrets.CONNECTION_VAULT_MASTER_KEY }}
+      EXTERNAL_CURSOR_SECRET: ${{ secrets.EXTERNAL_CURSOR_SECRET }}
+      LIFESPACE_NOTION_ADAPTER_WORKER: ${{ vars.LIFESPACE_NOTION_ADAPTER_WORKER }}
+      NOTION_ADAPTER_SHARED_SECRET: ${{ secrets.NOTION_ADAPTER_SHARED_SECRET }}
+      NOTION_CONNECTION_VAULT_MASTER_KEY: ${{ secrets.NOTION_CONNECTION_VAULT_MASTER_KEY }}
       NOTION_CONNECTIONS: ${{ secrets.NOTION_CONNECTIONS }}
       LIFESPACE_EXTERNAL_SMOKE_CREDENTIAL_REF: ${{ vars.LIFESPACE_EXTERNAL_SMOKE_CREDENTIAL_REF }}
       LIFESPACE_EXTERNAL_SMOKE_RESOURCE_ID: ${{ secrets.LIFESPACE_EXTERNAL_SMOKE_RESOURCE_ID }}
@@ -116,7 +117,7 @@ jobs:
       - name: Resolve staging D1 IDs
         run: node infra/scripts/resolve-staging-d1.mjs
 
-      - name: Deploy and configure private External provider before Core
+      - name: Deploy and configure private External providers before Core
         if: env.LIFESPACE_EXTERNAL_PROVIDER_ACTIVE == '1'
         run: node infra/scripts/external-provider-deployment.mjs deploy-adapter staging
 
@@ -126,11 +127,11 @@ jobs:
       - name: Deploy Core first
         run: pnpm --dir apps/core exec wrangler deploy --env staging
 
-      - name: Synchronize independent Core External provider secret
+      - name: Synchronize independent Core External provider routing secrets
         if: env.LIFESPACE_EXTERNAL_PROVIDER_ACTIVE == '1'
         run: node infra/scripts/external-provider-deployment.mjs sync-core staging
 
-      - name: Verify live private External provider wiring
+      - name: Verify live private External provider routing
         if: env.LIFESPACE_EXTERNAL_PROVIDER_ACTIVE == '1'
         run: node infra/scripts/external-provider-deployment.mjs verify staging
 
@@ -250,8 +251,8 @@ jobs:
           - Identity: schema v${LIFESPACE_EXPECTED_IDENTITY_SCHEMA_VERSION} / contract ${LIFESPACE_EXPECTED_IDENTITY_CONTRACT_VERSION}
           - Console Application ordinary Space-management scope ceiling, including \`spaces:manage\`: converged without credential rotation
           - Recurrence real enrollment / Identity root projection / completion successor / pause: passed
-          - External Provider enabled: ${LIFESPACE_EXTERNAL_PROVIDER_ACTIVE}; disabled means not accepted
-          - Enabled External Provider: pinned private packaging, bindings/secrets, AES-GCM connection vault, synthetic CRUD/relations/partial batch/Scheduled refresh and cleanup passed
+          - External Providers enabled: ${LIFESPACE_EXTERNAL_PROVIDER_ACTIVE}; disabled means not accepted
+          - Enabled External Providers: provider-specific private bindings/secrets, encrypted connection vault, synthetic CRUD/relations/partial batch/Scheduled refresh and cleanup passed
           - Platform D1 convergence: passed
           - Trusted application credential replacement/revocation lifecycle: passed
           - Agent Principal own-Authority + User→Agent→Agent bounded re-delegation/revocation: passed
