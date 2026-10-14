@@ -177,7 +177,7 @@ jobs:
               process.exit(data.environment === "staging" && String(data.schemaVersion) === process.env.EXPECTED_SCHEMA && data.contractVersion === process.env.EXPECTED_CONTRACT ? 0 : 1);
             '; then
               echo "$STATUS"
-              echo "Identity staging converged to schema v${LIFESPACE_EXPECTED_IDENTITY_CONTRACT_VERSION} / contract ${LIFESPACE_EXPECTED_IDENTITY_CONTRACT_VERSION}"
+              echo "Identity staging converged to schema v${LIFESPACE_EXPECTED_IDENTITY_SCHEMA_VERSION} / contract ${LIFESPACE_EXPECTED_IDENTITY_CONTRACT_VERSION}"
               break
             fi
             echo "Identity staging has not converged yet (attempt ${attempt}/12): ${STATUS:-<no response>}"
