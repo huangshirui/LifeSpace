@@ -15,7 +15,26 @@ function fixture(rollingError?: Error, outboxError?: Error, externalError?: Erro
       return { results: [] };
     } }) };
   });
-  return { env: { DB: { prepare }, ...(externalError ? { EXTERNAL_ADAPTER: {}, EXTERNAL_SCHEMA_REFRESH_SECONDS: "60" } : {}) } as unknown as Bindings, queries };
+  const externalBinding = {
+    fetch: async () => Response.json({ contractVersion: 1, data: {} }),
+  } as Fetcher;
+  return {
+    env: {
+      DB: { prepare },
+      ...(externalError ? {
+        EXTERNAL_PROVIDER_ROUTES: JSON.stringify({
+          synthetic: {
+            binding: "EXTERNAL_ADAPTER_SYNTHETIC",
+            sharedSecret: "EXTERNAL_ADAPTER_SYNTHETIC_SHARED_SECRET",
+          },
+        }),
+        EXTERNAL_ADAPTER_SYNTHETIC: externalBinding,
+        EXTERNAL_ADAPTER_SYNTHETIC_SHARED_SECRET: "scheduled-synthetic-shared-secret-1234567890",
+        EXTERNAL_SCHEMA_REFRESH_SECONDS: "60",
+      } : {}),
+    } as unknown as Bindings,
+    queries,
+  };
 }
 
 describe("Scheduled job failure isolation", () => {
