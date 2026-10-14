@@ -1,5 +1,6 @@
 import type { Bindings } from "./env";
 import { ApiError } from "./http";
+import { resolveExternalProviderRoute } from "./external-provider-router";
 import { ExternalError, boundedString, objectInput } from "./external-model";
 
 export type ExternalConnectionRow = {
@@ -34,11 +35,6 @@ const errorStatus: Record<string, 400 | 404 | 409 | 422 | 429 | 502 | 503> = {
   EXTERNAL_WRITE_UNKNOWN: 502,
 };
 
-function configured(env: Bindings) {
-  if (!env.EXTERNAL_ADAPTER || !env.EXTERNAL_ADAPTER_SHARED_SECRET || env.EXTERNAL_ADAPTER_SHARED_SECRET.length < 32)
-    throw new ExternalError("EXTERNAL_UNAVAILABLE", 503);
-}
-
 async function responsePayload(response: Response): Promise<unknown> {
   const text = await response.text();
   if (text.length > 1_000_000) throw new ExternalError("EXTERNAL_CONTRACT_INVALID", 502);
@@ -48,27 +44,28 @@ async function responsePayload(response: Response): Promise<unknown> {
 
 export async function callExternalConnectionAdapter(
   env: Bindings,
+  providerKey: string,
   request: {
     operation: "describe" | "create" | "update" | "delete" | "listResources";
-    providerKey?: string;
     credentialRef?: string;
     credential?: Record<string, unknown>;
     access?: "read" | "write";
     input?: Record<string, unknown>;
   },
 ): Promise<unknown> {
-  configured(env);
+  const route = resolveExternalProviderRoute(env, providerKey);
+  if (!route) throw new ExternalError("EXTERNAL_UNAVAILABLE", 503);
   let response: Response;
   try {
-    response = await env.EXTERNAL_ADAPTER!.fetch(
+    response = await route.adapter.fetch(
       "https://external-adapter.internal/internal/v1/external-connections",
       {
         method: "POST",
         headers: {
           "content-type": "application/json",
-          "x-lifespace-internal-secret": env.EXTERNAL_ADAPTER_SHARED_SECRET!,
+          "x-lifespace-internal-secret": route.sharedSecret,
         },
-        body: JSON.stringify({ contractVersion: 1, ...request }),
+        body: JSON.stringify({ contractVersion: 1, providerKey, ...request }),
         signal: AbortSignal.timeout(30000),
       },
     );
