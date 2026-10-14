@@ -53,6 +53,17 @@ export function validateLiveBindings(core, adapter, settings) {
   }
 }
 
+export function adapterWranglerCommands(configPath, environment, worker) {
+  return {
+    deploy: ["deploy", "--config", configPath, "--env", environment, "--name", worker],
+    // The Worker name is already explicitly environment-isolated. Passing --env
+    // together with --name to `secret bulk` makes Wrangler environment-qualify
+    // the explicit name again (for example `*-staging-staging`). Target the exact
+    // deployed Worker name instead.
+    secrets: ["secret", "bulk", "--config", configPath, "--name", worker],
+  };
+}
+
 async function main() {
   const [mode, environment] = process.argv.slice(2);
   if (!["prepare", "deploy-adapter", "sync-core", "verify"].includes(mode)) throw new Error("Unknown External provider deployment mode");
@@ -81,8 +92,9 @@ async function main() {
     if (actual !== manifest.revision) throw new Error("Adapter checkout does not match the pinned release SHA");
     const configPath = resolve(adapterDir, "adapters/notion/wrangler.jsonc");
     validateProviderProfile(JSON.parse(readFileSync(configPath, "utf8")), environment);
-    wrangler(["deploy", "--config", configPath, "--env", environment, "--name", settings.worker]);
-    wrangler(["secret", "bulk", "--config", configPath, "--env", environment, "--name", settings.worker], { EXTERNAL_ADAPTER_SHARED_SECRET: process.env.EXTERNAL_ADAPTER_SHARED_SECRET, NOTION_CONNECTIONS: process.env.NOTION_CONNECTIONS });
+    const commands = adapterWranglerCommands(configPath, environment, settings.worker);
+    wrangler(commands.deploy);
+    wrangler(commands.secrets, { EXTERNAL_ADAPTER_SHARED_SECRET: process.env.EXTERNAL_ADAPTER_SHARED_SECRET, NOTION_CONNECTIONS: process.env.NOTION_CONNECTIONS });
     console.log(`Private provider deployed at pinned revision ${manifest.revision}`);
   } else if (mode === "sync-core") {
     wrangler(["secret", "bulk", "--env", environment], { EXTERNAL_ADAPTER_SHARED_SECRET: process.env.EXTERNAL_ADAPTER_SHARED_SECRET });
