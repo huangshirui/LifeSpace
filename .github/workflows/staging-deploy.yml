@@ -45,6 +45,7 @@ jobs:
       LIFESPACE_EXTERNAL_SMOKE_SYNTHETIC_CONFIRMED: ${{ vars.LIFESPACE_EXTERNAL_SMOKE_SYNTHETIC_CONFIRMED }}
       LIFESPACE_CORE_STAGING_URL: https://core-staging.aisr.online
       LIFESPACE_IDENTITY_STAGING_URL: https://auth-staging.aisr.online
+      LIFESPACE_STAGING_CONSOLE_APPLICATION_ID: app_lifespace_console_staging
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -92,6 +93,7 @@ jobs:
           node --check infra/scripts/verify-staging-platform-golden-flow.mjs
           node --check infra/scripts/baseline-model-semantics.mjs
           node --check infra/scripts/publish-staging-baseline-model-semantics.mjs
+          node --check infra/scripts/reconcile-staging-console-space-scope.mjs
 
       - name: Validate External provider prerequisites before mutation
         run: node infra/scripts/external-provider-deployment.mjs prepare staging
@@ -185,6 +187,9 @@ jobs:
             sleep 5
           done
 
+      - name: Converge staging Console ordinary Space-management scope ceiling
+        run: node infra/scripts/reconcile-staging-console-space-scope.mjs
+
       - name: Prepare ephemeral authenticated staging smoke
         run: node infra/scripts/prepare-staging-smoke.mjs
 
@@ -243,6 +248,7 @@ jobs:
 
           - Core: schema v${LIFESPACE_EXPECTED_CORE_SCHEMA_VERSION} / Kernel contract ${LIFESPACE_EXPECTED_CORE_CONTRACT_VERSION}
           - Identity: schema v${LIFESPACE_EXPECTED_IDENTITY_SCHEMA_VERSION} / contract ${LIFESPACE_EXPECTED_IDENTITY_CONTRACT_VERSION}
+          - Console Application ordinary Space-management scope ceiling, including \`spaces:manage\`: converged without credential rotation
           - Recurrence real enrollment / Identity root projection / completion successor / pause: passed
           - External Provider enabled: ${LIFESPACE_EXTERNAL_PROVIDER_ACTIVE}; disabled means not accepted
           - Enabled External Provider: pinned private packaging, bindings/secrets, AES-GCM connection vault, synthetic CRUD/relations/partial batch/Scheduled refresh and cleanup passed
