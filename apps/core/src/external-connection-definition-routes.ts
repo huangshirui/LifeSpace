@@ -3,6 +3,7 @@ import { requireScope } from "./auth";
 import { requireSpacePermission } from "./authorization";
 import type { Bindings, Variables } from "./env";
 import { ApiError, success } from "./http";
+import { getExternalModel } from "./external-model";
 import { getRuntimeModel, listRuntimeModels } from "./model-registry";
 
 type AppEnv = { Bindings: Bindings; Variables: Variables };
@@ -44,6 +45,21 @@ export function registerExternalConnectionDefinitionRoutes(app: App) {
     if (input?.declaredAccess !== "write" || typeof input.definitionKey !== "string") return next();
     const model = await getRuntimeModel(c.env, input.definitionKey);
     if (model?.definition.origin === "external" && !model.definition.access.includes("write")) {
+      throw new ApiError("EXTERNAL_VALIDATION_FAILED", "External Model Definition is read-only", 422);
+    }
+    return next();
+  });
+
+  // The same business-definition ceiling applies when a direct API client raises
+  // an existing binding from read to write. Connection access is checked by the
+  // control route itself; this middleware supplies the independent definition ceiling.
+  app.use(bindingPath + "/:modelKey", requireScope("spaces:manage"), async (c, next) => {
+    if (c.req.method !== "PATCH") return next();
+    await manager(c);
+    const input = await c.req.raw.clone().json<Record<string, unknown>>().catch(() => null);
+    if (input?.declaredAccess !== "write") return next();
+    const binding = await getExternalModel(c.env, c.req.param("spaceId")!, c.req.param("modelKey")!, true);
+    if (binding?.businessDefinition && !binding.businessDefinition.definition.access.includes("write")) {
       throw new ApiError("EXTERNAL_VALIDATION_FAILED", "External Model Definition is read-only", 422);
     }
     return next();
