@@ -99,16 +99,21 @@ export async function callExternalConnectionAdapter(
 }
 
 export async function listExternalProviderDescriptors(env: Bindings): Promise<ExternalProviderDescriptor[]> {
-  const items: ExternalProviderDescriptor[] = [];
-  for (const providerKey of configuredExternalProviderKeys(env)) {
+  const providerKeys = configuredExternalProviderKeys(env);
+  if (!providerKeys.length) return [];
+  const results = await Promise.allSettled(providerKeys.map(async (providerKey) => {
     const descriptor = validateProviderDescriptor(
       await callExternalConnectionAdapter(env, { operation: "describe", providerKey }),
     );
     if (descriptor.key !== providerKey)
       throw new ExternalError("EXTERNAL_CONTRACT_INVALID", 502);
-    items.push(descriptor);
-  }
-  return items;
+    return descriptor;
+  }));
+  const items = results.flatMap((result) => result.status === "fulfilled" ? [result.value] : []);
+  if (items.length) return items;
+  const firstFailure = results.find((result): result is PromiseRejectedResult => result.status === "rejected");
+  if (firstFailure?.reason instanceof Error) throw firstFailure.reason;
+  throw new ExternalError("EXTERNAL_UNAVAILABLE", 503);
 }
 
 export function validateProviderDescriptor(value: unknown): ExternalProviderDescriptor {
