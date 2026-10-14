@@ -23,6 +23,22 @@ type ApplicationDetail = {
 type ValidationResult =
   | { valid: true; definition: Record<string, unknown>; schemaHash: string }
   | { valid: false; issues: Array<{ path?: string; code?: string; message?: string }> };
+type ExternalProvider = {
+  key: string;
+  displayName: string;
+  credential: { type: "bearer_token"; displayName: string };
+  resource: { type: string; displayName: string };
+  access: Array<"read" | "write">;
+};
+type ExternalConnection = {
+  id: string;
+  providerKey: string;
+  displayName: string;
+  access: "read" | "write";
+  status: "active" | "disabled";
+  credentialMode: "bootstrap" | "managed";
+};
+type ExternalResource = { id: string; type: string; displayName: string };
 
 type Dialog =
   | { type: "publish"; modelKey?: string; external?: boolean }
@@ -63,7 +79,7 @@ async function get<T>(path: string): Promise<T> {
   return readData<T>(await fetch(path, { credentials: "same-origin", headers: { accept: "application/json" } }));
 }
 
-async function mutate<T>(path: string, method: "POST" | "PUT", intent: string, body: unknown): Promise<T> {
+async function mutate<T>(path: string, method: "POST" | "PUT" | "PATCH", intent: string, body: unknown): Promise<T> {
   return readData<T>(await fetch(path, {
     method,
     credentials: "same-origin",
@@ -301,38 +317,114 @@ function ModelAccessDialog({ applicationId, onClose }: { applicationId: string; 
 
 function ExternalBindingDialog({ spaceId, onClose }: { spaceId: string; onClose: () => void }) {
   const [models, setModels] = useState<PublishedModel[]>([]);
-  const [sources, setSources] = useState<Array<{ id: string; providerKey: string; status: string }>>([]);
+  const [providers, setProviders] = useState<ExternalProvider[]>([]);
+  const [connections, setConnections] = useState<ExternalConnection[]>([]);
+  const [resources, setResources] = useState<ExternalResource[]>([]);
   const [definitionKey, setDefinitionKey] = useState("");
-  const [sourceId, setSourceId] = useState("");
+  const [connectionId, setConnectionId] = useState("");
   const [resourceId, setResourceId] = useState("");
-  const [access, setAccess] = useState("read");
+  const [access, setAccess] = useState<"read" | "write">("read");
+  const [providerKey, setProviderKey] = useState("");
+  const [connectionName, setConnectionName] = useState("Personal Notion");
+  const [providerToken, setProviderToken] = useState("");
+  const [connectionAccess, setConnectionAccess] = useState<"read" | "write">("write");
   const [busy, setBusy] = useState(false);
+  const [loadingResources, setLoadingResources] = useState(false);
   const [error, setError] = useState<unknown>();
   const [saved, setSaved] = useState(false);
+
+  async function reloadConnections() {
+    const value = await get<{ items: ExternalConnection[] }>(`/api/spaces/${encodeURIComponent(spaceId)}/external-connections`);
+    setConnections(value.items.filter((item) => item.status === "active"));
+    return value.items;
+  }
+
   useEffect(() => {
     let active = true;
-    void Promise.all([get<PublishedModel[]>("/api/models"), get<{ items: Array<{ id: string; providerKey: string; status: string }> }>(`/api/spaces/${encodeURIComponent(spaceId)}/external-sources`)]).then(([catalog, connections]) => {
+    void Promise.all([
+      get<PublishedModel[]>("/api/models"),
+      get<{ items: ExternalProvider[] }>(`/api/spaces/${encodeURIComponent(spaceId)}/external-providers`),
+      get<{ items: ExternalConnection[] }>(`/api/spaces/${encodeURIComponent(spaceId)}/external-connections`),
+    ]).then(([catalog, providerCatalog, connectionRows]) => {
       if (!active) return;
-      setModels(catalog.filter(m => m.definition.origin === "external" && m.state === "published"));
-      setSources(connections.items.filter(s => s.status === "active"));
-    }).catch(cause => { if (active) setError(cause); });
+      const externalModels = catalog.filter((model) => model.definition.origin === "external" && model.state === "published");
+      const activeConnections = connectionRows.items.filter((item) => item.status === "active");
+      setModels(externalModels);
+      setProviders(providerCatalog.items);
+      setProviderKey(providerCatalog.items[0]?.key ?? "");
+      setConnections(activeConnections);
+      setConnectionId(activeConnections[0]?.id ?? "");
+    }).catch((cause) => { if (active) setError(cause); });
     return () => { active = false; };
   }, [spaceId]);
+
+  useEffect(() => {
+    setResources([]); setResourceId("");
+    if (!connectionId) return;
+    let active = true;
+    setLoadingResources(true);
+    void get<{ items: ExternalResource[]; nextCursor: string | null }>(`/api/spaces/${encodeURIComponent(spaceId)}/external-connections/${encodeURIComponent(connectionId)}/resources?limit=100`).then(
+      (result) => { if (active) { setResources(result.items); setResourceId(result.items[0]?.id ?? ""); setLoadingResources(false); } },
+      (cause) => { if (active) { setError(cause); setLoadingResources(false); } },
+    );
+    return () => { active = false; };
+  }, [spaceId, connectionId]);
+
+  async function createConnection() {
+    if (!providerKey || !connectionName.trim() || !providerToken.trim()) return;
+    setBusy(true); setError(undefined);
+    try {
+      const created = await mutate<ExternalConnection>(`/api/spaces/${encodeURIComponent(spaceId)}/external-connections`, "POST", "create-external-connection", {
+        providerKey,
+        displayName: connectionName.trim(),
+        credential: { type: "bearer_token", token: providerToken },
+        access: connectionAccess,
+      });
+      setProviderToken("");
+      const rows = await reloadConnections();
+      setConnectionId(rows.some((item) => item.id === created.id && item.status === "active") ? created.id : "");
+    } catch (cause) { setError(cause); }
+    finally { setBusy(false); }
+  }
+
   async function save() {
     setBusy(true); setError(undefined);
-    try { await mutate(`/api/spaces/${encodeURIComponent(spaceId)}/external-models`, "POST", "bind-external-model", { definitionKey, sourceId, resourceId: resourceId.trim(), declaredAccess: access }); setSaved(true); }
-    catch (cause) { setError(cause); } finally { setBusy(false); }
+    try {
+      await mutate(`/api/spaces/${encodeURIComponent(spaceId)}/external-models`, "POST", "bind-external-model", {
+        definitionKey,
+        connectionId,
+        resourceId: resourceId.trim(),
+        declaredAccess: access,
+      });
+      setSaved(true);
+    } catch (cause) { setError(cause); }
+    finally { setBusy(false); }
   }
-  return <DialogShell title="绑定外部模型" description="先注册业务模型，再绑定本 Space 的连接和具体 Data Source。字段由 Provider 自动发现；绑定不会授予数据访问权限。" onClose={onClose}>
-    {error !== undefined && <ErrorNotice error={error} />}
-    {saved ? <SuccessNotice>绑定成功，字段已自动发现。</SuccessNotice> : <>
-      <label>业务模型<select value={definitionKey} onChange={e => setDefinitionKey(e.target.value)}><option value="">选择已注册的外部模型</option>{models.map(m => <option key={m.key} value={m.key}>{m.key}</option>)}</select></label>
-      <label>Connection<select value={sourceId} onChange={e => setSourceId(e.target.value)}><option value="">选择本 Space 已配置的连接</option>{sources.map(s => <option key={s.id} value={s.id}>{s.providerKey} · {s.id}</option>)}</select></label>
-      {!sources.length && <p>连接须先由受控服务配置到本 Space；这里使用你的 Space 管理权限。</p>}
-      <label>Data Source ID<input value={resourceId} onChange={e => setResourceId(e.target.value)} maxLength={256} /></label>
-      <label>能力上限<select value={access} onChange={e => setAccess(e.target.value)}><option value="read">只读</option><option value="write">读写</option></select></label>
-      <footer className="cp-dialog-footer"><button disabled={busy || !definitionKey || !sourceId || !resourceId.trim()} onClick={() => void save()}>{busy ? "绑定中…" : "绑定并发现字段"}</button></footer>
-    </>}
+
+  const selectedProvider = providers.find((item) => item.key === providerKey);
+  return <DialogShell title="接入外部数据" description="Connection、Data Source 与业务模型绑定都属于当前 Space 配置。凭据只在创建连接时提交给 LifeSpace，并由 Provider Adapter 安全保存；绑定本身不会授予运行时数据访问权限。" onClose={onClose}>
+    <div className="cp-dialog-body">
+      <ErrorNotice error={error} />
+      {saved ? <SuccessNotice>接入成功，Data Source 字段已自动发现并绑定到业务模型。</SuccessNotice> : <>
+        <div className="cp-danger-box"><strong>1 · Connection</strong><span>已有连接可以直接选择；也可以在这里新建。Console 与应用使用同一套 Space API。</span></div>
+        <label className="cp-field"><span>已有 Connection</span><select value={connectionId} onChange={(event) => setConnectionId(event.target.value)}><option value="">新建或选择连接</option>{connections.map((item) => <option key={item.id} value={item.id}>{item.displayName} · {item.providerKey} · {item.access}</option>)}</select></label>
+        {!connectionId && <div className="cp-row">
+          <label className="cp-field"><span>Provider</span><select value={providerKey} onChange={(event) => setProviderKey(event.target.value)}>{providers.map((item) => <option key={item.key} value={item.key}>{item.displayName}</option>)}</select></label>
+          <label className="cp-field"><span>Connection name</span><input value={connectionName} maxLength={100} onChange={(event) => setConnectionName(event.target.value)} /></label>
+          <label className="cp-field"><span>{selectedProvider?.credential.displayName ?? "Credential"}</span><input type="password" autoComplete="off" value={providerToken} maxLength={8192} onChange={(event) => setProviderToken(event.target.value)} /></label>
+          <label className="cp-field"><span>Connection access</span><select value={connectionAccess} onChange={(event) => setConnectionAccess(event.target.value as "read" | "write")}><option value="read">只读</option><option value="write">读写</option></select></label>
+          <button className="cp-secondary" disabled={busy || !providerKey || !connectionName.trim() || !providerToken.trim()} onClick={() => void createConnection()}>{busy ? "验证并保存中…" : "验证并创建 Connection"}</button>
+        </div>}
+
+        <div className="cp-danger-box"><strong>2 · Data Source</strong><span>从当前 Connection 可访问的 Provider 资源中选择，不再要求手工复制 Data Source ID。</span></div>
+        <label className="cp-field"><span>{selectedProvider?.resource.displayName ?? "Data Source"}</span><select value={resourceId} disabled={!connectionId || loadingResources} onChange={(event) => setResourceId(event.target.value)}><option value="">{loadingResources ? "正在发现…" : "选择 Data Source"}</option>{resources.map((item) => <option key={item.id} value={item.id}>{item.displayName} · {item.id}</option>)}</select></label>
+
+        <div className="cp-danger-box"><strong>3 · External Model Binding</strong><span>选择已经发布的 External Model Definition，并设置这个绑定允许使用的 read/write 上限。</span></div>
+        <label className="cp-field"><span>业务模型</span><select value={definitionKey} onChange={(event) => setDefinitionKey(event.target.value)}><option value="">选择已注册的外部模型</option>{models.map((model) => <option key={model.key} value={model.key}>{model.key}</option>)}</select></label>
+        <label className="cp-field"><span>能力上限</span><select value={access} onChange={(event) => setAccess(event.target.value as "read" | "write")}><option value="read">只读</option><option value="write">读写</option></select></label>
+        <footer className="cp-dialog-footer"><button className="cp-secondary" onClick={onClose}>取消</button><button className="cp-primary" disabled={busy || !definitionKey || !connectionId || !resourceId} onClick={() => void save()}>{busy ? "绑定中…" : "绑定并发现字段"}</button></footer>
+      </>}
+    </div>
   </DialogShell>;
 }
 
@@ -344,7 +436,7 @@ function ControlPlaneLauncher() {
   return <>
     <div className="cp-launcher" aria-label="控制面写操作">
       <span className="cp-launcher-label">Configure</span>
-      {context.page === "space" && context.id && <button onClick={() => setDialog({ type: "external-binding", spaceId: context.id! })}>绑定外部模型</button>}
+      {context.page === "space" && context.id && <button onClick={() => setDialog({ type: "external-binding", spaceId: context.id! })}>接入外部数据</button>}
       {context.page === "models" && <button onClick={() => setDialog({ type: "publish" })}>Publish model</button>}
       {context.page === "models" && <button onClick={() => setDialog({ type: "publish", external: true })}>注册外部模型</button>}
       {context.page === "model" && context.id && <><button onClick={() => setDialog({ type: "publish", modelKey: context.id })}>Publish version</button><button className="cp-launcher-danger" onClick={() => setDialog({ type: "retire", modelKey: context.id as string })}>Retire</button></>}
