@@ -85,7 +85,7 @@ test("canonical release deploys encrypted pinned Adapter before Core and gates p
   const manifest = JSON.parse(readFileSync(new URL("../external-provider.json", import.meta.url), "utf8"));
   assert.match(manifest.revision, /^[a-f0-9]{40}$/);
   assert.equal(manifest.repository, "huangshirui/lifespace-adapters");
-  assert.equal(manifest.revision, "f552145159332f1cf088a803d48c94ae54eec2c0");
+  assert.equal(manifest.revision, "4146a9ee6be1c268acef1071ce05a22b0e872865");
   assert.ok(readFileSync(new URL("../../.github/workflows/check.yml", import.meta.url), "utf8").includes(`ref: ${manifest.revision}`));
   for (const env of ["staging", "production"]) {
     const workflow = readFileSync(new URL(`../../.github/workflows/${env === "staging" ? "staging" : "production"}-deploy.yml`, import.meta.url), "utf8");
