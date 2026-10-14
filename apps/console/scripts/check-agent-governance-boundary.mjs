@@ -1,6 +1,7 @@
 import fs from "node:fs";
 
 const worker = fs.readFileSync(new URL("../worker/agent-governance.ts", import.meta.url), "utf8");
+const externalWrapper = fs.readFileSync(new URL("../worker/external-configuration.ts", import.meta.url), "utf8");
 const overlay = fs.readFileSync(new URL("../src/AgentIdentitiesDialog.tsx", import.meta.url), "utf8");
 const applicationOverlay = fs.readFileSync(new URL("../src/ApplicationConfigurationOverlay.tsx", import.meta.url), "utf8");
 const wrangler = fs.readFileSync(new URL("../wrangler.jsonc", import.meta.url), "utf8");
@@ -34,8 +35,8 @@ if (!overlay.includes("全局 Agent identity 状态变更") || !overlay.includes
 if (!applicationOverlay.includes("Agent identities")) {
   throw new Error("Application configuration UI must expose Agent identities");
 }
-if (!wrangler.includes('"main": "worker/agent-governance.ts"')) {
-  throw new Error("Console Worker must route through Agent governance BFF");
+if (!wrangler.includes('"main": "worker/external-configuration.ts"') || !externalWrapper.includes('import agentGovernanceWorker from "./agent-governance"')) {
+  throw new Error("Console Worker must preserve Agent governance behind the External configuration BFF wrapper");
 }
 
 console.log("LifeSpace Console Agent governance boundary check passed");
