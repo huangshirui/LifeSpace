@@ -175,6 +175,7 @@ export function registerExternalModelControlRoutes(app: App) {
           registrationId: r.model_key,
           definitionKey: r.definition_key ?? null,
           spaceId: r.space_id,
+          connectionId: r.source_id,
           sourceId: r.source_id,
           displayName: r.display_name,
           status: r.status,
@@ -188,13 +189,15 @@ export function registerExternalModelControlRoutes(app: App) {
   app.post(modelPath, async (c) => {
     await manager(c);
     const input = await body(c);
-    onlyKeys(input, ["sourceId", "resourceId", "declaredAccess", "definitionKey"]);
+    onlyKeys(input, ["connectionId", "sourceId", "resourceId", "declaredAccess", "definitionKey"]);
+    if (input.connectionId !== undefined && input.sourceId !== undefined && input.connectionId !== input.sourceId) {
+      throw new ApiError("VALIDATION_ERROR", "connectionId and legacy sourceId must identify the same connection", 422);
+    }
+    const rawConnectionId = input.connectionId ?? input.sourceId;
+    const connectionId = boundedString(rawConnectionId, "connectionId");
     const definitionKey = input.definitionKey === undefined ? null : boundedString(input.definitionKey, "definitionKey", 63);
     if (definitionKey && (await getRuntimeModel(c.env, definitionKey))?.definition.origin !== "external") throw new ApiError("EXTERNAL_DEFINITION_UNAVAILABLE", "Publish an External business definition before binding it", 422);
-    const source = await getExternalSource(
-      c.env,
-      boundedString(input.sourceId, "sourceId"),
-    );
+    const source = await getExternalSource(c.env, connectionId);
     if (
       !source ||
       source.space_id !== c.req.param("spaceId")! ||
