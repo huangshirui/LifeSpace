@@ -44,7 +44,17 @@ Recorded latency is a staging-runner observation, not APAC p50/p95 acceptance or
 
 ## Console acceptance
 
-After platform staging succeeds, run **Deploy LifeSpace Console staging** from `main` to ship the binding UI and refresh its trusted Application scope ceiling, including `spaces:manage`. Platform deployment does not ship Console assets. Use an established staging user/admin to verify External definition validation/publication, Space definition + provisioned Source + data source binding, descriptor-driven fields, conflict/validation errors and disabled/unbound states. Use a second dedicated synthetic source for the UI exercise; reserve the automatic source for automatic acceptance. Verify non-admin/non-manager and stale authority denial. Existing Console configuration/boundary checks remain required; human Access/browser acceptance needs the deployed Console.
+After platform staging succeeds, use **Deploy LifeSpace Console staging (isolated)** from the exact candidate on `main`; platform deployment does not ship Console assets. For the External browser acceptance run:
+
+1. set `run_control_plane_acceptance=true`;
+2. set `external_acceptance_space_id` to an existing dedicated staging Space whose real browser user has current Space `manage` authority;
+3. reserve a **second** dedicated synthetic Notion data source for the browser exercise; do not reuse the automatic smoke source.
+
+The default deploy job remains Console-only: it reads staging Core/Identity health, deploys only Console and does not use bootstrap authority or rotate secrets. The explicit acceptance job may use staging bootstrap authority. It first reconciles the trusted Console Application scope ceiling to the reviewed staging profile, including `spaces:manage`, without rotating installed credentials. When `external_acceptance_space_id` is supplied, it then creates or reuses the Space-scoped Notion Source through the service-only `models:manage` Source-provisioning API using the configured opaque staging credential reference. Provider token plaintext remains Adapter-owned and never reaches D1, the Console Worker or browser. Read-only D1 inspection is used only by this staging operator path to make Source provisioning idempotent; the Source write itself still goes through the canonical Core API and Adapter connection validation.
+
+After automation succeeds, open the real Cloudflare Access browser session and verify External definition validation/publication, the target Space's provisioned Source + concrete second Data Source ID binding, descriptor-driven fields, read/write behavior, conflict/validation errors and disabled/unbound states. Verify non-admin/non-manager and stale-authority denial as applicable. Connection creation by itself grants no Membership, Data Grant, Application × Model Access or model binding.
+
+Do **not** use **Converge LifeSpace staging control plane** merely for this External browser acceptance. That workflow owns broader Core/Identity/platform-credential convergence and is not the isolated Console acceptance entrypoint; optional External Provider wiring must remain under the canonical platform staging release path rather than being silently replaced by a generic Console provisioning run.
 
 ## Production and rollback
 

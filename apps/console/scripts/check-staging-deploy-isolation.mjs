@@ -8,6 +8,7 @@ const workflowSource = readFileSync(workflowUrl, "utf8");
 const workflowRequired = [
   "workflow_dispatch:",
   "run_control_plane_acceptance:",
+  "external_acceptance_space_id:",
   "if: ${{ inputs.run_control_plane_acceptance }}",
 ];
 
@@ -74,8 +75,12 @@ const acceptanceRequired = [
   "LIFESPACE_STAGING_BOOTSTRAP_SECRET",
   "https://auth-staging.aisr.online",
   "https://core-staging.aisr.online",
+  "node infra/scripts/reconcile-staging-console-space-scope.mjs",
   "node apps/console/scripts/verify-staging-control-plane.mjs",
   "node apps/console/scripts/verify-staging-configuration-center.mjs",
+  "node infra/scripts/provision-staging-external-source.mjs",
+  "LIFESPACE_EXTERNAL_TARGET_SPACE_ID",
+  "LIFESPACE_EXTERNAL_SMOKE_CREDENTIAL_REF",
 ];
 
 for (const token of acceptanceRequired) {
@@ -103,6 +108,8 @@ console.log(JSON.stringify({
   acceptanceExplicitOptIn: true,
   coreIdentityMutationAbsentFromDeploy: true,
   bootstrapAuthorityAbsentFromDeploy: true,
+  acceptanceReconcilesSpaceManageScope: true,
+  acceptanceCoversExternalSourceProvisioning: true,
   acceptanceCoversModelPublishing: true,
   acceptanceCoversApplicationCredentialGovernance: true,
   acceptanceDoesNotDeployPlatformServices: true,
