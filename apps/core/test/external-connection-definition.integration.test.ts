@@ -39,9 +39,11 @@ async function token(privateKey: string, userId: string, clientId: string, actor
   }, privateKey, "RS256");
 }
 
-async function request(publicKey: string, bearer: string, path: string) {
+async function request(publicKey: string, bearer: string, path: string, method = "GET", body?: unknown) {
   return createApp().request(`https://example.com${path}`, {
-    headers: { authorization: `Bearer ${bearer}`, accept: "application/json" },
+    method,
+    headers: { authorization: `Bearer ${bearer}`, accept: "application/json", ...(body === undefined ? {} : { "content-type": "application/json" }) },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   }, {
     DB: (env as unknown as { DB: D1Database }).DB,
     IDENTITY_PUBLIC_KEY: publicKey,
@@ -50,7 +52,7 @@ async function request(publicKey: string, bearer: string, path: string) {
 }
 
 describe("Space bindable External Model Definition discovery", () => {
-  it("uses direct Space-management authority and returns External definitions without exposing Native models", async () => {
+  it("uses direct Space-management authority, hides Native models and enforces the definition access ceiling before binding", async () => {
     const db = (env as unknown as { DB: D1Database }).DB;
     const { privateKey, publicKey } = await keyPair();
     const suffix = crypto.randomUUID().replaceAll("-", "");
@@ -59,6 +61,7 @@ describe("Space bindable External Model Definition discovery", () => {
     const appId = `app_external_definition_${suffix}`;
     const space = `spc_${suffix}`;
     const externalKey = `external_definition_${suffix.slice(0, 8)}`;
+    const readOnlyKey = `external_readonly_${suffix.slice(0, 8)}`;
     const timestamp = new Date().toISOString();
 
     await db.batch([
@@ -84,12 +87,32 @@ describe("Space bindable External Model Definition discovery", () => {
       fields: {},
       access: ["read", "write"],
     }, "initial");
+    await publishModelDefinition({ DB: db } as Bindings, publisher, {
+      definitionVersion: 1,
+      origin: "external",
+      key: readOnlyKey,
+      description: "Provider-backed read-only documents.",
+      display: { singular: "Read-only External Document", plural: "Read-only External Documents" },
+      fields: {},
+      access: ["read"],
+    }, "initial");
 
-    const ownerResponse = await request(publicKey, await token(privateKey, owner, appId), `/api/v1/spaces/${space}/external-model-definitions`);
+    const ownerBearer = await token(privateKey, owner, appId);
+    const ownerResponse = await request(publicKey, ownerBearer, `/api/v1/spaces/${space}/external-model-definitions`);
     expect(ownerResponse.status, JSON.stringify(await ownerResponse.clone().json())).toBe(200);
     const items = (await ownerResponse.json<any>()).data.items as Array<{ key: string; displayName: string; access: string[] }>;
     expect(items).toContainEqual(expect.objectContaining({ key: externalKey, displayName: "External Document", access: ["read", "write"] }));
+    expect(items).toContainEqual(expect.objectContaining({ key: readOnlyKey, access: ["read"] }));
     expect(items.some((item) => item.key === "task")).toBe(false);
+
+    const excessiveWrite = await request(publicKey, ownerBearer, `/api/v1/spaces/${space}/external-models`, "POST", {
+      definitionKey: readOnlyKey,
+      connectionId: `exs_${"a".repeat(32)}`,
+      resourceId: "synthetic-provider-resource",
+      declaredAccess: "write",
+    });
+    expect(excessiveWrite.status).toBe(422);
+    expect((await excessiveWrite.json<any>()).error.code).toBe("EXTERNAL_VALIDATION_FAILED");
 
     const outsiderResponse = await request(publicKey, await token(privateKey, outsider, appId), `/api/v1/spaces/${space}/external-model-definitions`);
     expect(outsiderResponse.status).toBe(403);
