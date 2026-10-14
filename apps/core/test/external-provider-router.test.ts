@@ -51,7 +51,7 @@ function routedEnv() {
     EXTERNAL_ADAPTER_AIRTABLE: providerAdapter("airtable", airtableSecret, airtableCalls),
     EXTERNAL_ADAPTER_AIRTABLE_SHARED_SECRET: airtableSecret,
   } as unknown as Bindings;
-  return { env, notionCalls, airtableCalls };
+  return { env, notionCalls, airtableCalls, notionSecret, airtableSecret };
 }
 
 describe("External Provider Router", () => {
@@ -64,6 +64,37 @@ describe("External Provider Router", () => {
     expect(airtableCalls).toHaveLength(1);
     expect(resolveExternalProviderRoute(env, "notion")?.bindingName).toBe("EXTERNAL_ADAPTER_NOTION");
     expect(resolveExternalProviderRoute(env, "airtable")?.bindingName).toBe("EXTERNAL_ADAPTER_AIRTABLE");
+  });
+
+  it("keeps healthy Provider discovery available when another Provider is down", async () => {
+    const { env, notionCalls, airtableCalls, airtableSecret } = routedEnv();
+    (env as unknown as Record<string, unknown>).EXTERNAL_ADAPTER_AIRTABLE = {
+      async fetch(input: RequestInfo | URL, init?: RequestInit) {
+        const request = new Request(input, init);
+        expect(request.headers.get("x-lifespace-internal-secret")).toBe(airtableSecret);
+        const body = await request.json<Record<string, unknown>>();
+        airtableCalls.push({ path: new URL(request.url).pathname, ...body });
+        return Response.json({ contractVersion: 1, error: { code: "EXTERNAL_UNAVAILABLE", retrySafe: true } }, { status: 503 });
+      },
+    } as Fetcher;
+    const descriptors = await listExternalProviderDescriptors(env);
+    expect(descriptors.map((item) => item.key)).toEqual(["notion"]);
+    expect(notionCalls).toHaveLength(1);
+    expect(airtableCalls).toHaveLength(1);
+  });
+
+  it("fails Provider discovery when every configured Provider is unavailable", async () => {
+    const { env, notionSecret, airtableSecret } = routedEnv();
+    for (const [binding, secret] of [["EXTERNAL_ADAPTER_NOTION", notionSecret], ["EXTERNAL_ADAPTER_AIRTABLE", airtableSecret]] as const) {
+      (env as unknown as Record<string, unknown>)[binding] = {
+        async fetch(input: RequestInfo | URL, init?: RequestInit) {
+          const request = new Request(input, init);
+          expect(request.headers.get("x-lifespace-internal-secret")).toBe(secret);
+          return Response.json({ contractVersion: 1, error: { code: "EXTERNAL_UNAVAILABLE", retrySafe: true } }, { status: 503 });
+        },
+      } as Fetcher;
+    }
+    await expect(listExternalProviderDescriptors(env)).rejects.toMatchObject({ code: "EXTERNAL_UNAVAILABLE" });
   });
 
   it("routes Connection creation only to the selected provider", async () => {
