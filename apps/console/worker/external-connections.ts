@@ -5,6 +5,7 @@ interface Env {
   IDENTITY_BASE_URL: string;
   CORE_BASE_URL: string;
   IDENTITY_APPLICATION_CREDENTIAL?: string;
+  CORE_EXECUTOR_BEARER?: string;
   IDENTITY?: Fetcher;
   CORE?: Fetcher;
   ASSETS: Fetcher;
@@ -12,6 +13,7 @@ interface Env {
 
 type JsonRecord = Record<string, unknown>;
 type UpstreamResult = { response: Response; payload: unknown };
+type AdminContext = { actorToken: string; coreExecutor: string };
 const ACCESS_ASSERTION_HEADER = "cf-access-jwt-assertion";
 const INTENT_HEADER = "x-lifespace-console-intent";
 const CONFIRM_CONNECTION_HEADER = "x-lifespace-console-confirm-connection-id";
@@ -58,24 +60,35 @@ function accessAssertion(request: Request): string | null {
   const value = request.headers.get(ACCESS_ASSERTION_HEADER)?.trim() ?? "";
   return value && value.length <= 32768 && value.split(".").length === 3 ? value : null;
 }
-async function userBearer(request: Request, env: Env): Promise<string | Response> {
+
+async function adminContext(request: Request, env: Env): Promise<AdminContext | Response> {
   const assertion = accessAssertion(request);
   if (!assertion) return failure("ACCESS_ASSERTION_REQUIRED", "Cloudflare Access assertion is required", 401, requestId(request));
-  const credential = env.IDENTITY_APPLICATION_CREDENTIAL?.trim();
-  if (!credential) return failure("CONSOLE_NOT_CONFIGURED", "Console Identity executor is not configured", 503, requestId(request));
+  const identityCredential = env.IDENTITY_APPLICATION_CREDENTIAL?.trim();
+  const coreExecutor = env.CORE_EXECUTOR_BEARER?.trim();
+  if (!identityCredential || !coreExecutor) return failure("CONSOLE_NOT_CONFIGURED", "Console Platform Admin executors are not configured", 503, requestId(request));
   const exchange = await serviceRequest(env.IDENTITY, env.IDENTITY_BASE_URL, "/internal/v1/access/tokens", {
     method: "POST",
-    headers: { authorization: `Bearer ${credential}`, "content-type": "application/json", accept: "application/json" },
-    body: JSON.stringify({ accessAssertion: assertion, requestedScopes: ["profile:read", "spaces:manage"] }),
+    headers: { authorization: `Bearer ${identityCredential}`, "content-type": "application/json", accept: "application/json" },
+    body: JSON.stringify({ accessAssertion: assertion, requestedScopes: ["profile:read"] }),
   });
   if (exchange.response.status !== 200) {
     const error = upstreamError(exchange.payload);
     if (exchange.response.status === 409 && error?.code === "ACCESS_PRINCIPAL_UNLINKED") return failure(error.code, error.message, 409, error.requestId ?? requestId(request));
     return upstreamFailure(request, exchange);
   }
-  const token = isRecord(exchange.payload) && isRecord(exchange.payload.data) ? stringValue(exchange.payload.data.accessToken) : null;
-  return token ?? failure("UPSTREAM_RESPONSE_INVALID", "LifeSpace Identity returned an invalid user session", 502, requestId(request));
+  const userToken = isRecord(exchange.payload) && isRecord(exchange.payload.data) ? stringValue(exchange.payload.data.accessToken) : null;
+  if (!userToken) return failure("UPSTREAM_RESPONSE_INVALID", "LifeSpace Identity returned an invalid user session", 502, requestId(request));
+  const proof = await serviceRequest(env.IDENTITY, env.IDENTITY_BASE_URL, "/api/v1/me/platform-admin-actor-token", {
+    method: "POST",
+    headers: { authorization: `Bearer ${userToken}`, accept: "application/json" },
+  });
+  if (proof.response.status !== 200) return upstreamFailure(request, proof);
+  const actorToken = isRecord(proof.payload) && isRecord(proof.payload.data) ? stringValue(proof.payload.data.actorToken) : null;
+  if (!actorToken) return failure("UPSTREAM_RESPONSE_INVALID", "LifeSpace Identity returned an invalid Platform Admin actor proof", 502, requestId(request));
+  return { actorToken, coreExecutor };
 }
+
 function browserMutation(request: Request, intent: string, requireJson = true): Response | null {
   const url = new URL(request.url);
   if (request.headers.get("origin") !== url.origin || request.headers.get("sec-fetch-site") !== "same-origin" || request.headers.get(INTENT_HEADER) !== intent)
@@ -97,11 +110,16 @@ function validConnectionId(value: string): boolean { return /^exs_[a-f0-9]{32}$/
 function validModelKey(value: string): boolean { return /^[a-z][a-z0-9_]{1,62}$/u.test(value); }
 
 async function forward(request: Request, env: Env, corePath: string, method: string, body?: JsonRecord): Promise<Response> {
-  const bearer = await userBearer(request, env);
-  if (bearer instanceof Response) return bearer;
+  const context = await adminContext(request, env);
+  if (context instanceof Response) return context;
   const result = await serviceRequest(env.CORE, env.CORE_BASE_URL, corePath, {
     method,
-    headers: { authorization: `Bearer ${bearer}`, accept: "application/json", ...(body ? { "content-type": "application/json" } : {}) },
+    headers: {
+      authorization: `Bearer ${context.coreExecutor}`,
+      "x-lifespace-actor-token": context.actorToken,
+      accept: "application/json",
+      ...(body ? { "content-type": "application/json" } : {}),
+    },
     ...(body ? { body: JSON.stringify(body) } : {}),
   });
   if (!result.response.ok) return upstreamFailure(request, result);
@@ -129,11 +147,11 @@ function projectExternalField(value: unknown): JsonRecord | null {
   };
 }
 async function forwardBindingDetail(request: Request, env: Env, spaceId: string, modelKey: string): Promise<Response> {
-  const bearer = await userBearer(request, env);
-  if (bearer instanceof Response) return bearer;
-  const result = await serviceRequest(env.CORE, env.CORE_BASE_URL, `/api/v1/spaces/${encodeURIComponent(spaceId)}/external-models/${encodeURIComponent(modelKey)}`, {
+  const context = await adminContext(request, env);
+  if (context instanceof Response) return context;
+  const result = await serviceRequest(env.CORE, env.CORE_BASE_URL, `/api/v1/platform-admin/spaces/${encodeURIComponent(spaceId)}/external-models/${encodeURIComponent(modelKey)}`, {
     method: "GET",
-    headers: { authorization: `Bearer ${bearer}`, accept: "application/json" },
+    headers: { authorization: `Bearer ${context.coreExecutor}`, "x-lifespace-actor-token": context.actorToken, accept: "application/json" },
   });
   if (!result.response.ok) return upstreamFailure(request, result);
   const detail = isRecord(result.payload) && isRecord(result.payload.data) ? result.payload.data : null;
@@ -154,27 +172,31 @@ async function forwardBindingDetail(request: Request, env: Env, spaceId: string,
   return json({ data: response });
 }
 
+function platformSpaceBase(spaceId: string): string {
+  return `/api/v1/platform-admin/spaces/${encodeURIComponent(spaceId)}`;
+}
+
 async function externalConnectionApi(request: Request, env: Env): Promise<Response | null> {
   const url = new URL(request.url);
   const definitions = /^\/api\/spaces\/(spc_[A-Za-z0-9_-]+)\/external-model-definitions$/u.exec(url.pathname);
   if (definitions) {
     if (request.method !== "GET") return failure("METHOD_NOT_ALLOWED", "Method not allowed", 405, requestId(request));
     if (url.search) return failure("VALIDATION_ERROR", "Query parameters are not accepted", 422, requestId(request));
-    return forward(request, env, `/api/v1/spaces/${encodeURIComponent(definitions[1]!)}/external-model-definitions`, "GET");
+    return forward(request, env, `${platformSpaceBase(definitions[1]!)}/external-model-definitions`, "GET");
   }
 
   const bindingCollection = /^\/api\/spaces\/(spc_[A-Za-z0-9_-]+)\/external-models$/u.exec(url.pathname);
   if (bindingCollection) {
     const spaceId = bindingCollection[1]!;
     if (url.search) return failure("VALIDATION_ERROR", "Query parameters are not accepted", 422, requestId(request));
-    if (request.method === "GET") return forward(request, env, `/api/v1/spaces/${encodeURIComponent(spaceId)}/external-models`, "GET");
+    if (request.method === "GET") return forward(request, env, `${platformSpaceBase(spaceId)}/external-models`, "GET");
     if (request.method === "POST") {
       const guard = browserMutation(request, "bind-external-model"); if (guard) return guard;
       const input = await readJsonObject(request, ["definitionKey", "connectionId", "resourceId", "declaredAccess"]); if (input instanceof Response) return input;
       if (!stringValue(input.definitionKey) || !stringValue(input.connectionId) || !stringValue(input.resourceId) || !["read", "write"].includes(String(input.declaredAccess)))
         return failure("VALIDATION_ERROR", "External model binding requires definitionKey, connectionId, resourceId and declaredAccess", 422, requestId(request));
       if (!validModelKey(String(input.definitionKey)) || !validConnectionId(String(input.connectionId))) return failure("VALIDATION_ERROR", "External model binding address is invalid", 422, requestId(request));
-      return forward(request, env, `/api/v1/spaces/${encodeURIComponent(spaceId)}/external-models`, "POST", input);
+      return forward(request, env, `${platformSpaceBase(spaceId)}/external-models`, "POST", input);
     }
     return failure("METHOD_NOT_ALLOWED", "Method not allowed", 405, requestId(request));
   }
@@ -188,7 +210,7 @@ async function externalConnectionApi(request: Request, env: Env): Promise<Respon
       if (request.method !== "POST") return failure("METHOD_NOT_ALLOWED", "Method not allowed", 405, requestId(request));
       const guard = browserMutation(request, "refresh-external-model-binding"); if (guard) return guard;
       const input = await readJsonObject(request, []); if (input instanceof Response) return input;
-      return forward(request, env, `/api/v1/spaces/${encodeURIComponent(spaceId)}/external-models/${encodeURIComponent(modelKey)}/refresh`, "POST", input);
+      return forward(request, env, `${platformSpaceBase(spaceId)}/external-models/${encodeURIComponent(modelKey)}/refresh`, "POST", input);
     }
     if (request.method === "GET") return forwardBindingDetail(request, env, spaceId, modelKey);
     if (request.method !== "PATCH") return failure("METHOD_NOT_ALLOWED", "Method not allowed", 405, requestId(request));
@@ -196,7 +218,7 @@ async function externalConnectionApi(request: Request, env: Env): Promise<Respon
     const input = await readJsonObject(request, ["status", "declaredAccess"]); if (input instanceof Response) return input;
     if (!Object.keys(input).length || (input.status !== undefined && input.status !== "disabled") || (input.declaredAccess !== undefined && !["read", "write"].includes(String(input.declaredAccess))))
       return failure("VALIDATION_ERROR", "External model binding update is invalid", 422, requestId(request));
-    return forward(request, env, `/api/v1/spaces/${encodeURIComponent(spaceId)}/external-models/${encodeURIComponent(modelKey)}`, "PATCH", input);
+    return forward(request, env, `${platformSpaceBase(spaceId)}/external-models/${encodeURIComponent(modelKey)}`, "PATCH", input);
   }
 
   const base = /^\/api\/spaces\/(spc_[A-Za-z0-9_-]+)\/(external-providers|external-connections)(?:\/(exs_[a-f0-9]{32}))?(?:\/(resources))?$/u.exec(url.pathname);
@@ -206,16 +228,16 @@ async function externalConnectionApi(request: Request, env: Env): Promise<Respon
 
   if (resource === "external-providers") {
     if (request.method !== "GET" || connectionId || child || url.search) return failure("METHOD_NOT_ALLOWED", "Method not allowed", 405, requestId(request));
-    return forward(request, env, `/api/v1/spaces/${encodeURIComponent(spaceId)}/external-providers`, "GET");
+    return forward(request, env, `${platformSpaceBase(spaceId)}/external-providers`, "GET");
   }
 
   if (!connectionId) {
     if (child || url.search) return failure("VALIDATION_ERROR", "Query parameters are not accepted", 422, requestId(request));
-    if (request.method === "GET") return forward(request, env, `/api/v1/spaces/${encodeURIComponent(spaceId)}/external-connections`, "GET");
+    if (request.method === "GET") return forward(request, env, `${platformSpaceBase(spaceId)}/external-connections`, "GET");
     if (request.method === "POST") {
       const guard = browserMutation(request, "create-external-connection"); if (guard) return guard;
       const input = await readJsonObject(request, ["providerKey", "displayName", "credential", "access"]); if (input instanceof Response) return input;
-      return forward(request, env, `/api/v1/spaces/${encodeURIComponent(spaceId)}/external-connections`, "POST", input);
+      return forward(request, env, `${platformSpaceBase(spaceId)}/external-connections`, "POST", input);
     }
     return failure("METHOD_NOT_ALLOWED", "Method not allowed", 405, requestId(request));
   }
@@ -223,7 +245,7 @@ async function externalConnectionApi(request: Request, env: Env): Promise<Respon
   if (child === "resources") {
     if (request.method !== "GET") return failure("METHOD_NOT_ALLOWED", "Method not allowed", 405, requestId(request));
     for (const key of url.searchParams.keys()) if (!["query", "cursor", "limit"].includes(key) || url.searchParams.getAll(key).length !== 1) return failure("VALIDATION_ERROR", "Invalid resource discovery query", 422, requestId(request));
-    const core = new URL(`/api/v1/spaces/${encodeURIComponent(spaceId)}/external-connections/${encodeURIComponent(connectionId)}/resources`, env.CORE_BASE_URL);
+    const core = new URL(`${platformSpaceBase(spaceId)}/external-connections/${encodeURIComponent(connectionId)}/resources`, env.CORE_BASE_URL);
     for (const [key, value] of url.searchParams) core.searchParams.set(key, value);
     return forward(request, env, core.pathname + core.search, "GET");
   }
@@ -233,12 +255,12 @@ async function externalConnectionApi(request: Request, env: Env): Promise<Respon
   if (request.method === "PATCH") {
     const guard = browserMutation(request, "update-external-connection"); if (guard) return guard;
     const input = await readJsonObject(request, ["displayName", "credential", "access", "status"]); if (input instanceof Response) return input;
-    return forward(request, env, `/api/v1/spaces/${encodeURIComponent(spaceId)}/external-connections/${encodeURIComponent(connectionId)}`, "PATCH", input);
+    return forward(request, env, `${platformSpaceBase(spaceId)}/external-connections/${encodeURIComponent(connectionId)}`, "PATCH", input);
   }
   if (request.method === "DELETE") {
     const guard = browserMutation(request, "revoke-external-connection", false); if (guard) return guard;
     if (request.headers.get(CONFIRM_CONNECTION_HEADER) !== connectionId) return failure("CONFIRMATION_REQUIRED", "Connection revocation requires exact connection-id confirmation", 409, requestId(request));
-    return forward(request, env, `/api/v1/spaces/${encodeURIComponent(spaceId)}/external-connections/${encodeURIComponent(connectionId)}`, "DELETE");
+    return forward(request, env, `${platformSpaceBase(spaceId)}/external-connections/${encodeURIComponent(connectionId)}`, "DELETE");
   }
   return failure("METHOD_NOT_ALLOWED", "Method not allowed", 405, requestId(request));
 }
