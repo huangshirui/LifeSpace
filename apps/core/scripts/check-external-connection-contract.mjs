@@ -5,7 +5,7 @@ const root = new URL("../", import.meta.url);
 const api = JSON.parse(readFileSync(new URL("external-connection.openapi.yaml", root), "utf8"));
 const adapter = JSON.parse(readFileSync(new URL("external-connection-adapter.contract.json", root), "utf8"));
 
-assert.equal(api.info.version, "0.3.0");
+assert.equal(api.info.version, "0.4.0");
 assert.equal(adapter.properties.contractVersion.const, 1);
 for (const operation of ["describe", "create", "update", "delete", "listResources"])
   assert(adapter.properties.operation.enum.includes(operation));
@@ -21,6 +21,7 @@ assert(api.paths[`${base}/{connectionId}`]?.delete);
 assert(api.paths[`${base}/{connectionId}/resources`]?.get);
 assert(api.paths[bindings]?.get);
 assert(api.paths[bindings]?.post);
+assert(api.paths[`${bindings}/{modelKey}`]?.get);
 assert(api.paths[`${bindings}/{modelKey}`]?.patch);
 assert(api.paths[`${bindings}/{modelKey}/refresh`]?.post);
 assert(!api.paths["/api/v1/spaces/{spaceId}/external-sources"]);
@@ -40,6 +41,10 @@ const binding = api.components.schemas.BindExternalModel;
 assert.deepEqual(binding.required, ["definitionKey", "connectionId", "resourceId", "declaredAccess"]);
 assert(!binding.properties.sourceId);
 assert.deepEqual(api.components.schemas.UpdateExternalBinding.properties.status, { const: "disabled" });
+const detail = api.components.schemas.ExternalBindingDetail;
+assert(detail.required.includes("fields"));
+assert.equal(detail.properties.fields.items.$ref, "#/components/schemas/ExternalField");
+assert(!api.components.schemas.ExternalField.properties.sourceFieldId);
 
 const code = readFileSync(new URL("src/external-connections.ts", root), "utf8");
 assert(code.includes("/internal/v1/external-connections"));
@@ -52,6 +57,8 @@ const routes = readFileSync(new URL("src/external-model-routes.ts", root), "utf8
 assert(!routes.includes("/external-sources"));
 assert(!routes.includes("/model-admin/external-sources"));
 assert(!routes.includes('"sourceId"'));
+assert(routes.includes('app.get(modelPath + "/:modelKey"'));
+assert(routes.includes("externalSemanticDetail(m)"));
 const router = readFileSync(new URL("src/external-provider-router.ts", root), "utf8");
 assert(router.includes("EXTERNAL_PROVIDER_ROUTES"));
 assert(router.includes("resolveExternalProviderRoute"));
