@@ -20,6 +20,27 @@ type ExternalBinding = {
   schemaObservedAt: string;
   lastErrorCode: string | null;
 };
+type ExternalField = {
+  key: string;
+  title: string;
+  type: string;
+  nullable: boolean;
+  readable: boolean;
+  writable: boolean;
+  operators: string[];
+  sortable: boolean;
+  values?: string[];
+};
+type ExternalBindingDetail = {
+  modelKey: string;
+  registrationId: string;
+  spaceId: string;
+  connectionId: string;
+  schemaHash: string;
+  schemaObservedAt: string;
+  status: "active" | "disabled" | "degraded";
+  fields: ExternalField[];
+};
 
 class ExternalUiError extends Error {
   constructor(message: string, readonly code?: string, readonly requestId?: string) { super(message); this.name = "ExternalUiError"; }
@@ -182,6 +203,9 @@ function BindingPanel({ spaceId }: { spaceId: string }) {
   const [resourceBusy, setResourceBusy] = useState(false);
   const [error, setError] = useState<unknown>();
   const [saved, setSaved] = useState(false);
+  const [expandedRegistrationId, setExpandedRegistrationId] = useState<string | null>(null);
+  const [detailBusy, setDetailBusy] = useState("");
+  const [bindingDetails, setBindingDetails] = useState<Record<string, ExternalBindingDetail | undefined>>({});
 
   async function load() {
     setError(undefined);
@@ -225,18 +249,39 @@ function BindingPanel({ spaceId }: { spaceId: string }) {
       await load();
     } catch (cause) { setError(cause); } finally { setBusy(""); }
   }
+  async function loadBindingDetail(binding: ExternalBinding) {
+    setDetailBusy(binding.registrationId); setError(undefined);
+    try {
+      const detail = await get<ExternalBindingDetail>(`/api/spaces/${encodeURIComponent(spaceId)}/external-models/${encodeURIComponent(binding.modelKey)}`);
+      setBindingDetails((current) => ({ ...current, [binding.registrationId]: detail }));
+    } catch (cause) { setError(cause); }
+    finally { setDetailBusy(""); }
+  }
+  async function toggleBindingDetail(binding: ExternalBinding) {
+    if (expandedRegistrationId === binding.registrationId) {
+      setExpandedRegistrationId(null);
+      return;
+    }
+    setExpandedRegistrationId(binding.registrationId);
+    const current = bindingDetails[binding.registrationId];
+    if (!current || current.schemaHash !== binding.schemaHash || current.status !== binding.status) await loadBindingDetail(binding);
+  }
   async function refresh(binding: ExternalBinding) {
     setBusy(binding.registrationId); setError(undefined);
     try {
       await mutate(`/api/spaces/${encodeURIComponent(spaceId)}/external-models/${encodeURIComponent(binding.modelKey)}/refresh`, "POST", "refresh-external-model-binding", {});
+      setBindingDetails((current) => ({ ...current, [binding.registrationId]: undefined }));
       await load();
+      if (expandedRegistrationId === binding.registrationId) await loadBindingDetail(binding);
     } catch (cause) { setError(cause); } finally { setBusy(""); }
   }
   async function setBindingAccess(binding: ExternalBinding, declaredAccess: "read" | "write") {
     setBusy(binding.registrationId); setError(undefined);
     try {
       await mutate(`/api/spaces/${encodeURIComponent(spaceId)}/external-models/${encodeURIComponent(binding.modelKey)}`, "PATCH", "update-external-model-binding", { declaredAccess });
+      setBindingDetails((current) => ({ ...current, [binding.registrationId]: undefined }));
       await load();
+      if (expandedRegistrationId === binding.registrationId) await loadBindingDetail(binding);
     } catch (cause) { setError(cause); } finally { setBusy(""); }
   }
   async function disable(binding: ExternalBinding) {
@@ -244,7 +289,9 @@ function BindingPanel({ spaceId }: { spaceId: string }) {
     setBusy(binding.registrationId); setError(undefined);
     try {
       await mutate(`/api/spaces/${encodeURIComponent(spaceId)}/external-models/${encodeURIComponent(binding.modelKey)}`, "PATCH", "update-external-model-binding", { status: "disabled" });
+      setBindingDetails((current) => ({ ...current, [binding.registrationId]: undefined }));
       await load();
+      if (expandedRegistrationId === binding.registrationId) await loadBindingDetail(binding);
     } catch (cause) { setError(cause); } finally { setBusy(""); }
   }
 
@@ -264,23 +311,43 @@ function BindingPanel({ spaceId }: { spaceId: string }) {
       {!discoverableConnections.length && <div className="ext-empty">还没有可用于资源发现的连接；请先在“连接”页添加。</div>}
     </section>
 
-    <section className="ext-card"><div className="ext-section-head"><div><h3>当前模型绑定</h3><p>这里维护同一套 External Data binding；不再存在第二个 External bindings 控制面。</p></div></div>
+    <section className="ext-card"><div className="ext-section-head"><div><h3>当前模型绑定</h3><p>这里维护同一套 External Data binding；展开“查看字段”读取 Core 已保存的最新 schema snapshot，不会触发 Provider 请求。</p></div></div>
       {!bindings.length && <div className="ext-empty">当前 Space 还没有 External Model binding。</div>}
       <div className="ext-list">{bindings.map((binding) => {
         const connection = connections.find((item) => item.id === binding.connectionId);
         const definition = models.find((item) => item.key === binding.definitionKey);
         const canWrite = connection?.status === "active" && connection.access === "write" && definition?.access.includes("write") === true;
         const unavailable = busy === binding.registrationId;
+        const expanded = expandedRegistrationId === binding.registrationId;
+        const detail = bindingDetails[binding.registrationId];
         return <article className="ext-connection" key={binding.registrationId}>
           <div className="ext-connection-main"><strong>{binding.displayName}</strong><code>{binding.modelKey}</code><div className="ext-badges"><span>{binding.status}</span><span>{binding.declaredAccess}</span><span>{connection?.displayName ?? binding.connectionId}</span></div></div>
           <small>Schema observed: {binding.schemaObservedAt || "—"}{binding.lastErrorCode ? ` · ${binding.lastErrorCode}` : ""}</small>
           {binding.status === "disabled" && <small>恢复：在上方选择原业务模型、Connection 与 Provider Resource 后重新绑定。</small>}
-          <div className="ext-actions">
+          <div className="ext-actions ext-binding-actions">
+            <button disabled={detailBusy === binding.registrationId} onClick={() => void toggleBindingDetail(binding)}>{detailBusy === binding.registrationId ? "读取字段中…" : expanded ? "收起字段" : "查看字段"}</button>
             <button disabled={unavailable || binding.status === "disabled"} onClick={() => void refresh(binding)}>Refresh schema</button>
             <button disabled={unavailable || binding.status === "disabled" || binding.declaredAccess === "read"} onClick={() => void setBindingAccess(binding, "read")}>Set read</button>
             <button disabled={unavailable || binding.status === "disabled" || binding.declaredAccess === "write" || !canWrite} onClick={() => void setBindingAccess(binding, "write")}>Set write</button>
             <button className="danger" disabled={unavailable || binding.status === "disabled"} onClick={() => void disable(binding)}>Disable</button>
           </div>
+          {expanded && <div className="ext-schema-detail">
+            {!detail && detailBusy !== binding.registrationId && <div className="ext-empty">字段详情暂不可用，可重试“查看字段”。</div>}
+            {detail && <>
+              <div className="ext-schema-head"><div><strong>Provider fields</strong><small>{detail.fields.length} fields · snapshot {detail.schemaHash.slice(0, 12)}…</small></div><small>这是配置态 snapshot；运行时消费者仍以 Space Discovery 为准。</small></div>
+              <div className="ext-field-table" role="table" aria-label="External Provider fields">
+                <div className="ext-field-row ext-field-header" role="row"><span>字段</span><span>类型</span><span>读</span><span>写</span><span>筛选</span><span>排序</span></div>
+                {detail.fields.map((field) => <div className="ext-field-row" role="row" key={field.key}>
+                  <div className="ext-field-name"><strong>{field.title}</strong><code>{field.key}</code>{field.values?.length ? <small>values: {field.values.join(", ")}</small> : null}</div>
+                  <span>{field.type}{field.nullable ? " · nullable" : ""}</span>
+                  <span>{field.readable ? "✓" : "—"}</span>
+                  <span>{field.writable ? "✓" : "—"}</span>
+                  <span title={field.operators.join(", ")}>{field.operators.length ? field.operators.join(", ") : "—"}</span>
+                  <span>{field.sortable ? "✓" : "—"}</span>
+                </div>)}
+              </div>
+            </>}
+          </div>}
         </article>;
       })}</div>
     </section>
