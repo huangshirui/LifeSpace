@@ -78,8 +78,8 @@ function legacyNotionRoute(env: Bindings): ExternalProviderRoute | null {
   return legacyAdapterRoute(env, "notion");
 }
 
-function localTestLegacyRoute(env: Bindings, providerKey: string): ExternalProviderRoute | null {
-  if (env.ENVIRONMENT !== "test" && env.ENVIRONMENT !== "local") return null;
+function localLegacyRoute(env: Bindings, providerKey: string): ExternalProviderRoute | null {
+  if (env.ENVIRONMENT !== "local") return null;
   return legacyAdapterRoute(env, providerKey);
 }
 
@@ -112,7 +112,7 @@ export function resolveExternalProviderRoute(
   const routes = parseRoutes(env.EXTERNAL_PROVIDER_ROUTES);
   const config = routes[providerKey];
   if (!config) {
-    const legacy = providerKey === "notion" ? legacyNotionRoute(env) : localTestLegacyRoute(env, providerKey);
+    const legacy = providerKey === "notion" ? legacyNotionRoute(env) : localLegacyRoute(env, providerKey);
     if (legacy) return legacy;
     if (required) throw new ApiError("EXTERNAL_PROVIDER_UNAVAILABLE", "External provider is not configured", 422);
     return null;
