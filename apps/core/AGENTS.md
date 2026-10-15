@@ -63,7 +63,7 @@ Core does not own:
 
 ## External Model boundary
 
-Read `docs/external-models.md`, `external-model.openapi.yaml`, `external-connection.openapi.yaml`, `external-adapter.contract.json` and `external-connection-adapter.contract.json` before changing External configuration/registration/runtime behavior. `ext_*` is reserved; Native models retain Registry/typed storage/immutable mct. Provider credential plaintext belongs only in the private Adapter credential vault: Core may forward it transiently during create/rotation but must never persist, audit or return it. Normal product Connection configuration is direct User `spaces:manage` + current Space `manage` through the public `external-connections` API; the client never supplies or reads `credentialRef`. Canonical remote External execution is provider-routed by persisted `providerKey` to provider-specific private Service Bindings and transport secrets; Core cursor HMAC uses its own `EXTERNAL_CURSOR_SECRET`. The legacy `/model-admin/external-sources` path remains service-only Model Admin for deployment/bootstrap compatibility. Provider business records never enter D1, unsupported provider fields are absent, and no External path may promise Native versions/transactions/outbox or single-use delegated mutation guarantees over a provider write.
+Read `docs/external-models.md`, `external-model.openapi.yaml`, `external-connection.openapi.yaml`, `external-adapter.contract.json` and `external-connection-adapter.contract.json` before changing External configuration/registration/runtime behavior. `ext_*` is reserved; Native models retain Registry/typed storage/immutable mct. Provider credential plaintext belongs only in the private Adapter credential vault: Core may forward it transiently during create/rotation but must never persist, audit or return it. External credential provisioning has exactly one product/platform path: a direct User with `spaces:manage` plus current Space `manage` uses the public `external-connections` API, Core generates the opaque `cnx_*`, and the client never supplies or reads `credentialRef`. Canonical remote External execution is provider-routed by persisted `providerKey` to provider-specific private Service Bindings and transport secrets; Core cursor HMAC uses its own `EXTERNAL_CURSOR_SECRET`. Do not reintroduce deployment-managed/static provider credential maps or `/model-admin/external-sources` as a parallel provisioning path. Provider business records never enter D1, unsupported provider fields are absent, and no External path may promise Native versions/transactions/outbox or single-use delegated mutation guarantees over a provider write.
 
 ## Runtime performance rules
 
@@ -179,14 +179,14 @@ Space-scoped External Connection configuration contract (same Worker, independen
 
 ```text
 apps/core/external-connection.openapi.yaml
-current External Connection version: 0.2.0
+current External Connection version: 0.3.0
 ```
 
 External Model binding/runtime companion contract:
 
 ```text
 apps/core/external-model.openapi.yaml
-current External Model version: 0.2.0
+current External Model version: 0.3.0
 ```
 
 Model Registry / Model Contract governance contract:
