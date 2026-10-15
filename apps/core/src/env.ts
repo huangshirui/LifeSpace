@@ -38,9 +38,9 @@ export type Principal = {
 export type Bindings = CloudflareBindings & {
   EXTERNAL_PROVIDER_ROUTES?: string;
   EXTERNAL_CURSOR_SECRET?: string;
-  // Compatibility only: canonical remote deployment no longer binds runtime
-  // Provider traffic through these generic names. The secret alias is kept until
-  // the External cursor implementation is migrated to EXTERNAL_CURSOR_SECRET.
+  // Compatibility only for local/historical generic Adapter tests. Canonical
+  // staging/production uses EXTERNAL_PROVIDER_ROUTES plus provider-specific
+  // Service Bindings/secrets; cursor signing uses EXTERNAL_CURSOR_SECRET.
   EXTERNAL_ADAPTER?: Fetcher;
   EXTERNAL_ADAPTER_SHARED_SECRET?: string;
   EXTERNAL_SCHEMA_REFRESH_SECONDS?: string;
