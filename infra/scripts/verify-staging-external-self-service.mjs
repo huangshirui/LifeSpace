@@ -221,7 +221,8 @@ try {
     method: "POST",
     body: { [title.key]: `Denied dynamic ${marker}`, [amount.key]: 99 },
   });
-  assert.equal(writeWhileRead.status, 403, "Runtime write must be denied after Connection downgrade before Provider execution");
+  assert.equal(writeWhileRead.status, 405, "Runtime write capability must disappear after Connection downgrade before Provider execution");
+  assert.equal(writeWhileRead.payload?.error?.code, "MODEL_OPERATION_UNSUPPORTED", "Read-only External binding must fail at the model capability boundary");
   checks.accessDowngrade = true;
 
   const rotated = await expectRequest(`${base}/external-connections/${connectionId}`, {
@@ -270,26 +271,58 @@ try {
 }
 
 const cleanupFailures = [];
+const errorText = (error) => error instanceof Error ? error.message : String(error);
 async function cleanup(label, action) {
-  try { await action(); } catch { cleanupFailures.push(label); }
+  try { await action(); } catch (error) { cleanupFailures.push(`${label}: ${errorText(error)}`); }
 }
 
 if (recordId && definitionPublished) {
   await cleanup("synthetic Provider record", async () => {
+    if (connectionId && !connectionRevoked) {
+      const restoredConnection = await request(`${base}/external-connections/${connectionId}`, {
+        method: "PATCH",
+        body: { access: "write", status: "active" },
+      });
+      assert.equal(
+        restoredConnection.status,
+        200,
+        `cleanup restore Connection failed: HTTP ${restoredConnection.status}, code=${restoredConnection.payload?.error?.code ?? "none"}`,
+      );
+      if (registrationId) {
+        const restoredBinding = await request(`${base}/external-models/${definitionKey}`, {
+          method: "PATCH",
+          body: { declaredAccess: "write" },
+        });
+        assert.equal(
+          restoredBinding.status,
+          200,
+          `cleanup restore binding failed: HTTP ${restoredBinding.status}, code=${restoredBinding.payload?.error?.code ?? "none"}`,
+        );
+      }
+    }
     const result = await request(`${base}/models/${definitionKey}/records/${recordId}`, { method: "DELETE", body: {} });
-    assert.ok([204, 403, 404, 502, 503].includes(result.status));
+    assert.ok(
+      [204, 404, 502, 503].includes(result.status),
+      `cleanup Provider record failed: HTTP ${result.status}, code=${result.payload?.error?.code ?? "none"}`,
+    );
   });
 }
 if (connectionId && !connectionRevoked) {
   await cleanup("dynamic Connection revoke", async () => {
     const result = await request(`${base}/external-connections/${connectionId}`, { method: "DELETE" });
-    assert.ok([204, 404].includes(result.status));
+    assert.ok(
+      [204, 404].includes(result.status),
+      `cleanup Connection revoke failed: HTTP ${result.status}, code=${result.payload?.error?.code ?? "none"}`,
+    );
   });
 }
 if (definitionPublished) {
   await cleanup("External definition retirement", async () => {
     const result = await request(`/api/v1/model-admin/models/${definitionKey}/retire`, { method: "POST", role: "admin", body: {} });
-    assert.ok([204, 404].includes(result.status));
+    assert.ok(
+      [204, 404].includes(result.status),
+      `cleanup Definition retirement failed: HTTP ${result.status}, code=${result.payload?.error?.code ?? "none"}`,
+    );
   });
 }
 if (modelAccessInserted) {
@@ -304,10 +337,16 @@ if (connectionId) {
 }
 checks.cleanup = cleanupFailures.length === 0;
 
-if (cleanupFailures.length) {
-  throw new Error(`External self-service acceptance cleanup failed: ${cleanupFailures.join(", ")}; original check=${failure ? "failed" : "passed"}`);
+if (failure) {
+  if (failure instanceof Error && cleanupFailures.length) {
+    failure.message += `; cleanup failures: ${cleanupFailures.join(" | ")}`;
+  }
+  if (failure instanceof Error) throw failure;
+  throw new Error(`External self-service acceptance failed: ${errorText(failure)}${cleanupFailures.length ? `; cleanup failures: ${cleanupFailures.join(" | ")}` : ""}`);
 }
-if (failure) throw failure;
+if (cleanupFailures.length) {
+  throw new Error(`External self-service acceptance cleanup failed: ${cleanupFailures.join(" | ")}`);
+}
 
 console.log(JSON.stringify({
   ok: true,

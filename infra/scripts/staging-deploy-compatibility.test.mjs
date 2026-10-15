@@ -55,3 +55,16 @@ test("dynamic External staging smoke waits past the Runtime Registry TTL after p
   const bind = smoke.indexOf("const bound = await expectRequest(`${base}/external-models`");
   assert.ok(publish >= 0 && barrier > publish && bind > barrier, "External smoke must wait beyond Registry TTL between Definition publication and binding/runtime checks");
 });
+
+test("dynamic External staging smoke treats read downgrade as capability removal and preserves primary failures", () => {
+  const smoke = readFileSync(new URL("./verify-staging-external-self-service.mjs", import.meta.url), "utf8");
+  assert.match(smoke, /assert\.equal\(writeWhileRead\.status, 405,/u);
+  assert.match(smoke, /writeWhileRead\.payload\?\.error\?\.code, "MODEL_OPERATION_UNSUPPORTED"/u);
+  assert.match(smoke, /cleanupFailures\.push\(`\$\{label\}: \$\{errorText\(error\)\}`\)/u);
+  const restore = smoke.indexOf('body: { access: "write", status: "active" }');
+  const providerDelete = smoke.indexOf('const result = await request(`${base}/models/${definitionKey}/records/${recordId}`, { method: "DELETE", body: {} });', restore);
+  assert.ok(restore >= 0 && providerDelete > restore, "Cleanup must restore write capability before deleting a synthetic Provider record left by a mid-flow failure");
+  const primaryFailure = smoke.indexOf("if (failure) {");
+  const cleanupOnlyFailure = smoke.indexOf("\nif (cleanupFailures.length) {\n  throw new Error", primaryFailure);
+  assert.ok(primaryFailure >= 0 && cleanupOnlyFailure > primaryFailure, "Primary Dynamic External failure must be rethrown before a cleanup-only failure can replace it");
+});
