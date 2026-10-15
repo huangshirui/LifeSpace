@@ -32,7 +32,7 @@ Core owns:
 - cross-Space aggregate `/me` views;
 - deterministic typed physical schema planning/publication;
 - runtime validation, concurrency, soft deletion, relations, governed Change History and business audit;
-- Core-side Platform Admin Application × Model Access, read-only Space inspection and platform-admin audit;
+- Core-side Platform Admin Application × Model Access, Space inspection, Space Data Grant governance, Space External configuration governance, Model governance and platform-admin audit;
 - reproducible business-facing Kernel and privileged Platform Admin contracts.
 
 Core does not own:
@@ -63,7 +63,7 @@ Core does not own:
 
 ## External Model boundary
 
-Read `docs/external-models.md`, `external-model.openapi.yaml`, `external-connection.openapi.yaml`, `external-adapter.contract.json` and `external-connection-adapter.contract.json` before changing External configuration/registration/runtime behavior. `ext_*` is reserved; Native models retain Registry/typed storage/immutable mct. Provider credential plaintext belongs only in the private Adapter credential vault: Core may forward it transiently during create/rotation but must never persist, audit or return it. External credential provisioning has exactly one product/platform path: a direct User with `spaces:manage` plus current Space `manage` uses the public `external-connections` API, Core generates the opaque `cnx_*`, and the client never supplies or reads `credentialRef`. Canonical remote External execution is provider-routed by persisted `providerKey` to provider-specific private Service Bindings and transport secrets; Core cursor HMAC uses its own `EXTERNAL_CURSOR_SECRET`. Do not reintroduce deployment-managed/static provider credential maps or `/model-admin/external-sources` as a parallel provisioning path. Provider business records never enter D1, unsupported provider fields are absent, and no External path may promise Native versions/transactions/outbox or single-use delegated mutation guarantees over a provider write.
+Read `docs/external-models.md`, `external-model.openapi.yaml`, `external-connection.openapi.yaml`, `external-adapter.contract.json` and `external-connection-adapter.contract.json` before changing External configuration/registration/runtime behavior. `ext_*` is reserved; Native models retain Registry/typed storage/immutable mct. Provider credential plaintext belongs only in the private Adapter credential vault: Core may forward it transiently during create/rotation but must never persist, audit or return it. External Connection/binding state has one authoritative Core representation and one private Adapter vault, but it may be governed through two authority surfaces: a direct User with `spaces:manage` plus current Space `manage` uses the ordinary Space-scoped `external-connections` API; LifeSpace Console uses the dedicated `/api/v1/platform-admin/spaces/{spaceId}/external-*` routes with Platform Admin actor proof + controlled Core executor. Both route families reuse the same business logic/state; do not create parallel Connection/binding persistence. Core generates the opaque `cnx_*`, and no browser/client supplies or reads `credentialRef`. Canonical remote External execution is provider-routed by persisted `providerKey` to provider-specific private Service Bindings and transport secrets; Core cursor HMAC uses its own `EXTERNAL_CURSOR_SECRET`. Do not reintroduce deployment-managed/static provider credential maps or `/model-admin/external-sources` as a parallel provisioning path. Provider business records never enter D1, unsupported provider fields are absent, and no External path may promise Native versions/transactions/outbox or single-use delegated mutation guarantees over a provider write.
 
 ## Runtime performance rules
 
@@ -122,7 +122,7 @@ X-LifeSpace-Actor-Token: <Identity-issued human actor proof>
 Core verifies independently that:
 
 - executor principal type is `service`;
-- executor contains the route-specific capability (`applications:manage`, `spaces:inspect`, `audit:read`, etc.);
+- executor contains the route-specific capability (`applications:manage`, `models:manage`, `spaces:inspect`, `spaces:manage`, `grants:manage`, `audit:read`, etc.);
 - actor proof is a valid LifeSpace user JWT;
 - actor proof has `scope=platform:admin`;
 - actor proof has `purpose=platform_admin_actor`;
@@ -131,24 +131,26 @@ Core verifies independently that:
 
 Core intentionally does **not** duplicate Identity `platform_administrators` assignment state. Identity re-checks assignment on Identity-owned admin calls and new actor-proof issuance; Core bounds assignment-revocation latency through the five-minute proof lifetime.
 
-Read-only Space inspection must never create hidden membership or mutate Space/Grant state.
+Platform Admin control-plane authority may inspect or mutate explicitly approved control-plane relations such as Data Grants, External Connections/bindings, Application × Model Access and Model Registry state. Such governance must never implicitly create Space membership or ordinary business-record authority for the human actor or Console executor. A Platform Admin Data Grant mutation changes the authoritative grant relation for its target grantee; it does not grant that permission to the administrator executing the mutation.
 
-Platform-admin audit records both the human actor and service executor, bounded secret-free summary, target, request ID, result and timestamp.
+Console-specific Core operations belong under `/api/v1/platform-admin/*`. Ordinary `/api/v1/spaces/*` management routes remain authenticated by User/Space authority for downstream application self-service and are not a fallback authority mode for Console.
+
+Platform-admin audit records both the human actor and service executor, bounded secret-free summary, target, request ID, result and timestamp. Mutations that cross an external provider boundary use pending -> success/failure audit where the provider action cannot be made atomic with D1.
 
 ## Model Admin compatibility
 
-Model Registry administration remains service-principal-only with `models:manage`.
+The independent `/api/v1/model-admin/*` Model Control Plane remains service-principal-only with `models:manage` for non-interactive CI/platform automation.
 
-Existing CI/platform automation may call Model Admin without a human actor proof.
+LifeSpace Console does **not** use `/api/v1/model-admin/*` as its runtime administration namespace. Console model list/validate/publish/retire use `/api/v1/platform-admin/models*`, require the Platform Admin actor proof, and reuse the same canonical Model Registry implementation and Model Control Plane request/response schemas.
 
-When LifeSpace Console supplies `X-LifeSpace-Actor-Token` for Model publish/retire, Core additionally validates the platform-admin context and records human + executor audit. For those Console-triggered mutations:
+For Console-triggered Model Registry mutations:
 
 - initial audit row is written as `pending` before Registry mutation starts;
 - if that initial audit write fails, mutation must not begin;
 - successful/failed mutation attempts update the pending audit to `success`/`failure` where possible;
 - audit never stores credentials or Authorization headers.
 
-Do not make service automation depend on an interactive human solely to improve Console auditability.
+Do not make service automation depend on an interactive human solely to improve Console auditability, and do not make Console fall back to service-only Model Admin solely for implementation convenience.
 
 ## Persistence
 
@@ -189,7 +191,7 @@ apps/core/external-model.openapi.yaml
 current External Model version: 0.3.0
 ```
 
-Model Registry / Model Contract governance contract:
+Model Registry / Model Contract service-automation governance contract:
 
 ```text
 apps/core/model-control-plane.openapi.yaml
@@ -200,7 +202,7 @@ Privileged LifeSpace Console control-plane contract:
 
 ```text
 apps/core/platform-admin.openapi.yaml
-current Platform Admin version: 0.3.0
+current Platform Admin version: 0.5.0
 ```
 
 Ordinary model contract:
@@ -211,7 +213,7 @@ immutable Model Contract Revision: mct_<sha256>
 
 Do not put Console-only privileged APIs into the Kernel contract simply because they are served by the same Worker. Do not duplicate ordinary model routes into either code-owned contract.
 
-Console Model publish/retire profiles reuse the Model Control Plane request/response schemas; they must not become a second hand-maintained Model Definition schema.
+Console Model governance reuses the Model Control Plane request/response schemas; it must not become a second hand-maintained Model Definition schema. Platform Admin External governance reuses the public External Connection request/response schemas and the same implementation/state; it must not become a second External protocol.
 
 ## Consumer independence
 
@@ -230,6 +232,8 @@ A Core change is incomplete until:
 - authorization changes include positive and deny paths;
 - Eventing changes cover event generation, Endpoint transport/signing, subscription filtering, retry/idempotency and revocation behavior appropriate to the slice;
 - Platform Admin changes cover service-only executor, missing/wrong-purpose/mismatched actor proof and no-hidden-Space-authority behavior;
+- Platform Admin Data Grant tests prove governance changes authoritative Grant state without creating membership;
+- Console-facing External governance tests prove Platform Admin authority while ordinary Space-manager routes retain their own User authority semantics;
 - performance-sensitive changes preserve D1 round-trip/N+1 rules;
 - downstream Kernel/model-contract impact is explicitly assessed.
 
