@@ -4,7 +4,7 @@ import "./external-connections.css";
 type DataEnvelope<T> = { data: T };
 type ErrorEnvelope = { error?: { code?: string; message?: string; requestId?: string } };
 type Provider = { key: string; displayName: string; credential: { type: string; displayName: string }; resource: { type: string; displayName: string }; access: Array<"read" | "write"> };
-type Connection = { id: string; spaceId: string; providerKey: string; displayName: string; access: "read" | "write" | null; status: "active" | "disabled" | "revoked"; managementMode: "dynamic" | "deployment"; resourceDiscovery: boolean; createdAt: string; updatedAt: string };
+type Connection = { id: string; spaceId: string; providerKey: string; displayName: string; access: "read" | "write" | null; status: "active" | "disabled" | "revoked"; resourceDiscovery: boolean; createdAt: string; updatedAt: string };
 type Resource = { id: string; type: string; displayName: string };
 type ExternalModelDefinition = { key: string; displayName: string; description: string | null; access: Array<"read" | "write">; schemaHash: string };
 type ExternalBinding = {
@@ -155,12 +155,12 @@ function ConnectionsPanel({ spaceId, onReadyToBind }: { spaceId: string; onReady
       <button className="ext-primary" disabled={busy === "create" || !provider || !displayName.trim() || !token.trim()} onClick={() => void create()}>{busy === "create" ? "验证并连接中…" : "验证并添加连接"}</button>
     </section>
 
-    <section className="ext-card"><div className="ext-section-head"><div><h3>当前连接</h3><p>deployment 类型来自部署配置，只能在这里启停；dynamic 类型可换 token 或撤销。</p></div>{connections.some((item) => item.status === "active") && <button onClick={onReadyToBind}>去绑定模型 →</button>}</div>
+    <section className="ext-card"><div className="ext-section-head"><div><h3>当前连接</h3><p>所有 Connection 都通过公开配置 API 创建，可在这里启停、换 token 或撤销。</p></div>{connections.some((item) => item.status === "active") && <button onClick={onReadyToBind}>去绑定模型 →</button>}</div>
       {!connections.length && <div className="ext-empty">还没有外部连接。</div>}
-      <div className="ext-list">{connections.map((connection) => <article key={connection.id} className="ext-connection"><div className="ext-connection-main"><strong>{connection.displayName}</strong><code>{connection.id}</code><div className="ext-badges"><span>{connection.providerKey}</span><span>{connection.access ?? "unknown"}</span><span>{connection.status}</span><span>{connection.managementMode}</span></div></div>
+      <div className="ext-list">{connections.map((connection) => <article key={connection.id} className="ext-connection"><div className="ext-connection-main"><strong>{connection.displayName}</strong><code>{connection.id}</code><div className="ext-badges"><span>{connection.providerKey}</span><span>{connection.access ?? "unknown"}</span><span>{connection.status}</span></div></div>
         <div className="ext-actions">
           {connection.status === "active" ? <button disabled={busy === connection.id} onClick={() => void setStatus(connection, "disabled")}>Disable</button> : connection.status === "disabled" && <button disabled={busy === connection.id} onClick={() => void setStatus(connection, "active")}>Enable</button>}
-          {connection.managementMode === "dynamic" && connection.status !== "revoked" && <><input type="password" autoComplete="off" placeholder="新 token" value={rotate[connection.id] ?? ""} onChange={(event) => setRotate((current) => ({ ...current, [connection.id]: event.target.value }))} /><button disabled={busy === connection.id || !(rotate[connection.id]?.trim())} onClick={() => void rotateToken(connection)}>换 token</button><button className="danger" disabled={busy === connection.id} onClick={() => void revoke(connection)}>撤销</button></>}
+          {connection.status !== "revoked" && <><input type="password" autoComplete="off" placeholder="新 token" value={rotate[connection.id] ?? ""} onChange={(event) => setRotate((current) => ({ ...current, [connection.id]: event.target.value }))} /><button disabled={busy === connection.id || !(rotate[connection.id]?.trim())} onClick={() => void rotateToken(connection)}>换 token</button><button className="danger" disabled={busy === connection.id} onClick={() => void revoke(connection)}>撤销</button></>}
         </div>
       </article>)}</div>
     </section>
@@ -252,7 +252,7 @@ function BindingPanel({ spaceId }: { spaceId: string }) {
     <section className="ext-card"><h3>绑定 External Model</h3><p>选择已发布业务模型、Connection 和 Provider Resource。字段 Schema 在绑定时由 Adapter 自动发现并形成最新 snapshot；disabled binding 也通过这里重新绑定同一资源恢复。</p>
       <div className="ext-grid">
         <label><span>业务模型</span><select value={definitionKey} onChange={(event) => { setDefinitionKey(event.target.value); setSaved(false); }}><option value="">选择 External Model</option>{models.map((item) => <option key={item.key} value={item.key}>{item.displayName} · {item.key}</option>)}</select></label>
-        <label><span>Connection</span><select value={connectionId} onChange={(event) => { setConnectionId(event.target.value); setResources([]); setResourceId(""); setSaved(false); }}><option value="">选择动态连接</option>{discoverableConnections.map((item) => <option key={item.id} value={item.id}>{item.displayName} · {item.access}</option>)}</select></label>
+        <label><span>Connection</span><select value={connectionId} onChange={(event) => { setConnectionId(event.target.value); setResources([]); setResourceId(""); setSaved(false); }}><option value="">选择连接</option>{discoverableConnections.map((item) => <option key={item.id} value={item.id}>{item.displayName} · {item.access}</option>)}</select></label>
         <label className="wide"><span>搜索 Provider Resource</span><div className="ext-inline"><input value={query} maxLength={200} onChange={(event) => setQuery(event.target.value)} placeholder="例如 Health" /><button disabled={!connectionId || resourceBusy} onClick={() => void discover()}>{resourceBusy ? "发现中…" : "发现 Data Sources"}</button></div></label>
         <label className="wide"><span>Data Source</span><select value={resourceId} onChange={(event) => { setResourceId(event.target.value); setSaved(false); }}><option value="">{resources.length ? "选择 Data Source" : "先发现 Data Sources"}</option>{resources.map((item) => <option key={item.id} value={item.id}>{item.displayName} · {item.id}</option>)}</select></label>
         <label><span>绑定能力</span><select value={access} onChange={(event) => setAccess(event.target.value as "read" | "write")}><option value="read">只读</option>{writeAllowed && <option value="write">读写</option>}</select></label>
@@ -261,7 +261,7 @@ function BindingPanel({ spaceId }: { spaceId: string }) {
       <button className="ext-primary" disabled={busy === "bind" || !definitionKey || !connectionId || !resourceId} onClick={() => void bind()}>{busy === "bind" ? "绑定并发现字段中…" : "绑定并发现字段"}</button>
       {saved && <div className="ext-message ext-success"><strong>配置已更新</strong><span>Provider Schema 已自动发现，可继续在下方维护现有绑定。</span></div>}
       {!models.length && <div className="ext-empty">还没有已发布的 External Model Definition；请先在 Models 中注册外部模型。</div>}
-      {!discoverableConnections.length && <div className="ext-empty">还没有可用于资源发现的动态连接；请先在“连接”页添加。</div>}
+      {!discoverableConnections.length && <div className="ext-empty">还没有可用于资源发现的连接；请先在“连接”页添加。</div>}
     </section>
 
     <section className="ext-card"><div className="ext-section-head"><div><h3>当前模型绑定</h3><p>这里维护同一套 External Data binding；不再存在第二个 External bindings 控制面。</p></div></div>
