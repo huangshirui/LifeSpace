@@ -16,6 +16,14 @@ const requiredPaths = [
   "/api/v1/platform-admin/spaces/{spaceId}",
   "/api/v1/platform-admin/spaces/{spaceId}/grants",
   "/api/v1/platform-admin/spaces/{spaceId}/grants/{grantId}",
+  "/api/v1/platform-admin/spaces/{spaceId}/external-providers",
+  "/api/v1/platform-admin/spaces/{spaceId}/external-model-definitions",
+  "/api/v1/platform-admin/spaces/{spaceId}/external-connections",
+  "/api/v1/platform-admin/spaces/{spaceId}/external-connections/{connectionId}",
+  "/api/v1/platform-admin/spaces/{spaceId}/external-connections/{connectionId}/resources",
+  "/api/v1/platform-admin/spaces/{spaceId}/external-models",
+  "/api/v1/platform-admin/spaces/{spaceId}/external-models/{modelKey}",
+  "/api/v1/platform-admin/spaces/{spaceId}/external-models/{modelKey}/refresh",
   "/api/v1/platform-admin/models",
   "/api/v1/platform-admin/models/validate",
   "/api/v1/platform-admin/models/{modelKey}",
@@ -67,6 +75,22 @@ for (const operation of [grants.post, grant.patch, grant.delete]) {
 const grantTypes = document.components?.schemas?.PlatformDataGrant?.properties?.granteeType?.enum ?? [];
 if (!grantTypes.includes("agent") || !grantTypes.includes("service")) {
   throw new Error("Platform Data Grant governance must expose Agent and Service grantees");
+}
+
+const externalPaths = requiredPaths.filter((path) => path.includes("/external-"));
+for (const path of externalPaths) {
+  const pathItem = document.paths?.[path];
+  for (const operation of Object.values(pathItem ?? {})) {
+    if (!operation || typeof operation !== "object" || Array.isArray(operation) || !("responses" in operation)) continue;
+    const description = String(operation.description ?? "");
+    if (!description.includes("spaces:manage") || (!description.includes("actor proof") && !description.includes("platform-admin actor proof"))) {
+      throw new Error(`Platform External governance must document spaces:manage plus actor proof: ${path}`);
+    }
+  }
+}
+const externalCreateRef = document.paths?.["/api/v1/platform-admin/spaces/{spaceId}/external-connections"]?.post?.requestBody?.content?.["application/json"]?.schema?.$ref;
+if (externalCreateRef !== "./external-connection.openapi.yaml#/components/schemas/CreateExternalConnection") {
+  throw new Error("Platform External Connection creation must reuse the canonical External Connection schema");
 }
 
 const modelAccess = document.paths?.["/api/v1/platform-admin/applications/{applicationId}/model-access"];
