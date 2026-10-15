@@ -1,12 +1,33 @@
-import { getExternalModel, isExternalModelKey, externalAuthorityModel } from "./external-model";
 import type { Context, Hono } from "hono";
 import type { Bindings, Variables } from "./env";
+import {
+  createGrantId,
+  grantDto,
+  grantNow,
+  parseGrantBody,
+  parseGrantExpiry,
+  parseGrantGrantee,
+  parseGrantPermission,
+  parseGrantResource,
+  validateModelPermission,
+  type GrantRow,
+} from "./grants";
 import { ApiError, success } from "./http";
 import { requirePlatformAdminContext, type PlatformAdminContext } from "./platform-admin-auth";
+import {
+  getPublishedModel,
+  listPublishedModels,
+  publishModelDefinition,
+  retireModel,
+  validateDefinitionForPublication,
+  type ModelCompatibility,
+} from "./model-registry";
+import { getExternalModel, isExternalModelKey, externalAuthorityModel } from "./external-model";
 
 type AppEnv = { Bindings: Bindings; Variables: Variables };
 type App = Hono<AppEnv>;
 type AccessLevel = "read" | "write" | "manage";
+type PendingAudit = { id: string; admin: PlatformAdminContext };
 
 type ApplicationModelAccessRow = {
   application_id: string;
@@ -19,7 +40,8 @@ type ApplicationModelAccessRow = {
 };
 
 type ModelRow = { key: string; definition_json: string; state: string };
-type Body = { models?: unknown };
+type ModelAccessBody = { models?: unknown };
+type JsonBody = Record<string, unknown>;
 
 const ACCESS_RANK: Record<AccessLevel, number> = { read: 1, write: 2, manage: 3 };
 const now = () => new Date().toISOString();
@@ -27,6 +49,21 @@ const createId = (prefix: string) => `${prefix}_${crypto.randomUUID().replaceAll
 
 function applicationId(value: string): string {
   if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,119}$/u.test(value)) throw new ApiError("VALIDATION_ERROR", "applicationId is invalid", 422);
+  return value;
+}
+
+function spaceId(value: string): string {
+  if (!/^spc_[A-Za-z0-9_-]+$/u.test(value)) throw new ApiError("VALIDATION_ERROR", "spaceId is invalid", 422);
+  return value;
+}
+
+function grantId(value: string): string {
+  if (!/^grt_[A-Za-z0-9_-]+$/u.test(value)) throw new ApiError("VALIDATION_ERROR", "grantId is invalid", 422);
+  return value;
+}
+
+function modelKey(value: string): string {
+  if (!/^[a-z][a-z0-9_]{1,62}$/u.test(value)) throw new ApiError("VALIDATION_ERROR", "modelKey is invalid", 422);
   return value;
 }
 
@@ -81,7 +118,7 @@ async function normalizeEntries(context: Context<AppEnv>, value: unknown): Promi
   return requested;
 }
 
-function dto(row: ApplicationModelAccessRow) {
+function modelAccessDto(row: ApplicationModelAccessRow) {
   return {
     applicationId: row.application_id,
     modelKey: row.model_key,
@@ -92,12 +129,29 @@ function dto(row: ApplicationModelAccessRow) {
   };
 }
 
+function publishedModelDto(model: Awaited<ReturnType<typeof getPublishedModel>>) {
+  if (!model) return null;
+  return {
+    id: model.id,
+    key: model.key,
+    version: model.version,
+    state: model.state,
+    schemaHash: model.schemaHash,
+    compatibility: model.compatibility,
+    definition: model.definition,
+    publishedAt: model.publishedAt,
+  };
+}
+
 function auditStatement(
   env: Bindings,
   admin: PlatformAdminContext,
   requestId: string,
+  operation: string,
+  targetType: string,
   targetId: string,
   summary: unknown,
+  result: "success" | "failure" = "success",
 ) {
   return env.DB.prepare(`INSERT INTO platform_admin_audit(
     id,actor_user_id,actor_application_id,actor_token_id,
@@ -111,22 +165,89 @@ function auditStatement(
     admin.executor.id,
     admin.executor.clientId,
     admin.executor.tokenId,
-    "application_model_access.replace",
-    "application",
+    operation,
+    targetType,
     targetId,
     JSON.stringify(summary),
     requestId,
-    "success",
+    result,
     now(),
   );
 }
 
-async function body(context: Context<AppEnv>): Promise<Body> {
+async function beginPendingAudit(
+  context: Context<AppEnv>,
+  admin: PlatformAdminContext,
+  operation: string,
+  targetType: string,
+  targetId: string,
+  summary: unknown,
+): Promise<PendingAudit> {
+  const id = createId("paa");
+  await context.env.DB.prepare(`INSERT INTO platform_admin_audit(
+    id,actor_user_id,actor_application_id,actor_token_id,
+    executor_principal_id,executor_application_id,executor_token_id,
+    operation,target_type,target_id,summary_json,request_id,result,created_at
+  ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(
+    id,
+    admin.actor.id,
+    admin.actor.clientId,
+    admin.actor.tokenId,
+    admin.executor.id,
+    admin.executor.clientId,
+    admin.executor.tokenId,
+    operation,
+    targetType,
+    targetId,
+    JSON.stringify(summary),
+    context.get("requestId"),
+    "pending",
+    now(),
+  ).run();
+  return { id, admin };
+}
+
+async function finishPendingAudit(context: Context<AppEnv>, audit: PendingAudit, result: "success" | "failure", summary: unknown): Promise<void> {
+  await context.env.DB.prepare("UPDATE platform_admin_audit SET result=?,summary_json=? WHERE id=? AND result='pending'")
+    .bind(result, JSON.stringify(summary), audit.id).run();
+}
+
+function errorCode(error: unknown): string {
+  return error instanceof ApiError ? error.code : "INTERNAL_ERROR";
+}
+
+async function modelAccessBody(context: Context<AppEnv>): Promise<ModelAccessBody> {
   const value = await context.req.json<unknown>().catch(() => null);
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new ApiError("INVALID_REQUEST", "Request body must be a JSON object", 400);
   const record = value as Record<string, unknown>;
   if (Object.keys(record).some((key) => key !== "models")) throw new ApiError("INVALID_REQUEST", "Request must contain only models", 400);
-  return record as Body;
+  return record as ModelAccessBody;
+}
+
+async function jsonBody(context: Context<AppEnv>): Promise<JsonBody> {
+  const value = await context.req.json<unknown>().catch(() => null);
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new ApiError("INVALID_REQUEST", "Request body must be a JSON object", 400);
+  return value as JsonBody;
+}
+
+function compatibility(value: unknown): ModelCompatibility {
+  if (value !== "initial" && value !== "compatible" && value !== "breaking") {
+    throw new ApiError("INVALID_REQUEST", "compatibility must be initial, compatible, or breaking", 400);
+  }
+  return value;
+}
+
+function modelKeyFromDefinition(value: unknown): string {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    const key = (value as Record<string, unknown>).key;
+    if (typeof key === "string" && key.trim()) return key.trim().slice(0, 100);
+  }
+  return "unresolved";
+}
+
+async function requireActiveSpace(context: Context<AppEnv>, id: string): Promise<void> {
+  const row = await context.env.DB.prepare("SELECT id FROM spaces WHERE id=? AND deleted_at IS NULL").bind(id).first<{ id: string }>();
+  if (!row) throw new ApiError("SPACE_NOT_FOUND", "Space not found", 404);
 }
 
 export function registerPlatformAdminRoutes(app: App): void {
@@ -135,13 +256,13 @@ export function registerPlatformAdminRoutes(app: App): void {
     const targetApplicationId = applicationId(context.req.param("applicationId"));
     const rows = await context.env.DB.prepare(`SELECT application_id,model_key,max_access,created_by_type,created_by_id,created_at,updated_at
       FROM application_model_access WHERE application_id=? ORDER BY model_key`).bind(targetApplicationId).all<ApplicationModelAccessRow>();
-    return context.json(success({ applicationId: targetApplicationId, models: rows.results.map(dto) }));
+    return context.json(success({ applicationId: targetApplicationId, models: rows.results.map(modelAccessDto) }));
   });
 
   app.put("/api/v1/platform-admin/applications/:applicationId/model-access", async (context) => {
     const admin = await requirePlatformAdminContext(context, "applications:manage");
     const targetApplicationId = applicationId(context.req.param("applicationId"));
-    const input = await body(context);
+    const input = await modelAccessBody(context);
     const entries = await normalizeEntries(context, input.models);
     const timestamp = now();
     const statements: D1PreparedStatement[] = [
@@ -157,12 +278,184 @@ export function registerPlatformAdminRoutes(app: App): void {
         timestamp,
         timestamp,
       )),
-      auditStatement(context.env, admin, context.get("requestId"), targetApplicationId, { models: entries }),
+      auditStatement(context.env, admin, context.get("requestId"), "application_model_access.replace", "application", targetApplicationId, { models: entries }),
     ];
     await context.env.DB.batch(statements);
     const rows = await context.env.DB.prepare(`SELECT application_id,model_key,max_access,created_by_type,created_by_id,created_at,updated_at
       FROM application_model_access WHERE application_id=? ORDER BY model_key`).bind(targetApplicationId).all<ApplicationModelAccessRow>();
-    return context.json(success({ applicationId: targetApplicationId, models: rows.results.map(dto) }));
+    return context.json(success({ applicationId: targetApplicationId, models: rows.results.map(modelAccessDto) }));
+  });
+
+  app.post("/api/v1/platform-admin/spaces/:spaceId/grants", async (context) => {
+    const admin = await requirePlatformAdminContext(context, "grants:manage");
+    const targetSpaceId = spaceId(context.req.param("spaceId"));
+    await requireActiveSpace(context, targetSpaceId);
+    const input = await parseGrantBody(context.req.raw);
+    const allowedFields = new Set(["granteeType", "granteeId", "resourceType", "resourceId", "permission", "expiresAt"]);
+    if (Object.keys(input).some((key) => !allowedFields.has(key))) throw new ApiError("INVALID_REQUEST", "Request contains unsupported fields", 400);
+    const grantee = parseGrantGrantee(input);
+    const permission = parseGrantPermission(input.permission);
+    const resource = await parseGrantResource(context.env, targetSpaceId, input);
+    validateModelPermission(resource.resourceType, permission);
+    const expiresAt = parseGrantExpiry(input.expiresAt);
+    const id = createGrantId();
+    const createdAt = grantNow();
+    await context.env.DB.batch([
+      context.env.DB.prepare(`INSERT INTO data_grants(
+        id,source_space_id,grantee_type,grantee_id,resource_type,resource_id,permission,created_by_user_id,created_at,expires_at
+      ) VALUES(?,?,?,?,?,?,?,?,?,?)`).bind(
+        id,
+        targetSpaceId,
+        grantee.granteeType,
+        grantee.granteeId,
+        resource.resourceType,
+        resource.resourceId,
+        permission,
+        admin.actor.id,
+        createdAt,
+        expiresAt,
+      ),
+      auditStatement(context.env, admin, context.get("requestId"), "data_grant.create", "data_grant", id, {
+        sourceSpaceId: targetSpaceId,
+        ...grantee,
+        ...resource,
+        permission,
+        expiresAt,
+      }),
+    ]);
+    const row = await context.env.DB.prepare(`SELECT id,source_space_id,grantee_type,grantee_id,resource_type,resource_id,permission,created_by_user_id,created_at,expires_at,revoked_at
+      FROM data_grants WHERE id=?`).bind(id).first<GrantRow>();
+    if (!row) throw new Error("Data Grant missing after platform-admin create");
+    return context.json(success(grantDto(row)), 201);
+  });
+
+  app.patch("/api/v1/platform-admin/spaces/:spaceId/grants/:grantId", async (context) => {
+    const admin = await requirePlatformAdminContext(context, "grants:manage");
+    const targetSpaceId = spaceId(context.req.param("spaceId"));
+    const targetGrantId = grantId(context.req.param("grantId"));
+    const current = await context.env.DB.prepare(`SELECT id,source_space_id,grantee_type,grantee_id,resource_type,resource_id,permission,created_by_user_id,created_at,expires_at,revoked_at
+      FROM data_grants WHERE id=? AND source_space_id=? AND revoked_at IS NULL`).bind(targetGrantId, targetSpaceId).first<GrantRow>();
+    if (!current) throw new ApiError("GRANT_NOT_FOUND", "Active Data Grant not found", 404);
+    const input = await jsonBody(context);
+    const keys = Object.keys(input);
+    if (!keys.length || keys.some((key) => !["permission", "expiresAt"].includes(key))) throw new ApiError("INVALID_REQUEST", "Only permission and expiresAt may be updated", 400);
+    const permission = input.permission === undefined ? current.permission : parseGrantPermission(input.permission);
+    validateModelPermission(current.resource_type, permission);
+    const expiresAt = input.expiresAt === undefined ? current.expires_at : parseGrantExpiry(input.expiresAt);
+    await context.env.DB.batch([
+      context.env.DB.prepare("UPDATE data_grants SET permission=?,expires_at=? WHERE id=? AND source_space_id=? AND revoked_at IS NULL")
+        .bind(permission, expiresAt, targetGrantId, targetSpaceId),
+      auditStatement(context.env, admin, context.get("requestId"), "data_grant.update", "data_grant", targetGrantId, {
+        sourceSpaceId: targetSpaceId,
+        before: { permission: current.permission, expiresAt: current.expires_at },
+        after: { permission, expiresAt },
+      }),
+    ]);
+    const updated = await context.env.DB.prepare(`SELECT id,source_space_id,grantee_type,grantee_id,resource_type,resource_id,permission,created_by_user_id,created_at,expires_at,revoked_at
+      FROM data_grants WHERE id=?`).bind(targetGrantId).first<GrantRow>();
+    if (!updated) throw new Error("Data Grant missing after platform-admin update");
+    return context.json(success(grantDto(updated)));
+  });
+
+  app.delete("/api/v1/platform-admin/spaces/:spaceId/grants/:grantId", async (context) => {
+    const admin = await requirePlatformAdminContext(context, "grants:manage");
+    const targetSpaceId = spaceId(context.req.param("spaceId"));
+    const targetGrantId = grantId(context.req.param("grantId"));
+    const current = await context.env.DB.prepare(`SELECT id,source_space_id,grantee_type,grantee_id,resource_type,resource_id,permission,created_by_user_id,created_at,expires_at,revoked_at
+      FROM data_grants WHERE id=? AND source_space_id=? AND revoked_at IS NULL`).bind(targetGrantId, targetSpaceId).first<GrantRow>();
+    if (!current) throw new ApiError("GRANT_NOT_FOUND", "Active Data Grant not found", 404);
+    const revokedAt = grantNow();
+    await context.env.DB.batch([
+      context.env.DB.prepare("UPDATE data_grants SET revoked_at=? WHERE id=? AND source_space_id=? AND revoked_at IS NULL").bind(revokedAt, targetGrantId, targetSpaceId),
+      auditStatement(context.env, admin, context.get("requestId"), "data_grant.revoke", "data_grant", targetGrantId, {
+        sourceSpaceId: targetSpaceId,
+        granteeType: current.grantee_type,
+        granteeId: current.grantee_id,
+        resourceType: current.resource_type,
+        resourceId: current.resource_id,
+        permission: current.permission,
+        expiresAt: current.expires_at,
+        revokedAt,
+      }),
+    ]);
+    return context.body(null, 204);
+  });
+
+  app.get("/api/v1/platform-admin/models", async (context) => {
+    await requirePlatformAdminContext(context, "models:manage");
+    const models = await listPublishedModels(context.env);
+    return context.json(success(models.map((model) => publishedModelDto(model))));
+  });
+
+  app.get("/api/v1/platform-admin/models/:modelKey", async (context) => {
+    await requirePlatformAdminContext(context, "models:manage");
+    const key = modelKey(context.req.param("modelKey"));
+    const model = await getPublishedModel(context.env, key);
+    if (!model) throw new ApiError("MODEL_NOT_FOUND", "Published model not found", 404);
+    return context.json(success(publishedModelDto(model)));
+  });
+
+  app.post("/api/v1/platform-admin/models/validate", async (context) => {
+    await requirePlatformAdminContext(context, "models:manage");
+    const input = await jsonBody(context);
+    if (Object.keys(input).some((key) => key !== "definition") || input.definition === undefined) {
+      throw new ApiError("INVALID_REQUEST", "Request must contain only definition", 400);
+    }
+    return context.json(success(await validateDefinitionForPublication(context.env, input.definition)));
+  });
+
+  app.post("/api/v1/platform-admin/models", async (context) => {
+    const admin = await requirePlatformAdminContext(context, "models:manage");
+    const input = await jsonBody(context);
+    if (Object.keys(input).some((key) => key !== "definition" && key !== "compatibility") || input.definition === undefined) {
+      throw new ApiError("INVALID_REQUEST", "Request must contain definition and compatibility", 400);
+    }
+    const requestedCompatibility = compatibility(input.compatibility);
+    const key = modelKeyFromDefinition(input.definition);
+    const audit = await beginPendingAudit(context, admin, "model.publish", "model", key, { modelKey: key, compatibility: requestedCompatibility });
+    try {
+      const published = await publishModelDefinition(context.env, admin.executor, input.definition, requestedCompatibility);
+      try {
+        await finishPendingAudit(context, audit, "success", {
+          modelKey: published.key,
+          version: published.version,
+          schemaHash: published.schemaHash,
+          compatibility: published.compatibility,
+        });
+      } catch (error) {
+        console.error(JSON.stringify({ message: "Platform model publication audit completion failed", auditId: audit.id, requestId: context.get("requestId"), error: error instanceof Error ? error.message : String(error) }));
+      }
+      return context.json(success(publishedModelDto(published)), 201);
+    } catch (error) {
+      try {
+        await finishPendingAudit(context, audit, "failure", { modelKey: key, compatibility: requestedCompatibility, errorCode: errorCode(error) });
+      } catch (auditError) {
+        console.error(JSON.stringify({ message: "Platform model publication failure audit completion failed", auditId: audit.id, requestId: context.get("requestId"), error: auditError instanceof Error ? auditError.message : String(auditError) }));
+      }
+      throw error;
+    }
+  });
+
+  app.post("/api/v1/platform-admin/models/:modelKey/retire", async (context) => {
+    const admin = await requirePlatformAdminContext(context, "models:manage");
+    const key = modelKey(context.req.param("modelKey"));
+    const audit = await beginPendingAudit(context, admin, "model.retire", "model", key, { modelKey: key });
+    try {
+      await retireModel(context.env, admin.executor, key);
+      try {
+        await finishPendingAudit(context, audit, "success", { modelKey: key });
+      } catch (error) {
+        console.error(JSON.stringify({ message: "Platform model retirement audit completion failed", auditId: audit.id, requestId: context.get("requestId"), error: error instanceof Error ? error.message : String(error) }));
+      }
+      return context.body(null, 204);
+    } catch (error) {
+      try {
+        await finishPendingAudit(context, audit, "failure", { modelKey: key, errorCode: errorCode(error) });
+      } catch (auditError) {
+        console.error(JSON.stringify({ message: "Platform model retirement failure audit completion failed", auditId: audit.id, requestId: context.get("requestId"), error: auditError instanceof Error ? auditError.message : String(auditError) }));
+      }
+      throw error;
+    }
   });
 
   app.get("/api/v1/platform-admin/audit", async (context) => {
