@@ -8,7 +8,7 @@ const explicitAdminUserId = (process.env.LIFESPACE_STAGING_PLATFORM_ADMIN_USER_I
 const runSuffix = String(process.env.GITHUB_RUN_ID ?? Date.now()).replace(/\D/gu, "").slice(-18) || String(Date.now());
 const modelKey = `console_acceptance_${runSuffix}`.slice(0, 63);
 const executorName = "LifeSpace Console Core executor (staging)";
-const executorScopes = ["applications:manage", "models:manage", "spaces:inspect", "audit:read"];
+const executorScopes = ["applications:manage", "models:manage", "spaces:inspect", "spaces:manage", "grants:manage", "audit:read"];
 
 function assertStagingUrl(value, label) {
   const url = new URL(value);
@@ -72,7 +72,7 @@ function definitionV1() {
   return {
     definitionVersion: 1,
     key: modelKey,
-    description: "Ephemeral staging-only model used to verify the LifeSpace Console control-plane publication path.",
+    description: "Ephemeral staging-only model used to verify the LifeSpace Console Platform Admin publication path.",
     display: { singular: "Console Acceptance", plural: "Console Acceptances" },
     fields: {
       title: { type: "string", required: true, minLength: 1, maxLength: 100 },
@@ -129,7 +129,7 @@ async function restoreModelAccess() {
 
 async function retireAcceptanceModel() {
   if (!cleanup.modelPublished || cleanup.modelRetired) return;
-  const result = await core(`/api/v1/model-admin/models/${encodeURIComponent(modelKey)}/retire`, { method: "POST", body: {} });
+  const result = await core(`/api/v1/platform-admin/models/${encodeURIComponent(modelKey)}/retire`, { method: "POST", body: {} });
   if (result.response.status !== 204 && result.response.status !== 404) {
     throw new Error(`Cleanup retirement failed: ${result.response.status} ${JSON.stringify(result.payload)}`);
   }
@@ -234,21 +234,23 @@ try {
   if (typeof cleanup.actorToken !== "string" || cleanup.actorToken.split(".").length !== 3) throw new Error("Platform-admin actor proof is invalid");
   mask(cleanup.actorToken);
 
-  const modelListProbe = requireStatus(await core("/api/v1/model-admin/models"), 200, "Authenticate temporary Core executor through Model Admin");
-  if (!Array.isArray(modelListProbe)) throw new Error("Model Admin executor probe did not return a model array");
+  // Console-facing model governance must be proven through the Platform Admin namespace.
+  const platformModelListProbe = requireStatus(await core("/api/v1/platform-admin/models"), 200, "Authenticate temporary Core executor through Platform Admin Model governance");
+  if (!Array.isArray(platformModelListProbe)) throw new Error("Platform Admin model probe did not return a model array");
 
+  // Immutable Model Contract evidence remains owned by the independent Service Automation Model Control Plane.
   const beforeContract = requireStatus(await core("/api/v1/model-admin/contracts/active"), 200, "Read active Model Contract before acceptance");
 
-  const validation = requireStatus(await core("/api/v1/model-admin/models/validate", {
+  const validation = requireStatus(await core("/api/v1/platform-admin/models/validate", {
     method: "POST",
     body: { definition: definitionV1() },
-  }), 200, "Validate acceptance Model Definition");
+  }), 200, "Validate acceptance Model Definition through Platform Admin");
   if (validation?.valid !== true) throw new Error(`Acceptance Model Definition did not validate: ${JSON.stringify(validation)}`);
 
-  const publishedV1 = requireStatus(await core("/api/v1/model-admin/models", {
+  const publishedV1 = requireStatus(await core("/api/v1/platform-admin/models", {
     method: "POST",
     body: { definition: definitionV1(), compatibility: "initial" },
-  }), 201, "Publish acceptance model v1");
+  }), 201, "Publish acceptance model v1 through Platform Admin");
   cleanup.modelPublished = true;
   if (publishedV1?.key !== modelKey || publishedV1?.version !== 1 || publishedV1?.compatibility !== "initial") {
     throw new Error(`Unexpected v1 publication result: ${JSON.stringify(publishedV1)}`);
@@ -257,10 +259,10 @@ try {
   const afterV1Contract = requireStatus(await core("/api/v1/model-admin/contracts/active"), 200, "Read Model Contract after v1");
   if (afterV1Contract?.id === beforeContract?.id) throw new Error("Model Contract revision did not advance after initial publication");
 
-  const publishedV2 = requireStatus(await core("/api/v1/model-admin/models", {
+  const publishedV2 = requireStatus(await core("/api/v1/platform-admin/models", {
     method: "POST",
     body: { definition: definitionV2(), compatibility: "compatible" },
-  }), 201, "Publish acceptance model v2");
+  }), 201, "Publish acceptance model v2 through Platform Admin");
   if (publishedV2?.key !== modelKey || publishedV2?.version !== 2 || publishedV2?.compatibility !== "compatible") {
     throw new Error(`Unexpected v2 publication result: ${JSON.stringify(publishedV2)}`);
   }
@@ -288,7 +290,7 @@ try {
   await restoreModelAccess();
   await retireAcceptanceModel();
 
-  const retiredLookup = await core(`/api/v1/model-admin/models/${encodeURIComponent(modelKey)}`);
+  const retiredLookup = await core(`/api/v1/platform-admin/models/${encodeURIComponent(modelKey)}`);
   if (retiredLookup.response.status !== 404) {
     throw new Error(`Retired acceptance model remained published: ${retiredLookup.response.status} ${JSON.stringify(retiredLookup.payload)}`);
   }
@@ -306,16 +308,19 @@ try {
   console.log(JSON.stringify({
     ok: true,
     environment: "staging",
+    authority: "platform-admin",
     actorUserId: adminUserId,
     actorApplicationId: applicationId,
-    acceptanceModel: { key: modelKey, publishedVersions: [1, 2], retired: true },
+    acceptanceModel: { key: modelKey, publishedVersions: [1, 2], retired: true, consoleNamespace: "/api/v1/platform-admin/models*" },
     modelContract: {
       before: beforeContract?.id ?? null,
       afterV1: afterV1Contract?.id ?? null,
       afterV2: afterV2Contract?.id ?? null,
+      evidenceNamespace: "/api/v1/model-admin/contracts/active",
     },
     applicationModelAccess: { targetApplicationId: applicationId, changedAndRestored: true },
     audit: { modelPublish: publishRows.length, modelRetire: retireRows.length, modelAccessReplace: accessRows.length },
+    executorScopes,
     temporaryCredentials: { applicationCredentialRevokedInFinally: true, coreTokenRevokedInFinally: true },
     productionTouched: false,
   }, null, 2));
