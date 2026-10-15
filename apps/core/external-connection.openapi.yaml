@@ -2,8 +2,8 @@
   "openapi": "3.1.0",
   "info": {
     "title": "LifeSpace External Connection API",
-    "version": "0.2.0",
-    "description": "Complete Space-scoped External setup contract for Console and downstream applications: provider discovery, secure Connection lifecycle, Provider Resource discovery, bindable External Model Definition discovery, binding lifecycle and schema refresh. Direct User spaces:manage plus current Space manage is required. Provider credential plaintext is accepted only on create/rotation, forwarded to the routed private Provider Adapter vault, and never persisted in Core or returned."
+    "version": "0.3.0",
+    "description": "Space-scoped External setup contract for Console and downstream applications: provider discovery, secure dynamic Connection lifecycle, Provider Resource discovery, bindable External Model Definition discovery, binding lifecycle and schema refresh. Direct User spaces:manage plus current Space manage is required. Provider credential plaintext is accepted only on create/rotation, forwarded to the routed private Provider Adapter vault, and never persisted in Core or returned. Deployment-managed static provider credentials are not part of this contract."
   },
   "security": [{ "bearerAuth": [] }],
   "paths": {
@@ -44,7 +44,7 @@
       },
       "post": {
         "operationId": "createExternalConnection",
-        "description": "Route by providerKey, validate and persist a provider credential in that Provider Adapter's private vault, then create Space-scoped connection metadata. The client never supplies credentialRef.",
+        "description": "Route by providerKey, validate and persist a provider credential in that Provider Adapter's private per-Connection vault, then create Space-scoped connection metadata. The client never supplies credentialRef.",
         "parameters": [{ "$ref": "#/components/parameters/SpaceId" }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateExternalConnection" } } } },
         "responses": {
@@ -62,7 +62,7 @@
     "/api/v1/spaces/{spaceId}/external-connections/{connectionId}": {
       "patch": {
         "operationId": "updateExternalConnection",
-        "description": "Rename, enable/disable, change the access ceiling, or rotate the provider credential. Credential/access mutation is available only for dynamic connections created through this API.",
+        "description": "Rename, enable/disable, change the access ceiling, or rotate the provider credential for a dynamic Connection.",
         "parameters": [{ "$ref": "#/components/parameters/SpaceId" }, { "$ref": "#/components/parameters/ConnectionId" }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UpdateExternalConnection" } } } },
         "responses": {
@@ -71,21 +71,20 @@
           "401": { "description": "Unauthenticated" },
           "403": { "description": "Current Space management authority denied" },
           "404": { "description": "Connection unavailable" },
-          "409": { "description": "Revoked or deployment-managed connection cannot perform requested mutation" },
+          "409": { "description": "Connection revoked" },
           "422": { "description": "Provider credential/access validation failed" },
           "503": { "description": "Provider/Adapter unavailable" }
         }
       },
       "delete": {
         "operationId": "revokeExternalConnection",
-        "description": "Delete the dynamic Provider vault credential, revoke the connection and disable its active bindings. Deployment-managed bootstrap connections must be revoked through deployment configuration.",
+        "description": "Delete the Provider vault credential, revoke the Connection and disable its active bindings.",
         "parameters": [{ "$ref": "#/components/parameters/SpaceId" }, { "$ref": "#/components/parameters/ConnectionId" }],
         "responses": {
           "204": { "description": "Revoked, or already revoked" },
           "401": { "description": "Unauthenticated" },
           "403": { "description": "Current Space management authority denied" },
           "404": { "description": "Connection unavailable" },
-          "409": { "description": "Deployment-managed connection" },
           "503": { "description": "Provider/Adapter unavailable; local metadata remains fail-closed/unmodified" }
         }
       }
@@ -93,7 +92,7 @@
     "/api/v1/spaces/{spaceId}/external-connections/{connectionId}/resources": {
       "get": {
         "operationId": "listExternalConnectionResources",
-        "description": "List Provider resources visible to one active dynamic connection. Resource vocabulary is Provider-defined (for Notion: Data Sources; Airtable may expose tables).",
+        "description": "List Provider resources visible to one active dynamic Connection. Resource vocabulary is Provider-defined (for Notion: Data Sources; Airtable may expose tables).",
         "parameters": [
           { "$ref": "#/components/parameters/SpaceId" },
           { "$ref": "#/components/parameters/ConnectionId" },
@@ -106,7 +105,7 @@
           "401": { "description": "Unauthenticated" },
           "403": { "description": "Current Space management authority denied" },
           "404": { "description": "Connection unavailable" },
-          "409": { "description": "Connection disabled/revoked or resource discovery unavailable for deployment-managed connection" },
+          "409": { "description": "Connection disabled/revoked" },
           "429": { "description": "Provider rate limited" },
           "503": { "description": "Provider/Adapter unavailable" }
         }
@@ -125,7 +124,7 @@
       },
       "post": {
         "operationId": "bindExternalModel",
-        "description": "Bind one published External business Model Definition to a Connection and one Provider Resource. Provider fields are discovered automatically during binding. Re-registering the same disabled Provider resource in the same Space is the supported reactivation path. Legacy sourceId input remains an implementation compatibility path but is not part of this product contract.",
+        "description": "Bind one published External business Model Definition to a Connection and one Provider Resource. Provider fields are discovered automatically during binding. Re-registering the same disabled Provider resource in the same Space is the supported reactivation path.",
         "parameters": [{ "$ref": "#/components/parameters/SpaceId" }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BindExternalModel" } } } },
         "responses": {
@@ -211,7 +210,7 @@
       "ExternalConnection": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["id", "spaceId", "providerKey", "displayName", "status", "managementMode", "resourceDiscovery", "createdAt", "updatedAt"],
+        "required": ["id", "spaceId", "providerKey", "displayName", "status", "resourceDiscovery", "createdAt", "updatedAt"],
         "properties": {
           "id": { "type": "string", "pattern": "^exs_[a-f0-9]{32}$" },
           "spaceId": { "type": "string" },
@@ -219,8 +218,7 @@
           "displayName": { "type": "string" },
           "access": { "type": ["string", "null"], "enum": ["read", "write", null] },
           "status": { "enum": ["active", "disabled", "revoked"] },
-          "managementMode": { "enum": ["dynamic", "deployment"] },
-          "resourceDiscovery": { "type": "boolean" },
+          "resourceDiscovery": { "const": true },
           "createdAt": { "type": "string", "format": "date-time" },
           "updatedAt": { "type": "string", "format": "date-time" }
         }
