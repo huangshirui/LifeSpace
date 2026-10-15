@@ -29,6 +29,9 @@ assert(worker.includes('["providerKey", "displayName", "credential", "access"]')
 assert(!worker.includes('readJsonObject(request, ["providerKey", "displayName", "credential", "access", "credentialRef"]'));
 assert(worker.includes("/external-model-definitions"));
 assert(worker.includes('request.method === "GET"'));
+assert(worker.includes("forwardBindingDetail"));
+assert(worker.includes("projectExternalField"));
+assert(!worker.includes("sourceFieldId"));
 assert(worker.includes('/external-models/${encodeURIComponent(modelKey)}/refresh'));
 assert(worker.includes('["status", "declaredAccess"]'));
 
@@ -41,6 +44,11 @@ assert(ui.includes('selectedDefinition?.access.includes("write")'));
 assert(!ui.includes("Data Source ID<input"));
 assert(ui.includes("Provider token 只用于本次请求并保存到私有 Adapter Vault"));
 assert(ui.includes("当前模型绑定"));
+assert(ui.includes("查看字段"));
+assert(ui.includes("配置态 snapshot；运行时消费者仍以 Space Discovery 为准"));
+assert(ui.includes("field.operators"));
+assert(ui.includes("field.sortable"));
+assert(ui.includes("field.writable"));
 assert(ui.includes("refresh-external-model-binding"));
 assert(ui.includes("update-external-model-binding"));
 assert(ui.includes("disabled binding 也通过这里重新绑定同一资源恢复"));
@@ -52,6 +60,8 @@ assert(entry.includes('window.addEventListener("popstate", update)'));
 assert(entry.includes("<ExternalConnectionsOverlay key={routeKey} />"));
 assert(!css.includes("external-data-space"));
 assert(css.includes('.ext-launcher::before{content:"Configure"'));
+assert(css.includes(".ext-schema-detail"));
+assert(css.includes(".ext-field-table"));
 assert(css.includes('background:var(--blue)'));
 assert(css.includes('box-shadow:0 18px 48px rgba(21,38,67,.18)'));
 assert(css.includes('box-shadow:0 30px 90px rgba(10,24,47,.28)'));
@@ -69,15 +79,18 @@ assert(contract.paths["/api/v1/spaces/{spaceId}/external-connections"]?.post);
 assert(contract.paths["/api/v1/spaces/{spaceId}/external-model-definitions"]?.get);
 assert(contract.paths["/api/v1/spaces/{spaceId}/external-models"]?.get);
 assert(contract.paths["/api/v1/spaces/{spaceId}/external-models"]?.post);
+assert(contract.paths["/api/v1/spaces/{spaceId}/external-models/{modelKey}"]?.get);
 assert(contract.paths["/api/v1/spaces/{spaceId}/external-models/{modelKey}"]?.patch);
 assert(contract.paths["/api/v1/spaces/{spaceId}/external-models/{modelKey}/refresh"]?.post);
 assert(!contract.paths["/api/v1/spaces/{spaceId}/external-sources"]);
 assert(!contract.paths["/api/v1/model-admin/external-sources"]);
-assert.equal(contract.info.version, "0.3.0");
+assert.equal(contract.info.version, "0.4.0");
 assert.equal(contract.components.schemas.ProviderCredential.writeOnly, true);
 assert.equal(contract.components.schemas.CreateExternalConnection.properties.credential.writeOnly, true);
 assert(!contract.components.schemas.CreateExternalConnection.properties.credentialRef);
 assert(!contract.components.schemas.ExternalConnection.properties.managementMode);
+assert(contract.components.schemas.ExternalBindingDetail.required.includes("fields"));
+assert(!contract.components.schemas.ExternalField.properties.sourceFieldId);
 
 console.log(JSON.stringify({
   ok: true,
@@ -90,6 +103,8 @@ console.log(JSON.stringify({
   providerCredentialPasswordInput: true,
   providerResourceDiscovery: true,
   spaceScopedDefinitionDiscovery: true,
+  storedSchemaInspection: true,
+  runtimeDiscoveryAuthorityNotReusedForConfiguration: true,
   connectionIdBinding: true,
   dynamicConnectionsOnly: true,
   bindingLifecycleInCanonicalExternalData: true,
