@@ -97,7 +97,7 @@ Recorded latency is a staging-runner observation, not APAC p50/p95 acceptance or
 
 After platform staging succeeds, run **Deploy LifeSpace Console staging (isolated)** from the exact candidate on `main`; platform deployment does not ship Console assets. The Console deploy reads current Core/Identity health and deploys only Console. It does not migrate/deploy Core or Identity, reconcile Identity scopes, or install Provider credentials.
 
-Console is a first-party proving client of the same Space APIs that ALOHA, HomeMew or another application can use. The public `apps/core/external-connection.openapi.yaml` 0.3.0 contract covers:
+Console is a first-party proving client of the same Space APIs that ALOHA, HomeMew or another application can use. The public `apps/core/external-connection.openapi.yaml` 0.4.0 contract covers:
 
 - list configured Providers;
 - create/list/update/disable/re-enable/rotate/revoke Dynamic Connections;
@@ -105,11 +105,12 @@ Console is a first-party proving client of the same Space APIs that ALOHA, HomeM
 - list bindable External Model Definitions;
 - create/reactivate bindings;
 - list current/disabled bindings;
+- inspect the latest locally stored Provider field snapshot without calling the Provider;
 - change binding read/write ceiling;
 - disable a binding;
 - refresh the latest Provider schema snapshot.
 
-Console exposes this lifecycle through exactly one standard Space surface: **`Configure → External data`**. The `连接` tab owns Connection lifecycle; `模型绑定` owns binding create/list, schema refresh, read/write changes and disable. Disabled bindings are restored through the same normal re-bind form so Provider identity/schema are revalidated. There is no second `External bindings` fallback UI/BFF. Console does not receive platform-executor authority for this flow; its BFF exchanges the verified browser Access assertion for an ordinary User token with `spaces:manage`, and Core rechecks current Space `manage` permission.
+Console exposes this lifecycle through exactly one standard Space surface: **`Configure → External data`**. The `连接` tab owns Connection lifecycle; `模型绑定` owns binding create/list, lazy stored-schema field inspection, schema refresh, read/write changes and disable. The field inspection view is configuration evidence only: it is protected by direct-User Space-management Authority, reads Core's latest stored snapshot, and does not replace runtime Space Discovery or grant business model execution access. Disabled bindings are restored through the same normal re-bind form so Provider identity/schema are revalidated. There is no second `External bindings` fallback UI/BFF. Console does not receive platform-executor authority for this flow; its BFF exchanges the verified browser Access assertion for an ordinary User token with `spaces:manage`, and Core rechecks current Space `manage` permission.
 
 Creating a Connection grants no Membership, Data Grant, Application × Model Access or model binding. Runtime execution still applies the same Application × Model Access, Membership/Data Grant, scope and Delegation intersection as Native.
 
