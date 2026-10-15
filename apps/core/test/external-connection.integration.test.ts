@@ -2,7 +2,8 @@ import { env } from "cloudflare:workers";
 import { sign } from "hono/jwt";
 import { describe, expect, it } from "vitest";
 import { createApp } from "../src/app";
-import type { Bindings } from "../src/env";
+import type { Bindings, Principal } from "../src/env";
+import { publishModelDefinition } from "../src/model-registry";
 
 const shared = "synthetic-external-connection-shared-secret-32";
 const pem = (label: string, bytes: ArrayBuffer) =>
@@ -16,6 +17,7 @@ async function fixture() {
   const user = `usr_${suffix}`;
   const other = `usr_other_${suffix}`;
   const application = `app_${suffix}`;
+  const definitionKey = `external_connection_${suffix.slice(0, 8)}`;
   const pair = await crypto.subtle.generateKey(
     { name: "RSASSA-PKCS1-v1_5", modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: "SHA-256" },
     true,
@@ -30,6 +32,22 @@ async function fixture() {
     db.prepare("INSERT INTO space_memberships(id,space_id,user_id,role,created_at,updated_at) VALUES(?,?,?,?,?,?)")
       .bind(`mem_${suffix}`, space, user, "owner", timestamp, timestamp),
   ]);
+  const publisher: Principal = {
+    type: "service",
+    id: `svc_${suffix}`,
+    clientId: "lifespace-platform-admin",
+    scopes: ["models:manage"],
+    tokenId: `tok_admin_${suffix}`,
+  };
+  await publishModelDefinition({ DB: db } as Bindings, publisher, {
+    definitionVersion: 1,
+    origin: "external",
+    key: definitionKey,
+    description: "Synthetic dynamic connection definition.",
+    display: { singular: "External Record", plural: "External Records" },
+    fields: {},
+    access: ["read", "write"],
+  }, "initial");
 
   const vault = new Map<string, { token: string; access: "read" | "write" }>();
   const calls: Array<{ path: string; operation: string; credentialRef?: string }> = [];
@@ -119,7 +137,7 @@ async function fixture() {
     }, bindings);
   }
 
-  return { db, space, user, other, application, vault, calls, resourceId, request, token };
+  return { db, space, user, other, application, definitionKey, vault, calls, resourceId, request, token };
 }
 
 describe("Space External Connection self-service", () => {
@@ -140,7 +158,7 @@ describe("Space External Connection self-service", () => {
     expect(connection.id).toMatch(/^exs_[a-f0-9]{32}$/u);
     expect(connection).not.toHaveProperty("credential");
     expect(connection).not.toHaveProperty("credentialRef");
-    expect(connection.managementMode).toBe("dynamic");
+    expect(connection).not.toHaveProperty("managementMode");
     expect(connection.resourceDiscovery).toBe(true);
 
     const row = await f.db.prepare("SELECT credential_ref,display_name,access_mode FROM external_sources WHERE id=?").bind(connection.id).first<any>();
@@ -157,6 +175,7 @@ describe("Space External Connection self-service", () => {
     expect((await resources.json<any>()).data.items).toEqual([{ id: f.resourceId, type: "data_source", displayName: "Health Documents" }]);
 
     const bound = await f.request(`/api/v1/spaces/${f.space}/external-models`, "POST", {
+      definitionKey: f.definitionKey,
       connectionId: connection.id,
       resourceId: f.resourceId,
       declaredAccess: "write",
@@ -178,6 +197,7 @@ describe("Space External Connection self-service", () => {
     expect((await bindingList.json<any>()).data.items[0].declaredAccess).toBe("read");
 
     const writeDenied = await f.request(`/api/v1/spaces/${f.space}/external-models`, "POST", {
+      definitionKey: f.definitionKey,
       connectionId: connection.id,
       resourceId: `${f.resourceId}-other`,
       declaredAccess: "write",
@@ -193,7 +213,7 @@ describe("Space External Connection self-service", () => {
     expect((await f.db.prepare("SELECT status FROM external_models WHERE source_id=?").bind(connection.id).first<any>()).status).toBe("disabled");
   });
 
-  it("rejects delegated/non-manager creation, caller credentialRef injection and deployment-managed secret mutation", async () => {
+  it("rejects delegated/non-manager creation, caller credentialRef injection and corrupt non-dynamic metadata", async () => {
     const f = await fixture();
     const delegated = await f.token(f.user, `agt_${crypto.randomUUID().replaceAll("-", "")}`);
     expect((await f.request(`/api/v1/spaces/${f.space}/external-connections`, "POST", {
@@ -211,13 +231,11 @@ describe("Space External Connection self-service", () => {
     expect(injected.status).toBe(400);
 
     const now = new Date().toISOString();
-    const legacyId = `exs_${crypto.randomUUID().replaceAll("-", "")}`;
-    await f.db.prepare("INSERT INTO external_sources(id,space_id,provider_key,credential_ref,status,display_name,access_mode,created_at,updated_at) VALUES(?,?,?,'static_ref','active','Bootstrap Notion','write',?,?)")
-      .bind(legacyId, f.space, "notion", now, now).run();
-    expect((await f.request(`/api/v1/spaces/${f.space}/external-connections/${legacyId}/resources`)).status).toBe(409);
-    expect((await f.request(`/api/v1/spaces/${f.space}/external-connections/${legacyId}`, "PATCH", {
-      credential: { type: "bearer_token", token: "new-secret" },
-    })).status).toBe(409);
-    expect((await f.request(`/api/v1/spaces/${f.space}/external-connections/${legacyId}`, "DELETE")).status).toBe(409);
+    const corruptId = `exs_${crypto.randomUUID().replaceAll("-", "")}`;
+    await f.db.prepare("INSERT INTO external_sources(id,space_id,provider_key,credential_ref,status,display_name,access_mode,created_at,updated_at) VALUES(?,?,?,'static_ref','active','Corrupt connection','write',?,?)")
+      .bind(corruptId, f.space, "notion", now, now).run();
+    expect((await f.request(`/api/v1/spaces/${f.space}/external-connections/${corruptId}/resources`)).status).toBe(503);
+    expect((await f.request(`/api/v1/spaces/${f.space}/external-connections/${corruptId}`, "PATCH", { status: "disabled" })).status).toBe(503);
+    expect((await f.request(`/api/v1/spaces/${f.space}/external-connections/${corruptId}`, "DELETE")).status).toBe(503);
   });
 });
