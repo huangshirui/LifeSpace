@@ -112,7 +112,6 @@ test("private Provider profiles and live routed Core/Adapter metadata fail close
 
   const core = { bindings: [
     { name: "EXTERNAL_CURSOR_SECRET", type: "secret_text" },
-    { name: "EXTERNAL_ADAPTER_SHARED_SECRET", type: "secret_text" },
     { name: "EXTERNAL_SCHEMA_REFRESH_SECONDS", type: "plain_text", text: "300" },
     { name: "EXTERNAL_PROVIDER_ROUTES", type: "plain_text", text: JSON.stringify(settings.routes) },
     { name: "EXTERNAL_ADAPTER_NOTION", type: "service", service: provider.worker },
@@ -124,7 +123,7 @@ test("private Provider profiles and live routed Core/Adapter metadata fail close
   ] };
   validateLiveBindings(core, adapter, settings, provider);
   assert.throws(() => validateLiveCoreBindings({ bindings: [...core.bindings, { name: "EXTERNAL_ADAPTER", type: "service", service: "legacy" }] }, settings));
-  for (const required of ["EXTERNAL_CURSOR_SECRET", "EXTERNAL_ADAPTER_SHARED_SECRET", "EXTERNAL_PROVIDER_ROUTES", "EXTERNAL_ADAPTER_NOTION", "EXTERNAL_ADAPTER_NOTION_SHARED_SECRET"])
+  for (const required of ["EXTERNAL_CURSOR_SECRET", "EXTERNAL_PROVIDER_ROUTES", "EXTERNAL_ADAPTER_NOTION", "EXTERNAL_ADAPTER_NOTION_SHARED_SECRET"])
     assert.throws(() => validateLiveBindings({ bindings: core.bindings.filter(binding => binding.name !== required) }, adapter, settings, provider));
   for (const required of ["EXTERNAL_ADAPTER_SHARED_SECRET", "NOTION_CONNECTIONS", "CONNECTION_VAULT_MASTER_KEY", "CONNECTIONS"])
     assert.throws(() => validateLiveBindings(core, { bindings: adapter.bindings.filter(binding => binding.name !== required) }, settings, provider));
