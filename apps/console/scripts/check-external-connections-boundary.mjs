@@ -31,8 +31,10 @@ assert(ui.includes("connectionId, resourceId, declaredAccess: access"));
 assert(ui.includes('selectedDefinition?.access.includes("write")'));
 assert(!ui.includes("Data Source ID<input"));
 assert(ui.includes("Provider token 只用于本次请求并保存到私有 Adapter Vault"));
+assert(!ui.includes("external-data-space"));
 assert(entry.includes('window.addEventListener("popstate", update)'));
 assert(entry.includes("<ExternalConnectionsOverlay key={routeKey} />"));
+assert(!css.includes("external-data-space"));
 assert(css.includes('.ext-launcher::before{content:"Configure"'));
 assert(css.includes('background:var(--blue)'));
 assert(css.includes('box-shadow:0 18px 48px rgba(21,38,67,.18)'));
@@ -71,4 +73,5 @@ console.log(JSON.stringify({
   legacyBindingUiRemoved: true,
   legacyBindingBffRemoved: true,
   legacyBindingTestRemoved: true,
+  legacyLauncherHidingRemoved: true,
 }));
