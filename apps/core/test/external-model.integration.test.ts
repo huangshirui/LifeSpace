@@ -365,7 +365,9 @@ async function fixture(definitionKey?: string) {
     declaredAccess: "write",
   });
   expect(mr.status, JSON.stringify(await mr.clone().json())).toBe(201);
-  const model = ((await mr.json()) as any).data.key;
+  const bindingData = ((await mr.json()) as any).data;
+  const model = bindingData.key;
+  const registration = bindingData.registrationId;
   const path = `/api/v1/spaces/${space}/models/${model}/records`;
   const authorize = () =>
     db
@@ -382,6 +384,7 @@ async function fixture(definitionKey?: string) {
     source,
     sourceAdmin,
     model,
+    registration,
     path,
     state,
     metric,
@@ -581,10 +584,10 @@ describe("Space-local External Model framework", () => {
     const f = await fixture();
     await f.db.prepare("UPDATE external_models SET next_refresh_at='2099-01-01T00:00:00.000Z'").run();
     await f.db.prepare("UPDATE external_sources SET status='disabled' WHERE id=?").bind(f.source).run();
-    const rows = await f.db.prepare("SELECT next_refresh_at FROM external_models WHERE model_key=?").bind(f.model).first<any>();
+    const rows = await f.db.prepare("SELECT next_refresh_at FROM external_models WHERE model_key=?").bind(f.registration).first<any>();
     expect(rows.next_refresh_at).toBeNull();
     await f.db.prepare("UPDATE external_sources SET status='active' WHERE id=?").bind(f.source).run();
-    expect((await f.db.prepare("SELECT next_refresh_at FROM external_models WHERE model_key=?").bind(f.model).first<any>()).next_refresh_at).not.toBeNull();
+    expect((await f.db.prepare("SELECT next_refresh_at FROM external_models WHERE model_key=?").bind(f.registration).first<any>()).next_refresh_at).not.toBeNull();
     f.state.calls = [];
     await reconcileExternalModels(f.bindings);
     expect(f.state.calls).toEqual(["discover"]);
@@ -614,7 +617,7 @@ describe("Space-local External Model framework", () => {
     const response = await f.request(`/api/v1/spaces/${f.space}/models/batch`, "POST", { atomicConsistency: false, delegationId, operations: [1, 2].map(value => ({ operation: "create", modelKey: f.model, data: { [field]: value } })) }, bearer);
     expect(response.status).toBe(200);
     expect((await response.json<any>()).data.items.map((i: any) => i.status)).toEqual(["succeeded", "succeeded"]);
-    const rows = await f.db.prepare("SELECT delegation_id FROM external_operation_audit WHERE model_key=? AND operation='create'").bind(f.model).all<any>();
+    const rows = await f.db.prepare("SELECT delegation_id FROM external_operation_audit WHERE model_key=? AND operation='create'").bind(f.registration).all<any>();
     expect(rows.results.map(r => r.delegation_id)).toEqual([delegationId, delegationId]);
   });
 
@@ -638,7 +641,7 @@ describe("Space-local External Model framework", () => {
     ).toBeNull();
     const audit = await f.db
       .prepare("SELECT * FROM external_operation_audit WHERE model_key=?")
-      .bind(f.model)
+      .bind(f.registration)
       .first<any>();
     expect(audit.result).toBe("succeeded");
     expect(audit.principal_id).toBe(f.user);
@@ -781,7 +784,7 @@ describe("Space-local External Model framework", () => {
         .prepare(
           "SELECT result FROM external_operation_audit WHERE model_key=? AND operation='create'",
         )
-        .bind(f.model)
+        .bind(f.registration)
         .first<any>())!.result,
     ).toBe("unknown");
   });
