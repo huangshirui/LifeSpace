@@ -10,7 +10,6 @@
       "workerEnv": "LIFESPACE_NOTION_ADAPTER_WORKER",
       "sharedSecretEnv": "NOTION_ADAPTER_SHARED_SECRET",
       "vaultMasterKeyEnv": "NOTION_CONNECTION_VAULT_MASTER_KEY",
-      "staticConnectionsEnv": "NOTION_CONNECTIONS",
       "vaultBinding": "CONNECTIONS",
       "vaultClass": "NotionConnectionVault"
     }
