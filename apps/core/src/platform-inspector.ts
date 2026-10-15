@@ -32,7 +32,7 @@ type MemberRow = {
 
 type GrantRow = {
   id: string;
-  grantee_type: "user" | "space" | "service" | "device";
+  grantee_type: "user" | "space" | "service" | "device" | "agent";
   grantee_id: string;
   resource_type: string;
   resource_id: string | null;
