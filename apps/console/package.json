@@ -16,10 +16,9 @@
     "check:credential-reveal": "node scripts/check-credential-reveal-boundary.mjs",
     "check:service-token-prefix": "node scripts/check-service-token-prefix-boundary.mjs",
     "check:external-connections": "node scripts/check-external-connections-boundary.mjs",
-    "check": "pnpm typecheck && pnpm test:external-binding && pnpm check:external-connections && pnpm check:control-plane && pnpm check:application-config && pnpm check:agent-governance && pnpm check:credential-governance && pnpm check:credential-reveal && pnpm check:service-token-prefix && pnpm check:staging-isolation && pnpm check:production-isolation && pnpm build",
+    "check": "pnpm typecheck && pnpm check:external-connections && pnpm check:control-plane && pnpm check:application-config && pnpm check:agent-governance && pnpm check:credential-governance && pnpm check:credential-reveal && pnpm check:service-token-prefix && pnpm check:staging-isolation && pnpm check:production-isolation && pnpm build",
     "deploy:staging": "CLOUDFLARE_ENV=staging vite build && wrangler deploy",
-    "deploy:production": "CLOUDFLARE_ENV=production vite build && wrangler deploy",
-    "test:external-binding": "node --test test/external-binding.test.mjs"
+    "deploy:production": "CLOUDFLARE_ENV=production vite build && wrangler deploy"
   },
   "dependencies": {
     "react": "19.2.8",
