@@ -11,6 +11,10 @@ function printableSecret(value) {
   return typeof value === "string" && /^[\x21-\x7e]{32,512}$/.test(value);
 }
 
+function providerToken(value) {
+  return typeof value === "string" && value === value.trim() && value.length >= 1 && value.length <= 2048 && !/[\r\n]/u.test(value);
+}
+
 export function loadProviderManifest() {
   const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
   if (manifest.repository !== "huangshirui/lifespace-adapters" || manifest.contractVersion !== 1)
@@ -24,33 +28,23 @@ export function loadProviderManifest() {
       throw new Error("External Provider manifest contains an invalid provider key");
     for (const field of ["adapterConfig", "coreBinding", "coreSharedSecret", "workerEnv", "sharedSecretEnv", "vaultMasterKeyEnv", "vaultBinding", "vaultClass"])
       if (typeof provider[field] !== "string" || !provider[field]) throw new Error(`External Provider ${key} is missing ${field}`);
+    if (provider.staticConnectionsEnv !== undefined)
+      throw new Error(`External Provider ${key} must not declare deployment-managed static connections`);
     if (!/^EXTERNAL_ADAPTER_[A-Z0-9_]{2,64}$/.test(provider.coreBinding)) throw new Error(`External Provider ${key} has an invalid Core binding`);
     if (!/^EXTERNAL_ADAPTER_[A-Z0-9_]{2,64}_SHARED_SECRET$/.test(provider.coreSharedSecret)) throw new Error(`External Provider ${key} has an invalid Core shared-secret binding`);
-    if (provider.staticConnectionsEnv !== undefined && (typeof provider.staticConnectionsEnv !== "string" || !/^[A-Z][A-Z0-9_]{2,63}$/.test(provider.staticConnectionsEnv)))
-      throw new Error(`External Provider ${key} has an invalid static connection environment name`);
   }
   return manifest;
 }
 
-function validateStaticConnections(raw, environment, providerKey, vaultKey, env) {
-  let connections;
-  try { connections = JSON.parse(raw); } catch { throw new Error(`${providerKey} deployment-managed connections must be valid secret JSON`); }
-  if (!connections || Array.isArray(connections) || typeof connections !== "object") throw new Error(`${providerKey} deployment-managed connections must be a JSON object`);
-  for (const [ref, connection] of Object.entries(connections)) {
-    if (!/^[A-Za-z0-9_-]{1,128}$/.test(ref) || !connection || typeof connection !== "object" || Array.isArray(connection) || typeof connection.token !== "string" || !connection.token || connection.token !== connection.token.trim() || /[\r\n]/.test(connection.token) || typeof connection.read !== "boolean" || typeof connection.write !== "boolean" || (connection.disabled !== undefined && typeof connection.disabled !== "boolean"))
-      throw new Error(`${providerKey} deployment-managed connections contain an invalid entry`);
-    if (connection.token === vaultKey) throw new Error(`${providerKey} vault master key must not reuse a provider credential`);
-  }
-  if (environment === "staging" && providerKey === "notion") {
-    const ref = env.LIFESPACE_EXTERNAL_SMOKE_CREDENTIAL_REF ?? "";
-    if (!Object.hasOwn(connections, ref) || connections[ref].disabled || !connections[ref].read || !connections[ref].write)
-      throw new Error("Staging requires an active read/write synthetic Notion smoke connection");
-    if (!/^[0-9a-f]{32}$|^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(env.LIFESPACE_EXTERNAL_SMOKE_RESOURCE_ID ?? ""))
-      throw new Error("Staging requires a synthetic Notion data source UUID");
-    if (env.LIFESPACE_EXTERNAL_SMOKE_SYNTHETIC_CONFIRMED !== "1")
-      throw new Error("Confirm the dedicated smoke data source contains synthetic data only");
-  }
-  return connections;
+function validateStagingSmoke(env, secretValues) {
+  const token = env.NOTION_SMOKE_TOKEN ?? "";
+  if (!providerToken(token)) throw new Error("NOTION_SMOKE_TOKEN must contain the dedicated synthetic staging Notion credential");
+  if (!/^[0-9a-f]{32}$|^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(env.LIFESPACE_EXTERNAL_SMOKE_RESOURCE_ID ?? ""))
+    throw new Error("Staging requires a synthetic Notion data source UUID");
+  if (env.LIFESPACE_EXTERNAL_SMOKE_SYNTHETIC_CONFIRMED !== "1")
+    throw new Error("Confirm the dedicated smoke data source contains synthetic data only");
+  if (secretValues.has(token) || token === env.LIFESPACE_STAGING_BOOTSTRAP_SECRET)
+    throw new Error("Staging Notion smoke token must be independent from platform/provider secrets");
 }
 
 export function deploymentSettings(env, environment, manifest = loadProviderManifest()) {
@@ -84,21 +78,16 @@ export function deploymentSettings(env, environment, manifest = loadProviderMani
       secretValues.add(value);
     }
 
-    const staticConnections = definition.staticConnectionsEnv
-      ? (env[definition.staticConnectionsEnv]?.trim() || (environment === "production" ? "{}" : ""))
-      : "{}";
-    if (definition.staticConnectionsEnv) validateStaticConnections(staticConnections, environment, providerKey, vaultMasterKey, env);
-
     providers.push({
       key: providerKey,
       definition,
       worker,
       sharedSecret,
       vaultMasterKey,
-      staticConnections,
     });
     routes[providerKey] = { binding: definition.coreBinding, sharedSecret: definition.coreSharedSecret };
   }
+  if (environment === "staging" && Object.hasOwn(manifest.providers, "notion")) validateStagingSmoke(env, secretValues);
   return { enabled: true, environment, providers, routes, cursorSecret, manifest };
 }
 
@@ -147,7 +136,7 @@ export function validateLiveCoreBindings(core, settings) {
 }
 
 export function validateLiveAdapterBindings(adapter, provider) {
-  for (const name of ["EXTERNAL_ADAPTER_SHARED_SECRET", "CONNECTION_VAULT_MASTER_KEY", ...(provider.definition.staticConnectionsEnv ? [provider.definition.staticConnectionsEnv] : [])])
+  for (const name of ["EXTERNAL_ADAPTER_SHARED_SECRET", "CONNECTION_VAULT_MASTER_KEY"])
     if (!adapter.bindings?.some(binding => binding.type === "secret_text" && binding.name === name))
       throw new Error(`Live ${provider.key} Adapter required secret binding is absent`);
   if (!adapter.bindings?.some(binding => binding.type === "durable_object_namespace" && binding.name === provider.definition.vaultBinding))
@@ -202,13 +191,10 @@ async function main() {
       validateProviderProfile(JSON.parse(readFileSync(configPath, "utf8")), environment, provider);
       const commands = adapterWranglerCommands(configPath, environment, provider.worker);
       wrangler(commands.deploy);
-      const secrets = {
+      wrangler(commands.secrets, {
         EXTERNAL_ADAPTER_SHARED_SECRET: provider.sharedSecret,
         CONNECTION_VAULT_MASTER_KEY: provider.vaultMasterKey,
-      };
-      if (provider.definition.staticConnectionsEnv)
-        secrets[provider.definition.staticConnectionsEnv] = provider.staticConnections;
-      wrangler(commands.secrets, secrets);
+      });
       console.log(`Private ${provider.key} provider deployed at pinned revision ${manifest.revision}`);
     }
   } else if (mode === "sync-core") {
