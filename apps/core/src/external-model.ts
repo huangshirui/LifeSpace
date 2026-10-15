@@ -2,6 +2,11 @@ import type { Bindings } from "./env";
 import { ApiError } from "./http";
 import type { ModelAccess } from "./model-definition";
 import { getRuntimeModel, type PublishedModel } from "./model-registry";
+import {
+  configuredExternalProviderKeys,
+  hasExternalProviderRoute,
+  resolveExternalProviderRoute,
+} from "./external-provider-router";
 
 export const EXTERNAL_PREFIX = "ext_";
 export const isExternalModelKey = (key: string) =>
@@ -279,21 +284,17 @@ export async function callExternalAdapter(
   input?: Record<string, unknown>,
   recordId?: string,
 ): Promise<unknown> {
-  if (
-    !env.EXTERNAL_ADAPTER ||
-    !env.EXTERNAL_ADAPTER_SHARED_SECRET ||
-    env.EXTERNAL_ADAPTER_SHARED_SECRET.length < 32
-  )
-    throw new ExternalError("EXTERNAL_UNAVAILABLE", 503);
+  const route = resolveExternalProviderRoute(env, source.provider_key);
+  if (!route) throw new ExternalError("EXTERNAL_UNAVAILABLE", 503);
   let response: Response;
   try {
-    response = await env.EXTERNAL_ADAPTER.fetch(
+    response = await route.adapter.fetch(
       "https://external-adapter.internal/internal/v1/external-models",
       {
         method: "POST",
         headers: {
           "content-type": "application/json",
-          "x-lifespace-internal-secret": env.EXTERNAL_ADAPTER_SHARED_SECRET,
+          "x-lifespace-internal-secret": route.sharedSecret,
         },
         body: JSON.stringify({
           contractVersion: 1,
@@ -379,13 +380,14 @@ export async function getExternalModel(
   if (!row || (!includeDisabled && row.status === "disabled")) return null;
   const source = await getExternalSource(env, row.source_id);
   if (!source || (!includeDisabled && source.status !== "active")) return null;
+  if (!includeDisabled && !hasExternalProviderRoute(env, source.provider_key)) return null;
   return rowModel(env, row, source, includeDisabled);
 }
 export async function listExternalModels(
   env: Bindings,
   spaceIds: readonly string[],
 ): Promise<ExternalModel[]> {
-  if (!env.EXTERNAL_ADAPTER || !spaceIds.length) return [];
+  if (!spaceIds.length || !configuredExternalProviderKeys(env).length) return [];
   const items: ExternalModel[] = [];
   for (let i = 0; i < spaceIds.length; i += 80) {
     const group = spaceIds.slice(i, i + 80);
@@ -402,6 +404,7 @@ export async function listExternalModels(
         }
       >();
     for (const r of rows.results) {
+      if (!hasExternalProviderRoute(env, r.provider_key)) continue;
       const model = await rowModel(env, r, {
           id: r.source_id,
           space_id: r.space_id,
@@ -512,7 +515,7 @@ export async function refreshExternalModel(
   }
 }
 async function reconcileExternalSchemas(env: Bindings): Promise<void> {
-  if (!env.EXTERNAL_ADAPTER || !schemaRefreshInterval(env)) return;
+  if (!configuredExternalProviderKeys(env).length || !schemaRefreshInterval(env)) return;
   const rows = await env.DB.prepare(
     "SELECT space_id,model_key FROM external_models m WHERE status!='disabled' AND next_refresh_at IS NOT NULL AND next_refresh_at<=? AND (definition_key IS NULL OR EXISTS(SELECT 1 FROM model_definitions d WHERE d.model_key=m.definition_key AND d.state='published' AND json_extract(d.definition_json,'$.origin')='external')) AND EXISTS(SELECT 1 FROM external_sources s WHERE s.id=m.source_id AND s.status='active') AND EXISTS(SELECT 1 FROM spaces s WHERE s.id=m.space_id AND s.deleted_at IS NULL) ORDER BY next_refresh_at,model_key LIMIT 20",
   )
@@ -531,7 +534,7 @@ async function reconcileExternalSchemas(env: Bindings): Promise<void> {
 // This observes only Provider presence through the trusted connection. It does not
 // exercise a user's data authority or publish Provider payload/attribution.
 async function reconcileExternalIdentities(env: Bindings): Promise<void> {
-  if (!env.EXTERNAL_ADAPTER || !schemaRefreshInterval(env)) return;
+  if (!configuredExternalProviderKeys(env).length || !schemaRefreshInterval(env)) return;
   const now = new Date().toISOString();
   const due = await env.DB.prepare(`SELECT i.record_id,i.model_key,i.space_id FROM external_record_identities i
     WHERE i.next_check_at IS NOT NULL AND i.next_check_at<=?
