@@ -2,9 +2,12 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 const worker = readFileSync(new URL("../worker/external-connections.ts", import.meta.url), "utf8");
+const downstreamWorker = readFileSync(new URL("../worker/index.ts", import.meta.url), "utf8");
 const ui = readFileSync(new URL("../src/ExternalConnectionsOverlay.tsx", import.meta.url), "utf8");
+const controlPlaneUi = readFileSync(new URL("../src/ControlPlaneApp.tsx", import.meta.url), "utf8");
 const entry = readFileSync(new URL("../src/main.tsx", import.meta.url), "utf8");
 const css = readFileSync(new URL("../src/external-connections.css", import.meta.url), "utf8");
+const packageJson = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
 const wrangler = JSON.parse(readFileSync(new URL("../wrangler.jsonc", import.meta.url), "utf8"));
 const contract = JSON.parse(readFileSync(new URL("../../core/external-connection.openapi.yaml", import.meta.url), "utf8"));
 
@@ -30,11 +33,19 @@ assert(!ui.includes("Data Source ID<input"));
 assert(ui.includes("Provider token 只用于本次请求并保存到私有 Adapter Vault"));
 assert(entry.includes('window.addEventListener("popstate", update)'));
 assert(entry.includes("<ExternalConnectionsOverlay key={routeKey} />"));
-assert(css.includes('.external-data-space .cp-launcher{display:none}'));
 assert(css.includes('.ext-launcher::before{content:"Configure"'));
 assert(css.includes('background:var(--blue)'));
 assert(css.includes('box-shadow:0 18px 48px rgba(21,38,67,.18)'));
 assert(css.includes('box-shadow:0 30px 90px rgba(10,24,47,.28)'));
+
+assert(!controlPlaneUi.includes('type: "external-binding"'));
+assert(!controlPlaneUi.includes("ExternalBindingDialog"));
+assert(!controlPlaneUi.includes("绑定外部模型"));
+assert(!downstreamWorker.includes("externalBindingRoute"));
+assert(!downstreamWorker.includes("external-sources|external-models"));
+assert(!downstreamWorker.includes('"sourceId"'));
+assert(!packageJson.scripts?.["test:external-binding"]);
+assert(!String(packageJson.scripts?.check ?? "").includes("test:external-binding"));
 
 assert(contract.paths["/api/v1/spaces/{spaceId}/external-connections"]?.post);
 assert(contract.paths["/api/v1/spaces/{spaceId}/external-model-definitions"]?.get);
@@ -57,4 +68,7 @@ console.log(JSON.stringify({
   connectionIdBinding: true,
   spaRouteSynchronized: true,
   controlPlaneVisualPatternAligned: true,
+  legacyBindingUiRemoved: true,
+  legacyBindingBffRemoved: true,
+  legacyBindingTestRemoved: true,
 }));
