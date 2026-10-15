@@ -5,7 +5,7 @@ const root = new URL("../", import.meta.url);
 const api = JSON.parse(readFileSync(new URL("external-connection.openapi.yaml", root), "utf8"));
 const adapter = JSON.parse(readFileSync(new URL("external-connection-adapter.contract.json", root), "utf8"));
 
-assert.equal(api.info.version, "0.2.0");
+assert.equal(api.info.version, "0.3.0");
 assert.equal(adapter.properties.contractVersion.const, 1);
 for (const operation of ["describe", "create", "update", "delete", "listResources"])
   assert(adapter.properties.operation.enum.includes(operation));
@@ -23,6 +23,8 @@ assert(api.paths[bindings]?.get);
 assert(api.paths[bindings]?.post);
 assert(api.paths[`${bindings}/{modelKey}`]?.patch);
 assert(api.paths[`${bindings}/{modelKey}/refresh`]?.post);
+assert(!api.paths["/api/v1/spaces/{spaceId}/external-sources"]);
+assert(!api.paths["/api/v1/model-admin/external-sources"]);
 
 const create = api.components.schemas.CreateExternalConnection;
 assert.equal(create.additionalProperties, false);
@@ -32,7 +34,8 @@ assert(create.required.includes("credential"));
 const connection = api.components.schemas.ExternalConnection;
 assert(!connection.properties.credential);
 assert(!connection.properties.credentialRef);
-assert.deepEqual(connection.properties.managementMode.enum, ["dynamic", "deployment"]);
+assert(!connection.properties.managementMode);
+assert.equal(connection.properties.resourceDiscovery.const, true);
 const binding = api.components.schemas.BindExternalModel;
 assert.deepEqual(binding.required, ["definitionKey", "connectionId", "resourceId", "declaredAccess"]);
 assert(!binding.properties.sourceId);
@@ -42,7 +45,13 @@ const code = readFileSync(new URL("src/external-connections.ts", root), "utf8");
 assert(code.includes("/internal/v1/external-connections"));
 assert(!/api\.notion\.com|Notion-Version/u.test(code));
 assert(!/credential_ref:\s*input|credentialRef:\s*input/u.test(code));
+assert(code.includes("assertDynamicCredentialRef"));
+assert(!code.includes("managementMode"));
 assert(code.includes("listExternalProviderDescriptors"));
+const routes = readFileSync(new URL("src/external-model-routes.ts", root), "utf8");
+assert(!routes.includes("/external-sources"));
+assert(!routes.includes("/model-admin/external-sources"));
+assert(!routes.includes('"sourceId"'));
 const router = readFileSync(new URL("src/external-provider-router.ts", root), "utf8");
 assert(router.includes("EXTERNAL_PROVIDER_ROUTES"));
 assert(router.includes("resolveExternalProviderRoute"));
@@ -59,4 +68,4 @@ assert(ceilingMigration.includes("CREATE TRIGGER external_sources_read_ceiling")
 assert(ceilingMigration.includes("declared_access = 'read'"));
 assert(ceilingMigration.includes("value='64'"));
 
-console.log("External Connection routed public/Adapter contract sanity check passed");
+console.log("External Connection dynamic-only routed public/Adapter contract sanity check passed");
