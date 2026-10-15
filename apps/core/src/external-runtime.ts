@@ -301,14 +301,14 @@ function unbase64url(v: string) {
   );
 }
 async function cursorKey(env: Bindings) {
-  if (
-    !env.EXTERNAL_ADAPTER_SHARED_SECRET ||
-    env.EXTERNAL_ADAPTER_SHARED_SECRET.length < 32
-  )
+  const secret =
+    env.EXTERNAL_CURSOR_SECRET ??
+    (env.ENVIRONMENT === "local" ? env.EXTERNAL_ADAPTER_SHARED_SECRET : undefined);
+  if (!secret || secret.length < 32)
     throw new ExternalError("EXTERNAL_UNAVAILABLE", 503);
   return crypto.subtle.importKey(
     "raw",
-    new TextEncoder().encode(env.EXTERNAL_ADAPTER_SHARED_SECRET),
+    new TextEncoder().encode(secret),
     { name: "HMAC", hash: "SHA-256" },
     false,
     ["sign", "verify"],

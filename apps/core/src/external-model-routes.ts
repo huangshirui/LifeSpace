@@ -9,6 +9,7 @@ import {
   getExternalConnection,
   isDynamicExternalConnection,
   listExternalConnections,
+  listExternalProviderDescriptors,
   validateConnectionCredential,
   validateConnectionDisplayName,
   validateConnectionProjection,
@@ -107,10 +108,7 @@ export function registerExternalModelControlRoutes(app: App) {
 
   app.get(providerPath, async (c) => {
     await manager(c);
-    const descriptor = validateProviderDescriptor(
-      await callExternalConnectionAdapter(c.env, { operation: "describe" }),
-    );
-    return c.json(success({ items: [descriptor] }));
+    return c.json(success({ items: await listExternalProviderDescriptors(c.env) }));
   });
 
   app.get(connectionPath, async (c) => {
@@ -130,7 +128,7 @@ export function registerExternalModelControlRoutes(app: App) {
     const credential = validateConnectionCredential(input.credential);
     const access = connectionAccess(input.access);
     const descriptor = validateProviderDescriptor(
-      await callExternalConnectionAdapter(c.env, { operation: "describe" }),
+      await callExternalConnectionAdapter(c.env, { operation: "describe", providerKey: provider }),
     );
     if (descriptor.key !== provider || !descriptor.access.includes(access))
       throw new ApiError("EXTERNAL_PROVIDER_UNAVAILABLE", "External provider configuration is unavailable", 422);
@@ -315,14 +313,10 @@ export function registerExternalModelControlRoutes(app: App) {
           "Invalid connection configuration",
           422,
         );
-      if (
-        !c.env.EXTERNAL_ADAPTER ||
-        !c.env.EXTERNAL_ADAPTER_SHARED_SECRET ||
-        !schemaRefreshInterval(c.env)
-      )
+      if (!schemaRefreshInterval(c.env))
         throw new ApiError(
           "EXTERNAL_UNAVAILABLE",
-          "External Adapter is not configured",
+          "External schema refresh is not configured",
           503,
         );
       const source: ExternalSource = {
@@ -401,6 +395,7 @@ export function registerExternalModelControlRoutes(app: App) {
           sourceId: r.source_id,
           displayName: r.display_name,
           status: r.status,
+          declaredAccess: r.declared_access,
           schemaHash: r.schema_hash,
           schemaObservedAt: r.schema_observed_at,
           lastErrorCode: r.last_error_code,
@@ -571,6 +566,11 @@ export function registerExternalModelControlRoutes(app: App) {
       throw new ApiError("VALIDATION_ERROR", "Invalid declared access", 422);
     if (!Object.keys(input).length)
       throw new ApiError("INVALID_REQUEST", "A change is required", 400);
+    if (input.declaredAccess === "write") {
+      const connection = await getExternalConnection(c.env, m.source_id);
+      if (connection?.access_mode !== "write")
+        throw new ApiError("EXTERNAL_VALIDATION_FAILED", "Connection is read-only", 422);
+    }
     await c.env.DB.prepare(
       "UPDATE external_models SET status=?,declared_access=?,updated_at=? WHERE model_key=?",
     )

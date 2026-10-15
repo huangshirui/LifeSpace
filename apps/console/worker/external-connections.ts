@@ -94,6 +94,7 @@ async function readJsonObject(request: Request, allowed: readonly string[]): Pro
 }
 function validSpaceId(value: string): boolean { return /^spc_[A-Za-z0-9_-]+$/u.test(value); }
 function validConnectionId(value: string): boolean { return /^exs_[a-f0-9]{32}$/u.test(value); }
+function validModelKey(value: string): boolean { return /^[a-z][a-z0-9_]{1,62}$/u.test(value); }
 
 async function forward(request: Request, env: Env, corePath: string, method: string, body?: JsonRecord): Promise<Response> {
   const bearer = await userBearer(request, env);
@@ -117,18 +118,40 @@ async function externalConnectionApi(request: Request, env: Env): Promise<Respon
     return forward(request, env, `/api/v1/spaces/${encodeURIComponent(definitions[1]!)}/external-model-definitions`, "GET");
   }
 
-  const binding = /^\/api\/spaces\/(spc_[A-Za-z0-9_-]+)\/external-models$/u.exec(url.pathname);
-  if (binding && request.method === "POST") {
-    const spaceId = binding[1]!;
+  const bindingCollection = /^\/api\/spaces\/(spc_[A-Za-z0-9_-]+)\/external-models$/u.exec(url.pathname);
+  if (bindingCollection) {
+    const spaceId = bindingCollection[1]!;
     if (url.search) return failure("VALIDATION_ERROR", "Query parameters are not accepted", 422, requestId(request));
-    const guard = browserMutation(request, "bind-external-model"); if (guard) return guard;
-    const input = await readJsonObject(request, ["definitionKey", "connectionId", "resourceId", "declaredAccess"]); if (input instanceof Response) return input;
-    if (!stringValue(input.definitionKey) || !stringValue(input.connectionId) || !stringValue(input.resourceId) || !["read", "write"].includes(String(input.declaredAccess)))
-      return failure("VALIDATION_ERROR", "External model binding requires definitionKey, connectionId, resourceId and declaredAccess", 422, requestId(request));
-    if (!validConnectionId(String(input.connectionId))) return failure("VALIDATION_ERROR", "connectionId is invalid", 422, requestId(request));
-    return forward(request, env, `/api/v1/spaces/${encodeURIComponent(spaceId)}/external-models`, "POST", input);
+    if (request.method === "GET") return forward(request, env, `/api/v1/spaces/${encodeURIComponent(spaceId)}/external-models`, "GET");
+    if (request.method === "POST") {
+      const guard = browserMutation(request, "bind-external-model"); if (guard) return guard;
+      const input = await readJsonObject(request, ["definitionKey", "connectionId", "resourceId", "declaredAccess"]); if (input instanceof Response) return input;
+      if (!stringValue(input.definitionKey) || !stringValue(input.connectionId) || !stringValue(input.resourceId) || !["read", "write"].includes(String(input.declaredAccess)))
+        return failure("VALIDATION_ERROR", "External model binding requires definitionKey, connectionId, resourceId and declaredAccess", 422, requestId(request));
+      if (!validModelKey(String(input.definitionKey)) || !validConnectionId(String(input.connectionId))) return failure("VALIDATION_ERROR", "External model binding address is invalid", 422, requestId(request));
+      return forward(request, env, `/api/v1/spaces/${encodeURIComponent(spaceId)}/external-models`, "POST", input);
+    }
+    return failure("METHOD_NOT_ALLOWED", "Method not allowed", 405, requestId(request));
   }
-  if (binding) return null;
+
+  const bindingDetail = /^\/api\/spaces\/(spc_[A-Za-z0-9_-]+)\/external-models\/([a-z][a-z0-9_]{1,62})(?:\/(refresh))?$/u.exec(url.pathname);
+  if (bindingDetail) {
+    const [, spaceId, modelKey, child] = bindingDetail;
+    if (!spaceId || !modelKey || !validSpaceId(spaceId) || !validModelKey(modelKey) || url.search)
+      return failure("VALIDATION_ERROR", "External model binding path is invalid", 422, requestId(request));
+    if (child === "refresh") {
+      if (request.method !== "POST") return failure("METHOD_NOT_ALLOWED", "Method not allowed", 405, requestId(request));
+      const guard = browserMutation(request, "refresh-external-model-binding"); if (guard) return guard;
+      const input = await readJsonObject(request, []); if (input instanceof Response) return input;
+      return forward(request, env, `/api/v1/spaces/${encodeURIComponent(spaceId)}/external-models/${encodeURIComponent(modelKey)}/refresh`, "POST", input);
+    }
+    if (request.method !== "PATCH") return failure("METHOD_NOT_ALLOWED", "Method not allowed", 405, requestId(request));
+    const guard = browserMutation(request, "update-external-model-binding"); if (guard) return guard;
+    const input = await readJsonObject(request, ["status", "declaredAccess"]); if (input instanceof Response) return input;
+    if (!Object.keys(input).length || (input.status !== undefined && input.status !== "disabled") || (input.declaredAccess !== undefined && !["read", "write"].includes(String(input.declaredAccess))))
+      return failure("VALIDATION_ERROR", "External model binding update is invalid", 422, requestId(request));
+    return forward(request, env, `/api/v1/spaces/${encodeURIComponent(spaceId)}/external-models/${encodeURIComponent(modelKey)}`, "PATCH", input);
+  }
 
   const base = /^\/api\/spaces\/(spc_[A-Za-z0-9_-]+)\/(external-providers|external-connections)(?:\/(exs_[a-f0-9]{32}))?(?:\/(resources))?$/u.exec(url.pathname);
   if (!base) return null;

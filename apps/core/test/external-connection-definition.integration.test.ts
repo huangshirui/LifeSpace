@@ -3,7 +3,7 @@ import { sign } from "hono/jwt";
 import { describe, expect, it } from "vitest";
 import { createApp } from "../src/app";
 import type { Bindings, Principal } from "../src/env";
-import { publishModelDefinition } from "../src/model-registry";
+import { publishModelDefinition, retireModel } from "../src/model-registry";
 
 const pem = (label: "PRIVATE KEY" | "PUBLIC KEY", bytes: ArrayBuffer) => {
   const binary = String.fromCharCode(...new Uint8Array(bytes));
@@ -113,6 +113,45 @@ describe("Space bindable External Model Definition discovery", () => {
     });
     expect(excessiveWrite.status).toBe(422);
     expect((await excessiveWrite.json<any>()).error.code).toBe("EXTERNAL_VALIDATION_FAILED");
+
+    const sourceId = `exs_${crypto.randomUUID().replaceAll("-", "")}`;
+    const registrationId = `ext_${crypto.randomUUID().replaceAll("-", "")}`;
+    const snapshot = {
+      resourceId: `synthetic-retired-resource-${suffix}`,
+      displayName: "Retired definition binding",
+      fields: [],
+      capabilities: {
+        get: true,
+        query: true,
+        create: true,
+        update: true,
+        delete: true,
+        batchWrite: true,
+        atomicBatch: false,
+        transaction: false,
+        versionedWrite: false,
+        actions: false,
+        relationTargetResolution: false,
+      },
+      queryLimits: { maxDepth: 2, maxNodes: 100, maxSort: 8, maxPageSize: 100 },
+      adapterState: {},
+    };
+    await db.batch([
+      db.prepare("INSERT INTO external_sources(id,space_id,provider_key,credential_ref,status,display_name,access_mode,created_by_user_id,created_at,updated_at) VALUES(?,?,?,'cnx_test','active','Retired definition connection','write',?,?,?)")
+        .bind(sourceId, space, "notion", owner, timestamp, timestamp),
+      db.prepare("INSERT INTO external_models(model_key,space_id,source_id,provider_key,resource_id,display_name,declared_access,snapshot_json,schema_hash,schema_observed_at,status,last_successful_refresh_at,next_refresh_at,created_at,updated_at,definition_key) VALUES(?,?,?,?,?,?,?,?,'synthetic-schema',?,'active',?,NULL,?,?,?)")
+        .bind(registrationId, space, sourceId, "notion", snapshot.resourceId, snapshot.displayName, "read", JSON.stringify(snapshot), timestamp, timestamp, timestamp, timestamp, readOnlyKey),
+    ]);
+    await retireModel({ DB: db } as Bindings, publisher, readOnlyKey);
+    const retiredWriteElevation = await request(
+      publicKey,
+      ownerBearer,
+      `/api/v1/spaces/${space}/external-models/${readOnlyKey}`,
+      "PATCH",
+      { declaredAccess: "write" },
+    );
+    expect(retiredWriteElevation.status).toBe(422);
+    expect((await retiredWriteElevation.json<any>()).error.code).toBe("EXTERNAL_VALIDATION_FAILED");
 
     const outsiderResponse = await request(publicKey, await token(privateKey, outsider, appId), `/api/v1/spaces/${space}/external-model-definitions`);
     expect(outsiderResponse.status).toBe(403);

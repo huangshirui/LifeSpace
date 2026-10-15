@@ -2,21 +2,21 @@
   "openapi": "3.1.0",
   "info": {
     "title": "LifeSpace External Connection API",
-    "version": "0.1.0",
-    "description": "Complete Space-scoped External setup contract for Console and downstream applications: provider discovery, secure Connection lifecycle, Provider Resource discovery, bindable External Model Definition discovery and binding. Direct User spaces:manage plus current Space manage is required. Provider credential plaintext is accepted only on create/rotation, forwarded to the private Adapter vault, and never persisted in Core or returned."
+    "version": "0.2.0",
+    "description": "Complete Space-scoped External setup contract for Console and downstream applications: provider discovery, secure Connection lifecycle, Provider Resource discovery, bindable External Model Definition discovery, binding lifecycle and schema refresh. Direct User spaces:manage plus current Space manage is required. Provider credential plaintext is accepted only on create/rotation, forwarded to the routed private Provider Adapter vault, and never persisted in Core or returned."
   },
   "security": [{ "bearerAuth": [] }],
   "paths": {
     "/api/v1/spaces/{spaceId}/external-providers": {
       "get": {
         "operationId": "listExternalProviders",
-        "description": "List currently configured provider setup descriptors. This is capability discovery, not authorization proof.",
+        "description": "List currently configured Provider setup descriptors across the deployment routing table. This is capability discovery, not authorization proof.",
         "parameters": [{ "$ref": "#/components/parameters/SpaceId" }],
         "responses": {
           "200": { "description": "Provider descriptors", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ProviderListEnvelope" } } } },
           "401": { "description": "Unauthenticated" },
           "403": { "description": "Current Space management authority denied" },
-          "503": { "description": "External Adapter unavailable" }
+          "503": { "description": "One or more configured Provider Adapters unavailable" }
         }
       }
     },
@@ -44,7 +44,7 @@
       },
       "post": {
         "operationId": "createExternalConnection",
-        "description": "Validate and persist a provider credential in the private Adapter vault, then create Space-scoped connection metadata. The client never supplies credentialRef.",
+        "description": "Route by providerKey, validate and persist a provider credential in that Provider Adapter's private vault, then create Space-scoped connection metadata. The client never supplies credentialRef.",
         "parameters": [{ "$ref": "#/components/parameters/SpaceId" }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateExternalConnection" } } } },
         "responses": {
@@ -52,7 +52,7 @@
           "400": { "description": "Invalid request shape" },
           "401": { "description": "Unauthenticated" },
           "403": { "description": "Current Space management authority denied" },
-          "422": { "description": "Provider credential/access validation failed" },
+          "422": { "description": "Provider unavailable or credential/access validation failed" },
           "429": { "description": "Provider rate limited" },
           "502": { "description": "Provider/Adapter contract failure" },
           "503": { "description": "Provider/Adapter unavailable" }
@@ -78,7 +78,7 @@
       },
       "delete": {
         "operationId": "revokeExternalConnection",
-        "description": "Delete the dynamic provider vault credential, revoke the connection and disable its active bindings. Deployment-managed bootstrap connections must be revoked through deployment configuration.",
+        "description": "Delete the dynamic Provider vault credential, revoke the connection and disable its active bindings. Deployment-managed bootstrap connections must be revoked through deployment configuration.",
         "parameters": [{ "$ref": "#/components/parameters/SpaceId" }, { "$ref": "#/components/parameters/ConnectionId" }],
         "responses": {
           "204": { "description": "Revoked, or already revoked" },
@@ -93,7 +93,7 @@
     "/api/v1/spaces/{spaceId}/external-connections/{connectionId}/resources": {
       "get": {
         "operationId": "listExternalConnectionResources",
-        "description": "List provider resources visible to one active dynamic connection. For Notion these are concrete Data Sources.",
+        "description": "List Provider resources visible to one active dynamic connection. Resource vocabulary is Provider-defined (for Notion: Data Sources; Airtable may expose tables).",
         "parameters": [
           { "$ref": "#/components/parameters/SpaceId" },
           { "$ref": "#/components/parameters/ConnectionId" },
@@ -113,21 +113,64 @@
       }
     },
     "/api/v1/spaces/{spaceId}/external-models": {
+      "get": {
+        "operationId": "listExternalModelBindings",
+        "description": "List current and disabled External Model bindings for this Space. This is configuration state, not runtime data access.",
+        "parameters": [{ "$ref": "#/components/parameters/SpaceId" }],
+        "responses": {
+          "200": { "description": "External Model bindings", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ExternalBindingListEnvelope" } } } },
+          "401": { "description": "Unauthenticated" },
+          "403": { "description": "Current Space management authority denied" }
+        }
+      },
       "post": {
         "operationId": "bindExternalModel",
-        "description": "Bind one published External business Model Definition to a Connection and one Provider Resource. Provider fields are discovered automatically during binding. Legacy sourceId input remains an implementation compatibility path but is not part of this product contract.",
+        "description": "Bind one published External business Model Definition to a Connection and one Provider Resource. Provider fields are discovered automatically during binding. Re-registering the same disabled Provider resource in the same Space is the supported reactivation path. Legacy sourceId input remains an implementation compatibility path but is not part of this product contract.",
         "parameters": [{ "$ref": "#/components/parameters/SpaceId" }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BindExternalModel" } } } },
         "responses": {
-          "201": { "description": "External binding created and schema discovered", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ExternalBindingEnvelope" } } } },
+          "201": { "description": "External binding created/reactivated and schema discovered", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ExternalBindingEnvelope" } } } },
           "400": { "description": "Invalid request" },
           "401": { "description": "Unauthenticated" },
           "403": { "description": "Current Space management authority denied" },
           "404": { "description": "Connection/resource unavailable" },
           "409": { "description": "Provider resource or definition already bound/conflicts" },
-          "422": { "description": "Definition unavailable, access exceeds Connection ceiling or Provider schema invalid" },
+          "422": { "description": "Definition unavailable, access exceeds Definition/Connection ceiling or Provider schema invalid" },
           "429": { "description": "Provider rate limited" },
           "502": { "description": "Adapter/provider contract failure" },
+          "503": { "description": "Provider/Adapter unavailable" }
+        }
+      }
+    },
+    "/api/v1/spaces/{spaceId}/external-models/{modelKey}": {
+      "patch": {
+        "operationId": "updateExternalModelBinding",
+        "description": "Change the declared read/write ceiling or disable a binding. status can only be disabled; reactivation is performed by POSTing the binding again so Provider identity/schema are revalidated.",
+        "parameters": [{ "$ref": "#/components/parameters/SpaceId" }, { "$ref": "#/components/parameters/ModelKey" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UpdateExternalBinding" } } } },
+        "responses": {
+          "200": { "description": "Binding configuration updated", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BindingMutationEnvelope" } } } },
+          "400": { "description": "No change or invalid request" },
+          "401": { "description": "Unauthenticated" },
+          "403": { "description": "Current Space management authority denied" },
+          "404": { "description": "Binding unavailable" },
+          "422": { "description": "Write exceeds current Definition/Connection ceiling" }
+        }
+      }
+    },
+    "/api/v1/spaces/{spaceId}/external-models/{modelKey}/refresh": {
+      "post": {
+        "operationId": "refreshExternalModelBinding",
+        "description": "Rediscover the Provider schema for an active binding and replace the latest-only schema snapshot.",
+        "parameters": [{ "$ref": "#/components/parameters/SpaceId" }, { "$ref": "#/components/parameters/ModelKey" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "additionalProperties": false, "maxProperties": 0 } } } },
+        "responses": {
+          "200": { "description": "Refreshed External semantic detail", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ExternalBindingEnvelope" } } } },
+          "401": { "description": "Unauthenticated" },
+          "403": { "description": "Current Space management authority denied" },
+          "404": { "description": "Binding unavailable" },
+          "429": { "description": "Provider rate limited" },
+          "502": { "description": "Provider/Adapter contract failure" },
           "503": { "description": "Provider/Adapter unavailable" }
         }
       }
@@ -137,7 +180,8 @@
     "securitySchemes": { "bearerAuth": { "type": "http", "scheme": "bearer" } },
     "parameters": {
       "SpaceId": { "name": "spaceId", "in": "path", "required": true, "schema": { "type": "string", "pattern": "^spc_[A-Za-z0-9_-]+$" } },
-      "ConnectionId": { "name": "connectionId", "in": "path", "required": true, "schema": { "type": "string", "pattern": "^exs_[a-f0-9]{32}$" } }
+      "ConnectionId": { "name": "connectionId", "in": "path", "required": true, "schema": { "type": "string", "pattern": "^exs_[a-f0-9]{32}$" } },
+      "ModelKey": { "name": "modelKey", "in": "path", "required": true, "schema": { "type": "string", "pattern": "^[a-z][a-z0-9_]{1,62}$" } }
     },
     "schemas": {
       "ExternalProvider": {
@@ -157,7 +201,7 @@
         "additionalProperties": false,
         "required": ["key", "displayName", "description", "access", "schemaHash"],
         "properties": {
-          "key": { "type": "string" },
+          "key": { "type": "string", "pattern": "^[a-z][a-z0-9_]{1,62}$" },
           "displayName": { "type": "string" },
           "description": { "type": ["string", "null"] },
           "access": { "type": "array", "items": { "enum": ["read", "write"] } },
@@ -184,7 +228,7 @@
       "ProviderCredential": {
         "type": "object",
         "writeOnly": true,
-        "description": "Provider-specific credential object. Current Notion descriptor uses {type:'bearer_token',token:'...'}. Plaintext is transient and never returned by LifeSpace.",
+        "description": "Provider-specific credential object. The current Notion Provider descriptor uses {type:'bearer_token',token:'...'}. Plaintext is transient and never returned by LifeSpace.",
         "minProperties": 1,
         "maxProperties": 8,
         "additionalProperties": true
@@ -226,10 +270,37 @@
         "additionalProperties": false,
         "required": ["definitionKey", "connectionId", "resourceId", "declaredAccess"],
         "properties": {
-          "definitionKey": { "type": "string", "minLength": 1, "maxLength": 63 },
+          "definitionKey": { "type": "string", "pattern": "^[a-z][a-z0-9_]{1,62}$" },
           "connectionId": { "$ref": "#/components/parameters/ConnectionId/schema" },
           "resourceId": { "type": "string", "minLength": 1, "maxLength": 256 },
           "declaredAccess": { "enum": ["read", "write"] }
+        }
+      },
+      "UpdateExternalBinding": {
+        "type": "object",
+        "additionalProperties": false,
+        "minProperties": 1,
+        "properties": {
+          "status": { "const": "disabled" },
+          "declaredAccess": { "enum": ["read", "write"] }
+        }
+      },
+      "ExternalBindingSummary": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["modelKey", "registrationId", "definitionKey", "spaceId", "connectionId", "displayName", "status", "declaredAccess", "schemaHash", "schemaObservedAt", "lastErrorCode"],
+        "properties": {
+          "modelKey": { "type": "string" },
+          "registrationId": { "type": "string", "pattern": "^ext_[a-f0-9]{32}$" },
+          "definitionKey": { "type": ["string", "null"] },
+          "spaceId": { "type": "string" },
+          "connectionId": { "type": "string" },
+          "displayName": { "type": "string" },
+          "status": { "enum": ["active", "disabled", "degraded"] },
+          "declaredAccess": { "enum": ["read", "write"] },
+          "schemaHash": { "type": "string" },
+          "schemaObservedAt": { "type": "string", "format": "date-time" },
+          "lastErrorCode": { "type": ["string", "null"] }
         }
       },
       "ExternalBinding": {
@@ -244,12 +315,24 @@
           "schemaHash": { "type": "string" }
         }
       },
+      "BindingMutation": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["modelKey", "status", "declaredAccess"],
+        "properties": {
+          "modelKey": { "type": "string" },
+          "status": { "enum": ["active", "disabled", "degraded"] },
+          "declaredAccess": { "enum": ["read", "write"] }
+        }
+      },
       "ProviderListEnvelope": { "type": "object", "required": ["data"], "properties": { "data": { "type": "object", "required": ["items"], "properties": { "items": { "type": "array", "items": { "$ref": "#/components/schemas/ExternalProvider" } } } } } },
       "ExternalModelDefinitionListEnvelope": { "type": "object", "required": ["data"], "properties": { "data": { "type": "object", "required": ["items"], "properties": { "items": { "type": "array", "items": { "$ref": "#/components/schemas/ExternalModelDefinition" } } } } } },
       "ConnectionListEnvelope": { "type": "object", "required": ["data"], "properties": { "data": { "type": "object", "required": ["items"], "properties": { "items": { "type": "array", "items": { "$ref": "#/components/schemas/ExternalConnection" } } } } } },
       "ConnectionEnvelope": { "type": "object", "required": ["data"], "properties": { "data": { "$ref": "#/components/schemas/ExternalConnection" } } },
       "ResourceListEnvelope": { "type": "object", "required": ["data"], "properties": { "data": { "type": "object", "required": ["items", "nextCursor"], "properties": { "items": { "type": "array", "items": { "$ref": "#/components/schemas/ExternalResource" } }, "nextCursor": { "type": ["string", "null"] } } } } },
-      "ExternalBindingEnvelope": { "type": "object", "required": ["data"], "properties": { "data": { "$ref": "#/components/schemas/ExternalBinding" } } }
+      "ExternalBindingListEnvelope": { "type": "object", "required": ["data"], "properties": { "data": { "type": "object", "required": ["items"], "properties": { "items": { "type": "array", "items": { "$ref": "#/components/schemas/ExternalBindingSummary" } } } } } },
+      "ExternalBindingEnvelope": { "type": "object", "required": ["data"], "properties": { "data": { "$ref": "#/components/schemas/ExternalBinding" } } },
+      "BindingMutationEnvelope": { "type": "object", "required": ["data"], "properties": { "data": { "$ref": "#/components/schemas/BindingMutation" } } }
     }
   }
 }

@@ -7,6 +7,19 @@ type Provider = { key: string; displayName: string; credential: { type: string; 
 type Connection = { id: string; spaceId: string; providerKey: string; displayName: string; access: "read" | "write" | null; status: "active" | "disabled" | "revoked"; managementMode: "dynamic" | "deployment"; resourceDiscovery: boolean; createdAt: string; updatedAt: string };
 type Resource = { id: string; type: string; displayName: string };
 type ExternalModelDefinition = { key: string; displayName: string; description: string | null; access: Array<"read" | "write">; schemaHash: string };
+type ExternalBinding = {
+  modelKey: string;
+  registrationId: string;
+  definitionKey: string | null;
+  spaceId: string;
+  connectionId: string;
+  displayName: string;
+  status: "active" | "disabled" | "degraded";
+  declaredAccess: "read" | "write";
+  schemaHash: string;
+  schemaObservedAt: string;
+  lastErrorCode: string | null;
+};
 
 class ExternalUiError extends Error {
   constructor(message: string, readonly code?: string, readonly requestId?: string) { super(message); this.name = "ExternalUiError"; }
@@ -158,30 +171,38 @@ function ConnectionsPanel({ spaceId, onReadyToBind }: { spaceId: string; onReady
 function BindingPanel({ spaceId }: { spaceId: string }) {
   const [models, setModels] = useState<ExternalModelDefinition[]>([]);
   const [connections, setConnections] = useState<Connection[]>([]);
+  const [bindings, setBindings] = useState<ExternalBinding[]>([]);
   const [resources, setResources] = useState<Resource[]>([]);
   const [definitionKey, setDefinitionKey] = useState("");
   const [connectionId, setConnectionId] = useState("");
   const [resourceId, setResourceId] = useState("");
   const [access, setAccess] = useState<"read" | "write">("read");
   const [query, setQuery] = useState("");
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState("");
   const [resourceBusy, setResourceBusy] = useState(false);
   const [error, setError] = useState<unknown>();
   const [saved, setSaved] = useState(false);
 
-  useEffect(() => {
-    let active = true;
-    void Promise.all([
-      get<{ items: ExternalModelDefinition[] }>(`/api/spaces/${encodeURIComponent(spaceId)}/external-model-definitions`),
-      get<{ items: Connection[] }>(`/api/spaces/${encodeURIComponent(spaceId)}/external-connections`),
-    ]).then(([definitionData, connectionData]) => {
-      if (!active) return;
+  async function load() {
+    setError(undefined);
+    try {
+      const [definitionData, connectionData, bindingData] = await Promise.all([
+        get<{ items: ExternalModelDefinition[] }>(`/api/spaces/${encodeURIComponent(spaceId)}/external-model-definitions`),
+        get<{ items: Connection[] }>(`/api/spaces/${encodeURIComponent(spaceId)}/external-connections`),
+        get<{ items: ExternalBinding[] }>(`/api/spaces/${encodeURIComponent(spaceId)}/external-models`),
+      ]);
       setModels(definitionData.items);
-      setConnections(connectionData.items.filter((item) => item.status === "active" && item.resourceDiscovery));
-    }).catch((cause) => { if (active) setError(cause); });
-    return () => { active = false; };
-  }, [spaceId]);
-  const selectedConnection = useMemo(() => connections.find((item) => item.id === connectionId), [connections, connectionId]);
+      setConnections(connectionData.items);
+      setBindings(bindingData.items);
+    } catch (cause) { setError(cause); }
+  }
+  useEffect(() => { void load(); }, [spaceId]);
+
+  const discoverableConnections = useMemo(
+    () => connections.filter((item) => item.status === "active" && item.resourceDiscovery),
+    [connections],
+  );
+  const selectedConnection = useMemo(() => discoverableConnections.find((item) => item.id === connectionId), [discoverableConnections, connectionId]);
   const selectedDefinition = useMemo(() => models.find((item) => item.key === definitionKey), [models, definitionKey]);
   const writeAllowed = selectedConnection?.access === "write" && selectedDefinition?.access.includes("write") === true;
   useEffect(() => { if (!writeAllowed && access === "write") setAccess("read"); }, [writeAllowed, access]);
@@ -197,26 +218,72 @@ function BindingPanel({ spaceId }: { spaceId: string }) {
   }
   async function bind() {
     if (!definitionKey || !connectionId || !resourceId) return;
-    setBusy(true); setError(undefined); setSaved(false);
+    setBusy("bind"); setError(undefined); setSaved(false);
     try {
       await mutate(`/api/spaces/${encodeURIComponent(spaceId)}/external-models`, "POST", "bind-external-model", { definitionKey, connectionId, resourceId, declaredAccess: access });
       setSaved(true);
-    } catch (cause) { setError(cause); } finally { setBusy(false); }
+      await load();
+    } catch (cause) { setError(cause); } finally { setBusy(""); }
+  }
+  async function refresh(binding: ExternalBinding) {
+    setBusy(binding.registrationId); setError(undefined);
+    try {
+      await mutate(`/api/spaces/${encodeURIComponent(spaceId)}/external-models/${encodeURIComponent(binding.modelKey)}/refresh`, "POST", "refresh-external-model-binding", {});
+      await load();
+    } catch (cause) { setError(cause); } finally { setBusy(""); }
+  }
+  async function setBindingAccess(binding: ExternalBinding, declaredAccess: "read" | "write") {
+    setBusy(binding.registrationId); setError(undefined);
+    try {
+      await mutate(`/api/spaces/${encodeURIComponent(spaceId)}/external-models/${encodeURIComponent(binding.modelKey)}`, "PATCH", "update-external-model-binding", { declaredAccess });
+      await load();
+    } catch (cause) { setError(cause); } finally { setBusy(""); }
+  }
+  async function disable(binding: ExternalBinding) {
+    if (!window.confirm(`禁用 ${binding.displayName}？Provider 数据不会删除；恢复时请在上方重新选择同一 Connection 与 Provider Resource 进行绑定。`)) return;
+    setBusy(binding.registrationId); setError(undefined);
+    try {
+      await mutate(`/api/spaces/${encodeURIComponent(spaceId)}/external-models/${encodeURIComponent(binding.modelKey)}`, "PATCH", "update-external-model-binding", { status: "disabled" });
+      await load();
+    } catch (cause) { setError(cause); } finally { setBusy(""); }
   }
 
-  return <div className="ext-body"><section className="ext-card"><h3>绑定 External Model</h3><p>选择已发布业务模型、Connection 和 Provider Resource。字段 Schema 在绑定时由 Adapter 自动发现并形成最新 snapshot。</p>
-    <div className="ext-grid">
-      <label><span>业务模型</span><select value={definitionKey} onChange={(event) => { setDefinitionKey(event.target.value); setSaved(false); }}><option value="">选择 External Model</option>{models.map((item) => <option key={item.key} value={item.key}>{item.displayName} · {item.key}</option>)}</select></label>
-      <label><span>Connection</span><select value={connectionId} onChange={(event) => { setConnectionId(event.target.value); setResources([]); setResourceId(""); setSaved(false); }}><option value="">选择动态连接</option>{connections.map((item) => <option key={item.id} value={item.id}>{item.displayName} · {item.access}</option>)}</select></label>
-      <label className="wide"><span>搜索 Provider Resource</span><div className="ext-inline"><input value={query} maxLength={200} onChange={(event) => setQuery(event.target.value)} placeholder="例如 Health" /><button disabled={!connectionId || resourceBusy} onClick={() => void discover()}>{resourceBusy ? "发现中…" : "发现 Data Sources"}</button></div></label>
-      <label className="wide"><span>Data Source</span><select value={resourceId} onChange={(event) => { setResourceId(event.target.value); setSaved(false); }}><option value="">{resources.length ? "选择 Data Source" : "先发现 Data Sources"}</option>{resources.map((item) => <option key={item.id} value={item.id}>{item.displayName} · {item.id}</option>)}</select></label>
-      <label><span>绑定能力</span><select value={access} onChange={(event) => setAccess(event.target.value as "read" | "write")}><option value="read">只读</option>{writeAllowed && <option value="write">读写</option>}</select></label>
-    </div>
-    {selectedDefinition?.description && <p>{selectedDefinition.description}</p>}
-    <button className="ext-primary" disabled={busy || !definitionKey || !connectionId || !resourceId} onClick={() => void bind()}>{busy ? "绑定并发现字段中…" : "绑定并发现字段"}</button>
-    {saved && <div className="ext-message ext-success"><strong>绑定成功</strong><span>Provider Schema 已自动发现，可回到 Space/模型运行时继续验证读写。</span></div>}
+  return <div className="ext-body">
+    <section className="ext-card"><h3>绑定 External Model</h3><p>选择已发布业务模型、Connection 和 Provider Resource。字段 Schema 在绑定时由 Adapter 自动发现并形成最新 snapshot；disabled binding 也通过这里重新绑定同一资源恢复。</p>
+      <div className="ext-grid">
+        <label><span>业务模型</span><select value={definitionKey} onChange={(event) => { setDefinitionKey(event.target.value); setSaved(false); }}><option value="">选择 External Model</option>{models.map((item) => <option key={item.key} value={item.key}>{item.displayName} · {item.key}</option>)}</select></label>
+        <label><span>Connection</span><select value={connectionId} onChange={(event) => { setConnectionId(event.target.value); setResources([]); setResourceId(""); setSaved(false); }}><option value="">选择动态连接</option>{discoverableConnections.map((item) => <option key={item.id} value={item.id}>{item.displayName} · {item.access}</option>)}</select></label>
+        <label className="wide"><span>搜索 Provider Resource</span><div className="ext-inline"><input value={query} maxLength={200} onChange={(event) => setQuery(event.target.value)} placeholder="例如 Health" /><button disabled={!connectionId || resourceBusy} onClick={() => void discover()}>{resourceBusy ? "发现中…" : "发现 Data Sources"}</button></div></label>
+        <label className="wide"><span>Data Source</span><select value={resourceId} onChange={(event) => { setResourceId(event.target.value); setSaved(false); }}><option value="">{resources.length ? "选择 Data Source" : "先发现 Data Sources"}</option>{resources.map((item) => <option key={item.id} value={item.id}>{item.displayName} · {item.id}</option>)}</select></label>
+        <label><span>绑定能力</span><select value={access} onChange={(event) => setAccess(event.target.value as "read" | "write")}><option value="read">只读</option>{writeAllowed && <option value="write">读写</option>}</select></label>
+      </div>
+      {selectedDefinition?.description && <p>{selectedDefinition.description}</p>}
+      <button className="ext-primary" disabled={busy === "bind" || !definitionKey || !connectionId || !resourceId} onClick={() => void bind()}>{busy === "bind" ? "绑定并发现字段中…" : "绑定并发现字段"}</button>
+      {saved && <div className="ext-message ext-success"><strong>配置已更新</strong><span>Provider Schema 已自动发现，可继续在下方维护现有绑定。</span></div>}
+      {!models.length && <div className="ext-empty">还没有已发布的 External Model Definition；请先在 Models 中注册外部模型。</div>}
+      {!discoverableConnections.length && <div className="ext-empty">还没有可用于资源发现的动态连接；请先在“连接”页添加。</div>}
+    </section>
+
+    <section className="ext-card"><div className="ext-section-head"><div><h3>当前模型绑定</h3><p>这里维护同一套 External Data binding；不再存在第二个 External bindings 控制面。</p></div></div>
+      {!bindings.length && <div className="ext-empty">当前 Space 还没有 External Model binding。</div>}
+      <div className="ext-list">{bindings.map((binding) => {
+        const connection = connections.find((item) => item.id === binding.connectionId);
+        const definition = models.find((item) => item.key === binding.definitionKey);
+        const canWrite = connection?.status === "active" && connection.access === "write" && definition?.access.includes("write") === true;
+        const unavailable = busy === binding.registrationId;
+        return <article className="ext-connection" key={binding.registrationId}>
+          <div className="ext-connection-main"><strong>{binding.displayName}</strong><code>{binding.modelKey}</code><div className="ext-badges"><span>{binding.status}</span><span>{binding.declaredAccess}</span><span>{connection?.displayName ?? binding.connectionId}</span></div></div>
+          <small>Schema observed: {binding.schemaObservedAt || "—"}{binding.lastErrorCode ? ` · ${binding.lastErrorCode}` : ""}</small>
+          {binding.status === "disabled" && <small>恢复：在上方选择原业务模型、Connection 与 Provider Resource 后重新绑定。</small>}
+          <div className="ext-actions">
+            <button disabled={unavailable || binding.status === "disabled"} onClick={() => void refresh(binding)}>Refresh schema</button>
+            <button disabled={unavailable || binding.status === "disabled" || binding.declaredAccess === "read"} onClick={() => void setBindingAccess(binding, "read")}>Set read</button>
+            <button disabled={unavailable || binding.status === "disabled" || binding.declaredAccess === "write" || !canWrite} onClick={() => void setBindingAccess(binding, "write")}>Set write</button>
+            <button className="danger" disabled={unavailable || binding.status === "disabled"} onClick={() => void disable(binding)}>Disable</button>
+          </div>
+        </article>;
+      })}</div>
+    </section>
     <Message error={error} />
-    {!models.length && <div className="ext-empty">还没有已发布的 External Model Definition；请先在 Models 中注册外部模型。</div>}
-    {!connections.length && <div className="ext-empty">还没有可用于资源发现的动态连接；请先在“连接”页添加。</div>}
-  </section></div>;
+  </div>;
 }

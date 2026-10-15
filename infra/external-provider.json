@@ -1,5 +1,18 @@
 {
   "repository": "huangshirui/lifespace-adapters",
   "revision": "4146a9ee6be1c268acef1071ce05a22b0e872865",
-  "contractVersion": 1
+  "contractVersion": 1,
+  "providers": {
+    "notion": {
+      "adapterConfig": "adapters/notion/wrangler.jsonc",
+      "coreBinding": "EXTERNAL_ADAPTER_NOTION",
+      "coreSharedSecret": "EXTERNAL_ADAPTER_NOTION_SHARED_SECRET",
+      "workerEnv": "LIFESPACE_NOTION_ADAPTER_WORKER",
+      "sharedSecretEnv": "NOTION_ADAPTER_SHARED_SECRET",
+      "vaultMasterKeyEnv": "NOTION_CONNECTION_VAULT_MASTER_KEY",
+      "staticConnectionsEnv": "NOTION_CONNECTIONS",
+      "vaultBinding": "CONNECTIONS",
+      "vaultClass": "NotionConnectionVault"
+    }
+  }
 }
