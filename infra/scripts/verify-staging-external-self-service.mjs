@@ -164,6 +164,10 @@ try {
     },
   }, 201);
   definitionPublished = true;
+  // Runtime Registry snapshots are isolate-local and may remain valid for 60 seconds.
+  // This smoke publishes a run-scoped Definition immediately before binding it, so wait
+  // past the documented bound before exercising the key through arbitrary staging isolates.
+  await new Promise(resolve => setTimeout(resolve, 65_000));
   await allowDefinition();
   modelAccessInserted = true;
 

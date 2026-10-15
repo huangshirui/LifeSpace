@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import {
   assertStagingCandidateNotOlder,
   compareContractVersions,
@@ -43,4 +44,14 @@ test("rejects a contract downgrade before deployment", () => {
     }),
     /contract 0.38.0 is newer than candidate contract 0.37.0/,
   );
+});
+
+test("dynamic External staging smoke waits past the Runtime Registry TTL after publishing its run-scoped Definition", () => {
+  const smoke = readFileSync(new URL("./verify-staging-external-self-service.mjs", import.meta.url), "utf8");
+  const registry = readFileSync(new URL("../../apps/core/src/model-registry.ts", import.meta.url), "utf8");
+  assert.match(registry, /const RUNTIME_REGISTRY_TTL_MS = 60_000;/u);
+  const publish = smoke.indexOf('await expectRequest("/api/v1/model-admin/models"');
+  const barrier = smoke.indexOf("setTimeout(resolve, 65_000)");
+  const bind = smoke.indexOf("const bound = await expectRequest(`${base}/external-models`");
+  assert.ok(publish >= 0 && barrier > publish && bind > barrier, "External smoke must wait beyond Registry TTL between Definition publication and binding/runtime checks");
 });
