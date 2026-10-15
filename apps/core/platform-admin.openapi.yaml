@@ -16,6 +16,7 @@ tags:
   - name: Application Model Access
   - name: Space Inspector
   - name: Space Grant Governance
+  - name: Space External Governance
   - name: Model Governance
   - name: Platform Audit
 paths:
@@ -169,6 +170,261 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/platform-admin/spaces/{spaceId}/external-providers:
+    parameters:
+      - $ref: '#/components/parameters/SpaceId'
+    get:
+      tags: [Space External Governance]
+      operationId: listPlatformExternalProviders
+      description: >-
+        List configured External Provider descriptors for platform governance of one Space.
+        Requires spaces:manage plus the platform-admin actor proof; this does not grant runtime data authority.
+      responses:
+        '200':
+          description: Provider descriptors
+          content:
+            application/json:
+              schema: { $ref: './external-connection.openapi.yaml#/components/schemas/ProviderListEnvelope' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '503': { description: Provider Adapter unavailable }
+  /api/v1/platform-admin/spaces/{spaceId}/external-model-definitions:
+    parameters:
+      - $ref: '#/components/parameters/SpaceId'
+    get:
+      tags: [Space External Governance]
+      operationId: listPlatformExternalModelDefinitions
+      description: >-
+        List published External business Model Definitions available for Space binding under
+        Platform Admin authority. Requires spaces:manage plus the platform-admin actor proof.
+      responses:
+        '200':
+          description: Bindable External definitions
+          content:
+            application/json:
+              schema: { $ref: './external-connection.openapi.yaml#/components/schemas/ExternalModelDefinitionListEnvelope' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /api/v1/platform-admin/spaces/{spaceId}/external-connections:
+    parameters:
+      - $ref: '#/components/parameters/SpaceId'
+    get:
+      tags: [Space External Governance]
+      operationId: listPlatformExternalConnections
+      description: >-
+        List External Connections for one Space as platform configuration state. Requires
+        spaces:manage plus the platform-admin actor proof.
+      responses:
+        '200':
+          description: Connections
+          content:
+            application/json:
+              schema: { $ref: './external-connection.openapi.yaml#/components/schemas/ConnectionListEnvelope' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Space External Governance]
+      operationId: createPlatformExternalConnection
+      description: >-
+        Create a Space-scoped External Connection as a Platform Admin governance operation. Requires
+        spaces:manage plus the platform-admin actor proof. Provider credential plaintext is forwarded
+        only to the private Adapter vault and is never persisted in Core or returned.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: './external-connection.openapi.yaml#/components/schemas/CreateExternalConnection' }
+      responses:
+        '201':
+          description: Created connection
+          content:
+            application/json:
+              schema: { $ref: './external-connection.openapi.yaml#/components/schemas/ConnectionEnvelope' }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '503': { description: Provider Adapter unavailable }
+  /api/v1/platform-admin/spaces/{spaceId}/external-connections/{connectionId}:
+    parameters:
+      - $ref: '#/components/parameters/SpaceId'
+      - $ref: '#/components/parameters/ConnectionId'
+    patch:
+      tags: [Space External Governance]
+      operationId: updatePlatformExternalConnection
+      description: >-
+        Rename, enable/disable, change access ceiling, or rotate the credential for a dynamic
+        Connection under Platform Admin authority. Requires spaces:manage plus the actor proof.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: './external-connection.openapi.yaml#/components/schemas/UpdateExternalConnection' }
+      responses:
+        '200':
+          description: Updated connection
+          content:
+            application/json:
+              schema: { $ref: './external-connection.openapi.yaml#/components/schemas/ConnectionEnvelope' }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { description: Connection revoked }
+        '422': { $ref: '#/components/responses/ValidationError' }
+    delete:
+      tags: [Space External Governance]
+      operationId: revokePlatformExternalConnection
+      description: >-
+        Delete Provider vault credential, revoke the Connection and disable its bindings under
+        Platform Admin authority. Requires spaces:manage plus the actor proof.
+      responses:
+        '204': { description: Revoked or already revoked }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '503': { description: Provider Adapter unavailable }
+  /api/v1/platform-admin/spaces/{spaceId}/external-connections/{connectionId}/resources:
+    parameters:
+      - $ref: '#/components/parameters/SpaceId'
+      - $ref: '#/components/parameters/ConnectionId'
+      - name: query
+        in: query
+        schema: { type: string, maxLength: 200 }
+      - name: cursor
+        in: query
+        schema: { type: string, maxLength: 2048 }
+      - name: limit
+        in: query
+        schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
+    get:
+      tags: [Space External Governance]
+      operationId: listPlatformExternalConnectionResources
+      description: >-
+        Discover Provider resources visible to one active Connection as a Platform Admin setup
+        operation. Requires spaces:manage plus the actor proof and does not grant runtime data access.
+      responses:
+        '200':
+          description: Provider resources
+          content:
+            application/json:
+              schema: { $ref: './external-connection.openapi.yaml#/components/schemas/ResourceListEnvelope' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { description: Connection disabled or revoked }
+        '503': { description: Provider Adapter unavailable }
+  /api/v1/platform-admin/spaces/{spaceId}/external-models:
+    parameters:
+      - $ref: '#/components/parameters/SpaceId'
+    get:
+      tags: [Space External Governance]
+      operationId: listPlatformExternalModelBindings
+      description: >-
+        List current and disabled External Model bindings for one Space as platform configuration state.
+        Requires spaces:manage plus the platform-admin actor proof.
+      responses:
+        '200':
+          description: External Model bindings
+          content:
+            application/json:
+              schema: { $ref: './external-connection.openapi.yaml#/components/schemas/ExternalBindingListEnvelope' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Space External Governance]
+      operationId: bindPlatformExternalModel
+      description: >-
+        Bind one published External business Model Definition to a Connection and Provider resource
+        under Platform Admin authority. Requires spaces:manage plus the actor proof; Definition and
+        Connection access ceilings remain authoritative.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: './external-connection.openapi.yaml#/components/schemas/BindExternalModel' }
+      responses:
+        '201':
+          description: Binding created or reactivated
+          content:
+            application/json:
+              schema: { $ref: './external-connection.openapi.yaml#/components/schemas/ExternalBindingEnvelope' }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { description: Resource or definition conflict }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/platform-admin/spaces/{spaceId}/external-models/{modelKey}:
+    parameters:
+      - $ref: '#/components/parameters/SpaceId'
+      - $ref: '#/components/parameters/ModelKey'
+    get:
+      tags: [Space External Governance]
+      operationId: getPlatformExternalModelBinding
+      description: >-
+        Inspect the latest stored Provider schema snapshot and effective binding capabilities under
+        Platform Admin authority. Requires spaces:manage plus the actor proof.
+      responses:
+        '200':
+          description: Stored External binding detail
+          content:
+            application/json:
+              schema: { $ref: './external-connection.openapi.yaml#/components/schemas/ExternalBindingDetailEnvelope' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Space External Governance]
+      operationId: updatePlatformExternalModelBinding
+      description: >-
+        Change declared read/write ceiling or disable an External binding under Platform Admin
+        authority. Requires spaces:manage plus the actor proof.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: './external-connection.openapi.yaml#/components/schemas/UpdateExternalBinding' }
+      responses:
+        '200':
+          description: Binding configuration updated
+          content:
+            application/json:
+              schema: { $ref: './external-connection.openapi.yaml#/components/schemas/BindingMutationEnvelope' }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/platform-admin/spaces/{spaceId}/external-models/{modelKey}/refresh:
+    parameters:
+      - $ref: '#/components/parameters/SpaceId'
+      - $ref: '#/components/parameters/ModelKey'
+    post:
+      tags: [Space External Governance]
+      operationId: refreshPlatformExternalModelBinding
+      description: >-
+        Rediscover Provider schema for an active binding under Platform Admin authority. Requires
+        spaces:manage plus the actor proof.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              maxProperties: 0
+      responses:
+        '200':
+          description: Refreshed External semantic detail
+          content:
+            application/json:
+              schema: { $ref: './external-connection.openapi.yaml#/components/schemas/ExternalBindingEnvelope' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '503': { description: Provider Adapter unavailable }
   /api/v1/platform-admin/models:
     get:
       tags: [Model Governance]
@@ -310,6 +566,11 @@ components:
       in: path
       required: true
       schema: { type: string, pattern: '^grt_[A-Za-z0-9_-]+$' }
+    ConnectionId:
+      name: connectionId
+      in: path
+      required: true
+      schema: { type: string, pattern: '^exs_[a-f0-9]{32}$' }
     ModelKey:
       name: modelKey
       in: path
