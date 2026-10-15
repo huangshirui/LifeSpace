@@ -137,11 +137,11 @@ async function fixture() {
     }, bindings);
   }
 
-  return { db, space, user, other, application, definitionKey, vault, calls, resourceId, request, token };
+  return { db, space, user, other, application, definitionKey, vault, calls, resourceId, fieldKey, request, token };
 }
 
 describe("Space External Connection self-service", () => {
-  it("completes create, resource discovery, model binding, rotation and revoke without persisting provider plaintext", async () => {
+  it("completes create, resource discovery, model binding, stored schema inspection, rotation and revoke without persisting provider plaintext", async () => {
     const f = await fixture();
     const providers = await f.request(`/api/v1/spaces/${f.space}/external-providers`);
     expect(providers.status).toBe(200);
@@ -183,6 +183,17 @@ describe("Space External Connection self-service", () => {
     expect(bound.status, JSON.stringify(await bound.clone().json())).toBe(201);
     expect((await bound.json<any>()).data.connectionId).toBe(connection.id);
 
+    const callsBeforeDetail = f.calls.length;
+    const detailResponse = await f.request(`/api/v1/spaces/${f.space}/external-models/${f.definitionKey}`);
+    expect(detailResponse.status, JSON.stringify(await detailResponse.clone().json())).toBe(200);
+    const detail = (await detailResponse.json<any>()).data;
+    expect(detail.modelKey).toBe(f.definitionKey);
+    expect(detail.connectionId).toBe(connection.id);
+    expect(detail.fields).toEqual([{ key: f.fieldKey, title: "Name", type: "string", nullable: false, readable: true, writable: true, operators: ["eq", "contains"], sortable: true }]);
+    expect(detail.fields[0]).not.toHaveProperty("sourceFieldId");
+    expect(detail).not.toHaveProperty("adapterState");
+    expect(f.calls).toHaveLength(callsBeforeDetail);
+
     const rotated = await f.request(`/api/v1/spaces/${f.space}/external-connections/${connection.id}`, "PATCH", {
       displayName: "My Notion (rotated)",
       credential: { type: "bearer_token", token: "secret-token-v2" },
@@ -195,6 +206,10 @@ describe("Space External Connection self-service", () => {
     const bindingList = await f.request(`/api/v1/spaces/${f.space}/external-models`);
     expect(bindingList.status).toBe(200);
     expect((await bindingList.json<any>()).data.items[0].declaredAccess).toBe("read");
+
+    const readDetail = await f.request(`/api/v1/spaces/${f.space}/external-models/${f.definitionKey}`);
+    expect(readDetail.status).toBe(200);
+    expect((await readDetail.json<any>()).data.fields[0].writable).toBe(false);
 
     const writeDenied = await f.request(`/api/v1/spaces/${f.space}/external-models`, "POST", {
       definitionKey: f.definitionKey,
@@ -211,6 +226,9 @@ describe("Space External Connection self-service", () => {
     expect(metadata.status).toBe("disabled");
     expect(metadata.revoked_at).toBeTruthy();
     expect((await f.db.prepare("SELECT status FROM external_models WHERE source_id=?").bind(connection.id).first<any>()).status).toBe("disabled");
+    const disabledDetail = await f.request(`/api/v1/spaces/${f.space}/external-models/${f.definitionKey}`);
+    expect(disabledDetail.status).toBe(200);
+    expect((await disabledDetail.json<any>()).data.status).toBe("disabled");
   });
 
   it("rejects delegated/non-manager creation, caller credentialRef injection and corrupt non-dynamic metadata", async () => {

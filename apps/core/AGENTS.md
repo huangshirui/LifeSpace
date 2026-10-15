@@ -179,7 +179,7 @@ Space-scoped External Connection configuration contract (same Worker, independen
 
 ```text
 apps/core/external-connection.openapi.yaml
-current External Connection version: 0.3.0
+current External Connection version: 0.4.0
 ```
 
 External Model binding/runtime companion contract:

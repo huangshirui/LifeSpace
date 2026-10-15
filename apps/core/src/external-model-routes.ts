@@ -277,6 +277,18 @@ export function registerExternalModelControlRoutes(app: App) {
     );
   });
 
+  app.get(modelPath + "/:modelKey", async (c) => {
+    await manager(c);
+    const m = await getExternalModel(
+      c.env,
+      c.req.param("spaceId")!,
+      c.req.param("modelKey")!,
+      true,
+    );
+    if (!m) throw new ApiError("NOT_FOUND", "Registration not found", 404);
+    return c.json(success({ ...externalSemanticDetail(m), connectionId: m.source_id }));
+  });
+
   app.post(modelPath, async (c) => {
     await manager(c);
     const input = await body(c);
