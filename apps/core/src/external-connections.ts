@@ -174,12 +174,13 @@ export async function listExternalConnections(env: Bindings, spaceId: string): P
   return result.results;
 }
 
-export function isDynamicExternalConnection(connection: Pick<ExternalConnectionRow, "credential_ref">): boolean {
-  return /^cnx_[a-f0-9]{32}$/u.test(connection.credential_ref);
+export function assertDynamicCredentialRef(value: string): string {
+  if (!/^cnx_[a-f0-9]{32}$/u.test(value)) throw new ExternalError("EXTERNAL_CONNECTION_INVALID", 503);
+  return value;
 }
 
 export function externalConnectionDto(connection: ExternalConnectionRow) {
-  const dynamic = isDynamicExternalConnection(connection);
+  assertDynamicCredentialRef(connection.credential_ref);
   return {
     id: connection.id,
     spaceId: connection.space_id,
@@ -187,8 +188,7 @@ export function externalConnectionDto(connection: ExternalConnectionRow) {
     displayName: connection.display_name ?? `${connection.provider_key} connection`,
     access: connection.access_mode,
     status: connection.revoked_at ? "revoked" : connection.status,
-    managementMode: dynamic ? "dynamic" : "deployment",
-    resourceDiscovery: dynamic,
+    resourceDiscovery: true,
     createdAt: connection.created_at,
     updatedAt: connection.updated_at,
   };
