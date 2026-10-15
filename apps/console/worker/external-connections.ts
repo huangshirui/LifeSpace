@@ -109,6 +109,51 @@ async function forward(request: Request, env: Env, corePath: string, method: str
   return json(result.payload, result.response.status);
 }
 
+function projectExternalField(value: unknown): JsonRecord | null {
+  if (!isRecord(value)) return null;
+  const key = stringValue(value.key);
+  const title = stringValue(value.title);
+  const type = stringValue(value.type);
+  if (!key || !title || !type || typeof value.nullable !== "boolean" || typeof value.readable !== "boolean" || typeof value.writable !== "boolean" || typeof value.sortable !== "boolean" || !Array.isArray(value.operators) || value.operators.some((item) => typeof item !== "string")) return null;
+  if (value.values !== undefined && (!Array.isArray(value.values) || value.values.some((item) => typeof item !== "string"))) return null;
+  return {
+    key,
+    title,
+    type,
+    nullable: value.nullable,
+    readable: value.readable,
+    writable: value.writable,
+    operators: value.operators,
+    sortable: value.sortable,
+    ...(value.values === undefined ? {} : { values: value.values }),
+  };
+}
+async function forwardBindingDetail(request: Request, env: Env, spaceId: string, modelKey: string): Promise<Response> {
+  const bearer = await userBearer(request, env);
+  if (bearer instanceof Response) return bearer;
+  const result = await serviceRequest(env.CORE, env.CORE_BASE_URL, `/api/v1/spaces/${encodeURIComponent(spaceId)}/external-models/${encodeURIComponent(modelKey)}`, {
+    method: "GET",
+    headers: { authorization: `Bearer ${bearer}`, accept: "application/json" },
+  });
+  if (!result.response.ok) return upstreamFailure(request, result);
+  const detail = isRecord(result.payload) && isRecord(result.payload.data) ? result.payload.data : null;
+  const fields = detail && Array.isArray(detail.fields) ? detail.fields.map(projectExternalField) : null;
+  if (!detail || !fields || fields.some((field) => field === null)) return failure("UPSTREAM_RESPONSE_INVALID", "LifeSpace Core returned an invalid External binding detail", 502, requestId(request));
+  const response = {
+    modelKey: stringValue(detail.modelKey),
+    registrationId: stringValue(detail.registrationId),
+    spaceId: stringValue(detail.spaceId),
+    connectionId: stringValue(detail.connectionId),
+    schemaHash: stringValue(detail.schemaHash),
+    schemaObservedAt: stringValue(detail.schemaObservedAt),
+    status: stringValue(detail.status),
+    fields,
+  };
+  if (!response.modelKey || !response.registrationId || !response.spaceId || !response.connectionId || !response.schemaHash || !response.schemaObservedAt || !response.status)
+    return failure("UPSTREAM_RESPONSE_INVALID", "LifeSpace Core returned incomplete External binding detail", 502, requestId(request));
+  return json({ data: response });
+}
+
 async function externalConnectionApi(request: Request, env: Env): Promise<Response | null> {
   const url = new URL(request.url);
   const definitions = /^\/api\/spaces\/(spc_[A-Za-z0-9_-]+)\/external-model-definitions$/u.exec(url.pathname);
@@ -145,6 +190,7 @@ async function externalConnectionApi(request: Request, env: Env): Promise<Respon
       const input = await readJsonObject(request, []); if (input instanceof Response) return input;
       return forward(request, env, `/api/v1/spaces/${encodeURIComponent(spaceId)}/external-models/${encodeURIComponent(modelKey)}/refresh`, "POST", input);
     }
+    if (request.method === "GET") return forwardBindingDetail(request, env, spaceId, modelKey);
     if (request.method !== "PATCH") return failure("METHOD_NOT_ALLOWED", "Method not allowed", 405, requestId(request));
     const guard = browserMutation(request, "update-external-model-binding"); if (guard) return guard;
     const input = await readJsonObject(request, ["status", "declaredAccess"]); if (input instanceof Response) return input;
