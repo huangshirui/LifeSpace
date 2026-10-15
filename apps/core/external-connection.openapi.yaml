@@ -2,8 +2,8 @@
   "openapi": "3.1.0",
   "info": {
     "title": "LifeSpace External Connection API",
-    "version": "0.3.0",
-    "description": "Space-scoped External setup contract for Console and downstream applications: provider discovery, secure dynamic Connection lifecycle, Provider Resource discovery, bindable External Model Definition discovery, binding lifecycle and schema refresh. Direct User spaces:manage plus current Space manage is required. Provider credential plaintext is accepted only on create/rotation, forwarded to the routed private Provider Adapter vault, and never persisted in Core or returned. Deployment-managed static provider credentials are not part of this contract."
+    "version": "0.4.0",
+    "description": "Space-scoped External setup contract for Console and downstream applications: provider discovery, secure dynamic Connection lifecycle, Provider Resource discovery, bindable External Model Definition discovery, binding lifecycle, stored schema inspection and schema refresh. Direct User spaces:manage plus current Space manage is required. Provider credential plaintext is accepted only on create/rotation, forwarded to the routed private Provider Adapter vault, and never persisted in Core or returned. Deployment-managed static provider credentials are not part of this contract."
   },
   "security": [{ "bearerAuth": [] }],
   "paths": {
@@ -142,6 +142,17 @@
       }
     },
     "/api/v1/spaces/{spaceId}/external-models/{modelKey}": {
+      "get": {
+        "operationId": "getExternalModelBindingDetail",
+        "description": "Inspect the latest locally stored Provider schema snapshot and effective binding capabilities for configuration. This does not call the Provider and is not runtime execution authority; runtime consumers continue to use Space Discovery.",
+        "parameters": [{ "$ref": "#/components/parameters/SpaceId" }, { "$ref": "#/components/parameters/ModelKey" }],
+        "responses": {
+          "200": { "description": "Stored External binding schema detail", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ExternalBindingDetailEnvelope" } } } },
+          "401": { "description": "Unauthenticated" },
+          "403": { "description": "Current Space management authority denied" },
+          "404": { "description": "Binding unavailable" }
+        }
+      },
       "patch": {
         "operationId": "updateExternalModelBinding",
         "description": "Change the declared read/write ceiling or disable a binding. status can only be disabled; reactivation is performed by POSTing the binding again so Provider identity/schema are revalidated.",
@@ -301,6 +312,38 @@
           "lastErrorCode": { "type": ["string", "null"] }
         }
       },
+      "ExternalField": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["key", "title", "type", "nullable", "readable", "writable", "operators", "sortable"],
+        "properties": {
+          "key": { "type": "string" },
+          "title": { "type": "string" },
+          "type": { "enum": ["string", "text", "number", "boolean", "enum", "instant"] },
+          "nullable": { "type": "boolean" },
+          "readable": { "const": true },
+          "writable": { "type": "boolean" },
+          "operators": { "type": "array", "items": { "type": "string" } },
+          "sortable": { "type": "boolean" },
+          "values": { "type": "array", "items": { "type": "string" } }
+        }
+      },
+      "ExternalBindingDetail": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["modelKey", "registrationId", "connectionId", "spaceId", "origin", "schemaHash", "schemaObservedAt", "status", "fields"],
+        "properties": {
+          "modelKey": { "type": "string" },
+          "registrationId": { "type": "string", "pattern": "^ext_[a-f0-9]{32}$" },
+          "connectionId": { "type": "string", "pattern": "^exs_[a-f0-9]{32}$" },
+          "spaceId": { "type": "string" },
+          "origin": { "const": "external" },
+          "schemaHash": { "type": "string" },
+          "schemaObservedAt": { "type": "string", "format": "date-time" },
+          "status": { "enum": ["active", "disabled", "degraded"] },
+          "fields": { "type": "array", "items": { "$ref": "#/components/schemas/ExternalField" } }
+        }
+      },
       "ExternalBinding": {
         "type": "object",
         "additionalProperties": true,
@@ -329,6 +372,7 @@
       "ConnectionEnvelope": { "type": "object", "required": ["data"], "properties": { "data": { "$ref": "#/components/schemas/ExternalConnection" } } },
       "ResourceListEnvelope": { "type": "object", "required": ["data"], "properties": { "data": { "type": "object", "required": ["items", "nextCursor"], "properties": { "items": { "type": "array", "items": { "$ref": "#/components/schemas/ExternalResource" } }, "nextCursor": { "type": ["string", "null"] } } } } },
       "ExternalBindingListEnvelope": { "type": "object", "required": ["data"], "properties": { "data": { "type": "object", "required": ["items"], "properties": { "items": { "type": "array", "items": { "$ref": "#/components/schemas/ExternalBindingSummary" } } } } } },
+      "ExternalBindingDetailEnvelope": { "type": "object", "required": ["data"], "properties": { "data": { "$ref": "#/components/schemas/ExternalBindingDetail" } } },
       "ExternalBindingEnvelope": { "type": "object", "required": ["data"], "properties": { "data": { "$ref": "#/components/schemas/ExternalBinding" } } },
       "BindingMutationEnvelope": { "type": "object", "required": ["data"], "properties": { "data": { "$ref": "#/components/schemas/BindingMutation" } } }
     }
