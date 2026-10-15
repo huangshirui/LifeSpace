@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import YAML from "yaml";
 
 const worker = readFileSync(new URL("../worker/external-connections.ts", import.meta.url), "utf8");
 const platformEntry = readFileSync(new URL("../worker/platform-admin-entry.ts", import.meta.url), "utf8");
@@ -13,7 +12,7 @@ const css = readFileSync(new URL("../src/external-connections.css", import.meta.
 const packageJson = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
 const wrangler = JSON.parse(readFileSync(new URL("../wrangler.jsonc", import.meta.url), "utf8"));
 const contract = JSON.parse(readFileSync(new URL("../../core/external-connection.openapi.yaml", import.meta.url), "utf8"));
-const platformAdminContract = YAML.parse(readFileSync(new URL("../../core/platform-admin.openapi.yaml", import.meta.url), "utf8"));
+const platformAdminContractSource = readFileSync(new URL("../../core/platform-admin.openapi.yaml", import.meta.url), "utf8");
 
 assert.equal(wrangler.main, "worker/platform-admin-entry.ts");
 assert(platformEntry.includes('url.pathname === "/api/overview"'));
@@ -114,7 +113,7 @@ for (const path of [
   "/api/v1/platform-admin/spaces/{spaceId}/external-models",
   "/api/v1/platform-admin/spaces/{spaceId}/external-models/{modelKey}",
   "/api/v1/platform-admin/spaces/{spaceId}/external-models/{modelKey}/refresh",
-]) assert(platformAdminContract.paths[path], `Platform Admin contract missing ${path}`);
+]) assert(platformAdminContractSource.includes(`  ${path}:`), `Platform Admin contract missing ${path}`);
 
 console.log(JSON.stringify({
   ok: true,
