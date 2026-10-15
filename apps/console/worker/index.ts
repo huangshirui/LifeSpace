@@ -708,40 +708,8 @@ async function platformProbeRoute(request: Request, env: Env): Promise<Response>
   });
 }
 
-async function externalBindingRoute(request: Request, env: Env, spaceId: string, resource: string): Promise<Response> {
-  const url = new URL(request.url);
-  if (url.search) return failure("VALIDATION_ERROR", "Query parameters are not accepted", 422);
-  if (request.method !== "GET" && !(request.method === "POST" && resource === "external-models")) return failure("METHOD_NOT_ALLOWED", "Method not allowed", 405);
-  let input: JsonRecord | undefined;
-  if (request.method === "POST") {
-    if (request.headers.get("origin") !== url.origin || request.headers.get("sec-fetch-site") !== "same-origin"
-      || request.headers.get(REGISTRATION_INTENT_HEADER) !== "bind-external-model"
-      || !request.headers.get("content-type")?.startsWith("application/json")) return failure("INVALID_BROWSER_MUTATION", "Binding requires an exact same-origin request and explicit intent", 403);
-    const raw = await request.text();
-    if (new TextEncoder().encode(raw).length > 4096) return failure("VALIDATION_ERROR", "Binding request is too large", 413);
-    try { const value: unknown = JSON.parse(raw); if (!isRecord(value)) throw new Error(); input = value; } catch { return failure("VALIDATION_ERROR", "Invalid JSON object", 422); }
-    if (Object.keys(input).some(k => !["definitionKey", "sourceId", "resourceId", "declaredAccess"].includes(k))
-      || typeof input.definitionKey !== "string" || !validModelKey(input.definitionKey)
-      || typeof input.sourceId !== "string" || !/^exs_[a-f0-9]{32}$/.test(input.sourceId)
-      || typeof input.resourceId !== "string" || !input.resourceId.trim() || input.resourceId.length > 256
-      || !["read", "write"].includes(String(input.declaredAccess))) return failure("VALIDATION_ERROR", "Invalid External binding", 422);
-  }
-  // This is ordinary User Space authority, never the platform service executor.
-  const session = await exchangeAccess(request, env, ["profile:read", "spaces:manage"]);
-  if (session instanceof Response) return session;
-  if (session.status === "unlinked") return failure("ACCESS_PRINCIPAL_UNLINKED", "Link the current Access principal first", 409);
-  const result = await serviceRequest(env.CORE, env.CORE_BASE_URL, `/api/v1/spaces/${encodeURIComponent(spaceId)}/${resource}`, {
-    method: request.method, headers: { authorization: `Bearer ${session.userToken}`, accept: "application/json", "content-type": "application/json" },
-    ...(input ? { body: JSON.stringify(input) } : {}),
-  });
-  if (!result.response.ok) return upstreamFailure(request, result, "EXTERNAL_BINDING_FAILED", "External binding request failed");
-  return json(result.payload, result.response.status);
-}
-
 async function api(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
-  const external = /^\/api\/spaces\/(spc_[A-Za-z0-9_-]+)\/(external-sources|external-models)$/.exec(url.pathname);
-  if (external) return externalBindingRoute(request, env, external[1]!, external[2]!);
   if (request.method === "GET" && url.pathname === "/api/health") {
     return json({
       data: {

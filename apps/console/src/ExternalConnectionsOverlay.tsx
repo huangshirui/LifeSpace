@@ -51,11 +51,6 @@ export default function ExternalConnectionsOverlay() {
   const spaceId = currentSpaceId();
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState<"connections" | "binding">("connections");
-  useEffect(() => {
-    if (!spaceId) return;
-    document.body.classList.add("external-data-space");
-    return () => document.body.classList.remove("external-data-space");
-  }, [spaceId]);
   if (!spaceId) return null;
   return <>
     <div className="ext-launcher"><button onClick={() => setOpen(true)}>External data</button></div>
