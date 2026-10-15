@@ -16,22 +16,14 @@ for (const name of [
   "LIFESPACE_STAGING_SMOKE_APPLICATION_ID",
   "LIFESPACE_STAGING_SMOKE_SERVICE_PRINCIPAL_ID",
   "LIFESPACE_EXTERNAL_SMOKE_RESOURCE_ID",
-  "LIFESPACE_EXTERNAL_SMOKE_CREDENTIAL_REF",
-  "NOTION_CONNECTIONS",
+  "NOTION_SMOKE_TOKEN",
 ]) {
   if (!env[name]) throw new Error(`${name} is required`);
 }
 
-let staticConnections;
-try {
-  staticConnections = JSON.parse(env.NOTION_CONNECTIONS);
-} catch {
-  throw new Error("NOTION_CONNECTIONS is invalid");
-}
-const staticRef = env.LIFESPACE_EXTERNAL_SMOKE_CREDENTIAL_REF;
-const providerToken = staticConnections?.[staticRef]?.token;
-if (typeof providerToken !== "string" || !providerToken || providerToken !== providerToken.trim() || /[\r\n]/u.test(providerToken)) {
-  throw new Error("Synthetic Notion smoke credential is unavailable");
+const providerToken = env.NOTION_SMOKE_TOKEN;
+if (providerToken !== providerToken.trim() || /[\r\n]/u.test(providerToken)) {
+  throw new Error("NOTION_SMOKE_TOKEN is invalid");
 }
 
 const spaceId = env.LIFESPACE_STAGING_SPACE_ID;
@@ -123,9 +115,9 @@ try {
   connectionId = created.id;
   assert.match(connectionId, /^exs_[a-f0-9]{32}$/u);
   assert.equal(created.providerKey, "notion");
-  assert.equal(created.managementMode, "dynamic");
   assert.equal(created.resourceDiscovery, true);
   assert.equal(created.access, "write");
+  assert.equal(Object.hasOwn(created, "managementMode"), false);
   assert.equal(Object.hasOwn(created, "credential"), false);
   assert.equal(Object.hasOwn(created, "credentialRef"), false);
   checks.dynamicConnection = true;
@@ -317,5 +309,5 @@ console.log(JSON.stringify({
   ok: true,
   providerRevision: env.LIFESPACE_EXTERNAL_PROVIDER_REVISION,
   checks,
-  credentialBoundary: "provider token was supplied only as request input; output excludes token/credentialRef",
+  credentialBoundary: "staging smoke token was supplied only to the public Dynamic Connection API; output excludes token/credentialRef",
 }));
