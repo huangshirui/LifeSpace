@@ -81,6 +81,15 @@ function legacyNotionRoute(env: Bindings): ExternalProviderRoute | null {
 function localOrTestLegacyRoute(env: Bindings, providerKey: string): ExternalProviderRoute | null {
   const environment = String(env.ENVIRONMENT);
   if (environment !== "local" && environment !== "test") return null;
+  // Historical synthetic External integration fixtures identify themselves as
+  // ENVIRONMENT=test and predate the independent cursor secret. Keep that alias
+  // test-only; staging/production never enter this branch and must bind the
+  // explicit EXTERNAL_CURSOR_SECRET through canonical deployment wiring.
+  if (
+    environment === "test" &&
+    !env.EXTERNAL_CURSOR_SECRET &&
+    env.EXTERNAL_ADAPTER_SHARED_SECRET
+  ) env.EXTERNAL_CURSOR_SECRET = env.EXTERNAL_ADAPTER_SHARED_SECRET;
   return legacyAdapterRoute(env, providerKey);
 }
 
