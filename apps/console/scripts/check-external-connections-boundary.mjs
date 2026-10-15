@@ -3,6 +3,8 @@ import { readFileSync } from "node:fs";
 import YAML from "yaml";
 
 const worker = readFileSync(new URL("../worker/external-connections.ts", import.meta.url), "utf8");
+const platformEntry = readFileSync(new URL("../worker/platform-admin-entry.ts", import.meta.url), "utf8");
+const platformOverview = readFileSync(new URL("../worker/platform-overview.ts", import.meta.url), "utf8");
 const downstreamWorker = readFileSync(new URL("../worker/index.ts", import.meta.url), "utf8");
 const ui = readFileSync(new URL("../src/ExternalConnectionsOverlay.tsx", import.meta.url), "utf8");
 const controlPlaneUi = readFileSync(new URL("../src/ControlPlaneApp.tsx", import.meta.url), "utf8");
@@ -13,7 +15,12 @@ const wrangler = JSON.parse(readFileSync(new URL("../wrangler.jsonc", import.met
 const contract = JSON.parse(readFileSync(new URL("../../core/external-connection.openapi.yaml", import.meta.url), "utf8"));
 const platformAdminContract = YAML.parse(readFileSync(new URL("../../core/platform-admin.openapi.yaml", import.meta.url), "utf8"));
 
-assert.equal(wrangler.main, "worker/external-connections.ts");
+assert.equal(wrangler.main, "worker/platform-admin-entry.ts");
+assert(platformEntry.includes('url.pathname === "/api/overview"'));
+assert(platformEntry.includes("platformOverviewWorker.fetch"));
+assert(platformEntry.includes("externalConnectionsWorker.fetch"));
+assert(platformOverview.includes('"/api/v1/platform-admin/models"'));
+assert(!platformOverview.includes("/api/v1/model-admin/"));
 assert(worker.includes('requestedScopes: ["profile:read"]'));
 assert(!worker.includes('requestedScopes: ["profile:read", "spaces:manage"]'));
 assert(worker.includes("CORE_EXECUTOR_BEARER"));
@@ -112,6 +119,8 @@ for (const path of [
 console.log(JSON.stringify({
   ok: true,
   consolePlatformAdminAuthorityOnly: true,
+  platformAdminEntrypoint: true,
+  platformOverviewNamespaceOnly: true,
   platformExecutorRequired: true,
   platformActorProofRequired: true,
   platformModelAdminCatalogAbsentFromBindingFlow: true,
