@@ -4,10 +4,10 @@ import { requireSpacePermission } from "./authorization";
 import type { Bindings, Variables } from "./env";
 import { ApiError, success } from "./http";
 import {
+  assertDynamicCredentialRef,
   callExternalConnectionAdapter,
   externalConnectionDto,
   getExternalConnection,
-  isDynamicExternalConnection,
   listExternalConnections,
   listExternalProviderDescriptors,
   validateConnectionCredential,
@@ -29,7 +29,6 @@ import {
   schemaRefreshInterval,
   validateExternalSnapshot,
   type ExternalModelRow,
-  type ExternalSource,
 } from "./external-model";
 import { externalSemanticDetail } from "./external-runtime";
 import { getRuntimeModel } from "./model-registry";
@@ -49,16 +48,6 @@ async function body(c: Context<AppEnv>) {
 const id = (prefix: string) =>
   prefix + "_" + crypto.randomUUID().replaceAll("-", "");
 const now = () => new Date().toISOString();
-function sourceDto(s: ExternalSource) {
-  return {
-    id: s.id,
-    spaceId: s.space_id,
-    providerKey: s.provider_key,
-    status: s.status,
-    createdAt: s.created_at,
-    updatedAt: s.updated_at,
-  };
-}
 function providerKey(value: unknown): string {
   const key = boundedString(value, "providerKey", 32);
   if (!/^[a-z][a-z0-9_-]{1,31}$/u.test(key))
@@ -99,9 +88,8 @@ function resourceListInput(c: Context<AppEnv>): Record<string, unknown> {
 export function registerExternalModelControlRoutes(app: App) {
   const providerPath = "/api/v1/spaces/:spaceId/external-providers";
   const connectionPath = "/api/v1/spaces/:spaceId/external-connections";
-  const sourcePath = "/api/v1/spaces/:spaceId/external-sources";
   const modelPath = "/api/v1/spaces/:spaceId/external-models";
-  for (const path of [providerPath, connectionPath, sourcePath, modelPath]) {
+  for (const path of [providerPath, connectionPath, modelPath]) {
     app.use(path, requireScope("spaces:manage"));
     app.use(path + "/*", requireScope("spaces:manage"));
   }
@@ -184,8 +172,7 @@ export function registerExternalModelControlRoutes(app: App) {
       throw new ApiError("NOT_FOUND", "Connection not found", 404);
     if (connection.revoked_at || connection.status !== "active")
       throw new ApiError("EXTERNAL_CONNECTION_DISABLED", "Connection is not active", 409);
-    if (!isDynamicExternalConnection(connection))
-      throw new ApiError("EXTERNAL_CONNECTION_MANAGED_EXTERNALLY", "Deployment-managed connections do not expose resource discovery", 409);
+    assertDynamicCredentialRef(connection.credential_ref);
     const result = validateConnectionResources(
       await callExternalConnectionAdapter(c.env, {
         operation: "listResources",
@@ -204,6 +191,7 @@ export function registerExternalModelControlRoutes(app: App) {
       throw new ApiError("NOT_FOUND", "Connection not found", 404);
     if (connection.revoked_at)
       throw new ApiError("EXTERNAL_CONNECTION_REVOKED", "Connection has been revoked", 409);
+    assertDynamicCredentialRef(connection.credential_ref);
     const input = await body(c);
     onlyKeys(input, ["displayName", "credential", "access", "status"]);
     if (!Object.keys(input).length) throw new ApiError("INVALID_REQUEST", "A change is required", 400);
@@ -212,8 +200,6 @@ export function registerExternalModelControlRoutes(app: App) {
       : validateConnectionDisplayName(input.displayName);
     let nextAccess = connection.access_mode;
     if (input.access !== undefined || input.credential !== undefined) {
-      if (!isDynamicExternalConnection(connection))
-        throw new ApiError("EXTERNAL_CONNECTION_MANAGED_EXTERNALLY", "Deployment-managed credentials cannot be changed through this API", 409);
       const requestedAccess = input.access === undefined ? undefined : connectionAccess(input.access);
       const credential = input.credential === undefined ? undefined : validateConnectionCredential(input.credential);
       const projection = validateConnectionProjection(
@@ -247,8 +233,7 @@ export function registerExternalModelControlRoutes(app: App) {
     if (!connection || connection.space_id !== c.req.param("spaceId")!)
       throw new ApiError("NOT_FOUND", "Connection not found", 404);
     if (connection.revoked_at) return c.body(null, 204);
-    if (!isDynamicExternalConnection(connection))
-      throw new ApiError("EXTERNAL_CONNECTION_MANAGED_EXTERNALLY", "Deployment-managed credentials must be revoked through deployment configuration", 409);
+    assertDynamicCredentialRef(connection.credential_ref);
     await callExternalConnectionAdapter(c.env, {
       operation: "delete",
       providerKey: connection.provider_key,
@@ -266,117 +251,6 @@ export function registerExternalModelControlRoutes(app: App) {
     return c.body(null, 204);
   });
 
-  app.get(sourcePath, async (c) => {
-    await manager(c);
-    const r = await c.env.DB.prepare(
-      "SELECT * FROM external_sources WHERE space_id=? ORDER BY created_at,id",
-    )
-      .bind(c.req.param("spaceId")!)
-      .all<ExternalSource>();
-    return c.json(success({ items: r.results.map(sourceDto) }));
-  });
-
-  app.post(
-    "/api/v1/model-admin/external-sources",
-    requireScope("models:manage"),
-    async (c) => {
-      const principal = c.get("principal");
-      if (
-        principal.type !== "service" ||
-        principal.actor ||
-        c.req.header("x-lifespace-actor-token")
-      )
-        throw new ApiError(
-          "FORBIDDEN",
-          "Source provisioning requires non-interactive service Model Admin",
-          403,
-        );
-      const input = await body(c);
-      onlyKeys(input, ["spaceId", "providerKey", "credentialRef"]);
-      const spaceId = boundedString(input.spaceId, "spaceId");
-      if (
-        !(await c.env.DB.prepare(
-          "SELECT id FROM spaces WHERE id=? AND deleted_at IS NULL",
-        )
-          .bind(spaceId)
-          .first())
-      )
-        throw new ApiError("SPACE_NOT_FOUND", "Space not found", 404);
-      const provider = boundedString(input.providerKey, "providerKey", 32);
-      const ref = boundedString(input.credentialRef, "credentialRef", 128);
-      if (
-        !/^[a-z][a-z0-9_-]{1,31}$/.test(provider) ||
-        !/^[A-Za-z0-9_-]{1,128}$/.test(ref)
-      )
-        throw new ApiError(
-          "VALIDATION_ERROR",
-          "Invalid connection configuration",
-          422,
-        );
-      if (!schemaRefreshInterval(c.env))
-        throw new ApiError(
-          "EXTERNAL_UNAVAILABLE",
-          "External schema refresh is not configured",
-          503,
-        );
-      const source: ExternalSource = {
-        id: id("exs"),
-        space_id: spaceId,
-        provider_key: provider,
-        credential_ref: ref,
-        status: "active",
-        created_at: now(),
-        updated_at: now(),
-      };
-      const connection = objectInput(
-        await callExternalAdapter(c.env, source, "connection", "connection"),
-      );
-      if (
-        typeof connection.read !== "boolean" ||
-        typeof connection.write !== "boolean"
-      )
-        throw new ApiError(
-          "EXTERNAL_CONTRACT_INVALID",
-          "Connection projection is invalid",
-          502,
-        );
-      await c.env.DB.prepare(
-        "INSERT INTO external_sources(id,space_id,provider_key,credential_ref,status,access_mode,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)",
-      )
-        .bind(
-          source.id,
-          source.space_id,
-          source.provider_key,
-          source.credential_ref,
-          source.status,
-          connection.write === true ? "write" : "read",
-          source.created_at,
-          source.updated_at,
-        )
-        .run();
-      return c.json(success(sourceDto(source)), 201);
-    },
-  );
-
-  app.patch(sourcePath + "/:sourceId", async (c) => {
-    await manager(c);
-    const source = await getExternalConnection(c.env, c.req.param("sourceId")!);
-    if (!source || source.space_id !== c.req.param("spaceId")!)
-      throw new ApiError("NOT_FOUND", "Connection not found", 404);
-    if (source.revoked_at)
-      throw new ApiError("EXTERNAL_CONNECTION_REVOKED", "Connection has been revoked", 409);
-    const input = await body(c);
-    onlyKeys(input, ["status"]);
-    if (!["active", "disabled"].includes(String(input.status)))
-      throw new ApiError("VALIDATION_ERROR", "Invalid connection status", 422);
-    await c.env.DB.prepare(
-      "UPDATE external_sources SET status=?,updated_at=? WHERE id=? AND revoked_at IS NULL",
-    )
-      .bind(input.status, now(), source.id)
-      .run();
-    return c.json(success({ ...sourceDto(source), status: input.status }));
-  });
-
   app.get(modelPath, async (c) => {
     await manager(c);
     const rows = await c.env.DB.prepare(
@@ -392,7 +266,6 @@ export function registerExternalModelControlRoutes(app: App) {
           definitionKey: r.definition_key ?? null,
           spaceId: r.space_id,
           connectionId: r.source_id,
-          sourceId: r.source_id,
           displayName: r.display_name,
           status: r.status,
           declaredAccess: r.declared_access,
@@ -407,16 +280,14 @@ export function registerExternalModelControlRoutes(app: App) {
   app.post(modelPath, async (c) => {
     await manager(c);
     const input = await body(c);
-    onlyKeys(input, ["connectionId", "sourceId", "resourceId", "declaredAccess", "definitionKey"]);
-    if (input.connectionId !== undefined && input.sourceId !== undefined)
-      throw new ApiError("INVALID_REQUEST", "Use connectionId; sourceId is legacy compatibility only", 400);
-    const sourceAddress = input.connectionId ?? input.sourceId;
-    const definitionKey = input.definitionKey === undefined ? null : boundedString(input.definitionKey, "definitionKey", 63);
-    if (definitionKey && (await getRuntimeModel(c.env, definitionKey))?.definition.origin !== "external")
+    onlyKeys(input, ["connectionId", "resourceId", "declaredAccess", "definitionKey"]);
+    const definitionKey = boundedString(input.definitionKey, "definitionKey", 63);
+    const businessDefinition = await getRuntimeModel(c.env, definitionKey);
+    if (businessDefinition?.definition.origin !== "external")
       throw new ApiError("EXTERNAL_DEFINITION_UNAVAILABLE", "Publish an External business definition before binding it", 422);
     const source = await getExternalSource(
       c.env,
-      boundedString(sourceAddress, "connectionId"),
+      boundedString(input.connectionId, "connectionId"),
     );
     if (
       !source ||
@@ -425,8 +296,9 @@ export function registerExternalModelControlRoutes(app: App) {
     )
       throw new ApiError("NOT_FOUND", "Connection not found", 404);
     const connection = await getExternalConnection(c.env, source.id);
-    if (connection?.revoked_at)
+    if (!connection || connection.revoked_at)
       throw new ApiError("EXTERNAL_CONNECTION_REVOKED", "Connection has been revoked", 409);
+    assertDynamicCredentialRef(connection.credential_ref);
     const resource = boundedString(input.resourceId, "resourceId");
     const declared = input.declaredAccess ?? "read";
     if (declared !== "read" && declared !== "write")
@@ -435,8 +307,10 @@ export function registerExternalModelControlRoutes(app: App) {
         "declaredAccess must be read or write",
         422,
       );
-    if (declared === "write" && connection?.access_mode === "read")
+    if (declared === "write" && connection.access_mode !== "write")
       throw new ApiError("EXTERNAL_VALIDATION_FAILED", "Connection is read-only", 422);
+    if (declared === "write" && !businessDefinition.definition.access.includes("write"))
+      throw new ApiError("EXTERNAL_VALIDATION_FAILED", "External Model Definition is read-only", 422);
     const snapshot = validateExternalSnapshot(
       await callExternalAdapter(c.env, source, "discover", resource),
     );
@@ -446,7 +320,7 @@ export function registerExternalModelControlRoutes(app: App) {
     )
       .bind(source.provider_key, snapshot.resourceId)
       .first<{ model_key: string; space_id: string; status: string; definition_key: string | null }>();
-    if (previous?.definition_key && definitionKey !== null && previous.definition_key !== definitionKey)
+    if (previous?.definition_key && previous.definition_key !== definitionKey)
       throw new ApiError("EXTERNAL_DEFINITION_IMMUTABLE", "A binding cannot change its business definition", 409);
     if (
       previous &&
@@ -462,7 +336,7 @@ export function registerExternalModelControlRoutes(app: App) {
     try {
       if (previous) {
         const reactivated = await c.env.DB.prepare(
-          `UPDATE external_models SET definition_key=COALESCE(definition_key,?),source_id=?,snapshot_json=?,schema_hash=?,schema_observed_at=?,display_name=?,declared_access=?,status='active',last_successful_refresh_at=?,last_error_code=NULL,next_refresh_at=?,updated_at=? WHERE model_key=? AND space_id=? AND status='disabled'`,
+          `UPDATE external_models SET definition_key=?,source_id=?,snapshot_json=?,schema_hash=?,schema_observed_at=?,display_name=?,declared_access=?,status='active',last_successful_refresh_at=?,last_error_code=NULL,next_refresh_at=?,updated_at=? WHERE model_key=? AND space_id=? AND status='disabled'`,
         )
           .bind(
             definitionKey,
@@ -568,8 +442,14 @@ export function registerExternalModelControlRoutes(app: App) {
       throw new ApiError("INVALID_REQUEST", "A change is required", 400);
     if (input.declaredAccess === "write") {
       const connection = await getExternalConnection(c.env, m.source_id);
-      if (connection?.access_mode !== "write")
+      if (!connection || connection.access_mode !== "write")
         throw new ApiError("EXTERNAL_VALIDATION_FAILED", "Connection is read-only", 422);
+      assertDynamicCredentialRef(connection.credential_ref);
+      if (!m.definition_key)
+        throw new ApiError("EXTERNAL_DEFINITION_UNAVAILABLE", "External Model Definition is unavailable", 422);
+      const businessDefinition = await getRuntimeModel(c.env, m.definition_key);
+      if (businessDefinition?.definition.origin !== "external" || !businessDefinition.definition.access.includes("write"))
+        throw new ApiError("EXTERNAL_DEFINITION_UNAVAILABLE", "External Model Definition does not allow write access", 422);
     }
     await c.env.DB.prepare(
       "UPDATE external_models SET status=?,declared_access=?,updated_at=? WHERE model_key=?",
@@ -583,7 +463,7 @@ export function registerExternalModelControlRoutes(app: App) {
       .run();
     return c.json(
       success({
-        modelKey: m.model_key,
+        modelKey: m.definition_key ?? m.model_key,
         status: input.status ?? m.status,
         declaredAccess: input.declaredAccess ?? m.declared_access,
       }),
