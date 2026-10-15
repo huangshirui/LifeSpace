@@ -40,8 +40,7 @@ jobs:
       LIFESPACE_NOTION_ADAPTER_WORKER: ${{ vars.LIFESPACE_NOTION_ADAPTER_WORKER }}
       NOTION_ADAPTER_SHARED_SECRET: ${{ secrets.NOTION_ADAPTER_SHARED_SECRET }}
       NOTION_CONNECTION_VAULT_MASTER_KEY: ${{ secrets.NOTION_CONNECTION_VAULT_MASTER_KEY }}
-      NOTION_CONNECTIONS: ${{ secrets.NOTION_CONNECTIONS }}
-      LIFESPACE_EXTERNAL_SMOKE_CREDENTIAL_REF: ${{ vars.LIFESPACE_EXTERNAL_SMOKE_CREDENTIAL_REF }}
+      NOTION_SMOKE_TOKEN: ${{ secrets.NOTION_SMOKE_TOKEN }}
       LIFESPACE_EXTERNAL_SMOKE_RESOURCE_ID: ${{ secrets.LIFESPACE_EXTERNAL_SMOKE_RESOURCE_ID }}
       LIFESPACE_EXTERNAL_SMOKE_SYNTHETIC_CONFIRMED: ${{ vars.LIFESPACE_EXTERNAL_SMOKE_SYNTHETIC_CONFIRMED }}
       LIFESPACE_CORE_STAGING_URL: https://core-staging.aisr.online
@@ -218,10 +217,6 @@ jobs:
       - name: Verify real Recurrence enrollment and completion successor
         run: node infra/scripts/verify-staging-recurrence.mjs
 
-      - name: Verify real synthetic External provider bootstrap flow
-        if: env.LIFESPACE_EXTERNAL_PROVIDER_ACTIVE == '1'
-        run: node infra/scripts/verify-staging-external-provider.mjs
-
       - name: Verify real dynamic External self-service product flow
         if: env.LIFESPACE_EXTERNAL_PROVIDER_ACTIVE == '1'
         run: node infra/scripts/verify-staging-external-self-service.mjs
@@ -258,8 +253,7 @@ jobs:
           - Recurrence real enrollment / Identity root projection / completion successor / pause: passed
           - External Providers enabled: ${LIFESPACE_EXTERNAL_PROVIDER_ACTIVE}; disabled means not accepted
           - External Provider routing: provider-specific private Service Bindings/shared secrets and Core-only cursor secret verified
-          - Dynamic External product path: Connection create -> encrypted DO Vault -> Resource Discovery -> binding -> Runtime -> access downgrade/rotation -> disable/enable -> revoke passed
-          - Bootstrap External smoke remains compatibility-only and passed separately
+          - Dynamic External product path: staging smoke token -> public Connection API -> encrypted DO Vault -> Resource Discovery -> binding -> Runtime -> access downgrade/rotation -> disable/enable -> revoke passed
           - Platform D1 convergence: passed
           - Trusted application credential replacement/revocation lifecycle: passed
           - Agent Principal own-Authority + User→Agent→Agent bounded re-delegation/revocation: passed
