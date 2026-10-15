@@ -16,14 +16,20 @@ const required = [
   ["actor proof forwarding", "x-lifespace-actor-token"],
   ["server-only Identity executor", "IDENTITY_APPLICATION_CREDENTIAL"],
   ["server-only Core executor", "CORE_EXECUTOR_BEARER"],
-  ["bounded Model Access replacement", "/model-access"],
+  ["bounded Model Access replacement", "/platform-admin/applications/"],
   ["whole-catalog target confirmation", "confirmApplicationId"],
-  ["Model Definition validation", "/api/v1/model-admin/models/validate"],
-  ["Model publication", "/api/v1/model-admin/models"],
+  ["Platform Admin model list", "/api/v1/platform-admin/models"],
+  ["Platform Admin Model Definition validation", "/api/v1/platform-admin/models/validate"],
   ["model publication target confirmation", "confirmModelKey"],
   ["breaking publication typed confirmation", "breakingConfirmation"],
   ["typed breaking sentinel", "BREAKING"],
   ["typed retirement confirmation", "Retirement requires confirmModelKey"],
+  ["Platform Admin Data Grant collection", "/platform-admin/spaces/"],
+  ["grant creation target confirmation", "confirmSpaceId"],
+  ["grant mutation target confirmation", "confirmGrantId"],
+  ["grant create intent", "create-space-data-grant"],
+  ["grant update intent", "update-space-data-grant"],
+  ["grant revoke intent", "revoke-space-data-grant"],
 ];
 
 for (const [label, token] of required) {
@@ -35,6 +41,7 @@ const forbidden = [
   ["browser-provided upstream Authorization", /request\.headers\.get\(["']authorization["']\)/iu],
   ["browser-provided target user authority", /actorUserId|targetUserId/iu],
   ["arbitrary reverse-proxy target", /upstreamUrl|targetUrl|proxyUrl/iu],
+  ["Console use of service-automation Model Admin namespace", /\/api\/v1\/model-admin\//u],
 ];
 
 for (const [label, pattern] of forbidden) {
@@ -49,6 +56,8 @@ console.log(JSON.stringify({
   executorsServerOnly: true,
   bootstrapAuthorityAbsent: true,
   browserMutationGuardPresent: true,
+  modelGovernanceUsesPlatformAdminNamespace: true,
   publishConfirmationRequired: true,
   modelAccessReplacementConfirmationRequired: true,
+  dataGrantTargetConfirmationRequired: true,
 }));
