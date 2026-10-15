@@ -15,8 +15,9 @@ function providerToken(value) {
   return typeof value === "string" && value === value.trim() && value.length >= 1 && value.length <= 2048 && !/[\r\n]/u.test(value);
 }
 
-export function loadProviderManifest() {
-  const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+export function validateProviderManifest(manifest) {
+  if (!manifest || typeof manifest !== "object" || Array.isArray(manifest))
+    throw new Error("External Provider manifest is invalid");
   if (manifest.repository !== "huangshirui/lifespace-adapters" || manifest.contractVersion !== 1)
     throw new Error("External Provider repository/contract pin is invalid");
   if (!/^[0-9a-f]{40}$/.test(manifest.revision))
@@ -36,6 +37,10 @@ export function loadProviderManifest() {
   return manifest;
 }
 
+export function loadProviderManifest() {
+  return validateProviderManifest(JSON.parse(readFileSync(manifestPath, "utf8")));
+}
+
 function validateStagingSmoke(env, secretValues) {
   const token = env.NOTION_SMOKE_TOKEN ?? "";
   if (!providerToken(token)) throw new Error("NOTION_SMOKE_TOKEN must contain the dedicated synthetic staging Notion credential");
@@ -48,6 +53,7 @@ function validateStagingSmoke(env, secretValues) {
 }
 
 export function deploymentSettings(env, environment, manifest = loadProviderManifest()) {
+  validateProviderManifest(manifest);
   if (!["staging", "production"].includes(environment)) throw new Error("Explicit deployment environment is required");
   const enabled = env.LIFESPACE_EXTERNAL_PROVIDER_ENABLED ?? "0";
   if (!["0", "1"].includes(enabled)) throw new Error("LIFESPACE_EXTERNAL_PROVIDER_ENABLED must be 0 or 1");
