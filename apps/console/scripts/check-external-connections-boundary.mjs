@@ -44,6 +44,8 @@ assert(ui.includes("当前模型绑定"));
 assert(ui.includes("refresh-external-model-binding"));
 assert(ui.includes("update-external-model-binding"));
 assert(ui.includes("disabled binding 也通过这里重新绑定同一资源恢复"));
+assert(!ui.includes("managementMode"));
+assert(!ui.includes("deployment 类型"));
 assert(!ui.includes("ExternalBindingManagerOverlay"));
 assert(!ui.includes("external-data-space"));
 assert(entry.includes('window.addEventListener("popstate", update)'));
@@ -69,10 +71,13 @@ assert(contract.paths["/api/v1/spaces/{spaceId}/external-models"]?.get);
 assert(contract.paths["/api/v1/spaces/{spaceId}/external-models"]?.post);
 assert(contract.paths["/api/v1/spaces/{spaceId}/external-models/{modelKey}"]?.patch);
 assert(contract.paths["/api/v1/spaces/{spaceId}/external-models/{modelKey}/refresh"]?.post);
-assert.equal(contract.info.version, "0.2.0");
+assert(!contract.paths["/api/v1/spaces/{spaceId}/external-sources"]);
+assert(!contract.paths["/api/v1/model-admin/external-sources"]);
+assert.equal(contract.info.version, "0.3.0");
 assert.equal(contract.components.schemas.ProviderCredential.writeOnly, true);
 assert.equal(contract.components.schemas.CreateExternalConnection.properties.credential.writeOnly, true);
 assert(!contract.components.schemas.CreateExternalConnection.properties.credentialRef);
+assert(!contract.components.schemas.ExternalConnection.properties.managementMode);
 
 console.log(JSON.stringify({
   ok: true,
@@ -86,6 +91,7 @@ console.log(JSON.stringify({
   providerResourceDiscovery: true,
   spaceScopedDefinitionDiscovery: true,
   connectionIdBinding: true,
+  dynamicConnectionsOnly: true,
   bindingLifecycleInCanonicalExternalData: true,
   spaRouteSynchronized: true,
   controlPlaneVisualPatternAligned: true,

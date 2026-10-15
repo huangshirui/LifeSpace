@@ -17,8 +17,7 @@ const environment = () => ({
   LIFESPACE_NOTION_ADAPTER_WORKER: "synthetic-notion-adapter-staging",
   NOTION_ADAPTER_SHARED_SECRET: "synthetic-notion-shared-secret-value-123456",
   NOTION_CONNECTION_VAULT_MASTER_KEY: "22".repeat(32),
-  NOTION_CONNECTIONS: JSON.stringify({ smoke: { token: "synthetic-token", read: true, write: true } }),
-  LIFESPACE_EXTERNAL_SMOKE_CREDENTIAL_REF: "smoke",
+  NOTION_SMOKE_TOKEN: "synthetic-notion-smoke-token-value",
   LIFESPACE_EXTERNAL_SMOKE_RESOURCE_ID: "10000000000000000000000000000001",
   LIFESPACE_EXTERNAL_SMOKE_SYNTHETIC_CONFIRMED: "1",
 });
@@ -30,11 +29,10 @@ const productionEnvironment = () => ({
   NOTION_CONNECTION_VAULT_MASTER_KEY: "33".repeat(32),
 });
 
-test("enabled staging validates provider-isolated prerequisites; dynamic-only production needs no static Provider token", () => {
+test("enabled staging validates dynamic-only Provider prerequisites; production needs no smoke credential", () => {
   assert.equal(deploymentSettings({}, "production").enabled, false);
   assert.equal(deploymentSettings(environment(), "staging").enabled, true);
   assert.equal(deploymentSettings(productionEnvironment(), "production").enabled, true);
-  assert.equal(deploymentSettings({ ...productionEnvironment(), NOTION_CONNECTIONS: "{}" }, "production").enabled, true);
   assert.throws(() => deploymentSettings({}, "local"));
   for (const [key, value] of Object.entries({
     LIFESPACE_EXTERNAL_PROVIDER_ENABLED: "yes",
@@ -42,21 +40,24 @@ test("enabled staging validates provider-isolated prerequisites; dynamic-only pr
     LIFESPACE_NOTION_ADAPTER_WORKER: "synthetic-production",
     NOTION_ADAPTER_SHARED_SECRET: "short",
     NOTION_CONNECTION_VAULT_MASTER_KEY: "short",
-    NOTION_CONNECTIONS: "null",
-    LIFESPACE_EXTERNAL_SMOKE_CREDENTIAL_REF: "missing",
+    NOTION_SMOKE_TOKEN: "",
     LIFESPACE_EXTERNAL_SMOKE_RESOURCE_ID: "bad",
     LIFESPACE_EXTERNAL_SMOKE_SYNTHETIC_CONFIRMED: "0",
   })) assert.throws(() => deploymentSettings({ ...environment(), [key]: value }, "staging"), key);
 
-  for (const connections of [[], {}, { smoke: { token: "sensitive-synthetic-value", read: true, write: false } }, { smoke: { token: "sensitive-synthetic-value", read: true, write: true, disabled: true } }]) {
-    assert.throws(() => deploymentSettings({ ...environment(), NOTION_CONNECTIONS: JSON.stringify(connections) }, "staging"), error => !error.message.includes("sensitive-synthetic-value"));
-  }
   assert.throws(() => deploymentSettings({ ...environment(), LIFESPACE_STAGING_BOOTSTRAP_SECRET: environment().NOTION_ADAPTER_SHARED_SECRET }, "staging"));
   assert.throws(() => deploymentSettings({ ...environment(), LIFESPACE_STAGING_BOOTSTRAP_SECRET: environment().NOTION_CONNECTION_VAULT_MASTER_KEY }, "staging"));
   assert.throws(() => deploymentSettings({ ...environment(), NOTION_ADAPTER_SHARED_SECRET: environment().EXTERNAL_CURSOR_SECRET }, "staging"));
   assert.throws(() => deploymentSettings({ ...environment(), NOTION_CONNECTION_VAULT_MASTER_KEY: "g".repeat(64) }, "staging"));
-  assert.throws(() => deploymentSettings({ ...environment(), NOTION_CONNECTIONS: JSON.stringify({ smoke: { token: "synthetic\ntoken", read: true, write: true } }) }, "staging"));
-  assert.throws(() => deploymentSettings({ ...productionEnvironment(), NOTION_CONNECTIONS: "[]" }, "production"));
+  assert.throws(() => deploymentSettings({ ...environment(), NOTION_SMOKE_TOKEN: "bad\ntoken" }, "staging"));
+  assert.throws(() => deploymentSettings({ ...environment(), NOTION_SMOKE_TOKEN: environment().NOTION_ADAPTER_SHARED_SECRET }, "staging"));
+});
+
+test("manifest rejects deployment-managed static credential maps", () => {
+  const manifest = loadProviderManifest();
+  const invalid = structuredClone(manifest);
+  invalid.providers.notion.staticConnectionsEnv = "NOTION_CONNECTIONS";
+  assert.throws(() => deploymentSettings(environment(), "staging", invalid));
 });
 
 test("Core provider routing is generated from the manifest and removes the legacy generic binding", () => {
@@ -118,14 +119,14 @@ test("private Provider profiles and live routed Core/Adapter metadata fail close
     { name: "EXTERNAL_ADAPTER_NOTION_SHARED_SECRET", type: "secret_text" },
   ] };
   const adapter = { bindings: [
-    ...["EXTERNAL_ADAPTER_SHARED_SECRET", "NOTION_CONNECTIONS", "CONNECTION_VAULT_MASTER_KEY"].map(name => ({ name, type: "secret_text" })),
+    ...["EXTERNAL_ADAPTER_SHARED_SECRET", "CONNECTION_VAULT_MASTER_KEY"].map(name => ({ name, type: "secret_text" })),
     { name: "CONNECTIONS", type: "durable_object_namespace" },
   ] };
   validateLiveBindings(core, adapter, settings, provider);
   assert.throws(() => validateLiveCoreBindings({ bindings: [...core.bindings, { name: "EXTERNAL_ADAPTER", type: "service", service: "legacy" }] }, settings));
   for (const required of ["EXTERNAL_CURSOR_SECRET", "EXTERNAL_PROVIDER_ROUTES", "EXTERNAL_ADAPTER_NOTION", "EXTERNAL_ADAPTER_NOTION_SHARED_SECRET"])
     assert.throws(() => validateLiveBindings({ bindings: core.bindings.filter(binding => binding.name !== required) }, adapter, settings, provider));
-  for (const required of ["EXTERNAL_ADAPTER_SHARED_SECRET", "NOTION_CONNECTIONS", "CONNECTION_VAULT_MASTER_KEY", "CONNECTIONS"])
+  for (const required of ["EXTERNAL_ADAPTER_SHARED_SECRET", "CONNECTION_VAULT_MASTER_KEY", "CONNECTIONS"])
     assert.throws(() => validateLiveBindings(core, { bindings: adapter.bindings.filter(binding => binding.name !== required) }, settings, provider));
 });
 
@@ -138,12 +139,13 @@ test("Adapter code deploy and secret upload target the same exact Worker name", 
   }
 });
 
-test("canonical release pins encrypted Adapter packaging and exposes provider-specific configuration", () => {
+test("canonical release pins dynamic-only encrypted Adapter packaging and provider-specific configuration", () => {
   const manifest = loadProviderManifest();
   assert.match(manifest.revision, /^[a-f0-9]{40}$/);
   assert.equal(manifest.repository, "huangshirui/lifespace-adapters");
-  assert.equal(manifest.revision, "4146a9ee6be1c268acef1071ce05a22b0e872865");
+  assert.equal(manifest.revision, "934a728029284d5296bde2f006ee716f2302a043");
   assert.deepEqual(Object.keys(manifest.providers), ["notion"]);
+  assert.equal(manifest.providers.notion.staticConnectionsEnv, undefined);
   assert.ok(readFileSync(new URL("../../.github/workflows/check.yml", import.meta.url), "utf8").includes(`ref: ${manifest.revision}`));
   for (const env of ["staging", "production"]) {
     const workflow = readFileSync(new URL(`../../.github/workflows/${env === "staging" ? "staging" : "production"}-deploy.yml`, import.meta.url), "utf8");
@@ -157,6 +159,10 @@ test("canonical release pins encrypted Adapter packaging and exposes provider-sp
     assert.ok(workflow.includes("LIFESPACE_NOTION_ADAPTER_WORKER: ${{ vars.LIFESPACE_NOTION_ADAPTER_WORKER }}"));
     assert.ok(workflow.includes("NOTION_ADAPTER_SHARED_SECRET: ${{ secrets.NOTION_ADAPTER_SHARED_SECRET }}"));
     assert.ok(workflow.includes("NOTION_CONNECTION_VAULT_MASTER_KEY: ${{ secrets.NOTION_CONNECTION_VAULT_MASTER_KEY }}"));
+    assert.equal(workflow.includes("NOTION_CONNECTIONS"), false);
+    assert.equal(workflow.includes("LIFESPACE_EXTERNAL_SMOKE_CREDENTIAL_REF"), false);
+    if (env === "staging") assert.ok(workflow.includes("NOTION_SMOKE_TOKEN: ${{ secrets.NOTION_SMOKE_TOKEN }}"));
+    else assert.equal(workflow.includes("NOTION_SMOKE_TOKEN"), false);
     assert.ok(workflow.includes(`external-provider-deployment.mjs verify ${env}`));
   }
 });

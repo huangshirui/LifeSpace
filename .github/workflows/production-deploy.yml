@@ -219,10 +219,6 @@ jobs:
       LIFESPACE_NOTION_ADAPTER_WORKER: ${{ vars.LIFESPACE_NOTION_ADAPTER_WORKER }}
       NOTION_ADAPTER_SHARED_SECRET: ${{ secrets.NOTION_ADAPTER_SHARED_SECRET }}
       NOTION_CONNECTION_VAULT_MASTER_KEY: ${{ secrets.NOTION_CONNECTION_VAULT_MASTER_KEY }}
-      NOTION_CONNECTIONS: ${{ secrets.NOTION_CONNECTIONS }}
-      LIFESPACE_EXTERNAL_SMOKE_CREDENTIAL_REF: ${{ vars.LIFESPACE_EXTERNAL_SMOKE_CREDENTIAL_REF }}
-      LIFESPACE_EXTERNAL_SMOKE_RESOURCE_ID: ${{ secrets.LIFESPACE_EXTERNAL_SMOKE_RESOURCE_ID }}
-      LIFESPACE_EXTERNAL_SMOKE_SYNTHETIC_CONFIRMED: ${{ vars.LIFESPACE_EXTERNAL_SMOKE_SYNTHETIC_CONFIRMED }}
       LIFESPACE_CORE_PRODUCTION_URL: https://core.aisr.online
       LIFESPACE_IDENTITY_PRODUCTION_URL: https://auth.aisr.online
 
@@ -357,7 +353,7 @@ jobs:
           - APAC performance gate: passed automatically for this exact candidate SHA before production mutation
           - Core: schema v${LIFESPACE_EXPECTED_CORE_SCHEMA_VERSION} / Kernel contract ${LIFESPACE_EXPECTED_CORE_CONTRACT_VERSION}
           - Identity: schema v${LIFESPACE_EXPECTED_IDENTITY_SCHEMA_VERSION} / contract ${LIFESPACE_EXPECTED_IDENTITY_CONTRACT_VERSION}
-          - External Providers enabled: ${LIFESPACE_EXTERNAL_PROVIDER_ACTIVE}; provider-specific private routing, Core cursor secret and encrypted connection vault verified when enabled; production Provider data not used for destructive smoke
+          - External Providers enabled: ${LIFESPACE_EXTERNAL_PROVIDER_ACTIVE}; provider-specific private routing, Core cursor secret and encrypted dynamic Connection vault verified when enabled; production Provider data not used for destructive smoke
           - Production active Model Contract consistency: passed
           - Custom domains: \`core.aisr.online\`, \`auth.aisr.online\`
           - Production D1/R2/Queue/Worker isolation: passed

@@ -6,7 +6,6 @@ import { fileURLToPath } from "node:url";
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const scripts = [
   "infra/scripts/external-provider-deployment.mjs",
-  "infra/scripts/verify-staging-external-provider.mjs",
   "infra/scripts/verify-staging-recurrence.mjs",
   "infra/scripts/provision-production.mjs",
   "infra/scripts/production-expectations.mjs",

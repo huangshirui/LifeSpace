@@ -4,7 +4,7 @@ This development runbook covers External/Federated Truth, Semantic Relations, Re
 
 ## Provider routing / Provider 路由
 
-LifeSpace Core owns one provider-neutral External API and a deployment-owned routing table. Runtime/configuration calls resolve `providerKey` to a **provider-specific private Service Binding + provider-specific Core↔Adapter shared secret**. Provider Adapters own their own Connection Vault implementation and their own vault master key. A future Airtable Adapter therefore adds a new manifest entry/Worker/binding/secrets without changing the public External Connection or External Model lifecycle.
+LifeSpace Core owns one provider-neutral External API and a deployment-owned routing table. Runtime/configuration calls resolve `providerKey` to a **Provider-specific private Service Binding + Provider-specific Core↔Adapter shared secret**. Provider Adapters own their own Connection Vault implementation and vault master key. A future Airtable Adapter therefore adds a manifest entry/Worker/binding/secrets without changing the public External Connection or External Model lifecycle.
 
 Current staging routes only `notion`:
 
@@ -17,7 +17,7 @@ Core EXTERNAL_PROVIDER_ROUTES
          v
 private Notion Adapter Worker
     -> per-connection cnx_* Durable Object
-    -> NOTION_CONNECTION_VAULT_MASTER_KEY (deployment source name)
+    -> CONNECTION_VAULT_MASTER_KEY
     -> Notion API
 ```
 
@@ -25,11 +25,11 @@ The Adapter-internal runtime secret name remains `CONNECTION_VAULT_MASTER_KEY`; 
 
 Core has an independent `EXTERNAL_CURSOR_SECRET` for External query cursor HMACs. It must not reuse a Provider transport shared secret, Provider vault key, bootstrap secret or Provider token.
 
-The legacy generic `EXTERNAL_ADAPTER` Service Binding is compatibility-only for old local/tests. Canonical staging/production verification rejects it; remote Provider traffic must use provider-specific bindings.
+The legacy generic `EXTERNAL_ADAPTER` Service Binding is limited to bounded local/test compatibility. Canonical staging/production verification rejects it; remote Provider traffic must use Provider-specific bindings.
 
 ## One-time staging preparation
 
-Keep a dedicated synthetic Notion Data Source for automatic platform acceptance. It must contain synthetic data only and be accessible to the staging Notion integration. The source must have `Name` as the title property and `Amount` as a number property; acceptance creates, updates and trashes its own pages. Under Notion API `2025-09-03`, use the concrete Data Source identity.
+Keep one dedicated synthetic Notion Data Source for automatic platform acceptance. It must contain synthetic data only and be accessible to the staging Notion integration. The source must have `Name` as the title property and `Amount` as a number property; acceptance creates, updates and trashes its own pages. Under Notion API `2025-09-03`, use the concrete Data Source identity.
 
 Configure the LifeSpace repository's **staging GitHub Environment**:
 
@@ -37,45 +37,57 @@ Configure the LifeSpace repository's **staging GitHub Environment**:
 | --- | --- | --- |
 | Variable | `LIFESPACE_EXTERNAL_PROVIDER_ENABLED` | `1`; unset/`0` keeps optional Native-only deployment and does **not** accept External |
 | Secret | `EXTERNAL_CURSOR_SECRET` | Independent 32–512 printable-character Core secret used only for External cursor HMAC |
-| Variable | `LIFESPACE_NOTION_ADAPTER_WORKER` | Dedicated Notion Worker name ending in `-staging`, separate from Core/Identity/Console |
-| Secret | `NOTION_ADAPTER_SHARED_SECRET` | Independent Core↔Notion Adapter shared secret, 32–512 printable characters |
-| Secret | `NOTION_CONNECTION_VAULT_MASTER_KEY` | Independent 32 random bytes encoded as exactly 64 hexadecimal characters; deployment source for the Notion Adapter Worker runtime `CONNECTION_VAULT_MASTER_KEY`. Generate independently, e.g. `openssl rand -hex 32` |
-| Secret | `NOTION_CONNECTIONS` | **Staging bootstrap/smoke only**: JSON map containing the synthetic static smoke connection. Normal product Connections do not use this map |
-| Variable | `LIFESPACE_EXTERNAL_SMOKE_CREDENTIAL_REF` | Reference of the active read/write automatic-smoke connection in that map |
+| Variable | `LIFESPACE_NOTION_ADAPTER_WORKER` | Dedicated Notion Worker name ending in `-staging`, e.g. `lifespace-notion-adapter-staging` |
+| Secret | `NOTION_ADAPTER_SHARED_SECRET` | Independent Core↔Notion Adapter transport secret, 32–512 printable characters |
+| Secret | `NOTION_CONNECTION_VAULT_MASTER_KEY` | Independent 32 random bytes encoded as exactly 64 hexadecimal characters; deployment source for Adapter runtime `CONNECTION_VAULT_MASTER_KEY`, e.g. `openssl rand -hex 32` |
+| Secret | `NOTION_SMOKE_TOKEN` | **Staging-only acceptance input**: token for the dedicated synthetic Notion integration. It is submitted only to the public Dynamic Connection API during smoke and is not deployed as a Worker static map |
 | Secret | `LIFESPACE_EXTERNAL_SMOKE_RESOURCE_ID` | Concrete synthetic Notion Data Source UUID |
-| Variable | `LIFESPACE_EXTERNAL_SMOKE_SYNTHETIC_CONFIRMED` | `1`, confirming the source is synthetic-only |
+| Variable | `LIFESPACE_EXTERNAL_SMOKE_SYNTHETIC_CONFIRMED` | `1`, confirming the source is synthetic-only and safe for automated CRUD/trash acceptance |
 
-Every secret above must be independent. `NOTION_CONNECTIONS` is retained only to prove the deployment-managed bootstrap compatibility path and to supply the same synthetic token as **request input** to the dynamic product smoke. The dynamic smoke does not expose or provision that static `credentialRef`; it calls the public Connection API so Core generates a fresh `cnx_*` and the routed Notion Adapter persists a fresh encrypted DO vault.
+Every secret above must be independent. `NOTION_SMOKE_TOKEN` is not platform configuration and is not a persistent Core/Adapter deployment secret. The acceptance runner sends it as normal request input to `POST /api/v1/spaces/{spaceId}/external-connections`; Core generates a fresh `cnx_*`, and the routed Notion Adapter validates then encrypts the credential into that Connection's Durable Object vault.
 
-Provider credential plaintext exists only transiently across the browser/app request path and the matching Connection DO execution. Before DO persistence, the Notion credential projection is encrypted with AES-256-GCM under the Adapter runtime `CONNECTION_VAULT_MASTER_KEY`; storage contains only a versioned `{version,algorithm,iv,ciphertext}` envelope. Core D1 stores only secret-free connection metadata plus the opaque `cnx_*` reference.
+`NOTION_CONNECTIONS` and `LIFESPACE_EXTERNAL_SMOKE_CREDENTIAL_REF` are retired. There is no deployment-managed static Provider credential map and no service-only static Source provisioning path.
 
-Existing Cloudflare credentials/account and staging bootstrap settings remain required. The deploy token must manage/read Worker settings and secrets and read workers.dev/preview exposure, alongside existing platform permissions. Invalid prerequisites fail before deployment mutation, without printing tokens, vault keys or provider payloads.
+Provider credential plaintext exists only transiently across the browser/app or acceptance-runner request path and the matching Connection DO execution. Before DO persistence, the Notion credential projection is encrypted with AES-256-GCM under the Adapter runtime `CONNECTION_VAULT_MASTER_KEY`; storage contains only a versioned `{version,algorithm,iv,ciphertext}` envelope. Core D1 stores only secret-free Connection metadata plus the opaque `cnx_*` reference.
 
-`infra/external-provider.json` pins the reviewed adapter repository/revision and owns the provider-routing manifest. Updating the provider set or adapter revision requires a reviewed code change. Live identifiers stay out of the public Adapter repository. Canonical deployment verifies Core routing, every provider-specific Service Binding/shared secret, private Adapter exposure, vault Worker Secret and Durable Object binding.
+Existing Cloudflare credentials/account and staging bootstrap settings remain required. The deploy token must manage/read Worker settings and secrets and read workers.dev/preview exposure, alongside existing platform permissions. Invalid prerequisites fail before deployment mutation, without printing tokens, vault keys or Provider payloads.
+
+`infra/external-provider.json` pins the reviewed Adapter repository/revision and owns the Provider-routing manifest. Updating the Provider set or Adapter revision requires a reviewed code change. Live identifiers stay out of the public Adapter repository. Canonical deployment verifies Core routing, every Provider-specific Service Binding/shared secret, private Adapter exposure, vault Worker Secret and Durable Object binding.
 
 ## Single manual staging release
 
-The workflow validates repository/configuration, resolves staging D1, deploys the private pinned Notion Adapter and its secrets/DO binding, migrates/deploys Core with generated `EXTERNAL_PROVIDER_ROUTES` + `EXTERNAL_ADAPTER_NOTION`, synchronizes the independent Core cursor and Notion transport secrets, verifies live routing/private exposure, then migrates/deploys compatible Identity. The existing Core-first → Identity order is preserved. After Identity convergence, the same canonical platform release reconciles the staging Console Application scope ceiling, including ordinary `spaces:manage`, without rotating installed Console credentials.
+The workflow validates repository/configuration, resolves staging D1, deploys the private pinned Notion Adapter and its transport/vault secrets/DO binding, migrates/deploys Core with generated `EXTERNAL_PROVIDER_ROUTES` + `EXTERNAL_ADAPTER_NOTION`, synchronizes the independent Core cursor and Notion transport secrets, verifies live routing/private exposure, then migrates/deploys compatible Identity. The existing Core-first → Identity order is preserved. After Identity convergence, the same canonical platform release reconciles the staging Console Application scope ceiling, including ordinary `spaces:manage`, without rotating installed Console credentials.
 
 Remote Core profiles configure schema refresh every 300 seconds. This is a scheduling setting, not a measured freshness/latency SLO. The existing one-minute Scheduled trigger drains bounded indexed work.
 
-The staging release proves **two distinct External paths**:
+The staging release proves **one External product path**:
 
-1. **bootstrap compatibility smoke** — service-only static Source provisioning through `NOTION_CONNECTIONS`; this proves legacy/deployment-managed wiring and the broad External runtime/relations/scheduled-refresh regression suite;
-2. **dynamic product smoke** — `Provider Discovery → public Connection create → encrypted cnx_* DO Vault → Resource Discovery → business-definition binding → runtime CRUD → schema refresh → Connection write→read downgrade → binding ceiling propagation → credential rotation → disable/enable → revoke`.
+```text
+Provider Discovery
+  -> public Dynamic Connection create
+  -> encrypted cnx_* Durable Object Vault
+  -> Provider Resource Discovery
+  -> published External business-definition binding
+  -> Runtime CRUD/query
+  -> schema refresh
+  -> Connection write→read downgrade + binding ceiling propagation
+  -> credential rotation
+  -> disable/enable
+  -> revoke + cleanup
+```
 
-The dynamic product smoke additionally proves:
+The acceptance proves:
 
 - the public Connection response/list never exposes Provider token or server-owned `credentialRef`;
 - Core D1 stores only the generated `cnx_*` reference and secret-free metadata;
-- Resource Discovery reaches the same synthetic Data Source through the dynamic DO vault;
-- Runtime execution routes from persisted `source.provider_key` to the Notion-specific private Adapter;
+- Resource Discovery reaches the dedicated synthetic Data Source through the dynamic DO vault;
+- Runtime execution routes from persisted `provider_key` to the Notion-specific private Adapter;
 - Connection write→read synchronously narrows every write binding to read through a D1 invariant;
-- attempting to raise a binding above a read-only Connection ceiling fails before Provider write;
+- attempting to raise a binding above a read-only Connection or published Definition ceiling fails before Provider write;
 - rotating the token writes a new encrypted envelope in the same Connection DO;
 - disabling a Connection removes runtime availability and re-enabling restores it;
 - revoking the Connection deletes the DO credential state and disables bindings;
-- run-scoped Core metadata is removed only after API revoke/cleanup so repeated smoke runs do not claim the Provider resource permanently.
+- run-scoped Core metadata is removed only after API revoke/cleanup so repeated smoke runs do not claim the Provider Resource permanently.
 
 Unknown Provider writes are never retried. If a create has no confirmed returned ID, inspect the dedicated synthetic source for that run's marker before rerunning; the script cannot safely guess an ID. Cleanup failure fails acceptance too. Already applied additive migrations/deployments are retained; fix the indicated failure and rerun the canonical entry point. Do not remove migrations or bypass a failing gate.
 
@@ -83,12 +95,12 @@ Recorded latency is a staging-runner observation, not APAC p50/p95 acceptance or
 
 ## Console and application configuration
 
-After platform staging succeeds, run **Deploy LifeSpace Console staging (isolated)** from the exact candidate on `main`; platform deployment does not ship Console assets. The Console deploy reads current Core/Identity health and deploys only Console. It does not migrate/deploy Core or Identity, reconcile Identity scopes, or install Provider credentials/Sources.
+After platform staging succeeds, run **Deploy LifeSpace Console staging (isolated)** from the exact candidate on `main`; platform deployment does not ship Console assets. The Console deploy reads current Core/Identity health and deploys only Console. It does not migrate/deploy Core or Identity, reconcile Identity scopes, or install Provider credentials.
 
-Console is a first-party proving client of the same Space APIs that ALOHA, HomeMew or another application can use. The public `apps/core/external-connection.openapi.yaml` contract covers:
+Console is a first-party proving client of the same Space APIs that ALOHA, HomeMew or another application can use. The public `apps/core/external-connection.openapi.yaml` 0.3.0 contract covers:
 
 - list configured Providers;
-- create/list/update/disable/re-enable/rotate/revoke dynamic Connections;
+- create/list/update/disable/re-enable/rotate/revoke Dynamic Connections;
 - discover Provider Resources;
 - list bindable External Model Definitions;
 - create/reactivate bindings;
@@ -101,14 +113,12 @@ Console exposes this lifecycle through exactly one standard Space surface: **`Co
 
 Creating a Connection grants no Membership, Data Grant, Application × Model Access or model binding. Runtime execution still applies the same Application × Model Access, Membership/Data Grant, scope and Delegation intersection as Native.
 
-The service-only `/api/v1/model-admin/external-sources` path and deployment-managed static references remain available only for smoke/bootstrap/legacy operations. They are intentionally absent from normal Console/application setup and must not be presented as product setup.
-
 ## Production and rollback
 
-Production is an independent opt-in GitHub Environment. Each Provider requires its own Worker, Core↔Adapter shared secret and vault master key; never reuse staging values or another Provider's keys. Core also has its own production `EXTERNAL_CURSOR_SECRET`. Production uses the same manifest/pinned Adapter packaging and private-routing/vault verification after the exact-candidate staging/APAC gate; it does not run destructive automatic Provider smoke against real production data.
+Production is an independent opt-in GitHub Environment. Each Provider requires its own Worker, Core↔Adapter shared secret and vault master key; never reuse staging values or another Provider's keys. Core also has its own production `EXTERNAL_CURSOR_SECRET`. Production uses the same manifest/pinned Adapter packaging and private-routing/vault verification after the exact-candidate staging/APAC gate; it does not run destructive automatic Provider smoke against real production data and has no `NOTION_SMOKE_TOKEN`.
 
-Normal production product setup uses the same Space-scoped dynamic External Connection API as staging. Production does not require a deployment-managed `NOTION_CONNECTIONS` token; an empty `{}` static map is valid. A nonempty static map remains an explicit legacy/bootstrap option only.
+Normal production setup uses the same Space-scoped Dynamic External Connection API as staging. There is no `NOTION_CONNECTIONS` static map or alternate static credential lifecycle.
 
-Rollback to explicitly compatible reviewed platform/Adapter revisions, keep additive migrations and preserve working credential stores. Pause/disable affected Connections or Recurrence Plans when necessary. Provider shared-secret rotation updates the relevant GitHub Environment value and is synchronized to both Core's provider-specific secret binding and that Adapter Worker. **Do not rotate a Provider vault master key by simply replacing its Secret while encrypted DO state remains on the old key.** Vault-key rotation requires a versioned decrypt/re-encrypt migration or explicit credential reconnection. Changing `LIFESPACE_EXTERNAL_PROVIDER_ENABLED` to `0` removes provider routing on the next release and is an intentional outage, not rollback.
+Rollback to explicitly compatible reviewed platform/Adapter revisions, keep additive migrations and preserve working credential stores. Pause/disable affected Connections or Recurrence Plans when necessary. Provider shared-secret rotation updates the relevant GitHub Environment value and is synchronized to both Core's Provider-specific secret binding and that Adapter Worker. **Do not rotate a Provider vault master key by simply replacing its Secret while encrypted DO state remains on the old key.** Vault-key rotation requires a versioned decrypt/re-encrypt migration or explicit credential reconnection. Changing `LIFESPACE_EXTERNAL_PROVIDER_ENABLED` to `0` removes Provider routing on the next release and is an intentional outage, not rollback.
 
 Keep feature release work open until the exact candidate passes platform staging and Console/browser acceptance where required. Update `docs/production/` only after successful production deployment of the exact SHA and verified capability availability.
