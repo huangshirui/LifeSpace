@@ -3,7 +3,7 @@ import YAML from "yaml";
 
 const document = YAML.parse(fs.readFileSync(new URL("../platform-admin.openapi.yaml", import.meta.url), "utf8"));
 
-if (document.openapi !== "3.1.0" || document.info?.version !== "0.4.0") {
+if (document.openapi !== "3.1.0" || document.info?.version !== "0.5.0") {
   throw new Error("Core Platform Admin OpenAPI version metadata is invalid");
 }
 if (!document.info?.title?.includes("Platform Admin")) {
@@ -14,12 +14,22 @@ const requiredPaths = [
   "/api/v1/platform-admin/applications/{applicationId}/model-access",
   "/api/v1/platform-admin/spaces",
   "/api/v1/platform-admin/spaces/{spaceId}",
+  "/api/v1/platform-admin/spaces/{spaceId}/grants",
+  "/api/v1/platform-admin/spaces/{spaceId}/grants/{grantId}",
+  "/api/v1/platform-admin/models",
+  "/api/v1/platform-admin/models/validate",
+  "/api/v1/platform-admin/models/{modelKey}",
+  "/api/v1/platform-admin/models/{modelKey}/retire",
   "/api/v1/platform-admin/audit",
-  "/api/v1/model-admin/models",
-  "/api/v1/model-admin/models/{modelKey}/retire",
 ];
 for (const path of requiredPaths) {
   if (!document.paths?.[path]) throw new Error(`Core Platform Admin OpenAPI missing ${path}`);
+}
+
+for (const path of Object.keys(document.paths ?? {})) {
+  if (path.startsWith("/api/v1/model-admin/")) {
+    throw new Error(`Platform Admin contract must not expose the independent Model Control Plane namespace: ${path}`);
+  }
 }
 
 const schemes = document.components?.securitySchemes ?? {};
@@ -37,14 +47,26 @@ if (!globalSecurity.some((entry) => entry?.bearerAuth && entry?.platformAdminAct
 const spaces = document.paths?.["/api/v1/platform-admin/spaces"];
 const space = document.paths?.["/api/v1/platform-admin/spaces/{spaceId}"];
 if (!spaces?.get || spaces.post || spaces.patch || spaces.delete || !space?.get || space.post || space.patch || space.delete) {
-  throw new Error("Platform Space Inspector must remain read-only");
+  throw new Error("Platform Space inspector resources must remain read-only; mutations belong on explicit nested governance resources");
 }
-if (!String(spaces.get.description ?? "").includes("does not create or imply Space membership")) {
+if (!String(spaces.get.description ?? "").includes("does not create") || !String(spaces.get.description ?? "").includes("Space membership")) {
   throw new Error("Platform Space Inspector must document that it does not grant Space membership");
 }
+
+const grants = document.paths?.["/api/v1/platform-admin/spaces/{spaceId}/grants"];
+const grant = document.paths?.["/api/v1/platform-admin/spaces/{spaceId}/grants/{grantId}"];
+if (!grants?.post || grants.get || grants.patch || grants.delete || !grant?.patch || !grant?.delete || grant.get || grant.post) {
+  throw new Error("Platform Data Grant governance lifecycle drifted");
+}
+for (const operation of [grants.post, grant.patch, grant.delete]) {
+  const description = String(operation?.description ?? "");
+  if (!description.includes("grants:manage") || !description.includes("platform-admin actor proof")) {
+    throw new Error("Platform Data Grant mutation must document grants:manage plus platform-admin actor authority");
+  }
+}
 const grantTypes = document.components?.schemas?.PlatformDataGrant?.properties?.granteeType?.enum ?? [];
-if (!grantTypes.includes("agent")) {
-  throw new Error("Platform Space Inspector must expose Agent Data Grants");
+if (!grantTypes.includes("agent") || !grantTypes.includes("service")) {
+  throw new Error("Platform Data Grant governance must expose Agent and Service grantees");
 }
 
 const modelAccess = document.paths?.["/api/v1/platform-admin/applications/{applicationId}/model-access"];
@@ -52,17 +74,27 @@ if (!modelAccess?.get || !modelAccess?.put || modelAccess.post || modelAccess.pa
   throw new Error("Application x Model Access control-plane lifecycle drifted");
 }
 
-for (const path of ["/api/v1/model-admin/models", "/api/v1/model-admin/models/{modelKey}/retire"]) {
-  const operation = document.paths?.[path]?.post;
-  if (!String(operation?.description ?? "").includes("actor proof")) {
-    throw new Error(`Console Model Admin operation must document human actor proof: ${path}`);
+const models = document.paths?.["/api/v1/platform-admin/models"];
+const validate = document.paths?.["/api/v1/platform-admin/models/validate"];
+const model = document.paths?.["/api/v1/platform-admin/models/{modelKey}"];
+const retire = document.paths?.["/api/v1/platform-admin/models/{modelKey}/retire"];
+if (!models?.get || !models?.post || !validate?.post || !model?.get || !retire?.post) {
+  throw new Error("Platform Admin Model governance lifecycle is incomplete");
+}
+for (const operation of [models.get, models.post, validate.post, model.get, retire.post]) {
+  if (!String(operation?.description ?? "").includes("platform-admin actor proof") && !String(operation?.description ?? "").includes("actor proof")) {
+    throw new Error("Platform Admin Model operation must document human actor proof");
   }
 }
-
-const publishSchemaRef = document.paths?.["/api/v1/model-admin/models"]?.post?.requestBody?.content?.["application/json"]?.schema?.$ref;
+const publishSchemaRef = models.post?.requestBody?.content?.["application/json"]?.schema?.$ref;
 if (publishSchemaRef !== "./model-control-plane.openapi.yaml#/components/schemas/PublishModelRequest") {
-  throw new Error("Platform Admin Console publish profile must reuse the Model Control Plane request schema");
+  throw new Error("Platform Admin model publish must reuse the Model Control Plane request schema");
 }
+const validateSchemaRef = validate.post?.requestBody?.content?.["application/json"]?.schema?.$ref;
+if (validateSchemaRef !== "./model-control-plane.openapi.yaml#/components/schemas/ValidateModelRequest") {
+  throw new Error("Platform Admin model validation must reuse the Model Control Plane request schema");
+}
+
 const auditResult = document.components?.schemas?.PlatformAuditEntry?.properties?.result?.enum ?? [];
 if (auditResult.join(",") !== "pending,success,failure") {
   throw new Error("Core Platform Admin audit states must preserve pending/success/failure evidence");
