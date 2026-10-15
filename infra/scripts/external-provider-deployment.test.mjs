@@ -154,9 +154,15 @@ test("canonical release pins encrypted Adapter packaging and exposes provider-sp
     assert.ok(workflow.indexOf(`external-provider-deployment.mjs sync-core ${env}`) > core);
     assert.ok(workflow.includes("ref: ${{ env.LIFESPACE_EXTERNAL_PROVIDER_REVISION }}"));
     assert.ok(workflow.includes("EXTERNAL_CURSOR_SECRET: ${{ secrets.EXTERNAL_CURSOR_SECRET }}"));
-    assert.ok(workflow.includes("LIFESPACE_NOTION_ADAPTER_WORKER: ${{ vars.LIFESPACE_NOTION_ADAPTER_WORKER }}"));
-    assert.ok(workflow.includes("NOTION_ADAPTER_SHARED_SECRET: ${{ secrets.NOTION_ADAPTER_SHARED_SECRET }}"));
-    assert.ok(workflow.includes("NOTION_CONNECTION_VAULT_MASTER_KEY: ${{ secrets.NOTION_CONNECTION_VAULT_MASTER_KEY }}"));
+    if (env === "staging") {
+      assert.ok(workflow.includes("LIFESPACE_NOTION_ADAPTER_WORKER: ${{ vars.LIFESPACE_NOTION_ADAPTER_WORKER || vars.LIFESPACE_EXTERNAL_ADAPTER_WORKER }}"));
+      assert.ok(workflow.includes("NOTION_ADAPTER_SHARED_SECRET: ${{ secrets.NOTION_ADAPTER_SHARED_SECRET || secrets.EXTERNAL_ADAPTER_SHARED_SECRET }}"));
+      assert.ok(workflow.includes("NOTION_CONNECTION_VAULT_MASTER_KEY: ${{ secrets.NOTION_CONNECTION_VAULT_MASTER_KEY || secrets.CONNECTION_VAULT_MASTER_KEY }}"));
+    } else {
+      assert.ok(workflow.includes("LIFESPACE_NOTION_ADAPTER_WORKER: ${{ vars.LIFESPACE_NOTION_ADAPTER_WORKER }}"));
+      assert.ok(workflow.includes("NOTION_ADAPTER_SHARED_SECRET: ${{ secrets.NOTION_ADAPTER_SHARED_SECRET }}"));
+      assert.ok(workflow.includes("NOTION_CONNECTION_VAULT_MASTER_KEY: ${{ secrets.NOTION_CONNECTION_VAULT_MASTER_KEY }}"));
+    }
     assert.ok(workflow.includes(`external-provider-deployment.mjs verify ${env}`));
   }
 });
