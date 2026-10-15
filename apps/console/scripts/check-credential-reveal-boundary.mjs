@@ -3,18 +3,22 @@ import { fileURLToPath } from "node:url";
 
 const workerUrl = new URL("../worker/configuration-center.ts", import.meta.url);
 const agentEntrypointUrl = new URL("../worker/agent-governance.ts", import.meta.url);
-const finalEntrypointUrl = new URL("../worker/external-connections.ts", import.meta.url);
+const externalEntrypointUrl = new URL("../worker/external-connections.ts", import.meta.url);
+const platformEntrypointUrl = new URL("../worker/platform-admin-entry.ts", import.meta.url);
 const wranglerUrl = new URL("../wrangler.jsonc", import.meta.url);
 const workerPath = fileURLToPath(workerUrl);
 const source = readFileSync(workerUrl, "utf8");
 const agentEntrypoint = readFileSync(agentEntrypointUrl, "utf8");
-const finalEntrypoint = readFileSync(finalEntrypointUrl, "utf8");
+const externalEntrypoint = readFileSync(externalEntrypointUrl, "utf8");
+const platformEntrypoint = readFileSync(platformEntrypointUrl, "utf8");
 const wrangler = readFileSync(wranglerUrl, "utf8");
 
 const required = [
-  ["final Worker entrypoint", '"main": "worker/external-connections.ts"', wrangler],
-  ["External Connection wrapper preserves Agent governance", 'import downstreamWorker from "./agent-governance"', finalEntrypoint],
-  ["External Connection wrapper delegates unhandled routes", "downstreamWorker.fetch(request, env)", finalEntrypoint],
+  ["final Worker entrypoint", '"main": "worker/platform-admin-entry.ts"', wrangler],
+  ["Platform Admin wrapper preserves External governance", 'import externalConnectionsWorker from "./external-connections"', platformEntrypoint],
+  ["Platform Admin wrapper delegates non-overview routes", "externalConnectionsWorker.fetch(request, env)", platformEntrypoint],
+  ["External Connection wrapper preserves Agent governance", 'import downstreamWorker from "./agent-governance"', externalEntrypoint],
+  ["External Connection wrapper delegates unhandled routes", "downstreamWorker.fetch(request, env)", externalEntrypoint],
   ["credential center preserved behind Agent governance", 'import configurationCenterWorker from "./configuration-center"', agentEntrypoint],
   ["Agent governance delegates unhandled routes", "configurationCenterWorker.fetch(request, env)", agentEntrypoint],
   ["AES-GCM sealed reveal", 'name: "AES-GCM"', source],
@@ -44,14 +48,21 @@ const forbidden = [
 ];
 
 for (const [label, pattern] of forbidden) {
-  if (pattern.test(source) || pattern.test(agentEntrypoint) || pattern.test(finalEntrypoint)) throw new Error(`${workerPath} violates hardened reveal boundary: ${label}`);
+  if (
+    pattern.test(source)
+    || pattern.test(agentEntrypoint)
+    || pattern.test(externalEntrypoint)
+    || pattern.test(platformEntrypoint)
+  ) throw new Error(`${workerPath} violates hardened reveal boundary: ${label}`);
 }
 
 console.log(JSON.stringify({
   ok: true,
   worker: "apps/console/worker/configuration-center.ts",
-  finalEntrypoint: "apps/console/worker/external-connections.ts",
+  finalEntrypoint: "apps/console/worker/platform-admin-entry.ts",
   finalEntrypointHardened: true,
+  platformAdminWrapperPreserved: true,
+  externalGovernancePreserved: true,
   agentGovernancePreserved: true,
   browserCookieSecretPlaintextAbsent: true,
   browserJavascriptPlaintextAbsent: true,
