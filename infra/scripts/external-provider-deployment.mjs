@@ -131,9 +131,8 @@ export function validateLiveCoreBindings(core, settings) {
   const bindings = core.bindings ?? [];
   if (bindings.some(binding => binding.type === "service" && binding.name === "EXTERNAL_ADAPTER"))
     throw new Error("Live Core must not use the legacy generic External Adapter Service Binding");
-  for (const name of ["EXTERNAL_CURSOR_SECRET", "EXTERNAL_ADAPTER_SHARED_SECRET"])
-    if (!bindings.some(binding => binding.type === "secret_text" && binding.name === name))
-      throw new Error(`Live Core ${name} is absent`);
+  if (!bindings.some(binding => binding.type === "secret_text" && binding.name === "EXTERNAL_CURSOR_SECRET"))
+    throw new Error("Live Core EXTERNAL_CURSOR_SECRET is absent");
   if (!bindings.some(binding => binding.type === "plain_text" && binding.name === "EXTERNAL_SCHEMA_REFRESH_SECONDS" && Number.isInteger(Number(binding.text)) && Number(binding.text) >= 60 && Number(binding.text) <= 86400))
     throw new Error("Live External schema refresh configuration is invalid");
   const routeBinding = bindings.find(binding => binding.type === "plain_text" && binding.name === "EXTERNAL_PROVIDER_ROUTES");
@@ -213,12 +212,7 @@ async function main() {
       console.log(`Private ${provider.key} provider deployed at pinned revision ${manifest.revision}`);
     }
   } else if (mode === "sync-core") {
-    // EXTERNAL_ADAPTER_SHARED_SECRET is a temporary cursor-HMAC compatibility alias;
-    // provider transport authentication uses only provider-specific Core secrets.
-    const secrets = {
-      EXTERNAL_CURSOR_SECRET: settings.cursorSecret,
-      EXTERNAL_ADAPTER_SHARED_SECRET: settings.cursorSecret,
-    };
+    const secrets = { EXTERNAL_CURSOR_SECRET: settings.cursorSecret };
     for (const provider of settings.providers) secrets[provider.definition.coreSharedSecret] = provider.sharedSecret;
     wrangler(["secret", "bulk", "--env", environment], secrets);
   } else if (mode === "verify") {
