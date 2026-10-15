@@ -338,14 +338,8 @@
     {
       "id": "core-external-model",
       "source": "apps/core/external-model.openapi.yaml",
-      "operationSetSha256": "sha256:8c991e47b28ecb40fb169400d0aa22e9608b6953b42450b901a97b82e6eec3be",
+      "operationSetSha256": "sha256:a82ce604cdf400e6d897bdf4c20ad119fe1134e9b11fb3b3725d155c617ae978",
       "groups": [
-        {
-          "id": "external-source-provisioning",
-          "maturity": "candidate",
-          "visibility": "internal",
-          "operationPattern": "^POST /api/v1/model-admin/external-sources$"
-        },
         {
           "id": "external-model-runtime",
           "maturity": "candidate",
