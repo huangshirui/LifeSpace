@@ -26,7 +26,6 @@ type ValidationResult =
 
 type Dialog =
   | { type: "publish"; modelKey?: string; external?: boolean }
-  | { type: "external-binding"; spaceId: string }
   | { type: "retire"; modelKey: string }
   | { type: "model-access"; applicationId: string }
   | null;
@@ -299,59 +298,20 @@ function ModelAccessDialog({ applicationId, onClose }: { applicationId: string; 
   </DialogShell>;
 }
 
-function ExternalBindingDialog({ spaceId, onClose }: { spaceId: string; onClose: () => void }) {
-  const [models, setModels] = useState<PublishedModel[]>([]);
-  const [sources, setSources] = useState<Array<{ id: string; providerKey: string; status: string }>>([]);
-  const [definitionKey, setDefinitionKey] = useState("");
-  const [sourceId, setSourceId] = useState("");
-  const [resourceId, setResourceId] = useState("");
-  const [access, setAccess] = useState("read");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<unknown>();
-  const [saved, setSaved] = useState(false);
-  useEffect(() => {
-    let active = true;
-    void Promise.all([get<PublishedModel[]>("/api/models"), get<{ items: Array<{ id: string; providerKey: string; status: string }> }>(`/api/spaces/${encodeURIComponent(spaceId)}/external-sources`)]).then(([catalog, connections]) => {
-      if (!active) return;
-      setModels(catalog.filter(m => m.definition.origin === "external" && m.state === "published"));
-      setSources(connections.items.filter(s => s.status === "active"));
-    }).catch(cause => { if (active) setError(cause); });
-    return () => { active = false; };
-  }, [spaceId]);
-  async function save() {
-    setBusy(true); setError(undefined);
-    try { await mutate(`/api/spaces/${encodeURIComponent(spaceId)}/external-models`, "POST", "bind-external-model", { definitionKey, sourceId, resourceId: resourceId.trim(), declaredAccess: access }); setSaved(true); }
-    catch (cause) { setError(cause); } finally { setBusy(false); }
-  }
-  return <DialogShell title="绑定外部模型" description="先注册业务模型，再绑定本 Space 的连接和具体 Data Source。字段由 Provider 自动发现；绑定不会授予数据访问权限。" onClose={onClose}>
-    {error !== undefined && <ErrorNotice error={error} />}
-    {saved ? <SuccessNotice>绑定成功，字段已自动发现。</SuccessNotice> : <>
-      <label>业务模型<select value={definitionKey} onChange={e => setDefinitionKey(e.target.value)}><option value="">选择已注册的外部模型</option>{models.map(m => <option key={m.key} value={m.key}>{m.key}</option>)}</select></label>
-      <label>Connection<select value={sourceId} onChange={e => setSourceId(e.target.value)}><option value="">选择本 Space 已配置的连接</option>{sources.map(s => <option key={s.id} value={s.id}>{s.providerKey} · {s.id}</option>)}</select></label>
-      {!sources.length && <p>连接须先由受控服务配置到本 Space；这里使用你的 Space 管理权限。</p>}
-      <label>Data Source ID<input value={resourceId} onChange={e => setResourceId(e.target.value)} maxLength={256} /></label>
-      <label>能力上限<select value={access} onChange={e => setAccess(e.target.value)}><option value="read">只读</option><option value="write">读写</option></select></label>
-      <footer className="cp-dialog-footer"><button disabled={busy || !definitionKey || !sourceId || !resourceId.trim()} onClick={() => void save()}>{busy ? "绑定中…" : "绑定并发现字段"}</button></footer>
-    </>}
-  </DialogShell>;
-}
-
 function ControlPlaneLauncher() {
   const pathname = usePathname();
   const context = contextFromPath(pathname);
   const [dialog, setDialog] = useState<Dialog>(null);
-  if (context.page === "other") return null;
+  if (context.page === "other" || context.page === "space") return null;
   return <>
     <div className="cp-launcher" aria-label="控制面写操作">
       <span className="cp-launcher-label">Configure</span>
-      {context.page === "space" && context.id && <button onClick={() => setDialog({ type: "external-binding", spaceId: context.id! })}>绑定外部模型</button>}
       {context.page === "models" && <button onClick={() => setDialog({ type: "publish" })}>Publish model</button>}
       {context.page === "models" && <button onClick={() => setDialog({ type: "publish", external: true })}>注册外部模型</button>}
       {context.page === "model" && context.id && <><button onClick={() => setDialog({ type: "publish", modelKey: context.id })}>Publish version</button><button className="cp-launcher-danger" onClick={() => setDialog({ type: "retire", modelKey: context.id as string })}>Retire</button></>}
       {context.page === "application" && context.id && <button onClick={() => setDialog({ type: "model-access", applicationId: context.id as string })}>Model access</button>}
     </div>
     {dialog?.type === "publish" && <PublishDialog external={dialog.external} modelKey={dialog.modelKey} onClose={() => setDialog(null)} />}
-    {dialog?.type === "external-binding" && <ExternalBindingDialog spaceId={dialog.spaceId} onClose={() => setDialog(null)} />}
     {dialog?.type === "retire" && <RetireDialog modelKey={dialog.modelKey} onClose={() => setDialog(null)} />}
     {dialog?.type === "model-access" && <ModelAccessDialog applicationId={dialog.applicationId} onClose={() => setDialog(null)} />}
   </>;
