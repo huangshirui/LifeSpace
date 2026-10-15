@@ -7,6 +7,7 @@ const applicationId = process.env.LIFESPACE_STAGING_CONSOLE_APPLICATION_ID ?? "a
 const EXPECTED_SCOPES = [
   "profile:read",
   "spaces:manage",
+  "grants:manage",
   "platform:admin",
   "applications:manage",
   "services:manage",
@@ -65,16 +66,20 @@ if (!sameStringSet(before.payload.data.allowedScopes, EXPECTED_SCOPES)) {
 
 const after = await request(`/bootstrap/v1/applications/${encodeURIComponent(applicationId)}`);
 if (after.response.status !== 200 || !sameStringSet(after.payload?.data?.allowedScopes, EXPECTED_SCOPES)) {
-  throw new Error("Staging Console application scope ceiling did not converge");
+  throw new Error("Staging Console application Platform Admin scope ceiling did not converge");
 }
-if (!after.payload.data.allowedScopes.includes("spaces:manage")) throw new Error("spaces:manage is absent after reconciliation");
+for (const scope of ["spaces:manage", "grants:manage"]) {
+  if (!after.payload.data.allowedScopes.includes(scope)) throw new Error(`${scope} is absent after reconciliation`);
+}
 
 console.log(JSON.stringify({
   ok: true,
   environment: "staging",
   applicationId,
   changed,
+  platformAdminSpaceGovernance: true,
   spacesManage: true,
+  grantsManage: true,
   credentialRotated: false,
   productionTouched: false,
 }));
