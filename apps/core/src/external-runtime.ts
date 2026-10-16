@@ -3,6 +3,8 @@ import type { Bindings, Principal, Variables } from "./env";
 import { ApiError, success } from "./http";
 import { normalizeCanonicalQueryOperand } from "./canonical-query";
 import { normalizeCanonicalFieldValue } from "./generic-resource";
+import { recurrenceRuleSchema } from "./recurrence-rule";
+import { entityRefSchema } from "./entity-ref";
 import {
   consumeSingleUseRead,
   evaluateModelAccessMany,
@@ -56,6 +58,11 @@ export function externalSemanticDetail(
 ) {
   const readable = m.snapshot.fields.map(({ sourceFieldId: _id, ...f }) => ({
     ...f,
+    ...(f.type === "recurrence_rule"
+      ? { valueSchema: recurrenceRuleSchema() }
+      : f.type === "entity_ref"
+        ? { valueSchema: entityRefSchema() }
+        : {}),
     writable:
       f.writable && allowed.includes("write") && m.declared_access === "write",
   }));
