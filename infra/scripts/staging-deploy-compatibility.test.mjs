@@ -56,6 +56,16 @@ test("dynamic External staging smoke waits past the Runtime Registry TTL after p
   assert.ok(publish >= 0 && barrier > publish && bind > barrier, "External smoke must wait beyond Registry TTL between Definition publication and binding/runtime checks");
 });
 
+test("dynamic External staging smoke keeps binding origin in configuration but runtime records origin-neutral", () => {
+  const smoke = readFileSync(new URL("./verify-staging-external-self-service.mjs", import.meta.url), "utf8");
+  assert.match(smoke, /assert\.equal\(bound\.origin, "external"\)/u);
+  assert.match(smoke, /assert\.equal\(record\.origin, undefined\)/u);
+  assert.match(smoke, /assert\.equal\(record\.schemaHash, undefined\)/u);
+  assert.match(smoke, /assert\.equal\(fetched\.origin, undefined\)/u);
+  assert.match(smoke, /assert\.equal\(fetched\.schemaHash, undefined\)/u);
+  assert.doesNotMatch(smoke, /assert\.equal\(record\.origin, "external"\)/u);
+});
+
 test("dynamic External staging smoke treats read downgrade as capability removal and preserves primary failures", () => {
   const smoke = readFileSync(new URL("./verify-staging-external-self-service.mjs", import.meta.url), "utf8");
   assert.match(smoke, /assert\.equal\(writeWhileRead\.status, 405,/u);
