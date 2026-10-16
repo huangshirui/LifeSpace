@@ -9,6 +9,7 @@ const ui = readFileSync(new URL("../src/ExternalConnectionsOverlay.tsx", import.
 const controlPlaneUi = readFileSync(new URL("../src/ControlPlaneApp.tsx", import.meta.url), "utf8");
 const entry = readFileSync(new URL("../src/main.tsx", import.meta.url), "utf8");
 const css = readFileSync(new URL("../src/external-connections.css", import.meta.url), "utf8");
+const sharedLauncherCss = readFileSync(new URL("../src/space-configuration-launcher.css", import.meta.url), "utf8");
 const packageJson = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
 const wrangler = JSON.parse(readFileSync(new URL("../wrangler.jsonc", import.meta.url), "utf8"));
 const contract = JSON.parse(readFileSync(new URL("../../core/external-connection.openapi.yaml", import.meta.url), "utf8"));
@@ -69,7 +70,10 @@ assert(!ui.includes("deployment 类型"));
 assert(!ui.includes("ExternalBindingManagerOverlay"));
 assert(!ui.includes("external-data-space"));
 assert(entry.includes('window.addEventListener("popstate", update)'));
+assert(entry.includes('className="space-config-launcher"'));
+assert(entry.includes("<SpaceGrantGovernanceOverlay />"));
 assert(entry.includes("<ExternalConnectionsOverlay key={routeKey} />"));
+assert(entry.indexOf("<SpaceGrantGovernanceOverlay />") < entry.indexOf("<ExternalConnectionsOverlay key={routeKey} />"));
 assert(!css.includes("external-data-space"));
 assert(css.includes('.ext-launcher::before{content:"Configure"'));
 assert(css.includes(".ext-schema-detail"));
@@ -77,6 +81,11 @@ assert(css.includes(".ext-field-table"));
 assert(css.includes('background:var(--blue)'));
 assert(css.includes('box-shadow:0 18px 48px rgba(21,38,67,.18)'));
 assert(css.includes('box-shadow:0 30px 90px rgba(10,24,47,.28)'));
+assert(sharedLauncherCss.includes(".space-config-launcher > .cp-launcher"));
+assert(sharedLauncherCss.includes(".space-config-launcher > .ext-launcher"));
+assert(sharedLauncherCss.includes("position: static"));
+assert(sharedLauncherCss.includes(".space-config-launcher > .ext-launcher::before"));
+assert(sharedLauncherCss.includes("content: none"));
 
 assert(!controlPlaneUi.includes('type: "external-binding"'));
 assert(!controlPlaneUi.includes("ExternalBindingDialog"));
@@ -135,6 +144,7 @@ console.log(JSON.stringify({
   dynamicConnectionsOnly: true,
   bindingLifecycleInCanonicalExternalData: true,
   spaRouteSynchronized: true,
+  unifiedSpaceConfigurationLauncher: true,
   controlPlaneVisualPatternAligned: true,
   legacyBindingUiRemoved: true,
   legacyBindingBffRemoved: true,
