@@ -30,7 +30,7 @@ All manual deploy/provision workflows explicitly pin `actions/checkout` to the d
 Additional long-lived operator boundaries:
 
 - `Deploy LifeSpace Console staging (isolated)` is the normal Console-only staging entrypoint. Its default job does not migrate/deploy Core or Identity or use bootstrap authority; an explicit `run_control_plane_acceptance=true` adds a separate staging-only control-plane acceptance job after deployment.
-- `Converge LifeSpace staging control plane` remains a low-frequency platform/credential convergence path because it can reconcile Core/Identity, platform administrator assignment and Console executor credentials. It is not the normal Console deploy path.
+- `Converge LifeSpace staging control plane` is a low-frequency Console/application-credential provisioning path. It first verifies that the already-deployed staging Core/Identity exactly match the candidate contract/schema, then reconciles platform-administrator assignment and Console executor/application credentials through canonical APIs and deploys only Console. It never migrates or deploys Core/Identity and never mutates External Provider Service Bindings/routing; if platform versions do not match, run `Deploy LifeSpace platform staging` first.
 - `Deploy LifeSpace Console production` remains an independent guarded Console-only production rollout.
 - The APAC performance gate is an internal prerequisite job inside `Deploy LifeSpace platform production`, not a separate operator-facing workflow. It runs automatically against the exact candidate SHA before any production migration/deployment job may start.
 
