@@ -20,6 +20,7 @@ subprocess.check_call(["git", "fetch", "origin", "main", "--depth=1"], cwd=ROOT)
 # Restore the hand-maintained OpenAPI formatting from main and apply only semantic changes.
 external_contract = ROOT / "apps/core/external-model.openapi.yaml"
 contract = run("git", "show", "origin/main:apps/core/external-model.openapi.yaml")
+contract = replace_once(contract, '    "version": "0.3.0",', '    "version": "0.4.0",', "External contract version")
 contract = replace_once(
     contract,
     '          "type": { "enum": ["string", "text", "number", "boolean", "enum", "instant"] },',
