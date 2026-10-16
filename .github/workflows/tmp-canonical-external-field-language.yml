@@ -1,0 +1,262 @@
+name: Temporary canonical External field refactor
+
+on:
+  push:
+    branches:
+      - refactor/canonical-external-field-language
+
+permissions:
+  contents: write
+
+jobs:
+  refactor:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: refactor/canonical-external-field-language
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24.20.0'
+          cache: pnpm
+      - name: Apply canonical field refactor
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import json
+
+          def replace(path, old, new):
+              p = Path(path)
+              s = p.read_text()
+              if old not in s:
+                  raise SystemExit(f"missing expected text in {path}: {old[:120]!r}")
+              p.write_text(s.replace(old, new, 1))
+
+          # 1) One canonical field vocabulary and one canonical field-definition validator.
+          replace(
+              'apps/core/src/model-definition.ts',
+              '''export type CanonicalFieldType = typeof CANONICAL_FIELD_TYPES[number];\nexport type FieldType = typeof FIELD_TYPES[number];\n\nexport function canonicalFieldType(type: FieldType): CanonicalFieldType {\n''',
+              '''export type CanonicalFieldType = typeof CANONICAL_FIELD_TYPES[number];\nexport type FieldType = typeof FIELD_TYPES[number];\nexport type CanonicalFieldDefinition = Omit<FieldDefinition, "type"> & { type: CanonicalFieldType };\n\nconst CANONICAL_FIELD_TYPE_SET = new Set<string>(CANONICAL_FIELD_TYPES);\nexport function isCanonicalFieldType(value: unknown): value is CanonicalFieldType {\n  return typeof value === "string" && CANONICAL_FIELD_TYPE_SET.has(value);\n}\n\nexport function canonicalFieldType(type: FieldType): CanonicalFieldType {\n''',
+          )
+          p = Path('apps/core/src/model-definition.ts')
+          s = p.read_text()
+          helper = '''\n\nexport type CanonicalFieldValidationResult =\n  | { valid: true; definition: CanonicalFieldDefinition }\n  | { valid: false; issues: ModelValidationIssue[] };\n\n/**\n * Validate one field with the exact Model Definition v1 field semantics while\n * excluding legacy aliases. External adapters use this instead of maintaining\n * a second field-type/constraint validator.\n */\nexport function validateCanonicalFieldDefinition(input: unknown): CanonicalFieldValidationResult {\n  if (!isObject(input) || !isCanonicalFieldType(input.type)) {\n    return {\n      valid: false,\n      issues: [{\n        path: "type",\n        code: "UNSUPPORTED_FIELD_TYPE",\n        message: `Unsupported canonical field type ${isObject(input) ? String(input.type ?? "<missing>") : "<missing>"}`,\n      }],\n    };\n  }\n  const probe = validateModelDefinition({\n    definitionVersion: MODEL_DEFINITION_VERSION,\n    key: "canonical_field_probe",\n    display: { singular: "Canonical field probe", plural: "Canonical field probes" },\n    fields: { value: input },\n    access: ["read"],\n  });\n  if (!probe.valid) {\n    const fieldIssues = probe.issues\n      .filter((entry) => entry.path === "fields.value" || entry.path.startsWith("fields.value."))\n      .map((entry) => ({\n        ...entry,\n        path: entry.path === "fields.value" ? "$" : entry.path.slice("fields.value.".length),\n      }));\n    return { valid: false, issues: fieldIssues.length ? fieldIssues : probe.issues };\n  }\n  const definition = probe.definition.fields.value;\n  if (!definition || !isCanonicalFieldType(definition.type)) {\n    return {\n      valid: false,\n      issues: [{ path: "type", code: "UNSUPPORTED_FIELD_TYPE", message: "Field must use a canonical field type" }],\n    };\n  }\n  return { valid: true, definition: definition as CanonicalFieldDefinition };\n}\n'''
+          if 'export function validateCanonicalFieldDefinition' not in s:
+              p.write_text(s + helper)
+
+          # 2) Native and External Runtime share the same canonical value normalizer.
+          replace(
+              'apps/core/src/generic-resource.ts',
+              'function validateFieldValue(fieldKey: string, field: FieldDefinition, value: unknown): unknown {',
+              'export function normalizeCanonicalFieldValue(fieldKey: string, field: FieldDefinition, value: unknown): unknown {',
+          )
+          replace(
+              'apps/core/src/generic-resource.ts',
+              'result[fieldKey] = validateFieldValue(fieldKey, field, effectiveInput[fieldKey]);',
+              'result[fieldKey] = normalizeCanonicalFieldValue(fieldKey, field, effectiveInput[fieldKey]);',
+          )
+
+          # 3) Canonical Query operator vocabulary is exported once.
+          replace(
+              'apps/core/src/canonical-query-contract.ts',
+              '''const VALUE_OPERATORS = [\n  "eq",\n  "ne",\n  "lt",\n  "lte",\n  "gt",\n  "gte",\n  "within",\n  "contains",\n  "overlaps",\n  "before",\n  "after",\n  "kindIs",\n] as const;\nconst NULL_OPERATORS = ["isNull", "isNotNull"] as const;\n''',
+              '''export const CANONICAL_QUERY_VALUE_OPERATORS = [\n  "eq",\n  "ne",\n  "lt",\n  "lte",\n  "gt",\n  "gte",\n  "within",\n  "contains",\n  "overlaps",\n  "before",\n  "after",\n  "kindIs",\n] as const;\nexport const CANONICAL_QUERY_NULL_OPERATORS = ["isNull", "isNotNull"] as const;\nexport const CANONICAL_QUERY_OPERATORS = [\n  ...CANONICAL_QUERY_VALUE_OPERATORS,\n  ...CANONICAL_QUERY_NULL_OPERATORS,\n] as const;\n''',
+          )
+          p = Path('apps/core/src/canonical-query-contract.ts')
+          s = p.read_text().replace('enum: [...NULL_OPERATORS]', 'enum: [...CANONICAL_QUERY_NULL_OPERATORS]')
+          s = s.replace('enum: [...VALUE_OPERATORS]', 'enum: [...CANONICAL_QUERY_VALUE_OPERATORS]')
+          p.write_text(s)
+
+          # 4) Canonical query operand normalization can be reused by External Runtime.
+          replace(
+              'apps/core/src/canonical-query.ts',
+              'import type { GenericResource } from "./generic-resource";',
+              'import { normalizeCanonicalFieldValue, type GenericResource } from "./generic-resource";',
+          )
+          marker = '''function projectOperand(value: RangeOperand, valueType: "date" | "instant" | "datetime", path: string): QueryRange {'''
+          p = Path('apps/core/src/canonical-query.ts')
+          s = p.read_text()
+          helper = '''export function normalizeCanonicalQueryOperand(\n  field: FieldDefinition,\n  op: string,\n  value: unknown,\n  path = "value",\n): unknown {\n  if (op === "kindIs") {\n    if (field.type !== "temporal_range" || (value !== "date" && value !== "instant")) {\n      throw new ApiError("INVALID_QUERY", `${path} must be date or instant for kindIs`, 400);\n    }\n    return value;\n  }\n  if (op === "within") {\n    if (field.type !== "date" && field.type !== "instant" && field.type !== "datetime") {\n      throw new ApiError("INVALID_QUERY", `${path} uses within only with date/instant fields`, 400);\n    }\n    return parseRangeOperand(value, path);\n  }\n  if (\n    ["overlaps", "before", "after"].includes(op)\n    || (op === "contains" && (isFirstClassRangeFieldType(field.type) || field.type === "temporal_range"))\n  ) {\n    if (!isFirstClassRangeFieldType(field.type) && field.type !== "temporal_range") {\n      throw new ApiError("INVALID_QUERY", `${path} uses a range operator with a non-range field`, 400);\n    }\n    return parseRangeOperand(value, path);\n  }\n  if (op === "contains" && ["person", "person_list", "record", "record_list"].includes(field.type)) {\n    if (typeof value !== "string" || !value) throw new ApiError("INVALID_QUERY", `${path} must contain an ID`, 400);\n    return value;\n  }\n  try {\n    return normalizeCanonicalFieldValue(path, field, value);\n  } catch {\n    throw new ApiError("INVALID_QUERY", `${path} does not match the canonical field type`, 400);\n  }\n}\n\n'''
+          if 'export function normalizeCanonicalQueryOperand' not in s:
+              if marker not in s:
+                  raise SystemExit('canonical query insertion marker missing')
+              s = s.replace(marker, helper + marker, 1)
+          s = s.replace('if (field.type !== "date" && field.type !== "datetime") throw new ApiError("INVALID_QUERY", `${predicate.field}.within requires date or datetime`, 400);',
+                        'if (field.type !== "date" && field.type !== "instant" && field.type !== "datetime") throw new ApiError("INVALID_QUERY", `${predicate.field}.within requires date or instant`, 400);')
+          p.write_text(s)
+
+          # 5) External snapshot uses CanonicalFieldDefinition, not a second type system.
+          replace(
+              'apps/core/src/external-model.ts',
+              'import type { ModelAccess } from "./model-definition";',
+              'import { CANONICAL_QUERY_OPERATORS } from "./canonical-query-contract";\nimport {\n  validateCanonicalFieldDefinition,\n  type CanonicalFieldDefinition,\n  type ModelAccess,\n} from "./model-definition";',
+          )
+          replace(
+              'apps/core/src/external-model.ts',
+              '''export type ExternalField = {\n  key: string;\n  sourceFieldId: string;\n  title: string;\n  type: "string" | "text" | "number" | "boolean" | "enum" | "instant";\n  nullable: boolean;\n  readable: true;\n  writable: boolean;\n  operators: string[];\n  sortable: boolean;\n  values?: string[];\n};''',
+              '''export type ExternalField = CanonicalFieldDefinition & {\n  key: string;\n  sourceFieldId: string;\n  title: string;\n  nullable: boolean;\n  readable: true;\n  writable: boolean;\n  operators: string[];\n  sortable: boolean;\n};''',
+          )
+          p = Path('apps/core/src/external-model.ts')
+          s = p.read_text()
+          start = s.index('  const seen = new Set<string>();\n  const ids = new Set<string>();\n  for (const raw of input.fields) {')
+          end = s.index('  const caps = objectInput(input.capabilities);', start)
+          new_block = '''  const seen = new Set<string>();\n  const ids = new Set<string>();\n  const normalizedFields: ExternalField[] = [];\n  const canonicalProperties = [\n    "type",\n    "title",\n    "description",\n    "required",\n    "nullable",\n    "immutable",\n    "readOnly",\n    "minLength",\n    "maxLength",\n    "minimum",\n    "maximum",\n    "values",\n    "targetModel",\n  ] as const;\n  for (const raw of input.fields) {\n    const f = objectInput(raw);\n    onlyKeys(f, [\n      "key",\n      "sourceFieldId",\n      ...canonicalProperties,\n      "readable",\n      "writable",\n      "operators",\n      "sortable",\n    ]);\n    if (\n      typeof f.key !== "string" ||\n      !/^f_[a-f0-9]{32}$/.test(f.key) ||\n      seen.has(f.key)\n    )\n      throw new ExternalError("EXTERNAL_CONTRACT_INVALID", 502);\n    seen.add(f.key);\n    const id = boundedString(f.sourceFieldId, "sourceFieldId");\n    if (ids.has(id)) throw new ExternalError("EXTERNAL_CONTRACT_INVALID", 502);\n    ids.add(id);\n    boundedString(f.title, "title", 80);\n    if (\n      f.readable !== true ||\n      typeof f.writable !== "boolean" ||\n      typeof f.sortable !== "boolean" ||\n      typeof f.nullable !== "boolean"\n    )\n      throw new ExternalError("EXTERNAL_CONTRACT_INVALID", 502);\n    const canonicalRaw = Object.fromEntries(\n      canonicalProperties\n        .filter((property) => Object.prototype.hasOwnProperty.call(f, property))\n        .map((property) => [property, f[property]]),\n    );\n    const canonical = validateCanonicalFieldDefinition(canonicalRaw);\n    if (!canonical.valid)\n      throw new ExternalError("EXTERNAL_CONTRACT_INVALID", 502);\n    if (canonical.definition.readOnly === true && f.writable === true)\n      throw new ExternalError("EXTERNAL_CONTRACT_INVALID", 502);\n    if (\n      !Array.isArray(f.operators) ||\n      f.operators.some(\n        (op) =>\n          typeof op !== "string" ||\n          !CANONICAL_QUERY_OPERATORS.includes(\n            op as (typeof CANONICAL_QUERY_OPERATORS)[number],\n          ),\n      )\n    )\n      throw new ExternalError("EXTERNAL_CONTRACT_INVALID", 502);\n    if (\n      canonical.definition.nullable !== true &&\n      f.operators.some((op) => op === "isNull" || op === "isNotNull")\n    )\n      throw new ExternalError("EXTERNAL_CONTRACT_INVALID", 502);\n    normalizedFields.push({\n      ...canonical.definition,\n      key: f.key,\n      sourceFieldId: id,\n      title: canonical.definition.title ?? String(f.title),\n      nullable: canonical.definition.nullable === true,\n      readable: true,\n      writable: f.writable,\n      operators: [...f.operators] as string[],\n      sortable: f.sortable,\n    });\n  }\n'''
+          s = s[:start] + new_block + s[end:]
+          s = s.replace('  return input as unknown as ExternalSnapshot;\n}', '  return { ...input, fields: normalizedFields } as unknown as ExternalSnapshot;\n}', 1)
+          p.write_text(s)
+
+          # 6) External Runtime reuses canonical value/query normalization and enforces canonical field constraints.
+          replace(
+              'apps/core/src/external-runtime.ts',
+              'import { ApiError, success } from "./http";',
+              'import { ApiError, success } from "./http";\nimport { normalizeCanonicalQueryOperand } from "./canonical-query";\nimport { normalizeCanonicalFieldValue } from "./generic-resource";',
+          )
+          p = Path('apps/core/src/external-runtime.ts')
+          s = p.read_text()
+          s = s.replace('    relationTargetResolution: read && Boolean(m.businessDefinition) && m.snapshot.capabilities.get,',
+                        '    relationTargetResolution:\n      read &&\n      Boolean(m.businessDefinition) &&\n      m.snapshot.capabilities.get &&\n      m.snapshot.capabilities.relationTargetResolution,')
+          start = s.index('function typedValue(field: ExternalField, value: unknown) {')
+          end = s.index('function validateQuery(m: ExternalModel, input: Record<string, unknown>) {', start)
+          new_block = '''function canonicalExternalValue(field: ExternalField, value: unknown): unknown {\n  try {\n    return normalizeCanonicalFieldValue(field.key, field, value);\n  } catch {\n    throw new ApiError(\n      "VALIDATION_ERROR",\n      "Value does not match current canonical External schema",\n      422,\n    );\n  }\n}\nfunction validateData(\n  m: ExternalModel,\n  input: Record<string, unknown>,\n  operation: "create" | "update",\n): Record<string, unknown> {\n  if (canonicalExternalJson(input).length > 128000)\n    throw new ApiError("INVALID_REQUEST", "External input is too large", 400);\n  if (operation === "create") {\n    const missing = m.snapshot.fields.find(\n      (field) =>\n        field.required === true &&\n        field.readOnly !== true &&\n        !Object.prototype.hasOwnProperty.call(input, field.key),\n    );\n    if (missing)\n      throw new ApiError(\n        "VALIDATION_ERROR",\n        `Required field ${missing.key} is missing`,\n        422,\n      );\n  }\n  const normalized: Record<string, unknown> = {};\n  for (const [key, value] of Object.entries(input)) {\n    const field = m.snapshot.fields.find((candidate) => candidate.key === key);\n    if (!field?.writable || field.readOnly === true)\n      throw new ApiError(\n        "VALIDATION_ERROR",\n        "Field is unavailable or read-only",\n        422,\n      );\n    if (operation === "update" && field.immutable === true)\n      throw new ApiError(\n        "VALIDATION_ERROR",\n        `Field ${field.key} is immutable`,\n        422,\n      );\n    normalized[key] = canonicalExternalValue(field, value);\n  }\n  return normalized;\n}\n'''
+          s = s[:start] + new_block + s[end:]
+          # Replace predicate scalar validation with canonical query operand validation.
+          s = s.replace('      typedValue(field, f.value);', '''      try {\n        normalizeCanonicalQueryOperand(\n          field,\n          String(f.op),\n          f.value,\n          `${field.key}.value`,\n        );\n      } catch {\n        throw new ApiError(\n          "INVALID_QUERY",\n          "Query value does not match the canonical field/operator semantics",\n          422,\n        );\n      }''')
+          # Provider records use the same canonical value validator and return normalized values.
+          old = '''  for (const [key, value] of Object.entries(data)) {\n    const f = m.snapshot.fields.find((x) => x.key === key);\n    if (!f) throw new ExternalError("EXTERNAL_CONTRACT_INVALID", 502);\n    typedValue(f, value);\n  }\n  if (m.snapshot.fields.some((f) => !(f.key in data)))\n    throw new ExternalError("EXTERNAL_SCHEMA_CHANGED", 409);\n  return {\n    id: r.id,\n    spaceId: m.space_id,\n    modelKey: externalBusinessKey(m),\n    origin: "external",\n    schemaHash: m.schema_hash,\n    ...data,\n'''
+          new = '''  const normalizedData: Record<string, unknown> = {};\n  for (const [key, value] of Object.entries(data)) {\n    const field = m.snapshot.fields.find((candidate) => candidate.key === key);\n    if (!field) throw new ExternalError("EXTERNAL_CONTRACT_INVALID", 502);\n    try {\n      normalizedData[key] = normalizeCanonicalFieldValue(field.key, field, value);\n    } catch {\n      throw new ExternalError("EXTERNAL_CONTRACT_INVALID", 502);\n    }\n  }\n  if (m.snapshot.fields.some((field) => !(field.key in data)))\n    throw new ExternalError("EXTERNAL_SCHEMA_CHANGED", 409);\n  return {\n    id: r.id,\n    spaceId: m.space_id,\n    modelKey: externalBusinessKey(m),\n    origin: "external",\n    schemaHash: m.schema_hash,\n    ...normalizedData,\n'''
+          if old not in s:
+              raise SystemExit('externalRecordDto block missing')
+          s = s.replace(old, new, 1)
+          s = s.replace('''      if (operation === "create" || operation === "update")\n        validateData(m, input);\n      if (operation !== "query") return input;''', '''      if (operation === "create" || operation === "update")\n        return validateData(m, input, operation);\n      if (operation !== "query") return input;''')
+          p.write_text(s)
+
+          # 7) Public External contract exposes the whole Canonical Field Language.
+          api_path = Path('apps/core/external-model.openapi.yaml')
+          api = json.loads(api_path.read_text())
+          api['info']['version'] = '0.4.0'
+          api['info']['description'] = (
+              'Provider-neutral External Model binding and dynamic Generic Runtime contract. '
+              'External fields use the same LifeSpace Canonical Field Language as Native models; '
+              'provider adapters expose only the canonical types/capabilities they can map without loss. '
+              'Connection creation and provider credential ownership are defined by external-connection.openapi.yaml. '
+              'Provider business data remains external. No transaction/version/distributed atomicity guarantee is introduced.'
+          )
+          canonical_types = [
+              'string','text','integer','number','boolean','date','instant','range<date>',
+              'range<instant>','temporal_range','recurrence_rule','entity_ref','timezone',
+              'enum','person','person_list','record','record_list',
+          ]
+          operators = ['eq','ne','lt','lte','gt','gte','within','contains','overlaps','before','after','kindIs','isNull','isNotNull']
+          field = api['components']['schemas']['ExternalField']
+          field['properties']['type'] = {'type': 'string', 'enum': canonical_types, 'description': 'LifeSpace CanonicalFieldType; External does not define a second field-type vocabulary.'}
+          field['properties']['description'] = {'type': 'string', 'maxLength': 300}
+          field['properties']['required'] = {'type': 'boolean'}
+          field['properties']['immutable'] = {'type': 'boolean'}
+          field['properties']['readOnly'] = {'type': 'boolean'}
+          field['properties']['minLength'] = {'type': 'integer', 'minimum': 0}
+          field['properties']['maxLength'] = {'type': 'integer', 'minimum': 1}
+          field['properties']['minimum'] = {'type': 'number'}
+          field['properties']['maximum'] = {'type': 'number'}
+          field['properties']['targetModel'] = {'type': 'string'}
+          field['properties']['operators'] = {'type': 'array', 'items': {'type': 'string', 'enum': operators}}
+          field['properties']['values'] = {'type': 'array', 'maxItems': 50, 'items': {'type': 'string'}}
+          api['components']['schemas']['DynamicRecord']['additionalProperties'] = True
+          api['components']['schemas']['DynamicRecord']['description'] = 'Flattened dynamic field values are validated against the current Canonical Field Definition in the Space-local External snapshot. No Native version or audit fields are fabricated.'
+          api['components']['schemas']['ExternalWriteData']['additionalProperties'] = True
+          predicate = api['components']['schemas'].get('ExternalFilterPredicate')
+          if predicate and isinstance(predicate, dict):
+              props = predicate.get('properties', {})
+              if 'value' in props:
+                  props['value'] = {'description': 'Canonical Query operand shape is determined by the selected canonical field type and advertised operator.'}
+          api_path.write_text(json.dumps(api, ensure_ascii=False, indent=2) + '\n')
+
+          # 8) Contract guard: External type enum must equal the canonical source of truth.
+          p = Path('apps/core/scripts/check-external-model-contract.mjs')
+          s = p.read_text().replace('assert.equal(api.info.version, "0.3.0");', 'assert.equal(api.info.version, "0.4.0");')
+          anchor = 'assert(!api.components.schemas.DynamicRecord.properties.version);\n'
+          guard = '''const modelDefinition = readFileSync(new URL("src/model-definition.ts", root), "utf8");\nconst canonicalTypeBlock = modelDefinition.match(/export const CANONICAL_FIELD_TYPES = \\[([\\s\\S]*?)\\] as const;/u);\nassert(canonicalTypeBlock, "CANONICAL_FIELD_TYPES source block is required");\nconst canonicalTypes = [...canonicalTypeBlock[1].matchAll(/"([^"\\n]+)"/gu)].map((match) => match[1]);\nassert.deepEqual(api.components.schemas.ExternalField.properties.type.enum, canonicalTypes);\nconst externalRuntime = readFileSync(new URL("src/external-runtime.ts", root), "utf8");\nassert(externalRuntime.includes("normalizeCanonicalFieldValue"));\nassert(!externalRuntime.includes("function typedValue("));\nconst externalModel = readFileSync(new URL("src/external-model.ts", root), "utf8");\nassert(externalModel.includes("CanonicalFieldDefinition"));\nassert(externalModel.includes("validateCanonicalFieldDefinition"));\n'''
+          if guard not in s:
+              s = s.replace(anchor, anchor + guard, 1)
+          p.write_text(s)
+
+          # 9) Repository contract version declaration.
+          replace(
+              'apps/core/AGENTS.md',
+              'current External Model version: 0.3.0',
+              'current External Model version: 0.4.0',
+          )
+
+          # 10) Regression tests: every canonical type is valid for External; legacy-only alias is not.
+          Path('apps/core/test/external-canonical-field-language.test.ts').write_text(r'''import { describe, expect, it } from "vitest";
+import { CANONICAL_FIELD_TYPES } from "../src/model-definition";
+import { validateExternalSnapshot } from "../src/external-model";
+
+const baseSnapshot = (type: string) => ({
+  resourceId: "synthetic_resource",
+  displayName: "Synthetic canonical fields",
+  fields: [{
+    key: `f_${"a".repeat(32)}`,
+    sourceFieldId: "provider_field_1",
+    title: "Value",
+    type,
+    nullable: false,
+    readable: true,
+    writable: true,
+    operators: [],
+    sortable: false,
+    ...(type === "enum" ? { values: ["a", "b"] } : {}),
+    ...(type === "record" || type === "record_list" ? { targetModel: "task" } : {}),
+  }],
+  capabilities: {
+    get: true,
+    query: true,
+    create: true,
+    update: true,
+    delete: true,
+    batchWrite: true,
+    atomicBatch: false,
+    transaction: false,
+    versionedWrite: false,
+    actions: false,
+    relationTargetResolution: false,
+  },
+  queryLimits: { maxDepth: 2, maxNodes: 100, maxSort: 8, maxPageSize: 100 },
+  adapterState: {},
+});
+
+describe("External Canonical Field Language", () => {
+  it("accepts every current CanonicalFieldType without an External-specific whitelist", () => {
+    for (const type of CANONICAL_FIELD_TYPES) {
+      expect(validateExternalSnapshot(baseSnapshot(type)).fields[0]?.type).toBe(type);
+    }
+  });
+
+  it("rejects the legacy Native datetime alias because External speaks canonical types only", () => {
+    expect(() => validateExternalSnapshot(baseSnapshot("datetime"))).toThrow();
+  });
+
+  it("uses the canonical enum bound rather than a separate External bound", () => {
+    const snapshot = baseSnapshot("enum");
+    snapshot.fields[0]!.values = Array.from({ length: 51 }, (_, index) => `v${index}`);
+    expect(() => validateExternalSnapshot(snapshot)).toThrow();
+  });
+});
+''')
+          PY
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Validate Core
+        run: pnpm --filter @lifespace/core check
+      - name: Commit refactor
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add apps/core/src/model-definition.ts apps/core/src/generic-resource.ts apps/core/src/canonical-query-contract.ts apps/core/src/canonical-query.ts apps/core/src/external-model.ts apps/core/src/external-runtime.ts apps/core/external-model.openapi.yaml apps/core/scripts/check-external-model-contract.mjs apps/core/AGENTS.md apps/core/test/external-canonical-field-language.test.ts
+          git diff --cached --quiet && { echo 'No changes'; exit 1; }
+          git commit -m 'refactor(core): unify External canonical field language'
+          git push origin HEAD:refactor/canonical-external-field-language
