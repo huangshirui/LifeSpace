@@ -75,13 +75,15 @@ async function resolveAdminUserId() {
 const cleanup = {
   applicationCredentialId: "",
   applicationCredential: "",
-  principalId: "",
+  executorPrincipalId: "",
   serviceTokenId: "",
   serviceToken: "",
   actorToken: "",
+  inertPrincipalId: "",
   grantId: "",
   targetSpaceId: "",
   grantRevoked: false,
+  inertPrincipalDisabled: false,
 };
 
 let adminUserId = "";
@@ -105,9 +107,22 @@ async function cleanupGrant() {
   cleanup.grantRevoked = true;
 }
 
+async function cleanupInertPrincipal() {
+  if (!cleanup.inertPrincipalId || cleanup.inertPrincipalDisabled || !cleanup.applicationCredential) return;
+  const result = await request(identityBase, `/api/v1/service-principals/${encodeURIComponent(cleanup.inertPrincipalId)}`, {
+    method: "PATCH",
+    bearer: cleanup.applicationCredential,
+    body: { status: "disabled", maxScopes: [] },
+  });
+  if (result.response.status !== 200 && result.response.status !== 404) {
+    throw new Error(`Temporary inert service principal cleanup failed: ${result.response.status} ${JSON.stringify(result.payload)}`);
+  }
+  cleanup.inertPrincipalDisabled = true;
+}
+
 async function cleanupCredentials() {
-  if (cleanup.serviceTokenId && cleanup.principalId && cleanup.applicationCredential) {
-    const result = await request(identityBase, `/api/v1/service-principals/${encodeURIComponent(cleanup.principalId)}/tokens/${encodeURIComponent(cleanup.serviceTokenId)}`, {
+  if (cleanup.serviceTokenId && cleanup.executorPrincipalId && cleanup.applicationCredential) {
+    const result = await request(identityBase, `/api/v1/service-principals/${encodeURIComponent(cleanup.executorPrincipalId)}/tokens/${encodeURIComponent(cleanup.serviceTokenId)}`, {
       method: "DELETE",
       bearer: cleanup.applicationCredential,
     });
@@ -130,18 +145,24 @@ async function cleanupCredentials() {
   }
 }
 
-async function findAdminManagedSpace() {
+async function chooseAnyStagingSpaceAndAssertNoExecutorGrant() {
   const summaries = requireStatus(await core("/api/v1/platform-admin/spaces?limit=100"), 200, "List Spaces through Platform Admin");
   if (!Array.isArray(summaries) || !summaries.length) throw new Error("No staging Space is available for Platform Admin governance acceptance");
+
+  let selected = null;
   for (const summary of summaries) {
     if (typeof summary?.id !== "string") continue;
     const detail = requireStatus(await core(`/api/v1/platform-admin/spaces/${encodeURIComponent(summary.id)}`), 200, `Inspect Space ${summary.id}`);
-    const member = Array.isArray(detail?.members)
-      ? detail.members.find((entry) => entry?.userId === adminUserId && (entry?.role === "owner" || entry?.role === "admin"))
+    if (!selected) selected = detail;
+    const activeExecutorGrant = Array.isArray(detail?.grants)
+      ? detail.grants.find((entry) => entry?.granteeType === "service" && entry?.granteeId === cleanup.executorPrincipalId && !entry?.revokedAt)
       : null;
-    if (member) return detail;
+    if (activeExecutorGrant) {
+      throw new Error(`Console Core executor unexpectedly has an active Data Grant in ${summary.id}: ${activeExecutorGrant.id}`);
+    }
   }
-  throw new Error(`No staging Space managed by platform administrator ${adminUserId} is available for a redundant Grant acceptance`);
+  if (!selected || typeof selected.id !== "string") throw new Error("Platform Admin Space inspector returned no usable staging Space");
+  return selected;
 }
 
 let primaryError = null;
@@ -180,9 +201,9 @@ try {
   const principalRows = requireStatus(principals, 200, "List Console service principals");
   const matches = Array.isArray(principalRows) ? principalRows.filter((entry) => entry?.displayName === executorName && entry?.status === "active") : [];
   if (matches.length !== 1 || typeof matches[0]?.id !== "string") throw new Error(`Expected one active Console Core executor, found ${matches.length}`);
-  cleanup.principalId = matches[0].id;
+  cleanup.executorPrincipalId = matches[0].id;
 
-  const tempToken = await request(identityBase, `/api/v1/service-principals/${encodeURIComponent(cleanup.principalId)}/tokens`, {
+  const tempToken = await request(identityBase, `/api/v1/service-principals/${encodeURIComponent(cleanup.executorPrincipalId)}/tokens`, {
     method: "POST",
     bearer: cleanup.applicationCredential,
     body: {
@@ -217,16 +238,8 @@ try {
   if (typeof cleanup.actorToken !== "string" || cleanup.actorToken.split(".").length !== 3) throw new Error("Platform-admin actor proof is invalid");
   mask(cleanup.actorToken);
 
-  const target = await findAdminManagedSpace();
+  const target = await chooseAnyStagingSpaceAndAssertNoExecutorGrant();
   cleanup.targetSpaceId = target.id;
-  if (typeof cleanup.targetSpaceId !== "string") throw new Error("Selected staging Space has no id");
-
-  const existingExecutorGrant = Array.isArray(target.grants)
-    ? target.grants.find((entry) => entry?.granteeType === "service" && entry?.granteeId === cleanup.principalId && !entry?.revokedAt)
-    : null;
-  if (existingExecutorGrant) {
-    throw new Error(`Console Core executor unexpectedly has an active Data Grant in ${cleanup.targetSpaceId}: ${existingExecutorGrant.id}`);
-  }
 
   const ordinaryGrantProbe = await request(coreBase, `/api/v1/spaces/${encodeURIComponent(cleanup.targetSpaceId)}/grants`, {
     bearer: cleanup.serviceToken,
@@ -251,19 +264,34 @@ try {
     "Platform Admin External Model Definitions",
   );
 
+  const inertPrincipal = requireStatus(await request(identityBase, "/api/v1/service-principals", {
+    method: "POST",
+    bearer: cleanup.applicationCredential,
+    body: {
+      displayName: `Console Grant acceptance inert ${runSuffix}`,
+      description: "Staging-only inert Data Grant grantee; no token is ever created",
+      maxScopes: [],
+      createdByUserId: adminUserId,
+    },
+  }), 201, "Create inert temporary Data Grant grantee");
+  cleanup.inertPrincipalId = inertPrincipal?.id ?? "";
+  if (!/^svc_[A-Za-z0-9_-]+$/u.test(cleanup.inertPrincipalId) || inertPrincipal?.status !== "active" || !Array.isArray(inertPrincipal?.maxScopes) || inertPrincipal.maxScopes.length !== 0) {
+    throw new Error(`Unexpected inert service principal result: ${JSON.stringify(inertPrincipal)}`);
+  }
+
   const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
   const created = requireStatus(await core(`/api/v1/platform-admin/spaces/${encodeURIComponent(cleanup.targetSpaceId)}/grants`, {
     method: "POST",
     body: {
-      granteeType: "user",
-      granteeId: adminUserId,
+      granteeType: "service",
+      granteeId: cleanup.inertPrincipalId,
       resourceType: "space",
       permission: "read",
       expiresAt,
     },
-  }), 201, "Create redundant staging Data Grant through Platform Admin");
+  }), 201, "Create inert staging Data Grant through Platform Admin");
   cleanup.grantId = created?.id ?? "";
-  if (!/^grt_[A-Za-z0-9_-]+$/u.test(cleanup.grantId) || created?.permission !== "read" || created?.granteeId !== adminUserId) {
+  if (!/^grt_[A-Za-z0-9_-]+$/u.test(cleanup.grantId) || created?.permission !== "read" || created?.granteeId !== cleanup.inertPrincipalId || created?.granteeType !== "service") {
     throw new Error(`Unexpected Data Grant create result: ${JSON.stringify(created)}`);
   }
 
@@ -271,19 +299,19 @@ try {
   const updated = requireStatus(await core(`/api/v1/platform-admin/spaces/${encodeURIComponent(cleanup.targetSpaceId)}/grants/${encodeURIComponent(cleanup.grantId)}`, {
     method: "PATCH",
     body: { permission: "write", expiresAt: updatedExpiry },
-  }), 200, "Update staging Data Grant through Platform Admin");
+  }), 200, "Update inert staging Data Grant through Platform Admin");
   if (updated?.id !== cleanup.grantId || updated?.permission !== "write" || updated?.expiresAt !== updatedExpiry) {
     throw new Error(`Unexpected Data Grant update result: ${JSON.stringify(updated)}`);
   }
 
   requireStatus(await core(`/api/v1/platform-admin/spaces/${encodeURIComponent(cleanup.targetSpaceId)}/grants/${encodeURIComponent(cleanup.grantId)}`, {
     method: "DELETE",
-  }), 204, "Revoke staging Data Grant through Platform Admin");
+  }), 204, "Revoke inert staging Data Grant through Platform Admin");
   cleanup.grantRevoked = true;
 
   const after = requireStatus(await core(`/api/v1/platform-admin/spaces/${encodeURIComponent(cleanup.targetSpaceId)}`), 200, "Inspect Space after Data Grant revoke");
   const revoked = Array.isArray(after?.grants) ? after.grants.find((entry) => entry?.id === cleanup.grantId) : null;
-  if (!revoked?.revokedAt || revoked.permission !== "write") {
+  if (!revoked?.revokedAt || revoked.permission !== "write" || revoked.granteeId !== cleanup.inertPrincipalId) {
     throw new Error(`Revoked Data Grant evidence is missing from Space inspector: ${JSON.stringify(revoked)}`);
   }
 
@@ -295,6 +323,8 @@ try {
     if (!operations.has(operation)) throw new Error(`Platform Admin audit is missing ${operation} for ${cleanup.grantId}`);
   }
 
+  await cleanupInertPrincipal();
+
   console.log(JSON.stringify({
     ok: true,
     environment: "staging",
@@ -302,15 +332,26 @@ try {
     actorUserId: adminUserId,
     actorApplicationId: applicationId,
     targetSpaceId: cleanup.targetSpaceId,
+    platformAdminMembershipRequired: false,
     ordinaryUserApisRejectServiceExecutor: { grants: true, externalConnections: true },
-    dataGrant: { id: cleanup.grantId, redundantForExistingSpaceAdmin: true, created: true, updated: true, revoked: true },
+    dataGrant: {
+      id: cleanup.grantId,
+      granteeType: "service",
+      inertPrincipalId: cleanup.inertPrincipalId,
+      inertPrincipalHadNoToken: true,
+      inertPrincipalMaxScopes: [],
+      created: true,
+      updated: true,
+      revoked: true,
+      principalDisabledAfterRevoke: cleanup.inertPrincipalDisabled,
+    },
     externalGovernanceRead: {
       connections: platformConnections.length,
       bindings: platformBindings.length,
       definitions: platformDefinitions.length,
       platformAdminNamespace: true,
     },
-    consoleExecutorHasNoTargetSpaceGrant: true,
+    consoleExecutorHasNoSpaceGrantAcrossInspectedSpaces: true,
     audit: { create: true, update: true, revoke: true },
     executorScopes,
     temporaryCredentials: { applicationCredentialRevokedInFinally: true, coreTokenRevokedInFinally: true },
@@ -321,6 +362,7 @@ try {
 } finally {
   const cleanupErrors = [];
   try { await cleanupGrant(); } catch (error) { cleanupErrors.push(error); }
+  try { await cleanupInertPrincipal(); } catch (error) { cleanupErrors.push(error); }
   try { await cleanupCredentials(); } catch (error) { cleanupErrors.push(error); }
   if (cleanupErrors.length) {
     const detail = cleanupErrors.map((error) => error instanceof Error ? error.message : String(error)).join("; ");
