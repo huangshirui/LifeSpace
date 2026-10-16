@@ -6,15 +6,19 @@ import CredentialGovernanceOverlay from "./CredentialGovernanceOverlay";
 import ExternalConnectionsOverlay from "./ExternalConnectionsOverlay";
 import SpaceGrantGovernanceOverlay from "./SpaceGrantGovernanceOverlay";
 import "./styles.css";
+import "./space-configuration-launcher.css";
 
-function RouteAwareExternalConnectionsOverlay() {
+function RouteAwareSpaceConfigurationOverlays() {
   const [routeKey, setRouteKey] = useState(() => window.location.pathname);
   useEffect(() => {
     const update = () => setRouteKey(window.location.pathname);
     window.addEventListener("popstate", update);
     return () => window.removeEventListener("popstate", update);
   }, []);
-  return <ExternalConnectionsOverlay key={routeKey} />;
+  return <div className="space-config-launcher" aria-label="Space configuration">
+    <SpaceGrantGovernanceOverlay />
+    <ExternalConnectionsOverlay key={routeKey} />
+  </div>;
 }
 
 const root = document.getElementById("root");
@@ -25,7 +29,6 @@ createRoot(root).render(
     <ControlPlaneApp />
     <ApplicationConfigurationOverlay />
     <CredentialGovernanceOverlay />
-    <RouteAwareExternalConnectionsOverlay />
-    <SpaceGrantGovernanceOverlay />
+    <RouteAwareSpaceConfigurationOverlays />
   </StrictMode>,
 );
