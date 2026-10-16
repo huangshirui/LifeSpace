@@ -51,6 +51,12 @@ export const FIELD_TYPES = [...CANONICAL_FIELD_TYPES, ...LEGACY_FIELD_TYPES] as 
 
 export type CanonicalFieldType = typeof CANONICAL_FIELD_TYPES[number];
 export type FieldType = typeof FIELD_TYPES[number];
+export type CanonicalFieldDefinition = Omit<FieldDefinition, "type"> & { type: CanonicalFieldType };
+
+const CANONICAL_FIELD_TYPE_SET = new Set<string>(CANONICAL_FIELD_TYPES);
+export function isCanonicalFieldType(value: unknown): value is CanonicalFieldType {
+  return typeof value === "string" && CANONICAL_FIELD_TYPE_SET.has(value);
+}
 
 export function canonicalFieldType(type: FieldType): CanonicalFieldType {
   return type === "datetime" ? "instant" : type;
@@ -887,4 +893,51 @@ export function validateModelDefinition(input: unknown): ModelValidationResult {
     definition,
     hashInput: canonicalModelDefinition(definition),
   };
+}
+
+
+export type CanonicalFieldValidationResult =
+  | { valid: true; definition: CanonicalFieldDefinition }
+  | { valid: false; issues: ModelValidationIssue[] };
+
+/**
+ * Validate one field with the exact Model Definition v1 field semantics while
+ * excluding legacy aliases. External adapters use this instead of maintaining
+ * a second field-type/constraint validator.
+ */
+export function validateCanonicalFieldDefinition(input: unknown): CanonicalFieldValidationResult {
+  if (!isObject(input) || !isCanonicalFieldType(input.type)) {
+    return {
+      valid: false,
+      issues: [{
+        path: "type",
+        code: "UNSUPPORTED_FIELD_TYPE",
+        message: `Unsupported canonical field type ${isObject(input) ? String(input.type ?? "<missing>") : "<missing>"}`,
+      }],
+    };
+  }
+  const probe = validateModelDefinition({
+    definitionVersion: MODEL_DEFINITION_VERSION,
+    key: "canonical_field_probe",
+    display: { singular: "Canonical field probe", plural: "Canonical field probes" },
+    fields: { value: input },
+    access: ["read"],
+  });
+  if (!probe.valid) {
+    const fieldIssues = probe.issues
+      .filter((entry) => entry.path === "fields.value" || entry.path.startsWith("fields.value."))
+      .map((entry) => ({
+        ...entry,
+        path: entry.path === "fields.value" ? "$" : entry.path.slice("fields.value.".length),
+      }));
+    return { valid: false, issues: fieldIssues.length ? fieldIssues : probe.issues };
+  }
+  const definition = probe.definition.fields.value;
+  if (!definition || !isCanonicalFieldType(definition.type)) {
+    return {
+      valid: false,
+      issues: [{ path: "type", code: "UNSUPPORTED_FIELD_TYPE", message: "Field must use a canonical field type" }],
+    };
+  }
+  return { valid: true, definition: definition as CanonicalFieldDefinition };
 }

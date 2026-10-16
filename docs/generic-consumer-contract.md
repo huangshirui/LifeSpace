@@ -6,6 +6,8 @@ Updated: 2026-10-09
 
 Kernel 0.52.0 adds globally registered External business definitions and Space-local bindings beside the unchanged Native shapes. Native entries without `origin` continue to mean Native. External detail/inventory binds `(spaceId,key,schemaHash)`, has dynamic contract metadata and explicit runtime capabilities, and has no Native record `version` or immutable Provider schema revision. Unsupported Provider fields are absent; normal requests must use the current fields/operator subset. External sorting/null placement/ties are Provider-defined. Configuration-time `/me/_discovery/models` exposes published business semantics with `origin: external` and `fieldsDynamic: true`; concrete Provider fields require the source Space visibility gate. MCP/n8n consumers must intentionally support dynamic contracts before advertising External operations; raw API uses the same model-addressed paths.
 
+Native and External models use **one Canonical Field Language**. `origin` selects storage/provider execution behavior, never a second field-type vocabulary. An External Adapter may expose any subset of the current LifeSpace `CanonicalFieldType` values that it can map losslessly and stably, plus narrower provider capabilities such as writable/filter/sort support. Core validates those canonical field definitions and values; consumers project the same field semantics for either origin. Adding a new Provider that maps to already-existing canonical types must not require another Core field-type allowlist change.
+
 ## 中文摘要
 
 LifeSpace 的消费方可以是传统应用、Agent、工作流、协议适配器或生成式 UI，但它们都只能消费平台已经发布的语义与授权结果，不能成为 LifeSpace Core 的语义来源。

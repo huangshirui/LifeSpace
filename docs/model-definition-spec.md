@@ -181,12 +181,16 @@ v1 supports:
 | `range<date>` | one first-class half-open `Range<Date>` value: `{ start, endExclusive }` |
 | `range<instant>` | one first-class half-open `Range<Instant>` value: `{ start, endExclusive }` |
 | `temporal_range` | controlled half-open `Range<Date> | Range<Instant>` value with canonical `kind: "date" | "instant"` tagging |
+| `recurrence_rule` | canonical structured recurrence rule |
+| `entity_ref` | canonical structured Person/native-record reference |
 | `timezone` | valid IANA timezone |
 | `enum` | one declared string value |
 | `person` | one active Space Person in the same Space |
 | `person_list` | unique list of active Space People in the same Space |
 | `record` | one active record of the declared target model in the same Space |
 | `record_list` | unique list of active records of the declared target model in the same Space |
+
+The table above is the single **Canonical Field Language** for LifeSpace. Native published model fields and Space-local External dynamic field snapshots both use this vocabulary and the same canonical field constraints. External adapters may expose a Provider-specific subset and narrower execution capabilities, but they must not define a second field-type list or introduce Provider-native field types into Core. A new Provider that can map to an existing canonical type requires only Adapter work; Canonical Field Language changes are reserved for genuinely Provider-neutral semantics that LifeSpace cannot already express.
 
 Canonical Model Definition syntax uses **`instant`**, not `datetime`. The string `datetime` is retained only as a **legacy published spelling** so immutable Registry rows and their historical schema hashes remain readable. A new model or newly introduced field must use `instant`; a later version may preserve an already-published `datetime` field unchanged, or explicitly migrate that field to `instant` under normal compatibility/versioning rules. Validators/loaders therefore understand the legacy spelling, but publication policy does not treat it as a second canonical DSL type.
 

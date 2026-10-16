@@ -1,6 +1,10 @@
 import type { Context, Hono } from "hono";
 import type { Bindings, Principal, Variables } from "./env";
 import { ApiError, success } from "./http";
+import { normalizeCanonicalQueryOperand } from "./canonical-query";
+import { normalizeCanonicalFieldValue } from "./generic-resource";
+import { recurrenceRuleSchema } from "./recurrence-rule";
+import { entityRefSchema } from "./entity-ref";
 import {
   consumeSingleUseRead,
   evaluateModelAccessMany,
@@ -41,7 +45,11 @@ function capabilities(m: ExternalModel, allowed: string[]) {
     update: write && m.snapshot.capabilities.update,
     delete: write && m.snapshot.capabilities.delete,
     batchWrite: write && m.snapshot.capabilities.batchWrite,
-    relationTargetResolution: read && Boolean(m.businessDefinition) && m.snapshot.capabilities.get,
+    relationTargetResolution:
+      read &&
+      Boolean(m.businessDefinition) &&
+      m.snapshot.capabilities.get &&
+      m.snapshot.capabilities.relationTargetResolution,
   };
 }
 export function externalSemanticDetail(
@@ -50,6 +58,11 @@ export function externalSemanticDetail(
 ) {
   const readable = m.snapshot.fields.map(({ sourceFieldId: _id, ...f }) => ({
     ...f,
+    ...(f.type === "recurrence_rule"
+      ? { valueSchema: recurrenceRuleSchema() }
+      : f.type === "entity_ref"
+        ? { valueSchema: entityRefSchema() }
+        : {}),
     writable:
       f.writable && allowed.includes("write") && m.declared_access === "write",
   }));
@@ -162,49 +175,56 @@ export async function visibleExternalModels(
   }
   return groups;
 }
-function typedValue(field: ExternalField, value: unknown) {
-  if (value === null) {
-    if (field.nullable) return;
-    throw new ApiError("VALIDATION_ERROR", "Null is not supported", 422);
+function canonicalExternalValue(field: ExternalField, value: unknown): unknown {
+  try {
+    return normalizeCanonicalFieldValue(field.key, field, value);
+  } catch {
+    throw new ApiError(
+      "VALIDATION_ERROR",
+      "Value does not match current canonical External schema",
+      422,
+    );
   }
-  if (field.type === "number") {
-    if (typeof value === "number" && Number.isFinite(value)) return;
-  } else if (field.type === "boolean") {
-    if (typeof value === "boolean") return;
-  } else if (typeof value === "string" && value.length <= 200000) {
-    if (field.type === "enum" && !field.values?.includes(value))
-      throw new ApiError("VALIDATION_ERROR", "Unknown option", 422);
-    if (
-      field.type === "instant" &&
-      (!/^\d{4}-\d{2}-\d{2}T.*(?:Z|[+-]\d{2}:\d{2})$/.test(value) ||
-        Number.isNaN(Date.parse(value)))
-    )
-      throw new ApiError(
-        "VALIDATION_ERROR",
-        "An absolute instant is required",
-        422,
-      );
-    return;
-  }
-  throw new ApiError(
-    "VALIDATION_ERROR",
-    "Value does not match current External schema",
-    422,
-  );
 }
-function validateData(m: ExternalModel, input: Record<string, unknown>) {
+function validateData(
+  m: ExternalModel,
+  input: Record<string, unknown>,
+  operation: "create" | "update",
+): Record<string, unknown> {
   if (canonicalExternalJson(input).length > 128000)
     throw new ApiError("INVALID_REQUEST", "External input is too large", 400);
+  if (operation === "create") {
+    const missing = m.snapshot.fields.find(
+      (field) =>
+        field.required === true &&
+        field.readOnly !== true &&
+        !Object.prototype.hasOwnProperty.call(input, field.key),
+    );
+    if (missing)
+      throw new ApiError(
+        "VALIDATION_ERROR",
+        `Required field ${missing.key} is missing`,
+        422,
+      );
+  }
+  const normalized: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(input)) {
-    const f = m.snapshot.fields.find((f) => f.key === key);
-    if (!f?.writable)
+    const field = m.snapshot.fields.find((candidate) => candidate.key === key);
+    if (!field?.writable || field.readOnly === true)
       throw new ApiError(
         "VALIDATION_ERROR",
         "Field is unavailable or read-only",
         422,
       );
-    typedValue(f, value);
+    if (operation === "update" && field.immutable === true)
+      throw new ApiError(
+        "VALIDATION_ERROR",
+        `Field ${field.key} is immutable`,
+        422,
+      );
+    normalized[key] = canonicalExternalValue(field, value);
   }
+  return normalized;
 }
 function validateQuery(m: ExternalModel, input: Record<string, unknown>) {
   onlyKeys(input, ["filter", "sort", "page"]);
@@ -252,7 +272,20 @@ function validateQuery(m: ExternalModel, input: Record<string, unknown>) {
           "Use an explicit null predicate",
           422,
         );
-      typedValue(field, f.value);
+      try {
+        normalizeCanonicalQueryOperand(
+          field,
+          String(f.op),
+          f.value,
+          `${field.key}.value`,
+        );
+      } catch {
+        throw new ApiError(
+          "INVALID_QUERY",
+          "Query value does not match the canonical field/operator semantics",
+          422,
+        );
+      }
     }
   }
   if (input.filter !== undefined) filter(input.filter);
@@ -382,12 +415,17 @@ export async function externalRecordDto(m: ExternalModel, raw: unknown) {
     data = objectInput(r.data);
   boundedString(r.id, "recordId");
   if (typeof r.id !== "string" || !/^rec_external_[A-Za-z0-9_-]+$/.test(r.id)) throw new ExternalError("EXTERNAL_CONTRACT_INVALID", 502);
+  const normalizedData: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(data)) {
-    const f = m.snapshot.fields.find((x) => x.key === key);
-    if (!f) throw new ExternalError("EXTERNAL_CONTRACT_INVALID", 502);
-    typedValue(f, value);
+    const field = m.snapshot.fields.find((candidate) => candidate.key === key);
+    if (!field) throw new ExternalError("EXTERNAL_CONTRACT_INVALID", 502);
+    try {
+      normalizedData[key] = normalizeCanonicalFieldValue(field.key, field, value);
+    } catch {
+      throw new ExternalError("EXTERNAL_CONTRACT_INVALID", 502);
+    }
   }
-  if (m.snapshot.fields.some((f) => !(f.key in data)))
+  if (m.snapshot.fields.some((field) => !(field.key in data)))
     throw new ExternalError("EXTERNAL_SCHEMA_CHANGED", 409);
   return {
     id: r.id,
@@ -395,7 +433,7 @@ export async function externalRecordDto(m: ExternalModel, raw: unknown) {
     modelKey: externalBusinessKey(m),
     origin: "external",
     schemaHash: m.schema_hash,
-    ...data,
+    ...normalizedData,
     ...(typeof r.createdAt === "string" ? { createdAt: r.createdAt } : {}),
     ...(typeof r.updatedAt === "string" ? { updatedAt: r.updatedAt } : {}),
   };
@@ -485,7 +523,7 @@ export async function executeExternalOperation(
     let queryHash = "";
     const prepare = async () => {
       if (operation === "create" || operation === "update")
-        validateData(m, input);
+        return validateData(m, input, operation);
       if (operation !== "query") return input;
       const q = validateQuery(m, input);
       const page = objectInput(q.page);

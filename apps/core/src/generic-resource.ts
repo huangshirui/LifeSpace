@@ -315,7 +315,7 @@ function relationIds(value: unknown, fieldKey: string, many: boolean): string[] 
   return ids;
 }
 
-function validateFieldValue(fieldKey: string, field: FieldDefinition, value: unknown): unknown {
+export function normalizeCanonicalFieldValue(fieldKey: string, field: FieldDefinition, value: unknown): unknown {
   if (value === null) {
     if (field.nullable) return null;
     throw new ApiError("INVALID_RESOURCE", `${fieldKey} cannot be null`, 400);
@@ -394,7 +394,7 @@ export function validateResourceData(
       if (creating && field.required && !field.readOnly) throw new ApiError("INVALID_RESOURCE", `Field ${fieldKey} is required`, 400);
       continue;
     }
-    result[fieldKey] = validateFieldValue(fieldKey, field, effectiveInput[fieldKey]);
+    result[fieldKey] = normalizeCanonicalFieldValue(fieldKey, field, effectiveInput[fieldKey]);
   }
   validateRecurrenceData(definition.capabilities?.recurrence, result);
   return result;

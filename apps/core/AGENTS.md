@@ -188,7 +188,7 @@ External Model binding/runtime companion contract:
 
 ```text
 apps/core/external-model.openapi.yaml
-current External Model version: 0.3.0
+current External Model version: 0.4.0
 ```
 
 Model Registry / Model Contract service-automation governance contract:

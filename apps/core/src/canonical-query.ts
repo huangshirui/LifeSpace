@@ -1,6 +1,6 @@
 import { canonicalQuerySemanticDescriptor } from "./canonical-query-contract";
 import type { Bindings, Principal } from "./env";
-import type { GenericResource } from "./generic-resource";
+import { normalizeCanonicalFieldValue, type GenericResource } from "./generic-resource";
 import { ApiError } from "./http";
 import { isFirstClassRangeFieldType, rangeFieldValueType, type FieldDefinition } from "./model-definition";
 import type { PublishedModel } from "./model-registry";
@@ -242,6 +242,44 @@ function parseRangeOperand(value: unknown, path: string): RangeOperand {
     return { kind, start, endExclusive };
   }
   throw new ApiError("INVALID_QUERY", `${path}.kind must be local_date_window, date, or instant`, 400);
+}
+
+export function normalizeCanonicalQueryOperand(
+  field: FieldDefinition,
+  op: string,
+  value: unknown,
+  path = "value",
+): unknown {
+  if (op === "kindIs") {
+    if (field.type !== "temporal_range" || (value !== "date" && value !== "instant")) {
+      throw new ApiError("INVALID_QUERY", `${path} must be date or instant for kindIs`, 400);
+    }
+    return value;
+  }
+  if (op === "within") {
+    if (field.type !== "date" && field.type !== "instant" && field.type !== "datetime") {
+      throw new ApiError("INVALID_QUERY", `${path} uses within only with date/instant fields`, 400);
+    }
+    return parseRangeOperand(value, path);
+  }
+  if (
+    ["overlaps", "before", "after"].includes(op)
+    || (op === "contains" && (isFirstClassRangeFieldType(field.type) || field.type === "temporal_range"))
+  ) {
+    if (!isFirstClassRangeFieldType(field.type) && field.type !== "temporal_range") {
+      throw new ApiError("INVALID_QUERY", `${path} uses a range operator with a non-range field`, 400);
+    }
+    return parseRangeOperand(value, path);
+  }
+  if (op === "contains" && ["person", "person_list", "record", "record_list"].includes(field.type)) {
+    if (typeof value !== "string" || !value) throw new ApiError("INVALID_QUERY", `${path} must contain an ID`, 400);
+    return value;
+  }
+  try {
+    return normalizeCanonicalFieldValue(path, field, value);
+  } catch {
+    throw new ApiError("INVALID_QUERY", `${path} does not match the canonical field type`, 400);
+  }
 }
 
 function projectOperand(value: RangeOperand, valueType: "date" | "instant" | "datetime", path: string): QueryRange {
@@ -761,7 +799,7 @@ function scalarFilter(model: PublishedModel, predicate: FilterPredicate): SqlFra
     return { sql: `${expression} IS ${predicate.op === "isNull" ? "" : "NOT "}NULL`, args: [] };
   }
   if (predicate.op === "within") {
-    if (field.type !== "date" && field.type !== "datetime") throw new ApiError("INVALID_QUERY", `${predicate.field}.within requires date or datetime`, 400);
+    if (field.type !== "date" && field.type !== "instant" && field.type !== "datetime") throw new ApiError("INVALID_QUERY", `${predicate.field}.within requires date or instant`, 400);
     const range = projectOperand(parseRangeOperand(predicate.value, `${predicate.field}.value`), field.type, `${predicate.field}.value`);
     return { sql: `(${expression}>=? AND ${expression}<?)`, args: [range.start, range.endExclusive] };
   }
