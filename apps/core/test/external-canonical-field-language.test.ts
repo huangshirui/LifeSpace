@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { CANONICAL_FIELD_TYPES } from "../src/model-definition";
 import { validateExternalSnapshot } from "../src/external-model";
+import { externalRecordDto } from "../src/external-runtime";
 
 const baseSnapshot = (type: string) => ({
   resourceId: "synthetic_resource",
@@ -40,6 +41,47 @@ describe("External Canonical Field Language", () => {
     for (const type of CANONICAL_FIELD_TYPES) {
       expect(validateExternalSnapshot(baseSnapshot(type)).fields[0]?.type).toBe(type);
     }
+  });
+
+  it("uses the canonical structured value validator at the External record boundary", async () => {
+    const snapshot = validateExternalSnapshot(baseSnapshot("range<date>"));
+    const field = snapshot.fields[0]!;
+    const dto = await externalRecordDto(
+      {
+        space_id: "spc_test",
+        model_key: "ext_test",
+        schema_hash: "schema",
+        snapshot,
+      } as never,
+      {
+        id: "rec_external_test",
+        data: {
+          [field.key]: { start: "2026-10-01", endExclusive: "2026-10-02" },
+        },
+      },
+    );
+    expect(dto[field.key]).toEqual({
+      start: "2026-10-01",
+      endExclusive: "2026-10-02",
+    });
+  });
+
+  it("uses the same entity_ref value semantics for External records", async () => {
+    const snapshot = validateExternalSnapshot(baseSnapshot("entity_ref"));
+    const field = snapshot.fields[0]!;
+    const dto = await externalRecordDto(
+      {
+        space_id: "spc_test",
+        model_key: "ext_test",
+        schema_hash: "schema",
+        snapshot,
+      } as never,
+      {
+        id: "rec_external_test",
+        data: { [field.key]: { kind: "record", modelKey: "task", recordId: "rec_test" } },
+      },
+    );
+    expect(dto[field.key]).toEqual({ kind: "record", modelKey: "task", recordId: "rec_test" });
   });
 
   it("rejects the legacy Native datetime alias because External speaks canonical types only", () => {
