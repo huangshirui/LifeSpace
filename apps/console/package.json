@@ -16,7 +16,8 @@
     "check:credential-reveal": "node scripts/check-credential-reveal-boundary.mjs",
     "check:service-token-prefix": "node scripts/check-service-token-prefix-boundary.mjs",
     "check:external-connections": "node scripts/check-external-connections-boundary.mjs",
-    "check": "pnpm typecheck && pnpm check:external-connections && pnpm check:control-plane && pnpm check:application-config && pnpm check:agent-governance && pnpm check:credential-governance && pnpm check:credential-reveal && pnpm check:service-token-prefix && pnpm check:staging-isolation && pnpm check:production-isolation && pnpm build",
+    "check:staging-acceptance-syntax": "node --check scripts/verify-staging-control-plane.mjs && node --check scripts/verify-staging-space-governance.mjs && node --check scripts/verify-staging-configuration-center.mjs",
+    "check": "pnpm typecheck && pnpm check:external-connections && pnpm check:control-plane && pnpm check:application-config && pnpm check:agent-governance && pnpm check:credential-governance && pnpm check:credential-reveal && pnpm check:service-token-prefix && pnpm check:staging-acceptance-syntax && pnpm check:staging-isolation && pnpm check:production-isolation && pnpm build",
     "deploy:staging": "CLOUDFLARE_ENV=staging vite build && wrangler deploy",
     "deploy:production": "CLOUDFLARE_ENV=production vite build && wrangler deploy"
   },

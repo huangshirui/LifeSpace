@@ -49,7 +49,8 @@ const deployRequired = [
   "CLOUDFLARE_ENV=staging pnpm exec vite build",
   "pnpm exec wrangler deploy",
   "lifespace-staging.aisr.online",
-  "External browser setup is fully self-service",
+  "Console External governance uses `/api/v1/platform-admin/spaces/{spaceId}/external-*`",
+  "downstream applications retain the ordinary direct-User Space-scoped External API",
 ];
 
 for (const token of deployRequired) {
@@ -80,8 +81,11 @@ const acceptanceRequired = [
   "https://auth-staging.aisr.online",
   "https://core-staging.aisr.online",
   "node apps/console/scripts/verify-staging-control-plane.mjs",
+  "node apps/console/scripts/verify-staging-space-governance.mjs",
   "node apps/console/scripts/verify-staging-configuration-center.mjs",
-  "No External Source or provider credential is provisioned by this workflow",
+  "Created, updated and revoked a temporary Data Grant through `/api/v1/platform-admin/spaces/{spaceId}/grants*`",
+  "Console governance uses Platform Admin authority",
+  "No provider credential is created, rotated or revoked by this generic control-plane acceptance",
 ];
 
 for (const token of acceptanceRequired) {
@@ -106,7 +110,7 @@ for (const [label, pattern] of acceptanceForbidden) {
 
 const platformWorkflow = readFileSync(new URL("../../../.github/workflows/staging-deploy.yml", import.meta.url), "utf8");
 if (!platformWorkflow.includes("node infra/scripts/reconcile-staging-console-space-scope.mjs")) {
-  throw new Error("Canonical platform staging release must converge the Console spaces:manage scope ceiling before isolated Console deployment");
+  throw new Error("Canonical platform staging release must converge the Console Platform Admin scope ceiling before isolated Console deployment");
 }
 
 console.log(JSON.stringify({
@@ -116,10 +120,13 @@ console.log(JSON.stringify({
   acceptanceExplicitOptIn: true,
   coreIdentityMutationAbsentFromDeploy: true,
   bootstrapAuthorityAbsentFromDeploy: true,
-  platformReleaseOwnsSpaceManageScopeConvergence: true,
-  externalSetupIsSelfService: true,
+  platformReleaseOwnsConsoleScopeConvergence: true,
+  consoleExternalGovernanceUsesPlatformAdmin: true,
+  downstreamExternalSelfServiceUsesDirectUserSpaceAuthority: true,
   externalSourcePreprovisionAbsent: true,
   acceptanceCoversModelPublishing: true,
+  acceptanceCoversSpaceGrantGovernance: true,
+  acceptanceCoversExternalAuthorityBoundary: true,
   acceptanceCoversApplicationCredentialGovernance: true,
   acceptanceDoesNotDeployPlatformServices: true,
   acceptanceStagingOnly: true,

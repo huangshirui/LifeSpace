@@ -1,6 +1,6 @@
 # LifeSpace Console — Configuration & Publishing Center
 
-Status: **MVP accepted in staging; Platform Admin authority convergence in PR #367**
+Status: **Platform Admin authority convergence merged in PR #367; staging rollout/acceptance pending**
 
 The accepted read-only Console foundation remains documented in `docs/lifespace-console-mvp.md`. This document defines the current configuration/publishing center after the authority boundary was tightened: **LifeSpace Console is a pure Platform Admin Console**. Normal privileged operations never switch to ordinary User/Space authority merely because the target resource belongs to a Space.
 
@@ -103,7 +103,7 @@ GET  /api/v1/platform-admin/models/{modelKey}
 POST /api/v1/platform-admin/models/{modelKey}/retire
 ```
 
-The independent `/api/v1/model-admin/*` contract remains for **non-interactive Service Automation / CI**. Console does not use it as its runtime administration namespace.
+The independent `/api/v1/model-admin/*` contract remains only for **non-interactive Model Release Automation（模型发布自动化）** such as CI/CD, release verification and bounded smoke flows. Console does not use it as its runtime administration namespace, and ordinary product/business Services do not gain Space governance authority from this control plane.
 
 Model validation/publication still reuses the same canonical Model Definition validator, Registry implementation and Model Control Plane request/response schemas. There is never a second Console model format.
 
@@ -213,7 +213,7 @@ Status: **merged and staging transaction-proven**
 
 PR: `#60 feat(console): add configuration and model publishing control plane`
 
-The original JSON-first Model Definition editor proved the no-code publication path. After Platform Admin convergence, the same operator capability is exposed through `/api/v1/platform-admin/models*`; `/model-admin/*` is retained only for Service Automation.
+The original JSON-first Model Definition editor proved the no-code publication path. After Platform Admin convergence, the same operator capability is exposed through `/api/v1/platform-admin/models*`; `/model-admin/*` is retained only for Model Release Automation.
 
 ### Slice B — Application configuration
 
@@ -233,18 +233,18 @@ The sealed target-credential reveal boundary remains unchanged. Plaintext is nev
 
 ### Slice G — Platform Admin authority convergence + Space governance
 
-Status: **Draft PR #367; CI/staging acceptance required before merge/rollout**
+Status: **merged via PR #367; repository CI green; staging platform/Console rollout and post-deploy acceptance pending**
 
 Scope:
 
 - make Platform Admin authority the sole normal Console authority model;
 - add Platform Admin Data Grant create/update/revoke;
-- move Console Model governance from `/model-admin/*` to `/platform-admin/models*` while preserving the Service Automation contract;
+- move Console Model governance from `/model-admin/*` to `/platform-admin/models*` while preserving the Model Release Automation contract;
 - move Console External Connection/binding setup from ordinary User/Space authority to `/platform-admin/spaces/{spaceId}/external-*`;
 - converge staging/production Console executor scope ceilings for `spaces:manage` and `grants:manage`;
 - preserve no-hidden-Space-authority semantics and human/executor audit evidence.
 
-No D1 schema migration is required because this slice adds control-plane authority paths over existing canonical state.
+No D1 schema migration is required because this slice adds control-plane authority paths over existing canonical state. The staging acceptance follow-up additionally proves that the Console service executor is rejected by ordinary User/Space Grant and External APIs, while Platform Admin Data Grant lifecycle and External governance reads remain available through the dedicated control plane.
 
 ### Slice D — Visual Model Designer
 
