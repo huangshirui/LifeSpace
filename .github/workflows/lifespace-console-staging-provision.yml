@@ -19,7 +19,7 @@ concurrency:
 
 jobs:
   provision:
-    name: Converge platform and deploy LifeSpace Console staging
+    name: Converge Console control plane and deploy LifeSpace Console staging
     runs-on: ubuntu-latest
     timeout-minutes: 30
     environment: staging
@@ -111,23 +111,10 @@ jobs:
       - name: Resolve expected staging versions
         run: node infra/scripts/staging-expectations.mjs
 
-      - name: Resolve staging D1 IDs
-        run: node infra/scripts/resolve-staging-d1.mjs
-
-      - name: Apply Core migrations
-        run: |
-          echo "core-migrations" > "$RUNNER_TEMP/lifespace-console-provision-stage"
-          pnpm --filter @lifespace/core db:migrate:staging
-
-      - name: Deploy Core first
-        run: |
-          echo "core-deploy" > "$RUNNER_TEMP/lifespace-console-provision-stage"
-          pnpm --dir apps/core exec wrangler deploy --env staging
-
-      - name: Wait for Core staging convergence
+      - name: Verify current Core staging compatibility without mutation
         shell: bash
         run: |
-          echo "core-convergence" > "$RUNNER_TEMP/lifespace-console-provision-stage"
+          echo "core-compatibility" > "$RUNNER_TEMP/lifespace-console-provision-stage"
           set -euo pipefail
           curl --fail --silent --show-error --retry 12 --retry-delay 5 --retry-all-errors https://core-staging.aisr.online/health
           echo
@@ -139,31 +126,21 @@ jobs:
               process.exit(data.environment === "staging" && String(data.schemaVersion) === process.env.EXPECTED_SCHEMA && data.contractVersion === process.env.EXPECTED_CONTRACT ? 0 : 1);
             '; then
               echo "$STATUS"
-              echo "Core staging converged to schema v${LIFESPACE_EXPECTED_CORE_SCHEMA_VERSION} / contract ${LIFESPACE_EXPECTED_CORE_CONTRACT_VERSION}"
+              echo "Core staging already matches schema v${LIFESPACE_EXPECTED_CORE_SCHEMA_VERSION} / contract ${LIFESPACE_EXPECTED_CORE_CONTRACT_VERSION}; deployment topology is preserved"
               break
             fi
-            echo "Core staging has not converged yet (attempt ${attempt}/12): ${STATUS:-<no response>}"
-            if [ "$attempt" -eq 12 ]; then exit 1; fi
+            echo "Core staging does not match this Console candidate yet (attempt ${attempt}/12): ${STATUS:-<no response>}"
+            if [ "$attempt" -eq 12 ]; then
+              echo "Run the canonical Deploy LifeSpace platform staging workflow for this candidate before Console provisioning." >&2
+              exit 1
+            fi
             sleep 5
           done
 
-      - name: Apply Identity migrations
-        run: |
-          echo "identity-migrations" > "$RUNNER_TEMP/lifespace-console-provision-stage"
-          pnpm --filter @lifespace/identity db:migrate:staging
-
-      - name: Deploy Identity after compatible Core
-        run: |
-          echo "identity-deploy" > "$RUNNER_TEMP/lifespace-console-provision-stage"
-          pnpm --dir apps/identity exec wrangler deploy --env staging
-
-      - name: Ensure staging Core and Identity custom domains
-        run: node infra/scripts/ensure-staging-domains.mjs
-
-      - name: Wait for Identity staging convergence
+      - name: Verify current Identity staging compatibility without mutation
         shell: bash
         run: |
-          echo "identity-convergence" > "$RUNNER_TEMP/lifespace-console-provision-stage"
+          echo "identity-compatibility" > "$RUNNER_TEMP/lifespace-console-provision-stage"
           set -euo pipefail
           curl --fail --silent --show-error --retry 12 --retry-delay 5 --retry-all-errors https://auth-staging.aisr.online/health
           echo
@@ -175,11 +152,14 @@ jobs:
               process.exit(data.environment === "staging" && String(data.schemaVersion) === process.env.EXPECTED_SCHEMA && data.contractVersion === process.env.EXPECTED_CONTRACT ? 0 : 1);
             '; then
               echo "$STATUS"
-              echo "Identity staging converged to schema v${LIFESPACE_EXPECTED_IDENTITY_SCHEMA_VERSION} / contract ${LIFESPACE_EXPECTED_IDENTITY_CONTRACT_VERSION}"
+              echo "Identity staging already matches schema v${LIFESPACE_EXPECTED_IDENTITY_SCHEMA_VERSION} / contract ${LIFESPACE_EXPECTED_IDENTITY_CONTRACT_VERSION}; deployment topology is preserved"
               break
             fi
-            echo "Identity staging has not converged yet (attempt ${attempt}/12): ${STATUS:-<no response>}"
-            if [ "$attempt" -eq 12 ]; then exit 1; fi
+            echo "Identity staging does not match this Console candidate yet (attempt ${attempt}/12): ${STATUS:-<no response>}"
+            if [ "$attempt" -eq 12 ]; then
+              echo "Run the canonical Deploy LifeSpace platform staging workflow for this candidate before Console provisioning." >&2
+              exit 1
+            fi
             sleep 5
           done
 
@@ -422,17 +402,15 @@ jobs:
 
           - Core: schema v${LIFESPACE_EXPECTED_CORE_SCHEMA_VERSION} / Kernel ${LIFESPACE_EXPECTED_CORE_CONTRACT_VERSION}
           - Identity: schema v${LIFESPACE_EXPECTED_IDENTITY_SCHEMA_VERSION} / contract ${LIFESPACE_EXPECTED_IDENTITY_CONTRACT_VERSION}
+          - Core / Identity deployment: unchanged; this workflow only verified current platform compatibility.
+          - Provider Service Bindings / generated routing: preserved from the canonical platform staging release.
           - LifeSpace application: \`app_lifespace_console_staging\`
-          - Access AUD: \`1d42303137e808002273985855078230ce53fe18078b40c5b8cbc09dd3a62a36\`
           - Worker: \`lifespace-console-staging\`
           - Hostname: \`lifespace-staging.aisr.online\`
-          - React/Vite Console shell: deployed; platform pages require full platform-admin provisioning
-          - Identity application credential: freshly rotated in-run and installed as Worker Secret; superseded credentials revoked after deployment verification
-          - Platform administrator assignment: not changed
-          - Core executor: not provisioned by this run
-          - Bootstrap secret: provisioning-only; not installed in the Console Worker
-          - Production resources/routes: untouched
-          - Next: open the staging Console through Cloudflare Access, explicitly register/link the Access principal if necessary, then rerun this workflow with the resolved \`usr_*\`
+          - Identity application credential: freshly rotated in-run and installed as Worker Secret; superseded credentials revoked after deployment verification.
+          - Platform administrator assignment: not changed.
+          - Core executor: not provisioned by this run.
+          - Production resources/routes: untouched.
           EOF
 
       - name: Summarize full platform-admin provisioning
@@ -444,15 +422,13 @@ jobs:
 
           - Core: schema v${LIFESPACE_EXPECTED_CORE_SCHEMA_VERSION} / Kernel ${LIFESPACE_EXPECTED_CORE_CONTRACT_VERSION}
           - Identity: schema v${LIFESPACE_EXPECTED_IDENTITY_SCHEMA_VERSION} / contract ${LIFESPACE_EXPECTED_IDENTITY_CONTRACT_VERSION}
+          - Core / Identity deployment: unchanged; this workflow only verified current platform compatibility.
+          - Provider Service Bindings / generated routing: preserved from the canonical platform staging release.
           - LifeSpace application: \`app_lifespace_console_staging\`
-          - Access AUD: \`1d42303137e808002273985855078230ce53fe18078b40c5b8cbc09dd3a62a36\`
           - Worker: \`lifespace-console-staging\`
           - Hostname: \`lifespace-staging.aisr.online\`
-          - React/Vite Console + bounded same-origin BFF: deployed
-          - Identity/Core Platform Admin companion contracts: \`0.2.0\`
-          - Identity application credential + Core executor token: freshly rotated in-run, installed as Worker Secrets, superseded credentials revoked after deployment verification
-          - Platform administrator assignment: reconciled to the supplied staging \`usr_*\`
-          - Bootstrap secret: provisioning/recovery-only; not installed in the Console Worker
-          - Production resources/routes: untouched
-          - Next: real browser Cloudflare Access -> Console Overview/Applications/Models/Users/Spaces/Audit/System plus \`/api/platform/probe\`
+          - Identity application credential + Core executor token: freshly rotated in-run, installed as Worker Secrets, superseded credentials revoked after deployment verification.
+          - Platform administrator assignment: reconciled to the supplied staging \`usr_*\`.
+          - Bootstrap secret: provisioning/recovery-only; not installed in the Console Worker.
+          - Production resources/routes: untouched.
           EOF
