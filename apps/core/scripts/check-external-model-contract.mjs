@@ -12,13 +12,18 @@ assert(!api.paths["/api/v1/spaces/{spaceId}/external-sources"]);
 assert(!api.components.schemas.CreateSource);
 assert(!api.components.schemas.ExternalSource);
 assert(!api.components.schemas.DynamicRecord.properties.version);
-const modelDefinition = readFileSync(new URL("src/model-definition.ts", root), "utf8");
-const canonicalTypeBlock = modelDefinition.match(/export const CANONICAL_FIELD_TYPES = \[([\s\S]*?)\] as const;/u);
-assert(canonicalTypeBlock, "CANONICAL_FIELD_TYPES source block is required");
-const canonicalTypes = [...canonicalTypeBlock[1].matchAll(/"([^"\n]+)"/gu)].map((match) => match[1]);
-assert.deepEqual(api.components.schemas.ExternalField.properties.type.enum, canonicalTypes);
+
+// External must not define a second field-type vocabulary. The wire field carries
+// the canonical type name; Core validates it through Model Definition's single
+// Canonical Field Language.
+const externalType = api.components.schemas.ExternalField.properties.type;
+assert.equal(externalType.type, "string");
+assert.equal(externalType.enum, undefined);
+
 const externalRuntime = readFileSync(new URL("src/external-runtime.ts", root), "utf8");
 assert(externalRuntime.includes("normalizeCanonicalFieldValue"));
+assert(externalRuntime.includes("recurrenceRuleSchema"));
+assert(externalRuntime.includes("entityRefSchema"));
 assert(!externalRuntime.includes("function typedValue("));
 const externalModel = readFileSync(new URL("src/external-model.ts", root), "utf8");
 assert(externalModel.includes("CanonicalFieldDefinition"));
