@@ -1,6 +1,11 @@
 import type { Bindings } from "./env";
 import { ApiError } from "./http";
-import type { ModelAccess } from "./model-definition";
+import { CANONICAL_QUERY_OPERATORS } from "./canonical-query-contract";
+import {
+  validateCanonicalFieldDefinition,
+  type CanonicalFieldDefinition,
+  type ModelAccess,
+} from "./model-definition";
 import { getRuntimeModel, type PublishedModel } from "./model-registry";
 import {
   configuredExternalProviderKeys,
@@ -28,17 +33,15 @@ export type ExternalCapabilities = {
   actions: false;
   relationTargetResolution: boolean;
 };
-export type ExternalField = {
+export type ExternalField = CanonicalFieldDefinition & {
   key: string;
   sourceFieldId: string;
   title: string;
-  type: "string" | "text" | "number" | "boolean" | "enum" | "instant";
   nullable: boolean;
   readable: true;
   writable: boolean;
   operators: string[];
   sortable: boolean;
-  values?: string[];
 };
 export type ExternalSnapshot = {
   resourceId: string;
@@ -167,19 +170,32 @@ export function validateExternalSnapshot(value: unknown): ExternalSnapshot {
     throw new ExternalError("EXTERNAL_CONTRACT_INVALID", 502);
   const seen = new Set<string>();
   const ids = new Set<string>();
+  const normalizedFields: ExternalField[] = [];
+  const canonicalProperties = [
+    "type",
+    "title",
+    "description",
+    "required",
+    "nullable",
+    "immutable",
+    "readOnly",
+    "minLength",
+    "maxLength",
+    "minimum",
+    "maximum",
+    "values",
+    "targetModel",
+  ] as const;
   for (const raw of input.fields) {
     const f = objectInput(raw);
     onlyKeys(f, [
       "key",
       "sourceFieldId",
-      "title",
-      "type",
-      "nullable",
+      ...canonicalProperties,
       "readable",
       "writable",
       "operators",
       "sortable",
-      "values",
     ]);
     if (
       typeof f.key !== "string" ||
@@ -191,45 +207,51 @@ export function validateExternalSnapshot(value: unknown): ExternalSnapshot {
     const id = boundedString(f.sourceFieldId, "sourceFieldId");
     if (ids.has(id)) throw new ExternalError("EXTERNAL_CONTRACT_INVALID", 502);
     ids.add(id);
-    boundedString(f.title, "title");
+    boundedString(f.title, "title", 80);
     if (
-      !["string", "text", "number", "boolean", "enum", "instant"].includes(
-        String(f.type),
-      ) ||
       f.readable !== true ||
       typeof f.writable !== "boolean" ||
       typeof f.sortable !== "boolean" ||
       typeof f.nullable !== "boolean"
     )
       throw new ExternalError("EXTERNAL_CONTRACT_INVALID", 502);
+    const canonicalRaw = Object.fromEntries(
+      canonicalProperties
+        .filter((property) => Object.prototype.hasOwnProperty.call(f, property))
+        .map((property) => [property, f[property]]),
+    );
+    const canonical = validateCanonicalFieldDefinition(canonicalRaw);
+    if (!canonical.valid)
+      throw new ExternalError("EXTERNAL_CONTRACT_INVALID", 502);
+    if (canonical.definition.readOnly === true && f.writable === true)
+      throw new ExternalError("EXTERNAL_CONTRACT_INVALID", 502);
     if (
       !Array.isArray(f.operators) ||
       f.operators.some(
         (op) =>
-          ![
-            "eq",
-            "ne",
-            "lt",
-            "lte",
-            "gt",
-            "gte",
-            "contains",
-            "isNull",
-            "isNotNull",
-          ].includes(String(op)),
+          typeof op !== "string" ||
+          !CANONICAL_QUERY_OPERATORS.includes(
+            op as (typeof CANONICAL_QUERY_OPERATORS)[number],
+          ),
       )
     )
       throw new ExternalError("EXTERNAL_CONTRACT_INVALID", 502);
     if (
-      f.type === "enum" &&
-      (!Array.isArray(f.values) ||
-        !f.values.length ||
-        f.values.length > 100 ||
-        f.values.some(
-          (v) => typeof v !== "string" || !v.length || v.length > 256,
-        ))
+      canonical.definition.nullable !== true &&
+      f.operators.some((op) => op === "isNull" || op === "isNotNull")
     )
       throw new ExternalError("EXTERNAL_CONTRACT_INVALID", 502);
+    normalizedFields.push({
+      ...canonical.definition,
+      key: f.key,
+      sourceFieldId: id,
+      title: canonical.definition.title ?? String(f.title),
+      nullable: canonical.definition.nullable === true,
+      readable: true,
+      writable: f.writable,
+      operators: [...f.operators] as string[],
+      sortable: f.sortable,
+    });
   }
   const caps = objectInput(input.capabilities);
   onlyKeys(caps, [
@@ -273,7 +295,7 @@ export function validateExternalSnapshot(value: unknown): ExternalSnapshot {
   objectInput(input.adapterState);
   if (canonicalExternalJson(input).length > 128000)
     throw new ExternalError("EXTERNAL_CONTRACT_INVALID", 502);
-  return input as unknown as ExternalSnapshot;
+  return { ...input, fields: normalizedFields } as unknown as ExternalSnapshot;
 }
 export async function callExternalAdapter(
   env: Bindings,
