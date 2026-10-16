@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 const root = new URL("../", import.meta.url);
 const api = JSON.parse(readFileSync(new URL("external-model.openapi.yaml", root), "utf8"));
 const adapter = JSON.parse(readFileSync(new URL("external-adapter.contract.json", root), "utf8"));
-assert.equal(api.info.version, "0.4.0");
+assert.equal(api.info.version, "0.5.0");
 assert.equal(adapter.properties.contractVersion.const, 1);
 for (const op of ["connection", "discover", "get", "query", "create", "update", "delete"])
   assert(adapter.properties.operation.enum.includes(op));
@@ -12,6 +12,9 @@ assert(!api.paths["/api/v1/spaces/{spaceId}/external-sources"]);
 assert(!api.components.schemas.CreateSource);
 assert(!api.components.schemas.ExternalSource);
 assert(!api.components.schemas.DynamicRecord.properties.version);
+assert(!api.components.schemas.DynamicRecord.properties.origin);
+assert(!api.components.schemas.DynamicRecord.properties.schemaHash);
+assert.deepEqual(api.components.schemas.DynamicRecord.required, ["id", "spaceId", "modelKey"]);
 
 // External must not define a second field-type vocabulary. The wire field carries
 // the canonical type name; Core validates it through Model Definition's single

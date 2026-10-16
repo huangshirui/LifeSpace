@@ -111,7 +111,7 @@ export function registerExternalBatchRoutes(app: Hono<AppEnv>) {
     }
     const space = c.req.param("spaceId")!;
     const principal = c.get("principal");
-    const bulkId = "ebl_" + crypto.randomUUID().replaceAll("-", "");
+    const bulkId = "blk_" + crypto.randomUUID().replaceAll("-", "");
     const externalCatalog = new Map(
       (await listExternalModels(c.env, [space])).flatMap((m) => [[m.model_key, m] as const, [externalBusinessKey(m), m] as const]),
     );

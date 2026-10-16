@@ -431,8 +431,6 @@ export async function externalRecordDto(m: ExternalModel, raw: unknown) {
     id: r.id,
     spaceId: m.space_id,
     modelKey: externalBusinessKey(m),
-    origin: "external",
-    schemaHash: m.schema_hash,
     ...normalizedData,
     ...(typeof r.createdAt === "string" ? { createdAt: r.createdAt } : {}),
     ...(typeof r.updatedAt === "string" ? { updatedAt: r.updatedAt } : {}),
