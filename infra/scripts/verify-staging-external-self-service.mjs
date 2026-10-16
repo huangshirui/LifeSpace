@@ -194,11 +194,14 @@ try {
     body: { [title.key]: `Dynamic acceptance ${marker}`, [amount.key]: 23 },
   }, 201);
   recordId = record.id;
-  assert.equal(record.origin, "external");
+  assert.equal(record.origin, undefined);
+  assert.equal(record.schemaHash, undefined);
   assert.equal(record.version, undefined);
   const fetched = await expectRequest(`${base}/models/${definitionKey}/records/${recordId}`);
   assert.equal(fetched.id, recordId);
   assert.equal(fetched[amount.key], 23);
+  assert.equal(fetched.origin, undefined);
+  assert.equal(fetched.schemaHash, undefined);
   checks.runtime = true;
 
   await expectRequest(`${base}/external-models/${definitionKey}/refresh`, { method: "POST", body: {} });
