@@ -122,8 +122,8 @@ jobs:
           - No Core or Identity Worker was deployed.
           - No bootstrap secret was used.
           - Existing Console Worker secrets were preserved rather than rotated.
-          - Required Console Application scope convergence, including `spaces:manage`, belongs to the canonical platform staging release.
-          - External browser setup is fully self-service: create a Dynamic Connection, discover Provider resources and bind an External Model through the public Space-scoped API. No Source preprovision is performed here.
+          - Required Console Platform Admin scope convergence, including `spaces:manage` and `grants:manage`, belongs to the canonical platform staging release.
+          - Console External governance uses `/api/v1/platform-admin/spaces/{spaceId}/external-*`; downstream applications retain the ordinary direct-User Space-scoped External API over the same canonical Core state.
           - Optional acceptance below exercises bounded platform control-plane lifecycles only.
           EOF
 
@@ -176,6 +176,9 @@ jobs:
       - name: Exercise Model publishing and Model Access lifecycle
         run: node apps/console/scripts/verify-staging-control-plane.mjs
 
+      - name: Exercise Space Grant and External authority boundaries
+        run: node apps/console/scripts/verify-staging-space-governance.mjs
+
       - name: Exercise Application and service identity lifecycle
         run: node apps/console/scripts/verify-staging-configuration-center.mjs
 
@@ -185,14 +188,21 @@ jobs:
           cat >> "$GITHUB_STEP_SUMMARY" <<'EOF'
           ## LifeSpace Console Configuration & Publishing Center — staging acceptance
 
-          Slice A:
+          Model governance:
           - Used the current active staging platform administrator as human actor.
-          - Validated/published an ephemeral model v1 (`initial`) and additive v2 (`compatible`).
-          - Observed Model Contract revision advancement.
+          - Validated/published an ephemeral model v1 (`initial`) and additive v2 (`compatible`) through `/api/v1/platform-admin/models*`.
+          - Observed Model Contract revision advancement through the independent Model Release Automation evidence surface.
           - Added then restored Application × Model Access.
           - Retired the ephemeral model and verified it disappeared from the published Registry.
 
-          Slices B/C:
+          Space governance:
+          - Selected a staging Space where the same human administrator already has `owner`/`admin` authority, so the temporary User grant is redundant rather than authority-expanding.
+          - Proved the Console service executor is denied on ordinary User `/spaces/{spaceId}/grants` and `/spaces/{spaceId}/external-connections` APIs even though it holds the corresponding executor scopes.
+          - Created, updated and revoked a temporary Data Grant through `/api/v1/platform-admin/spaces/{spaceId}/grants*`, verified revoked inspector state and human/executor audit evidence.
+          - Proved the Console executor has no pre-existing active Data Grant in the selected Space.
+          - Read External Connection / binding / definition configuration through `/api/v1/platform-admin/spaces/{spaceId}/external-*` without provisioning or mutating provider credentials.
+
+          Application / identity governance:
           - Created and updated a generated staging Application.
           - Registered then revoked a disposable Cloudflare Access audience.
           - Created/revoked target Application credentials and verified metadata does not expose plaintext.
@@ -202,12 +212,12 @@ jobs:
           - Left the generated acceptance Application disabled because the platform contract has no delete-Application lifecycle.
 
           External setup boundary:
-          - No External Source or provider credential is provisioned by this workflow.
-          - Normal browser acceptance uses the public Space-scoped Dynamic Connection API end to end.
-          - Connection creation itself grants no Membership, Data Grant, Application × Model Access or model binding.
+          - Console governance uses Platform Admin authority; it does not borrow the current user's ordinary Space authority.
+          - Downstream application self-service remains on the ordinary direct-User Space-scoped External contract over the same authoritative Core Connection/binding state.
+          - No provider credential is created, rotated or revoked by this generic control-plane acceptance; provider-backed write lifecycle remains covered by the canonical External staging flow/browser acceptance where real provider credentials are available.
 
           Boundaries:
-          - Temporary acceptance executors/credentials are revoked during cleanup.
+          - Temporary acceptance grants/executors/credentials are revoked during cleanup.
           - This acceptance job does not deploy Console/Core/Identity or run migrations.
           - Production is not targeted.
           EOF
