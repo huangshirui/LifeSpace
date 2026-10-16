@@ -523,10 +523,22 @@ describe("Space-local External Model framework", () => {
     expect((await f.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name LIKE '%external_document_test%'").all()).results).toEqual([]);
     const created = await f.request(f.path, "POST", { [field]: 4 });
     expect(created.status).toBe(201); const record = (await created.json<any>()).data;
-    expect(record.modelKey).toBe("external_document_test"); expect(record.version).toBeUndefined();
+    expect(record.modelKey).toBe("external_document_test");
+    expect(record.origin).toBeUndefined();
+    expect(record.schemaHash).toBeUndefined();
+    expect(record.version).toBeUndefined();
+    const queried = await f.request(`${f.path}/query`, "POST", {});
+    expect(queried.status).toBe(200);
+    const queriedRecord = (await queried.json<any>()).data.items[0];
+    expect(queriedRecord.origin).toBeUndefined();
+    expect(queriedRecord.schemaHash).toBeUndefined();
     f.state.calls = [];
     const result = await f.request(`/api/v1/spaces/${f.space}/models/batch`, "POST", { atomicConsistency: false, operations: [{ operation: "create", modelKey: f.model, data: { [field]: 5 } }] });
-    expect(result.status).toBe(200); expect((await result.json<any>()).data.items[0].status).toBe("succeeded"); expect(f.state.calls).toEqual(["create"]);
+    expect(result.status).toBe(200);
+    const bulk = (await result.json<any>()).data;
+    expect(bulk.bulkId).toMatch(/^blk_/);
+    expect(bulk.items[0].status).toBe("succeeded");
+    expect(f.state.calls).toEqual(["create"]);
     const duplicate = await f.request(`/api/v1/spaces/${f.space}/external-models`, "POST", { connectionId: f.source, definitionKey: f.model, resourceId: f.resource, declaredAccess: "write" });
     expect(duplicate.status).toBe(409);
   });
@@ -544,7 +556,10 @@ describe("Space-local External Model framework", () => {
     const created = await f.request(base, "POST", input); expect(created.status).toBe(200);
     const id = (await created.json<any>()).data.id;
     const hydrated = await f.request(`${base}/${id}?hydrate=both`); expect(hydrated.status).toBe(200);
-    const edge = (await hydrated.json<any>()).data; expect(edge.targetRecord.origin).toBe("external"); expect(edge.targetRecord.version).toBeUndefined();
+    const edge = (await hydrated.json<any>()).data;
+    expect(edge.targetRecord.origin).toBeUndefined();
+    expect(edge.targetRecord.schemaHash).toBeUndefined();
+    expect(edge.targetRecord.version).toBeUndefined();
     f.state.calls = [];
     const atomic = await f.request(`/api/v1/spaces/${f.space}/models/batch`, "POST", { operations: [{ operation: "relation_create", ...input }] });
     expect(atomic.status).toBe(422); expect(f.state.calls).toEqual([]);
@@ -590,7 +605,9 @@ describe("Space-local External Model framework", () => {
     expect((await f.db.prepare("SELECT next_refresh_at FROM external_models WHERE model_key=?").bind(f.registration).first<any>()).next_refresh_at).not.toBeNull();
     f.state.calls = [];
     await reconcileExternalModels(f.bindings);
-    expect(f.state.calls).toEqual(["discover"]);
+    // Identity observation shares the scheduler but is an independent queue; this test
+    // asserts only that the due schema binding is discovered exactly once.
+    expect(f.state.calls.filter(call => call === "discover")).toEqual(["discover"]);
     const plan = await f.db.prepare("EXPLAIN QUERY PLAN SELECT space_id,model_key FROM external_models m WHERE status!='disabled' AND next_refresh_at IS NOT NULL AND next_refresh_at<=? AND EXISTS(SELECT 1 FROM external_sources s WHERE s.id=m.source_id AND s.status='active') AND EXISTS(SELECT 1 FROM spaces s WHERE s.id=m.space_id AND s.deleted_at IS NULL) ORDER BY next_refresh_at,model_key LIMIT 20").bind(new Date().toISOString()).all<any>();
     expect(plan.results.some(r => r.detail.includes("idx_external_refresh_due"))).toBe(true);
     expect(plan.results.some(r => r.detail.includes("TEMP B-TREE") || r.detail === "SCAN m")).toBe(false);
@@ -630,7 +647,8 @@ describe("Space-local External Model framework", () => {
     const response = await f.request(f.path, "POST", { [field]: 3 });
     expect(response.status).toBe(201);
     const data = ((await response.json()) as any).data;
-    expect(data.origin).toBe("external");
+    expect(data.origin).toBeUndefined();
+    expect(data.schemaHash).toBeUndefined();
     expect(data.version).toBeUndefined();
     expect(data.createdBy).toBeUndefined();
     expect(
