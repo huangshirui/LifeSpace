@@ -108,6 +108,43 @@ for (const [label, pattern] of acceptanceForbidden) {
   if (pattern.test(acceptanceSource)) throw new Error(`${workflowPath} acceptance job violates staging acceptance isolation: ${label}`);
 }
 
+const provisionUrl = new URL("../../../.github/workflows/lifespace-console-staging-provision.yml", import.meta.url);
+const provisionPath = fileURLToPath(provisionUrl);
+const provisionSource = readFileSync(provisionUrl, "utf8");
+
+const provisionRequired = [
+  "workflow_dispatch:",
+  "Resolve expected staging versions",
+  "Verify current Core staging compatibility without mutation",
+  "https://core-staging.aisr.online/api/v1/status",
+  "Verify current Identity staging compatibility without mutation",
+  "https://auth-staging.aisr.online/api/v1/status",
+  "prepare-staging-console-shell.mjs",
+  "prepare-staging-console-admin.mjs",
+  "CLOUDFLARE_ENV=staging pnpm exec vite build",
+  "pnpm exec wrangler deploy --secrets-file",
+  "Core / Identity deployment: unchanged; this workflow only verified current platform compatibility.",
+  "Provider Service Bindings / generated routing: preserved from the canonical platform staging release.",
+];
+
+for (const token of provisionRequired) {
+  if (!provisionSource.includes(token)) throw new Error(`${provisionPath} must include ${token}`);
+}
+
+const provisionForbidden = [
+  ["Core migration", /@lifespace\/core[^\n]*db:migrate|core-migrations/iu],
+  ["Core deployment", /apps\/core[^\n]*wrangler deploy|core-deploy/iu],
+  ["Identity migration", /@lifespace\/identity[^\n]*db:migrate|identity-migrations/iu],
+  ["Identity deployment", /apps\/identity[^\n]*wrangler deploy|identity-deploy/iu],
+  ["platform custom-domain mutation", /ensure-staging-domains\.mjs/iu],
+  ["External provider deployment/topology mutation", /external-provider-deployment\.mjs|EXTERNAL_PROVIDER_ROUTES|EXTERNAL_ADAPTER_NOTION/iu],
+  ["production target", /CLOUDFLARE_ENV=production|lifespace-console-production|https:\/\/core\.aisr\.online|https:\/\/auth\.aisr\.online/iu],
+];
+
+for (const [label, pattern] of provisionForbidden) {
+  if (pattern.test(provisionSource)) throw new Error(`${provisionPath} violates Console provisioning isolation: ${label}`);
+}
+
 const platformWorkflow = readFileSync(new URL("../../../.github/workflows/staging-deploy.yml", import.meta.url), "utf8");
 if (!platformWorkflow.includes("node infra/scripts/reconcile-staging-console-space-scope.mjs")) {
   throw new Error("Canonical platform staging release must converge the Console Platform Admin scope ceiling before isolated Console deployment");
@@ -131,4 +168,6 @@ console.log(JSON.stringify({
   acceptanceDoesNotDeployPlatformServices: true,
   acceptanceStagingOnly: true,
   productionTargetAbsent: true,
+  controlPlaneProvisionPreservesPlatformDeployment: true,
+  providerRoutingCannotBeClobberedByConsoleProvisioning: true,
 }));
