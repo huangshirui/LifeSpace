@@ -54,6 +54,21 @@ replaceExact(
   `    expect(result.status).toBe(200); expect((await result.json<any>()).data.items[0].status).toBe("succeeded"); expect(f.state.calls).toEqual(["create"]);`,
   `    expect(result.status).toBe(200);\n    const bulk = (await result.json<any>()).data;\n    expect(bulk.bulkId).toMatch(/^blk_/);\n    expect(bulk.items[0].status).toBe("succeeded");\n    expect(f.state.calls).toEqual(["create"]);`,
 );
+replaceExact(
+  "apps/core/test/external-model.integration.test.ts",
+  `    const edge = (await hydrated.json<any>()).data; expect(edge.targetRecord.origin).toBe("external"); expect(edge.targetRecord.version).toBeUndefined();`,
+  `    const edge = (await hydrated.json<any>()).data;\n    expect(edge.targetRecord.origin).toBeUndefined();\n    expect(edge.targetRecord.schemaHash).toBeUndefined();\n    expect(edge.targetRecord.version).toBeUndefined();`,
+);
+replaceExact(
+  "apps/core/test/external-model.integration.test.ts",
+  `    await reconcileExternalModels(f.bindings);\n    expect(f.state.calls).toEqual(["discover"]);\n    const plan = await f.db.prepare("EXPLAIN QUERY PLAN SELECT space_id,model_key FROM external_models m WHERE status!='disabled' AND next_refresh_at IS NOT NULL AND next_refresh_at<=? AND EXISTS(SELECT 1 FROM external_sources s WHERE s.id=m.source_id AND s.status='active') AND EXISTS(SELECT 1 FROM spaces s WHERE s.id=m.space_id AND s.deleted_at IS NULL) ORDER BY next_refresh_at,model_key LIMIT 20").bind(new Date().toISOString()).all<any>();`,
+  `    await reconcileExternalModels(f.bindings);\n    // Identity observation shares the scheduler but is an independent queue; this test\n    // asserts only that the due schema binding is discovered exactly once.\n    expect(f.state.calls.filter(call => call === "discover")).toEqual(["discover"]);\n    const plan = await f.db.prepare("EXPLAIN QUERY PLAN SELECT space_id,model_key FROM external_models m WHERE status!='disabled' AND next_refresh_at IS NOT NULL AND next_refresh_at<=? AND EXISTS(SELECT 1 FROM external_sources s WHERE s.id=m.source_id AND s.status='active') AND EXISTS(SELECT 1 FROM spaces s WHERE s.id=m.space_id AND s.deleted_at IS NULL) ORDER BY next_refresh_at,model_key LIMIT 20").bind(new Date().toISOString()).all<any>();`,
+);
+replaceExact(
+  "apps/core/test/external-model.integration.test.ts",
+  `    expect(data.origin).toBe("external");\n    expect(data.version).toBeUndefined();`,
+  `    expect(data.origin).toBeUndefined();\n    expect(data.schemaHash).toBeUndefined();\n    expect(data.version).toBeUndefined();`,
+);
 
 replaceExact(
   "docs/external-models.md",
