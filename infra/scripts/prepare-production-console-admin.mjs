@@ -17,6 +17,7 @@ const TOKEN_TTL_SECONDS = 900;
 const APPLICATION_SCOPES = [
   "profile:read",
   "spaces:manage",
+  "grants:manage",
   "platform:admin",
   "applications:manage",
   "services:manage",
@@ -29,6 +30,8 @@ const CORE_EXECUTOR_SCOPES = [
   "applications:manage",
   "models:manage",
   "spaces:inspect",
+  "spaces:manage",
+  "grants:manage",
   "audit:read",
 ];
 const CORE_EXECUTOR_NAME = "LifeSpace Console Core executor (production)";
@@ -346,7 +349,7 @@ console.log(JSON.stringify({
     identity: convergence.identity.contractVersion,
     coreKernel: convergence.core.contractVersion,
     identityPlatformAdmin: "0.5.0",
-    corePlatformAdmin: "0.2.0",
+    corePlatformAdmin: "0.5.0",
   },
   schemas: { identity: convergence.identity.schemaVersion, core: convergence.core.schemaVersion },
   access: { domain: ACCESS_DOMAIN, audienceSource: access.source, registered: audience.entry?.status === "active" },

@@ -1,22 +1,24 @@
 openapi: 3.1.0
 info:
   title: LifeSpace Core Platform Admin API
-  version: 0.4.0
+  version: 0.5.0
   description: >-
     Privileged LifeSpace Core control-plane contract for the LifeSpace Console and approved
-    platform automation. This contract is separate from both the downstream Core Kernel Contract and the service-automation Model Control Plane Contract:
-    adding or changing Console administration must not silently change an application's pinned
-    Kernel contract. Unless explicitly documented otherwise, every operation requires a verified
-    service-principal executor plus a dedicated Identity-signed platform-admin actor proof from
-    the same LifeSpace application context.
+    platform automation. This contract is separate from both the downstream Core Kernel Contract and
+    the service-automation Model Control Plane Contract: adding or changing Console administration
+    must not silently change an application's pinned Kernel contract. Unless explicitly documented
+    otherwise, every operation requires a verified service-principal executor plus a dedicated
+    Identity-signed platform-admin actor proof from the same LifeSpace application context.
 security:
   - bearerAuth: []
     platformAdminActor: []
 tags:
   - name: Application Model Access
   - name: Space Inspector
+  - name: Space Grant Governance
+  - name: Space External Governance
+  - name: Model Governance
   - name: Platform Audit
-  - name: Console Model Mutations
 paths:
   /api/v1/platform-admin/applications/{applicationId}/model-access:
     parameters:
@@ -64,8 +66,8 @@ paths:
       tags: [Space Inspector]
       operationId: inspectPlatformSpaces
       description: >-
-        Read-only global Space inspector. Requires service executor scope spaces:inspect and does
-        not create or imply Space membership, Data Grant authority, or ordinary record-mutation authority.
+        Global Space inspector. Requires service executor scope spaces:inspect and does not create
+        or imply Space membership, Data Grant authority, or ordinary record-mutation authority.
       parameters:
         - name: q
           in: query
@@ -101,6 +103,422 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/platform-admin/spaces/{spaceId}/grants:
+    parameters:
+      - $ref: '#/components/parameters/SpaceId'
+    post:
+      tags: [Space Grant Governance]
+      operationId: createPlatformDataGrant
+      description: >-
+        Create a Data Grant in the target Space as a platform governance operation. Requires
+        service executor scope grants:manage plus the platform-admin actor proof. This operation
+        mutates the same authoritative Data Grant state used by ordinary runtime authorization; it
+        does not make the Console executor or human operator a Space member or data reader.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateDataGrantRequest' }
+      responses:
+        '201':
+          description: Data Grant created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PlatformDataGrantResponse' }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/platform-admin/spaces/{spaceId}/grants/{grantId}:
+    parameters:
+      - $ref: '#/components/parameters/SpaceId'
+      - $ref: '#/components/parameters/GrantId'
+    patch:
+      tags: [Space Grant Governance]
+      operationId: updatePlatformDataGrant
+      description: >-
+        Update the permission and/or expiry of one active Data Grant. Requires grants:manage plus
+        the platform-admin actor proof. The mutation and platform-admin audit evidence are committed
+        together in Core D1.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateDataGrantRequest' }
+      responses:
+        '200':
+          description: Data Grant updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PlatformDataGrantResponse' }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+    delete:
+      tags: [Space Grant Governance]
+      operationId: revokePlatformDataGrant
+      description: >-
+        Soft-revoke one active Data Grant as a platform governance operation. Requires grants:manage
+        plus the platform-admin actor proof. Revocation changes subsequent runtime authorization but
+        does not itself grant the Console ordinary Space data authority.
+      responses:
+        '204': { description: Data Grant revoked }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/platform-admin/spaces/{spaceId}/external-providers:
+    parameters:
+      - $ref: '#/components/parameters/SpaceId'
+    get:
+      tags: [Space External Governance]
+      operationId: listPlatformExternalProviders
+      description: >-
+        List configured External Provider descriptors for platform governance of one Space.
+        Requires spaces:manage plus the platform-admin actor proof; this does not grant runtime data authority.
+      responses:
+        '200':
+          description: Provider descriptors
+          content:
+            application/json:
+              schema: { $ref: './external-connection.openapi.yaml#/components/schemas/ProviderListEnvelope' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '503': { description: Provider Adapter unavailable }
+  /api/v1/platform-admin/spaces/{spaceId}/external-model-definitions:
+    parameters:
+      - $ref: '#/components/parameters/SpaceId'
+    get:
+      tags: [Space External Governance]
+      operationId: listPlatformExternalModelDefinitions
+      description: >-
+        List published External business Model Definitions available for Space binding under
+        Platform Admin authority. Requires spaces:manage plus the platform-admin actor proof.
+      responses:
+        '200':
+          description: Bindable External definitions
+          content:
+            application/json:
+              schema: { $ref: './external-connection.openapi.yaml#/components/schemas/ExternalModelDefinitionListEnvelope' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /api/v1/platform-admin/spaces/{spaceId}/external-connections:
+    parameters:
+      - $ref: '#/components/parameters/SpaceId'
+    get:
+      tags: [Space External Governance]
+      operationId: listPlatformExternalConnections
+      description: >-
+        List External Connections for one Space as platform configuration state. Requires
+        spaces:manage plus the platform-admin actor proof.
+      responses:
+        '200':
+          description: Connections
+          content:
+            application/json:
+              schema: { $ref: './external-connection.openapi.yaml#/components/schemas/ConnectionListEnvelope' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Space External Governance]
+      operationId: createPlatformExternalConnection
+      description: >-
+        Create a Space-scoped External Connection as a Platform Admin governance operation. Requires
+        spaces:manage plus the platform-admin actor proof. Provider credential plaintext is forwarded
+        only to the private Adapter vault and is never persisted in Core or returned.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: './external-connection.openapi.yaml#/components/schemas/CreateExternalConnection' }
+      responses:
+        '201':
+          description: Created connection
+          content:
+            application/json:
+              schema: { $ref: './external-connection.openapi.yaml#/components/schemas/ConnectionEnvelope' }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '503': { description: Provider Adapter unavailable }
+  /api/v1/platform-admin/spaces/{spaceId}/external-connections/{connectionId}:
+    parameters:
+      - $ref: '#/components/parameters/SpaceId'
+      - $ref: '#/components/parameters/ConnectionId'
+    patch:
+      tags: [Space External Governance]
+      operationId: updatePlatformExternalConnection
+      description: >-
+        Rename, enable/disable, change access ceiling, or rotate the credential for a dynamic
+        Connection under Platform Admin authority. Requires spaces:manage plus the actor proof.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: './external-connection.openapi.yaml#/components/schemas/UpdateExternalConnection' }
+      responses:
+        '200':
+          description: Updated connection
+          content:
+            application/json:
+              schema: { $ref: './external-connection.openapi.yaml#/components/schemas/ConnectionEnvelope' }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { description: Connection revoked }
+        '422': { $ref: '#/components/responses/ValidationError' }
+    delete:
+      tags: [Space External Governance]
+      operationId: revokePlatformExternalConnection
+      description: >-
+        Delete Provider vault credential, revoke the Connection and disable its bindings under
+        Platform Admin authority. Requires spaces:manage plus the actor proof.
+      responses:
+        '204': { description: Revoked or already revoked }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '503': { description: Provider Adapter unavailable }
+  /api/v1/platform-admin/spaces/{spaceId}/external-connections/{connectionId}/resources:
+    parameters:
+      - $ref: '#/components/parameters/SpaceId'
+      - $ref: '#/components/parameters/ConnectionId'
+      - name: query
+        in: query
+        schema: { type: string, maxLength: 200 }
+      - name: cursor
+        in: query
+        schema: { type: string, maxLength: 2048 }
+      - name: limit
+        in: query
+        schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
+    get:
+      tags: [Space External Governance]
+      operationId: listPlatformExternalConnectionResources
+      description: >-
+        Discover Provider resources visible to one active Connection as a Platform Admin setup
+        operation. Requires spaces:manage plus the actor proof and does not grant runtime data access.
+      responses:
+        '200':
+          description: Provider resources
+          content:
+            application/json:
+              schema: { $ref: './external-connection.openapi.yaml#/components/schemas/ResourceListEnvelope' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { description: Connection disabled or revoked }
+        '503': { description: Provider Adapter unavailable }
+  /api/v1/platform-admin/spaces/{spaceId}/external-models:
+    parameters:
+      - $ref: '#/components/parameters/SpaceId'
+    get:
+      tags: [Space External Governance]
+      operationId: listPlatformExternalModelBindings
+      description: >-
+        List current and disabled External Model bindings for one Space as platform configuration state.
+        Requires spaces:manage plus the platform-admin actor proof.
+      responses:
+        '200':
+          description: External Model bindings
+          content:
+            application/json:
+              schema: { $ref: './external-connection.openapi.yaml#/components/schemas/ExternalBindingListEnvelope' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Space External Governance]
+      operationId: bindPlatformExternalModel
+      description: >-
+        Bind one published External business Model Definition to a Connection and Provider resource
+        under Platform Admin authority. Requires spaces:manage plus the actor proof; Definition and
+        Connection access ceilings remain authoritative.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: './external-connection.openapi.yaml#/components/schemas/BindExternalModel' }
+      responses:
+        '201':
+          description: Binding created or reactivated
+          content:
+            application/json:
+              schema: { $ref: './external-connection.openapi.yaml#/components/schemas/ExternalBindingEnvelope' }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { description: Resource or definition conflict }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/platform-admin/spaces/{spaceId}/external-models/{modelKey}:
+    parameters:
+      - $ref: '#/components/parameters/SpaceId'
+      - $ref: '#/components/parameters/ModelKey'
+    get:
+      tags: [Space External Governance]
+      operationId: getPlatformExternalModelBinding
+      description: >-
+        Inspect the latest stored Provider schema snapshot and effective binding capabilities under
+        Platform Admin authority. Requires spaces:manage plus the actor proof.
+      responses:
+        '200':
+          description: Stored External binding detail
+          content:
+            application/json:
+              schema: { $ref: './external-connection.openapi.yaml#/components/schemas/ExternalBindingDetailEnvelope' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Space External Governance]
+      operationId: updatePlatformExternalModelBinding
+      description: >-
+        Change declared read/write ceiling or disable an External binding under Platform Admin
+        authority. Requires spaces:manage plus the actor proof.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: './external-connection.openapi.yaml#/components/schemas/UpdateExternalBinding' }
+      responses:
+        '200':
+          description: Binding configuration updated
+          content:
+            application/json:
+              schema: { $ref: './external-connection.openapi.yaml#/components/schemas/BindingMutationEnvelope' }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/platform-admin/spaces/{spaceId}/external-models/{modelKey}/refresh:
+    parameters:
+      - $ref: '#/components/parameters/SpaceId'
+      - $ref: '#/components/parameters/ModelKey'
+    post:
+      tags: [Space External Governance]
+      operationId: refreshPlatformExternalModelBinding
+      description: >-
+        Rediscover Provider schema for an active binding under Platform Admin authority. Requires
+        spaces:manage plus the actor proof.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              maxProperties: 0
+      responses:
+        '200':
+          description: Refreshed External semantic detail
+          content:
+            application/json:
+              schema: { $ref: './external-connection.openapi.yaml#/components/schemas/ExternalBindingEnvelope' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '503': { description: Provider Adapter unavailable }
+  /api/v1/platform-admin/models:
+    get:
+      tags: [Model Governance]
+      operationId: listPlatformPublishedModels
+      description: >-
+        Platform-admin view of the published Native Model Registry. Requires models:manage plus the
+        dedicated actor proof. Non-interactive service automation remains on the independent Model
+        Control Plane /api/v1/model-admin namespace.
+      responses:
+        '200':
+          description: Published Model Registry entries
+          content:
+            application/json:
+              schema: { $ref: './model-control-plane.openapi.yaml#/components/schemas/PublishedModelListResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Model Governance]
+      operationId: publishPlatformModelDefinition
+      description: >-
+        Platform-admin Model Definition publication. Requires models:manage plus the dedicated actor
+        proof. Core persists pending platform-admin audit evidence before Registry mutation starts,
+        then records success/failure. Publication reuses the canonical Model Control Plane schema and
+        Registry implementation rather than creating a second Model Definition format.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: './model-control-plane.openapi.yaml#/components/schemas/PublishModelRequest' }
+      responses:
+        '201':
+          description: Model version published
+          content:
+            application/json:
+              schema: { $ref: './model-control-plane.openapi.yaml#/components/schemas/PublishedModelResponse' }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { description: Registry mutation conflict }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/platform-admin/models/validate:
+    post:
+      tags: [Model Governance]
+      operationId: validatePlatformModelDefinition
+      description: >-
+        Validate a Model Definition through the same canonical Core validator used by the Model
+        Control Plane. Requires models:manage plus the platform-admin actor proof.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: './model-control-plane.openapi.yaml#/components/schemas/ValidateModelRequest' }
+      responses:
+        '200':
+          description: Validation result
+          content:
+            application/json:
+              schema: { $ref: './model-control-plane.openapi.yaml#/components/schemas/ModelValidationResponse' }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /api/v1/platform-admin/models/{modelKey}:
+    parameters:
+      - $ref: '#/components/parameters/ModelKey'
+    get:
+      tags: [Model Governance]
+      operationId: getPlatformPublishedModel
+      description: >-
+        Read the current published Native model under Platform Admin authority. Requires
+        models:manage plus the platform-admin actor proof.
+      responses:
+        '200':
+          description: Current published model version
+          content:
+            application/json:
+              schema: { $ref: './model-control-plane.openapi.yaml#/components/schemas/PublishedModelResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/platform-admin/models/{modelKey}/retire:
+    parameters:
+      - $ref: '#/components/parameters/ModelKey'
+    post:
+      tags: [Model Governance]
+      operationId: retirePlatformPublishedModel
+      description: >-
+        Platform-admin explicit Model Registry retirement. Requires models:manage plus the dedicated
+        actor proof and writes pending -> success/failure human-attributed audit evidence.
+      responses:
+        '204': { description: Model retired and active Model Contract Revision advanced }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { description: Registry mutation conflict }
   /api/v1/platform-admin/audit:
     get:
       tags: [Platform Audit]
@@ -119,46 +537,6 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '422': { $ref: '#/components/responses/ValidationError' }
-  /api/v1/model-admin/models:
-    post:
-      tags: [Console Model Mutations]
-      operationId: publishModelDefinitionFromConsole
-      description: >-
-        Console profile of the existing service-principal-only Kernel Model Admin publication.
-        Requires models:manage plus the dedicated actor proof. Core persists pending platform-admin
-        audit evidence before Registry mutation starts, then records success/failure. The canonical
-        Registry publication remains service-executed; the human is additional audit attribution.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: './model-control-plane.openapi.yaml#/components/schemas/PublishModelRequest' }
-      responses:
-        '201':
-          description: Model version published
-          content:
-            application/json:
-              schema: { $ref: './model-control-plane.openapi.yaml#/components/schemas/PublishedModelResponse' }
-        '400': { $ref: '#/components/responses/InvalidRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '409': { description: Registry mutation conflict }
-        '422': { $ref: '#/components/responses/ValidationError' }
-  /api/v1/model-admin/models/{modelKey}/retire:
-    parameters:
-      - $ref: '#/components/parameters/ModelKey'
-    post:
-      tags: [Console Model Mutations]
-      operationId: retirePublishedModelFromConsole
-      description: >-
-        Console profile of explicit Model Registry retirement. Requires models:manage plus the
-        dedicated actor proof and writes pending -> success/failure human-attributed audit evidence.
-      responses:
-        '204': { description: Model retired and active Model Contract Revision advanced }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '409': { description: Registry mutation conflict }
 components:
   securitySchemes:
     bearerAuth:
@@ -183,6 +561,16 @@ components:
       in: path
       required: true
       schema: { type: string, pattern: '^spc_[A-Za-z0-9_-]+$' }
+    GrantId:
+      name: grantId
+      in: path
+      required: true
+      schema: { type: string, pattern: '^grt_[A-Za-z0-9_-]+$' }
+    ConnectionId:
+      name: connectionId
+      in: path
+      required: true
+      schema: { type: string, pattern: '^exs_[a-f0-9]{32}$' }
     ModelKey:
       name: modelKey
       in: path
@@ -313,15 +701,40 @@ components:
       required: [id, granteeType, granteeId, resourceType, resourceId, permission, createdByUserId, createdAt, expiresAt, revokedAt]
       properties:
         id: { type: string, pattern: '^grt_' }
+        sourceSpaceId: { type: string, pattern: '^spc_' }
         granteeType: { type: string, enum: [user, space, service, device, agent] }
         granteeId: { type: string }
-        resourceType: { type: string }
+        resourceType: { type: string, enum: [space, model] }
         resourceId: { anyOf: [{ type: string }, { type: 'null' }] }
         permission: { type: string, enum: [free_busy, read, write, manage] }
         createdByUserId: { type: string }
         createdAt: { type: string, format: date-time }
         expiresAt: { anyOf: [{ type: string, format: date-time }, { type: 'null' }] }
         revokedAt: { anyOf: [{ type: string, format: date-time }, { type: 'null' }] }
+    CreateDataGrantRequest:
+      type: object
+      additionalProperties: false
+      required: [granteeType, granteeId, permission]
+      properties:
+        granteeType: { type: string, enum: [user, space, service, device, agent] }
+        granteeId: { type: string, minLength: 1 }
+        resourceType: { type: string, enum: [space, model], default: space }
+        resourceId: { anyOf: [{ type: string }, { type: 'null' }] }
+        permission: { type: string, enum: [free_busy, read, write, manage] }
+        expiresAt: { anyOf: [{ type: string, format: date-time }, { type: 'null' }] }
+    UpdateDataGrantRequest:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        permission: { type: string, enum: [free_busy, read, write, manage] }
+        expiresAt: { anyOf: [{ type: string, format: date-time }, { type: 'null' }] }
+    PlatformDataGrantResponse:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data: { $ref: '#/components/schemas/PlatformDataGrant' }
     PlatformSpaceDetail:
       type: object
       additionalProperties: false

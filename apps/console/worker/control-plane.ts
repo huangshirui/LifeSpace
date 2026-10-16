@@ -19,6 +19,10 @@ type AdminContext = {
   coreExecutor: string;
 };
 
+type GrantPermission = "free_busy" | "read" | "write" | "manage";
+type GrantResourceType = "space" | "model";
+type GrantGranteeType = "user" | "space" | "service" | "device" | "agent";
+
 const ACCESS_ASSERTION_HEADER = "cf-access-jwt-assertion";
 const INTENT_HEADER = "x-lifespace-console-intent";
 const MAX_BODY_BYTES = 256 * 1024;
@@ -29,6 +33,9 @@ const intents = {
   validateModel: "validate-model-definition",
   publishModel: "publish-model-definition",
   retireModel: "retire-model",
+  createGrant: "create-space-data-grant",
+  updateGrant: "update-space-data-grant",
+  revokeGrant: "revoke-space-data-grant",
 } as const;
 
 function isRecord(value: unknown): value is JsonRecord {
@@ -41,6 +48,11 @@ function stringValue(value: unknown): string | null {
 
 function dataRecord(payload: unknown): JsonRecord | null {
   if (!isRecord(payload) || !isRecord(payload.data)) return null;
+  return payload.data;
+}
+
+function dataArray(payload: unknown): unknown[] | null {
+  if (!isRecord(payload) || !Array.isArray(payload.data)) return null;
   return payload.data;
 }
 
@@ -118,6 +130,14 @@ function validModelKey(value: string): boolean {
   return /^[a-z][a-z0-9_]{1,62}$/u.test(value);
 }
 
+function validSpaceId(value: string): boolean {
+  return /^spc_[A-Za-z0-9_-]+$/u.test(value);
+}
+
+function validGrantId(value: string): boolean {
+  return /^grt_[A-Za-z0-9_-]+$/u.test(value);
+}
+
 function exactSameOriginMutation(request: Request, intent: string): Response | null {
   const url = new URL(request.url);
   const origin = request.headers.get("origin")?.trim() ?? "";
@@ -192,6 +212,24 @@ function coreHeaders(context: AdminContext, jsonBody = false): HeadersInit {
   };
 }
 
+async function platformModels(request: Request, env: Env): Promise<Response> {
+  const context = await requireAdminContext(request, env);
+  if (context instanceof Response) return context;
+  const result = await serviceRequest(env.CORE, env.CORE_BASE_URL, "/api/v1/platform-admin/models", { headers: coreHeaders(context) });
+  if (result.response.status !== 200) return upstreamFailure(request, result, "MODEL_LIST_FAILED", "Published model lookup failed");
+  const data = dataArray(result.payload);
+  return data ? json({ data }) : failure("UPSTREAM_RESPONSE_INVALID", "LifeSpace Core returned an invalid model list", 502, requestId(request));
+}
+
+async function platformModel(request: Request, env: Env, modelKey: string): Promise<Response> {
+  const context = await requireAdminContext(request, env);
+  if (context instanceof Response) return context;
+  const result = await serviceRequest(env.CORE, env.CORE_BASE_URL, `/api/v1/platform-admin/models/${encodeURIComponent(modelKey)}`, { headers: coreHeaders(context) });
+  if (result.response.status !== 200) return upstreamFailure(request, result, "MODEL_LOOKUP_FAILED", "Published model lookup failed");
+  const data = dataRecord(result.payload);
+  return data ? json({ data }) : failure("UPSTREAM_RESPONSE_INVALID", "LifeSpace Core returned an invalid model response", 502, requestId(request));
+}
+
 function normalizeModelAccessBody(
   body: JsonRecord,
   request: Request,
@@ -253,7 +291,7 @@ async function validateModelDefinition(request: Request, env: Env): Promise<Resp
   }
   const context = await requireAdminContext(request, env);
   if (context instanceof Response) return context;
-  const result = await serviceRequest(env.CORE, env.CORE_BASE_URL, "/api/v1/model-admin/models/validate", {
+  const result = await serviceRequest(env.CORE, env.CORE_BASE_URL, "/api/v1/platform-admin/models/validate", {
     method: "POST",
     headers: coreHeaders(context, true),
     body: JSON.stringify({ definition: body.definition }),
@@ -290,7 +328,7 @@ async function publishModelDefinition(request: Request, env: Env): Promise<Respo
   }
   const context = await requireAdminContext(request, env);
   if (context instanceof Response) return context;
-  const result = await serviceRequest(env.CORE, env.CORE_BASE_URL, "/api/v1/model-admin/models", {
+  const result = await serviceRequest(env.CORE, env.CORE_BASE_URL, "/api/v1/platform-admin/models", {
     method: "POST",
     headers: coreHeaders(context, true),
     body: JSON.stringify({ definition: body.definition, compatibility }),
@@ -310,7 +348,7 @@ async function retireModel(request: Request, env: Env, modelKey: string): Promis
   }
   const context = await requireAdminContext(request, env);
   if (context instanceof Response) return context;
-  const result = await serviceRequest(env.CORE, env.CORE_BASE_URL, `/api/v1/model-admin/models/${encodeURIComponent(modelKey)}/retire`, {
+  const result = await serviceRequest(env.CORE, env.CORE_BASE_URL, `/api/v1/platform-admin/models/${encodeURIComponent(modelKey)}/retire`, {
     method: "POST",
     headers: coreHeaders(context, true),
     body: "{}",
@@ -319,12 +357,119 @@ async function retireModel(request: Request, env: Env, modelKey: string): Promis
   return json({ data: { modelKey, retired: true } });
 }
 
+function grantPermission(value: unknown): value is GrantPermission {
+  return value === "free_busy" || value === "read" || value === "write" || value === "manage";
+}
+
+function granteeType(value: unknown): value is GrantGranteeType {
+  return value === "user" || value === "space" || value === "service" || value === "device" || value === "agent";
+}
+
+function resourceType(value: unknown): value is GrantResourceType {
+  return value === "space" || value === "model";
+}
+
+async function createDataGrant(request: Request, env: Env, spaceId: string): Promise<Response> {
+  const guard = exactSameOriginMutation(request, intents.createGrant);
+  if (guard) return guard;
+  const body = await readJsonObject(request);
+  if (body instanceof Response) return body;
+  const allowed = new Set(["granteeType", "granteeId", "resourceType", "resourceId", "permission", "expiresAt", "confirmSpaceId"]);
+  if (Object.keys(body).some((key) => !allowed.has(key))) return failure("INVALID_REQUEST", "Grant creation contains unsupported fields", 400, requestId(request));
+  if (body.confirmSpaceId !== spaceId) return failure("CONFIRMATION_REQUIRED", "Grant creation requires confirmSpaceId to exactly match the target Space", 422, requestId(request));
+  const targetGranteeType = body.granteeType;
+  const targetGranteeId = stringValue(body.granteeId)?.trim() ?? "";
+  const targetResourceType = body.resourceType === undefined ? "space" : body.resourceType;
+  const targetPermission = body.permission;
+  if (!granteeType(targetGranteeType) || !targetGranteeId || !resourceType(targetResourceType) || !grantPermission(targetPermission)) {
+    return failure("VALIDATION_ERROR", "Grant requires valid granteeType, granteeId, resourceType and permission", 422, requestId(request));
+  }
+  if (targetResourceType === "space" && body.resourceId !== undefined && body.resourceId !== null) {
+    return failure("VALIDATION_ERROR", "Space grants must omit resourceId", 422, requestId(request));
+  }
+  const resourceId = targetResourceType === "model" ? stringValue(body.resourceId)?.trim() ?? "" : null;
+  if (targetResourceType === "model" && (!resourceId || !validModelKey(resourceId))) {
+    return failure("VALIDATION_ERROR", "Model grants require a valid model resourceId", 422, requestId(request));
+  }
+  const context = await requireAdminContext(request, env);
+  if (context instanceof Response) return context;
+  const result = await serviceRequest(env.CORE, env.CORE_BASE_URL, `/api/v1/platform-admin/spaces/${encodeURIComponent(spaceId)}/grants`, {
+    method: "POST",
+    headers: coreHeaders(context, true),
+    body: JSON.stringify({
+      granteeType: targetGranteeType,
+      granteeId: targetGranteeId,
+      resourceType: targetResourceType,
+      resourceId,
+      permission: targetPermission,
+      expiresAt: body.expiresAt ?? null,
+    }),
+  });
+  if (result.response.status !== 201) return upstreamFailure(request, result, "GRANT_CREATE_FAILED", "Data Grant creation failed");
+  const data = dataRecord(result.payload);
+  return data ? json({ data }, 201) : failure("UPSTREAM_RESPONSE_INVALID", "LifeSpace Core returned an invalid Data Grant response", 502, requestId(request));
+}
+
+async function updateDataGrant(request: Request, env: Env, spaceId: string, grantId: string): Promise<Response> {
+  const guard = exactSameOriginMutation(request, intents.updateGrant);
+  if (guard) return guard;
+  const body = await readJsonObject(request);
+  if (body instanceof Response) return body;
+  const allowed = new Set(["permission", "expiresAt", "confirmGrantId"]);
+  if (Object.keys(body).some((key) => !allowed.has(key))) return failure("INVALID_REQUEST", "Grant update contains unsupported fields", 400, requestId(request));
+  if (body.confirmGrantId !== grantId) return failure("CONFIRMATION_REQUIRED", "Grant update requires confirmGrantId to exactly match the target Grant", 422, requestId(request));
+  if (body.permission === undefined && body.expiresAt === undefined) return failure("INVALID_REQUEST", "Grant update requires permission and/or expiresAt", 400, requestId(request));
+  if (body.permission !== undefined && !grantPermission(body.permission)) return failure("VALIDATION_ERROR", "permission is invalid", 422, requestId(request));
+  const context = await requireAdminContext(request, env);
+  if (context instanceof Response) return context;
+  const result = await serviceRequest(env.CORE, env.CORE_BASE_URL, `/api/v1/platform-admin/spaces/${encodeURIComponent(spaceId)}/grants/${encodeURIComponent(grantId)}`, {
+    method: "PATCH",
+    headers: coreHeaders(context, true),
+    body: JSON.stringify({
+      ...(body.permission === undefined ? {} : { permission: body.permission }),
+      ...(body.expiresAt === undefined ? {} : { expiresAt: body.expiresAt }),
+    }),
+  });
+  if (result.response.status !== 200) return upstreamFailure(request, result, "GRANT_UPDATE_FAILED", "Data Grant update failed");
+  const data = dataRecord(result.payload);
+  return data ? json({ data }) : failure("UPSTREAM_RESPONSE_INVALID", "LifeSpace Core returned an invalid Data Grant response", 502, requestId(request));
+}
+
+async function revokeDataGrant(request: Request, env: Env, spaceId: string, grantId: string): Promise<Response> {
+  const guard = exactSameOriginMutation(request, intents.revokeGrant);
+  if (guard) return guard;
+  const body = await readJsonObject(request);
+  if (body instanceof Response) return body;
+  if (Object.keys(body).some((key) => key !== "confirmGrantId") || body.confirmGrantId !== grantId) {
+    return failure("CONFIRMATION_REQUIRED", "Grant revocation requires confirmGrantId to exactly match the target Grant", 422, requestId(request));
+  }
+  const context = await requireAdminContext(request, env);
+  if (context instanceof Response) return context;
+  const result = await serviceRequest(env.CORE, env.CORE_BASE_URL, `/api/v1/platform-admin/spaces/${encodeURIComponent(spaceId)}/grants/${encodeURIComponent(grantId)}`, {
+    method: "DELETE",
+    headers: coreHeaders(context),
+  });
+  if (result.response.status !== 204) return upstreamFailure(request, result, "GRANT_REVOKE_FAILED", "Data Grant revocation failed");
+  return json({ data: { grantId, revoked: true } });
+}
+
 function applicationModelAccessTarget(pathname: string): string | null {
   const match = /^\/api\/applications\/([^/]+)\/model-access$/u.exec(pathname);
   if (!match) return null;
   try {
     const value = decodeURIComponent(match[1]);
     return validApplicationId(value) ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+function modelTarget(pathname: string): string | null {
+  const match = /^\/api\/models\/([^/]+)$/u.exec(pathname);
+  if (!match) return null;
+  try {
+    const value = decodeURIComponent(match[1]);
+    return validModelKey(value) ? value : null;
   } catch {
     return null;
   }
@@ -341,31 +486,64 @@ function retireTarget(pathname: string): string | null {
   }
 }
 
-async function mutationRoute(request: Request, env: Env): Promise<Response | null> {
+function spaceGrantCollectionTarget(pathname: string): string | null {
+  const match = /^\/api\/spaces\/([^/]+)\/grants$/u.exec(pathname);
+  if (!match) return null;
+  try {
+    const value = decodeURIComponent(match[1]);
+    return validSpaceId(value) ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+function spaceGrantItemTarget(pathname: string): { spaceId: string; grantId: string } | null {
+  const match = /^\/api\/spaces\/([^/]+)\/grants\/([^/]+)$/u.exec(pathname);
+  if (!match) return null;
+  try {
+    const targetSpaceId = decodeURIComponent(match[1]);
+    const targetGrantId = decodeURIComponent(match[2]);
+    return validSpaceId(targetSpaceId) && validGrantId(targetGrantId) ? { spaceId: targetSpaceId, grantId: targetGrantId } : null;
+  } catch {
+    return null;
+  }
+}
+
+async function controlPlaneRoute(request: Request, env: Env): Promise<Response | null> {
   const url = new URL(request.url);
+  if (request.method === "GET" && url.pathname === "/api/models") return platformModels(request, env);
+  const readModelKey = modelTarget(url.pathname);
+  if (request.method === "GET" && readModelKey) return platformModel(request, env, readModelKey);
+
   const applicationId = applicationModelAccessTarget(url.pathname);
   if (request.method === "PUT" && applicationId) return replaceApplicationModelAccess(request, env, applicationId);
   if (request.method === "POST" && url.pathname === "/api/models/validate") return validateModelDefinition(request, env);
   if (request.method === "POST" && url.pathname === "/api/models/publish") return publishModelDefinition(request, env);
-  const modelKey = retireTarget(url.pathname);
-  if (request.method === "POST" && modelKey) return retireModel(request, env, modelKey);
+  const retireModelKey = retireTarget(url.pathname);
+  if (request.method === "POST" && retireModelKey) return retireModel(request, env, retireModelKey);
+
+  const grantCollectionSpaceId = spaceGrantCollectionTarget(url.pathname);
+  if (request.method === "POST" && grantCollectionSpaceId) return createDataGrant(request, env, grantCollectionSpaceId);
+  const grantTarget = spaceGrantItemTarget(url.pathname);
+  if (request.method === "PATCH" && grantTarget) return updateDataGrant(request, env, grantTarget.spaceId, grantTarget.grantId);
+  if (request.method === "DELETE" && grantTarget) return revokeDataGrant(request, env, grantTarget.spaceId, grantTarget.grantId);
   return null;
 }
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     try {
-      const mutation = await mutationRoute(request, env);
-      if (mutation) return mutation;
+      const route = await controlPlaneRoute(request, env);
+      if (route) return route;
       return readOnlyWorker.fetch(request, env);
     } catch (error) {
       console.error(JSON.stringify({
-        message: "LifeSpace Console control-plane mutation failed",
+        message: "LifeSpace Console control-plane operation failed",
         requestId: requestId(request),
         path: new URL(request.url).pathname,
         error: error instanceof Error ? error.message : String(error),
       }));
-      return failure("INTERNAL_ERROR", "LifeSpace Console control-plane mutation failed", 500, requestId(request));
+      return failure("INTERNAL_ERROR", "LifeSpace Console control-plane operation failed", 500, requestId(request));
     }
   },
 } satisfies ExportedHandler<Env>;

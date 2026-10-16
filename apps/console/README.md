@@ -1,8 +1,19 @@
 # LifeSpace Console
 
-LifeSpace Console is the LifeSpace platform operations, governance and configuration Web application for `lifespace.aisr.online`.
+LifeSpace Console is the LifeSpace **Platform Admin** operations, governance and configuration Web application for `lifespace.aisr.online`.
 
-The permanent implementation is **React + TypeScript + Vite + Cloudflare Worker/BFF**. The browser never talks directly to Identity/Core administrative APIs and ordinary browser JavaScript never receives platform executor credentials.
+The permanent implementation is **React + TypeScript + Vite + Cloudflare Worker/BFF**. Console is not a downstream product administration UI and does not switch into ordinary User/Space authority. Normal privileged operations are always executed as:
+
+```text
+Cloudflare Access human
+-> LifeSpace user identity resolution
+-> <=5-minute purpose=platform_admin_actor proof
++
+controlled Identity/Core executor
+-> fixed Platform Admin control-plane operation
+```
+
+The browser never receives platform executor credentials, raw Access assertions, LifeSpace user bearer tokens or Platform Admin actor JWTs.
 
 ## Information architecture
 
@@ -18,129 +29,147 @@ Operations
   System
 ```
 
-The established pages remain the platform inspection surface. The Configuration & Publishing Center adds bounded write workflows without making Console a separate source of truth.
+The UI may govern platform-owned state from a Space detail page, but the authority remains Platform Admin authority rather than the current user's ordinary Space membership/Grant authority.
 
-## Configuration & Publishing Center MVP
-
-The first MVP is intentionally defined as **Slices A + B + C**:
+## Current governance surfaces
 
 ```text
 Models
+  List / inspect published Model Registry
   Validate canonical Model Definition
   Publish new model / model version
   Retire model
 
 Applications
-  Create Application
-  Configure name / allowed scopes / token TTL / active-disabled state
+  Create / update Application
+  Configure allowed scopes / token TTL / active-disabled state
   Register / revoke Cloudflare Access audience
   Replace Application × Model Access catalog
 
-Credentials / external systems
-  Create / revoke target Application credential
+Identity credentials and actors
+  Create / revoke Application credential
   Create / update / disable Service Principal
-  Create / reduce / update / revoke Service API Token
+  Create / reduce / revoke Service API Token
   Create / list / reduce / revoke Agent API credential
+
+Spaces
+  Inspect memberships / Grants / record counts
+  Create / update / revoke Data Grants
+  Configure External Provider Connections
+  Discover Provider resources
+  Bind / inspect / refresh / disable External Models
 ```
 
-All operations reuse authoritative Core/Identity control planes. Console does **not** add an independent model schema, credential database, Core/Identity migrations, handwritten ordinary-model CRUD, direct DDL/SQL execution or hidden Space impersonation.
+All operations reuse authoritative Identity/Core state. Console does **not** add an independent model schema, credential database, Data Grant store, External Connection store, Core/Identity migration set, direct DDL/SQL execution path or hidden Space impersonation.
 
-Model publication remains:
+## Core Platform Admin namespace
+
+Console-facing Core control-plane operations use `/api/v1/platform-admin/*`.
+
+Examples:
 
 ```text
-canonical Model Definition
--> Core closed validator
--> explicit compatibility classification
--> Core publish
--> Registry + typed physical schema
--> immutable Model Contract Revision
+/api/v1/platform-admin/applications/{applicationId}/model-access
+/api/v1/platform-admin/models
+/api/v1/platform-admin/models/validate
+/api/v1/platform-admin/models/{modelKey}/retire
+/api/v1/platform-admin/spaces
+/api/v1/platform-admin/spaces/{spaceId}
+/api/v1/platform-admin/spaces/{spaceId}/grants
+/api/v1/platform-admin/spaces/{spaceId}/external-connections
+/api/v1/platform-admin/spaces/{spaceId}/external-models
+/api/v1/platform-admin/audit
 ```
 
-A future visual model designer may improve authoring UX, but its output must still be the same canonical Model Definition.
+`/api/v1/model-admin/*` remains the independent non-interactive Service Automation Model Control Plane. Console does not use it as its runtime administration namespace.
 
-Application × Model Access is only the application-level model permission ceiling. Effective runtime authorization still intersects credential scope, Application × Model Access, current Space membership/Data Grant, published-model capability and model policy/capability restrictions.
+Ordinary `/api/v1/spaces/*` management APIs remain available to downstream applications where a real user with current Space authority may self-manage a Space. Console does not borrow that user authority; when Console governs the same underlying resource, it uses a dedicated Platform Admin route over the same authoritative state.
 
-## Same-origin BFF routes
+## Data Grant governance
 
-Established read/session routes:
+Platform Admin may create, update or revoke a Space Data Grant without becoming the target grantee and without receiving ordinary Space data authority.
 
 ```text
-GET  /api/health
-GET  /api/session
-POST /api/session/register   # staging first-use only
-GET  /api/platform/probe
+Platform Admin control plane
+        |
+        v
+canonical Core data_grants state
+        |
+        v
+subsequent Runtime authorization of the actual grantee
+```
+
+Console governance therefore changes **who may access the Space/model**, but does not make the human operator or Console executor a hidden Space member or record reader/writer.
+
+## External governance
+
+External Connection/binding configuration has one authoritative Core state and one private Adapter credential vault, with two legitimate authority surfaces:
+
+```text
+Downstream application
+User + Space manage
+-> /api/v1/spaces/{spaceId}/external-*
+
+LifeSpace Console
+Platform Admin actor + Core executor
+-> /api/v1/platform-admin/spaces/{spaceId}/external-*
+```
+
+Both route families reuse the same Connection/binding implementation and Adapter vault. Provider credential plaintext is transiently forwarded to the private Adapter vault and is never persisted or returned by Core.
+
+## Same-origin Console BFF
+
+The browser calls only bounded same-origin `/api/*` endpoints such as:
+
+```text
 GET  /api/overview
 GET  /api/applications
-GET  /api/applications/:applicationId
 GET  /api/models
-GET  /api/models/:modelKey
 GET  /api/users
-GET  /api/users/:userId
 GET  /api/spaces
 GET  /api/spaces/:spaceId
 GET  /api/audit
 GET  /api/system
 ```
 
-Configuration/publishing routes include the bounded model/Application operations plus purpose-specific credential/service routes under `/api/credential-governance/applications/:applicationId/...` and the isolated target-credential reveal route `/api/credential-reveal?ticket=...`.
+Purpose-specific mutation routes include Application/credential governance, Model validation/publication/retirement, Space Data Grant governance and External Connection/binding governance.
 
-The browser supplies only bounded operation input. It never supplies an upstream URL, upstream path, Authorization header or platform credential.
+The browser supplies only bounded operation input. It never supplies an upstream URL, upstream Authorization header or platform credential. Browser mutations additionally require exact Origin, `Sec-Fetch-Site: same-origin`, JSON Content-Type, an operation-specific `x-lifespace-console-intent`, and server-validated confirmation where the action is destructive or materially changes authority.
 
 ## Privileged security chain
 
-For every privileged operation the Worker performs:
+Identity control-plane calls use the Console `lsa_*` application executor plus Platform Admin actor proof. Core control-plane calls use the dedicated Console `lsp_svc_*` service executor plus the same actor proof. Actor and executor must belong to the same Console application context.
+
+The Console Core executor is intentionally bounded to the explicit Platform Admin scope set needed by current routes, including:
 
 ```text
-Cloudflare Access assertion
--> LifeSpace Identity Access exchange
--> app-scoped LifeSpace user credential
--> <=5-minute purpose=platform_admin_actor proof
--> controlled server-side executor
--> fixed Identity/Core control-plane operation
+applications:manage
+models:manage
+spaces:inspect
+spaces:manage
+grants:manage
+audit:read
 ```
 
-Identity control-plane calls use the Console `lsa_*` application credential plus actor proof. Core control-plane calls use the dedicated Console `lsp_svc_*` service executor plus actor proof. Actor and executor must belong to the same Console application context.
-
-The following never cross the normal Worker/browser JavaScript boundary:
-
-- raw `Cf-Access-Jwt-Assertion`;
-- LifeSpace user bearer;
-- platform-admin actor JWT;
-- Console `lsa_*` application credential;
-- Console `lsp_svc_*` Core executor;
-- bootstrap secret.
-
-Newly issued **target** Application credentials, Service API Tokens and Agent API credentials use the separately documented operator reveal boundary in `docs/console-target-credential-reveal.md`: plaintext exists only server-side until a current platform administrator opens a short-lived AES-GCM-sealed reveal URL. The reveal response is no-script/no-store. No plaintext target secret is placed in React JSON, cookies, storage, query parameters, logs or audit.
-
-Browser mutations additionally require exact same-origin evidence, `Sec-Fetch-Site: same-origin`, JSON Content-Type and an operation-specific `x-lifespace-console-intent`. Destructive/whole-catalog operations must carry explicit confirmation that is validated by the BFF, not only by React UI state.
+These executor scopes are **control-plane capabilities**. They do not themselves create ordinary Space membership, Data Grants or business-record authority.
 
 ## First-use Access identity
 
 A valid Cloudflare Access principal may still be unknown to LifeSpace Identity. Access email is diagnostic metadata, never merge authority.
 
-`POST /api/session/register` remains staging-only and can create a new LifeSpace user only for the **current verified Access principal**. It cannot choose a target `usr_*`, email mapping, Access subject or backend credential. Existing-account linking continues to use the proof-backed Identity linking flow.
+`POST /api/session/register` remains a staging-only bounded bootstrap flow for the **current verified Access principal**. It is not an alternate authority mode for Console management operations and is unavailable in production.
 
 ## Platform/application boundary
 
-Console is the platform configuration center, not a downstream product administration UI.
+Console is a Platform Admin interface. It may govern canonical LifeSpace control-plane state, including Model Registry, Application policy, Service/Agent identity, Space Data Grants and External configuration.
 
-Belongs in Console:
+Downstream applications still own product-specific workflows and policy such as family-specific presentation, business record editing, product-specific member journeys and app-specific integration UX. They may expose self-service management using ordinary User/Space authority where the canonical LifeSpace contract supports it.
 
-- Model Registry publication lifecycle;
-- Application policy and Application × Model Access;
-- platform Application credential / Service Principal / Service API Token governance;
-- Access audience registration/revocation;
-- platform inspection/audit/system diagnostics.
+The distinction is therefore **authority and product responsibility**, not duplicated data:
 
-Normally remains in application administration surfaces:
-
-- family/tenant-specific configuration;
-- Space-specific Data Grants;
-- business record editing;
-- application webhook destinations/integration settings;
-- product-specific member administration.
-
-Inspecting a Space in Console never makes the platform administrator a hidden Space member.
+- Console: Platform Admin governance;
+- application: user/product self-service;
+- Core/Identity: single authoritative state.
 
 ## Runtime bindings and secrets
 
@@ -168,94 +197,39 @@ CORE_EXECUTOR_BEARER             # dedicated Console lsp_svc_* executor
 
 The global bootstrap secret is deliberately not a Console Worker secret.
 
-## Cloudflare/Vite deployment
+## Deployment
 
-The Console uses `@cloudflare/vite-plugin`; Vite owns client asset output and generated Worker deployment configuration. Select the target environment at **build time** and deploy the generated configuration.
-
-There is one normal Console staging workflow with two explicitly separated jobs, plus a separate high-blast-radius platform/credential convergence workflow.
-
-### Ordinary Console code/UI deployment
-
-Canonical workflow:
+Normal Console-only staging deployment uses:
 
 ```text
 .github/workflows/lifespace-console-staging-deploy.yml
 ```
 
-Run it with the default `run_control_plane_acceptance=false` for normal Console-only changes. The deploy job is manual-only and remains isolated:
+It deploys only Console and preserves existing secrets. It must not migrate/deploy Core or Identity or use bootstrap authority.
 
-```text
-Console frozen install/check
--> read current staging Identity/Core status
--> Vite build for staging
--> deploy Console Worker only
--> verify Access-protected staging hostname
-```
-
-It does not migrate/deploy Core or Identity, use bootstrap authority, rotate/install secrets or target production.
-
-### Optional real staging transaction acceptance
-
-When a release also needs the repeatable A+B+C control-plane proof, dispatch the same workflow with `run_control_plane_acceptance=true`. After the isolated Console deploy succeeds, a separate staging-only acceptance job exercises and cleans up:
-
-```text
-Model validate/publish/version/retire + Model Access restore
-Application create/update + Access Audience lifecycle
-Application credential lifecycle
-Service Principal + Service API Token lifecycle
-```
-
-The acceptance job may use the staging bootstrap secret as bounded proving authority, but it performs no Core/Identity/Console deployment or database migration and never targets production. Keeping the authority in a separate job preserves the same security boundary while removing a redundant operator entrypoint.
-
-### Platform/credential convergence
-
-Canonical workflow:
+Platform/credential convergence uses:
 
 ```text
 .github/workflows/lifespace-console-staging-provision.yml
 ```
 
-Use this only when staging platform convergence itself is intended: migrations/platform service deployment, Console application/AUD reconciliation, platform-administrator assignment, executor credential rotation or first-use provisioning. Because it can mutate/deploy Core and Identity, it must not be used merely to publish a Console feature branch while unrelated platform work is in flight.
+Use it when Core/Identity Platform Admin contracts, Console Application scope ceilings, executor scopes or executor credentials intentionally change. This is required when adding new Platform Admin capabilities such as `spaces:manage` or `grants:manage` to the Console executor.
 
-Production uses independent configuration/credentials and requires explicit production rollout approval.
-
-## Current staging evidence
-
-The complete B+C Console is deployed on `lifespace-staging.aisr.online` behind Cloudflare Access.
-
-Current proving evidence:
-
-- staging Identity schema `7`, contract `0.5.0`;
-- staging Core schema `28`, contract `0.15.0`;
-- Console Worker version `bdd0634d-5a7c-433a-a8f1-cae792634e3d`;
-- real Slice B/C lifecycle acceptance run `32926401047` succeeded;
-- 13 human-attributed Identity platform-admin audit rows were observed for the disposable lifecycle;
-- generated target secrets were absent from metadata/audit checks;
-- authenticated Cloudflare Access browser smoke for the write workflows was completed by the platform operator on 2026-08-26;
-- production was not targeted.
-
-The automated transaction acceptance and authenticated browser smoke are deliberately separate evidence. Together they satisfy the write-slice staging acceptance required by `apps/console/AGENTS.md`.
-
-## Parallel development
-
-Console work should remain mergeable and deployable independently from unrelated Core/Identity feature work. Prefer already-merged control-plane contracts and isolate UI/BFF changes inside `apps/console`.
-
-The current Configuration Center work was intentionally developed independently of Runtime Discovery. It does not modify Runtime Discovery, Eventing, downstream product code, Core migrations or Identity migrations.
+Production uses independent credentials/configuration and requires explicit production rollout approval.
 
 ## Verification gate
 
-The write-slice gate requires all of the following; the Configuration & Publishing Center MVP satisfied them in staging on 2026-08-26:
+A Console governance change is incomplete until:
 
-1. frozen workspace install and full `pnpm check` must actually execute and pass;
-2. React/Worker TypeScript, Vite build and built-Worker `node --check` must pass;
-3. mutation BFF routes must reject wrong/missing Origin, Fetch Metadata, Content-Type, intent and required confirmation;
-4. missing/unlinked/non-admin/wrong-application authority must fail safely;
-5. ordinary browser JavaScript/network JSON must contain no Access/LifeSpace/actor/executor bearer material or target credential plaintext;
-6. Model validate/publish/retire must preserve Core validation, compatibility and human/executor audit semantics;
-7. Application × Model Access replacement must remain inside published-model capability and normal runtime authorization intersections;
-8. Application/Audience/Credential/Service Principal/Service API Token lifecycle must preserve Identity scope ceilings and audit semantics;
-9. isolated staging deployment must not mutate/deploy Core/Identity or require bootstrap authority;
-10. real staging transaction acceptance must prove the A+B+C lifecycle and cleanup;
-11. real authenticated Cloudflare Access browser smoke must cover established read pages and every newly added mutation;
-12. staging and production bindings/credentials must remain isolated;
-13. production remains untouched until explicitly approved.
+1. frozen workspace install and full checks pass;
+2. React/Worker TypeScript and Vite build pass;
+3. Platform Admin contract/boundary guards pass;
+4. missing/unlinked/non-admin/wrong-application authority fails safely;
+5. browser mutation Origin/Fetch Metadata/Content-Type/intent/confirmation checks pass;
+6. Console runtime does not request ordinary User/Space management scopes to perform privileged configuration;
+7. Model governance uses `/platform-admin/models*` while service automation retains `/model-admin/*`;
+8. Data Grant governance proves create/update/revoke plus human/executor audit and no hidden membership;
+9. External governance uses Platform Admin authority while ordinary application self-service remains functional;
+10. staging/production provisioning converges the exact executor scope ceiling required by the Platform Admin routes;
+11. isolated staging deployment remains isolated from Core/Identity deployment;
+12. real staging acceptance and browser smoke cover newly introduced mutations before production rollout.

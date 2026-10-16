@@ -4,6 +4,7 @@ import ControlPlaneApp from "./ControlPlaneApp";
 import ApplicationConfigurationOverlay from "./ApplicationConfigurationOverlay";
 import CredentialGovernanceOverlay from "./CredentialGovernanceOverlay";
 import ExternalConnectionsOverlay from "./ExternalConnectionsOverlay";
+import SpaceGrantGovernanceOverlay from "./SpaceGrantGovernanceOverlay";
 import "./styles.css";
 
 function RouteAwareExternalConnectionsOverlay() {
@@ -25,5 +26,6 @@ createRoot(root).render(
     <ApplicationConfigurationOverlay />
     <CredentialGovernanceOverlay />
     <RouteAwareExternalConnectionsOverlay />
+    <SpaceGrantGovernanceOverlay />
   </StrictMode>,
 );
