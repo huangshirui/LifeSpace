@@ -370,7 +370,10 @@ function registerRouteSet(app: App, base: string, mode: AuthorityMode): void {
       throw new ApiError("EXTERNAL_VALIDATION_FAILED", "Connection is read-only", 422);
     if (declared === "write" && !businessDefinition.definition.access.includes("write"))
       throw new ApiError("EXTERNAL_VALIDATION_FAILED", "External Model Definition is read-only", 422);
-    const discovered = validateExternalSnapshot(await callExternalAdapter(c.env, source, "discover", resource));
+    const discovered = validateExternalSnapshot(
+      await callExternalAdapter(c.env, source, "discover", resource),
+      "provider",
+    );
     const previous = await c.env.DB.prepare(
       "SELECT model_key,space_id,status,definition_key FROM external_models WHERE provider_key=? AND resource_id=?",
     ).bind(source.provider_key, discovered.resourceId).first<{ model_key: string; space_id: string; status: string; definition_key: string | null }>();
