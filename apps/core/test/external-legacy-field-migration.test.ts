@@ -52,8 +52,17 @@ type FakeStatement = {
   run: () => Promise<{ success: boolean; meta: { changes: number } }>;
 };
 
+type FakeBinding = {
+  model_key: string;
+  source_field_id: string;
+  field_key: string;
+  created_at: string;
+  updated_at: string;
+};
+
 function fakeBindings() {
   const prepared: FakeStatement[] = [];
+  const bindings: FakeBinding[] = [];
   let batches = 0;
   const db = {
     prepare(sql: string): FakeStatement {
@@ -65,10 +74,13 @@ function fakeBindings() {
           return statement;
         },
         async all<T>() {
-          if (sql.includes("FROM external_field_bindings")) return { results: [] as T[] };
+          if (sql.includes("FROM external_field_bindings")) return { results: [...bindings] as T[] };
           throw new Error(`Unexpected all(): ${sql}`);
         },
         async first<T>() {
+          if (sql.startsWith("SELECT 1 AS present FROM external_models")) {
+            return { present: 1 } as T;
+          }
           throw new Error(`Unexpected first(): ${sql}`);
         },
         async run() {
@@ -80,7 +92,26 @@ function fakeBindings() {
     },
     async batch(statements: FakeStatement[]) {
       batches += 1;
-      return statements.map(() => ({ success: true, meta: { changes: 1 } }));
+      return statements.map((statement) => {
+        if (statement.sql.includes("FROM external_field_bindings")) {
+          return { success: true, results: [...bindings], meta: { changes: 0 } };
+        }
+        if (statement.sql.startsWith("INSERT OR IGNORE INTO external_field_bindings")) {
+          const [modelKey, sourceFieldId, fieldKey, createdAt, updatedAt] = statement.args.map(String);
+          const exists = bindings.some((row) => row.model_key === modelKey && row.source_field_id === sourceFieldId);
+          if (!exists) {
+            bindings.push({
+              model_key: modelKey,
+              source_field_id: sourceFieldId,
+              field_key: fieldKey,
+              created_at: createdAt,
+              updated_at: updatedAt,
+            });
+          }
+          return { success: true, meta: { changes: exists ? 0 : 1 } };
+        }
+        return { success: true, meta: { changes: 1 } };
+      });
     },
   };
   return {
@@ -125,10 +156,10 @@ describe("legacy External field-key migration", () => {
     expect(result.row.schema_hash).not.toBe(row.schema_hash);
     expect(result.row.schema_observed_at).toBe(row.schema_observed_at);
     expect(result.row.last_successful_refresh_at).toBe(row.last_successful_refresh_at);
-    expect(batchCount()).toBe(1);
+    expect(batchCount()).toBeGreaterThanOrEqual(3);
 
     const bindingInsert = prepared.find((statement) =>
-      statement.sql.startsWith("INSERT INTO external_field_bindings"),
+      statement.sql.startsWith("INSERT OR IGNORE INTO external_field_bindings"),
     );
     expect(bindingInsert?.args.slice(0, 3)).toEqual([
       row.model_key,

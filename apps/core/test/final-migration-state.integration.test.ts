@@ -42,9 +42,16 @@ describe("final migration state", () => {
     ]);
   });
 
+  it("relies on the external field-key UNIQUE index without a duplicate ordinary index", async () => {
+    const db = (env as unknown as TestEnv).DB;
+    const indexes = await db.prepare("PRAGMA index_list(external_field_bindings)").all<{ name: string; unique: number }>();
+    expect(indexes.results.some((row) => row.name === "idx_external_field_bindings_key")).toBe(false);
+    expect(indexes.results.some((row) => row.unique === 1)).toBe(true);
+  });
+
   it("reports the latest Core schema version", async () => {
     const db = (env as unknown as TestEnv).DB;
     const row = await db.prepare("SELECT value FROM schema_metadata WHERE key='schema_version'").first<{ value: string }>();
-    expect(row?.value).toBe("65");
+    expect(row?.value).toBe("66");
   });
 });
