@@ -86,6 +86,8 @@ function literalCompatible(field: FieldDefinition, value: WorkflowLiteral): bool
       return typeof value === "number" && Number.isFinite(value);
     case "boolean":
       return typeof value === "boolean";
+    case "enum_list":
+    case "file_ref_list":
     case "person_list":
     case "record_list":
       return false;
