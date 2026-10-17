@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "LifeSpace External Model API",
-    "version": "0.5.0",
+    "version": "0.6.0",
     "description": "Provider-neutral External Model binding and dynamic Generic Runtime contract. Connection creation and provider credential ownership are defined by external-connection.openapi.yaml. Provider business data remains external. No transaction/version/distributed atomicity guarantee is introduced."
   },
   "security": [{ "bearerAuth": [] }],
@@ -44,13 +44,13 @@
       "get": {
         "operationId": "listExternalRecords",
         "parameters": [{ "$ref": "#/components/parameters/SpaceId" }, { "$ref": "#/components/parameters/ModelKey" }, { "$ref": "#/components/parameters/DelegationId" }, { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 100 } }, { "name": "cursor", "in": "query", "schema": { "type": "string" } }],
-        "responses": { "200": { "description": "Records", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RecordListEnvelope" } } } }, "403": { "description": "Denied" }, "503": { "description": "Provider unavailable" } }
+        "responses": { "200": { "description": "Records", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RecordListEnvelope" } } }, "403": { "description": "Denied" }, "503": { "description": "Provider unavailable" } }
       },
       "post": {
         "operationId": "createExternalRecord",
         "parameters": [{ "$ref": "#/components/parameters/SpaceId" }, { "$ref": "#/components/parameters/ModelKey" }, { "$ref": "#/components/parameters/DelegationId" }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ExternalWriteData" } } } },
-        "responses": { "201": { "description": "Created", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RecordEnvelope" } } } }, "403": { "description": "Denied" }, "502": { "description": "Uncertain external write outcome" }, "503": { "description": "Provider unavailable" } }
+        "responses": { "201": { "description": "Created", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RecordEnvelope" } } }, "403": { "description": "Denied" }, "502": { "description": "Uncertain external write outcome" }, "503": { "description": "Provider unavailable" } }
       }
     },
     "/api/v1/spaces/{spaceId}/models/{modelKey}/records/query": {
@@ -58,20 +58,20 @@
         "operationId": "queryExternalRecords",
         "parameters": [{ "$ref": "#/components/parameters/SpaceId" }, { "$ref": "#/components/parameters/ModelKey" }, { "$ref": "#/components/parameters/DelegationId" }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ExternalQuery" } } } },
-        "responses": { "200": { "description": "Records", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RecordListEnvelope" } } } }, "422": { "description": "Unsupported query" }, "503": { "description": "Provider unavailable" } }
+        "responses": { "200": { "description": "Records", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RecordListEnvelope" } } }, "422": { "description": "Unsupported query" }, "503": { "description": "Provider unavailable" } }
       }
     },
     "/api/v1/spaces/{spaceId}/models/{modelKey}/records/{recordId}": {
       "get": {
         "operationId": "getExternalRecord",
         "parameters": [{ "$ref": "#/components/parameters/SpaceId" }, { "$ref": "#/components/parameters/ModelKey" }, { "$ref": "#/components/parameters/RecordId" }, { "$ref": "#/components/parameters/DelegationId" }],
-        "responses": { "200": { "description": "Record", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RecordEnvelope" } } } }, "404": { "description": "Unavailable" }, "503": { "description": "Provider unavailable" } }
+        "responses": { "200": { "description": "Unavailable" }, "404": { "description": "Unavailable" }, "503": { "description": "Provider unavailable" } }
       },
       "patch": {
         "operationId": "updateExternalRecord",
         "parameters": [{ "$ref": "#/components/parameters/SpaceId" }, { "$ref": "#/components/parameters/ModelKey" }, { "$ref": "#/components/parameters/RecordId" }, { "$ref": "#/components/parameters/DelegationId" }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ExternalWriteData" } } } },
-        "responses": { "200": { "description": "Updated", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RecordEnvelope" } } } }, "403": { "description": "Denied" }, "502": { "description": "Uncertain external write outcome" }, "503": { "description": "Provider unavailable" } }
+        "responses": { "200": { "description": "Updated", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RecordEnvelope" } } }, "403": { "description": "Denied" }, "502": { "description": "Uncertain external write outcome" }, "503": { "description": "Provider unavailable" } }
       },
       "delete": {
         "operationId": "deleteExternalRecord",
@@ -147,7 +147,7 @@
         "additionalProperties": false,
         "required": ["key", "title", "type", "nullable", "readable", "writable", "operators", "sortable"],
         "properties": {
-          "key": { "type": "string", "pattern": "^f_[a-f0-9]{32}$" },
+          "key": { "type": "string", "pattern": "^[a-z][A-Za-z0-9]{0,62}$", "description": "Stable readable LifeSpace field key. Provider source-field identity remains internal and is not exposed as the Record field name." },
           "title": { "type": "string" },
           "type": { "type": "string", "description": "Canonical LifeSpace Field Type; External Models reuse the same Canonical Field Language as Native Models." },
           "nullable": { "type": "boolean" },
