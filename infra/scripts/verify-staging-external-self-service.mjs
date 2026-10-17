@@ -101,7 +101,7 @@ async function ensureSyntheticProviderSchema() {
   const tags = propertyNamed(schema, tagsProperty);
   const existingTagNames = new Set((tags?.multi_select?.options ?? []).map((option) => option.name));
   if (!existingTagNames.has(alphaTag) || !existingTagNames.has(betaTag)) {
-    const existing = (tags?.multi_select?.options ?? []).map((option) => ({ id: option.id }));
+    const existing = (tags?.multi_select?.options ?? []).map((option) => ({ id: option.id, name: option.name }));
     const missing = [alphaTag, betaTag]
       .filter((name) => !existingTagNames.has(name))
       .map((name) => ({ name }));
