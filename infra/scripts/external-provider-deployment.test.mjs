@@ -139,14 +139,16 @@ test("Adapter code deploy and secret upload target the same exact Worker name", 
   }
 });
 
-test("canonical release pins dynamic-only encrypted Adapter packaging and provider-specific configuration", () => {
+test("canonical release derives Adapter packaging from the provider manifest and preserves provider-specific configuration", () => {
   const manifest = loadProviderManifest();
   assert.match(manifest.revision, /^[a-f0-9]{40}$/);
   assert.equal(manifest.repository, "huangshirui/lifespace-adapters");
-  assert.equal(manifest.revision, "6946114d07b0f598e0eea5c0a37094511f5b20dd");
   assert.deepEqual(Object.keys(manifest.providers), ["notion"]);
   assert.equal(manifest.providers.notion.staticConnectionsEnv, undefined);
-  assert.ok(readFileSync(new URL("../../.github/workflows/check.yml", import.meta.url), "utf8").includes(`ref: ${manifest.revision}`));
+  const checkWorkflow = readFileSync(new URL("../../.github/workflows/check.yml", import.meta.url), "utf8");
+  assert.ok(checkWorkflow.includes("Resolve pinned provider revision from manifest"));
+  assert.ok(checkWorkflow.includes("ref: ${{ steps.external_provider.outputs.revision }}"));
+  assert.equal(checkWorkflow.includes(`ref: ${manifest.revision}`), false);
   for (const env of ["staging", "production"]) {
     const workflow = readFileSync(new URL(`../../.github/workflows/${env === "staging" ? "staging" : "production"}-deploy.yml`, import.meta.url), "utf8");
     const prepare = workflow.indexOf(`external-provider-deployment.mjs prepare ${env}`);
