@@ -7,7 +7,7 @@ const baseSnapshot = (type: string) => ({
   resourceId: "synthetic_resource",
   displayName: "Synthetic canonical fields",
   fields: [{
-    key: `f_${"a".repeat(32)}`,
+    key: "value",
     sourceFieldId: "provider_field_1",
     title: "Value",
     type,
@@ -16,7 +16,7 @@ const baseSnapshot = (type: string) => ({
     writable: true,
     operators: [],
     sortable: false,
-    ...(type === "enum" ? { values: ["a", "b"] } : {}),
+    ...(type === "enum" || type === "enum_list" ? { values: ["a", "b"] } : {}),
     ...(type === "record" || type === "record_list" ? { targetModel: "task" } : {}),
   }],
   capabilities: {
