@@ -44,13 +44,13 @@
       "get": {
         "operationId": "listExternalRecords",
         "parameters": [{ "$ref": "#/components/parameters/SpaceId" }, { "$ref": "#/components/parameters/ModelKey" }, { "$ref": "#/components/parameters/DelegationId" }, { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 100 } }, { "name": "cursor", "in": "query", "schema": { "type": "string" } }],
-        "responses": { "200": { "description": "Records", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RecordListEnvelope" } } }, "403": { "description": "Denied" }, "503": { "description": "Provider unavailable" } }
+        "responses": { "200": { "description": "Records", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RecordListEnvelope" } } } }, "403": { "description": "Denied" }, "503": { "description": "Provider unavailable" } }
       },
       "post": {
         "operationId": "createExternalRecord",
         "parameters": [{ "$ref": "#/components/parameters/SpaceId" }, { "$ref": "#/components/parameters/ModelKey" }, { "$ref": "#/components/parameters/DelegationId" }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ExternalWriteData" } } } },
-        "responses": { "201": { "description": "Created", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RecordEnvelope" } } }, "403": { "description": "Denied" }, "502": { "description": "Uncertain external write outcome" }, "503": { "description": "Provider unavailable" } }
+        "responses": { "201": { "description": "Created", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RecordEnvelope" } } } }, "403": { "description": "Denied" }, "502": { "description": "Uncertain external write outcome" }, "503": { "description": "Provider unavailable" } }
       }
     },
     "/api/v1/spaces/{spaceId}/models/{modelKey}/records/query": {
@@ -58,20 +58,20 @@
         "operationId": "queryExternalRecords",
         "parameters": [{ "$ref": "#/components/parameters/SpaceId" }, { "$ref": "#/components/parameters/ModelKey" }, { "$ref": "#/components/parameters/DelegationId" }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ExternalQuery" } } } },
-        "responses": { "200": { "description": "Records", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RecordListEnvelope" } } }, "422": { "description": "Unsupported query" }, "503": { "description": "Provider unavailable" } }
+        "responses": { "200": { "description": "Records", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RecordListEnvelope" } } } }, "422": { "description": "Unsupported query" }, "503": { "description": "Provider unavailable" } }
       }
     },
     "/api/v1/spaces/{spaceId}/models/{modelKey}/records/{recordId}": {
       "get": {
         "operationId": "getExternalRecord",
         "parameters": [{ "$ref": "#/components/parameters/SpaceId" }, { "$ref": "#/components/parameters/ModelKey" }, { "$ref": "#/components/parameters/RecordId" }, { "$ref": "#/components/parameters/DelegationId" }],
-        "responses": { "200": { "description": "Unavailable" }, "404": { "description": "Unavailable" }, "503": { "description": "Provider unavailable" } }
+        "responses": { "200": { "description": "Record", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RecordEnvelope" } } } }, "404": { "description": "Unavailable" }, "503": { "description": "Provider unavailable" } }
       },
       "patch": {
         "operationId": "updateExternalRecord",
         "parameters": [{ "$ref": "#/components/parameters/SpaceId" }, { "$ref": "#/components/parameters/ModelKey" }, { "$ref": "#/components/parameters/RecordId" }, { "$ref": "#/components/parameters/DelegationId" }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ExternalWriteData" } } } },
-        "responses": { "200": { "description": "Updated", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RecordEnvelope" } } }, "403": { "description": "Denied" }, "502": { "description": "Uncertain external write outcome" }, "503": { "description": "Provider unavailable" } }
+        "responses": { "200": { "description": "Updated", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RecordEnvelope" } } } }, "403": { "description": "Denied" }, "502": { "description": "Uncertain external write outcome" }, "503": { "description": "Provider unavailable" } }
       },
       "delete": {
         "operationId": "deleteExternalRecord",
