@@ -1,5 +1,6 @@
 import { recurrenceRuleSchema } from "./recurrence-rule";
 import { entityRefSchema } from "./entity-ref";
+import { fileRefListSchema } from "./file-ref";
 import { applySemanticRelationContract } from "./semantic-relation-model-contract";
 import { calendarViewingWindowSemanticQuery } from "./calendar-query-semantics";
 import { canonicalQueryContractSchemas } from "./canonical-query-contract";
@@ -126,20 +127,7 @@ function fieldSchema(field: FieldDefinition): JsonSchema {
       };
       break;
     case "file_ref_list":
-      schema = {
-        type: "array",
-        maxItems: 100,
-        items: {
-          type: "object",
-          additionalProperties: false,
-          required: ["name", "url"],
-          properties: {
-            name: { type: "string", minLength: 1, maxLength: 255 },
-            url: { type: "string", format: "uri" },
-            expiresAt: { type: "string", format: "date-time" },
-          },
-        },
-      };
+      schema = fileRefListSchema();
       break;
     case "person":
       schema = { type: "string", pattern: "^per_" };
