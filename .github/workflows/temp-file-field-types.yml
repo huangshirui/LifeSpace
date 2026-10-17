@@ -19,7 +19,7 @@ jobs:
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: pnpm
       - name: Align patch script with current spec table
         run: |
@@ -39,6 +39,18 @@ jobs:
           PY
       - name: Apply canonical File field patch
         run: python scripts/apply-file-field-types.py
+      - name: Complete exhaustive workflow projection
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('apps/core/src/workflow-definition.ts')
+          s = p.read_text()
+          old = '    case "person":\n    case "record":\n      return typeof value === "string";'
+          new = '    case "person":\n    case "record":\n    case "file":\n      return typeof value === "string";'
+          if old not in s:
+              raise SystemExit('workflow literal scalar anchor missing')
+          p.write_text(s.replace(old, new, 1))
+          PY
       - name: Install
         run: pnpm install --frozen-lockfile
       - name: Verify Core
