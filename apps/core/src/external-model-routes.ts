@@ -31,6 +31,10 @@ import {
   validateExternalSnapshot,
   type ExternalModelRow,
 } from "./external-model";
+import {
+  externalFieldBindingStatements,
+  stabilizeExternalFieldKeys,
+} from "./external-field-binding";
 import { externalSemanticDetail } from "./external-runtime";
 import { getRuntimeModel } from "./model-registry";
 
@@ -366,20 +370,26 @@ function registerRouteSet(app: App, base: string, mode: AuthorityMode): void {
       throw new ApiError("EXTERNAL_VALIDATION_FAILED", "Connection is read-only", 422);
     if (declared === "write" && !businessDefinition.definition.access.includes("write"))
       throw new ApiError("EXTERNAL_VALIDATION_FAILED", "External Model Definition is read-only", 422);
-    const snapshot = validateExternalSnapshot(await callExternalAdapter(c.env, source, "discover", resource));
-    const hash = await externalHash(snapshot);
+    const discovered = validateExternalSnapshot(
+      await callExternalAdapter(c.env, source, "discover", resource),
+      "provider",
+    );
     const previous = await c.env.DB.prepare(
       "SELECT model_key,space_id,status,definition_key FROM external_models WHERE provider_key=? AND resource_id=?",
-    ).bind(source.provider_key, snapshot.resourceId).first<{ model_key: string; space_id: string; status: string; definition_key: string | null }>();
+    ).bind(source.provider_key, discovered.resourceId).first<{ model_key: string; space_id: string; status: string; definition_key: string | null }>();
     if (previous?.definition_key && previous.definition_key !== definitionKey)
       throw new ApiError("EXTERNAL_DEFINITION_IMMUTABLE", "A binding cannot change its business definition", 409);
     if (previous && (previous.space_id !== source.space_id || previous.status !== "disabled"))
       throw new ApiError("EXTERNAL_RESOURCE_REGISTERED", "External resource is already registered", 409);
     const key = previous?.model_key ?? id("ext");
+    const stabilized = await stabilizeExternalFieldKeys(c.env, key, discovered);
+    const snapshot = validateExternalSnapshot(stabilized.snapshot);
+    const hash = await externalHash(snapshot);
     const timestamp = now();
     try {
+      const statements: D1PreparedStatement[] = [];
       if (previous) {
-        const reactivated = await c.env.DB.prepare(
+        statements.push(c.env.DB.prepare(
           `UPDATE external_models SET definition_key=?,source_id=?,snapshot_json=?,schema_hash=?,schema_observed_at=?,display_name=?,declared_access=?,status='active',last_successful_refresh_at=?,last_error_code=NULL,next_refresh_at=?,updated_at=? WHERE model_key=? AND space_id=? AND status='disabled'`,
         ).bind(
           definitionKey,
@@ -394,11 +404,9 @@ function registerRouteSet(app: App, base: string, mode: AuthorityMode): void {
           timestamp,
           key,
           source.space_id,
-        ).run();
-        if (!reactivated.meta.changes)
-          throw new ApiError("EXTERNAL_RESOURCE_REGISTERED", "Registration changed concurrently", 409);
+        ));
       } else {
-        await c.env.DB.prepare(
+        statements.push(c.env.DB.prepare(
           `INSERT INTO external_models(model_key,space_id,source_id,provider_key,resource_id,display_name,declared_access,snapshot_json,schema_hash,schema_observed_at,status,last_successful_refresh_at,next_refresh_at,created_at,updated_at,definition_key) VALUES(?,?,?,?,?,?,?,?,?,?,'active',?,?,?,?,?)`,
         ).bind(
           key,
@@ -416,8 +424,12 @@ function registerRouteSet(app: App, base: string, mode: AuthorityMode): void {
           timestamp,
           timestamp,
           definitionKey,
-        ).run();
+        ));
       }
+      statements.push(...externalFieldBindingStatements(c.env, key, stabilized.newBindings, timestamp));
+      const results = await c.env.DB.batch(statements);
+      if (previous && !results[0]?.meta.changes)
+        throw new ApiError("EXTERNAL_RESOURCE_REGISTERED", "Registration changed concurrently", 409);
     } catch (error) {
       if (String(error).includes("UNIQUE constraint"))
         throw new ApiError("EXTERNAL_RESOURCE_REGISTERED", "External resource is already registered", 409);

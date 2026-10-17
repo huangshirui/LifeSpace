@@ -7,7 +7,7 @@ const baseSnapshot = (type: string) => ({
   resourceId: "synthetic_resource",
   displayName: "Synthetic canonical fields",
   fields: [{
-    key: `f_${"a".repeat(32)}`,
+    key: "value",
     sourceFieldId: "provider_field_1",
     title: "Value",
     type,
@@ -16,7 +16,7 @@ const baseSnapshot = (type: string) => ({
     writable: true,
     operators: [],
     sortable: false,
-    ...(type === "enum" ? { values: ["a", "b"] } : {}),
+    ...(type === "enum" || type === "enum_list" ? { values: ["a", "b"] } : {}),
     ...(type === "record" || type === "record_list" ? { targetModel: "task" } : {}),
   }],
   capabilities: {
@@ -41,6 +41,13 @@ describe("External Canonical Field Language", () => {
     for (const type of CANONICAL_FIELD_TYPES) {
       expect(validateExternalSnapshot(baseSnapshot(type)).fields[0]?.type).toBe(type);
     }
+  });
+
+  it("accepts provider-provisional keys only before Core stable-key assignment", () => {
+    const snapshot = baseSnapshot("string");
+    snapshot.fields[0]!.key = `f_${"a".repeat(32)}`;
+    expect(validateExternalSnapshot(snapshot, "provider").fields[0]?.key).toBe(snapshot.fields[0]!.key);
+    expect(() => validateExternalSnapshot(snapshot)).toThrow();
   });
 
   it("uses the canonical structured value validator at the External record boundary", async () => {

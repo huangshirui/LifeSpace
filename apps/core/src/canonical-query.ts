@@ -176,7 +176,10 @@ function instant(value: unknown, field: string): string {
 function scalarValue(field: FieldDefinition, raw: unknown, path: string): string | number {
   switch (field.type) {
     case "recurrence_rule":
-    case "entity_ref": throw new ApiError("INVALID_QUERY", "Structured field is not a scalar comparison", 400);
+    case "entity_ref":
+    case "enum_list":
+    case "file_ref_list":
+      throw new ApiError("INVALID_QUERY", "Structured field is not a scalar comparison", 400);
     case "string":
       if (typeof raw !== "string") throw new ApiError("INVALID_QUERY", `${path} must be a string`, 400);
       return raw.trim();
@@ -271,6 +274,12 @@ export function normalizeCanonicalQueryOperand(
     }
     return parseRangeOperand(value, path);
   }
+  if (op === "contains" && field.type === "enum_list") {
+    if (typeof value !== "string" || !field.values?.includes(value)) {
+      throw new ApiError("INVALID_QUERY", `${path} is not a declared enum value`, 400);
+    }
+    return value;
+  }
   if (op === "contains" && ["person", "person_list", "record", "record_list"].includes(field.type)) {
     if (typeof value !== "string" || !value) throw new ApiError("INVALID_QUERY", `${path} must contain an ID`, 400);
     return value;
@@ -318,7 +327,7 @@ function orderedType(field: FieldDefinition): boolean {
 }
 
 function equalityType(field: FieldDefinition): boolean {
-  return !["person", "person_list", "record", "record_list"].includes(field.type);
+  return !["person", "person_list", "record", "record_list", "enum_list", "file_ref_list"].includes(field.type);
 }
 
 function relationAliasAllowed(model: PublishedModel, fieldKey: string): boolean {
@@ -806,7 +815,7 @@ function scalarFilter(model: PublishedModel, predicate: FilterPredicate): SqlFra
   if (["lt", "lte", "gt", "gte"].includes(predicate.op)) {
     if (!orderedType(field)) throw new ApiError("INVALID_QUERY", `${predicate.field}.${predicate.op} requires an ordered scalar`, 400);
   } else if (predicate.op === "eq" || predicate.op === "ne") {
-    if (!equalityType(field)) throw new ApiError("INVALID_QUERY", `${predicate.field}.${predicate.op} is not valid for relation fields; use contains`, 400);
+    if (!equalityType(field)) throw new ApiError("INVALID_QUERY", `${predicate.field}.${predicate.op} is not valid for relation/list fields; use contains where supported`, 400);
   } else {
     throw new ApiError("INVALID_QUERY", `${predicate.field}.${predicate.op} is not a scalar operator`, 400);
   }

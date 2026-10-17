@@ -52,7 +52,7 @@ async function fixture() {
   const vault = new Map<string, { token: string; access: "read" | "write" }>();
   const calls: Array<{ path: string; operation: string; credentialRef?: string }> = [];
   const resourceId = `12345678-1234-1234-1234-${suffix.slice(0, 12)}`;
-  const fieldKey = `f_${"a".repeat(32)}`;
+  const fieldKey = "name";
   const adapter = {
     async fetch(url: RequestInfo | URL, init?: RequestInit) {
       const request = new Request(url, init);
@@ -102,7 +102,7 @@ async function fixture() {
           fields: [{ key: fieldKey, sourceFieldId: "title", title: "Name", type: "string", nullable: false, readable: true, writable: true, operators: ["eq", "contains"], sortable: true }],
           capabilities: { get: true, query: true, create: true, update: true, delete: true, batchWrite: true, atomicBatch: false, transaction: false, versionedWrite: false, actions: false, relationTargetResolution: false },
           queryLimits: { maxDepth: 2, maxNodes: 100, maxSort: 8, maxPageSize: 100 },
-          adapterState: { codecs: { [fieldKey]: { id: "title", type: "title" } } },
+          adapterState: { codecs: { title: { id: "title", type: "title" } } },
         } });
       }
       return Response.json({ contractVersion: 1, error: { code: "EXTERNAL_CONTRACT_INVALID", retrySafe: false } }, { status: 502 });

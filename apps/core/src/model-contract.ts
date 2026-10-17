@@ -1,5 +1,6 @@
 import { recurrenceRuleSchema } from "./recurrence-rule";
 import { entityRefSchema } from "./entity-ref";
+import { fileRefListSchema } from "./file-ref";
 import { applySemanticRelationContract } from "./semantic-relation-model-contract";
 import { calendarViewingWindowSemanticQuery } from "./calendar-query-semantics";
 import { canonicalQueryContractSchemas } from "./canonical-query-contract";
@@ -117,6 +118,16 @@ function fieldSchema(field: FieldDefinition): JsonSchema {
       break;
     case "enum":
       schema = { type: "string", enum: field.values ?? [] };
+      break;
+    case "enum_list":
+      schema = {
+        type: "array",
+        uniqueItems: true,
+        items: { type: "string", enum: field.values ?? [] },
+      };
+      break;
+    case "file_ref_list":
+      schema = fileRefListSchema();
       break;
     case "person":
       schema = { type: "string", pattern: "^per_" };
@@ -1190,4 +1201,3 @@ export async function generateModelContract(input: PublishedModel[]): Promise<Mo
   const hash = await sha256(canonicalJson({ manifest, openapi, jsonSchema }));
   return { id: `mct_${hash}`, hash, manifest, openapi, jsonSchema };
 }
-
