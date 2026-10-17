@@ -143,7 +143,7 @@ test("canonical release pins dynamic-only encrypted Adapter packaging and provid
   const manifest = loadProviderManifest();
   assert.match(manifest.revision, /^[a-f0-9]{40}$/);
   assert.equal(manifest.repository, "huangshirui/lifespace-adapters");
-  assert.equal(manifest.revision, "7f81f62373312cef8aa753fa532b8eca4b9d0ceb");
+  assert.equal(manifest.revision, "6946114d07b0f598e0eea5c0a37094511f5b20dd");
   assert.deepEqual(Object.keys(manifest.providers), ["notion"]);
   assert.equal(manifest.providers.notion.staticConnectionsEnv, undefined);
   assert.ok(readFileSync(new URL("../../.github/workflows/check.yml", import.meta.url), "utf8").includes(`ref: ${manifest.revision}`));
