@@ -40,6 +40,8 @@ export const CANONICAL_FIELD_TYPES = [
   "entity_ref",
   "timezone",
   "enum",
+  "enum_list",
+  "file_ref_list",
   "person",
   "person_list",
   "record",
@@ -134,8 +136,8 @@ export type ModelValidationResult =
   | { valid: false; issues: ModelValidationIssue[] };
 
 const MODEL_KEY = /^[a-z][a-z0-9_]{1,62}$/;
-const FIELD_KEY = /^[a-z][A-Za-z0-9]{0,62}$/;
-const RESERVED_FIELDS = new Set([
+export const FIELD_KEY = /^[a-z][A-Za-z0-9]{0,62}$/;
+export const RESERVED_FIELDS = new Set([
   "id",
   "spaceId",
   "modelKey",
@@ -308,12 +310,17 @@ function validTimezone(value: string): boolean {
 }
 
 function validDefault(field: FieldDefinition, value: unknown): value is ModelDefaultValue {
-  if (["recurrence_rule", "entity_ref"].includes(field.type) || field.type === "temporal_range" || isFirstClassRangeFieldType(field.type)) return false;
+  if (["recurrence_rule", "entity_ref", "file_ref_list"].includes(field.type) || field.type === "temporal_range" || isFirstClassRangeFieldType(field.type)) return false;
   if (value === null) return field.nullable === true;
 
   if (field.type === "person" || field.type === "record") return false;
   if (field.type === "person_list" || field.type === "record_list") {
     return Array.isArray(value) && value.length === 0;
+  }
+  if (field.type === "enum_list") {
+    return Array.isArray(value)
+      && value.every((entry) => typeof entry === "string" && Boolean(field.values?.includes(entry)))
+      && new Set(value).size === value.length;
   }
 
   if (field.type === "string" || field.type === "text") {
@@ -644,20 +651,20 @@ export function validateModelDefinition(input: unknown): ModelValidationResult {
       }
 
       const values = stringArray(issues, raw.values, `${path}.values`);
-      if (type === "enum") {
+      if (type === "enum" || type === "enum_list") {
         if (!values?.length) {
-          issue(issues, `${path}.values`, "ENUM_VALUES_REQUIRED", "enum fields require values");
+          issue(issues, `${path}.values`, "ENUM_VALUES_REQUIRED", `${type} fields require values`);
         }
         if (values && values.length > 50) {
           issue(
             issues,
             `${path}.values`,
             "TOO_MANY_ENUM_VALUES",
-            "enum fields may contain at most 50 values",
+            `${type} fields may contain at most 50 values`,
           );
         }
       } else if (values !== undefined) {
-        issue(issues, `${path}.values`, "INVALID_CONSTRAINT", "values is only valid for enum fields");
+        issue(issues, `${path}.values`, "INVALID_CONSTRAINT", "values is only valid for enum/enum_list fields");
       }
 
       const targetModel = typeof raw.targetModel === "string" ? raw.targetModel : undefined;
@@ -781,6 +788,13 @@ export function validateModelDefinition(input: unknown): ModelValidationResult {
             "UNSUPPORTED_QUERY_FIELD_TYPE",
             "Range-valued fields have no text-search projection",
           );
+        } else if (["enum_list", "file_ref_list"].includes(field.type) && kind !== "filterable") {
+          issue(
+            issues,
+            `query.${kind}`,
+            "UNSUPPORTED_QUERY_FIELD_TYPE",
+            `${field.type} fields support filtering only`,
+          );
         } else if (isFirstClassRangeFieldType(field.type) && kind === "sortable") {
           issue(
             issues,
@@ -894,7 +908,6 @@ export function validateModelDefinition(input: unknown): ModelValidationResult {
     hashInput: canonicalModelDefinition(definition),
   };
 }
-
 
 export type CanonicalFieldValidationResult =
   | { valid: true; definition: CanonicalFieldDefinition }
