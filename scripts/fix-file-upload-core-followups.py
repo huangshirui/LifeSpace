@@ -11,6 +11,13 @@ text = old_migration.read_text().replace("SET value='66'", "SET value='67'")
 new_migration.write_text(text)
 old_migration.unlink()
 
+state_test = Path("apps/core/test/final-migration-state.integration.test.ts")
+state = state_test.read_text()
+old_state = 'expect(row?.value).toBe("66");'
+if old_state not in state:
+    raise SystemExit("final migration state expectation not found")
+state_test.write_text(state.replace(old_state, 'expect(row?.value).toBe("67");', 1))
+
 Path("apps/core/test/scheduled.test.ts").write_text(r'''import { describe, expect, it, vi } from "vitest";
 import type { Bindings } from "../src/env";
 import { ApiError } from "../src/http";
