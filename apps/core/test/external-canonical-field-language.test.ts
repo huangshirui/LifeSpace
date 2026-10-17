@@ -43,6 +43,13 @@ describe("External Canonical Field Language", () => {
     }
   });
 
+  it("accepts provider-provisional keys only before Core stable-key assignment", () => {
+    const snapshot = baseSnapshot("string");
+    snapshot.fields[0]!.key = `f_${"a".repeat(32)}`;
+    expect(validateExternalSnapshot(snapshot, "provider").fields[0]?.key).toBe(snapshot.fields[0]!.key);
+    expect(() => validateExternalSnapshot(snapshot)).toThrow();
+  });
+
   it("uses the canonical structured value validator at the External record boundary", async () => {
     const snapshot = validateExternalSnapshot(baseSnapshot("range<date>"));
     const field = snapshot.fields[0]!;
