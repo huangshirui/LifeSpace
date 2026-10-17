@@ -21,6 +21,22 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
+      - name: Align patch script with current spec table
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('scripts/apply-file-field-types.py')
+          s = p.read_text()
+          s = s.replace(
+              "needle = '| `enum` | String | One value from `values` |\\n| `person` | String ID | Person reference |'",
+              "needle = '| `enum` | one declared string value |\\n| `person` | one active Space Person in the same Space |'",
+          )
+          old = '''replacement = ''' + "'''" + '''| `enum` | String | One value from `values` |\\n| `enum_list` | String array | Unique values constrained by `values`; see `model-definition-collection-types.md` |\\n| `file` | `fil_*` string | Stable reference to one LifeSpace-owned File |\\n| `file_list` | `fil_*` string array | Ordered unique references to LifeSpace-owned Files; max 100 |\\n| `file_ref_list` | File reference array | Provider-owned `{name,url,expiresAt?}` references; see `model-definition-collection-types.md` |\\n| `person` | String ID | Person reference |''' + "'''"
+          new = '''replacement = ''' + "'''" + '''| `enum` | one declared string value |\\n| `enum_list` | unique list of declared enum string values; see `model-definition-collection-types.md` |\\n| `file` | one stable `fil_*` LifeSpace-owned File reference |\\n| `file_list` | ordered unique list of stable `fil_*` LifeSpace-owned File references; max 100 |\\n| `file_ref_list` | bounded Provider-owned `{name,url,expiresAt?}` reference list; see `model-definition-collection-types.md` |\\n| `person` | one active Space Person in the same Space |''' + "'''"
+          if old not in s:
+              raise SystemExit('old replacement source not found')
+          p.write_text(s.replace(old, new))
+          PY
       - name: Apply canonical File field patch
         run: python scripts/apply-file-field-types.py
       - name: Install
