@@ -102,6 +102,7 @@ export type ExternalOperation =
   | "create"
   | "update"
   | "delete";
+export type ExternalSnapshotKeyMode = "canonical" | "provider";
 export class ExternalError extends ApiError {
   constructor(
     code: string,
@@ -159,7 +160,10 @@ export function boundedString(value: unknown, name: string, max = 256): string {
     throw new ApiError("VALIDATION_ERROR", `${name} is invalid`, 422);
   return value;
 }
-export function validateExternalSnapshot(value: unknown): ExternalSnapshot {
+export function validateExternalSnapshot(
+  value: unknown,
+  keyMode: ExternalSnapshotKeyMode = "canonical",
+): ExternalSnapshot {
   const input = objectInput(value);
   onlyKeys(input, [
     "resourceId",
@@ -202,14 +206,19 @@ export function validateExternalSnapshot(value: unknown): ExternalSnapshot {
       "operators",
       "sortable",
     ]);
+    const fieldKey = typeof f.key === "string" && f.key.length > 0 && f.key.length <= 256
+      ? f.key
+      : null;
     if (
-      typeof f.key !== "string" ||
-      !externalFieldKeyRules.pattern.test(f.key) ||
-      externalFieldKeyRules.reserved.has(f.key) ||
-      seen.has(f.key)
+      !fieldKey ||
+      seen.has(fieldKey) ||
+      (keyMode === "canonical" && (
+        !externalFieldKeyRules.pattern.test(fieldKey) ||
+        externalFieldKeyRules.reserved.has(fieldKey)
+      ))
     )
       throw new ExternalError("EXTERNAL_CONTRACT_INVALID", 502);
-    seen.add(f.key);
+    seen.add(fieldKey);
     const id = boundedString(f.sourceFieldId, "sourceFieldId");
     if (ids.has(id)) throw new ExternalError("EXTERNAL_CONTRACT_INVALID", 502);
     ids.add(id);
@@ -249,7 +258,7 @@ export function validateExternalSnapshot(value: unknown): ExternalSnapshot {
       throw new ExternalError("EXTERNAL_CONTRACT_INVALID", 502);
     normalizedFields.push({
       ...canonical.definition,
-      key: f.key,
+      key: fieldKey,
       sourceFieldId: id,
       title: canonical.definition.title ?? String(f.title),
       nullable: canonical.definition.nullable === true,
@@ -495,6 +504,7 @@ export async function refreshExternalModel(
         "discover",
         model.resource_id,
       ),
+      "provider",
     );
     if (discovered.resourceId !== model.resource_id)
       throw new ExternalError("EXTERNAL_CONTRACT_INVALID", 502);
