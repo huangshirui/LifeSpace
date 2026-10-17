@@ -56,8 +56,9 @@ export function externalSemanticDetail(
   m: ExternalModel,
   allowed: string[] = externalAuthorityModel(m).definition.access,
 ) {
-  const readable = m.snapshot.fields.map(({ sourceFieldId: _id, ...f }) => ({
+  const readable = m.snapshot.fields.map(({ sourceFieldId: _id, upload, ...f }) => ({
     ...f,
+    ...(upload?.supported && allowed.includes("write") && m.declared_access === "write" ? { upload } : {}),
     ...(f.type === "recurrence_rule"
       ? { valueSchema: recurrenceRuleSchema() }
       : f.type === "entity_ref"
@@ -474,6 +475,11 @@ export function externalAuditPlan(
     ),
   };
 }
+function externalUploadAvailable(m: ExternalModel, input: Record<string, unknown>): boolean {
+  if (typeof input.fieldKey !== "string") return false;
+  return m.snapshot.fields.some((field) => field.key === input.fieldKey && field.type === "file_ref_list" && field.upload?.supported === true);
+}
+
 export async function executeExternalOperation(
   env: Bindings,
   model: ExternalModel,
@@ -486,7 +492,7 @@ export async function executeExternalOperation(
 ): Promise<unknown> {
   let m = model;
   const write =
-    operation === "create" || operation === "update" || operation === "delete";
+    operation === "create" || operation === "update" || operation === "delete" || operation === "upload";
   if (write && decision.authority.singleUse)
     throw new ApiError(
       "EXTERNAL_SINGLE_USE_UNSUPPORTED",
@@ -494,7 +500,7 @@ export async function executeExternalOperation(
       422,
     );
   if (
-    !m.snapshot.capabilities[operation] ||
+    !(operation === "upload" ? externalUploadAvailable(m, input) : m.snapshot.capabilities[operation]) ||
     (write && m.declared_access !== "write")
   )
     throw new ApiError(
@@ -522,6 +528,7 @@ export async function executeExternalOperation(
     const prepare = async () => {
       if (operation === "create" || operation === "update")
         return validateData(m, input, operation);
+      if (operation === "upload") return input;
       if (operation !== "query") return input;
       const q = validateQuery(m, input);
       const page = objectInput(q.page);
@@ -558,7 +565,7 @@ export async function executeExternalOperation(
         throw error;
       m = await refreshExternalModel(env, m);
       if (
-        !m.snapshot.capabilities[operation] ||
+        !(operation === "upload" ? externalUploadAvailable(m, input) : m.snapshot.capabilities[operation]) ||
         (write && m.declared_access !== "write")
       )
         throw new ApiError(

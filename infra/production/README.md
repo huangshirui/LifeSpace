@@ -119,3 +119,8 @@ The Eventing production verifier requires:
 Normal LifeSpace production operations must not read or import an external application's business data as a deployment side effect, create provider mappings for a consumer, alter consumer DNS/routes/clients, or delete consumer-owned runtime resources.
 
 Application migration, compatibility acceptance, provider identity mapping and release/cutover remain responsibilities of the application repository. Any future destructive LifeSpace infrastructure change requires its own explicit platform migration/rollback plan.
+
+
+## File upload signing
+
+Core's `ASSETS` R2 binding remains authoritative for object verification/cleanup, but browser/client direct upload requires S3 SigV4 signing credentials. Configure Worker secrets `R2_S3_ACCOUNT_ID`, `R2_S3_ACCESS_KEY_ID`, and `R2_S3_SECRET_ACCESS_KEY`; optionally set `R2_S3_BUCKET` only when overriding the environment's canonical LifeSpace assets bucket. Use a narrowly scoped R2 token limited to the LifeSpace assets bucket. These values must never enter source, client responses, or logs.

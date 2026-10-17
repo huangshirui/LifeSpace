@@ -3,7 +3,7 @@ import YAML from "yaml";
 
 const document = YAML.parse(fs.readFileSync(new URL("../openapi.yaml", import.meta.url), "utf8"));
 
-if (document.openapi !== "3.1.0" || document.info?.version !== "0.52.0") {
+if (document.openapi !== "3.1.0" || document.info?.version !== "0.53.0") {
   throw new Error("Core Kernel OpenAPI version metadata is invalid");
 }
 if (!document.info?.title?.includes("Kernel")) {
@@ -39,6 +39,9 @@ const requiredPaths = [
   "/api/v1/space-invites/join",
   "/api/v1/spaces/{spaceId}/grants",
   "/api/v1/spaces/{spaceId}/grants/{grantId}",
+  "/api/v1/spaces/{spaceId}/file-uploads",
+  "/api/v1/spaces/{spaceId}/file-uploads/{uploadId}/complete",
+  "/api/v1/spaces/{spaceId}/file-downloads",
   "/api/v1/spaces/{spaceId}/_discovery",
   "/api/v1/spaces/{spaceId}/_discovery/models/{modelKey}",
   "/api/v1/spaces/{spaceId}/_relation-targets/{modelKey}/{fieldKey}",

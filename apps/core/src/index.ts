@@ -3,6 +3,7 @@ import { reconcileExternalModels } from "./external-model";
 import { createApp } from "./app";
 import { dispatchPendingDomainEvents, processWebhookDeliveryQueue, type WebhookDeliveryQueueMessage } from "./eventing";
 import type { Bindings } from "./env";
+import { cleanupFileUploads } from "./file-routes";
 
 const app = createApp();
 
@@ -13,7 +14,7 @@ export default {
   },
   async scheduled(_controller: ScheduledController, env: Bindings): Promise<void> {
     const failures: unknown[] = [];
-    for (const work of [reconcileExternalModels, rollRecurrenceWindow, dispatchPendingDomainEvents]) {
+    for (const work of [reconcileExternalModels, rollRecurrenceWindow, cleanupFileUploads, dispatchPendingDomainEvents]) {
       try { await work(env); } catch (error) { failures.push(error); }
     }
     if (failures.length === 1) throw failures[0];

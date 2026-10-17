@@ -21,7 +21,6 @@ type Destination = "native" | "external";
 const UPLOAD_TTL_SECONDS = 15 * 60;
 const DOWNLOAD_TTL_SECONDS = 5 * 60;
 const NATIVE_MAX_BYTES = 100 * 1024 * 1024;
-const ID = /^[a-z]{3}_[a-f0-9]{32}$/u;
 
 export type UploadSessionRow = {
   id: string;
@@ -237,7 +236,7 @@ async function completeSession(context: Context<AppEnv>) {
       await context.env.DB.batch([
         context.env.DB.prepare(`INSERT INTO files(
           id,space_id,name,content_type,size_bytes,object_key,status,application_id,principal_type,principal_id,actor_type,actor_id,created_at
-        ) VALUES(?,?,?,?,?,?,'ready',?,?,?,?,?,?,?)`).bind(
+        ) VALUES(?,?,?,?,?,?,'ready',?,?,?,?,?,?)`).bind(
           row.file_id, spaceId, row.name, row.content_type, row.expected_size, row.object_key,
           execution.clientId, execution.type, execution.id, executionActor.type, executionActor.id, completedAt,
         ),

@@ -13,7 +13,7 @@ import {
   planUpdateGenericMutation,
   prepareCreateGenericMutation,
   prepareUpdateGenericMutation,
-  validateRelationProjectionGroups,
+  validateRelationProjectionGroups, validateFileProjectionGroups,
   type GenericResource,
   type PreparedCreateMutation,
   type PreparedUpdateMutation,
@@ -270,6 +270,12 @@ export function registerGenericBulkRoutes(app: App): void {
     ]);
     const relationErrors = await validateRelationProjectionGroups(context.env, spaceId, relationGroups);
     relationErrors.forEach((error, offset) => { if (error) preparedItems[offset]!.error = error; });
+    const fileGroups = preparedItems.map((item) => [
+      ...(item.prepared!.preparedCreate?.files ?? []),
+      ...(item.prepared!.preparedUpdate?.files ?? []),
+    ]);
+    const fileErrors = await validateFileProjectionGroups(context.env, spaceId, fileGroups);
+    fileErrors.forEach((error, offset) => { if (error) preparedItems[offset]!.error = error; });
 
     await prepareRecurrenceMutations(context.env, executionPrincipal, spaceId, items.filter(item => !item.error && item.prepared && item.operation?.operation !== "delete").map(item => ({
       model: item.model!, recordId: item.operation!.recordId ?? item.operation!.newRecordId,

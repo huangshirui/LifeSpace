@@ -119,3 +119,8 @@ Eventing verification goes beyond the direct subscription test endpoint. `infra/
 Smoke data is staging-only and is identified by the GitHub Actions run ID/attempt. Production resources and external application traffic/data are not modified by the staging workflow.
 
 Recurrence enrollment/completion now has automatic live acceptance after both services converge. External Provider deployment is an explicit environment opt-in: its pinned private Worker, matching secrets, Core Binding and real synthetic Notion/relations/batch/Scheduled-refresh acceptance run in the same workflow. Complete [External Provider rollout](../external-provider-rollout.md) prerequisites before enabling it. A green Native-only release does not claim External acceptance. Console has a separate staging release and browser gate.
+
+
+## File upload signing
+
+Core's `ASSETS` R2 binding remains authoritative for object verification/cleanup, but browser/client direct upload requires S3 SigV4 signing credentials. Configure Worker secrets `R2_S3_ACCOUNT_ID`, `R2_S3_ACCESS_KEY_ID`, and `R2_S3_SECRET_ACCESS_KEY`; optionally set `R2_S3_BUCKET` only when overriding the environment's canonical LifeSpace assets bucket. Use a narrowly scoped R2 token limited to the LifeSpace assets bucket. These values must never enter source, client responses, or logs.
