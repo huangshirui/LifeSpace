@@ -143,7 +143,7 @@ async function resolveTarget(
   const model = await getRuntimeModel(env, modelKey);
   if (!model || model.definition.origin === "external") throw new ApiError("MODEL_NOT_FOUND", "Model not found", 404);
   const field = model.definition.fields[fieldKey];
-  if (!field || (field.type !== "file" && field.type !== "file_list")) {
+  if (!field || field.readOnly === true || (field.type !== "file" && field.type !== "file_list")) {
     throw new ApiError("FILE_UPLOAD_UNSUPPORTED", "Field does not accept LifeSpace Files", 405);
   }
   const decision = await requireModelAccess(env, principal, spaceId, model, "write", {
