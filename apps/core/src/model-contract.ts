@@ -126,6 +126,17 @@ function fieldSchema(field: FieldDefinition): JsonSchema {
         items: { type: "string", enum: field.values ?? [] },
       };
       break;
+    case "file":
+      schema = { type: "string", pattern: "^fil_[a-f0-9]{32}$" };
+      break;
+    case "file_list":
+      schema = {
+        type: "array",
+        maxItems: 100,
+        uniqueItems: true,
+        items: { type: "string", pattern: "^fil_[a-f0-9]{32}$" },
+      };
+      break;
     case "file_ref_list":
       schema = fileRefListSchema();
       break;

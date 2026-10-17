@@ -65,8 +65,10 @@ function fieldType(field: FieldDefinition): OperandType {
     case "timezone":
     case "enum":
     case "person":
-    case "record": return { kind: "string", nullable: field.nullable };
+    case "record":
+    case "file": return { kind: "string", nullable: field.nullable };
     case "enum_list":
+    case "file_list":
     case "file_ref_list":
     case "person_list":
     case "record_list":

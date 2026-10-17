@@ -25,6 +25,30 @@ Rules:
 - Native Model Definition v1 does not permit this field in `query.searchable`, `query.filterable` or `query.sortable`: current Native storage has no bounded collection index/query projection and must not fall back to JSON-array scans;
 - External Adapters may advertise a bounded Provider-native `contains` operator when they can execute it faithfully; this does not create a second field type or imply a Native JSON-array scan.
 
+
+## `file` / `file_list`
+
+`file` and `file_list` are Native LifeSpace File identity references. They store stable `fil_*` IDs only; file bytes and temporary access URLs never enter ordinary Model record storage.
+
+Canonical values:
+
+```json
+"fil_0123456789abcdef0123456789abcdef"
+```
+
+```json
+["fil_0123456789abcdef0123456789abcdef"]
+```
+
+Rules:
+
+- `file` is one stable LifeSpace File ID; `file_list` is an ordered unique array of at most 100 File IDs;
+- referenced Files must be `ready` and belong to the same Space; Runtime validates this against the File resource store before record mutation;
+- File bytes are owned by LifeSpace and stored outside typed record tables (R2 in the Cloudflare deployment);
+- URLs are short-lived access projections and are never the field identity/value;
+- Model Definition v1 does not allow defaults or generic searchable/filterable/sortable declarations for these types;
+- upload/download are separate File capabilities and are not encoded as arbitrary binary/URL values in ordinary Record mutation.
+
 ## `file_ref_list`
 
 `file_ref_list` is a bounded list of file references. It represents references only and does not imply that LifeSpace stores or mirrors file bytes.

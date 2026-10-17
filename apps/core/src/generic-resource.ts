@@ -363,6 +363,20 @@ export function normalizeCanonicalFieldValue(fieldKey: string, field: FieldDefin
       if (typeof value !== "string" || !field.values?.includes(value)) throw new ApiError("INVALID_RESOURCE", `${fieldKey} must be one of the declared enum values`, 400);
       return value;
     case "enum_list": return enumListValue(value, fieldKey, field);
+    case "file": {
+      if (typeof value !== "string" || !/^fil_[a-f0-9]{32}$/u.test(value)) {
+        throw new ApiError("INVALID_RESOURCE", `${fieldKey} must contain a stable File ID`, 400);
+      }
+      return value;
+    }
+    case "file_list": {
+      if (!Array.isArray(value) || value.length > 100
+        || value.some((entry) => typeof entry !== "string" || !/^fil_[a-f0-9]{32}$/u.test(entry))
+        || new Set(value).size !== value.length) {
+        throw new ApiError("INVALID_RESOURCE", `${fieldKey} must contain at most 100 unique stable File IDs`, 400);
+      }
+      return [...value];
+    }
     case "file_ref_list": {
       const refs = parseFileRefList(value);
       if (!refs) throw new ApiError("INVALID_RESOURCE", `${fieldKey} must be a valid file reference list`, 400);

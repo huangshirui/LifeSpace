@@ -152,6 +152,8 @@ function scalarValue(field: FieldDefinition, raw: string, key: string): string |
       if (!raw) throw new ApiError("INVALID_QUERY", `${key} must contain an ID`, 400);
       return raw;
     case "enum_list":
+    case "file":
+    case "file_list":
     case "file_ref_list":
     case "range<date>":
     case "range<instant>":

@@ -166,7 +166,7 @@ export async function validateDefinition(input: unknown): Promise<
   if (validation.definition.key.startsWith("ext_")) return { valid: false, issues: [{ path: "key", code: "RESERVED_MODEL_KEY", message: "ext_ is reserved for Space-local External Models" }] };
   for (const fieldKey of validation.definition.query?.filterable ?? []) {
     const field = validation.definition.fields[fieldKey];
-    if (field && ["enum_list", "file_ref_list"].includes(field.type)) {
+    if (field && ["enum_list", "file", "file_list", "file_ref_list"].includes(field.type)) {
       return {
         valid: false,
         issues: [{
