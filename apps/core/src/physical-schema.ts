@@ -51,6 +51,7 @@ export type CompatiblePhysicalChangePlan = {
 
 const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/u;
 const RELATION_TYPES = new Set(["person", "person_list", "record", "record_list"]);
+const JSON_ARRAY_TYPES = new Set(["enum_list", "file_ref_list"]);
 
 function assertIdentifier(value: string): string {
   if (!IDENTIFIER.test(value)) {
@@ -81,6 +82,8 @@ function scalarColumn(fieldKey: string, field: FieldDefinition): PhysicalColumn 
   let checkSql: string | undefined;
   if (["recurrence_rule", "entity_ref"].includes(field.type)) {
     checkSql = `${identifier(fieldKey)} IS NULL OR (json_valid(${identifier(fieldKey)}) AND json_type(${identifier(fieldKey)})='object')`;
+  } else if (JSON_ARRAY_TYPES.has(field.type)) {
+    checkSql = `${identifier(fieldKey)} IS NULL OR (json_valid(${identifier(fieldKey)}) AND json_type(${identifier(fieldKey)})='array')`;
   } else if (field.type === "boolean") {
     checkSql = `${identifier(fieldKey)} IS NULL OR ${identifier(fieldKey)} IN (0,1)`;
   } else if (field.type === "enum" && field.values?.length) {
@@ -191,7 +194,7 @@ function mappingFor(fieldKey: string, field: FieldDefinition): PhysicalFieldMapp
 }
 
 function indexFor(tableName: string, mapping: PhysicalFieldMapping): PhysicalIndex | null {
-  if (mapping.storage === "relation") return null;
+  if (mapping.storage === "relation" || JSON_ARRAY_TYPES.has(mapping.logicalType)) return null;
   return {
     name: assertIdentifier(`idx_${tableName}_${mapping.fieldKey}`),
     fieldKey: mapping.fieldKey,
