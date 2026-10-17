@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 const root = new URL("../", import.meta.url);
 const api = JSON.parse(readFileSync(new URL("external-model.openapi.yaml", root), "utf8"));
 const adapter = JSON.parse(readFileSync(new URL("external-adapter.contract.json", root), "utf8"));
-assert.equal(api.info.version, "0.6.0");
+assert.equal(api.info.version, "0.5.0");
 assert.equal(adapter.properties.contractVersion.const, 1);
 for (const op of ["connection", "discover", "get", "query", "create", "update", "delete"])
   assert(adapter.properties.operation.enum.includes(op));
