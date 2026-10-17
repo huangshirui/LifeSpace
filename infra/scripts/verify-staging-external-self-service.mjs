@@ -39,6 +39,93 @@ const coreDir = new URL("../../apps/core/", import.meta.url);
 const quote = (value) => `'${String(value).replaceAll("'", "''")}'`;
 const sql = (command) => executeStagingD1Sql({ cwd: coreDir, sql: command });
 const base = `/api/v1/spaces/${spaceId}`;
+const notionVersion = "2025-09-03";
+const startDateProperty = "LS Start Date";
+const tagsProperty = "LS Tags";
+const filesProperty = "LS Files";
+const alphaTag = "Alpha";
+const betaTag = "Beta";
+
+async function notionRequest(path, { method = "GET", body } = {}) {
+  const response = await fetch(`https://api.notion.com/v1${path}`, {
+    method,
+    headers: {
+      authorization: `Bearer ${providerToken}`,
+      accept: "application/json",
+      "Notion-Version": notionVersion,
+      ...(body === undefined ? {} : { "content-type": "application/json" }),
+    },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    signal: AbortSignal.timeout(30000),
+  });
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) {
+    throw new Error(
+      `Notion synthetic resource setup failed: ${method} ${path} HTTP ${response.status}, code=${payload?.code ?? "none"}`,
+    );
+  }
+  return payload;
+}
+
+function propertyList(schema) {
+  return Object.values(schema?.properties ?? {}).filter((property) => property && typeof property === "object");
+}
+
+function propertyNamed(schema, name) {
+  return propertyList(schema).find((property) => property.name === name) ?? null;
+}
+
+async function ensureSyntheticProviderSchema() {
+  let schema = await notionRequest(`/data_sources/${targetResourceId}`);
+  const additions = {};
+  for (const [name, type, definition] of [
+    [startDateProperty, "date", { date: {} }],
+    [tagsProperty, "multi_select", { multi_select: { options: [{ name: alphaTag }, { name: betaTag }] } }],
+    [filesProperty, "files", { files: {} }],
+  ]) {
+    const current = propertyNamed(schema, name);
+    if (current && current.type !== type) {
+      throw new Error(`Synthetic Notion property ${name} must be ${type}, found ${current.type}`);
+    }
+    if (!current) additions[name] = definition;
+  }
+  if (Object.keys(additions).length) {
+    await notionRequest(`/data_sources/${targetResourceId}`, {
+      method: "PATCH",
+      body: { properties: additions },
+    });
+    schema = await notionRequest(`/data_sources/${targetResourceId}`);
+  }
+
+  const tags = propertyNamed(schema, tagsProperty);
+  const existingTagNames = new Set((tags?.multi_select?.options ?? []).map((option) => option.name));
+  if (!existingTagNames.has(alphaTag) || !existingTagNames.has(betaTag)) {
+    const existing = (tags?.multi_select?.options ?? []).map((option) => ({ id: option.id }));
+    const missing = [alphaTag, betaTag]
+      .filter((name) => !existingTagNames.has(name))
+      .map((name) => ({ name }));
+    await notionRequest(`/data_sources/${targetResourceId}`, {
+      method: "PATCH",
+      body: { properties: { [tagsProperty]: { multi_select: { options: [...existing, ...missing] } } } },
+    });
+    schema = await notionRequest(`/data_sources/${targetResourceId}`);
+  }
+
+  const uniqueId = propertyList(schema).find((property) => property.type === "unique_id");
+  if (!uniqueId) {
+    throw new Error(
+      "Synthetic Notion Data Source must contain one Notion ID/unique_id property. Add it once in the Notion UI; date/multi-select/files are prepared automatically by the staging smoke.",
+    );
+  }
+  for (const [name, type] of [
+    [startDateProperty, "date"],
+    [tagsProperty, "multi_select"],
+    [filesProperty, "files"],
+  ]) {
+    assert.equal(propertyNamed(schema, name)?.type, type, `Synthetic Notion property ${name} was not prepared as ${type}`);
+  }
+  return { uniqueIdTitle: uniqueId.name };
+}
 
 async function request(path, { method = "GET", body, role = "user" } = {}) {
   const bearer = role === "admin" ? env.LIFESPACE_STAGING_MODEL_ADMIN_BEARER : env.LIFESPACE_STAGING_USER_BEARER;
@@ -74,19 +161,36 @@ async function allowDefinition() {
     VALUES(${quote(applicationId)},${quote(definitionKey)},'write','service',${quote(servicePrincipalId)},${quote(now)},${quote(now)})`);
 }
 
+function providerPageId(recordId) {
+  const match = /^rec_external_[a-f0-9]{32}_([a-f0-9]{32})$/u.exec(recordId);
+  assert.ok(match, `Unexpected Notion-backed External record id ${recordId}`);
+  return match[1];
+}
+
+function assertReadablePublicKey(field) {
+  assert.match(field.key, /^[a-z][A-Za-z0-9]{0,62}$/u);
+  assert.equal(field.key.startsWith("f_"), false, `${field.title} leaked legacy f_<hash> key`);
+  assert.equal(Object.hasOwn(field, "sourceFieldId"), false, `${field.title} leaked Provider sourceFieldId`);
+}
+
 let connectionId = null;
 let registrationId = null;
 let recordId = null;
+let secondaryRecordId = null;
 let definitionPublished = false;
 let modelAccessInserted = false;
 let connectionRevoked = false;
 const checks = {
+  providerSchema: false,
   providerDiscovery: false,
   dynamicConnection: false,
   secretFreeCoreMetadata: false,
   resourceDiscovery: false,
   binding: false,
+  fieldProjection: false,
   runtime: false,
+  canonicalQuery: false,
+  stableKeyRefresh: false,
   refresh: false,
   accessDowngrade: false,
   credentialRotation: false,
@@ -97,6 +201,9 @@ const checks = {
 let failure;
 
 try {
+  const providerSchema = await ensureSyntheticProviderSchema();
+  checks.providerSchema = true;
+
   const providers = await expectRequest(`${base}/external-providers`);
   const notion = providers.items.find((item) => item.key === "notion");
   assert.ok(notion, "Routed Notion provider descriptor is missing");
@@ -186,25 +293,132 @@ try {
   assert.equal(bound.origin, "external");
   const title = bound.fields.find((field) => field.title === "Name" && field.type === "string" && field.writable);
   const amount = bound.fields.find((field) => field.title === "Amount" && field.type === "number" && field.writable);
+  const startDate = bound.fields.find((field) => field.title === startDateProperty && field.type === "date" && field.writable);
+  const tags = bound.fields.find((field) => field.title === tagsProperty && field.type === "enum_list" && field.writable);
+  const files = bound.fields.find((field) => field.title === filesProperty && field.type === "file_ref_list" && !field.writable);
+  const uniqueId = bound.fields.find((field) => field.title === providerSchema.uniqueIdTitle && field.type === "string" && !field.writable);
   assert.ok(title && amount, "Synthetic source must expose writable Name and Amount fields");
+  assert.ok(startDate, `${startDateProperty} must project as writable date`);
+  assert.ok(tags, `${tagsProperty} must project as writable enum_list`);
+  assert.ok(files, `${filesProperty} must project as read-only file_ref_list`);
+  assert.ok(uniqueId, `${providerSchema.uniqueIdTitle} must project as read-only string`);
+  assert.ok(startDate.operators.includes("eq") && startDate.sortable, "Start Date must advertise filter and sort");
+  assert.deepEqual(tags.operators, ["contains"]);
+  assert.equal(tags.sortable, false);
+  assert.equal(files.sortable, false);
+  for (const field of [title, amount, startDate, tags, files, uniqueId]) assertReadablePublicKey(field);
   checks.binding = true;
+  checks.fieldProjection = true;
 
   const record = await expectRequest(`${base}/models/${definitionKey}/records`, {
     method: "POST",
-    body: { [title.key]: `Dynamic acceptance ${marker}`, [amount.key]: 23 },
+    body: {
+      [title.key]: `Field A ${marker}`,
+      [amount.key]: 23,
+      [startDate.key]: "2026-10-17",
+      [tags.key]: [alphaTag],
+    },
   }, 201);
   recordId = record.id;
   assert.equal(record.origin, undefined);
   assert.equal(record.schemaHash, undefined);
   assert.equal(record.version, undefined);
-  const fetched = await expectRequest(`${base}/models/${definitionKey}/records/${recordId}`);
+  let fetched = await expectRequest(`${base}/models/${definitionKey}/records/${recordId}`);
   assert.equal(fetched.id, recordId);
   assert.equal(fetched[amount.key], 23);
+  assert.equal(fetched[startDate.key], "2026-10-17");
+  assert.deepEqual(fetched[tags.key], [alphaTag]);
+  assert.deepEqual(fetched[files.key], []);
+  assert.equal(typeof fetched[uniqueId.key], "string");
+  assert.ok(fetched[uniqueId.key].length > 0);
   assert.equal(fetched.origin, undefined);
   assert.equal(fetched.schemaHash, undefined);
+
+  await notionRequest(`/pages/${providerPageId(recordId)}`, {
+    method: "PATCH",
+    body: {
+      properties: {
+        [startDateProperty]: {
+          date: {
+            start: "2026-10-17T14:30:00+08:00",
+            end: "2026-10-20T18:00:00+08:00",
+          },
+        },
+        [filesProperty]: {
+          files: [{
+            name: "LifeSpace field-contract smoke",
+            external: { url: "https://example.com/lifespace-field-contract-smoke.pdf" },
+          }],
+        },
+      },
+    },
+  });
+  fetched = await expectRequest(`${base}/models/${definitionKey}/records/${recordId}`);
+  assert.equal(fetched[startDate.key], "2026-10-17", "datetime range must project Provider start as Start Date");
+  assert.deepEqual(fetched[files.key], [{
+    name: "LifeSpace field-contract smoke",
+    url: "https://example.com/lifespace-field-contract-smoke.pdf",
+  }]);
   checks.runtime = true;
 
-  await expectRequest(`${base}/external-models/${definitionKey}/refresh`, { method: "POST", body: {} });
+  const tagQuery = await expectRequest(`${base}/models/${definitionKey}/records/query`, {
+    method: "POST",
+    body: {
+      filter: { field: tags.key, op: "contains", value: alphaTag },
+      page: { limit: 100 },
+    },
+  });
+  assert.ok(tagQuery.items.some((item) => item.id === recordId), "enum_list contains query did not find the record");
+
+  const dateQuery = await expectRequest(`${base}/models/${definitionKey}/records/query`, {
+    method: "POST",
+    body: {
+      filter: { field: startDate.key, op: "eq", value: "2026-10-17" },
+      page: { limit: 100 },
+    },
+  });
+  assert.ok(dateQuery.items.some((item) => item.id === recordId), "Start Date equality query did not match datetime/range Provider value");
+
+  const secondary = await expectRequest(`${base}/models/${definitionKey}/records`, {
+    method: "POST",
+    body: {
+      [title.key]: `Field B ${marker}`,
+      [amount.key]: 24,
+      [startDate.key]: "2026-10-18",
+      [tags.key]: [betaTag],
+    },
+  }, 201);
+  secondaryRecordId = secondary.id;
+  const sorted = await expectRequest(`${base}/models/${definitionKey}/records/query`, {
+    method: "POST",
+    body: {
+      filter: { field: title.key, op: "contains", value: marker },
+      sort: [{ field: startDate.key, direction: "asc" }],
+      page: { limit: 100 },
+    },
+  });
+  const firstIndex = sorted.items.findIndex((item) => item.id === recordId);
+  const secondIndex = sorted.items.findIndex((item) => item.id === secondaryRecordId);
+  assert.ok(firstIndex >= 0 && secondIndex >= 0 && firstIndex < secondIndex, "Start Date provider sort did not order 2026-10-17 before 2026-10-18");
+  await expectRequest(`${base}/models/${definitionKey}/records/${secondaryRecordId}`, { method: "DELETE", body: {} }, 204);
+  secondaryRecordId = null;
+  checks.canonicalQuery = true;
+
+  const originalStartDateKey = startDate.key;
+  await notionRequest(`/data_sources/${targetResourceId}`, {
+    method: "PATCH",
+    body: { properties: { [startDateProperty]: { name: `${startDateProperty} Renamed` } } },
+  });
+  let refreshed = await expectRequest(`${base}/external-models/${definitionKey}/refresh`, { method: "POST", body: {} });
+  const renamedDate = refreshed.fields.find((field) => field.title === `${startDateProperty} Renamed` && field.type === "date");
+  assert.equal(renamedDate?.key, originalStartDateKey, "Provider rename changed stable public field key");
+  await notionRequest(`/data_sources/${targetResourceId}`, {
+    method: "PATCH",
+    body: { properties: { [`${startDateProperty} Renamed`]: { name: startDateProperty } } },
+  });
+  refreshed = await expectRequest(`${base}/external-models/${definitionKey}/refresh`, { method: "POST", body: {} });
+  assert.equal(refreshed.fields.find((field) => field.title === startDateProperty)?.key, originalStartDateKey);
+  checks.stableKeyRefresh = true;
   checks.refresh = true;
 
   const readOnly = await expectRequest(`${base}/external-connections/${connectionId}`, {
@@ -279,36 +493,38 @@ async function cleanup(label, action) {
   try { await action(); } catch (error) { cleanupFailures.push(`${label}: ${errorText(error)}`); }
 }
 
-if (recordId && definitionPublished) {
-  await cleanup("synthetic Provider record", async () => {
-    if (connectionId && !connectionRevoked) {
-      const restoredConnection = await request(`${base}/external-connections/${connectionId}`, {
-        method: "PATCH",
-        body: { access: "write", status: "active" },
-      });
-      assert.equal(
-        restoredConnection.status,
-        200,
-        `cleanup restore Connection failed: HTTP ${restoredConnection.status}, code=${restoredConnection.payload?.error?.code ?? "none"}`,
-      );
-      if (registrationId) {
-        const restoredBinding = await request(`${base}/external-models/${definitionKey}`, {
+for (const [label, id] of [["secondary synthetic Provider record", secondaryRecordId], ["synthetic Provider record", recordId]]) {
+  if (id && definitionPublished) {
+    await cleanup(label, async () => {
+      if (connectionId && !connectionRevoked) {
+        const restoredConnection = await request(`${base}/external-connections/${connectionId}`, {
           method: "PATCH",
-          body: { declaredAccess: "write" },
+          body: { access: "write", status: "active" },
         });
         assert.equal(
-          restoredBinding.status,
+          restoredConnection.status,
           200,
-          `cleanup restore binding failed: HTTP ${restoredBinding.status}, code=${restoredBinding.payload?.error?.code ?? "none"}`,
+          `cleanup restore Connection failed: HTTP ${restoredConnection.status}, code=${restoredConnection.payload?.error?.code ?? "none"}`,
         );
+        if (registrationId) {
+          const restoredBinding = await request(`${base}/external-models/${definitionKey}`, {
+            method: "PATCH",
+            body: { declaredAccess: "write" },
+          });
+          assert.equal(
+            restoredBinding.status,
+            200,
+            `cleanup restore binding failed: HTTP ${restoredBinding.status}, code=${restoredBinding.payload?.error?.code ?? "none"}`,
+          );
+        }
       }
-    }
-    const result = await request(`${base}/models/${definitionKey}/records/${recordId}`, { method: "DELETE", body: {} });
-    assert.ok(
-      [204, 404, 502, 503].includes(result.status),
-      `cleanup Provider record failed: HTTP ${result.status}, code=${result.payload?.error?.code ?? "none"}`,
-    );
-  });
+      const result = await request(`${base}/models/${definitionKey}/records/${id}`, { method: "DELETE", body: {} });
+      assert.ok(
+        [204, 404, 502, 503].includes(result.status),
+        `cleanup Provider record failed: HTTP ${result.status}, code=${result.payload?.error?.code ?? "none"}`,
+      );
+    });
+  }
 }
 if (connectionId && !connectionRevoked) {
   await cleanup("dynamic Connection revoke", async () => {
@@ -355,5 +571,5 @@ console.log(JSON.stringify({
   ok: true,
   providerRevision: env.LIFESPACE_EXTERNAL_PROVIDER_REVISION,
   checks,
-  credentialBoundary: "staging smoke token was supplied only to the public Dynamic Connection API; output excludes token/credentialRef",
+  credentialBoundary: "staging smoke token was supplied only to the public Dynamic Connection API and dedicated synthetic Provider setup; output excludes token/credentialRef",
 }));
