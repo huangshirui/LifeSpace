@@ -46,11 +46,13 @@ describe("canonical list field Model Contract", () => {
         additionalProperties: false,
         required: ["name", "url"],
         properties: {
-          name: { type: "string", minLength: 1, maxLength: 255 },
-          url: { type: "string", format: "uri" },
+          name: { type: "string", minLength: 1, maxLength: 512 },
+          url: { type: "string", format: "uri", maxLength: 8192 },
           expiresAt: { type: "string", format: "date-time" },
         },
       },
+      "x-lifespace-type": "file_ref_list",
+      "x-lifespace-storage": "references-only",
     });
 
     expect(jsonSchema.$defs.ListFieldContractCreate.properties.tags).toEqual(create.tags);
