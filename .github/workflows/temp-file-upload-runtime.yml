@@ -29,13 +29,15 @@ jobs:
         run: python scripts/fix-file-upload-openapi.py
       - name: Fix migration ordering and scheduled isolation
         run: python scripts/fix-file-upload-core-followups.py
+      - name: Align remote D1-safe trigger syntax
+        run: python scripts/fix-file-upload-d1-trigger.py
       - name: Add SigV4 dependency
         run: pnpm --filter @lifespace/core add aws4fetch@1.0.20
       - name: Verify Core
         run: pnpm --filter @lifespace/core check
       - name: Commit verified runtime changes
         run: |
-          rm -f scripts/apply-file-upload-runtime.py scripts/apply-file-upload-runtime-v2.py scripts/fix-file-upload-runtime-v2-anchors.py scripts/fix-file-upload-openapi.py scripts/fix-file-upload-core-followups.py .github/workflows/temp-file-upload-runtime.yml
+          rm -f scripts/apply-file-upload-runtime.py scripts/apply-file-upload-runtime-v2.py scripts/fix-file-upload-runtime-v2-anchors.py scripts/fix-file-upload-openapi.py scripts/fix-file-upload-core-followups.py scripts/fix-file-upload-d1-trigger.py .github/workflows/temp-file-upload-runtime.yml
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
