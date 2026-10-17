@@ -21,6 +21,8 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
+      - name: Align patch anchors
+        run: python scripts/fix-file-upload-runtime-v2-anchors.py
       - name: Apply File upload runtime patch
         run: python scripts/apply-file-upload-runtime-v2.py
       - name: Add SigV4 dependency
@@ -29,7 +31,7 @@ jobs:
         run: pnpm --filter @lifespace/core check
       - name: Commit verified runtime changes
         run: |
-          rm -f scripts/apply-file-upload-runtime.py scripts/apply-file-upload-runtime-v2.py .github/workflows/temp-file-upload-runtime.yml
+          rm -f scripts/apply-file-upload-runtime.py scripts/apply-file-upload-runtime-v2.py scripts/fix-file-upload-runtime-v2-anchors.py .github/workflows/temp-file-upload-runtime.yml
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
