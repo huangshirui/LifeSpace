@@ -164,6 +164,19 @@ export async function validateDefinition(input: unknown): Promise<
   const validation = validateModelDefinition(input);
   if (!validation.valid) return validation;
   if (validation.definition.key.startsWith("ext_")) return { valid: false, issues: [{ path: "key", code: "RESERVED_MODEL_KEY", message: "ext_ is reserved for Space-local External Models" }] };
+  for (const fieldKey of validation.definition.query?.filterable ?? []) {
+    const field = validation.definition.fields[fieldKey];
+    if (field && ["enum_list", "file_ref_list"].includes(field.type)) {
+      return {
+        valid: false,
+        issues: [{
+          path: "query.filterable",
+          code: "UNSUPPORTED_QUERY_FIELD_TYPE",
+          message: `${field.type} has no bounded Native query projection; External Providers may advertise their own pushed-down operators`,
+        }],
+      };
+    }
+  }
   return {
     valid: true,
     definition: validation.definition,
@@ -401,4 +414,3 @@ export async function retireModel(env: Bindings, principal: Principal, key: stri
   }
   invalidateRuntimeModelRegistry(env);
 }
-
