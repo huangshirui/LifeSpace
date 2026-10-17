@@ -34,14 +34,15 @@ Keep one dedicated synthetic Notion Data Source for automatic platform acceptanc
 The synthetic source has two permanent baseline requirements:
 
 - `Name` is the title property;
-- `Amount` is a number property;
-- at least one Notion **ID / `unique_id`** property exists. This is a one-time Notion UI setup because the Data Source API does not expose `unique_id` as a property type that can be added/changed through `PATCH /data_sources/{id}`.
+- `Amount` is a number property.
 
 The staging acceptance runner prepares its other field-contract fixtures automatically and idempotently:
 
 - `LS Start Date` as a Notion `date` property;
 - `LS Tags` as `multi_select` with `Alpha` and `Beta` options;
 - `LS Files` as `files`.
+
+A Notion `unique_id` / ID property is **optional**. The Adapter supports it as a read-only canonical string when a real source already has one, but staging acceptance must not require a manually created Provider field merely to prove that optional mapping.
 
 If one of those names already exists with the wrong type, acceptance fails instead of changing unrelated source semantics. The runner creates, updates, queries and trashes only run-scoped pages, and temporarily renames `LS Start Date` to prove stable field identity before restoring the original Provider name.
 
@@ -100,8 +101,7 @@ The acceptance proves:
 - Runtime execution routes from persisted `provider_key` to the Notion-specific private Adapter;
 - External Discovery exposes Native-style readable Field Keys and does not expose `sourceFieldId` as a public Record field name;
 - Notion `date` uses Start Date semantics for read/filter/sort, including a Provider datetime range whose canonical value remains its start `YYYY-MM-DD`;
-- Notion `multi_select` projects to `enum_list` and supports Provider-pushed `contains` query;
-- Notion `unique_id` projects read-only to canonical string;
+- Notion `multi_select` projects to non-nullable `enum_list`, where an empty selection is `[]`, and supports Provider-pushed `contains` query;
 - Notion `files` projects read-only to `file_ref_list` and returns external file references without copying file bytes into LifeSpace;
 - renaming the Provider date property and refreshing schema changes title but does not change its persisted public field key;
 - Connection write→read synchronously narrows every write binding to read through a D1 invariant;
