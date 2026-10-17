@@ -1,6 +1,7 @@
 import { isRecurrenceExecutor, recurrenceMutationStatements } from "./recurrence-runtime";
 import { parseEntityRef } from "./entity-ref";
 import { parseRecurrenceRule } from "./recurrence-rule";
+import { parseFileRefList } from "./file-ref";
 import { validateRecurrenceData } from "./recurrence-definition";
 import type { Bindings, Principal } from "./env";
 import { chunkD1Values } from "./d1-batch";
@@ -315,6 +316,17 @@ function relationIds(value: unknown, fieldKey: string, many: boolean): string[] 
   return ids;
 }
 
+function enumListValue(value: unknown, fieldKey: string, field: FieldDefinition): string[] {
+  if (!Array.isArray(value) || value.some((entry) => typeof entry !== "string" || !field.values?.includes(entry))) {
+    throw new ApiError("INVALID_RESOURCE", `${fieldKey} must contain only declared enum values`, 400);
+  }
+  const values = value as string[];
+  if (new Set(values).size !== values.length) {
+    throw new ApiError("INVALID_RESOURCE", `${fieldKey} must not contain duplicate enum values`, 400);
+  }
+  return [...values];
+}
+
 export function normalizeCanonicalFieldValue(fieldKey: string, field: FieldDefinition, value: unknown): unknown {
   if (value === null) {
     if (field.nullable) return null;
@@ -350,6 +362,12 @@ export function normalizeCanonicalFieldValue(fieldKey: string, field: FieldDefin
     case "enum":
       if (typeof value !== "string" || !field.values?.includes(value)) throw new ApiError("INVALID_RESOURCE", `${fieldKey} must be one of the declared enum values`, 400);
       return value;
+    case "enum_list": return enumListValue(value, fieldKey, field);
+    case "file_ref_list": {
+      const refs = parseFileRefList(value);
+      if (!refs) throw new ApiError("INVALID_RESOURCE", `${fieldKey} must be a valid file reference list`, 400);
+      return refs;
+    }
     case "person":
     case "record": return relationIds(value, fieldKey, false)[0];
     case "person_list":
