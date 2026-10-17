@@ -69,7 +69,7 @@ jobs:
         uses: actions/checkout@v5
         with:
           repository: huangshirui/lifespace-adapters
-          ref: 7f81f62373312cef8aa753fa532b8eca4b9d0ceb
+          ref: 6946114d07b0f598e0eea5c0a37094511f5b20dd
           path: .external-provider
           persist-credentials: false
       - name: Validate private provider Worker packaging
