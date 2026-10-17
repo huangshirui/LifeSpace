@@ -41,6 +41,7 @@ const sql = (command) => executeStagingD1Sql({ cwd: coreDir, sql: command });
 const base = `/api/v1/spaces/${spaceId}`;
 const notionVersion = "2025-09-03";
 const startDateProperty = "LS Start Date";
+const renamedStartDateProperty = `${startDateProperty} Renamed`;
 const tagsProperty = "LS Tags";
 const filesProperty = "LS Files";
 const alphaTag = "Alpha";
@@ -180,6 +181,7 @@ let secondaryRecordId = null;
 let definitionPublished = false;
 let modelAccessInserted = false;
 let connectionRevoked = false;
+let startDateRenamed = false;
 const checks = {
   providerSchema: false,
   providerDiscovery: false,
@@ -407,15 +409,17 @@ try {
   const originalStartDateKey = startDate.key;
   await notionRequest(`/data_sources/${targetResourceId}`, {
     method: "PATCH",
-    body: { properties: { [startDateProperty]: { name: `${startDateProperty} Renamed` } } },
+    body: { properties: { [startDateProperty]: { name: renamedStartDateProperty } } },
   });
+  startDateRenamed = true;
   let refreshed = await expectRequest(`${base}/external-models/${definitionKey}/refresh`, { method: "POST", body: {} });
-  const renamedDate = refreshed.fields.find((field) => field.title === `${startDateProperty} Renamed` && field.type === "date");
+  const renamedDate = refreshed.fields.find((field) => field.title === renamedStartDateProperty && field.type === "date");
   assert.equal(renamedDate?.key, originalStartDateKey, "Provider rename changed stable public field key");
   await notionRequest(`/data_sources/${targetResourceId}`, {
     method: "PATCH",
-    body: { properties: { [`${startDateProperty} Renamed`]: { name: startDateProperty } } },
+    body: { properties: { [renamedStartDateProperty]: { name: startDateProperty } } },
   });
+  startDateRenamed = false;
   refreshed = await expectRequest(`${base}/external-models/${definitionKey}/refresh`, { method: "POST", body: {} });
   assert.equal(refreshed.fields.find((field) => field.title === startDateProperty)?.key, originalStartDateKey);
   checks.stableKeyRefresh = true;
@@ -491,6 +495,16 @@ const cleanupFailures = [];
 const errorText = (error) => error instanceof Error ? error.message : String(error);
 async function cleanup(label, action) {
   try { await action(); } catch (error) { cleanupFailures.push(`${label}: ${errorText(error)}`); }
+}
+
+if (startDateRenamed) {
+  await cleanup("synthetic Provider property-name restore", async () => {
+    await notionRequest(`/data_sources/${targetResourceId}`, {
+      method: "PATCH",
+      body: { properties: { [renamedStartDateProperty]: { name: startDateProperty } } },
+    });
+    startDateRenamed = false;
+  });
 }
 
 for (const [label, id] of [["secondary synthetic Provider record", secondaryRecordId], ["synthetic Provider record", recordId]]) {
