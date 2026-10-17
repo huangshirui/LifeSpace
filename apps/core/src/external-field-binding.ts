@@ -1,19 +1,6 @@
 import type { Bindings } from "./env";
 import type { ExternalSnapshot } from "./external-model";
-
-const FIELD_KEY = /^[a-z][A-Za-z0-9]{0,62}$/u;
-const RESERVED_FIELDS = new Set([
-  "id",
-  "spaceId",
-  "modelKey",
-  "modelVersion",
-  "version",
-  "createdAt",
-  "updatedAt",
-  "deletedAt",
-  "createdBy",
-  "updatedBy",
-]);
+import { FIELD_KEY, RESERVED_FIELDS } from "./model-definition";
 
 export type ExternalFieldBinding = {
   model_key: string;
