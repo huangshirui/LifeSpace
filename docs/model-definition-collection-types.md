@@ -2,7 +2,7 @@
 
 Status: **Normative companion to Model Definition Specification v1**
 
-This document closes the specification gap for the provider-neutral collection types already present in the Model Definition v1 validator/runtime. It is normative together with `docs/model-definition-spec.md`; if either document, validator, runtime, generated Model Contract or tests disagree, that is contract drift to fix.
+This document extends the Canonical Field Language table in `docs/model-definition-spec.md` for the provider-neutral collection types already present in Model Definition v1. It is normative together with that specification; if either document, publication validator, runtime, generated Model Contract or tests disagree, that is contract drift to fix.
 
 ## `enum_list`
 
@@ -22,7 +22,7 @@ Rules:
 - `values` is required for the field and follows the same maximum of 50 declared options as `enum`;
 - a default, when declared, must itself be a unique array containing only declared values;
 - `nullable` remains an ordinary field declaration choice; a Provider Adapter may map a source list to non-nullable canonical list semantics when the Provider represents “no selection” as an empty list;
-- it is not searchable or sortable in Model Definition v1;
+- Native Model Definition v1 does not permit this field in `query.searchable`, `query.filterable` or `query.sortable`: current Native storage has no bounded collection index/query projection and must not fall back to JSON-array scans;
 - External Adapters may advertise a bounded Provider-native `contains` operator when they can execute it faithfully; this does not create a second field type or imply a Native JSON-array scan.
 
 ## `file_ref_list`
@@ -50,7 +50,7 @@ Rules:
 - `expiresAt`, when present, is an RFC 3339 absolute instant;
 - `values`, string-length constraints, numeric constraints and `targetModel` do not apply;
 - Model Definition v1 does not allow a default for this type;
-- it is not searchable or sortable; no generic Native content query is inferred from the URL/reference array;
+- Native Model Definition v1 does not permit this field in `query.searchable`, `query.filterable` or `query.sortable`; no generic Native content query is inferred from the URL/reference array;
 - a Provider Adapter may expose it read-only when the Provider can supply references but LifeSpace cannot safely write the Provider-specific file object;
 - Provider-hosted bytes stay at the Provider unless a separate explicit product workflow copies them.
 
