@@ -5,7 +5,7 @@ import { createApp } from "../src/app";
 import type { Bindings } from "../src/env";
 import { reconcileExternalModels } from "../src/external-model";
 
-const field = "f_" + "a".repeat(32),
+const field = "amount",
   shared = "synthetic-external-shared-secret-at-least-32-chars";
 const pem = (label: string, bytes: ArrayBuffer) =>
   `-----BEGIN ${label}-----\n${btoa(
@@ -112,7 +112,7 @@ async function fixture(definitionKey?: string) {
     },
     queryLimits: { maxDepth: 2, maxNodes: 100, maxSort: 8, maxPageSize: 100 },
     adapterState: {
-      codecs: { [field]: { id: "stable_property", type: state.type } },
+      codecs: { stable_property: { id: "stable_property", type: state.type } },
     },
   });
   const record = (id = "rec_external_" + suffix) => ({
