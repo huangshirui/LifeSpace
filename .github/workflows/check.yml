@@ -64,12 +64,21 @@ jobs:
         if: steps.validation.outputs.run_full == 'true'
       - run: pnpm check
         if: steps.validation.outputs.run_full == 'true'
+      - name: Resolve pinned provider revision from manifest
+        if: steps.validation.outputs.run_full == 'true'
+        id: external_provider
+        shell: bash
+        run: |
+          set -euo pipefail
+          revision="$(node -p "JSON.parse(require('fs').readFileSync('infra/external-provider.json','utf8')).revision")"
+          [[ "$revision" =~ ^[a-f0-9]{40}$ ]] || { echo "invalid External provider revision" >&2; exit 1; }
+          echo "revision=$revision" >> "$GITHUB_OUTPUT"
       - name: Checkout pinned provider packaging for offline validation
         if: steps.validation.outputs.run_full == 'true'
         uses: actions/checkout@v5
         with:
           repository: huangshirui/lifespace-adapters
-          ref: 7f81f62373312cef8aa753fa532b8eca4b9d0ceb
+          ref: ${{ steps.external_provider.outputs.revision }}
           path: .external-provider
           persist-credentials: false
       - name: Validate private provider Worker packaging

@@ -19,9 +19,13 @@ assert.deepEqual(api.components.schemas.DynamicRecord.required, ["id", "spaceId"
 // External must not define a second field-type vocabulary. The wire field carries
 // the canonical type name; Core validates it through Model Definition's single
 // Canonical Field Language.
-const externalType = api.components.schemas.ExternalField.properties.type;
+const externalField = api.components.schemas.ExternalField;
+const externalType = externalField.properties.type;
 assert.equal(externalType.type, "string");
 assert.equal(externalType.enum, undefined);
+assert.equal(externalField.properties.key.pattern, "^[a-z][A-Za-z0-9]{0,62}$");
+assert(!externalField.properties.key.pattern.includes("f_"));
+assert(!externalField.properties.sourceFieldId);
 
 const externalRuntime = readFileSync(new URL("src/external-runtime.ts", root), "utf8");
 assert(externalRuntime.includes("normalizeCanonicalFieldValue"));

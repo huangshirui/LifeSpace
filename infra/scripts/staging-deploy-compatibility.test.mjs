@@ -72,9 +72,17 @@ test("dynamic External staging smoke treats read downgrade as capability removal
   assert.match(smoke, /writeWhileRead\.payload\?\.error\?\.code, "MODEL_OPERATION_UNSUPPORTED"/u);
   assert.match(smoke, /cleanupFailures\.push\(`\$\{label\}: \$\{errorText\(error\)\}`\)/u);
   const restore = smoke.indexOf('body: { access: "write", status: "active" }');
-  const providerDelete = smoke.indexOf('const result = await request(`${base}/models/${definitionKey}/records/${recordId}`, { method: "DELETE", body: {} });', restore);
-  assert.ok(restore >= 0 && providerDelete > restore, "Cleanup must restore write capability before deleting a synthetic Provider record left by a mid-flow failure");
+  const providerDelete = smoke.indexOf('const result = await request(`${base}/models/${definitionKey}/records/${id}`, { method: "DELETE", body: {} });', restore);
+  assert.ok(restore >= 0 && providerDelete > restore, "Cleanup must restore write capability before deleting synthetic Provider records left by a mid-flow failure");
   const primaryFailure = smoke.indexOf("if (failure) {");
   const cleanupOnlyFailure = smoke.indexOf("\nif (cleanupFailures.length) {\n  throw new Error", primaryFailure);
   assert.ok(primaryFailure >= 0 && cleanupOnlyFailure > primaryFailure, "Primary Dynamic External failure must be rethrown before a cleanup-only failure can replace it");
+});
+
+test("dynamic External staging smoke restores a Provider field rename on failure", () => {
+  const smoke = readFileSync(new URL("./verify-staging-external-self-service.mjs", import.meta.url), "utf8");
+  const renamed = smoke.indexOf("startDateRenamed = true;");
+  const cleanup = smoke.indexOf('await cleanup("synthetic Provider property-name restore"');
+  const restore = smoke.indexOf("[renamedStartDateProperty]: { name: startDateProperty }", cleanup);
+  assert.ok(renamed >= 0 && cleanup > renamed && restore > cleanup, "Synthetic Provider property rename must have a failure-path restore");
 });

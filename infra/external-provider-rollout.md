@@ -29,7 +29,21 @@ The legacy generic `EXTERNAL_ADAPTER` Service Binding is limited to bounded loca
 
 ## One-time staging preparation
 
-Keep one dedicated synthetic Notion Data Source for automatic platform acceptance. It must contain synthetic data only and be accessible to the staging Notion integration. The source must have `Name` as the title property and `Amount` as a number property; acceptance creates, updates and trashes its own pages. Under Notion API `2025-09-03`, use the concrete Data Source identity.
+Keep one dedicated synthetic Notion Data Source for automatic platform acceptance. It must contain synthetic data only and be accessible to the staging Notion integration. Under Notion API `2025-09-03`, use the concrete Data Source identity.
+
+The synthetic source has two permanent baseline requirements:
+
+- `Name` is the title property;
+- `Amount` is a number property;
+- at least one Notion **ID / `unique_id`** property exists. This is a one-time Notion UI setup because the Data Source API does not expose `unique_id` as a property type that can be added/changed through `PATCH /data_sources/{id}`.
+
+The staging acceptance runner prepares its other field-contract fixtures automatically and idempotently:
+
+- `LS Start Date` as a Notion `date` property;
+- `LS Tags` as `multi_select` with `Alpha` and `Beta` options;
+- `LS Files` as `files`.
+
+If one of those names already exists with the wrong type, acceptance fails instead of changing unrelated source semantics. The runner creates, updates, queries and trashes only run-scoped pages, and temporarily renames `LS Start Date` to prove stable field identity before restoring the original Provider name.
 
 Configure the LifeSpace repository's **staging GitHub Environment**:
 
@@ -40,11 +54,11 @@ Configure the LifeSpace repository's **staging GitHub Environment**:
 | Variable | `LIFESPACE_NOTION_ADAPTER_WORKER` | Dedicated Notion Worker name ending in `-staging`, e.g. `lifespace-notion-adapter-staging` |
 | Secret | `NOTION_ADAPTER_SHARED_SECRET` | Independent Core↔Notion Adapter transport secret, 32–512 printable characters |
 | Secret | `NOTION_CONNECTION_VAULT_MASTER_KEY` | Independent 32 random bytes encoded as exactly 64 hexadecimal characters; deployment source for Adapter runtime `CONNECTION_VAULT_MASTER_KEY`, e.g. `openssl rand -hex 32` |
-| Secret | `NOTION_SMOKE_TOKEN` | **Staging-only acceptance input**: token for the dedicated synthetic Notion integration. It is submitted only to the public Dynamic Connection API during smoke and is not deployed as a Worker static map |
+| Secret | `NOTION_SMOKE_TOKEN` | **Staging-only acceptance input**: token for the dedicated synthetic Notion integration. It is used by the acceptance runner both to prepare/restore the dedicated synthetic fixture and as the credential submitted through the public Dynamic Connection flow. It is not deployed as a Worker static map |
 | Secret | `LIFESPACE_EXTERNAL_SMOKE_RESOURCE_ID` | Concrete synthetic Notion Data Source UUID |
-| Variable | `LIFESPACE_EXTERNAL_SMOKE_SYNTHETIC_CONFIRMED` | `1`, confirming the source is synthetic-only and safe for automated CRUD/trash acceptance |
+| Variable | `LIFESPACE_EXTERNAL_SMOKE_SYNTHETIC_CONFIRMED` | `1`, confirming the source is synthetic-only and safe for automated schema fixture updates + CRUD/trash acceptance |
 
-Every secret above must be independent. `NOTION_SMOKE_TOKEN` is not platform configuration and is not a persistent Core/Adapter deployment secret. The acceptance runner sends it as normal request input to `POST /api/v1/spaces/{spaceId}/external-connections`; Core generates a fresh `cnx_*`, and the routed Notion Adapter validates then encrypts the credential into that Connection's Durable Object vault.
+Every secret above must be independent. `NOTION_SMOKE_TOKEN` is not platform configuration and is not a persistent Core deployment secret. For the product-flow portion of acceptance, the runner sends it as normal request input to `POST /api/v1/spaces/{spaceId}/external-connections`; Core generates a fresh `cnx_*`, and the routed Notion Adapter validates then encrypts the credential into that Connection's Durable Object vault. Direct use of the token by the acceptance runner is limited to preparing/restoring the explicitly confirmed synthetic Provider fixture and is never used as an alternate production execution path.
 
 `NOTION_CONNECTIONS` and `LIFESPACE_EXTERNAL_SMOKE_CREDENTIAL_REF` are retired. There is no deployment-managed static Provider credential map and no service-only static Source provisioning path.
 
@@ -63,13 +77,15 @@ Remote Core profiles configure schema refresh every 300 seconds. This is a sched
 The staging release proves **one External product path**:
 
 ```text
-Provider Discovery
+Synthetic Provider field fixture
+  -> Provider Discovery
   -> public Dynamic Connection create
   -> encrypted cnx_* Durable Object Vault
   -> Provider Resource Discovery
   -> published External business-definition binding
-  -> Runtime CRUD/query
-  -> schema refresh
+  -> readable stable Field Keys + canonical field projection
+  -> Runtime CRUD/query/filter/sort
+  -> schema refresh + Provider rename/key-stability check
   -> Connection write→read downgrade + binding ceiling propagation
   -> credential rotation
   -> disable/enable
@@ -82,6 +98,12 @@ The acceptance proves:
 - Core D1 stores only the generated `cnx_*` reference and secret-free metadata;
 - Resource Discovery reaches the dedicated synthetic Data Source through the dynamic DO vault;
 - Runtime execution routes from persisted `provider_key` to the Notion-specific private Adapter;
+- External Discovery exposes Native-style readable Field Keys and does not expose `sourceFieldId` as a public Record field name;
+- Notion `date` uses Start Date semantics for read/filter/sort, including a Provider datetime range whose canonical value remains its start `YYYY-MM-DD`;
+- Notion `multi_select` projects to `enum_list` and supports Provider-pushed `contains` query;
+- Notion `unique_id` projects read-only to canonical string;
+- Notion `files` projects read-only to `file_ref_list` and returns external file references without copying file bytes into LifeSpace;
+- renaming the Provider date property and refreshing schema changes title but does not change its persisted public field key;
 - Connection write→read synchronously narrows every write binding to read through a D1 invariant;
 - attempting to raise a binding above a read-only Connection or published Definition ceiling fails before Provider write;
 - rotating the token writes a new encrypted envelope in the same Connection DO;
