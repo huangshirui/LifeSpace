@@ -12,6 +12,11 @@ import {
   hasExternalProviderRoute,
   resolveExternalProviderRoute,
 } from "./external-provider-router";
+import {
+  externalFieldBindingStatements,
+  externalFieldKeyRules,
+  stabilizeExternalFieldKeys,
+} from "./external-field-binding";
 
 export const EXTERNAL_PREFIX = "ext_";
 export const isExternalModelKey = (key: string) =>
@@ -199,7 +204,8 @@ export function validateExternalSnapshot(value: unknown): ExternalSnapshot {
     ]);
     if (
       typeof f.key !== "string" ||
-      !/^f_[a-f0-9]{32}$/.test(f.key) ||
+      !externalFieldKeyRules.pattern.test(f.key) ||
+      externalFieldKeyRules.reserved.has(f.key) ||
       seen.has(f.key)
     )
       throw new ExternalError("EXTERNAL_CONTRACT_INVALID", 502);
@@ -482,7 +488,7 @@ export async function refreshExternalModel(
   model: ExternalModel,
 ): Promise<ExternalModel> {
   try {
-    const snapshot = validateExternalSnapshot(
+    const discovered = validateExternalSnapshot(
       await callExternalAdapter(
         env,
         model.source,
@@ -490,14 +496,16 @@ export async function refreshExternalModel(
         model.resource_id,
       ),
     );
-    if (snapshot.resourceId !== model.resource_id)
+    if (discovered.resourceId !== model.resource_id)
       throw new ExternalError("EXTERNAL_CONTRACT_INVALID", 502);
+    const stabilized = await stabilizeExternalFieldKeys(env, model.model_key, discovered);
+    const snapshot = validateExternalSnapshot(stabilized.snapshot);
     const hash = await externalHash(snapshot);
     const now = new Date().toISOString();
-    const r = await env.DB.prepare(
-      `UPDATE external_models SET snapshot_json=?,schema_hash=?,schema_observed_at=?,display_name=?,status='active',last_successful_refresh_at=?,last_error_code=NULL,next_refresh_at=?,updated_at=? WHERE model_key=? AND status!='disabled' AND EXISTS(SELECT 1 FROM external_sources WHERE id=? AND status='active')`,
-    )
-      .bind(
+    const statements = [
+      env.DB.prepare(
+        `UPDATE external_models SET snapshot_json=?,schema_hash=?,schema_observed_at=?,display_name=?,status='active',last_successful_refresh_at=?,last_error_code=NULL,next_refresh_at=?,updated_at=? WHERE model_key=? AND status!='disabled' AND EXISTS(SELECT 1 FROM external_sources WHERE id=? AND status='active')`,
+      ).bind(
         JSON.stringify(snapshot),
         hash,
         now,
@@ -507,9 +515,11 @@ export async function refreshExternalModel(
         now,
         model.model_key,
         model.source_id,
-      )
-      .run();
-    if (!r.meta.changes) throw new ExternalError("EXTERNAL_UNAVAILABLE", 503);
+      ),
+      ...externalFieldBindingStatements(env, model.model_key, stabilized.newBindings, now),
+    ];
+    const results = await env.DB.batch(statements);
+    if (!results[0]?.meta.changes) throw new ExternalError("EXTERNAL_UNAVAILABLE", 503);
     return {
       ...model,
       snapshot,
