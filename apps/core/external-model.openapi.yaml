@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "LifeSpace External Model API",
-    "version": "0.6.0",
+    "version": "0.5.0",
     "description": "Provider-neutral External Model binding and dynamic Generic Runtime contract. Connection creation and provider credential ownership are defined by external-connection.openapi.yaml. Provider business data remains external. No transaction/version/distributed atomicity guarantee is introduced."
   },
   "security": [{ "bearerAuth": [] }],
