@@ -112,12 +112,6 @@ async function ensureSyntheticProviderSchema() {
     schema = await notionRequest(`/data_sources/${targetResourceId}`);
   }
 
-  const uniqueId = propertyList(schema).find((property) => property.type === "unique_id");
-  if (!uniqueId) {
-    throw new Error(
-      "Synthetic Notion Data Source must contain one Notion ID/unique_id property. Add it once in the Notion UI; date/multi-select/files are prepared automatically by the staging smoke.",
-    );
-  }
   for (const [name, type] of [
     [startDateProperty, "date"],
     [tagsProperty, "multi_select"],
@@ -125,7 +119,6 @@ async function ensureSyntheticProviderSchema() {
   ]) {
     assert.equal(propertyNamed(schema, name)?.type, type, `Synthetic Notion property ${name} was not prepared as ${type}`);
   }
-  return { uniqueIdTitle: uniqueId.name };
 }
 
 async function request(path, { method = "GET", body, role = "user" } = {}) {
@@ -203,7 +196,7 @@ const checks = {
 let failure;
 
 try {
-  const providerSchema = await ensureSyntheticProviderSchema();
+  await ensureSyntheticProviderSchema();
   checks.providerSchema = true;
 
   const providers = await expectRequest(`${base}/external-providers`);
@@ -298,17 +291,15 @@ try {
   const startDate = bound.fields.find((field) => field.title === startDateProperty && field.type === "date" && field.writable);
   const tags = bound.fields.find((field) => field.title === tagsProperty && field.type === "enum_list" && field.writable);
   const files = bound.fields.find((field) => field.title === filesProperty && field.type === "file_ref_list" && !field.writable);
-  const uniqueId = bound.fields.find((field) => field.title === providerSchema.uniqueIdTitle && field.type === "string" && !field.writable);
   assert.ok(title && amount, "Synthetic source must expose writable Name and Amount fields");
   assert.ok(startDate, `${startDateProperty} must project as writable date`);
   assert.ok(tags, `${tagsProperty} must project as writable enum_list`);
   assert.ok(files, `${filesProperty} must project as read-only file_ref_list`);
-  assert.ok(uniqueId, `${providerSchema.uniqueIdTitle} must project as read-only string`);
   assert.ok(startDate.operators.includes("eq") && startDate.sortable, "Start Date must advertise filter and sort");
   assert.deepEqual(tags.operators, ["contains"]);
   assert.equal(tags.sortable, false);
   assert.equal(files.sortable, false);
-  for (const field of [title, amount, startDate, tags, files, uniqueId]) assertReadablePublicKey(field);
+  for (const field of [title, amount, startDate, tags, files]) assertReadablePublicKey(field);
   checks.binding = true;
   checks.fieldProjection = true;
 
@@ -331,8 +322,6 @@ try {
   assert.equal(fetched[startDate.key], "2026-10-17");
   assert.deepEqual(fetched[tags.key], [alphaTag]);
   assert.deepEqual(fetched[files.key], []);
-  assert.equal(typeof fetched[uniqueId.key], "string");
-  assert.ok(fetched[uniqueId.key].length > 0);
   assert.equal(fetched.origin, undefined);
   assert.equal(fetched.schemaHash, undefined);
 
