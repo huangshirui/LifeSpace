@@ -388,6 +388,52 @@ export async function getExternalSource(
     .bind(id)
     .first<ExternalSource>();
 }
+export async function canonicalizeStoredExternalSnapshot(
+  env: Bindings,
+  row: ExternalModelRow,
+): Promise<{ row: ExternalModelRow; snapshot: ExternalSnapshot }> {
+  const parsed = JSON.parse(row.snapshot_json);
+  try {
+    return { row, snapshot: validateExternalSnapshot(parsed) };
+  } catch (canonicalError) {
+    const providerSnapshot = validateExternalSnapshot(parsed, "provider");
+    const requiresKeyMigration = providerSnapshot.fields.some(
+      (field) =>
+        !externalFieldKeyRules.pattern.test(field.key)
+        || externalFieldKeyRules.reserved.has(field.key),
+    );
+    if (!requiresKeyMigration) throw canonicalError;
+
+    const stabilized = await stabilizeExternalFieldKeys(env, row.model_key, providerSnapshot);
+    const snapshot = validateExternalSnapshot(stabilized.snapshot);
+    const snapshotJson = JSON.stringify(snapshot);
+    const schemaHash = await externalHash(snapshot);
+    const now = new Date().toISOString();
+    const statements = [
+      ...externalFieldBindingStatements(env, row.model_key, stabilized.newBindings, now),
+      env.DB.prepare(
+        "UPDATE external_models SET snapshot_json=?,schema_hash=?,updated_at=? WHERE model_key=? AND snapshot_json=?",
+      ).bind(snapshotJson, schemaHash, now, row.model_key, row.snapshot_json),
+    ];
+    const results = await env.DB.batch(statements);
+    const updated = results.at(-1);
+    if (updated?.meta.changes) {
+      return {
+        row: { ...row, snapshot_json: snapshotJson, schema_hash: schemaHash, updated_at: now },
+        snapshot,
+      };
+    }
+
+    const current = await env.DB.prepare(
+      "SELECT snapshot_json,schema_hash,updated_at FROM external_models WHERE model_key=?",
+    ).bind(row.model_key).first<Pick<ExternalModelRow, "snapshot_json" | "schema_hash" | "updated_at">>();
+    if (!current) throw new ExternalError("EXTERNAL_UNAVAILABLE", 503);
+    return {
+      row: { ...row, ...current },
+      snapshot: validateExternalSnapshot(JSON.parse(current.snapshot_json)),
+    };
+  }
+}
 async function rowModel(
   env: Bindings,
   row: ExternalModelRow,
@@ -396,9 +442,10 @@ async function rowModel(
 ): Promise<ExternalModel | null> {
   const definition = row.definition_key ? await getRuntimeModel(env, row.definition_key) : null;
   if (!includeDisabled && row.definition_key && definition?.definition.origin !== "external") return null;
+  const stored = await canonicalizeStoredExternalSnapshot(env, row);
   return {
-    ...row,
-    snapshot: validateExternalSnapshot(JSON.parse(row.snapshot_json)),
+    ...stored.row,
+    snapshot: stored.snapshot,
     source,
     ...(definition ? { businessDefinition: definition } : {}),
   };
