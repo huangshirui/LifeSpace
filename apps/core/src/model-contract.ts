@@ -118,6 +118,29 @@ function fieldSchema(field: FieldDefinition): JsonSchema {
     case "enum":
       schema = { type: "string", enum: field.values ?? [] };
       break;
+    case "enum_list":
+      schema = {
+        type: "array",
+        uniqueItems: true,
+        items: { type: "string", enum: field.values ?? [] },
+      };
+      break;
+    case "file_ref_list":
+      schema = {
+        type: "array",
+        maxItems: 100,
+        items: {
+          type: "object",
+          additionalProperties: false,
+          required: ["name", "url"],
+          properties: {
+            name: { type: "string", minLength: 1, maxLength: 255 },
+            url: { type: "string", format: "uri" },
+            expiresAt: { type: "string", format: "date-time" },
+          },
+        },
+      };
+      break;
     case "person":
       schema = { type: "string", pattern: "^per_" };
       break;
@@ -1190,4 +1213,3 @@ export async function generateModelContract(input: PublishedModel[]): Promise<Mo
   const hash = await sha256(canonicalJson({ manifest, openapi, jsonSchema }));
   return { id: `mct_${hash}`, hash, manifest, openapi, jsonSchema };
 }
-
