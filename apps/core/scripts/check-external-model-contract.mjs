@@ -5,6 +5,9 @@ const api = JSON.parse(readFileSync(new URL("external-model.openapi.yaml", root)
 const adapter = JSON.parse(readFileSync(new URL("external-adapter.contract.json", root), "utf8"));
 assert.equal(api.info.version, "0.6.0");
 assert.equal(adapter.properties.contractVersion.const, 1);
+assert.match(adapter["x-lifespace-record-identity"].namespace, /providerKey|Provider identity/u);
+assert.match(adapter["x-lifespace-record-identity"].ownership, /fails closed/u);
+assert.match(adapter["x-lifespace-record-identity"].compatibility, /Notion IDs are NOT rewritten/u);
 for (const op of ["connection", "discover", "get", "query", "create", "update", "delete", "upload"])
   assert(adapter.properties.operation.enum.includes(op));
 assert(!api.paths["/api/v1/model-admin/external-sources"]);
