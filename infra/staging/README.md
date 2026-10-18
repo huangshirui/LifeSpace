@@ -121,6 +121,21 @@ Smoke data is staging-only and is identified by the GitHub Actions run ID/attemp
 Recurrence enrollment/completion now has automatic live acceptance after both services converge. External Provider deployment is an explicit environment opt-in: its pinned private Worker, matching secrets, Core Binding and real synthetic Notion/relations/batch/Scheduled-refresh acceptance run in the same workflow. Complete [External Provider rollout](../external-provider-rollout.md) prerequisites before enabling it. A green Native-only release does not claim External acceptance. Console has a separate staging release and browser gate.
 
 
-## File upload signing
+## File upload signing and staging acceptance
 
-Core's `ASSETS` R2 binding remains authoritative for object verification/cleanup, but browser/client direct upload requires S3 SigV4 signing credentials. Configure Worker secrets `R2_S3_ACCOUNT_ID`, `R2_S3_ACCESS_KEY_ID`, and `R2_S3_SECRET_ACCESS_KEY`; optionally set `R2_S3_BUCKET` only when overriding the environment's canonical LifeSpace assets bucket. Use a narrowly scoped R2 token limited to the LifeSpace assets bucket. These values must never enter source, client responses, or logs.
+The Core `ASSETS` Worker R2 binding verifies/copies/deletes objects. Browser/n8n direct upload uses S3 presigned URLs; the public client never receives a long-lived API credential.
+
+**Before starting the owner's manual staging deployment**, configure these secrets in the LifeSpace repository's **staging GitHub Environment**:
+
+- `R2_S3_ACCESS_KEY_ID`: R2 token Access Key ID, scoped to the **staging assets bucket** `lifespace-staging-assets` with object read/write permission.
+- `R2_S3_SECRET_ACCESS_KEY`: its matching R2 Secret Access Key; not a Cloudflare account API token.
+- `CLOUDFLARE_ACCOUNT_ID`: existing staging account variable/secret; the release sends this value to the Core Worker as `R2_S3_ACCOUNT_ID`.
+
+The manual `staging-deploy.yml` validates these inputs **before migration or Worker mutation**, and then synchronizes all three values as Core Worker runtime Secrets after deployment. They are never written into source, logs or the public API. Production must use an independent production-scoped token and its separately approved manual deployment; do not reuse staging R2 credentials.
+
+**R2 bucket CORS is a shared resource policy**. Before browser acceptance, inspect its existing rules; **append a narrow `PUT` + `Content-Type` rule for each intended staging Web/PWA origin**, retaining unrelated pre-existing rules. Optionally allow `GET` when clients fetch a presigned download URL directly. Do not blindly overwrite the entire bucket CORS document, add `*` origin, or treat CORS as API authorization. n8n/Node signed R2 upload doesn't require browser CORS.
+
+The canonical staging workflow automatically exercises **a real synthetic Native File**:
+create an ephemeral published File-capable model; obtain `upl_*` + presigned PUT; upload bytes into `uploads/native/`; complete to a new permanent `fil_*`; attach/download through the Record with the current Authority; reject deletion while referenced; soft-delete the Record and delete the detached File. It retires the synthetic model and removes temporary model access. An R2 smoke failure fails the workflow.
+
+When `LIFESPACE_EXTERNAL_PROVIDER_ACTIVE=1`, the existing real Notion self-service smoke additionally uploads a synthetic file through `file_ref_list.upload` using the same session transport, then proves the original Notion External file reference survives and the new Provider-owned URL is returned. If External Provider is disabled, **Notion upload is not accepted**, even when the Native smoke is green. Production remains manual and is not inferred from staging success.
