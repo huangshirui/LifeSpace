@@ -178,7 +178,7 @@ async function createSession(context: Context<AppEnv>) {
   const executionActor = actor(execution);
   const uploadId = `upl_${crypto.randomUUID().replaceAll("-", "")}`;
   const fileId = target.destination === "native" ? `fil_${crypto.randomUUID().replaceAll("-", "")}` : null;
-  const objectKey = target.destination === "native" ? `files/${spaceId}/${fileId}` : `uploads/external/${spaceId}/${uploadId}`;
+  const objectKey = target.destination === "native" ? `uploads/native/${spaceId}/${uploadId}` : `uploads/external/${spaceId}/${uploadId}`;
   const now = new Date();
   const expiresAt = new Date(now.getTime() + UPLOAD_TTL_SECONDS * 1000).toISOString();
   const uploadUrl = await presignR2Object(context.env, objectKey, "PUT", UPLOAD_TTL_SECONDS, contentType);
@@ -231,17 +231,40 @@ async function completeSession(context: Context<AppEnv>) {
   if (row.destination === "native") {
     try {
       if (!row.file_id || !/^fil_[a-f0-9]{32}$/u.test(row.file_id)) throw new ApiError("UPLOAD_STATE_INVALID", "Native upload is missing its File identity", 500);
-      const execution = target.decision.principal;
-      const executionActor = actor(execution);
-      await context.env.DB.batch([
-        context.env.DB.prepare(`INSERT INTO files(
-          id,space_id,name,content_type,size_bytes,object_key,status,application_id,principal_type,principal_id,actor_type,actor_id,created_at
-        ) VALUES(?,?,?,?,?,?,'ready',?,?,?,?,?,?)`).bind(
-          row.file_id, spaceId, row.name, row.content_type, row.expected_size, row.object_key,
-          execution.clientId, execution.type, execution.id, executionActor.type, executionActor.id, completedAt,
-        ),
-        context.env.DB.prepare("UPDATE file_upload_sessions SET status='completed',completed_at=? WHERE id=? AND status='executing'").bind(completedAt, row.id),
-      ]);
+      // The signed PUT URL must never address a durable File object. Otherwise a client
+      // could overwrite a completed file until the upload signature expires.
+      const permanentKey = `files/${spaceId}/${row.file_id}`;
+      const staged = await context.env.ASSETS.get(row.object_key);
+      if (!staged || staged.size !== row.expected_size || staged.httpMetadata?.contentType?.toLowerCase() !== row.content_type) {
+        throw new ApiError("UPLOAD_MISMATCH", "Staged file does not match upload session", 409);
+      }
+      try {
+        await context.env.ASSETS.put(permanentKey, staged.body, { httpMetadata: { contentType: row.content_type } });
+        const promoted = await context.env.ASSETS.head(permanentKey);
+        if (!promoted || promoted.size !== row.expected_size || promoted.httpMetadata?.contentType?.toLowerCase() !== row.content_type) {
+          throw new ApiError("FILE_FINALIZE_FAILED", "Promoted file verification failed", 502);
+        }
+        const execution = target.decision.principal;
+        const executionActor = actor(execution);
+        await context.env.DB.batch([
+          context.env.DB.prepare(`INSERT INTO files(
+            id,space_id,name,content_type,size_bytes,object_key,status,application_id,principal_type,principal_id,actor_type,actor_id,created_at
+          ) VALUES(?,?,?,?,?,?,'ready',?,?,?,?,?,?)`).bind(
+            row.file_id, spaceId, row.name, row.content_type, row.expected_size, permanentKey,
+            execution.clientId, execution.type, execution.id, executionActor.type, executionActor.id, completedAt,
+          ),
+          context.env.DB.prepare("UPDATE file_upload_sessions SET status='completed',completed_at=? WHERE id=? AND status='executing'").bind(completedAt, row.id),
+        ]);
+      } catch (error) {
+        // A File is published only after its complete verified object and metadata exist.
+        await context.env.ASSETS.delete(permanentKey).catch(() => undefined);
+        throw error;
+      }
+      try {
+        await context.env.ASSETS.delete(row.object_key);
+        await context.env.DB.prepare("UPDATE file_upload_sessions SET cleaned_at=? WHERE id=? AND status='completed'")
+          .bind(new Date().toISOString(), row.id).run();
+      } catch { /* scheduled cleanup removes a completed session's staging object */ }
       return context.json(success({
         id: row.file_id,
         name: row.name,
@@ -317,14 +340,26 @@ async function createDownload(context: Context<AppEnv>) {
 
 export async function cleanupFileUploads(env: Bindings): Promise<void> {
   const now = new Date().toISOString();
+  // Preserve ambiguous External writes for reconciliation, but not their staged
+  // bytes indefinitely. Completed Native files are safe: object_key is staging,
+  // and the permanent key lives only in the ready File row.
+  const staleExecuting = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const staleUnknown = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
   const rows = await env.DB.prepare(`SELECT * FROM file_upload_sessions
     WHERE cleaned_at IS NULL AND (
-      (status='pending' AND expires_at<=?) OR status='failed' OR (destination='external' AND status='completed')
-    ) ORDER BY created_at LIMIT 50`).bind(now).all<UploadSessionRow>();
+      (status='pending' AND expires_at<=?)
+      OR status='failed'
+      OR status='completed'
+      OR (status='executing' AND expires_at<=?)
+      OR (status='unknown' AND expires_at<=?)
+    ) ORDER BY created_at LIMIT 50`).bind(now, staleExecuting, staleUnknown).all<UploadSessionRow>();
   for (const row of rows.results ?? []) {
     try {
       await env.ASSETS.delete(row.object_key);
-      await env.DB.prepare(`UPDATE file_upload_sessions SET cleaned_at=?,status=CASE WHEN status='pending' THEN 'expired' ELSE status END
+      await env.DB.prepare(`UPDATE file_upload_sessions
+        SET cleaned_at=?,
+            status=CASE WHEN status='pending' THEN 'expired' WHEN status='executing' THEN 'unknown' ELSE status END,
+            error_code=CASE WHEN status='executing' THEN 'FILE_UPLOAD_RECONCILIATION_REQUIRED' ELSE error_code END
         WHERE id=? AND cleaned_at IS NULL`).bind(now, row.id).run();
     } catch (error) {
       console.error("File upload cleanup failed", { uploadId: row.id, error: error instanceof Error ? error.message : String(error) });
