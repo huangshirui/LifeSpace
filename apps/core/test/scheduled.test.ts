@@ -9,12 +9,13 @@ function fixture(rollingError?: Error, outboxError?: Error, externalError?: Erro
     queries.push(sql);
     const rolling = sql.includes("FROM recurrence_plans");
     const external = sql.includes("FROM external_models");
-    const cleanup = sql.includes("FROM file_upload_sessions");
+    const cleanup = sql.includes("FROM file_upload_sessions") || sql.includes("FROM files WHERE status='deleting'");
     const error = external ? externalError : rolling ? rollingError : cleanup ? cleanupError : outboxError;
-    return { bind: () => ({ all: async () => {
+    const all = async () => {
       if (error) throw error;
       return { results: [] };
-    } }) };
+    };
+    return { all, bind: () => ({ all }) };
   });
   const externalBinding = {
     fetch: async () => Response.json({ contractVersion: 1, data: {} }),
