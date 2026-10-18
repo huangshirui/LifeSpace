@@ -1,6 +1,6 @@
 {
   "repository": "huangshirui/lifespace-adapters",
-  "revision": "e23a9169da4896c4e5ae14048e45968c645e42de",
+  "revision": "4a95fde4ce2a00e359f67a2c02b136a5de668223",
   "contractVersion": 1,
   "providers": {
     "notion": {
