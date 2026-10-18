@@ -4,6 +4,7 @@ import type { Bindings, Principal, Variables } from "./env";
 import { ApiError, success } from "./http";
 import { consumeSingleUseRead, requireModelAccess, type ModelAccessDecision } from "./model-authorization";
 import { getRuntimeModel, type PublishedModel } from "./model-registry";
+import { requireModelPolicy } from "./policy";
 import {
   ExternalError,
   externalAuthorityModel,
@@ -324,6 +325,20 @@ async function completeSession(context: Context<AppEnv>) {
   }
 }
 
+/** File download is a Record read projection, not a second route around Model Policy.
+ * V1 read Policy is identity-only, so the pre-resolved Policy identity avoids
+ * additional D1 lookups. The File link must still be validated separately.
+ */
+export async function requireNativeFileReadPolicy(
+  env: Bindings,
+  decision: ModelAccessDecision,
+  spaceId: string,
+  model: PublishedModel,
+): Promise<void> {
+  if (!model.definition.policies?.read) return;
+  await requireModelPolicy(env, decision.principal, spaceId, model, "read", undefined, undefined, decision.policyIdentity);
+}
+
 async function createDownload(context: Context<AppEnv>) {
   const input = object(await context.req.json<unknown>().catch(() => null));
   onlyKeys(input, ["modelKey", "recordId", "fieldKey", "fileId"]);
@@ -338,6 +353,7 @@ async function createDownload(context: Context<AppEnv>) {
   const field = model.definition.fields[fieldKey];
   if (!field || (field.type !== "file" && field.type !== "file_list")) throw new ApiError("FILE_NOT_FOUND", "File not found", 404);
   const decision = await requireModelAccess(context.env, context.get("principal"), spaceId, model, "read", { delegationId: delegationId(context), recordId });
+  await requireNativeFileReadPolicy(context.env, decision, spaceId, model);
   const row = await context.env.DB.prepare(`SELECT f.id,f.name,f.content_type,f.size_bytes,f.object_key,f.created_at
     FROM resource_file_links l JOIN files f ON f.id=l.file_id
     WHERE l.source_space_id=? AND l.source_model_key=? AND l.source_record_id=? AND l.field_key=? AND l.file_id=? AND f.status='ready'`)
