@@ -515,6 +515,50 @@ describe("Space-local External Model framework", () => {
     expect((await f.db.prepare("SELECT record_id FROM external_record_identities WHERE space_id=?").bind(f.space).all()).results).toEqual([]);
   });
 
+  it("rejects an External record identity reused by another binding/Space without reparenting it", async () => {
+    const owner = await fixture();
+    const other = await fixture();
+    await owner.authorize();
+    await other.authorize();
+
+    const created = await owner.request(owner.path, "POST", { [field]: 7 });
+    expect(created.status).toBe(201);
+    const sharedId = (await created.json<any>()).data.id as string;
+    const original = await owner.db.prepare(
+      "SELECT model_key,space_id FROM external_record_identities WHERE record_id=?",
+    ).bind(sharedId).first<{ model_key: string; space_id: string }>();
+    expect(original).toEqual({ model_key: owner.registration, space_id: owner.space });
+
+    // A second Provider resource is not allowed to take over the global identity.
+    // The trigger protects even a deliberately ignored ON CONFLICT DO UPDATE.
+    await expect(other.db.prepare(
+      `INSERT INTO external_record_identities(record_id,model_key,space_id,availability)
+       VALUES(?,?,?,'active') ON CONFLICT(record_id) DO UPDATE SET availability='active'
+       WHERE model_key=excluded.model_key AND space_id=excluded.space_id`,
+    ).bind(sharedId, other.registration, other.space).run()).rejects.toThrow(/EXTERNAL_RECORD_ID_COLLISION/u);
+
+    other.state.returnedRecordId = sharedId;
+    const read = await other.request(`${other.path}/query`, "POST", {});
+    expect(read.status).toBe(502);
+    expect((await read.json<any>()).error.code).toBe("EXTERNAL_CONTRACT_INVALID");
+
+    // The Provider may already have committed before Core detects a collision.
+    // Keep its write result unknown rather than claiming a successful Core link.
+    const write = await other.request(other.path, "POST", { [field]: 3 });
+    expect(write.status).toBe(502);
+    expect((await write.json<any>()).error.code).toBe("EXTERNAL_WRITE_UNKNOWN");
+    const audit = await other.db.prepare(
+      "SELECT result,error_code FROM external_operation_audit WHERE space_id=? AND operation='create' ORDER BY occurred_at DESC LIMIT 1",
+    ).bind(other.space).first<{ result: string; error_code: string }>();
+    expect(audit).toEqual({ result: "unknown", error_code: "EXTERNAL_CONTRACT_INVALID" });
+
+    const after = await owner.db.prepare(
+      "SELECT model_key,space_id FROM external_record_identities WHERE record_id=?",
+    ).bind(sharedId).first<{ model_key: string; space_id: string }>();
+    expect(after).toEqual(original);
+    expect((await owner.request(`${owner.path}/${sharedId}`)).status).toBe(200);
+  });
+
   it("publishes an External definition without Native storage, binds it and uses the business key in CRUD/Batch", async () => {
     const f = await fixture("external_document_test"); await f.authorize();
     expect(f.model).toBe("external_document_test");
