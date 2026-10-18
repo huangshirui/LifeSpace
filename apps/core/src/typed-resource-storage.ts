@@ -183,7 +183,7 @@ function encodedValue(field: FieldDefinition, value: unknown): unknown {
 
 function decodedValue(field: FieldDefinition, value: unknown): unknown {
   if (value === null || value === undefined) return value;
-  if (["recurrence_rule", "entity_ref", "enum_list", "file_ref_list"].includes(field.type)) {
+  if (["recurrence_rule", "entity_ref", "enum_list", "file_list", "file_ref_list"].includes(field.type)) {
     try {
       const parsed = JSON.parse(String(value));
       if (field.type === "recurrence_rule") return parseRecurrenceRule(parsed);
@@ -193,6 +193,14 @@ function decodedValue(field: FieldDefinition, value: unknown): unknown {
           || parsed.some((entry) => typeof entry !== "string" || !field.values?.includes(entry))
           || new Set(parsed).size !== parsed.length) {
           throw new Error("invalid enum list");
+        }
+        return parsed;
+      }
+      if (field.type === "file_list") {
+        if (!Array.isArray(parsed) || parsed.length > 100
+          || parsed.some((entry) => typeof entry !== "string" || !/^fil_[a-f0-9]{32}$/u.test(entry))
+          || new Set(parsed).size !== parsed.length) {
+          throw new Error("invalid file list");
         }
         return parsed;
       }
