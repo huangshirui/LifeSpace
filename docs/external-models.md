@@ -42,6 +42,12 @@ Connection access is a hard platform ceiling. Binding creation and later `read �
 
 Creating or governing a Connection grants no Application × Model Access, Membership, Data Grant or model binding. Application-side External setup uses direct User Space-management Authority. Console-side External setup uses Platform Admin authority and records the human actor plus service executor; it does **not** borrow ordinary User/Space authority and does not make either actor or executor a hidden Space member. Runtime uses the **same** current Application × Model Access, Membership/Data Grant, scope and Delegation functions as Native regardless of which control-plane surface configured the Connection/binding.
 
+## Globally stable External record identity / 全局稳定记录身份
+
+Adapters MUST emit stable LifeSpace `rec_external_*` identities, not a `rec_external_` prefix attached to a Provider-local page/row ID. The resource namespace must remain stable through schema refresh and credential/connection rotation, and must distinguish different Provider resources, including across Providers. New Adapters should derive a collision-resistant resource namespace from `providerKey + stable Provider resource identity`; previously issued Notion IDs use the canonical globally unique Data Source UUID + Page UUID and are not renamed. The published business model key / Space authority address is separate from the opaque External binding ID.
+
+Core's global `external_record_identities.record_id` is the canonical ownership registry. Migration 0068 guards the actual D1 insert/UPSERT: if an Adapter attempts to reuse a record ID owned by a different Space or binding, the transaction aborts rather than silently reporting success. Ordinary reads/queries return an opaque External contract failure; post-Provider writes retain `unknown` audit and cannot promise rollback. No new query-time D1 lookup or Provider I/O is introduced for Native or External hot paths. Deferred Relation endpoint finalizers are protected by the same SQL trigger.
+
 ## Adapter contract / 适配器契约
 
 Canonical internal runtime contract: `apps/core/external-adapter.contract.json`, version `1`. After Provider routing selects the Adapter, a POST to its fixed `/internal/v1/external-models` endpoint accepts providerKey, `cnx_*` credentialRef, operation, resourceId and the latest compatible snapshot. It returns normalized data or a bounded generic error code. Provider messages/bodies/headers never enter client errors or audit.

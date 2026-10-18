@@ -59,5 +59,12 @@
     "unsupportedFields": "absent; never raw provider schema",
     "authentication": "fixed private Service Binding + independent shared Secret",
     "ownership": "LifeSpace Core; provider adapters consume contract version 1"
+  },
+  "x-lifespace-record-identity": {
+    "shape": "rec_external_<stable-resource-namespace>_<stable-local-identity>; do not expose raw Provider-local IDs as LifeSpace record IDs",
+    "namespace": "Adapter MUST derive a durable, collision-resistant namespace from the Provider resource identity and its Provider identity (providerKey + stable resource ID), or use an existing Provider globally unique resource UUID namespace (Notion V1 compatibility). A display name, Space name or mutable connection/token is not a namespace.",
+    "stability": "A Provider record retains its exact public LifeSpace recordId across reads, queries, updates, connection credential rotation, disable/re-enable, and binding/schema refresh. Different Provider resources (including different Providers) must never emit the same LifeSpace recordId for different records.",
+    "ownership": "Core owns one global recordId namespace: once observed, (recordId, Space, External binding) ownership is immutable. A conflicting Adapter result fails closed at the D1 commit boundary. No silent UPSERT success, cross-binding reparenting or fallback to provider-local IDs.",
+    "compatibility": "Previously issued rec_external_<notionDataSourceUUID>_<notionPageUUID> IDs remain stable. Existing Notion IDs are NOT rewritten or remapped by this clarification."
   }
 }

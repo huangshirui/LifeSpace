@@ -635,12 +635,18 @@ export async function executeExternalOperation(
     else await env.DB.batch(finalizers);
     return response;
   } catch (error) {
+    // The D1 ownership trigger rejects a Provider/Adapter that reuses a record ID
+    // belonging to another binding or Space. Do not leak SQL diagnostics to callers.
+    // A Provider write may already have succeeded: retain the unknown-write boundary.
+    const failureError = error instanceof Error && error.message.includes("EXTERNAL_RECORD_ID_COLLISION")
+      ? new ExternalError("EXTERNAL_CONTRACT_INVALID", 502)
+      : error;
     const code =
-      error instanceof ApiError ? error.code : "EXTERNAL_WRITE_UNKNOWN";
+      failureError instanceof ApiError ? failureError.code : "EXTERNAL_WRITE_UNKNOWN";
     const unknown =
       write &&
       (providerSucceeded ||
-        !(error instanceof ApiError) ||
+        !(failureError instanceof ApiError) ||
         [
           "EXTERNAL_WRITE_UNKNOWN",
           "EXTERNAL_TIMEOUT",
@@ -668,7 +674,7 @@ export async function executeExternalOperation(
       else await degraded.run();
     }
     if (unknown) throw new ExternalError("EXTERNAL_WRITE_UNKNOWN", 502);
-    throw error;
+    throw failureError;
   }
 }
 export async function resolveExternalRecords(
