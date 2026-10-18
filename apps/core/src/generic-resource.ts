@@ -988,6 +988,9 @@ export function planDeleteGenericMutation(
     env.DB.prepare(`DELETE FROM resource_relations WHERE source_record_id=?
       AND EXISTS(SELECT 1 FROM resource_records WHERE id=? AND mutation_token=?)`)
       .bind(previous.id, previous.id, mutationToken),
+    env.DB.prepare(`DELETE FROM resource_file_links WHERE source_record_id=?
+      AND EXISTS(SELECT 1 FROM resource_records WHERE id=? AND mutation_token=?)`)
+      .bind(previous.id, previous.id, mutationToken),
     env.DB.prepare("UPDATE resource_records SET mutation_token=NULL WHERE id=? AND mutation_token=?")
       .bind(previous.id, mutationToken),
   ];
