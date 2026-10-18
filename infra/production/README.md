@@ -123,4 +123,8 @@ Application migration, compatibility acceptance, provider identity mapping and r
 
 ## File upload signing
 
-Core's `ASSETS` R2 binding remains authoritative for object verification/cleanup, but browser/client direct upload requires S3 SigV4 signing credentials. Configure Worker secrets `R2_S3_ACCOUNT_ID`, `R2_S3_ACCESS_KEY_ID`, and `R2_S3_SECRET_ACCESS_KEY`; optionally set `R2_S3_BUCKET` only when overriding the environment's canonical LifeSpace assets bucket. Use a narrowly scoped R2 token limited to the LifeSpace assets bucket. These values must never enter source, client responses, or logs.
+File uploads are **not yet a verified production capability**. The separate, owner-approved `Deploy LifeSpace platform production` release will refuse to begin migrations unless the production GitHub Environment provides independent, bucket-scoped `R2_S3_ACCESS_KEY_ID` and `R2_S3_SECRET_ACCESS_KEY` secrets. Existing `CLOUDFLARE_ACCOUNT_ID` is synchronized as the Core `R2_S3_ACCOUNT_ID` Worker Secret.
+
+Use an R2 token restricted to `lifespace-assets` with object read/write permissions. **Never reuse staging credentials** or expose these values in client code, GitHub source, logs, Worker API responses or application storage. Runtime secrets are synchronized only by the manual production workflow after Core deployment.
+
+Review and non-destructively extend the shared production R2 bucket's existing CORS rules for explicitly allowed Web/PWA origins; signed Node/n8n uploads need no browser CORS. Preserve all unrelated existing rules. Native and Notion File real synthetic acceptance must pass in staging for the exact candidate SHA **before** production is run. The production workflow does not mutate a real Notion dataset as a synthetic smoke.
