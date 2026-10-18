@@ -96,6 +96,10 @@ export async function presignR2Object(
   ttlSeconds: number,
   contentType?: string,
 ): Promise<string> {
+  // Never issue a writable bearer URL for a permanent LifeSpace File.
+  if (method === "PUT" && !key.startsWith("uploads/")) {
+    throw new ApiError("INVALID_REQUEST", "Only temporary upload objects are writable through presigned URLs", 400);
+  }
   const { client, origin } = r2Signer(env);
   const url = objectUrl(origin, bucket(env), key);
   url.searchParams.set("X-Amz-Expires", String(ttlSeconds));
@@ -256,8 +260,15 @@ async function completeSession(context: Context<AppEnv>) {
           context.env.DB.prepare("UPDATE file_upload_sessions SET status='completed',completed_at=? WHERE id=? AND status='executing'").bind(completedAt, row.id),
         ]);
       } catch (error) {
-        // A File is published only after its complete verified object and metadata exist.
-        await context.env.ASSETS.delete(permanentKey).catch(() => undefined);
+        // D1 may have committed before a transport error. Do not destroy a
+        // permanent object that a ready File row might already reference.
+        let safeToDelete = false;
+        try {
+          const published = await context.env.DB.prepare("SELECT id FROM files WHERE id=? AND space_id=?")
+            .bind(row.file_id, spaceId).first<{ id: string }>();
+          safeToDelete = !published;
+        } catch { /* preserve bytes when publication outcome cannot be determined */ }
+        if (safeToDelete) await context.env.ASSETS.delete(permanentKey).catch(() => undefined);
         throw error;
       }
       try {
@@ -355,6 +366,13 @@ export async function cleanupFileUploads(env: Bindings): Promise<void> {
     ) ORDER BY created_at LIMIT 50`).bind(now, staleExecuting, staleUnknown).all<UploadSessionRow>();
   for (const row of rows.results ?? []) {
     try {
+      if (row.destination === "native" && row.file_id && (row.status === "failed" || row.status === "executing")) {
+        const published = await env.DB.prepare("SELECT id FROM files WHERE id=? AND space_id=?")
+          .bind(row.file_id, row.space_id).first<{ id: string }>();
+        // A failed promotion can leave an unreferenced permanent object if
+        // deletion also failed; never delete a published File's bytes.
+        if (!published) await env.ASSETS.delete(`files/${row.space_id}/${row.file_id}`);
+      }
       await env.ASSETS.delete(row.object_key);
       await env.DB.prepare(`UPDATE file_upload_sessions
         SET cleaned_at=?,
