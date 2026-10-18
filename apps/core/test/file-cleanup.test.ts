@@ -14,13 +14,16 @@ function runCleanup(status: UploadSessionRow["status"], published: boolean) {
   } as UploadSessionRow;
   const db = {
     prepare(sql: string) {
+      const all = async () => {
+        if (sql.startsWith("SELECT * FROM file_upload_sessions")) return { results: [row] };
+        if (sql.startsWith("SELECT id,object_key FROM files WHERE status='deleting'")) return { results: [] };
+        throw new Error("Unexpected query");
+      };
       return {
+        all,
         bind(..._params: unknown[]) {
           return {
-            async all() {
-              if (!sql.startsWith("SELECT * FROM file_upload_sessions")) throw new Error("Unexpected query");
-              return { results: [row] };
-            },
+            all,
             async first() {
               if (!sql.startsWith("SELECT id FROM files")) throw new Error("Unexpected lookup");
               return published ? { id: row.file_id } : null;
