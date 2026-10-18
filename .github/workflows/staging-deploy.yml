@@ -100,6 +100,7 @@ jobs:
           node --check infra/scripts/publish-staging-baseline-model-semantics.mjs
           node --check infra/scripts/reconcile-staging-console-space-scope.mjs
           node --check infra/scripts/verify-staging-external-self-service.mjs
+          node --check infra/scripts/verify-staging-file-uploads.mjs
 
       - name: Validate External provider prerequisites before mutation
         run: node infra/scripts/external-provider-deployment.mjs prepare staging
@@ -231,6 +232,9 @@ jobs:
       - name: Verify real Recurrence enrollment and completion successor
         run: node infra/scripts/verify-staging-recurrence.mjs
 
+      - name: Verify real Native R2 File upload, attachment, download and delete
+        run: node infra/scripts/verify-staging-file-uploads.mjs
+
       - name: Verify real dynamic External self-service product flow
         if: env.LIFESPACE_EXTERNAL_PROVIDER_ACTIVE == '1'
         run: node infra/scripts/verify-staging-external-self-service.mjs
@@ -265,6 +269,8 @@ jobs:
           - Identity: schema v${LIFESPACE_EXPECTED_IDENTITY_SCHEMA_VERSION} / contract ${LIFESPACE_EXPECTED_IDENTITY_CONTRACT_VERSION}
           - Console Application ordinary Space-management scope ceiling, including \`spaces:manage\`: converged without credential rotation
           - Recurrence real enrollment / Identity root projection / completion successor / pause: passed
+          - Native File real presigned R2 PUT / promote / attach / download / delete: passed
+          - External Notion synthetic File Upload API / append with reference preservation: ${LIFESPACE_EXTERNAL_PROVIDER_ACTIVE} (1 means passed)
           - External Providers enabled: ${LIFESPACE_EXTERNAL_PROVIDER_ACTIVE}; disabled means not accepted
           - External Provider routing: provider-specific private Service Bindings/shared secrets and Core-only cursor secret verified
           - Dynamic External product path: staging smoke token -> public Connection API -> encrypted DO Vault -> Resource Discovery -> binding -> Runtime -> access downgrade/rotation -> disable/enable -> revoke passed
