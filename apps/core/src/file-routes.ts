@@ -349,6 +349,53 @@ async function createDownload(context: Context<AppEnv>) {
   return context.json(success({ id: row.id, name: row.name, contentType: row.content_type, size: row.size_bytes, createdAt: row.created_at, url, expiresAt }));
 }
 
+async function deleteNativeFile(context: Context<AppEnv>) {
+  const spaceId = context.req.param("spaceId")!;
+  const fileId = context.req.param("fileId")!;
+  if (!/^fil_[a-f0-9]{32}$/u.test(fileId)) throw new ApiError("FILE_NOT_FOUND", "File not found", 404);
+  const session = await context.env.DB.prepare(`SELECT * FROM file_upload_sessions
+    WHERE space_id=? AND file_id=? AND destination='native' AND status='completed'
+    LIMIT 1`).bind(spaceId, fileId).first<UploadSessionRow>();
+  if (!session) throw new ApiError("FILE_NOT_FOUND", "File not found", 404);
+  // The File belongs to the original Space/model field. Reuse current Model
+  // Authority rather than inventing a separate File ACL or trusting uploader metadata.
+  const target = await resolveTarget(
+    context.env, context.get("principal"), spaceId, session.model_key, session.field_key,
+    session.record_id, delegationId(context),
+  );
+  if (target.destination !== "native") throw new ApiError("FILE_NOT_FOUND", "File not found", 404);
+  const file = await context.env.DB.prepare("SELECT id,object_key,status FROM files WHERE space_id=? AND id=?")
+    .bind(spaceId, fileId).first<{ id: string; object_key: string; status: string }>();
+  if (!file) throw new ApiError("FILE_NOT_FOUND", "File not found", 404);
+  if (file.status === "deleted") return context.body(null, 204);
+  if (file.status === "ready") {
+    const principal = target.decision.principal;
+    const acting = actor(principal);
+    // Atomic guard: once status becomes deleting, the insert trigger blocks
+    // concurrent attempts to attach this File to a Record.
+    const marked = await context.env.DB.prepare(`UPDATE files SET status='deleting',
+      deletion_requested_at=?,deleted_by_principal_type=?,deleted_by_principal_id=?,
+      deleted_by_actor_type=?,deleted_by_actor_id=?
+      WHERE id=? AND space_id=? AND status='ready'
+      AND NOT EXISTS(SELECT 1 FROM resource_file_links WHERE file_id=?)`).bind(
+      new Date().toISOString(), principal.type, principal.id, acting.type, acting.id,
+      fileId, spaceId, fileId,
+    ).run();
+    if (!marked.meta.changes) throw new ApiError("FILE_IN_USE", "Detach File from all Records before deletion", 409);
+  } else if (file.status !== "deleting") {
+    throw new ApiError("FILE_STATE_INVALID", "File cannot be deleted in its current state", 409);
+  }
+  try {
+    await context.env.ASSETS.delete(file.object_key);
+  } catch {
+    // Keep 'deleting' so the scheduled cleanup can finish safely.
+    throw new ApiError("FILE_STORAGE_UNAVAILABLE", "File deletion will be retried", 503);
+  }
+  await context.env.DB.prepare("UPDATE files SET status='deleted',deleted_at=? WHERE id=? AND space_id=? AND status='deleting'")
+    .bind(new Date().toISOString(), fileId, spaceId).run();
+  return context.body(null, 204);
+}
+
 export async function cleanupFileUploads(env: Bindings): Promise<void> {
   const now = new Date().toISOString();
   // Preserve ambiguous External writes for reconciliation, but not their staged
@@ -383,10 +430,24 @@ export async function cleanupFileUploads(env: Bindings): Promise<void> {
       console.error("File upload cleanup failed", { uploadId: row.id, error: error instanceof Error ? error.message : String(error) });
     }
   }
+  // Reconcile deletions that were committed in D1 but interrupted before
+  // the R2 object was removed or the terminal tombstone was persisted.
+  const deletions = await env.DB.prepare("SELECT id,object_key FROM files WHERE status='deleting' ORDER BY deletion_requested_at LIMIT 20")
+    .all<{ id: string; object_key: string }>();
+  for (const file of deletions.results ?? []) {
+    try {
+      await env.ASSETS.delete(file.object_key);
+      await env.DB.prepare("UPDATE files SET status='deleted',deleted_at=? WHERE id=? AND status='deleting'")
+        .bind(new Date().toISOString(), file.id).run();
+    } catch {
+      // Keep the tombstone transition pending until the next scheduled sweep.
+    }
+  }
 }
 
 export function registerFileRoutes(app: App): void {
   app.post("/api/v1/spaces/:spaceId/file-uploads", createSession);
   app.post("/api/v1/spaces/:spaceId/file-uploads/:uploadId/complete", completeSession);
   app.post("/api/v1/spaces/:spaceId/file-downloads", createDownload);
+  app.delete("/api/v1/spaces/:spaceId/files/:fileId", deleteNativeFile);
 }
