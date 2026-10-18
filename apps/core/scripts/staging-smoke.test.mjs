@@ -178,9 +178,9 @@ test("File V1 staging release preserves manual approval and gates on real signed
   assert.match(workflow, /node infra\/scripts\/verify-staging-external-self-service\.mjs/u);
   assert.match(native, /uploads\/native\//u);
   assert.match(native, /\/file-downloads/u);
-  assert.match(native, /\/files\/\${file}/u);
+  assert.ok(native.includes("/files/\${file}"), "Native File smoke must verify governed File deletion");
   assert.match(external, /checks\.providerFileUpload = true/u);
-  assert.match(external, /file-uploads\/\${session\.id}\/complete/u);
+  assert.ok(external.includes("file-uploads/\${session.id}/complete"), "External smoke must finish Notion upload via LifeSpace");
   assert.match(production, /wrangler secret put R2_S3_ACCESS_KEY_ID --env production/u);
   assert.match(production, /wrangler secret put R2_S3_SECRET_ACCESS_KEY --env production/u);
 });
