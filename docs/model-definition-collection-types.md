@@ -48,6 +48,8 @@ Rules:
 - URLs are short-lived access projections and are never the field identity/value;
 - Model Definition v1 does not allow defaults or generic searchable/filterable/sortable declarations for these types;
 - upload/download are separate File capabilities and are not encoded as arbitrary binary/URL values in ordinary Record mutation.
+- deletion is a separate governed File operation, allowed only when the File has no record references. An atomic `ready → deleting` transition denies concurrent new attachments; R2 deletion may be retried by scheduled cleanup before `deleted` is committed. Detaching a File never automatically deletes it;
+- uploads use temporary signed PUT URLs under `uploads/native/...` only. Native completion creates a separate permanent `files/...` object that is never writable with the client's upload URL.
 
 ## `file_ref_list`
 
@@ -80,7 +82,7 @@ Rules:
 
 ## Physical and contract projection
 
-Both collection types are logical Canonical values. Current Native typed storage encodes them as validated JSON arrays in one typed column and does not create a scalar index for that column. Generated Model Contracts expose their logical JSON-array shape; physical representation is not public API.
+These field types are logical Canonical values. Current Native typed storage encodes them as validated JSON arrays in one typed column and does not create a scalar index for that column. Generated Model Contracts expose their logical JSON-array shape; physical representation is not public API.
 
 External Models use the same logical definitions. Provider-specific option IDs, colors, signed-URL implementation details or other UI/storage metadata remain Adapter metadata unless they have a separate provider-neutral canonical semantic.
 
