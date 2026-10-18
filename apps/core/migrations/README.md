@@ -20,3 +20,7 @@ Continue numeric order after 0058: 0059 binds a published External business defi
 ## 0062 Definition queue lifecycle / 定义生命周期调度
 
 Parks existing schema work for retired External definitions, parks future retire operations, and resumes eligible schema/identity work after same-origin republication. Source reactivation retains the published-definition gate; legacy untyped registrations remain executable. Apply after 0061 before the repaired Worker. It retains bindings, observed identities, Provider records and Registry history; no Provider write or secret migration occurs.
+
+## 0068 External record identity ownership / 外部记录身份归属
+
+Existing External record IDs and mappings remain unchanged. Add a BEFORE INSERT trigger on `external_record_identities` so an Adapter cannot silently reuse a global recordId already owned by another External binding or source Space. Same-owner UPSERT remains allowed. The trigger executes inside the existing D1 audit/identity batch, without another Worker↔D1 round trip. A collision is an opaque contract failure on reads and an unknown write outcome after Provider mutation; never retry an uncertain Provider write automatically. Apply this migration before the corresponding Core Worker. No Provider data or bytes are copied or migrated.
