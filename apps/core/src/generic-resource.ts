@@ -74,14 +74,22 @@ export type RelationProjection = {
   ordinal: number;
 };
 
+export type FileProjection = {
+  fieldKey: string;
+  fileId: string;
+  ordinal: number;
+};
+
 export type PreparedCreateMutation = {
   data: JsonObject;
   relations: RelationProjection[];
+  files: FileProjection[];
 };
 
 export type PreparedUpdateMutation = {
   data: JsonObject;
   relations: RelationProjection[];
+  files: FileProjection[];
   changedFields: string[];
   fieldChanges: ResourceFieldChange[];
 };
@@ -363,6 +371,20 @@ export function normalizeCanonicalFieldValue(fieldKey: string, field: FieldDefin
       if (typeof value !== "string" || !field.values?.includes(value)) throw new ApiError("INVALID_RESOURCE", `${fieldKey} must be one of the declared enum values`, 400);
       return value;
     case "enum_list": return enumListValue(value, fieldKey, field);
+    case "file": {
+      if (typeof value !== "string" || !/^fil_[a-f0-9]{32}$/u.test(value)) {
+        throw new ApiError("INVALID_RESOURCE", `${fieldKey} must contain a stable File ID`, 400);
+      }
+      return value;
+    }
+    case "file_list": {
+      if (!Array.isArray(value) || value.length > 100
+        || value.some((entry) => typeof entry !== "string" || !/^fil_[a-f0-9]{32}$/u.test(entry))
+        || new Set(value).size !== value.length) {
+        throw new ApiError("INVALID_RESOURCE", `${fieldKey} must contain at most 100 unique stable File IDs`, 400);
+      }
+      return [...value];
+    }
     case "file_ref_list": {
       const refs = parseFileRefList(value);
       if (!refs) throw new ApiError("INVALID_RESOURCE", `${fieldKey} must be a valid file reference list`, 400);
@@ -534,6 +556,42 @@ export async function validateRelationProjections(
   if (error) throw error;
 }
 
+export function collectFileProjections(
+  definition: ModelDefinition,
+  data: JsonObject,
+): FileProjection[] {
+  const files: FileProjection[] = [];
+  for (const [fieldKey, field] of Object.entries(definition.fields)) {
+    const value = data[fieldKey];
+    if (value === undefined || value === null || (field.type !== "file" && field.type !== "file_list")) continue;
+    const ids = field.type === "file_list" ? value as string[] : [value as string];
+    ids.forEach((fileId, ordinal) => files.push({ fieldKey, fileId, ordinal }));
+  }
+  return files;
+}
+
+export async function validateFileProjectionGroups(
+  env: Bindings,
+  spaceId: string,
+  groups: readonly (readonly FileProjection[])[],
+): Promise<(ApiError | null)[]> {
+  const ids = [...new Set(groups.flatMap((group) => group.map((entry) => entry.fileId)))];
+  if (!ids.length) return groups.map(() => null);
+  const found = new Set<string>();
+  const statements = chunkD1Values(ids, 1).map((chunk) => env.DB.prepare(`SELECT id FROM files
+    WHERE space_id=? AND status='ready' AND id IN (${chunk.map(() => "?").join(",")})`).bind(spaceId, ...chunk));
+  const results = await env.DB.batch<{ id: string }>(statements);
+  for (const result of results) for (const row of result.results ?? []) found.add(row.id);
+  return groups.map((group) => group.some((entry) => !found.has(entry.fileId))
+    ? new ApiError("INVALID_FILE_REFERENCE", "Every File reference must be a ready File in the same Space", 400)
+    : null);
+}
+
+export async function validateFileProjections(env: Bindings, spaceId: string, files: readonly FileProjection[]): Promise<void> {
+  const [error] = await validateFileProjectionGroups(env, spaceId, [files]);
+  if (error) throw error;
+}
+
 export function prepareCreateGenericMutation(
   model: PublishedModel,
   input: unknown,
@@ -547,6 +605,7 @@ export function prepareCreateGenericMutation(
   return {
     data,
     relations: collectRelationProjections(model.definition, data),
+    files: collectFileProjections(model.definition, data),
   };
 }
 
@@ -565,6 +624,7 @@ export function prepareUpdateGenericMutation(
   return {
     data,
     relations: collectRelationProjections(model.definition, data),
+    files: collectFileProjections(model.definition, data),
     changedFields: isObject(input) ? Object.keys(input) : [],
     fieldChanges: exactFieldChanges(previous.data, data),
   };
@@ -628,6 +688,29 @@ function relationStatements(
   return statements;
 }
 
+function fileStatements(
+  env: Bindings,
+  recordId: string,
+  spaceId: string,
+  model: PublishedModel,
+  files: FileProjection[],
+  mutationToken?: string,
+): D1PreparedStatement[] {
+  const statements: D1PreparedStatement[] = [];
+  if (mutationToken) statements.push(env.DB.prepare(`DELETE FROM resource_file_links WHERE source_record_id=?
+    AND EXISTS(SELECT 1 FROM resource_records WHERE id=? AND mutation_token=?)`).bind(recordId, recordId, mutationToken));
+  for (const file of files) {
+    if (mutationToken) statements.push(env.DB.prepare(`INSERT INTO resource_file_links(
+      source_record_id,source_space_id,source_model_key,field_key,ordinal,file_id
+    ) SELECT ?,?,?,?,?,? WHERE EXISTS(SELECT 1 FROM resource_records WHERE id=? AND mutation_token=?)`).bind(
+      recordId, spaceId, model.key, file.fieldKey, file.ordinal, file.fileId, recordId, mutationToken));
+    else statements.push(env.DB.prepare(`INSERT INTO resource_file_links(
+      source_record_id,source_space_id,source_model_key,field_key,ordinal,file_id
+    ) VALUES(?,?,?,?,?,?)`).bind(recordId, spaceId, model.key, file.fieldKey, file.ordinal, file.fileId));
+  }
+  return statements;
+}
+
 async function resolveModel(env: Bindings, modelOrKey: PublishedModel | string): Promise<PublishedModel | null> {
   if (typeof modelOrKey !== "string") return modelOrKey;
   return getRuntimeModel(env, modelOrKey);
@@ -672,6 +755,7 @@ export async function planCreateGenericMutation(
     ),
     typedInsertStatement(env, model, id, spaceId, prepared.data),
     ...relationStatements(env, id, spaceId, model, prepared.relations),
+    ...fileStatements(env, id, spaceId, model, prepared.files),
   ];
   if (extension) {
     statements.push(...await extension({
@@ -772,6 +856,7 @@ export async function planUpdateGenericMutation(
       ),
     typedUpdateStatement(env, model, previous.id, spaceId, prepared.data, mutationToken),
     ...relationStatements(env, previous.id, spaceId, model, prepared.relations, mutationToken),
+    ...fileStatements(env, previous.id, spaceId, model, prepared.files, mutationToken),
   ];
   if (extension) {
     statements.push(...await extension({
@@ -903,6 +988,9 @@ export function planDeleteGenericMutation(
     env.DB.prepare(`DELETE FROM resource_relations WHERE source_record_id=?
       AND EXISTS(SELECT 1 FROM resource_records WHERE id=? AND mutation_token=?)`)
       .bind(previous.id, previous.id, mutationToken),
+    env.DB.prepare(`DELETE FROM resource_file_links WHERE source_record_id=?
+      AND EXISTS(SELECT 1 FROM resource_records WHERE id=? AND mutation_token=?)`)
+      .bind(previous.id, previous.id, mutationToken),
     env.DB.prepare("UPDATE resource_records SET mutation_token=NULL WHERE id=? AND mutation_token=?")
       .bind(previous.id, mutationToken),
   ];
@@ -921,6 +1009,7 @@ export async function createGenericResource(
 ): Promise<GenericResource> {
   const prepared = prepareCreateGenericMutation(model, input, trustedCapabilityInput);
   await validateRelationProjections(env, spaceId, prepared.relations);
+  await validateFileProjections(env, spaceId, prepared.files);
   const plan = await planCreateGenericMutation(
     env,
     principal,
@@ -965,6 +1054,7 @@ export async function updateGenericResource(
   }
   const prepared = prepareUpdateGenericMutation(model, input, previous, mutationMode);
   await validateRelationProjections(env, spaceId, prepared.relations);
+  await validateFileProjections(env, spaceId, prepared.files);
   const plan = await planUpdateGenericMutation(
     env,
     principal,

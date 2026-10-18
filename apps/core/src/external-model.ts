@@ -47,6 +47,7 @@ export type ExternalField = CanonicalFieldDefinition & {
   writable: boolean;
   operators: string[];
   sortable: boolean;
+  upload?: { supported: true; maxBytes: number };
 };
 export type ExternalSnapshot = {
   resourceId: string;
@@ -101,7 +102,8 @@ export type ExternalOperation =
   | "query"
   | "create"
   | "update"
-  | "delete";
+  | "delete"
+  | "upload";
 export type ExternalSnapshotKeyMode = "canonical" | "provider";
 export class ExternalError extends ApiError {
   constructor(
@@ -205,6 +207,7 @@ export function validateExternalSnapshot(
       "writable",
       "operators",
       "sortable",
+      "upload",
     ]);
     const fieldKey = typeof f.key === "string" && f.key.length > 0 && f.key.length <= 256
       ? f.key
@@ -256,6 +259,18 @@ export function validateExternalSnapshot(
       f.operators.some((op) => op === "isNull" || op === "isNotNull")
     )
       throw new ExternalError("EXTERNAL_CONTRACT_INVALID", 502);
+    let upload: ExternalField["upload"];
+    if (f.upload !== undefined) {
+      if (!f.upload || typeof f.upload !== "object" || Array.isArray(f.upload)
+        || Object.keys(f.upload as Record<string, unknown>).some((key) => !["supported", "maxBytes"].includes(key)))
+        throw new ExternalError("EXTERNAL_CONTRACT_INVALID", 502);
+      const capability = f.upload as Record<string, unknown>;
+      if (capability.supported !== true || !Number.isInteger(capability.maxBytes)
+        || Number(capability.maxBytes) < 1 || Number(capability.maxBytes) > 100 * 1024 * 1024
+        || canonical.definition.type !== "file_ref_list")
+        throw new ExternalError("EXTERNAL_CONTRACT_INVALID", 502);
+      upload = { supported: true, maxBytes: Number(capability.maxBytes) };
+    }
     normalizedFields.push({
       ...canonical.definition,
       key: fieldKey,
@@ -266,6 +281,7 @@ export function validateExternalSnapshot(
       writable: f.writable,
       operators: [...f.operators] as string[],
       sortable: f.sortable,
+      ...(upload ? { upload } : {}),
     });
   }
   const caps = objectInput(input.capabilities);
@@ -348,7 +364,7 @@ export async function callExternalAdapter(
     );
   } catch {
     throw new ExternalError(
-      ["create", "update", "delete"].includes(operation)
+      ["create", "update", "delete", "upload"].includes(operation)
         ? "EXTERNAL_WRITE_UNKNOWN"
         : "EXTERNAL_UNAVAILABLE",
       503,

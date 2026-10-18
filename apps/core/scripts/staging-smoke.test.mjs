@@ -9,11 +9,12 @@ import { PROVING_MODELS } from "../../../infra/scripts/staging-expectations.mjs"
 const prepareSmoke = new URL("../../../infra/scripts/prepare-staging-smoke.mjs", import.meta.url);
 const cleanupSmoke = new URL("../../../infra/scripts/cleanup-staging-smoke.mjs", import.meta.url);
 const eventingSmoke = new URL("../../../infra/scripts/verify-staging-eventing.mjs", import.meta.url);
+const fileSmoke = new URL("../../../infra/scripts/verify-staging-file-uploads.mjs", import.meta.url);
 const stagingDbVerifier = new URL("../../../infra/scripts/verify-staging-db.mjs", import.meta.url);
 const stagingHttpVerifier = new URL("../../../infra/scripts/verify-staging-http.mjs", import.meta.url);
 const modelRegressionSmoke = new URL("../../../infra/scripts/verify-staging-models.mjs", import.meta.url);
 const waitApacProbe = new URL("../../../infra/scripts/wait-staging-apac-probe.mjs", import.meta.url);
-const scripts = [prepareSmoke, cleanupSmoke, eventingSmoke, stagingHttpVerifier, modelRegressionSmoke, waitApacProbe];
+const scripts = [prepareSmoke, cleanupSmoke, eventingSmoke, fileSmoke, stagingHttpVerifier, modelRegressionSmoke, waitApacProbe];
 const stagingWorkflow = new URL("../../../.github/workflows/staging-deploy.yml", import.meta.url);
 const apacWorkflow = new URL("../../../.github/workflows/production-deploy.yml", import.meta.url);
 const apacProbeConfig = new URL("../../../infra/performance-probe/wrangler.jsonc", import.meta.url);
@@ -159,4 +160,27 @@ test("APAC performance probe remains deployable on Workers Free", () => {
   assert.equal(config.workers_dev, true);
   assert.deepEqual(config.placement, { region: "aws:ap-southeast-1" });
   assert.equal(config.limits, undefined, "Workers Free must use platform-default CPU/subrequest limits instead of custom limits");
+});
+
+test("File V1 staging release preserves manual approval and gates on real signed R2/Notion upload", () => {
+  const workflow = readFileSync(fileURLToPath(stagingWorkflow), "utf8");
+  const native = readFileSync(fileURLToPath(fileSmoke), "utf8");
+  const external = readFileSync(new URL("../../../infra/scripts/verify-staging-external-self-service.mjs", import.meta.url), "utf8");
+  const production = readFileSync(fileURLToPath(apacWorkflow), "utf8");
+  assert.match(workflow, /workflow_dispatch:/u);
+  assert.doesNotMatch(workflow, /^\s*push:\s*$/mu, "staging must remain a manual owner-controlled release");
+  const preflight = workflow.indexOf("test -n \"\${R2_S3_ACCESS_KEY_ID:-}\"");
+  const migration = workflow.indexOf("Apply Core migrations");
+  assert.ok(preflight > -1 && preflight < migration, "R2 signing prerequisites must be checked before migration");
+  assert.match(workflow, /wrangler secret put R2_S3_ACCESS_KEY_ID --env staging/u);
+  assert.match(workflow, /wrangler secret put R2_S3_SECRET_ACCESS_KEY --env staging/u);
+  assert.match(workflow, /node infra\/scripts\/verify-staging-file-uploads\.mjs/u);
+  assert.match(workflow, /node infra\/scripts\/verify-staging-external-self-service\.mjs/u);
+  assert.match(native, /uploads\/native\//u);
+  assert.match(native, /\/file-downloads/u);
+  assert.ok(native.includes("/files/\${file}"), "Native File smoke must verify governed File deletion");
+  assert.match(external, /checks\.providerFileUpload = true/u);
+  assert.ok(external.includes("file-uploads/\${session.id}/complete"), "External smoke must finish Notion upload via LifeSpace");
+  assert.match(production, /wrangler secret put R2_S3_ACCESS_KEY_ID --env production/u);
+  assert.match(production, /wrangler secret put R2_S3_SECRET_ACCESS_KEY --env production/u);
 });

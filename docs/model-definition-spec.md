@@ -185,6 +185,10 @@ v1 supports:
 | `entity_ref` | canonical structured Person/native-record reference |
 | `timezone` | valid IANA timezone |
 | `enum` | one declared string value |
+| `enum_list` | unique list of declared enum string values; see `model-definition-collection-types.md` |
+| `file` | one stable `fil_*` LifeSpace-owned File reference |
+| `file_list` | ordered unique list of stable `fil_*` LifeSpace-owned File references; max 100 |
+| `file_ref_list` | bounded Provider-owned `{name,url,expiresAt?}` reference list; see `model-definition-collection-types.md` |
 | `person` | one active Space Person in the same Space |
 | `person_list` | unique list of active Space People in the same Space |
 | `record` | one active record of the declared target model in the same Space |

@@ -3,7 +3,7 @@ import YAML from "yaml";
 
 const document = YAML.parse(fs.readFileSync(new URL("../openapi.yaml", import.meta.url), "utf8"));
 
-if (document.openapi !== "3.1.0" || document.info?.version !== "0.52.0") {
+if (document.openapi !== "3.1.0" || document.info?.version !== "0.53.0") {
   throw new Error("Core Kernel OpenAPI version metadata is invalid");
 }
 if (!document.info?.title?.includes("Kernel")) {
@@ -39,6 +39,9 @@ const requiredPaths = [
   "/api/v1/space-invites/join",
   "/api/v1/spaces/{spaceId}/grants",
   "/api/v1/spaces/{spaceId}/grants/{grantId}",
+  "/api/v1/spaces/{spaceId}/file-uploads",
+  "/api/v1/spaces/{spaceId}/file-uploads/{uploadId}/complete",
+  "/api/v1/spaces/{spaceId}/file-downloads",
   "/api/v1/spaces/{spaceId}/_discovery",
   "/api/v1/spaces/{spaceId}/_discovery/models/{modelKey}",
   "/api/v1/spaces/{spaceId}/_relation-targets/{modelKey}/{fieldKey}",
@@ -112,6 +115,35 @@ for (const path of Object.keys(document.paths ?? {})) {
 
 
 const schemas = document.components?.schemas ?? {};
+const requiredFileFieldTypes = ["enum_list", "file", "file_list", "file_ref_list"];
+for (const type of requiredFileFieldTypes) {
+  if (!schemas.RuntimeDiscoveryFieldType?.enum?.includes(type)) {
+    throw new Error(`File/Upload public contract drifted: Runtime Discovery is missing ${type}`);
+  }
+}
+const externalField = schemas.ExternalModelField;
+if (externalField?.properties?.key?.pattern !== "^[a-z][A-Za-z0-9]{0,62}$"
+    || externalField?.properties?.type?.enum?.includes("file")
+    || externalField?.properties?.type?.enum?.includes("file_list")
+    || !externalField?.properties?.type?.enum?.includes("file_ref_list")
+    || externalField?.properties?.upload?.properties?.supported?.const !== true
+    || externalField?.properties?.upload?.properties?.maxBytes?.maximum !== 104857600) {
+  throw new Error("File/Upload public contract drifted: External field identity/type/upload semantics are stale");
+}
+if (!document.components?.responses?.ServiceUnavailable) {
+  throw new Error("File/Upload public contract drifted: ServiceUnavailable response is missing");
+}
+for (const path of [
+  "/api/v1/spaces/{spaceId}/file-uploads",
+  "/api/v1/spaces/{spaceId}/file-uploads/{uploadId}/complete",
+  "/api/v1/spaces/{spaceId}/file-downloads",
+]) {
+  const operation = document.paths?.[path]?.post;
+  if (!operation?.parameters?.some((parameter) => parameter?.$ref === "#/components/parameters/DelegationId")) {
+    throw new Error(`File/Upload public contract drifted: ${path} must expose Delegation selection`);
+  }
+}
+
 const atomicDelegations = document.paths?.["/api/v1/spaces/{spaceId}/delegations/batch"]?.post;
 if (atomicDelegations?.operationId !== "issueDelegationsAtomically"
     || atomicDelegations?.requestBody?.content?.["application/json"]?.schema?.$ref !== "#/components/schemas/CreateDelegationBatchRequest"

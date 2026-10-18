@@ -7,7 +7,7 @@ import {
 } from "./generic-batch-routes";
 import {
   planCreateGenericMutation, planUpdateGenericMutation, planDeleteGenericMutation,
-  validateRelationProjectionGroups, type GenericResource, type ResourceMutationPlan,
+  validateRelationProjectionGroups, validateFileProjectionGroups, type GenericResource, type ResourceMutationPlan,
 } from "./generic-resource";
 import { evaluateModelAccessMany, type ModelAccessDecision, type ModelAccessRequest } from "./model-authorization";
 import { getRuntimeModel, type PublishedModel } from "./model-registry";
@@ -277,6 +277,9 @@ export async function executeNativeModelBatch(env: Bindings, principal: Principa
   const relationErrors = await validateRelationProjectionGroups(env, spaceId, recordItems.map((item) =>
     [...(item.prepared!.preparedCreate?.relations ?? []), ...(item.prepared!.preparedUpdate?.relations ?? [])]));
   recordItems.forEach((item, index) => { if (relationErrors[index]) item.error = relationErrors[index]!; });
+  const fileErrors = await validateFileProjectionGroups(env, spaceId, recordItems.map((item) =>
+    [...(item.prepared!.preparedCreate?.files ?? []), ...(item.prepared!.preparedUpdate?.files ?? [])]));
+  fileErrors.forEach((error, index) => { if (error) recordItems[index]!.error = error; });
   // Propagate failed create references to a fixed point, including forward refs.
   const propagate = () => { for (let pass = 0; pass < items.length; pass += 1) for (const item of items) {
     if (!item.error && [...item.dependencies].some((index) => items[index]!.error)) item.error = new ApiError("BATCH_DEPENDENCY_FAILED", "Referenced create failed", 400);

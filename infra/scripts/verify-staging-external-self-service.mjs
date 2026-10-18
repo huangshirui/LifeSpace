@@ -192,6 +192,7 @@ const checks = {
   disableEnable: false,
   revoke: false,
   cleanup: false,
+  providerFileUpload: false,
 };
 let failure;
 
@@ -299,6 +300,7 @@ try {
   assert.deepEqual(tags.operators, ["contains"]);
   assert.equal(tags.sortable, false);
   assert.equal(files.sortable, false);
+  assert.deepEqual(files.upload, { supported: true, maxBytes: 20 * 1024 * 1024 }, "Writable Notion Connection must advertise separate upload capability");
   for (const field of [title, amount, startDate, tags, files]) assertReadablePublicKey(field);
   checks.binding = true;
   checks.fieldProjection = true;
@@ -351,6 +353,37 @@ try {
     url: "https://example.com/lifespace-field-contract-smoke.pdf",
   }]);
   checks.runtime = true;
+
+  // One synthetic Notion-hosted file added through the canonical LifeSpace
+  // Upload Session. The original external reference must survive the PATCH.
+  const fileBytes = new TextEncoder().encode(`synthetic-notion-upload-${marker}`);
+  const session = await expectRequest(`${base}/file-uploads`, { method: "POST", body: {
+    modelKey: definitionKey,
+    recordId,
+    fieldKey: files.key,
+    name: `synthetic-${marker}.txt`,
+    contentType: "text/plain",
+    size: fileBytes.length,
+  } }, 201);
+  assert.match(session.id, /^upl_[a-f0-9]{32}$/u);
+  assert.equal(session.destination, "external");
+  assert.ok(new URL(session.upload.url).pathname.includes("/uploads/external/"));
+  const staged = await fetch(session.upload.url, {
+    method: "PUT",
+    headers: session.upload.headers,
+    body: fileBytes,
+    signal: AbortSignal.timeout(60000),
+  });
+  assert.ok(staged.ok, `Notion R2 staging upload failed: HTTP ${staged.status}`);
+  const uploadedRecord = await expectRequest(`${base}/file-uploads/${session.id}/complete`, { method: "POST" });
+  assert.equal(uploadedRecord.id, recordId);
+  const refs = uploadedRecord[files.key];
+  assert.ok(Array.isArray(refs) && refs.length === 2, "Notion file append must preserve the existing reference");
+  assert.equal(refs[0].url, "https://example.com/lifespace-field-contract-smoke.pdf");
+  assert.equal(refs[1].name, `synthetic-${marker}.txt`);
+  assert.ok(refs[1].url.startsWith("https://"), "Notion must own the final file URL");
+  assert.ok(typeof refs[1].expiresAt === "string", "Notion upload must return the provider's signed file URL expiry");
+  checks.providerFileUpload = true;
 
   const tagQuery = await expectRequest(`${base}/models/${definitionKey}/records/query`, {
     method: "POST",

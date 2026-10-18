@@ -388,3 +388,7 @@ Kernel discovery gains governed outgoing predicates and explicit Native-only rel
 ## Kernel 0.51.0 / Identity 0.12.0 / Recurrence（开发中）
 
 Kernel semantic Discovery adds recurrence_rule and Person/Record entity_ref field types, their closed valueSchema and Recurrence capability bindings. The canonical immutable Model Contract generator projects full value schemas, conditional creation requirements, Recurrence role metadata and the generated Task skip Action. Task baseline convergence is additive (subject/immutable read-only occurrence identity/skip Action); prior immutable revisions remain available. Strict generated clients should pin a compatible new Kernel/Model revision and handle new structured types. Identity 0.12.0 adds only the internal set-wise recurrence-roots status/scope projection. Deployment and production consumer pins are not advanced by this development change. See [recurrence.md](./recurrence.md).
+
+### Kernel 0.53.0 · File / Upload Capability
+
+Native `file` / `file_list` values are stable `fil_*` identities whose bytes remain outside ordinary typed Record storage. File transfer uses bounded `upl_*` sessions and short-lived R2 signed URLs. External `file_ref_list` keeps Provider-owned reference semantics; an External field may separately advertise upload capability while remaining unavailable to ordinary Record mutation. Consumers must never persist upload/download URLs as File identity.

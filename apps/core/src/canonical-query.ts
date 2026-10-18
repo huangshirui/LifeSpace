@@ -178,6 +178,8 @@ function scalarValue(field: FieldDefinition, raw: unknown, path: string): string
     case "recurrence_rule":
     case "entity_ref":
     case "enum_list":
+    case "file":
+    case "file_list":
     case "file_ref_list":
       throw new ApiError("INVALID_QUERY", "Structured field is not a scalar comparison", 400);
     case "string":
@@ -327,7 +329,7 @@ function orderedType(field: FieldDefinition): boolean {
 }
 
 function equalityType(field: FieldDefinition): boolean {
-  return !["person", "person_list", "record", "record_list", "enum_list", "file_ref_list"].includes(field.type);
+  return !["person", "person_list", "record", "record_list", "enum_list", "file", "file_list", "file_ref_list"].includes(field.type);
 }
 
 function relationAliasAllowed(model: PublishedModel, fieldKey: string): boolean {

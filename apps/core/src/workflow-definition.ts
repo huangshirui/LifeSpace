@@ -77,6 +77,7 @@ function literalCompatible(field: FieldDefinition, value: WorkflowLiteral): bool
     case "timezone":
     case "person":
     case "record":
+    case "file":
       return typeof value === "string";
     case "enum":
       return typeof value === "string" && Boolean(field.values?.includes(value));
@@ -87,6 +88,7 @@ function literalCompatible(field: FieldDefinition, value: WorkflowLiteral): bool
     case "boolean":
       return typeof value === "boolean";
     case "enum_list":
+    case "file_list":
     case "file_ref_list":
     case "person_list":
     case "record_list":

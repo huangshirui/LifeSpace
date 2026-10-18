@@ -52,6 +52,6 @@ describe("final migration state", () => {
   it("reports the latest Core schema version", async () => {
     const db = (env as unknown as TestEnv).DB;
     const row = await db.prepare("SELECT value FROM schema_metadata WHERE key='schema_version'").first<{ value: string }>();
-    expect(row?.value).toBe("66");
+    expect(row?.value).toBe("67");
   });
 });

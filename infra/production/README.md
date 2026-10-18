@@ -119,3 +119,12 @@ The Eventing production verifier requires:
 Normal LifeSpace production operations must not read or import an external application's business data as a deployment side effect, create provider mappings for a consumer, alter consumer DNS/routes/clients, or delete consumer-owned runtime resources.
 
 Application migration, compatibility acceptance, provider identity mapping and release/cutover remain responsibilities of the application repository. Any future destructive LifeSpace infrastructure change requires its own explicit platform migration/rollback plan.
+
+
+## File upload signing
+
+File uploads are **not yet a verified production capability**. The separate, owner-approved `Deploy LifeSpace platform production` release will refuse to begin migrations unless the production GitHub Environment provides independent, bucket-scoped `R2_S3_ACCESS_KEY_ID` and `R2_S3_SECRET_ACCESS_KEY` secrets. Existing `CLOUDFLARE_ACCOUNT_ID` is synchronized as the Core `R2_S3_ACCOUNT_ID` Worker Secret.
+
+Use an R2 token restricted to `lifespace-assets` with object read/write permissions. **Never reuse staging credentials** or expose these values in client code, GitHub source, logs, Worker API responses or application storage. Runtime secrets are synchronized only by the manual production workflow after Core deployment.
+
+Review and non-destructively extend the shared production R2 bucket's existing CORS rules for explicitly allowed Web/PWA origins; signed Node/n8n uploads need no browser CORS. Preserve all unrelated existing rules. Native and Notion File real synthetic acceptance must pass in staging for the exact candidate SHA **before** production is run. The production workflow does not mutate a real Notion dataset as a synthetic smoke.

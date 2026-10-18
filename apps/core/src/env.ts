@@ -49,6 +49,10 @@ export type Bindings = CloudflareBindings & {
   IDENTITY?: Fetcher;
   CORE_IDENTITY_SHARED_SECRET?: string;
   ASSETS: R2Bucket;
+  R2_S3_ACCOUNT_ID?: string;
+  R2_S3_ACCESS_KEY_ID?: string;
+  R2_S3_SECRET_ACCESS_KEY?: string;
+  R2_S3_BUCKET?: string;
   CORS_ORIGINS?: string;
   EVENT_DELIVERY_QUEUE: Queue;
   AI_RATE_LIMITER: RateLimit;

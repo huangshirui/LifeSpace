@@ -4,21 +4,58 @@
   "title": "LifeSpace provider-neutral External Adapter request v1",
   "type": "object",
   "additionalProperties": false,
-  "required": ["contractVersion", "providerKey", "credentialRef", "operation", "resourceId"],
+  "required": [
+    "contractVersion",
+    "providerKey",
+    "credentialRef",
+    "operation",
+    "resourceId"
+  ],
   "properties": {
-    "contractVersion": {"const": 1},
-    "providerKey": {"type": "string", "pattern": "^[a-z][a-z0-9_-]{1,31}$"},
-    "credentialRef": {"type": "string", "pattern": "^[a-zA-Z0-9_-]{1,128}$"},
-    "operation": {"enum": ["connection", "discover", "get", "query", "create", "update", "delete"]},
-    "resourceId": {"type": "string", "minLength": 1, "maxLength": 256},
-    "snapshot": {"type": "object"},
-    "input": {"type": "object"},
-    "recordId": {"type": "string", "minLength": 1, "maxLength": 256}
+    "contractVersion": {
+      "const": 1
+    },
+    "providerKey": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_-]{1,31}$"
+    },
+    "credentialRef": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9_-]{1,128}$"
+    },
+    "operation": {
+      "enum": [
+        "connection",
+        "discover",
+        "get",
+        "query",
+        "create",
+        "update",
+        "delete",
+        "upload"
+      ]
+    },
+    "resourceId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "snapshot": {
+      "type": "object"
+    },
+    "input": {
+      "type": "object"
+    },
+    "recordId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    }
   },
   "x-lifespace-response": {
     "success": "{ contractVersion:1, data: normalized result }",
     "error": "{ contractVersion:1, error:{code:generic External code, retrySafe:boolean} }",
-    "snapshot": "{ resourceId,displayName,fields:[{key,sourceFieldId,type,title,nullable,readable,writable,operators,sortable,values?}],capabilities,queryLimits:{maxDepth,maxNodes,maxSort,maxPageSize},adapterState }",
+    "snapshot": "{ resourceId,displayName,fields:[{key,sourceFieldId,type,title,nullable,readable,writable,operators,sortable,values?,upload?}],capabilities,queryLimits:{maxDepth,maxNodes,maxSort,maxPageSize},adapterState }",
     "unsupportedFields": "absent; never raw provider schema",
     "authentication": "fixed private Service Binding + independent shared Secret",
     "ownership": "LifeSpace Core; provider adapters consume contract version 1"

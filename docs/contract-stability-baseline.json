@@ -195,7 +195,7 @@
     {
       "id": "core-kernel",
       "source": "apps/core/openapi.yaml",
-      "operationSetSha256": "sha256:ac0fc113879de3573613daaf0f773a6e984ee8852081d1b5f6218b7be872901b",
+      "operationSetSha256": "sha256:a815209a84f153aa410d520d917d4f03ade288db57c6b089e077b0438afdf5ca",
       "groups": [
         {
           "id": "core-operational",
@@ -274,6 +274,12 @@
           "maturity": "candidate",
           "visibility": "public",
           "operationPattern": "^(GET|POST) /api/v1/spaces/\\{spaceId\\}/people$|^(GET|PATCH|DELETE) /api/v1/spaces/\\{spaceId\\}/people/\\{personId\\}$"
+        },
+        {
+          "id": "core-file-transfer",
+          "maturity": "candidate",
+          "visibility": "public",
+          "operationPattern": "^POST /api/v1/spaces/\\{spaceId\\}/file-(uploads(?:/\\{uploadId\\}/complete)?|downloads)$|^DELETE /api/v1/spaces/\\{spaceId\\}/files/\\{fileId\\}$"
         }
       ]
     },

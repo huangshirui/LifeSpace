@@ -176,7 +176,7 @@ export function typedSelectColumns(model: PublishedModel, alias = "m"): string {
 
 function encodedValue(field: FieldDefinition, value: unknown): unknown {
   if (value === undefined || value === null) return null;
-  if (["recurrence_rule", "entity_ref", "enum_list", "file_ref_list"].includes(field.type)) return JSON.stringify(value);
+  if (["recurrence_rule", "entity_ref", "enum_list", "file_list", "file_ref_list"].includes(field.type)) return JSON.stringify(value);
   if (field.type === "boolean") return value ? 1 : 0;
   return value;
 }

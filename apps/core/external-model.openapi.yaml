@@ -2,203 +2,971 @@
   "openapi": "3.1.0",
   "info": {
     "title": "LifeSpace External Model API",
-    "version": "0.5.0",
+    "version": "0.6.0",
     "description": "Provider-neutral External Model binding and dynamic Generic Runtime contract. Connection creation and provider credential ownership are defined by external-connection.openapi.yaml. Provider business data remains external. No transaction/version/distributed atomicity guarantee is introduced."
   },
-  "security": [{ "bearerAuth": [] }],
+  "security": [
+    {
+      "bearerAuth": []
+    }
+  ],
   "paths": {
     "/api/v1/spaces/{spaceId}/external-models": {
       "get": {
         "operationId": "listExternalRegistrations",
         "description": "List External Model bindings for the current Space.",
-        "parameters": [{ "$ref": "#/components/parameters/SpaceId" }],
-        "responses": { "200": { "description": "Bindings" }, "401": { "description": "Unauthenticated" }, "403": { "description": "Denied" } }
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SpaceId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Bindings"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "description": "Denied"
+          }
+        }
       },
       "post": {
         "operationId": "registerExternalModel",
         "description": "Bind one published External Model Definition to one dynamic Connection and Provider Resource, discovering the latest compatible schema snapshot.",
-        "parameters": [{ "$ref": "#/components/parameters/SpaceId" }],
-        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RegisterModel" } } } },
-        "responses": { "201": { "description": "Binding created", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ExternalModelEnvelope" } } } }, "401": { "description": "Unauthenticated" }, "403": { "description": "Denied" }, "409": { "description": "Resource conflict" }, "422": { "description": "Definition/Connection/schema validation failed" }, "503": { "description": "Provider unavailable" } }
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SpaceId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterModel"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Binding created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExternalModelEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "description": "Denied"
+          },
+          "409": {
+            "description": "Resource conflict"
+          },
+          "422": {
+            "description": "Definition/Connection/schema validation failed"
+          },
+          "503": {
+            "description": "Provider unavailable"
+          }
+        }
       }
     },
     "/api/v1/spaces/{spaceId}/external-models/{modelKey}/refresh": {
       "post": {
         "operationId": "refreshExternalSchema",
         "description": "Rediscover and replace the latest compatible Provider schema snapshot.",
-        "parameters": [{ "$ref": "#/components/parameters/SpaceId" }, { "$ref": "#/components/parameters/ModelKey" }],
-        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "additionalProperties": false, "maxProperties": 0 } } } },
-        "responses": { "200": { "description": "Refreshed binding", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ExternalModelEnvelope" } } } }, "404": { "description": "Binding unavailable" }, "503": { "description": "Provider unavailable" } }
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SpaceId"
+          },
+          {
+            "$ref": "#/components/parameters/ModelKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "maxProperties": 0
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Refreshed binding",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExternalModelEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Binding unavailable"
+          },
+          "503": {
+            "description": "Provider unavailable"
+          }
+        }
       }
     },
     "/api/v1/spaces/{spaceId}/external-models/{modelKey}": {
       "patch": {
         "operationId": "updateExternalRegistration",
         "description": "Narrow/raise declared access within both Definition and Connection ceilings, or disable the binding.",
-        "parameters": [{ "$ref": "#/components/parameters/SpaceId" }, { "$ref": "#/components/parameters/ModelKey" }],
-        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UpdateExternalBinding" } } } },
-        "responses": { "200": { "description": "Binding updated" }, "404": { "description": "Binding unavailable" }, "422": { "description": "Access ceiling denied" } }
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SpaceId"
+          },
+          {
+            "$ref": "#/components/parameters/ModelKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateExternalBinding"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Binding updated"
+          },
+          "404": {
+            "description": "Binding unavailable"
+          },
+          "422": {
+            "description": "Access ceiling denied"
+          }
+        }
       }
     },
     "/api/v1/spaces/{spaceId}/models/{modelKey}/records": {
       "get": {
         "operationId": "listExternalRecords",
-        "parameters": [{ "$ref": "#/components/parameters/SpaceId" }, { "$ref": "#/components/parameters/ModelKey" }, { "$ref": "#/components/parameters/DelegationId" }, { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 100 } }, { "name": "cursor", "in": "query", "schema": { "type": "string" } }],
-        "responses": { "200": { "description": "Records", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RecordListEnvelope" } } } }, "403": { "description": "Denied" }, "503": { "description": "Provider unavailable" } }
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SpaceId"
+          },
+          {
+            "$ref": "#/components/parameters/ModelKey"
+          },
+          {
+            "$ref": "#/components/parameters/DelegationId"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Records",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecordListEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Denied"
+          },
+          "503": {
+            "description": "Provider unavailable"
+          }
+        }
       },
       "post": {
         "operationId": "createExternalRecord",
-        "parameters": [{ "$ref": "#/components/parameters/SpaceId" }, { "$ref": "#/components/parameters/ModelKey" }, { "$ref": "#/components/parameters/DelegationId" }],
-        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ExternalWriteData" } } } },
-        "responses": { "201": { "description": "Created", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RecordEnvelope" } } } }, "403": { "description": "Denied" }, "502": { "description": "Uncertain external write outcome" }, "503": { "description": "Provider unavailable" } }
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SpaceId"
+          },
+          {
+            "$ref": "#/components/parameters/ModelKey"
+          },
+          {
+            "$ref": "#/components/parameters/DelegationId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExternalWriteData"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecordEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Denied"
+          },
+          "502": {
+            "description": "Uncertain external write outcome"
+          },
+          "503": {
+            "description": "Provider unavailable"
+          }
+        }
       }
     },
     "/api/v1/spaces/{spaceId}/models/{modelKey}/records/query": {
       "post": {
         "operationId": "queryExternalRecords",
-        "parameters": [{ "$ref": "#/components/parameters/SpaceId" }, { "$ref": "#/components/parameters/ModelKey" }, { "$ref": "#/components/parameters/DelegationId" }],
-        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ExternalQuery" } } } },
-        "responses": { "200": { "description": "Records", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RecordListEnvelope" } } } }, "422": { "description": "Unsupported query" }, "503": { "description": "Provider unavailable" } }
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SpaceId"
+          },
+          {
+            "$ref": "#/components/parameters/ModelKey"
+          },
+          {
+            "$ref": "#/components/parameters/DelegationId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExternalQuery"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Records",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecordListEnvelope"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unsupported query"
+          },
+          "503": {
+            "description": "Provider unavailable"
+          }
+        }
       }
     },
     "/api/v1/spaces/{spaceId}/models/{modelKey}/records/{recordId}": {
       "get": {
         "operationId": "getExternalRecord",
-        "parameters": [{ "$ref": "#/components/parameters/SpaceId" }, { "$ref": "#/components/parameters/ModelKey" }, { "$ref": "#/components/parameters/RecordId" }, { "$ref": "#/components/parameters/DelegationId" }],
-        "responses": { "200": { "description": "Record", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RecordEnvelope" } } } }, "404": { "description": "Unavailable" }, "503": { "description": "Provider unavailable" } }
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SpaceId"
+          },
+          {
+            "$ref": "#/components/parameters/ModelKey"
+          },
+          {
+            "$ref": "#/components/parameters/RecordId"
+          },
+          {
+            "$ref": "#/components/parameters/DelegationId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Record",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecordEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unavailable"
+          },
+          "503": {
+            "description": "Provider unavailable"
+          }
+        }
       },
       "patch": {
         "operationId": "updateExternalRecord",
-        "parameters": [{ "$ref": "#/components/parameters/SpaceId" }, { "$ref": "#/components/parameters/ModelKey" }, { "$ref": "#/components/parameters/RecordId" }, { "$ref": "#/components/parameters/DelegationId" }],
-        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ExternalWriteData" } } } },
-        "responses": { "200": { "description": "Updated", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RecordEnvelope" } } } }, "403": { "description": "Denied" }, "502": { "description": "Uncertain external write outcome" }, "503": { "description": "Provider unavailable" } }
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SpaceId"
+          },
+          {
+            "$ref": "#/components/parameters/ModelKey"
+          },
+          {
+            "$ref": "#/components/parameters/RecordId"
+          },
+          {
+            "$ref": "#/components/parameters/DelegationId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExternalWriteData"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecordEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Denied"
+          },
+          "502": {
+            "description": "Uncertain external write outcome"
+          },
+          "503": {
+            "description": "Provider unavailable"
+          }
+        }
       },
       "delete": {
         "operationId": "deleteExternalRecord",
         "description": "Provider-defined delete/trash; no distributed atomic relation cleanup.",
-        "parameters": [{ "$ref": "#/components/parameters/SpaceId" }, { "$ref": "#/components/parameters/ModelKey" }, { "$ref": "#/components/parameters/RecordId" }, { "$ref": "#/components/parameters/DelegationId" }],
-        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "additionalProperties": false, "maxProperties": 0 } } } },
-        "responses": { "204": { "description": "Deleted/trashed" }, "403": { "description": "Denied" }, "502": { "description": "Uncertain external write outcome" }, "503": { "description": "Provider unavailable" } }
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SpaceId"
+          },
+          {
+            "$ref": "#/components/parameters/ModelKey"
+          },
+          {
+            "$ref": "#/components/parameters/RecordId"
+          },
+          {
+            "$ref": "#/components/parameters/DelegationId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "maxProperties": 0
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Deleted/trashed"
+          },
+          "403": {
+            "description": "Denied"
+          },
+          "502": {
+            "description": "Uncertain external write outcome"
+          },
+          "503": {
+            "description": "Provider unavailable"
+          }
+        }
       }
     },
     "/api/v1/spaces/{spaceId}/models/bulk": {
       "post": {
         "operationId": "executeExternalOrMixedBulk",
         "description": "Independent per-item results; External operations are non-atomic and bounded. Native-only requests retain their immutable Model Contract behavior.",
-        "parameters": [{ "$ref": "#/components/parameters/SpaceId" }],
-        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "additionalProperties": true } } } },
-        "responses": { "200": { "description": "Independent outcomes" }, "400": { "description": "Invalid envelope" }, "403": { "description": "Inconsistent execution context" } }
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SpaceId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Independent outcomes"
+          },
+          "400": {
+            "description": "Invalid envelope"
+          },
+          "403": {
+            "description": "Inconsistent execution context"
+          }
+        }
       }
     },
     "/api/v1/spaces/{spaceId}/models/batch": {
       "post": {
         "operationId": "externalUnifiedBatch",
         "description": "Unified non-atomic Provider CRUD and independent Semantic Relations. Provider success is not rolled back when another operation fails; Native-only atomic batches remain governed by their Model Contract.",
-        "parameters": [{ "$ref": "#/components/parameters/SpaceId" }],
-        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "additionalProperties": true } } } },
-        "responses": { "200": { "description": "Independent outcomes" }, "400": { "description": "Invalid envelope" }, "403": { "description": "Inconsistent execution context" } }
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SpaceId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Independent outcomes"
+          },
+          "400": {
+            "description": "Invalid envelope"
+          },
+          "403": {
+            "description": "Inconsistent execution context"
+          }
+        }
       }
     }
   },
   "components": {
-    "securitySchemes": { "bearerAuth": { "type": "http", "scheme": "bearer" } },
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer"
+      }
+    },
     "parameters": {
-      "SpaceId": { "name": "spaceId", "in": "path", "required": true, "schema": { "type": "string", "pattern": "^spc_[A-Za-z0-9_-]+$" } },
-      "ModelKey": { "name": "modelKey", "in": "path", "required": true, "schema": { "type": "string" } },
-      "RecordId": { "name": "recordId", "in": "path", "required": true, "schema": { "type": "string" } },
-      "DelegationId": { "name": "X-LifeSpace-Delegation-Id", "in": "header", "required": false, "schema": { "type": "string" }, "description": "Opaque selector governed by the existing Delegation contract." }
+      "SpaceId": {
+        "name": "spaceId",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "pattern": "^spc_[A-Za-z0-9_-]+$"
+        }
+      },
+      "ModelKey": {
+        "name": "modelKey",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string"
+        }
+      },
+      "RecordId": {
+        "name": "recordId",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string"
+        }
+      },
+      "DelegationId": {
+        "name": "X-LifeSpace-Delegation-Id",
+        "in": "header",
+        "required": false,
+        "schema": {
+          "type": "string"
+        },
+        "description": "Opaque selector governed by the existing Delegation contract."
+      }
     },
     "schemas": {
       "RegisterModel": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["definitionKey", "connectionId", "resourceId", "declaredAccess"],
+        "required": [
+          "definitionKey",
+          "connectionId",
+          "resourceId",
+          "declaredAccess"
+        ],
         "properties": {
-          "definitionKey": { "type": "string", "pattern": "^[a-z][a-z0-9_]{1,62}$" },
-          "connectionId": { "type": "string", "pattern": "^exs_[a-f0-9]{32}$" },
-          "resourceId": { "type": "string", "minLength": 1, "maxLength": 256 },
-          "declaredAccess": { "enum": ["read", "write"] }
+          "definitionKey": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]{1,62}$"
+          },
+          "connectionId": {
+            "type": "string",
+            "pattern": "^exs_[a-f0-9]{32}$"
+          },
+          "resourceId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "declaredAccess": {
+            "enum": [
+              "read",
+              "write"
+            ]
+          }
         }
       },
       "UpdateExternalBinding": {
         "type": "object",
         "additionalProperties": false,
         "minProperties": 1,
-        "properties": { "status": { "const": "disabled" }, "declaredAccess": { "enum": ["read", "write"] } }
+        "properties": {
+          "status": {
+            "const": "disabled"
+          },
+          "declaredAccess": {
+            "enum": [
+              "read",
+              "write"
+            ]
+          }
+        }
       },
       "ExternalModel": {
         "type": "object",
         "additionalProperties": true,
-        "required": ["modelKey", "origin", "spaceId", "schemaHash", "schemaObservedAt", "fields", "runtimeCapabilities"],
+        "required": [
+          "modelKey",
+          "origin",
+          "spaceId",
+          "schemaHash",
+          "schemaObservedAt",
+          "fields",
+          "runtimeCapabilities"
+        ],
         "properties": {
-          "modelKey": { "type": "string" },
-          "registrationId": { "type": "string", "pattern": "^ext_[a-f0-9]{32}$" },
-          "connectionId": { "type": "string", "pattern": "^exs_[a-f0-9]{32}$" },
-          "origin": { "const": "external" },
-          "spaceId": { "type": "string" },
-          "schemaHash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
-          "schemaObservedAt": { "type": "string", "format": "date-time" },
-          "fields": { "type": "array", "items": { "$ref": "#/components/schemas/ExternalField" } },
-          "runtimeCapabilities": { "$ref": "#/components/schemas/ExternalCapabilities" }
+          "modelKey": {
+            "type": "string"
+          },
+          "registrationId": {
+            "type": "string",
+            "pattern": "^ext_[a-f0-9]{32}$"
+          },
+          "connectionId": {
+            "type": "string",
+            "pattern": "^exs_[a-f0-9]{32}$"
+          },
+          "origin": {
+            "const": "external"
+          },
+          "spaceId": {
+            "type": "string"
+          },
+          "schemaHash": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "schemaObservedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "fields": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ExternalField"
+            }
+          },
+          "runtimeCapabilities": {
+            "$ref": "#/components/schemas/ExternalCapabilities"
+          }
         }
       },
       "ExternalField": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["key", "title", "type", "nullable", "readable", "writable", "operators", "sortable"],
+        "required": [
+          "key",
+          "title",
+          "type",
+          "nullable",
+          "readable",
+          "writable",
+          "operators",
+          "sortable"
+        ],
         "properties": {
-          "key": { "type": "string", "pattern": "^[a-z][A-Za-z0-9]{0,62}$", "description": "Stable readable LifeSpace field key. Provider source-field identity remains internal and is not exposed as the Record field name." },
-          "title": { "type": "string" },
-          "type": { "type": "string", "description": "Canonical LifeSpace Field Type; External Models reuse the same Canonical Field Language as Native Models." },
-          "nullable": { "type": "boolean" },
-          "readable": { "const": true },
-          "writable": { "type": "boolean" },
-          "operators": { "type": "array", "items": { "enum": ["eq", "ne", "lt", "lte", "gt", "gte", "contains", "isNull", "isNotNull"] } },
-          "sortable": { "type": "boolean" },
-          "values": { "type": "array", "items": { "type": "string" } },
-          "valueSchema": { "type": "object", "additionalProperties": true, "description": "Core-projected canonical value schema for structured field types when applicable." }
+          "key": {
+            "type": "string",
+            "pattern": "^[a-z][A-Za-z0-9]{0,62}$",
+            "description": "Stable readable LifeSpace field key. Provider source-field identity remains internal and is not exposed as the Record field name."
+          },
+          "title": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "description": "Canonical LifeSpace Field Type; External Models reuse the same Canonical Field Language as Native Models."
+          },
+          "nullable": {
+            "type": "boolean"
+          },
+          "readable": {
+            "const": true
+          },
+          "writable": {
+            "type": "boolean"
+          },
+          "operators": {
+            "type": "array",
+            "items": {
+              "enum": [
+                "eq",
+                "ne",
+                "lt",
+                "lte",
+                "gt",
+                "gte",
+                "contains",
+                "isNull",
+                "isNotNull"
+              ]
+            }
+          },
+          "sortable": {
+            "type": "boolean"
+          },
+          "values": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "valueSchema": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Core-projected canonical value schema for structured field types when applicable."
+          },
+          "upload": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "supported",
+              "maxBytes"
+            ],
+            "properties": {
+              "supported": {
+                "const": true
+              },
+              "maxBytes": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 104857600
+              }
+            },
+            "description": "Optional field-level file-transfer capability. It does not make the field writable through ordinary Record mutation."
+          }
         }
       },
       "ExternalCapabilities": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["get", "query", "create", "update", "delete", "batchWrite", "atomicBatch", "transaction", "versionedWrite", "actions", "relationTargetResolution"],
+        "required": [
+          "get",
+          "query",
+          "create",
+          "update",
+          "delete",
+          "batchWrite",
+          "atomicBatch",
+          "transaction",
+          "versionedWrite",
+          "actions",
+          "relationTargetResolution"
+        ],
         "properties": {
-          "get": { "type": "boolean" }, "query": { "type": "boolean" }, "create": { "type": "boolean" }, "update": { "type": "boolean" }, "delete": { "type": "boolean" }, "batchWrite": { "type": "boolean" },
-          "atomicBatch": { "const": false }, "transaction": { "const": false }, "versionedWrite": { "const": false }, "actions": { "const": false },
-          "relationTargetResolution": { "type": "boolean" }
+          "get": {
+            "type": "boolean"
+          },
+          "query": {
+            "type": "boolean"
+          },
+          "create": {
+            "type": "boolean"
+          },
+          "update": {
+            "type": "boolean"
+          },
+          "delete": {
+            "type": "boolean"
+          },
+          "batchWrite": {
+            "type": "boolean"
+          },
+          "atomicBatch": {
+            "const": false
+          },
+          "transaction": {
+            "const": false
+          },
+          "versionedWrite": {
+            "const": false
+          },
+          "actions": {
+            "const": false
+          },
+          "relationTargetResolution": {
+            "type": "boolean"
+          }
         }
       },
       "DynamicRecord": {
         "type": "object",
-        "required": ["id", "spaceId", "modelKey"],
-        "properties": { "id": { "type": "string" }, "spaceId": { "type": "string" }, "modelKey": { "type": "string" }, "createdAt": { "type": "string" }, "updatedAt": { "type": "string" } },
+        "required": [
+          "id",
+          "spaceId",
+          "modelKey"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "spaceId": {
+            "type": "string"
+          },
+          "modelKey": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
+          }
+        },
         "additionalProperties": true,
         "description": "Flattened fields are constrained by the current compatible External Model snapshot. Provider/storage identity metadata such as origin and schemaHash belongs to Discovery/configuration, not ordinary record responses. No Native version or audit fields are fabricated."
       },
-      "ExternalWriteData": { "type": "object", "additionalProperties": true },
+      "ExternalWriteData": {
+        "type": "object",
+        "additionalProperties": true
+      },
       "ExternalFilterPredicate": {
-        "type": "object", "additionalProperties": false, "required": ["field", "op"],
-        "properties": { "field": { "type": "string" }, "op": { "enum": ["eq", "ne", "lt", "lte", "gt", "gte", "contains", "isNull", "isNotNull"] }, "value": {} }
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "field",
+          "op"
+        ],
+        "properties": {
+          "field": {
+            "type": "string"
+          },
+          "op": {
+            "enum": [
+              "eq",
+              "ne",
+              "lt",
+              "lte",
+              "gt",
+              "gte",
+              "contains",
+              "isNull",
+              "isNotNull"
+            ]
+          },
+          "value": {}
+        }
       },
       "ExternalFilter": {
         "oneOf": [
-          { "$ref": "#/components/schemas/ExternalFilterPredicate" },
-          { "type": "object", "additionalProperties": false, "required": ["and"], "properties": { "and": { "type": "array", "minItems": 1, "maxItems": 100, "items": { "$ref": "#/components/schemas/ExternalFilter" } } } },
-          { "type": "object", "additionalProperties": false, "required": ["or"], "properties": { "or": { "type": "array", "minItems": 1, "maxItems": 100, "items": { "$ref": "#/components/schemas/ExternalFilter" } } } }
+          {
+            "$ref": "#/components/schemas/ExternalFilterPredicate"
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "and"
+            ],
+            "properties": {
+              "and": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 100,
+                "items": {
+                  "$ref": "#/components/schemas/ExternalFilter"
+                }
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "or"
+            ],
+            "properties": {
+              "or": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 100,
+                "items": {
+                  "$ref": "#/components/schemas/ExternalFilter"
+                }
+              }
+            }
+          }
         ]
       },
       "ExternalQuery": {
-        "type": "object", "additionalProperties": false,
+        "type": "object",
+        "additionalProperties": false,
         "properties": {
-          "filter": { "$ref": "#/components/schemas/ExternalFilter" },
-          "sort": { "type": "array", "maxItems": 8, "items": { "type": "object", "additionalProperties": false, "required": ["field", "direction"], "properties": { "field": { "type": "string" }, "direction": { "enum": ["asc", "desc"] } } } },
-          "page": { "type": "object", "additionalProperties": false, "properties": { "limit": { "type": "integer", "minimum": 1, "maximum": 100 }, "cursor": { "type": "string" } } }
+          "filter": {
+            "$ref": "#/components/schemas/ExternalFilter"
+          },
+          "sort": {
+            "type": "array",
+            "maxItems": 8,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "field",
+                "direction"
+              ],
+              "properties": {
+                "field": {
+                  "type": "string"
+                },
+                "direction": {
+                  "enum": [
+                    "asc",
+                    "desc"
+                  ]
+                }
+              }
+            }
+          },
+          "page": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "limit": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 100
+              },
+              "cursor": {
+                "type": "string"
+              }
+            }
+          }
         }
       },
-      "ExternalModelEnvelope": { "type": "object", "required": ["data"], "properties": { "data": { "$ref": "#/components/schemas/ExternalModel" } } },
-      "RecordEnvelope": { "type": "object", "required": ["data"], "properties": { "data": { "$ref": "#/components/schemas/DynamicRecord" } } },
-      "RecordListEnvelope": { "type": "object", "required": ["data"], "properties": { "data": { "type": "object", "required": ["items", "nextCursor"], "properties": { "items": { "type": "array", "items": { "$ref": "#/components/schemas/DynamicRecord" } }, "nextCursor": { "type": ["string", "null"] } } } } }
+      "ExternalModelEnvelope": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/ExternalModel"
+          }
+        }
+      },
+      "RecordEnvelope": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/DynamicRecord"
+          }
+        }
+      },
+      "RecordListEnvelope": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "items",
+              "nextCursor"
+            ],
+            "properties": {
+              "items": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/DynamicRecord"
+                }
+              },
+              "nextCursor": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          }
+        }
+      }
     }
   }
 }

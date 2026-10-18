@@ -234,3 +234,8 @@ Consumers discover capabilityBindings.recurrence and structured field valueSchem
 ### External business model binding (development candidate)
 
 A globally registered `origin: external` business definition is referenceable metadata, not global data availability. Each Space explicitly binds the definition to one connection/data source; business modelKey is the Runtime/Application Access/Grant/Delegation key, ext_* is registration identity. Authority requires a current binding and connection in addition to existing current-state checks. No payload mirror or second ACL is created. The same business definition can have different Provider fields/schemaHash in different Spaces. Consumers must use inventory `(spaceId,modelKey,schemaHash)` for dynamic fields, not reuse one Space's field schema across all Spaces. Native descriptor hot paths remain unchanged. Production remains unchanged until release acceptance.
+
+
+### Kernel 0.53.0 · File / Upload Capability
+
+Native `file` / `file_list` values are stable `fil_*` identities whose bytes remain outside ordinary typed Record storage. File transfer uses bounded `upl_*` sessions and short-lived R2 signed URLs. External `file_ref_list` keeps Provider-owned reference semantics; an External field may separately advertise upload capability while remaining unavailable to ordinary Record mutation. Consumers must never persist upload/download URLs as File identity.

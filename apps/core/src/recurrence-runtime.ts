@@ -6,7 +6,7 @@ import { getRuntimeModel } from "./model-registry";
 import { evaluateRecurrenceRoots, evaluateModelAccessMany, type ModelAccessDecision } from "./model-authorization";
 import { requireModelPolicy } from "./policy";
 import { getTypedResourcesByModels } from "./typed-resource-batch";
-import { collectRelationProjections, planCreateGenericMutation, planUpdateGenericMutation, prepareCreateGenericMutation, prepareUpdateGenericMutation, validateRelationProjectionGroups, type GenericResource, type MutationAttribution } from "./generic-resource";
+import { collectRelationProjections, collectFileProjections, planCreateGenericMutation, planUpdateGenericMutation, prepareCreateGenericMutation, prepareUpdateGenericMutation, validateRelationProjectionGroups, validateFileProjectionGroups, type GenericResource, type MutationAttribution } from "./generic-resource";
 import { addRecurrenceDays, addRecurrenceInterval, calendarOccurrences, spaceRecurrenceDate, type RecurrenceRule } from "./recurrence-rule";
 import { parseEntityRef } from "./entity-ref";
 
@@ -135,6 +135,9 @@ export async function prepareRecurrenceMutations(env: Bindings, principal: Princ
   });
   const relationErrors = await validateRelationProjectionGroups(env, spaceId, relationGroups);
   relationErrors.forEach((error, index) => { if (error) errors.set(relationEntries[index]!.recordId ?? "", error); });
+  const fileGroups = relationEntries.map((entry) => collectFileProjections(entry.model.definition, entry.data));
+  const fileErrors = await validateFileProjectionGroups(env, spaceId, fileGroups);
+  fileErrors.forEach((error, index) => { if (error) errors.set(relationEntries[index]!.recordId ?? "", error); });
   const reservedCompletionSlots = active.filter(entry => {
     const binding = entry.model.definition.capabilities?.recurrence;
     if (!binding) return false;

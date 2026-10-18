@@ -41,6 +41,8 @@ export const CANONICAL_FIELD_TYPES = [
   "timezone",
   "enum",
   "enum_list",
+  "file",
+  "file_list",
   "file_ref_list",
   "person",
   "person_list",
@@ -310,7 +312,7 @@ function validTimezone(value: string): boolean {
 }
 
 function validDefault(field: FieldDefinition, value: unknown): value is ModelDefaultValue {
-  if (["recurrence_rule", "entity_ref", "file_ref_list"].includes(field.type) || field.type === "temporal_range" || isFirstClassRangeFieldType(field.type)) return false;
+  if (["recurrence_rule", "entity_ref", "file", "file_list", "file_ref_list"].includes(field.type) || field.type === "temporal_range" || isFirstClassRangeFieldType(field.type)) return false;
   if (value === null) return field.nullable === true;
 
   if (field.type === "person" || field.type === "record") return false;
@@ -788,7 +790,7 @@ export function validateModelDefinition(input: unknown): ModelValidationResult {
             "UNSUPPORTED_QUERY_FIELD_TYPE",
             "Range-valued fields have no text-search projection",
           );
-        } else if (["enum_list", "file_ref_list"].includes(field.type) && kind !== "filterable") {
+        } else if (["enum_list", "file", "file_list", "file_ref_list"].includes(field.type) && kind !== "filterable") {
           issue(
             issues,
             `query.${kind}`,

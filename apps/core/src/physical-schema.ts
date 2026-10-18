@@ -51,7 +51,7 @@ export type CompatiblePhysicalChangePlan = {
 
 const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/u;
 const RELATION_TYPES = new Set(["person", "person_list", "record", "record_list"]);
-const JSON_ARRAY_TYPES = new Set(["enum_list", "file_ref_list"]);
+const JSON_ARRAY_TYPES = new Set(["enum_list", "file_list", "file_ref_list"]);
 
 function assertIdentifier(value: string): string {
   if (!IDENTIFIER.test(value)) {
