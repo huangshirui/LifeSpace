@@ -884,6 +884,9 @@ export function validateModelDefinition(input: unknown): ModelValidationResult {
     );
   }
 
+  if (capabilityResult.capabilities?.checkIn && workflow.actions?.["check-in"]) {
+    issue(issues, "actions.check-in", "CAPABILITY_ACTION_COLLISION", "check-in is owned by the Check-in capability");
+  }
   if (issues.length) return { valid: false, issues };
 
   const definition: ModelDefinition = {
