@@ -24,3 +24,16 @@ Parks existing schema work for retired External definitions, parks future retire
 ## 0068 External record identity ownership / 外部记录身份归属
 
 Existing External record IDs and mappings remain unchanged. Add a BEFORE INSERT trigger on `external_record_identities` so an Adapter cannot silently reuse a global recordId already owned by another External binding or source Space. Same-owner UPSERT remains allowed. The trigger executes inside the existing D1 audit/identity batch, without another Worker↔D1 round trip. A collision is an opaque contract failure on reads and an unknown write outcome after Provider mutation; never retry an uncertain Provider write automatically. Apply this migration before the corresponding Core Worker. No Provider data or bytes are copied or migrated.
+
+## 0069 Record Icon one-time cutover / 图标元数据迁移
+
+User-approved BREAKING migration. The migration adds `resource_records.icon_json`, copies
+nonempty `mdl_day_record.icon` values into `{"type":"emoji","value":"…"}`, removes
+`mdl_day_record.icon`, and publishes Baseline DayRecord version 6 with the new
+hash `3a1d8cfdeaeb17b336359c4b2d7e7c9b5c6dda0e547cbb7622f60b4390f39dc7`.
+Before applying in production, audit nonempty historical DayRecord icon strings:
+unsupported non-Emoji values must be corrected before destructive migration.
+Back up the production D1 database and perform an explicit Staging migration
+and data-count/identity verification before the manually approved rollout.
+Old HomeMew Mini clients are intentionally unsupported for the Days surface
+during WeChat review. Do NOT implement a protocol compatibility layer.
