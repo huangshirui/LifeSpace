@@ -29,6 +29,7 @@ import { registerSpaceLifecycleRoutes } from "./space-lifecycle";
 import { registerSpaceAvatarRoutes } from "./space-avatars";
 import { registerGrantRoutes } from "./grants";
 import { registerFileRoutes } from "./file-routes";
+import { registerRecordIconRoutes } from "./record-icon-routes";
 import { logPerformanceTiming, startPerformanceTiming } from "./performance-timing";
 import { CORE_KERNEL_CONTRACT_VERSION } from "./kernel-contract";
 
@@ -106,6 +107,7 @@ export function createApp() {
   app.use("/api/v1/platform-admin/*", authenticate());
   registerSpaceAvatarRoutes(app);
   registerFileRoutes(app);
+  registerRecordIconRoutes(app);
   registerGrantRoutes(app);
   registerSpaceLifecycleRoutes(app);
   registerSpaceRoutes(app);
