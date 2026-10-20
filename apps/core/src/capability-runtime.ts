@@ -1,4 +1,5 @@
 import { prepareCalendarCreate, prepareCalendarUpdate } from "./calendar-capability";
+import { computeCheckIn, prepareCheckInCreate, recordCheckIn, listCheckIns, type CheckInEntry, type CheckInComputed } from "./check-in-capability";
 import type { Bindings, Principal } from "./env";
 import {
   createGenericResource,
@@ -22,7 +23,7 @@ import {
   type TemporalOccurrence,
 } from "./temporal-capability";
 
-export type CapabilityResponseDecoration = { computed?: { temporal?: ReturnType<typeof computeTemporalResource> } };
+export type CapabilityResponseDecoration = { computed?: { temporal?: ReturnType<typeof computeTemporalResource>; checkIn?: CheckInComputed } };
 export type CapabilityOccurrenceList = { items: TemporalOccurrence[]; nextCursor: string | null };
 
 export function hasTemporalCapability(model: PublishedModel) { return Boolean(model.definition.capabilities?.temporal); }
@@ -106,6 +107,9 @@ export async function prepareCapabilityCreateMutation(
         extension,
       ),
     };
+  }
+  if (model.definition.capabilities?.checkIn) {
+    return { prepared: prepareCheckInCreate(model, input), trusted: true, extension };
   }
   if (hasCalendarCapability(model)) {
     return {
@@ -193,9 +197,12 @@ export async function prepareCapabilityUpdatePolicyInput(env: Bindings, spaceId:
 }
 
 export async function decorateCapabilityResponse(env: Bindings, spaceId: string, model: PublishedModel, resource: GenericResource): Promise<CapabilityResponseDecoration> {
-  if (!hasTemporalCapability(model)) return {};
+  if (!hasTemporalCapability(model) && !model.definition.capabilities?.checkIn) return {};
   const space = await loadSpaceTemporalContext(env, spaceId);
-  return { computed: { temporal: computeTemporalResource(model, resource, space) } };
+  return { computed: {
+    ...(hasTemporalCapability(model) ? { temporal: computeTemporalResource(model, resource, space) } : {}),
+    ...(model.definition.capabilities?.checkIn ? { checkIn: computeCheckIn(model, resource, space.timezone) } : {}),
+  } };
 }
 
 export async function decorateCapabilityResponses(
@@ -204,13 +211,17 @@ export async function decorateCapabilityResponses(
   model: PublishedModel,
   resources: readonly GenericResource[],
 ): Promise<CapabilityResponseDecoration[]> {
-  if (!hasTemporalCapability(model)) return resources.map(() => ({}));
+  if (!hasTemporalCapability(model) && !model.definition.capabilities?.checkIn) return resources.map(() => ({}));
   const space = await loadSpaceTemporalContext(env, spaceId);
-  return resources.map((resource) => ({ computed: { temporal: computeTemporalResource(model, resource, space) } }));
+  return resources.map((resource) => ({ computed: {
+    ...(hasTemporalCapability(model) ? { temporal: computeTemporalResource(model, resource, space) } : {}),
+    ...(model.definition.capabilities?.checkIn ? { checkIn: computeCheckIn(model, resource, space.timezone) } : {}),
+  } }));
 }
 
 export function capabilityActionAccess(model: PublishedModel, actionKey: string): "write" | null {
   if (hasTemporalCapability(model) && actionKey === "record-occurrence" && model.definition.capabilities?.temporal?.occurrences === true) return "write";
+  if (model.definition.capabilities?.checkIn && actionKey === "check-in") return "write";
   return null;
 }
 
@@ -231,6 +242,11 @@ export async function executeCapabilityAction(
 ): Promise<GenericResource> {
   if (!capabilityActionAccess(model, actionKey)) throw new ApiError("ACTION_NOT_FOUND", `Action ${actionKey} is not defined for model ${model.key}`, 404);
   const input = actionBody(inputValue);
+  if (actionKey === "check-in") {
+    if (Object.keys(input).some((key) => key !== "version")) throw new ApiError("INVALID_REQUEST", "check-in accepts only version", 400);
+    if (!Number.isInteger(input.version) || Number(input.version) < 1) throw new ApiError("INVALID_REQUEST", "version must be a positive integer", 400);
+    return recordCheckIn(env, principal, spaceId, model, recordId, Number(input.version), attribution);
+  }
   if (Object.keys(input).some((key) => !["version", "occurredOn", "note"].includes(key))) throw new ApiError("INVALID_REQUEST", "record-occurrence accepts only version, occurredOn, and note", 400);
   if (!Number.isInteger(input.version) || Number(input.version) < 1) throw new ApiError("INVALID_REQUEST", "version must be a positive integer", 400);
   const space = await loadSpaceTemporalContext(env, spaceId);
@@ -246,6 +262,13 @@ export async function executeCapabilityAction(
     attribution,
   );
   return result.record;
+}
+
+export async function listCapabilityCheckIns(
+  env: Bindings, spaceId: string, model: PublishedModel, recordId: string, limit: number, cursor?: string,
+): Promise<{ items: CheckInEntry[]; nextCursor: string | null }> {
+  if (!model.definition.capabilities?.checkIn) throw new ApiError("CHECK_IN_NOT_ALLOWED", "Model does not support check-ins", 404);
+  return listCheckIns(env, spaceId, model, recordId, limit, cursor);
 }
 
 export async function listCapabilityOccurrences(env: Bindings, spaceId: string, model: PublishedModel, recordId: string, limit: number, cursor?: string): Promise<CapabilityOccurrenceList> {
