@@ -5,7 +5,6 @@ import "./control-plane.css";
 type PublishedModel = {
   id: string;
   key: string;
-  route: string;
   version: number;
   state: string;
   schemaHash: string;
@@ -285,8 +284,8 @@ function ModelAccessDialog({ applicationId, onClose }: { applicationId: string; 
       {loading ? <div className="cp-loading">正在读取 Application 与活动 Model Registry…</div> : <>
         <div className="cp-app-summary"><strong>{application?.application.name ?? applicationId}</strong><code>{applicationId}</code></div>
         <div className="cp-access-table">
-          <div className="cp-access-head"><span>Model</span><span>Route / version</span><span>Max access</span></div>
-          {models.map((model) => <div className="cp-access-row" key={model.key}><div><strong>{model.key}</strong><small>{model.state}</small></div><div><code>/{model.route}</code><small>v{model.version}</small></div><select value={access[model.key] ?? "none"} onChange={(event) => { setAccess((current) => ({ ...current, [model.key]: event.target.value as "none" | AccessLevel })); setConfirmed(false); }}><option value="none">No access</option>{declaredAccess(model).map((level) => <option value={level} key={level}>{level}</option>)}</select></div>)}
+          <div className="cp-access-head"><span>Model</span><span>Version</span><span>Max access</span></div>
+          {models.map((model) => <div className="cp-access-row" key={model.key}><div><strong>{model.key}</strong><small>{model.state}</small></div><div><code>v{model.version}</code></div><select value={access[model.key] ?? "none"} onChange={(event) => { setAccess((current) => ({ ...current, [model.key]: event.target.value as "none" | AccessLevel })); setConfirmed(false); }}><option value="none">No access</option>{declaredAccess(model).map((level) => <option value={level} key={level}>{level}</option>)}</select></div>)}
         </div>
         {!models.length && <div className="cp-loading">当前没有已发布模型。</div>}
         {!!staleAssignments.length && <div className="cp-notice cp-error"><strong>发现 {staleAssignments.length} 条非活动模型授权</strong><span>保存会清理这些不再属于当前 Published Registry 的 Application × Model Access：{staleAssignments.map((item) => item.modelKey).join(", ")}</span></div>}
