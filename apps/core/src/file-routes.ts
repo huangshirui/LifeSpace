@@ -150,14 +150,18 @@ async function resolveTarget(
   const model = await getRuntimeModel(env, modelKey);
   if (!model || model.definition.origin === "external") throw new ApiError("MODEL_NOT_FOUND", "Model not found", 404);
   if (fieldKey === RECORD_ICON_FIELD) {
-    if (!recordId) throw new ApiError("VALIDATION_ERROR", "Record Icon upload requires recordId", 422);
     const decision = await requireModelAccess(env, principal, spaceId, model, "write", {
-      delegationId: selectedDelegation, recordId,
+      delegationId: selectedDelegation,
+      ...(recordId ? { recordId } : {}),
     });
     if (decision.authority.singleUse) throw new ApiError("FILE_UPLOAD_SINGLE_USE_UNSUPPORTED", "Multi-step Icon upload cannot use a single-use Delegation", 422);
-    const record = await getGenericResource(env, spaceId, model, recordId);
-    if (!record) throw new ApiError("RESOURCE_NOT_FOUND", "Record not found", 404);
-    await requireModelPolicy(env, decision.principal, spaceId, model, "update", record, {}, decision.policyIdentity);
+    if (recordId) {
+      const record = await getGenericResource(env, spaceId, model, recordId);
+      if (!record) throw new ApiError("RESOURCE_NOT_FOUND", "Record not found", 404);
+      await requireModelPolicy(env, decision.principal, spaceId, model, "update", record, {}, decision.policyIdentity);
+    }
+    // Without a recordId the File remains unattached until an authorized
+    // Create Record references it. Policy is evaluated on the actual Create.
     return { destination: "native", maxBytes: ICON_MAX_BYTES, decision, nativeModel: model };
   }
   const field = model.definition.fields[fieldKey];
