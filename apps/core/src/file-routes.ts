@@ -5,6 +5,8 @@ import { ApiError, success } from "./http";
 import { consumeSingleUseRead, requireModelAccess, type ModelAccessDecision } from "./model-authorization";
 import { getRuntimeModel, type PublishedModel } from "./model-registry";
 import { requireModelPolicy } from "./policy";
+import { getGenericResource } from "./generic-resource";
+import { RECORD_ICON_FIELD, ICON_MAX_BYTES, validateRecordIconImage } from "./record-icon";
 import {
   ExternalError,
   externalAuthorityModel,
@@ -147,6 +149,17 @@ async function resolveTarget(
 
   const model = await getRuntimeModel(env, modelKey);
   if (!model || model.definition.origin === "external") throw new ApiError("MODEL_NOT_FOUND", "Model not found", 404);
+  if (fieldKey === RECORD_ICON_FIELD) {
+    if (!recordId) throw new ApiError("VALIDATION_ERROR", "Record Icon upload requires recordId", 422);
+    const decision = await requireModelAccess(env, principal, spaceId, model, "write", {
+      delegationId: selectedDelegation, recordId,
+    });
+    if (decision.authority.singleUse) throw new ApiError("FILE_UPLOAD_SINGLE_USE_UNSUPPORTED", "Multi-step Icon upload cannot use a single-use Delegation", 422);
+    const record = await getGenericResource(env, spaceId, model, recordId);
+    if (!record) throw new ApiError("RESOURCE_NOT_FOUND", "Record not found", 404);
+    await requireModelPolicy(env, decision.principal, spaceId, model, "update", record, {}, decision.policyIdentity);
+    return { destination: "native", maxBytes: ICON_MAX_BYTES, decision, nativeModel: model };
+  }
   const field = model.definition.fields[fieldKey];
   if (!field || field.readOnly === true || (field.type !== "file" && field.type !== "file_list")) {
     throw new ApiError("FILE_UPLOAD_UNSUPPORTED", "Field does not accept LifeSpace Files", 405);
@@ -176,6 +189,9 @@ async function createSession(context: Context<AppEnv>) {
   const contentType = bounded(input.contentType, "contentType", 255).toLowerCase();
   if (!Number.isInteger(input.size) || Number(input.size) < 1) throw new ApiError("VALIDATION_ERROR", "size must be a positive integer", 422);
   const size = Number(input.size);
+  if (fieldKey === RECORD_ICON_FIELD && !["image/png", "image/jpeg", "image/webp"].includes(contentType)) {
+    throw new ApiError("INVALID_ICON_IMAGE", "Icon uploads support static PNG, JPEG or WebP only", 415);
+  }
   const spaceId = context.req.param("spaceId")!;
   const target = await resolveTarget(context.env, context.get("principal"), spaceId, modelKey, fieldKey, recordId, delegationId(context));
   if (size > target.maxBytes) throw new ApiError("FILE_TOO_LARGE", `File exceeds the field upload limit of ${target.maxBytes} bytes`, 413);
@@ -244,7 +260,13 @@ async function completeSession(context: Context<AppEnv>) {
         throw new ApiError("UPLOAD_MISMATCH", "Staged file does not match upload session", 409);
       }
       try {
-        await context.env.ASSETS.put(permanentKey, staged.body, { httpMetadata: { contentType: row.content_type } });
+        // Validate real object bytes and dimensions before promoting the Icon File.
+        // The size check during upload initiation is not a security boundary.
+        const imageBytes = row.field_key === RECORD_ICON_FIELD
+          ? new Uint8Array(await staged.arrayBuffer())
+          : null;
+        if (imageBytes) validateRecordIconImage(imageBytes, row.content_type);
+        await context.env.ASSETS.put(permanentKey, imageBytes ?? staged.body, { httpMetadata: { contentType: row.content_type } });
         const promoted = await context.env.ASSETS.head(permanentKey);
         if (!promoted || promoted.size !== row.expected_size || promoted.httpMetadata?.contentType?.toLowerCase() !== row.content_type) {
           throw new ApiError("FILE_FINALIZE_FAILED", "Promoted file verification failed", 502);
@@ -351,9 +373,16 @@ async function createDownload(context: Context<AppEnv>) {
   const model = await getRuntimeModel(context.env, modelKey);
   if (!model || model.definition.origin === "external") throw new ApiError("MODEL_NOT_FOUND", "Model not found", 404);
   const field = model.definition.fields[fieldKey];
-  if (!field || (field.type !== "file" && field.type !== "file_list")) throw new ApiError("FILE_NOT_FOUND", "File not found", 404);
+  if (fieldKey !== RECORD_ICON_FIELD && (!field || (field.type !== "file" && field.type !== "file_list"))) throw new ApiError("FILE_NOT_FOUND", "File not found", 404);
   const decision = await requireModelAccess(context.env, context.get("principal"), spaceId, model, "read", { delegationId: delegationId(context), recordId });
   await requireNativeFileReadPolicy(context.env, decision, spaceId, model);
+  if (fieldKey === RECORD_ICON_FIELD) {
+    const current = await context.env.DB.prepare(`SELECT icon_json FROM resource_records
+      WHERE id=? AND space_id=? AND model_key=? AND deleted_at IS NULL`)
+      .bind(recordId, spaceId, modelKey).first<{ icon_json: string | null }>();
+    const icon = current?.icon_json ? JSON.parse(current.icon_json) as { type?: string; fileId?: string } : null;
+    if (icon?.type !== "image" || icon.fileId !== fileId) throw new ApiError("FILE_NOT_FOUND", "Icon reference not found", 404);
+  }
   const row = await context.env.DB.prepare(`SELECT f.id,f.name,f.content_type,f.size_bytes,f.object_key,f.created_at
     FROM resource_file_links l JOIN files f ON f.id=l.file_id
     WHERE l.source_space_id=? AND l.source_model_key=? AND l.source_record_id=? AND l.field_key=? AND l.file_id=? AND f.status='ready'`)
