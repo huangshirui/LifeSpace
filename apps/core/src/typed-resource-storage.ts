@@ -1,6 +1,7 @@
 import { parseEntityRef } from "./entity-ref";
 import { parseRecurrenceRule } from "./recurrence-rule";
 import { parseFileRefList } from "./file-ref";
+import { decodeStoredRecordIcon, type RecordIcon } from "./record-icon";
 import type { Bindings } from "./env";
 import { allD1Batched, chunkD1Values } from "./d1-batch";
 import { ApiError } from "./http";
@@ -39,6 +40,7 @@ export type TypedStoredResource = {
   modelKey: string;
   modelVersion: number;
   data: JsonObject;
+  presentation?: { icon: RecordIcon | null };
   audit?: ResourceAudit;
   version: number;
   createdAt: string;
@@ -169,9 +171,10 @@ export function typedTemporalRangeExpressions(
 }
 
 export function typedSelectColumns(model: PublishedModel, alias = "m"): string {
-  return physicalPlanFor(model).columns
-    .map((column) => `${alias}.${identifier(column.fieldKey)} AS ${identifier(fieldAlias(column.fieldKey))}`)
-    .join(",");
+  return [
+    "r.icon_json AS __record_icon_json",
+    ...physicalPlanFor(model).columns.map((column) => `${alias}.${identifier(column.fieldKey)} AS ${identifier(fieldAlias(column.fieldKey))}`),
+  ].join(",");
 }
 
 function encodedValue(field: FieldDefinition, value: unknown): unknown {
@@ -486,6 +489,7 @@ export function resourcesFromRows(model: PublishedModel, rows: TypedResourceRow[
       modelKey: row.model_key,
       modelVersion: row.model_version,
       data: scalarData(model, row),
+      presentation: { icon: decodeStoredRecordIcon(row.__record_icon_json as string | null ?? null) },
       ...(audit ? { audit } : {}),
       version: row.version,
       createdAt: row.created_at,
