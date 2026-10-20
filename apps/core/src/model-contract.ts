@@ -255,6 +255,7 @@ function createSchema(model: PublishedModel): JsonSchema {
     additionalProperties: false,
     properties: {
       ...Object.fromEntries(fields.map(([key, field]) => [key, schemaWithDefault(definition, key, field)])),
+      presentation: recordPresentationSchema(),
     },
     required: fields
       .filter(([key, field]) => field.required && !hasDefault(definition, key))
@@ -293,12 +294,11 @@ function updateSchema(model: PublishedModel): JsonSchema {
     minProperties: 2,
     properties: {
       version: concurrencyVersionSchema(),
+      presentation: recordPresentationSchema(),
       ...Object.fromEntries(fields.map(([key, field]) => [key, fieldSchema(field)])),
     },
     required: ["version"],
-    ...(fields.length
-      ? { anyOf: fields.map(([key]) => ({ required: [key] })) }
-      : { not: {} }),
+    anyOf: [...fields.map(([key]) => ({ required: [key] })), { required: ["presentation"] }],
     ...(calendar && !("rangeField" in calendar)
       ? { "x-lifespace-calendar-update": "A mode switch must provide a complete valid timed or all-day Calendar shape." }
       : {}),
@@ -654,7 +654,6 @@ function resourceSchema(model: PublishedModel): JsonSchema {
     "spaceId",
     "modelKey",
     "modelVersion",
-    "presentation",
     ...Object.entries(definition.fields).filter(([, field]) => field.required).map(([key]) => key),
     "createdBy",
     "updatedBy",
@@ -1110,35 +1109,6 @@ function modelOpenApi(model: PublishedModel, schemas: Record<string, JsonSchema>
         content: { "application/json": { schema: { $ref: `#/components/schemas/${versionName}` } } },
       },
       responses: { "204": { description: "Deleted" } },
-    },
-  };
-
-  paths[`${recordPath}/icon`] = {
-    parameters: [
-      { $ref: "#/components/parameters/SpaceId" },
-      { $ref: "#/components/parameters/RecordId" },
-      { $ref: "#/components/parameters/DelegationId" },
-    ],
-    patch: {
-      operationId: `updateIcon_${model.key}`,
-      tags: [model.definition.display.plural],
-      description: "Update optional shared Record Icon metadata (not a Model Field). File images require a completed, bounded Record Icon upload session.",
-      requestBody: {
-        required: true,
-        content: { "application/json": { schema: {
-          type: "object", additionalProperties: false,
-          properties: { version: concurrencyVersionSchema(), icon: recordIconSchema() },
-          required: ["version", "icon"],
-        } } },
-      },
-      responses: {
-        "200": { description: "Updated Icon and new version", content: { "application/json": { schema: {
-          type: "object", properties: { data: {
-            type: "object", required: ["id", "version", "presentation"],
-            properties: { id: { type: "string" }, version: concurrencyVersionSchema(), presentation: recordPresentationSchema() },
-          } }, required: ["data"],
-        } } } },
-      },
     },
   };
 
