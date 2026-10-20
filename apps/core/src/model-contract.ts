@@ -609,6 +609,31 @@ function resourceAuditActorSchema(): JsonSchema {
   };
 }
 
+function recordIconSchema(): JsonSchema {
+  return {
+    oneOf: [
+      { type: "null" },
+      {
+        type: "object", additionalProperties: false,
+        properties: { type: { const: "emoji" }, value: { type: "string", minLength: 1, maxLength: 40 } },
+        required: ["type", "value"],
+      },
+      {
+        type: "object", additionalProperties: false,
+        properties: { type: { const: "image" }, fileId: { type: "string", pattern: "^fil_[0-9a-f]{32}$" } },
+        required: ["type", "fileId"],
+      },
+    ],
+  };
+}
+
+function recordPresentationSchema(): JsonSchema {
+  return {
+    type: "object", additionalProperties: false,
+    properties: { icon: recordIconSchema() }, required: ["icon"],
+  };
+}
+
 function resourceSchema(model: PublishedModel): JsonSchema {
   const definition = model.definition;
   const properties: Record<string, unknown> = {
@@ -616,6 +641,7 @@ function resourceSchema(model: PublishedModel): JsonSchema {
     spaceId: { type: "string", pattern: "^spc_" },
     modelKey: { type: "string", const: definition.key },
     modelVersion: { type: "integer", minimum: 1 },
+    presentation: recordPresentationSchema(),
     ...Object.fromEntries(Object.entries(definition.fields).map(([key, field]) => [key, fieldSchema(field)])),
     createdBy: resourceAuditActorSchema(),
     updatedBy: resourceAuditActorSchema(),
@@ -628,6 +654,7 @@ function resourceSchema(model: PublishedModel): JsonSchema {
     "spaceId",
     "modelKey",
     "modelVersion",
+    "presentation",
     ...Object.entries(definition.fields).filter(([, field]) => field.required).map(([key]) => key),
     "createdBy",
     "updatedBy",
@@ -1083,6 +1110,35 @@ function modelOpenApi(model: PublishedModel, schemas: Record<string, JsonSchema>
         content: { "application/json": { schema: { $ref: `#/components/schemas/${versionName}` } } },
       },
       responses: { "204": { description: "Deleted" } },
+    },
+  };
+
+  paths[`${recordPath}/icon`] = {
+    parameters: [
+      { $ref: "#/components/parameters/SpaceId" },
+      { $ref: "#/components/parameters/RecordId" },
+      { $ref: "#/components/parameters/DelegationId" },
+    ],
+    patch: {
+      operationId: `updateIcon_${model.key}`,
+      tags: [model.definition.display.plural],
+      description: "Update optional shared Record Icon metadata (not a Model Field). File images require a completed, bounded Record Icon upload session.",
+      requestBody: {
+        required: true,
+        content: { "application/json": { schema: {
+          type: "object", additionalProperties: false,
+          properties: { version: concurrencyVersionSchema(), icon: recordIconSchema() },
+          required: ["version", "icon"],
+        } } },
+      },
+      responses: {
+        "200": { description: "Updated Icon and new version", content: { "application/json": { schema: {
+          type: "object", properties: { data: {
+            type: "object", required: ["id", "version", "presentation"],
+            properties: { id: { type: "string" }, version: concurrencyVersionSchema(), presentation: recordPresentationSchema() },
+          } }, required: ["data"],
+        } } } },
+      },
     },
   };
 
