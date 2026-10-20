@@ -36,7 +36,14 @@ export function isCanonicalCalendarCapability(
   return "rangeField" in definition;
 }
 
+export type CheckInCapabilityDefinition = {
+  intervalDaysField: string;
+  lastCheckInDateField: string;
+  streakStartDateField: string;
+};
+
 export type CapabilityDefinitions = {
+  checkIn?: CheckInCapabilityDefinition;
   recurrence?: RecurrenceCapabilityDefinition;
   temporal?: TemporalCapabilityDefinition;
   calendar?: CalendarCapabilityDefinition;
@@ -205,7 +212,7 @@ export function validateCapabilities(
     return { issues };
   }
   for (const key of Object.keys(raw)) {
-    if (key !== "temporal" && key !== "calendar" && key !== "recurrence") issue(issues, `capabilities.${key}`, "UNSUPPORTED_CAPABILITY", `Capability ${key} is not registered`);
+    if (key !== "temporal" && key !== "calendar" && key !== "recurrence" && key !== "checkIn") issue(issues, `capabilities.${key}`, "UNSUPPORTED_CAPABILITY", `Capability ${key} is not registered`);
   }
   const capabilities: CapabilityDefinitions = {};
   if (raw.temporal !== undefined) {
@@ -222,6 +229,44 @@ export function validateCapabilities(
     const recurrence = validateRecurrenceCapability(raw.recurrence, fields);
     issues.push(...recurrence.issues);
     if (recurrence.definition) capabilities.recurrence = recurrence.definition;
+  }
+  if (raw.checkIn !== undefined) {
+    const entry = raw.checkIn, base = "capabilities.checkIn";
+    if (!isObject(entry)) {
+      issue(issues, base, "INVALID_CAPABILITY", "checkIn must be an object");
+    } else {
+      const names = ["intervalDaysField", "lastCheckInDateField", "streakStartDateField"] as const;
+      for (const key of Object.keys(entry)) {
+        if (!names.includes(key as typeof names[number])) issue(issues, base + "." + key, "UNKNOWN_PROPERTY", "Unknown checkIn binding");
+      }
+      const [intervalName, lastName, startName] = names.map((key) => entry[key]);
+      if ([intervalName, lastName, startName].some((v) => typeof v !== "string" || !v)
+        || new Set([intervalName, lastName, startName]).size !== 3) {
+        issue(issues, base, "INVALID_CAPABILITY_FIELDS", "checkIn must bind three distinct declared fields");
+      } else {
+        const interval = fields[intervalName as string], last = fields[lastName as string], start = fields[startName as string];
+        if (!interval || interval.type !== "integer" || !interval.required || !interval.immutable || interval.readOnly
+          || (interval.minimum ?? 0) < 1) {
+          issue(issues, base + ".intervalDaysField", "INVALID_CAPABILITY_FIELD", "Interval must be a required immutable integer with minimum >= 1");
+        }
+        if (!last || last.type !== "date" || !last.readOnly || !last.nullable || last.immutable) {
+          issue(issues, base + ".lastCheckInDateField", "INVALID_CAPABILITY_FIELD", "Last check-in must be a read-only nullable date");
+        }
+        if (!start || start.type !== "date" || !start.readOnly || !start.nullable || start.immutable) {
+          issue(issues, base + ".streakStartDateField", "INVALID_CAPABILITY_FIELD", "Streak start must be a read-only nullable date");
+        }
+        if (interval && last && start && !issues.some((v) => v.path.startsWith(base))) {
+          capabilities.checkIn = {
+            intervalDaysField: intervalName as string,
+            lastCheckInDateField: lastName as string,
+            streakStartDateField: startName as string,
+          };
+        }
+      }
+    }
+  }
+  if (capabilities.checkIn && capabilities.temporal) {
+    issue(issues, "capabilities.checkIn", "CAPABILITY_CONFLICT", "Check-in and Temporal cannot coexist on one model");
   }
   return { ...(Object.keys(capabilities).length ? { capabilities } : {}), issues };
 }
