@@ -200,7 +200,6 @@ Browser never receives the Console's own executor credentials as part of these o
 Show current published Model Registry entries：
 
 - key；
-- route；
 - version；
 - state；
 - schema hash；
