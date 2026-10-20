@@ -405,6 +405,14 @@ export function registerGenericResourceRoutes(app: App): void {
     );
     const input = await body(context);
     if (capabilityAccess) {
+      if (actionKey === "check-in") {
+        const resource = await getGenericResource(context.env, spaceId, resolved, recordId);
+        if (!resource) throw new ApiError("RESOURCE_NOT_FOUND", "Resource not found", 404);
+        await requireModelPolicy(context.env, access.principal, spaceId, resolved, "update", resource, undefined, {
+          principalPersonId: access.policyIdentity.principalPersonId,
+          actorPersonId: access.policyIdentity.actorPersonId,
+        });
+      }
       const updated = await executeCapabilityAction(
         context.env,
         access.principal,
