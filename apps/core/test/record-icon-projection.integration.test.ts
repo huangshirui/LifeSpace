@@ -26,14 +26,19 @@ describe("native Record Icon projection and DayRecord cutover", () => {
     if (!model) return;
     expect(model.definition.fields).not.toHaveProperty("icon");
 
+    const without = await createGenericResource(bindings(), actor, spaceId, model, {
+      name: "No icon", kind: "elapsed", anchorDate: "2026-10-01", status: "active",
+    }, true);
+    expect(without.presentation).toBeUndefined();
+    expect((await getGenericResource(bindings(), spaceId, model, without.id))?.presentation).toBeUndefined();
+
+    const icon = { type: "emoji", value: "📚" };
     const created = await createGenericResource(bindings(), actor, spaceId, model, {
       name: "Reading", kind: "elapsed", anchorDate: "2026-10-01", status: "active",
+      presentation: { icon },
     }, true);
-    expect((await getGenericResource(bindings(), spaceId, model, created.id))?.presentation?.icon).toBeNull();
-    const icon = { type: "emoji", value: "📚" };
-    await db.prepare("UPDATE resource_records SET icon_json=? WHERE id=? AND space_id=?")
-      .bind(JSON.stringify(icon), created.id, spaceId).run();
-
+    expect(created.version).toBe(1);
+    expect(created.presentation?.icon).toEqual(icon);
     const loaded = await getGenericResource(bindings(), spaceId, model, created.id);
     expect(loaded?.presentation?.icon).toEqual(icon);
     const listed = await listGenericResources(bindings(), spaceId, model);
@@ -41,10 +46,26 @@ describe("native Record Icon projection and DayRecord cutover", () => {
 
     const updated = await updateGenericResource(bindings(), actor, spaceId, model, created.id, loaded!.version, {
       description: "Daily habit",
+      presentation: { icon: { type: "emoji", value: "📖" } },
     });
-    expect(updated.presentation?.icon).toEqual(icon);
+    expect(updated.version).toBe(2);
+    expect(updated.presentation?.icon).toEqual({ type: "emoji", value: "📖" });
+    const preserved = await updateGenericResource(bindings(), actor, spaceId, model, created.id, updated.version, {
+      name: "Read daily",
+    });
+    expect(preserved.version).toBe(3);
+    expect(preserved.presentation?.icon).toEqual({ type: "emoji", value: "📖" });
+    const cleared = await updateGenericResource(bindings(), actor, spaceId, model, created.id, preserved.version, {
+      presentation: { icon: null },
+    });
+    expect(cleared.version).toBe(4);
+    expect(cleared.presentation).toBeUndefined();
     const after = await getGenericResource(bindings(), spaceId, model, created.id);
-    expect(after?.presentation?.icon).toEqual(icon);
+    expect(after?.presentation).toBeUndefined();
     expect(after?.data).not.toHaveProperty("icon");
+    await expect(createGenericResource(bindings(), actor, spaceId, model, {
+      name: "Invalid", kind: "elapsed", anchorDate: "2026-10-01", status: "active",
+      presentation: { icon: { type: "url", value: "https://unsafe.test" } },
+    }, true)).rejects.toMatchObject({ code: "INVALID_RECORD_ICON" });
   });
 });
