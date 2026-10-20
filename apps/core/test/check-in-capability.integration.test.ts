@@ -6,6 +6,8 @@ import { addDateDays, spaceToday } from "../src/day-calculation";
 import type { Bindings, Principal } from "../src/env";
 import { getGenericResource, updateGenericResource } from "../src/generic-resource";
 import { validateModelDefinition, type ModelDefinition } from "../src/model-definition";
+import { generateModelContract } from "../src/model-contract";
+import { projectModelSemanticFacts } from "../src/model-semantic-projection";
 import { getPublishedModel, publishModelDefinition } from "../src/model-registry";
 
 type TestEnv = { DB: D1Database };
@@ -61,6 +63,25 @@ describe("Check-in Capability", () => {
     expect(result.valid).toBe(false);
     if (!result.valid) expect(result.issues.map((v) => v.code)).toContain("INVALID_CAPABILITY_FIELD");
   });
+  it("projects one discoverable action and a matching generated Model Contract", async () => {
+    const f = await fixture();
+    const semantic = projectModelSemanticFacts(f.model);
+    const action = semantic.actions.find((a) => a.key === "check-in");
+    expect(action).toMatchObject({
+      kind: "capability", access: "write", concurrency: { strategy: "record-version" },
+      invocation: { method: "POST" }, input: { fields: [] },
+    });
+    expect(semantic.capabilityBindings.checkIn).toMatchObject({ intervalDaysField: "intervalDays" });
+    const contract = await generateModelContract([f.model]);
+    const prefix = "/api/v1/spaces/{spaceId}/models/test_habit_check_in/records/{recordId}";
+    const paths = contract.openapi.paths as Record<string, any>;
+    expect(paths[prefix + "/actions/check-in"].post["x-lifespace-concurrency"].strategy).toBe("record-version");
+    expect(paths[prefix + "/check-ins"].get.responses["200"]).toBeTruthy();
+    const definitions = contract.jsonSchema.$defs as Record<string, any>;
+    expect(definitions.TestHabitCheckInResource.properties.computed.properties.checkIn.properties.streakDays.minimum).toBe(0);
+    expect((contract.jsonSchema["x-lifespace-models"] as Record<string, any>).test_habit_check_in.actions).toContain("check-in");
+  });
+
   it("starts at zero, check-in once, is idempotent, and persists a governed Action", async () => {
     const f = await fixture();
     expect(f.resource.data.lastCheckInDate).toBeNull();
@@ -102,6 +123,21 @@ describe("Check-in Capability", () => {
     expect(computeCheckIn(f.model, first, "Asia/Shanghai").streakDays).toBe(1);
     expect((await getGenericResource(bindings(), f.spaceId, f.model, first.id))?.version).toBe(2);
   });
+  it("serializes concurrent same-day requests and writes only one history fact", async () => {
+    const f = await fixture();
+    const results = await Promise.allSettled([
+      recordCheckIn(bindings(), actor, f.spaceId, f.model, f.resource.id, 1),
+      recordCheckIn(bindings(), actor, f.spaceId, f.model, f.resource.id, 1),
+    ]);
+    const persisted = await getGenericResource(bindings(), f.spaceId, f.model, f.resource.id);
+    expect(persisted?.version).toBe(2);
+    const history = await listCheckIns(bindings(), f.spaceId, f.model, f.resource.id, 100);
+    expect(history.items).toHaveLength(1);
+    for (const result of results) {
+      if (result.status === "rejected") expect(result.reason).toMatchObject({ code: "VERSION_CONFLICT" });
+    }
+  });
+
   it("provides bounded history pagination and validates cursors", async () => {
     const f = await fixture();
     await recordCheckIn(bindings(), actor, f.spaceId, f.model, f.resource.id, 1);
