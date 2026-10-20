@@ -205,187 +205,37 @@
     "definitionVersion": 1,
     "key": "wish",
     "description": "An aspiration, desire, or hoped-for future experience or thing that the user wants but has not committed to as a concrete task or scheduled event. Use for bucket-list items, dreams, desired purchases, and hoped-for experiences. Never use Wish as a fallback merely because its schema is broad or another model has missing fields. Examples: 想去冰岛看极光；希望以后有一台房车；想学会潜水。",
-    "display": {
-      "singular": "Wish",
-      "plural": "Wishes"
-    },
+    "display": { "singular": "Wish", "plural": "Wishes" },
     "fields": {
-      "title": {
-        "type": "string",
-        "title": "Title",
-        "description": "A concise statement of the aspiration or desired outcome.",
-        "required": true,
-        "minLength": 1,
-        "maxLength": 100
-      },
-      "description": {
-        "type": "text",
-        "title": "Description",
-        "description": "Optional detail about the aspiration and why it is desired.",
-        "nullable": true,
-        "maxLength": 5000
-      },
-      "desiredDate": {
-        "type": "date",
-        "title": "Desired Date",
-        "description": "A hoped-for date, not a committed task deadline or scheduled event time.",
-        "nullable": true
-      },
-      "status": {
-        "type": "enum",
-        "title": "Status",
-        "description": "Whether the wish is still waiting to happen or has been fulfilled.",
-        "required": true,
-        "readOnly": true,
-        "values": [
-          "open",
-          "fulfilled"
-        ]
-      },
-      "ownerPersonId": {
-        "type": "person",
-        "title": "Owner",
-        "description": "The person whose aspiration this is.",
-        "required": true,
-        "immutable": true
-      },
-      "fulfilledAt": {
-        "type": "datetime",
-        "title": "Fulfilled At",
-        "description": "When the wish was marked fulfilled.",
-        "nullable": true,
-        "readOnly": true
-      }
+      "title": { "type": "string", "title": "Title", "description": "A concise statement of the aspiration or desired outcome.", "required": true, "minLength": 1, "maxLength": 100 },
+      "description": { "type": "text", "title": "Description", "description": "Optional detail about the aspiration and why it is desired.", "nullable": true, "maxLength": 5000 },
+      "desiredDate": { "type": "date", "title": "Desired Date", "description": "A hoped-for date, not a committed task deadline or scheduled event time.", "nullable": true },
+      "status": { "type": "enum", "title": "Status", "description": "Whether the wish is still waiting to happen or has been fulfilled.", "required": true, "readOnly": true, "values": ["open", "fulfilled"] },
+      "ownerPersonId": { "type": "person", "title": "Owner", "description": "The person whose aspiration this is.", "required": true, "immutable": true },
+      "fulfilledAt": { "type": "datetime", "title": "Fulfilled At", "description": "When the wish was marked fulfilled.", "nullable": true, "readOnly": true }
     },
-    "defaults": {
-      "status": "open"
-    },
-    "query": {
-      "searchable": [
-        "title",
-        "description"
-      ],
-      "filterable": [
-        "status",
-        "ownerPersonId",
-        "desiredDate"
-      ],
-      "sortable": [
-        "desiredDate",
-        "title"
-      ]
-    },
-    "access": [
-      "read",
-      "write"
-    ],
-    "lifecycle": {
-      "optimisticConcurrency": true,
-      "softDelete": true
-    },
+    "defaults": { "status": "open" },
+    "query": { "searchable": ["title", "description"], "filterable": ["status", "ownerPersonId", "desiredDate"], "sortable": ["desiredDate", "title"] },
+    "access": ["read", "write"],
+    "lifecycle": { "optimisticConcurrency": true, "softDelete": true },
     "policies": {
-      "create": {
-        "all": [
-          {
-            "op": "neq",
-            "left": {
-              "$ref": "principal.personId"
-            },
-            "right": {
-              "value": null
-            }
-          },
-          {
-            "op": "eq",
-            "left": {
-              "$ref": "input.ownerPersonId"
-            },
-            "right": {
-              "$ref": "principal.personId"
-            }
-          }
-        ]
-      },
-      "read": {
-        "op": "neq",
-        "left": {
-          "$ref": "principal.personId"
-        },
-        "right": {
-          "value": null
-        }
-      },
-      "update": {
-        "op": "eq",
-        "left": {
-          "$ref": "record.ownerPersonId"
-        },
-        "right": {
-          "$ref": "principal.personId"
-        }
-      },
-      "delete": {
-        "op": "eq",
-        "left": {
-          "$ref": "record.ownerPersonId"
-        },
-        "right": {
-          "$ref": "principal.personId"
-        }
-      }
+      "create": { "all": [{ "op": "neq", "left": { "$ref": "principal.personId" }, "right": { "value": null } }, { "op": "eq", "left": { "$ref": "input.ownerPersonId" }, "right": { "$ref": "principal.personId" } }] },
+      "read": { "op": "neq", "left": { "$ref": "principal.personId" }, "right": { "value": null } },
+      "update": { "op": "eq", "left": { "$ref": "record.ownerPersonId" }, "right": { "$ref": "principal.personId" } },
+      "delete": { "op": "eq", "left": { "$ref": "record.ownerPersonId" }, "right": { "$ref": "principal.personId" } }
     },
     "actions": {
       "fulfill": {
         "access": "write",
-        "policy": {
-          "op": "neq",
-          "left": {
-            "$ref": "principal.personId"
-          },
-          "right": {
-            "value": null
-          }
-        },
-        "guards": [
-          {
-            "field": "status",
-            "op": "eq",
-            "value": "open",
-            "errorCode": "WISH_NOT_OPEN",
-            "message": "Only open wishes can be fulfilled"
-          }
-        ],
-        "set": {
-          "status": "fulfilled",
-          "fulfilledAt": {
-            "$ref": "now"
-          }
-        }
+        "policy": { "op": "neq", "left": { "$ref": "principal.personId" }, "right": { "value": null } },
+        "guards": [{ "field": "status", "op": "eq", "value": "open", "errorCode": "WISH_NOT_OPEN", "message": "Only open wishes can be fulfilled" }],
+        "set": { "status": "fulfilled", "fulfilledAt": { "$ref": "now" } }
       },
       "reopen": {
         "access": "write",
-        "policy": {
-          "op": "neq",
-          "left": {
-            "$ref": "principal.personId"
-          },
-          "right": {
-            "value": null
-          }
-        },
-        "guards": [
-          {
-            "field": "status",
-            "op": "eq",
-            "value": "fulfilled",
-            "errorCode": "WISH_NOT_FULFILLED",
-            "message": "Only fulfilled wishes can be reopened"
-          }
-        ],
-        "set": {
-          "status": "open",
-          "fulfilledAt": null
-        }
+        "policy": { "op": "neq", "left": { "$ref": "principal.personId" }, "right": { "value": null } },
+        "guards": [{ "field": "status", "op": "eq", "value": "fulfilled", "errorCode": "WISH_NOT_FULFILLED", "message": "Only fulfilled wishes can be reopened" }],
+        "set": { "status": "open", "fulfilledAt": null }
       }
     }
   },
@@ -393,107 +243,21 @@
     "definitionVersion": 1,
     "key": "day_record",
     "description": "A date-anchored tracker for counting elapsed days, counting down to a date, or representing a recurring/cycle interval. Use for since/until counters, milestones anchored to a date, streaks, and cycle tracking. Do not use for ordinary appointments, one-off calendar occurrences, or concrete to-dos. Examples: 从今天开始戒糖；距离生日还有多少天；每28天一个周期。",
-    "display": {
-      "singular": "Day Record",
-      "plural": "Day Records"
-    },
+    "display": { "singular": "Day Record", "plural": "Day Records" },
     "fields": {
-      "name": {
-        "type": "string",
-        "title": "Name",
-        "description": "The milestone, streak, countdown, or cycle being tracked.",
-        "required": true,
-        "minLength": 1,
-        "maxLength": 100
-      },
-      "description": {
-        "type": "text",
-        "title": "Description",
-        "description": "Optional context about the tracked date or cycle.",
-        "nullable": true,
-        "maxLength": 5000
-      },
-      "kind": {
-        "type": "enum",
-        "title": "Kind",
-        "description": "Tracker mode: elapsed since anchorDate, countdown until anchorDate, or recurring cycle.",
-        "required": true,
-        "immutable": true,
-        "values": [
-          "elapsed",
-          "countdown",
-          "cycle"
-        ]
-      },
-      "anchorDate": {
-        "type": "date",
-        "title": "Anchor Date",
-        "description": "The calendar date that anchors the elapsed, countdown, or cycle calculation.",
-        "required": true
-      },
-      "subjectPersonId": {
-        "type": "person",
-        "title": "Subject",
-        "description": "Optional person the tracked date or cycle belongs to.",
-        "nullable": true
-      },
-      "attentionAfterDays": {
-        "type": "integer",
-        "title": "Attention After Days",
-        "description": "Number of days after the anchor date when the record should enter an attention window.",
-        "nullable": true,
-        "minimum": 1
-      },
-      "attentionBeforeDays": {
-        "type": "integer",
-        "title": "Attention Before Days",
-        "description": "Number of days before the anchor date when the record should enter an attention window.",
-        "nullable": true,
-        "minimum": 0
-      },
-      "cycleDays": {
-        "type": "integer",
-        "title": "Cycle Days",
-        "description": "Length in days for a recurring cycle.",
-        "nullable": true,
-        "minimum": 1
-      },
-      "status": {
-        "type": "enum",
-        "title": "Status",
-        "description": "Current lifecycle state of the day record.",
-        "required": true,
-        "readOnly": true,
-        "values": [
-          "active",
-          "archived"
-        ]
-      }
+      "name": { "type": "string", "title": "Name", "description": "The milestone, streak, countdown, or cycle being tracked.", "required": true, "minLength": 1, "maxLength": 100 },
+      "description": { "type": "text", "title": "Description", "description": "Optional context about the tracked date or cycle.", "nullable": true, "maxLength": 5000 },
+      "kind": { "type": "enum", "title": "Kind", "description": "Tracker mode: elapsed since anchorDate, countdown until anchorDate, or recurring cycle.", "required": true, "immutable": true, "values": ["elapsed", "countdown", "cycle"] },
+      "anchorDate": { "type": "date", "title": "Anchor Date", "description": "The calendar date that anchors the elapsed, countdown, or cycle calculation.", "required": true },
+      "subjectPersonId": { "type": "person", "title": "Subject", "description": "Optional person the tracked date or cycle belongs to.", "nullable": true },
+      "attentionAfterDays": { "type": "integer", "title": "Attention After Days", "description": "Number of days after the anchor date when the record should enter an attention window.", "nullable": true, "minimum": 1 },
+      "attentionBeforeDays": { "type": "integer", "title": "Attention Before Days", "description": "Number of days before the anchor date when the record should enter an attention window.", "nullable": true, "minimum": 0 },
+      "cycleDays": { "type": "integer", "title": "Cycle Days", "description": "Length in days for a recurring cycle.", "nullable": true, "minimum": 1 },
+      "status": { "type": "enum", "title": "Status", "description": "Current lifecycle state of the day record.", "required": true, "readOnly": true, "values": ["active", "archived"] }
     },
-    "query": {
-      "searchable": [
-        "name",
-        "description"
-      ],
-      "filterable": [
-        "kind",
-        "status",
-        "subjectPersonId",
-        "anchorDate"
-      ],
-      "sortable": [
-        "anchorDate",
-        "name"
-      ]
-    },
-    "access": [
-      "read",
-      "write"
-    ],
-    "lifecycle": {
-      "optimisticConcurrency": true,
-      "softDelete": true
-    },
+    "query": { "searchable": ["name", "description"], "filterable": ["kind", "status", "subjectPersonId", "anchorDate"], "sortable": ["anchorDate", "name"] },
+    "access": ["read", "write"],
+    "lifecycle": { "optimisticConcurrency": true, "softDelete": true },
     "capabilities": {
       "temporal": {
         "kindField": "kind",
@@ -507,118 +271,27 @@
       }
     },
     "actions": {
-      "archive": {
-        "access": "write",
-        "guards": [
-          {
-            "field": "status",
-            "op": "neq",
-            "value": "archived",
-            "errorCode": "DAY_RECORD_ARCHIVED",
-            "message": "Day record is already archived"
-          }
-        ],
-        "set": {
-          "status": "archived"
-        }
-      },
-      "restore": {
-        "access": "write",
-        "guards": [
-          {
-            "field": "status",
-            "op": "neq",
-            "value": "active",
-            "errorCode": "DAY_RECORD_ALREADY_ACTIVE",
-            "message": "Day record is already active"
-          }
-        ],
-        "set": {
-          "status": "active"
-        }
-      }
+      "archive": { "access": "write", "guards": [{ "field": "status", "op": "neq", "value": "archived", "errorCode": "DAY_RECORD_ARCHIVED", "message": "Day record is already archived" }], "set": { "status": "archived" } },
+      "restore": { "access": "write", "guards": [{ "field": "status", "op": "neq", "value": "active", "errorCode": "DAY_RECORD_ALREADY_ACTIVE", "message": "Day record is already active" }], "set": { "status": "active" } }
     }
   },
   "event": {
     "definitionVersion": 1,
     "key": "event",
     "description": "A calendar occurrence that happens or is planned for a specific date or time and may occupy time or involve attendance or a location. Use for meetings, appointments, classes, matches, meals, celebrations, and other things that occur. Do not use merely because a task has a deadline. Examples: 周六上午十点足球比赛；明晚七点和王老师吃饭；8月30日体检。",
-    "display": {
-      "singular": "Event",
-      "plural": "Events"
-    },
+    "display": { "singular": "Event", "plural": "Events" },
     "fields": {
-      "summary": {
-        "type": "string",
-        "title": "Summary",
-        "description": "A concise name for the calendar occurrence.",
-        "required": true,
-        "minLength": 1,
-        "maxLength": 100
-      },
-      "description": {
-        "type": "text",
-        "title": "Description",
-        "description": "Optional details about the occurrence.",
-        "nullable": true,
-        "maxLength": 5000
-      },
-      "location": {
-        "type": "string",
-        "title": "Location",
-        "description": "Where the occurrence happens, when explicitly provided.",
-        "nullable": true,
-        "maxLength": 500
-      },
-      "when": {
-        "type": "temporal_range",
-        "title": "When",
-        "description": "When the occurrence happens. Use the date variant for all-day/date-only events and the instant variant for timed events.",
-        "required": true
-      },
-      "attendeePersonIds": {
-        "type": "person_list",
-        "title": "Attendees",
-        "description": "People attending or participating in the occurrence."
-      },
-      "status": {
-        "type": "enum",
-        "title": "Status",
-        "description": "Current lifecycle state of the event.",
-        "required": true,
-        "values": [
-          "active",
-          "cancelled"
-        ]
-      }
+      "summary": { "type": "string", "title": "Summary", "description": "A concise name for the calendar occurrence.", "required": true, "minLength": 1, "maxLength": 100 },
+      "description": { "type": "text", "title": "Description", "description": "Optional details about the occurrence.", "nullable": true, "maxLength": 5000 },
+      "location": { "type": "string", "title": "Location", "description": "Where the occurrence happens, when explicitly provided.", "nullable": true, "maxLength": 500 },
+      "when": { "type": "temporal_range", "title": "When", "description": "When the occurrence happens. Use the date variant for all-day/date-only events and the instant variant for timed events.", "required": true },
+      "attendeePersonIds": { "type": "person_list", "title": "Attendees", "description": "People attending or participating in the occurrence." },
+      "status": { "type": "enum", "title": "Status", "description": "Current lifecycle state of the event.", "required": true, "values": ["active", "cancelled"] }
     },
-    "defaults": {
-      "status": "active"
-    },
-    "query": {
-      "searchable": [
-        "summary",
-        "description",
-        "location"
-      ],
-      "filterable": [
-        "status",
-        "when",
-        "attendeePersonIds"
-      ],
-      "sortable": [
-        "when",
-        "summary"
-      ]
-    },
-    "access": [
-      "read",
-      "write"
-    ],
-    "lifecycle": {
-      "optimisticConcurrency": true,
-      "softDelete": true
-    },
+    "defaults": { "status": "active" },
+    "query": { "searchable": ["summary", "description", "location"], "filterable": ["status", "when", "attendeePersonIds"], "sortable": ["when", "summary"] },
+    "access": ["read", "write"],
+    "lifecycle": { "optimisticConcurrency": true, "softDelete": true },
     "capabilities": {
       "calendar": {
         "rangeField": "when",
@@ -630,54 +303,15 @@
     "definitionVersion": 1,
     "key": "person_group",
     "description": "A durable named grouping of Space People used to refer to a set of people together, such as family, classmates, teammates, colleagues, or another user-defined circle. Membership expresses grouping only and does not imply authority or a typed interpersonal relationship.",
-    "display": {
-      "singular": "Person Group",
-      "plural": "Person Groups"
-    },
+    "display": { "singular": "Person Group", "plural": "Person Groups" },
     "fields": {
-      "name": {
-        "type": "string",
-        "title": "Name",
-        "description": "Human-readable name of the group or circle.",
-        "required": true,
-        "minLength": 1,
-        "maxLength": 100
-      },
-      "description": {
-        "type": "text",
-        "title": "Description",
-        "description": "Optional context describing what the group represents.",
-        "nullable": true,
-        "maxLength": 2000
-      },
-      "memberPersonIds": {
-        "type": "person_list",
-        "title": "Members",
-        "description": "Space People included in this group."
-      }
+      "name": { "type": "string", "title": "Name", "description": "Human-readable name of the group or circle.", "required": true, "minLength": 1, "maxLength": 100 },
+      "description": { "type": "text", "title": "Description", "description": "Optional context describing what the group represents.", "nullable": true, "maxLength": 2000 },
+      "memberPersonIds": { "type": "person_list", "title": "Members", "description": "Space People included in this group." }
     },
-    "referenceLabel": {
-      "field": "name"
-    },
-    "query": {
-      "searchable": [
-        "name",
-        "description"
-      ],
-      "filterable": [
-        "memberPersonIds"
-      ],
-      "sortable": [
-        "name"
-      ]
-    },
-    "access": [
-      "read",
-      "write"
-    ],
-    "lifecycle": {
-      "optimisticConcurrency": true,
-      "softDelete": true
-    }
+    "referenceLabel": { "field": "name" },
+    "query": { "searchable": ["name", "description"], "filterable": ["memberPersonIds"], "sortable": ["name"] },
+    "access": ["read", "write"],
+    "lifecycle": { "optimisticConcurrency": true, "softDelete": true }
   }
 }
