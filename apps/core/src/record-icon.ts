@@ -1,6 +1,6 @@
 import type { Bindings } from "./env";
 import { ApiError } from "./http";
-import { chunkD1Values } from "./d1-batch";
+import type { Principal } from "./env";
 
 export type RecordIcon = { type: "emoji"; value: string } | { type: "image"; fileId: string };
 export type RecordPresentation = { icon: RecordIcon | null };
@@ -38,19 +38,52 @@ export function decodeStoredRecordIcon(raw: string | null): RecordIcon | null {
   catch { throw new ApiError("RESOURCE_STORAGE_CORRUPT", "Record icon metadata is invalid", 500); }
 }
 
-export async function loadRecordIcons(
-  env: Bindings, spaceId: string, ids: readonly string[],
-): Promise<Map<string, RecordIcon | null>> {
-  const values = new Map<string, RecordIcon | null>();
-  if (!ids.length) return values;
-  // Exactly one batched metadata lookup per bounded result page. No per-row D1 I/O.
-  for (const chunk of chunkD1Values([...new Set(ids)], 1)) {
-    const rows = await env.DB.prepare(`SELECT id,icon_json FROM resource_records
-      WHERE space_id=? AND id IN (${chunk.map(() => "?").join(",")})`)
-      .bind(spaceId, ...chunk).all<{ id: string; icon_json: string | null }>();
-    for (const row of rows.results) values.set(row.id, decodeStoredRecordIcon(row.icon_json));
+/**
+ * The entire presentation value is optional on both writes and reads.
+ * Missing means leave unchanged; an explicit icon:null means clear.
+ */
+export function optionalRecordIcon(input: unknown): RecordIcon | null | undefined {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return undefined;
+  const root = input as Record<string, unknown>;
+  if (!Object.hasOwn(root, "presentation")) return undefined;
+  const value = root.presentation;
+  if (!value || typeof value !== "object" || Array.isArray(value)
+    || Object.keys(value).length !== 1 || !Object.hasOwn(value, "icon")) {
+    throw new ApiError("INVALID_RECORD_ICON", "presentation must contain only icon", 422);
   }
-  return values;
+  return parseRecordIcon((value as Record<string, unknown>).icon);
+}
+
+export function stripPresentation(input: unknown): unknown {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return input;
+  const { presentation: _presentation, ...fields } = input as Record<string, unknown>;
+  return fields;
+}
+
+/** Images uploaded before Record creation are scoped to Space + Model + Principal.
+ * Existing images can only be retained on the same Record.
+ */
+export async function validateIconFile(
+  env: Bindings, principal: Principal, spaceId: string,
+  modelKey: string, recordId: string | null, icon: RecordIcon | null | undefined,
+): Promise<void> {
+  if (!icon || icon.type !== "image") return;
+  const row = await env.DB.prepare(`SELECT f.id FROM files f
+    JOIN file_upload_sessions s ON s.file_id=f.id
+    WHERE f.id=? AND f.space_id=? AND f.status='ready'
+      AND f.content_type IN ('image/png','image/jpeg','image/webp')
+      AND f.size_bytes<=? AND s.space_id=? AND s.model_key=?
+      AND s.field_key=? AND s.destination='native' AND s.status='completed'
+      AND s.application_id=? AND s.principal_type=? AND s.principal_id=?
+      AND (s.record_id IS NULL OR s.record_id=?)
+      AND NOT EXISTS (
+        SELECT 1 FROM resource_file_links l WHERE l.file_id=f.id
+          AND ( ? IS NULL OR l.source_record_id<>? )
+      )`)
+    .bind(icon.fileId, spaceId, ICON_MAX_BYTES, spaceId, modelKey,
+      RECORD_ICON_FIELD, principal.clientId, principal.type, principal.id,
+      recordId, recordId, recordId).first<{id:string}>();
+  if (!row) throw new ApiError("INVALID_FILE_REFERENCE", "Image icon must be a ready authorized File scoped to this Record", 422);
 }
 
 /**
