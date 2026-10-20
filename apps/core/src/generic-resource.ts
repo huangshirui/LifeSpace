@@ -2,6 +2,7 @@ import { isRecurrenceExecutor, recurrenceMutationStatements } from "./recurrence
 import { parseEntityRef } from "./entity-ref";
 import { parseRecurrenceRule } from "./recurrence-rule";
 import { parseFileRefList } from "./file-ref";
+import type { RecordIcon } from "./record-icon";
 import { validateRecurrenceData } from "./recurrence-definition";
 import type { Bindings, Principal } from "./env";
 import { chunkD1Values } from "./d1-batch";
@@ -39,6 +40,7 @@ export type GenericResource = {
   modelKey: string;
   modelVersion: number;
   data: JsonObject;
+  presentation?: { icon: RecordIcon | null };
   audit?: ResourceAudit;
   version: number;
   createdAt: string;
@@ -904,6 +906,7 @@ export async function planUpdateGenericMutation(
       modelKey: model.key,
       modelVersion: model.version,
       data: prepared.data,
+      presentation: previous.presentation,
       ...(previous.audit
         ? { audit: { createdBy: previous.audit.createdBy, updatedBy } }
         : {}),
