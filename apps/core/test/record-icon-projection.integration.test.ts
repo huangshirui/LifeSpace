@@ -27,8 +27,8 @@ describe("native Record Icon projection and DayRecord cutover", () => {
     expect(model.definition.fields).not.toHaveProperty("icon");
 
     const created = await createGenericResource(bindings(), actor, spaceId, model, {
-      name: "Reading", kind: "elapsed", anchorDate: "2026-10-01",
-    });
+      name: "Reading", kind: "elapsed", anchorDate: "2026-10-01", status: "active",
+    }, true);
     expect((await getGenericResource(bindings(), spaceId, model, created.id))?.presentation?.icon).toBeNull();
     const icon = { type: "emoji", value: "📚" };
     await db.prepare("UPDATE resource_records SET icon_json=? WHERE id=? AND space_id=?")
