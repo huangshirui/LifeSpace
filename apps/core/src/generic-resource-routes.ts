@@ -8,6 +8,7 @@ import {
   decorateCapabilityResponses,
   executeCapabilityAction,
   listCapabilityOccurrences,
+  listCapabilityCheckIns,
   prepareCapabilityCreateInput,
   prepareCapabilityUpdatePolicyInput,
   updateCapabilityAwareResource,
@@ -72,6 +73,7 @@ const canonical = {
   query: "/api/v1/spaces/:spaceId/models/:modelKey/records/query",
   record: "/api/v1/spaces/:spaceId/models/:modelKey/records/:recordId",
   occurrences: "/api/v1/spaces/:spaceId/models/:modelKey/records/:recordId/occurrences",
+  checkIns: "/api/v1/spaces/:spaceId/models/:modelKey/records/:recordId/check-ins",
   action: "/api/v1/spaces/:spaceId/models/:modelKey/records/:recordId/actions/:actionKey",
 } as const;
 async function dto(
@@ -365,6 +367,26 @@ export function registerGenericResourceRoutes(app: App): void {
     return context.json(success(result));
   };
   app.get(canonical.occurrences, occurrences);
+
+  const checkIns = async (context: Context<AppEnv>) => {
+    const spaceId = pathParam(context, "spaceId");
+    const resolved = await model(context);
+    const recordId = pathParam(context, "recordId");
+    const access = await requireModelAccess(context.env, context.get("principal"), spaceId, resolved, "read", accessSelector(context, recordId));
+    const resource = await getGenericResource(context.env, spaceId, resolved, recordId);
+    if (!resource) throw new ApiError("RESOURCE_NOT_FOUND", "Resource not found", 404);
+    await requireModelPolicy(context.env, access.principal, spaceId, resolved, "read", resource, undefined, {
+      principalPersonId: access.policyIdentity.principalPersonId,
+      actorPersonId: access.policyIdentity.actorPersonId,
+    });
+    const params = new URL(context.req.url).searchParams;
+    const limit = params.has("limit") ? Number(params.get("limit")) : 100;
+    if (!Number.isInteger(limit) || limit < 1 || limit > 200) throw new ApiError("INVALID_QUERY", "limit must be between 1 and 200", 400);
+    const result = await listCapabilityCheckIns(context.env, spaceId, resolved, recordId, limit, params.get("cursor") ?? undefined);
+    await consumeSingleUseRead(context.env, access);
+    return context.json(success(result));
+  };
+  app.get(canonical.checkIns, checkIns);
 
   const action = async (context: Context<AppEnv>) => {
     const spaceId = pathParam(context, "spaceId");
