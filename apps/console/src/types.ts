@@ -99,7 +99,6 @@ export type ApplicationDetail = {
 export type PublishedModel = {
   id: string;
   key: string;
-  route: string;
   version: number;
   state: string;
   schemaHash: string;
