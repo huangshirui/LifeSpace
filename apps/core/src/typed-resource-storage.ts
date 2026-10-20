@@ -489,7 +489,7 @@ export function resourcesFromRows(model: PublishedModel, rows: TypedResourceRow[
       modelKey: row.model_key,
       modelVersion: row.model_version,
       data: scalarData(model, row),
-      presentation: { icon: decodeStoredRecordIcon(row.__record_icon_json as string | null ?? null) },
+      ...(row.__record_icon_json ? { presentation: { icon: decodeStoredRecordIcon(row.__record_icon_json as string) } } : {}),
       ...(audit ? { audit } : {}),
       version: row.version,
       createdAt: row.created_at,
