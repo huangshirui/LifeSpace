@@ -24,6 +24,7 @@ import { getRuntimeModel, type PublishedModel } from "./model-registry";
 import { requireModelPolicy } from "./policy";
 import { loadResourceAudits, requireResourceAudit, type ResourceAudit } from "./resource-audit";
 import { executeWorkflowAction, workflowActionAccess } from "./workflow";
+import { loadRecordIcons, type RecordIcon } from "./record-icon";
 
 type AppEnv = { Bindings: Bindings; Variables: Variables };
 type App = Hono<AppEnv>;
@@ -81,17 +82,22 @@ async function dto(
   resource: GenericResource,
   decoration?: CapabilityResponseDecoration,
   audit?: ResourceAudit,
+  knownIcon?: RecordIcon | null,
 ) {
   const resolvedAudit = audit ?? resource.audit ?? requireResourceAudit(
     await loadResourceAudits(env, spaceId, [resource.id]),
     resource.id,
   );
+  const icon = knownIcon === undefined
+    ? (await loadRecordIcons(env, spaceId, [resource.id])).get(resource.id) ?? null
+    : knownIcon;
   return {
     id: resource.id,
     spaceId: resource.spaceId,
     modelKey: resource.modelKey,
     modelVersion: resource.modelVersion,
     ...resource.data,
+    presentation: { icon },
     ...(decoration ?? await decorateCapabilityResponse(env, spaceId, model, resource)),
     createdBy: resolvedAudit.createdBy,
     updatedBy: resolvedAudit.updatedBy,
@@ -110,11 +116,12 @@ async function listResponse(
   const missingAuditIds = result.items
     .filter((resource) => !resource.audit)
     .map((resource) => resource.id);
-  const [decorations, fallbackAudits] = await Promise.all([
+  const [decorations, fallbackAudits, icons] = await Promise.all([
     decorateCapabilityResponses(context.env, spaceId, resolved, result.items),
     missingAuditIds.length
       ? loadResourceAudits(context.env, spaceId, missingAuditIds)
       : Promise.resolve(new Map<string, ResourceAudit>()),
+    loadRecordIcons(context.env, spaceId, result.items.map((resource) => resource.id)),
   ]);
   const items = await Promise.all(result.items.map((resource, index) => dto(
     context.env,
@@ -123,6 +130,7 @@ async function listResponse(
     resource,
     decorations[index],
     resource.audit ?? requireResourceAudit(fallbackAudits, resource.id),
+    icons.get(resource.id) ?? null,
   )));
   return context.json(success({ items, nextCursor: result.nextCursor }));
 }
