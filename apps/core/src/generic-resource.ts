@@ -148,7 +148,7 @@ export function exactFieldChanges(before: JsonObject, after: JsonObject): Resour
   });
 }
 
-function changeStatement(
+export function changeStatement(
   env: Bindings,
   principal: Principal,
   id: string,
@@ -228,7 +228,7 @@ function normalizedDelegationChain(attribution: MutationAttribution): readonly s
   return chain;
 }
 
-function appendDelegationChainEvidence(
+export function appendDelegationChainEvidence(
   statements: D1PreparedStatement[],
   env: Bindings,
   changeId: string,
