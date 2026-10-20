@@ -259,8 +259,8 @@ function ModelsPage({ id }: { id?: string }) {
   return <>
     <PageHeader eyebrow="Platform" title="Models" description="Model Registry 的只读治理视图。发布、退役与兼容性写操作在下一 slice 接入。" />
     <Section title="Registry definitions">
-      {!rows.length ? <Empty /> : <div className="table-wrap"><table><thead><tr><th>Model</th><th>Route</th><th>Version</th><th>Compatibility</th><th>状态</th><th /></tr></thead><tbody>
-        {rows.map((model: PublishedModel) => <tr key={model.id}><td><strong>{model.key}</strong><small>{model.id}</small></td><td><Code>{model.route}</Code></td><td>v{model.version}</td><td>{model.compatibility}</td><td><Badge value={model.state} /></td><td><button className="link-button" onClick={() => navigate(`/models/${encodeURIComponent(model.key)}`)}>查看</button></td></tr>)}
+      {!rows.length ? <Empty /> : <div className="table-wrap"><table><thead><tr><th>Model</th><th>Version</th><th>Compatibility</th><th>状态</th><th /></tr></thead><tbody>
+        {rows.map((model: PublishedModel) => <tr key={model.id}><td><strong>{model.key}</strong><small>{model.id}</small></td><td>v{model.version}</td><td>{model.compatibility}</td><td><Badge value={model.state} /></td><td><button className="link-button" onClick={() => navigate(`/models/${encodeURIComponent(model.key)}`)}>查看</button></td></tr>)}
       </tbody></table></div>}
     </Section>
   </>;
@@ -274,7 +274,7 @@ function ModelDetailPage({ id }: { id: string }) {
   return <>
     <PageHeader eyebrow="Model" title={model.key} description={`Registry version ${model.version}`} actions={<button className="secondary-button" onClick={() => navigate("/models")}>返回列表</button>} />
     <Section title="Registry metadata"><KeyValue rows={[
-      ["State", <Badge value={model.state} />], ["Route", <Code>{model.route}</Code>], ["Compatibility", model.compatibility], ["Schema hash", <Code>{model.schemaHash}</Code>], ["Published", formatDate(model.publishedAt)],
+      ["State", <Badge value={model.state} />], ["Compatibility", model.compatibility], ["Schema hash", <Code>{model.schemaHash}</Code>], ["Published", formatDate(model.publishedAt)],
     ]} /></Section>
     <Section title="Canonical definition" description="只读展示当前 Registry Definition。"><pre className="json-view">{JSON.stringify(model.definition, null, 2)}</pre></Section>
   </>;
