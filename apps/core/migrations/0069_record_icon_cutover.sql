@@ -5,7 +5,7 @@
 --
 -- D1 icon_json is nullable (null means no icon). Native record identity remains unchanged.
 ALTER TABLE resource_records ADD COLUMN icon_json TEXT
-  CHECK (icon_json IS NULL OR (json_valid(icon_json) AND json_type(icon_json,'$.type') IN ('emoji','image')));
+  CHECK (icon_json IS NULL OR (json_valid(icon_json) AND json_extract(icon_json,'$.type') IN ('emoji','image')));
 
 -- Keep the original text, without changing multi-codepoint Emoji sequences.
 UPDATE resource_records
