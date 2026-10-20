@@ -2,15 +2,20 @@
 
 ## Contract / 契约
 
-An optional, per-Record presentation value; **not a Model Definition field** and not a separate user-defined capability. Native records return `presentation: { icon }`, where `icon` is null, `{ "type": "emoji", "value": "⚽" }`, or `{ "type": "image", "fileId": "fil_..." }`. The `presentation` name is reserved in Model Definition Fields. An absent icon is null; clients may choose their own default Emoji. **External records are not writable** through this feature in V1.
+An optional, per-Record presentation value; **not a Model Definition field** and not a separate user-defined capability. Native records may return `presentation: { icon }`, where `icon` is `{ "type": "emoji", "value": "⚽" }` or `{ "type": "image", "fileId": "fil_..." }`. **The entire `presentation` property is omitted when no icon exists**; it is not a required read field. The `presentation` name is reserved in Model Definition Fields. Consumers may choose their own default Emoji. **External records are not writable** through this feature in V1.
 
-Read: existing model GET/LIST/query (bounded projection of `resource_records.icon_json`, no per-record hydration D1 queries). Update: `PATCH /api/v1/spaces/{spaceId}/models/{modelKey}/records/{recordId}/icon` body `{ "version": 3, "icon": { "type": "emoji", "value": "📘" } }`. This is a governed Record update, requires model+Space+Record authorization and optimistic concurrency, increments `version`, and emits change history. Null clears the icon.
+Read: existing model GET/LIST/query, using existing typed storage projection (no per-record extra D1 I/O).
+
+**Write with one Record request**: ordinary `POST /api/v1/spaces/{spaceId}/models/{modelKey}/records` and `PATCH /.../records/{recordId}` optionally accept `presentation: { icon: { "type": "emoji", "value": "📘" } }`. PATCH also requires existing `version`; omitted presentation **must not change existing Icon**. Explicit `presentation: { icon: null }` clears it. If metadata is omitted on CREATE, do not persist/return a presentation object.
+
+Business fields and optional Icon are written atomically by **the same D1 mutation batch and Change History**, with exactly one Record Version increment; there is no separate `PATCH /records/{id}/icon` route. Validation and authorization are performed by the governed Record mutation path, not a presentation-specific bypass. Normal record request validation rejects undeclared fields aside from reserved presentation.
+
 
 ## Image / 图片
 
 Only static PNG, JPEG, WebP. **Service-side hard limits 256 KiB and <=512×512 pixels**, plus MIME and signature checks. SVG, remote URLs and base64 are not accepted. Users resize/compress before upload; the server verifies independently.
 
-Use existing `POST /file-uploads` scoped to target `modelKey`, existing `recordId`, and reserved `fieldKey: "__record_icon"`; complete the signed R2 upload using File session as usual, then assign the returned ready `fil_*` in the Record Icon update. File metadata and link authority are in D1; actual bytes in private R2. Download via `POST /file-downloads` scoped to the same `modelKey`, `recordId`, reserved `fieldKey`, and assigned `fileId`; returned R2 signed URL is short-lived, never stored as durable identity. Old replaced Files may be deleted through existing authorized File deletion lifecycle after detachment. No direct R2 credentials in client interfaces.
+Use existing `POST /file-uploads` scoped to `spaceId`, `modelKey`, and reserved `fieldKey: "__record_icon"` **without a recordId** for pre-creation image upload. This creates a bounded unattached File; complete the signed R2 upload, then set its stable `fil_*` in the same ordinary Record CREATE request. For existing records it is also legal to upload with their `recordId`, then set the File reference in the same ordinary PATCH as business updates. File image binding verifies Space, Model, owner/application and readiness, and the D1 link participates in the Record mutation transaction. If Record creation is cancelled after upload, the pending unlinked File must remain deletable via File lifecycle; orphan cleanup is a separate operational concern, not a hidden second Record write. File metadata and link authority are in D1; actual bytes in private R2. Download via `POST /file-downloads` scoped to the same `modelKey`, `recordId`, reserved `fieldKey`, and assigned `fileId`; returned R2 signed URL is short-lived, never stored as durable identity. Old replaced Files may be deleted through existing authorized File deletion lifecycle after detachment. No direct R2 credentials in client interfaces.
 
 ## DayRecord breaking cutover / 一次性迁移
 
