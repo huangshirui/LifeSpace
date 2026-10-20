@@ -265,8 +265,8 @@ export function validateCapabilities(
       }
     }
   }
-  if (capabilities.checkIn && capabilities.temporal) {
-    issue(issues, "capabilities.checkIn", "CAPABILITY_CONFLICT", "Check-in and Temporal cannot coexist on one model");
+  if (capabilities.checkIn && (capabilities.temporal || capabilities.calendar)) {
+    issue(issues, "capabilities.checkIn", "CAPABILITY_CONFLICT", "Check-in cannot share a model with Temporal or Calendar");
   }
   return { ...(Object.keys(capabilities).length ? { capabilities } : {}), issues };
 }
