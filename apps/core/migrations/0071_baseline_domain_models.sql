@@ -66,9 +66,13 @@ CREATE TABLE IF NOT EXISTS "mdl_habit" (
 CREATE INDEX IF NOT EXISTS "idx_mdl_habit_intervalDays" ON "mdl_habit"(space_id,"intervalDays",record_id);
 CREATE INDEX IF NOT EXISTS "idx_mdl_habit_name" ON "mdl_habit"(space_id,"name",record_id);
 
--- The known pre-review Activity snapshot differs only in documentation.
+-- Known pre-review Activity snapshots (English / Chinese field descriptions)
+-- differ only in documentation and are safely compatible with the baseline.
 UPDATE model_definitions SET state='superseded',superseded_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
-WHERE model_key='activity' AND state='published' AND schema_hash='d15cfe27ab1d903197e54a494e99d79be01fec052b04807c9708b788f10127b0';
+WHERE model_key='activity' AND state='published' AND schema_hash IN (
+  'd15cfe27ab1d903197e54a494e99d79be01fec052b04807c9708b788f10127b0',
+  'c504967da1984b528ef99d263297e9620365c9acc5fefe7aa6658b1019b42b04'
+);
 
 INSERT INTO model_definitions(
   id,model_key,route_segment,version,state,definition_version,definition_json,schema_hash,compatibility,
