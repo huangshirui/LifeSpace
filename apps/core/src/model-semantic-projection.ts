@@ -118,6 +118,7 @@ export type ModelSemanticCapabilityBindings = {
   recurrence?: RecurrenceCapabilityDefinition;
   calendar?: CalendarCapabilityDefinition;
   temporal?: TemporalCapabilityDefinition;
+  checkIn?: import("./capability-definition").CheckInCapabilityDefinition;
 };
 
 export type ModelSemanticProjection = {
@@ -306,6 +307,16 @@ export function modelActionSemanticFacts(model: PublishedModel): ModelSemanticAc
       invocation: { method: "POST", pathTemplate: actionPath(model, "record-occurrence") },
     });
   }
+  if (model.definition.capabilities?.checkIn) {
+    workflow.push({
+      key: "check-in",
+      access: "write",
+      kind: "capability",
+      input: { fields: [] },
+      concurrency: modelActionConcurrency(),
+      invocation: { method: "POST", pathTemplate: actionPath(model, "check-in") },
+    });
+  }
   return workflow.sort((left, right) => left.key.localeCompare(right.key));
 }
 
@@ -315,11 +326,13 @@ export function modelCapabilitySemanticFacts(model: PublishedModel): {
 } {
   const calendar = model.definition.capabilities?.calendar;
   const temporal = model.definition.capabilities?.temporal;
+  const checkIn = model.definition.capabilities?.checkIn;
   return {
     capabilities: Object.keys(model.definition.capabilities ?? {}).sort(),
     capabilityBindings: {
       ...(calendar ? { calendar: structuredClone(calendar) } : {}),
       ...(temporal ? { temporal: structuredClone(temporal) } : {}),
+      ...(checkIn ? { checkIn: structuredClone(checkIn) } : {}),
       ...(model.definition.capabilities?.recurrence ? { recurrence: structuredClone(model.definition.capabilities.recurrence) } : {}),
     },
   };
