@@ -885,6 +885,21 @@ export function validateModelDefinition(input: unknown): ModelValidationResult {
     );
   }
 
+  if (capabilityResult.capabilities?.checkIn) {
+    if (workflow.actions?.["check-in"]) {
+      issue(issues, "actions.check-in", "CAPABILITY_ACTION_COLLISION", "check-in is owned by the Check-in capability");
+    }
+    const managed = new Set([
+      capabilityResult.capabilities.checkIn.lastCheckInDateField,
+      capabilityResult.capabilities.checkIn.streakStartDateField,
+    ]);
+    for (const [actionKey, action] of Object.entries(workflow.actions ?? {})) {
+      if ([...Object.keys(action.set), ...(action.branches ?? []).flatMap((branch) => Object.keys(branch.set))]
+        .some((field) => managed.has(field))) {
+        issue(issues, "actions." + actionKey, "CAPABILITY_FIELD_OWNED", "Only Core check-in may change check-in state");
+      }
+    }
+  }
   if (issues.length) return { valid: false, issues };
 
   const definition: ModelDefinition = {
