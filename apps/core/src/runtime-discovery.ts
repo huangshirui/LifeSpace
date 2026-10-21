@@ -5,7 +5,7 @@ import { visibleExternalModels } from "./external-runtime";
 import type { Context, Hono } from "hono";
 import type { Permission, SpaceRole } from "./authorization";
 import { capabilityActionAccess } from "./capability-runtime";
-import type { CalendarCapabilityDefinition } from "./capability-definition";
+import type { CalendarCapabilityDefinition, CheckInCapabilityDefinition } from "./capability-definition";
 import type { Bindings, Principal, Variables } from "./env";
 import { ApiError, success } from "./http";
 import type { ModelAccess } from "./model-definition";
@@ -65,6 +65,7 @@ type DiscoveryCalendarCapabilityBinding = CalendarCapabilityDefinition;
 type DiscoveryCapabilityBindings = {
   recurrence?: RecurrenceCapabilityDefinition;
   calendar?: DiscoveryCalendarCapabilityBinding;
+  checkIn?: CheckInCapabilityDefinition;
 };
 
 type VisibleModel = { model: PublishedModel; access: ModelAccess[] };
@@ -164,13 +165,22 @@ function actions(model: PublishedModel, allowed: ModelAccess[]): DiscoveryAction
     });
   }
 
+  if (capabilityActionAccess(model, "check-in") === "write" && allowedSet.has("write")) {
+    result.push({ key: "check-in", access: "write", kind: "capability",
+      input: { fields: [] }, concurrency: actionConcurrency() });
+  }
   return result.sort((left, right) => left.key.localeCompare(right.key));
 }
 
 function capabilityBindings(model: PublishedModel): DiscoveryCapabilityBindings {
   const calendar = model.definition.capabilities?.calendar;
   const recurrence = model.definition.capabilities?.recurrence;
-  return { ...(calendar ? { calendar: structuredClone(calendar) } : {}), ...(recurrence ? { recurrence: structuredClone(recurrence) } : {}) };
+  const checkIn = model.definition.capabilities?.checkIn;
+  return {
+    ...(calendar ? { calendar: structuredClone(calendar) } : {}),
+    ...(recurrence ? { recurrence: structuredClone(recurrence) } : {}),
+    ...(checkIn ? { checkIn: structuredClone(checkIn) } : {}),
+  };
 }
 
 function dto(model: PublishedModel, allowed: ModelAccess[]) {
