@@ -13,6 +13,11 @@ const REQUIRED_PLATFORM_TABLES = [
   "mdl_day_record",
   "mdl_event",
   "mdl_person_group",
+  "mdl_anniversary",
+  "mdl_activity",
+  "mdl_goal",
+  "mdl_person_profile",
+  "mdl_habit",
   "temporal_occurrences",
   "model_definitions",
   "application_model_access",
@@ -30,6 +35,11 @@ const REQUIRED_TYPED_COLUMNS = new Map([
   ["mdl_day_record", ["record_id", "space_id", "anchorDate", "attentionAfterDays", "attentionBeforeDays", "cycleDays", "description", "kind", "name", "status"]],
   ["mdl_event", ["record_id", "space_id", "summary", "description", "location", "__tr_when_kind", "__tr_when_start", "__tr_when_end", "status"]],
   ["mdl_person_group", ["record_id", "space_id", "name", "description"]],
+  ["mdl_anniversary", ["record_id", "space_id", "name", "description", "month", "day", "year"]],
+  ["mdl_activity", ["record_id", "space_id", "name", "description", "startDate", "endDate"]],
+  ["mdl_goal", ["record_id", "space_id", "name", "description", "startDate", "targetDate"]],
+  ["mdl_person_profile", ["record_id", "space_id", "key", "value"]],
+  ["mdl_habit", ["record_id", "space_id", "name", "description", "intervalDays", "lastCheckInDate", "streakStartDate"]],
 ]);
 
 const FORBIDDEN_TYPED_COLUMNS = new Map([
