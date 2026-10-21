@@ -857,7 +857,7 @@ Model fields
 
 Capability names are closed in v1. An arbitrary model cannot invent a new capability name. Adding a new reusable Capability requires platform code covering validation, runtime semantics and deterministic contract generation.
 
-Current registered Capabilities are `temporal` and `calendar`.
+Current registered Capabilities include `temporal`, `calendar`, `recurrence`, and `checkIn`. The Check-in contract is detailed in [Check-in Capability](check-in-capability.md).
 
 ### 14.1 Temporal Capability
 
@@ -892,7 +892,29 @@ A model may not also declare a Workflow Action named `record-occurrence` when Te
 
 Conformance-ID: MDV1-CAPABILITY-TEMPORAL-01
 
-### 14.2 Calendar Capability
+### 14.2 Check-in Capability / 打卡能力
+
+A model may bind three existing fields:
+
+```json
+"capabilities": {
+  "checkIn": {
+    "intervalDaysField": "intervalDays",
+    "lastCheckInDateField": "lastCheckInDate",
+    "streakStartDateField": "streakStartDate"
+  }
+}
+```
+
+- Interval: required, immutable, writable `integer`, with `minimum >= 1`.
+- Both date fields: nullable, read-only `date`, Core-owned; client create/update and Workflow Actions cannot edit them.
+- This closed Capability contributes the `check-in` Action (input: record concurrency `version`), `computed.checkIn` with `today`, `streakDays`, `checkedInToday`, and paged `/check-ins` history.
+- No initial check-in at creation; check-ins use the Space timezone and one-day idempotence; the maximum allowed gap is `intervalDays`.
+- Check-in is intentionally separate from Temporal occurrence/cycle and may not coexist with Temporal in the same model definition.
+
+Full semantics, examples, performance and authority requirements: [Check-in Capability](check-in-capability.md).
+
+### 14.3 Calendar Capability
 
 Current/canonical configuration:
 
