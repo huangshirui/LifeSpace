@@ -1,6 +1,11 @@
 import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
 import {
+  ANNIVERSARY_MODEL_DEFINITION,
+  ACTIVITY_MODEL_DEFINITION,
+  GOAL_MODEL_DEFINITION,
+  PERSON_PROFILE_MODEL_DEFINITION,
+  HABIT_MODEL_DEFINITION,
   DAY_RECORD_MODEL_DEFINITION,
   EVENT_MODEL_DEFINITION,
   PERSON_GROUP_MODEL_DEFINITION,
@@ -33,6 +38,11 @@ const BASELINE_MODELS = [
   DAY_RECORD_MODEL_DEFINITION,
   EVENT_MODEL_DEFINITION,
   PERSON_GROUP_MODEL_DEFINITION,
+  ANNIVERSARY_MODEL_DEFINITION,
+  ACTIVITY_MODEL_DEFINITION,
+  GOAL_MODEL_DEFINITION,
+  PERSON_PROFILE_MODEL_DEFINITION,
+  HABIT_MODEL_DEFINITION,
 ] as const;
 
 const RELEASE_HISTORY = Object.freeze({
@@ -41,6 +51,11 @@ const RELEASE_HISTORY = Object.freeze({
   day_record: Object.freeze({ previousVersion: 3, previousHash: "7793d9959277e45d9af52c6c71820040034f9c84ee487d8f0e6b00320e5c10aa", previousRoute: "day-records", currentVersion: 6, currentCompatibility: "breaking" }),
   event: Object.freeze({ previousVersion: 4, previousHash: "66832c4dae9fd9f99b1f4f49cfdb53e7c91a55512c0b3cf8b8cddaee2111f6c4", previousRoute: "events", currentVersion: 6, currentCompatibility: "breaking" }),
   person_group: Object.freeze({ currentVersion: 1, currentCompatibility: "initial" }),
+  anniversary: Object.freeze({ currentVersion: 1, currentCompatibility: "initial" }),
+  activity: Object.freeze({ currentVersion: 1, currentCompatibility: "initial" }),
+  goal: Object.freeze({ currentVersion: 1, currentCompatibility: "initial" }),
+  person_profile: Object.freeze({ currentVersion: 1, currentCompatibility: "initial" }),
+  habit: Object.freeze({ currentVersion: 1, currentCompatibility: "initial" }),
 });
 
 const HISTORICAL_BASELINE_MODELS = [
