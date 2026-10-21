@@ -313,5 +313,382 @@
     "query": { "searchable": ["name", "description"], "filterable": ["memberPersonIds"], "sortable": ["name"] },
     "access": ["read", "write"],
     "lifecycle": { "optimisticConcurrency": true, "softDelete": true }
+  },
+  "anniversary": {
+    "definitionVersion": 1,
+    "key": "anniversary",
+    "description": "A date that commemorates a meaningful occasion each year, with or without a known original year. Use for birthdays, wedding anniversaries, and personal milestones. Do not use for a planned celebration or appointment; use Event instead. Examples: 爸妈结婚纪念日（10月8日）；小朋友生日（3月12日）。",
+    "display": {
+      "singular": "Anniversary",
+      "plural": "Anniversaries"
+    },
+    "fields": {
+      "name": {
+        "type": "string",
+        "title": "Name",
+        "required": true,
+        "minLength": 1,
+        "maxLength": 150,
+        "description": "The occasion being remembered, such as a wedding anniversary, birthday, or first day of school."
+      },
+      "description": {
+        "type": "text",
+        "title": "Description",
+        "nullable": true,
+        "maxLength": 5000,
+        "description": "Optional background about the occasion and why it matters to the people involved."
+      },
+      "personIds": {
+        "type": "person_list",
+        "title": "People",
+        "description": "People connected to the occasion; may include several people, such as both partners in a wedding anniversary."
+      },
+      "month": {
+        "type": "integer",
+        "title": "Month",
+        "required": true,
+        "minimum": 1,
+        "maximum": 12,
+        "description": "Month in which the anniversary falls each year (1–12), whether or not its original year is known."
+      },
+      "day": {
+        "type": "integer",
+        "title": "Day",
+        "required": true,
+        "minimum": 1,
+        "maximum": 31,
+        "description": "Day of the anniversary within its month; use a real calendar day for the chosen month."
+      },
+      "year": {
+        "type": "integer",
+        "title": "Original Year",
+        "nullable": true,
+        "minimum": 1,
+        "maximum": 9999,
+        "description": "Original year of the occasion when known; omit it for anniversaries known only by month and day."
+      }
+    },
+    "referenceLabel": {
+      "field": "name"
+    },
+    "query": {
+      "searchable": [
+        "name",
+        "description"
+      ],
+      "filterable": [
+        "personIds",
+        "month",
+        "day",
+        "year"
+      ],
+      "sortable": [
+        "month",
+        "day",
+        "name"
+      ]
+    },
+    "access": [
+      "read",
+      "write"
+    ],
+    "lifecycle": {
+      "optimisticConcurrency": true,
+      "softDelete": true
+    }
+  },
+  "activity": {
+    "definitionVersion": 1,
+    "key": "activity",
+    "description": "A purposeful activity or undertaking that may extend over several days and involve multiple people or plans. Use for trips, camps, competitions, and other shared endeavors. Do not use for a single appointment (Event) or a desired result (Goal). Examples: 国庆家庭旅行；秋季校园足球联赛。",
+    "display": {
+      "singular": "Activity",
+      "plural": "Activities"
+    },
+    "fields": {
+      "name": {
+        "type": "string",
+        "title": "Name",
+        "required": true,
+        "minLength": 1,
+        "maxLength": 150,
+        "description": "The name by which people recognize the activity, such as a trip, training camp, or football competition."
+      },
+      "description": {
+        "type": "text",
+        "title": "Description",
+        "nullable": true,
+        "maxLength": 5000,
+        "description": "Optional purpose, plans, or context that explains what this activity involves."
+      },
+      "attendeePersonIds": {
+        "type": "person_list",
+        "title": "Attendees",
+        "description": "People who take part in or are associated with the activity; an activity may have no named participants."
+      },
+      "startDate": {
+        "type": "date",
+        "title": "Start Date",
+        "nullable": true,
+        "description": "First calendar date of the activity, if a start date is known."
+      },
+      "endDate": {
+        "type": "date",
+        "title": "End Date",
+        "nullable": true,
+        "description": "Last calendar date of the activity, if an end date is known."
+      }
+    },
+    "referenceLabel": {
+      "field": "name"
+    },
+    "query": {
+      "searchable": [
+        "name",
+        "description"
+      ],
+      "filterable": [
+        "attendeePersonIds",
+        "startDate",
+        "endDate"
+      ],
+      "sortable": [
+        "startDate",
+        "endDate",
+        "name"
+      ]
+    },
+    "access": [
+      "read",
+      "write"
+    ],
+    "lifecycle": {
+      "optimisticConcurrency": true,
+      "softDelete": true
+    },
+    "semanticRelations": {
+      "outgoing": [
+        "relates_to"
+      ]
+    }
+  },
+  "goal": {
+    "definitionVersion": 1,
+    "key": "goal",
+    "description": "An outcome that one or more people intend to achieve, with optional starting and target dates. Use for learning, health, family, or personal aspirations. Do not use for a single action (Task) or something scheduled to occur (Event). Examples: 年内通过钢琴五级；每年读完二十本书。",
+    "display": {
+      "singular": "Goal",
+      "plural": "Goals"
+    },
+    "fields": {
+      "name": {
+        "type": "string",
+        "title": "Name",
+        "required": true,
+        "minLength": 1,
+        "maxLength": 150,
+        "description": "The outcome being sought, stated as something people want to accomplish."
+      },
+      "description": {
+        "type": "text",
+        "title": "Description",
+        "nullable": true,
+        "maxLength": 5000,
+        "description": "Optional motivation, success criteria, or context explaining what achieving the goal means."
+      },
+      "subjectPersonIds": {
+        "type": "person_list",
+        "title": "People",
+        "description": "People pursuing or sharing the goal; this may be an individual or several family members."
+      },
+      "startDate": {
+        "type": "date",
+        "title": "Start Date",
+        "nullable": true,
+        "description": "Calendar date when pursuit of the goal begins, if known."
+      },
+      "targetDate": {
+        "type": "date",
+        "title": "Target Date",
+        "nullable": true,
+        "description": "Desired date by which the goal should be achieved; it is not an appointment or scheduled event."
+      }
+    },
+    "referenceLabel": {
+      "field": "name"
+    },
+    "query": {
+      "searchable": [
+        "name",
+        "description"
+      ],
+      "filterable": [
+        "subjectPersonIds",
+        "startDate",
+        "targetDate"
+      ],
+      "sortable": [
+        "targetDate",
+        "name"
+      ]
+    },
+    "access": [
+      "read",
+      "write"
+    ],
+    "lifecycle": {
+      "optimisticConcurrency": true,
+      "softDelete": true
+    },
+    "semanticRelations": {
+      "outgoing": [
+        "relates_to"
+      ]
+    }
+  },
+  "person_profile": {
+    "definitionVersion": 1,
+    "key": "person_profile",
+    "description": "A personal attribute, preference, or background fact that helps describe a known person. Use for details such as education, interests, sizes, or preferences. Do not use for identity and access, dated experiences, or diary entries. Examples: 毕业学校=北京大学；喜欢的运动=足球。",
+    "display": {
+      "singular": "Person Profile",
+      "plural": "Person Profile Entries"
+    },
+    "fields": {
+      "personId": {
+        "type": "person",
+        "title": "Person",
+        "required": true,
+        "immutable": true,
+        "description": "The person whom this attribute or background fact describes."
+      },
+      "key": {
+        "type": "string",
+        "title": "Key",
+        "required": true,
+        "minLength": 1,
+        "maxLength": 120,
+        "description": "Name of the attribute or fact, such as 毕业学校, 服装尺码, or 喜欢的运动."
+      },
+      "value": {
+        "type": "text",
+        "title": "Value",
+        "required": true,
+        "maxLength": 5000,
+        "description": "The person's value or explanation for this attribute, such as 北京大学, M, or 足球.",
+        "minLength": 1
+      }
+    },
+    "referenceLabel": {
+      "field": "key"
+    },
+    "query": {
+      "searchable": [
+        "key",
+        "value"
+      ],
+      "filterable": [
+        "personId",
+        "key"
+      ],
+      "sortable": [
+        "key"
+      ]
+    },
+    "access": [
+      "read",
+      "write"
+    ],
+    "lifecycle": {
+      "optimisticConcurrency": true,
+      "softDelete": true
+    }
+  },
+  "habit": {
+    "definitionVersion": 1,
+    "key": "habit",
+    "description": "A repeated behavior someone intends to maintain through actual check-ins over time. Use for practices such as reading, exercise, or music practice when ongoing consistency matters. Do not use for a one-off Task, a scheduled Event, an elapsed-day counter (DayRecord), or a desired outcome (Goal). Examples: 每天读书30分钟；至少每两天运动一次。",
+    "display": {
+      "singular": "Habit",
+      "plural": "Habits"
+    },
+    "fields": {
+      "name": {
+        "type": "string",
+        "title": "Name",
+        "required": true,
+        "minLength": 1,
+        "maxLength": 150,
+        "description": "The behavior or practice a person intends to maintain over time, such as reading for 30 minutes or practicing piano."
+      },
+      "description": {
+        "type": "text",
+        "title": "Description",
+        "nullable": true,
+        "maxLength": 3000,
+        "description": "Optional context, instructions, or motivation that explains what practicing the habit involves."
+      },
+      "intervalDays": {
+        "type": "integer",
+        "title": "Check-in Interval (days)",
+        "required": true,
+        "immutable": true,
+        "minimum": 1,
+        "maximum": 365,
+        "description": "The maximum allowed calendar-day gap between two check-ins without interrupting the streak. Use 1 for daily check-ins, or 2 when up to two calendar days may pass between them. This choice is fixed after creation."
+      },
+      "lastCheckInDate": {
+        "type": "date",
+        "title": "Last Check-in Date",
+        "readOnly": true,
+        "nullable": true,
+        "description": "The latest calendar date on which this habit was checked in. Empty before the first check-in; dates follow the Space's local calendar."
+      },
+      "streakStartDate": {
+        "type": "date",
+        "title": "Streak Start Date",
+        "readOnly": true,
+        "nullable": true,
+        "description": "The first check-in date of the most recently recorded uninterrupted sequence. When the allowed gap is exceeded, the next check-in begins a new sequence."
+      }
+    },
+    "defaults": {
+      "intervalDays": 1
+    },
+    "referenceLabel": {
+      "field": "name"
+    },
+    "query": {
+      "searchable": [
+        "name",
+        "description"
+      ],
+      "filterable": [
+        "intervalDays"
+      ],
+      "sortable": [
+        "name"
+      ]
+    },
+    "access": [
+      "read",
+      "write"
+    ],
+    "lifecycle": {
+      "optimisticConcurrency": true,
+      "softDelete": true
+    },
+    "capabilities": {
+      "checkIn": {
+        "intervalDaysField": "intervalDays",
+        "lastCheckInDateField": "lastCheckInDate",
+        "streakStartDateField": "streakStartDate"
+      }
+    },
+    "semanticRelations": {
+      "outgoing": [
+        "relates_to"
+      ]
+    }
   }
 }
