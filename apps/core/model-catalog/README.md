@@ -7,6 +7,11 @@
 - Day Record（日子记录）
 - Event（日程事件）
 - Person Group（人员圈子）
+- Anniversary（纪念日）
+- Activity（活动／赛事容器）
+- Goal（目标）
+- Person Profile（人物档案事实）
+- Habit（习惯打卡）
 
 ## What is canonical
 

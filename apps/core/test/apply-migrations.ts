@@ -37,7 +37,7 @@ await applyD1Migrations(
 // Generic Runtime tests use an anonymous Application fixture rather than
 // borrowing any concrete downstream application's production catalog seed.
 await testDb.batch(
-  ["task", "wish", "day_record", "event", "person_group"].map((modelKey) =>
+  ["task", "wish", "day_record", "event", "person_group", "anniversary", "activity", "goal", "person_profile", "habit"].map((modelKey) =>
     testDb.prepare(`INSERT OR REPLACE INTO application_model_access(
       application_id,model_key,max_access,created_by_type,created_by_id,created_at,updated_at
     ) VALUES(?,?,?,?,?,strftime('%Y-%m-%dT%H:%M:%fZ','now'),strftime('%Y-%m-%dT%H:%M:%fZ','now'))`)
