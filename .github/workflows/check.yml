@@ -9,9 +9,16 @@ permissions:
   contents: read
   pull-requests: read
 
+# A newer commit supersedes an older check of the same PR. Main branch runs
+# are never cancelled; they preserve the existing direct-push safety gate.
+concurrency:
+  group: lifespace-check-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   check:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Decide validation depth
         id: validation
@@ -60,6 +67,8 @@ jobs:
         if: steps.validation.outputs.run_full == 'true'
         with:
           node-version: 24
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
         if: steps.validation.outputs.run_full == 'true'
       - run: pnpm check
