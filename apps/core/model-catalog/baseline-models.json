@@ -250,7 +250,6 @@
       "kind": { "type": "enum", "title": "Kind", "description": "Tracker mode: elapsed since anchorDate, countdown until anchorDate, or recurring cycle.", "required": true, "immutable": true, "values": ["elapsed", "countdown", "cycle"] },
       "anchorDate": { "type": "date", "title": "Anchor Date", "description": "The calendar date that anchors the elapsed, countdown, or cycle calculation.", "required": true },
       "subjectPersonId": { "type": "person", "title": "Subject", "description": "Optional person the tracked date or cycle belongs to.", "nullable": true },
-      "icon": { "type": "string", "title": "Icon", "description": "Optional presentation icon associated with the tracked day record.", "nullable": true, "maxLength": 50 },
       "attentionAfterDays": { "type": "integer", "title": "Attention After Days", "description": "Number of days after the anchor date when the record should enter an attention window.", "nullable": true, "minimum": 1 },
       "attentionBeforeDays": { "type": "integer", "title": "Attention Before Days", "description": "Number of days before the anchor date when the record should enter an attention window.", "nullable": true, "minimum": 0 },
       "cycleDays": { "type": "integer", "title": "Cycle Days", "description": "Length in days for a recurring cycle.", "nullable": true, "minimum": 1 },

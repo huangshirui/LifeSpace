@@ -92,6 +92,7 @@ async function dto(
     modelKey: resource.modelKey,
     modelVersion: resource.modelVersion,
     ...resource.data,
+    ...(resource.presentation?.icon ? { presentation: resource.presentation } : {}),
     ...(decoration ?? await decorateCapabilityResponse(env, spaceId, model, resource)),
     createdBy: resolvedAudit.createdBy,
     updatedBy: resolvedAudit.updatedBy,

@@ -150,6 +150,7 @@ export const RESERVED_FIELDS = new Set([
   "deletedAt",
   "createdBy",
   "updatedBy",
+  "presentation",
 ]);
 const FIELD_TYPE_SET = new Set<string>(FIELD_TYPES);
 const ACCESS_SET = new Set<string>(["read", "write", "manage"]);

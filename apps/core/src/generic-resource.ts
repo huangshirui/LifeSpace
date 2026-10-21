@@ -2,6 +2,7 @@ import { isRecurrenceExecutor, recurrenceMutationStatements } from "./recurrence
 import { parseEntityRef } from "./entity-ref";
 import { parseRecurrenceRule } from "./recurrence-rule";
 import { parseFileRefList } from "./file-ref";
+import { optionalRecordIcon, stripPresentation, validateIconFile, RECORD_ICON_FIELD, type RecordIcon } from "./record-icon";
 import { validateRecurrenceData } from "./recurrence-definition";
 import type { Bindings, Principal } from "./env";
 import { chunkD1Values } from "./d1-batch";
@@ -39,6 +40,7 @@ export type GenericResource = {
   modelKey: string;
   modelVersion: number;
   data: JsonObject;
+  presentation?: { icon: RecordIcon | null };
   audit?: ResourceAudit;
   version: number;
   createdAt: string;
@@ -81,12 +83,14 @@ export type FileProjection = {
 };
 
 export type PreparedCreateMutation = {
+  icon?: RecordIcon | null;
   data: JsonObject;
   relations: RelationProjection[];
   files: FileProjection[];
 };
 
 export type PreparedUpdateMutation = {
+  icon?: RecordIcon | null;
   data: JsonObject;
   relations: RelationProjection[];
   files: FileProjection[];
@@ -148,7 +152,7 @@ export function exactFieldChanges(before: JsonObject, after: JsonObject): Resour
   });
 }
 
-function changeStatement(
+export function changeStatement(
   env: Bindings,
   principal: Principal,
   id: string,
@@ -228,7 +232,7 @@ function normalizedDelegationChain(attribution: MutationAttribution): readonly s
   return chain;
 }
 
-function appendDelegationChainEvidence(
+export function appendDelegationChainEvidence(
   statements: D1PreparedStatement[],
   env: Bindings,
   changeId: string,
@@ -599,10 +603,11 @@ export function prepareCreateGenericMutation(
 ): PreparedCreateMutation {
   const data = validateResourceData(
     model.definition,
-    input,
+    stripPresentation(input),
     trustedCapabilityInput ? "create_internal" : "create",
   );
   return {
+    icon: optionalRecordIcon(input),
     data,
     relations: collectRelationProjections(model.definition, data),
     files: collectFileProjections(model.definition, data),
@@ -617,16 +622,29 @@ export function prepareUpdateGenericMutation(
 ): PreparedUpdateMutation {
   const data = validateResourceData(
     model.definition,
-    input,
+    stripPresentation(input),
     mutationMode === "action" ? "action" : "update",
     previous.data,
   );
+  const icon = optionalRecordIcon(input);
+  const touched = icon !== undefined;
   return {
+    icon,
     data,
     relations: collectRelationProjections(model.definition, data),
     files: collectFileProjections(model.definition, data),
-    changedFields: isObject(input) ? Object.keys(input) : [],
-    fieldChanges: exactFieldChanges(previous.data, data),
+    changedFields: [
+      ...(isObject(input) ? Object.keys(stripPresentation(input) as JsonObject) : []),
+      ...(touched ? ["presentation.icon"] : []),
+    ],
+    fieldChanges: [
+      ...exactFieldChanges(previous.data, data),
+      ...(touched ? [{
+        field: "presentation.icon",
+        before: previous.presentation?.icon ? { present: true as const, value: previous.presentation.icon } : { present: false as const },
+        after: icon ? { present: true as const, value: icon } : { present: false as const },
+      }] : []),
+    ],
   };
 }
 
@@ -716,6 +734,30 @@ async function resolveModel(env: Bindings, modelOrKey: PublishedModel | string):
   return getRuntimeModel(env, modelOrKey);
 }
 
+function recordIconLinkStatements(
+  env: Bindings, recordId: string, spaceId: string, modelKey: string,
+  icon: RecordIcon | null | undefined, mutationToken?: string,
+): D1PreparedStatement[] {
+  if (icon === undefined) return [];
+  const statements: D1PreparedStatement[] = [];
+  if (mutationToken) statements.push(
+    env.DB.prepare(`DELETE FROM resource_file_links WHERE source_record_id=? AND field_key=?
+      AND EXISTS(SELECT 1 FROM resource_records WHERE id=? AND mutation_token=?)`)
+      .bind(recordId, RECORD_ICON_FIELD, recordId, mutationToken),
+  );
+  if (icon?.type === "image") statements.push(
+    env.DB.prepare(`INSERT INTO resource_file_links(
+      source_record_id,source_space_id,source_model_key,field_key,ordinal,file_id)
+      SELECT ?,?,?,?,?,? WHERE EXISTS(
+        SELECT 1 FROM resource_records WHERE id=? ${mutationToken ? "AND mutation_token=?" : ""}
+      )`).bind(
+      recordId, spaceId, modelKey, RECORD_ICON_FIELD, 0, icon.fileId,
+      recordId, ...(mutationToken ? [mutationToken] : []),
+    ),
+  );
+  return statements;
+}
+
 export async function planCreateGenericMutation(
   env: Bindings,
   principal: Principal,
@@ -728,6 +770,7 @@ export async function planCreateGenericMutation(
   reservedRecordId?: string,
 ): Promise<ResourceMutationPlan> {
   const id = reservedRecordId ?? createId();
+  await validateIconFile(env, principal, spaceId, model.key, null, prepared.icon);
   const mutationToken = changeId();
   const storageType = resourceAuditStorageType(principal.type);
   const statements: D1PreparedStatement[] = [
@@ -735,8 +778,8 @@ export async function planCreateGenericMutation(
       id,space_id,model_key,model_version,
       created_by_type,created_by_entity_type,created_by_id,created_by_name_snapshot,
       updated_by_type,updated_by_entity_type,updated_by_id,updated_by_name_snapshot,
-      version,mutation_token,created_at,updated_at
-    ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,1,?,?,?)`).bind(
+      version,mutation_token,created_at,updated_at,icon_json
+    ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,1,?,?,?,?)`).bind(
       id,
       spaceId,
       model.key,
@@ -752,10 +795,12 @@ export async function planCreateGenericMutation(
       mutationToken,
       timestamp,
       timestamp,
+      prepared.icon ? JSON.stringify(prepared.icon) : null,
     ),
     typedInsertStatement(env, model, id, spaceId, prepared.data),
     ...relationStatements(env, id, spaceId, model, prepared.relations),
     ...fileStatements(env, id, spaceId, model, prepared.files),
+    ...recordIconLinkStatements(env, id, spaceId, model.key, prepared.icon),
   ];
   if (extension) {
     statements.push(...await extension({
@@ -780,8 +825,9 @@ export async function planCreateGenericMutation(
     null,
     null,
     1,
-    Object.keys(prepared.data),
-    exactFieldChanges({}, prepared.data),
+    [...Object.keys(prepared.data), ...(prepared.icon !== undefined ? ["presentation.icon"] : [])],
+    [...exactFieldChanges({}, prepared.data),
+      ...(prepared.icon ? [{ field: "presentation.icon", before: { present: false as const }, after: { present: true as const, value: prepared.icon } }] : [])],
     timestamp,
     attribution,
     mutationToken,
@@ -803,6 +849,7 @@ export async function planCreateGenericMutation(
       modelKey: model.key,
       modelVersion: model.version,
       data: prepared.data,
+      ...(prepared.icon ? { presentation: { icon: prepared.icon } } : {}),
       audit: { createdBy: auditActor, updatedBy: auditActor },
       version: 1,
       createdAt: timestamp,
@@ -832,13 +879,14 @@ export async function planUpdateGenericMutation(
     throw new ApiError("VERSION_CONFLICT", "Resource version is stale", 409);
   }
 
+  await validateIconFile(env, principal, spaceId, model.key, previous.id, prepared.icon);
   const mutationToken = changeId();
   const nextVersion = previous.version + 1;
   const storageType = resourceAuditStorageType(principal.type);
   const statements: D1PreparedStatement[] = [
     env.DB.prepare(`UPDATE resource_records SET
       model_version=?,updated_by_type=?,updated_by_entity_type=?,updated_by_id=?,updated_by_name_snapshot=?,
-      version=?,updated_at=?,mutation_token=?
+      version=?,updated_at=?,mutation_token=?,icon_json=CASE WHEN ?=1 THEN ? ELSE icon_json END
       WHERE id=? AND space_id=? AND model_key=? AND deleted_at IS NULL AND version=?`)
       .bind(
         model.version,
@@ -849,6 +897,8 @@ export async function planUpdateGenericMutation(
         nextVersion,
         timestamp,
         mutationToken,
+        prepared.icon !== undefined ? 1 : 0,
+        prepared.icon ? JSON.stringify(prepared.icon) : null,
         previous.id,
         spaceId,
         model.key,
@@ -857,6 +907,7 @@ export async function planUpdateGenericMutation(
     typedUpdateStatement(env, model, previous.id, spaceId, prepared.data, mutationToken),
     ...relationStatements(env, previous.id, spaceId, model, prepared.relations, mutationToken),
     ...fileStatements(env, previous.id, spaceId, model, prepared.files, mutationToken),
+    ...recordIconLinkStatements(env, previous.id, spaceId, model.key, prepared.icon, mutationToken),
   ];
   if (extension) {
     statements.push(...await extension({
@@ -904,6 +955,9 @@ export async function planUpdateGenericMutation(
       modelKey: model.key,
       modelVersion: model.version,
       data: prepared.data,
+      ...(prepared.icon === undefined
+        ? (previous.presentation ? { presentation: previous.presentation } : {})
+        : (prepared.icon ? { presentation: { icon: prepared.icon } } : {})),
       ...(previous.audit
         ? { audit: { createdBy: previous.audit.createdBy, updatedBy } }
         : {}),

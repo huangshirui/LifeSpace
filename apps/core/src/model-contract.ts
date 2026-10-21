@@ -255,6 +255,7 @@ function createSchema(model: PublishedModel): JsonSchema {
     additionalProperties: false,
     properties: {
       ...Object.fromEntries(fields.map(([key, field]) => [key, schemaWithDefault(definition, key, field)])),
+      presentation: recordPresentationSchema(),
     },
     required: fields
       .filter(([key, field]) => field.required && !hasDefault(definition, key))
@@ -293,12 +294,11 @@ function updateSchema(model: PublishedModel): JsonSchema {
     minProperties: 2,
     properties: {
       version: concurrencyVersionSchema(),
+      presentation: recordPresentationSchema(),
       ...Object.fromEntries(fields.map(([key, field]) => [key, fieldSchema(field)])),
     },
     required: ["version"],
-    ...(fields.length
-      ? { anyOf: fields.map(([key]) => ({ required: [key] })) }
-      : { not: {} }),
+    anyOf: [...fields.map(([key]) => ({ required: [key] })), { required: ["presentation"] }],
     ...(calendar && !("rangeField" in calendar)
       ? { "x-lifespace-calendar-update": "A mode switch must provide a complete valid timed or all-day Calendar shape." }
       : {}),
@@ -609,6 +609,31 @@ function resourceAuditActorSchema(): JsonSchema {
   };
 }
 
+function recordIconSchema(): JsonSchema {
+  return {
+    oneOf: [
+      { type: "null" },
+      {
+        type: "object", additionalProperties: false,
+        properties: { type: { const: "emoji" }, value: { type: "string", minLength: 1, maxLength: 40 } },
+        required: ["type", "value"],
+      },
+      {
+        type: "object", additionalProperties: false,
+        properties: { type: { const: "image" }, fileId: { type: "string", pattern: "^fil_[0-9a-f]{32}$" } },
+        required: ["type", "fileId"],
+      },
+    ],
+  };
+}
+
+function recordPresentationSchema(): JsonSchema {
+  return {
+    type: "object", additionalProperties: false,
+    properties: { icon: recordIconSchema() }, required: ["icon"],
+  };
+}
+
 function resourceSchema(model: PublishedModel): JsonSchema {
   const definition = model.definition;
   const properties: Record<string, unknown> = {
@@ -616,6 +641,7 @@ function resourceSchema(model: PublishedModel): JsonSchema {
     spaceId: { type: "string", pattern: "^spc_" },
     modelKey: { type: "string", const: definition.key },
     modelVersion: { type: "integer", minimum: 1 },
+    presentation: recordPresentationSchema(),
     ...Object.fromEntries(Object.entries(definition.fields).map(([key, field]) => [key, fieldSchema(field)])),
     createdBy: resourceAuditActorSchema(),
     updatedBy: resourceAuditActorSchema(),

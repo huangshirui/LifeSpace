@@ -49,7 +49,7 @@ function latestMigrationVersion(service) {
 export const PROVING_MODELS = Object.freeze([
   Object.freeze({ key: "task", minimumVersion: 9, hash: "8628fc7c392776e943f9279d1841be17983d092f7e3045dce6a976dde9ad39de" }),
   Object.freeze({ key: "wish", minimumVersion: 8, hash: "772e17c1d07ba620c879b90b60b1c74dd1629edeffc5e5f622b57eb43c74e934" }),
-  Object.freeze({ key: "day_record", minimumVersion: 5, hash: "9dae14eeaef9311412dc910a8976cf85e7d8641792192376ed6678739fe029d1" }),
+  Object.freeze({ key: "day_record", minimumVersion: 6, hash: "3a1d8cfdeaeb17b336359c4b2d7e7c9b5c6dda0e547cbb7622f60b4390f39dc7" }),
   Object.freeze({ key: "event", minimumVersion: 6, hash: "be9bdea442a30108a22a2da77a96ab23aba5122ec3c2b1de20a6312cebb0cc8a" }),
   Object.freeze({ key: "person_group", minimumVersion: 1, hash: "3a8398b99763b56d047ccb1fa75bf98873206a15ebed257d26d81d80f0796b51" }),
 ]);
