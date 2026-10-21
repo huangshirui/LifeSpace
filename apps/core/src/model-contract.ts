@@ -661,6 +661,22 @@ function resourceSchema(model: PublishedModel): JsonSchema {
     "createdAt",
     "updatedAt",
   ];
+  if (definition.capabilities?.checkIn) {
+    properties.computed = {
+      type: "object", additionalProperties: false, readOnly: true,
+      properties: { checkIn: {
+        type: "object", additionalProperties: false,
+        properties: {
+          today: { type: "string", format: "date" },
+          streakDays: { type: "integer", minimum: 0 },
+          checkedInToday: { type: "boolean" },
+        },
+        required: ["today", "streakDays", "checkedInToday"],
+      } },
+      required: ["checkIn"],
+    };
+    required.push("computed");
+  }
   if (definition.capabilities?.temporal) {
     properties.computed = {
       type: "object",
@@ -984,6 +1000,69 @@ function addTemporalContract(
   };
 }
 
+function addCheckInContract(
+  model: PublishedModel, schemas: Record<string, JsonSchema>,
+  paths: Record<string, unknown>, recordPath: string, resourceName: string,
+): void {
+  if (!model.definition.capabilities?.checkIn) return;
+  const entryName = schemaName(model, "CheckInEntry");
+  const historyName = schemaName(model, "CheckInHistoryResponse");
+  const requestName = schemaName(model, "CheckInRequest");
+  schemas[requestName] = versionRequestSchema();
+  schemas[entryName] = {
+    type: "object", additionalProperties: false,
+    required: ["id", "recordId", "checkedOn", "recordedBy", "createdAt"],
+    properties: {
+      id: { type: "string", pattern: "^cki_" },
+      recordId: { type: "string", pattern: "^rec_" },
+      checkedOn: { type: "string", format: "date" },
+      recordedBy: { type: "object", additionalProperties: false,
+        properties: { type: { type: "string" }, id: { type: "string" }, displayName: { type: "string" } },
+        required: ["type", "id", "displayName"] },
+      createdAt: { type: "string", format: "date-time" },
+    },
+  };
+  schemas[historyName] = {
+    type: "object", required: ["data"],
+    properties: { data: { type: "object", required: ["items", "nextCursor"],
+      properties: { items: { type: "array", items: { $ref: "#/components/schemas/" + entryName } },
+        nextCursor: { anyOf: [{ type: "string" }, { type: "null" }] } } } },
+  };
+  const parameters = [
+    { $ref: "#/components/parameters/SpaceId" },
+    { $ref: "#/components/parameters/RecordId" },
+    { $ref: "#/components/parameters/DelegationId" },
+  ];
+  paths[recordPath + "/check-ins"] = {
+    parameters,
+    get: {
+      operationId: "list_check_ins_" + model.key,
+      tags: [model.definition.display.plural],
+      parameters: [
+        { name: "limit", in: "query", schema: { type: "integer", minimum: 1, maximum: 200, default: 100 } },
+        { name: "cursor", in: "query", schema: { type: "string" } },
+      ],
+      responses: { "200": { description: "Check-in history", content: {
+        "application/json": { schema: { $ref: "#/components/schemas/" + historyName } },
+      } } },
+    },
+  };
+  paths[recordPath + "/actions/check-in"] = {
+    parameters,
+    post: {
+      operationId: "check_in_" + model.key,
+      tags: [model.definition.display.plural],
+      "x-lifespace-concurrency": actionConcurrencyMetadata(),
+      requestBody: { required: true, content: {
+        "application/json": { schema: { $ref: "#/components/schemas/" + requestName } },
+      } },
+      responses: { "200": { description: "Check-in recorded", content: {
+        "application/json": { schema: responseSchemaRef(resourceName) },
+      } } },
+    },
+  };
+}
+
 function modelOpenApi(model: PublishedModel, schemas: Record<string, JsonSchema>, paths: Record<string, unknown>): void {
   const createName = schemaName(model, "Create");
   const updateName = schemaName(model, "Update");
@@ -1138,6 +1217,7 @@ function modelOpenApi(model: PublishedModel, schemas: Record<string, JsonSchema>
   }
 
   addTemporalContract(model, schemas, paths, recordPath, resourceName);
+  addCheckInContract(model, schemas, paths, recordPath, resourceName);
 }
 
 function jsonSchemaBundle(models: PublishedModel[]): JsonSchema {
@@ -1158,7 +1238,10 @@ function jsonSchemaBundle(models: PublishedModel[]): JsonSchema {
     defs[`${prefix}VersionRequest`] = versionRequestSchema();
     defs[canonicalFilterName] = canonicalQuery.filter;
     defs[canonicalQueryName] = canonicalQuery.query;
-    const capabilityActions = model.definition.capabilities?.temporal?.occurrences ? ["record-occurrence"] : [];
+    const capabilityActions = [
+      ...(model.definition.capabilities?.temporal?.occurrences ? ["record-occurrence"] : []),
+      ...(model.definition.capabilities?.checkIn ? ["check-in"] : []),
+    ];
     metadata[model.key] = {
       version: model.version,
       schemaHash: model.schemaHash,
