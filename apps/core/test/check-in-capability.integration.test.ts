@@ -102,14 +102,14 @@ describe("Check-in Capability", () => {
     definition.capabilities!.checkIn = { ...definition.capabilities!.checkIn!, statusField: "status", allowedStatuses: ["active"] };
     const f = await fixture("Asia/Shanghai", 1, definition);
     const paused = await updateGenericResource(bindings(), actor, f.spaceId, f.model, f.resource.id, f.resource.version,
-      { status: "paused" }, "action");
+      { status: "paused" }, "action", undefined, undefined, "pause");
     await expect(recordCheckIn(bindings(), actor, f.spaceId, f.model, paused.id, paused.version))
       .rejects.toMatchObject({ code: "CHECK_IN_INACTIVE" });
     const resumed = await updateGenericResource(bindings(), actor, f.spaceId, f.model, paused.id, paused.version,
-      { status: "active" }, "action");
+      { status: "active" }, "action", undefined, undefined, "resume");
     const checked = await recordCheckIn(bindings(), actor, f.spaceId, f.model, resumed.id, resumed.version);
     const ended = await updateGenericResource(bindings(), actor, f.spaceId, f.model, checked.id, checked.version,
-      { status: "ended" }, "action");
+      { status: "ended" }, "action", undefined, undefined, "end");
     await expect(recordCheckIn(bindings(), actor, f.spaceId, f.model, ended.id, ended.version))
       .rejects.toMatchObject({ code: "CHECK_IN_INACTIVE" });
     expect((await listCheckIns(bindings(), f.spaceId, f.model, checked.id, 100)).items).toHaveLength(1);
