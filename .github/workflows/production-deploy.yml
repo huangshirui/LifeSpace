@@ -197,7 +197,7 @@ jobs:
           - Benchmark profile: \`apac\`, acceptance eligible.
           - User JWT ordinary-read target: P50 <= 150 ms and P90 <= 250 ms.
           - User JWT Day Record / Temporal read target: P50 <= 220 ms and P90 <= 300 ms.
-          - User JWT mutation/action target: P50 <= 160 ms and P90 <= 250 ms, measured with 15 samples per mutation scenario.
+          - User JWT mutation/action target: P50 <= 160 ms and P90 <= 250 ms, measured with 45 samples per mutation scenario (45 for reads too).
           - Canonical \`lsp_svc_*\` Service API Token Task GET/list target: P50 <= 180 ms and P90 <= 250 ms.
           - Canonical \`lsp_svc_*\` Service API Token Task create/PATCH/Action target: P50 <= 220 ms and P90 <= 300 ms, measured with 15 samples per mutation scenario.
           - D1 round-trip budgets: independently enforced by repository integration tests.
