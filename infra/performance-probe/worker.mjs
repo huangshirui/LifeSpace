@@ -55,7 +55,7 @@ export async function handleProbeRequest(request, env, fetchImpl = fetch) {
 
   const url = new URL(request.url);
   if (request.method === "GET" && url.pathname === "/health") {
-    return json({ ok: true, placementRegion: "aws:ap-southeast-1" });
+    return json({ ok: true, probeIngressColo: request.cf?.colo ?? null });
   }
   if (request.method !== "POST" || url.pathname !== "/run") {
     return json({ error: "not_found" }, 404);
@@ -100,7 +100,10 @@ export async function handleProbeRequest(request, env, fetchImpl = fetch) {
     }, 502);
   }
 
+  // Preserve the existing release-gate metric: upstream fetch until response headers.
+  // The response-body phase is diagnostic only and must not change P50/P90 gates.
   const elapsedMs = performance.now() - started;
+  const bodyStarted = performance.now();
   let text;
   try {
     text = await response.text();
@@ -115,6 +118,7 @@ export async function handleProbeRequest(request, env, fetchImpl = fetch) {
     }, 502);
   }
 
+  const coreResponseBodyMs = performance.now() - bodyStarted;
   let payload = null;
   if (text) {
     try {
@@ -124,7 +128,11 @@ export async function handleProbeRequest(request, env, fetchImpl = fetch) {
     }
   }
 
-  return json({ status: response.status, payload, elapsedMs, credentialMode });
+  return json({ status: response.status, payload, elapsedMs, credentialMode,
+    coreResponseBodyMs,
+    // Incoming colo is NOT proof of Workers runtime placement (including Smart Placement).
+    probeIngressColo: request.cf?.colo ?? null,
+  });
 }
 
 export default {
