@@ -906,6 +906,7 @@ A model may bind three existing fields:
 }
 ```
 
+- Optional lifecycle constraint: declare both `statusField` and `allowedStatuses`. The bound status field must be a required read-only `enum`; `allowedStatuses` must be a non-empty list of unique values from that enum. Core rejects Check-in for other states (`CHECK_IN_INACTIVE`), including repeated same-day requests. If neither property is declared, the original three-field Check-in behavior remains unchanged.
 - Interval: required, immutable, writable `integer`, with `minimum >= 1`.
 - Both date fields: nullable, read-only `date`, Core-owned; client create/update and Workflow Actions cannot edit them.
 - This closed Capability contributes the `check-in` Action (input: record concurrency `version`), `computed.checkIn` with `today`, `streakDays`, `checkedInToday`, and paged `/check-ins` history.
