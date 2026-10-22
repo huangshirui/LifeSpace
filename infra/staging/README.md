@@ -110,6 +110,8 @@ Current flow:
 10. Run the native staging end-to-end smoke suite, including a real Eventing mutation/outbox/Queue/HMAC-signed Webhook delivery through an ephemeral staging Custom Domain.
 11. Clean up all ephemeral smoke authority/receiver resources.
 
+**Schema 71 legacy Goal preflight (Issue #397).** The Core `db:migrate:staging` command first runs `infra/scripts/converge-legacy-goal-before-71.mjs staging`. Only an explicitly reviewed published Goal v1 (hash `c5e412c0…`) on schema 70 with **zero Goal records** may be superseded before the immutable `0071_baseline_domain_models.sql` migration. Unknown hashes, changed semantics, unexpected schema state, or existing Goal records fail closed. This is not a generic Model Registry repair and does not change existing Activity or Habit data. It is safe to rerun if the preflight succeeded but the subsequent migration did not. Confirm the full staging smoke succeeds before releasing production.
+
 The Core-first ordering is intentional for changes where Identity may begin issuing credentials/tokens that require a newer Core verifier. A future change may alter deployment ordering only when its compatibility reasoning is explicit.
 
 The staging workflow proves LifeSpace's own deployed contract/schema/model/runtime behavior. Consumer applications perform their own compatibility acceptance against the published LifeSpace contracts and do not gate LifeSpace staging or production.
