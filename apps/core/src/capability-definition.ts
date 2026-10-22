@@ -40,6 +40,8 @@ export type CheckInCapabilityDefinition = {
   intervalDaysField: string;
   lastCheckInDateField: string;
   streakStartDateField: string;
+  statusField?: string;
+  allowedStatuses?: string[];
 };
 
 export type CapabilityDefinitions = {
@@ -236,8 +238,9 @@ export function validateCapabilities(
       issue(issues, base, "INVALID_CAPABILITY", "checkIn must be an object");
     } else {
       const names = ["intervalDaysField", "lastCheckInDateField", "streakStartDateField"] as const;
+      const allowedKeys = new Set<string>([...names, "statusField", "allowedStatuses"]);
       for (const key of Object.keys(entry)) {
-        if (!names.includes(key as typeof names[number])) issue(issues, base + "." + key, "UNKNOWN_PROPERTY", "Unknown checkIn binding");
+        if (!allowedKeys.has(key)) issue(issues, base + "." + key, "UNKNOWN_PROPERTY", "Unknown checkIn binding");
       }
       const [intervalName, lastName, startName] = names.map((key) => entry[key]);
       if ([intervalName, lastName, startName].some((v) => typeof v !== "string" || !v)
@@ -255,11 +258,29 @@ export function validateCapabilities(
         if (!start || start.type !== "date" || !start.readOnly || !start.nullable || start.immutable) {
           issue(issues, base + ".streakStartDateField", "INVALID_CAPABILITY_FIELD", "Streak start must be a read-only nullable date");
         }
+        const hasStatus = entry.statusField !== undefined || entry.allowedStatuses !== undefined;
+        if (hasStatus) {
+          const statusName = entry.statusField;
+          const allowed = entry.allowedStatuses;
+          const status = typeof statusName === "string" ? fields[statusName] : undefined;
+          if (!status || status.type !== "enum" || !status.required || !status.readOnly) {
+            issue(issues, base + ".statusField", "INVALID_CAPABILITY_FIELD", "Status must bind a required read-only enum");
+          }
+          if (!Array.isArray(allowed) || !allowed.length || allowed.length > 50
+            || allowed.some((value) => typeof value !== "string" || !status?.values?.includes(value))
+            || new Set(allowed).size !== allowed.length) {
+            issue(issues, base + ".allowedStatuses", "INVALID_CAPABILITY_STATUSES", "Allowed statuses must be unique declared enum values");
+          }
+          if ([intervalName, lastName, startName].includes(statusName)) {
+            issue(issues, base + ".statusField", "DUPLICATE_CAPABILITY_FIELD", "Status must bind a distinct field");
+          }
+        }
         if (interval && last && start && !issues.some((v) => v.path.startsWith(base))) {
           capabilities.checkIn = {
             intervalDaysField: intervalName as string,
             lastCheckInDateField: lastName as string,
             streakStartDateField: startName as string,
+            ...(hasStatus ? { statusField: entry.statusField as string, allowedStatuses: entry.allowedStatuses as string[] } : {}),
           };
         }
       }
