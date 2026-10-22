@@ -4,7 +4,7 @@
 
 ## 2026-10-22 — Core/Identity and baseline models production release #42
 
-- **Verified release:** SHA `4e2eb18aa35738aae9f908e86ee55063a58c4466`; [Staging #148](https://github.com/huangshirui/LifeSpace/actions/runs/39750058970) and [Production #42](https://github.com/huangshirui/LifeSpace/actions/runs/39752702491) successful.
+- **Verified release:** SHA `4e2eb18aa35738aae9f908e86ee55063a58c4466`; [Staging #147](https://github.com/huangshirui/LifeSpace/actions/runs/39750058970) and [Production #42](https://github.com/huangshirui/LifeSpace/actions/runs/39752702491) successful.
 - **Core:** Kernel 0.53.0 / schema 72 (was 0.49.0 / 53). **Identity:** contract 0.12.0 / schema 11 (was 0.11.0 / 11).
 - **Active Model Contract:** `mct_ee9aa79db15247e204572f14703ffb8e5bdab90854133224f13f02df8518f172`; ten published models: Task v9, Wish v9, Day Record v6, Event v6, Person Group v1, Anniversary v1, Activity v1, Goal v2, Person Profile v1, Habit v2.
 - **New capabilities:** Goal lifecycle via Actions; Habit one-person ownership and authorized Check-in; five new baseline models; independently routed production Notion External Provider deployment verified. R2 integration prerequisites passed.
