@@ -83,3 +83,30 @@ test("bounds repeated non-JSON route 404 retries", async () => {
   assert.equal(fetchCount, 3);
   assert.equal(sleepCount, 2);
 });
+
+
+test("exposes secret-free per-call transport diagnostics without changing latency acceptance", async () => {
+  const request = createApacProbeRequestAdapter({
+    probeUrl: "https://probe.example",
+    probeToken: "probe-secret",
+    credentialMode: "service",
+    fetchImpl: async () => jsonResponse({
+      status: 200,
+      payload: { data: {} },
+      elapsedMs: 121.5,
+      coreResponseBodyMs: 3.4,
+      probeIngressColo: "SIN",
+      credentialMode: "service",
+    }),
+  });
+  const result = await request("/api/v1/spaces/spc_private/models/task/records/rec_private", { method: "PATCH", body: { name: "secret data" } });
+  assert.equal(result.elapsedMs, 121.5, "the original release gate measures only core fetch-to-headers");
+  const observations = request.diagnostics();
+  assert.equal(observations.length, 1);
+  assert.equal(observations[0].route, "PATCH /api/v1/spaces/spc_*/models/task/records/rec_*");
+  assert.equal(observations[0].coreHeadersMs, 121.5);
+  assert.equal(observations[0].coreBodyMs, 3.4);
+  assert.equal(observations[0].probeIngressColo, "SIN");
+  assert.ok(Number.isFinite(observations[0].runnerToProbeMs));
+  assert.doesNotMatch(JSON.stringify(observations), /probe-secret|secret data|private/u);
+});
