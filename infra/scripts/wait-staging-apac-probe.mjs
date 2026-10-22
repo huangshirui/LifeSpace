@@ -71,7 +71,7 @@ for (let attempt = 1; attempt <= attempts; attempt += 1) {
         console.log(JSON.stringify({
           ok: true,
           attempts: attempt,
-          placementRegion: health.detail?.placementRegion ?? null,
+          probeIngressColo: health.detail?.probeIngressColo ?? null,
           benchmarkRouteElapsedMs: benchmarkRoute.detail?.elapsedMs ?? null,
         }, null, 2));
         process.exit(0);
