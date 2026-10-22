@@ -37,6 +37,11 @@
 | Delegation | Atomic multi-Delegation issuance (`1..20`) | ✅ | `/delegations/batch`；全部成功或零落地 |
 | Models | Metadata-driven Model Definition / Registry | ✅ | 普通模型由元数据驱动 |
 | Models | Immutable Model Contract revision | ✅ | `mct_*` revision |
+| Models | New baseline ordinary models (Anniversary / Activity / Goal / Person Profile / Habit) | ✅ | 10 published active models in #42 |
+| Models | Goal lifecycle | ✅ | `active / paused / achieved / abandoned`; guarded Actions |
+| Models | Habit ownership and Check-in | ✅ | immutable single `subjectPersonId`, owner-controlled Check-in and lifecycle |
+| Models | Record icon metadata | ✅ | independently optional display metadata; consumers own picker UX |
+| Models | Semantic relations | ✅ | model-declared outgoing relation support; authority checked by Core |
 | Runtime | Generic CRUD | ✅ | ordinary models |
 | Runtime | Optimistic concurrency / version checks | ✅ | 更新/删除并发正确性 |
 | Runtime | Canonical Query | ✅ | 统一 Query Contract |
@@ -62,38 +67,47 @@
 | Control Plane | Identity Platform Admin API | ✅ | 与普通 Identity API 分离 |
 | Control Plane | Core Platform Admin API | ✅ | 与普通 Kernel API 分离 |
 | Control Plane | Model Control Plane API | ✅ | Registry / Model Contract governance |
-| Federated Truth | Own / Mirror / Reference / Query framework | 🧭 | North Star / 后续专项，不作为当前 production 能力 |
+| External Provider | Notion private Adapter routing / encrypted dynamic Connection Vault | ✅ | #42 部署级私有路由及 Secret/DO 验证；真实生产 Notion 数据不执行破坏性 smoke |
+| Federated Truth | Complete Own / Mirror / Reference / Query framework | 🧭 | North Star / 后续专项；不能将已部署 Notion Query Adapter 误写为完整四模式框架 |
 
 ## Current ordinary models
 
-当前 production active Model Contract 已验证 5 个普通模型：
+当前 production active Model Contract 已验证 **10 个**普通模型：
 
 | Model | Version | Status | Typical use |
 |---|---:|---:|---|
 | Event | 6 | ✅ | 日程 / 时间事件 |
-| Task | 8 | ✅ | 待办 / 任务 |
-| Day Record | 5 | ✅ | 日子记录 |
+| Task | 9 | ✅ | 待办 / 任务 |
+| Day Record | 6 | ✅ | 日子记录 |
 | Wish | 9 | ✅ | 愿望 / 愿望池 |
 | Person Group | 1 | ✅ | 人物分组 / 圈子等普通业务关系 |
+| Anniversary | 1 | ✅ | 独立纪念日模型；日程样式归消费者负责 |
+| Activity | 1 | ✅ | 活动容器，可承载语义关联 |
+| Goal | 2 | ✅ | 明确目标状态与 Action 生命周期 |
+| Person Profile | 1 | ✅ | 人物档案 |
+| Habit | 2 | ✅ | 归属人、打卡及 Action 生命周期 |
 
-Active Model Contract: `mct_bc784389d406c580cbaf1a9cafaa48a155732771e1b24f058fcb884bffcb2345`
+Active Model Contract: `mct_ee9aa79db15247e204572f14703ffb8e5bdab90854133224f13f02df8518f172`
 
 > Space Person Directory 是 Kernel first-class resource，因此不会作为 ordinary model 出现在本表。
 
 ## Release binding
 
-- Release date: **2026-10-09**
-- Exact production SHA: `6659ad86c5ea8a893f22f28a42f89f2e0371523c`
-- Production workflow: **#37** / run `37936055161` — ✅ success
-- Core: Kernel `0.49.0` / schema `53`
-- Identity: contract `0.11.0` / schema `11`
+- Release date: **2026-10-22**
+- Exact production SHA: `4e2eb18aa35738aae9f908e86ee55063a58c4466`
+- Production workflow: **#42** / run `39752702491` — ✅ success
+- Core: Kernel `0.53.0` / schema `72`
+- Identity: contract `0.12.0` / schema `11`
 - APAC exact-candidate performance + Platform Golden Flow prerequisite: ✅ success
 - Production HTTP convergence + Cloudflare isolation/bindings: ✅ success
 - Production `lsp_svc_* -> Core -> Identity introspection` + active Model Contract verification: ✅ success
-- Core↔Identity shared-secret repair requested: **false**；既有 runtime secret 通过真实 service-auth gate 继续验证有效
+- External Provider: **enabled**, Notion Adapter private routing and vault/secret verification ✅；R2 signing credentials ✅
+- Core↔Identity shared-secret repair requested: **false**；runtime secret 通过真实 service-auth gate 验证有效
 
 Feature Matrix 状态必须由成功的 production workflow 明确推进，不以 main / staging / downstream consumer 状态代替 production 事实。
 
 ## Development-only addition / 尚未部署
 
-Recurrence Plan-to-Task (#338): 🚧 In development. calendar / after_completion, structured rule/subject, native atomic generation and indexed scheduling are under development review. This entry does not change the production release binding above.
+Recurrence Plan-to-Task (#338): production 行为必须依当前 Kernel 契约及已发布模型 Capability 独立验证；本次不依据历史 development-only 说明推断所有计划生成模式都完成真实生产业务验收。
+
+Football Match / Football Goal：🚧 仍需通过 Console 手工发布模型；不属于本次 Baseline #42 的 active Model Contract。

@@ -2,6 +2,19 @@
 
 本文件只记录**已经成功发布到 production** 的变化。开发中、staging、PR 或 main 上的变化不得提前写成 production changelog。
 
+## 2026-10-22 — Core/Identity and baseline models production release #42
+
+- **Verified release:** SHA `4e2eb18aa35738aae9f908e86ee55063a58c4466`; [Staging #147](https://github.com/huangshirui/LifeSpace/actions/runs/39750058970) and [Production #42](https://github.com/huangshirui/LifeSpace/actions/runs/39752702491) successful.
+- **Core:** Kernel 0.53.0 / schema 72 (was 0.49.0 / 53). **Identity:** contract 0.12.0 / schema 11 (was 0.11.0 / 11).
+- **Active Model Contract:** `mct_ee9aa79db15247e204572f14703ffb8e5bdab90854133224f13f02df8518f172`; ten published models: Task v9, Wish v9, Day Record v6, Event v6, Person Group v1, Anniversary v1, Activity v1, Goal v2, Person Profile v1, Habit v2.
+- **New capabilities:** Goal lifecycle via Actions; Habit one-person ownership and authorized Check-in; five new baseline models; independently routed production Notion External Provider deployment verified. R2 integration prerequisites passed.
+- **Production verification:** database migrations, Core/Identity deployment, APAC performance and Golden Flow, environment isolation, live Service authentication and active Model Contract all passed.
+- **Operational change:** APAC promotion uses 45 timed samples per scenario with unchanged P50/P90 targets. This improves the percentile estimate, not measured runtime speed.
+- **Limits:** Production provider business CRUD is not claimed from deployment checks alone; model availability does not automatically configure consumer application access or ship HomeMew UI. Football Match/Goal are excluded from baseline pending manual publication. Generic batch Action, complete Federated Truth modes and generic provenance are not claimed here.
+- **Consumer impact:** HomeMew / ALOHA / n8n can adopt the published models after explicit Application × Model Access and consumer deployment. No HomeMew deployment is performed by this platform release.
+
+---
+
 ## 2026-10-09 — Configuration-time Model Semantic Discovery 与当前 0.49/0.11 Production 基线
 
 ### Release metadata
