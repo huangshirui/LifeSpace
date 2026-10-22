@@ -210,7 +210,7 @@ LifeSpace Console 是平台自身的管理界面，不是普通消费者应用�
 7. Cloudflare isolation / bindings verification；
 8. canonical `lsp_svc_*` service authentication + active Model Contract verification。
 
-2026-10-22 release #42 在同一 exact candidate SHA 的 staging #148 和 production 上通过上述 gate。Production 当前为 Core Kernel `0.53.0` / schema `72`，Identity contract `0.12.0` / schema `11`。Core 已执行 schema 54–72 的增量迁移并验证 10 个普通模型的 active Model Contract；production Notion External Provider 私有 Adapter/路由/Connection Vault 和签名凭据已通过部署校验。这里不宣称已经对真实生产 Notion 数据执行 CRUD 回归。
+2026-10-22 release #42 在同一 exact candidate SHA 的 staging #147 和 production 上通过上述 gate。Production 当前为 Core Kernel `0.53.0` / schema `72`，Identity contract `0.12.0` / schema `11`。Core 已执行 schema 54–72 的增量迁移并验证 10 个普通模型的 active Model Contract；production Notion External Provider 私有 Adapter/路由/Connection Vault 和签名凭据已通过部署校验。这里不宣称已经对真实生产 Notion 数据执行 CRUD 回归。
 
 Production runtime signing material 与 Core↔Identity shared authentication secret 由本次 workflow 完成 presence/consistency 和真实 `lsp_svc_* -> Core -> Identity introspection` 验证；`repair_core_identity_shared_secret=false`，不执行主动 repair。生产 R2 S3 签名凭据与 Notion Adapter 的独立生产 Secret 由该 workflow 同步和验证。
 
