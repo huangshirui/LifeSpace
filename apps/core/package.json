@@ -12,8 +12,8 @@
     "build": "wrangler deploy --dry-run --outdir dist",
     "check": "pnpm bindings:check && pnpm contract && pnpm test && pnpm typecheck && pnpm build",
     "db:migrate:local": "wrangler d1 migrations apply DB --local",
-    "db:migrate:staging": "wrangler d1 migrations apply DB --remote --env staging",
-    "db:migrate:production": "wrangler d1 migrations apply DB --remote --env production",
+    "db:migrate:staging": "node ../../infra/scripts/converge-legacy-goal-before-71.mjs staging && wrangler d1 migrations apply DB --remote --env staging",
+    "db:migrate:production": "node ../../infra/scripts/converge-legacy-goal-before-71.mjs production && wrangler d1 migrations apply DB --remote --env production",
     "stable-contract:baseline": "node scripts/check-stable-contract-compatibility.mjs --write",
     "stable-contract:baseline:print": "node scripts/check-stable-contract-compatibility.mjs --print-accepted"
   },
