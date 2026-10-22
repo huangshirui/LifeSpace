@@ -175,7 +175,9 @@ Current gates:
 | Opaque Service API Token Task GET/list | <= 180 ms | <= 250 ms |
 | Opaque Service API Token Task create/PATCH/action | <= 220 ms | <= 300 ms |
 
-Read scenarios use 15 timed samples after warmup. Mutation/action scenarios also use 15 timed samples.
+**APAC production-promotion gates** use 45 timed samples per read and mutation/action scenario after 3 warmups (both User JWT and opaque Service API Token). Ordinary staging diagnostics keep their existing smaller defaults. The nearest-rank empirical P50/P90 thresholds above remain exactly unchanged, every timed sample counts, and any failed target still blocks production; we do not trim slow requests, auto-retry for acceptance, or raise targets.
+
+The previous 15-sample P90 was highly sensitive to two isolated spikes: in production run #41, 13/15 Task List responses were <=100ms and 2 were 267/295ms; the 14th sorted value therefore became P90=267ms even though the median was 73ms. With 45 samples the 41st sorted response defines P90; 5 or more responses above target (>=11.1% of the sample) still fail. Longer APAC windows improve estimator repeatability at the expense of extra synthetic test traffic and API requests; there is **no claim** that underlying latency improves or that the original failures were harmless. Continue to inspect tail samples / Cloudflare Worker telemetry on failure.
 
 The wall-time gate and structural D1 gate are independent:
 
@@ -199,7 +201,7 @@ When investigating latency, distinguish:
 
 Controlled probes must isolate the measured LifeSpace request segment from unrelated runner-to-probe latency.
 
-On APAC performance-gate failures, retain the ordered 15 sample timings alongside P50/P90; query Cloudflare Workers Observability for the corresponding Core/Identity Service and scenario paths. Diagnostic-only probe metrics include fetch-to-Core-response-headers, response-body read time and GitHub-runner-to-probe time. **Only the existing fetch-to-headers \`elapsedMs\` is used for the current release threshold**; runner-to-probe transport and response-body diagnostics must not be added to that gate silently. Probe \`request.cf.colo\` is an **ingress** signal, not a proof of the compute location of the Worker when Placement / Smart Placement is enabled. The old fixed-string \`/health.placementRegion\` was not an observed location and must not be used as evidence. All scenario paths in gate logs are redacted to model route templates; no credentials, record bodies, identity tokens or Space/Record IDs are logged.
+On APAC performance-gate failures, retain the ordered 45 APAC sample timings alongside P50/P90; query Cloudflare Workers Observability for the corresponding Core/Identity Service and scenario paths. Diagnostic-only probe metrics include fetch-to-Core-response-headers, response-body read time and GitHub-runner-to-probe time. **Only the existing fetch-to-headers \`elapsedMs\` is used for the current release threshold**; runner-to-probe transport and response-body diagnostics must not be added to that gate silently. Probe \`request.cf.colo\` is an **ingress** signal, not a proof of the compute location of the Worker when Placement / Smart Placement is enabled. The old fixed-string \`/health.placementRegion\` was not an observed location and must not be used as evidence. All scenario paths in gate logs are redacted to model route templates; no credentials, record bodies, identity tokens or Space/Record IDs are logged.
 
 A failed P90 must not be auto-overridden just because Core Worker \`wallTimeMs\` looks lower: those observations are recorded at different layers and may differ in sampled calls, response-body timing, and network segments. Investigate Core/Identity/D1/edge-path timings before changing the performance target or rollout policy.
 
