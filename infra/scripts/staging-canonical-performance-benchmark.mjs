@@ -7,6 +7,8 @@ function summarize(values) {
   const at = (p) => sorted[Math.max(0, Math.ceil((p / 100) * sorted.length) - 1)];
   return {
     samples: values.length,
+    // Sequence is retained for diagnosing tail spikes; P50/P90 evaluation is unchanged.
+    sampleMs: values.map((value) => Number(value.toFixed(1))),
     p50Ms: Number(at(50).toFixed(1)),
     p90Ms: Number(at(90).toFixed(1)),
     p99Ms: Number(at(99).toFixed(1)),
