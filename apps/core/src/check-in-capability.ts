@@ -27,6 +27,11 @@ function interval(value: unknown): number {
   if (!Number.isSafeInteger(value) || Number(value) < 1) throw new ApiError("INVALID_CHECK_IN_INTERVAL", "Check-in interval must be a positive integer", 400);
   return Number(value);
 }
+function assertCheckInActive(data: Record<string, unknown>, c: CheckInCapabilityDefinition): void {
+  if (c.statusField && !c.allowedStatuses?.includes(data[c.statusField] as string)) {
+    throw new ApiError("CHECK_IN_INACTIVE", "Check-in is unavailable for the current lifecycle state", 409);
+  }
+}
 function state(data: Record<string, unknown>, c: CheckInCapabilityDefinition) {
   const last = data[c.lastCheckInDateField];
   const start = data[c.streakStartDateField];
@@ -77,6 +82,7 @@ export async function recordCheckIn(
   const today = spaceToday(space.timezone);
   const resource = await getGenericResource(env, spaceId, model, recordId);
   if (!resource) throw new ApiError("RESOURCE_NOT_FOUND", "Record not found", 404);
+  assertCheckInActive(resource.data, c);
   const previous = state(resource.data, c);
   if (previous.last === today) return resource; // Repeated same-day check-in has no side effects.
   if (previous.last && previous.last > today) throw new ApiError("INVALID_CHECK_IN_DATE", "Previous date is later than the Space current date", 409);
@@ -91,7 +97,10 @@ export async function recordCheckIn(
   } catch (error) {
     if (error instanceof ApiError && error.code === "VERSION_CONFLICT") {
       const newer = await getGenericResource(env, spaceId, model, recordId);
-      if (newer?.data[c.lastCheckInDateField] === today) return newer;
+      if (newer?.data[c.lastCheckInDateField] === today) {
+        assertCheckInActive(newer.data, c);
+        return newer;
+      }
     }
     throw error;
   }
