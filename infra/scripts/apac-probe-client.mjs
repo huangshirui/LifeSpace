@@ -20,8 +20,10 @@ export function createApacProbeRequestAdapter({
     throw new Error("routeAttempts must be a positive integer");
   }
 
-  return async (path, { method = "GET", body } = {}) => {
+  const observations = [];
+  const request = async (path, { method = "GET", body } = {}) => {
     for (let attempt = 1; attempt <= routeAttempts; attempt += 1) {
+      const start = performance.now();
       const response = await fetchImpl(`${probeUrl}/run`, {
         method: "POST",
         headers: {
@@ -54,9 +56,24 @@ export function createApacProbeRequestAdapter({
       if (payload.credentialMode !== credentialMode) {
         throw new Error(`APAC probe credential mode mismatch: expected ${credentialMode}, got ${JSON.stringify(payload.credentialMode)}`);
       }
+      // Diagnostic only: runner-to-probe timing is deliberately excluded from the gate.
+      const clientToProbeMs = performance.now() - start;
+      const route = `${method.toUpperCase()} ${new URL(path, 'https://core-staging.aisr.online').pathname}`
+        .replace(/spc_[a-zA-Z0-9]+/gu, 'spc_*')
+        .replace(/rec_[a-zA-Z0-9]+/gu, 'rec_*');
+      observations.push({
+        route,
+        coreHeadersMs: payload.elapsedMs,
+        coreBodyMs: typeof payload.coreResponseBodyMs === 'number' ? payload.coreResponseBodyMs : null,
+        runnerToProbeMs: clientToProbeMs,
+        probeIngressColo: payload.probeIngressColo ?? null,
+      });
       return payload;
     }
 
     throw new Error("APAC probe route retry loop exhausted unexpectedly");
   };
+  // All returned data is route-patterned and numeric, never bearer/request payload.
+  request.diagnostics = () => observations.map((sample) => ({ ...sample }));
+  return request;
 }
