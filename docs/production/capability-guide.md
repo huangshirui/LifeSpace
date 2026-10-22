@@ -6,13 +6,13 @@
 
 ## Production baseline
 
-- Release date: **2026-10-09**
-- Deployed release SHA: `6659ad86c5ea8a893f22f28a42f89f2e0371523c`
-- Production workflow: **Deploy LifeSpace platform production #37** (`37936055161`) ✅
-- Production Core: `https://core.aisr.online` — Kernel `0.49.0`, schema `53`
-- Production Identity: `https://auth.aisr.online` — contract `0.11.0`, schema `11`
-- Active Model Contract: `mct_bc784389d406c580cbaf1a9cafaa48a155732771e1b24f058fcb884bffcb2345`
-- Active ordinary models: Task v8, Wish v9, Day Record v5, Event v6, Person Group v1
+- Release date: **2026-10-22**
+- Deployed release SHA: `4e2eb18aa35738aae9f908e86ee55063a58c4466`
+- Production workflow: **Deploy LifeSpace platform production #42** (`39752702491`) ✅
+- Production Core: `https://core.aisr.online` — Kernel `0.53.0`, schema `72`
+- Production Identity: `https://auth.aisr.online` — contract `0.12.0`, schema `11`
+- Active Model Contract: `mct_ee9aa79db15247e204572f14703ffb8e5bdab90854133224f13f02df8518f172`
+- Active ordinary models (10): Task v9, Wish v9, Day Record v6, Event v6, Person Group v1, Anniversary v1, Activity v1, Goal v2, Person Profile v1, Habit v2
 - Release confidence: **exact release-bound production evidence**
 
 > 本页与成功的 production workflow 精确绑定。main、PR 或 staging 中的能力不能自动视为 Production。
@@ -89,7 +89,7 @@ Production 当前支持：
 - Relation Target Lookup / Reference Resolution；
 - configuration-time Model Semantic Discovery：`GET /api/v1/me/_discovery/models` 与 `GET /api/v1/me/_discovery/models/{modelKey}`，用于消费者在配置阶段获取当前 Application 可配置的静态模型语义；该能力与具体 Space 的 Membership / Data Grant / Delegation 分离，不授予任何 Space 数据 Authority。
 
-当前 active Model Contract 激活 5 个普通模型：Task v8、Wish v9、Day Record v5、Event v6、Person Group v1。`person_group` 是普通 metadata-driven model；它与 Kernel Person Directory 的边界保持分离。
+当前 active Model Contract 激活 **10 个**普通模型：Task v9、Wish v9、Day Record v6、Event v6、Person Group v1、Anniversary v1、Activity v1、Goal v2、Person Profile v1、Habit v2。`person_group` 仍与 Kernel Person Directory 严格分离。模型发布是 LifeSpace 平台事实，不自动授予 HomeMew 等 Application 的 Model Access，也不代表消费者 UI 已上线。
 
 ### 2.5 Query / 时间语义
 
@@ -171,6 +171,18 @@ LifeSpace Console 是平台自身的管理界面，不是普通消费者应用�
 
 交互式平台管理使用 human actor proof + server-side executor credential，而不是把平台管理员伪装成所有 Space 的成员。本次 **Core/Identity Platform Production release 不等价于 Console application rollout**；Console 有独立 production deployment workflow。
 
+### 2.11 本次 Production 新增／升级能力（2026-10-22）
+
+以下为 Release #42 已验证的 **Core/Identity 平台能力**，下游应用仍需单独授权、适配与发布：
+
+- **Goal v2**：明确 `active / paused / achieved / abandoned` 生命周期，通过模型 Action 转换；不是仅在 UI 中修改一个显示状态。
+- **Habit v2**：使用不可变的 `subjectPersonId` 表达单一归属人；有权限的家庭成员可以帮他人创建 Habit，但后续变更、状态转换与 Check-in 由对应归属人经 Core 当前 Authority 校验执行。状态 `active / paused / ended`，只有 active 可打卡。
+- **Activity v1 / Anniversary v1 / Person Profile v1**：通过标准普通模型 Registry/Runtime 发布；`Activity` 适用于跨 Event / Task 等记录的业务容器；Anniversary 是独立普通模型，是否合并展示在日历由消费者负责。
+- **Task v9 / Day Record v6**：当前 active Model Contract 已升级；与 Event v6、Wish v9、Person Group v1 一并在生产合同中验证。
+- **External Provider（Notion）**：生产独立的私有 Adapter Worker、Service Binding、shared-secret、Core cursor secret 与加密 Connection Vault 部署与路由验证通过。真实生产 Connection 配置、数据授权和业务场景需单独验收；不能从基础设施成功推断所有 Provider 业务读写已实测。
+- **Record 图标／语义关联／周期及计划机制**：这些能力的可用边界以当前 Kernel/OpenAPI、已发布模型 Definition 及对应权限为准；不将 HomeMew 的日历、足球统计或图标选择器 UI 作为本次平台发布的组成部分。
+- **APAC release gate**：仍维持原有 P50/P90 限制；对生产候选使用每场景 45 次计时采样以降低小样本百分位不稳定性，且不隐去慢请求。它是发布测量改进，不代表实际请求延迟被代码优化。
+
 ## 3. API / Contract surfaces
 
 当前 Production 契约分为：
@@ -198,9 +210,9 @@ LifeSpace Console 是平台自身的管理界面，不是普通消费者应用�
 7. Cloudflare isolation / bindings verification；
 8. canonical `lsp_svc_*` service authentication + active Model Contract verification。
 
-2026-10-09 release #37 已完整通过上述 gate。Production 当前为 Core Kernel `0.49.0` / schema `53`，Identity contract `0.11.0` / schema `11`；本次 exact candidate 没有新的 D1 migration 需要应用，active Model Contract 仍为 5 个普通模型。该 release 将 configuration-time Model Semantic Discovery 正式推进到 Production，同时保持运行时 Space/Data Authority 规则不变。
+2026-10-22 release #42 在同一 exact candidate SHA 的 staging #148 和 production 上通过上述 gate。Production 当前为 Core Kernel `0.53.0` / schema `72`，Identity contract `0.12.0` / schema `11`。Core 已执行 schema 54–72 的增量迁移并验证 10 个普通模型的 active Model Contract；production Notion External Provider 私有 Adapter/路由/Connection Vault 和签名凭据已通过部署校验。这里不宣称已经对真实生产 Notion 数据执行 CRUD 回归。
 
-Production runtime signing material 与 Core↔Identity shared authentication secret 在本次发布中均按既有值保留；release gate 继续通过真实 `lsp_svc_* -> Core -> Identity introspection` 验证其可用性，未触发 shared-secret repair。
+Production runtime signing material 与 Core↔Identity shared authentication secret 由本次 workflow 完成 presence/consistency 和真实 `lsp_svc_* -> Core -> Identity introspection` 验证；`repair_core_identity_shared_secret=false`，不执行主动 repair。生产 R2 S3 签名凭据与 Notion Adapter 的独立生产 Secret 由该 workflow 同步和验证。
 
 ### Creation Draft retirement
 
@@ -215,7 +227,7 @@ Creation Draft 已从当前 Production 能力中完全退出：当前 API / cont
 - 通用 Information Provenance / lineage 平台能力；
 - downstream n8n / HomeMew / ALOHA 的适配或发布状态；
 - Console application 的某个新版本已经 rollout（其 production workflow 独立）；
-- 尚未进入成功 production workflow 的模型或 Capability。
+- 尚未进入成功 production workflow 的模型或 Capability（例如尚未手工发布的 Football Match / Football Goal）。
 
 ## 6. 发布后的维护要求
 
