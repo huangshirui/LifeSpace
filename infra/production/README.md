@@ -69,6 +69,8 @@ Current deployment ordering is:
 10. wait for production HTTP/schema/contract convergence;
 11. verify Cloudflare isolation/bindings and active immutable Model Contract.
 
+**Schema 71 legacy Goal preflight (Issue #397).** The normal Core `db:migrate:production` command performs the same guarded check as staging before D1 migrations. A production database without a published legacy Goal is untouched; the reviewed hash is only superseded on schema 70 when Goal has zero records. Any unknown published Goal, nonmatching semantics, or existing Goal records fail closed and require a separate data migration decision before deploying. Schema 72 separately refuses migration if pre-existing Habit records are present; this guard is not bypassed. Deploy only after staging validates the exact candidate SHA.
+
 Core-first -> Identity ordering matches the compatibility-preserving normal release path used by staging: a newer verifier/runtime is live before Identity may issue credentials that depend on it.
 
 ## Provision production resources
