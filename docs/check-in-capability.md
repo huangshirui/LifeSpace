@@ -95,6 +95,16 @@ Once this Core Capability has been deployed, a normal user-defined model can be 
 }
 ```
 
+## Lifecycle and Person ownership / 生命周期与人物归属（schema 72）
+
+The repository-shipped Habit baseline is defined only in `apps/core/model-catalog/baseline-models.json`. The older generic three-binding JSON shown above is a minimal example of Check-in configuration, **not** the current full Habit baseline schema.
+
+- `subjectPersonId: person` identifies exactly one Space Person and is required and immutable. A normally authorized user can create a Habit for another family member. Once created, `policies.update` and `policies.delete` limit mutations to a non-null authenticated `principal.personId` equal to `record.subjectPersonId`. The pause/resume/end/reopen Actions also enforce their own matching owner Policy.
+- When an authorized User delegates to an Agent, Core derives Principal and Actor from verified credentials and delegation; the Agent does not gain the authority of an unrelated Person. A Person not linked to an authenticated User cannot perform Check-in.
+- Lifecycle states: `active`, `paused`, `ended`; only `active` allows Check-in. The `status` field is initialized by Core and is only changed by named Actions. `capabilities.checkIn.statusField` / `allowedStatuses` are optional backward-compatible capability bindings for the reusable engine.
+- Pausing does not create or alter check-in occurrences; the existing calendar-day streak semantics remain unchanged rather than freezing streak time.
+- The schema 72 migration intentionally **fails closed if preexisting Habit records exist**, because a historical owner must never be guessed from the record creator. An owner-approved backfill and controlled migration are required before applying schema 72 in any environment containing existing Habit records.
+
 ## Semantics / 行为
 
 - Create a Habit with a name, optional description, and immutable positive `intervalDays`. Both Core-owned date fields start at null; the computed streak is **0**. A user cannot set these fields via CRUD.

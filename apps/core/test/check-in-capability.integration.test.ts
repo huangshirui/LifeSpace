@@ -38,7 +38,7 @@ export const HABIT_MODEL: ModelDefinition = {
   } },
 };
 
-async function fixture(timezone = "Asia/Shanghai", intervalDays = 1) {
+async function fixture(timezone = "Asia/Shanghai", intervalDays = 1, definition: ModelDefinition = HABIT_MODEL) {
   const db = (env as unknown as TestEnv).DB;
   const suffix = crypto.randomUUID().replaceAll("-", "");
   const spaceId = "spc_" + suffix;
@@ -49,8 +49,8 @@ async function fixture(timezone = "Asia/Shanghai", intervalDays = 1) {
     type: "service", id: "svc_check_in_test", clientId: "lifespace-platform-admin",
     scopes: ["models:manage"], tokenId: "tok_check_in_publisher",
   };
-  const published = await getPublishedModel(bindings(), HABIT_MODEL.key)
-    ?? await publishModelDefinition(bindings(), publisher, HABIT_MODEL, "initial");
+  const published = await getPublishedModel(bindings(), definition.key)
+    ?? await publishModelDefinition(bindings(), publisher, definition, "initial");
   const resource = await createCapabilityAwareResource(bindings(), actor, spaceId, published, { name: "Read", intervalDays });
   return { db, spaceId, model: published, resource, today: spaceToday(timezone) };
 }
@@ -80,6 +80,39 @@ describe("Check-in Capability", () => {
     const definitions = contract.jsonSchema.$defs as Record<string, any>;
     expect(definitions.TestHabitCheckInResource.properties.computed.properties.checkIn.properties.streakDays.minimum).toBe(0);
     expect((contract.jsonSchema["x-lifespace-models"] as Record<string, any>).test_habit_check_in.actions).toContain("check-in");
+  });
+
+  it("accepts optional lifecycle binding and rejects undeclared statuses", () => {
+    const definition = structuredClone(HABIT_MODEL);
+    definition.fields.status = { type: "enum", required: true, readOnly: true, values: ["active", "paused", "ended"] };
+    definition.capabilities!.checkIn = { ...definition.capabilities!.checkIn!, statusField: "status", allowedStatuses: ["active"] };
+    expect(validateModelDefinition(definition).valid).toBe(true);
+    const broken = structuredClone(definition);
+    broken.capabilities!.checkIn!.allowedStatuses = ["active", "unknown"];
+    const result = validateModelDefinition(broken);
+    expect(result.valid).toBe(false);
+    if (!result.valid) expect(result.issues.map((issue) => issue.code)).toContain("INVALID_CAPABILITY_STATUSES");
+  });
+
+  it("blocks paused and ended habits including same-day idempotent retries", async () => {
+    const definition = structuredClone(HABIT_MODEL);
+    definition.key = "test_habit_check_in_state";
+    definition.fields.status = { type: "enum", required: true, readOnly: true, values: ["active", "paused", "ended"] };
+    definition.defaults = { ...definition.defaults, status: "active" };
+    definition.capabilities!.checkIn = { ...definition.capabilities!.checkIn!, statusField: "status", allowedStatuses: ["active"] };
+    const f = await fixture("Asia/Shanghai", 1, definition);
+    const paused = await updateGenericResource(bindings(), actor, f.spaceId, f.model, f.resource.id, f.resource.version,
+      { status: "paused" }, "action", undefined, undefined, "pause");
+    await expect(recordCheckIn(bindings(), actor, f.spaceId, f.model, paused.id, paused.version))
+      .rejects.toMatchObject({ code: "CHECK_IN_INACTIVE" });
+    const resumed = await updateGenericResource(bindings(), actor, f.spaceId, f.model, paused.id, paused.version,
+      { status: "active" }, "action", undefined, undefined, "resume");
+    const checked = await recordCheckIn(bindings(), actor, f.spaceId, f.model, resumed.id, resumed.version);
+    const ended = await updateGenericResource(bindings(), actor, f.spaceId, f.model, checked.id, checked.version,
+      { status: "ended" }, "action", undefined, undefined, "end");
+    await expect(recordCheckIn(bindings(), actor, f.spaceId, f.model, ended.id, ended.version))
+      .rejects.toMatchObject({ code: "CHECK_IN_INACTIVE" });
+    expect((await listCheckIns(bindings(), f.spaceId, f.model, checked.id, 100)).items).toHaveLength(1);
   });
 
   it("starts at zero, check-in once, is idempotent, and persists a governed Action", async () => {

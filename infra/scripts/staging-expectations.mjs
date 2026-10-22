@@ -54,9 +54,9 @@ export const PROVING_MODELS = Object.freeze([
   Object.freeze({ key: "person_group", minimumVersion: 1, hash: "3a8398b99763b56d047ccb1fa75bf98873206a15ebed257d26d81d80f0796b51" }),
   Object.freeze({ key: "anniversary", minimumVersion: 1, hash: "13c2b7d6f6151b7af794717d38ee1c5d187f918824647519fe195740f9e635eb" }),
   Object.freeze({ key: "activity", minimumVersion: 1, hash: "e2dc382ff49a6fc16edf6fe9a0ae988314f357986634116f4d6173b97ce5c3db" }),
-  Object.freeze({ key: "goal", minimumVersion: 1, hash: "e5b9c865cdb43f054b3366b1028c15ebd5b0e72ba525b7e76b0cfb93140ce93e" }),
+  Object.freeze({ key: "goal", minimumVersion: 2, hash: "31afafb2ebe58d88e68960052e5f9265f2d3911ff11b9d2cc51f9bb935c3be58" }),
   Object.freeze({ key: "person_profile", minimumVersion: 1, hash: "cffc6f14db9637234d8bdd8680e05fa06284e37ec15595cdf670a7a49d7ccb11" }),
-  Object.freeze({ key: "habit", minimumVersion: 1, hash: "c2684560f1241e5496f1575cbe9dfc67068bb84f4c7c3b172d3676b27bada369" }),
+  Object.freeze({ key: "habit", minimumVersion: 2, hash: "21385f2ae2a7700ada3bab96e0a6d6172d5684f845cd0ba9483ecbeb670524f8" }),
 ]);
 
 export const STAGING_EXPECTATIONS = Object.freeze({

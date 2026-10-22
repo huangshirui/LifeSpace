@@ -53,9 +53,9 @@ const RELEASE_HISTORY = Object.freeze({
   person_group: Object.freeze({ currentVersion: 1, currentCompatibility: "initial" }),
   anniversary: Object.freeze({ currentVersion: 1, currentCompatibility: "initial" }),
   activity: Object.freeze({ currentVersion: 1, currentCompatibility: "initial" }),
-  goal: Object.freeze({ currentVersion: 1, currentCompatibility: "initial" }),
+  goal: Object.freeze({ currentVersion: 2, currentCompatibility: "breaking" }),
   person_profile: Object.freeze({ currentVersion: 1, currentCompatibility: "initial" }),
-  habit: Object.freeze({ currentVersion: 1, currentCompatibility: "initial" }),
+  habit: Object.freeze({ currentVersion: 2, currentCompatibility: "breaking" }),
 });
 
 const HISTORICAL_BASELINE_MODELS = [

@@ -22,7 +22,16 @@ describe("new shipped baseline domain models", () => {
     expect(GOAL_MODEL_DEFINITION.fields.subjectPersonIds.type).toBe("person_list");
     expect(ANNIVERSARY_MODEL_DEFINITION.fields.year.nullable).toBe(true);
     expect(PERSON_PROFILE_MODEL_DEFINITION.fields.personId.immutable).toBe(true);
-    expect(HABIT_MODEL_DEFINITION.capabilities?.checkIn).toEqual({ intervalDaysField: "intervalDays", lastCheckInDateField: "lastCheckInDate", streakStartDateField: "streakStartDate" });
+    expect(HABIT_MODEL_DEFINITION.capabilities?.checkIn).toEqual({
+      intervalDaysField: "intervalDays", lastCheckInDateField: "lastCheckInDate", streakStartDateField: "streakStartDate",
+      statusField: "status", allowedStatuses: ["active"],
+    });
+    expect(HABIT_MODEL_DEFINITION.fields.subjectPersonId).toMatchObject({ type: "person", required: true, immutable: true });
+    expect(HABIT_MODEL_DEFINITION.fields.status).toMatchObject({ type: "enum", required: true, readOnly: true });
+    expect(GOAL_MODEL_DEFINITION.fields.status).toMatchObject({ type: "enum", required: true, readOnly: true });
+    expect(HABIT_MODEL_DEFINITION.policies?.update).toBeDefined();
+    expect(HABIT_MODEL_DEFINITION.actions?.resume?.policy).toBeDefined();
+    expect(Object.keys(GOAL_MODEL_DEFINITION.actions ?? {})).toEqual(["pause", "resume", "achieve", "abandon", "reopen"]);
     expect(HABIT_MODEL_DEFINITION.fields.intervalDays.immutable).toBe(true);
     expect(HABIT_MODEL_DEFINITION.fields.lastCheckInDate.readOnly).toBe(true);
     expect(HABIT_MODEL_DEFINITION.fields.streakStartDate.readOnly).toBe(true);
