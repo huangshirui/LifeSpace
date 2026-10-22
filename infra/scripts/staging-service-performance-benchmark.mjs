@@ -13,6 +13,8 @@ function percentile(values, p) {
 function summarize(values) {
   return {
     samples: values.length,
+    // Sequence is retained for diagnosing tail spikes; P50/P90 evaluation is unchanged.
+    sampleMs: values.map((value) => Number(value.toFixed(1))),
     p50Ms: Number(percentile(values, 50).toFixed(1)),
     p90Ms: Number(percentile(values, 90).toFixed(1)),
     p99Ms: Number(percentile(values, 99).toFixed(1)),

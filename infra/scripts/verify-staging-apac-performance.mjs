@@ -51,6 +51,9 @@ function requestThroughApacProbe(credentialMode) {
 // path from satisfying version/schema checks while bypassing the canonical Golden Flow.
 requirePlatformGoldenFlow();
 
+const userAdapter = requestThroughApacProbe("user");
+const serviceAdapter = requestThroughApacProbe("service");
+
 const userResult = await runStagingPerformanceBenchmark({
   coreBaseUrl,
   bearer: userBearer,
@@ -58,7 +61,7 @@ const userResult = await runStagingPerformanceBenchmark({
   personId,
   benchmarkProfile: "apac",
   source: "Temporary Cloudflare Worker explicitly targeted near aws:ap-southeast-1 -> LifeSpace Core staging (user JWT)",
-  requestAdapter: requestThroughApacProbe("user"),
+  requestAdapter: userAdapter,
 });
 
 const serviceResult = await runStagingServicePerformanceBenchmark({
@@ -67,8 +70,38 @@ const serviceResult = await runStagingServicePerformanceBenchmark({
   spaceId,
   benchmarkProfile: "apac",
   source: "Temporary Cloudflare Worker explicitly targeted near aws:ap-southeast-1 -> LifeSpace Core staging (opaque lsp_svc_* Service API Token)",
-  requestAdapter: requestThroughApacProbe("service"),
+  requestAdapter: serviceAdapter,
 });
+
+
+function summarizeProbeDiagnostics(observations) {
+  const groups = new Map();
+  for (const item of observations) {
+    const group = groups.get(item.route) ?? [];
+    group.push(item);
+    groups.set(item.route, group);
+  }
+  const p = (samples, percentile) => {
+    const sorted = samples.filter(Number.isFinite).sort((a, b) => a - b);
+    if (sorted.length === 0) return null;
+    return Number(sorted[Math.max(0, Math.ceil((percentile / 100) * sorted.length) - 1)].toFixed(1));
+  };
+  return [...groups.entries()].map(([route, samples]) => ({
+    route, count: samples.length,
+    coreHeadersP50Ms: p(samples.map((s) => s.coreHeadersMs), 50),
+    coreHeadersP90Ms: p(samples.map((s) => s.coreHeadersMs), 90),
+    coreBodyP90Ms: p(samples.map((s) => s.coreBodyMs), 90),
+    runnerToProbeP90Ms: p(samples.map((s) => s.runnerToProbeMs), 90),
+    probeIngressColos: [...new Set(samples.map((s) => s.probeIngressColo).filter(Boolean))].sort(),
+  }));
+}
+
+console.log(JSON.stringify({
+  APAC_DIAGNOSTIC_ONLY: true,
+  note: "Core header time is unchanged for release gates; runner-to-probe includes the GitHub runner leg. Probe ingress colo does not attest actual Worker compute placement.",
+  user: summarizeProbeDiagnostics(userAdapter.diagnostics()),
+  service: summarizeProbeDiagnostics(serviceAdapter.diagnostics()),
+}, null, 2));
 
 console.log(JSON.stringify({ user: userResult, service: serviceResult }, null, 2));
 
