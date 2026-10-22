@@ -2,7 +2,7 @@ import { evaluateTargets, USER_MUTATION_TARGETS, USER_READ_TARGETS } from "./per
 
 const DEFAULT_MUTATION_SAMPLE_COUNT = 15;
 
-function summarize(values) {
+export function summarize(values) {
   const sorted = [...values].sort((a, b) => a - b);
   const at = (p) => sorted[Math.max(0, Math.ceil((p / 100) * sorted.length) - 1)];
   return {
