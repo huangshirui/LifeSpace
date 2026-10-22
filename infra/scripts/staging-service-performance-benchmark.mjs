@@ -10,7 +10,7 @@ function percentile(values, p) {
   return sorted[index];
 }
 
-function summarize(values) {
+export function summarize(values) {
   return {
     samples: values.length,
     // Sequence is retained for diagnosing tail spikes; P50/P90 evaluation is unchanged.

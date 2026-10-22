@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { createApacProbeRequestAdapter } from "./apac-probe-client.mjs";
+import { APAC_RELEASE_SAMPLE_COUNT } from "./performance-release-targets.mjs";
 import { runStagingPerformanceBenchmark } from "./staging-canonical-performance-benchmark.mjs";
 import { runStagingServicePerformanceBenchmark } from "./staging-service-performance-benchmark.mjs";
 
@@ -61,6 +62,8 @@ const userResult = await runStagingPerformanceBenchmark({
   personId,
   benchmarkProfile: "apac",
   source: "Temporary Cloudflare Worker explicitly targeted near aws:ap-southeast-1 -> LifeSpace Core staging (user JWT)",
+  sampleCount: APAC_RELEASE_SAMPLE_COUNT,
+  mutationSampleCount: APAC_RELEASE_SAMPLE_COUNT,
   requestAdapter: userAdapter,
 });
 
@@ -70,6 +73,8 @@ const serviceResult = await runStagingServicePerformanceBenchmark({
   spaceId,
   benchmarkProfile: "apac",
   source: "Temporary Cloudflare Worker explicitly targeted near aws:ap-southeast-1 -> LifeSpace Core staging (opaque lsp_svc_* Service API Token)",
+  sampleCount: APAC_RELEASE_SAMPLE_COUNT,
+  mutationSampleCount: APAC_RELEASE_SAMPLE_COUNT,
   requestAdapter: serviceAdapter,
 });
 

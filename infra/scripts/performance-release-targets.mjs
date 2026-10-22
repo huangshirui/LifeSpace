@@ -1,3 +1,7 @@
+// APAC release gates use enough samples for a stable empirical P90.
+// Targets remain unchanged; ordinary diagnostics may retain lower defaults.
+export const APAC_RELEASE_SAMPLE_COUNT = 45;
+
 export const USER_READ_TARGETS = Object.freeze({
   taskGet: Object.freeze({ p50Ms: 150, p90Ms: 250 }),
   taskList10: Object.freeze({ p50Ms: 150, p90Ms: 250 }),
