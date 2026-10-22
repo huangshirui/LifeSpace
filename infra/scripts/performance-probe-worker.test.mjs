@@ -20,7 +20,7 @@ function probeRequest(body) {
   });
 }
 
-test("APAC probe health reports the configured placement", async () => {
+test("APAC probe health reports observed ingress, not a hard-coded placement claim", async () => {
   const response = await handleProbeRequest(
     new Request("https://probe.example/health", {
       headers: { "x-lifespace-probe-token": env.PROBE_TOKEN },
@@ -29,7 +29,7 @@ test("APAC probe health reports the configured placement", async () => {
   );
 
   assert.equal(response.status, 200);
-  assert.deepEqual(await response.json(), { ok: true, placementRegion: "aws:ap-southeast-1" });
+  assert.deepEqual(await response.json(), { ok: true, probeIngressColo: null });
 });
 
 test("APAC probe returns the Core result envelope on success", async () => {
@@ -45,6 +45,8 @@ test("APAC probe returns the Core result envelope on success", async () => {
   assert.deepEqual(payload.payload, { data: [] });
   assert.equal(payload.credentialMode, "user");
   assert.equal(typeof payload.elapsedMs, "number");
+  assert.equal(typeof payload.coreResponseBodyMs, "number");
+  assert.equal(payload.probeIngressColo, null);
 });
 
 test("APAC probe reports Core fetch failures as JSON", async () => {
