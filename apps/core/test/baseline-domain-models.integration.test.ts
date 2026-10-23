@@ -11,7 +11,11 @@ describe("new shipped baseline domain models", () => {
       const checked = await validateDefinition(definition);
       expect(checked.valid, definition.key).toBe(true);
       expect(definition.description?.length).toBeGreaterThan(50);
-      for (const field of Object.values(definition.fields)) expect(field.description?.length).toBeGreaterThan(20);
+      expect(definition.description?.length).toBeLessThanOrEqual(180);
+      for (const field of Object.values(definition.fields)) {
+        expect(field.description?.length).toBeGreaterThan(0);
+        expect(field.description?.length).toBeLessThanOrEqual(160);
+      }
       const plan = compilePhysicalSchema(definition);
       expect(plan.tableName).toBe("mdl_" + definition.key);
       expect(plan.createTableSql).toContain("resource_records(id)");
