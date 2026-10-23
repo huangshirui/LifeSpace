@@ -50,12 +50,12 @@ const RELEASE_HISTORY = Object.freeze({
   wish: Object.freeze({ previousVersion: 6, previousHash: "4d34e89df332b9b2c34549699e4210a3166db6eaddabe0ac59de5d4770c206c3", previousRoute: "wishes", currentVersion: 8, currentCompatibility: "compatible" }),
   day_record: Object.freeze({ previousVersion: 3, previousHash: "7793d9959277e45d9af52c6c71820040034f9c84ee487d8f0e6b00320e5c10aa", previousRoute: "day-records", currentVersion: 6, currentCompatibility: "breaking" }),
   event: Object.freeze({ previousVersion: 4, previousHash: "66832c4dae9fd9f99b1f4f49cfdb53e7c91a55512c0b3cf8b8cddaee2111f6c4", previousRoute: "events", currentVersion: 6, currentCompatibility: "breaking" }),
-  person_group: Object.freeze({ currentVersion: 1, currentCompatibility: "initial" }),
-  anniversary: Object.freeze({ currentVersion: 1, currentCompatibility: "initial" }),
-  activity: Object.freeze({ currentVersion: 1, currentCompatibility: "initial" }),
-  goal: Object.freeze({ currentVersion: 2, currentCompatibility: "breaking" }),
-  person_profile: Object.freeze({ currentVersion: 1, currentCompatibility: "initial" }),
-  habit: Object.freeze({ currentVersion: 2, currentCompatibility: "breaking" }),
+  person_group: Object.freeze({ currentVersion: 2, currentCompatibility: "compatible" }),
+  anniversary: Object.freeze({ currentVersion: 2, currentCompatibility: "compatible" }),
+  activity: Object.freeze({ currentVersion: 2, currentCompatibility: "compatible" }),
+  goal: Object.freeze({ currentVersion: 3, currentCompatibility: "compatible" }),
+  person_profile: Object.freeze({ currentVersion: 2, currentCompatibility: "compatible" }),
+  habit: Object.freeze({ currentVersion: 3, currentCompatibility: "compatible" }),
 });
 
 const HISTORICAL_BASELINE_MODELS = [
@@ -92,6 +92,28 @@ describe("canonical baseline Model Catalog", () => {
       expect(row.schema_hash).toBe(expected.schemaHash);
       expect(row.compatibility).toBe(release.currentCompatibility);
       expect(JSON.parse(row.definition_json)).toEqual(expected.definition);
+    }
+  });
+
+  it("keeps previous Baseline definitions and changes descriptions only", async () => {
+    const db = (env as unknown as TestEnv).DB;
+    const strip = (value: unknown): unknown => {
+      if (Array.isArray(value)) return value.map(strip);
+      if (value && typeof value === "object") return Object.fromEntries(
+        Object.entries(value).filter(([key]) => key !== "description").map(([key, val]) => [key, strip(val)]));
+      return value;
+    };
+    for (const definition of BASELINE_MODELS.filter(model =>
+      ["person_group", "anniversary", "activity", "goal", "person_profile", "habit"].includes(model.key))) {
+      const release = RELEASE_HISTORY[definition.key as keyof typeof RELEASE_HISTORY];
+      const previous = await db.prepare("SELECT state,definition_json FROM model_definitions WHERE model_key=? AND version=?")
+        .bind(definition.key, release.currentVersion - 1)
+        .first<{ state: string; definition_json: string }>();
+      expect(previous?.state).toBe("superseded");
+      expect(strip(JSON.parse(previous!.definition_json))).toEqual(strip(definition));
+      expect(definition.description.length).toBeLessThanOrEqual(180);
+      for (const field of Object.values(definition.fields))
+        if (field.description) expect(field.description.length).toBeLessThanOrEqual(160);
     }
   });
 
