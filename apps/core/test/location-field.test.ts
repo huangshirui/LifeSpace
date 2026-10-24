@@ -90,7 +90,7 @@ describe("First-class Location semantics", () => {
     const empty = validateResourceData(published.definition, { name: "C", place: null }, "create");
     expect(hydrateTypedResourceData(published, dehydrateTypedResourceData(published, empty))).toEqual(empty);
     const corrupt = { ...dehydrateTypedResourceData(published, withCoords), __loc_place_longitude: null };
-    expect(() => hydrateTypedResourceData(published, corrupt)).toThrow("RESOURCE_STORAGE_CORRUPT");
+    expect(() => hydrateTypedResourceData(published, corrupt)).toThrow("Location place is invalid");
     expect(() => validateResourceData(published.definition, { name: "D", place: "上海" }, "create")).toThrow("valid Location object");
   });
 
