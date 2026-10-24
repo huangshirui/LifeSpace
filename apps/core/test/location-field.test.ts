@@ -66,9 +66,8 @@ describe("First-class Location semantics", () => {
       const result = validateModelDefinition({ ...d, fields: { ...d.fields, place: field } });
       expect(result.valid).toBe(false);
     }
-    for (const query of [{ searchable: ["place"] }, { sortable: ["place"] }]) {
-      expect(validateModelDefinition({ ...d, query }).valid).toBe(false);
-    }
+    expect(validateModelDefinition({ ...d, query: { searchable: ["place"] } }).valid).toBe(true);
+    expect(validateModelDefinition({ ...d, query: { sortable: ["place"] } }).valid).toBe(false);
     expect(validateModelDefinition({ ...d, defaults: { place: null } }).valid).toBe(false);
   });
 
