@@ -37,3 +37,7 @@ Back up the production D1 database and perform an explicit Staging migration
 and data-count/identity verification before the manually approved rollout.
 Old HomeMew Mini clients are intentionally unsupported for the Days surface
 during WeChat review. Do NOT implement a protocol compatibility layer.
+
+## 0073 Baseline Description Compression / 模型描述压缩
+
+Compatible description-only revisions for PersonGroup, Anniversary, Activity, Goal, PersonProfile and Habit. The migration checks expected old hashes, preserves published-version history, advances the published Registry and invalidates its contract cache. It changes no business data, fields, permissions, Actions or policies. Apply before the corresponding Worker; validate Staging before Production.
