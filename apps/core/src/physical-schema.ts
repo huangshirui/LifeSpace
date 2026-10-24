@@ -1,7 +1,7 @@
 import { ApiError } from "./http";
 import { isFirstClassRangeFieldType, type FieldDefinition, type FieldType, type ModelDefinition } from "./model-definition";
 
-export type PhysicalColumnComponent = "value" | "kind" | "start" | "end";
+export type PhysicalColumnComponent = "value" | "kind" | "start" | "end" | "name" | "address" | "latitude" | "longitude";
 
 export type PhysicalColumn = {
   /** Physical D1 column name. Scalar mappings preserve the logical field key. */
@@ -17,7 +17,7 @@ export type PhysicalColumn = {
 export type PhysicalFieldMapping = {
   fieldKey: string;
   logicalType: FieldType;
-  storage: "scalar" | "relation" | "range" | "temporal_range";
+  storage: "scalar" | "relation" | "range" | "temporal_range" | "location";
   columns: PhysicalColumn[];
 };
 
@@ -174,6 +174,48 @@ function temporalRangeMapping(fieldKey: string, field: FieldDefinition): Physica
   };
 }
 
+
+function locationMapping(fieldKey: string, field: FieldDefinition): PhysicalFieldMapping {
+  const nullable = field.required !== true;
+  const name = `__loc_${fieldKey}_name`;
+  const address = `__loc_${fieldKey}_address`;
+  const latitude = `__loc_${fieldKey}_latitude`;
+  const longitude = `__loc_${fieldKey}_longitude`;
+  const nameSql = identifier(name);
+  const addressSql = identifier(address);
+  const latSql = identifier(latitude);
+  const lngSql = identifier(longitude);
+  const absent = `${nameSql} IS NULL AND ${addressSql} IS NULL AND ${latSql} IS NULL AND ${lngSql} IS NULL`;
+  const present = `${nameSql} IS NOT NULL AND ((${latSql} IS NULL AND ${lngSql} IS NULL) OR (${latSql} IS NOT NULL AND ${lngSql} IS NOT NULL))`;
+  return {
+    fieldKey,
+    logicalType: field.type,
+    storage: "location",
+    columns: [
+      {
+        fieldKey: name, logicalFieldKey: fieldKey, component: "name",
+        logicalType: field.type, sqlType: "TEXT", nullable,
+        checkSql: `${nameSql} IS NULL OR length(trim(${nameSql})) BETWEEN 1 AND 500`,
+      },
+      {
+        fieldKey: address, logicalFieldKey: fieldKey, component: "address",
+        logicalType: field.type, sqlType: "TEXT", nullable: true,
+        checkSql: `${addressSql} IS NULL OR length(trim(${addressSql})) BETWEEN 1 AND 1000`,
+      },
+      {
+        fieldKey: latitude, logicalFieldKey: fieldKey, component: "latitude",
+        logicalType: field.type, sqlType: "REAL", nullable: true,
+        checkSql: `${latSql} IS NULL OR ${latSql} BETWEEN -90 AND 90`,
+      },
+      {
+        fieldKey: longitude, logicalFieldKey: fieldKey, component: "longitude",
+        logicalType: field.type, sqlType: "REAL", nullable: true,
+        checkSql: `(${absent}) OR (${present} AND ${lngSql} BETWEEN -180 AND 180)`,
+      },
+    ],
+  };
+}
+
 function mappingFor(fieldKey: string, field: FieldDefinition): PhysicalFieldMapping {
   if (RELATION_TYPES.has(field.type)) {
     return {
@@ -185,6 +227,7 @@ function mappingFor(fieldKey: string, field: FieldDefinition): PhysicalFieldMapp
   }
   if (isFirstClassRangeFieldType(field.type)) return rangeMapping(fieldKey, field);
   if (field.type === "temporal_range") return temporalRangeMapping(fieldKey, field);
+  if (field.type === "location") return locationMapping(fieldKey, field);
   return {
     fieldKey,
     logicalType: field.type,
@@ -198,7 +241,9 @@ function indexFor(tableName: string, mapping: PhysicalFieldMapping): PhysicalInd
   return {
     name: assertIdentifier(`idx_${tableName}_${mapping.fieldKey}`),
     fieldKey: mapping.fieldKey,
-    columnKeys: mapping.columns.map((column) => column.fieldKey),
+    columnKeys: mapping.storage === "location"
+      ? mapping.columns.filter((column) => column.component === "latitude" || column.component === "longitude").map((column) => column.fieldKey)
+      : mapping.columns.map((column) => column.fieldKey),
     unique: false,
   };
 }
