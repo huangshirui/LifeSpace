@@ -792,8 +792,8 @@ export function validateModelDefinition(input: unknown): ModelValidationResult {
             "UNSUPPORTED_QUERY_FIELD_TYPE",
             "Range-valued fields have no text-search projection",
           );
-        } else if (field.type === "location" && kind !== "filterable") {
-          issue(issues, `query.${kind}`, "UNSUPPORTED_QUERY_FIELD_TYPE", "Location supports typed spatial filters only");
+        } else if (field.type === "location" && kind === "sortable") {
+          issue(issues, `query.${kind}`, "UNSUPPORTED_QUERY_FIELD_TYPE", "Location supports name search and typed spatial filters, but has no scalar ordering");
         } else if (["enum_list", "file", "file_list", "file_ref_list"].includes(field.type) && kind !== "filterable") {
           issue(
             issues,
