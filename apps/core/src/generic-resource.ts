@@ -10,6 +10,7 @@ import { ApiError } from "./http";
 import { applyModelDefaults } from "./model-defaults";
 import { isFirstClassRangeFieldType, rangeFieldValueType, type FieldDefinition, type ModelDefinition } from "./model-definition";
 import { validateRangeValue } from "./range-value";
+import { parseLocationValue } from "./location-value";
 import { resourceAuditActor, resourceAuditStorageType, type ResourceAudit } from "./resource-audit";
 import { validateTemporalRangeValue } from "./temporal-range";
 import { assertIanaTimezone, normalizeRfc3339Instant } from "./time-semantics";
@@ -345,6 +346,11 @@ export function normalizeCanonicalFieldValue(fieldKey: string, field: FieldDefin
     throw new ApiError("INVALID_RESOURCE", `${fieldKey} cannot be null`, 400);
   }
   switch (field.type) {
+    case "location": {
+      const parsed = parseLocationValue(value);
+      if (!parsed) throw new ApiError("INVALID_RESOURCE", `${fieldKey} must be a valid Location object`, 400);
+      return parsed;
+    }
     case "recurrence_rule": return parseRecurrenceRule(value);
     case "entity_ref": return parseEntityRef(value);
     case "string":
