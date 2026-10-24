@@ -218,7 +218,7 @@ Example conceptual predicate:
 }
 ```
 
-The radius is a finite number of meters, strictly positive and at most 5,000,000. Only explicitly coordinate-bearing Locations participate; name-only and null values do not match. Core first narrows candidates with a latitude/longitude bounding window (including antimeridian wrap), then applies the exact WGS84 great-circle Haversine test using supported D1 SQLite math functions. This predicate composes with Boolean Search/Filter, Sort and cursor pagination. The query and its spatial operand are bound to the cursor signature.
+The radius is a finite number of meters, strictly positive and at most 5,000,000. Only explicitly coordinate-bearing Locations participate; name-only and null values do not match. Declared `query.searchable` on a Location field searches its explicit `name` text only, preserving existing Event venue-name search without geocoding. Core first narrows candidates with a latitude/longitude bounding window (including antimeridian wrap), then applies the exact WGS84 great-circle Haversine test using supported D1 SQLite math functions. This predicate composes with Boolean Search/Filter, Sort and cursor pagination. The query and its spatial operand are bound to the cursor signature.
 
 D1 stores one Location in deterministic internal name/address/latitude/longitude columns, with a Space-prefixed coordinate index for fields declared filterable. Physical columns and indexing are implementation details and never appear in Model Definition, Canonical Value, REST or Agent Tool contracts. Upgrading existing Event.location from string requires an explicit compatible consumer migration; it is **not** silently rewritten by introducing this new type.
 
