@@ -181,6 +181,7 @@ v1 supports:
 | `range<date>` | one first-class half-open `Range<Date>` value: `{ start, endExclusive }` |
 | `range<instant>` | one first-class half-open `Range<Instant>` value: `{ start, endExclusive }` |
 | `temporal_range` | controlled half-open `Range<Date> | Range<Instant>` value with canonical `kind: "date" | "instant"` tagging |
+| `location` | bounded Location `{name,address?,coordinates?}` with optional WGS84 latitude/longitude |
 | `recurrence_rule` | canonical structured recurrence rule |
 | `entity_ref` | canonical structured Person/native-record reference |
 | `timezone` | valid IANA timezone |
@@ -208,9 +209,11 @@ First-class Range fields are one logical value. `range<date>` and `range<instant
 
 The field type already fixes Date versus Instant, so a fixed Range value does not repeat a `kind`. Bounds are always half-open `[start,endExclusive)`. `temporal_range` remains the controlled tagged union for a field that deliberately permits both Date and Instant variants.
 
-The physical mapping is deterministic and internal: one fixed Range field expands to start/end columns; one `temporal_range` field expands to discriminator/start/end columns. REST/Resource values remain the logical values above. Scalar fields retain one-field/one-column mapping and relation fields retain relation-table storage.
+The physical mapping is deterministic and internal: one fixed Range field expands to start/end columns; one `temporal_range` field expands to discriminator/start/end columns; one `location` field expands to name/address/latitude/longitude columns. REST/Resource values remain the logical values above. Scalar fields retain one-field/one-column mapping and relation fields retain relation-table storage.
 
 A `temporal_range` field may be published for generic CRUD and declared `query.filterable` and/or `query.sortable`. Create/update validation accepts the canonical tagged value, storage dehydrates it into the internal physical columns, and get/list/query resource projection hydrates it back into the same logical value. Generated Model Contracts expose only that canonical logical shape. Filter execution uses typed range operators and the internal discriminator/bounds index. Sort execution requires `context.viewingTimezone`, projects Date variants to absolute boundaries, keeps Instant variants absolute, and compares `projectedStart`, then `projectedEnd`, then record ID. Physical columns never become public fields. Search remains unavailable because no text projection is defined.
+
+A `location` value requires a trimmed non-empty `name` (at most 500 UTF-16 code units). Optional `address` is a non-empty trimmed string (at most 1000). Optional `coordinates` is exactly `{latitude,longitude}` with finite numeric WGS84 degrees (latitude -90..90, longitude -180..180); both components are present together. No other properties, provider-specific IDs, or implicit geocoding are accepted. Core never resolves name-only values to coordinates. Null and omission obey ordinary field nullability/required rules. This type has no default, scalar comparison or sort in v1; it may be declared searchable by its **explicit name** only (no hidden geocoding or address/coordinate search), and filterable for `withinDistance` and `isNull/isNotNull` (nullable only).
 
 Conformance-ID: MDV1-FIELD-TYPES-01
 
@@ -224,10 +227,11 @@ Physical mapping is not Model Definition syntax and is never exposed to model au
 | relation field `field` | existing relation-table rows |
 | `range<date>` / `range<instant>` field | internal `__r_<field>_start`, `__r_<field>_end` columns |
 | `temporal_range` field | internal `__tr_<field>_kind`, `__tr_<field>_start`, `__tr_<field>_end` columns |
+| `location` field | internal `__loc_<field>_name`, `__loc_<field>_address`, `__loc_<field>_latitude`, `__loc_<field>_longitude` columns; coordinates indexed with Space prefix only when filterable |
 
 Range columns enforce all-null/all-present integrity and `start < end`; TemporalRange columns additionally enforce the canonical `date | instant` discriminator. These names and checks are Storage implementation details, not REST or Resource fields. Generic create/update dehydrates the logical value into these columns; get/list and Generic/Canonical Query result projection hydrate them back into one canonical `temporal_range` value. A partial or invalid stored tuple fails closed instead of leaking physical state.
 
-Compatible physical migration may add an optional fixed Range as two nullable columns or an optional `temporal_range` as three nullable columns. Adding a required field still requires an explicit backfill/migration plan. Existing scalar schema and index output remains byte-for-byte stable.
+Compatible physical migration may add an optional fixed Range as two nullable columns, an optional `temporal_range` as three nullable columns, or an optional `location` as four nullable columns. Adding a required field still requires an explicit backfill/migration plan. Existing scalar schema and index output remains byte-for-byte stable.
 
 ### 4.2 Field properties
 
@@ -258,7 +262,7 @@ Rules:
 - `minimum` / `maximum` apply only to `integer` / `number`;
 - `values` is required for `enum`, must be unique and may contain at most 50 entries;
 - `targetModel` is required only for `record` / `record_list`; it remains structural relation semantics and is not encoded into `title`. Generated contracts may project relation target/cardinality metadata separately so human-readable naming and machine relation semantics remain orthogonal;
-- `range<date>`, `range<instant>` and `temporal_range` accept none of `minLength`, `maxLength`, `minimum`, `maximum`, `values` or `targetModel`.
+- `range<date>`, `range<instant>`, `temporal_range` and `location` accept none of `minLength`, `maxLength`, `minimum`, `maximum`, `values` or `targetModel`.
 
 Conformance-ID: MDV1-FIELD-REQUIRED-NULLABLE-01
 Conformance-ID: MDV1-FIELD-CONSTRAINTS-01

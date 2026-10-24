@@ -10,6 +10,7 @@ import {
   hydrateTypedResourceRows,
   resourceAuditJoins,
   resourceAuditSelectColumns,
+  typedLocationExpressions,
   typedRangeExpressions,
   typedScalarExpression,
   typedSelectColumns,
@@ -27,7 +28,7 @@ type ScalarOperator = "eq" | "ne" | "lt" | "lte" | "gt" | "gte" | "isNull" | "is
 type RelationOperator = "contains";
 type RangeOperator = "overlaps" | "contains" | "before" | "after";
 type TemporalRangeOperator = RangeOperator | "kindIs";
-type CanonicalOperator = ScalarOperator | RelationOperator | RangeOperator | TemporalRangeOperator;
+type CanonicalOperator = ScalarOperator | RelationOperator | RangeOperator | TemporalRangeOperator | "withinDistance";
 
 type LocalDateWindow = {
   kind: "local_date_window";
@@ -124,7 +125,7 @@ const MAX_FILTER_NODES = 100;
 const MAX_QUERY_BINDINGS = 100;
 const FILTER_OPERATORS = new Set<CanonicalOperator>([
   "eq", "ne", "lt", "lte", "gt", "gte", "isNull", "isNotNull", "within",
-  "contains", "overlaps", "before", "after", "kindIs",
+  "contains", "overlaps", "before", "after", "kindIs", "withinDistance",
 ]);
 
 function isObject(value: unknown): value is JsonObject {
@@ -218,7 +219,8 @@ function scalarValue(field: FieldDefinition, raw: unknown, path: string): string
     case "range<instant>":
       throw new ApiError("INVALID_QUERY", `${path} requires range query operators`, 400);
     case "temporal_range":
-      throw new ApiError("INVALID_QUERY", `${path} requires TemporalRange query operators`, 400);
+    case "location":
+      throw new ApiError("INVALID_QUERY", `${path} requires a typed query operator`, 400);
   }
 }
 
@@ -255,6 +257,10 @@ export function normalizeCanonicalQueryOperand(
   value: unknown,
   path = "value",
 ): unknown {
+  if (op === "withinDistance") {
+    if (field.type !== "location") throw new ApiError("INVALID_QUERY", `${path} uses withinDistance only for Location`, 400);
+    return parseSpatialOperand(value, path);
+  }
   if (op === "kindIs") {
     if (field.type !== "temporal_range" || (value !== "date" && value !== "instant")) {
       throw new ApiError("INVALID_QUERY", `${path} must be date or instant for kindIs`, 400);
@@ -329,7 +335,7 @@ function orderedType(field: FieldDefinition): boolean {
 }
 
 function equalityType(field: FieldDefinition): boolean {
-  return !["person", "person_list", "record", "record_list", "enum_list", "file", "file_list", "file_ref_list"].includes(field.type);
+  return !["location", "person", "person_list", "record", "record_list", "enum_list", "file", "file_list", "file_ref_list"].includes(field.type);
 }
 
 function relationAliasAllowed(model: PublishedModel, fieldKey: string): boolean {
@@ -541,6 +547,85 @@ function temporalRangeFieldPredicate(
   };
 }
 
+
+const EARTH_RADIUS_METERS = 6371008.8;
+const MAX_SPATIAL_RADIUS_METERS = 5000000;
+
+function parseSpatialOperand(value: unknown, path: string): {
+  point: { latitude: number; longitude: number };
+  meters: number;
+} {
+  if (!isObject(value)
+    || Object.keys(value).length !== 2
+    || !Object.hasOwn(value, "point")
+    || !Object.hasOwn(value, "meters")
+    || !isObject(value.point)
+    || Object.keys(value.point).length !== 2
+    || !Object.hasOwn(value.point, "latitude")
+    || !Object.hasOwn(value.point, "longitude")) {
+    throw new ApiError("INVALID_QUERY", `${path} must contain only point{latitude,longitude} and meters`, 400);
+  }
+  const { latitude, longitude } = value.point;
+  const { meters } = value;
+  if (typeof latitude !== "number" || !Number.isFinite(latitude) || latitude < -90 || latitude > 90
+    || typeof longitude !== "number" || !Number.isFinite(longitude) || longitude < -180 || longitude > 180
+    || typeof meters !== "number" || !Number.isFinite(meters) || meters <= 0 || meters > MAX_SPATIAL_RADIUS_METERS) {
+    throw new ApiError("INVALID_QUERY", `${path} requires WGS84 coordinates and a distance in (0, 5000000] meters`, 400);
+  }
+  return { point: { latitude, longitude }, meters };
+}
+
+function locationDistancePredicate(model: PublishedModel, predicate: FilterPredicate): SqlFragment {
+  const field = model.definition.fields[predicate.field];
+  if (!field || field.type !== "location" || !model.definition.query?.filterable?.includes(predicate.field)) {
+    throw new ApiError("INVALID_QUERY", `${predicate.field} is not a filterable Location field`, 400);
+  }
+  const expressions = typedLocationExpressions(model, predicate.field);
+  if (predicate.op === "isNull" || predicate.op === "isNotNull") {
+    if (field.nullable !== true) throw new ApiError("INVALID_QUERY", `${predicate.field} is not nullable`, 400);
+    return { sql: `${expressions.name} IS ${predicate.op === "isNull" ? "" : "NOT "}NULL`, args: [] };
+  }
+  if (predicate.op !== "withinDistance") {
+    throw new ApiError("INVALID_QUERY", `${predicate.field} supports withinDistance only`, 400);
+  }
+  const { point, meters } = parseSpatialOperand(predicate.value, `${predicate.field}.value`);
+  const angular = meters / EARTH_RADIUS_METERS;
+  const latDelta = angular * 180 / Math.PI;
+  const minLat = Math.max(-90, point.latitude - latDelta);
+  const maxLat = Math.min(90, point.latitude + latDelta);
+  const { latitude: lat, longitude: lon } = expressions;
+  const clauses = [`${lat} BETWEEN ? AND ?`];
+  const args: unknown[] = [minLat, maxLat];
+
+  // A bounding window narrows candidates through the (space_id, latitude, longitude)
+  // index before the exact great-circle test. Never hide a coordinate-less Location.
+  if (minLat > -90 && maxLat < 90) {
+    const lonDelta = Math.asin(Math.min(1, Math.sin(angular) / Math.cos(point.latitude * Math.PI / 180))) * 180 / Math.PI;
+    const minLon = point.longitude - lonDelta;
+    const maxLon = point.longitude + lonDelta;
+    if (minLon < -180) {
+      clauses.push(`(${lon} >= ? OR ${lon} <= ?)`);
+      args.push(minLon + 360, maxLon);
+    } else if (maxLon > 180) {
+      clauses.push(`(${lon} >= ? OR ${lon} <= ?)`);
+      args.push(minLon, maxLon - 360);
+    } else {
+      clauses.push(`${lon} BETWEEN ? AND ?`);
+      args.push(minLon, maxLon);
+    }
+  }
+
+  // Haversine great-circle distance: SQLite/D1 mathematical functions are
+  // supported. Clamp the floating-point intermediate to avoid asin domain drift.
+  clauses.push(`(2 * ${EARTH_RADIUS_METERS} * asin(min(1, sqrt(
+    pow(sin(radians(${lat}-?)/2),2)
+    + cos(radians(?)) * cos(radians(${lat}))
+    * pow(sin(radians(${lon}-?)/2),2)
+  )))) <= ?`);
+  args.push(point.latitude, point.latitude, point.longitude, meters);
+  return { sql: `(${clauses.join(" AND ")})`, args };
+}
+
 function validateFilterShape(value: unknown, depth = 0, counter = { value: 0 }): CanonicalFilter {
   if (!isObject(value)) throw new ApiError("INVALID_QUERY", "filter nodes must be objects", 400);
   if (depth > MAX_FILTER_DEPTH) throw new ApiError("INVALID_QUERY", `filter depth may not exceed ${MAX_FILTER_DEPTH}`, 400);
@@ -611,6 +696,7 @@ function parseSorts(
         400,
       );
     }
+    if (declared?.type === "location") throw new ApiError("INVALID_QUERY", `${field} cannot be sorted`, 400);
     if (declared?.type === "temporal_range") {
       if (!model.definition.query?.sortable?.includes(field)) {
         throw new ApiError("INVALID_QUERY", `${field} is not sortable for model ${model.key}`, 400);
@@ -880,6 +966,7 @@ async function predicateFragment(
   if (declaredField?.type === "temporal_range") {
     return temporalRangeFieldPredicate(model, predicate);
   }
+  if (declaredField?.type === "location") return locationDistancePredicate(model, predicate);
   if (predicate.field === "when") {
     const calendar = model.definition.capabilities?.calendar;
     if (!calendar) throw new ApiError("INVALID_QUERY", "when is not available for this model", 400);
@@ -956,8 +1043,14 @@ function searchFragment(model: PublishedModel, text: string): SqlFragment {
   const args: unknown[] = [];
   for (const fieldKey of model.definition.query?.searchable ?? []) {
     const field = model.definition.fields[fieldKey];
-    if (!field || !["string", "text", "enum"].includes(field.type)) continue;
-    clauses.push(`lower(CAST(${typedScalarExpression(model, fieldKey)} AS TEXT)) LIKE lower(?) ESCAPE '\\'`);
+    if (!field) continue;
+    const expression = field.type === "location"
+      ? typedLocationExpressions(model, fieldKey).name
+      : ["string", "text", "enum"].includes(field.type)
+        ? typedScalarExpression(model, fieldKey)
+        : null;
+    if (!expression) continue;
+    clauses.push(`lower(CAST(${expression} AS TEXT)) LIKE lower(?) ESCAPE '\\'`);
     args.push(`%${escapeLike(text)}%`);
   }
   if (!clauses.length) throw new ApiError("INVALID_QUERY", `Model ${model.key} has no text-searchable fields`, 400);

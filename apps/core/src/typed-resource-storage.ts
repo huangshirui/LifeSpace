@@ -9,10 +9,12 @@ import { isFirstClassRangeFieldType, rangeFieldValueType, type FieldDefinition }
 import type { PublishedModel } from "./model-registry";
 import {
   compilePhysicalSchema,
+  type PhysicalColumn,
   type PhysicalFieldMapping,
   type PhysicalSchemaPlan,
 } from "./physical-schema";
 import { validateRangeValue } from "./range-value";
+import { parseLocationValue } from "./location-value";
 import {
   resourceAuditFromStorage,
   type ResourceAudit,
@@ -237,6 +239,42 @@ function rangeComponents(mapping: PhysicalFieldMapping): {
   return { start, end };
 }
 
+
+function locationComponents(mapping: PhysicalFieldMapping): {
+  name: string;
+  address: string;
+  latitude: string;
+  longitude: string;
+} {
+  const column = (component: PhysicalColumn["component"]) =>
+    mapping.columns.find((item) => item.component === component)?.fieldKey;
+  const name = column("name");
+  const address = column("address");
+  const latitude = column("latitude");
+  const longitude = column("longitude");
+  if (!name || !address || !latitude || !longitude) {
+    throw new ApiError("INVALID_PHYSICAL_SCHEMA", `Location field ${mapping.fieldKey} has an incomplete physical mapping`, 500);
+  }
+  return { name, address, latitude, longitude };
+}
+
+export function typedLocationExpressions(
+  model: PublishedModel,
+  fieldKey: string,
+  alias = "m",
+): { name: string; latitude: string; longitude: string } {
+  const mapping = physicalPlanFor(model).fieldMappings.find((item) => item.fieldKey === fieldKey);
+  if (!mapping || mapping.storage !== "location") {
+    throw new ApiError("INVALID_PHYSICAL_SCHEMA", `Field ${fieldKey} is not a Location field`, 500);
+  }
+  const components = locationComponents(mapping);
+  return {
+    name: `${alias}.${identifier(components.name)}`,
+    latitude: `${alias}.${identifier(components.latitude)}`,
+    longitude: `${alias}.${identifier(components.longitude)}`,
+  };
+}
+
 function temporalComponents(mapping: PhysicalFieldMapping): {
   kind: string;
   start: string;
@@ -270,6 +308,19 @@ export function dehydrateTypedResourceData(
         throw new ApiError("INVALID_PHYSICAL_SCHEMA", `Scalar field ${mapping.fieldKey} has no physical column`, 500);
       }
       stored[column.fieldKey] = encodedValue(field, value);
+      continue;
+    }
+
+    if (mapping.storage === "location") {
+      const columns = locationComponents(mapping);
+      const parsed = value === undefined || value === null ? null : parseLocationValue(value);
+      if (value !== undefined && value !== null && !parsed) {
+        throw new ApiError("INVALID_RESOURCE", `${mapping.fieldKey} must be a valid Location value`, 400);
+      }
+      stored[columns.name] = parsed?.name ?? null;
+      stored[columns.address] = parsed?.address ?? null;
+      stored[columns.latitude] = parsed?.coordinates?.latitude ?? null;
+      stored[columns.longitude] = parsed?.coordinates?.longitude ?? null;
       continue;
     }
 
@@ -345,6 +396,30 @@ export function hydrateTypedResourceData(
         continue;
       }
       data[mapping.fieldKey] = decodedValue(field, value);
+      continue;
+    }
+
+    if (mapping.storage === "location") {
+      const columns = locationComponents(mapping);
+      const name = stored[columns.name];
+      const address = stored[columns.address];
+      const latitude = stored[columns.latitude];
+      const longitude = stored[columns.longitude];
+      if ([name, address, latitude, longitude].every((value) => value === null || value === undefined)) {
+        if (field.required) throw new ApiError("RESOURCE_STORAGE_CORRUPT", `Required Location ${mapping.fieldKey} is missing`, 500);
+        if (field.nullable) data[mapping.fieldKey] = null;
+        continue;
+      }
+      const raw = {
+        name,
+        ...(address === null || address === undefined ? {} : { address }),
+        ...(latitude === null && longitude === null ? {} : {
+          coordinates: { latitude, longitude },
+        }),
+      };
+      const location = parseLocationValue(raw);
+      if (!location) throw new ApiError("RESOURCE_STORAGE_CORRUPT", `Location ${mapping.fieldKey} is invalid for resource ${recordId}`, 500);
+      data[mapping.fieldKey] = location;
       continue;
     }
 

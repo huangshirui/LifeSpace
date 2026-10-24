@@ -1,5 +1,6 @@
 import { recurrenceRuleSchema } from "./recurrence-rule";
 import { entityRefSchema } from "./entity-ref";
+import { locationValueSchema } from "./location-value";
 import { fileRefListSchema } from "./file-ref";
 import { applySemanticRelationContract } from "./semantic-relation-model-contract";
 import { calendarViewingWindowSemanticQuery } from "./calendar-query-semantics";
@@ -65,6 +66,7 @@ function fieldSchema(field: FieldDefinition): JsonSchema {
   switch (field.type) {
     case "recurrence_rule": schema = recurrenceRuleSchema(); break;
     case "entity_ref": schema = entityRefSchema(); break;
+    case "location": schema = locationValueSchema(); break;
     case "string":
     case "text":
       schema = {
@@ -771,7 +773,7 @@ function parameterMap(model: PublishedModel): Map<string, Record<string, unknown
 
   for (const fieldKey of model.definition.query?.filterable ?? []) {
     const field = model.definition.fields[fieldKey];
-    if (!field || field.type === "temporal_range" || field.type === "range<date>" || field.type === "range<instant>") continue;
+    if (!field || field.type === "location" || field.type === "temporal_range" || field.type === "range<date>" || field.type === "range<instant>") continue;
     let schema = fieldSchema({ ...field, nullable: false, readOnly: false });
     if (field.type === "enum") {
       schema = { type: "string", ...(field.title ? { title: field.title } : {}), description: "One enum value, or a comma-separated set of enum values" };

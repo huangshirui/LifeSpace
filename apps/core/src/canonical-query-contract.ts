@@ -68,6 +68,7 @@ export const CANONICAL_QUERY_VALUE_OPERATORS = [
   "before",
   "after",
   "kindIs",
+  "withinDistance",
 ] as const;
 export const CANONICAL_QUERY_NULL_OPERATORS = ["isNull", "isNotNull"] as const;
 export const CANONICAL_QUERY_OPERATORS = [
@@ -121,6 +122,21 @@ function predicateValueSchema(): Record<string, unknown> {
       { type: "number" },
       { type: "boolean" },
       rangeOperandSchema(),
+      {
+        type: "object",
+        additionalProperties: false,
+        required: ["point", "meters"],
+        properties: {
+          point: {
+            type: "object", additionalProperties: false, required: ["latitude", "longitude"],
+            properties: {
+              latitude: { type: "number", minimum: -90, maximum: 90 },
+              longitude: { type: "number", minimum: -180, maximum: 180 },
+            },
+          },
+          meters: { type: "number", exclusiveMinimum: 0, maximum: 5000000 },
+        },
+      },
     ],
   };
 }
@@ -132,6 +148,7 @@ function currentActorAliasAllowed(model: PublishedModel, fieldKey: string, field
 }
 
 function fieldOperators(field: FieldDefinition): string[] {
+  if (field.type === "location") return ["withinDistance", ...(field.nullable === true ? ["isNull", "isNotNull"] : [])];
   if (["person", "person_list", "record", "record_list"].includes(field.type)) return ["contains"];
   if (isFirstClassRangeFieldType(field.type)) {
     return [

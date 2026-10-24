@@ -36,6 +36,7 @@ export const CANONICAL_FIELD_TYPES = [
   "range<date>",
   "range<instant>",
   "temporal_range",
+  "location",
   "recurrence_rule",
   "entity_ref",
   "timezone",
@@ -313,7 +314,7 @@ function validTimezone(value: string): boolean {
 }
 
 function validDefault(field: FieldDefinition, value: unknown): value is ModelDefaultValue {
-  if (["recurrence_rule", "entity_ref", "file", "file_list", "file_ref_list"].includes(field.type) || field.type === "temporal_range" || isFirstClassRangeFieldType(field.type)) return false;
+  if (["recurrence_rule", "entity_ref", "file", "file_list", "file_ref_list", "location"].includes(field.type) || field.type === "temporal_range" || isFirstClassRangeFieldType(field.type)) return false;
   if (value === null) return field.nullable === true;
 
   if (field.type === "person" || field.type === "record") return false;
@@ -791,6 +792,8 @@ export function validateModelDefinition(input: unknown): ModelValidationResult {
             "UNSUPPORTED_QUERY_FIELD_TYPE",
             "Range-valued fields have no text-search projection",
           );
+        } else if (field.type === "location" && kind === "sortable") {
+          issue(issues, `query.${kind}`, "UNSUPPORTED_QUERY_FIELD_TYPE", "Location supports name search and typed spatial filters, but has no scalar ordering");
         } else if (["enum_list", "file", "file_list", "file_ref_list"].includes(field.type) && kind !== "filterable") {
           issue(
             issues,

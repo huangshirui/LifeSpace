@@ -74,7 +74,8 @@ function fieldType(field: FieldDefinition): OperandType {
     case "record_list":
     case "range<date>":
     case "range<instant>":
-    case "temporal_range": return { kind: "unknown", nullable: field.nullable };
+    case "temporal_range":
+    case "location": return { kind: "unknown", nullable: field.nullable };
   }
 }
 

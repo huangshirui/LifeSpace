@@ -20,9 +20,9 @@ function publishedEvent(): PublishedModel {
   return {
     id: "mdl_event_temporal_range",
     key: "event",
-    version: 6,
+    version: 7,
     state: "published",
-    schemaHash: "be9bdea442a30108a22a2da77a96ab23aba5122ec3c2b1de20a6312cebb0cc8a",
+    schemaHash: "7b189b870a3da40ecc6d4ae7926c600f8beec5bc3af342539279d934da3243c6",
     compatibility: "breaking",
     definition: EVENT_MODEL_DEFINITION,
     publishedAt: "2026-09-17T00:00:00.000Z",
@@ -44,7 +44,7 @@ describe("Event canonical TemporalRange migration", () => {
     });
     expect(EVENT_MODEL_DEFINITION.query).toEqual({
       searchable: ["summary", "description", "location"],
-      filterable: ["status", "when", "attendeePersonIds"],
+      filterable: ["status", "when", "attendeePersonIds", "location"],
       sortable: ["when", "summary"],
     });
   });
@@ -82,7 +82,10 @@ describe("Event canonical TemporalRange migration", () => {
     expect(plan.columns.map((column) => column.fieldKey)).toEqual([
       "summary",
       "description",
-      "location",
+      "__loc_location_name",
+      "__loc_location_address",
+      "__loc_location_latitude",
+      "__loc_location_longitude",
       "__tr_when_kind",
       "__tr_when_start",
       "__tr_when_end",
@@ -90,6 +93,7 @@ describe("Event canonical TemporalRange migration", () => {
     ]);
     expect(plan.relationFields).toEqual(["attendeePersonIds"]);
     expect(plan.indexes.map((index) => index.name)).toEqual([
+      "idx_mdl_event_location",
       "idx_mdl_event_status",
       "idx_mdl_event_summary",
       "idx_mdl_event_when",

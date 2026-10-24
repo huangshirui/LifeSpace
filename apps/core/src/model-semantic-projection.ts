@@ -5,6 +5,7 @@ import { isCanonicalCalendarCapability, type CalendarCapabilityDefinition, type 
 import { canonicalQuerySemanticDescriptor, type CanonicalQuerySemanticDescriptor } from "./canonical-query-contract";
 import { calendarViewingWindowSemanticQuery } from "./calendar-query-semantics";
 import { isFirstClassRangeFieldType, type FieldDefinition, type ModelAccess } from "./model-definition";
+import { locationValueSchema } from "./location-value";
 import type { PublishedModel } from "./model-registry";
 import { referenceLabelSemantic, type ReferenceLabelSemantic } from "./reference-label";
 import { relationSemanticMetadata, type RelationResolutionDescriptor } from "./relation-semantic";
@@ -164,7 +165,7 @@ export function modelFieldSemanticFacts(model: PublishedModel): ModelSemanticFie
       return {
         key,
         ...structuredClone(field),
-        ...(field.type === "recurrence_rule" ? { valueSchema: recurrenceRuleSchema() } : field.type === "entity_ref" ? { valueSchema: entityRefSchema() } : {}),
+        ...(field.type === "recurrence_rule" ? { valueSchema: recurrenceRuleSchema() } : field.type === "entity_ref" ? { valueSchema: entityRefSchema() } : field.type === "location" ? { valueSchema: locationValueSchema() } : {}),
         ...(relation ? { relation } : {}),
       };
     });
@@ -186,7 +187,7 @@ export function modelQuerySemanticFacts(model: PublishedModel): ModelSemanticQue
   const sortable = [...(model.definition.query?.sortable ?? [])];
   const filters = filterable.flatMap((fieldKey) => {
     const field = model.definition.fields[fieldKey];
-    if (!field || field.type === "temporal_range" || isFirstClassRangeFieldType(field.type)) return [];
+    if (!field || field.type === "location" || field.type === "temporal_range" || isFirstClassRangeFieldType(field.type)) return [];
     return [{
       field: fieldKey,
       parameter: fieldKey,

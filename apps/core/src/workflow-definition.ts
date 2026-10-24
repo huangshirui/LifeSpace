@@ -64,7 +64,7 @@ function issue(issues: ModelValidationIssue[], path: string, code: string, messa
 }
 
 function literalCompatible(field: FieldDefinition, value: WorkflowLiteral): boolean {
-  if (field.type === "temporal_range" || field.type === "range<date>" || field.type === "range<instant>") return false;
+  if (field.type === "location" || field.type === "temporal_range" || field.type === "range<date>" || field.type === "range<instant>") return false;
   if (value === null) return field.nullable === true;
   switch (field.type) {
     case "recurrence_rule":
