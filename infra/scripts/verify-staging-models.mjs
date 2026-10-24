@@ -82,6 +82,7 @@ try {
     method: "POST",
     body: {
       summary: `Staging event ${marker}`,
+      location: { name: `Staging synthetic venue ${marker}`, coordinates: { latitude: 0, longitude: 0 } },
       when: {
         kind: "instant",
         start: start.toISOString(),
@@ -94,7 +95,10 @@ try {
   if (event.status !== "active"
       || event.when?.kind !== "instant"
       || event.when?.start !== start.toISOString()
-      || event.when?.endExclusive !== end.toISOString()) {
+      || event.when?.endExclusive !== end.toISOString()
+      || event.location?.name !== `Staging synthetic venue ${marker}`
+      || event.location?.coordinates?.latitude !== 0
+      || event.location?.coordinates?.longitude !== 0) {
     throw new Error(`Event TemporalRange/default mismatch: ${JSON.stringify(event)}`);
   }
   const events = await expectData(`/api/v1/spaces/${spaceId}/models/event/records/query`, {
@@ -113,6 +117,24 @@ try {
     },
   });
   if (!Array.isArray(events?.items) || !events.items.some((item) => item.id === event.id)) throw new Error(`Canonical TemporalRange overlap query did not return the created Event: ${JSON.stringify(events)}`);
+  const venueResults = await expectData(`/api/v1/spaces/${spaceId}/models/event/records/query`, {
+    method: "POST",
+    body: { search: { text: "Staging synthetic venue" }, page: { limit: 20 } },
+  });
+  if (!venueResults.items?.some((item) => item.id === event.id)) {
+    throw new Error("Event Location name search did not return the synthetic venue");
+  }
+  const nearby = await expectData(`/api/v1/spaces/${spaceId}/models/event/records/query`, {
+    method: "POST",
+    body: {
+      filter: { field: "location", op: "withinDistance",
+        value: { point: { latitude: 0, longitude: 0 }, meters: 50 } },
+      page: { limit: 20 },
+    },
+  });
+  if (!nearby.items?.some((item) => item.id === event.id)) {
+    throw new Error("Event Location WGS84 proximity query did not return the synthetic point");
+  }
 
   const anchor = addDays(today, -1);
   const day = await expectData(`/api/v1/spaces/${spaceId}/models/day_record/records`, {
@@ -184,7 +206,7 @@ try {
     ok: true,
     marker,
     task: { id: task.id, workflow: "complete/reopen" },
-    event: { id: event.id, temporalRange: true, canonicalOverlapQuery: true },
+    event: { id: event.id, temporalRange: true, canonicalOverlapQuery: true, location: true, locationNameSearch: true, withinDistance: true },
     dayRecord: { id: day.id, temporalOccurrence: true },
     wish: {
       id: wish.id,
