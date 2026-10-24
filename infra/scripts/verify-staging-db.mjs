@@ -33,7 +33,7 @@ const REQUIRED_TYPED_COLUMNS = new Map([
   ["mdl_task", ["record_id", "space_id", "completedAt", "completedById", "completedByType", "description", "dueDate", "name", "status"]],
   ["mdl_wish", ["record_id", "space_id", "description", "desiredDate", "fulfilledAt", "status", "title"]],
   ["mdl_day_record", ["record_id", "space_id", "anchorDate", "attentionAfterDays", "attentionBeforeDays", "cycleDays", "description", "kind", "name", "status"]],
-  ["mdl_event", ["record_id", "space_id", "summary", "description", "location", "__tr_when_kind", "__tr_when_start", "__tr_when_end", "status"]],
+  ["mdl_event", ["record_id", "space_id", "summary", "description", "__loc_location_name", "__loc_location_address", "__loc_location_latitude", "__loc_location_longitude", "__tr_when_kind", "__tr_when_start", "__tr_when_end", "status"]],
   ["mdl_person_group", ["record_id", "space_id", "name", "description"]],
   ["mdl_anniversary", ["record_id", "space_id", "name", "description", "month", "day", "year"]],
   ["mdl_activity", ["record_id", "space_id", "name", "description", "startDate", "endDate"]],
@@ -44,7 +44,7 @@ const REQUIRED_TYPED_COLUMNS = new Map([
 
 const FORBIDDEN_TYPED_COLUMNS = new Map([
   ["mdl_wish", ["archivedFromStatus", "claimedAt"]],
-  ["mdl_event", ["isAllDay", "startAt", "endAt", "startTimezone", "endTimezone", "startDate", "endDateExclusive"]],
+  ["mdl_event", ["location", "isAllDay", "startAt", "endAt", "startTimezone", "endTimezone", "startDate", "endDateExclusive"]],
 ]);
 
 const MODEL_TABLES = new Map([
