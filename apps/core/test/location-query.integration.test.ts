@@ -41,7 +41,7 @@ async function fixture() {
       name: { type: "string", required: true },
       place: { type: "location", nullable: true },
     },
-    query: { searchable: ["name"], filterable: ["place"], sortable: ["name"] },
+    query: { searchable: ["name", "place"], filterable: ["place"], sortable: ["name"] },
     access: ["read", "write"],
   };
   const model = await publishModelDefinition(bindings(), publisher, definition, "initial");
@@ -61,6 +61,10 @@ describe("Location Canonical Query / D1", () => {
     const filter = { field: "place", op: "withinDistance", value: {
       point: { latitude: 31, longitude: 121 }, meters: 300,
     } };
+    const placeSearch = await queryCanonicalResources(bindings(), actor, spaceId, model, {
+      search: { text: "文来中学" },
+    });
+    expect(placeSearch.items.map((item) => item.id)).toEqual([nearA.id]);
     const first = await queryCanonicalResources(bindings(), actor, spaceId, model, {
       search: { text: "Near" }, filter, sort: [{ field: "name", direction: "asc" }], page: { limit: 1 },
     });
