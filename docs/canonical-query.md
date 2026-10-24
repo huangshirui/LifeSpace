@@ -181,6 +181,14 @@ This rule applies consistently to `person_list` and `record_list`.
 
 The compatibility alias `me` is accepted only for semantic Person relation roles that explicitly support current-actor resolution, such as Calendar attendees or Temporal subject Person. Runtime resolves it under current Space Person state; adapters must not resolve it by guessing a Person ID.
 
+### 4.5 Location distance predicate
+
+For a `location` field declared `query.filterable`, `withinDistance` accepts `{point:{latitude,longitude},meters}`, with WGS84 coordinates and a radius greater than zero and no more than 5,000,000 meters. Name-only or null Locations are excluded; nullable fields separately support `isNull` and `isNotNull`. The implementation narrows candidates through Space-scoped geographic bounding indices and verifies exact great-circle distance before applying sort and cursor pagination. The predicate composes in the normal Boolean filter AST and is part of the opaque cursor identity. Neither Core nor adapters may silently geocode a name-only field.
+
+```json
+{ "field": "location", "op": "withinDistance", "value": { "point": { "latitude": 31, "longitude": 121 }, "meters": 500 } }
+```
+
 ## 5. Range predicates
 
 A first-class `range<date>` or `range<instant>` field declared `query.filterable` is the canonical fixed-Range query target. A retained legacy `timeRanges` projection and Calendar-projected ranges may also provide compatibility targets while older published models migrate.
