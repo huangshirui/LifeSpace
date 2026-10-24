@@ -9,6 +9,7 @@ import { isFirstClassRangeFieldType, rangeFieldValueType, type FieldDefinition }
 import type { PublishedModel } from "./model-registry";
 import {
   compilePhysicalSchema,
+  type PhysicalColumn,
   type PhysicalFieldMapping,
   type PhysicalSchemaPlan,
 } from "./physical-schema";
