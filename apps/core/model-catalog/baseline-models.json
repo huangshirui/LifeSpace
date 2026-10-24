@@ -564,11 +564,10 @@
         "maxLength": 5000
       },
       "location": {
-        "type": "string",
+        "type": "location",
         "title": "Location",
         "description": "Where the occurrence happens, when explicitly provided.",
-        "nullable": true,
-        "maxLength": 500
+        "nullable": true
       },
       "when": {
         "type": "temporal_range",
@@ -604,7 +603,8 @@
       "filterable": [
         "status",
         "when",
-        "attendeePersonIds"
+        "attendeePersonIds",
+        "location"
       ],
       "sortable": [
         "when",
