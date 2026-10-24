@@ -1043,8 +1043,14 @@ function searchFragment(model: PublishedModel, text: string): SqlFragment {
   const args: unknown[] = [];
   for (const fieldKey of model.definition.query?.searchable ?? []) {
     const field = model.definition.fields[fieldKey];
-    if (!field || !["string", "text", "enum"].includes(field.type)) continue;
-    clauses.push(`lower(CAST(${typedScalarExpression(model, fieldKey)} AS TEXT)) LIKE lower(?) ESCAPE '\\'`);
+    if (!field) continue;
+    const expression = field.type === "location"
+      ? typedLocationExpressions(model, fieldKey).name
+      : ["string", "text", "enum"].includes(field.type)
+        ? typedScalarExpression(model, fieldKey)
+        : null;
+    if (!expression) continue;
+    clauses.push(`lower(CAST(${expression} AS TEXT)) LIKE lower(?) ESCAPE '\\'`);
     args.push(`%${escapeLike(text)}%`);
   }
   if (!clauses.length) throw new ApiError("INVALID_QUERY", `Model ${model.key} has no text-searchable fields`, 400);
