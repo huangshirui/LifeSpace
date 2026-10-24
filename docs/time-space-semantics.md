@@ -175,7 +175,7 @@ Current legacy Calendar `calendarStart` ordering remains a compatibility behavio
 
 ### 7.1 Canonical semantic value
 
-**Planned Model Definition field type.**
+**Implemented in the #235 development branch; no Production availability is implied.**
 
 Location is a semantic value, not merely a display string. It supports bounded precision:
 
@@ -188,17 +188,18 @@ or:
 ```json
 {
   "name": "文来中学",
+  "address": "上海市闵行区…",
   "coordinates": { "latitude": 31.0, "longitude": 121.0 }
 }
 ```
 
-The precise schema will be versioned in Model Definition before publication. Coordinates are authoritative only when explicitly present in the stored value or supplied through an approved write path.
+The canonical schema permits only `name` (required, trimmed, 1–500), `address` (optional, trimmed, 1–1000), and `coordinates` (optional, finite WGS84 degrees, both latitude -90..90 and longitude -180..180). Coordinates are authoritative only when explicitly present in the stored value or supplied through an approved write path. Partial coordinate pairs, provider IDs and unrecognized properties are rejected.
 
 A name-only Location must not be silently geocoded by Core. Future geocoding is a separate capability/service and must not mutate the meaning of the original value without an explicit write.
 
 ### 7.2 Spatial query
 
-Where a Location has coordinates, Canonical Query will support typed spatial predicates such as:
+Where a Location has coordinates, Canonical Query supports typed spatial predicates such as:
 
 ```text
 withinDistance(point, distance)
@@ -217,9 +218,9 @@ Example conceptual predicate:
 }
 ```
 
-This is **planned** until the direct Location field type and storage/query compiler are implemented.
+The radius is a finite number of meters, strictly positive and at most 5,000,000. Only explicitly coordinate-bearing Locations participate; name-only and null values do not match. Core first narrows candidates with a latitude/longitude bounding window (including antimeridian wrap), then applies the exact WGS84 great-circle Haversine test using supported D1 SQLite math functions. This predicate composes with Boolean Search/Filter, Sort and cursor pagination. The query and its spatial operand are bound to the cursor signature.
 
-D1 remains the preferred storage engine. A geohash or other spatial index may be used internally for candidate reduction, but it is an implementation detail and must not enter Model Definition, Canonical Value, REST or Agent Tool contracts.
+D1 stores one Location in deterministic internal name/address/latitude/longitude columns, with a Space-prefixed coordinate index for fields declared filterable. Physical columns and indexing are implementation details and never appear in Model Definition, Canonical Value, REST or Agent Tool contracts. Upgrading existing Event.location from string requires an explicit compatible consumer migration; it is **not** silently rewritten by introducing this new type.
 
 ## 8. Seven-layer responsibility split
 
