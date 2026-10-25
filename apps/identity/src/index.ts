@@ -1,3 +1,4 @@
+import { registerWebLoginEmailRoutes } from "./web-login-email";
 import { createApp } from "./app";
 import { registerAccessIdentityRoutes } from "./access-identity";
 import { registerPlatformAdminActorRoutes } from "./platform-admin-actor";
@@ -13,6 +14,7 @@ export type { Bindings } from "./env";
 export function createIdentityApp(options: Parameters<typeof registerAccessIdentityRoutes>[1] = {}) {
   const app = createApp();
   registerAccessIdentityRoutes(app, options);
+  registerWebLoginEmailRoutes(app);
   registerPlatformAdminActorRoutes(app);
   registerPlatformAdminAssignmentRoutes(app);
   registerPlatformAgentAdminRoutes(app);

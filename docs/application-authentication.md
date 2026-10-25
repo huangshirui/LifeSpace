@@ -349,3 +349,15 @@ Platform-administrator assignment/revocation remains a provisioning/recovery act
 - Bootstrap secret as a normal Console runtime credential.
 - Ordinary `platform:admin` user tokens usable as long-lived administrator sessions.
 - Browser exposure of Access/LifeSpace/actor/application/service executor bearer material.
+
+## Explicit Web mailbox authorization (Identity 0.13; in development)
+
+Approved 2026-10-25 for HomeMew Mini 2.0. This is an Authority capability: the authenticated current user explicitly authorizes a mailbox holder to access that same account through one Application. PATCH /api/v1/me/web-login records email, current Application, configured Access issuer and optimistic version. Identity sends no email and does not mark mailbox ownership verified. Access remains the sole Web IdP; it must prove the mailbox identity through its configured authentication policy. Never accept raw email/sub claims as proof.
+
+After independent issuer/signature/lifetime/registered-audience verification, normal Access exchange may resolve an unknown principal through this explicit mailbox authorization. It does not create a new user or reassign/merge an existing principal; an existing conflicting mapping is denied. Users without an authorization keep the existing explicit link/register behavior. Once configured, the authorized email restricts that user's Web access for this Application, including historical principals; one-time link confirmation is unavailable. Changing email replaces this Application grant and preserves other Applications.
+
+GET /api/v1/me/web-login requires profile:read; PATCH requires profile:write and current version. A valid ASCII email and explicit user-facing confirmation are required; mailbox control is proved at actual Web login. Applications must make the authority granted by entering an address clear to users. Authorization metadata and non-secret operation audit live only in Identity migration 0012.
+
+POST /internal/v1/access/session-check verifies the current Access assertion and resolves the current authorized user without issuing a token. BFFs must perform this check before reusing cached sessions, compare returned userId to their authenticated cached subject, and fail closed. This revokes BFF session reuse after a mailbox change; already-issued short-lived bearers outside that BFF remain valid until their existing expiry. No global JWT revocation or Core change is claimed.
+
+Compatibility: deploy Identity migration 0012 and 0.13 before HomeMew BFF/Mini. This feature has not been deployed to production; docs/production remains a deployed-state projection.

@@ -392,3 +392,6 @@ Kernel semantic Discovery adds recurrence_rule and Person/Record entity_ref fiel
 ### Kernel 0.53.0 · File / Upload Capability
 
 Native `file` / `file_list` values are stable `fil_*` identities whose bytes remain outside ordinary typed Record storage. File transfer uses bounded `upl_*` sessions and short-lived R2 signed URLs. External `file_ref_list` keeps Provider-owned reference semantics; an External field may separately advertise upload capability while remaining unavailable to ordinary Record mutation. Consumers must never persist upload/download URLs as File identity.
+## Explicit Web mailbox authorization amendment (2026-10-25)
+
+Identity 0.13 adds an authenticated user's explicit Application-scoped mailbox login authorization. This is a deliberate Authority grant, not a verified contact field or implicit account merge. Access still verifies the actual Web identity. Existing principal conflicts are denied. See docs/application-authentication.md for scope, revocation, API and rollout rules. In development; not deployed to Production.
