@@ -342,3 +342,7 @@ The recurrence engine alone may construct an unforgeable in-process internal ser
 ### External business model binding (development candidate)
 
 A globally registered `origin: external` business definition is referenceable metadata, not global data availability. Each Space explicitly binds the definition to one connection/data source; business modelKey is the Runtime/Application Access/Grant/Delegation key, ext_* is registration identity. Authority requires a current binding and connection in addition to existing current-state checks. No payload mirror or second ACL is created. The same business definition can have different Provider fields/schemaHash in different Spaces. Consumers must use inventory `(spaceId,modelKey,schemaHash)` for dynamic fields, not reuse one Space's field schema across all Spaces. Native descriptor hot paths remain unchanged. Production remains unchanged until release acceptance.
+
+## Web mailbox login authority (in development)
+
+An authenticated user may explicitly authorize one mailbox to access their account through the current Application. This is app-scoped Identity login Authority, not a Space membership/Grant and not a verified contact-email claim. Cloudflare Access must still prove the actual mailbox identity. Conflicting existing principals cannot be reassigned or merged. See docs/application-authentication.md. Core data authorization remains unchanged.

@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: LifeSpace Identity API
-  version: 0.12.0
+  version: 0.13.0
   description: Global LifeSpace user identity, profile, trusted application exchange, Cloudflare Access principal resolution/linking, application credential lifecycle, Agent identity/execution-token issuance, service principals and credential issuance API.
 paths:
   /health:
@@ -59,6 +59,71 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '422': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/me/web-login:
+    get:
+      description: Read the authenticated user's application-scoped Web login mailbox authorization. Requires profile:read. Email is user-authorized, not ownership-verified. Version 0 means no authorization exists.
+      security: [{ userBearer: [] }]
+      responses:
+        '200':
+          description: Current Web login settings
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WebLoginResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    patch:
+      description: Explicitly authorize a mailbox holder to access the current account in this Application through verified Cloudflare Access. Does not send mail or verify ownership, create users or merge existing principals. Replaces the old mailbox authorization. Requires profile:write and optimistic version.
+      security: [{ userBearer: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [email, version]
+              properties:
+                email: { type: string, format: email, maxLength: 254 }
+                version: { type: integer, minimum: 0 }
+      responses:
+        '200':
+          description: Mailbox authorization saved
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WebLoginResponse' }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { description: EMAIL_UNAVAILABLE or EMAIL_VERSION_CONFLICT; no account merge }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '503': { description: ACCESS_NOT_CONFIGURED }
+  /internal/v1/access/session-check:
+    post:
+      description: Revalidate a cached BFF session against current mailbox authorization and verified Access issuer/signature/subject/audience. No token issuance. BFF compares returned userId with its authenticated cached session subject before reuse.
+      security: [{ applicationCredential: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AccessLinkChallengeRequest' }
+      responses:
+        '200':
+          description: Current resolved user
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: object
+                    required: [userId]
+                    properties:
+                      userId: { type: string, pattern: '^usr_' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { description: ACCESS_EMAIL_REVOKED or disabled user/principal/application or invalid audience }
+        '409': { description: ACCESS_PRINCIPAL_UNLINKED or ACCESS_EMAIL_CONFLICT }
+        '503': { description: Access verifier unavailable }
   /api/v1/me/avatar:
     put:
       description: Replace the authenticated user's avatar. Requires profile:write. Accepts JPEG, PNG or WebP up to 5 MB.
@@ -192,7 +257,7 @@ paths:
         '403': { description: User/application/scope is not allowed }
   /internal/v1/access/tokens:
     post:
-      description: Trusted application backend/BFF exchanges a raw Cloudflare Access JWT for an app-scoped LifeSpace user token. Identity independently verifies RS256 signature, configured issuer, expiry and subject, then requires one JWT audience to be actively registered to the calling lsa_* application. User identity is resolved only by (iss, sub); email is metadata and never merges accounts.
+      description: Trusted application backend/BFF exchanges a raw Cloudflare Access JWT for an app-scoped LifeSpace user token. Identity independently verifies RS256 signature, configured issuer, expiry and subject, then requires one JWT audience to be actively registered to the calling lsa_* application. User identity resolves by (iss, sub) or an explicit user-authorized application-scoped mailbox grant after Access verification. Email equality alone never merges accounts.
       security: [{ applicationCredential: [] }]
       requestBody:
         required: true
@@ -609,6 +674,18 @@ components:
             code: { type: string }
             message: { type: string }
             requestId: { type: string }
+    WebLoginResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          additionalProperties: false
+          required: [email, version, linked]
+          properties:
+            email: { type: [string, 'null'], format: email }
+            version: { type: integer, minimum: 0 }
+            linked: { type: boolean, description: A legacy active principal is linked or a mailbox is authorized. Not mailbox ownership verification. }
     UserProfile:
       type: object
       additionalProperties: false

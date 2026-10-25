@@ -1,3 +1,4 @@
+import { readWebLoginEmail, normalizeLoginEmail } from "./web-login-email";
 import type { Context, Hono } from "hono";
 import { sign } from "hono/jwt";
 import {
@@ -192,6 +193,28 @@ async function findPrincipal(db: D1Database, issuer: string, subject: string): P
   `).bind(issuer, subject).first<AccessPrincipalRow>();
 }
 
+// An authenticated user's explicit mailbox authorization is app-scoped Authority.
+// A signed Access assertion proves the mailbox holder; no raw email is accepted.
+async function resolveLogin(c: Context<AppEnv>, verified: VerifiedApplicationAccess): Promise<string | Response> {
+  const principal=await findPrincipal(c.env.DB,verified.issuer,verified.subject);
+  if(principal && (principal.principal_status!=="active" || principal.user_status!=="active"))
+    return c.json(fail("FORBIDDEN","Access principal or user is inactive",c.get("requestId")),403);
+  const email=normalizeLoginEmail(verified.email);
+  const authorized=email ? await c.env.DB.prepare(`SELECT e.user_id FROM web_login_emails e
+    JOIN users u ON u.id=e.user_id WHERE e.application_id=? AND e.issuer=? AND e.email=? AND u.status='active'`)
+    .bind(c.get("currentApplicationId"),verified.issuer,email).first<{user_id:string}>() : null;
+  if(principal) {
+    if(authorized && authorized.user_id!==principal.user_id)
+      return c.json(fail("ACCESS_EMAIL_CONFLICT","Access identity belongs to another account",c.get("requestId")),409);
+    const grant=await readWebLoginEmail(c.env.DB,principal.user_id,c.get("currentApplicationId"));
+    if(grant && (grant.issuer!==verified.issuer || grant.email!==email))
+      return c.json(fail("ACCESS_EMAIL_REVOKED","This mailbox is no longer authorized",c.get("requestId")),403);
+    return principal.user_id;
+  }
+  if(authorized) return authorized.user_id;
+  return c.json(fail("ACCESS_PRINCIPAL_UNLINKED","Access principal is not linked to a LifeSpace user",c.get("requestId")),409);
+}
+
 export function registerAccessIdentityRoutes(app: Hono<AppEnv>, options: AccessRouteOptions = {}) {
   app.get("/bootstrap/v1/applications/:applicationId/access-audiences", async (c) => {
     const application = await loadApplication(c.env.DB, c.req.param("applicationId"));
@@ -284,20 +307,23 @@ export function registerAccessIdentityRoutes(app: Hono<AppEnv>, options: AccessR
     const verified = await verifyForCurrentApplication(c, body.accessAssertion, options.accessFetch);
     if (verified instanceof Response) return verified;
 
-    const principal = await findPrincipal(c.env.DB, verified.issuer, verified.subject);
-    if (!principal) {
-      return c.json(fail("ACCESS_PRINCIPAL_UNLINKED", "Access principal is not linked to a LifeSpace user", c.get("requestId")), 409);
-    }
-    if (principal.principal_status !== "active" || principal.user_status !== "active") {
-      return c.json(fail("FORBIDDEN", "Access principal or LifeSpace user is not active", c.get("requestId")), 403);
-    }
-    const seenAt = new Date().toISOString();
-    await c.env.DB.prepare(`
-      UPDATE access_principals
-      SET email_snapshot=COALESCE(?,email_snapshot),last_seen_at=?,updated_at=?
-      WHERE id=?
-    `).bind(verified.email, seenAt, seenAt, principal.id).run();
-    return issueUserToken(c, principal.user_id, scopes);
+    const resolved=await resolveLogin(c,verified);
+    if(resolved instanceof Response) return resolved;
+    const seenAt=new Date().toISOString();
+    await c.env.DB.prepare(`UPDATE access_principals SET email_snapshot=COALESCE(?,email_snapshot),last_seen_at=?,updated_at=?
+      WHERE issuer=? AND subject=? AND user_id=?`).bind(verified.email,seenAt,seenAt,verified.issuer,verified.subject,resolved).run();
+    return issueUserToken(c,resolved,scopes);
+  });
+
+  // Cheap live authorization check for signed application sessions: no token issuance.
+  app.post("/internal/v1/access/session-check",async c=>{
+    const body=await c.req.json<AccessRequestBody>().catch(()=>({} as AccessRequestBody));
+    const verified=await verifyForCurrentApplication(c,body.accessAssertion,options.accessFetch);
+    if(verified instanceof Response) return verified;
+    const resolved=await resolveLogin(c,verified);
+    if(resolved instanceof Response) return resolved;
+    c.header("cache-control","no-store");
+    return c.json(ok({userId:resolved}));
   });
 
   app.post("/internal/v1/access/registrations", async (c) => {
@@ -385,6 +411,8 @@ export function registerAccessIdentityRoutes(app: Hono<AppEnv>, options: AccessR
   });
 
   app.post("/api/v1/me/access-link-challenges/:challengeId/confirm", async (c) => {
+    const emailGrant=await readWebLoginEmail(c.env.DB,c.get("principal").id,c.get("principal").clientId);
+    if(emailGrant) return c.json(fail("EMAIL_LOGIN_CONFIGURED","Manage the authorized mailbox instead of linking a challenge",c.get("requestId")),409);
     const now = new Date().toISOString();
     const linkId = c.req.param("challengeId");
     const challenge = await c.env.DB.prepare(`
