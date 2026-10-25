@@ -191,7 +191,7 @@
           "operationPattern": "^POST /introspection/v1/recurrence-roots$"
         },
         {
-          "id": "identity-web-mailbox-authorization",
+          "id": "identity-account-link-settings",
           "maturity": "candidate",
           "visibility": "public",
           "operationPattern": "^(GET|PATCH) /api/v1/me/web-login$"

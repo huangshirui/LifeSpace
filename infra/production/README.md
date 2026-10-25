@@ -130,3 +130,7 @@ File uploads are **not yet a verified production capability**. The separate, own
 Use an R2 token restricted to `lifespace-assets` with object read/write permissions. **Never reuse staging credentials** or expose these values in client code, GitHub source, logs, Worker API responses or application storage. Runtime secrets are synchronized only by the manual production workflow after Core deployment.
 
 Review and non-destructively extend the shared production R2 bucket's existing CORS rules for explicitly allowed Web/PWA origins; signed Node/n8n uploads need no browser CORS. Preserve all unrelated existing rules. Native and Notion File real synthetic acceptance must pass in staging for the exact candidate SHA **before** production is run. The production workflow does not mutate a real Notion dataset as a synthetic smoke.
+
+## Release provenance discipline (2026-10-26)
+
+All platform releases must use the normal manual GitHub workflow on main. Before any environment mutation the candidate must be the exact merge commit of a same-repository PR whose required Check passed on its head. Production additionally requires the staging workflow to have succeeded on that exact candidate SHA, in addition to existing APAC, owner, confirmation and isolation gates. Local bundles, direct Cloudflare uploads and direct remote SQL are not normal release alternatives. This correction does not dispatch deployment or claim Staging/Production fixed.

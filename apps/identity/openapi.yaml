@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: LifeSpace Identity API
-  version: 0.13.0
+  version: 0.14.0
   description: Global LifeSpace user identity, profile, trusted application exchange, Cloudflare Access principal resolution/linking, application credential lifecycle, Agent identity/execution-token issuance, service principals and credential issuance API.
 paths:
   /health:
@@ -61,7 +61,7 @@ paths:
         '422': { $ref: '#/components/responses/ValidationError' }
   /api/v1/me/web-login:
     get:
-      description: Read the authenticated user's application-scoped Web login mailbox authorization. Requires profile:read. Email is user-authorized, not ownership-verified. Version 0 means no authorization exists.
+      description: Read the current Access identity link, regardless of email-first or code-first entry. Requires profile:read. Pending email is not yet verified. Version is the monotonic user link revision.
       security: [{ userBearer: [] }]
       responses:
         '200':
@@ -72,7 +72,7 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
     patch:
-      description: Explicitly authorize a mailbox holder to access the current account in this Application through verified Cloudflare Access. Does not send mail or verify ownership, create users or merge existing principals. Replaces the old mailbox authorization. Requires profile:write and optimistic version.
+      description: Pre-link or replace the selected Access account email. Requires profile:write and current link version. Access verification completes the same principal record; no token is issued from a pending email.
       security: [{ userBearer: [] }]
       requestBody:
         required: true
@@ -121,8 +121,8 @@ paths:
                     properties:
                       userId: { type: string, pattern: '^usr_' }
         '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { description: ACCESS_EMAIL_REVOKED or disabled user/principal/application or invalid audience }
-        '409': { description: ACCESS_PRINCIPAL_UNLINKED or ACCESS_EMAIL_CONFLICT }
+        '403': { description: Disabled user/principal/application or invalid audience }
+        '409': { description: ACCESS_PRINCIPAL_UNLINKED or ACCESS_LINK_CONFLICT }
         '503': { description: Access verifier unavailable }
   /api/v1/me/avatar:
     put:
@@ -681,7 +681,7 @@ components:
         data:
           type: object
           additionalProperties: false
-          required: [email, version, linked]
+          required: [email, version, linked, status]
           properties:
             email: { type: [string, 'null'], format: email }
             version: { type: integer, minimum: 0 }

@@ -98,7 +98,7 @@ export function registerPlatformInspectorRoutes(app: App): void {
     if (!user) return c.json(fail("USER_NOT_FOUND", "User not found", c.get("requestId")), 404);
     const principals = await c.env.DB.prepare(`
       SELECT id,issuer,subject,user_id,email_snapshot,status,linked_at,last_seen_at,created_at,updated_at
-      FROM access_principals WHERE user_id=? ORDER BY linked_at,id
+      FROM access_principals WHERE user_id=? AND subject IS NOT NULL ORDER BY linked_at,id
     `).bind(userId).all<AccessPrincipalRow>();
     return c.json(ok({ ...userDto(c.req.url, user), accessPrincipals: principals.results.map(principalDto) }));
   });

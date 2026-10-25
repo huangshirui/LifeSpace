@@ -11,6 +11,9 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read
+  checks: read
+  actions: read
 
 concurrency:
   group: lifespace-console-staging-deploy
@@ -31,6 +34,11 @@ jobs:
         uses: actions/checkout@v5
         with:
           ref: ${{ github.sha }}
+
+      - name: Verify merged PR and exact candidate provenance
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node infra/scripts/verify-release-candidate.mjs staging console
 
       - name: Report deployment source
         run: |

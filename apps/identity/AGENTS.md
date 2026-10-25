@@ -197,6 +197,7 @@ An Identity change is incomplete until:
 - Access identity changes cover issuer/signature/lifetime/audience/linking races;
 - platform-admin changes cover missing/wrong-purpose/mismatched actor proof, executor scope and administrator revocation semantics;
 - downstream application-contract impact is explicitly assessed.
-## Explicit Web mailbox authorization amendment (2026-10-25)
 
-Identity 0.13 adds an authenticated user's explicit Application-scoped mailbox login authorization. This is a deliberate Authority grant, not a verified contact field or implicit account merge. Access still verifies the actual Web identity. Existing principal conflicts are denied. See docs/application-authentication.md for scope, revocation, API and rollout rules. In development; not deployed to Production.
+## Unified Access account linking correction (2026-10-26)
+
+Identity 0.14/schema 13 supersedes the independent 0.13 mailbox authorization design. Mini-declared email creates a pending row in `access_principals`; verified Access login or code confirmation completes that same identity relation. Confirmed login resolves only issuer/subject. No permanent email fallback or separate mailbox grant table. See docs/application-authentication.md. Not deployed by this correction.
