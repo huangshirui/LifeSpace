@@ -27,6 +27,7 @@ if (bootstrapSecret.length < 32) throw new Error("LIFESPACE_STAGING_BOOTSTRAP_SE
 
 const applicationScopes = [
   "profile:read",
+  "profile:write",
   "spaces:read",
   "spaces:write",
   "spaces:manage",

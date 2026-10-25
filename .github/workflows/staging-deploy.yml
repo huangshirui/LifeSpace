@@ -209,6 +209,9 @@ jobs:
       - name: Prepare ephemeral authenticated staging smoke
         run: node infra/scripts/prepare-staging-smoke.mjs
 
+      - name: Verify explicit mailbox authorization on staging
+        run: node infra/scripts/verify-staging-web-login-email.mjs
+
       - name: Publish or verify baseline model semantics
         run: node infra/scripts/publish-staging-baseline-model-semantics.mjs
 
