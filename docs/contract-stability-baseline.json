@@ -116,7 +116,7 @@
     {
       "id": "identity-application",
       "source": "apps/identity/openapi.yaml",
-      "operationSetSha256": "sha256:729564012b346b7d72d293bad164608bb945089306e0b05705e33496a37e7049",
+      "operationSetSha256": "sha256:331a1ac1ff82ada128f4a9ccc178bdd5b71cf76fca399586fbf4ff3bfa3d7a48",
       "groups": [
         {
           "id": "identity-operational",
@@ -189,6 +189,18 @@
           "maturity": "candidate",
           "visibility": "internal",
           "operationPattern": "^POST /introspection/v1/recurrence-roots$"
+        },
+        {
+          "id": "identity-web-mailbox-authorization",
+          "maturity": "candidate",
+          "visibility": "public",
+          "operationPattern": "^(GET|PATCH) /api/v1/me/web-login$"
+        },
+        {
+          "id": "identity-access-session-check",
+          "maturity": "candidate",
+          "visibility": "internal",
+          "operationPattern": "^POST /internal/v1/access/session-check$"
         }
       ]
     },
