@@ -210,9 +210,10 @@ export async function decorateCapabilityResponses(
   spaceId: string,
   model: PublishedModel,
   resources: readonly GenericResource[],
+  temporalContext?: SpaceTemporalContext,
 ): Promise<CapabilityResponseDecoration[]> {
   if (!hasTemporalCapability(model) && !model.definition.capabilities?.checkIn) return resources.map(() => ({}));
-  const space = await loadSpaceTemporalContext(env, spaceId);
+  const space = temporalContext ?? await loadSpaceTemporalContext(env, spaceId);
   return resources.map((resource) => ({ computed: {
     ...(hasTemporalCapability(model) ? { temporal: computeTemporalResource(model, resource, space) } : {}),
     ...(model.definition.capabilities?.checkIn ? { checkIn: computeCheckIn(model, resource, space.timezone) } : {}),
