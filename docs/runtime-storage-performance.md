@@ -208,7 +208,7 @@ On APAC performance-gate failures, retain all ordered APAC sample timings (45 no
 A failed P90 must not be auto-overridden just because Core Worker \`wallTimeMs\` looks lower: those observations are recorded at different layers and may differ in sampled calls, response-body timing, and network segments. Investigate Core/Identity/D1/edge-path timings before changing the performance target or rollout policy.
 
 
-Logs may include request IDs, method/path, placement metadata and aggregate phase durations. They must not log credentials, Authorization headers, secret material or request bodies merely for performance diagnosis.
+For APAC investigation, the probe forwards an independent per-request `X-Request-ID`; Core emits that ID in its existing `LifeSpace performance timing` observability event and the probe retains the echoed, matching ID with its measured Core-header latency. Compare *paired* Core phase `totalMs` and probe `coreHeadersMs` by this ID; unpaired aggregate P90 values cannot prove that the difference is transport overhead. This is diagnosis only and does not affect pass/fail acceptance.\n\nLogs may include request IDs, method/path, placement metadata and aggregate phase durations. They must not log credentials, Authorization headers, secret material or request bodies merely for performance diagnosis.
 
 Temporary diagnostics introduced for an investigation must be removed when they are no longer operationally needed.
 

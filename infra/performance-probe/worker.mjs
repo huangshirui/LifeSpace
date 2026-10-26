@@ -80,6 +80,7 @@ export async function handleProbeRequest(request, env, fetchImpl = fetch) {
   }
   const bearer = credentialMode === "service" ? env.SERVICE_BEARER : env.USER_BEARER;
 
+  const correlationId = crypto.randomUUID();
   const started = performance.now();
   let response;
   try {
@@ -87,6 +88,7 @@ export async function handleProbeRequest(request, env, fetchImpl = fetch) {
       method,
       headers: {
         authorization: "Bearer " + bearer,
+        "x-request-id": correlationId,
         ...(input.body === undefined ? {} : { "content-type": "application/json" }),
       },
       ...(input.body === undefined ? {} : { body: JSON.stringify(input.body) }),
@@ -129,6 +131,7 @@ export async function handleProbeRequest(request, env, fetchImpl = fetch) {
   }
 
   return json({ status: response.status, payload, elapsedMs, credentialMode,
+    coreRequestId: response.headers.get("x-request-id") === correlationId ? correlationId : null,
     coreResponseBodyMs,
     // Incoming colo is NOT proof of Workers runtime placement (including Smart Placement).
     probeIngressColo: request.cf?.colo ?? null,

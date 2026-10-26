@@ -95,6 +95,7 @@ test("exposes secret-free per-call transport diagnostics without changing latenc
       payload: { data: {} },
       elapsedMs: 121.5,
       coreResponseBodyMs: 3.4,
+      coreRequestId: "35a880fa-33d3-4732-8cfb-961bfb83e9e2",
       probeIngressColo: "SIN",
       credentialMode: "service",
     }),
@@ -106,6 +107,7 @@ test("exposes secret-free per-call transport diagnostics without changing latenc
   assert.equal(observations[0].route, "PATCH /api/v1/spaces/spc_*/models/task/records/rec_*");
   assert.equal(observations[0].coreHeadersMs, 121.5);
   assert.equal(observations[0].coreBodyMs, 3.4);
+  assert.equal(observations[0].coreRequestId, "35a880fa-33d3-4732-8cfb-961bfb83e9e2");
   assert.equal(observations[0].probeIngressColo, "SIN");
   assert.ok(Number.isFinite(observations[0].runnerToProbeMs));
   assert.doesNotMatch(JSON.stringify(observations), /probe-secret|secret data|private/u);

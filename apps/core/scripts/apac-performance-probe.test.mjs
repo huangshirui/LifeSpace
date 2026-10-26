@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { isAllowedBenchmarkRequest } from "../../../infra/performance-probe/worker.mjs";
+import { handleProbeRequest, isAllowedBenchmarkRequest } from "../../../infra/performance-probe/worker.mjs";
 
 const spaceId = "spc_probe_test";
 const recordId = "rec_abc123";
@@ -95,4 +95,57 @@ test("APAC release gate enforces scenario targets for reads and mutations", () =
   assert.match(verifier, /evaluateApacConfirmation/u);
   assert.match(verifier, /decision[.]status !== "passed"/u);
   assert.doesNotMatch(verifier, /allReadTargetsMet\)\s*\{/u);
+});
+
+test("APAC probe correlates each allowed Core request without exposing authorization", async () => {
+  let coreRequestId;
+  const request = new Request("https://probe.example/run", {
+    method: "POST",
+    headers: { "x-lifespace-probe-token": "test-probe-secret", "content-type": "application/json" },
+    body: JSON.stringify({
+      method: "GET",
+      path: `${base}/models/task/records/${recordId}`,
+      credentialMode: "user",
+    }),
+  });
+  const result = await handleProbeRequest(request, {
+    PROBE_TOKEN: "test-probe-secret",
+    USER_BEARER: "test-user-secret",
+    SERVICE_BEARER: "test-service-secret",
+    SPACE_ID: spaceId,
+  }, async (_url, options) => {
+    coreRequestId = options.headers["x-request-id"];
+    assert.match(coreRequestId, /^[0-9a-f-]{36}$/u);
+    assert.equal(options.headers.authorization, "Bearer test-user-secret");
+    return new Response(JSON.stringify({ data: { id: recordId } }), {
+      status: 200, headers: { "x-request-id": coreRequestId },
+    });
+  });
+  const output = await result.json();
+  assert.equal(output.status, 200);
+  assert.equal(output.coreRequestId, coreRequestId);
+  assert.equal(typeof output.elapsedMs, "number");
+  assert.doesNotMatch(JSON.stringify(output), /test-user-secret|test-probe-secret/u);
+});
+
+test("APAC probe fails closed on a mismatched Core correlation header", async () => {
+  const request = new Request("https://probe.example/run", {
+    method: "POST",
+    headers: { "x-lifespace-probe-token": "test-probe-secret", "content-type": "application/json" },
+    body: JSON.stringify({
+      method: "GET",
+      path: `${base}/models/task/records/${recordId}`,
+    }),
+  });
+  const response = await handleProbeRequest(request, {
+    PROBE_TOKEN: "test-probe-secret",
+    USER_BEARER: "test-user-secret",
+    SERVICE_BEARER: "test-service-secret",
+    SPACE_ID: spaceId,
+  }, async () => new Response(JSON.stringify({ data: {} }), {
+    status: 200, headers: { "x-request-id": "untrusted-mismatch" },
+  }));
+  const output = await response.json();
+  assert.equal(output.status, 200);
+  assert.equal(output.coreRequestId, null);
 });
