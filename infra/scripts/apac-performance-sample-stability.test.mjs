@@ -54,3 +54,19 @@ for (const [label, summarize] of [
     assert.equal(targetMet(slowMedian, USER_READ_TARGETS.taskList10), false);
   });
 }
+
+test("standalone APAC staging diagnostics is owner-dispatched and cannot substitute production promotion", () => {
+  const workflow = readFileSync(new URL("../../.github/workflows/staging-apac-diagnostics.yml", import.meta.url), "utf8");
+  assert.match(workflow, /^on:\s*\n  workflow_dispatch:\s*$/mu);
+  assert.match(workflow, /test "\$GITHUB_ACTOR" = "huangshirui"/u);
+  assert.match(workflow, /test "\$GITHUB_TRIGGERING_ACTOR" = "huangshirui"/u);
+  assert.match(workflow, /test "\$GITHUB_REF_NAME" = "main"/u);
+  assert.match(workflow, /environment: staging/u);
+  assert.match(workflow, /group: lifespace-staging-apac-performance/u);
+  assert.match(workflow, /verify-staging-candidate-identity[.]mjs/u);
+  assert.match(workflow, /verify-staging-apac-performance[.]mjs/u);
+  assert.match(workflow, /if: \$\{\{ always\(\) &&/u);
+  assert.doesNotMatch(workflow, /^    deploy:/mu);
+  assert.doesNotMatch(workflow, /environment: production/u);
+  assert.doesNotMatch(workflow, /workflow_run:|repository_dispatch:|(^|\n)  push:|(^|\n)  pull_request:/u);
+});
