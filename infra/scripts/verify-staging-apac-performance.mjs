@@ -99,6 +99,8 @@ function summarizeProbeDiagnostics(observations) {
     coreBodyP90Ms: p(samples.map((s) => s.coreBodyMs), 90),
     runnerToProbeP90Ms: p(samples.map((s) => s.runnerToProbeMs), 90),
     probeIngressColos: [...new Set(samples.map((s) => s.probeIngressColo).filter(Boolean))].sort(),
+    slowCoreHeaderSamples: samples.filter((s) => s.coreHeadersMs > 200).slice(0, 45)
+      .map((s) => ({ coreRequestId: s.coreRequestId, coreHeadersMs: s.coreHeadersMs, coreBodyMs: s.coreBodyMs })),
   }));
 }
 
