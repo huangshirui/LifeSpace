@@ -346,3 +346,7 @@ A globally registered `origin: external` business definition is referenceable me
 ## Web mailbox login authority (in development)
 
 An authenticated user may explicitly authorize one mailbox to access their account through the current Application. This is app-scoped Identity login Authority, not a Space membership/Grant and not a verified contact-email claim. Cloudflare Access must still prove the actual mailbox identity. Conflicting existing principals cannot be reassigned or merged. See docs/application-authentication.md. Core data authorization remains unchanged.
+
+## 2026-10-26 correction: unified Access links
+
+The Identity 0.14/schema 13 account-link contract supersedes the earlier 0.13 mailbox-grant wording. Both entry points write `access_principals`; pending declarations grant no token and ordinary login resolves verified issuer/subject only. GET settings projects code-linked and email-prelinked state uniformly. See `application-authentication.md`. Not deployed by this correction.

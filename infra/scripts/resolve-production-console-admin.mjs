@@ -79,7 +79,7 @@ async function queryAccessBackedUsers(accountId, apiToken) {
     "SELECT DISTINCT u.id AS user_id",
     "FROM users u",
     "INNER JOIN access_principals ap ON ap.user_id = u.id",
-    "WHERE u.status = 'active' AND ap.status = 'active'",
+    "WHERE u.status = 'active' AND ap.status = 'active' AND ap.subject IS NOT NULL",
     "ORDER BY u.id",
     "LIMIT 2",
   ].join(" ");

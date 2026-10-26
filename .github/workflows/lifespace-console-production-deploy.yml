@@ -10,6 +10,9 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read
+  checks: read
+  actions: read
   statuses: write
 
 concurrency:
@@ -38,6 +41,11 @@ jobs:
         uses: actions/checkout@v5
         with:
           ref: ${{ github.sha }}
+
+      - name: Verify merged PR and exact candidate provenance
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node infra/scripts/verify-release-candidate.mjs production console
 
       - name: Report rollout pending
         env:

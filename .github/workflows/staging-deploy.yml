@@ -7,6 +7,9 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read
+  checks: read
+  actions: read
 
 concurrency:
   group: lifespace-staging-deploy
@@ -25,6 +28,17 @@ jobs:
           test "$GITHUB_ACTOR" = "huangshirui" || { echo "staging deployment must be initiated directly by repository owner huangshirui; actor=$GITHUB_ACTOR" >&2; exit 1; }
           test "$GITHUB_TRIGGERING_ACTOR" = "huangshirui" || { echo "staging deployment must be triggered directly by repository owner huangshirui; triggering_actor=$GITHUB_TRIGGERING_ACTOR" >&2; exit 1; }
           test "$GITHUB_REF_NAME" = "main" || { echo "staging deployment must run from main" >&2; exit 1; }
+
+      - name: Checkout immutable release candidate
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Verify merged PR and exact candidate provenance
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node infra/scripts/verify-release-candidate.mjs staging
+
 
   deploy:
     needs: validate

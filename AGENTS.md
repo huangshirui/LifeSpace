@@ -293,6 +293,7 @@ For platform-level work, explicitly state whether the durable abstraction belong
 - `lsp_agt_*` authenticates Application + Agent Actor only; it is never proof of User Authority.
 - Direct use is `Principal=Agent / Actor=Agent`. Represented use requires an explicit current `dlg_*` and may resolve only `Principal=User / Actor=Agent`; adapters must not supply `principalUserId`.
 - Agent credential scope/expiry updates are reduction-only and plaintext is one-time-only.
-## Explicit Web mailbox authorization amendment (2026-10-25)
 
-Identity 0.13 adds an authenticated user's explicit Application-scoped mailbox login authorization. This is a deliberate Authority grant, not a verified contact field or implicit account merge. Access still verifies the actual Web identity. Existing principal conflicts are denied. See docs/application-authentication.md for scope, revocation, API and rollout rules. In development; not deployed to Production.
+## Unified Access account linking correction (2026-10-26)
+
+Identity 0.14/schema 13 supersedes the independent 0.13 mailbox authorization design. Mini-declared email creates a pending row in `access_principals`; verified Access login or code confirmation completes that same identity relation. Confirmed login resolves only issuer/subject. No permanent email fallback or separate mailbox grant table. See docs/application-authentication.md. Not deployed by this correction.

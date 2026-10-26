@@ -395,3 +395,6 @@ Native `file` / `file_list` values are stable `fil_*` identities whose bytes rem
 ## Explicit Web mailbox authorization amendment (2026-10-25)
 
 Identity 0.13 adds an authenticated user's explicit Application-scoped mailbox login authorization. This is a deliberate Authority grant, not a verified contact field or implicit account merge. Access still verifies the actual Web identity. Existing principal conflicts are denied. See docs/application-authentication.md for scope, revocation, API and rollout rules. In development; not deployed to Production.
+## 2026-10-26 correction: unified Access links
+
+The Identity 0.14/schema 13 account-link contract supersedes the earlier 0.13 mailbox-grant wording. Both entry points write `access_principals`; pending declarations grant no token and ordinary login resolves verified issuer/subject only. GET settings projects code-linked and email-prelinked state uniformly. See `application-authentication.md`. Not deployed by this correction.
