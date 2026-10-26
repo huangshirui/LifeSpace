@@ -64,6 +64,8 @@ export function createApacProbeRequestAdapter({
       observations.push({
         route,
         coreHeadersMs: payload.elapsedMs,
+        coreRequestId: typeof payload.coreRequestId === "string" && /^[0-9a-f]{8}-[0-9a-f-]{27,}$/iu.test(payload.coreRequestId)
+          ? payload.coreRequestId : null,
         coreBodyMs: typeof payload.coreResponseBodyMs === 'number' ? payload.coreResponseBodyMs : null,
         runnerToProbeMs: clientToProbeMs,
         probeIngressColo: payload.probeIngressColo ?? null,
