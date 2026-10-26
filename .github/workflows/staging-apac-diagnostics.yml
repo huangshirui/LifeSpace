@@ -164,8 +164,10 @@ jobs:
         if: ${{ steps.apac_measurement.outcome == 'success' || steps.apac_measurement.outcome == 'failure' }}
         run: |
           cat >> "$GITHUB_STEP_SUMMARY" <<EOF
-          ## LifeSpace APAC performance gate
+          ## LifeSpace APAC staging diagnostic only
 
+          - Manual diagnostic only: this run never deploys Production and is not an authority for Production promotion.
+          - Performance gate outcome: `${{ steps.apac_measurement.outcome }}` (failure remains a genuine performance failure).
           - Candidate SHA: \`${GITHUB_SHA}\`; checkout pinned to the same immutable SHA.
           - Live staging Core/Identity schema and contract identity: matched candidate.
           - Live staging proving-model schema hashes and active \`mct_*\` Model Contract: matched candidate.
