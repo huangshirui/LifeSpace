@@ -216,7 +216,8 @@ describe("Cloudflare Access Identity integration", () => {
     });
 
     const subject2 = `access-new-${suffix}`;
-    const sameEmailAssertion = await accessToken(access.pair.privateKey, access.kid, issuer, subject2, homeAudience, "same@example.com");
+    // An unreserved mailbox cannot resolve an unknown Access subject to an existing user.
+    const sameEmailAssertion = await accessToken(access.pair.privateKey, access.kid, issuer, subject2, homeAudience, "unclaimed@example.com");
     const stillUnlinked = await request("/internal/v1/access/tokens", {
       method: "POST",
       headers: { ...jsonHeaders, authorization: `Bearer ${homeSecret}` },
