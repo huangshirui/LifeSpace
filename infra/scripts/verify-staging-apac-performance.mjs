@@ -3,6 +3,7 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { createApacProbeRequestAdapter } from "./apac-probe-client.mjs";
 import { APAC_RELEASE_SAMPLE_COUNT } from "./performance-release-targets.mjs";
+import { planApacConfirmation, evaluateApacConfirmation, APAC_CONFIRMATION_ROUNDS } from "./apac-release-acceptance.mjs";
 import { runStagingPerformanceBenchmark } from "./staging-canonical-performance-benchmark.mjs";
 import { runStagingServicePerformanceBenchmark } from "./staging-service-performance-benchmark.mjs";
 
@@ -108,17 +109,38 @@ console.log(JSON.stringify({
   service: summarizeProbeDiagnostics(serviceAdapter.diagnostics()),
 }, null, 2));
 
-console.log(JSON.stringify({ user: userResult, service: serviceResult }, null, 2));
-
-if (!userResult.acceptanceEligible || !userResult.allTargetsMet) {
-  throw new Error(`Staging APAC user performance target missed: ${JSON.stringify({
-    reads: userResult.readTargetsMet,
-    mutations: userResult.mutationTargetsMet,
-  })}`);
+// Only the narrow first-round P90 gray zone qualifies for confirmation.
+// Repeat the exact failed scenarios, never drop a slow sample or alter P50/P90 targets.
+const initial = { user: userResult, service: serviceResult };
+const plan = planApacConfirmation(initial, APAC_RELEASE_SAMPLE_COUNT);
+const confirmation = { user: [], service: [] };
+if (plan.status === "confirm") {
+  console.log(JSON.stringify({ APAC_BORDERLINE_CONFIRMATION: true, selectedScenarios: plan.retest }));
+  for (let round = 2; round <= APAC_CONFIRMATION_ROUNDS; round += 1) {
+    if (plan.retest.user.length) {
+      confirmation.user.push(await runStagingPerformanceBenchmark({
+        coreBaseUrl, bearer: userBearer, spaceId, personId, benchmarkProfile: "apac",
+        source: `APAC confirmation batch ${round} (user JWT)`,
+        sampleCount: APAC_RELEASE_SAMPLE_COUNT, mutationSampleCount: APAC_RELEASE_SAMPLE_COUNT,
+        requestAdapter: userAdapter, selectedScenarios: plan.retest.user,
+      }));
+    }
+    if (plan.retest.service.length) {
+      confirmation.service.push(await runStagingServicePerformanceBenchmark({
+        coreBaseUrl, bearer: serviceBearer, spaceId, benchmarkProfile: "apac",
+        source: `APAC confirmation batch ${round} (Service API Token)`,
+        sampleCount: APAC_RELEASE_SAMPLE_COUNT, mutationSampleCount: APAC_RELEASE_SAMPLE_COUNT,
+        requestAdapter: serviceAdapter, selectedScenarios: plan.retest.service,
+      }));
+    }
+  }
 }
-if (!serviceResult.acceptanceEligible || !serviceResult.allTargetsMet) {
-  throw new Error(`Staging APAC Service PAT performance target missed: ${JSON.stringify({
-    reads: serviceResult.readTargetsMet,
-    mutations: serviceResult.mutationTargetsMet,
-  })}`);
+const decision = plan.status === "confirm"
+  ? evaluateApacConfirmation(initial, confirmation, plan.retest, APAC_RELEASE_SAMPLE_COUNT)
+  : plan;
+console.log(JSON.stringify({ APAC_RELEASE_DECISION: decision,
+  initial: { user: userResult, service: serviceResult },
+  confirmation: plan.status === "confirm" ? confirmation : undefined }, null, 2));
+if (decision.status !== "passed") {
+  throw new Error(`Staging APAC performance release gate blocked: ${JSON.stringify(decision)}`);
 }

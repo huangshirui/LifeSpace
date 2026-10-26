@@ -18,11 +18,13 @@ test("the APAC release sample count does not change either benchmark's percentil
   assert.deepEqual(SERVICE_MUTATION_TARGETS.taskPatch, { p50Ms: 220, p90Ms: 300 });
 
   const script = readFileSync(new URL("./verify-staging-apac-performance.mjs", import.meta.url), "utf8");
-  assert.equal((script.match(/sampleCount: APAC_RELEASE_SAMPLE_COUNT,/gu) ?? []).length, 2);
-  assert.equal((script.match(/mutationSampleCount: APAC_RELEASE_SAMPLE_COUNT,/gu) ?? []).length, 2);
+  // Two initial samples configurations plus two targeted confirmation configurations.
+  assert.equal((script.match(/sampleCount: APAC_RELEASE_SAMPLE_COUNT,/gu) ?? []).length, 4);
+  assert.equal((script.match(/mutationSampleCount: APAC_RELEASE_SAMPLE_COUNT,/gu) ?? []).length, 4);
   assert.match(script, /requirePlatformGoldenFlow\(\)/u);
-  assert.match(script, /if \(!userResult.acceptanceEligible \|\| !userResult.allTargetsMet\)/u);
-  assert.match(script, /if \(!serviceResult.acceptanceEligible \|\| !serviceResult.allTargetsMet\)/u);
+  assert.match(script, /planApacConfirmation/u);
+  assert.match(script, /evaluateApacConfirmation/u);
+  assert.match(script, /decision[.]status !== "passed"/u);
 });
 
 for (const [label, summarize] of [

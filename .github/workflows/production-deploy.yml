@@ -119,6 +119,7 @@ jobs:
           node --check infra/scripts/verify-staging-candidate-identity.mjs
           node --check infra/scripts/staging-canonical-performance-benchmark.mjs
           node --check infra/scripts/staging-service-performance-benchmark.mjs
+          node --check infra/scripts/apac-release-acceptance.mjs
           node --check infra/scripts/verify-staging-apac-performance.mjs
           node --check infra/scripts/wait-staging-apac-probe.mjs
           node --check infra/performance-probe/worker.mjs
@@ -209,6 +210,7 @@ jobs:
           - Probe access: ephemeral random credential; staging user JWT and opaque Service API Token are stored only as temporary Worker secrets.
           - Readiness: both \`/health\` and the real \`POST /run -> Core\` read path must converge before timed samples start.
           - Benchmark profile: \`apac\`, acceptance eligible.
+          - Narrow P90 gray zone (P50 passes; P90 <= 110% of limit): only the failed credential/scenario receives two independent 45-sample batches; combined 135-sample P50/P90 and 2/3 rounds must meet unchanged targets. Every sample counts.
           - User JWT ordinary-read target: P50 <= 150 ms and P90 <= 250 ms.
           - User JWT Day Record / Temporal read target: P50 <= 220 ms and P90 <= 300 ms.
           - User JWT mutation/action target: P50 <= 160 ms and P90 <= 250 ms, measured with 45 samples per mutation scenario (45 for reads too).

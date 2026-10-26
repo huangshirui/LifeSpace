@@ -34,6 +34,7 @@ export async function runStagingServicePerformanceBenchmark({
   sampleCount = DEFAULT_SAMPLE_COUNT,
   warmupCount = DEFAULT_WARMUP_COUNT,
   mutationSampleCount = DEFAULT_MUTATION_SAMPLE_COUNT,
+  selectedScenarios = null,
 }) {
   const baseUrl = coreBaseUrl.replace(/\/+$/u, "");
   for (const [name, value] of Object.entries({ coreBaseUrl: baseUrl, bearer, spaceId, benchmarkProfile, source })) {
@@ -43,6 +44,15 @@ export async function runStagingServicePerformanceBenchmark({
   if (!Number.isInteger(warmupCount) || warmupCount < 0) throw new Error("warmupCount must be a non-negative integer");
   if (!Number.isInteger(mutationSampleCount) || mutationSampleCount < 1) throw new Error("mutationSampleCount must be a positive integer");
   if (requestAdapter !== undefined && typeof requestAdapter !== "function") throw new Error("requestAdapter must be a function");
+  const allowed = { ...SERVICE_READ_TARGETS, ...SERVICE_MUTATION_TARGETS };
+  if (selectedScenarios !== null && (!Array.isArray(selectedScenarios) || selectedScenarios.length === 0
+    || selectedScenarios.some((name) => !Object.hasOwn(allowed, name)))) {
+    throw new Error("selectedScenarios must be a non-empty array of known benchmark names");
+  }
+  const wants = (name) => selectedScenarios === null || selectedScenarios.includes(name);
+  const selectTargets = (targets) => Object.fromEntries(
+    Object.entries(targets).filter(([name]) => wants(name)),
+  );
 
   const acceptanceEligible = benchmarkProfile === "apac";
   const marker = `service-perf-${crypto.randomUUID().replaceAll("-", "").slice(0, 10)}`;
@@ -121,20 +131,19 @@ export async function runStagingServicePerformanceBenchmark({
     const patchSeed = await createTask(`Service performance PATCH ${marker}`);
     const actionSeed = await createTask(`Service performance Action ${marker}`);
 
-    const reads = {
-      taskGet: await measure(() => expectData(`/api/v1/spaces/${spaceId}/models/task/records/${getSeed.data.id}`)),
-      taskList10: await measure(() => expectData(`/api/v1/spaces/${spaceId}/models/task/records?limit=10`)),
-    };
+    const reads = {};
+    if (wants("taskGet")) reads.taskGet = await measure(() => expectData(`/api/v1/spaces/${spaceId}/models/task/records/${getSeed.data.id}`));
+    if (wants("taskList10")) reads.taskList10 = await measure(() => expectData(`/api/v1/spaces/${spaceId}/models/task/records?limit=10`));
 
     const createSamples = [];
-    for (let index = 0; index < mutationSampleCount; index += 1) {
+    for (let index = 0; wants("taskCreate") && index < mutationSampleCount; index += 1) {
       const created = await createTask(`Service performance Create ${marker} ${index}`);
       createSamples.push(created.elapsedMs);
     }
 
     let patchVersion = patchSeed.data.version;
     const patchSamples = [];
-    for (let index = 0; index < mutationSampleCount; index += 1) {
+    for (let index = 0; wants("taskPatch") && index < mutationSampleCount; index += 1) {
       const patched = await expectData(`/api/v1/spaces/${spaceId}/models/task/records/${patchSeed.data.id}`, {
         method: "PATCH",
         body: { version: patchVersion, name: `Service performance PATCH ${marker} ${index}` },
@@ -146,7 +155,7 @@ export async function runStagingServicePerformanceBenchmark({
 
     let actionVersion = actionSeed.data.version;
     const actionSamples = [];
-    for (let index = 0; index < mutationSampleCount; index += 1) {
+    for (let index = 0; wants("taskWorkflow") && index < mutationSampleCount; index += 1) {
       const action = index % 2 === 0 ? "complete" : "reopen";
       const changed = await expectData(`/api/v1/spaces/${spaceId}/models/task/records/${actionSeed.data.id}/actions/${action}`, {
         method: "POST",
@@ -158,12 +167,14 @@ export async function runStagingServicePerformanceBenchmark({
     }
 
     const mutations = {
-      taskCreate: summarize(createSamples),
-      taskPatch: summarize(patchSamples),
-      taskWorkflow: summarize(actionSamples),
+      ...(wants("taskCreate") ? { taskCreate: summarize(createSamples) } : {}),
+      ...(wants("taskPatch") ? { taskPatch: summarize(patchSamples) } : {}),
+      ...(wants("taskWorkflow") ? { taskWorkflow: summarize(actionSamples) } : {}),
     };
-    const readTargetsMet = evaluateTargets(reads, SERVICE_READ_TARGETS);
-    const mutationTargetsMet = evaluateTargets(mutations, SERVICE_MUTATION_TARGETS);
+    const readTargets = selectTargets(SERVICE_READ_TARGETS);
+    const mutationTargets = selectTargets(SERVICE_MUTATION_TARGETS);
+    const readTargetsMet = evaluateTargets(reads, readTargets);
+    const mutationTargetsMet = evaluateTargets(mutations, mutationTargets);
     const allReadTargetsMet = Object.values(readTargetsMet).every(Boolean);
     const allMutationTargetsMet = Object.values(mutationTargetsMet).every(Boolean);
 
@@ -175,8 +186,8 @@ export async function runStagingServicePerformanceBenchmark({
       source,
       marker,
       targets: {
-        reads: SERVICE_READ_TARGETS,
-        mutations: SERVICE_MUTATION_TARGETS,
+        reads: readTargets,
+        mutations: mutationTargets,
       },
       reads,
       readTargetsMet,

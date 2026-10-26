@@ -95,3 +95,27 @@ test("Service PAT benchmark covers bounded Task read/create/update/action reques
   assert.equal(adapter.requests.filter((entry) => /\/actions\/(complete|reopen)$/u.test(entry.path)).length, 2);
   assert.equal(adapter.requests.filter((entry) => entry.method === "DELETE").length, 5);
 });
+
+test("Service PAT confirmation measures only selected scenario and preserves cleanup", async () => {
+  const adapter = benchmarkAdapter();
+  const output = await runStagingServicePerformanceBenchmark({
+    coreBaseUrl: "https://core-staging.example.test",
+    bearer: "lsp_svc_test_only_not_a_real_secret",
+    spaceId: "spc_test",
+    benchmarkProfile: "apac",
+    source: "unit-test targeted APAC confirmation",
+    requestAdapter: adapter.request,
+    selectedScenarios: ["taskGet"],
+    sampleCount: 2,
+    warmupCount: 1,
+    mutationSampleCount: 2,
+  });
+  assert.deepEqual(Object.keys(output.reads), ["taskGet"]);
+  assert.deepEqual(output.readTargetsMet, { taskGet: true });
+  assert.deepEqual(output.mutationTargetsMet, {});
+  assert.deepEqual(output.mutations, {});
+  assert.equal(output.allTargetsMet, true);
+  assert.equal(adapter.requests.filter((item) => item.method === "PATCH").length, 0);
+  assert.equal(adapter.requests.filter((item) => /\/actions\//u.test(item.path)).length, 0);
+  assert.equal(adapter.requests.filter((item) => item.method === "DELETE").length, 3);
+});
