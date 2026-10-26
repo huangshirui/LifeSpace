@@ -97,6 +97,8 @@ Business data must not be fetched before the required authority decision merely 
 
 The primary structural performance metric is Worker↔D1 round trips, not raw SQL statement count.
 
+For temporal and check-in ordinary list/query responses, once current Authority and Model Policy checks succeed, fetch the *current* Space timezone concurrently with the authorized query. Pass the same request-scoped timezone snapshot to list Capability projection rather than starting an additional serialized D1 lookup **after** query hydration. The read count and current-state timezone semantics remain unchanged; this is critical-path overlap, not a timezone/Authority cache, and it does not repair unrelated probe-to-Core transport tails.
+
 Current hot-path budgets:
 
 | Runtime path | Maximum Core D1 round trips | Required shape |
