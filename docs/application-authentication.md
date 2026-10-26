@@ -3,7 +3,7 @@
 ## Status
 
 - Cloudflare Access is the long-term Web/PWA authentication and SSO layer.
-- Identity Application Contract is `0.14.0`.
+- Identity Application Contract is `0.15.0`.
 - Identity Platform Admin companion contract is `0.5.0`; it includes the platform-administrator/purpose-bound actor foundation plus Application-scoped Agent identity governance for Console.
 - `Application` is the registered application access subject. It is deliberately independent of Web/Mini Program/PWA/BFF/Worker/deployment topology.
 - Access principal verification, audience registration, explicit registration/linking and trusted application credential lifecycle are implemented.
@@ -113,10 +113,22 @@ Normative rules:
 - one Application may own more than one Access audience;
 - multiple audiences may still resolve the same `(iss, sub)` to the same `usr_*`;
 - the calling `lsa_*` Application and matched Access audience must agree;
-- email is non-authoritative metadata and never auto-merges accounts;
+- unclaimed Access email/display claims are non-authoritative and never auto-merge accounts; a LifeSpace user may explicitly reserve one globally unique login mailbox before Access authenticates it;
+- one active normalized login mailbox is owned by at most one LifeSpace `usr_*` across all Applications. A different user cannot claim it until released;
 - one `usr_*` may intentionally own multiple Access principals.
 
 Identity persistence for Access platform identity is implemented using dedicated `access_audiences`, `access_principals` and one-time `access_link_challenges` state. Application-owned provider IDs do not belong in those tables.
+
+## Global login mailbox (Identity 0.15)
+A login mailbox is a global LifeSpace User-owned authentication alias, **not an Application field** and not an Access principal. It lives in `user_login_emails` with unique user and normalized email constraints. A user already authenticated to LifeSpace can declare/replace it through `GET/PATCH /api/v1/me/web-login` (and unlink via DELETE) using a monotonic revision. No separate LifeSpace email OTP is issued on setting the alias. The user intentionally asserts the mailbox before proving its real-world ownership; the explicitly accepted consequence is that whoever later completes Access email authentication can redeem that user-declared mailbox.
+
+The first *verified* Cloudflare Access assertion with that reserved email can establish a principal `(iss,sub) -> usr_*` for any registered Application audience, subject to the usual JWT/audience checks. Once mapped, the subject is the identity key. Repeated distinct Access subjects that present the already-declared email may map to the same user, but can never map to another LifeSpace User. A pending email declaration never grants a LifeSpace token by itself.
+
+Email change/unlink atomically releases the old global alias, claims the new alias and disables only principals created specifically by the email auto-link path (`linked_via_email=1`). Access principals independently confirmed through the one-time challenge and application-owned provider mappings remain active. LifeSpace `usr_*`, membership, grants and unrelated credentials are unaffected. This is an explicit distinction between *mailbox association* and *Access principal association*.
+
+**Cloudflare limitation:** Access's application assertion does not reliably identify which upstream login method produced a shared `(iss,sub)`. Identity cannot distinguish an email-OTP login from a non-email login that uses exactly the same Access subject. Therefore an email-derived principal's revocation applies to the whole subject; an independent challenge-linked principal is preserved even if its `email_snapshot` matches an old alias. Per-upstream-method revocation would require a reliably method-scoped upstream identity or Access policy change; do not claim otherwise.
+
+Migration 0014 preserves all confirmed Access principal records, moves unambiguous historical active mailbox declarations into the global table, and records conflicts in `login_email_migration_conflicts` for reconciliation rather than choosing another user's account. Legacy subject-less placeholders become inert. A user's new email and the version update commit atomically, and collisions return HTTP 409. Applications are replaceable UI surfaces, never the global owner of email association.
 
 ## Normal Web token exchange
 
@@ -196,7 +208,7 @@ Access principal B ----+
 
 Cloudflare may normalize some upstream identities itself, but LifeSpace does not depend on that behavior. A distinct verified Access `sub` remains unlinked until explicit proof succeeds.
 
-Automatic merge by email, display name or other mutable claim is forbidden.
+Automatic merging from an unreserved email or mutable claim is forbidden. Explicit user-owned global mailbox declaration is the only email-based auto-link exception, and Access must independently authenticate its assertion.
 
 ## Platform-admin human proof
 

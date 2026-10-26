@@ -73,7 +73,7 @@ Never accept a naked Access `sub`, email or caller-supplied `userId` as proof of
 - Access `sub` is never a LifeSpace `usr_*`.
 - Access `aud` identifies application context, not the human.
 - One active `(issuer, audience)` registration belongs to one LifeSpace application.
-- Email is non-authoritative metadata and never auto-merges accounts.
+- Access email claims alone are non-authoritative. Only an explicitly declared, globally unique LifeSpace login mailbox may resolve a verified Access identity to its owner; unreserved email never silently merges accounts.
 - Multiple Access principals may intentionally link to one `usr_*`.
 - Unknown Access principals require explicit create-new-account or proof-backed link-existing-account flow.
 - Application-specific provider IDs never enter `access_principals`.

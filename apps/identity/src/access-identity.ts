@@ -38,6 +38,7 @@ type AccessPrincipalRow = {
   user_id: string;
   principal_status: string;
   user_status: string;
+  linked_via_email: number;
 };
 
 type AccessLinkChallengeRow = {
@@ -187,45 +188,53 @@ async function issueUserToken(c: Context<AppEnv>, userId: string, scopes: string
 
 async function findPrincipal(db: D1Database, issuer: string, subject: string): Promise<AccessPrincipalRow | null> {
   return db.prepare(`
-    SELECT p.id,p.user_id,p.status principal_status,u.status user_status
-    FROM access_principals p
-    JOIN users u ON u.id=p.user_id
+    SELECT p.id,p.user_id,p.status principal_status,u.status user_status,p.linked_via_email
+    FROM access_principals p JOIN users u ON u.id=p.user_id
     WHERE p.issuer=? AND p.subject=?
   `).bind(issuer, subject).first<AccessPrincipalRow>();
 }
 
-// A declared email completes a pending identity relation exactly once. Tokens
-// always resolve the resulting verified (issuer, subject), never an email grant.
+// A login mailbox is globally owned by one usr_*, independent of the
+// Application whose Access audience was used to enter the platform.
+// Access verifies email; Identity owns its unique declaration and principal.
 async function resolveLogin(c: Context<AppEnv>, verified: VerifiedApplicationAccess): Promise<string | Response> {
   let principal=await findPrincipal(c.env.DB,verified.issuer,verified.subject);
-  if(principal) {
-    if(principal.user_status!=="active")
-      return c.json(fail("FORBIDDEN","Access principal or user is inactive",c.get("requestId")),403);
-    if(principal.principal_status==="active")return principal.user_id;
-  }
   const email=normalizeLoginEmail(verified.email);
-  const pending=email ? await c.env.DB.prepare(`SELECT p.id,p.user_id,u.access_link_version version FROM access_principals p JOIN users u ON u.id=p.user_id
-    WHERE p.issuer=? AND p.pending_application_id=? AND lower(trim(p.email_snapshot))=?
-    AND p.subject IS NULL AND p.status='active' AND u.status='active'`)
-    .bind(verified.issuer,c.get("currentApplicationId"),email).first<{id:string;user_id:string;version:number}>() : null;
-  if(principal && (!pending || pending.user_id!==principal.user_id))return c.json(fail("FORBIDDEN","Access principal is inactive",c.get("requestId")),403);
-  if(!pending)return c.json(fail("ACCESS_PRINCIPAL_UNLINKED","Access principal is not linked to a LifeSpace user",c.get("requestId")),409);
+  if(principal) {
+    if(principal.user_status!=='active'||principal.principal_status!=='active')
+      return c.json(fail('FORBIDDEN','Access principal or user is inactive',c.get('requestId')),403);
+    if(principal.linked_via_email===1) {
+      // A principal created by mailbox pre-link ceases to authorize when that
+      // mailbox is replaced or unbound; code-linked principals are independent.
+      const binding=email ? await c.env.DB.prepare('SELECT user_id FROM user_login_emails WHERE email=?')
+        .bind(email).first<{user_id:string}>():null;
+      if(binding?.user_id!==principal.user_id)
+        return c.json(fail('FORBIDDEN','Login mailbox is no longer linked',c.get('requestId')),403);
+    }
+    return principal.user_id;
+  }
+  const reservation=email ? await c.env.DB.prepare(`
+    SELECT e.user_id,u.access_link_version version FROM user_login_emails e
+    JOIN users u ON u.id=e.user_id AND u.status='active'
+    WHERE e.email=?`).bind(email).first<{user_id:string;version:number}>():null;
+  if(!reservation)
+    return c.json(fail('ACCESS_PRINCIPAL_UNLINKED','Access principal is not linked to a LifeSpace user',c.get('requestId')),409);
   const now=new Date().toISOString(),operationId=crypto.randomUUID();
-  const version=pending.version;
   try {
-    await c.env.DB.batch([
-      claimLinkRevision(c.env.DB,pending.user_id,version,operationId),
-      completeAccessLink(c.env.DB,{id:pending.id,pendingId:pending.id,existingId:principal?.id,issuer:verified.issuer,subject:verified.subject,email,userId:pending.user_id,operationId,now}),
-      c.env.DB.prepare(`UPDATE access_principals SET status='disabled',updated_at=? WHERE id=?
-        AND EXISTS(SELECT 1 FROM users WHERE id=? AND access_link_operation_id=?)
-        AND EXISTS(SELECT 1 FROM access_principals p WHERE p.id=? AND p.subject=? AND p.status='active')`)
-        .bind(now,pending.id,pending.user_id,operationId,principal?.id??'',verified.subject),
-      linkAudit(c.env.DB,pending.user_id,c.get("currentApplicationId"),operationId,c.get("requestId"),now),
+    const results=await c.env.DB.batch([
+      claimLinkRevision(c.env.DB,reservation.user_id,reservation.version,operationId),
+      completeAccessLink(c.env.DB,{id:id('acp'),issuer:verified.issuer,subject:verified.subject,
+        email,userId:reservation.user_id,operationId,now,viaEmail:true}),
+      linkAudit(c.env.DB,reservation.user_id,c.get('currentApplicationId'),operationId,c.get('requestId'),now),
     ]);
+    if(results[0].meta.changes!==1||results[1].meta.changes!==1)
+      return c.json(fail('ACCESS_LINK_CONFLICT','Email binding changed; retry login',c.get('requestId')),409);
   }catch(error){if(!/UNIQUE constraint/.test(String(error)))throw error;}
   principal=await findPrincipal(c.env.DB,verified.issuer,verified.subject);
-  if(!principal || principal.user_id!==pending.user_id)return c.json(fail("ACCESS_LINK_CONFLICT","Access identity changed; retry linking",c.get("requestId")),409);
-  if(principal.principal_status!=="active" || principal.user_status!=="active")return c.json(fail("FORBIDDEN","Access principal or user is inactive",c.get("requestId")),403);
+  if(!principal||principal.user_id!==reservation.user_id)
+    return c.json(fail('ACCESS_LINK_CONFLICT','Access identity changed; retry linking',c.get('requestId')),409);
+  if(principal.principal_status!=='active'||principal.user_status!=='active')
+    return c.json(fail('FORBIDDEN','Access principal or user is inactive',c.get('requestId')),403);
   return principal.user_id;
 }
 
@@ -448,6 +457,11 @@ export function registerAccessIdentityRoutes(app: Hono<AppEnv>, options: AccessR
     }
 
     const userId=c.get("principal").id,operationId=crypto.randomUUID();
+    const challengeEmail=normalizeLoginEmail(challenge.email_snapshot);
+    const owner=challengeEmail?await c.env.DB.prepare('SELECT user_id FROM user_login_emails WHERE email=?')
+      .bind(challengeEmail).first<{user_id:string}>():null;
+    if(owner&&owner.user_id!==userId)
+      return c.json(fail('EMAIL_ALREADY_LINKED','Login email belongs to another LifeSpace user',c.get('requestId')),409);
     const version=await linkVersion(c.env.DB,userId);
     const pending=await currentAccessLink(c.env.DB,userId,challenge.application_id,challenge.issuer);
     try {
@@ -459,13 +473,19 @@ export function registerAccessIdentityRoutes(app: Hono<AppEnv>, options: AccessR
           .bind(now,userId,linkId,now,userId,operationId),
         completeAccessLink(c.env.DB,{id:id("acp"),pendingId:pending?.subject===null?pending.id:undefined,
           issuer:challenge.issuer,subject:challenge.subject,email:normalizeLoginEmail(challenge.email_snapshot),userId,operationId,now}),
+        // Challenge-first binding owns the mailbox when the user has not
+        // declared a different one. No duplicate ownership across applications.
+        ...(challengeEmail?[c.env.DB.prepare(`INSERT INTO user_login_emails(user_id,email,created_at,updated_at)
+          SELECT id,?,?,? FROM users WHERE id=? AND access_link_operation_id=?
+          AND NOT EXISTS(SELECT 1 FROM user_login_emails WHERE user_id=?)`)
+          .bind(challengeEmail,now,now,userId,operationId,userId)]:[]),
         linkAudit(c.env.DB,userId,challenge.application_id,operationId,c.get("requestId"),now),
       ]);
       if(results[0].meta.changes!==1 || results[1].meta.changes!==1 || results[2].meta.changes!==1)
         return c.json(fail("ACCESS_LINK_CHALLENGE_INVALID","Access link changed concurrently",c.get("requestId")),409);
     }catch(error){
       if(!/UNIQUE constraint/.test(String(error)))throw error;
-      return c.json(fail("ACCESS_PRINCIPAL_ALREADY_LINKED","Access principal became linked concurrently",c.get("requestId")),409);
+      return c.json(fail("ACCESS_PRINCIPAL_ALREADY_LINKED","Access principal or mailbox became linked concurrently",c.get("requestId")),409);
     }
     return c.body(null, 204);
   });
