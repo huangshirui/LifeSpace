@@ -6,6 +6,7 @@ import {
   createCapabilityAwareResource,
   decorateCapabilityResponse,
   decorateCapabilityResponses,
+  hasTemporalCapability,
   executeCapabilityAction,
   listCapabilityOccurrences,
   listCapabilityCheckIns,
@@ -18,6 +19,7 @@ import type { Bindings, Variables } from "./env";
 import { deleteGenericResource, getGenericResource, type GenericResource } from "./generic-resource";
 import { hasLegacyGenericCursor, queryGenericResources, translateGenericGetQuery } from "./generic-query";
 import { isTemporalSpecialQuery, queryTemporalResources } from "./temporal-query";
+import { loadSpaceTemporalContext, type SpaceTemporalContext } from "./temporal-capability";
 import { ApiError, success } from "./http";
 import { consumeSingleUseRead, requireModelAccess } from "./model-authorization";
 import { measurePerformancePhase } from "./performance-timing";
@@ -109,12 +111,13 @@ async function listResponse(
   spaceId: string,
   resolved: PublishedModel,
   result: { items: GenericResource[]; nextCursor: string | null },
+  temporalContext?: SpaceTemporalContext,
 ) {
   const missingAuditIds = result.items
     .filter((resource) => !resource.audit)
     .map((resource) => resource.id);
   const [decorations, fallbackAudits] = await Promise.all([
-    decorateCapabilityResponses(context.env, spaceId, resolved, result.items),
+    decorateCapabilityResponses(context.env, spaceId, resolved, result.items, temporalContext),
     missingAuditIds.length
       ? loadResourceAudits(context.env, spaceId, missingAuditIds)
       : Promise.resolve(new Map<string, ResourceAudit>()),
@@ -128,6 +131,23 @@ async function listResponse(
     resource.audit ?? requireResourceAudit(fallbackAudits, resource.id),
   )));
   return context.json(success({ items, nextCursor: result.nextCursor }));
+}
+
+// Temporal/check-in projection uses current Space timezone but does not grant Authority.
+ // Start the time-zone lookup only after access/policy checks; run it in parallel with
+ // the authorized query rather than serializing another D1 RTT behind query hydration.
+async function queryWithTemporalContext<T>(
+  context: Context<AppEnv>,
+  spaceId: string,
+  model: PublishedModel,
+  operation: () => Promise<T>,
+): Promise<[T, SpaceTemporalContext | undefined]> {
+  return Promise.all([
+    measurePerformancePhase(context, "runtime.query", operation),
+    (hasTemporalCapability(model) || Boolean(model.definition.capabilities?.checkIn))
+      ? measurePerformancePhase(context, "runtime.temporal_context", () => loadSpaceTemporalContext(context.env, spaceId))
+      : Promise.resolve(undefined),
+  ]);
 }
 
 export function registerGenericResourceRoutes(app: App): void {
@@ -146,7 +166,7 @@ export function registerGenericResourceRoutes(app: App): void {
       () => requireModelPolicy(context.env, access.principal, spaceId, resolved, "read", undefined, undefined, { principalPersonId: access.policyIdentity.principalPersonId, actorPersonId: access.policyIdentity.actorPersonId }),
     );
     const params = new URL(context.req.url).searchParams;
-    const result = await measurePerformancePhase(context, "runtime.query", async () =>
+    const [result, temporalContext] = await queryWithTemporalContext(context, spaceId, resolved, async () =>
       isTemporalSpecialQuery(resolved, params)
         ? queryTemporalResources(context.env, access.principal, spaceId, resolved, params)
         : isCalendarSpecialQuery(resolved, params)
@@ -165,7 +185,7 @@ export function registerGenericResourceRoutes(app: App): void {
     const response = await measurePerformancePhase(
       context,
       "runtime.response_projection",
-      () => listResponse(context, spaceId, resolved, result),
+      () => listResponse(context, spaceId, resolved, result, temporalContext),
     );
     await consumeSingleUseRead(context.env, access);
     return response;
@@ -187,9 +207,10 @@ export function registerGenericResourceRoutes(app: App): void {
       () => requireModelPolicy(context.env, access.principal, spaceId, resolved, "read", undefined, undefined, { principalPersonId: access.policyIdentity.principalPersonId, actorPersonId: access.policyIdentity.actorPersonId }),
     );
     const input = await body(context);
-    const result = await measurePerformancePhase(
+    const [result, temporalContext] = await queryWithTemporalContext(
       context,
-      "runtime.query",
+      spaceId,
+      resolved,
       () => queryCanonicalResources(
         context.env,
         access.principal,
@@ -202,7 +223,7 @@ export function registerGenericResourceRoutes(app: App): void {
     const response = await measurePerformancePhase(
       context,
       "runtime.response_projection",
-      () => listResponse(context, spaceId, resolved, result),
+      () => listResponse(context, spaceId, resolved, result, temporalContext),
     );
     await consumeSingleUseRead(context.env, access);
     return response;
