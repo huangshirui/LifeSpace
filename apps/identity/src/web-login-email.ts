@@ -40,8 +40,8 @@ export function registerWebLoginEmailRoutes(app:Hono<AppEnv>) {
     claimLinkRevision(db,principal.id,version,operationId),
     db.prepare(`UPDATE access_principals SET status='disabled',updated_at=? WHERE id=? AND user_id=?
       AND EXISTS(SELECT 1 FROM users WHERE id=? AND access_link_operation_id=?)`).bind(now,row?.id??'',principal.id,principal.id,operationId),
-    db.prepare(`INSERT INTO access_principals(id,issuer,subject,user_id,email_snapshot,pending_application_id,status,linked_at,created_at,updated_at)
-      SELECT ?,?,NULL,id,?,?,'active',?,?,? FROM users WHERE id=? AND access_link_operation_id=?`)
+    db.prepare(`INSERT INTO access_principals(id,issuer,subject,user_id,email_snapshot,pending_application_id,link_version,status,linked_at,created_at,updated_at)
+      SELECT ?,?,NULL,id,?,?,access_link_version,'active',?,?,? FROM users WHERE id=? AND access_link_operation_id=?`)
       .bind('acp_'+crypto.randomUUID().replaceAll('-',''),issuer,email,principal.clientId,now,now,now,principal.id,operationId),
     linkAudit(db,principal.id,principal.clientId,operationId,c.get('requestId'),now),
    ]);

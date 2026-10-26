@@ -4,7 +4,7 @@ export type AccessLink = { id:string; issuer:string; subject:string|null; user_i
 export async function currentAccessLink(db:D1Database,userId:string,applicationId:string,issuer:string) {
   return db.prepare(`SELECT id,issuer,subject,user_id,email_snapshot,pending_application_id FROM access_principals
     WHERE user_id=? AND issuer=? AND status='active' AND (subject IS NOT NULL OR pending_application_id=?)
-    ORDER BY (subject IS NULL) DESC,updated_at DESC,id DESC LIMIT 1`).bind(userId,issuer,applicationId).first<AccessLink>();
+    ORDER BY (subject IS NULL) DESC,link_version DESC,linked_at DESC,id DESC LIMIT 1`).bind(userId,issuer,applicationId).first<AccessLink>();
 }
 
 // Settings and its revision must be from one D1 snapshot; separate reads can
@@ -13,7 +13,7 @@ export async function accessLinkState(db:D1Database,userId:string,applicationId:
  const row=await db.prepare(`SELECT u.access_link_version version,p.id,p.issuer,p.subject,p.user_id,p.email_snapshot,p.pending_application_id
    FROM users u LEFT JOIN access_principals p ON p.id=(SELECT a.id FROM access_principals a
      WHERE a.user_id=u.id AND a.issuer=? AND a.status='active' AND (a.subject IS NOT NULL OR a.pending_application_id=?)
-     ORDER BY (a.subject IS NULL) DESC,a.updated_at DESC,a.id DESC LIMIT 1)
+     ORDER BY (a.subject IS NULL) DESC,a.link_version DESC,a.linked_at DESC,a.id DESC LIMIT 1)
    WHERE u.id=?`).bind(issuer,applicationId,userId).first<AccessLink & {version:number}>();
  if(!row)throw new Error('Authenticated user unavailable');
  return {link:row.id?row:null,version:row.version};
@@ -40,14 +40,14 @@ export function linkAudit(db:D1Database,userId:string,appId:string,operationId:s
 // A pre-linked row is completed in place; absent pre-link means normal code linking.
 export function completeAccessLink(db:D1Database,input:{id:string;pendingId?:string;existingId?:string;issuer:string;subject:string;email:string|null;userId:string;operationId:string;now:string}) {
   const {id,pendingId,existingId,issuer,subject,email,userId,operationId,now}=input;
-  if(existingId)return db.prepare(`UPDATE access_principals SET status='active',email_snapshot=?,last_seen_at=?,updated_at=?
+  if(existingId)return db.prepare(`UPDATE access_principals SET status='active',link_version=(SELECT access_link_version FROM users WHERE id=access_principals.user_id),email_snapshot=?,last_seen_at=?,updated_at=?
     WHERE id=? AND user_id=? AND subject=? AND EXISTS(SELECT 1 FROM users WHERE id=? AND access_link_operation_id=?)`)
     .bind(email,now,now,existingId,userId,subject,userId,operationId);
-  if(pendingId)return db.prepare(`UPDATE access_principals SET subject=?,email_snapshot=?,pending_application_id=NULL,linked_at=?,last_seen_at=?,updated_at=?
+  if(pendingId)return db.prepare(`UPDATE access_principals SET subject=?,link_version=(SELECT access_link_version FROM users WHERE id=access_principals.user_id),email_snapshot=?,pending_application_id=NULL,linked_at=?,last_seen_at=?,updated_at=?
     WHERE id=? AND user_id=? AND subject IS NULL AND status='active'
     AND EXISTS(SELECT 1 FROM users WHERE id=? AND access_link_operation_id=?)`)
     .bind(subject,email,now,now,now,pendingId,userId,userId,operationId);
-  return db.prepare(`INSERT INTO access_principals(id,issuer,subject,user_id,email_snapshot,status,linked_at,last_seen_at,created_at,updated_at)
-    SELECT ?,?,?,id,?,'active',?,?,?,? FROM users WHERE id=? AND access_link_operation_id=?`)
+  return db.prepare(`INSERT INTO access_principals(id,issuer,subject,user_id,email_snapshot,link_version,status,linked_at,last_seen_at,created_at,updated_at)
+    SELECT ?,?,?,id,?,access_link_version,'active',?,?,?,? FROM users WHERE id=? AND access_link_operation_id=?`)
     .bind(id,issuer,subject,email,now,now,now,now,userId,operationId);
 }

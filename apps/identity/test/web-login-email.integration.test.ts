@@ -164,6 +164,10 @@ describe('one Access account-link model',()=>{
   expect((await f.exchange(old)).status).toBe(403);
   expect((await f.exchange(await f.assertion('after',next))).status).toBe(200);
   expect((await f.settings(t)).email).toBe(next);
+  await f.db.prepare(`INSERT INTO access_principals(id,issuer,subject,user_id,email_snapshot,link_version,status,linked_at,created_at,updated_at)
+    VALUES(?,?,?,?,?,0,'active','old','old','9999')`).bind('acp_history_'+f.suffix,f.issuer,'historic',u,'history-'+email).run();
+  expect((await f.exchange(await f.assertion('historic','history-'+email))).status).toBe(200);
+  expect((await f.settings(t)).email).toBe(next);
   const latest=await f.settings(t);
   expect((await f.save(t,email,latest.version)).status).toBe(200);
   expect((await f.exchange(old)).status).toBe(200);

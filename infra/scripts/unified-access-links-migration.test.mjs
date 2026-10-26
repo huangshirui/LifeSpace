@@ -11,6 +11,7 @@ test('forward migration preserves verified identities and completes old declarat
  assert.equal(db.prepare("SELECT count(*) n FROM access_principals WHERE subject='verified-subject' AND id='acp_old'").get().n,1);
  assert.equal(db.prepare("SELECT count(*) n FROM access_principals WHERE user_id='usr_old'").get().n,1);
  const pending=db.prepare("SELECT subject,email_snapshot,pending_application_id FROM access_principals WHERE user_id='usr_pending'").get();assert.deepEqual({...pending},{subject:null,email_snapshot:'pending@example.com',pending_application_id:'app_test'});
+ assert.equal(db.prepare("SELECT link_version FROM access_principals WHERE id='acp_old'").get().link_version,3);
  assert.equal(db.prepare("SELECT access_link_version FROM users WHERE id='usr_pending'").get().access_link_version,2);
  assert.equal(db.prepare("SELECT count(*) n FROM access_link_audit").get().n,1);
  assert.equal(db.prepare("SELECT name FROM sqlite_master WHERE name='web_login_emails'").get(),undefined);db.close();

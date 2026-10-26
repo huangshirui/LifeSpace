@@ -9,6 +9,7 @@ CREATE TABLE access_principals_unified (
   user_id TEXT NOT NULL REFERENCES users(id),
   email_snapshot TEXT,
   pending_application_id TEXT REFERENCES applications(id),
+  link_version INTEGER NOT NULL DEFAULT 0,
   status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','disabled')),
   linked_at TEXT NOT NULL,
   last_seen_at TEXT,
@@ -32,9 +33,10 @@ WHEN NEW.subject IS NULL AND NEW.status='active' AND EXISTS(
 )
 BEGIN SELECT RAISE(ABORT,'ACCESS_EMAIL_CONFLICT'); END;
 
+UPDATE access_principals SET link_version=COALESCE((SELECT max(e.version) FROM web_login_emails e WHERE e.user_id=access_principals.user_id AND e.issuer=access_principals.issuer AND lower(trim(e.email))=lower(trim(access_principals.email_snapshot))),0) WHERE subject IS NOT NULL;
 UPDATE users SET access_link_version=COALESCE((SELECT max(version) FROM web_login_emails e WHERE e.user_id=users.id),0);
-INSERT INTO access_principals(id,issuer,subject,user_id,email_snapshot,pending_application_id,status,linked_at,created_at,updated_at)
-SELECT 'acp_pending_'||lower(hex(randomblob(16))),e.issuer,NULL,e.user_id,lower(trim(e.email)),e.application_id,'active',e.updated_at,e.updated_at,e.updated_at
+INSERT INTO access_principals(id,issuer,subject,user_id,email_snapshot,pending_application_id,link_version,status,linked_at,created_at,updated_at)
+SELECT 'acp_pending_'||lower(hex(randomblob(16))),e.issuer,NULL,e.user_id,lower(trim(e.email)),e.application_id,e.version,'active',e.updated_at,e.updated_at,e.updated_at
 FROM web_login_emails e WHERE NOT EXISTS(
  SELECT 1 FROM access_principals p WHERE p.user_id=e.user_id AND p.issuer=e.issuer AND p.subject IS NOT NULL
  AND p.status='active' AND lower(trim(p.email_snapshot))=lower(trim(e.email))
