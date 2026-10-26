@@ -29,6 +29,7 @@ export async function runStagingPerformanceBenchmark({
   sampleCount = 15,
   warmupCount = 3,
   mutationSampleCount = DEFAULT_MUTATION_SAMPLE_COUNT,
+  selectedScenarios = null,
 }) {
   const baseUrl = coreBaseUrl.replace(/\/+$/u, "");
   for (const [name, value] of Object.entries({ baseUrl, bearer, spaceId, personId, benchmarkProfile, source })) {
@@ -37,6 +38,15 @@ export async function runStagingPerformanceBenchmark({
   if (!Number.isInteger(sampleCount) || sampleCount < 1) throw new Error("sampleCount must be a positive integer");
   if (!Number.isInteger(warmupCount) || warmupCount < 0) throw new Error("warmupCount must be a non-negative integer");
   if (!Number.isInteger(mutationSampleCount) || mutationSampleCount < 1) throw new Error("mutationSampleCount must be a positive integer");
+  const allowed = { ...USER_READ_TARGETS, ...USER_MUTATION_TARGETS };
+  if (selectedScenarios !== null && (!Array.isArray(selectedScenarios) || selectedScenarios.length === 0
+    || selectedScenarios.some((name) => !Object.hasOwn(allowed, name)))) {
+    throw new Error("selectedScenarios must be a non-empty array of known benchmark names");
+  }
+  const wants = (name) => selectedScenarios === null || selectedScenarios.includes(name);
+  const selectTargets = (targets) => Object.fromEntries(
+    Object.entries(targets).filter(([name]) => wants(name)),
+  );
 
   async function directRequest(path, { method = "GET", body } = {}) {
     const started = performance.now();
@@ -123,18 +133,17 @@ export async function runStagingPerformanceBenchmark({
       },
       page: { limit: 20 },
     };
-    const entries = [
-      await measure("taskGet", () => expectData(`/api/v1/spaces/${spaceId}/models/task/records/${tasks[0].id}`)),
-      await measure("taskList10", () => expectData(`/api/v1/spaces/${spaceId}/models/task/records?limit=10`)),
-      await measure("eventWindow", () => expectData(`/api/v1/spaces/${spaceId}/models/event/records/query`, { method: "POST", body: eventQuery })),
-      await measure("dayRecordList", () => expectData(`/api/v1/spaces/${spaceId}/models/day_record/records?sort=effectiveDate:asc&limit=20`)),
-      await measure("wishList", () => expectData(`/api/v1/spaces/${spaceId}/models/wish/records?limit=20`)),
-    ];
+    const entries = [];
+    if (wants("taskGet")) entries.push(await measure("taskGet", () => expectData(`/api/v1/spaces/${spaceId}/models/task/records/${tasks[0].id}`)));
+    if (wants("taskList10")) entries.push(await measure("taskList10", () => expectData(`/api/v1/spaces/${spaceId}/models/task/records?limit=10`)));
+    if (wants("eventWindow")) entries.push(await measure("eventWindow", () => expectData(`/api/v1/spaces/${spaceId}/models/event/records/query`, { method: "POST", body: eventQuery })));
+    if (wants("dayRecordList")) entries.push(await measure("dayRecordList", () => expectData(`/api/v1/spaces/${spaceId}/models/day_record/records?sort=effectiveDate:asc&limit=20`)));
+    if (wants("wishList")) entries.push(await measure("wishList", () => expectData(`/api/v1/spaces/${spaceId}/models/wish/records?limit=20`)));
     const reads = Object.fromEntries(entries);
 
     let patchVersion = tasks[1].version;
     const patchSamples = [];
-    for (let index = 0; index < mutationSampleCount; index += 1) {
+    for (let index = 0; wants("taskPatch") && index < mutationSampleCount; index += 1) {
       const patched = await expectData(`/api/v1/spaces/${spaceId}/models/task/records/${tasks[1].id}`, {
         method: "PATCH",
         body: { version: patchVersion, name: `Performance task ${marker} patch ${index}` },
@@ -146,7 +155,7 @@ export async function runStagingPerformanceBenchmark({
 
     let actionVersion = tasks[2].version;
     const actionSamples = [];
-    for (let index = 0; index < mutationSampleCount; index += 1) {
+    for (let index = 0; wants("taskWorkflow") && index < mutationSampleCount; index += 1) {
       const action = index % 2 === 0 ? "complete" : "reopen";
       const changed = await expectData(`/api/v1/spaces/${spaceId}/models/task/records/${tasks[2].id}/actions/${action}`, {
         method: "POST",
@@ -158,11 +167,13 @@ export async function runStagingPerformanceBenchmark({
     cleanup.find((item) => item.id === tasks[2].id).version = actionVersion;
 
     const mutations = {
-      taskPatch: summarize(patchSamples),
-      taskWorkflow: summarize(actionSamples),
+      ...(wants("taskPatch") ? { taskPatch: summarize(patchSamples) } : {}),
+      ...(wants("taskWorkflow") ? { taskWorkflow: summarize(actionSamples) } : {}),
     };
-    const readTargetsMet = evaluateTargets(reads, USER_READ_TARGETS);
-    const mutationTargetsMet = evaluateTargets(mutations, USER_MUTATION_TARGETS);
+    const readTargets = selectTargets(USER_READ_TARGETS);
+    const mutationTargets = selectTargets(USER_MUTATION_TARGETS);
+    const readTargetsMet = evaluateTargets(reads, readTargets);
+    const mutationTargetsMet = evaluateTargets(mutations, mutationTargets);
     const allReadTargetsMet = Object.values(readTargetsMet).every(Boolean);
     const allMutationTargetsMet = Object.values(mutationTargetsMet).every(Boolean);
     return {
@@ -172,8 +183,8 @@ export async function runStagingPerformanceBenchmark({
       source,
       marker,
       targets: {
-        reads: USER_READ_TARGETS,
-        mutations: USER_MUTATION_TARGETS,
+        reads: readTargets,
+        mutations: mutationTargets,
       },
       reads,
       readTargetsMet,
