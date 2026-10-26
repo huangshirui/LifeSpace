@@ -1,6 +1,7 @@
 import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
 import { DAY_RECORD_MODEL_DEFINITION } from "../src/builtin-models";
+import { decorateCapabilityResponses } from "../src/capability-runtime";
 import { addDateDays, daysBetween, spaceToday } from "../src/day-calculation";
 import type { Bindings, Principal } from "../src/env";
 import { getPublishedModel, publishModelDefinition } from "../src/model-registry";
@@ -39,6 +40,20 @@ async function fixture(timezone = "America/Los_Angeles") {
 }
 
 describe("Temporal capability", () => {
+  it("reuses the fresh, already-loaded Space timezone for list decoration without another D1 request", async () => {
+    const f = await fixture("Asia/Shanghai");
+    const record = await createTemporalResource(bindings(), actor, f.space, f.published, {
+      name: "Space temporal context reuse", kind: "elapsed", anchorDate: addDateDays(f.today, -3),
+    });
+    const legacy = await decorateCapabilityResponses(bindings(), f.spaceId, f.published, [record]);
+    const forbiddenRead = {
+      DB: { prepare: () => { throw new Error("redundant Space timezone D1 read"); } },
+    } as unknown as Bindings;
+    const overlapped = await decorateCapabilityResponses(forbiddenRead, f.spaceId, f.published, [record], f.space);
+    expect(overlapped).toEqual(legacy);
+    expect(overlapped[0]?.computed?.temporal).toMatchObject({ today: f.today, elapsedDays: 3 });
+  });
+
   it("applies kind defaults and computes elapsed/countdown/cycle values in Space timezone", async () => {
     const f = await fixture();
     const elapsed = await createTemporalResource(bindings(), actor, f.space, f.published, { name: "Since service", kind: "elapsed", anchorDate: addDateDays(f.today, -5) });
