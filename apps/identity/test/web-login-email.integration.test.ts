@@ -98,79 +98,103 @@ async function fixture() {
  return {db,req,home,other,user,token,assertion,settings,save,exchange,issuer,suffix};
 }
 
-describe('one Access account-link model',()=>{
- it('email-first and code-first complete the same principal record and ordinary subject login',async()=>{
-  const f=await fixture(),a=await f.user('Email first'),b=await f.user('Code first'),c=await f.user('Code completes pre-link');
-  const ta=await f.token(a),tb=await f.token(b),tc=await f.token(c),emailA=`a-${f.suffix}@example.com`,emailB=`b-${f.suffix}@example.com`;
-  expect(await f.settings(ta)).toEqual({email:null,version:0,linked:false,status:'unlinked'});
-  expect((await f.save(ta,emailA.toUpperCase(),0)).status).toBe(200);
-  expect(await f.settings(ta)).toEqual({email:emailA,version:1,linked:false,status:'pending'});
-  const pending=await f.db.prepare('SELECT id,subject FROM access_principals WHERE user_id=?').bind(a).first<any>();
-  expect(pending.subject).toBeNull();
-  const aa=await f.assertion('email-subject',emailA),login=await f.exchange(aa);
-  expect(login.status).toBe(200);expect(decodePayload(((await login.json()) as any).data.accessToken).sub).toBe(a);
-  const completed=await f.db.prepare('SELECT id,subject,pending_application_id FROM access_principals WHERE user_id=?').bind(a).first<any>();
-  expect(completed).toEqual({id:pending.id,subject:'email-subject',pending_application_id:null});
-  expect(await f.settings(ta)).toEqual({email:emailA,version:2,linked:true,status:'linked'});
-  // Same mailbox alone can never resolve another subject after completion.
-  expect((await f.exchange(await f.assertion('unrelated-subject',emailA))).status).toBe(409);
-  const ab=await f.assertion('code-subject',emailB);
-  const challenge=await f.req('/internal/v1/access/link-challenges',{accessAssertion:ab},f.home.secret);
-  expect(challenge.status).toBe(201);const cid=((await challenge.json()) as any).data.challengeId;
-  expect((await f.req(`/api/v1/me/access-link-challenges/${cid}/confirm`,{},tb)).status).toBe(204);
-  expect(await f.settings(tb)).toEqual({email:emailB,version:1,linked:true,status:'linked'});
-  const lb=await f.exchange(ab);expect(lb.status).toBe(200);expect(decodePayload(((await lb.json()) as any).data.accessToken).sub).toBe(b);
-  expect((await f.req(`/api/v1/me/access-link-challenges/${cid}/confirm`,{},tb)).status).toBe(409);
-  const emailC=`c-${f.suffix}@example.com`;await f.save(tc,emailC,0);
-  const pc=await f.db.prepare('SELECT id FROM access_principals WHERE user_id=?').bind(c).first<any>();
-  const challengeC=await f.req('/internal/v1/access/link-challenges',{accessAssertion:await f.assertion('code-pending',emailC)},f.home.secret);
-  const cc=((await challengeC.json()) as any).data.challengeId;
-  expect((await f.req(`/api/v1/me/access-link-challenges/${cc}/confirm`,{},tc)).status).toBe(204);
-  const rowsC=await f.db.prepare('SELECT id,subject FROM access_principals WHERE user_id=?').bind(c).all<any>();
-  expect(rowsC.results).toEqual([{id:pc.id,subject:'code-pending'}]);
-  const legacyTable=await f.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='web_login_emails'").first();expect(legacyTable).toBeNull();
-  // Established platform identity remains global; initial pre-link completion is audience-scoped.
-  expect((await f.exchange(await f.assertion('email-subject',emailA,f.other.audience),f.other.secret)).status).toBe(200);
+describe('global user-owned login mailbox and independent Access identities',()=>{
+ it('declares once, auto-links through Access, and resolves across Applications',async()=>{
+  const f=await fixture(),u=await f.user('Global'),t=await f.token(u),email=`owner-${f.suffix}@example.com`;
+  expect(await f.settings(t)).toEqual({email:null,version:0,linked:false,status:'unlinked'});
+  expect((await f.save(t,email.toUpperCase(),0)).status).toBe(200);
+  expect(await f.settings(t)).toEqual({email,version:1,linked:false,status:'pending'});
+  expect((await f.db.prepare('SELECT user_id FROM user_login_emails WHERE email=?').bind(email).first<any>()).user_id).toBe(u);
+  const a=await f.assertion('first-access',email);
+  const r=await f.exchange(a);expect(r.status).toBe(200);
+  expect(decodePayload(((await r.json()) as any).data.accessToken).sub).toBe(u);
+  expect((await f.db.prepare('SELECT linked_via_email flag FROM access_principals WHERE subject=?')
+   .bind('first-access').first<any>()).flag).toBe(1);
+  expect(await f.settings(t)).toEqual({email,version:2,linked:true,status:'linked'});
+  expect((await f.exchange(await f.assertion('first-access',email,f.other.audience),f.other.secret)).status).toBe(200);
+  const second=await f.exchange(await f.assertion('second-access',email,f.other.audience),f.other.secret);
+  expect(second.status).toBe(200);
+  expect(decodePayload(((await second.json()) as any).data.accessToken).sub).toBe(u);
  },30000);
 
- it('keeps version races atomic and rejects conflicting users, unsigned email and wrong audience',async()=>{
-  const f=await fixture(),u=await f.user('One'),v=await f.user('Two'),t=await f.token(u),other=await f.token(v),email=`race-${f.suffix}@example.com`;
-  expect((await f.req('/api/v1/me/web-login')).status).toBe(401);
-  expect((await f.save(await f.token(u,['profile:read']),email,0)).status).toBe(403);
-  expect((await f.save(t,'bad',0)).status).toBe(422);
-  expect((await f.req('/api/v1/me/web-login',{email,version:0,userId:v},t,'PATCH')).status).toBe(400);
-  const raced=await Promise.all([f.save(t,email,0),f.save(t,'other-'+email,0)]);expect(raced.map(x=>x.status).sort()).toEqual([200,409]);
-  const settings=await f.settings(t);expect(settings.version).toBe(1);
-  expect((await f.db.prepare('SELECT count(*) n FROM access_principals WHERE user_id=?').bind(u).first<any>()).n).toBe(1);
-  expect((await f.db.prepare('SELECT count(*) n FROM access_link_audit WHERE user_id=?').bind(u).first<any>()).n).toBe(1);
-  expect((await f.save(other,settings.email,0)).status).toBe(409);expect((await f.settings(other)).version).toBe(0);
-  const foreign=await f.assertion('foreign',settings.email,f.other.audience);
-  expect((await f.exchange(foreign)).status).toBe(403);
-  expect((await f.exchange(foreign,f.other.secret)).status).toBe(409);
-  expect((await f.req('/internal/v1/access/session-check',{accessAssertion:'invalid',email:settings.email},f.home.secret)).status).toBe(401);
-  const valid=await f.assertion('correct',settings.email);expect((await f.exchange(valid)).status).toBe(200);
-  await f.db.prepare("UPDATE users SET status='disabled' WHERE id=?").bind(u).run();
-  expect((await f.exchange(valid)).status).toBe(403);
+ it('enforces globally unique mailbox even across Applications and pending vs linked',async()=>{
+  const f=await fixture(),u=await f.user('First'),v=await f.user('Second'),
+   tu=await f.token(u),tv=await f.token(v,['profile:read','profile:write'],f.other.secret),
+   email=`unique-${f.suffix}@example.com`;
+  expect((await f.save(tu,email,0)).status).toBe(200);
+  const forbidden=await f.save(tv,email,0);
+  expect(forbidden.status).toBe(409);
+  expect(((await forbidden.json()) as any).error.code).toBe('EMAIL_ALREADY_LINKED');
+  expect((await f.exchange(await f.assertion('first',email))).status).toBe(200);
+  expect((await f.save(tv,email,0)).status).toBe(409);
+  expect(await f.settings(tv)).toEqual({email:null,version:0,linked:false,status:'unlinked'});
+  // Concurrent claims cannot bypass the database unique index.
+  const otherEmail=`race-${f.suffix}@example.com`;
+  const sameTime=await Promise.all([f.save(tu,otherEmail,2),f.save(tv,otherEmail,0)]);
+  expect(sameTime.map(r=>r.status).sort()).toEqual([200,409]);
+  const owner=await f.db.prepare('SELECT user_id FROM user_login_emails WHERE email=?')
+   .bind(otherEmail).first<any>();
+  expect([u,v]).toContain(owner.user_id);
  },30000);
 
- it('replaces the selected code-linked email and denies its old subject and cached session',async()=>{
-  const f=await fixture(),u=await f.user('Replace'),t=await f.token(u),email=`before-${f.suffix}@example.com`,next=`after-${f.suffix}@example.com`;
-  const old=await f.assertion('before',email),challenge=await f.req('/internal/v1/access/link-challenges',{accessAssertion:old},f.home.secret);
+ it('replaces the mailbox without disabling usr_* or unrelated code-linked Access principal',async()=>{
+  const f=await fixture(),u=await f.user('Multi identity'),t=await f.token(u),
+   oldEmail=`old-${f.suffix}@example.com`,nextEmail=`new-${f.suffix}@example.com`,
+   independentEmail=`other-${f.suffix}@example.com`;
+  const challengeAssertion=await f.assertion('independent-code',independentEmail);
+  const challenge=await f.req('/internal/v1/access/link-challenges',{accessAssertion:challengeAssertion},f.home.secret);
+  expect(challenge.status).toBe(201);
   const cid=((await challenge.json()) as any).data.challengeId;
   expect((await f.req(`/api/v1/me/access-link-challenges/${cid}/confirm`,{},t)).status).toBe(204);
-  const current=await f.settings(t);expect(current.email).toBe(email);
-  expect((await f.save(t,next,current.version)).status).toBe(200);
-  expect((await f.req('/internal/v1/access/session-check',{accessAssertion:old},f.home.secret)).status).toBe(403);
-  expect((await f.exchange(old)).status).toBe(403);
-  expect((await f.exchange(await f.assertion('after',next))).status).toBe(200);
-  expect((await f.settings(t)).email).toBe(next);
-  await f.db.prepare(`INSERT INTO access_principals(id,issuer,subject,user_id,email_snapshot,link_version,status,linked_at,created_at,updated_at)
-    VALUES(?,?,?,?,?,0,'active','old','old','9999')`).bind('acp_history_'+f.suffix,f.issuer,'historic',u,'history-'+email).run();
-  expect((await f.exchange(await f.assertion('historic','history-'+email))).status).toBe(200);
-  expect((await f.settings(t)).email).toBe(next);
-  const latest=await f.settings(t);
-  expect((await f.save(t,email,latest.version)).status).toBe(200);
-  expect((await f.exchange(old)).status).toBe(200);
-  expect((await f.exchange(await f.assertion('after',next))).status).toBe(403);
+  expect((await f.exchange(challengeAssertion)).status).toBe(200);
+  // Select an independent mailbox; code-linked identity remains usable.
+  const first=await f.settings(t);
+  expect((await f.save(t,oldEmail,first.version)).status).toBe(200);
+  const auto=await f.assertion('email-auto',oldEmail);
+  expect((await f.exchange(auto)).status).toBe(200);
+  const current=await f.settings(t);
+  expect((await f.save(t,nextEmail,current.version)).status).toBe(200);
+  expect((await f.exchange(auto)).status).toBe(403);
+  expect((await f.req('/internal/v1/access/session-check',{accessAssertion:auto},f.home.secret)).status).toBe(403);
+  expect((await f.exchange(challengeAssertion)).status).toBe(200);
+  expect((await f.db.prepare("SELECT status FROM users WHERE id=?").bind(u).first<any>()).status).toBe('active');
+  const replacement=await f.exchange(await f.assertion('new-access',nextEmail));
+  expect(replacement.status).toBe(200);
+  expect(decodePayload(((await replacement.json()) as any).data.accessToken).sub).toBe(u);
+  const v=await f.user('New owner'),tv=await f.token(v);
+  expect((await f.save(tv,oldEmail,0)).status).toBe(200);
+ },30000);
+
+ it('unbinds a mailbox without revoking unrelated login identities',async()=>{
+  const f=await fixture(),u=await f.user('Unbind'),v=await f.user('Reclaim'),
+   t=await f.token(u),tv=await f.token(v),mail=`unbind-${f.suffix}@example.com`;
+  expect((await f.save(t,mail,0)).status).toBe(200);
+  expect((await f.exchange(await f.assertion('unbind-access',mail))).status).toBe(200);
+  const state=await f.settings(t);
+  const r=await f.req('/api/v1/me/web-login',{version:state.version},t,'DELETE');
+  expect(r.status).toBe(200);
+  expect(await f.settings(t)).toEqual({email:null,version:state.version+1,linked:false,status:'unlinked'});
+  expect((await f.exchange(await f.assertion('unbind-access',mail))).status).toBe(403);
+  expect((await f.save(tv,mail,0)).status).toBe(200);
+  expect((await f.req('/api/v1/me/web-login',{version:state.version},t,'DELETE')).status).toBe(409);
+ },30000);
+
+ it('challenge-first claims unreserved email, conflicts fail, and cannot claim a second user mailbox',async()=>{
+  const f=await fixture(),a=await f.user('A'),b=await f.user('B'),ta=await f.token(a),tb=await f.token(b),
+   mail=`challenge-${f.suffix}@example.com`;
+  const challenge=await f.req('/internal/v1/access/link-challenges',
+   {accessAssertion:await f.assertion('code-link',mail)},f.home.secret);
+  const cid=((await challenge.json()) as any).data.challengeId;
+  expect((await f.req(`/api/v1/me/access-link-challenges/${cid}/confirm`,{},ta)).status).toBe(204);
+  expect(await f.settings(ta)).toEqual({email:mail,version:1,linked:true,status:'linked'});
+  expect((await f.save(tb,mail,0)).status).toBe(409);
+  const duplicate=await f.req('/internal/v1/access/link-challenges',
+   {accessAssertion:await f.assertion('another-code',mail)},f.home.secret);
+  const otherId=((await duplicate.json()) as any).data.challengeId;
+  const denied=await f.req(`/api/v1/me/access-link-challenges/${otherId}/confirm`,{},tb);
+  expect(denied.status).toBe(409);
+  expect(((await denied.json()) as any).error.code).toBe('EMAIL_ALREADY_LINKED');
+  expect((await f.exchange(await f.assertion('code-link',mail))).status).toBe(200);
+  expect((await f.req(`/api/v1/me/access-link-challenges/${cid}/confirm`,{},ta)).status).toBe(409);
  },30000);
 });

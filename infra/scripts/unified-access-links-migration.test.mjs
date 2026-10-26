@@ -27,3 +27,27 @@ test('admin discovery and inspector exclude pending identity declarations',()=>{
  const inspector=fs.readFileSync(new URL('../../apps/identity/src/platform-inspector.ts',import.meta.url),'utf8');
  assert.match(resolver,/ap\.subject IS NOT NULL/);assert.match(inspector,/user_id=\? AND subject IS NOT NULL/);
 });
+
+test('0014 promotes only unambiguous global mailbox claims and keeps existing Access principal active',()=>{
+ const db=database();
+ db.exec("INSERT INTO web_login_emails VALUES('usr_pending','app_test','issuer','pending@example.com',2,'now')");
+ db.exec(sql('0013_unified_access_links.sql'));
+ db.exec(sql('0014_global_login_email.sql'));
+ assert.equal(db.prepare("SELECT email FROM user_login_emails WHERE user_id='usr_pending'").get().email,'pending@example.com');
+ assert.equal(db.prepare("SELECT status FROM access_principals WHERE user_id='usr_pending'").get().status,'disabled');
+ assert.equal(db.prepare("SELECT status FROM access_principals WHERE id='acp_old'").get().status,'active');
+ assert.equal(db.prepare("SELECT email FROM user_login_emails WHERE user_id='usr_old'").get().email,'old@example.com');
+ assert.throws(()=>db.exec("INSERT INTO user_login_emails VALUES('usr_other','old@example.com','now','now')"),/UNIQUE/);
+ assert.equal(db.prepare("SELECT value FROM schema_metadata WHERE key='schema_version'").get().value,'14');
+ db.close();
+});
+test('0014 does not auto-claim an ambiguous legacy email or merge its users',()=>{
+ const db=database();
+ db.exec("INSERT INTO access_principals(id,issuer,subject,user_id,email_snapshot,linked_at,created_at,updated_at) VALUES('acp_other','issuer','different-subject','usr_other','old@example.com','now','now','now')");
+ db.exec(sql('0013_unified_access_links.sql'));
+ db.exec(sql('0014_global_login_email.sql'));
+ assert.equal(db.prepare("SELECT count(*) n FROM user_login_emails WHERE email='old@example.com'").get().n,0);
+ assert.equal(db.prepare("SELECT count(*) n FROM login_email_migration_conflicts WHERE email='old@example.com'").get().n,2);
+ assert.equal(db.prepare("SELECT count(*) n FROM access_principals WHERE status='active'").get().n,2);
+ db.close();
+});

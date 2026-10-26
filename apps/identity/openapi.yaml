@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: LifeSpace Identity API
-  version: 0.14.0
+  version: 0.15.0
   description: Global LifeSpace user identity, profile, trusted application exchange, Cloudflare Access principal resolution/linking, application credential lifecycle, Agent identity/execution-token issuance, service principals and credential issuance API.
 paths:
   /health:
@@ -61,7 +61,7 @@ paths:
         '422': { $ref: '#/components/responses/ValidationError' }
   /api/v1/me/web-login:
     get:
-      description: Read the current Access identity link, regardless of email-first or code-first entry. Requires profile:read. Pending email is not yet verified. Version is the monotonic user link revision.
+      description: Read the LifeSpace-global user-owned login email. Access verification marks it linked. The mailbox reservation is independent of Application and Access principal identity.
       security: [{ userBearer: [] }]
       responses:
         '200':
@@ -72,7 +72,7 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
     patch:
-      description: Pre-link or replace the selected Access account email. Requires profile:write and current link version. Access verification completes the same principal record; no token is issued from a pending email.
+      description: Declare or replace the global login mailbox. Requires profile:write and the current revision. A mailbox is unique across all LifeSpace users and applications. Only email-derived Access principal bindings are revoked on replacement; the user and unrelated identities stay active.
       security: [{ userBearer: [] }]
       requestBody:
         required: true
@@ -87,16 +87,40 @@ paths:
                 version: { type: integer, minimum: 0 }
       responses:
         '200':
-          description: Mailbox authorization saved
+          description: Global login mailbox saved
           content:
             application/json:
               schema: { $ref: '#/components/schemas/WebLoginResponse' }
         '400': { $ref: '#/components/responses/InvalidRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
-        '409': { description: EMAIL_UNAVAILABLE or EMAIL_VERSION_CONFLICT; no account merge }
+        '409': { description: EMAIL_ALREADY_LINKED or EMAIL_VERSION_CONFLICT; no account merge }
         '422': { $ref: '#/components/responses/ValidationError' }
         '503': { description: ACCESS_NOT_CONFIGURED }
+    delete:
+      description: Unlink the globally reserved login mailbox without disabling the LifeSpace User or independently linked Access principals. Requires profile:write and a current version.
+      security: [{ userBearer: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [version]
+              properties:
+                version: { type: integer, minimum: 0 }
+      responses:
+        '200':
+          description: Login mailbox unlinked
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WebLoginResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { description: EMAIL_VERSION_CONFLICT }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
   /internal/v1/access/session-check:
     post:
       description: Revalidate a cached BFF session against current mailbox authorization and verified Access issuer/signature/subject/audience. No token issuance. BFF compares returned userId with its authenticated cached session subject before reuse.
@@ -685,7 +709,7 @@ components:
           properties:
             email: { type: [string, 'null'], format: email }
             version: { type: integer, minimum: 0 }
-            linked: { type: boolean, description: A legacy active principal is linked or a mailbox is authorized. Not mailbox ownership verification. }
+            linked: { type: boolean, description: An active Access principal has been linked with this user-owned mailbox; the pending reservation is not proof of mailbox control. }
     UserProfile:
       type: object
       additionalProperties: false
