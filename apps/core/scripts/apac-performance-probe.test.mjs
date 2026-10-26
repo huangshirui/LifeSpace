@@ -93,6 +93,6 @@ test("APAC release gate enforces scenario targets for reads and mutations", () =
   // Confirmation still enforces every scenario target without trimming latency samples.
   assert.match(verifier, /planApacConfirmation/u);
   assert.match(verifier, /evaluateApacConfirmation/u);
-  assert.match(verifier, /decision\\.status !== "passed"/u);
+  assert.match(verifier, /decision[.]status !== "passed"/u);
   assert.doesNotMatch(verifier, /allReadTargetsMet\)\s*\{/u);
 });
