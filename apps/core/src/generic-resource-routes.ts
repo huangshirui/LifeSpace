@@ -134,8 +134,8 @@ async function listResponse(
 }
 
 // Temporal/check-in projection uses current Space timezone but does not grant Authority.
- // Start the time-zone lookup only after access/policy checks; run it in parallel with
- // the authorized query rather than serializing another D1 RTT behind query hydration.
+// Start the time-zone lookup only after access/policy checks; run it in parallel with
+// the authorized query rather than serializing another D1 RTT behind query hydration.
 async function queryWithTemporalContext<T>(
   context: Context<AppEnv>,
   spaceId: string,
