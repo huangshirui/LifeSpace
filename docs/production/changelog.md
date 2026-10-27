@@ -2,6 +2,18 @@
 
 本文件只记录**已经成功发布到 production** 的变化。开发中、staging、PR 或 main 上的变化不得提前写成 production changelog。
 
+## 2026-10-27 — Reference labels, Record Icon file link repair and current Model Contract (Production #50)
+
+- **Verified release:** SHA `0ab94ccf4aeeaa6e9309b6a344d7280051691a21`; [Staging](https://github.com/huangshirui/LifeSpace/actions/runs/40436370316) and [Production #50](https://github.com/huangshirui/LifeSpace/actions/runs/40438311024) completed/success. All three production jobs passed, including exact-candidate provenance and APAC performance gate.
+- **Core:** Kernel `0.53.0` / schema `76`. **Identity:** contract `0.15.0` / schema `14`. These are verified production database/service versions, not implied by main branch alone.
+- **Active Model Contract:** `mct_21ac4fd66f72ea4dfe259974970a0eb55c1e02a4424003404897862d2e8629d3`, verified against Production D1 with **12** ordinary models: Task v10, Wish v10, Day Record v7, Event v8, Person Group v2, Anniversary v2, Activity v2, Goal v3, Person Profile v2, Habit v3, Football Match v1 and Football Performance v1. The two football models are verified as published, but this workflow does not deploy or validate HomeMew's football UI/stats.
+- **Schema 75 reference labels:** Task `name`, Wish `title`, Day Record `name`, Event `summary` now supply their declared canonical Reference Resolution display labels; labels for other models remain model-defined (or use contract-supported fallback).
+- **Schema 76 Record Icon repair:** a normal business-field update no longer detaches an unchanged `presentation.icon` image File; the migration restores only unambiguous legacy missing `__record_icon` links. Post-release production inspection found **two** active image Icons and **zero** missing links, including the previously affected HomeMew 「明强」 team; both corresponding R2 objects exist and file sizes match. Actual HomeMew browser download/rendering still requires consumer-side acceptance.
+- **Changed release verifiers:** schema 75 published model hashes are now correctly pinned by Staging/Production proving checks, without bypassing strict equality or release version floors ([PR #421](https://github.com/huangshirui/LifeSpace/pull/421)); Staging D1 convergence, authenticated R2 upload/download, Model Contract, Golden Flow, Eventing and performance checks all passed.
+- **Boundaries/limits:** No new Space/Grant authority or bypass, no automatic downstream deployment; Notion production business CRUD was not proven by this deployment. Generic Batch Execute Action, full Federated Truth and generic Provenance remain outside verified production claims. Console rollout is separately governed.
+
+---
+
 ## 2026-10-22 — Core/Identity and baseline models production release #42
 
 - **Verified release:** SHA `4e2eb18aa35738aae9f908e86ee55063a58c4466`; [Staging #147](https://github.com/huangshirui/LifeSpace/actions/runs/39750058970) and [Production #42](https://github.com/huangshirui/LifeSpace/actions/runs/39752702491) successful.
