@@ -47,3 +47,9 @@
 - 普通部署/Console/自动化不再把 Bootstrap 当日常管理秘密；Application / Credential / Audience 的常规管理统一为已有 Platform Admin。
 - Clean-room 首装与恢复路径可用；Credential/Access/权限隔离不回退；真实 Staging/Production 发布及 Golden Flow 分别在各自候选 SHA 上通过。
 - **未完成之前 #93 保持 Open**。重大新授权需求应独立提案，不纳入本 Issue 的验收。
+
+## Staging Console Provisioning 精简（PR #429 候选）
+
+- `infra/scripts/prepare-staging-console-admin.mjs` 对 **已存在**的 Console Application，默认不再每次用 Bootstrap `PUT /platform-administrators/:userId` 重新授权。只有首次创建 Application 或明确指定 `LIFESPACE_STAGING_CONSOLE_RECOVER_PLATFORM_ADMIN=1` 才执行赋权；GitHub 手动工作流对应 `recover_platform_admin` 选项，默认关闭。普通流程不声称验证了现有管理员状态；后续真实 Console Admin 验收仍需验证授权，不可跳过。
+- Existing Application Credential 使用已安装的 `lsa_*`，或者在 `LIFESPACE_STAGING_CONSOLE_ROTATE_CREDENTIALS=1` 时明确创建替换凭证。删除此前无论如何都会进行的 Bootstrap Credential LIST，以及“发现没有活跃凭证便静默自动新建”的路径。凭证确实丢失时通过**显式轮换**恢复，杜绝无意的权限管理副作用。
+- 保留首次初始化所需的 Bootstrap `POST /applications`、管理员建立及 Access Audience Seed；不修改 Production 或现有 Platform Admin 接口。Bootstrap 调用方预算仅就此脚本由 7 缩至 6，CI 对退出路径与人工恢复门禁做结构测试。
