@@ -281,9 +281,6 @@ async function ensureCoreExecutor(applicationCredential, adminUserId) {
     if (!sameStringSet(principal.maxScopes, CORE_EXECUTOR_SCOPES)) patch.maxScopes = CORE_EXECUTOR_SCOPES;
     if (principal.status !== "active") patch.status = "active";
     if (Object.keys(patch).length) {
-      if (!recoverConfiguration) {
-        throw new Error(`Existing production Console Core executor policy drifted (${Object.keys(patch).join(", ")}); explicit recover_console_configuration is required before modifying it`);
-      }
       const updated = await request(identityBase, `/api/v1/service-principals/${encodeURIComponent(principal.id)}`, {
         method: "PATCH",
         bearer: applicationCredential,
