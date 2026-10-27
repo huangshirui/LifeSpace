@@ -41,3 +41,21 @@ during WeChat review. Do NOT implement a protocol compatibility layer.
 ## 0073 Baseline Description Compression / 模型描述压缩
 
 Compatible description-only revisions for PersonGroup, Anniversary, Activity, Goal, PersonProfile and Habit. The migration checks expected old hashes, preserves published-version history, advances the published Registry and invalidates its contract cache. It changes no business data, fields, permissions, Actions or policies. Apply before the corresponding Worker; validate Staging before Production.
+
+## 0075 Record Icon File link preservation and repair / 图标附件关联修复
+
+The generic File projection previously removed every `resource_file_links` row on
+normal Record PATCH, including the separate `__record_icon` link when the Icon
+metadata was intentionally omitted. Core now preserves this field and only
+`recordIconLinkStatements` may attach, replace or clear an Icon image link.
+
+Migration 0075 restores only unambiguous missing Icon links: live Native Records
+with image metadata, matching ready Files in the same Space, a completed Icon
+upload session for the same Model/uploader, and no competing File link.
+It changes no `icon_json`, File status, model definition, permissions, business
+fields or record version/audit timestamps. Ineligible records are deliberately
+left untouched for manual review. R2 bytes cannot be verified in D1; check any
+remaining 404 against the corresponding `files.object_key` in the correct R2
+bucket. Back up D1, validate candidate counts and affected Record downloads in
+Staging, then use the normal manually approved Production release gates. Never
+blindly re-upload or infer a different File ID.
