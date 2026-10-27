@@ -31,7 +31,11 @@ describe("Event schema 74 Location coordinated cutover", () => {
   it("uses the exact published model and four canonical columns, without legacy scalar Location", async () => {
     const db = bindings().DB;
     const current = await db.prepare("SELECT schema_hash FROM model_definitions WHERE model_key='event' AND state='published'").first<{schema_hash:string}>();
-    expect(current?.schema_hash).toBe("7b189b870a3da40ecc6d4ae7926c600f8beec5bc3af342539279d934da3243c6");
+    expect(current?.schema_hash).toBe("dbf441f1f8203ebec0e16b2d6569b7606764b924540efd7bad30fb1258a7b270");
+    const previousLabel = await db.prepare("SELECT state FROM model_definitions WHERE model_key='event' AND schema_hash=?")
+      .bind("7b189b870a3da40ecc6d4ae7926c600f8beec5bc3af342539279d934da3243c6")
+      .first<{ state: string }>();
+    expect(previousLabel?.state).toBe("superseded");
     const fields = await db.prepare("PRAGMA table_info(mdl_event)").all<{name:string}>();
     const columns = new Set(fields.results.map((x) => x.name));
     expect(columns.has("location")).toBe(false);
