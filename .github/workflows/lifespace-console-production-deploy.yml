@@ -216,7 +216,11 @@ jobs:
           set -euo pipefail
           cd apps/console
           CLOUDFLARE_ENV=production pnpm exec vite build
-          pnpm exec wrangler deploy --secrets-file "$LIFESPACE_CONSOLE_PRODUCTION_SECRETS_FILE"
+          if [[ "${{ inputs.rotate_executor_credentials }}" == "true" ]]; then
+            pnpm exec wrangler deploy --env production --secrets-file "$LIFESPACE_CONSOLE_PRODUCTION_SECRETS_FILE"
+          else
+            pnpm exec wrangler deploy --env production
+          fi
 
       - name: Verify production hostname is protected and reachable
         shell: bash
@@ -236,6 +240,9 @@ jobs:
           exit 1
 
       - name: Revoke superseded Console executor credentials
+        if: ${{ inputs.rotate_executor_credentials }}
+        env:
+          LIFESPACE_PRODUCTION_BOOTSTRAP_SECRET: ${{ secrets.LIFESPACE_PRODUCTION_BOOTSTRAP_SECRET }}
         run: node infra/scripts/finalize-production-console-admin.mjs
 
       - name: Remove ephemeral secrets file
@@ -256,9 +263,9 @@ jobs:
           - Identity: schema v${LIFESPACE_EXPECTED_IDENTITY_SCHEMA_VERSION} / contract ${LIFESPACE_EXPECTED_IDENTITY_CONTRACT_VERSION}
           - Core: schema v${LIFESPACE_EXPECTED_CORE_SCHEMA_VERSION} / Kernel ${LIFESPACE_EXPECTED_CORE_CONTRACT_VERSION}
           - Cloudflare Access application: ${LIFESPACE_PRODUCTION_CONSOLE_ACCESS_STATE:-verified}; owner-only policy verified before deployment
-          - Platform administrator: explicit/existing or uniquely resolved from an already-verified Access principal mapping; no email matching
           - Console LifeSpace application: \`app_lifespace_console\`
-          - Identity/Core executor credentials: zero-downtime rotated; superseded credentials revoked after hostname verification
+          - Explicit executor credential rotation: ${{ inputs.rotate_executor_credentials }}
+          - Existing Worker secrets are preserved for deploy-only; Bootstrap credential provisioning runs only when explicitly opted in
           - Core/Identity deployment or migration: **not performed**
           - Space/business data mutation: **not performed**
           - Downstream application migration/cutover: **not performed by this workflow**
