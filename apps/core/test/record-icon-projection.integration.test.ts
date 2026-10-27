@@ -107,14 +107,33 @@ describe("native Record Icon projection and DayRecord cutover", () => {
     const loaded = await getGenericResource(bindings(), spaceId, model, record.id);
     expect(loaded?.presentation?.icon).toEqual({ type: "image", fileId });
 
-    const updated = await updateGenericResource(bindings(), actor, spaceId, model, record.id, record.version, {
+    // A business-only update retains both the Icon metadata and its File link.
+    // The previous SQL deleted all File links even when presentation.icon was omitted.
+    const renamed = await updateGenericResource(bindings(), actor, spaceId, model, record.id, record.version, {
+      name: "Football Club Renamed",
+    });
+    expect(renamed.version).toBe(2);
+    expect(renamed.presentation?.icon).toEqual({ type: "image", fileId });
+    const preservedLink = await db.prepare("SELECT file_id FROM resource_file_links WHERE source_record_id=? AND field_key=?")
+      .bind(record.id, "__record_icon").first<{ file_id: string }>();
+    expect(preservedLink?.file_id).toBe(fileId);
+    expect((await getGenericResource(bindings(), spaceId, model, record.id))?.presentation?.icon)
+      .toEqual({ type: "image", fileId });
+
+    // An explicit replacement must still detach the old image File.
+    const updated = await updateGenericResource(bindings(), actor, spaceId, model, record.id, renamed.version, {
       presentation: { icon: { type: "emoji", value: "⚽" } },
     });
-    expect(updated.version).toBe(2);
+    expect(updated.version).toBe(3);
     expect(updated.presentation?.icon).toEqual({ type: "emoji", value: "⚽" });
     const detached = await db.prepare("SELECT file_id FROM resource_file_links WHERE source_record_id=? AND field_key=?")
       .bind(record.id, "__record_icon").first<{ file_id: string }>();
     expect(detached).toBeNull();
+    // Replacement detaches the link but does not delete the reusable File or
+    // rewrite the Record's business data.
+    const oldFile = await db.prepare("SELECT status FROM files WHERE id=? AND space_id=?")
+      .bind(fileId, spaceId).first<{ status: string }>();
+    expect(oldFile?.status).toBe("ready");
   });
 
 });

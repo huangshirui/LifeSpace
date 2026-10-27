@@ -721,8 +721,11 @@ function fileStatements(
   mutationToken?: string,
 ): D1PreparedStatement[] {
   const statements: D1PreparedStatement[] = [];
-  if (mutationToken) statements.push(env.DB.prepare(`DELETE FROM resource_file_links WHERE source_record_id=?
-    AND EXISTS(SELECT 1 FROM resource_records WHERE id=? AND mutation_token=?)`).bind(recordId, recordId, mutationToken));
+  // Ordinary File fields and presentation.icon are independent projections.
+  // Leave the Icon link alone on business-only updates; recordIconLinkStatements
+  // owns changes/clears when presentation.icon is explicitly supplied.
+  if (mutationToken) statements.push(env.DB.prepare(`DELETE FROM resource_file_links WHERE source_record_id=? AND field_key<>?
+    AND EXISTS(SELECT 1 FROM resource_records WHERE id=? AND mutation_token=?)`).bind(recordId, RECORD_ICON_FIELD, recordId, mutationToken));
   for (const file of files) {
     if (mutationToken) statements.push(env.DB.prepare(`INSERT INTO resource_file_links(
       source_record_id,source_space_id,source_model_key,field_key,ordinal,file_id
