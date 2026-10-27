@@ -232,3 +232,69 @@ describe("D1-backed Identity trust flow", () => {
     expect(newAfterRevoke.status).toBe(200);
   });
 });
+
+describe("trusted Application self-inspection", () => {
+  it("returns only own live non-secret metadata and requires an active lsa credential", async () => {
+    const privateKey = await privateKeyPem();
+    const firstId = `app_self_a_${crypto.randomUUID().replaceAll("-", "")}`;
+    const secondId = `app_self_b_${crypto.randomUUID().replaceAll("-", "")}`;
+    async function seed(id: string, allowedScopes: string[]) {
+      const response = await request("/bootstrap/v1/applications", {
+        method: "POST",
+        headers: { "x-bootstrap-secret": "bootstrap-test", "content-type": "application/json" },
+        body: JSON.stringify({ id, name: "Self Inspection Test", trustedBackend: true, allowedScopes }),
+      }, privateKey);
+      expect(response.status).toBe(201);
+      return (await response.json() as any).data.clientSecret as string;
+    }
+    const aSecret = await seed(firstId, ["resources:read"]);
+    const bSecret = await seed(secondId, ["resources:write"]);
+    const inspect = (authorization?: string, bootstrap = false) => request("/internal/v1/applications/self", {
+      method: "GET",
+      headers: {
+        ...(authorization ? { authorization: `Bearer ${authorization}` } : {}),
+        ...(bootstrap ? { "x-bootstrap-secret": "bootstrap-test" } : {}),
+      },
+    }, privateKey);
+
+    const a = await inspect(aSecret);
+    expect(a.status).toBe(200);
+    const aData = (await a.json() as any).data;
+    expect(aData.id).toBe(firstId);
+    expect(aData.allowedScopes).toEqual(["resources:read"]);
+    expect(aData.trustedBackend).toBe(true);
+    expect(aData.clientSecret).toBeUndefined();
+    expect(aData.secretHash).toBeUndefined();
+    expect(JSON.stringify(aData)).not.toContain(bSecret);
+
+    const b = await inspect(bSecret);
+    expect(b.status).toBe(200);
+    const bData = (await b.json() as any).data;
+    expect(bData.id).toBe(secondId);
+    expect(bData.allowedScopes).toEqual(["resources:write"]);
+    expect(JSON.stringify(bData)).not.toContain(firstId);
+
+    expect((await inspect(undefined, true)).status).toBe(401);
+    expect((await inspect("lsa_invalid_invalid_invalid_invalid_invalid_invalid")).status).toBe(401);
+
+    const credentials = await request(`/bootstrap/v1/applications/${firstId}/credentials`, {
+      method: "GET", headers: { "x-bootstrap-secret": "bootstrap-test" },
+    }, privateKey);
+    const entries = (await credentials.json() as any).data as Array<{id: string}>;
+    expect(credentials.status).toBe(200);
+    const revoke = await request(`/bootstrap/v1/applications/${firstId}/credentials/${entries[0].id}`, {
+      method: "DELETE", headers: { "x-bootstrap-secret": "bootstrap-test" },
+    }, privateKey);
+    expect(revoke.status).toBe(204);
+    expect((await inspect(aSecret)).status).toBe(401);
+    expect((await inspect(bSecret)).status).toBe(200);
+
+    const disabled = await request(`/bootstrap/v1/applications/${secondId}`, {
+      method: "PATCH",
+      headers: { "x-bootstrap-secret": "bootstrap-test", "content-type": "application/json" },
+      body: JSON.stringify({ status: "disabled" }),
+    }, privateKey);
+    expect(disabled.status).toBe(200);
+    expect((await inspect(bSecret)).status).toBe(401);
+  });
+});

@@ -116,7 +116,7 @@
     {
       "id": "identity-application",
       "source": "apps/identity/openapi.yaml",
-      "operationSetSha256": "sha256:f820031de8622547f437b83d071937797581c8d17c5248becb2c8ea1a1642641",
+      "operationSetSha256": "sha256:042bdc44abb2d89c04533359b1806691799d9ba0829a6b3e335ce1654a71560c",
       "groups": [
         {
           "id": "identity-operational",
@@ -177,6 +177,12 @@
           "maturity": "candidate",
           "visibility": "internal",
           "operationPattern": "^POST /api/v1/me/platform-admin-actor-token$"
+        },
+        {
+          "id": "identity-application-self-inspection",
+          "maturity": "candidate",
+          "visibility": "internal",
+          "operationPattern": "^GET /internal/v1/applications/self$"
         },
         {
           "id": "identity-bootstrap",

@@ -50,3 +50,18 @@ Bootstrap 只负责建立首次可用的正常治理权限链，及明确受控�
 ## 验收证据的真实性
 
 本计划和相关门禁是**开发仓库代码**，不是 Production capability。不能更新 `docs/production` 声称 Bootstrap 已收敛；部署后才更新生产事实，并追加项目 Notion “99 · 架构演进与决策日志”。
+
+## Phase 2 incremental slice（2026-10-27，PR 与 Staging 验收前）
+
+- 新增 `GET /internal/v1/applications/self`：仅凭当前有效的 `lsa_*` 读取调用者自身 Application 非秘密配置，不接受 target Application ID，不提供 Credential 管理或范围提升。
+- `verify-staging-application-admin.mjs` 原本对临时 Smoke Application 的 Bootstrap metadata GET 改为用该 Application 自己的凭证验证 live scope ceiling；其余 Bootstrap 凭证创建 / 撤销验收仍保留，不能在没有替代的管理员授权模型时删除。
+- Identity Application Contract 增量升级 0.16.0，包含正反向权限测试；这一步不是授权 CI 操作其他 Applications，也未授权添加机器 Platform Admin 主体。
+- **顺序要求**：使用更新后的 Staging Identity 服务做集成验收后才能依赖此路径，不能在部署 Identity 0.16.0 前单独运行更新后的验收脚本。生产合同与服务能力仍以成功部署的版本为准。
+
+
+### Phase 2b：Staging Eventing / Principal Revocation 去 Bootstrap（2026-10-27）
+
+- 当前 `prepare-staging-smoke.mjs` 初始化时已明确授予 `spaces:manage`、`grants:manage`、`resources:read`、`resources:write` Scope Ceiling；旧 Eventing 验收脚本为“Scope 不足时临时扩大并恢复”的 Bootstrap PATCH 分支不应存在。
+- `verify-staging-eventing.mjs` 与 `verify-staging-eventing-principal-revocation.mjs` 改为用 Smoke Application 自己的 `lsa_*` 调用 `/internal/v1/applications/self`，必须检查当前返回的 Application ID、active/trusted 状态及所有必需 Scope；任一缺失直接失败（fail closed），不做提权、不做恢复 PATCH。
+- 两个 Staging Eventing 验收脚本及其 runtime 环境校验均不再读取全局 Bootstrap Secret；从 `LEGACY_REFERENCE_BUDGET` 中永久删除这两项允许名单，CI 同时覆盖“不回引 Bootstrap”的负向回归。
+- 注意：这是**代码**路径收敛，不是已经完成 Staging Golden Flow 的线上证据。需先部署新版 Staging Identity 0.16，运行实际 Eventing 验收后确认，无权修改 Production 或把变更提前写入生产能力手册。

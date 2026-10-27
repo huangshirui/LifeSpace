@@ -3,7 +3,7 @@
 ## Status
 
 - Cloudflare Access is the long-term Web/PWA authentication and SSO layer.
-- Identity Application Contract is `0.15.0`.
+- Identity Application Contract is `0.16.0`.
 - Identity Platform Admin companion contract is `0.5.0`; it includes the platform-administrator/purpose-bound actor foundation plus Application-scoped Agent identity governance for Console.
 - `Application` is the registered application access subject. It is deliberately independent of Web/Mini Program/PWA/BFF/Worker/deployment topology.
 - Access principal verification, audience registration, explicit registration/linking and trusted application credential lifecycle are implemented.
@@ -51,6 +51,12 @@ lsa_<random-secret>
 Plaintext is returned exactly once when a credential is created. Identity stores only its cryptographic hash and non-secret suffix/metadata. Multiple active credentials may overlap during zero-downtime rotation or independent backend deployment; revocation takes effect immediately on subsequent Identity authentication.
 
 `lsa_*` must never appear in Mini Program code, browser JavaScript, mobile/downloadable clients, repository source, logs or documentation examples containing a real secret.
+
+## Read-only trusted Application self-inspection (Identity 0.16)
+
+An already authenticated trusted backend may call `GET /internal/v1/applications/self` with its own active `lsa_*` credential. Identity returns only that Application's non-secret identity, scope ceiling, TTL and status. The request accepts no Application ID, no Bootstrap Secret, no Platform Admin actor proof and no mutation. This is a visibility/introspection convenience for already-authorized application backends, **not** a credential lifecycle or Application governance API; it grants no `applications:manage` or cross-application authority.
+
+Staging verification may use this self-only read instead of privileged Bootstrap metadata GET. Credential creation, replacement and revocation must remain under their existing privileged controls until an independently approved machine-authority strategy is implemented. Never give an application credential permission to perpetually mint its own replacement credentials as an implicit side effect of self-inspection.
 
 ## Application-owned external identity
 
@@ -373,3 +379,8 @@ Code confirmation takes the current authenticated user and the previously verifi
 GET/PATCH `/api/v1/me/web-login` preserves the bounded email/version/linked envelope and adds status `unlinked|pending|linked`. The monotonic user access-link revision covers both entry points. Changing the selected binding disables its old subject and creates a new pending relation atomically. Other established identities are preserved. A user may explicitly pre-link the old mailbox again to reactivate their own historical subject after fresh Access proof; disabled identities never reactivate by email alone. BFF cached sessions must check current subject eligibility and compare the resulting user to the authenticated cached subject. Issued short-lived bearers still expire normally.
 
 Migration 0013 preserves established principal IDs, migrates 0012 declarations into pending rows when needed, renames the bounded non-secret audit table and drops `web_login_emails`. Conflicting declarations fail the migration transaction rather than merge identities. Never edit executed migration 0012. No HomeMew persistence, email OTP service, new-user Web onboarding, Core change or remote migration is part of the correction PR itself.
+
+
+## Staging Eventing must not mutate Application policy for acceptance
+
+The canonical Smoke Application is provisioned with `spaces:manage`, `grants:manage`, `resources:read` and `resources:write` as explicit initial ceilings. The Eventing and principal-revocation Golden Flow scripts inspect that current Application's metadata through its own valid `lsa_*` and **fail closed** when its active trust state or required scopes differ. Acceptance never uses Bootstrap to silently widen and then restore policy. This is a CI/operations behavior change, not a new data or administration authorization mechanism.

@@ -30,7 +30,7 @@ type UpdateApplicationBody = {
   status?: unknown;
 };
 
-export const IDENTITY_CONTRACT_VERSION = "0.15.0";
+export const IDENTITY_CONTRACT_VERSION = "0.16.0";
 export const DEFAULT_ACCESS_TOKEN_TTL_SECONDS = 900;
 export const MIN_ACCESS_TOKEN_TTL_SECONDS = 300;
 export const MAX_ACCESS_TOKEN_TTL_SECONDS = 3600;
@@ -100,6 +100,18 @@ async function loadApplication(db: D1Database, applicationId: string): Promise<A
 }
 
 export function registerApplicationAdminRoutes(app: Hono<AppEnv>) {
+  // Ordinary application-plane introspection is scoped exclusively to the
+  // already authenticated lsa_* application. It does not manage other apps,
+  // create credentials, or elevate a CI caller into Platform Admin authority.
+  app.get("/internal/v1/applications/self", async (c) => {
+    const applicationId = c.get("currentApplicationId");
+    const row = await loadApplication(c.env.DB, applicationId);
+    if (!row || row.status !== "active" || row.trusted_backend !== 1) {
+      return c.json(fail("UNAUTHORIZED", "Trusted application authentication is required", c.get("requestId")), 401);
+    }
+    return c.json(ok(applicationDto(row)));
+  });
+
   app.get("/bootstrap/v1/applications/:applicationId", async (c) => {
     const row = await loadApplication(c.env.DB, c.req.param("applicationId"));
     if (!row) return c.json(fail("APPLICATION_NOT_FOUND", "Application not found", c.get("requestId")), 404);

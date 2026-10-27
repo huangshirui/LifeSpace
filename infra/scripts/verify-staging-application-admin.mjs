@@ -36,7 +36,9 @@ async function jsonRequest(path, { method = "GET", bootstrap, bearer, body } = {
 }
 
 const applicationPath = `/bootstrap/v1/applications/${encodeURIComponent(applicationId)}`;
-const metadata = await jsonRequest(applicationPath, { bootstrap: bootstrapSecret });
+// Verify the smoke application's own live scope ceiling without Bootstrap
+// authority; credential lifecycle mutation below remains a separate legacy path.
+const metadata = await jsonRequest("/internal/v1/applications/self", { bearer: originalSecret });
 if (metadata.response.status !== 200 || metadata.payload?.data?.id !== applicationId) {
   throw new Error(`Application metadata verification failed: ${metadata.response.status} ${JSON.stringify(metadata.payload)}`);
 }

@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { resolve } from "node:path";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import {
   checkBootstrapSurface,
@@ -65,4 +66,25 @@ test("duplicate Bootstrap server registrations are denied", () => {
     path: "apps/identity/src/platform-admin-assignment.ts",
     source: 'app.get("/bootstrap/v1/platform-administrators", a); app.get("/bootstrap/v1/platform-administrators", b)',
   }]), /Duplicate Bootstrap API route/u);
+});
+
+test("Staging Eventing acceptance reads its own Application and never escalates through Bootstrap", () => {
+  const smoke = readFileSync(resolve(root, "infra/scripts/prepare-staging-smoke.mjs"), "utf8");
+  for (const scope of ["spaces:manage", "grants:manage", "resources:read", "resources:write"]) {
+    assert.ok(smoke.includes(`"${scope}"`), `Smoke initializer missing ${scope}`);
+  }
+  for (const path of [
+    "infra/scripts/verify-staging-eventing.mjs",
+    "infra/scripts/verify-staging-eventing-principal-revocation.mjs",
+  ]) {
+    assert.equal(LEGACY_REFERENCE_BUDGET[path], undefined, `${path} must remain retired from Bootstrap allowlist`);
+    const source = readFileSync(resolve(root, path), "utf8");
+    assert.ok(source.includes('"/internal/v1/applications/self"'), `Own identity inspection missing in ${path}`);
+    assert.ok(source.includes("bearer: applicationSecret"), `Own credential binding missing in ${path}`);
+    assert.ok(source.includes('appData?.id !== applicationId'), `Application identity verification missing in ${path}`);
+    assert.ok(source.includes('requiredScopes.some((scope) => !appData.allowedScopes.includes(scope))'), `Scope fail-closed enforcement missing in ${path}`);
+    assert.ok(!source.includes("/bootstrap/v1/"), `Bootstrap route leaked into ${path}`);
+    assert.ok(!source.includes("LIFESPACE_STAGING_BOOTSTRAP_SECRET"), `Bootstrap secret leaked into ${path}`);
+    assert.ok(!source.includes("applicationScopesChanged"), `Temporary scope elevation leaked into ${path}`);
+  }
 });

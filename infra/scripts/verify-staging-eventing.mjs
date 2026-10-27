@@ -4,7 +4,6 @@ const identityBase = (process.env.LIFESPACE_IDENTITY_STAGING_URL ?? "https://aut
 const coreBase = (process.env.LIFESPACE_CORE_STAGING_URL ?? "https://core-staging.aisr.online").replace(/\/+$/u, "");
 const apiToken = process.env.CLOUDFLARE_API_TOKEN ?? "";
 const accountId = process.env.CLOUDFLARE_ACCOUNT_ID ?? "";
-const bootstrapSecret = process.env.LIFESPACE_STAGING_BOOTSTRAP_SECRET ?? "";
 const applicationId = process.env.LIFESPACE_STAGING_SMOKE_APPLICATION_ID ?? "";
 const applicationSecret = process.env.LIFESPACE_STAGING_SMOKE_APPLICATION_SECRET ?? "";
 const userId = process.env.LIFESPACE_STAGING_SMOKE_USER_ID ?? "";
@@ -20,7 +19,6 @@ const sinkBase = `https://${sinkHostname}`;
 for (const [name, value] of Object.entries({
   CLOUDFLARE_API_TOKEN: apiToken,
   CLOUDFLARE_ACCOUNT_ID: accountId,
-  LIFESPACE_STAGING_BOOTSTRAP_SECRET: bootstrapSecret,
   LIFESPACE_STAGING_SMOKE_APPLICATION_ID: applicationId,
   LIFESPACE_STAGING_SMOKE_APPLICATION_SECRET: applicationSecret,
   LIFESPACE_STAGING_SMOKE_USER_ID: userId,
@@ -121,13 +119,12 @@ async function readResponse(response) {
   catch { return raw; }
 }
 
-async function request(base, path, { method = "GET", bearer, bootstrap, body } = {}) {
+async function request(base, path, { method = "GET", bearer, body } = {}) {
   const response = await fetch(`${base}${path}`, {
     method,
     headers: {
       accept: "application/json",
       ...(bearer ? { authorization: `Bearer ${bearer}` } : {}),
-      ...(bootstrap ? { "x-bootstrap-secret": bootstrap } : {}),
       ...(body === undefined ? {} : { "content-type": "application/json" }),
     },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
@@ -226,8 +223,6 @@ async function detachSinkDomain() {
   }
 }
 
-let originalApplicationScopes = null;
-let applicationScopesChanged = false;
 let managerBearer = "";
 let subscriberPrincipalId = "";
 let grantId = "";
@@ -241,20 +236,19 @@ let primaryError = null;
 const cleanupErrors = [];
 
 try {
-  const applicationMetadata = await request(identityBase, `/bootstrap/v1/applications/${encodeURIComponent(applicationId)}`, {
-    bootstrap: bootstrapSecret,
+  // Staging smoke creates a short-lived trusted Application with the required
+  // scopes. Validate its current authorization and fail closed on drift.
+  // Never let an acceptance test widen its own Application scope ceiling.
+  const applicationMetadata = await request(identityBase, "/internal/v1/applications/self", {
+    bearer: applicationSecret,
   });
-  const appData = await expectStatus("staging smoke application metadata", applicationMetadata, 200);
-  originalApplicationScopes = Array.isArray(appData?.allowedScopes) ? [...appData.allowedScopes] : null;
-  if (!originalApplicationScopes) throw new Error("Staging smoke application scopes are unavailable");
-  if (!originalApplicationScopes.includes("grants:manage")) {
-    const update = await request(identityBase, `/bootstrap/v1/applications/${encodeURIComponent(applicationId)}`, {
-      method: "PATCH",
-      bootstrap: bootstrapSecret,
-      body: { allowedScopes: [...originalApplicationScopes, "grants:manage"] },
-    });
-    await expectStatus("temporary grants:manage staging scope", update, 200);
-    applicationScopesChanged = true;
+  const appData = await expectStatus("staging smoke own application metadata", applicationMetadata, 200);
+  if (appData?.id !== applicationId || appData?.trustedBackend !== true || appData?.status !== "active") {
+    throw new Error("Staging Eventing Application identity/trust mismatch");
+  }
+  const requiredScopes = ["spaces:manage", "grants:manage", "resources:read", "resources:write"];
+  if (!Array.isArray(appData.allowedScopes) || requiredScopes.some((scope) => !appData.allowedScopes.includes(scope))) {
+    throw new Error("Staging Eventing Application missing required scope ceiling; no automatic elevation");
   }
 
   const tokenResult = await request(identityBase, "/internal/v1/tokens", {
@@ -495,16 +489,6 @@ try {
         body: { status: "disabled" },
       });
       if (![200, 404].includes(result.response.status)) throw new Error(`HTTP ${result.response.status}`);
-    });
-  }
-  if (applicationScopesChanged && originalApplicationScopes) {
-    await cleanup("staging smoke application scope restore", async () => {
-      const result = await request(identityBase, `/bootstrap/v1/applications/${encodeURIComponent(applicationId)}`, {
-        method: "PATCH",
-        bootstrap: bootstrapSecret,
-        body: { allowedScopes: originalApplicationScopes },
-      });
-      if (result.response.status !== 200) throw new Error(`HTTP ${result.response.status}`);
     });
   }
   if (customDomainAttached) {

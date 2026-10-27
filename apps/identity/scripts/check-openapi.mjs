@@ -2,7 +2,7 @@ import fs from "node:fs";
 import YAML from "yaml";
 
 const doc = YAML.parse(fs.readFileSync(new URL("../openapi.yaml",import.meta.url),"utf8"));
-if (doc.openapi !== "3.1.0" || doc.info?.version !== "0.15.0") {
+if (doc.openapi !== "3.1.0" || doc.info?.version !== "0.16.0") {
   throw new Error("Identity OpenAPI version metadata is invalid");
 }
 
@@ -21,6 +21,7 @@ for (const path of [
   "/bootstrap/v1/applications/{applicationId}/credentials/{credentialId}",
   "/bootstrap/v1/applications/{applicationId}/access-audiences",
   "/bootstrap/v1/applications/{applicationId}/access-audiences/{audienceId}",
+  "/internal/v1/applications/self",
   "/internal/v1/users",
   "/internal/v1/tokens",
   "/internal/v1/access/tokens",
@@ -44,6 +45,14 @@ for (const path of [
 if (!doc.paths?.["/api/v1/me/web-login"]?.delete) throw new Error("Login mailbox unlink API is required");
 if (doc.paths?.["/internal/v1/external-identities"]) {
   throw new Error("Application-owned external identity mappings must not be exposed by LifeSpace Identity");
+}
+
+const selfInspection = doc.paths?.["/internal/v1/applications/self"]?.get;
+if (!selfInspection?.security?.some((entry) => Object.keys(entry).length === 1 && "applicationCredential" in entry)
+  || !selfInspection.responses?.["200"]?.content?.["application/json"]?.schema?.properties?.data
+  || selfInspection.requestBody
+  || doc.paths?.["/internal/v1/applications/{applicationId}"]) {
+  throw new Error("Application self-inspection must authenticate the current lsa_* Application only");
 }
 
 const bootstrapDescription = doc.paths?.["/bootstrap/v1/applications"]?.post?.description ?? "";
