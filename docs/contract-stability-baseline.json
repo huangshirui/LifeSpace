@@ -317,7 +317,13 @@
           "id": "identity-platform-admin",
           "maturity": "candidate",
           "visibility": "internal",
-          "operationPattern": "^(GET|POST|PATCH|PUT|DELETE) /.*$"
+          "operationPattern": "^(GET|POST|PATCH|PUT|DELETE) /(?!bootstrap/v1/applications(?:/|$)).*$"
+        },
+        {
+          "id": "identity-bootstrap-provisioning",
+          "maturity": "experimental",
+          "visibility": "internal",
+          "operationPattern": "^(GET|POST|PATCH|PUT|DELETE) /bootstrap/v1/applications(?:/.*)?$"
         }
       ]
     },
