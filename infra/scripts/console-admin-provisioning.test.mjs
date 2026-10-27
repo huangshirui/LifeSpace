@@ -74,3 +74,41 @@ test("Session-only Console setup never mutates existing Application policy via B
   assert.match(shell, /const audience = await ensureAudience\(\)/u, "Keep first-use Access audience registration");
   assert.match(shell, /existingPolicyUnchanged: !created/u);
 });
+
+test("Production Console deployment verifies existing administrator rather than reassigning it", () => {
+  const prod = fs.readFileSync(new URL("./prepare-production-console-admin.mjs", import.meta.url), "utf8");
+  const resolver = fs.readFileSync(new URL("./resolve-production-console-admin.mjs", import.meta.url), "utf8");
+  const workflow = fs.readFileSync(new URL("../../.github/workflows/lifespace-console-production-deploy.yml", import.meta.url), "utf8");
+  assert.match(prod, /async function resolvePlatformAdminUserId\(\)/u);
+  assert.match(prod, /\/bootstrap\/v1\/platform-administrators/u);
+  assert.match(prod, /active\.some\(\(entry\) => entry\.userId === suppliedAdminUserId\)/u);
+  assert.doesNotMatch(prod, /ensurePlatformAdministrator|method: "PUT",\s*bootstrap: true/u);
+  assert.match(prod, /assignmentRequested: false/u);
+
+  assert.match(resolver, /const recoverPlatformAdmin = process\.env\.LIFESPACE_PRODUCTION_CONSOLE_RECOVER_PLATFORM_ADMIN === "1"/u);
+  assert.match(resolver, /if \(!isActive && !recoverPlatformAdmin\)/u);
+  assert.match(resolver, /if \(!recoverPlatformAdmin\)/u);
+  assert.match(resolver, /unique-verified-access-principal/u);
+  assert.match(workflow, /LIFESPACE_PRODUCTION_CONSOLE_RECOVER_PLATFORM_ADMIN:.*inputs\.recover_platform_admin/u);
+  assert.match(workflow, /LIFESPACE_PRODUCTION_CONSOLE_RECOVER_CONFIGURATION:.*inputs\.recover_console_configuration/u);
+});
+
+test("Production Console existing Application/Audience policy changes require explicit recovery", () => {
+  const prod = fs.readFileSync(new URL("./prepare-production-console-admin.mjs", import.meta.url), "utf8");
+  const workflow = fs.readFileSync(new URL("../../.github/workflows/lifespace-console-production-deploy.yml", import.meta.url), "utf8");
+  assert.match(prod, /const recoverConfiguration = process\.env\.LIFESPACE_PRODUCTION_CONSOLE_RECOVER_CONFIGURATION === "1"/u);
+  assert.match(prod, /if \(!created && !recoverConfiguration\)/u);
+  assert.match(prod, /if \(!applicationCreated && !recoverConfiguration\)/u);
+  assert.match(prod, /explicit recover_console_configuration is required/u);
+  assert.match(prod, /await ensureAudience\(access\.audience, application\.created\)/u);
+  assert.match(prod, /await rotateApplicationCredential\(application\.created, application\.initialSecret\)/u);
+  assert.match(prod, /await rotateCoreToken\(applicationCredential\.secret, principal\.id, adminUserId\)/u);
+  for (const input of ["recover_platform_admin", "recover_console_configuration"]) {
+    const lines = workflow.split("\n");
+    const at = lines.indexOf(`      ${input}:`);
+    assert.ok(at >= 0);
+    const block = lines.slice(at + 1, at + 6).join("\n");
+    assert.match(block, /default: false/u);
+    assert.match(block, /type: boolean/u);
+  }
+});

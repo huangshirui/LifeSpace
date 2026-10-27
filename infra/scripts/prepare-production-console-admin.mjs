@@ -9,6 +9,7 @@ const cloudflareAccountId = (process.env.CLOUDFLARE_ACCOUNT_ID ?? "").trim();
 const cloudflareApiToken = (process.env.CLOUDFLARE_API_TOKEN ?? "").trim();
 const suppliedAudience = (process.env.LIFESPACE_PRODUCTION_CONSOLE_ACCESS_AUD ?? "").trim();
 const suppliedAdminUserId = (process.env.LIFESPACE_PRODUCTION_PLATFORM_ADMIN_USER_ID ?? "").trim();
+const recoverConfiguration = process.env.LIFESPACE_PRODUCTION_CONSOLE_RECOVER_CONFIGURATION === "1";
 const applicationId = (process.env.LIFESPACE_PRODUCTION_CONSOLE_APPLICATION_ID ?? "app_lifespace_console").trim();
 const applicationName = (process.env.LIFESPACE_PRODUCTION_CONSOLE_APPLICATION_NAME ?? "LifeSpace Console").trim();
 const githubEnv = (process.env.GITHUB_ENV ?? "").trim();
@@ -138,12 +139,17 @@ async function resolveAccessAudience() {
 }
 
 async function resolvePlatformAdminUserId() {
-  if (suppliedAdminUserId) return suppliedAdminUserId;
   const result = await request(identityBase, "/bootstrap/v1/platform-administrators", { bootstrap: true });
   if (result.response.status !== 200 || !Array.isArray(result.payload?.data)) {
     throw new Error(`Could not list production platform administrators: ${result.response.status} ${JSON.stringify(result.payload)}`);
   }
   const active = result.payload.data.filter((entry) => entry?.status === "active" && entry?.userStatus === "active" && typeof entry?.userId === "string");
+  if (suppliedAdminUserId) {
+    if (!active.some((entry) => entry.userId === suppliedAdminUserId)) {
+      throw new Error("Resolved production platform administrator is not actively assigned; do not silently restore a revoked operator");
+    }
+    return suppliedAdminUserId;
+  }
   if (active.length !== 1) {
     throw new Error(`Expected exactly one active production platform administrator or LIFESPACE_PRODUCTION_PLATFORM_ADMIN_USER_ID, found ${active.length}`);
   }
@@ -192,6 +198,9 @@ async function createOrReconcileApplication() {
   if (existing.accessTokenTtlSeconds !== TOKEN_TTL_SECONDS) patch.accessTokenTtlSeconds = TOKEN_TTL_SECONDS;
   if (existing.status !== "active") patch.status = "active";
   if (Object.keys(patch).length) {
+    if (!created && !recoverConfiguration) {
+      throw new Error(`Existing production Console Application policy drifted (${Object.keys(patch).join(", ")}); explicit recover_console_configuration is required before Bootstrap may restore it`);
+    }
     const updated = await request(identityBase, `/bootstrap/v1/applications/${encodeURIComponent(applicationId)}`, {
       method: "PATCH",
       bootstrap: true,
@@ -202,7 +211,7 @@ async function createOrReconcileApplication() {
   return { created, initialSecret };
 }
 
-async function ensureAudience(audience) {
+async function ensureAudience(audience, applicationCreated) {
   const path = `/bootstrap/v1/applications/${encodeURIComponent(applicationId)}/access-audiences`;
   const list = await request(identityBase, path, { bootstrap: true });
   if (list.response.status !== 200 || !Array.isArray(list.payload?.data)) {
@@ -210,22 +219,14 @@ async function ensureAudience(audience) {
   }
   const current = list.payload.data.find((entry) => entry?.audience === audience && entry?.status === "active");
   if (current) return { created: false, entry: current };
+  if (!applicationCreated && !recoverConfiguration) {
+    throw new Error("Existing production Console Access audience is missing; explicit recover_console_configuration is required to register it through Bootstrap");
+  }
   const created = await request(identityBase, path, { method: "POST", bootstrap: true, body: { audience } });
   if (![200, 201].includes(created.response.status) || created.payload?.data?.audience !== audience) {
     throw new Error(`Production Console Access audience registration failed: ${created.response.status} ${JSON.stringify(created.payload)}`);
   }
   return { created: created.response.status === 201, entry: created.payload.data };
-}
-
-async function ensurePlatformAdministrator(userId) {
-  const result = await request(identityBase, `/bootstrap/v1/platform-administrators/${encodeURIComponent(userId)}`, {
-    method: "PUT",
-    bootstrap: true,
-  });
-  if (result.response.status !== 200 || result.payload?.data?.userId !== userId) {
-    throw new Error(`Production platform administrator assignment failed: ${result.response.status} ${JSON.stringify(result.payload)}`);
-  }
-  return result.payload.data;
 }
 
 async function rotateApplicationCredential(applicationCreated, initialSecret) {
@@ -326,8 +327,8 @@ const convergence = await requireProductionConvergence();
 const access = await resolveAccessAudience();
 const adminUserId = await resolvePlatformAdminUserId();
 const application = await createOrReconcileApplication();
-const audience = await ensureAudience(access.audience);
-const administrator = await ensurePlatformAdministrator(adminUserId);
+const audience = await ensureAudience(access.audience, application.created);
+// resolvePlatformAdminUserId verified the existing active human assignment.
 const applicationCredential = await rotateApplicationCredential(application.created, application.initialSecret);
 const principal = await ensureCoreExecutor(applicationCredential.secret, adminUserId);
 const coreToken = await rotateCoreToken(applicationCredential.secret, principal.id, adminUserId);
@@ -354,7 +355,7 @@ console.log(JSON.stringify({
   schemas: { identity: convergence.identity.schemaVersion, core: convergence.core.schemaVersion },
   access: { domain: ACCESS_DOMAIN, audienceSource: access.source, registered: audience.entry?.status === "active" },
   application: { id: applicationId, created: application.created, scopes: APPLICATION_SCOPES },
-  platformAdministrator: { userId: adminUserId, status: administrator.status },
+  platformAdministrator: { userId: adminUserId, status: "verified-active", assignmentRequested: false },
   identityExecutor: { currentCredentialId: applicationCredential.id, supersededCredentialCount: applicationCredential.oldIds.length, plaintextLogged: false },
   coreExecutor: { principalId: principal.id, currentTokenId: coreToken.id, supersededTokenCount: coreToken.oldIds.length, scopes: CORE_EXECUTOR_SCOPES, plaintextLogged: false },
   businessDataTouched: false,

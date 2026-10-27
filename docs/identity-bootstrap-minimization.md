@@ -76,3 +76,10 @@
 - `prepare-staging-console-shell.mjs` 的 Bootstrap 引用上限由 **5 降至 4**；Identity 服务端 `PATCH` 仍被其他首次/恢复 Provisioning 消费，尚未删除。修正 Console Staging isolated deploy 摘要中“平台 Staging 发布负责 Console Scope 收敛”的残留错误说法；此前 PR #430 已将这个权限动作移出平台发布。
 - **关于 Bootstrap Audience DELETE**：Consumer 审计显示普通 Console 撤销已经走带人类 Actor proof 的 Platform Admin，旧 Bootstrapped Rebinding 测试也有该正式覆盖；但当 Console Access Audience 配错且正常登录/管理员控制通道不可用时，Bootstrap 撤销旧 Audience 仍可能是明确的 break-glass 手段。按 #93 保留恢复能力的硬边界，在完成恢复路径替代论证之前**不直接删除它**，不为了数字收敛破坏恢复通道。
 - 不动 Production、Identity API、数据库或权限模型；新的源码静态回归门禁及普通 CI 不能替代真实 Staging 受控 Session-only Provisioning 验收。#93 继续 Open。
+
+## Production Console Bootstrap 恢复显式化（2026-10-27）
+
+- **审计发现**：独立 `Deploy LifeSpace Console production` 原来在每次手动发布时，由 `prepare-production-console-admin.mjs` 无条件 Bootstrap `PUT /platform-administrators/:userId`，可能重新激活人类明确撤销的管理员身份；同时对已有 `app_lifespace_console` 执行自动 Bootstrap PATCH 恢复 `status=active` 或覆写 Scope/TTL/Name、缺失时自动重新登记 Access Audience。`resolve-production-console-admin.mjs` 在 active admin 数为 0 时，也会默认挑选已有 verified Access principal 再执行 PUT；无法区分首次接入与明确撤权后的恢复。
+- **修改后的普通 Production Console 独立部署**：只读取并验证管理员当前是 active（不再在 prepare 中重复 PUT）；若 existing Application 的政策字段不一致，或既有 Access Audience 缺失，则在轮换 `lsa_*` 前失败，不进行默认 Bootstrap 修复。保留部署期间明确执行的新旧 Identity `lsa_*`、Core `lsp_svc_*` 零停机轮换及后置撤销；没有新增运行时权限。
+- **显式恢复**：手动 `workflow_dispatch` 保留原生产确认词，另提供默认 `false` 的 `recover_platform_admin` 与 `recover_console_configuration`。前者仅在选定身份当前非 active，或无 active assignment 且已经过独立核实的首装场景下允许现有 Bootstrap PUT；后者只允许对现有 Console Application Policy/Access Audience 执行已存在的 Bootstrap 恢复调用。管理员 `usr_*` 仍必须已存在且符合原账号与 Access 主体规则。无恢复选择的普通部署绝不静默重新赋权。
+- **安全和发布边界**：真正的首装仍可在人工选择恢复/初始化意图后建立初始受信链，不把用户邮箱/Access subject 直接当授权。Bootstrap API 本身仍存在用于首装和显式 break-glass；`prepare-production-console-admin.mjs` 的引用预算由 **8→7**。Production **未实际部署**，现有 Production Capability Guide/Changelog 不受本 PR 改写；新的生产工作流仅在未来经用户批准的受控发布后生效。本 Issue 仍 Open，未引入机器 Provisioning Lease、OIDC 或新 Secret/DB/Worker。
