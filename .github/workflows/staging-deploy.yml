@@ -280,7 +280,6 @@ jobs:
 
           - Core: schema v${LIFESPACE_EXPECTED_CORE_SCHEMA_VERSION} / Kernel contract ${LIFESPACE_EXPECTED_CORE_CONTRACT_VERSION}
           - Identity: schema v${LIFESPACE_EXPECTED_IDENTITY_SCHEMA_VERSION} / contract ${LIFESPACE_EXPECTED_IDENTITY_CONTRACT_VERSION}
-          - Console Application ordinary Space-management scope ceiling, including \`spaces:manage\`: converged without credential rotation
           - Recurrence real enrollment / Identity root projection / completion successor / pause: passed
           - Native File real presigned R2 PUT / promote / attach / download / delete: passed
           - External Notion synthetic File Upload API / append with reference preservation: ${LIFESPACE_EXTERNAL_PROVIDER_ACTIVE} (1 means passed)
