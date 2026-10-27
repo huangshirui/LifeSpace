@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: LifeSpace Identity API
-  version: 0.16.0
+  version: 0.17.0
   description: Global LifeSpace user identity, profile, trusted application exchange, Cloudflare Access principal resolution/linking, application credential lifecycle, Agent identity/execution-token issuance, service principals and credential issuance API.
 paths:
   /health:
@@ -182,90 +182,6 @@ paths:
         '204': { description: Access principal linked to the authenticated LifeSpace user }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '409': { description: Challenge expired/consumed, audience was revoked, or the Access principal became linked concurrently }
-  /bootstrap/v1/applications:
-    post:
-      description: Platform-admin bootstrap endpoint. Registers an application access subject, configures its access-token TTL (300-3600 seconds), and returns a backend credential once when trustedBackend is true.
-      responses:
-        '201': { description: Application registered }
-        '401': { description: Bootstrap authentication required }
-        '422': { description: Invalid application or token TTL policy }
-  /bootstrap/v1/applications/{applicationId}:
-    parameters:
-      - $ref: '#/components/parameters/ApplicationId'
-    get:
-      description: Platform-admin view of one registered application, including its current scope ceiling and token lifetime policy. Credential plaintext and hashes are never returned.
-      responses:
-        '200': { description: Application metadata, content: { application/json: { schema: { $ref: '#/components/schemas/ApplicationResponse' } } } }
-        '401': { description: Bootstrap authentication required }
-        '404': { description: Application not found }
-    patch:
-      description: Platform-admin update of mutable application policy. Trusted-backend classification is intentionally immutable through this endpoint.
-      requestBody:
-        required: true
-        content: { application/json: { schema: { $ref: '#/components/schemas/UpdateApplicationRequest' } } }
-      responses:
-        '200': { description: Updated application metadata, content: { application/json: { schema: { $ref: '#/components/schemas/ApplicationResponse' } } } }
-        '400': { $ref: '#/components/responses/InvalidRequest' }
-        '401': { description: Bootstrap authentication required }
-        '404': { description: Application not found }
-        '422': { $ref: '#/components/responses/ValidationError' }
-  /bootstrap/v1/applications/{applicationId}/credentials:
-    parameters:
-      - $ref: '#/components/parameters/ApplicationId'
-    get:
-      description: Platform-admin list of application credential metadata. Plaintext and hashes are never returned.
-      responses:
-        '200': { description: Application credential metadata list, content: { application/json: { schema: { $ref: '#/components/schemas/ApplicationCredentialListResponse' } } } }
-        '401': { description: Bootstrap authentication required }
-        '404': { description: Application not found }
-    post:
-      description: Create a replacement trusted-backend application credential. Plaintext is returned exactly once; existing active credentials remain valid until explicitly revoked so deployment rotation can overlap safely.
-      responses:
-        '201': { description: Application credential created, content: { application/json: { schema: { $ref: '#/components/schemas/CreateApplicationCredentialResponse' } } } }
-        '401': { description: Bootstrap authentication required }
-        '404': { description: Application not found }
-        '409': { description: Application is not an active trusted backend }
-  /bootstrap/v1/applications/{applicationId}/credentials/{credentialId}:
-    parameters:
-      - $ref: '#/components/parameters/ApplicationId'
-      - $ref: '#/components/parameters/ApplicationCredentialId'
-    delete:
-      description: Immediately revoke one active trusted application credential. Other active credentials for the application are unaffected.
-      responses:
-        '204': { description: Application credential revoked }
-        '401': { description: Bootstrap authentication required }
-        '404': { description: Active application credential not found }
-  /bootstrap/v1/applications/{applicationId}/access-audiences:
-    parameters:
-      - $ref: '#/components/parameters/ApplicationId'
-    get:
-      description: List Cloudflare Access audience registrations for this LifeSpace application. Audience registrations are platform-owned Identity state and never identify the user.
-      responses:
-        '200': { description: Access audience registrations, content: { application/json: { schema: { $ref: '#/components/schemas/AccessAudienceListResponse' } } } }
-        '401': { description: Bootstrap authentication required }
-        '404': { description: Application not found }
-    post:
-      description: Bind one Cloudflare Access application audience to an active trusted LifeSpace application under the configured Access issuer. A given (issuer, audience) may belong to only one LifeSpace application.
-      requestBody:
-        required: true
-        content: { application/json: { schema: { $ref: '#/components/schemas/RegisterAccessAudienceRequest' } } }
-      responses:
-        '200': { description: Existing/re-activated audience registration, content: { application/json: { schema: { $ref: '#/components/schemas/AccessAudienceResponse' } } } }
-        '201': { description: Audience registered, content: { application/json: { schema: { $ref: '#/components/schemas/AccessAudienceResponse' } } } }
-        '401': { description: Bootstrap authentication required }
-        '404': { description: Application not found }
-        '409': { description: Application is not an active trusted backend, or audience is bound to another application }
-        '422': { $ref: '#/components/responses/ValidationError' }
-  /bootstrap/v1/applications/{applicationId}/access-audiences/{audienceId}:
-    parameters:
-      - $ref: '#/components/parameters/ApplicationId'
-      - $ref: '#/components/parameters/AccessAudienceId'
-    delete:
-      description: Revoke an active Cloudflare Access audience registration. New exchanges and link confirmations using that audience are rejected.
-      responses:
-        '204': { description: Audience registration revoked }
-        '401': { description: Bootstrap authentication required }
-        '404': { description: Active audience registration not found }
   /internal/v1/applications/self:
     get:
       summary: Inspect the currently authenticated trusted Application
