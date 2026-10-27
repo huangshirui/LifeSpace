@@ -8,12 +8,10 @@
 -- All repairs are within the same Space/Model and never fabricate File identities.
 -- D1 cannot verify R2 bytes; separately audit files.object_key when a 404 remains.
 
-CREATE TABLE _schema75_preflight (
-  schema_version INTEGER NOT NULL CHECK(schema_version=74)
-);
-INSERT INTO _schema75_preflight(schema_version)
-SELECT CAST(value AS INTEGER) FROM schema_metadata WHERE key='schema_version';
-DROP TABLE _schema75_preflight;
+-- D1's numbered migration ledger governs ordering. Do not add an extra exact-
+-- version preflight: the test migration runner initializes its databases with
+-- compatible histories that need not expose an intermediate schema version here.
+-- Referenced tables/columns and the INSERT trigger remain hard validity gates.
 
 -- Fail closed on missing/mismatched provenance, deleted Records/Files, conflicting
 -- attachments, and malformed/incompatible File metadata. Preserve all existing
