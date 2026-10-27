@@ -110,3 +110,10 @@ test("Staging Console acceptance uses its current temporary lsa_* credential for
     assert.ok(source.includes("finally {"), `Temporary credential must be cleaned up even on inspection failure: ${path}`);
   }
 });
+
+test("Agent-ready Staging registers successfully provisioned credentials before the next Application", () => {
+  const source = readFileSync(resolve(root, "infra/scripts/verify-staging-agent-ready.mjs"), "utf8");
+  assert.ok(!source.includes("Promise.all(agents.map(ensureApplication))"), "Parallel provisioning risks losing successfully issued credential IDs on rejection");
+  assert.ok(source.includes("for (const agent of agents) {\n    const context = await ensureApplication(agent);\n    contexts.push(context);"), "Each provisioned Application must be entered in the finally cleanup registry before provisioning the next one");
+  assert.ok(source.includes("for (const context of contexts) await cleanup"), "Registered credentials must be revoked from finally");
+});
