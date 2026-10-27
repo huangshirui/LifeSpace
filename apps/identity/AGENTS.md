@@ -161,14 +161,14 @@ Normal application/user/service contract:
 
 ```text
 apps/identity/openapi.yaml
-current version: 0.16.0
+current version: 0.17.0
 ```
 
 Privileged LifeSpace Console control-plane contract:
 
 ```text
 apps/identity/platform-admin.openapi.yaml
-current version: 0.3.0
+current version: 0.6.0
 ```
 
 Do not place a Console-only privileged endpoint into the product-facing Identity OpenAPI merely because both are implemented by the same Worker. Conversely, do not implement a privileged route without adding it to the Platform Admin companion contract and its contract checks.
