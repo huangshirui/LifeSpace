@@ -122,7 +122,7 @@ test("Smoke cleanup retires its run-scoped Application rather than leaving a liv
   assert.match(cleanup, /app_staging_smoke_/u);
   assert.match(cleanup, /bootstrapApplicationPath.*\/bootstrap\/v1\/applications\//u);
   assert.match(cleanup, /secretSuffix === applicationSecret\.slice\(-8\)/u);
-  assert.match(cleanup, /matches\.length === 1/u);
+  assert.match(cleanup, /matches\.length !== 1/u);
   assert.match(cleanup, /method: "DELETE"/u);
   assert.match(cleanup, /method: "PATCH", body: \{ status: "disabled" \}/u);
   assert.match(cleanup, /applicationCredentialRevoked/u);
