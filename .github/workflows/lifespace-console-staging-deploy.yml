@@ -130,7 +130,7 @@ jobs:
           - No Core or Identity Worker was deployed.
           - No bootstrap secret was used.
           - Existing Console Worker secrets were preserved rather than rotated.
-          - Required Console Platform Admin scope convergence, including `spaces:manage` and `grants:manage`, belongs to the canonical platform staging release.
+          - Existing Console Application scope governance is not performed by this deploy; deliberate changes belong to the separate Console Platform Admin / explicit provisioning flow.
           - Console External governance uses `/api/v1/platform-admin/spaces/{spaceId}/external-*`; downstream applications retain the ordinary direct-User Space-scoped External API over the same canonical Core state.
           - Optional acceptance below exercises bounded platform control-plane lifecycles only.
           EOF
