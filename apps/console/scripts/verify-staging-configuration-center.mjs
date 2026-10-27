@@ -187,13 +187,6 @@ try {
 
   adminUserId = await resolveAdminUserId();
 
-  const consoleApp = requireStatus(await request(identityBase, `/bootstrap/v1/applications/${encodeURIComponent(consoleApplicationId)}`, { bootstrap: true }), 200, "Load Console application");
-  const requiredScopes = ["profile:read", "platform:admin", "applications:manage", "services:manage", "audit:read"];
-  const missingScopes = requiredScopes.filter((scope) => !consoleApp?.allowedScopes?.includes(scope));
-  if (consoleApp?.trustedBackend !== true || consoleApp?.status !== "active" || missingScopes.length) {
-    throw new Error(`Console application is not ready for Slice B/C acceptance: missing scopes ${missingScopes.join(",") || "none"}`);
-  }
-
   const consoleCredential = requireStatus(await request(identityBase, `/bootstrap/v1/applications/${encodeURIComponent(consoleApplicationId)}/credentials`, {
     method: "POST",
     bootstrap: true,
@@ -202,6 +195,21 @@ try {
   cleanup.consoleCredential = consoleCredential?.clientSecret ?? "";
   if (!cleanup.consoleCredentialId || !cleanup.consoleCredential.startsWith("lsa_")) throw new Error("Temporary Console executor credential is invalid");
   mask(cleanup.consoleCredential);
+
+  // Read only the Application authenticated by this freshly issued lsa_*.
+  // The credential is already tracked for unconditional finally cleanup.
+  // Never use the global Bootstrap authority for an ordinary metadata read.
+  const consoleApp = requireStatus(await request(identityBase, "/internal/v1/applications/self", {
+    bearer: cleanup.consoleCredential,
+  }), 200, "Inspect Console Application bound to temporary credential");
+  const appData = consoleApp;
+  const requiredScopes = ["profile:read", "platform:admin", "applications:manage", "services:manage", "audit:read"];
+  const missingScopes = requiredScopes.filter((scope) => !consoleApp?.allowedScopes?.includes(scope));
+  if (consoleApp?.id !== consoleApplicationId || consoleApp?.trustedBackend !== true || consoleApp?.status !== "active" || missingScopes.length) {
+    throw new Error(`Console application is not ready for Slice B/C acceptance: missing scopes ${missingScopes.join(",") || "none"}`);
+  }
+
+
 
   const userTokenData = requireStatus(await request(identityBase, "/internal/v1/tokens", {
     method: "POST",
