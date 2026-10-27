@@ -46,10 +46,10 @@ const BASELINE_MODELS = [
 ] as const;
 
 const RELEASE_HISTORY = Object.freeze({
-  task: Object.freeze({ previousVersion: 6, previousHash: "1fdfb9eb954382f3509cdca14431a7235cb1a954b8a6d425670a4150c8402837", previousRoute: "tasks", currentVersion: 9, currentCompatibility: "compatible" }),
-  wish: Object.freeze({ previousVersion: 6, previousHash: "4d34e89df332b9b2c34549699e4210a3166db6eaddabe0ac59de5d4770c206c3", previousRoute: "wishes", currentVersion: 8, currentCompatibility: "compatible" }),
-  day_record: Object.freeze({ previousVersion: 3, previousHash: "7793d9959277e45d9af52c6c71820040034f9c84ee487d8f0e6b00320e5c10aa", previousRoute: "day-records", currentVersion: 6, currentCompatibility: "breaking" }),
-  event: Object.freeze({ previousVersion: 4, previousHash: "66832c4dae9fd9f99b1f4f49cfdb53e7c91a55512c0b3cf8b8cddaee2111f6c4", previousRoute: "events", currentVersion: 7, currentCompatibility: "breaking" }),
+  task: Object.freeze({ previousVersion: 6, previousHash: "1fdfb9eb954382f3509cdca14431a7235cb1a954b8a6d425670a4150c8402837", previousRoute: "tasks", currentVersion: 10, currentCompatibility: "breaking" }),
+  wish: Object.freeze({ previousVersion: 6, previousHash: "4d34e89df332b9b2c34549699e4210a3166db6eaddabe0ac59de5d4770c206c3", previousRoute: "wishes", currentVersion: 9, currentCompatibility: "breaking" }),
+  day_record: Object.freeze({ previousVersion: 3, previousHash: "7793d9959277e45d9af52c6c71820040034f9c84ee487d8f0e6b00320e5c10aa", previousRoute: "day-records", currentVersion: 7, currentCompatibility: "breaking" }),
+  event: Object.freeze({ previousVersion: 4, previousHash: "66832c4dae9fd9f99b1f4f49cfdb53e7c91a55512c0b3cf8b8cddaee2111f6c4", previousRoute: "events", currentVersion: 8, currentCompatibility: "breaking" }),
   person_group: Object.freeze({ currentVersion: 2, currentCompatibility: "compatible" }),
   anniversary: Object.freeze({ currentVersion: 2, currentCompatibility: "compatible" }),
   activity: Object.freeze({ currentVersion: 2, currentCompatibility: "compatible" }),
@@ -92,6 +92,29 @@ describe("canonical baseline Model Catalog", () => {
       expect(row.schema_hash).toBe(expected.schemaHash);
       expect(row.compatibility).toBe(release.currentCompatibility);
       expect(JSON.parse(row.definition_json)).toEqual(expected.definition);
+    }
+  });
+
+  it("publishes canonical labels with breaking semantics while preserving the previous model versions", async () => {
+    const db = (env as unknown as TestEnv).DB;
+    const expectedLabels: Record<string, string> = {
+      task: "name", wish: "title", day_record: "name", event: "summary",
+    };
+    for (const canonical of BASELINE_MODELS.filter(model => model.key in expectedLabels)) {
+      const label = { field: expectedLabels[canonical.key] };
+      expect(canonical.referenceLabel).toEqual(label);
+      const current = await db.prepare(
+        "SELECT version,compatibility,definition_json FROM model_definitions WHERE model_key=? AND state='published'",
+      ).bind(canonical.key).first<{ version: number; compatibility: string; definition_json: string }>();
+      expect(current?.compatibility).toBe("breaking");
+      expect(JSON.parse(current!.definition_json).referenceLabel).toEqual(label);
+      const historical = await db.prepare(
+        "SELECT state,definition_json FROM model_definitions WHERE model_key=? AND version=?",
+      ).bind(canonical.key, current!.version - 1).first<{ state: string; definition_json: string }>();
+      expect(historical?.state).toBe("superseded");
+      const withoutLabel = structuredClone(canonical);
+      delete withoutLabel.referenceLabel;
+      expect(JSON.parse(historical!.definition_json)).toEqual(withoutLabel);
     }
   });
 
