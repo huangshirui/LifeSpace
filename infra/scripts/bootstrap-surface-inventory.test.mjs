@@ -88,3 +88,24 @@ test("Staging Eventing acceptance reads its own Application and never escalates 
     assert.ok(!source.includes("applicationScopesChanged"), `Temporary scope elevation leaked into ${path}`);
   }
 });
+
+test("Staging Console acceptance uses its current temporary lsa_* credential for metadata and never returns to Bootstrap GET", () => {
+  const scenarios = [
+    { path: "apps/console/scripts/verify-staging-control-plane.mjs", appId: "applicationId", secret: "cleanup.applicationCredential", label: "applicationCredentialId" },
+    { path: "apps/console/scripts/verify-staging-space-governance.mjs", appId: "applicationId", secret: "cleanup.applicationCredential", label: "applicationCredentialId" },
+    { path: "apps/console/scripts/verify-staging-configuration-center.mjs", appId: "consoleApplicationId", secret: "cleanup.consoleCredential", label: "consoleCredentialId" },
+  ];
+  for (const { path, appId, secret, label } of scenarios) {
+    const source = readFileSync(resolve(root, path), "utf8");
+    assert.equal(LEGACY_REFERENCE_BUDGET[path].max, 3, `${path} must retain the reduced Bootstrap reference ceiling`);
+    assert.ok(!source.includes(`/bootstrap/v1/applications/${encodeURIComponent(${appId})}`), `Direct Bootstrap metadata read remains: ${path}`);
+    const credentialCreated = source.indexOf(`/bootstrap/v1/applications/${encodeURIComponent(${appId})}/credentials`);
+    const metadataInspected = source.indexOf('"/internal/v1/applications/self"');
+    assert.ok(credentialCreated >= 0 && metadataInspected > credentialCreated, `Own metadata inspection must follow temporary credential creation: ${path}`);
+    assert.ok(source.includes(`bearer: ${secret}`), `Self-inspection must bind current Application credential: ${path}`);
+    assert.ok(source.includes(`?.id !== ${appId}`), `Staging Console must reject another Application ID: ${path}`);
+    assert.ok(source.includes("allowedScopes") && source.includes("missingScopes"), `Required scopes must be re-checked on current identity: ${path}`);
+    assert.ok(source.includes(`cleanup.${label} =`), `Temporary credential must be tracked for cleanup: ${path}`);
+    assert.ok(source.includes("finally {"), `Temporary credential must be cleaned up even on inspection failure: ${path}`);
+  }
+});
