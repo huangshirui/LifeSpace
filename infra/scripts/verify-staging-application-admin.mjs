@@ -55,49 +55,89 @@ if (beforeList.payload.data.some((item) => "clientSecret" in item || "secretHash
   throw new Error("Application credential metadata leaked plaintext or hash fields");
 }
 
-const replacement = await jsonRequest(`${applicationPath}/credentials`, { method: "POST", bootstrap: bootstrapSecret });
-const replacementId = replacement.payload?.data?.id ?? "";
-const replacementSecret = replacement.payload?.data?.clientSecret ?? "";
-if (replacement.response.status !== 201 || !String(replacementId).startsWith("apc_") || !String(replacementSecret).startsWith("lsa_")) {
-  throw new Error(`Application credential replacement failed: ${replacement.response.status} ${JSON.stringify(replacement.payload)}`);
-}
-console.log(`::add-mask::${replacementSecret}`);
-if (replacement.payload.data.secretHash !== undefined) throw new Error("Application credential create response leaked a hash");
+// Register the newly issued id *before* every subsequent assertion. A failed
+// token exchange must not leave a live staging application credential behind.
+let replacementId = "";
+let replacementSecret = "";
+let replacementRevoked = false;
+let primaryError = null;
+let cleanupError = null;
 
-const issueBody = { subjectId: userId, scopes: ["resources:read"] };
-const replacementIssue = await jsonRequest("/internal/v1/tokens", {
-  method: "POST",
-  bearer: replacementSecret,
-  body: issueBody,
-});
-if (replacementIssue.response.status !== 200 || !replacementIssue.payload?.data?.accessToken) {
-  throw new Error(`Replacement application credential could not exchange a user token: ${replacementIssue.response.status} ${JSON.stringify(replacementIssue.payload)}`);
+try {
+  const replacement = await jsonRequest(`${applicationPath}/credentials`, { method: "POST", bootstrap: bootstrapSecret });
+  replacementId = replacement.payload?.data?.id ?? "";
+  replacementSecret = replacement.payload?.data?.clientSecret ?? "";
+  // Mask as soon as possible, including when the response is malformed.
+  // Never stringify a secret-bearing POST response into an Actions error.
+  if (typeof replacementSecret === "string" && replacementSecret) console.log(`::add-mask::${replacementSecret}`);
+  if (replacement.response.status !== 201 || !String(replacementId).startsWith("apc_") || !String(replacementSecret).startsWith("lsa_")) {
+    throw new Error(`Application credential replacement returned an invalid response: HTTP ${replacement.response.status}`);
+  }
+  if (replacement.payload.data.secretHash !== undefined) throw new Error("Application credential create response leaked a hash");
+
+  const issueBody = { subjectId: userId, scopes: ["resources:read"] };
+  const replacementIssue = await jsonRequest("/internal/v1/tokens", {
+    method: "POST",
+    bearer: replacementSecret,
+    body: issueBody,
+  });
+  if (replacementIssue.response.status !== 200 || !replacementIssue.payload?.data?.accessToken) {
+    throw new Error(`Replacement application credential could not exchange a user token: ${replacementIssue.response.status} ${JSON.stringify(replacementIssue.payload)}`);
+  }
+
+  const revoke = await jsonRequest(`${applicationPath}/credentials/${encodeURIComponent(replacementId)}`, {
+    method: "DELETE",
+    bootstrap: bootstrapSecret,
+  });
+  if (revoke.response.status !== 204) {
+    throw new Error(`Replacement application credential revoke failed: ${revoke.response.status} ${JSON.stringify(revoke.payload)}`);
+  }
+  replacementRevoked = true;
+
+  const replacementAfterRevoke = await jsonRequest("/internal/v1/tokens", {
+    method: "POST",
+    bearer: replacementSecret,
+    body: issueBody,
+  });
+  if (replacementAfterRevoke.response.status !== 401) {
+    throw new Error(`Revoked replacement credential remained usable: ${replacementAfterRevoke.response.status}`);
+  }
+
+  const originalAfterReplacementRevoke = await jsonRequest("/internal/v1/tokens", {
+    method: "POST",
+    bearer: originalSecret,
+    body: issueBody,
+  });
+  if (originalAfterReplacementRevoke.response.status !== 200 || !originalAfterReplacementRevoke.payload?.data?.accessToken) {
+    throw new Error(`Original application credential was affected by replacement revoke: ${originalAfterReplacementRevoke.response.status} ${JSON.stringify(originalAfterReplacementRevoke.payload)}`);
+  }
+} catch (error) {
+  primaryError = error;
+} finally {
+  // A failed verification or revoked-credential check still attempts cleanup.
+  // When creation never returned an ID, safe targeted cleanup is impossible;
+  // never guess a different credential to revoke.
+  if (replacementId && !replacementRevoked) {
+    try {
+      const cleanup = await jsonRequest(`${applicationPath}/credentials/${encodeURIComponent(replacementId)}`, {
+        method: "DELETE",
+        bootstrap: bootstrapSecret,
+      });
+      if (cleanup.response.status !== 204 && cleanup.response.status !== 404) {
+        throw new Error(`Temporary replacement cleanup failed: HTTP ${cleanup.response.status}`);
+      }
+      replacementRevoked = true;
+    } catch (error) {
+      cleanupError = error;
+    }
+  }
 }
 
-const revoke = await jsonRequest(`${applicationPath}/credentials/${encodeURIComponent(replacementId)}`, {
-  method: "DELETE",
-  bootstrap: bootstrapSecret,
-});
-if (revoke.response.status !== 204) {
-  throw new Error(`Replacement application credential revoke failed: ${revoke.response.status} ${JSON.stringify(revoke.payload)}`);
-}
-
-const replacementAfterRevoke = await jsonRequest("/internal/v1/tokens", {
-  method: "POST",
-  bearer: replacementSecret,
-  body: issueBody,
-});
-if (replacementAfterRevoke.response.status !== 401) {
-  throw new Error(`Revoked replacement credential remained usable: ${replacementAfterRevoke.response.status}`);
-}
-
-const originalAfterReplacementRevoke = await jsonRequest("/internal/v1/tokens", {
-  method: "POST",
-  bearer: originalSecret,
-  body: issueBody,
-});
-if (originalAfterReplacementRevoke.response.status !== 200 || !originalAfterReplacementRevoke.payload?.data?.accessToken) {
-  throw new Error(`Original application credential was affected by replacement revoke: ${originalAfterReplacementRevoke.response.status} ${JSON.stringify(originalAfterReplacementRevoke.payload)}`);
+if (primaryError || cleanupError) {
+  if (primaryError && cleanupError) {
+    throw new Error(`${primaryError instanceof Error ? primaryError.message : String(primaryError)}; cleanup also failed: ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`);
+  }
+  throw primaryError ?? cleanupError;
 }
 
 console.log(JSON.stringify({
@@ -105,7 +145,7 @@ console.log(JSON.stringify({
   applicationId,
   allowedScopes,
   initialCredentialCount: beforeList.payload.data.length,
-  replacementRevokedImmediately: true,
+  replacementRevokedImmediately: replacementRevoked,
   originalCredentialRemainedActive: true,
   plaintextAndHashesAbsentFromList: true,
 }, null, 2));

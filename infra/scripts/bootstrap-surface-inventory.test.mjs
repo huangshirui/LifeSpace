@@ -114,6 +114,10 @@ test("Staging Console acceptance uses its current temporary lsa_* credential for
 test("Agent-ready Staging registers successfully provisioned credentials before the next Application", () => {
   const source = readFileSync(resolve(root, "infra/scripts/verify-staging-agent-ready.mjs"), "utf8");
   assert.ok(!source.includes("Promise.all(agents.map(ensureApplication))"), "Parallel provisioning risks losing successfully issued credential IDs on rejection");
-  assert.ok(source.includes("for (const agent of agents) {\n    const context = await ensureApplication(agent);\n    contexts.push(context);"), "Each provisioned Application must be entered in the finally cleanup registry before provisioning the next one");
+  assert.ok(source.includes('const context = { ...agent, credential: "", credentialId: "" };\n    contexts.push(context);\n    await ensureApplication(context);'), "Every Application must enter the cleanup registry before remote creation starts");
+  assert.ok(source.includes('spec.credential = data?.clientSecret ?? "";'), "Record issued client secret before any post-create validation");
+  assert.ok(source.includes("spec.credentialId = data?.id ?? \"\";"), "Record a returned credential ID before validating it");
+  assert.ok(source.includes("current.length !== 1"), "Never revoke a credential inferred from an ambiguous suffix");
+  assert.ok(source.includes("async function revokeCredential(context)"), "Partial contexts must be cleaned in finally");
   assert.ok(source.includes("for (const context of contexts) await cleanup"), "Registered credentials must be revoked from finally");
 });

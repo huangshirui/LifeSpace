@@ -74,3 +74,34 @@ Bootstrap 只负责建立首次可用的正常治理权限链，及明确受控�
 - Agent-ready 原本 `Promise.all(agents.map(ensureApplication))` 会在一个调用失败后丢失另一个已成功返回的临时凭证 Context。现改为顺序登记每个成功创建的 Context，使后续失败时 finally 仍能撤销已登记的凭证。**局限**：如果单个 `ensureApplication` 已经创建凭证、但在返回前又失败，仍需后续专门设计创建事务/清理协调；此补丁不能声称完全解决所有中途故障。
 - **明确未决的权限设计**：现有 Console Staging 验收脚本用 trusted Application `lsa_*` 为已知管理员 `usr_*` 换取 User Token，再获取 `platform_admin_actor` 并执行敏感 Platform Admin 测试。虽然有 staging-only 脚本隔离，脚本生成的 token 并不是独立人工证明。迁移剩余 Credential Governance 时**不得**把这一测试夹具当作获准的机器 Platform Admin 授权，更不能推广到 Production；后续应将机器运维能力建成带审计、目标边界和撤销能力的专属 Contract，或把需要人类 Actor 的路径保持为真实交互式验收。
 - 本阶段只保证源码与静态/集成 CI 可验证；新分支未经实际 Staging Deploy 前，不得把三个 Console acceptance 的新 HTTP 顺序说成已在 Staging 实测，也不影响已经成功的 0.16.0 基础服务发布。Production 路径、Secrets、数据存储和管理端 Contracts 均不改变。
+
+
+### Phase 2d：Credential issuance / cleanup failure-safety（2026-10-27）
+
+- `verify-staging-application-admin.mjs` 原本在 Bootstrap 创建 `lsa_*` 后按顺序检查 Token exchange、撤销和被撤销凭证拒绝；任一中途异常都可能跳过 DELETE，遗留活跃的测试凭证。现在从 POST 响应中**立即登记返回的 `apc_*` ID**，之后用 `try/finally` 保证失败时再次尝试受目标 ID 限定的撤销。Credential 明文一返回就先添加 GitHub Actions mask，错误不再 stringify 含明文的创建响应。撤销失败不能被吞掉；针对 Token exchange 返回错误、意外 hash metadata 和首次 DELETE 失败的 fault-injection 回归测试进入根目录 `pnpm check`。
+- `verify-staging-agent-ready.mjs` 不再等到 `ensureApplication` 完整返回才把 Context 注册到 finally：每次远程创建前即把 mutable Context 放进清理列表，收到初始凭证明文或临时 Credential ID 时立即填入。当首装 Bootstrap POST 未返回 Credential ID、而第一次 credential list 在创建后失败时，清理逻辑只能重新列出当前 active 凭证，以**唯一匹配的 secret suffix**定位并撤销；0 条或多条匹配必须失败，不能猜测其他活跃凭证。
+- **未解决的分布式失败窗口**：POST 已在 Identity 提交但 HTTP 响应完全丢失时，调用方可能得不到新 Credential ID 或 one-time secret；这时无法仅靠旧 Bootstrap API 做确定性补偿。必须在后续专用 Provisioning Contract 中设计幂等请求 ID、服务端可查询的 issuance-operation ID、审计和受限回收，不允许在调用方按时间/模糊名称猜测并大范围撤销。现有 Staging 失败必须上报需人工介入的清理，而不能称为事务性保证。
+- 本补丁只改 Staging 验收与静态/模拟测试，不添加 Credential API、不改变 Platform Admin 人工双授权、不修改 Production，也不增加 Bootstrap 调用/路由预算。
+
+### 后续非交互式 Credential Provisioning — 待单独批准的设计边界
+
+**此处是方案约束与实施门禁（🧭 Planned），不是已实现功能，也不是授权扩大：**
+
+| 操作场景 | 长期采用的 Authority | 禁止做法 |
+| --- | --- | --- |
+| 浏览当前应用非秘密元数据 | 当前 active `lsa_*` → `GET /internal/v1/applications/self` | 用 Bootstrap GET / 擅自提升 Scope |
+| 人类常规 Application / Credential 治理 | 当前 Platform Admin 人工 Actor proof + 受控 Executor + 审计 | 以普通 User Token / email / CI 的固定 `usr_*` 假装人工授权 |
+| Staging CI 读取或业务验收 | 事先配置好的最小权限 Application/Service Credential | 为临时检查调用全局 Bootstrap 修改权限 |
+| 真实非交互 Credential CREATE/REVOKE | **拟议** Identity-owned、明确批准的目标绑定 Provisioning Operation/Lease | 仅持有 `lsa_*` 即可自我永久续签；给所有 CI 一个全局 Machine Admin secret |
+| 首次建立信任链 / 紧急恢复 | 人工明确授权的最小 Bootstrap / break-glass 流程 | 在日常 Console Worker 或常规运行时保存 Bootstrap |
+
+如选择 Provisioning Lease，必须在独立 PR 中实现并验证下列硬约束后才能迁移消费者：
+
+1. **可信机器 Actor，而非人类冒充**：只能从服务器侧验证的独立工作流身份或受控 Service Principal 建立来源、环境、仓库/Ref/Run ID；不可从请求 body 的 `actorUserId`、普通 `lsa_*`、单独的 GitHub 环境变量或未经签名验证的 OIDC claims 推导授权。首次授予/增权必须来自已认证的人工 Platform Admin 双授权或明确受控的 Break-glass。
+2. **范围固定且不可自扩大**：授予时绑定 Staging/Production 环境、允许的一个或有限 `app_*` 目标、精确 operation（list metadata / create / revoke own issued credentials）、最多签发数量、到期时间和不可转授；拒绝跨目标/跨环境/通配管理。Production 的更换计划和回滚先于变更获批。
+3. **短期、单用途、当前状态可撤销**：有限 TTL、幂等操作 ID、消费与重放拒绝、许可/执行身份变更立即失效。被授权创建新 Credential 不自动扩大原 Lease 或续签自身，尤其不能续写原持久机密凭证。
+4. **安全写入与审计优先**：变更前必须持久记录 Machine Actor / 受控 Executor / Target / Intent / Run / Result（没有明文、哈希、Auth header）；审计失败应阻止变更。Credential one-time 明文只能交给受控 ephemeral Secret Sink；回收必须可精确指向已签发的 ID，不能在未知 ID 时猜测。
+5. **否定路径/运维验收**：验证 Scope不足、非目标、错环境、过期、重放、重复创建、伪造身份、已撤销委托、审计失败、部分 HTTP 成功响应丢失、回收失败等全部 fail closed；确保 staging/prod 不共用 Credential/密钥。
+6. **明确版本与治理**：Provisioning 归属 Identity 独立 privileged/automation contract；先写 OpenAPI、迁移、审计、负向测试与 Staging Golden Flow，再替换既有调用方并逐步下调 Bootstrap inventory ceiling。不得在普通 Identity Application OpenAPI 中悄悄复刻一个永久跨 Application Admin 平面。
+
+在上述机制未设计、实施、验证前，Credential CREATE/REVOKE 的旧受控 Bootstrap 依赖**保持显式待迁移**；#93 不得关闭。
