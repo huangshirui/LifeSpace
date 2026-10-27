@@ -98,8 +98,9 @@ test("Staging Console acceptance uses its current temporary lsa_* credential for
   for (const { path, appId, secret, label } of scenarios) {
     const source = readFileSync(resolve(root, path), "utf8");
     assert.equal(LEGACY_REFERENCE_BUDGET[path].max, 3, `${path} must retain the reduced Bootstrap reference ceiling`);
-    assert.ok(!source.includes(`/bootstrap/v1/applications/${encodeURIComponent(${appId})}`), `Direct Bootstrap metadata read remains: ${path}`);
-    const credentialCreated = source.indexOf(`/bootstrap/v1/applications/${encodeURIComponent(${appId})}/credentials`);
+    const applicationPath = "/bootstrap/v1/applications/" + "${encodeURIComponent(" + appId + ")}";
+    assert.ok(!source.includes(applicationPath + "`"), `Direct Bootstrap metadata read remains: ${path}`);
+    const credentialCreated = source.indexOf(applicationPath + "/credentials");
     const metadataInspected = source.indexOf('"/internal/v1/applications/self"');
     assert.ok(credentialCreated >= 0 && metadataInspected > credentialCreated, `Own metadata inspection must follow temporary credential creation: ${path}`);
     assert.ok(source.includes(`bearer: ${secret}`), `Self-inspection must bind current Application credential: ${path}`);
