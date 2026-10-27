@@ -44,21 +44,22 @@ function indexOfQuery(queries: string[], fragment: string): number {
 }
 
 describe("Scheduled job failure isolation", () => {
-  const controller = {} as ScheduledController;
-  it("runs rolling, file cleanup and outbox after an External refresh failure", async () => {
+  const controller = { scheduledTime: Date.now() } as ScheduledController;
+  it("dispatches Eventing before External refresh and still runs rolling and cleanup after failure", async () => {
     const error = new Error("External refresh unavailable"), f = fixture(undefined, undefined, error);
     await expect(worker.scheduled(controller, f.env)).rejects.toBeInstanceOf(AggregateError);
     expect(indexOfQuery(f.queries, "FROM recurrence_plans")).toBeGreaterThanOrEqual(0);
     expect(indexOfQuery(f.queries, "FROM file_upload_sessions")).toBeGreaterThan(indexOfQuery(f.queries, "FROM recurrence_plans"));
-    expect(f.queries.at(-1)).toContain("dispatched_at IS NULL");
+    expect(indexOfQuery(f.queries, "dispatched_at IS NULL")).toBe(0);
+    expect(indexOfQuery(f.queries, "FROM recurrence_plans")).toBeGreaterThan(indexOfQuery(f.queries, "dispatched_at IS NULL"));
   });
-  it("retains both background failures while still cleaning uploads and dispatching", async () => {
+  it("retains both background failures while prioritizing outbox and cleaning uploads", async () => {
     const f = fixture(new Error("Rolling"), undefined, new Error("External"));
     await expect(worker.scheduled(controller, f.env)).rejects.toBeInstanceOf(AggregateError);
     expect(f.queries.some((query) => query.includes("FROM file_upload_sessions"))).toBe(true);
-    expect(f.queries.at(-1)).toContain("dispatched_at IS NULL");
+    expect(indexOfQuery(f.queries, "dispatched_at IS NULL")).toBe(0);
   });
-  it("dispatches after rolling and file cleanup so newly generated events can be delivered", async () => {
+  it("dispatches existing outbox before long-running maintenance; new recurrence events wait for next tick", async () => {
     const f = fixture();
     await worker.scheduled(controller, f.env);
     const rolling = indexOfQuery(f.queries, "FROM recurrence_plans");
@@ -66,7 +67,7 @@ describe("Scheduled job failure isolation", () => {
     const outbox = indexOfQuery(f.queries, "dispatched_at IS NULL");
     expect(rolling).toBeGreaterThanOrEqual(0);
     expect(cleanup).toBeGreaterThan(rolling);
-    expect(outbox).toBeGreaterThan(cleanup);
+    expect(outbox).toBe(0);
     expect(f.queries.filter((query) => query.includes("FROM file_upload_sessions"))).toHaveLength(1);
   });
   it("dispatches existing events when rolling fails and retains the failure", async () => {
@@ -74,7 +75,7 @@ describe("Scheduled job failure isolation", () => {
     const f = fixture(error);
     await expect(worker.scheduled(controller, f.env)).rejects.toBe(error);
     expect(f.queries.some((query) => query.includes("FROM file_upload_sessions"))).toBe(true);
-    expect(f.queries.at(-1)).toContain("dispatched_at IS NULL");
+    expect(indexOfQuery(f.queries, "dispatched_at IS NULL")).toBe(0);
   });
   it("reports an outbox failure once after successful rolling and cleanup", async () => {
     const error = new Error("outbox unavailable");
@@ -87,6 +88,6 @@ describe("Scheduled job failure isolation", () => {
     const f = fixture(undefined, undefined, undefined, error);
     await expect(worker.scheduled(controller, f.env)).rejects.toBe(error);
     expect(f.queries.filter((query) => query.includes("FROM file_upload_sessions"))).toHaveLength(1);
-    expect(f.queries.at(-1)).toContain("dispatched_at IS NULL");
+    expect(indexOfQuery(f.queries, "dispatched_at IS NULL")).toBe(0);
   });
 });
