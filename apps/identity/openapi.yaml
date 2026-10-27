@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: LifeSpace Identity API
-  version: 0.15.0
+  version: 0.16.0
   description: Global LifeSpace user identity, profile, trusted application exchange, Cloudflare Access principal resolution/linking, application credential lifecycle, Agent identity/execution-token issuance, service principals and credential issuance API.
 paths:
   /health:
@@ -266,6 +266,24 @@ paths:
         '204': { description: Audience registration revoked }
         '401': { description: Bootstrap authentication required }
         '404': { description: Active audience registration not found }
+  /internal/v1/applications/self:
+    get:
+      summary: Inspect the currently authenticated trusted Application
+      description: Returns only the active Application bound to the supplied server-only lsa_* credential. No caller-selected applicationId, Bootstrap secret, Platform Admin actor proof, credential material, mutation, or authority elevation.
+      security:
+        - applicationCredential: []
+      responses:
+        '200':
+          description: Current trusted Application metadata without credential material
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data]
+                properties:
+                  data: { $ref: '#/components/schemas/Application' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
   /internal/v1/users:
     post:
       description: Trusted application backend creates a global LifeSpace user after resolving its own external identity mapping.
