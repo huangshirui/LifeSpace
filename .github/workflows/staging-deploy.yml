@@ -112,7 +112,6 @@ jobs:
           node --check infra/scripts/verify-staging-platform-golden-flow.mjs
           node --check infra/scripts/baseline-model-semantics.mjs
           node --check infra/scripts/publish-staging-baseline-model-semantics.mjs
-          node --check infra/scripts/reconcile-staging-console-space-scope.mjs
           node --check infra/scripts/verify-staging-external-self-service.mjs
           node --check infra/scripts/verify-staging-file-uploads.mjs
 
@@ -216,9 +215,6 @@ jobs:
             if [ "$attempt" -eq 12 ]; then exit 1; fi
             sleep 5
           done
-
-      - name: Converge staging Console ordinary Space-management scope ceiling
-        run: node infra/scripts/reconcile-staging-console-space-scope.mjs
 
       - name: Prepare ephemeral authenticated staging smoke
         run: node infra/scripts/prepare-staging-smoke.mjs

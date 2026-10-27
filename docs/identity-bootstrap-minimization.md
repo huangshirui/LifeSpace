@@ -53,3 +53,10 @@
 - `infra/scripts/prepare-staging-console-admin.mjs` 对 **已存在**的 Console Application，默认不再每次用 Bootstrap `PUT /platform-administrators/:userId` 重新授权。只有首次创建 Application 或明确指定 `LIFESPACE_STAGING_CONSOLE_RECOVER_PLATFORM_ADMIN=1` 才执行赋权；GitHub 手动工作流对应 `recover_platform_admin` 选项，默认关闭。普通流程不声称验证了现有管理员状态；后续真实 Console Admin 验收仍需验证授权，不可跳过。
 - Existing Application Credential 使用已安装的 `lsa_*`，或者在 `LIFESPACE_STAGING_CONSOLE_ROTATE_CREDENTIALS=1` 时明确创建替换凭证。删除此前无论如何都会进行的 Bootstrap Credential LIST，以及“发现没有活跃凭证便静默自动新建”的路径。凭证确实丢失时通过**显式轮换**恢复，杜绝无意的权限管理副作用。
 - 保留首次初始化所需的 Bootstrap `POST /applications`、管理员建立及 Access Audience Seed；不修改 Production 或现有 Platform Admin 接口。Bootstrap 调用方预算仅就此脚本由 7 缩至 6，CI 对退出路径与人工恢复门禁做结构测试。
+
+## 平台 Staging 发布与 Console Scope 治理解耦（2026-10-27）
+
+- 旧 `.github/workflows/staging-deploy.yml` 每次完成 Core/Identity 发布后，无条件执行 `reconcile-staging-console-space-scope.mjs`，使用全局 Bootstrap GET/PATCH/GET 检查并可能改写**另一个应用的** Console Scope Ceiling。这不属于日常平台版本发布，也使人工配置或撤销的 Scope 可能被下次无关部署覆盖。
+- 移除该自动步骤及不再需要的脚本，移除静态 Bootstrap Consumer 白名单和相关 node-check；Console staging isolation guard 改为拒绝重新加入这一跨应用写入，并确保显式 `Converge LifeSpace staging control plane` 仍是 Application Scope 初始化/更新入口。
+- **兼容性**：`prepare-staging-console-admin.mjs` 在人工触发的 Staging Provisioning 中，已经有 `reconcileApplication` 能对齐 Console Application Scope；[实际运行 #40499292472](https://github.com/huangshirui/LifeSpace/actions/runs/40499292472) 成功。后续发现 Scope 缺失应在 Console 的受控配置/Provisioning 中解决，**不要**依赖发布 Core/Identity 自动追加授权。
+- 不新增任何 API/Scope/机器授权，不更改 Production。此 PR 的仓库检查不等于最新 SHA 的真实 Staging 发布验收。
