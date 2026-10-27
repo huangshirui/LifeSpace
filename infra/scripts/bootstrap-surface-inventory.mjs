@@ -22,7 +22,7 @@ export const LEGACY_REFERENCE_BUDGET = Object.freeze({
   "apps/identity/src/application-admin.ts": { category: "duplicated-route", max: 5 },
   "apps/identity/src/access-identity.ts": { category: "duplicated-route", max: 3 },
   "infra/scripts/prepare-staging-console-shell.mjs": { category: "provisioning", max: 4 },
-  "infra/scripts/prepare-production-console-admin.mjs": { category: "provisioning", max: 8 },
+  "infra/scripts/prepare-production-console-admin.mjs": { category: "provisioning", max: 7 },
   "infra/scripts/finalize-production-console-admin.mjs": { category: "provisioning", max: 2 },
   "infra/scripts/prepare-staging-console-admin.mjs": { category: "provisioning", max: 6 },
   "infra/scripts/resolve-production-console-admin.mjs": { category: "recovery", max: 2 },
