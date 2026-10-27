@@ -4,6 +4,7 @@ import { pathToFileURL } from "node:url";
 import { assertProductionServiceUrl } from "./production-expectations.mjs";
 
 const PRODUCTION_IDENTITY_DATABASE_NAME = "lifespace-identity";
+const PLATFORM_ADMIN_BOOTSTRAP_PATH = "/bootstrap/v1/platform-administrators";
 
 export function extractD1Rows(payload) {
   const entries = Array.isArray(payload?.result)
@@ -110,7 +111,7 @@ async function main() {
     throw new Error("LIFESPACE_PRODUCTION_PLATFORM_ADMIN_USER_ID must use a usr_* identifier");
   }
 
-  const assignments = await jsonRequest(identityBase, "/bootstrap/v1/platform-administrators", { bootstrapSecret });
+  const assignments = await jsonRequest(identityBase, PLATFORM_ADMIN_BOOTSTRAP_PATH, { bootstrapSecret });
   if (assignments.response.status !== 200 || !Array.isArray(assignments.payload?.data)) {
     throw new Error(`Could not list production platform administrators: HTTP ${assignments.response.status}`);
   }
@@ -121,7 +122,7 @@ async function main() {
       throw new Error("Selected production platform administrator is not active. Explicitly select recover_platform_admin for a deliberate Bootstrap assignment.");
     }
     if (!isActive) {
-      const assigned = await jsonRequest(identityBase, `/bootstrap/v1/platform-administrators/${encodeURIComponent(suppliedUserId)}`, {
+      const assigned = await jsonRequest(identityBase, `${PLATFORM_ADMIN_BOOTSTRAP_PATH}/${encodeURIComponent(suppliedUserId)}`, {
         method: "PUT", bootstrapSecret,
       });
       if (assigned.response.status !== 200 || assigned.payload?.data?.userId !== suppliedUserId || assigned.payload?.data?.status !== "active") {
@@ -155,7 +156,7 @@ async function main() {
   // Access-principal -> global-user mapping. It never selects by email/display metadata,
   // Access subject, Space membership, or application-specific external identifiers.
   const userId = selectUniqueAccessBackedUserId(await queryAccessBackedUsers(cloudflareAccountId, cloudflareApiToken));
-  const assigned = await jsonRequest(identityBase, `/bootstrap/v1/platform-administrators/${encodeURIComponent(userId)}`, {
+  const assigned = await jsonRequest(identityBase, `${PLATFORM_ADMIN_BOOTSTRAP_PATH}/${encodeURIComponent(userId)}`, {
     method: "PUT",
     bootstrapSecret,
   });
