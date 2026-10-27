@@ -179,14 +179,6 @@ try {
 
   adminUserId = await resolveAdminUserId();
 
-  const app = await request(identityBase, `/bootstrap/v1/applications/${encodeURIComponent(applicationId)}`, { bootstrap: true });
-  const appData = requireStatus(app, 200, "Load Console application");
-  const requiredScopes = ["profile:read", "platform:admin", "services:manage", ...executorScopes];
-  const missingScopes = requiredScopes.filter((scope) => !appData?.allowedScopes?.includes(scope));
-  if (appData?.trustedBackend !== true || appData?.status !== "active" || missingScopes.length) {
-    throw new Error(`Console application is not ready for Space governance acceptance: missing scopes ${missingScopes.join(",") || "none"}`);
-  }
-
   const credential = await request(identityBase, `/bootstrap/v1/applications/${encodeURIComponent(applicationId)}/credentials`, {
     method: "POST",
     bootstrap: true,
@@ -196,6 +188,21 @@ try {
   cleanup.applicationCredential = credentialData.clientSecret;
   if (!cleanup.applicationCredentialId || !cleanup.applicationCredential?.startsWith("lsa_")) throw new Error("Temporary Console application credential is invalid");
   mask(cleanup.applicationCredential);
+
+  // Read only the Application authenticated by this freshly issued lsa_*.
+  // The credential is already tracked for unconditional finally cleanup.
+  // Never use the global Bootstrap authority for an ordinary metadata read.
+  const appData = requireStatus(await request(identityBase, "/internal/v1/applications/self", {
+    bearer: cleanup.applicationCredential,
+  }), 200, "Inspect Console Application bound to temporary credential");
+  
+  const requiredScopes = ["profile:read", "platform:admin", "services:manage", ...executorScopes];
+  const missingScopes = requiredScopes.filter((scope) => !Array.isArray(appData?.allowedScopes) || !appData.allowedScopes.includes(scope));
+  if (appData?.id !== applicationId || appData?.trustedBackend !== true || appData?.status !== "active" || missingScopes.length) {
+    throw new Error(`Console application is not ready for Space governance acceptance: missing scopes ${missingScopes.join(",") || "none"}`);
+  }
+
+
 
   const principals = await request(identityBase, "/api/v1/service-principals", { bearer: cleanup.applicationCredential });
   const principalRows = requireStatus(principals, 200, "List Console service principals");
