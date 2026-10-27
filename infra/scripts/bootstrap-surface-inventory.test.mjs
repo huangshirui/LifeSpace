@@ -88,3 +88,32 @@ test("Staging Eventing acceptance reads its own Application and never escalates 
     assert.ok(!source.includes("applicationScopesChanged"), `Temporary scope elevation leaked into ${path}`);
   }
 });
+
+test("Staging Console acceptance uses its current temporary lsa_* credential for metadata and never returns to Bootstrap GET", () => {
+  const scenarios = [
+    { path: "apps/console/scripts/verify-staging-control-plane.mjs", appId: "applicationId", secret: "cleanup.applicationCredential", label: "applicationCredentialId" },
+    { path: "apps/console/scripts/verify-staging-space-governance.mjs", appId: "applicationId", secret: "cleanup.applicationCredential", label: "applicationCredentialId" },
+    { path: "apps/console/scripts/verify-staging-configuration-center.mjs", appId: "consoleApplicationId", secret: "cleanup.consoleCredential", label: "consoleCredentialId" },
+  ];
+  for (const { path, appId, secret, label } of scenarios) {
+    const source = readFileSync(resolve(root, path), "utf8");
+    assert.equal(LEGACY_REFERENCE_BUDGET[path].max, 3, `${path} must retain the reduced Bootstrap reference ceiling`);
+    const applicationPath = "/bootstrap/v1/applications/" + "${encodeURIComponent(" + appId + ")}";
+    assert.ok(!source.includes(applicationPath + "`"), `Direct Bootstrap metadata read remains: ${path}`);
+    const credentialCreated = source.indexOf(applicationPath + "/credentials");
+    const metadataInspected = source.indexOf('"/internal/v1/applications/self"');
+    assert.ok(credentialCreated >= 0 && metadataInspected > credentialCreated, `Own metadata inspection must follow temporary credential creation: ${path}`);
+    assert.ok(source.includes(`bearer: ${secret}`), `Self-inspection must bind current Application credential: ${path}`);
+    assert.ok(source.includes(`?.id !== ${appId}`), `Staging Console must reject another Application ID: ${path}`);
+    assert.ok(source.includes("allowedScopes") && source.includes("missingScopes"), `Required scopes must be re-checked on current identity: ${path}`);
+    assert.ok(source.includes(`cleanup.${label} =`), `Temporary credential must be tracked for cleanup: ${path}`);
+    assert.ok(source.includes("finally {"), `Temporary credential must be cleaned up even on inspection failure: ${path}`);
+  }
+});
+
+test("Agent-ready Staging registers successfully provisioned credentials before the next Application", () => {
+  const source = readFileSync(resolve(root, "infra/scripts/verify-staging-agent-ready.mjs"), "utf8");
+  assert.ok(!source.includes("Promise.all(agents.map(ensureApplication))"), "Parallel provisioning risks losing successfully issued credential IDs on rejection");
+  assert.ok(source.includes("for (const agent of agents) {\n    const context = await ensureApplication(agent);\n    contexts.push(context);"), "Each provisioned Application must be entered in the finally cleanup registry before provisioning the next one");
+  assert.ok(source.includes("for (const context of contexts) await cleanup"), "Registered credentials must be revoked from finally");
+});

@@ -394,7 +394,13 @@ try {
   if (!testSpace?.id?.startsWith("spc_")) throw new Error("staging Space response is invalid");
   const spaceId = testSpace.id;
 
-  contexts = await Promise.all(agents.map(ensureApplication));
+  // Track each newly issued credential before provisioning the next Application.
+  // Promise.all rejects on the first failure and otherwise loses successfully
+  // issued credentials not yet assigned to contexts, preventing finally cleanup.
+  for (const agent of agents) {
+    const context = await ensureApplication(agent);
+    contexts.push(context);
+  }
   for (const context of contexts) {
     reconcileModelAccess(context);
     context.agentId = await ensureAgent(context);
