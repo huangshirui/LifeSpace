@@ -146,15 +146,48 @@ jobs:
         run: node infra/scripts/production-expectations.mjs
 
       - name: Ensure production Console Access boundary
+        env:
+          LIFESPACE_PRODUCTION_CONSOLE_ALLOW_ACCESS_CREATE: ${{ inputs.rotate_executor_credentials && inputs.recover_console_configuration && '1' || '0' }}
         run: node infra/scripts/prepare-production-console-access.mjs
 
+      - name: Verify installed production Console Worker secrets for ordinary deployment
+        if: ${{ !inputs.rotate_executor_credentials }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd apps/console
+          pnpm exec wrangler secret list --env production --format json | node --input-type=module -e '
+            import fs from "node:fs";
+            const secrets = JSON.parse(fs.readFileSync(0, "utf8"));
+            if (!Array.isArray(secrets)) throw new Error("Production Worker secrets inventory must be a JSON array");
+            const names = new Set(secrets.filter(s => s?.type === "secret_text").map(s => s.name));
+            for (const name of ["IDENTITY_APPLICATION_CREDENTIAL", "CORE_EXECUTOR_BEARER"]) {
+              if (!names.has(name)) throw new Error("Existing production Console Worker secret is missing: " + name + "; use explicit executor provisioning");
+            }
+            console.log("Production Console executor secret names verified; values were not read");
+          '
+
+      - name: Validate Bootstrap authority for explicit executor provisioning
+        if: ${{ inputs.rotate_executor_credentials }}
+        env:
+          LIFESPACE_PRODUCTION_BOOTSTRAP_SECRET: ${{ secrets.LIFESPACE_PRODUCTION_BOOTSTRAP_SECRET }}
+        run: |
+          test ${#LIFESPACE_PRODUCTION_BOOTSTRAP_SECRET} -ge 32 || { echo "LIFESPACE_PRODUCTION_BOOTSTRAP_SECRET must contain at least 32 characters" >&2; exit 1; }
+
       - name: Resolve production Console platform administrator
+        if: ${{ inputs.rotate_executor_credentials }}
+        env:
+          LIFESPACE_PRODUCTION_BOOTSTRAP_SECRET: ${{ secrets.LIFESPACE_PRODUCTION_BOOTSTRAP_SECRET }}
         run: node infra/scripts/resolve-production-console-admin.mjs
 
       - name: Prepare production Console application and executors
+        if: ${{ inputs.rotate_executor_credentials }}
+        env:
+          LIFESPACE_PRODUCTION_BOOTSTRAP_SECRET: ${{ secrets.LIFESPACE_PRODUCTION_BOOTSTRAP_SECRET }}
         run: node infra/scripts/prepare-production-console-admin.mjs
 
       - name: Prepare ephemeral Console Worker secrets file
+        if: ${{ inputs.rotate_executor_credentials }}
         shell: bash
         run: |
           set -euo pipefail
