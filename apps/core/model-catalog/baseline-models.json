@@ -199,6 +199,9 @@
       "outgoing": [
         "generated_from"
       ]
+    },
+    "referenceLabel": {
+      "field": "name"
     }
   },
   "wish": {
@@ -387,6 +390,9 @@
           "fulfilledAt": null
         }
       }
+    },
+    "referenceLabel": {
+      "field": "title"
     }
   },
   "day_record": {
@@ -537,6 +543,9 @@
           "status": "active"
         }
       }
+    },
+    "referenceLabel": {
+      "field": "name"
     }
   },
   "event": {
@@ -624,6 +633,9 @@
         "rangeField": "when",
         "attendeePersonField": "attendeePersonIds"
       }
+    },
+    "referenceLabel": {
+      "field": "summary"
     }
   },
   "person_group": {
