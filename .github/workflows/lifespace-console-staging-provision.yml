@@ -8,6 +8,11 @@ on:
         required: false
         default: ""
         type: string
+      recover_platform_admin:
+        description: Explicitly reassign the configured platform administrator with staging Bootstrap (break-glass only)
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -33,6 +38,7 @@ jobs:
       LIFESPACE_STAGING_CONSOLE_APPLICATION_ID: app_lifespace_console_staging
       LIFESPACE_STAGING_CONSOLE_APPLICATION_NAME: LifeSpace Console staging
       LIFESPACE_STAGING_PLATFORM_ADMIN_USER_ID: ${{ github.event_name == 'workflow_dispatch' && inputs.platform_admin_user_id || '' }}
+      LIFESPACE_STAGING_CONSOLE_RECOVER_PLATFORM_ADMIN: ${{ inputs.recover_platform_admin && '1' || '0' }}
 
     steps:
       - name: Checkout LifeSpace

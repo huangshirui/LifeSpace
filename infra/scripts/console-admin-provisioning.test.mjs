@@ -35,3 +35,27 @@ test("Console Platform Admin Space governance scopes converge in staging and pro
     assert.match(executorBlock, /"spaces:inspect"/u);
   }
 });
+
+test("Console staging provisioning seeds administrators only on creation or explicit recovery", () => {
+  const workflow = fs.readFileSync(new URL("../../.github/workflows/lifespace-console-staging-provision.yml", import.meta.url), "utf8");
+  assert.match(workflow, /recover_platform_admin:\s*\n\s*description: Explicitly reassign/u);
+  assert.match(workflow, /default: false\s*\n\s*type: boolean/u);
+  assert.match(workflow, /LIFESPACE_STAGING_CONSOLE_RECOVER_PLATFORM_ADMIN:.*inputs\.recover_platform_admin/u);
+  assert.match(source, /const recoverPlatformAdmin = process\.env\.LIFESPACE_STAGING_CONSOLE_RECOVER_PLATFORM_ADMIN === "1"/u);
+  assert.match(source, /const administratorState = applicationCreated \|\| recoverPlatformAdmin\s*\? await ensurePlatformAdministrator\(\)\s*: \{ status: "unchanged-unverified" \}/u);
+  assert.match(source, /assignmentRequested: applicationCreated \|\| recoverPlatformAdmin/u);
+  assert.equal((source.match(/await ensurePlatformAdministrator\(\)/gu) ?? []).length, 1, "No other implicit Bootstrap admin assignment");
+});
+
+test("Console staging credential rotation does not first enumerate Bootstrap credentials", () => {
+  const start = source.indexOf("async function ensureApplicationCredential(");
+  const end = source.indexOf("\n}\n", start) + 2;
+  assert.ok(start > 0 && end > start, "Credential policy exists");
+  const body = source.slice(start, end);
+  assert.match(body, /if \(applicationCreated\) return/u);
+  assert.match(body, /if \(rotateCredentials\) return createReplacementApplicationCredential\("rotation"\)/u);
+  assert.match(body, /if \(suppliedApplicationCredential\) return/u);
+  assert.doesNotMatch(body, /\/bootstrap\/v1\//u);
+  assert.doesNotMatch(body, /listCredentials|active\.length|recovery-no-active-credential/u);
+  assert.match(body, /explicitly set LIFESPACE_STAGING_CONSOLE_ROTATE_CREDENTIALS=1/u);
+});

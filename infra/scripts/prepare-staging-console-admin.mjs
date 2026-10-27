@@ -12,6 +12,7 @@ const platformAdminUserId = (process.env.LIFESPACE_STAGING_PLATFORM_ADMIN_USER_I
 const suppliedApplicationCredential = (process.env.LIFESPACE_STAGING_CONSOLE_APPLICATION_CREDENTIAL ?? "").trim();
 const suppliedCoreBearer = (process.env.LIFESPACE_STAGING_CONSOLE_CORE_BEARER ?? "").trim();
 const rotateCredentials = process.env.LIFESPACE_STAGING_CONSOLE_ROTATE_CREDENTIALS === "1";
+const recoverPlatformAdmin = process.env.LIFESPACE_STAGING_CONSOLE_RECOVER_PLATFORM_ADMIN === "1";
 const credentialOutput = (process.env.LIFESPACE_STAGING_CONSOLE_CREDENTIAL_OUTPUT ?? "").trim();
 const githubEnv = (process.env.GITHUB_ENV ?? "").trim();
 
@@ -207,19 +208,15 @@ async function createReplacementApplicationCredential(source) {
 async function ensureApplicationCredential(applicationCreated, initialSecret) {
   if (applicationCreated) return { credential: initialSecret, created: true, source: "initial-creation" };
 
-  const list = await request(identityBase, `/bootstrap/v1/applications/${encodeURIComponent(applicationId)}/credentials`, { bootstrap: true });
-  if (list.response.status !== 200 || !Array.isArray(list.payload?.data)) {
-    throw new Error(`Console application credential listing failed: ${list.response.status} ${JSON.stringify(list.payload)}`);
-  }
-  const active = list.payload.data.filter((entry) => entry?.status === "active" && entry?.revokedAt == null);
-
+  // Credential management is not a normal deploy preflight. Never list
+  // unrelated credentials or implicitly mint a new one merely because
+  // the plaintext was not passed to this run.
   if (rotateCredentials) return createReplacementApplicationCredential("rotation");
   if (suppliedApplicationCredential) return { credential: suppliedApplicationCredential, created: false, source: "environment" };
-  if (!active.length) return createReplacementApplicationCredential("recovery-no-active-credential");
 
   throw new Error(
-    `Console application already has ${active.length} active credential(s), but plaintext cannot be recovered. `
-    + "Set LIFESPACE_STAGING_CONSOLE_APPLICATION_CREDENTIAL to the installed lsa_* or explicitly set LIFESPACE_STAGING_CONSOLE_ROTATE_CREDENTIALS=1 with a secure sink.",
+    "Existing Console application requires its installed LIFESPACE_STAGING_CONSOLE_APPLICATION_CREDENTIAL, "
+    + "or explicitly set LIFESPACE_STAGING_CONSOLE_ROTATE_CREDENTIALS=1 with a secure credential sink for recovery/rotation.",
   );
 }
 
@@ -386,7 +383,12 @@ if (applicationLookup.response.status !== 200 || applicationLookup.payload?.data
 
 const applicationState = await reconcileApplication(applicationLookup.payload.data);
 const audienceState = await ensureAudience();
-const administratorState = await ensurePlatformAdministrator();
+// Assignment of a platform administrator is a first-seed/recovery operation,
+ // not part of routine staging Console convergence. Missing existing
+ // assignment is detected by the later authenticated Console verification.
+const administratorState = applicationCreated || recoverPlatformAdmin
+  ? await ensurePlatformAdministrator()
+  : { status: "unchanged-unverified" };
 const applicationCredentialState = await ensureApplicationCredential(applicationCreated, initialApplicationSecret);
 const executorState = await ensureCoreExecutor(applicationCredentialState.credential);
 const coreTokenState = await ensureCoreExecutorToken(applicationCredentialState.credential, executorState.principal.id);
@@ -421,6 +423,7 @@ console.log(JSON.stringify({
   platformAdministrator: {
     userId: platformAdminUserId,
     status: administratorState.status,
+    assignmentRequested: applicationCreated || recoverPlatformAdmin,
   },
   identityExecutorCredential: {
     source: applicationCredentialState.source,
