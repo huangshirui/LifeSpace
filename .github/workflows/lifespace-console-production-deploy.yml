@@ -7,6 +7,11 @@ on:
         description: "Type DEPLOY_LIFESPACE_CONSOLE_PRODUCTION"
         required: true
         type: string
+      rotate_executor_credentials:
+        description: "Explicitly provision or rotate Console executors using Bootstrap (default off)"
+        required: false
+        default: false
+        type: boolean
       recover_platform_admin:
         description: "Explicit first-use or break-glass assignment of a production platform administrator (default off)"
         required: false
@@ -38,7 +43,6 @@ jobs:
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID || secrets.CLOUDFLARE_ACCOUNT_ID }}
-      LIFESPACE_PRODUCTION_BOOTSTRAP_SECRET: ${{ secrets.LIFESPACE_PRODUCTION_BOOTSTRAP_SECRET }}
       LIFESPACE_IDENTITY_PRODUCTION_URL: https://auth.aisr.online
       LIFESPACE_CORE_PRODUCTION_URL: https://core.aisr.online
       LIFESPACE_PRODUCTION_CONSOLE_APPLICATION_ID: app_lifespace_console
@@ -99,6 +103,10 @@ jobs:
             echo "confirmation must be DEPLOY_LIFESPACE_CONSOLE_PRODUCTION" >&2
             exit 1
           }
+          if [[ "${{ inputs.rotate_executor_credentials }}" != "true" && ( "${{ inputs.recover_platform_admin }}" == "true" || "${{ inputs.recover_console_configuration }}" == "true" ) ]]; then
+            echo "Explicit recovery requires rotate_executor_credentials=true; ordinary deploy cannot change Identity authority" >&2
+            exit 1
+          fi
           echo "Production Console release intent accepted for $GITHUB_SHA"
 
       - name: Report deployment source
@@ -125,7 +133,6 @@ jobs:
           set -euo pipefail
           test -n "${CLOUDFLARE_API_TOKEN:-}" || { echo "CLOUDFLARE_API_TOKEN is not configured" >&2; exit 1; }
           test -n "${CLOUDFLARE_ACCOUNT_ID:-}" || { echo "CLOUDFLARE_ACCOUNT_ID is not configured" >&2; exit 1; }
-          test ${#LIFESPACE_PRODUCTION_BOOTSTRAP_SECRET} -ge 32 || { echo "LIFESPACE_PRODUCTION_BOOTSTRAP_SECRET must be at least 32 characters" >&2; exit 1; }
 
       - name: Install repository dependencies
         run: pnpm install --frozen-lockfile
