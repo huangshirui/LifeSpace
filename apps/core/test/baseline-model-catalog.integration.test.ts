@@ -112,7 +112,7 @@ describe("canonical baseline Model Catalog", () => {
         "SELECT state,definition_json FROM model_definitions WHERE model_key=? AND version=?",
       ).bind(canonical.key, current!.version - 1).first<{ state: string; definition_json: string }>();
       expect(historical?.state).toBe("superseded");
-      const withoutLabel = structuredClone(canonical) as Record<string, unknown>;
+      const withoutLabel = structuredClone(canonical);
       delete withoutLabel.referenceLabel;
       expect(JSON.parse(historical!.definition_json)).toEqual(withoutLabel);
     }
