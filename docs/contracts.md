@@ -31,14 +31,18 @@ Kernel 0.49.0 adds authenticated Application/credential-scoped model inventory a
 Kernel 0.43.0 adds `POST /api/v1/spaces/{spaceId}/delegations/batch` for one confirmed business intent that must materialize 1..20 independent Delegations atomically. The operation reuses the generalized Root/Child Delegation primitive, validates all requested Authority/chain narrowing before one all-or-none commit, preserves one immutable scope per `dlg_*`, and never consumes a single-use parent merely by issuing a Child.
 
 
+## Identity 0.17.0 / Platform Admin 0.6.0 — Bootstrap contract ownership (Issue #93)
+
+The six legacy Bootstrap Application/Credential/Access Audience paths are documented only in the already-existing Identity Platform Admin companion contract, alongside Bootstrap administrator assignment/recovery. All nine operations require only the explicit `x-bootstrap-secret`; they do **not** accept an interactive Platform Admin actor proof as a substitute. The ordinary Identity Application OpenAPI no longer advertises any `/bootstrap/*` path. This is a contract-ownership change, **not** a runtime-route removal or a Production release: the current twelve Bootstrap method routes and their controlled initial-seed/recovery/staging consumers remain until separately retired. No new API/Worker/permission model is introduced. Candidate contracts must pass stability and security checks before release.
+
 ## Ownership
 
 Canonical service contracts live with the service implementation in this repository.
 
 Identity now has two explicit contract surfaces:
 
-1. **Identity Application Contract** — `apps/identity/openapi.yaml`, used by ordinary user/application authentication, profile, trusted application exchange, Cloudflare Access principal linking, service authentication and application-owned Agent authentication. Its candidate version is `0.16.0` (Production currently remains at 0.15.0 until deployed); 0.16.0 adds self-only trusted Application inspection, while 0.11.0 previously removed obsolete Application client classification and 0.10.0 introduced first-class `lsp_agt_*` Agent API credentials.
-2. **Identity Platform Admin Contract** — `apps/identity/platform-admin.openapi.yaml`, used only by the LifeSpace Console and approved break-glass/platform-control workflows. Its current version is `0.5.0`; 0.5.0 removes `clientType` from Application administration while retaining the Agent API credential governance and dual actor/executor control-plane boundary introduced in 0.4.0.
+1. **Identity Application Contract** — `apps/identity/openapi.yaml`, used by ordinary user/application authentication, profile, trusted application exchange, Cloudflare Access principal linking, service authentication and application-owned Agent authentication. Its candidate version is `0.17.0` (Production deployment remains separately evidenced); 0.17.0 moves Bootstrap-only operations out of this contract; 0.16.0 adds self-only trusted Application inspection, while 0.11.0 previously removed obsolete Application client classification and 0.10.0 introduced first-class `lsp_agt_*` Agent API credentials.
+2. **Identity Platform Admin Contract** — `apps/identity/platform-admin.openapi.yaml`, used only by the LifeSpace Console and approved break-glass/platform-control workflows. Its current candidate version is `0.6.0`; 0.6.0 owns Bootstrap Application/Credential/Audience operations, while 0.5.0 removes `clientType` from Application administration while retaining the Agent API credential governance and dual actor/executor control-plane boundary introduced in 0.4.0.
 
 Core has six contract layers:
 
@@ -92,7 +96,7 @@ The Model Semantic Fingerprint is content-addressed over the selected applicatio
 A platform operator surface such as LifeSpace Console additionally pins the two Platform Admin companion contracts:
 
 ```text
-Identity Platform Admin Contract: 0.5.0
+Identity Platform Admin Contract: 0.6.0
 Core Platform Admin Contract:     0.3.0
 ```
 
