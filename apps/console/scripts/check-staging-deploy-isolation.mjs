@@ -146,8 +146,14 @@ for (const [label, pattern] of provisionForbidden) {
 }
 
 const platformWorkflow = readFileSync(new URL("../../../.github/workflows/staging-deploy.yml", import.meta.url), "utf8");
-if (!platformWorkflow.includes("node infra/scripts/reconcile-staging-console-space-scope.mjs")) {
-  throw new Error("Canonical platform staging release must converge the Console Platform Admin scope ceiling before isolated Console deployment");
+// A Core/Identity release must never silently alter Console Application scopes.
+// First-use and explicit scope changes belong to the separately dispatched
+// Console provisioning flow, not the canonical platform staging release.
+if (platformWorkflow.includes("reconcile-staging-console-space-scope.mjs")) {
+  throw new Error("Canonical platform staging release must not mutate Console Application scopes via Bootstrap");
+}
+if (!provisionSource.includes("node infra/scripts/prepare-staging-console-admin.mjs")) {
+  throw new Error("Explicit Console provisioning must remain the supported path for Application scope convergence");
 }
 
 console.log(JSON.stringify({
@@ -157,7 +163,8 @@ console.log(JSON.stringify({
   acceptanceExplicitOptIn: true,
   coreIdentityMutationAbsentFromDeploy: true,
   bootstrapAuthorityAbsentFromDeploy: true,
-  platformReleaseOwnsConsoleScopeConvergence: true,
+  platformReleaseDoesNotMutateConsoleScopes: true,
+  explicitConsoleProvisioningOwnsScopeConvergence: true,
   consoleExternalGovernanceUsesPlatformAdmin: true,
   downstreamExternalSelfServiceUsesDirectUserSpaceAuthority: true,
   externalSourcePreprovisionAbsent: true,
