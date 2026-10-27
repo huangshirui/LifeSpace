@@ -95,6 +95,8 @@ Application UIs may present domain-friendly names, but they submit stable model 
 
 The D1 outbox is scanned by the Core scheduled handler and matched against active subscription filters whose endpoint is active and whose subscriber still has a current Data Grant. Matching produces one durable delivery row per `(event, subscription)` and enqueues the delivery to the environment-specific Cloudflare Queue.
 
+**Cron execution priority and observability (2026-10-27):** The Core scheduled handler scans/dispatches the Eventing outbox **before** External Model reconciliation, recurrence materialization and staged-file cleanup. These other jobs may perform slow external network/R2 operations; they must not prevent a queued Domain Event from being considered promptly when a Cron invocation begins. Jobs still run sequentially and independently catch errors, preserving successful work when a later job fails. A structured, secret-free warning records the scheduled time, start delay and per-job durations when Cron starts over 60 seconds late, an individual job exceeds 15 seconds, or a job fails. This separates invocation lateness from slow work inside a started invocation; it does **not** prove the exact cause of any prior delay or promise a strict delivery SLA.
+
 Outbox matching intentionally does not copy or cache Identity principal state. The Queue consumer is the final authority gate: after re-checking the Core-owned endpoint/subscription, Application × Model Access and Data Grant state, it queries Identity current state by stable `svc_*` ID before any outbound HTTP attempt or delivery-attempt increment.
 
 The resulting behavior is fail-closed:
