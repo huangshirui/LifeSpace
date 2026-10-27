@@ -17,6 +17,7 @@ const adminBootstrap = readFileSync(adminBootstrapUrl, "utf8");
 const requiredWorkflow = [
   "workflow_dispatch:",
   "DEPLOY_LIFESPACE_CONSOLE_PRODUCTION",
+  "rotate_executor_credentials:",
   "recover_platform_admin:",
   "recover_console_configuration:",
   "LIFESPACE_PRODUCTION_CONSOLE_RECOVER_PLATFORM_ADMIN: ${{ inputs.recover_platform_admin && '1' || '0' }}",
@@ -28,13 +29,16 @@ const requiredWorkflow = [
   "statuses: write",
   "lifespace-console-production/deploy",
   "LIFESPACE_PRODUCTION_BOOTSTRAP_SECRET",
+  "pnpm exec wrangler secret list --env production --format json",
+  "pnpm exec wrangler deploy --env production",
+  "LIFESPACE_PRODUCTION_CONSOLE_ALLOW_ACCESS_CREATE",
   "https://auth.aisr.online",
   "https://core.aisr.online",
   "prepare-production-console-access.mjs",
   "resolve-production-console-admin.mjs",
   "prepare-production-console-admin.mjs",
   "CLOUDFLARE_ENV=production pnpm exec vite build",
-  "pnpm exec wrangler deploy --secrets-file",
+  "pnpm exec wrangler deploy --env production --secrets-file",
   "https://lifespace.aisr.online/",
   "finalize-production-console-admin.mjs",
   "GITHUB_SHA",
@@ -44,12 +48,48 @@ for (const token of requiredWorkflow) {
 }
 
 const workflowLines = workflow.split("\n");
-for (const input of ["recover_platform_admin", "recover_console_configuration"]) {
+for (const input of ["rotate_executor_credentials", "recover_platform_admin", "recover_console_configuration"]) {
   const at = workflowLines.indexOf(`      ${input}:`);
   const block = at < 0 ? "" : workflowLines.slice(at + 1, at + 6).join("\n");
   if (!block.includes("default: false") || !block.includes("type: boolean")) {
     throw new Error(`${workflowPath} must default ${input} to false and require a boolean opt-in`);
   }
+}
+
+const jobEnvironment = workflow.slice(workflow.indexOf("    env:"), workflow.indexOf("    steps:"));
+if (jobEnvironment.includes("LIFESPACE_PRODUCTION_BOOTSTRAP_SECRET:")) {
+  throw new Error(`${workflowPath} must not expose Bootstrap secrets to ordinary production Console deploy steps`);
+}
+const stepSource = (name) => {
+  const at = workflow.indexOf(`      - name: ${name}\n`);
+  if (at < 0) throw new Error(`${workflowPath} missing ${name}`);
+  const next = workflow.indexOf("\n      - name:", at + 1);
+  return workflow.slice(at, next < 0 ? undefined : next);
+};
+for (const name of [
+  "Resolve production Console platform administrator",
+  "Prepare production Console application and executors",
+  "Revoke superseded Console executor credentials",
+]) {
+  const step = stepSource(name);
+  if (!step.includes("if: ${{ inputs.rotate_executor_credentials }}") || !step.includes("LIFESPACE_PRODUCTION_BOOTSTRAP_SECRET: ${{ secrets.LIFESPACE_PRODUCTION_BOOTSTRAP_SECRET }}")) {
+    throw new Error(`${workflowPath} must gate privileged ${name} behind explicit credential provisioning`);
+  }
+}
+const preparedSecrets = stepSource("Prepare ephemeral Console Worker secrets file");
+if (!preparedSecrets.includes("if: ${{ inputs.rotate_executor_credentials }}")) {
+  throw new Error("Only an explicitly requested executor rotation may replace the Console Worker secrets");
+}
+const existingSecrets = stepSource("Verify installed production Console Worker secrets for ordinary deployment");
+if (!existingSecrets.includes("if: ${{ !inputs.rotate_executor_credentials }}") || !existingSecrets.includes("CORE_EXECUTOR_BEARER")) {
+  throw new Error("Ordinary production Console deployment must verify existing non-plaintext Worker secrets");
+}
+const deployStep = stepSource("Build and deploy LifeSpace Console production only");
+if (!deployStep.includes("pnpm exec wrangler deploy --env production\n") || !deployStep.includes('pnpm exec wrangler deploy --env production --secrets-file')) {
+  throw new Error("Production Console deploy must select production explicitly for both deploy-only and credential rotation");
+}
+if (!workflow.includes('Explicit recovery requires rotate_executor_credentials=true')) {
+  throw new Error("Production Console recovery must require intentional executor provisioning");
 }
 
 const forbiddenWorkflow = [
@@ -79,6 +119,7 @@ const requiredAccessBootstrap = [
   'explicit email include rule',
   'method: "POST"',
   'LIFESPACE_PRODUCTION_CONSOLE_ACCESS_AUD',
+  'LIFESPACE_PRODUCTION_CONSOLE_ALLOW_ACCESS_CREATE',
 ];
 for (const token of requiredAccessBootstrap) {
   if (!accessBootstrap.includes(token)) throw new Error(`${accessBootstrapPath} must include ${token}`);
@@ -157,4 +198,7 @@ console.log(JSON.stringify({
   businessDataMutationAbsent: true,
   firstReleasePushTriggerAbsent: true,
   productionBindingsIsolated: true,
+  ordinaryDeployPreservesExistingWorkerSecrets: true,
+  bootstrapSecretIsolatedToExplicitProvisioning: true,
+  explicitProductionEnvironmentSelected: true,
 }));
