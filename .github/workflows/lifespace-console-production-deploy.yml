@@ -7,6 +7,16 @@ on:
         description: "Type DEPLOY_LIFESPACE_CONSOLE_PRODUCTION"
         required: true
         type: string
+      recover_platform_admin:
+        description: "Explicit first-use or break-glass assignment of a production platform administrator (default off)"
+        required: false
+        default: false
+        type: boolean
+      recover_console_configuration:
+        description: "Explicit recovery of existing Console Application policy / Access audience (default off)"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -35,6 +45,8 @@ jobs:
       LIFESPACE_PRODUCTION_CONSOLE_APPLICATION_NAME: LifeSpace Console
       LIFESPACE_PRODUCTION_CONSOLE_ACCESS_AUD: ${{ vars.LIFESPACE_PRODUCTION_CONSOLE_ACCESS_AUD || secrets.LIFESPACE_PRODUCTION_CONSOLE_ACCESS_AUD }}
       LIFESPACE_PRODUCTION_PLATFORM_ADMIN_USER_ID: ${{ vars.LIFESPACE_PRODUCTION_PLATFORM_ADMIN_USER_ID || secrets.LIFESPACE_PRODUCTION_PLATFORM_ADMIN_USER_ID }}
+      LIFESPACE_PRODUCTION_CONSOLE_RECOVER_PLATFORM_ADMIN: ${{ inputs.recover_platform_admin && '1' || '0' }}
+      LIFESPACE_PRODUCTION_CONSOLE_RECOVER_CONFIGURATION: ${{ inputs.recover_console_configuration && '1' || '0' }}
 
     steps:
       - name: Checkout LifeSpace
