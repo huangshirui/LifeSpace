@@ -202,14 +202,11 @@ try {
   const consoleApp = requireStatus(await request(identityBase, "/internal/v1/applications/self", {
     bearer: cleanup.consoleCredential,
   }), 200, "Inspect Console Application bound to temporary credential");
-  const appData = consoleApp;
   const requiredScopes = ["profile:read", "platform:admin", "applications:manage", "services:manage", "audit:read"];
-  const missingScopes = requiredScopes.filter((scope) => !consoleApp?.allowedScopes?.includes(scope));
+  const missingScopes = requiredScopes.filter((scope) => !Array.isArray(consoleApp?.allowedScopes) || !consoleApp.allowedScopes.includes(scope));
   if (consoleApp?.id !== consoleApplicationId || consoleApp?.trustedBackend !== true || consoleApp?.status !== "active" || missingScopes.length) {
     throw new Error(`Console application is not ready for Slice B/C acceptance: missing scopes ${missingScopes.join(",") || "none"}`);
   }
-
-
 
   const userTokenData = requireStatus(await request(identityBase, "/internal/v1/tokens", {
     method: "POST",
