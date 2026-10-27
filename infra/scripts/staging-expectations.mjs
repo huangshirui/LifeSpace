@@ -45,12 +45,14 @@ function latestMigrationVersion(service) {
 // Published model versions are monotonic inside each environment and therefore
 // can legitimately be higher than a clean-install release version. Staging
 // acceptance pins semantic identity with model key + schema hash, while requiring
-// only a release floor for the environment-local Registry version.
+// only a release floor for the environment-local Registry version. Schema 75
+// published new referenceLabel definitions for four baseline models; the hashes
+// below must track the published release, not their superseded predecessors.
 export const PROVING_MODELS = Object.freeze([
-  Object.freeze({ key: "task", minimumVersion: 9, hash: "8628fc7c392776e943f9279d1841be17983d092f7e3045dce6a976dde9ad39de" }),
-  Object.freeze({ key: "wish", minimumVersion: 8, hash: "772e17c1d07ba620c879b90b60b1c74dd1629edeffc5e5f622b57eb43c74e934" }),
-  Object.freeze({ key: "day_record", minimumVersion: 6, hash: "3a1d8cfdeaeb17b336359c4b2d7e7c9b5c6dda0e547cbb7622f60b4390f39dc7" }),
-  Object.freeze({ key: "event", minimumVersion: 7, hash: "7b189b870a3da40ecc6d4ae7926c600f8beec5bc3af342539279d934da3243c6" }),
+  Object.freeze({ key: "task", minimumVersion: 10, hash: "c1aac009972a2c5676f07ce9df610bb089569abb7c0792ead3cca4c35bb293d4" }),
+  Object.freeze({ key: "wish", minimumVersion: 9, hash: "70a20b920faa7bc077e02fc2328f98293d9972c8eceed83cf2516645268a60a6" }),
+  Object.freeze({ key: "day_record", minimumVersion: 7, hash: "323660d43816e55b9789fe4dd7a071ea138f6fdd5354401b0d7317ffba0e4a5e" }),
+  Object.freeze({ key: "event", minimumVersion: 8, hash: "dbf441f1f8203ebec0e16b2d6569b7606764b924540efd7bad30fb1258a7b270" }),
   Object.freeze({ key: "person_group", minimumVersion: 2, hash: "9dd9e0c1c562468485c6599613bb4bf6fdd6c83655e2040f49381e91aa94f08c" }),
   Object.freeze({ key: "anniversary", minimumVersion: 2, hash: "239be818a59bc78588634e6599a54e53d90158463ea95bfb257059b0d80ed0e4" }),
   Object.freeze({ key: "activity", minimumVersion: 2, hash: "4fc8e1508b90e26f69ce5612d5291250bf87b5032431df4f54dfb15ef896c67c" }),

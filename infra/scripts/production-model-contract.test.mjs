@@ -42,3 +42,50 @@ test("production release verifies the platform Model Contract without downstream
   assert.match(workflow, /node infra\/scripts\/verify-production-model-admin\.mjs/u);
   assert.doesNotMatch(workflow, /check-production-release-readiness\.mjs/u, "consumer promotion must not gate platform production release");
 });
+
+
+const REFERENCE_LABEL_RELEASE = Object.freeze({
+  task: Object.freeze({ field: "name", minimumVersion: 10 }),
+  wish: Object.freeze({ field: "title", minimumVersion: 9 }),
+  day_record: Object.freeze({ field: "name", minimumVersion: 7 }),
+  event: Object.freeze({ field: "summary", minimumVersion: 8 }),
+});
+
+function schema75ReferenceLabelHash(sql, key) {
+  const start = sql.indexOf(`-- ${key}:`);
+  if (start < 0) throw new Error(`schema 75 is missing ${key} publication`);
+  const match = sql.slice(start).match(/'([a-f0-9]{64})','breaking',\s*'service'/u);
+  if (!match) throw new Error(`schema 75 has no breaking published hash for ${key}`);
+  return match[1];
+}
+
+function provingReferenceLabelDrift(models, sql) {
+  const byKey = new Map(models.map((model) => [model.key, model]));
+  return Object.entries(REFERENCE_LABEL_RELEASE).flatMap(([key, published]) => {
+    const actual = byKey.get(key);
+    const releasedHash = schema75ReferenceLabelHash(sql, key);
+    if (actual?.hash !== releasedHash || actual.minimumVersion < published.minimumVersion) {
+      return [`${key} verification does not match schema 75 published reference label`];
+    }
+    return [];
+  });
+}
+
+test("staging and production proving-model hashes match schema 75 reference-label publication", () => {
+  const migration = readFileSync(new URL("../../apps/core/migrations/0075_baseline_reference_labels.sql", import.meta.url), "utf8");
+  const catalog = JSON.parse(readFileSync(new URL("../../apps/core/model-catalog/baseline-models.json", import.meta.url), "utf8"));
+  for (const [key, release] of Object.entries(REFERENCE_LABEL_RELEASE)) {
+    assert.equal(catalog[key].referenceLabel?.field, release.field, `${key} canonical reference label`);
+  }
+  assert.deepEqual(provingReferenceLabelDrift(STAGING_PROVING_MODELS, migration), []);
+});
+
+test("stale pre-reference-label proving hashes fail the release verification contract", () => {
+  const migration = readFileSync(new URL("../../apps/core/migrations/0075_baseline_reference_labels.sql", import.meta.url), "utf8");
+  const stale = STAGING_PROVING_MODELS.map((model) => model.key === "task"
+    ? { ...model, hash: "8628fc7c392776e943f9279d1841be17983d092f7e3045dce6a976dde9ad39de" }
+    : model);
+  assert.deepEqual(provingReferenceLabelDrift(stale, migration), [
+    "task verification does not match schema 75 published reference label",
+  ]);
+});
