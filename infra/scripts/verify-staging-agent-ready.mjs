@@ -120,8 +120,10 @@ async function listCredentials(applicationId) {
 async function ensureApplication(spec) {
   const path = `/bootstrap/v1/applications/${encodeURIComponent(spec.applicationId)}`;
   const existing = await request(identityBase, path, { bootstrap: bootstrapSecret });
-  let credential = "";
-  let credentialId = "";
+  // The caller registers this mutable Context in its finally cleanup list
+  // *before* issuing any credential. Mutate it as soon as the server responds.
+  spec.credential = "";
+  spec.credentialId = "";
 
   if (existing.response.status === 404) {
     const created = await request(identityBase, "/bootstrap/v1/applications", {
@@ -136,13 +138,13 @@ async function ensureApplication(spec) {
       },
     });
     const data = expectStatus(`${spec.key} application create`, created, 201);
-    credential = data?.clientSecret ?? "";
-    if (!credential.startsWith("lsa_")) throw new Error(`${spec.key} application did not return an initial credential`);
-    mask(credential);
+    spec.credential = data?.clientSecret ?? "";
+    mask(spec.credential);
+    if (!spec.credential.startsWith("lsa_")) throw new Error(`${spec.key} application did not return an initial credential`);
     const active = (await listCredentials(spec.applicationId)).filter((item) => item.status === "active" && item.revokedAt == null);
-    const current = active.filter((item) => item.secretSuffix === credential.slice(-8));
+    const current = active.filter((item) => item.secretSuffix === spec.credential.slice(-8));
     if (current.length !== 1) throw new Error(`${spec.key} initial credential metadata could not be identified`);
-    credentialId = current[0].id;
+    spec.credentialId = current[0].id;
   } else if (existing.response.status === 200) {
     const current = existing.payload?.data;
     if (current?.trustedBackend !== true) {
@@ -161,25 +163,38 @@ async function ensureApplication(spec) {
     }
     const replacement = await request(identityBase, `${path}/credentials`, { method: "POST", bootstrap: bootstrapSecret });
     const data = expectStatus(`${spec.key} temporary credential create`, replacement, 201);
-    credential = data?.clientSecret ?? "";
-    credentialId = data?.id ?? "";
-    if (!credential.startsWith("lsa_") || !credentialId.startsWith("apc_")) {
+    spec.credential = data?.clientSecret ?? "";
+    spec.credentialId = data?.id ?? "";
+    mask(spec.credential);
+    if (!spec.credential.startsWith("lsa_") || !spec.credentialId.startsWith("apc_")) {
       throw new Error(`${spec.key} temporary application credential is invalid`);
     }
-    mask(credential);
   } else {
     throw new Error(`${spec.key} application lookup failed: ${existing.response.status} ${JSON.stringify(existing.payload)}`);
   }
 
-  return { ...spec, credential, credentialId };
+  return spec;
 }
 
 async function revokeCredential(context) {
-  if (!context?.credentialId) return;
+  if (!context) return;
+  let credentialId = context.credentialId;
+  // First-create Bootstrap returns plaintext without an apc_* id. If the
+  // metadata lookup failed after issuance, resolve only its *unique* suffix;
+  // never revoke arbitrary existing Application credentials.
+  if (!credentialId && context.credential?.startsWith("lsa_")) {
+    const active = (await listCredentials(context.applicationId)).filter((item) => item.status === "active" && item.revokedAt == null);
+    const current = active.filter((item) => item.secretSuffix === context.credential.slice(-8));
+    if (current.length !== 1) throw new Error(`${context.key} temporary credential cleanup requires one exact active suffix match, got ${current.length}`);
+    credentialId = current[0].id;
+  }
+  if (!credentialId) return;
   const result = await request(identityBase,
-    `/bootstrap/v1/applications/${encodeURIComponent(context.applicationId)}/credentials/${encodeURIComponent(context.credentialId)}`,
+    `/bootstrap/v1/applications/${encodeURIComponent(context.applicationId)}/credentials/${encodeURIComponent(credentialId)}`,
     { method: "DELETE", bootstrap: bootstrapSecret });
   if (![204, 404].includes(result.response.status)) throw new Error(`${context.key} temporary credential revoke returned HTTP ${result.response.status}`);
+  context.credentialId = "";
+  context.credential = "";
 }
 
 function reconcileModelAccess(context) {
@@ -394,12 +409,13 @@ try {
   if (!testSpace?.id?.startsWith("spc_")) throw new Error("staging Space response is invalid");
   const spaceId = testSpace.id;
 
-  // Track each newly issued credential before provisioning the next Application.
-  // Promise.all rejects on the first failure and otherwise loses successfully
-  // issued credentials not yet assigned to contexts, preventing finally cleanup.
+  // Register the mutable cleanup Context *before* starting remote creation.
+  // A single ensureApplication may fail after a credential is issued but before
+  // returning; its partially populated Context must still reach finally.
   for (const agent of agents) {
-    const context = await ensureApplication(agent);
+    const context = { ...agent, credential: "", credentialId: "" };
     contexts.push(context);
+    await ensureApplication(context);
   }
   for (const context of contexts) {
     reconcileModelAccess(context);
