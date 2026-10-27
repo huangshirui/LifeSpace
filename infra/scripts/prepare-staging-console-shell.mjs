@@ -114,22 +114,22 @@ async function createApplication() {
   return { application: created.payload.data, credential: persistCredential(created.payload.data.clientSecret), created: true };
 }
 
-async function reconcileApplication(existing) {
-  if (existing.trustedBackend !== true) {
-    throw new Error(`Existing Console application is not a trusted backend: ${JSON.stringify({ trustedBackend: existing.trustedBackend })}`);
+function requireExistingApplicationPolicy(existing) {
+  // This session-only workflow is for Access entry setup, not for restoring
+  // a disabled Console or widening existing Application authority.
+  const mismatches = [];
+  if (existing.trustedBackend !== true) mismatches.push("trustedBackend");
+  if (existing.name !== applicationName) mismatches.push("name");
+  if (!sameStringSet(existing.allowedScopes, APPLICATION_SCOPES)) mismatches.push("allowedScopes");
+  if (existing.accessTokenTtlSeconds !== TOKEN_TTL_SECONDS) mismatches.push("accessTokenTtlSeconds");
+  if (existing.status !== "active") mismatches.push("status");
+  if (mismatches.length) {
+    throw new Error(
+      `Existing Console Application policy differs (${mismatches.join(", ")}); session-only provisioning will not change it. `
+      + "Use the explicitly authorized Console Platform Admin configuration or the full staging Console provisioning path for a deliberate change.",
+    );
   }
-  const patch = {};
-  if (existing.name !== applicationName) patch.name = applicationName;
-  if (!sameStringSet(existing.allowedScopes, APPLICATION_SCOPES)) patch.allowedScopes = APPLICATION_SCOPES;
-  if (existing.accessTokenTtlSeconds !== TOKEN_TTL_SECONDS) patch.accessTokenTtlSeconds = TOKEN_TTL_SECONDS;
-  if (existing.status !== "active") patch.status = "active";
-  if (!Object.keys(patch).length) return existing;
-
-  const updated = await request(`/bootstrap/v1/applications/${encodeURIComponent(applicationId)}`, { method: "PATCH", body: patch });
-  if (updated.response.status !== 200 || updated.payload?.data?.id !== applicationId) {
-    throw new Error(`Console application reconciliation failed: ${updated.response.status} ${JSON.stringify(updated.payload)}`);
-  }
-  return updated.payload.data;
+  return existing;
 }
 
 async function rotateApplicationCredential() {
@@ -171,7 +171,7 @@ if (lookup.response.status === 404) {
   if (lookup.response.status !== 200 || lookup.payload?.data?.id !== applicationId) {
     throw new Error(`Console application lookup failed: ${lookup.response.status} ${JSON.stringify(lookup.payload)}`);
   }
-  application = await reconcileApplication(lookup.payload.data);
+  application = requireExistingApplicationPolicy(lookup.payload.data);
   credential = await rotateApplicationCredential();
 }
 
@@ -187,6 +187,7 @@ console.log(JSON.stringify({
     created,
     allowedScopes: APPLICATION_SCOPES,
     credentialRotated: true,
+    existingPolicyUnchanged: !created,
     plaintextLogged: false,
   },
   accessAudience: {

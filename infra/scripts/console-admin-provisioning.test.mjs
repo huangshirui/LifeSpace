@@ -59,3 +59,18 @@ test("Console staging credential rotation does not first enumerate Bootstrap cre
   assert.doesNotMatch(body, /listCredentials|active\.length|recovery-no-active-credential/u);
   assert.match(body, /explicitly set LIFESPACE_STAGING_CONSOLE_ROTATE_CREDENTIALS=1/u);
 });
+
+test("Session-only Console setup never mutates existing Application policy via Bootstrap", () => {
+  const shell = fs.readFileSync(new URL("./prepare-staging-console-shell.mjs", import.meta.url), "utf8");
+  assert.match(shell, /function requireExistingApplicationPolicy\(existing\)/u);
+  assert.match(shell, /if \(existing\.status !== "active"\) mismatches\.push\("status"\)/u);
+  assert.match(shell, /if \(!sameStringSet\(existing\.allowedScopes, APPLICATION_SCOPES\)\)/u);
+  assert.match(shell, /if \(existing\.accessTokenTtlSeconds !== TOKEN_TTL_SECONDS\)/u);
+  assert.match(shell, /session-only provisioning will not change it/u);
+  assert.doesNotMatch(shell, /method: "PATCH"|reconcileApplication/u);
+  assert.ok(shell.indexOf("requireExistingApplicationPolicy(lookup.payload.data)") < shell.indexOf("credential = await rotateApplicationCredential()"),
+    "Reject disabled or drifted Applications before rotating an lsa_* credential");
+  assert.match(shell, /if \(lookup\.response\.status === 404\)/u, "Keep first trusted-Application seed");
+  assert.match(shell, /const audience = await ensureAudience\(\)/u, "Keep first-use Access audience registration");
+  assert.match(shell, /existingPolicyUnchanged: !created/u);
+});

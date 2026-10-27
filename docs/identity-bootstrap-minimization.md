@@ -68,3 +68,11 @@
 - 修复共享 Smoke 的遗留凭证资源：初始化在首次远程 POST 前导出精确 `app_staging_smoke_<run>_<attempt>` ID，收到一次性 `lsa_*` 后立即安全导出。最终 Cleanup 在旧 Service Grant/Token/Principal/Model Access 清理后，使用已有 **Staging Bootstrap API** 对唯一 suffix 匹配的凭证执行精确 DELETE，然后对仅允许的 run-scoped Application 执行 `PATCH status=disabled`。即使最初 HTTP 响应丢失且无法获取凭证明文，也尝试精准停用该 Application。无法唯一确定凭证或清理失败须显式报错，不会按时间、名称或宽泛 ID 批量撤销。既有三套工作流 `always()` Cleanup 入口保持不变。
 - 这**并没有迁移新 Bootstrap 能力**，而是在旧最小化迁移完成前避免继续遗留永久可用的测试凭证；当前无法从仓库证据断言历史遗留数量、已撤销历史所有 Credential，或解决所有分布式失败窗口。清理完成后方可进一步考虑减少 Staging Seed 对全局 Bootstrap 的依赖。
 - 修正 `staging-deploy.yml` 摘要中已由 PR #430 删除、却仍声称 Console Scope 自动收敛的一条失实描述。不影响权限。
+
+## Staging session-only Console 不再覆写已有 Application 权限（2026-10-27）
+
+- `Converge LifeSpace staging control plane` 的**无 `platform_admin_user_id` 分支**使用 `prepare-staging-console-shell.mjs`，用于首次 Console Access 会话接入。此前对已存在 Application 默认通过 Bootstrap `PATCH /applications/:id` 复写名称、Scopes、TTL，甚至将管理员已禁用的 Application 重设为 `active`。这属于自动覆盖独立治理决定，不是建立初始信任链的必要动作。
+- 现在首次 Application 不存在时仍用 Bootstrap POST 做固定 `app_*` ID 初始化；**已存在时仅比较** `trustedBackend/name/allowedScopes/accessTokenTtlSeconds/status`，发现差异则明确失败，要求通过已有 Platform Admin 或显式完整 Console Provisioning 处理。拒绝发生在该分支凭证轮换之前。配置一致的 Session-only Provisioning 仍按原先显式手动工作流轮换本次 Console `lsa_*` 并校验/登记 Access Audience，不会把它伪装成普通 Console isolated deploy。
+- `prepare-staging-console-shell.mjs` 的 Bootstrap 引用上限由 **5 降至 4**；Identity 服务端 `PATCH` 仍被其他首次/恢复 Provisioning 消费，尚未删除。修正 Console Staging isolated deploy 摘要中“平台 Staging 发布负责 Console Scope 收敛”的残留错误说法；此前 PR #430 已将这个权限动作移出平台发布。
+- **关于 Bootstrap Audience DELETE**：Consumer 审计显示普通 Console 撤销已经走带人类 Actor proof 的 Platform Admin，旧 Bootstrapped Rebinding 测试也有该正式覆盖；但当 Console Access Audience 配错且正常登录/管理员控制通道不可用时，Bootstrap 撤销旧 Audience 仍可能是明确的 break-glass 手段。按 #93 保留恢复能力的硬边界，在完成恢复路径替代论证之前**不直接删除它**，不为了数字收敛破坏恢复通道。
+- 不动 Production、Identity API、数据库或权限模型；新的源码静态回归门禁及普通 CI 不能替代真实 Staging 受控 Session-only Provisioning 验收。#93 继续 Open。
