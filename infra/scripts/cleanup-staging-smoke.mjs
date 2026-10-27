@@ -122,22 +122,22 @@ if (applicationSecret) {
       throw new Error(`Credential list returned HTTP ${listed.response.status}`);
     }
     const matches = listed.payload.data.filter((credential) =>
-      credential?.secretSuffix === applicationSecret.slice(-8)
-      && credential?.status === "active"
-      && credential?.revokedAt == null,
+      credential?.secretSuffix === applicationSecret.slice(-8),
     );
-    if (matches.length === 1 && typeof matches[0].id === "string") {
-      const revoked = await bootstrapRequest(`${bootstrapApplicationPath}/credentials/${encodeURIComponent(matches[0].id)}`, { method: "DELETE" });
+    if (matches.length !== 1 || typeof matches[0].id !== "string") {
+      throw new Error(`Expected exactly one smoke credential with this secret suffix; found ${matches.length}`);
+    }
+    const [credential] = matches;
+    if (credential.status === "active" && credential.revokedAt == null) {
+      const revoked = await bootstrapRequest(`${bootstrapApplicationPath}/credentials/${encodeURIComponent(credential.id)}`, { method: "DELETE" });
       if (revoked.response.status !== 204 && revoked.response.status !== 404) {
         throw new Error(`Credential revoke returned HTTP ${revoked.response.status}`);
       }
       applicationCredentialRevoked = true;
-    } else if (matches.length === 0 && listed.payload.data.some((credential) =>
-      credential?.secretSuffix === applicationSecret.slice(-8) && credential?.status === "revoked"
-    )) {
+    } else if (credential.status === "revoked") {
       applicationCredentialRevoked = true; // Already revoked on a previous cleanup attempt.
     } else {
-      throw new Error(`Expected one uniquely matching active or previously revoked smoke credential; found ${matches.length} active matches`);
+      throw new Error(`Smoke credential is not in a cleanable state: ${String(credential.status)}`);
     }
   } catch (error) {
     warnings.push(`Smoke Application credential revocation failed: ${error instanceof Error ? error.message : String(error)}`);
