@@ -48,7 +48,7 @@
 - Clean-room 首装与恢复路径可用；Credential/Access/权限隔离不回退；真实 Staging/Production 发布及 Golden Flow 分别在各自候选 SHA 上通过。
 - **未完成之前 #93 保持 Open**。重大新授权需求应独立提案，不纳入本 Issue 的验收。
 
-## Staging Console Provisioning 精简（PR #429 候选）
+## Staging Console Provisioning 精简（PR #429）
 
 - `infra/scripts/prepare-staging-console-admin.mjs` 对 **已存在**的 Console Application，默认不再每次用 Bootstrap `PUT /platform-administrators/:userId` 重新授权。只有首次创建 Application 或明确指定 `LIFESPACE_STAGING_CONSOLE_RECOVER_PLATFORM_ADMIN=1` 才执行赋权；GitHub 手动工作流对应 `recover_platform_admin` 选项，默认关闭。普通流程不声称验证了现有管理员状态；后续真实 Console Admin 验收仍需验证授权，不可跳过。
 - Existing Application Credential 使用已安装的 `lsa_*`，或者在 `LIFESPACE_STAGING_CONSOLE_ROTATE_CREDENTIALS=1` 时明确创建替换凭证。删除此前无论如何都会进行的 Bootstrap Credential LIST，以及“发现没有活跃凭证便静默自动新建”的路径。凭证确实丢失时通过**显式轮换**恢复，杜绝无意的权限管理副作用。
@@ -60,3 +60,11 @@
 - 移除该自动步骤及不再需要的脚本，移除静态 Bootstrap Consumer 白名单和相关 node-check；Console staging isolation guard 改为拒绝重新加入这一跨应用写入，并确保显式 `Converge LifeSpace staging control plane` 仍是 Application Scope 初始化/更新入口。
 - **兼容性**：`prepare-staging-console-admin.mjs` 在人工触发的 Staging Provisioning 中，已经有 `reconcileApplication` 能对齐 Console Application Scope；[实际运行 #40499292472](https://github.com/huangshirui/LifeSpace/actions/runs/40499292472) 成功。后续发现 Scope 缺失应在 Console 的受控配置/Provisioning 中解决，**不要**依赖发布 Core/Identity 自动追加授权。
 - 不新增任何 API/Scope/机器授权，不更改 Production。此 PR 的仓库检查不等于最新 SHA 的真实 Staging 发布验收。
+
+## 验收脚本去冗余与 Smoke 资源归还（2026-10-27）
+
+- 保留 `prepare-staging-smoke.mjs`：Staging、Production APAC Gate、诊断工作流均使用它准备真实临时 User/Service/Space/Application 和 Golden Flow 运行上下文。没有证据支持为 #93 删除这套共享基础设施。
+- 删除**没有任何正式工作流调用**的 658 行 `verify-staging-agent-ready.mjs`、其只检查源码的静态测试、Bootstrap 引用预算。正式 Staging 仍执行 `verify-staging-authority-v3.mjs`，覆盖 Agent direct authority、API credential、User Delegation、re-delegation/revocation。旧脚本曾提供多 Application、App×Model ceiling、wrong-Space 等额外否定场景；这些并非当前正式发布门禁，移除**不等于**宣称这些场景已由 v3 完全覆盖。日后真正需要才在受控现有 Golden Flow 里补证据。
+- 修复共享 Smoke 的遗留凭证资源：初始化在首次远程 POST 前导出精确 `app_staging_smoke_<run>_<attempt>` ID，收到一次性 `lsa_*` 后立即安全导出。最终 Cleanup 在旧 Service Grant/Token/Principal/Model Access 清理后，使用已有 **Staging Bootstrap API** 对唯一 suffix 匹配的凭证执行精确 DELETE，然后对仅允许的 run-scoped Application 执行 `PATCH status=disabled`。即使最初 HTTP 响应丢失且无法获取凭证明文，也尝试精准停用该 Application。无法唯一确定凭证或清理失败须显式报错，不会按时间、名称或宽泛 ID 批量撤销。既有三套工作流 `always()` Cleanup 入口保持不变。
+- 这**并没有迁移新 Bootstrap 能力**，而是在旧最小化迁移完成前避免继续遗留永久可用的测试凭证；当前无法从仓库证据断言历史遗留数量、已撤销历史所有 Credential，或解决所有分布式失败窗口。清理完成后方可进一步考虑减少 Staging Seed 对全局 Bootstrap 的依赖。
+- 修正 `staging-deploy.yml` 摘要中已由 PR #430 删除、却仍声称 Console Scope 自动收敛的一条失实描述。不影响权限。

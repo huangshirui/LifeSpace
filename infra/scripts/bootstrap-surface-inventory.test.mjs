@@ -111,13 +111,21 @@ test("Staging Console acceptance uses its current temporary lsa_* credential for
   }
 });
 
-test("Agent-ready Staging registers successfully provisioned credentials before the next Application", () => {
-  const source = readFileSync(resolve(root, "infra/scripts/verify-staging-agent-ready.mjs"), "utf8");
-  assert.ok(!source.includes("Promise.all(agents.map(ensureApplication))"), "Parallel provisioning risks losing successfully issued credential IDs on rejection");
-  assert.ok(source.includes('const context = { ...agent, credential: "", credentialId: "" };\n    contexts.push(context);\n    await ensureApplication(context);'), "Every Application must enter the cleanup registry before remote creation starts");
-  assert.ok(source.includes('spec.credential = data?.clientSecret ?? "";'), "Record issued client secret before any post-create validation");
-  assert.ok(source.includes("spec.credentialId = data?.id ?? \"\";"), "Record a returned credential ID before validating it");
-  assert.ok(source.includes("current.length !== 1"), "Never revoke a credential inferred from an ambiguous suffix");
-  assert.ok(source.includes("async function revokeCredential(context)"), "Partial contexts must be cleaned in finally");
-  assert.ok(source.includes("for (const context of contexts) await cleanup"), "Registered credentials must be revoked from finally");
+
+test("Smoke cleanup retires its run-scoped Application rather than leaving a live lsa_*", () => {
+  const prepare = readFileSync(resolve(root, "infra/scripts/prepare-staging-smoke.mjs"), "utf8");
+  const cleanup = readFileSync(resolve(root, "infra/scripts/cleanup-staging-smoke.mjs"), "utf8");
+  assert.ok(prepare.indexOf('exportEnv("LIFESPACE_STAGING_SMOKE_APPLICATION_ID", applicationId)') < prepare.indexOf('const app = await requestUntil('), "Register exact test Application before remote creation");
+  assert.ok(prepare.indexOf('exportEnv("LIFESPACE_STAGING_SMOKE_APPLICATION_SECRET", clientSecret') < prepare.indexOf("const userId = await createSmokeUser"), "Capture one-time credential before downstream setup");
+  assert.equal(LEGACY_REFERENCE_BUDGET["infra/scripts/verify-staging-agent-ready.mjs"], undefined, "Retired Agent-ready acceptance must not be allowlisted");
+  assert.equal(LEGACY_REFERENCE_BUDGET["infra/scripts/cleanup-staging-smoke.mjs"].max, 1, "Only one run-scoped Bootstrap path prefix is permitted");
+  assert.match(cleanup, /app_staging_smoke_/u);
+  assert.match(cleanup, /bootstrapApplicationPath.*\/bootstrap\/v1\/applications\//u);
+  assert.match(cleanup, /secretSuffix === applicationSecret\.slice\(-8\)/u);
+  assert.match(cleanup, /matches\.length !== 1/u);
+  assert.match(cleanup, /method: "DELETE"/u);
+  assert.match(cleanup, /method: "PATCH", body: \{ status: "disabled" \}/u);
+  assert.match(cleanup, /applicationCredentialRevoked/u);
+  assert.match(cleanup, /applicationDisabled/u);
+  assert.match(cleanup, /warnings\.push/u);
 });
