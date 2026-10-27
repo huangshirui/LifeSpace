@@ -163,6 +163,10 @@ await requestUntil(
   ({ response }) => response.status === 200,
 );
 
+// Export the exact per-run target before remote creation: cleanup must still
+// be able to disable an Application if the creation response is lost.
+exportEnv("LIFESPACE_STAGING_SMOKE_APPLICATION_ID", applicationId);
+
 const app = await requestUntil(
   "staging smoke application bootstrap",
   () => jsonRequest(identityBase, "/bootstrap/v1/applications", {
@@ -180,7 +184,7 @@ const app = await requestUntil(
 );
 const clientSecret = app.payload?.data?.clientSecret;
 if (!clientSecret) throw new Error("Staging smoke application did not return a client secret");
-mask(clientSecret);
+exportEnv("LIFESPACE_STAGING_SMOKE_APPLICATION_SECRET", clientSecret, { secret: true });
 
 const userId = await createSmokeUser(clientSecret, `Staging Owner ${smokeId}`);
 let userTokenResult = await issueUserToken(clientSecret, userId);
@@ -340,8 +344,6 @@ exportEnv("LIFESPACE_STAGING_PERSON_ID", personId);
 exportEnv("LIFESPACE_STAGING_CLAIMANT_PERSON_ID", claimantPersonId);
 exportEnv("LIFESPACE_STAGING_SPACE_TIMEZONE", "UTC");
 exportEnv("LIFESPACE_STAGING_VIEWING_TIMEZONE", "UTC");
-exportEnv("LIFESPACE_STAGING_SMOKE_APPLICATION_ID", applicationId);
-exportEnv("LIFESPACE_STAGING_SMOKE_APPLICATION_SECRET", clientSecret, { secret: true });
 exportEnv("LIFESPACE_STAGING_SMOKE_USER_ID", userId);
 exportEnv("LIFESPACE_STAGING_SMOKE_CLAIMANT_USER_ID", claimantUserId);
 exportEnv("LIFESPACE_STAGING_SMOKE_SERVICE_PRINCIPAL_ID", servicePrincipalId);
