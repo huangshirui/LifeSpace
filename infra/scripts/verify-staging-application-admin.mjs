@@ -67,10 +67,12 @@ try {
   const replacement = await jsonRequest(`${applicationPath}/credentials`, { method: "POST", bootstrap: bootstrapSecret });
   replacementId = replacement.payload?.data?.id ?? "";
   replacementSecret = replacement.payload?.data?.clientSecret ?? "";
+  // Mask as soon as possible, including when the response is malformed.
+  // Never stringify a secret-bearing POST response into an Actions error.
+  if (typeof replacementSecret === "string" && replacementSecret) console.log(`::add-mask::${replacementSecret}`);
   if (replacement.response.status !== 201 || !String(replacementId).startsWith("apc_") || !String(replacementSecret).startsWith("lsa_")) {
-    throw new Error(`Application credential replacement failed: ${replacement.response.status} ${JSON.stringify(replacement.payload)}`);
+    throw new Error(`Application credential replacement returned an invalid response: HTTP ${replacement.response.status}`);
   }
-  console.log(`::add-mask::${replacementSecret}`);
   if (replacement.payload.data.secretHash !== undefined) throw new Error("Application credential create response leaked a hash");
 
   const issueBody = { subjectId: userId, scopes: ["resources:read"] };
