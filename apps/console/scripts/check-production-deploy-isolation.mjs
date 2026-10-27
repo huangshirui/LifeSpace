@@ -43,8 +43,10 @@ for (const token of requiredWorkflow) {
   if (!workflow.includes(token)) throw new Error(`${workflowPath} must include ${token}`);
 }
 
+const workflowLines = workflow.split("\n");
 for (const input of ["recover_platform_admin", "recover_console_configuration"]) {
-  const block = workflow.match(new RegExp(`^      ${input}:\\\\n([\\\\s\\\\S]*?)(?=^      [a-z_]+:|^permissions:)`, "mu"))?.[1] ?? "";
+  const at = workflowLines.indexOf(`      ${input}:`);
+  const block = at < 0 ? "" : workflowLines.slice(at + 1, at + 6).join("\n");
   if (!block.includes("default: false") || !block.includes("type: boolean")) {
     throw new Error(`${workflowPath} must default ${input} to false and require a boolean opt-in`);
   }
