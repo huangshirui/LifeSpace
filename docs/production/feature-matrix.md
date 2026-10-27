@@ -37,16 +37,16 @@
 | Delegation | Atomic multi-Delegation issuance (`1..20`) | ✅ | `/delegations/batch`；全部成功或零落地 |
 | Models | Metadata-driven Model Definition / Registry | ✅ | 普通模型由元数据驱动 |
 | Models | Immutable Model Contract revision | ✅ | `mct_*` revision |
-| Models | New baseline ordinary models (Anniversary / Activity / Goal / Person Profile / Habit) | ✅ | 10 published active models in #42 |
+| Models | New baseline ordinary models (Anniversary / Activity / Goal / Person Profile / Habit) | ✅ | Current Model Contract has 12 published ordinary models |
 | Models | Goal lifecycle | ✅ | `active / paused / achieved / abandoned`; guarded Actions |
 | Models | Habit ownership and Check-in | ✅ | immutable single `subjectPersonId`, owner-controlled Check-in and lifecycle |
-| Models | Record icon metadata | ✅ | independently optional display metadata; consumers own picker UX |
+| Models | Record icon metadata + image File link preservation | ✅ | schema 76 preserves image attachment on ordinary PATCH; safe legacy link recovery (D1/R2 verified) |
 | Models | Semantic relations | ✅ | model-declared outgoing relation support; authority checked by Core |
 | Runtime | Generic CRUD | ✅ | ordinary models |
 | Runtime | Optimistic concurrency / version checks | ✅ | 更新/删除并发正确性 |
 | Runtime | Canonical Query | ✅ | 统一 Query Contract |
 | Runtime | Cross-Space `/api/v1/me/...` aggregation | ✅ | Core capability |
-| Runtime | Relation Target Lookup / Reference Resolution | ✅ | Person / ordinary record reference projection |
+| Runtime | Relation Target Lookup / Reference Resolution | ✅ | Person / ordinary record reference projection; schema 75 canonical reference labels on Task/Wish/DayRecord/Event |
 | Runtime | Model Capability / Action mechanism | ✅ | 具体模型 Action 以 active contract 为准 |
 | Runtime | Atomic Batch create/update/delete | ✅ | `/models/batch`，bounded `1..20`，同 Space 可跨 Model，全部成功或回滚 |
 | Runtime | Batch update/delete server-resolved version | ✅ | 可省略 version，仍保持 optimistic concurrency |
@@ -72,32 +72,34 @@
 
 ## Current ordinary models
 
-当前 production active Model Contract 已验证 **10 个**普通模型：
+当前 production active Model Contract 已验证 **12 个**普通模型：
 
 | Model | Version | Status | Typical use |
 |---|---:|---:|---|
-| Event | 6 | ✅ | 日程 / 时间事件 |
-| Task | 9 | ✅ | 待办 / 任务 |
-| Day Record | 6 | ✅ | 日子记录 |
-| Wish | 9 | ✅ | 愿望 / 愿望池 |
-| Person Group | 1 | ✅ | 人物分组 / 圈子等普通业务关系 |
-| Anniversary | 1 | ✅ | 独立纪念日模型；日程样式归消费者负责 |
-| Activity | 1 | ✅ | 活动容器，可承载语义关联 |
-| Goal | 2 | ✅ | 明确目标状态与 Action 生命周期 |
-| Person Profile | 1 | ✅ | 人物档案 |
-| Habit | 2 | ✅ | 归属人、打卡及 Action 生命周期 |
+| Event | 8 | ✅ | 日程 / Location / canonical summary reference label |
+| Task | 10 | ✅ | 待办 / canonical name reference label |
+| Day Record | 7 | ✅ | 日子记录 / canonical name reference label |
+| Wish | 10 | ✅ | 愿望 / canonical title reference label |
+| Person Group | 2 | ✅ | 人物分组 / 球队也可作为消费者领域使用场景 |
+| Anniversary | 2 | ✅ | 独立纪念日模型；日程样式归消费者负责 |
+| Activity | 2 | ✅ | 活动容器，可承载语义关联 |
+| Goal | 3 | ✅ | 明确目标状态与 Action 生命周期 |
+| Person Profile | 2 | ✅ | 人物档案 |
+| Habit | 3 | ✅ | 归属人、打卡及 Action 生命周期 |
+| Football Match | 1 | ✅ | `football_match`，比赛领域模型；具体 UI 独立发布 |
+| Football Performance | 1 | ✅ | `football_performance`，比赛表现领域模型；统计与 UI 由消费者实现 |
 
-Active Model Contract: `mct_ee9aa79db15247e204572f14703ffb8e5bdab90854133224f13f02df8518f172`
+Active Model Contract: `mct_21ac4fd66f72ea4dfe259974970a0eb55c1e02a4424003404897862d2e8629d3`
 
 > Space Person Directory 是 Kernel first-class resource，因此不会作为 ordinary model 出现在本表。
 
 ## Release binding
 
-- Release date: **2026-10-22**
-- Exact production SHA: `4e2eb18aa35738aae9f908e86ee55063a58c4466`
-- Production workflow: **#42** / run `39752702491` — ✅ success
-- Core: Kernel `0.53.0` / schema `72`
-- Identity: contract `0.12.0` / schema `11`
+- Release date: **2026-10-27**
+- Exact production SHA: `0ab94ccf4aeeaa6e9309b6a344d7280051691a21`
+- Production workflow: **[#50](https://github.com/huangshirui/LifeSpace/actions/runs/40438311024)** — ✅ success
+- Core: Kernel `0.53.0` / schema `76`
+- Identity: contract `0.15.0` / schema `14`
 - APAC exact-candidate performance + Platform Golden Flow prerequisite: ✅ success
 - Production HTTP convergence + Cloudflare isolation/bindings: ✅ success
 - Production `lsp_svc_* -> Core -> Identity introspection` + active Model Contract verification: ✅ success
@@ -110,4 +112,4 @@ Feature Matrix 状态必须由成功的 production workflow 明确推进，不�
 
 Recurrence Plan-to-Task (#338): production 行为必须依当前 Kernel 契约及已发布模型 Capability 独立验证；本次不依据历史 development-only 说明推断所有计划生成模式都完成真实生产业务验收。
 
-Football Match / Football Goal：🚧 仍需通过 Console 手工发布模型；不属于本次 Baseline #42 的 active Model Contract。
+Football Match / Football Performance：✅ 已在当前生产 Model Contract（v1）；HomeMew UI、足球图表和消费者端到端发布不属于本次平台生产工作流的验收范围。
