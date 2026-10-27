@@ -7,6 +7,11 @@ on:
         description: "Type DEPLOY_LIFESPACE_CONSOLE_PRODUCTION"
         required: true
         type: string
+      rotate_executor_credentials:
+        description: "Explicitly provision or rotate Console executors using Bootstrap (default off)"
+        required: false
+        default: false
+        type: boolean
       recover_platform_admin:
         description: "Explicit first-use or break-glass assignment of a production platform administrator (default off)"
         required: false
@@ -38,7 +43,6 @@ jobs:
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID || secrets.CLOUDFLARE_ACCOUNT_ID }}
-      LIFESPACE_PRODUCTION_BOOTSTRAP_SECRET: ${{ secrets.LIFESPACE_PRODUCTION_BOOTSTRAP_SECRET }}
       LIFESPACE_IDENTITY_PRODUCTION_URL: https://auth.aisr.online
       LIFESPACE_CORE_PRODUCTION_URL: https://core.aisr.online
       LIFESPACE_PRODUCTION_CONSOLE_APPLICATION_ID: app_lifespace_console
@@ -99,6 +103,10 @@ jobs:
             echo "confirmation must be DEPLOY_LIFESPACE_CONSOLE_PRODUCTION" >&2
             exit 1
           }
+          if [[ "${{ inputs.rotate_executor_credentials }}" != "true" && ( "${{ inputs.recover_platform_admin }}" == "true" || "${{ inputs.recover_console_configuration }}" == "true" ) ]]; then
+            echo "Explicit recovery requires rotate_executor_credentials=true; ordinary deploy cannot change Identity authority" >&2
+            exit 1
+          fi
           echo "Production Console release intent accepted for $GITHUB_SHA"
 
       - name: Report deployment source
@@ -125,7 +133,6 @@ jobs:
           set -euo pipefail
           test -n "${CLOUDFLARE_API_TOKEN:-}" || { echo "CLOUDFLARE_API_TOKEN is not configured" >&2; exit 1; }
           test -n "${CLOUDFLARE_ACCOUNT_ID:-}" || { echo "CLOUDFLARE_ACCOUNT_ID is not configured" >&2; exit 1; }
-          test ${#LIFESPACE_PRODUCTION_BOOTSTRAP_SECRET} -ge 32 || { echo "LIFESPACE_PRODUCTION_BOOTSTRAP_SECRET must be at least 32 characters" >&2; exit 1; }
 
       - name: Install repository dependencies
         run: pnpm install --frozen-lockfile
@@ -139,15 +146,48 @@ jobs:
         run: node infra/scripts/production-expectations.mjs
 
       - name: Ensure production Console Access boundary
+        env:
+          LIFESPACE_PRODUCTION_CONSOLE_ALLOW_ACCESS_CREATE: ${{ inputs.rotate_executor_credentials && inputs.recover_console_configuration && '1' || '0' }}
         run: node infra/scripts/prepare-production-console-access.mjs
 
+      - name: Verify installed production Console Worker secrets for ordinary deployment
+        if: ${{ !inputs.rotate_executor_credentials }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd apps/console
+          pnpm exec wrangler secret list --env production --format json | node --input-type=module -e '
+            import fs from "node:fs";
+            const secrets = JSON.parse(fs.readFileSync(0, "utf8"));
+            if (!Array.isArray(secrets)) throw new Error("Production Worker secrets inventory must be a JSON array");
+            const names = new Set(secrets.filter(s => s?.type === "secret_text").map(s => s.name));
+            for (const name of ["IDENTITY_APPLICATION_CREDENTIAL", "CORE_EXECUTOR_BEARER"]) {
+              if (!names.has(name)) throw new Error("Existing production Console Worker secret is missing: " + name + "; use explicit executor provisioning");
+            }
+            console.log("Production Console executor secret names verified; values were not read");
+          '
+
+      - name: Validate Bootstrap authority for explicit executor provisioning
+        if: ${{ inputs.rotate_executor_credentials }}
+        env:
+          LIFESPACE_PRODUCTION_BOOTSTRAP_SECRET: ${{ secrets.LIFESPACE_PRODUCTION_BOOTSTRAP_SECRET }}
+        run: |
+          test ${#LIFESPACE_PRODUCTION_BOOTSTRAP_SECRET} -ge 32 || { echo "LIFESPACE_PRODUCTION_BOOTSTRAP_SECRET must contain at least 32 characters" >&2; exit 1; }
+
       - name: Resolve production Console platform administrator
+        if: ${{ inputs.rotate_executor_credentials }}
+        env:
+          LIFESPACE_PRODUCTION_BOOTSTRAP_SECRET: ${{ secrets.LIFESPACE_PRODUCTION_BOOTSTRAP_SECRET }}
         run: node infra/scripts/resolve-production-console-admin.mjs
 
       - name: Prepare production Console application and executors
+        if: ${{ inputs.rotate_executor_credentials }}
+        env:
+          LIFESPACE_PRODUCTION_BOOTSTRAP_SECRET: ${{ secrets.LIFESPACE_PRODUCTION_BOOTSTRAP_SECRET }}
         run: node infra/scripts/prepare-production-console-admin.mjs
 
       - name: Prepare ephemeral Console Worker secrets file
+        if: ${{ inputs.rotate_executor_credentials }}
         shell: bash
         run: |
           set -euo pipefail
@@ -176,7 +216,11 @@ jobs:
           set -euo pipefail
           cd apps/console
           CLOUDFLARE_ENV=production pnpm exec vite build
-          pnpm exec wrangler deploy --secrets-file "$LIFESPACE_CONSOLE_PRODUCTION_SECRETS_FILE"
+          if [[ "${{ inputs.rotate_executor_credentials }}" == "true" ]]; then
+            pnpm exec wrangler deploy --env production --secrets-file "$LIFESPACE_CONSOLE_PRODUCTION_SECRETS_FILE"
+          else
+            pnpm exec wrangler deploy --env production
+          fi
 
       - name: Verify production hostname is protected and reachable
         shell: bash
@@ -196,6 +240,9 @@ jobs:
           exit 1
 
       - name: Revoke superseded Console executor credentials
+        if: ${{ inputs.rotate_executor_credentials }}
+        env:
+          LIFESPACE_PRODUCTION_BOOTSTRAP_SECRET: ${{ secrets.LIFESPACE_PRODUCTION_BOOTSTRAP_SECRET }}
         run: node infra/scripts/finalize-production-console-admin.mjs
 
       - name: Remove ephemeral secrets file
@@ -216,9 +263,9 @@ jobs:
           - Identity: schema v${LIFESPACE_EXPECTED_IDENTITY_SCHEMA_VERSION} / contract ${LIFESPACE_EXPECTED_IDENTITY_CONTRACT_VERSION}
           - Core: schema v${LIFESPACE_EXPECTED_CORE_SCHEMA_VERSION} / Kernel ${LIFESPACE_EXPECTED_CORE_CONTRACT_VERSION}
           - Cloudflare Access application: ${LIFESPACE_PRODUCTION_CONSOLE_ACCESS_STATE:-verified}; owner-only policy verified before deployment
-          - Platform administrator: explicit/existing or uniquely resolved from an already-verified Access principal mapping; no email matching
           - Console LifeSpace application: \`app_lifespace_console\`
-          - Identity/Core executor credentials: zero-downtime rotated; superseded credentials revoked after hostname verification
+          - Explicit executor credential rotation: ${{ inputs.rotate_executor_credentials }}
+          - Existing Worker secrets are preserved for deploy-only; Bootstrap credential provisioning runs only when explicitly opted in
           - Core/Identity deployment or migration: **not performed**
           - Space/business data mutation: **not performed**
           - Downstream application migration/cutover: **not performed by this workflow**

@@ -190,6 +190,9 @@ async function main() {
   let productionApplication = productionMatches[0] ?? null;
   let created = false;
   if (!productionApplication) {
+    if (process.env.LIFESPACE_PRODUCTION_CONSOLE_ALLOW_ACCESS_CREATE !== "1") {
+      throw new Error("Production Console Access application is missing; ordinary deploy must not create a new perimeter. Explicitly opt into executor provisioning and recover_console_configuration for first-use Access setup.");
+    }
     const stagingMatches = matchingApplications(applications, STAGING_ACCESS_DOMAIN);
     if (stagingMatches.length !== 1) {
       throw new Error(`Cannot bootstrap production Access: expected exactly one accepted staging Console Access application, found ${stagingMatches.length}`);

@@ -112,3 +112,33 @@ test("Production Console existing Application/Audience policy changes require ex
     assert.match(block, /type: boolean/u);
   }
 });
+
+test("Production Console ordinary release does not call Bootstrap or rotate installed executor secrets", () => {
+  const workflow = fs.readFileSync(new URL("../../.github/workflows/lifespace-console-production-deploy.yml", import.meta.url), "utf8");
+  const access = fs.readFileSync(new URL("./prepare-production-console-access.mjs", import.meta.url), "utf8");
+  const lines = workflow.split("\n");
+  const at = lines.indexOf("      rotate_executor_credentials:");
+  assert.ok(at > 0);
+  assert.match(lines.slice(at + 1, at + 6).join("\n"), /default: false/u);
+  assert.match(workflow, /if: \$\{\{ !inputs\.rotate_executor_credentials \}\}/u);
+  assert.match(workflow, /wrangler secret list --env production --format json/u);
+  assert.match(workflow, /IDENTITY_APPLICATION_CREDENTIAL/u);
+  assert.match(workflow, /CORE_EXECUTOR_BEARER/u);
+  assert.match(workflow, /pnpm exec wrangler deploy --env production\n/u);
+  assert.match(workflow, /pnpm exec wrangler deploy --env production --secrets-file/u);
+  const jobEnv = workflow.slice(workflow.indexOf("    env:"), workflow.indexOf("    steps:"));
+  assert.doesNotMatch(jobEnv, /LIFESPACE_PRODUCTION_BOOTSTRAP_SECRET/u);
+  for (const name of [
+    "Resolve production Console platform administrator",
+    "Prepare production Console application and executors",
+    "Revoke superseded Console executor credentials",
+  ]) {
+    const start = workflow.indexOf(`      - name: ${name}\n`);
+    const body = workflow.slice(start, workflow.indexOf("\n      - name:", start + 1));
+    assert.ok(start > 0);
+    assert.match(body, /if: \$\{\{ inputs\.rotate_executor_credentials \}\}/u);
+    assert.match(body, /LIFESPACE_PRODUCTION_BOOTSTRAP_SECRET/u);
+  }
+  assert.match(access, /LIFESPACE_PRODUCTION_CONSOLE_ALLOW_ACCESS_CREATE !== "1"/u);
+  assert.match(workflow, /inputs\.rotate_executor_credentials && inputs\.recover_console_configuration/u);
+});
