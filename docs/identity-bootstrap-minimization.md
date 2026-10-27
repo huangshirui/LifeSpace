@@ -65,3 +65,12 @@ Bootstrap 只负责建立首次可用的正常治理权限链，及明确受控�
 - `verify-staging-eventing.mjs` 与 `verify-staging-eventing-principal-revocation.mjs` 改为用 Smoke Application 自己的 `lsa_*` 调用 `/internal/v1/applications/self`，必须检查当前返回的 Application ID、active/trusted 状态及所有必需 Scope；任一缺失直接失败（fail closed），不做提权、不做恢复 PATCH。
 - 两个 Staging Eventing 验收脚本及其 runtime 环境校验均不再读取全局 Bootstrap Secret；从 `LEGACY_REFERENCE_BUDGET` 中永久删除这两项允许名单，CI 同时覆盖“不回引 Bootstrap”的负向回归。
 - 注意：这是**代码**路径收敛，不是已经完成 Staging Golden Flow 的线上证据。需先部署新版 Staging Identity 0.16，运行实际 Eventing 验收后确认，无权修改 Production 或把变更提前写入生产能力手册。
+
+
+### Phase 2c：Staging Console 只读自检、Agent-ready 凭证清理保护（2026-10-27）
+
+- 已在 [Staging #40459795146](https://github.com/huangshirui/LifeSpace/actions/runs/40459795146) 验收的 Identity `0.16.0` 自检接口被三个 Console Staging 验收脚本复用：每个脚本先按旧受控 Bootstrap POST 创建临时 Console `lsa_*`，**立即登记 finally 撤销对象**，然后使用该凭证调用 `GET /internal/v1/applications/self`，校验返回的 Application ID、trusted/active 状态及 Scope Ceiling。只读应用元数据不再使用 Bootstrap GET。变更保留对 Credential CREATE/REVOKE 的原受控路径，不为 CI 新增权限。
+- Bootstrap 静态 CI 限额从三个 Console 验收脚本的 `4` 各降到 `3`，并增加自检调用顺序、绑定当前凭证、身份/权限 fail-closed 和 finally 清理的结构测试。
+- Agent-ready 原本 `Promise.all(agents.map(ensureApplication))` 会在一个调用失败后丢失另一个已成功返回的临时凭证 Context。现改为顺序登记每个成功创建的 Context，使后续失败时 finally 仍能撤销已登记的凭证。**局限**：如果单个 `ensureApplication` 已经创建凭证、但在返回前又失败，仍需后续专门设计创建事务/清理协调；此补丁不能声称完全解决所有中途故障。
+- **明确未决的权限设计**：现有 Console Staging 验收脚本用 trusted Application `lsa_*` 为已知管理员 `usr_*` 换取 User Token，再获取 `platform_admin_actor` 并执行敏感 Platform Admin 测试。虽然有 staging-only 脚本隔离，脚本生成的 token 并不是独立人工证明。迁移剩余 Credential Governance 时**不得**把这一测试夹具当作获准的机器 Platform Admin 授权，更不能推广到 Production；后续应将机器运维能力建成带审计、目标边界和撤销能力的专属 Contract，或把需要人类 Actor 的路径保持为真实交互式验收。
+- 本阶段只保证源码与静态/集成 CI 可验证；新分支未经实际 Staging Deploy 前，不得把三个 Console acceptance 的新 HTTP 顺序说成已在 Staging 实测，也不影响已经成功的 0.16.0 基础服务发布。Production 路径、Secrets、数据存储和管理端 Contracts 均不改变。
