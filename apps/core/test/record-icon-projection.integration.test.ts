@@ -129,6 +129,11 @@ describe("native Record Icon projection and DayRecord cutover", () => {
     const detached = await db.prepare("SELECT file_id FROM resource_file_links WHERE source_record_id=? AND field_key=?")
       .bind(record.id, "__record_icon").first<{ file_id: string }>();
     expect(detached).toBeNull();
+    // Replacement detaches the link but does not delete the reusable File or
+    // rewrite the Record's business data.
+    const oldFile = await db.prepare("SELECT status FROM files WHERE id=? AND space_id=?")
+      .bind(fileId, spaceId).first<{ status: string }>();
+    expect(oldFile?.status).toBe("ready");
   });
 
 });
