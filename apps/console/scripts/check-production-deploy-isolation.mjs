@@ -17,6 +17,10 @@ const adminBootstrap = readFileSync(adminBootstrapUrl, "utf8");
 const requiredWorkflow = [
   "workflow_dispatch:",
   "DEPLOY_LIFESPACE_CONSOLE_PRODUCTION",
+  "recover_platform_admin:",
+  "recover_console_configuration:",
+  "LIFESPACE_PRODUCTION_CONSOLE_RECOVER_PLATFORM_ADMIN: ${{ inputs.recover_platform_admin && '1' || '0' }}",
+  "LIFESPACE_PRODUCTION_CONSOLE_RECOVER_CONFIGURATION: ${{ inputs.recover_console_configuration && '1' || '0' }}",
   'test "$GITHUB_EVENT_NAME" = "workflow_dispatch"',
   'test "$GITHUB_REF_NAME" = "main"',
   "environment: production",
@@ -37,6 +41,13 @@ const requiredWorkflow = [
 ];
 for (const token of requiredWorkflow) {
   if (!workflow.includes(token)) throw new Error(`${workflowPath} must include ${token}`);
+}
+
+for (const input of ["recover_platform_admin", "recover_console_configuration"]) {
+  const block = workflow.match(new RegExp(`^      ${input}:\\\\n([\\\\s\\\\S]*?)(?=^      [a-z_]+:|^permissions:)`, "mu"))?.[1] ?? "";
+  if (!block.includes("default: false") || !block.includes("type: boolean")) {
+    throw new Error(`${workflowPath} must default ${input} to false and require a boolean opt-in`);
+  }
 }
 
 const forbiddenWorkflow = [
