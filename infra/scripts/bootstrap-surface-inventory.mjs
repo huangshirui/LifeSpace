@@ -31,7 +31,6 @@ export const LEGACY_REFERENCE_BUDGET = Object.freeze({
   "infra/scripts/prepare-staging-smoke.mjs": { category: "staging-seed", max: 1 },
   "infra/scripts/cleanup-staging-smoke.mjs": { category: "staging-cleanup", max: 1 },
   "apps/console/scripts/verify-staging-space-governance.mjs": { category: "staging-acceptance", max: 3 },
-  "infra/scripts/verify-production-model-admin.mjs": { category: "production-acceptance", max: 1 },
   "apps/console/scripts/check-production-deploy-isolation.mjs": { category: "static-guard-only", max: 1 },
   "apps/console/scripts/verify-staging-configuration-center.mjs": { category: "staging-acceptance", max: 3 },
   ".github/workflows/lifespace-console-staging-provision.yml": { category: "provisioning", max: 2 },
