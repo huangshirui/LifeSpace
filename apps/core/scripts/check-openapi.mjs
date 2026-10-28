@@ -258,8 +258,8 @@ if (!schemas.CreateDataGrantRequest?.properties?.granteeType?.enum && !schemas.G
 if (!schemas.GranteeType?.enum?.includes("service")) {
   throw new Error("Data Grants must support service principals");
 }
-if (schemas.DataGrantResourceType?.enum?.join(",") !== "space,model") {
-  throw new Error("Data Grants must expose whole-Space and model-collection resource types");
+if (schemas.DataGrantResourceType?.enum?.join(",") !== "space,model,person_directory") {
+  throw new Error("Data Grants must expose whole-Space, model-collection and Person Directory resource types");
 }
 if (!schemas.DataGrant?.required?.includes("resourceType") || !schemas.DataGrant?.required?.includes("resourceId")) {
   throw new Error("Data Grant responses must expose their resource target");
