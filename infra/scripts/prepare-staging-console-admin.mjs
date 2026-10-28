@@ -173,23 +173,17 @@ async function createApplication() {
   return clientSecret;
 }
 
-async function reconcileApplication(existing) {
-  if (existing.trustedBackend !== true) {
-    throw new Error(`Existing Console application ${applicationId} is not a trusted backend Application`);
+function requireExistingApplicationPolicy(existing) {
+  const mismatches = [];
+  if (existing.trustedBackend !== true) mismatches.push("trustedBackend");
+  if (existing.name !== applicationName) mismatches.push("name");
+  if (!sameStringSet(existing.allowedScopes, APPLICATION_SCOPES)) mismatches.push("allowedScopes");
+  if (existing.accessTokenTtlSeconds !== TOKEN_TTL_SECONDS) mismatches.push("accessTokenTtlSeconds");
+  if (existing.status !== "active") mismatches.push("status");
+  if (mismatches.length) {
+    throw new Error(`Existing staging Console Application ${applicationId} differs in ${mismatches.join(", ")}; use the current LifeSpace Platform Admin to make deliberate policy changes. Provisioning will not restore revoked authority through Bootstrap.`);
   }
-  const patch = {};
-  if (existing.name !== applicationName) patch.name = applicationName;
-  if (!sameStringSet(existing.allowedScopes, APPLICATION_SCOPES)) patch.allowedScopes = APPLICATION_SCOPES;
-  if (existing.accessTokenTtlSeconds !== TOKEN_TTL_SECONDS) patch.accessTokenTtlSeconds = TOKEN_TTL_SECONDS;
-  if (existing.status !== "active") patch.status = "active";
-  if (!Object.keys(patch).length) return { updated: false, application: existing };
-  const result = await request(identityBase, `/bootstrap/v1/applications/${encodeURIComponent(applicationId)}`, {
-    method: "PATCH",
-    bootstrap: true,
-    body: patch,
-  });
-  if (result.response.status !== 200) throw new Error(`Console application reconciliation failed: ${result.response.status} ${JSON.stringify(result.payload)}`);
-  return { updated: true, application: result.payload?.data };
+  return { updated: false, application: existing };
 }
 
 async function createReplacementApplicationCredential(source) {
@@ -381,7 +375,7 @@ if (applicationLookup.response.status !== 200 || applicationLookup.payload?.data
   throw new Error(`Console application lookup failed: ${applicationLookup.response.status} ${JSON.stringify(applicationLookup.payload)}`);
 }
 
-const applicationState = await reconcileApplication(applicationLookup.payload.data);
+const applicationState = requireExistingApplicationPolicy(applicationLookup.payload.data);
 const audienceState = await ensureAudience();
 // Assignment of a platform administrator is a first-seed/recovery operation,
  // not part of routine staging Console convergence. Missing existing
