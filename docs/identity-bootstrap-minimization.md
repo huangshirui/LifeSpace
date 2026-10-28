@@ -18,6 +18,29 @@
 
 普通 Identity Application OpenAPI 不再包含 6 组 Bootstrap Application/Credential/Audience 路径（共 9 个 Method）；它们的**完整方法契约与 `bootstrapSecret` 独立安全约束**迁入既有 `platform-admin.openapi.yaml`，与原有 Bootstrap Platform Administrator 恢复入口同处一个受控契约。普通应用不再需要 pin 这些 Bootstrap 能力。此变更**不删除任何已部署路由**，Identity 服务端仍有 12 种 Bootstrap Method Routes；不以 Console 人工 Actor 冒充 Bootstrap Seed/Recovery。首次初始化、失联恢复、隔离的 Staging 验收调用保持可用。更新版本/契约稳定性基线并加强检查；2026-10-28 在 exact SHA `c5c1efa6…` 已完成 Staging #40626481504 与 Production #40628917903。未据此声称实际执行过生产 First-install/Break-glass。
 
+## #93 最终边界核对：12 个 Bootstrap Method 的必要性（2026-10-28，待 CI）
+
+该清单按 HTTP Method 而非 Route Group 计数。任何保留项**仅**在首装、显式恢复或隔离 Staging Acceptance 下调用；正常 Console Web/Worker 与普通 Platform Production 发布不消费全局 Bootstrap。现有 Platform Admin 处理日常 Application/Credential/Audience 治理；当该信任链尚未建立或确实失联时，不能以需要活跃 Admin Actor 的管理 API 取代最后一条恢复路径。
+
+| Method | 保留的明确用途 | 调用方边界 |
+| --- | --- | --- |
+| `POST /bootstrap/v1/applications` | 首次注册带固定 ID 的可信 Application、颁发一次性初始 `lsa_*`；隔离 Staging fixture | 显式 Console Provisioning（App 不存在时）、`prepare-staging-smoke` |
+| `GET /bootstrap/v1/applications/:id` | 初装后核验特定 Application / 恢复前诊断 | 显式 Console Provisioning |
+| `PATCH /bootstrap/v1/applications/:id` | 正常控制面不可用时显式修复 Application，或精确禁用 Staging 测试 Application | 仅显式 Console Production 恢复、run-scoped Staging cleanup |
+| `GET /bootstrap/v1/applications/:id/credentials` | 显式轮换后只读核对当前/旧凭证及恢复时精确定位 | Console Recovery/Rotation 和隔离 Staging Credential Acceptance/Cleanup |
+| `POST /bootstrap/v1/applications/:id/credentials` | Console Executor Secret 已丢失时人工显式轮换；临时受控验收 | 显式 Provisioning/Rotation、Staging Acceptance |
+| `DELETE /bootstrap/v1/applications/:id/credentials/:credentialId` | 失联/轮换时撤销旧凭证及撤销 Staging 临时凭证 | 显式恢复、Staging Cleanup |
+| `GET /bootstrap/v1/applications/:id/access-audiences` | 首装/恢复时核对现有 Access Audience（避免重复/错绑） | 显式 Console Provisioning |
+| `POST /bootstrap/v1/applications/:id/access-audiences` | 首次连接 Console Access 或已有登录治理失联后的显式重建 | 首装或显式 Console Recovery |
+| `DELETE /bootstrap/v1/applications/:id/access-audiences/:audienceId` | Console Access Audience 错绑且正常管理员登录不可用时撤销，避免永久失联 | Break-glass（含集成测试）；正常 Audience 撤销应走 Platform Admin |
+| `GET /bootstrap/v1/platform-administrators` | 首装确定当前管理员、显式恢复前确认撤权状态 | 显式 Console Provisioning/Recovery；隔离 Console Acceptance 解析当前管理员 |
+| `PUT /bootstrap/v1/platform-administrators/:userId` | 建立第一位可用人类管理员或显式恢复已撤销的管理员 | 仅初装/勾选 Recovery；集成测试不再直接 SQL 写管理员表 |
+| `DELETE /bootstrap/v1/platform-administrators/:userId` | 当管理员控制面失联/被攻陷时紧急撤权 | Break-glass；集成测试证明已签 Actor proof 即时失效 |
+
+**验证证据分层：** 已有 Identity Integration 覆盖 Application/Credential/Audience 正常治理与负向权限、Audience Rebinding、一次性明文和撤权。新增 Identity 集成测试改为通过真实 Bootstrap PUT 完成首位管理员 Seed（取消测试直接 INSERT），再通过 Bootstrap DELETE 撤权，验证现有 Actor proof 实时失效、错误 Bootstrap Secret 不可恢复，最后经显式 Bootstrap PUT 恢复并保留 Executor + 人类 Actor 双重权限门禁。这是**隔离测试数据库中的逻辑 Clean-room/Break-glass 模拟**，不是在 Production 执行危险的真实故障演练。
+
+**有意保留的差异：** Bootstrap 仍与已有 Platform Admin 部分方法语义重复，但只用于正常 Admin API 不可用的 Seed/Recovery，不能因“可通过 Admin 做同名操作”而删除最后的兜底入口。Staging 受控 Credential Acceptance 目前仍为测试而显式调用 Bootstrap；它不属于普通发布时对生产业务 Application 的日常治理，且临时凭证有精确撤销。后续若需要完全迁走这类测试 Fixture，应作为独立测试授权与环境工作，而不是为 #93 设计新 Machine Provisioning 平台。全局 Bootstrap 调用不扩张门禁保持生效。
+
 ## 保留的架构边界
 
 - 普通 Identity Application API 不承载 Bootstrap 管理职责；Identity Platform Admin 继续使用 **实际人类管理员 Actor proof + 同应用受控 Executor**。不能让 CI/脚本用固定 `usr_*` 模拟人类批准，不能为了消除 Bootstrap 而削弱这条边界。
