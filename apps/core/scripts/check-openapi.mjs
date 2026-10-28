@@ -3,7 +3,7 @@ import YAML from "yaml";
 
 const document = YAML.parse(fs.readFileSync(new URL("../openapi.yaml", import.meta.url), "utf8"));
 
-if (document.openapi !== "3.1.0" || document.info?.version !== "0.53.0") {
+if (document.openapi !== "3.1.0" || document.info?.version !== "0.54.0") {
   throw new Error("Core Kernel OpenAPI version metadata is invalid");
 }
 if (!document.info?.title?.includes("Kernel")) {
@@ -274,6 +274,18 @@ if (!grants?.get || !grants?.post || !grant?.patch || !grant?.delete) {
 }
 if (!grants.get.responses?.["200"]?.description?.includes("model-collection") || !grants.post.responses?.["201"]?.description?.includes("model-collection")) {
   throw new Error("Data Grant contract must document model-collection support");
+}
+
+const scopedGrants = document.paths?.["/api/v1/spaces/{spaceId}/person-directory/grants"];
+const scopedGrant = document.paths?.["/api/v1/spaces/{spaceId}/person-directory/grants/{grantId}"];
+if (scopedGrants?.get?.operationId !== "listPersonDirectoryGrants"
+    || scopedGrants?.post?.operationId !== "createPersonDirectoryGrant"
+    || scopedGrant?.patch?.operationId !== "updatePersonDirectoryGrant"
+    || scopedGrant?.delete?.operationId !== "revokePersonDirectoryGrant"
+    || schemas.PersonDirectoryGrant?.properties?.resourceType?.const !== "person_directory"
+    || schemas.PersonDirectoryGrant?.properties?.resourceId?.type !== "null"
+    || schemas.PersonDirectoryGrant?.properties?.permission?.enum?.join(",") !== "read,write") {
+  throw new Error("Candidate Person Directory Grant companion must preserve its scoped, read/write-only target");
 }
 
 const discovery = document.paths?.["/api/v1/spaces/{spaceId}/_discovery"]?.get;

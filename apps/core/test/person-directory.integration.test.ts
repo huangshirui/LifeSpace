@@ -364,4 +364,76 @@ describe("Space Person Directory", () => {
     expect(reused.status).toBe(403);
     expect((await reused.json<{ error: { code: string } }>()).error.code).toBe("DELEGATION_INVALID");
   });
+  it("grants direct Agents Person Directory read/write without Space or ordinary-model Authority", async () => {
+    const f = await fixture();
+    const agentId = `agt_dir_${crypto.randomUUID().replaceAll("-", "")}`;
+    const admin = await userToken(f.privateKey, f.userId, f.clientId,
+      "resources:read resources:write grants:manage");
+    const iat = Math.floor(Date.now() / 1000);
+    const directAgent = await sign({
+      iss: "lifespace-identity", aud: "lifespace-core", sub: agentId,
+      azp: f.clientId, principal_type: "agent", principal_id: agentId,
+      actor_type: "agent", actor_id: agentId, purpose: "agent_execution",
+      scope: "resources:read resources:write spaces:read",
+      iat, exp: iat + 900, jti: `tok_${crypto.randomUUID()}`,
+    }, f.privateKey, "RS256");
+    const directory = `/api/v1/spaces/${f.spaceId}/people`;
+    const grantCollection = `/api/v1/spaces/${f.spaceId}/person-directory/grants`;
+    const agentRequest = (path: string, init: RequestInit = {}) => request(f.publicKey, directAgent, path, init);
+    expect((await agentRequest(directory)).status).toBe(403);
+
+    const invalid = await request(f.publicKey, admin, grantCollection, {
+      method: "POST", body: JSON.stringify({ granteeType: "agent", granteeId: agentId,
+        resourceId: "task", permission: "read" }),
+    });
+    expect(invalid.status).toBe(400);
+    for (const permission of ["free_busy", "manage"]) {
+      const denied = await request(f.publicKey, admin, grantCollection, {
+        method: "POST", body: JSON.stringify({ granteeType: "agent", granteeId: agentId,
+          permission }),
+      });
+      expect(denied.status).toBe(422);
+    }
+
+    const createGrant = await request(f.publicKey, admin, grantCollection, {
+      method: "POST", body: JSON.stringify({ granteeType: "agent", granteeId: agentId,
+        permission: "read" }),
+    });
+    expect(createGrant.status).toBe(201);
+    const grant = (await createGrant.json<{ data: { id: string; resourceType: string; resourceId: string | null } }>()).data;
+    expect(grant).toMatchObject({ resourceType: "person_directory", resourceId: null });
+    const legacy = await request(f.publicKey, admin, `/api/v1/spaces/${f.spaceId}/grants`);
+    expect(legacy.status).toBe(200);
+    expect((await legacy.json<{ data: { resourceType: string }[] }>()).data.some((g) => g.resourceType === "person_directory")).toBe(false);
+    expect((await agentRequest(directory)).status).toBe(200);
+    expect((await agentRequest(`/api/v1/spaces/${f.spaceId}`)).status).toBe(403);
+    expect((await agentRequest(directory, { method: "POST", body: JSON.stringify({ displayName: "Not Yet" }) })).status).toBe(403);
+
+    const elevate = await request(f.publicKey, admin, `${grantCollection}/${grant.id}`, {
+      method: "PATCH", body: JSON.stringify({ permission: "write" }),
+    });
+    expect(elevate.status).toBe(200);
+    const created = await agentRequest(directory, { method: "POST", body: JSON.stringify({ displayName: "External Person" }) });
+    expect(created.status).toBe(201);
+    const person = (await created.json<{ data: PersonDto }>()).data;
+    const updated = await agentRequest(`${directory}/${person.id}`, {
+      method: "PATCH", body: JSON.stringify({ displayName: "Renamed", version: person.version }),
+    });
+    expect(updated.status).toBe(200);
+    // Linked family member Person remains protected by Space manage authority.
+    expect((await agentRequest(`${directory}/${f.linkedPersonId}`, {
+      method: "PATCH", body: JSON.stringify({ displayName: "Must Deny", version: 1 }),
+    })).status).toBe(403);
+    const modelPath = `/api/v1/spaces/${f.spaceId}/models/task/records`;
+    expect((await agentRequest(modelPath)).status).toBe(403);
+    expect((await agentRequest(`/api/v1/spaces/${f.spaceId}/members`)).status).toBe(403);
+
+    const revoke = await request(f.publicKey, admin, `${grantCollection}/${grant.id}`, {
+      method: "DELETE",
+    });
+    expect(revoke.status).toBe(204);
+    expect((await agentRequest(directory)).status).toBe(403);
+    expect((await agentRequest(directory, { method: "POST", body: JSON.stringify({ displayName: "Revoked" }) })).status).toBe(403);
+  });
+
 });
