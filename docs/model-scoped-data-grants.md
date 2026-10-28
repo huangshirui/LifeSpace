@@ -91,3 +91,7 @@ No D1 schema migration is required for Kernel 0.13.0. `data_grants` has containe
 - `resource_type='model'`, `resource_id=<published model key>` — model-collection Grant.
 
 Record/view-level Grant targets remain future work and must be introduced only with an explicit contract and authorization requirement.
+
+### Kernel Person Directory (0.54.0)
+
+Person (`per_*`) is not an ordinary Model Registry model. Its separate Data Grant is `{ "resourceType": "person_directory", "resourceId": null, "permission": "read" | "write" }`. This permission only permits Person Directory CRUD (write does not allow linked-Person changes without existing target-specific Space authority), and never unlocks the Space itself or ordinary models. Existing whole-Space Grants and current user Membership still authorize Person Directory as before. No change to the model-collection target or model Discovery contract is implied.
