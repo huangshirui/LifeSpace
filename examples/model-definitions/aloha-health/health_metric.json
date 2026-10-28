@@ -1,0 +1,70 @@
+{
+  "definitionVersion": 1,
+  "key": "health_metric",
+  "description": "可复用健康指标定义，V1 按人可读名称解析，不引入无权威编码。",
+  "display": {
+    "singular": "Health Metric",
+    "plural": "Health Metrics"
+  },
+  "fields": {
+    "name": {
+      "type": "string",
+      "title": "指标名称",
+      "required": true,
+      "minLength": 1,
+      "maxLength": 160
+    },
+    "valueType": {
+      "type": "enum",
+      "title": "值类型",
+      "required": true,
+      "values": [
+        "number",
+        "text",
+        "boolean"
+      ]
+    },
+    "defaultUnit": {
+      "type": "string",
+      "title": "默认单位",
+      "nullable": true
+    },
+    "referenceLow": {
+      "type": "number",
+      "title": "参考下限",
+      "nullable": true
+    },
+    "referenceHigh": {
+      "type": "number",
+      "title": "参考上限",
+      "nullable": true
+    },
+    "referenceSource": {
+      "type": "string",
+      "title": "参考范围来源",
+      "nullable": true
+    }
+  },
+  "referenceLabel": {
+    "field": "name"
+  },
+  "query": {
+    "searchable": [
+      "name"
+    ],
+    "filterable": [
+      "valueType"
+    ],
+    "sortable": [
+      "name"
+    ]
+  },
+  "access": [
+    "read",
+    "write"
+  ],
+  "lifecycle": {
+    "optimisticConcurrency": true,
+    "softDelete": true
+  }
+}

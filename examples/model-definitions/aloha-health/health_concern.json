@@ -1,0 +1,89 @@
+{
+  "definitionVersion": 1,
+  "key": "health_concern",
+  "description": "长期关注的健康问题、风险或伤病主题；不是诊断，也不拥有相关事实。",
+  "display": {
+    "singular": "Health Concern",
+    "plural": "Health Concerns"
+  },
+  "fields": {
+    "subjectPersonId": {
+      "type": "person",
+      "title": "健康主体",
+      "required": true,
+      "immutable": true
+    },
+    "name": {
+      "type": "string",
+      "title": "名称",
+      "required": true,
+      "minLength": 1,
+      "maxLength": 160
+    },
+    "summary": {
+      "type": "text",
+      "title": "摘要",
+      "nullable": true
+    },
+    "status": {
+      "type": "enum",
+      "title": "状态",
+      "required": true,
+      "values": [
+        "active",
+        "inactive"
+      ]
+    },
+    "onsetDate": {
+      "type": "date",
+      "title": "开始日期",
+      "nullable": true
+    },
+    "resolvedDate": {
+      "type": "date",
+      "title": "结束日期",
+      "nullable": true
+    },
+    "notes": {
+      "type": "text",
+      "title": "备注",
+      "nullable": true
+    }
+  },
+  "defaults": {
+    "status": "active"
+  },
+  "referenceLabel": {
+    "field": "name"
+  },
+  "semanticRelations": {
+    "outgoing": [
+      "monitors",
+      "relates_to"
+    ]
+  },
+  "query": {
+    "searchable": [
+      "name",
+      "summary"
+    ],
+    "filterable": [
+      "subjectPersonId",
+      "status",
+      "onsetDate",
+      "resolvedDate"
+    ],
+    "sortable": [
+      "onsetDate",
+      "name"
+    ]
+  },
+  "access": [
+    "read",
+    "write"
+  ],
+  "lifecycle": {
+    "optimisticConcurrency": true,
+    "softDelete": true
+  }
+}

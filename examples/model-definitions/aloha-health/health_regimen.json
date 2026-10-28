@@ -1,0 +1,140 @@
+{
+  "definitionVersion": 1,
+  "key": "health_regimen",
+  "description": "持续的用药、康复、治疗或生活方式方案；可选绑定平台 Recurrence 生成 Task。",
+  "display": {
+    "singular": "Health Regimen",
+    "plural": "Health Regimens"
+  },
+  "fields": {
+    "subjectPersonId": {
+      "type": "person",
+      "title": "健康主体",
+      "required": true,
+      "immutable": true
+    },
+    "name": {
+      "type": "string",
+      "title": "方案名称",
+      "required": true,
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "regimenType": {
+      "type": "enum",
+      "title": "方案类型",
+      "required": true,
+      "values": [
+        "medication",
+        "rehabilitation",
+        "therapy",
+        "device",
+        "wellness",
+        "other"
+      ]
+    },
+    "instructions": {
+      "type": "text",
+      "title": "执行说明",
+      "required": true,
+      "minLength": 1
+    },
+    "startDate": {
+      "type": "date",
+      "title": "方案开始日期",
+      "nullable": true
+    },
+    "endDate": {
+      "type": "date",
+      "title": "方案结束日期",
+      "nullable": true
+    },
+    "status": {
+      "type": "enum",
+      "title": "状态",
+      "required": true,
+      "values": [
+        "active",
+        "paused",
+        "completed",
+        "stopped"
+      ]
+    },
+    "sourceDocumentId": {
+      "type": "record",
+      "title": "来源文档",
+      "nullable": true,
+      "targetModel": "health_document"
+    },
+    "sourceNote": {
+      "type": "text",
+      "title": "来源说明",
+      "nullable": true
+    },
+    "notes": {
+      "type": "text",
+      "title": "备注",
+      "nullable": true
+    },
+    "recurrence": {
+      "type": "recurrence_rule",
+      "title": "周期规则",
+      "nullable": true
+    },
+    "firstDueDate": {
+      "type": "date",
+      "title": "首次任务日期",
+      "nullable": true
+    }
+  },
+  "defaults": {
+    "status": "active"
+  },
+  "referenceLabel": {
+    "field": "name"
+  },
+  "capabilities": {
+    "recurrence": {
+      "ruleField": "recurrence",
+      "firstDueDateField": "firstDueDate",
+      "statusField": "status",
+      "endDateField": "endDate",
+      "task": {
+        "nameField": "name",
+        "descriptionField": "instructions",
+        "subjectField": "subjectPersonId"
+      }
+    }
+  },
+  "semanticRelations": {
+    "outgoing": [
+      "relates_to"
+    ]
+  },
+  "query": {
+    "searchable": [
+      "name",
+      "instructions"
+    ],
+    "filterable": [
+      "subjectPersonId",
+      "regimenType",
+      "status",
+      "startDate",
+      "endDate",
+      "firstDueDate"
+    ],
+    "sortable": [
+      "startDate",
+      "name"
+    ]
+  },
+  "access": [
+    "read",
+    "write"
+  ],
+  "lifecycle": {
+    "optimisticConcurrency": true,
+    "softDelete": true
+  }
+}

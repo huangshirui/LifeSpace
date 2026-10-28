@@ -1,0 +1,102 @@
+{
+  "definitionVersion": 1,
+  "key": "health_event",
+  "description": "发生在时间轴上的健康事实事件；数值观测另存 HealthObservation。",
+  "display": {
+    "singular": "Health Event",
+    "plural": "Health Events"
+  },
+  "fields": {
+    "subjectPersonId": {
+      "type": "person",
+      "title": "健康主体",
+      "required": true,
+      "immutable": true
+    },
+    "eventType": {
+      "type": "enum",
+      "title": "事件类型",
+      "required": true,
+      "values": [
+        "symptom",
+        "injury",
+        "visit",
+        "examination",
+        "procedure",
+        "treatment",
+        "medication_intake",
+        "vaccination",
+        "rehabilitation",
+        "other"
+      ]
+    },
+    "summary": {
+      "type": "string",
+      "title": "摘要",
+      "required": true,
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "when": {
+      "type": "temporal_range",
+      "title": "发生时段",
+      "required": true
+    },
+    "status": {
+      "type": "enum",
+      "title": "状态",
+      "required": true,
+      "values": [
+        "active",
+        "cancelled"
+      ]
+    },
+    "location": {
+      "type": "location",
+      "title": "地点",
+      "nullable": true
+    },
+    "description": {
+      "type": "text",
+      "title": "详情",
+      "nullable": true
+    }
+  },
+  "defaults": {
+    "status": "active"
+  },
+  "referenceLabel": {
+    "field": "summary"
+  },
+  "semanticRelations": {
+    "outgoing": [
+      "relates_to"
+    ]
+  },
+  "query": {
+    "searchable": [
+      "summary",
+      "description",
+      "location"
+    ],
+    "filterable": [
+      "subjectPersonId",
+      "eventType",
+      "when",
+      "status",
+      "location"
+    ],
+    "sortable": [
+      "when",
+      "summary"
+    ]
+  },
+  "access": [
+    "read",
+    "write"
+  ],
+  "lifecycle": {
+    "optimisticConcurrency": true,
+    "softDelete": true
+  }
+}

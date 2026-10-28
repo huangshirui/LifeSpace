@@ -1,0 +1,90 @@
+{
+  "definitionVersion": 1,
+  "key": "health_assessment",
+  "description": "医生、AI 或规则形成的判断，与原始证据事实分离。",
+  "display": {
+    "singular": "Health Assessment",
+    "plural": "Health Assessments"
+  },
+  "fields": {
+    "subjectPersonId": {
+      "type": "person",
+      "title": "健康主体",
+      "required": true,
+      "immutable": true
+    },
+    "title": {
+      "type": "string",
+      "title": "标题",
+      "required": true,
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "content": {
+      "type": "text",
+      "title": "评估正文",
+      "required": true,
+      "minLength": 1
+    },
+    "assessedDate": {
+      "type": "date",
+      "title": "评估日期",
+      "required": true
+    },
+    "status": {
+      "type": "enum",
+      "title": "状态",
+      "required": true,
+      "values": [
+        "preliminary",
+        "final",
+        "corrected",
+        "entered_in_error"
+      ]
+    },
+    "sourceNote": {
+      "type": "text",
+      "title": "来源说明",
+      "nullable": true
+    },
+    "notes": {
+      "type": "text",
+      "title": "备注",
+      "nullable": true
+    }
+  },
+  "defaults": {
+    "status": "final"
+  },
+  "referenceLabel": {
+    "field": "title"
+  },
+  "semanticRelations": {
+    "outgoing": [
+      "based_on"
+    ]
+  },
+  "query": {
+    "searchable": [
+      "title",
+      "content"
+    ],
+    "filterable": [
+      "subjectPersonId",
+      "assessedDate",
+      "status"
+    ],
+    "sortable": [
+      "assessedDate",
+      "title"
+    ]
+  },
+  "access": [
+    "read",
+    "write"
+  ],
+  "lifecycle": {
+    "optimisticConcurrency": true,
+    "softDelete": true
+  }
+}

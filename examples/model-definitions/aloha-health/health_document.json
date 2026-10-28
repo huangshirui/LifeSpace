@@ -1,0 +1,93 @@
+{
+  "definitionVersion": 1,
+  "key": "health_document",
+  "description": "健康资料与原生 LifeSpace File 的证据索引。",
+  "display": {
+    "singular": "Health Document",
+    "plural": "Health Documents"
+  },
+  "fields": {
+    "subjectPersonId": {
+      "type": "person",
+      "title": "健康主体",
+      "required": true,
+      "immutable": true
+    },
+    "title": {
+      "type": "string",
+      "title": "标题",
+      "required": true,
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "documentType": {
+      "type": "enum",
+      "title": "文档类型",
+      "required": true,
+      "values": [
+        "lab_report",
+        "imaging_report",
+        "physical_exam",
+        "prescription",
+        "visit_note",
+        "discharge_summary",
+        "rehabilitation_plan",
+        "other"
+      ]
+    },
+    "issuedDate": {
+      "type": "date",
+      "title": "出具日期",
+      "nullable": true
+    },
+    "issuerName": {
+      "type": "string",
+      "title": "出具机构",
+      "nullable": true
+    },
+    "eventId": {
+      "type": "record",
+      "title": "关联健康事件",
+      "nullable": true,
+      "targetModel": "health_event"
+    },
+    "artifactRef": {
+      "type": "file",
+      "title": "原始文件",
+      "required": true,
+      "immutable": true
+    },
+    "notes": {
+      "type": "text",
+      "title": "备注",
+      "nullable": true
+    }
+  },
+  "referenceLabel": {
+    "field": "title"
+  },
+  "query": {
+    "searchable": [
+      "title",
+      "issuerName"
+    ],
+    "filterable": [
+      "subjectPersonId",
+      "documentType",
+      "issuedDate",
+      "eventId"
+    ],
+    "sortable": [
+      "issuedDate",
+      "title"
+    ]
+  },
+  "access": [
+    "read",
+    "write"
+  ],
+  "lifecycle": {
+    "optimisticConcurrency": true,
+    "softDelete": true
+  }
+}

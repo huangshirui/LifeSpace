@@ -1,0 +1,97 @@
+{
+  "definitionVersion": 1,
+  "key": "health_observation",
+  "description": "某人某日的一次原子健康观测；写入只能包含与指标类型相符的一种数值／文本／布尔值。更正通过版本化编辑，作废通过软删除，操作归因由 LifeSpace 管理。",
+  "display": {
+    "singular": "Health Observation",
+    "plural": "Health Observations"
+  },
+  "fields": {
+    "subjectPersonId": {
+      "type": "person",
+      "title": "健康主体",
+      "required": true,
+      "immutable": true
+    },
+    "metricId": {
+      "type": "record",
+      "title": "指标",
+      "required": true,
+      "targetModel": "health_metric"
+    },
+    "observedDate": {
+      "type": "date",
+      "title": "观测日期",
+      "required": true
+    },
+    "valueNumber": {
+      "type": "number",
+      "title": "数值",
+      "nullable": true
+    },
+    "valueText": {
+      "type": "text",
+      "title": "文本值",
+      "nullable": true
+    },
+    "valueBoolean": {
+      "type": "boolean",
+      "title": "布尔值",
+      "nullable": true
+    },
+    "unit": {
+      "type": "string",
+      "title": "单位",
+      "nullable": true
+    },
+    "referenceLow": {
+      "type": "number",
+      "title": "参考下限",
+      "nullable": true
+    },
+    "referenceHigh": {
+      "type": "number",
+      "title": "参考上限",
+      "nullable": true
+    },
+    "referenceSource": {
+      "type": "string",
+      "title": "参考范围来源",
+      "nullable": true
+    },
+    "observationGroupId": {
+      "type": "string",
+      "title": "观测分组",
+      "nullable": true
+    },
+    "sourceDocumentId": {
+      "type": "record",
+      "title": "来源文档",
+      "nullable": true,
+      "targetModel": "health_document"
+    },
+    "notes": {
+      "type": "text",
+      "title": "备注",
+      "nullable": true
+    }
+  },
+  "query": {
+    "filterable": [
+      "subjectPersonId",
+      "metricId",
+      "observedDate"
+    ],
+    "sortable": [
+      "observedDate"
+    ]
+  },
+  "access": [
+    "read",
+    "write"
+  ],
+  "lifecycle": {
+    "optimisticConcurrency": true,
+    "softDelete": true
+  }
+}
