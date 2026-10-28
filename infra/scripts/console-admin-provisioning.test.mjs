@@ -158,5 +158,5 @@ test("Full staging Console provisioning never rewrites an existing Application p
   assert.ok(source.indexOf("requireExistingApplicationPolicy(applicationLookup.payload.data)") < source.indexOf("const audienceState = await ensureAudience()"),
     "Do not mutate audiences or rotate credentials before rejecting a mismatched Application");
   assert.match(source, /if \(applicationLookup\.response\.status === 404\)/u, "Preserve first trusted Application seed");
-  assert.equal((source.match(/\/bootstrap\/v1\/applications\/\$\{encodeURIComponent\(applicationId\)\}/gu) ?? []).length, 2, "Only Bootstrap GET and initial credential creation may reference the existing Application path");
+  assert.equal((source.match(/\/bootstrap\/v1\/applications\/\$\{encodeURIComponent\(applicationId\)\}/gu) ?? []).length, 3, "Keep only Bootstrap GET, explicit credential rotation and first-use Access audience management; no policy PATCH");
 });
