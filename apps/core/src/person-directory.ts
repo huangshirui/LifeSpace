@@ -279,7 +279,7 @@ async function requireDirectoryAccess(
   context: Context<AppEnv>,
   spaceId: string,
   required: "read" | "write",
-  spacePermission: Permission = required,
+  spacePermission: "read" | "write" | "manage" = required,
 ): Promise<DirectoryAccess> {
   const authenticated = context.get("principal");
   const selectedDelegationId = delegationHeader(context);
