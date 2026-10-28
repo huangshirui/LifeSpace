@@ -64,7 +64,8 @@
 | Legacy | Creation Draft API/runtime/current storage | 🗑️ | 当前 API/contract/runtime 已移除，schema 53 删除 runtime table；历史 migrations 保留 |
 | Provenance | Generic Resource Provenance envelope | 🧭 | 当前 concept-only；无 production 平台能力 |
 | Console | Platform Console | ✅ | 平台自身 Experience / control plane；Console application rollout 有独立 workflow |
-| Control Plane | Identity Platform Admin API | ✅ | 与普通 Identity API 分离 |
+| Control Plane | Identity Platform Admin API | ✅ | Identity `0.17.0` 普通 API 不再声明 Bootstrap 管理契约；必要 Seed/Break-glass 路由仍由独立 companion 管理 |
+| Control Plane | Bootstrap-free routine platform production release | ✅ | 默认保留 Identity Bootstrap Secret；Model Admin 通过预配置 `models:manage` Service Token 验证，不以 Bootstrap 日常创建身份 |
 | Control Plane | Core Platform Admin API | ✅ | 与普通 Kernel API 分离 |
 | Control Plane | Model Control Plane API | ✅ | Registry / Model Contract governance |
 | External Provider | Notion private Adapter routing / encrypted dynamic Connection Vault | ✅ | #42 部署级私有路由及 Secret/DO 验证；真实生产 Notion 数据不执行破坏性 smoke |
@@ -95,16 +96,18 @@ Active Model Contract: `mct_21ac4fd66f72ea4dfe259974970a0eb55c1e02a4424003404897
 
 ## Release binding
 
-- Release date: **2026-10-27**
-- Exact production SHA: `0ab94ccf4aeeaa6e9309b6a344d7280051691a21`
-- Production workflow: **[#50](https://github.com/huangshirui/LifeSpace/actions/runs/40438311024)** — ✅ success
+- Release date: **2026-10-28**
+- Exact production SHA: `c5c1efa631cba7cee191a14a8bfab78dff033887`
+- Production workflow: **[#40628917903](https://github.com/huangshirui/LifeSpace/actions/runs/40628917903)** — ✅ success
 - Core: Kernel `0.53.0` / schema `76`
-- Identity: contract `0.15.0` / schema `14`
+- Identity: contract `0.17.0` / schema `14`
 - APAC exact-candidate performance + Platform Golden Flow prerequisite: ✅ success
 - Production HTTP convergence + Cloudflare isolation/bindings: ✅ success
 - Production `lsp_svc_* -> Core -> Identity introspection` + active Model Contract verification: ✅ success
 - External Provider: **enabled**, Notion Adapter private routing and vault/secret verification ✅；R2 signing credentials ✅
-- Core↔Identity shared-secret repair requested: **false**；runtime secret 通过真实 service-auth gate 验证有效
+- Core↔Identity shared-secret repair requested: **false**；Bootstrap re-synchronization requested: **false**；既有 Secrets 未重写，Service Token 真实认证成功
+- Production Model Admin 使用已配置的专用 `models:manage` `lsp_svc_*`，不再每次通过 Bootstrap 临时创建 Application/User/Principal/Token 或直接删除生产 Identity D1
+- 正式 APAC User JWT + Service Token 性能门禁：✅；临时 Probe/Smoke Authority Cleanup：✅
 
 Feature Matrix 状态必须由成功的 production workflow 明确推进，不以 main / staging / downstream consumer 状态代替 production 事实。
 
