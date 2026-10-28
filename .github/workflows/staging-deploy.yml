@@ -264,8 +264,8 @@ jobs:
       - name: Verify Eventing disabled-subscriber revocation boundary
         run: node infra/scripts/verify-staging-eventing-principal-revocation.mjs
 
-      - name: Measure typed-runtime staging performance
-        run: node infra/scripts/verify-staging-performance.mjs
+      # Non-APAC GitHub-runner HTTP timing is diagnostic-only. The production
+      # APAC performance job retains the enforced latency release gate.
 
       - name: Cleanup ephemeral staging authority
         if: ${{ always() }}

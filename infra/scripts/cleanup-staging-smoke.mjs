@@ -37,16 +37,25 @@ function runCoreSql(sql) {
 }
 
 async function bootstrapRequest(path, { method = "GET", body } = {}) {
-  const response = await fetch(`${identityBase}${path}`, {
-    method,
-    headers: {
-      "x-bootstrap-secret": bootstrapSecret,
-      ...(body === undefined ? {} : { "content-type": "application/json" }),
-    },
-    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-  });
-  const payload = await response.json().catch(() => null);
-  return { response, payload };
+  // Only GET/PATCH/DELETE are used by this exact run-scoped cleanup.
+  // Retry transient fetch failures without repeating non-idempotent provisioning.
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      const response = await fetch(`${identityBase}${path}`, {
+        method,
+        headers: {
+          "x-bootstrap-secret": bootstrapSecret,
+          ...(body === undefined ? {} : { "content-type": "application/json" }),
+        },
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      });
+      const payload = await response.json().catch(() => null);
+      return { response, payload };
+    } catch (error) {
+      if (attempt === 3) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 250 * attempt));
+    }
+  }
 }
 
 async function identityRequest(path, { method = "GET", body } = {}) {
