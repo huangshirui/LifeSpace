@@ -108,6 +108,16 @@ requireTokens("Production deployment workflow", productionDeploy, [
   "wrangler deploy --env production",
   "node infra/scripts/verify-production-model-admin.mjs",
 ]);
+const apacJob = productionDeploy.split("\n  apac_performance:")[1]?.split("\n  deploy:")[0] ?? "";
+const productionDeployJob = productionDeploy.split("\n  deploy:")[1] ?? "";
+for (const preflight of ["Preflight production Model Admin service token", "Preflight explicit Bootstrap Secret recovery"]) {
+  if (apacJob.includes(preflight) || !productionDeployJob.includes(preflight)) {
+    throw new Error(`Production credential preflight must run in the production environment, never in staging: ${preflight}`);
+  }
+  if (productionDeployJob.indexOf(preflight) > productionDeployJob.indexOf("Apply Core migrations")) {
+    throw new Error(`Production credential preflight must run before production mutations: ${preflight}`);
+  }
+}
 const productionJobEnvironment = productionDeploy.split("  deploy:")[1]?.split("    steps:")[0] ?? "";
 if (productionJobEnvironment.includes("LIFESPACE_PRODUCTION_BOOTSTRAP_SECRET") || productionJobEnvironment.includes("LIFESPACE_PRODUCTION_MODEL_ADMIN_BEARER")) {
   throw new Error("Production root and Model Admin credentials must be step-scoped, not deployment-job globals");
