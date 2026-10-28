@@ -25,6 +25,7 @@
 | Space | Data Grant | ✅ | 显式、可撤销的数据授权 |
 | Person | First-class Person Directory CRUD/list/search | ✅ | Kernel `per_*`，不是普通 metadata model |
 | Person | Alternate names / aliases | ✅ | primary + alternate names 参与检索 |
+| Person | 独立只读/读写 Person Directory Data Grant（Service / Agent） | ✅ | Kernel `0.54.0`，Candidate `/person-directory/grants`；需要 Scope + Grant， 不开放 User/Membership、整个 Space 或普通模型 |
 | Authorization | Application × Model Access | ✅ | 与 credential scope / Space authority 共同生效 |
 | Authorization | Core-side effective authorization | ✅ | UI/BFF 不是安全边界 |
 | Authorization | Principal / Actor attribution | ✅ | Change 记录执行主体与代表关系 |
@@ -97,9 +98,9 @@ Active Model Contract: `mct_21ac4fd66f72ea4dfe259974970a0eb55c1e02a4424003404897
 ## Release binding
 
 - Release date: **2026-10-28**
-- Exact production SHA: `c5c1efa631cba7cee191a14a8bfab78dff033887`
-- Production workflow: **[#40628917903](https://github.com/huangshirui/LifeSpace/actions/runs/40628917903)** — ✅ success
-- Core: Kernel `0.53.0` / schema `76`
+- Exact production SHA: `f68e9f572eac53b0de8df6c8b324f3a8040def46`
+- Production workflow: **[#40716878438](https://github.com/huangshirui/LifeSpace/actions/runs/40716878438)** — ✅ success
+- Core: Kernel `0.54.0` / schema `76`
 - Identity: contract `0.17.0` / schema `14`
 - APAC exact-candidate performance + Platform Golden Flow prerequisite: ✅ success
 - Production HTTP convergence + Cloudflare isolation/bindings: ✅ success
