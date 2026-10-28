@@ -24,7 +24,7 @@ export const LEGACY_REFERENCE_BUDGET = Object.freeze({
   "infra/scripts/prepare-staging-console-shell.mjs": { category: "provisioning", max: 4 },
   "infra/scripts/prepare-production-console-admin.mjs": { category: "provisioning", max: 7 },
   "infra/scripts/finalize-production-console-admin.mjs": { category: "provisioning", max: 2 },
-  "infra/scripts/prepare-staging-console-admin.mjs": { category: "provisioning", max: 6 },
+  "infra/scripts/prepare-staging-console-admin.mjs": { category: "provisioning", max: 5 },
   "infra/scripts/resolve-production-console-admin.mjs": { category: "recovery", max: 1 },
   "apps/console/scripts/verify-staging-control-plane.mjs": { category: "staging-acceptance", max: 3 },
   "infra/scripts/verify-staging-application-admin.mjs": { category: "staging-acceptance", max: 1 },

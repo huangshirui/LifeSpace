@@ -142,3 +142,21 @@ test("Production Console ordinary release does not call Bootstrap or rotate inst
   assert.match(access, /LIFESPACE_PRODUCTION_CONSOLE_ALLOW_ACCESS_CREATE !== "1"/u);
   assert.match(workflow, /inputs\.rotate_executor_credentials && inputs\.recover_console_configuration/u);
 });
+
+test("Full staging Console provisioning never rewrites an existing Application policy through Bootstrap", () => {
+  const from = source.indexOf("function requireExistingApplicationPolicy(existing)");
+  const to = source.indexOf("\n}\n", from) + 2;
+  assert.ok(from > 0 && to > from);
+  const policy = source.slice(from, to);
+  for (const field of ["trustedBackend", "name", "allowedScopes", "accessTokenTtlSeconds", "status"]) {
+    assert.match(policy, new RegExp(field, "u"), `Existing ${field} requires explicit governance`);
+  }
+  assert.match(policy, /mismatches\.length/u);
+  assert.match(policy, /use the current LifeSpace Platform Admin/u);
+  assert.doesNotMatch(policy, /\/bootstrap\/v1\/|method: "PATCH"|status: "active"/u);
+  assert.match(source, /const applicationState = requireExistingApplicationPolicy\(applicationLookup\.payload\.data\)/u);
+  assert.ok(source.indexOf("requireExistingApplicationPolicy(applicationLookup.payload.data)") < source.indexOf("const audienceState = await ensureAudience()"),
+    "Do not mutate audiences or rotate credentials before rejecting a mismatched Application");
+  assert.match(source, /if \(applicationLookup\.response\.status === 404\)/u, "Preserve first trusted Application seed");
+  assert.equal((source.match(/\/bootstrap\/v1\/applications\/\$\{encodeURIComponent\(applicationId\)\}/gu) ?? []).length, 3, "Keep only Bootstrap GET, explicit credential rotation and first-use Access audience management; no policy PATCH");
+});
