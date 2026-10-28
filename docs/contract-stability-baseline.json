@@ -207,7 +207,7 @@
     {
       "id": "core-kernel",
       "source": "apps/core/openapi.yaml",
-      "operationSetSha256": "sha256:a815209a84f153aa410d520d917d4f03ade288db57c6b089e077b0438afdf5ca",
+      "operationSetSha256": "sha256:4074949d6a5e9d332d531346ed42b596e3b95eca54a0c633740f1b2e8d1b3c92",
       "groups": [
         {
           "id": "core-operational",
