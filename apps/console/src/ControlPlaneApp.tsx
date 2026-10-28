@@ -26,7 +26,6 @@ type ValidationResult =
 type Dialog =
   | { type: "publish"; modelKey?: string; external?: boolean }
   | { type: "retire"; modelKey: string }
-  | { type: "model-access"; applicationId: string }
   | null;
 
 type ErrorEnvelope = { error?: { code?: string; message?: string; requestId?: string } };
@@ -297,25 +296,31 @@ function ModelAccessDialog({ applicationId, onClose }: { applicationId: string; 
   </DialogShell>;
 }
 
+export function ModelAccessAction({ applicationId }: { applicationId: string }) {
+  const [open, setOpen] = useState(false);
+  return <>
+    <button onClick={() => setOpen(true)}>Model access</button>
+    {open && <ModelAccessDialog applicationId={applicationId} onClose={() => setOpen(false)} />}
+  </>;
+}
+
 function ControlPlaneLauncher() {
   const pathname = usePathname();
   const context = contextFromPath(pathname);
   const [dialog, setDialog] = useState<Dialog>(null);
-  if (context.page === "other" || context.page === "space") return null;
+  if (context.page !== "models" && context.page !== "model") return null;
   return <>
     <div className="cp-launcher" aria-label="控制面写操作">
       <span className="cp-launcher-label">Configure</span>
-      {context.page === "models" && <button onClick={() => setDialog({ type: "publish" })}>Publish model</button>}
+      {context.page === "models" && <button className="primary-action" onClick={() => setDialog({ type: "publish" })}>Publish model</button>}
       {context.page === "models" && <button onClick={() => setDialog({ type: "publish", external: true })}>注册外部模型</button>}
       {context.page === "model" && context.id && <><button onClick={() => setDialog({ type: "publish", modelKey: context.id })}>Publish version</button><button className="cp-launcher-danger" onClick={() => setDialog({ type: "retire", modelKey: context.id as string })}>Retire</button></>}
-      {context.page === "application" && context.id && <button onClick={() => setDialog({ type: "model-access", applicationId: context.id as string })}>Model access</button>}
     </div>
     {dialog?.type === "publish" && <PublishDialog external={dialog.external} modelKey={dialog.modelKey} onClose={() => setDialog(null)} />}
     {dialog?.type === "retire" && <RetireDialog modelKey={dialog.modelKey} onClose={() => setDialog(null)} />}
-    {dialog?.type === "model-access" && <ModelAccessDialog applicationId={dialog.applicationId} onClose={() => setDialog(null)} />}
   </>;
 }
 
-export default function ControlPlaneApp() {
-  return <><App /><ControlPlaneLauncher /></>;
+export default function ControlPlaneApp({ extraActions }: { extraActions?: ReactNode }) {
+  return <App toolbar={<><ControlPlaneLauncher />{extraActions}</>} />;
 }

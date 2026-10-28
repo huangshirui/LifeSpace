@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { ApplicationDetail, ApplicationCredential, ServicePrincipal } from "./types";
+import AgentIdentitiesDialog from "./AgentIdentitiesDialog";
 import "./credential-governance.css";
 
 type ErrorEnvelope = { error?: { code?: string; message?: string; requestId?: string } };
 type DataEnvelope<T> = { data: T };
-type Dialog = { type: "credentials" | "services"; applicationId: string } | null;
+type Dialog = { type: "credentials" | "services" | "agents"; applicationId: string } | null;
 
 type ServiceToken = {
   id: string;
@@ -357,8 +358,10 @@ export default function CredentialGovernanceOverlay() {
       <span className="cp-launcher-label">Access</span>
       <button onClick={() => setDialog({ type: "credentials", applicationId })}>Credentials</button>
       <button onClick={() => setDialog({ type: "services", applicationId })}>Service identities</button>
+      <button onClick={() => setDialog({ type: "agents", applicationId })}>Agent identities</button>
     </div>
     {dialog?.type === "credentials" && <CredentialsDialog applicationId={dialog.applicationId} onClose={() => setDialog(null)} />}
     {dialog?.type === "services" && <ServiceIdentitiesDialog applicationId={dialog.applicationId} onClose={() => setDialog(null)} />}
+    {dialog?.type === "agents" && <AgentIdentitiesDialog applicationId={dialog.applicationId} onClose={() => setDialog(null)} />}
   </>;
 }

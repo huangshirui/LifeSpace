@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { consoleApi, ConsoleApiError } from "./api";
 import type {
   Application,
@@ -24,6 +24,8 @@ type Route =
   | { page: "system" };
 
 type Remote<T> = { loading: boolean; data?: T; error?: ConsoleApiError };
+
+const PageToolbarContext = createContext<ReactNode>(null);
 
 const navGroups = [
   { label: "", items: [{ href: "/", label: "Overview", page: "overview" }] },
@@ -109,14 +111,18 @@ function Code({ children }: { children: ReactNode }) {
 }
 
 function PageHeader({ title, description, eyebrow, actions }: { title: string; description: string; eyebrow?: string; actions?: ReactNode }) {
-  return <div className="page-header">
-    <div>
-      {eyebrow && <div className="eyebrow">{eyebrow}</div>}
-      <h1>{title}</h1>
-      <p>{description}</p>
+  const toolbar = useContext(PageToolbarContext);
+  return <header className="page-header">
+    <div className="page-header-main">
+      <div>
+        {eyebrow && <div className="eyebrow">{eyebrow}</div>}
+        <h1>{title}</h1>
+        <p>{description}</p>
+      </div>
+      {actions && <div className="page-actions">{actions}</div>}
     </div>
-    {actions && <div className="page-actions">{actions}</div>}
-  </div>;
+    {toolbar && <div className="page-action-bar" aria-label="当前页面操作">{toolbar}</div>}
+  </header>;
 }
 
 function Loading() {
@@ -416,7 +422,7 @@ function AppContent({ route }: { route: Route }) {
   return <SystemPage />;
 }
 
-export default function App() {
+export default function App({ toolbar }: { toolbar?: ReactNode }) {
   const route = useRoute();
   const [session, setSession] = useState<Remote<ConsoleSession>>({ loading: true });
   useEffect(() => { void consoleApi.session().then((data) => setSession({ loading: false, data }), (error: unknown) => setSession({ loading: false, error: error instanceof ConsoleApiError ? error : new ConsoleApiError("Session failed", 500) })); }, []);
@@ -431,11 +437,17 @@ export default function App() {
     <aside className="sidebar">
       <div className="brand"><div className="brand-mark">LS</div><div><strong>LifeSpace</strong><span>Console</span></div></div>
       <nav>{navGroups.map((group, index) => <div className="nav-group" key={`${group.label}-${index}`}>{group.label && <div className="nav-label">{group.label}</div>}{group.items.map((item) => <button key={item.href} className={route.page === item.page ? "nav-item active" : "nav-item"} onClick={() => navigate(item.href)}>{item.label}</button>)}</div>)}</nav>
-      <div className="sidebar-footer"><div className="operator"><div className="avatar">{current.user.displayName.slice(0, 1).toUpperCase()}</div><div><strong>{current.user.displayName}</strong><span>{current.user.id}</span></div></div></div>
+      <div className="sidebar-footer">
+        <div className="operator"><div className="avatar">{current.user.displayName.slice(0, 1).toUpperCase()}</div><div><strong>{current.user.displayName}</strong><span>{current.user.id}</span></div></div>
+        <div className={`sidebar-environment ${production ? "production" : "staging"}`} role="status">
+          <strong><span className="environment-dot" />{production ? "PRODUCTION" : "STAGING"}</strong>
+          <span>{production ? "生产环境 · 写操作需确认并审计" : "测试环境 · 写操作需确认并审计"}</span>
+          <small>Console {current.consoleVersion}</small>
+        </div>
+      </div>
     </aside>
     <div className="workspace">
-      <div className={`environment-banner ${production ? "production" : "staging"}`}><strong>{current.environment.toUpperCase()}</strong><span>{production ? "生产控制面：所有写操作必须明确确认并审计。" : "Staging 控制面：当前 UI slice 为只读浏览。"}</span><span className="version">Console {current.consoleVersion}</span></div>
-      <main><AppContent route={route} /></main>
+      <main><PageToolbarContext.Provider value={toolbar}><AppContent route={route} /></PageToolbarContext.Provider></main>
     </div>
   </div>;
 }
