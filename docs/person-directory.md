@@ -152,3 +152,9 @@ CI includes a 500-Person lookup probe covering a 1-item page, a 100-item page, c
 - assigning a global User identity through Person Directory;
 - fuzzy/phonetic/semantic search ranking;
 - FTS5 until measured need justifies its operational cost.
+
+## Independent Person Directory Data Grants (Kernel 0.54.0)
+
+A Space owner/admin can grant an external Service/Agent (or another supported grantee) `resourceType: "person_directory"`, `resourceId: null`, `permission: "read" | "write"` through the existing `/api/v1/spaces/{spaceId}/grants` API. `resourceId` must be null/omitted. `free_busy` and `manage` are rejected for this resource target.
+
+This Grant authorizes **only** the Person Directory `/people` endpoints and does **not** confer Space detail, membership, invitation, model-record, or Identity/User authority. A write Grant creates/updates/deletes **unlinked** Persons; linked Person changes retain their original self-update/owner-admin/Space-manage checks, and deletion remains forbidden. Credential scopes (`resources:read/write`), active Space state, grant expiry/revocation and represented-execution Delegation checks remain enforced. Existing User Membership and whole-Space Grant behavior is unchanged. No new storage table or migration is required: `data_grants.resource_type` already supports additional values.
