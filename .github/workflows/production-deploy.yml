@@ -9,6 +9,11 @@ on:
         description: "Type DEPLOY_PRODUCTION"
         required: true
         type: string
+      sync_production_bootstrap_secret:
+        description: "Recovery only: explicitly initialize or re-synchronize Identity Bootstrap Secret"
+        required: false
+        type: boolean
+        default: false
       repair_core_identity_shared_secret:
         description: "Recovery only: re-synchronize the Core↔Identity shared runtime secret"
         required: false
@@ -350,6 +355,7 @@ jobs:
       - name: Initialize, preserve or explicitly repair production runtime secrets
         env:
           LIFESPACE_REPAIR_CORE_IDENTITY_SHARED_SECRET: ${{ inputs.repair_core_identity_shared_secret && '1' || '0' }}
+          LIFESPACE_SYNC_PRODUCTION_BOOTSTRAP_SECRET: ${{ inputs.sync_production_bootstrap_secret && '1' || '0' }}
         run: node infra/scripts/initialize-production-runtime.mjs
 
       - name: Wait for production HTTP convergence
