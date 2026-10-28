@@ -3,6 +3,14 @@ import YAML from "yaml";
 
 const document = YAML.parse(fs.readFileSync(new URL("../openapi.yaml", import.meta.url), "utf8"));
 
+// Staging/Production release expectations are derived from package.json,
+ // while live /api/v1/status is derived from the Kernel contract. They must
+ // be identical or a deployed Worker will never pass the convergence gate.
+const corePackageVersion = JSON.parse(fs.readFileSync(new URL("../package.json", import.meta.url), "utf8")).version;
+if (corePackageVersion !== document.info?.version) {
+  throw new Error(`Core release package version ${corePackageVersion} differs from Kernel contract ${document.info?.version}`);
+}
+
 if (document.openapi !== "3.1.0" || document.info?.version !== "0.54.0") {
   throw new Error("Core Kernel OpenAPI version metadata is invalid");
 }
