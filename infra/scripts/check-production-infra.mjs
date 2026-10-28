@@ -97,6 +97,9 @@ requireTokens("Production deployment workflow", productionDeploy, [
   "apac_performance:",
   "needs: apac_performance",
   "LIFESPACE_PRODUCTION_BOOTSTRAP_SECRET",
+  "LIFESPACE_PRODUCTION_MODEL_ADMIN_BEARER",
+  "Preflight production Model Admin service token",
+  "Preflight explicit Bootstrap Secret recovery",
   "LIFESPACE_REPAIR_CORE_IDENTITY_SHARED_SECRET:",
   "LIFESPACE_SYNC_PRODUCTION_BOOTSTRAP_SECRET:",
   "ref: ${{ github.sha }}",
@@ -105,6 +108,13 @@ requireTokens("Production deployment workflow", productionDeploy, [
   "wrangler deploy --env production",
   "node infra/scripts/verify-production-model-admin.mjs",
 ]);
+const productionJobEnvironment = productionDeploy.split("  deploy:")[1]?.split("    steps:")[0] ?? "";
+if (productionJobEnvironment.includes("LIFESPACE_PRODUCTION_BOOTSTRAP_SECRET") || productionJobEnvironment.includes("LIFESPACE_PRODUCTION_MODEL_ADMIN_BEARER")) {
+  throw new Error("Production root and Model Admin credentials must be step-scoped, not deployment-job globals");
+}
+if (!productionDeploy.includes("LIFESPACE_PRODUCTION_MODEL_ADMIN_BEARER: ${{ secrets.LIFESPACE_PRODUCTION_MODEL_ADMIN_BEARER }}")) {
+  throw new Error("Production Model Admin verifier must use a protected configured Service Token");
+}
 if (!/sync_production_bootstrap_secret:[\s\S]*?type:\s*boolean[\s\S]*?default:\s*false/u.test(productionDeploy)) {
   throw new Error("Production Bootstrap synchronization must be a default-off boolean");
 }
