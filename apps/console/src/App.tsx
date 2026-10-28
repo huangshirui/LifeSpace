@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { consoleApi, ConsoleApiError } from "./api";
 import type {
   Application,
@@ -24,6 +24,8 @@ type Route =
   | { page: "system" };
 
 type Remote<T> = { loading: boolean; data?: T; error?: ConsoleApiError };
+
+const PageToolbarContext = createContext<ReactNode>(null);
 
 const navGroups = [
   { label: "", items: [{ href: "/", label: "Overview", page: "overview" }] },
@@ -109,14 +111,18 @@ function Code({ children }: { children: ReactNode }) {
 }
 
 function PageHeader({ title, description, eyebrow, actions }: { title: string; description: string; eyebrow?: string; actions?: ReactNode }) {
-  return <div className="page-header">
-    <div>
-      {eyebrow && <div className="eyebrow">{eyebrow}</div>}
-      <h1>{title}</h1>
-      <p>{description}</p>
+  const toolbar = useContext(PageToolbarContext);
+  return <header className="page-header">
+    <div className="page-header-main">
+      <div>
+        {eyebrow && <div className="eyebrow">{eyebrow}</div>}
+        <h1>{title}</h1>
+        <p>{description}</p>
+      </div>
+      {actions && <div className="page-actions">{actions}</div>}
     </div>
-    {actions && <div className="page-actions">{actions}</div>}
-  </div>;
+    {toolbar && <div className="page-action-bar" aria-label="当前页面操作">{toolbar}</div>}
+  </header>;
 }
 
 function Loading() {
@@ -257,7 +263,7 @@ function ModelsPage({ id }: { id?: string }) {
   if (remote.error) return <ErrorState error={remote.error} />;
   const rows = remote.data ?? [];
   return <>
-    <PageHeader eyebrow="Platform" title="Models" description="Model Registry 的只读治理视图。发布、退役与兼容性写操作在下一 slice 接入。" />
+    <PageHeader eyebrow="Platform" title="Models" description="查看已发布模型和规范定义，并在当前页面进行模型发布、版本升级或退役。" />
     <Section title="Registry definitions">
       {!rows.length ? <Empty /> : <div className="table-wrap"><table><thead><tr><th>Model</th><th>Version</th><th>Compatibility</th><th>状态</th><th /></tr></thead><tbody>
         {rows.map((model: PublishedModel) => <tr key={model.id}><td><strong>{model.key}</strong><small>{model.id}</small></td><td>v{model.version}</td><td>{model.compatibility}</td><td><Badge value={model.state} /></td><td><button className="link-button" onClick={() => navigate(`/models/${encodeURIComponent(model.key)}`)}>查看</button></td></tr>)}
@@ -324,7 +330,7 @@ function SpacesPage({ id }: { id?: string }) {
   if (remote.error) return <ErrorState error={remote.error} />;
   const rows = remote.data ?? [];
   return <>
-    <PageHeader eyebrow="Platform" title="Spaces" description="只读检查所有权、成员、Data Grant 与模型记录计数；Console 不获得隐藏成员身份。" />
+    <PageHeader eyebrow="Platform" title="Spaces" description="检查 Space 所有权、成员与记录计数，并通过 Space 操作区管理 Data Grant 和外部数据连接；Console 不获得隐藏成员身份。" />
     <form className="search-bar" onSubmit={(event) => { event.preventDefault(); setSubmitted(query.trim()); }}><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索 spc_* 或 Space 名称" maxLength={100} /><button>搜索</button></form>
     <Section title="Spaces">
       {!rows.length ? <Empty /> : <div className="table-wrap"><table><thead><tr><th>Space</th><th>Members</th><th>Grants</th><th>Records</th><th /></tr></thead><tbody>
@@ -416,7 +422,7 @@ function AppContent({ route }: { route: Route }) {
   return <SystemPage />;
 }
 
-export default function App() {
+export default function App({ toolbar }: { toolbar?: ReactNode }) {
   const route = useRoute();
   const [session, setSession] = useState<Remote<ConsoleSession>>({ loading: true });
   useEffect(() => { void consoleApi.session().then((data) => setSession({ loading: false, data }), (error: unknown) => setSession({ loading: false, error: error instanceof ConsoleApiError ? error : new ConsoleApiError("Session failed", 500) })); }, []);
@@ -431,11 +437,17 @@ export default function App() {
     <aside className="sidebar">
       <div className="brand"><div className="brand-mark">LS</div><div><strong>LifeSpace</strong><span>Console</span></div></div>
       <nav>{navGroups.map((group, index) => <div className="nav-group" key={`${group.label}-${index}`}>{group.label && <div className="nav-label">{group.label}</div>}{group.items.map((item) => <button key={item.href} className={route.page === item.page ? "nav-item active" : "nav-item"} onClick={() => navigate(item.href)}>{item.label}</button>)}</div>)}</nav>
-      <div className="sidebar-footer"><div className="operator"><div className="avatar">{current.user.displayName.slice(0, 1).toUpperCase()}</div><div><strong>{current.user.displayName}</strong><span>{current.user.id}</span></div></div></div>
+      <div className="sidebar-footer">
+        <div className="operator"><div className="avatar">{current.user.displayName.slice(0, 1).toUpperCase()}</div><div><strong>{current.user.displayName}</strong><span>{current.user.id}</span></div></div>
+        <div className={`sidebar-environment ${production ? "production" : "staging"}`} role="status">
+          <strong><span className="environment-dot" />{production ? "PRODUCTION" : "STAGING"}</strong>
+          <span>{production ? "生产环境 · 写操作需确认并审计" : "测试环境 · 写操作需确认并审计"}</span>
+          <small>Console {current.consoleVersion}</small>
+        </div>
+      </div>
     </aside>
     <div className="workspace">
-      <div className={`environment-banner ${production ? "production" : "staging"}`}><strong>{current.environment.toUpperCase()}</strong><span>{production ? "生产控制面：所有写操作必须明确确认并审计。" : "Staging 控制面：当前 UI slice 为只读浏览。"}</span><span className="version">Console {current.consoleVersion}</span></div>
-      <main><AppContent route={route} /></main>
+      <main><PageToolbarContext.Provider value={toolbar}><AppContent route={route} /></PageToolbarContext.Provider></main>
     </div>
   </div>;
 }

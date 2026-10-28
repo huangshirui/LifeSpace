@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { AccessAudience, Application, ApplicationDetail } from "./types";
-import AgentIdentitiesDialog from "./AgentIdentitiesDialog";
+import { ModelAccessDialog } from "./ControlPlaneApp";
 import "./application-configuration.css";
 
 type ErrorEnvelope = { error?: { code?: string; message?: string; requestId?: string } };
@@ -9,7 +9,7 @@ type Dialog =
   | { type: "create" }
   | { type: "settings"; applicationId: string }
   | { type: "audiences"; applicationId: string }
-  | { type: "agents"; applicationId: string }
+  | { type: "model-access"; applicationId: string }
   | null;
 
 type CreateApplicationResult = {
@@ -292,18 +292,18 @@ export default function ApplicationConfigurationOverlay() {
   if (context.page === "other") return null;
 
   return <>
-    <div className={`acp-launcher ${context.page === "application" ? "acp-launcher-stacked" : ""}`} aria-label="Application configuration">
+    <div className="acp-launcher" aria-label="Application configuration">
       <span className="cp-launcher-label">Application</span>
-      {context.page === "applications" && <button onClick={() => setDialog({ type: "create" })}>New application</button>}
+      {context.page === "applications" && <button className="primary-action" onClick={() => setDialog({ type: "create" })}>New application</button>}
       {context.page === "application" && context.applicationId && <>
         <button onClick={() => setDialog({ type: "settings", applicationId: context.applicationId as string })}>Settings</button>
         <button onClick={() => setDialog({ type: "audiences", applicationId: context.applicationId as string })}>Access audiences</button>
-        <button onClick={() => setDialog({ type: "agents", applicationId: context.applicationId as string })}>Agent identities</button>
+        <button onClick={() => setDialog({ type: "model-access", applicationId: context.applicationId as string })}>Model access</button>
       </>}
     </div>
     {dialog?.type === "create" && <CreateApplicationDialog onClose={() => setDialog(null)} />}
     {dialog?.type === "settings" && <ApplicationSettingsDialog applicationId={dialog.applicationId} onClose={() => setDialog(null)} />}
     {dialog?.type === "audiences" && <AccessAudiencesDialog applicationId={dialog.applicationId} onClose={() => setDialog(null)} />}
-    {dialog?.type === "agents" && <AgentIdentitiesDialog applicationId={dialog.applicationId} onClose={() => setDialog(null)} />}
+    {dialog?.type === "model-access" && <ModelAccessDialog applicationId={dialog.applicationId} onClose={() => setDialog(null)} />}
   </>;
 }

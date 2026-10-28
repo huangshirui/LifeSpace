@@ -15,7 +15,9 @@ function RouteAwareSpaceConfigurationOverlays() {
     window.addEventListener("popstate", update);
     return () => window.removeEventListener("popstate", update);
   }, []);
+  if (!/^\/spaces\/spc_[A-Za-z0-9_-]+\/?$/u.test(routeKey)) return null;
   return <div className="space-config-launcher" aria-label="Space configuration">
+    <span className="cp-launcher-label">Space</span>
     <SpaceGrantGovernanceOverlay />
     <ExternalConnectionsOverlay key={routeKey} />
   </div>;
@@ -26,9 +28,10 @@ if (!root) throw new Error("LifeSpace Console root element is missing");
 
 createRoot(root).render(
   <StrictMode>
-    <ControlPlaneApp />
-    <ApplicationConfigurationOverlay />
-    <CredentialGovernanceOverlay />
-    <RouteAwareSpaceConfigurationOverlays />
+    <ControlPlaneApp extraActions={<>
+      <ApplicationConfigurationOverlay />
+      <CredentialGovernanceOverlay />
+      <RouteAwareSpaceConfigurationOverlays />
+    </>} />
   </StrictMode>,
 );
