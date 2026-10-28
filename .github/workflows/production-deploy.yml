@@ -108,26 +108,6 @@ jobs:
           test -n "${CLOUDFLARE_ACCOUNT_ID:-}" || { echo "CLOUDFLARE_ACCOUNT_ID is not configured" >&2; exit 1; }
           test ${#LIFESPACE_STAGING_BOOTSTRAP_SECRET} -ge 32 || { echo "LIFESPACE_STAGING_BOOTSTRAP_SECRET must be at least 32 characters" >&2; exit 1; }
 
-      - name: Preflight production Model Admin service token
-        env:
-          LIFESPACE_PRODUCTION_MODEL_ADMIN_BEARER: ${{ secrets.LIFESPACE_PRODUCTION_MODEL_ADMIN_BEARER }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          case "${LIFESPACE_PRODUCTION_MODEL_ADMIN_BEARER:-}" in
-            lsp_svc_????????????????????????????????*) ;;
-            *) echo "LIFESPACE_PRODUCTION_MODEL_ADMIN_BEARER must be configured before production mutation" >&2; exit 1 ;;
-          esac
-
-      - name: Preflight explicit Bootstrap Secret recovery
-        if: ${{ inputs.sync_production_bootstrap_secret }}
-        env:
-          LIFESPACE_PRODUCTION_BOOTSTRAP_SECRET: ${{ secrets.LIFESPACE_PRODUCTION_BOOTSTRAP_SECRET }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          test ${#LIFESPACE_PRODUCTION_BOOTSTRAP_SECRET} -ge 32 || { echo "Explicit production Bootstrap recovery secret is missing" >&2; exit 1; }
-
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
@@ -301,6 +281,26 @@ jobs:
           test -n "${R2_S3_ACCESS_KEY_ID:-}" || { echo "Production R2_S3_ACCESS_KEY_ID is missing" >&2; exit 1; }
           test -n "${R2_S3_SECRET_ACCESS_KEY:-}" || { echo "Production R2_S3_SECRET_ACCESS_KEY is missing" >&2; exit 1; }
           case "$CLOUDFLARE_ACCOUNT_ID" in *[!0-9a-f]*|"") echo "Cloudflare account ID must be lowercase hex" >&2; exit 1 ;; esac
+
+      - name: Preflight production Model Admin service token
+        env:
+          LIFESPACE_PRODUCTION_MODEL_ADMIN_BEARER: ${{ secrets.LIFESPACE_PRODUCTION_MODEL_ADMIN_BEARER }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "${LIFESPACE_PRODUCTION_MODEL_ADMIN_BEARER:-}" in
+            lsp_svc_????????????????????????????????*) ;;
+            *) echo "LIFESPACE_PRODUCTION_MODEL_ADMIN_BEARER must be configured before production mutation" >&2; exit 1 ;;
+          esac
+
+      - name: Preflight explicit Bootstrap Secret recovery
+        if: ${{ inputs.sync_production_bootstrap_secret }}
+        env:
+          LIFESPACE_PRODUCTION_BOOTSTRAP_SECRET: ${{ secrets.LIFESPACE_PRODUCTION_BOOTSTRAP_SECRET }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test ${#LIFESPACE_PRODUCTION_BOOTSTRAP_SECRET} -ge 32 || { echo "Explicit production Bootstrap recovery secret is missing" >&2; exit 1; }
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
