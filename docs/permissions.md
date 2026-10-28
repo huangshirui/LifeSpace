@@ -350,3 +350,7 @@ An authenticated user may explicitly authorize one mailbox to access their accou
 ## 2026-10-26 correction: unified Access links
 
 The Identity 0.14/schema 13 account-link contract supersedes the earlier 0.13 mailbox-grant wording. Both entry points write `access_principals`; pending declarations grant no token and ordinary login resolves verified issuer/subject only. GET settings projects code-linked and email-prelinked state uniformly. See `application-authentication.md`. Not deployed by this correction.
+
+## Person Directory Data Grant (Kernel 0.54.0)
+
+The first-class Kernel Person Directory (`per_*`, not an ordinary Model Registry model) accepts `resourceType=person_directory`, `resourceId=null` Data Grants with `read` or `write` permission. Active current-state Person Directory authority is the higher of (a) existing User Membership / whole-Space Grant and (b) this dedicated Grant, always bounded by the `resources:read/write` credential scope and current explicit Space Delegation for represented execution. A Person Directory Grant never contributes to `requireSpacePermission` or Generic Runtime model authorization; it confers no Space detail or membership/Identity management. Linked Person mutation retains the existing self-service and Space-manage checks. Revocation, expiry and closed Space fail closed; no DB migration is needed.
