@@ -3,7 +3,7 @@ import YAML from "yaml";
 
 const document = YAML.parse(fs.readFileSync(new URL("../platform-admin.openapi.yaml", import.meta.url), "utf8"));
 
-if (document.openapi !== "3.1.0" || document.info?.version !== "0.5.0") {
+if (document.openapi !== "3.1.0" || document.info?.version !== "0.6.0") {
   throw new Error("Identity Platform Admin OpenAPI version metadata is invalid");
 }
 if (!document.info?.title?.includes("Platform Admin")) {
@@ -12,6 +12,12 @@ if (!document.info?.title?.includes("Platform Admin")) {
 
 const requiredPaths = [
   "/api/v1/me/platform-admin-actor-token",
+  "/bootstrap/v1/applications",
+  "/bootstrap/v1/applications/{applicationId}",
+  "/bootstrap/v1/applications/{applicationId}/credentials",
+  "/bootstrap/v1/applications/{applicationId}/credentials/{credentialId}",
+  "/bootstrap/v1/applications/{applicationId}/access-audiences",
+  "/bootstrap/v1/applications/{applicationId}/access-audiences/{audienceId}",
   "/bootstrap/v1/platform-administrators",
   "/bootstrap/v1/platform-administrators/{userId}",
   "/internal/v1/platform-admin/applications",
@@ -34,6 +40,36 @@ const requiredPaths = [
 ];
 for (const path of requiredPaths) {
   if (!document.paths?.[path]) throw new Error(`Identity Platform Admin OpenAPI missing ${path}`);
+}
+
+
+const bootstrapMethods = [
+  ["/bootstrap/v1/applications", ["post"]],
+  ["/bootstrap/v1/applications/{applicationId}", ["get", "patch"]],
+  ["/bootstrap/v1/applications/{applicationId}/credentials", ["get", "post"]],
+  ["/bootstrap/v1/applications/{applicationId}/credentials/{credentialId}", ["delete"]],
+  ["/bootstrap/v1/applications/{applicationId}/access-audiences", ["get", "post"]],
+  ["/bootstrap/v1/applications/{applicationId}/access-audiences/{audienceId}", ["delete"]],
+];
+for (const [path, methods] of bootstrapMethods) {
+  for (const method of methods) {
+    const op = document.paths?.[path]?.[method];
+    if (!op || op.security?.length !== 1 || op.security[0]?.bootstrapSecret === undefined
+      || Object.keys(op.security[0]).length !== 1) {
+      throw new Error(`Bootstrap ${method.toUpperCase()} ${path} must require only the provisioning/break-glass secret`);
+    }
+  }
+}
+const bootstrapCreate = document.paths?.["/bootstrap/v1/applications"]?.post;
+if (!String(bootstrapCreate?.description ?? "").includes("300-3600")) {
+  throw new Error("Bootstrap creation must retain documented token TTL bounds");
+}
+const applicationSchema = YAML.parse(fs.readFileSync(new URL("../openapi.yaml", import.meta.url), "utf8")).components?.schemas ?? {};
+if (applicationSchema.UpdateApplicationRequest?.properties?.trustedBackend
+  || applicationSchema.ApplicationCredential?.properties?.clientSecret
+  || applicationSchema.ApplicationCredential?.properties?.secretHash
+  || applicationSchema.CreateApplicationCredentialResponse?.properties?.data?.allOf?.[1]?.properties?.clientSecret?.writeOnly !== true) {
+  throw new Error("Bootstrap credentials and application policy must retain bounded, one-time-secret semantics");
 }
 
 const schemes = document.components?.securitySchemes ?? {};

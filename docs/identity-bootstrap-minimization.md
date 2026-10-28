@@ -4,6 +4,10 @@
 >
 > 此 Issue 是**现有路由及调用方的收敛**，不是新建机器授权或 Provisioning 平台。
 
+## Bootstrap 契约归属收敛（Identity 0.17.0 / Platform Admin 0.6.0 候选）
+
+普通 Identity Application OpenAPI 不再包含 6 组 Bootstrap Application/Credential/Audience 路径（共 9 个 Method）；它们的**完整方法契约与 `bootstrapSecret` 独立安全约束**迁入既有 `platform-admin.openapi.yaml`，与原有 Bootstrap Platform Administrator 恢复入口同处一个受控契约。普通应用不再需要 pin 这些 Bootstrap 能力。此变更**不删除任何已部署路由**，Identity 服务端仍有 12 种 Bootstrap Method Routes；不以 Console 人工 Actor 冒充 Bootstrap Seed/Recovery。首次初始化、失联恢复、隔离的 Staging 验收调用保持可用。更新版本/契约稳定性基线并加强检查，尚未部署 Staging/Production，也不因此关闭 #93。
+
 ## 保留的架构边界
 
 - 普通 Identity Application API 不承载 Bootstrap 管理职责；Identity Platform Admin 继续使用 **实际人类管理员 Actor proof + 同应用受控 Executor**。不能让 CI/脚本用固定 `usr_*` 模拟人类批准，不能为了消除 Bootstrap 而削弱这条边界。

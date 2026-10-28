@@ -2,7 +2,7 @@ import fs from "node:fs";
 import YAML from "yaml";
 
 const doc = YAML.parse(fs.readFileSync(new URL("../openapi.yaml",import.meta.url),"utf8"));
-if (doc.openapi !== "3.1.0" || doc.info?.version !== "0.16.0") {
+if (doc.openapi !== "3.1.0" || doc.info?.version !== "0.17.0") {
   throw new Error("Identity OpenAPI version metadata is invalid");
 }
 
@@ -15,12 +15,6 @@ for (const path of [
   "/api/v1/me/web-login",
   "/internal/v1/access/session-check",
   "/api/v1/me/access-link-challenges/{challengeId}/confirm",
-  "/bootstrap/v1/applications",
-  "/bootstrap/v1/applications/{applicationId}",
-  "/bootstrap/v1/applications/{applicationId}/credentials",
-  "/bootstrap/v1/applications/{applicationId}/credentials/{credentialId}",
-  "/bootstrap/v1/applications/{applicationId}/access-audiences",
-  "/bootstrap/v1/applications/{applicationId}/access-audiences/{audienceId}",
   "/internal/v1/applications/self",
   "/internal/v1/users",
   "/internal/v1/tokens",
@@ -55,8 +49,9 @@ if (!selfInspection?.security?.some((entry) => Object.keys(entry).length === 1 &
   throw new Error("Application self-inspection must authenticate the current lsa_* Application only");
 }
 
-const bootstrapDescription = doc.paths?.["/bootstrap/v1/applications"]?.post?.description ?? "";
-if (!bootstrapDescription.includes("300-3600")) throw new Error("Identity contract must document the application access-token TTL range");
+if (Object.keys(doc.paths ?? {}).some((path) => path.startsWith("/bootstrap/"))) {
+  throw new Error("Ordinary Identity Application contract must not expose Bootstrap authority");
+}
 
 const tokenDescription = doc.paths?.["/internal/v1/tokens"]?.post?.description ?? "";
 if (!tokenDescription.includes("Core and Identity")) throw new Error("Identity contract must document the multi-resource user-token audience");
@@ -72,8 +67,7 @@ const createdApplicationSecret = doc.components?.schemas?.CreateApplicationCrede
 if (createdApplicationSecret?.writeOnly !== true || !String(createdApplicationSecret?.pattern ?? "").includes("lsa_")) {
   throw new Error("New lsa_ application credential plaintext must be one-time/write-only");
 }
-const applicationPatch = doc.paths?.["/bootstrap/v1/applications/{applicationId}"]?.patch;
-if (!applicationPatch || doc.components?.schemas?.UpdateApplicationRequest?.properties?.trustedBackend) {
+if (doc.components?.schemas?.UpdateApplicationRequest?.properties?.trustedBackend) {
   throw new Error("Application admin must expose bounded mutable policy without changing trust classification");
 }
 if (doc.components?.schemas?.Application?.properties?.clientType) {

@@ -349,7 +349,7 @@ console.log(JSON.stringify({
   contracts: {
     identity: convergence.identity.contractVersion,
     coreKernel: convergence.core.contractVersion,
-    identityPlatformAdmin: "0.5.0",
+    identityPlatformAdmin: "0.6.0",
     corePlatformAdmin: "0.5.0",
   },
   schemas: { identity: convergence.identity.schemaVersion, core: convergence.core.schemaVersion },

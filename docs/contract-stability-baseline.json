@@ -116,7 +116,7 @@
     {
       "id": "identity-application",
       "source": "apps/identity/openapi.yaml",
-      "operationSetSha256": "sha256:042bdc44abb2d89c04533359b1806691799d9ba0829a6b3e335ce1654a71560c",
+      "operationSetSha256": "sha256:df2e20322770b9117c0d17b706303f856ae540453f479c1d765d90b5eb21ec3c",
       "groups": [
         {
           "id": "identity-operational",
@@ -183,12 +183,6 @@
           "maturity": "candidate",
           "visibility": "internal",
           "operationPattern": "^GET /internal/v1/applications/self$"
-        },
-        {
-          "id": "identity-bootstrap",
-          "maturity": "experimental",
-          "visibility": "internal",
-          "operationPattern": "^(GET|POST|PATCH|PUT|DELETE) /bootstrap/v1/.*$"
         },
         {
           "id": "identity-recurring-intent-introspection",
@@ -317,13 +311,19 @@
     {
       "id": "identity-platform-admin",
       "source": "apps/identity/platform-admin.openapi.yaml",
-      "operationSetSha256": "sha256:e806e94baf324156ffd30542026135e57c0437232e3187b7216edded37e3e15b",
+      "operationSetSha256": "sha256:e2b160542cfb8351598773b6bc2f89597a129cca370b5820a1a320b5a3c5cdc7",
       "groups": [
         {
           "id": "identity-platform-admin",
           "maturity": "candidate",
           "visibility": "internal",
-          "operationPattern": "^(GET|POST|PATCH|PUT|DELETE) /.*$"
+          "operationPattern": "^(GET|POST|PATCH|PUT|DELETE) /(?!bootstrap/v1/applications(?:/|$)).*$"
+        },
+        {
+          "id": "identity-bootstrap-provisioning",
+          "maturity": "experimental",
+          "visibility": "internal",
+          "operationPattern": "^(GET|POST|PATCH|PUT|DELETE) /bootstrap/v1/applications(?:/.*)?$"
         }
       ]
     },
