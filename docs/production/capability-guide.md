@@ -6,11 +6,11 @@
 
 ## Production baseline
 
-- Release date: **2026-10-27**
-- Deployed release SHA: `0ab94ccf4aeeaa6e9309b6a344d7280051691a21`
-- Production workflow: **[Deploy LifeSpace platform production #50](https://github.com/huangshirui/LifeSpace/actions/runs/40438311024)** ✅
+- Release date: **2026-10-28**
+- Deployed release SHA: `c5c1efa631cba7cee191a14a8bfab78dff033887`
+- Production workflow: **[Deploy LifeSpace platform production #40628917903](https://github.com/huangshirui/LifeSpace/actions/runs/40628917903)** ✅
 - Production Core: `https://core.aisr.online` — Kernel `0.53.0`, schema `76`
-- Production Identity: `https://auth.aisr.online` — contract `0.15.0`, schema `14`
+- Production Identity: `https://auth.aisr.online` — contract `0.17.0`, schema `14`
 - Active Model Contract: `mct_21ac4fd66f72ea4dfe259974970a0eb55c1e02a4424003404897862d2e8629d3`
 - Active ordinary models (12): Task v10, Wish v10, Day Record v7, Event v8, Person Group v2, Anniversary v2, Activity v2, Goal v3, Person Profile v2, Habit v3, Football Match v1, Football Performance v1
 - Release confidence: **exact release-bound production evidence**
@@ -190,6 +190,13 @@ LifeSpace Console 是平台自身的管理界面，不是普通消费者应用�
 - **12 个普通模型的实际发布状态**：当前 Model Contract 中包含 `football_match` 与 `football_performance` v1；Model Registry/Contract 的已发布事实不代表消费者 UI、授权配置或足球统计功能都已在本次 Core/Identity 生产工作流回归。
 - **部署与权限边界不变**：这两项是平台 Semantics/Context Projection 和 File projection 修复，不改变 Space/Grant/Principal Authority，也不代表 HomeMew Web/小程序已重新部署。
 
+### 2.13 2026-10-28 验证的更新：Identity Bootstrap 与 Production 发布边界
+
+- **普通 Identity Application API 与 Bootstrap 分离**：Identity `0.17.0` 将 Bootstrap 管理路径从普通 Application OpenAPI 的契约集合迁入既有 Platform Admin companion OpenAPI。服务端原有首次初始化和显式恢复入口仍保留，并不代表 API 运行时删除。
+- **常规生产发布不再修改 Bootstrap 根信任**：正常 workflow 默认只验证已有 `BOOTSTRAP_SECRET` 名称并保留值；如需要首次 Seed/紧急恢复，须明确选择默认关闭的恢复选项。本次发布未进行恢复/轮换；RS256 与 Core↔Identity Shared Secret 也维持原值。
+- **模型发布验证继续真实运行**：Production 发布复用独立的、已由现有 Identity Service Principal 机制签发的 `models:manage` `lsp_svc_*`；真实 Core↔Identity 服务认证与 Active Model Contract 检查成功。不再为每次部署创建 Bootstrap 临时 Application 或直接删除生产 Identity D1 测试行。
+- **发布证据**：[2026-10-28 Production #40628917903](https://github.com/huangshirui/LifeSpace/actions/runs/40628917903) 全部 Job Success，严格 APAC 性能门禁通过；Active `mct_*` 保持前版 12 个模型。**不代表** Console 前端已独立发布，也不证明首次安装与 Break-glass 故障恢复场景在生产环境执行过。
+
 ## 3. API / Contract surfaces
 
 当前 Production 契约分为：
@@ -217,9 +224,9 @@ LifeSpace Console 是平台自身的管理界面，不是普通消费者应用�
 7. Cloudflare isolation / bindings verification；
 8. canonical `lsp_svc_*` service authentication + active Model Contract verification。
 
-2026-10-27 [Release #50](https://github.com/huangshirui/LifeSpace/actions/runs/40438311024) 对 exact candidate `0ab94ccf4aeeaa6e9309b6a344d7280051691a21` 完成全部 production release gates：Core Kernel `0.53.0` / schema `76`，Identity contract `0.15.0` / schema `14`，active Model Contract 包含 12 个普通模型。生产数据库实查确认新版本与模型快照。此前 2026-10-22 Release #42 的 Core schema 72 / Identity schema 11 / 10 模型属于历史基线，不再代表当前生产事实。真实生产 Notion 数据 CRUD 仍未由本次发布验证。
+2026-10-28 [Production #40628917903](https://github.com/huangshirui/LifeSpace/actions/runs/40628917903) 对 exact candidate `c5c1efa631cba7cee191a14a8bfab78dff033887` 完成全部生产门禁。Core Kernel `0.53.0` / schema `76` 不变；Identity contract 从 `0.15.0` 更新为 `0.17.0` / schema `14`；Active Model Contract 保持 12 个模型，未产生兼容语义重新发布。2026-10-27 Release #50 为历史生产基线，不再代表当前最新 Identity 契约。真实生产 Notion 数据 CRUD 仍未由本次发布验证。
 
-Production runtime signing material 与 Core↔Identity shared authentication secret 由本次 workflow 完成 presence/consistency 和真实 `lsp_svc_* -> Core -> Identity introspection` 验证；`repair_core_identity_shared_secret=false`，不执行主动 repair。生产 R2 S3 签名凭据与 Notion Adapter 的独立生产 Secret 由该 workflow 同步和验证。
+Production runtime signing material、Bootstrap Secret 与 Core↔Identity shared authentication secret 由本次 workflow 证实原值保留；`sync_production_bootstrap_secret=false`、`repair_core_identity_shared_secret=false`。真实 `lsp_svc_* -> Core -> Identity introspection` 使用专门配置的 Model Admin Service Token 通过，并验证 Active Model Contract；正常发布不创建 Bootstrap 临时生产身份。生产 R2 S3 签名凭据与 Notion Adapter 的独立生产 Secret 由该 workflow 同步和验证。
 
 ### Creation Draft retirement
 
