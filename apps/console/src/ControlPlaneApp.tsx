@@ -221,7 +221,7 @@ function RetireDialog({ modelKey, onClose }: { modelKey: string; onClose: () => 
   </DialogShell>;
 }
 
-function ModelAccessDialog({ applicationId, onClose }: { applicationId: string; onClose: () => void }) {
+export function ModelAccessDialog({ applicationId, onClose }: { applicationId: string; onClose: () => void }) {
   const [application, setApplication] = useState<ApplicationDetail>();
   const [models, setModels] = useState<PublishedModel[]>([]);
   const [access, setAccess] = useState<Record<string, "none" | AccessLevel>>({});
@@ -294,14 +294,6 @@ function ModelAccessDialog({ applicationId, onClose }: { applicationId: string; 
     </div>
     <footer className="cp-dialog-footer"><button className="cp-secondary" onClick={onClose}>取消</button><button className="cp-primary" disabled={busy || loading || !changed || !confirmed} onClick={() => void save()}>{busy ? "保存中…" : "Save model access"}</button></footer>
   </DialogShell>;
-}
-
-export function ModelAccessAction({ applicationId }: { applicationId: string }) {
-  const [open, setOpen] = useState(false);
-  return <>
-    <button onClick={() => setOpen(true)}>Model access</button>
-    {open && <ModelAccessDialog applicationId={applicationId} onClose={() => setOpen(false)} />}
-  </>;
 }
 
 function ControlPlaneLauncher() {

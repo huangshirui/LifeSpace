@@ -263,7 +263,7 @@ function ModelsPage({ id }: { id?: string }) {
   if (remote.error) return <ErrorState error={remote.error} />;
   const rows = remote.data ?? [];
   return <>
-    <PageHeader eyebrow="Platform" title="Models" description="Model Registry 的只读治理视图。发布、退役与兼容性写操作在下一 slice 接入。" />
+    <PageHeader eyebrow="Platform" title="Models" description="查看已发布模型和规范定义，并在当前页面进行模型发布、版本升级或退役。" />
     <Section title="Registry definitions">
       {!rows.length ? <Empty /> : <div className="table-wrap"><table><thead><tr><th>Model</th><th>Version</th><th>Compatibility</th><th>状态</th><th /></tr></thead><tbody>
         {rows.map((model: PublishedModel) => <tr key={model.id}><td><strong>{model.key}</strong><small>{model.id}</small></td><td>v{model.version}</td><td>{model.compatibility}</td><td><Badge value={model.state} /></td><td><button className="link-button" onClick={() => navigate(`/models/${encodeURIComponent(model.key)}`)}>查看</button></td></tr>)}
@@ -330,7 +330,7 @@ function SpacesPage({ id }: { id?: string }) {
   if (remote.error) return <ErrorState error={remote.error} />;
   const rows = remote.data ?? [];
   return <>
-    <PageHeader eyebrow="Platform" title="Spaces" description="只读检查所有权、成员、Data Grant 与模型记录计数；Console 不获得隐藏成员身份。" />
+    <PageHeader eyebrow="Platform" title="Spaces" description="检查 Space 所有权、成员与记录计数，并通过 Space 操作区管理 Data Grant 和外部数据连接；Console 不获得隐藏成员身份。" />
     <form className="search-bar" onSubmit={(event) => { event.preventDefault(); setSubmitted(query.trim()); }}><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索 spc_* 或 Space 名称" maxLength={100} /><button>搜索</button></form>
     <Section title="Spaces">
       {!rows.length ? <Empty /> : <div className="table-wrap"><table><thead><tr><th>Space</th><th>Members</th><th>Grants</th><th>Records</th><th /></tr></thead><tbody>

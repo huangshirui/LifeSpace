@@ -4,7 +4,7 @@ const worker = fs.readFileSync(new URL("../worker/agent-governance.ts", import.m
 const externalConnectionsWorker = fs.readFileSync(new URL("../worker/external-connections.ts", import.meta.url), "utf8");
 const platformEntryWorker = fs.readFileSync(new URL("../worker/platform-admin-entry.ts", import.meta.url), "utf8");
 const overlay = fs.readFileSync(new URL("../src/AgentIdentitiesDialog.tsx", import.meta.url), "utf8");
-const applicationOverlay = fs.readFileSync(new URL("../src/ApplicationConfigurationOverlay.tsx", import.meta.url), "utf8");
+const credentialOverlay = fs.readFileSync(new URL("../src/CredentialGovernanceOverlay.tsx", import.meta.url), "utf8");
 const wrangler = fs.readFileSync(new URL("../wrangler.jsonc", import.meta.url), "utf8");
 
 for (const required of [
@@ -33,8 +33,8 @@ if (!overlay.includes("Agent identity ≠ Agent authority") || !overlay.includes
 if (!overlay.includes("全局 Agent identity 状态变更") || !overlay.includes("confirmGlobalStatus")) {
   throw new Error("Agent global status updates require an explicit UI confirmation");
 }
-if (!applicationOverlay.includes("Agent identities")) {
-  throw new Error("Application configuration UI must expose Agent identities");
+if (!credentialOverlay.includes("Agent identities") || !credentialOverlay.includes("AgentIdentitiesDialog")) {
+  throw new Error("Credential governance Access group must expose Agent identities alongside Services");
 }
 
 const wrapperChainIntact =

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { AccessAudience, Application, ApplicationDetail } from "./types";
-import { ModelAccessAction } from "./ControlPlaneApp";
+import { ModelAccessDialog } from "./ControlPlaneApp";
 import "./application-configuration.css";
 
 type ErrorEnvelope = { error?: { code?: string; message?: string; requestId?: string } };
@@ -9,6 +9,7 @@ type Dialog =
   | { type: "create" }
   | { type: "settings"; applicationId: string }
   | { type: "audiences"; applicationId: string }
+  | { type: "model-access"; applicationId: string }
   | null;
 
 type CreateApplicationResult = {
@@ -297,11 +298,12 @@ export default function ApplicationConfigurationOverlay() {
       {context.page === "application" && context.applicationId && <>
         <button onClick={() => setDialog({ type: "settings", applicationId: context.applicationId as string })}>Settings</button>
         <button onClick={() => setDialog({ type: "audiences", applicationId: context.applicationId as string })}>Access audiences</button>
-        <ModelAccessAction applicationId={context.applicationId} />
+        <button onClick={() => setDialog({ type: "model-access", applicationId: context.applicationId as string })}>Model access</button>
       </>}
     </div>
     {dialog?.type === "create" && <CreateApplicationDialog onClose={() => setDialog(null)} />}
     {dialog?.type === "settings" && <ApplicationSettingsDialog applicationId={dialog.applicationId} onClose={() => setDialog(null)} />}
     {dialog?.type === "audiences" && <AccessAudiencesDialog applicationId={dialog.applicationId} onClose={() => setDialog(null)} />}
+    {dialog?.type === "model-access" && <ModelAccessDialog applicationId={dialog.applicationId} onClose={() => setDialog(null)} />}
   </>;
 }
