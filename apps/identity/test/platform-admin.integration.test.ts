@@ -55,9 +55,14 @@ async function provisionConsole(pair: Awaited<ReturnType<typeof keys>>) {
   }, pair);
   expect(user.status).toBe(201);
   const userId = ((await user.json()) as any).data.id as string;
-  const assignedAt = new Date().toISOString();
-  await (env as unknown as TestEnv).DB.prepare(`INSERT INTO platform_administrators(user_id,status,assigned_at,revoked_at)
-    VALUES(?,'active',?,NULL)`).bind(userId, assignedAt).run();
+  // Clean-room authority seed must go through the real Bootstrap API;
+  // tests must not install the first administrator through hidden D1 writes.
+  const assignment = await request(`/bootstrap/v1/platform-administrators/${userId}`, {
+    method: "PUT",
+    headers: { "x-bootstrap-secret": "bootstrap-test" },
+  }, pair);
+  expect(assignment.status).toBe(200);
+  expect((await assignment.json() as any).data).toMatchObject({ userId, status: "active" });
 
   const session = await request("/internal/v1/tokens", {
     method: "POST",
@@ -118,8 +123,11 @@ describe("Identity Platform Admin API", () => {
   it("rejects an issued actor proof after the user assignment is revoked", async () => {
     const pair = await keys();
     const console = await provisionConsole(pair);
-    await (env as unknown as TestEnv).DB.prepare("UPDATE platform_administrators SET status='revoked',revoked_at=? WHERE user_id=?")
-      .bind(new Date().toISOString(), console.userId).run();
+    const revoke = await request(`/bootstrap/v1/platform-administrators/${console.userId}`, {
+      method: "DELETE",
+      headers: { "x-bootstrap-secret": "bootstrap-test" },
+    }, pair);
+    expect(revoke.status).toBe(204);
 
     const denied = await request("/internal/v1/platform-admin/applications", {
       method: "GET",
@@ -127,6 +135,63 @@ describe("Identity Platform Admin API", () => {
     }, pair);
     expect(denied.status).toBe(403);
     expect((await denied.json() as any).error.code).toBe("PLATFORM_ADMIN_NOT_ASSIGNED");
+  });
+
+
+  it("uses real Bootstrap-only first seed and break-glass recovery without bypassing the human actor boundary", async () => {
+    const pair = await keys();
+    // provisionConsole starts from a new Application and newly created User,
+    // then installs the first authority exclusively via the Bootstrap PUT API.
+    const console = await provisionConsole(pair);
+
+    const revoke = await request(`/bootstrap/v1/platform-administrators/${console.userId}`, {
+      method: "DELETE",
+      headers: { "x-bootstrap-secret": "bootstrap-test" },
+    }, pair);
+    expect(revoke.status).toBe(204);
+
+    // Even a still-valid, purpose-bound actor proof must lose authority when
+    // its current human administrator assignment has been revoked.
+    const denied = await request("/internal/v1/platform-admin/applications", {
+      method: "GET",
+      headers: adminHeaders(console.applicationSecret, console.actorToken),
+    }, pair);
+    expect(denied.status).toBe(403);
+    expect((await denied.json() as any).error.code).toBe("PLATFORM_ADMIN_NOT_ASSIGNED");
+
+    const wrongSecret = await request(`/bootstrap/v1/platform-administrators/${console.userId}`, {
+      method: "PUT",
+      headers: { "x-bootstrap-secret": "invalid-bootstrap-secret" },
+    }, pair);
+    expect(wrongSecret.status).toBe(401);
+
+    const stillDenied = await request("/internal/v1/platform-admin/applications", {
+      method: "GET",
+      headers: adminHeaders(console.applicationSecret, console.actorToken),
+    }, pair);
+    expect(stillDenied.status).toBe(403);
+
+    // Break-glass recovery is a deliberate Bootstrap operation, not an
+    // implicit Console deployment or a fabricated machine/human actor.
+    const restored = await request(`/bootstrap/v1/platform-administrators/${console.userId}`, {
+      method: "PUT",
+      headers: { "x-bootstrap-secret": "bootstrap-test" },
+    }, pair);
+    expect(restored.status).toBe(200);
+    expect((await restored.json() as any).data).toMatchObject({ userId: console.userId, status: "active" });
+
+    const authorized = await request("/internal/v1/platform-admin/applications", {
+      method: "GET",
+      headers: adminHeaders(console.applicationSecret, console.actorToken),
+    }, pair);
+    expect(authorized.status).toBe(200);
+
+    // Recovering the administrator does not remove the two-authority gate.
+    const noActor = await request("/internal/v1/platform-admin/applications", {
+      method: "GET",
+      headers: adminHeaders(console.applicationSecret),
+    }, pair);
+    expect(noActor.status).toBe(401);
   });
 
   it("creates and manages applications without bootstrap authority and writes audit evidence", async () => {
