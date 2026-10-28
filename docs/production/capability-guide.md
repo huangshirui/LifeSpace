@@ -7,9 +7,9 @@
 ## Production baseline
 
 - Release date: **2026-10-28**
-- Deployed release SHA: `c5c1efa631cba7cee191a14a8bfab78dff033887`
-- Production workflow: **[Deploy LifeSpace platform production #40628917903](https://github.com/huangshirui/LifeSpace/actions/runs/40628917903)** ✅
-- Production Core: `https://core.aisr.online` — Kernel `0.53.0`, schema `76`
+- Deployed release SHA: `f68e9f572eac53b0de8df6c8b324f3a8040def46`
+- Production workflow: **[Deploy LifeSpace platform production #40716878438](https://github.com/huangshirui/LifeSpace/actions/runs/40716878438)** ✅
+- Production Core: `https://core.aisr.online` — Kernel `0.54.0`, schema `76`
 - Production Identity: `https://auth.aisr.online` — contract `0.17.0`, schema `14`
 - Active Model Contract: `mct_21ac4fd66f72ea4dfe259974970a0eb55c1e02a4424003404897862d2e8629d3`
 - Active ordinary models (12): Task v10, Wish v10, Day Record v7, Event v8, Person Group v2, Anniversary v2, Activity v2, Goal v3, Person Profile v2, Habit v3, Football Match v1, Football Performance v1
@@ -73,6 +73,7 @@ Production 当前支持：
 - alternate names / aliases，并参与人物检索；
 - Relation Target Lookup / Reference Resolution 使用同一 Space Person 语义；
 - Person 作为模型 Policy / relation 的业务上下文，但 Membership / Grant / Delegation Authority 仍以 User / Principal 等身份体系为准。
+- **Person Directory 独立授权（Kernel 0.54.0）**：在现有 `data_grants` 权威存储中增加 `resourceType=person_directory`、`resourceId=null` 的只读（`read`）/读写（`write`）目标；通过 Candidate `/api/v1/spaces/{spaceId}/person-directory/grants`（GET/POST）和 `/{grantId}`（PATCH/DELETE）管理。Service/Agent 经相应凭证 Scope、当前独立 Grant、必要的 Delegation 访问 `/people`，不需整 Space Grant，也不要求普通模型的 Application × Model Access。它**不**创建 `usr_*`、Identity 身份或 Membership，不开放其他普通模型与 Space 管理；已关联 User 的 Person 修改仍沿用原有目标校验。旧 Stable `/grants` 仍只对外展示 Space/Model 资源类型。
 
 ### 2.4 Generic Model Runtime / 通用模型运行时
 
@@ -197,6 +198,13 @@ LifeSpace Console 是平台自身的管理界面，不是普通消费者应用�
 - **模型发布验证继续真实运行**：Production 发布复用独立的、已由现有 Identity Service Principal 机制签发的 `models:manage` `lsp_svc_*`；真实 Core↔Identity 服务认证与 Active Model Contract 检查成功。不再为每次部署创建 Bootstrap 临时 Application 或直接删除生产 Identity D1 测试行。
 - **发布证据**：[2026-10-28 Production #40628917903](https://github.com/huangshirui/LifeSpace/actions/runs/40628917903) 全部 Job Success，严格 APAC 性能门禁通过；Active `mct_*` 保持前版 12 个模型。**不代表** Console 前端已独立发布，也不证明首次安装与 Break-glass 故障恢复场景在生产环境执行过。
 
+### 2.14 2026-10-28 验证的更新：Person Directory 独立 Grant（Production #40716878438）
+
+- **正式发布**：Kernel `0.54.0` 支持 Kernel 人员目录与 User 身份分离的专用只读/读写 Data Grant；仍复用现有 Grant 存储、过期与撤销规则。独立 Candidate 管理 API 避免扩大旧 Stable `/grants` 的返回枚举。
+- **范围隔离**：不会创建 User/登录身份、授权其他普通模型或授予 Space 管理权限。Service/Agent 仍必须具备 `resources:read/write` Scope 与有效授权；代表执行时仍检查原有 Space-target Delegation。
+- **发布验收**：[Staging #40712010968](https://github.com/huangshirui/LifeSpace/actions/runs/40712010968) 与 [Production #40716878438](https://github.com/huangshirui/LifeSpace/actions/runs/40716878438) 均 Success；Production 完成 APAC 代表场景性能门禁、数据库/HTTP 收敛、Cloudflare 隔离、Service Credential 和 Active Model Contract 校验。普通模型、Schema `76`、Identity `0.17.0` / `14` 不变。
+- **验证局限**：平台验证不等于 HomeMew Web Production UI 已发布，也不代表在真实生产 Service/Agent 上完成独立 Person Grant 的 CRUD/撤销端到端业务操作；消费者需独立发布和验收。
+
 ## 3. API / Contract surfaces
 
 当前 Production 契约分为：
@@ -224,7 +232,7 @@ LifeSpace Console 是平台自身的管理界面，不是普通消费者应用�
 7. Cloudflare isolation / bindings verification；
 8. canonical `lsp_svc_*` service authentication + active Model Contract verification。
 
-2026-10-28 [Production #40628917903](https://github.com/huangshirui/LifeSpace/actions/runs/40628917903) 对 exact candidate `c5c1efa631cba7cee191a14a8bfab78dff033887` 完成全部生产门禁。Core Kernel `0.53.0` / schema `76` 不变；Identity contract 从 `0.15.0` 更新为 `0.17.0` / schema `14`；Active Model Contract 保持 12 个模型，未产生兼容语义重新发布。2026-10-27 Release #50 为历史生产基线，不再代表当前最新 Identity 契约。真实生产 Notion 数据 CRUD 仍未由本次发布验证。
+2026-10-28 [Production #40716878438](https://github.com/huangshirui/LifeSpace/actions/runs/40716878438) 对 exact candidate `f68e9f572eac53b0de8df6c8b324f3a8040def46` 完成全部生产门禁。Core Kernel `0.54.0` / schema `76`；Identity contract `0.17.0` / schema `14`；Active Model Contract 保持 12 个模型，未产生普通模型语义重新发布。新增 Person Directory 独立只读/读写 Data Grant，属于 Kernel API 新能力，不是普通模型。2026-10-28 的 [Production #40628917903](https://github.com/huangshirui/LifeSpace/actions/runs/40628917903) 现为历史发布。真实生产 Notion 数据 CRUD 与下游 HomeMew Web 端到端人员授权仍未由本次 LifeSpace 发布验证。
 
 Production runtime signing material、Bootstrap Secret 与 Core↔Identity shared authentication secret 由本次 workflow 证实原值保留；`sync_production_bootstrap_secret=false`、`repair_core_identity_shared_secret=false`。真实 `lsp_svc_* -> Core -> Identity introspection` 使用专门配置的 Model Admin Service Token 通过，并验证 Active Model Contract；正常发布不创建 Bootstrap 临时生产身份。生产 R2 S3 签名凭据与 Notion Adapter 的独立生产 Secret 由该 workflow 同步和验证。
 

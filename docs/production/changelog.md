@@ -2,6 +2,17 @@
 
 本文件只记录**已经成功发布到 production** 的变化。开发中、staging、PR 或 main 上的变化不得提前写成 production changelog。
 
+## 2026-10-28 — Person Directory 独立授权（Production #40716878438）
+
+- **Verified release:** SHA `f68e9f572eac53b0de8df6c8b324f3a8040def46`；[Staging #40712010968](https://github.com/huangshirui/LifeSpace/actions/runs/40712010968) 和 [Production #40716878438](https://github.com/huangshirui/LifeSpace/actions/runs/40716878438) 均成功。Production 三个 Job（owner 直接发布来源验证、APAC 严格性能门禁、真实 Production 部署与校验）全部 Success。
+- **当前生产版本：** Core Kernel `0.54.0` / schema `76`（旧 `0.53.0`）；Identity contract `0.17.0` / schema `14`（无语义升级）。本次没有新的 D1 schema migration。
+- **Added / 新能力：** Kernel 人员目录 `per_*` 现支持独立只读/读写 Data Grant（内部 `resourceType=person_directory`、`resourceId=null`），不再要求 Service/Agent 取得整个 Space Grant。授权与 User `usr_*`/Membership 创建独立；Person 新建不创建 User。
+- **稳定契约边界：** 重用原有 `data_grants` 状态、撤销、到期机制；通过 Candidate `GET/POST /spaces/{spaceId}/person-directory/grants` 与 `PATCH/DELETE .../{grantId}` 管理，不扩展旧 Stable `/grants` 枚举。Credential `resources:read/write`、当前 Grant、必要的 Delegation 仍独立核验；该授权不开放 Space 管理、Identity、User 或普通模型；已绑定 User 的 Person 修改规则不放宽。
+- **普通模型未重新发布：** Active Model Contract `mct_21ac4fd66f72ea4dfe259974970a0eb55c1e02a4424003404897862d2e8629d3` 保持，仍为原 12 个普通模型；Person Directory 不属于普通 Model Registry，因此无需 Application × Model Access。
+- **运维边界：** 本次验证 Production HTTP 收敛、Cloudflare 资源隔离、R2/External provider 路由与独立 Secret、专用 Service Token 模型管理和 Active Model Contract。Bootstrap 与 Core↔Identity 共享 Secret 恢复开关均为 `false`，原值保留；不代表 HomeMew Web 已部署，也不等同于在生产环境执行人员授权的真实增删改/撤销端到端测试。HomeMew Web 需独立发布并验证。
+
+---
+
 ## 2026-10-28 — Identity Bootstrap 日常发布依赖收敛（Production #40628917903）
 
 - **Verified release:** SHA `c5c1efa631cba7cee191a14a8bfab78dff033887`；[Staging #40626481504](https://github.com/huangshirui/LifeSpace/actions/runs/40626481504) 和 [Production #40628917903](https://github.com/huangshirui/LifeSpace/actions/runs/40628917903) 成功。Production 三个 Job 全部通过：人工发布来源确认、严格 APAC 性能验收、真实 Production Core/Identity 部署与验证。
