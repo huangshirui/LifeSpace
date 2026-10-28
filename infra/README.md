@@ -59,6 +59,6 @@ Normal staging and production releases use Core-first -> Identity ordering so a 
 - `initialize-production-runtime.mjs`: initializes first-use signing/shared secrets, preserves complete existing secret sets, and refuses partial automatic repair/rotation.
 - `verify-production-http.mjs`: verifies production health, environment, schema and contract versions.
 - `verify-production-cloudflare.mjs`: verifies D1/R2/Queue/Worker/domain/secret presence, Queue attachment/policy, and staging isolation.
-- `verify-production-model-admin.mjs`: uses disposable service authority to verify `lsp_pat_*` introspection, reconcile required model semantics when safe, and prove that the production active immutable `mct_*` exactly represents the current production Registry snapshot.
+- `verify-production-model-admin.mjs`: uses the protected GitHub production `lsp_svc_*` bearer (existing Service Principal, `models:manage`) to verify live Core↔Identity introspection, reconcile required model semantics when safe and prove the active immutable `mct_*` matches the current Registry snapshot. No per-release Bootstrap Application creation or direct Identity D1 cleanup.
 
 Detailed operator rules are documented in `infra/staging/README.md` and `infra/production/README.md`. Historical migration evidence remains available through Git history and release artifacts rather than current runbooks.
