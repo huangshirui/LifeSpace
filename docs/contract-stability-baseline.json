@@ -288,6 +288,12 @@
           "operationPattern": "^(GET|POST) /api/v1/spaces/\\{spaceId\\}/people$|^(GET|PATCH|DELETE) /api/v1/spaces/\\{spaceId\\}/people/\\{personId\\}$"
         },
         {
+          "id": "core-person-directory-grants",
+          "maturity": "candidate",
+          "visibility": "public",
+          "operationPattern": "^(GET|POST) /api/v1/spaces/\\{spaceId\\}/person-directory/grants$|^(PATCH|DELETE) /api/v1/spaces/\\{spaceId\\}/person-directory/grants/\\{grantId\\}$"
+        },
+        {
           "id": "core-file-transfer",
           "maturity": "candidate",
           "visibility": "public",
