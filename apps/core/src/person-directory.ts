@@ -1,6 +1,6 @@
 import type { Context, Hono } from "hono";
 import { requireScope } from "./auth";
-import { requireSpacePermission, type Permission, type SpaceRole } from "./authorization";
+import { requirePersonDirectoryPermission, requireSpacePermission, type Permission, type SpaceRole } from "./authorization";
 import {
   delegationChainStatement,
   groupDelegationChainRows,
@@ -324,7 +324,9 @@ async function requireDirectoryAccess(
     }
   }
 
-  const spaceAuthority = await requireSpacePermission(context.env, principal, spaceId, spacePermission);
+  const spaceAuthority = spacePermission === "manage"
+    ? await requireSpacePermission(context.env, principal, spaceId, "manage")
+    : await requirePersonDirectoryPermission(context.env, principal, spaceId, spacePermission);
   return {
     principal,
     spaceAuthority,
@@ -512,7 +514,7 @@ async function assertPersonMutationTarget(
   row: PersonRow,
 ): Promise<void> {
   if (!row.linked_user_id) {
-    await requireSpacePermission(context.env, access.principal, spaceId, "write");
+    await requirePersonDirectoryPermission(context.env, access.principal, spaceId, "write");
     return;
   }
   if (access.principal.type === "user" && access.principal.id === row.linked_user_id) return;
