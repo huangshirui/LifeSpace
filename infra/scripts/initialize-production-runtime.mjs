@@ -5,13 +5,19 @@ import process from "node:process";
 const token = process.env.CLOUDFLARE_API_TOKEN ?? "";
 const accountId = process.env.CLOUDFLARE_ACCOUNT_ID ?? "";
 const bootstrapSecret = process.env.LIFESPACE_PRODUCTION_BOOTSTRAP_SECRET ?? "";
+const syncBootstrapRequested = process.env.LIFESPACE_SYNC_PRODUCTION_BOOTSTRAP_SECRET === "1";
 const repairSharedSecret = process.env.LIFESPACE_REPAIR_CORE_IDENTITY_SHARED_SECRET ?? "0";
 const CORE_DIR = new URL("../../apps/core/", import.meta.url);
 const IDENTITY_DIR = new URL("../../apps/identity/", import.meta.url);
 
 if (!token) throw new Error("CLOUDFLARE_API_TOKEN is required");
 if (!accountId) throw new Error("CLOUDFLARE_ACCOUNT_ID is required");
-if (bootstrapSecret.length < 32) throw new Error("LIFESPACE_PRODUCTION_BOOTSTRAP_SECRET must contain at least 32 characters");
+if (!["0", "1"].includes(process.env.LIFESPACE_SYNC_PRODUCTION_BOOTSTRAP_SECRET ?? "0")) {
+  throw new Error("LIFESPACE_SYNC_PRODUCTION_BOOTSTRAP_SECRET must be exactly 0 or 1");
+}
+if (syncBootstrapRequested && bootstrapSecret.length < 32) {
+  throw new Error("LIFESPACE_PRODUCTION_BOOTSTRAP_SECRET must contain at least 32 characters for explicit synchronization");
+}
 if (repairSharedSecret !== "0" && repairSharedSecret !== "1") {
   throw new Error("LIFESPACE_REPAIR_CORE_IDENTITY_SHARED_SECRET must be exactly 0 or 1");
 }
@@ -44,11 +50,19 @@ function assertAllOrNone(label, present) {
   return count === present.length;
 }
 
-// The bootstrap secret is an operator-controlled GitHub Environment secret. Synchronizing
-// it is intentional; no generated production credential is printed or committed.
-wranglerSecretBulk(IDENTITY_DIR, { BOOTSTRAP_SECRET: bootstrapSecret });
-
+// Routine releases must not overwrite the exceptional root authority merely to deploy code.
 let identitySecrets = await secretNames("lifespace-identity");
+if (!identitySecrets.has("BOOTSTRAP_SECRET") && !syncBootstrapRequested) {
+  throw new Error("Production Identity Bootstrap Secret is missing; explicit sync_production_bootstrap_secret recovery is required");
+}
+if (syncBootstrapRequested) {
+  wranglerSecretBulk(IDENTITY_DIR, { BOOTSTRAP_SECRET: bootstrapSecret });
+  identitySecrets = await secretNames("lifespace-identity");
+  if (!identitySecrets.has("BOOTSTRAP_SECRET")) throw new Error("Explicit Bootstrap Secret synchronization did not install the Worker secret");
+  console.log("Explicitly synchronized production Bootstrap Secret by operator request");
+} else {
+  console.log("Preserved existing production Bootstrap Secret without rewriting the Worker secret");
+}
 let coreSecrets = await secretNames("lifespace-core");
 
 const signingExists = assertAllOrNone("production RS256 signing material", [
@@ -113,6 +127,6 @@ console.log(JSON.stringify({
   ok: true,
   signingMaterial: signingExists ? "preserved" : "initialized",
   sharedAuthenticationSecret,
-  bootstrapSecret: "synchronized",
+  bootstrapSecret: syncBootstrapRequested ? "explicitly_synchronized" : "preserved",
   secretValuesExposed: false,
 }, null, 2));

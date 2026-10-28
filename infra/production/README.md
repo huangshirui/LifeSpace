@@ -41,7 +41,7 @@ For resource provisioning, only the Cloudflare API token and account ID are requ
 
 The workflows never write generated secrets to repository files or artifacts.
 
-`LIFESPACE_PRODUCTION_BOOTSTRAP_SECRET` is synchronized into the production Identity Worker by the deployment path. Runtime initialization generates signing/shared material only when a complete corresponding secret set is absent, preserves complete existing sets, and refuses partial automatic repair/rotation.
+`LIFESPACE_PRODUCTION_BOOTSTRAP_SECRET` is only synchronized into the production Identity Worker for **explicit initial seed or recovery**. Normal deployment preserves the existing Identity `BOOTSTRAP_SECRET` Worker Secret and fails closed if it is missing. Use the default-off `sync_production_bootstrap_secret` workflow input deliberately when initializing or repairing the root. This does not rotate any other credentials. Runtime initialization generates signing/shared material only when a complete corresponding secret set is absent, preserves complete existing sets, and refuses partial automatic repair/rotation.
 
 ## Deploy production
 
@@ -51,6 +51,7 @@ Input:
 
 ```text
 confirmation: DEPLOY_PRODUCTION
+sync_production_bootstrap_secret: false # default; true only for first seed or explicit recovery
 ```
 
 There are no Phase 6 or provisioning checkboxes. The deployment workflow intentionally does not create D1/R2/Queue resources.

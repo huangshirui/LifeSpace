@@ -4,6 +4,10 @@
 >
 > 此 Issue 是**现有路由及调用方的收敛**，不是新建机器授权或 Provisioning 平台。
 
+## Production 默认不重写 Bootstrap Secret（PR #437）
+
+生产普通发布默认只检查 Identity Worker 现存 `BOOTSTRAP_SECRET` 名称，拒绝缺失，不再每次从 GitHub Environment 重写全局 Bootstrap Root Secret。只有人工显式选择默认关闭的 `sync_production_bootstrap_secret` 才用于首次 Seed/受控 Recovery。其它 signing/shared-secret 逻辑不变。此修改不删除服务端 API，不触发 Production 发布，也不解决 Model Admin 验收仍创建 Production 临时 Application 的待清理依赖。
+
 ## Bootstrap 契约归属收敛（Identity 0.17.0 / Platform Admin 0.6.0 候选）
 
 普通 Identity Application OpenAPI 不再包含 6 组 Bootstrap Application/Credential/Audience 路径（共 9 个 Method）；它们的**完整方法契约与 `bootstrapSecret` 独立安全约束**迁入既有 `platform-admin.openapi.yaml`，与原有 Bootstrap Platform Administrator 恢复入口同处一个受控契约。普通应用不再需要 pin 这些 Bootstrap 能力。此变更**不删除任何已部署路由**，Identity 服务端仍有 12 种 Bootstrap Method Routes；不以 Console 人工 Actor 冒充 Bootstrap Seed/Recovery。首次初始化、失联恢复、隔离的 Staging 验收调用保持可用。更新版本/契约稳定性基线并加强检查，尚未部署 Staging/Production，也不因此关闭 #93。
