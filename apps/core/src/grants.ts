@@ -8,7 +8,7 @@ import { resolveSpaceAuthorityModel } from "./external-model";
 type AppEnv = { Bindings: Bindings; Variables: Variables };
 type App = Hono<AppEnv>;
 export type Permission = "free_busy" | "read" | "write" | "manage";
-export type ResourceType = "space" | "model";
+export type ResourceType = "space" | "model" | "person_directory";
 export type GranteeType = "user" | "space" | "service" | "device" | "agent";
 export type GrantRow = {
   id: string;
@@ -87,8 +87,14 @@ export async function parseGrantResource(env: Bindings, spaceId: string, input: 
     }
     return { resourceType: "space", resourceId: null };
   }
+  if (resourceType === "person_directory") {
+    if (input.resourceId !== undefined && input.resourceId !== null) {
+      throw new ApiError("VALIDATION_ERROR", "resourceId must be null or omitted for a Person Directory Data Grant", 422);
+    }
+    return { resourceType: "person_directory", resourceId: null };
+  }
   if (resourceType !== "model") {
-    throw new ApiError("VALIDATION_ERROR", "resourceType must be space or model", 422);
+    throw new ApiError("VALIDATION_ERROR", "resourceType must be space, model or person_directory", 422);
   }
   if (typeof input.resourceId !== "string" || !input.resourceId.trim()) {
     throw new ApiError("VALIDATION_ERROR", "resourceId must be a published model key for a model Data Grant", 422);
@@ -103,6 +109,9 @@ export async function parseGrantResource(env: Bindings, spaceId: string, input: 
 export function validateModelPermission(resourceType: ResourceType, permission: Permission): void {
   if (resourceType === "model" && permission === "free_busy") {
     throw new ApiError("VALIDATION_ERROR", "Model Data Grants support read, write or manage permission", 422);
+  }
+  if (resourceType === "person_directory" && !["read", "write"].includes(permission)) {
+    throw new ApiError("VALIDATION_ERROR", "Person Directory Data Grants support read or write permission only", 422);
   }
 }
 
