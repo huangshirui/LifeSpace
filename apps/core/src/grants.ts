@@ -87,14 +87,8 @@ export async function parseGrantResource(env: Bindings, spaceId: string, input: 
     }
     return { resourceType: "space", resourceId: null };
   }
-  if (resourceType === "person_directory") {
-    if (input.resourceId !== undefined && input.resourceId !== null) {
-      throw new ApiError("VALIDATION_ERROR", "resourceId must be null or omitted for a Person Directory Data Grant", 422);
-    }
-    return { resourceType: "person_directory", resourceId: null };
-  }
   if (resourceType !== "model") {
-    throw new ApiError("VALIDATION_ERROR", "resourceType must be space, model or person_directory", 422);
+    throw new ApiError("VALIDATION_ERROR", "resourceType must be space or model", 422);
   }
   if (typeof input.resourceId !== "string" || !input.resourceId.trim()) {
     throw new ApiError("VALIDATION_ERROR", "resourceId must be a published model key for a model Data Grant", 422);
@@ -136,7 +130,7 @@ export function registerGrantRoutes(app: App): void {
     await requireSpacePermission(c.env, principal, spaceId, "manage");
     const includeRevoked = c.req.query("includeRevoked") === "true";
     const rows = await c.env.DB.prepare(`SELECT id,source_space_id,grantee_type,grantee_id,resource_type,resource_id,permission,created_by_user_id,created_at,expires_at,revoked_at
-      FROM data_grants WHERE source_space_id=?
+      FROM data_grants WHERE source_space_id=? AND resource_type!=\'person_directory\'
       ${includeRevoked ? "" : "AND revoked_at IS NULL"} ORDER BY created_at DESC`).bind(spaceId).all<GrantRow>();
     return c.json(success(rows.results.map(grantDto)));
   });
@@ -184,7 +178,7 @@ export function registerGrantRoutes(app: App): void {
     const spaceId = c.req.param("spaceId");
     await requireSpacePermission(c.env, principal, spaceId, "manage");
     const current = await c.env.DB.prepare(`SELECT id,source_space_id,grantee_type,grantee_id,resource_type,resource_id,permission,created_by_user_id,created_at,expires_at,revoked_at
-      FROM data_grants WHERE id=? AND source_space_id=? AND revoked_at IS NULL`).bind(c.req.param("grantId"), spaceId).first<GrantRow>();
+      FROM data_grants WHERE id=? AND source_space_id=? AND resource_type!=\'person_directory\' AND revoked_at IS NULL`).bind(c.req.param("grantId"), spaceId).first<GrantRow>();
     if (!current) throw new ApiError("GRANT_NOT_FOUND", "Active Data Grant not found", 404);
     const body = await c.req.json<Record<string, unknown>>().catch(() => null);
     if (!body || typeof body !== "object" || Array.isArray(body)) throw new ApiError("INVALID_REQUEST", "JSON body is required", 400);
@@ -211,4 +205,81 @@ export function registerGrantRoutes(app: App): void {
     if (!result.meta.changes) throw new ApiError("GRANT_NOT_FOUND", "Active Data Grant not found", 404);
     return c.body(null, 204);
   });
+
+  // Candidate Kernel companion for Person Directory Grants. The Stable Public
+  // /grants collection and its space/model-only response enum are unchanged.
+  app.get("/api/v1/spaces/:spaceId/person-directory/grants", requireScope("grants:manage"), async (c) => {
+    const principal = c.get("principal");
+    requireUser(principal);
+    const spaceId = c.req.param("spaceId");
+    await requireSpacePermission(c.env, principal, spaceId, "manage");
+    const includeRevoked = c.req.query("includeRevoked") === "true";
+    const rows = await c.env.DB.prepare(`SELECT id,source_space_id,grantee_type,grantee_id,resource_type,resource_id,permission,created_by_user_id,created_at,expires_at,revoked_at
+      FROM data_grants WHERE source_space_id=? AND resource_type='person_directory' AND resource_id IS NULL
+      ${includeRevoked ? "" : "AND revoked_at IS NULL"} ORDER BY created_at DESC`).bind(spaceId).all<GrantRow>();
+    return c.json(success(rows.results.map(grantDto)));
+  });
+
+  app.post("/api/v1/spaces/:spaceId/person-directory/grants", requireScope("grants:manage"), async (c) => {
+    const principal = c.get("principal");
+    requireUser(principal);
+    const spaceId = c.req.param("spaceId");
+    await requireSpacePermission(c.env, principal, spaceId, "manage");
+    const input = await parseGrantBody(c.req.raw);
+    if (Object.keys(input).some((key) => !["granteeType", "granteeId", "permission", "expiresAt"].includes(key))) {
+      throw new ApiError("INVALID_REQUEST", "Person Directory Grant accepts only grantee, permission and expiry", 400);
+    }
+    const grantee = parseGrantGrantee(input);
+    const permission = parseGrantPermission(input.permission);
+    validateModelPermission("person_directory", permission);
+    const expiresAt = parseGrantExpiry(input.expiresAt);
+    const id = createGrantId();
+    const createdAt = grantNow();
+    await c.env.DB.prepare(`INSERT INTO data_grants(
+      id,source_space_id,grantee_type,grantee_id,resource_type,resource_id,permission,created_by_user_id,created_at,expires_at
+    ) VALUES(?,?,?,?, 'person_directory', NULL,?,?,?,?)`)
+      .bind(id, spaceId, grantee.granteeType, grantee.granteeId, permission, principal.id, createdAt, expiresAt).run();
+    const row = await c.env.DB.prepare(`SELECT id,source_space_id,grantee_type,grantee_id,resource_type,resource_id,permission,created_by_user_id,created_at,expires_at,revoked_at
+      FROM data_grants WHERE id=?`).bind(id).first<GrantRow>();
+    if (!row) throw new Error("Person Directory Grant missing after create");
+    return c.json(success(grantDto(row)), 201);
+  });
+
+  app.patch("/api/v1/spaces/:spaceId/person-directory/grants/:grantId", requireScope("grants:manage"), async (c) => {
+    const principal = c.get("principal");
+    requireUser(principal);
+    const spaceId = c.req.param("spaceId");
+    await requireSpacePermission(c.env, principal, spaceId, "manage");
+    const current = await c.env.DB.prepare(`SELECT id,source_space_id,grantee_type,grantee_id,resource_type,resource_id,permission,created_by_user_id,created_at,expires_at,revoked_at
+      FROM data_grants WHERE id=? AND source_space_id=? AND resource_type='person_directory' AND resource_id IS NULL AND revoked_at IS NULL`)
+      .bind(c.req.param("grantId"), spaceId).first<GrantRow>();
+    if (!current) throw new ApiError("GRANT_NOT_FOUND", "Active Person Directory Grant not found", 404);
+    const body = await c.req.json<Record<string, unknown>>().catch(() => null);
+    if (!body || typeof body !== "object" || Array.isArray(body)) throw new ApiError("INVALID_REQUEST", "JSON body is required", 400);
+    if (!Object.keys(body).length || Object.keys(body).some((key) => !["permission", "expiresAt"].includes(key))) {
+      throw new ApiError("INVALID_REQUEST", "Only permission and expiresAt may be updated", 400);
+    }
+    const permission = body.permission === undefined ? current.permission : parseGrantPermission(body.permission);
+    validateModelPermission("person_directory", permission);
+    const expiry = body.expiresAt === undefined ? current.expires_at : parseGrantExpiry(body.expiresAt);
+    await c.env.DB.prepare("UPDATE data_grants SET permission=?,expires_at=? WHERE id=? AND source_space_id=? AND resource_type='person_directory' AND revoked_at IS NULL")
+      .bind(permission, expiry, current.id, spaceId).run();
+    const row = await c.env.DB.prepare(`SELECT id,source_space_id,grantee_type,grantee_id,resource_type,resource_id,permission,created_by_user_id,created_at,expires_at,revoked_at
+      FROM data_grants WHERE id=?`).bind(current.id).first<GrantRow>();
+    if (!row) throw new Error("Person Directory Grant missing after update");
+    return c.json(success(grantDto(row)));
+  });
+
+  app.delete("/api/v1/spaces/:spaceId/person-directory/grants/:grantId", requireScope("grants:manage"), async (c) => {
+    const principal = c.get("principal");
+    requireUser(principal);
+    const spaceId = c.req.param("spaceId");
+    await requireSpacePermission(c.env, principal, spaceId, "manage");
+    const result = await c.env.DB.prepare(`UPDATE data_grants SET revoked_at=?
+      WHERE id=? AND source_space_id=? AND resource_type='person_directory' AND revoked_at IS NULL`)
+      .bind(grantNow(), c.req.param("grantId"), spaceId).run();
+    if (!result.meta.changes) throw new ApiError("GRANT_NOT_FOUND", "Active Person Directory Grant not found", 404);
+    return c.body(null, 204);
+  });
+
 }
