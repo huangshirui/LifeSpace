@@ -258,8 +258,8 @@ if (!schemas.CreateDataGrantRequest?.properties?.granteeType?.enum && !schemas.G
 if (!schemas.GranteeType?.enum?.includes("service")) {
   throw new Error("Data Grants must support service principals");
 }
-if (schemas.DataGrantResourceType?.enum?.join(",") !== "space,model,person_directory") {
-  throw new Error("Data Grants must expose whole-Space, model-collection and Person Directory resource types");
+if (schemas.DataGrantResourceType?.enum?.join(",") !== "space,model") {
+  throw new Error("Data Grants must expose whole-Space and model-collection resource types");
 }
 if (!schemas.DataGrant?.required?.includes("resourceType") || !schemas.DataGrant?.required?.includes("resourceId")) {
   throw new Error("Data Grant responses must expose their resource target");
@@ -274,6 +274,18 @@ if (!grants?.get || !grants?.post || !grant?.patch || !grant?.delete) {
 }
 if (!grants.get.responses?.["200"]?.description?.includes("model-collection") || !grants.post.responses?.["201"]?.description?.includes("model-collection")) {
   throw new Error("Data Grant contract must document model-collection support");
+}
+
+const scopedGrants = document.paths?.["/api/v1/spaces/{spaceId}/person-directory/grants"];
+const scopedGrant = document.paths?.["/api/v1/spaces/{spaceId}/person-directory/grants/{grantId}"];
+if (scopedGrants?.get?.operationId !== "listPersonDirectoryGrants"
+    || scopedGrants?.post?.operationId !== "createPersonDirectoryGrant"
+    || scopedGrant?.patch?.operationId !== "updatePersonDirectoryGrant"
+    || scopedGrant?.delete?.operationId !== "revokePersonDirectoryGrant"
+    || schemas.PersonDirectoryGrant?.properties?.resourceType?.const !== "person_directory"
+    || schemas.PersonDirectoryGrant?.properties?.resourceId?.type !== "null"
+    || schemas.PersonDirectoryGrant?.properties?.permission?.enum?.join(",") !== "read,write") {
+  throw new Error("Candidate Person Directory Grant companion must preserve its scoped, read/write-only target");
 }
 
 const discovery = document.paths?.["/api/v1/spaces/{spaceId}/_discovery"]?.get;
