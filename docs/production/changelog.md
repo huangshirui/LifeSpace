@@ -2,6 +2,17 @@
 
 本文件只记录**已经成功发布到 production** 的变化。开发中、staging、PR 或 main 上的变化不得提前写成 production changelog。
 
+## 2026-10-28 — Identity Bootstrap 日常发布依赖收敛（Production #40628917903）
+
+- **Verified release:** SHA `c5c1efa631cba7cee191a14a8bfab78dff033887`；[Staging #40626481504](https://github.com/huangshirui/LifeSpace/actions/runs/40626481504) 和 [Production #40628917903](https://github.com/huangshirui/LifeSpace/actions/runs/40628917903) 成功。Production 三个 Job 全部通过：人工发布来源确认、严格 APAC 性能验收、真实 Production Core/Identity 部署与验证。
+- **当前已发布版本：** Core Kernel `0.53.0` / schema `76`（保持不变）；Identity Application contract `0.17.0` / schema `14`（此前生产为 `0.15.0`）。Identity 普通 Application OpenAPI 已将 Bootstrap 管理操作归入单独的 Platform Admin companion contract（源文件版本 `0.6.0`，仍保持 Bootstrap-only 安全约束），**没有删除服务端首次 Seed/Break-glass 路由**。
+- **生产日常发布不再调用 Bootstrap 做管理：** 默认只检查 Identity Worker 现有 `BOOTSTRAP_SECRET` 的存在性并保留值，不再每次重新写入；本次执行时明确输出 `bootstrapSecret: preserved`。本次未勾选 `sync_production_bootstrap_secret` 或 `repair_core_identity_shared_secret`；既有 RS256 signing 和 Core↔Identity shared authentication secret 均保留。
+- **Model Admin 真实验证：** 由现有 GitHub production Environment 的独立 `LIFESPACE_PRODUCTION_MODEL_ADMIN_BEARER`（canonical `lsp_svc_*`，`models:manage`）完成真实 Core↔Identity service introspection、必要的兼容模型语义发布和 Active Model Contract 精确校验；日志报告 `serviceAuthentication: lsp_svc_to_core_introspection_passed`、`identityMutationsByVerifier: false`、`publishedSemanticModels: []`。正常发布不再通过 Bootstrap 新建生产临时 Application/User/Service Principal，也不再执行 Identity D1 删除测试身份。
+- **模型契约保持：** Active `mct_21ac4fd66f72ea4dfe259974970a0eb55c1e02a4424003404897862d2e8629d3`，仍为 **12** 个普通模型（Task v10、Wish v10、Day Record v7、Event v8、Person Group v2、Anniversary v2、Activity v2、Goal v3、Person Profile v2、Habit v3、Football Match v1、Football Performance v1），本次没有重复发布模型。
+- **验收与边界：** 正式 APAC 门禁（User JWT + Service API Token，场景级 P50/P90）通过，临时 Probe 和测试凭证已清理；Production HTTP/schema/contract、Cloudflare 资源隔离、External Provider 私有路由/Secret/Vault 绑定均通过。此发布**没有重新部署 Console、HomeMew、n8n 或 ALOHA**，也没有验证真实生产 Notion 业务 CRUD。首次初始化和显式失联恢复仍保留独立 Bootstrap 流程，不能将本次常规发布成功解释为已实测 break-glass 流程。
+
+---
+
 ## 2026-10-27 — Reference labels, Record Icon file link repair and current Model Contract (Production #50)
 
 - **Verified release:** SHA `0ab94ccf4aeeaa6e9309b6a344d7280051691a21`; [Staging](https://github.com/huangshirui/LifeSpace/actions/runs/40436370316) and [Production #50](https://github.com/huangshirui/LifeSpace/actions/runs/40438311024) completed/success. All three production jobs passed, including exact-candidate provenance and APAC performance gate.
