@@ -86,3 +86,18 @@ test("dynamic External staging smoke restores a Provider field rename on failure
   const restore = smoke.indexOf("[renamedStartDateProperty]: { name: startDateProperty }", cleanup);
   assert.ok(renamed >= 0 && cleanup > renamed && restore > cleanup, "Synthetic Provider property rename must have a failure-path restore");
 });
+
+test("canonical Staging release does not gate on diagnostic-only non-APAC GitHub runner performance", () => {
+  const workflow = readFileSync(new URL("../../.github/workflows/staging-deploy.yml", import.meta.url), "utf8");
+  assert.doesNotMatch(workflow, /node infra\/scripts\/verify-staging-performance\.mjs/u);
+  assert.match(workflow, /node infra\/scripts\/verify-staging-eventing\.mjs/u);
+  assert.match(workflow, /node infra\/scripts\/cleanup-staging-smoke\.mjs/u);
+});
+
+test("run-scoped smoke cleanup makes bounded retries for idempotent Bootstrap revocation", () => {
+  const source = readFileSync(new URL("./cleanup-staging-smoke.mjs", import.meta.url), "utf8");
+  assert.match(source, /async function bootstrapRequest/u);
+  assert.match(source, /attempt <= 3/u);
+  assert.match(source, /if \(attempt === 3\) throw error/u);
+  assert.match(source, /bootstrapApplicationPath/u);
+});
