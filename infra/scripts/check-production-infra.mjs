@@ -92,17 +92,25 @@ requireTokens("Production deployment workflow", productionDeploy, [
   "confirmation:",
   "DEPLOY_PRODUCTION",
   "repair_core_identity_shared_secret:",
+  "sync_production_bootstrap_secret:",
   "group: lifespace-production-change",
   "apac_performance:",
   "needs: apac_performance",
   "LIFESPACE_PRODUCTION_BOOTSTRAP_SECRET",
   "LIFESPACE_REPAIR_CORE_IDENTITY_SHARED_SECRET:",
+  "LIFESPACE_SYNC_PRODUCTION_BOOTSTRAP_SECRET:",
   "ref: ${{ github.sha }}",
   "production deployment must run from main",
   "db:migrate:production",
   "wrangler deploy --env production",
   "node infra/scripts/verify-production-model-admin.mjs",
 ]);
+if (!/sync_production_bootstrap_secret:[\s\S]*?type:\s*boolean[\s\S]*?default:\s*false/u.test(productionDeploy)) {
+  throw new Error("Production Bootstrap synchronization must be a default-off boolean");
+}
+if (!productionDeploy.includes("LIFESPACE_SYNC_PRODUCTION_BOOTSTRAP_SECRET: ${{ inputs.sync_production_bootstrap_secret && '1' || '0' }}")) {
+  throw new Error("Production Bootstrap synchronization flag must be passed to the runtime initializer");
+}
 if (!/repair_core_identity_shared_secret:[\s\S]*?type:\s*boolean[\s\S]*?default:\s*false/u.test(productionDeploy)) {
   throw new Error("Production shared-secret repair input must remain an explicit boolean with default false");
 }
@@ -120,6 +128,10 @@ forbidTokens("Production deployment workflow", productionDeploy, [
 const productionRuntimeInitializer = readFileSync(resolve(ROOT, "infra/scripts/initialize-production-runtime.mjs"), "utf8");
 requireTokens("Production runtime initializer", productionRuntimeInitializer, [
   "LIFESPACE_REPAIR_CORE_IDENTITY_SHARED_SECRET",
+  "LIFESPACE_SYNC_PRODUCTION_BOOTSTRAP_SECRET",
+  "syncBootstrapRequested",
+  '!identitySecrets.has("BOOTSTRAP_SECRET") && !syncBootstrapRequested',
+  "Preserved existing production Bootstrap Secret without rewriting the Worker secret",
   "repairSharedSecret === \"1\"",
   "sharedPresenceCount === 1 && !repairSharedSecretRequested",
   "Re-synchronized production Core↔Identity shared authentication secret by explicit operator request",
