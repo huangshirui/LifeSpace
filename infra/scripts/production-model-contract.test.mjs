@@ -25,6 +25,9 @@ test("production preflight uses the same platform proving semantics as staging",
 test("production Model Contract verification matches the current published Registry snapshot exactly", () => {
   const source = readFileSync(fileURLToPath(modelAdminVerifier), "utf8");
 
+  assert.match(source, /LIFESPACE_PRODUCTION_MODEL_ADMIN_BEARER/u, "production requires a pre-provisioned service token");
+  assert.match(source, /lsp_svc_/u, "production must use canonical Service Token");
+  assert.doesNotMatch(source, /\/bootstrap\/v1\/|BOOTSTRAP_SECRET|wrangler|DELETE FROM|INSERT INTO|app_production_model_probe_/u, "no temporary root identity or production Identity D1 writes");
   assert.match(source, /actualVersion < expected\.minimumVersion/u, "published production models must satisfy the release floor");
   assert.match(source, /actual\.schemaHash !== expected\.hash/u, "published production models must keep exact schema identity");
   assert.match(source, /currentPublishedModels/u, "production verification must remember actual environment-local published versions");
@@ -40,6 +43,9 @@ test("production release verifies the platform Model Contract without downstream
   const workflow = readFileSync(fileURLToPath(productionWorkflow), "utf8");
 
   assert.match(workflow, /node infra\/scripts\/verify-production-model-admin\.mjs/u);
+  assert.match(workflow, /LIFESPACE_PRODUCTION_MODEL_ADMIN_BEARER: \$\{\{ secrets\.LIFESPACE_PRODUCTION_MODEL_ADMIN_BEARER \}\}/u);
+  assert.match(workflow, /Preflight production Model Admin service token/u);
+  assert.match(workflow, /Preflight explicit Bootstrap Secret recovery/u);
   assert.doesNotMatch(workflow, /check-production-release-readiness\.mjs/u, "consumer promotion must not gate platform production release");
 });
 

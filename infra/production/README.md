@@ -35,11 +35,14 @@ For deployment, configure:
 
 - secret `CLOUDFLARE_API_TOKEN` with the approved LifeSpace production deployment permissions;
 - variable or secret `CLOUDFLARE_ACCOUNT_ID`;
-- secret `LIFESPACE_PRODUCTION_BOOTSTRAP_SECRET`, at least 32 characters and distinct from the staging bootstrap secret.
+- secret `LIFESPACE_PRODUCTION_MODEL_ADMIN_BEARER`: a previously provisioned **production** `lsp_svc_*` Service API Token with `models:manage` as its effective scope. Create it once using the existing governed Service Principal/Token APIs, then store the one-time plaintext only in the protected GitHub `production` Environment. The deployment validates that this secret is present **before production mutation**;
+- secret `LIFESPACE_PRODUCTION_BOOTSTRAP_SECRET`, at least 32 characters and distinct from staging, for **explicit initial seed or recovery only**.
 
 For resource provisioning, only the Cloudflare API token and account ID are required; the bootstrap secret is deliberately not part of that workflow.
 
 The workflows never write generated secrets to repository files or artifacts.
+
+Normal model verification uses that existing scoped Service Token to test real Core↔Identity authentication, reconcile compatible Model Definition semantics and confirm the active immutable Model Contract. It no longer creates an ephemeral production Application/User/Principal or deletes Identity D1 rows. When the token is missing or revoked, release fails; credential recovery/rotation uses the existing administrator workflow and does not use Bootstrap automatically.
 
 `LIFESPACE_PRODUCTION_BOOTSTRAP_SECRET` is only synchronized into the production Identity Worker for **explicit initial seed or recovery**. Normal deployment preserves the existing Identity `BOOTSTRAP_SECRET` Worker Secret and fails closed if it is missing. Use the default-off `sync_production_bootstrap_secret` workflow input deliberately when initializing or repairing the root. This does not rotate any other credentials. Runtime initialization generates signing/shared material only when a complete corresponding secret set is absent, preserves complete existing sets, and refuses partial automatic repair/rotation.
 
