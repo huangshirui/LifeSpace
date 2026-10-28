@@ -159,6 +159,42 @@ async function grantTaskWrite(home: { token: string; spaceId: string }, principa
 }
 
 describe("Core service authentication", () => {
+  it("allows a scoped Service to create unlinked Persons without Space or model access", async () => {
+    const { privateKey, publicKey } = await keys();
+    const home = await createSpace(privateKey, publicKey, "Directory Home");
+    const principalId = `svc_${crypto.randomUUID().replaceAll("-", "")}`;
+    const identity = identityBinding(principalId, ["resources:read", "resources:write", "spaces:read"]);
+    const serviceToken = "lsp_svc_person_directory_test_token_that_is_long_enough";
+    const directory = `/api/v1/spaces/${home.spaceId}/people`;
+    const grantsPath = `/api/v1/spaces/${home.spaceId}/person-directory/grants`;
+    const grantResponse = await request(grantsPath, home.token, publicKey, undefined, {
+      method: "POST",
+      body: JSON.stringify({ granteeType: "service", granteeId: principalId, permission: "read" }),
+    });
+    expect(grantResponse.status).toBe(201);
+    const { data: grant } = await grantResponse.json() as { data: { id: string } };
+    expect((await request(directory, serviceToken, publicKey, identity)).status).toBe(200);
+    expect((await request(`/api/v1/spaces/${home.spaceId}`, serviceToken, publicKey, identity)).status).toBe(403);
+    expect((await request(`/api/v1/spaces/${home.spaceId}/models/task/records`, serviceToken, publicKey, identity)).status).toBe(403);
+    expect((await request(directory, serviceToken, publicKey, identity, {
+      method: "POST", body: JSON.stringify({ displayName: "Denied" }),
+    })).status).toBe(403);
+
+    const elevate = await request(`${grantsPath}/${grant.id}`, home.token, publicKey, undefined, {
+      method: "PATCH", body: JSON.stringify({ permission: "write" }),
+    });
+    expect(elevate.status).toBe(200);
+    const created = await request(directory, serviceToken, publicKey, identity, {
+      method: "POST", body: JSON.stringify({ displayName: "Unlinked Service Person" }),
+    });
+    expect(created.status).toBe(201);
+    expect((await created.json() as { data: { linkedUser: boolean } }).data.linkedUser).toBe(false);
+
+    const revoke = await request(`${grantsPath}/${grant.id}`, home.token, publicKey, undefined, { method: "DELETE" });
+    expect(revoke.status).toBe(204);
+    expect((await request(directory, serviceToken, publicKey, identity)).status).toBe(403);
+  });
+
   it("normalizes opaque tokens and intersects scope with current service Data Grant", async () => {
     const { privateKey, publicKey } = await keys();
     const home = await createSpace(privateKey, publicKey, "Home");
