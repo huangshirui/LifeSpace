@@ -4,19 +4,19 @@
 >
 > 此 Issue 是**现有路由及调用方的收敛**，不是新建机器授权或 Provisioning 平台。
 
-## Production Model Admin 去掉日常 Bootstrap 调用（2026-10-28，候选 PR）
+## Production Model Admin 去掉日常 Bootstrap 调用（2026-10-28，Production 已验收）
 
 之前 `verify-production-model-admin.mjs` 每次平台 Production release 都用 Bootstrap 创建临时 Application，再创建临时 User、Service Principal、Token，最后通过 Remote Production D1 SQL 删除。它仅为获得本次发布的 `models:manage` Service Token，却引入了普通发布不应使用的根信任权限及删除操作。
 本轮只使用**既有** `lsp_svc_*` Service API Token 模型：先由受权管理员使用现有 Platform Admin/Service API 配置最小 `models:manage` 的生产服务身份，把一次性 Token 明文放入 GitHub `production` Environment secret `LIFESPACE_PRODUCTION_MODEL_ADMIN_BEARER`。工作流在迁移/部署前验证 Secret 已配置，并在 Model Admin 验收步单独注入；脚本继续做真实 Core↔Identity 服务认证、语义兼容发布和不可变 Model Contract 精确验证。缺失/失效即失败，不在普通发布中自行扩大权限或创建 Application。
-同时将全局 Bootstrap Secret 从 Production Job Env 移除，仅在显式选择 `sync_production_bootstrap_secret` 的恢复前置/初始化步骤注入。不加新 API、授权框架、Worker、Schema；没有触发 Production 发布。**该凭证需要在下次正式发布前一次性配置，不能把 CI 视为生产 Token 已配置或可用的证明。**
+同时将全局 Bootstrap Secret 从 Production Job Env 移除，仅在显式选择 `sync_production_bootstrap_secret` 的恢复前置/初始化步骤注入。不加新 API、授权框架、Worker、Schema。**实际 Production 证据**：[Workflow #40628917903](https://github.com/huangshirui/LifeSpace/actions/runs/40628917903) 成功，Service Token 真实完成 Core↔Identity introspection 与 Active Model Contract 验证，`identityMutationsByVerifier: false`；证明本次发布使用的 Secret 已配置且有效。
 
 ## Production 默认不重写 Bootstrap Secret（PR #437）
 
-生产普通发布默认只检查 Identity Worker 现存 `BOOTSTRAP_SECRET` 名称，拒绝缺失，不再每次从 GitHub Environment 重写全局 Bootstrap Root Secret。只有人工显式选择默认关闭的 `sync_production_bootstrap_secret` 才用于首次 Seed/受控 Recovery。其它 signing/shared-secret 逻辑不变。此修改不删除服务端 API，不触发 Production 发布，也不解决 Model Admin 验收仍创建 Production 临时 Application 的待清理依赖。
+生产普通发布默认只检查 Identity Worker 现存 `BOOTSTRAP_SECRET` 名称，拒绝缺失，不再每次从 GitHub Environment 重写全局 Bootstrap Root Secret。只有人工显式选择默认关闭的 `sync_production_bootstrap_secret` 才用于首次 Seed/受控 Recovery。其它 signing/shared-secret 逻辑不变。此修改不删除服务端 API。2026-10-28 Production #40628917903 已确认 `bootstrapSecret: preserved` 且 Model Admin 验收不再创建 Production 临时 Application；两个恢复选项均未启用。
 
 ## Bootstrap 契约归属收敛（Identity 0.17.0 / Platform Admin 0.6.0 候选）
 
-普通 Identity Application OpenAPI 不再包含 6 组 Bootstrap Application/Credential/Audience 路径（共 9 个 Method）；它们的**完整方法契约与 `bootstrapSecret` 独立安全约束**迁入既有 `platform-admin.openapi.yaml`，与原有 Bootstrap Platform Administrator 恢复入口同处一个受控契约。普通应用不再需要 pin 这些 Bootstrap 能力。此变更**不删除任何已部署路由**，Identity 服务端仍有 12 种 Bootstrap Method Routes；不以 Console 人工 Actor 冒充 Bootstrap Seed/Recovery。首次初始化、失联恢复、隔离的 Staging 验收调用保持可用。更新版本/契约稳定性基线并加强检查，尚未部署 Staging/Production，也不因此关闭 #93。
+普通 Identity Application OpenAPI 不再包含 6 组 Bootstrap Application/Credential/Audience 路径（共 9 个 Method）；它们的**完整方法契约与 `bootstrapSecret` 独立安全约束**迁入既有 `platform-admin.openapi.yaml`，与原有 Bootstrap Platform Administrator 恢复入口同处一个受控契约。普通应用不再需要 pin 这些 Bootstrap 能力。此变更**不删除任何已部署路由**，Identity 服务端仍有 12 种 Bootstrap Method Routes；不以 Console 人工 Actor 冒充 Bootstrap Seed/Recovery。首次初始化、失联恢复、隔离的 Staging 验收调用保持可用。更新版本/契约稳定性基线并加强检查；2026-10-28 在 exact SHA `c5c1efa6…` 已完成 Staging #40626481504 与 Production #40628917903。未据此声称实际执行过生产 First-install/Break-glass。
 
 ## 保留的架构边界
 
