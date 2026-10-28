@@ -83,6 +83,12 @@
 - 这**并没有迁移新 Bootstrap 能力**，而是在旧最小化迁移完成前避免继续遗留永久可用的测试凭证；当前无法从仓库证据断言历史遗留数量、已撤销历史所有 Credential，或解决所有分布式失败窗口。清理完成后方可进一步考虑减少 Staging Seed 对全局 Bootstrap 的依赖。
 - 修正 `staging-deploy.yml` 摘要中已由 PR #430 删除、却仍声称 Console Scope 自动收敛的一条失实描述。不影响权限。
 
+## Staging Console 完整 Provisioning 不再 Bootstrap 改写已有 Application Policy（2026-10-28，候选）
+
+- `prepare-staging-console-admin.mjs` 在完整、显式人工 Provisioning 下，过去对已存在 `app_lifespace_console_staging` 仍自动执行 Bootstrap `PATCH /applications/:id`，改写名称、Scope、Access TTL，甚至把先前禁用的 Application 恢复为 `active`。这属于正常 Application 治理，已有受人类 Actor 授权的 Platform Admin，不应由根 Secret 自动覆盖。
+- 修改后首次 `POST /bootstrap/v1/applications` 建立初始信任链不变；对已存在的 Application 只核对 `trustedBackend/name/allowedScopes/accessTokenTtlSeconds/status`，不一致则在 Audience 注册、凭证轮换和 Core Executor 处理之前 fail-closed，明确要求通过现有 Platform Admin 作有意的配置变更。不增加恢复选项、不新增 API 或授权机制；`recover_platform_admin` 显式管理员恢复仍按原有流程保留。它不改变独立的正常 Console Staging Deploy 和 Production 已验收流程。
+- Cloudflare Staging Identity D1 **只读**核实：`app_lifespace_console_staging` 当前对应字段与既有期望一致，因此不会要求改变现存配置。Bootstrap 引用预算仅该脚本由 **6 → 5**；服务端 Bootstrap PATCH Route 因仍有明确恢复调用方而不在此 PR 删除。合并/CI 不等于再次部署 Staging。
+
 ## Staging session-only Console 不再覆写已有 Application 权限（2026-10-27）
 
 - `Converge LifeSpace staging control plane` 的**无 `platform_admin_user_id` 分支**使用 `prepare-staging-console-shell.mjs`，用于首次 Console Access 会话接入。此前对已存在 Application 默认通过 Bootstrap `PATCH /applications/:id` 复写名称、Scopes、TTL，甚至将管理员已禁用的 Application 重设为 `active`。这属于自动覆盖独立治理决定，不是建立初始信任链的必要动作。
