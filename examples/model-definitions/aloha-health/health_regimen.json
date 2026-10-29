@@ -1,10 +1,10 @@
 {
   "definitionVersion": 1,
   "key": "health_regimen",
-  "description": "持续的用药、康复、治疗或生活方式方案；可选绑定平台 Recurrence 生成 Task。",
+  "description": "记录持续执行的用药、治疗、康复或生活方式方案，包括执行方法和有效期。可按周期生成待办；方案不代表单次操作已经完成。",
   "display": {
-    "singular": "Health Regimen",
-    "plural": "Health Regimens"
+    "singular": "健康方案",
+    "plural": "健康方案"
   },
   "fields": {
     "subjectPersonId": {
@@ -31,13 +31,15 @@
         "device",
         "wellness",
         "other"
-      ]
+      ],
+      "description": "按方案性质区分用药、康复、治疗、设备使用及生活方式。"
     },
     "instructions": {
       "type": "text",
       "title": "执行说明",
       "required": true,
-      "minLength": 1
+      "minLength": 1,
+      "description": "人可执行的具体方法；不要自行补造用药剂量或医疗指示。"
     },
     "startDate": {
       "type": "date",
@@ -58,18 +60,21 @@
         "paused",
         "completed",
         "stopped"
-      ]
+      ],
+      "description": "active 执行中，paused 暂停，completed 已完成，stopped 已终止；不代表每次 Task 已完成。"
     },
     "sourceDocumentId": {
       "type": "record",
       "title": "来源文档",
       "nullable": true,
-      "targetModel": "health_document"
+      "targetModel": "health_document",
+      "description": "有处方、医嘱或康复文档时引用原始资料；无证据则留空。"
     },
     "sourceNote": {
       "type": "text",
       "title": "来源说明",
-      "nullable": true
+      "nullable": true,
+      "description": "仅记录本人陈述或其他未形成文档的方案来源；不是已核验的医疗证明。"
     },
     "notes": {
       "type": "text",
@@ -79,12 +84,14 @@
     "recurrence": {
       "type": "recurrence_rule",
       "title": "周期规则",
-      "nullable": true
+      "nullable": true,
+      "description": "可选周期规则，用于生成待办；不记录是否实际执行。"
     },
     "firstDueDate": {
       "type": "date",
       "title": "首次任务日期",
-      "nullable": true
+      "nullable": true,
+      "description": "启用周期时必填的首次任务日期；不是方案开始日期。"
     }
   },
   "defaults": {
@@ -132,9 +139,5 @@
   "access": [
     "read",
     "write"
-  ],
-  "lifecycle": {
-    "optimisticConcurrency": true,
-    "softDelete": true
-  }
+  ]
 }
