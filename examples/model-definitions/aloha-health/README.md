@@ -1,6 +1,6 @@
 # ALOHA Health · 普通模型注册候选包
 
-> **状态：待 Console Validate / Publish，未注册、未部署、不是 Baseline。**
+> **状态：Agent 语义优化候选；待 CI / Console Validate / Publish；未注册、未部署、不是 Baseline。**
 >
 > 本目录是 ALOHA Health 第一批七个 LifeSpace 普通模型的**一次性注册候选快照**。正式权威以目标环境发布成功的 Model Registry 定义与不可变 `mct_*` 合约为准。本目录不自动部署，也不引入模型专用路由、数据库表或平台迁移。
 
@@ -15,6 +15,27 @@
 - `health_assessment` — 与原始事实分离的健康判断
 
 不包含饮食 `nutrition_intake` 和运动 `exercise_session`；不增加通用 Health Kernel/Baseline/Provenance 字段。
+
+
+## Agent 语义 / Language / Token 原则（2026-10-29）
+
+- **模型 `description`**：用中文业务语言回答“是什么、何时使用、与相邻模型的区别”；不将内部 Registry、CRUD、迁移和技术版本词当作业务语义。
+- **字段 `description`**：仅给可能误选、误填或导致不实事实的字段增加简短指引。普通 `type`、`required`、`targetModel`、`enum` 等机器约束不复制写进正文。对象引用和时间/文件的通用 Tool 语法由 Agent Adapter 提供。
+- **语言**：稳定 `key`、Field Key、Enum Value 保持英文；`display`、`title`、`description` 用中文。中文名没有单复数变化，`singular` 与 `plural` 相同是刻意的，不修改机器 Model Key。
+- **Token**：压缩目标是实际给 Agent 暴露的工具描述，而非 Git 中 JSON 文件体积。模型发现按需加载，工具只暴露执行任务需要的操作、Space 和字段；不要一次挂载全部模型的全量 CRUD。若无目标 Agent tokenizer/实际 Tool Schema 样本，不能把字符数当成准确 Token。
+- **去冗余**：`lifecycle.optimisticConcurrency=true` 和 `softDelete=true` 在 DSL v1 由 Core 强制成立，候选省略这两个重复断言，不意味着关闭并发或软删除。Semantic Relations、Recurrence、Query、Reference Label 等保持原样。
+
+### 静态体积对比（不是 Token 计数）
+
+| 口径 | 旧候选 | Agent 语义版 | 差值 |
+| --- | ---: | ---: | ---: |
+| 七份原始 JSON 字符数（含格式化） | 12,503 | 14,187 | +1,684 |
+| `model.description + 60 field.description/默认 title(type)` 字符数 | 1,112 | 1,846 | +734 |
+| 有业务字段描述数 | 0/60 | 44/60 | +44 |
+
+**解释**：补足业务语义后字符数必然增加，不能误称“Token 已下降”。已优先消除 DSL 默认声明，避免往字段描述中重复附带 Tool Factory 生成的语法说明。Agent 生产 Token 成本必须在具体模型、Tokenizer 和真实 Tool 定义下复测；后续需要进一步降低成本时，优先限制工具数量和逐层语义发现。Agent 语义丰富度与 Token 预算须同时记录。
+
+**行为不变性**：仅改模型和字段描述、`display` 中文标签，以及删除 DSL 已固定为 true 的重复 `lifecycle` 表达；字段名称/类型/必填性/不可变性、默认值、引用、Query、Relation、Recurrence 及 Access 都没有改动。此优化不会自动实现跨字段约束，更不会给 Agent 新增 Authority。
 
 ## 注册顺序与门禁
 
