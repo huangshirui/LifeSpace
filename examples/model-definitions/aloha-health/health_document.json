@@ -1,10 +1,10 @@
 {
   "definitionVersion": 1,
   "key": "health_document",
-  "description": "健康资料与原生 LifeSpace File 的证据索引。",
+  "description": "登记体检报告、检验单、影像、处方或病历等健康资料，并关联已上传的原始文件。供观测、方案与评估追溯证据；不是提取后的数值记录。",
   "display": {
-    "singular": "Health Document",
-    "plural": "Health Documents"
+    "singular": "健康资料",
+    "plural": "健康资料"
   },
   "fields": {
     "subjectPersonId": {
@@ -38,7 +38,8 @@
     "issuedDate": {
       "type": "date",
       "title": "出具日期",
-      "nullable": true
+      "nullable": true,
+      "description": "资料实际出具日期，不是上传日期；未知则留空。"
     },
     "issuerName": {
       "type": "string",
@@ -49,18 +50,21 @@
       "type": "record",
       "title": "关联健康事件",
       "nullable": true,
-      "targetModel": "health_event"
+      "targetModel": "health_event",
+      "description": "资料直接对应的一次健康事件；没有明确对应事件时留空。"
     },
     "artifactRef": {
       "type": "file",
       "title": "原始文件",
       "required": true,
-      "immutable": true
+      "immutable": true,
+      "description": "必须是已上传到 LifeSpace 的原始文件引用；不能使用文件名或临时链接代替。"
     },
     "notes": {
       "type": "text",
       "title": "备注",
-      "nullable": true
+      "nullable": true,
+      "description": "补充资料背景，不替代原始报告内容。"
     }
   },
   "referenceLabel": {
@@ -85,9 +89,5 @@
   "access": [
     "read",
     "write"
-  ],
-  "lifecycle": {
-    "optimisticConcurrency": true,
-    "softDelete": true
-  }
+  ]
 }
