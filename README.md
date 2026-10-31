@@ -1,5 +1,7 @@
 # LifeSpace Platform
 
+> **Copyright & licensing: this repository is not currently open source.** Temporary public visibility, if enabled, does not grant a license to reproduce, modify, redistribute, deploy or commercially exploit the code, except as otherwise expressly permitted by law or GitHub's Terms of Service. See [COPYRIGHT.md](./COPYRIGHT.md).
+
 LifeSpace is a shared-reality platform consumed by replaceable applications, Agents, services and protocol adapters.
 
 It is the platform source of truth for global LifeSpace Identity, Space/Data Grant authorization, metadata-driven domain models, reusable business capabilities, canonical contracts, migrations, and Cloudflare deployment configuration. Application repositories own product UI, application-specific provider adapters/BFF behavior, and product presentation.
