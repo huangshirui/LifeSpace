@@ -141,3 +141,9 @@ Start with `AGENTS.md`, then the relevant source-of-truth documents:
 - `docs/runtime-storage-performance.md` — runtime/storage performance invariants
 - `docs/generic-consumer-contract.md` — consumer-neutral semantic projection and authority boundary
 - `docs/application-authentication.md` — trusted application and Cloudflare Access Identity contracts
+
+## License
+
+Original software code in this repository that the project has the right to license, except where otherwise noted, is provided under the **GNU Affero General Public License v3.0 only (AGPL-3.0-only)**. See [LICENSE](./LICENSE) for the complete terms.
+
+AGPLv3 permits commercial use while imposing copyleft obligations on covered modifications and distributions. In particular, Section 13 addresses offering Corresponding Source to users interacting with a modified covered program over a network. Third-party dependencies and materials retain their respective rights and licenses. This license does not grant trademark rights or access to hosted services. The presence of a license in this repository does not change its GitHub visibility.
