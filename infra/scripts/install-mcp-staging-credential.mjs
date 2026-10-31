@@ -1,3 +1,4 @@
+import { verifyMcpStagingApplication } from "./mcp-staging-app-identity.mjs";
 // Install an existing, human-approved LifeSpace MCP Application credential.
 // This script NEVER creates/modifies Applications, OAuth audiences, Grants,
 // service principals or user authority. Admin governance belongs in Console.
@@ -17,7 +18,7 @@ function assert(condition, message) {
 assert(/^[0-9a-f]{32}$/u.test(accountId), "Cloudflare account ID missing or malformed");
 assert(cfToken.length >= 20, "Cloudflare API token missing");
 assert(/^lsa_[a-zA-Z0-9_-]{20,}$/u.test(appCredential), "MCP Application credential is missing or malformed");
-assert(/^app_[a-zA-Z0-9_-]+$/u.test(appId), "Expected MCP Application ID is missing or malformed");
+// An optional configured ID provides another cross-check; the lsa_* self endpoint is authoritative.
 assert(action === "INSTALL_MCP_STAGING" || action === "ROTATE_MCP_STAGING",
   "Explicit install/rotate confirmation is required");
 
@@ -52,14 +53,8 @@ const own = await request(identityBase + "/internal/v1/applications/self", {
   headers: { authorization: "Bearer " + appCredential },
 });
 const application = own.payload?.data;
-assert(own.status === 200 && application?.id === appId && application.name === appName,
-  "Trusted credential is not bound to the expected MCP Staging Application");
-assert(application.status === "active" && application.trustedBackend === true
-  && application.accessTokenTtlSeconds >= 300 && application.accessTokenTtlSeconds <= 900
-  && Array.isArray(application.allowedScopes)
-  && application.allowedScopes.length === 1
-  && application.allowedScopes[0] === "resources:read",
-  "MCP Application must have an active trusted backend and only resources:read");
+assert(own.status === 200, "Identity refused the MCP Application credential self-inspection");
+const { idSource } = verifyMcpStagingApplication(application, appId);
 
 // Cloudflare owns OAuth. This is NOT a way of registering OAuth clients or
 // a workaround to the legitimate human-operated LifeSpace Console.
@@ -118,7 +113,7 @@ assert(Array.isArray(after) && after.some(s => s.name === "LIFESPACE_APPLICATION
 
 console.log(JSON.stringify({
   success: true, environment: "staging",
-  applicationIdVerified: true, readOnlyScopeVerified: true,
+  applicationIdVerified: true, applicationIdSource: idSource, readOnlyScopeVerified: true,
   managedOAuthConfigured: true, workerSecretInstalled: true,
   // Audience association remains a privileged Console operation, not asserted here.
   audienceRegistered: "must_be_confirmed_in_lifespace_console",
