@@ -141,3 +141,29 @@ The canonical staging workflow automatically exercises **a real synthetic Native
 create an ephemeral published File-capable model; obtain `upl_*` + presigned PUT; upload bytes into `uploads/native/`; complete to a new permanent `fil_*`; attach/download through the Record with the current Authority; reject deletion while referenced; soft-delete the Record and delete the detached File. It retires the synthetic model and removes temporary model access. An R2 smoke failure fails the workflow.
 
 When `LIFESPACE_EXTERNAL_PROVIDER_ACTIVE=1`, the existing real Notion self-service smoke additionally uploads a synthetic file through `file_ref_list.upload` using the same session transport, then proves the original Notion External file reference survives and the new Provider-owned URL is returned. If External Provider is disabled, **Notion upload is not accepted**, even when the Native smoke is green. Production remains manual and is not inferred from staging success.
+
+
+## MCP Staging Credential / MCP 试验环境凭证（2026-10）
+
+The MCP Adapter is a distinct LifeSpace **Application**. Cloudflare Access Managed OAuth is the external OAuth Authorization Server; Identity maps the verified Access principal to a LifeSpace User token, and Core enforces effective data/Space/Model authority. MVP limits itself to `resources:read`, never normalizes an OAuth Client into an elevated Service Principal, and does not mint an OAuth authorization grant inside LifeSpace.
+
+### Human Platform Admin governance / Console 人工授权
+
+Use the existing **LifeSpace Staging Console**; normal application governance must never add another Bootstrap consumer.
+
+1. In Staging Console > Applications, create the **trusted backend** Application named exactly `LifeSpace MCP Staging` with the scope ceiling **only** `resources:read`, and access-token TTL of **600 seconds** (300–900 accepted by installer). Record the generated **`app_*`** application ID.
+2. Register the Cloudflare Access application audience (AUD) for `mcp-staging.aisr.online` under this Application using Console's **Access audiences** panel. Never attach a Production audience, another application's audience or an arbitrary caller-supplied identity.
+3. Through the Application credential management in the same Console, issue a dedicated active **`lsa_*`** trusted backend credential. The plaintext is shown once. Do not paste it into code, chat, logs or workflow inputs.
+4. In the GitHub LifeSpace repository **Settings → Environments → staging**, set **environment variable** `LIFESPACE_STAGING_MCP_APPLICATION_ID` to the new `app_*`; set **environment secret** `LIFESPACE_STAGING_MCP_APPLICATION_CREDENTIAL` to the one-time `lsa_*` created above.
+5. Review/merge the PR containing the optional installer workflow. From **Actions → Install LifeSpace MCP staging credential**, select `main` and type `INSTALL_MCP_STAGING` for first install. This owner-only action validates Staging Identity environment; introspects the supplied `lsa_*` using the public **read-only** `GET /internal/v1/applications/self` contract; checks exact app name, ID, active/trusted backend, Scope and TTL; verifies Access Managed OAuth/tester policy, private Worker ingress and Staging-only Service Bindings; then installs only `LIFESPACE_APPLICATION_CREDENTIAL` as a Cloudflare Worker Secret.
+6. If the Worker already has a credential, the normal install fails safely. Rotate by explicitly creating a replacement through **Staging Console**, changing the GitHub environment secret and running with `ROTATE_MCP_STAGING`; revoke the previous credential after validating the new one. The installer does **not** create, rotate or revoke LifeSpace credentials itself. Remove the temporary GitHub credential secret when no longer required; the sealed Worker Secret remains valid.
+7. In **Staging Console**, explicitly give the MCP Application **Application × Model Access** at most `read` for `task` / `event`. The installer intentionally cannot alter Space membership, Data Grants, Agent Delegation, or Model Access.
+8. Run a real OAuth-capable MCP client against `https://mcp-staging.aisr.online/mcp` to verify OAuth discovery → browser Access login → Identity global `usr_*` mapping → `initialize` → `tools/list` → `tools/call` → Core-authorized model records. Test wrong Access principal, unlinked principal, revoked Model Access and forbidden writes separately. Only this test counts as live E2E verification.
+
+### Boundary and failure handling
+
+- The workflow has `workflow_dispatch` only, requires the actual repository owner and `main`, and uses the protected `staging` GitHub Environment. It never dispatches platform staging/production deployments or mutates LifeSpace Application/Audience authority.
+- Its only mutation is installing one verified application credential into the existing Staging MCP Worker. Its GitHub Environment input is a pre-existing one-time credential from a **real human-authorized** Console action; no Bootstrap Secret, fake admin proof, privileged service token or token fabrication is involved.
+- If User → Access principal association is not established, Identity returns a bounded failure and no data is disclosed; the Console/user account linking UX remains separate.
+- CI synthetic tests and a successful installer do **not** prove OAuth browser login or actual Core user authorization. The OAuth client ID/custom per-client scopes remain unverified, so all clients share a common read-only maximum.
+- Production remains untouched by this Staging installer, and credentials are never committed into the codebase.
