@@ -75,7 +75,7 @@ jobs:
         if: steps.validation.outputs.run_full == 'true'
       - name: Validate MCP staging credential provisioning script syntax
         if: steps.validation.outputs.run_full == 'true'
-        run: node --check infra/scripts/provision-mcp-staging-credential.mjs
+        run: node --check infra/scripts/install-mcp-staging-credential.mjs
       - name: Resolve pinned provider revision from manifest
         if: steps.validation.outputs.run_full == 'true'
         id: external_provider
