@@ -172,6 +172,85 @@ describe("Space membership and invitation management", () => {
     expect(stale.status).toBe(409);
   });
 
+  it("prevents an admin from evicting the Owner or letting the Owner leave", async () => {
+    const { privateKey, publicKey } = await keys();
+    const ownerId = `usr_${crypto.randomUUID()}`;
+    const adminId = `usr_${crypto.randomUUID()}`;
+    const space = await createSpaceFixture(privateKey, publicKey, ownerId);
+    const adminAdded = await request(`/api/v1/spaces/${space.spaceId}/members`, space.accessToken, publicKey, {
+      method: "POST",
+      body: JSON.stringify({ userId: adminId, role: "admin", displayName: "Administrator" }),
+    });
+    expect(adminAdded.status).toBe(201);
+    const adminToken = await token(privateKey, adminId, ["spaces:read", "spaces:write", "spaces:manage"]);
+
+    const evictOwner = await request(`/api/v1/spaces/${space.spaceId}/members/${ownerId}`, adminToken, publicKey, {
+      method: "DELETE",
+    });
+    expect(evictOwner.status).toBe(409);
+    expect((await evictOwner.json<{ error: { code: string } }>()).error.code).toBe("OWNER_ROLE_IMMUTABLE");
+
+    const ownerLeaves = await request(`/api/v1/spaces/${space.spaceId}/leave`, space.accessToken, publicKey, {
+      method: "POST",
+    });
+    expect(ownerLeaves.status).toBe(409);
+    expect((await ownerLeaves.json<{ error: { code: string } }>()).error.code).toBe("OWNER_ROLE_IMMUTABLE");
+
+    const db = (env as unknown as TestEnv).DB;
+    const ownerMembership = await db.prepare(
+      "SELECT role,deleted_at FROM space_memberships WHERE space_id=? AND user_id=? AND deleted_at IS NULL",
+    ).bind(space.spaceId, ownerId).first<{ role: string; deleted_at: string | null }>();
+    const ownerPerson = await db.prepare(
+      "SELECT deleted_at FROM space_people WHERE space_id=? AND linked_user_id=? AND deleted_at IS NULL",
+    ).bind(space.spaceId, ownerId).first<{ deleted_at: string | null }>();
+    expect(ownerMembership).toMatchObject({ role: "owner", deleted_at: null });
+    expect(ownerPerson).toMatchObject({ deleted_at: null });
+
+    const ownerRemovesAdmin = await request(`/api/v1/spaces/${space.spaceId}/members/${adminId}`,
+      space.accessToken, publicKey, { method: "DELETE" });
+    expect(ownerRemovesAdmin.status).toBe(204);
+    expect((await db.prepare("SELECT deleted_at FROM space_memberships WHERE space_id=? AND user_id=?")
+      .bind(space.spaceId, adminId).first<{ deleted_at: string | null }>())?.deleted_at).toBeTruthy();
+    expect((await db.prepare("SELECT deleted_at FROM space_people WHERE space_id=? AND linked_user_id=?")
+      .bind(space.spaceId, adminId).first<{ deleted_at: string | null }>())?.deleted_at).toBeTruthy();
+
+    // Removed administrators cannot use stale tokens to take control of the Space.
+    const evictAfterRemoval = await request(`/api/v1/spaces/${space.spaceId}/members/${ownerId}`,
+      adminToken, publicKey, { method: "DELETE" });
+    expect(evictAfterRemoval.status).toBe(403);
+    expect((await request(`/api/v1/spaces/${space.spaceId}`, space.accessToken, publicKey)).status).toBe(200);
+  });
+
+  it("allows the Owner to demote an admin without losing ownership", async () => {
+    const { privateKey, publicKey } = await keys();
+    const ownerId = `usr_${crypto.randomUUID()}`;
+    const adminId = `usr_${crypto.randomUUID()}`;
+    const space = await createSpaceFixture(privateKey, publicKey, ownerId);
+    const added = await request(`/api/v1/spaces/${space.spaceId}/members`, space.accessToken, publicKey, {
+      method: "POST",
+      body: JSON.stringify({ userId: adminId, role: "admin", displayName: "Administrator" }),
+    });
+    expect(added.status).toBe(201);
+    const member = await added.json<{ data: { version: number } }>();
+    const adminToken = await token(privateKey, adminId, ["spaces:read", "spaces:write", "spaces:manage"]);
+
+    const demoted = await request(`/api/v1/spaces/${space.spaceId}/members/${adminId}`, space.accessToken, publicKey, {
+      method: "PATCH",
+      body: JSON.stringify({ role: "viewer", version: member.data.version }),
+    });
+    expect(demoted.status).toBe(200);
+
+    const evictOwner = await request(`/api/v1/spaces/${space.spaceId}/members/${ownerId}`, adminToken, publicKey, {
+      method: "DELETE",
+    });
+    expect(evictOwner.status).toBe(403);
+    const db = (env as unknown as TestEnv).DB;
+    expect((await db.prepare("SELECT role FROM space_memberships WHERE space_id=? AND user_id=? AND deleted_at IS NULL")
+      .bind(space.spaceId, ownerId).first<{ role: string }>())?.role).toBe("owner");
+    expect((await request(`/api/v1/spaces/${space.spaceId}/members/${adminId}`,
+      space.accessToken, publicKey, { method: "DELETE" })).status).toBe(204);
+  });
+
   it("reactivates the same membership and Space Person after removal", async () => {
     const { privateKey, publicKey } = await keys();
     const ownerId = `usr_${crypto.randomUUID()}`;
