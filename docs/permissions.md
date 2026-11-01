@@ -253,6 +253,8 @@ The effective result is the intersection. The token cannot use a model absent fr
 
 Initial role vocabulary remains small: `owner`, `admin`, `editor`, `viewer`. Published model policy or sensitive-data Capabilities may further reduce these defaults. Roles are not a substitute for model checks.
 
+**Owner preservation / 所有者不可被普通成员操作剥夺（#456）**: Space creation grants `owner` to the creating User. The ordinary add/invite/update member routes cannot assign or transfer `owner`. Neither an `admin` nor an `owner` may remove an Owner membership through `DELETE /api/v1/spaces/{spaceId}/members/{userId}`, and the Owner cannot leave through `POST /api/v1/spaces/{spaceId}/leave`; both cases fail with `OWNER_ROLE_IMMUTABLE` (409). An Owner may still demote/remove `admin`, `editor`, or `viewer` members, subject to current credential scope and Space authority. Owner changes require a separate governed transfer contract, which is not implemented. Member removal and leave must never leave an active Space without an Owner. Revoking Membership does not implicitly revoke independent Data Grants held by the same principal.
+
 Kernel lifecycle rules apply uniformly to Spaces unless a future platform-level distinction is explicitly introduced. Product-specific classifications and lifecycle differences belong downstream and must not be inferred from a Space type or naming convention.
 
 ### Space lifecycle authority
