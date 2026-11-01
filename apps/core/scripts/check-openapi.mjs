@@ -221,6 +221,14 @@ if (!closeSpace?.description?.includes("current user membership role owner")
     || !closeSpaceSchema?.required?.includes("version")) {
   throw new Error("Space close must be owner-only and use optimistic concurrency");
 }
+const memberDelete = document.paths?.["/api/v1/spaces/{spaceId}/members/{userId}"]?.delete;
+const memberLeave = document.paths?.["/api/v1/spaces/{spaceId}/leave"]?.post;
+if (!memberDelete?.description?.includes("OWNER_ROLE_IMMUTABLE")
+    || !memberLeave?.description?.includes("OWNER_ROLE_IMMUTABLE")
+    || !memberDelete.responses?.["409"]
+    || !memberLeave.responses?.["409"]) {
+  throw new Error("Owner membership removal/leave must be explicitly rejected in the Kernel contract");
+}
 const avatarPut = document.paths?.["/api/v1/spaces/{spaceId}/avatar"]?.put;
 if (!avatarPut?.requestBody?.content?.["multipart/form-data"]?.schema?.required?.includes("version")) {
   throw new Error("Space avatar replacement must use optimistic concurrency");
