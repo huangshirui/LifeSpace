@@ -412,19 +412,22 @@ Identity 0.13 adds an authenticated user's explicit Application-scoped mailbox l
 The Identity 0.14/schema 13 account-link contract supersedes the earlier 0.13 mailbox-grant wording. Both entry points write `access_principals`; pending declarations grant no token and ordinary login resolves verified issuer/subject only. GET settings projects code-linked and email-prelinked state uniformly. See `application-authentication.md`. Not deployed by this correction.
 
 
-## Unified Connection read-only companion (candidate, not deployed)
+## Unified Connection scoped management companion (candidate, not deployed)
 
-The Core-owned, app-scoped **read-only** candidate is defined by
-`apps/core/unified-connection.openapi.yaml` version `0.1.0` and its
-nonsecret metadata schema `apps/core/unified-connection.contract.json`.
-Unlike `apps/core/external-connection.openapi.yaml` (provider `cnx_*`
-setup), this surface addresses unified platform `conn_*` metadata across
-Agent, Service, Event Push and External Data kinds.
+The Core-owned app-scoped draft management candidate is defined by
+`apps/core/unified-connection.openapi.yaml` version `0.2.0` and
+`apps/core/unified-connection.contract.json` (nonsecret metadata).
+Unlike `apps/core/external-connection.openapi.yaml` (provider `cnx_*`),
+this surface addresses platform `conn_*` metadata for Agent, Service,
+Event Push and External Data kinds.
 
-The first routes allow only current-Application, current-Space-manager
-read/list. They do **not** grant Account cross-Application management, issue
-`agt_*`/`svc_*` identities, create/rotate credentials, provision Grants,
-bind OAuth clients or accept Connection execution. Those mutations and
-authorization boundaries require subsequent versioned contracts and explicit
-tests. No current Production behavior is changed by documenting this
-candidate.
+The first routes provide verified-Application, current-Space-manager
+read/list, plus **pending, unprovisioned** draft creation, name/note PATCH
+with optimistic precondition, and cancellation only when no identity or
+backing service resource has been provisioned. They do **not** grant Account
+cross-Application management, issue `agt_*`/`svc_*` identities, create
+or rotate credentials, activate Connections, revoke running credentials,
+provision Grants, bind OAuth clients or permit Connection execution.
+These require subsequent versioned contracts, cross-service failure
+compensation and current-authority tests. No Production behavior is changed
+by this candidate.
