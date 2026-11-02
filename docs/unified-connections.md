@@ -67,6 +67,8 @@ Only `agent` and `service` kinds carry an externally visible dedicated identity 
 
 No legacy `ext_*` or production Webhook endpoint is deleted as part of this document-only slice.
 
+The full Connection lifecycle is **not implemented or deployed**; only the restricted read-only preview described below has code.
+
 ## Current app-scoped read-only slice / 当前仅限应用内只读接口
 
 A limited implementation is available **on a draft branch only** at:
