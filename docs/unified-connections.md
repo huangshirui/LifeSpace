@@ -67,15 +67,18 @@ Only `agent` and `service` kinds carry an externally visible dedicated identity 
 
 No legacy `ext_*` or production Webhook endpoint is deleted as part of this document-only slice.
 
-The full Connection lifecycle is **not implemented or deployed**; only the restricted read-only preview described below has code.
+The full Connection lifecycle is **not implemented or deployed**. The candidate only permits safe, current-Application-scoped metadata reads and **unprovisioned pending drafts**. No Identity credential or provider resource has yet been created.
 
-## Current app-scoped read-only slice / 当前仅限应用内只读接口
+## Current app-scoped draft management slice / 当前仅限应用内草稿管理
 
-A limited implementation is available **on a draft branch only** at:
+On a Draft branch only, the endpoints are:
 
-- `GET /api/v1/spaces/{spaceId}/connections?limit=20&offset=0`
-- `GET /api/v1/spaces/{spaceId}/connections/{connectionId}`
+- `GET /api/v1/spaces/{spaceId}/connections?limit=20&offset=0` — current-Application visible list.
+- `GET /api/v1/spaces/{spaceId}/connections/{connectionId}` — current-Application visible detail.
+- `POST /api/v1/spaces/{spaceId}/connections` — create a `pending`, non-executable draft. Only `kind`, `name`, optional `note`, and `ownerType` (`space` or `user`) are accepted. Application and Space come from the verified request context. Owner `user` always means the signed-in user.
+- `PATCH /api/v1/spaces/{spaceId}/connections/{connectionId}` — update display `name`/`note` only, using required `expectedUpdatedAt` to reject stale updates. Cannot change execution authority.
+- `DELETE /api/v1/spaces/{spaceId}/connections/{connectionId}` — mark an **unprovisioned pending** draft revoked; refuses drafts whose identity or backing resource has been provisioned. This operation is not live credential revocation.
 
-These endpoints are intentionally **not** the cross-Application Account manager. They require an authenticated User, `spaces:manage` and current Space `manage` permission. Only rows whose `application_id` matches the **verified token** `principal.clientId` can be returned. Space-owned rows are visible to authorized Space managers; user-owned rows are visible only to their owner. Unknown/foreign Connection IDs return 404 without leaking metadata.
+All routes require an authenticated User, `spaces:manage` and **current** Space `manage` authority. The Application is fixed by authenticated `principal.clientId`, never a client-provided Application selector. Space-owned drafts are managed by current Space managers; a user-owned draft is visible only to its owner subject to the same Space authority. Unknown or foreign Connection IDs return 404 without leaking details.
 
-No mutation route, registration ticket, identity issuance, credential management, OAuth token binding or cross-Application Account privilege has been added. Enabling that surface requires a separate approved identity/management authorization contract. Existing `cnx_*` External connections are unaffected.
+Creating a draft does **not** issue `agt_*` / `svc_*`, create Grant/Delegation, configure Webhook or External Provider credentials, generate MCP URLs, bind OAuth clients, or activate tools. An Account cross-Application management surface, trusted creation ticket, Identity-side lifecycle/compensation, active revocation and Cloudflare OAuth token binding remain separate implementation gates. Existing `cnx_*` External connections are untouched.
