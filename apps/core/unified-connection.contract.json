@@ -130,9 +130,6 @@
         }
       },
       "then": {
-        "required": [
-          "identity"
-        ],
         "properties": {
           "identity": {
             "properties": {
@@ -156,9 +153,6 @@
         }
       },
       "then": {
-        "required": [
-          "identity"
-        ],
         "properties": {
           "identity": {
             "properties": {
@@ -190,6 +184,30 @@
             "identity"
           ]
         }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "active"
+          },
+          "kind": {
+            "enum": [
+              "agent",
+              "service"
+            ]
+          }
+        },
+        "required": [
+          "status",
+          "kind"
+        ]
+      },
+      "then": {
+        "required": [
+          "identity"
+        ]
       }
     }
   ]
