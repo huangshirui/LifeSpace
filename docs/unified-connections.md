@@ -1,6 +1,6 @@
 # Unified Connection — target contract v1 / 统一连接目标契约
 
-> **Status: staged design and limited read-only API candidate; not deployed.** This document is not a Production capability claim. It captures user-approved invariants for the upcoming LifeSpace Core implementation. Open questions below must be resolved through Staging evidence before authorizing changes to OAuth/Identity runtime semantics.
+> **Status: restricted draft management API candidate on a Draft branch; not merged or deployed.** This document is not a Production capability claim. It captures user-approved invariants for the upcoming LifeSpace Core implementation. Open questions below must be resolved through Staging evidence before authorizing changes to OAuth/Identity runtime semantics.
 
 ## Goal / 目标
 
