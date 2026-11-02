@@ -410,3 +410,21 @@ Identity 0.13 adds an authenticated user's explicit Application-scoped mailbox l
 ## 2026-10-26 correction: unified Access links
 
 The Identity 0.14/schema 13 account-link contract supersedes the earlier 0.13 mailbox-grant wording. Both entry points write `access_principals`; pending declarations grant no token and ordinary login resolves verified issuer/subject only. GET settings projects code-linked and email-prelinked state uniformly. See `application-authentication.md`. Not deployed by this correction.
+
+
+## Unified Connection read-only companion (candidate, not deployed)
+
+The Core-owned, app-scoped **read-only** candidate is defined by
+`apps/core/unified-connection.openapi.yaml` version `0.1.0` and its
+nonsecret metadata schema `apps/core/unified-connection.contract.json`.
+Unlike `apps/core/external-connection.openapi.yaml` (provider `cnx_*`
+setup), this surface addresses unified platform `conn_*` metadata across
+Agent, Service, Event Push and External Data kinds.
+
+The first routes allow only current-Application, current-Space-manager
+read/list. They do **not** grant Account cross-Application management, issue
+`agt_*`/`svc_*` identities, create/rotate credentials, provision Grants,
+bind OAuth clients or accept Connection execution. Those mutations and
+authorization boundaries require subsequent versioned contracts and explicit
+tests. No current Production behavior is changed by documenting this
+candidate.
