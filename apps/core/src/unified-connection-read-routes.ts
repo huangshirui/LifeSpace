@@ -5,7 +5,7 @@ import type { Bindings, Principal, Variables } from "./env";
 import { ApiError, success } from "./http";
 
 type App = Hono<{ Bindings: Bindings; Variables: Variables }>;
-type Row = {
+export type UnifiedConnectionRow = {
   id: string;
   application_id: string;
   space_id: string;
@@ -45,7 +45,7 @@ function page(url: string) {
   return { limit: parse("limit", 20, 50), offset: parse("offset", 0, 10000) };
 }
 
-function toMetadata(row: Row) {
+export function toMetadata(row: UnifiedConnectionRow) {
   return {
     connectionId: row.id,
     applicationId: row.application_id,
@@ -81,7 +81,7 @@ export function registerUnifiedConnectionReadRoutes(app: App): void {
       FROM unified_connections WHERE space_id=? AND application_id=?
         AND (owner_type='space' OR (owner_type='user' AND owner_id=?))
       ORDER BY created_at DESC,id DESC LIMIT ? OFFSET ?`)
-      .bind(spaceId, principal.clientId, principal.id, limit + 1, offset).all<Row>();
+      .bind(spaceId, principal.clientId, principal.id, limit + 1, offset).all<UnifiedConnectionRow>();
     const visible = rows.results.slice(0, limit);
     return c.json(success({
       items: visible.map(toMetadata),
@@ -101,7 +101,7 @@ export function registerUnifiedConnectionReadRoutes(app: App): void {
       owner_type,owner_id,identity_type,identity_id,created_at,updated_at
       FROM unified_connections WHERE id=? AND space_id=? AND application_id=?
         AND (owner_type='space' OR (owner_type='user' AND owner_id=?))`)
-      .bind(connectionId, spaceId, principal.clientId, principal.id).first<Row>();
+      .bind(connectionId, spaceId, principal.clientId, principal.id).first<UnifiedConnectionRow>();
     if (!row) throw new ApiError("NOT_FOUND", "Connection not found", 404);
     return c.json(success(toMetadata(row)));
   });
