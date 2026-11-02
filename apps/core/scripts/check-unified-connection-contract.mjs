@@ -5,6 +5,21 @@ const file = new URL("../unified-connection.contract.json", import.meta.url);
 const doc = new URL("../../../docs/unified-connections.md", import.meta.url);
 const schema = JSON.parse(readFileSync(file, "utf8"));
 const guide = readFileSync(doc, "utf8");
+const readApi = JSON.parse(readFileSync(new URL("../unified-connection.openapi.yaml", import.meta.url), "utf8"));
+const readRoutes = readFileSync(new URL("../src/unified-connection-read-routes.ts", import.meta.url), "utf8");
+const app = readFileSync(new URL("../src/app.ts", import.meta.url), "utf8");
+assert.equal(readApi.info.version, "0.1.0");
+const base = "/api/v1/spaces/{spaceId}/connections";
+assert(readApi.paths[base]?.get);
+assert(readApi.paths[base + "/{connectionId}"]?.get);
+assert(!readApi.paths[base]?.post, "identity provisioning is not implemented here");
+assert(!readApi.paths[base + "/{connectionId}"]?.patch, "mutations are not implemented here");
+assert(readApi.info.description.includes("derived exclusively from authenticated token azp"));
+assert(readRoutes.includes('requireScope("spaces:manage")'));
+assert(readRoutes.includes('requireSpacePermission(c.env, principal, spaceId, "manage")'));
+assert(readRoutes.includes("principal.clientId"));
+assert(app.includes("registerUnifiedConnectionReadRoutes(app)"));
+
 
 assert.equal(schema.$schema, "https://json-schema.org/draft/2020-12/schema");
 assert.equal(schema.type, "object");
