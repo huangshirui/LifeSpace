@@ -20,6 +20,7 @@ import { registerSemanticRelationRoutes } from "./semantic-relation-routes";
 import { registerPersonDirectoryRoutes } from "./person-directory";
 import { registerEventSubscriptionRoutes } from "./event-subscription-routes";
 import { registerUnifiedConnectionReadRoutes } from "./unified-connection-read-routes";
+import { registerUnifiedConnectionDraftRoutes } from "./unified-connection-draft-routes";
 import { ApiError, failure, success } from "./http";
 import { registerModelAdminRoutes } from "./model-admin";
 import { registerModelAdminAiRoutes } from "./model-admin-ai";
@@ -117,6 +118,7 @@ export function createApp() {
   registerPlatformInspectorRoutes(app);
   registerEventSubscriptionRoutes(app);
   registerUnifiedConnectionReadRoutes(app);
+  registerUnifiedConnectionDraftRoutes(app);
   registerDelegationRoutes(app);
   registerAuthorizationRequestRoutes(app);
   registerChangeHistoryRoutes(app);
