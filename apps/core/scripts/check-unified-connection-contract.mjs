@@ -38,10 +38,15 @@ const getBranch = kind => branches.find(x =>
 for (const [kind, type, prefix] of [["agent", "agent", "^agt_"], ["service", "service", "^svc_"]]) {
   const branch = getBranch(kind);
   assert(branch, "missing dedicated identity condition: " + kind);
-  assert(branch.then.required.includes("identity"));
+  assert(!branch.then.required?.includes("identity"), "pending connections may await identity provisioning");
   assert.equal(branch.then.properties.identity.properties.type.const, type);
   assert(branch.then.properties.identity.properties.id.pattern.startsWith(prefix));
 }
+const activeIdentity = branches.find(x =>
+  x.if?.properties?.status?.const === "active" && x.if?.properties?.kind?.enum?.includes("agent"));
+assert(activeIdentity?.then?.required?.includes("identity"),
+  "active Agent/Service connections must have a dedicated identity");
+
 for (const kind of ["event_push", "external_data"]) {
   assert(getBranch(kind)?.then?.not?.required?.includes("identity"), "non-identity kind must not expose dedicated identity: " + kind);
 }
