@@ -1,6 +1,6 @@
 # Unified Connection — target contract v1 / 统一连接目标契约
 
-> **Status: design candidate, not implemented or deployed.** This document is not a Production capability claim. It captures user-approved invariants for the upcoming LifeSpace Core implementation. Open questions below must be resolved through Staging evidence before authorizing changes to OAuth/Identity runtime semantics.
+> **Status: staged design and limited read-only API candidate; not deployed.** This document is not a Production capability claim. It captures user-approved invariants for the upcoming LifeSpace Core implementation. Open questions below must be resolved through Staging evidence before authorizing changes to OAuth/Identity runtime semantics.
 
 ## Goal / 目标
 
@@ -66,3 +66,14 @@ Only `agent` and `service` kinds carry an externally visible dedicated identity 
 5. Validate all four kinds on Staging, then switch only currently used HomeMew n8n credentials.
 
 No legacy `ext_*` or production Webhook endpoint is deleted as part of this document-only slice.
+
+## Current app-scoped read-only slice / 当前仅限应用内只读接口
+
+A limited implementation is available **on a draft branch only** at:
+
+- `GET /api/v1/spaces/{spaceId}/connections?limit=20&offset=0`
+- `GET /api/v1/spaces/{spaceId}/connections/{connectionId}`
+
+These endpoints are intentionally **not** the cross-Application Account manager. They require an authenticated User, `spaces:manage` and current Space `manage` permission. Only rows whose `application_id` matches the **verified token** `principal.clientId` can be returned. Space-owned rows are visible to authorized Space managers; user-owned rows are visible only to their owner. Unknown/foreign Connection IDs return 404 without leaking metadata.
+
+No mutation route, registration ticket, identity issuance, credential management, OAuth token binding or cross-Application Account privilege has been added. Enabling that surface requires a separate approved identity/management authorization contract. Existing `cnx_*` External connections are unaffected.
