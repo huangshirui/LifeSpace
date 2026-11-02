@@ -2,8 +2,8 @@
   "openapi": "3.1.0",
   "info": {
     "title": "LifeSpace Unified Connection Read API (Application-scoped)",
-    "version": "0.1.0",
-    "description": "Read-only app-scoped preview. Cross-Application Account management, mutation, credential provisioning and MCP runtime are NOT part of this contract. Scope spaces:manage, User principal and current Space manage permission are required. Application is derived exclusively from authenticated token azp; owner-user rows are visible only to their owner, Space-owned rows to Space managers."
+    "version": "0.2.0",
+    "description": "Application-scoped Connection read and unprovisioned draft management candidate. GET, POST pending draft, PATCH display metadata, DELETE only unprovisioned pending draft. No identity creation, credential issuance, activation, live revocation or cross-Application Account administration. Requires User Principal, spaces:manage and current Space manage. Authenticated Application derives strictly from verified token azp."
   },
   "servers": [
     {
@@ -75,6 +75,58 @@
             "description": "Current Space management/credential scope denied"
           }
         }
+      },
+      "post": {
+        "operationId": "createPendingApplicationConnection",
+        "summary": "Create an unprovisioned, non-executable pending Connection",
+        "description": "Derives Application from signed identity; assigns owner only to current Space or authenticated User. Does not create Identity/credentials, Grants, Webhook subscriptions or External Adapter records. Cannot set active status.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SpaceId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateConnectionDraft"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Connection nonsecret metadata",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "data"
+                  ],
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/Connection"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid field or forbidden attempted override"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "description": "Scope or Space manage denied"
+          },
+          "415": {
+            "description": "JSON content type required"
+          }
+        }
       }
     },
     "/api/v1/spaces/{spaceId}/connections/{connectionId}": {
@@ -116,6 +168,94 @@
           },
           "404": {
             "description": "Connection not found within authorized Application and Space"
+          }
+        }
+      },
+      "patch": {
+        "operationId": "updateApplicationConnectionMetadata",
+        "summary": "Update only display name/note of a visible non-revoked Connection",
+        "description": "Requires exact expectedUpdatedAt optimistic precondition. Cannot change status, owner, Application, Space, kind, credentials, identity or backing resources.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SpaceId"
+          },
+          {
+            "$ref": "#/components/parameters/ConnectionId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EditConnectionMetadata"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Connection nonsecret metadata",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "data"
+                  ],
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/Connection"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid or unsupported field"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "description": "Scope or Space manage denied"
+          },
+          "404": {
+            "description": "Connection not found or not visible"
+          },
+          "409": {
+            "description": "Stale modification or revoked Connection"
+          }
+        }
+      },
+      "delete": {
+        "operationId": "cancelUnprovisionedApplicationConnectionDraft",
+        "summary": "Cancel a pending draft only if it has no Identity or backing resource",
+        "description": "Marks an unprovisioned draft revoked. Never invalidates live credentials or pretends to revoke an active Agent/Service/Webhook/Provider. Live revocation needs a separate orchestrated Identity/Core lifecycle.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SpaceId"
+          },
+          {
+            "$ref": "#/components/parameters/ConnectionId"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Unprovisioned pending draft cancelled"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "description": "Scope or Space manage denied"
+          },
+          "404": {
+            "description": "Connection not found or not visible"
+          },
+          "409": {
+            "description": "Provisioned or active Connection cannot be cancelled here"
           }
         }
       }
@@ -383,6 +523,85 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 128
+          }
+        }
+      },
+      "CreateConnectionDraft": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "name"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "agent",
+              "service",
+              "event_push",
+              "external_data"
+            ]
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 1000,
+            "description": "Optional note; not used for authorization"
+          },
+          "ownerType": {
+            "type": "string",
+            "enum": [
+              "space",
+              "user"
+            ],
+            "default": "space",
+            "description": "Own current Space or authenticated User only; not an arbitrary Owner ID"
+          }
+        }
+      },
+      "EditConnectionMetadata": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "expectedUpdatedAt"
+        ],
+        "anyOf": [
+          {
+            "required": [
+              "name"
+            ]
+          },
+          {
+            "required": [
+              "note"
+            ]
+          }
+        ],
+        "properties": {
+          "expectedUpdatedAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Optimistic modification precondition from last GET"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 1000
           }
         }
       }
