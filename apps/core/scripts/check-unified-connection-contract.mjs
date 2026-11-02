@@ -28,7 +28,7 @@ assert(draftRoutes.includes('requireSpacePermission(c.env, principal, spaceId, "
 assert(draftRoutes.includes("principal.clientId"));
 assert(draftRoutes.includes("identity_id IS NULL AND backing_id IS NULL"));
 assert(app.includes("registerUnifiedConnectionDraftRoutes(app)"));
-assert(readApi.info.description.includes("derived exclusively from authenticated token azp"));
+assert(readApi.info.description.includes("verified token azp"), "Application context must derive from verified token");
 assert(readRoutes.includes('requireScope("spaces:manage")'));
 assert(readRoutes.includes('requireSpacePermission(c.env, principal, spaceId, "manage")'));
 assert(readRoutes.includes("principal.clientId"));
