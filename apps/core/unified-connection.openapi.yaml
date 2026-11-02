@@ -1,0 +1,391 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "LifeSpace Unified Connection Read API (Application-scoped)",
+    "version": "0.1.0",
+    "description": "Read-only app-scoped preview. Cross-Application Account management, mutation, credential provisioning and MCP runtime are NOT part of this contract. Scope spaces:manage, User principal and current Space manage permission are required. Application is derived exclusively from authenticated token azp; owner-user rows are visible only to their owner, Space-owned rows to Space managers."
+  },
+  "servers": [
+    {
+      "url": "https://core.example.com",
+      "description": "Documentation example only"
+    }
+  ],
+  "security": [
+    {
+      "bearerAuth": []
+    }
+  ],
+  "paths": {
+    "/api/v1/spaces/{spaceId}/connections": {
+      "get": {
+        "operationId": "listApplicationConnections",
+        "summary": "List connections for the verified current Application and current Space manager",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SpaceId"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50,
+              "default": 20
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 10000,
+              "default": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "App-scoped non-secret connection metadata",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "data"
+                  ],
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/ConnectionList"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid pagination"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Current Space management/credential scope denied"
+          }
+        }
+      }
+    },
+    "/api/v1/spaces/{spaceId}/connections/{connectionId}": {
+      "get": {
+        "operationId": "getApplicationConnection",
+        "summary": "Get a Connection visible to the verified current Application and Space manager",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SpaceId"
+          },
+          {
+            "$ref": "#/components/parameters/ConnectionId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Non-secret Connection metadata",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "data"
+                  ],
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/Connection"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Space management denied"
+          },
+          "404": {
+            "description": "Connection not found within authorized Application and Space"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer"
+      }
+    },
+    "parameters": {
+      "SpaceId": {
+        "name": "spaceId",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "pattern": "^spc_[A-Za-z0-9_-]+$"
+        }
+      },
+      "ConnectionId": {
+        "name": "connectionId",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "pattern": "^conn_[A-Za-z0-9_-]+$"
+        }
+      }
+    },
+    "schemas": {
+      "Connection": {
+        "title": "LifeSpace Unified Connection — planned nonsecret read metadata",
+        "description": "Design candidate only: no active API route. Agent/Service Connection identity is exclusive. Credentials and grants are stored by canonical owning services, not here.",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "connectionId",
+          "applicationId",
+          "spaceId",
+          "kind",
+          "name",
+          "status",
+          "owner",
+          "createdAt",
+          "updatedAt"
+        ],
+        "properties": {
+          "connectionId": {
+            "type": "string",
+            "pattern": "^conn_[A-Za-z0-9_-]+$",
+            "description": "Opaque platform-wide Connection identifier; never a credential"
+          },
+          "applicationId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "spaceId": {
+            "type": "string",
+            "pattern": "^spc_[A-Za-z0-9_-]+$"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "agent",
+              "service",
+              "event_push",
+              "external_data"
+            ]
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 1000,
+            "description": "Optional editable user note, not an authorization field"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "active",
+              "disabled",
+              "revoked"
+            ]
+          },
+          "owner": {
+            "$ref": "#/components/schemas/Owner",
+            "description": "Management owner; cross-boundary transfer is not ordinary PATCH"
+          },
+          "identity": {
+            "$ref": "#/components/schemas/Identity",
+            "description": "Present only for dedicated Agent/Service identities"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "kind": {
+                  "const": "agent"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "identity": {
+                  "properties": {
+                    "type": {
+                      "const": "agent"
+                    },
+                    "id": {
+                      "pattern": "^agt_[A-Za-z0-9_-]+$"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "kind": {
+                  "const": "service"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "identity": {
+                  "properties": {
+                    "type": {
+                      "const": "service"
+                    },
+                    "id": {
+                      "pattern": "^svc_[A-Za-z0-9_-]+$"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "kind": {
+                  "enum": [
+                    "event_push",
+                    "external_data"
+                  ]
+                }
+              }
+            },
+            "then": {
+              "not": {
+                "required": [
+                  "identity"
+                ]
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "status": {
+                  "const": "active"
+                },
+                "kind": {
+                  "enum": [
+                    "agent",
+                    "service"
+                  ]
+                }
+              },
+              "required": [
+                "status",
+                "kind"
+              ]
+            },
+            "then": {
+              "required": [
+                "identity"
+              ]
+            }
+          }
+        ]
+      },
+      "ConnectionList": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "items",
+          "nextOffset"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Connection"
+            }
+          },
+          "nextOffset": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "Owner": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "type",
+          "id"
+        ],
+        "properties": {
+          "type": {
+            "enum": [
+              "user",
+              "space"
+            ]
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        }
+      },
+      "Identity": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "type",
+          "id"
+        ],
+        "properties": {
+          "type": {
+            "enum": [
+              "agent",
+              "service"
+            ]
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        }
+      }
+    }
+  }
+}
