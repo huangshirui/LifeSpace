@@ -1,0 +1,196 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.lifespace.invalid/unified-connection-metadata.draft.json",
+  "title": "LifeSpace Unified Connection — planned nonsecret read metadata",
+  "description": "Design candidate only: no active API route. Agent/Service Connection identity is exclusive. Credentials and grants are stored by canonical owning services, not here.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "connectionId",
+    "applicationId",
+    "spaceId",
+    "kind",
+    "name",
+    "status",
+    "owner",
+    "createdAt",
+    "updatedAt"
+  ],
+  "properties": {
+    "connectionId": {
+      "type": "string",
+      "pattern": "^conn_[A-Za-z0-9_-]+$",
+      "description": "Opaque platform-wide Connection identifier; never a credential"
+    },
+    "applicationId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "spaceId": {
+      "type": "string",
+      "pattern": "^spc_[A-Za-z0-9_-]+$"
+    },
+    "kind": {
+      "type": "string",
+      "enum": [
+        "agent",
+        "service",
+        "event_push",
+        "external_data"
+      ]
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 120
+    },
+    "note": {
+      "type": "string",
+      "maxLength": 1000,
+      "description": "Optional editable user note, not an authorization field"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "active",
+        "disabled",
+        "revoked"
+      ]
+    },
+    "owner": {
+      "$ref": "#/$defs/owner",
+      "description": "Management owner; cross-boundary transfer is not ordinary PATCH"
+    },
+    "identity": {
+      "$ref": "#/$defs/identity",
+      "description": "Present only for dedicated Agent/Service identities"
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "updatedAt": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "$defs": {
+    "owner": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "id"
+      ],
+      "properties": {
+        "type": {
+          "enum": [
+            "user",
+            "space"
+          ]
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        }
+      }
+    },
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "id"
+      ],
+      "properties": {
+        "type": {
+          "enum": [
+            "agent",
+            "service"
+          ]
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "agent"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "identity"
+        ],
+        "properties": {
+          "identity": {
+            "properties": {
+              "type": {
+                "const": "agent"
+              },
+              "id": {
+                "pattern": "^agt_[A-Za-z0-9_-]+$"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "service"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "identity"
+        ],
+        "properties": {
+          "identity": {
+            "properties": {
+              "type": {
+                "const": "service"
+              },
+              "id": {
+                "pattern": "^svc_[A-Za-z0-9_-]+$"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "enum": [
+              "event_push",
+              "external_data"
+            ]
+          }
+        }
+      },
+      "then": {
+        "not": {
+          "required": [
+            "identity"
+          ]
+        }
+      }
+    }
+  ]
+}
