@@ -8,12 +8,26 @@ const guide = readFileSync(doc, "utf8");
 const readApi = JSON.parse(readFileSync(new URL("../unified-connection.openapi.yaml", import.meta.url), "utf8"));
 const readRoutes = readFileSync(new URL("../src/unified-connection-read-routes.ts", import.meta.url), "utf8");
 const app = readFileSync(new URL("../src/app.ts", import.meta.url), "utf8");
-assert.equal(readApi.info.version, "0.1.0");
+assert.equal(readApi.info.version, "0.2.0");
 const base = "/api/v1/spaces/{spaceId}/connections";
 assert(readApi.paths[base]?.get);
 assert(readApi.paths[base + "/{connectionId}"]?.get);
-assert(!readApi.paths[base]?.post, "identity provisioning is not implemented here");
-assert(!readApi.paths[base + "/{connectionId}"]?.patch, "mutations are not implemented here");
+assert(readApi.paths[base]?.post, "pending draft creation must be documented");
+assert(readApi.paths[base + "/{connectionId}"]?.patch, "metadata-only PATCH must be documented");
+assert(readApi.paths[base + "/{connectionId}"]?.delete, "unprovisioned draft cancellation must be documented");
+assert.equal(readApi.components.schemas.CreateConnectionDraft.additionalProperties, false);
+assert(!readApi.components.schemas.CreateConnectionDraft.properties.applicationId);
+assert(!readApi.components.schemas.CreateConnectionDraft.properties.identityId);
+assert(!readApi.components.schemas.CreateConnectionDraft.properties.status);
+assert.equal(readApi.components.schemas.EditConnectionMetadata.additionalProperties, false);
+assert(!readApi.components.schemas.EditConnectionMetadata.properties.status);
+assert(!readApi.components.schemas.EditConnectionMetadata.properties.identityId);
+const draftRoutes = readFileSync(new URL("../src/unified-connection-draft-routes.ts", import.meta.url), "utf8");
+assert(draftRoutes.includes('requireScope("spaces:manage")'));
+assert(draftRoutes.includes('requireSpacePermission(c.env, principal, spaceId, "manage")'));
+assert(draftRoutes.includes("principal.clientId"));
+assert(draftRoutes.includes("identity_id IS NULL AND backing_id IS NULL"));
+assert(app.includes("registerUnifiedConnectionDraftRoutes(app)"));
 assert(readApi.info.description.includes("derived exclusively from authenticated token azp"));
 assert(readRoutes.includes('requireScope("spaces:manage")'));
 assert(readRoutes.includes('requireSpacePermission(c.env, principal, spaceId, "manage")'));
@@ -75,4 +89,4 @@ for (const invariant of [
   assert(guide.toLowerCase().includes(invariant.toLowerCase()), "documentation invariant missing: " + invariant);
 }
 
-console.log("Draft unified Connection metadata contract invariants passed (design only, no runtime APIs)");
+console.log("Unified Connection metadata and restricted draft lifecycle invariants passed");
