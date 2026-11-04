@@ -3,7 +3,7 @@ import YAML from "yaml";
 
 const document = YAML.parse(fs.readFileSync(new URL("../platform-admin.openapi.yaml", import.meta.url), "utf8"));
 
-if (document.openapi !== "3.1.0" || document.info?.version !== "0.7.0") {
+if (document.openapi !== "3.1.0" || document.info?.version !== "0.8.0") {
   throw new Error("Core Platform Admin OpenAPI version metadata is invalid");
 }
 if (!document.info?.title?.includes("Platform Admin")) {
@@ -13,9 +13,6 @@ if (!document.info?.title?.includes("Platform Admin")) {
 const requiredPaths = [
   "/api/v1/platform-admin/mcp-servers",
   "/api/v1/platform-admin/mcp-servers/{serverId}",
-  "/api/v1/platform-admin/mcp-servers/{serverId}/publish",
-  "/api/v1/platform-admin/mcp-servers/{serverId}/withdraw",
-  "/api/v1/platform-admin/mcp-servers/{serverId}/revisions",
   "/api/v1/platform-admin/applications/{applicationId}/model-access",
   "/api/v1/platform-admin/spaces",
   "/api/v1/platform-admin/spaces/{spaceId}",
@@ -60,25 +57,29 @@ if (!globalSecurity.some((entry) => entry?.bearerAuth && entry?.platformAdminAct
 const mcp = document.paths?.["/api/v1/platform-admin/mcp-servers"];
 const mcpDetail = document.paths?.["/api/v1/platform-admin/mcp-servers/{serverId}"];
 const createSchema = document.components?.schemas?.CreateMcpServerRequest;
+const updateSchema = document.components?.schemas?.UpdateMcpServerRequest;
 const responseSchema = document.components?.schemas?.McpServerDefinition;
-if (!createSchema?.required?.includes("name") || createSchema?.required?.includes("key")
-  || createSchema?.properties?.key || responseSchema?.properties?.key
-  || !String(responseSchema?.properties?.id?.pattern ?? "").includes("mcp_")) {
-  throw new Error("MCP Server must use generated canonical ID, not a user-selected key");
-}
-
+const resourceSchema = document.components?.schemas?.McpKernelResourceSelection;
 if (!mcp?.get || !mcp?.post || !mcpDetail?.get || !mcpDetail?.patch
-  || !document.paths?.["/api/v1/platform-admin/mcp-servers/{serverId}/publish"]?.post
-  || !document.paths?.["/api/v1/platform-admin/mcp-servers/{serverId}/withdraw"]?.post
-  || !document.paths?.["/api/v1/platform-admin/mcp-servers/{serverId}/revisions"]?.get) {
-  throw new Error("MCP domain Server publication lifecycle is incomplete");
+  || document.paths?.["/api/v1/platform-admin/mcp-servers/{serverId}/publish"]
+  || document.paths?.["/api/v1/platform-admin/mcp-servers/{serverId}/revisions"]
+  || document.paths?.["/api/v1/platform-admin/mcp-servers/{serverId}/withdraw"]) {
+  throw new Error("MCP governance must be direct configuration CRUD without publish/history routes");
 }
-for (const op of [mcp.get,mcp.post,mcpDetail.get,mcpDetail.patch,
-  document.paths["/api/v1/platform-admin/mcp-servers/{serverId}/publish"].post,
-  document.paths["/api/v1/platform-admin/mcp-servers/{serverId}/withdraw"].post]) {
-  const description = String(op?.description ?? "");
+if (!createSchema?.required?.includes("configuration") || createSchema?.properties?.key
+  || !updateSchema?.required?.includes("expectedRevision")
+  || !updateSchema?.properties?.enabled || !updateSchema?.properties?.confirmId
+  || !responseSchema?.required?.includes("enabled")
+  || !responseSchema?.required?.includes("configuration")
+  || responseSchema?.properties?.draftRevision || responseSchema?.properties?.publishedRevision
+  || !resourceSchema?.properties?.resourceKey?.enum?.includes("person_directory")
+  || !String(responseSchema?.properties?.id?.pattern ?? "").includes("mcp_")) {
+  throw new Error("MCP Server uses canonical IDs, current configuration and independent Kernel Person capability");
+}
+for (const operation of [mcp.get, mcp.post, mcpDetail.get, mcpDetail.patch]) {
+  const description = String(operation?.description ?? "");
   if (!description.includes("models:manage") || !description.includes("platform-admin actor proof")) {
-    throw new Error("MCP Server governance requires model control-plane executor and actor proof");
+    throw new Error("MCP Server governance requires Platform Admin executor and human actor proof");
   }
 }
 

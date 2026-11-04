@@ -235,13 +235,6 @@ A Console governance change is incomplete until:
 12. real staging acceptance and browser smoke cover newly introduced mutations before production rollout.
 
 
-## MCP domain Servers (V7 staging candidate)
+## MCP Servers: direct configuration UX (V7)
 
-The `/mcp-servers` Console page manages stable domain Server definitions as drafts and immutable published revisions through Core Platform Admin `/api/v1/platform-admin/mcp-servers*`. The BFF uses existing `models:manage` executor and purpose-bound human Platform Admin proof, and validates same-origin, request shape and confirmation. Server publication is a **control-plane catalog publication only**; it does not deploy an MCP Worker or create a third-party OAuth authorization. Models/actions are validated against Core's published Registry and pinned in the manifest; Adapters project only the intersection of the approved catalog and current Core authority in a later slice.
-
-MCP Server create requires only name and optional description. Core generates `mcp_*` and planned `/mcp/{serverId}`; the legacy Schema 77 `server_key` column is internally populated with the same ID, requiring no D1 migration after the initial Staging rollout. Core Platform Admin API 0.7.0 uses `{serverId}` and publication `confirmId` throughout. No actual MCP Adapter route is deployed by this UI.
-
-
-## 2026-11-04 MCP Server create UX
-
-The initial MCP Server create form now includes name, description, model selection and permitted operations on a single view. The primary **创建并发布** action runs two existing authenticated Core operations (create with `draft.models` → publish using the returned server ID and `confirmId`), with no new Core endpoint or database migration. **保存草稿** remains an optional secondary action. If publication fails after creation, the UI retains the generated ID and exposes retry-publish and manage-draft actions; no second create request is sent. New and existing Server flows share one Model/Operation editor to avoid capability-selection drift.
+Console /mcp-servers creates and immediately enables a domain MCP Server with selected business Models, explicit operations and optional Kernel Person Directory operations. Details allow direct Save, Disable and Enable, not a Draft/Publish journey. Each Server retains the Core-generated mcp_* ID and planned https://core.aisr.online/mcp/{serverId} URL. Internal revision protects stale edits but does not represent a published client version. Core Platform Admin 0.8.0 + Schema 78 own the source of truth; BFF requires existing models:manage executor, human Platform Admin actor proof, bounded same-origin intent and exact ID confirmation for enable/disable. Person Directory grants remain independent of Model grants. Staging deploy order: Core migration+Worker first; Console Worker/UI second.

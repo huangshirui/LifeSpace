@@ -64,3 +64,8 @@ blindly re-upload or infer a different File ID.
 ## 0077 MCP domain Server definitions / 领域 MCP Server 发布目录
 
 Adds Core-owned platform-control-plane MCP Server drafts and immutable versioned publication manifests. Each server has a stable `/mcp/{key}` path and a bounded list of published models and explicit operations. Publishing pins current Model Registry `version/schema_hash` and audits the human platform administrator and controlled executor. This does **not** create an active MCP transport, grant a client data authority, or configure OAuth. Adapter consumption and runtime exposure require a separately reviewed integration. The superseded V6 `unified_connections` migration 0077 was never merged; never combine it with this new migration. Rollback retains the additive table and publication history.
+
+
+## 0078 MCP Server simple configuration lifecycle
+
+Replaces the Schema 77 Draft/Publish catalog with one canonical current Server configuration (`config_json`), enabled flag and internal optimistic revision. It is an append-only **breaking control-plane** migration and must be applied before Core Worker and Console BFF/UI release. It preserves existing Server IDs, names, created/updated metadata and effective capability selections. If a Server had been published, the migration restores the published manifest's effective selected model operations rather than a separately edited uncommitted draft; legacy draft/withdrawn entries become disabled. The old version-history table is intentionally retired because MCP protocol does not require configuration publication versions; platform audit rows remain. Revert the Worker, not the data, if staging release fails. Run a Staging backup / snapshot before applying; Production is separately gated.

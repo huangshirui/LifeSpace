@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: LifeSpace Core Platform Admin API
-  version: 0.7.0
+  version: 0.8.0
   description: >-
     Privileged LifeSpace Core control-plane contract for the LifeSpace Console and approved
     platform automation. This contract is separate from both the downstream Core Kernel Contract and
@@ -25,84 +25,40 @@ paths:
     get:
       tags: [MCP Server Governance]
       operationId: listPlatformMcpServers
-      description: List domain MCP Server definitions; requires models:manage and platform-admin actor proof.
+      description: List current MCP Server configurations; requires models:manage and platform-admin actor proof.
       parameters:
         - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100 } }
       responses:
-        '200': { description: MCP Server catalog, content: { application/json: { schema: { $ref: '#/components/schemas/McpServerListResponse' } } } }
+        '200': { description: MCP Server settings, content: { application/json: { schema: { $ref: '#/components/schemas/McpServerListResponse' } } } }
     post:
       tags: [MCP Server Governance]
       operationId: createPlatformMcpServer
-      description: Create a draft using a generated mcp_* ID and planned /mcp/{serverId} path; requires models:manage and platform-admin actor proof.
+      description: Create and enable a validated MCP Server configuration immediately; requires models:manage and platform-admin actor proof. Does not deploy an MCP Adapter or authorize client data access.
       requestBody:
         required: true
         content: { application/json: { schema: { $ref: '#/components/schemas/CreateMcpServerRequest' } } }
       responses:
-        '201': { description: Draft created, content: { application/json: { schema: { $ref: '#/components/schemas/McpServerResponse' } } } }
+        '201': { description: Server created and enabled, content: { application/json: { schema: { $ref: '#/components/schemas/McpServerResponse' } } } }
+        '422': { description: Invalid Model or Kernel resource configuration }
   /api/v1/platform-admin/mcp-servers/{serverId}:
     parameters: [ { name: serverId, in: path, required: true, schema: { type: string, pattern: '^mcp_[a-f0-9]{32}$' } } ]
     get:
       tags: [MCP Server Governance]
       operationId: getPlatformMcpServer
-      description: Inspect draft and published revision; requires models:manage and platform-admin actor proof.
+      description: Read the current MCP Server configuration and enabled state; requires models:manage and platform-admin actor proof.
       responses:
         '200': { description: MCP Server, content: { application/json: { schema: { $ref: '#/components/schemas/McpServerResponse' } } } }
     patch:
       tags: [MCP Server Governance]
-      operationId: editPlatformMcpServerDraft
-      description: Edit only draft with optimistic revision; requires models:manage and platform-admin actor proof.
+      operationId: updatePlatformMcpServer
+      description: Atomically save current validated configuration using optimistic revision, or separately enable/disable with exact confirmId; requires models:manage and platform-admin actor proof.
       requestBody:
         required: true
-        content: { application/json: { schema: { $ref: '#/components/schemas/EditMcpServerRequest' } } }
+        content: { application/json: { schema: { $ref: '#/components/schemas/UpdateMcpServerRequest' } } }
       responses:
-        '200': { description: Draft saved, content: { application/json: { schema: { $ref: '#/components/schemas/McpServerResponse' } } } }
-        '409': { description: Draft version conflict }
-  /api/v1/platform-admin/mcp-servers/{serverId}/publish:
-    parameters: [ { name: serverId, in: path, required: true, schema: { type: string, pattern: '^mcp_[a-f0-9]{32}$' } } ]
-    post:
-      tags: [MCP Server Governance]
-      operationId: publishPlatformMcpServer
-      description: Publish immutable model/operation manifest pinned to Model schema hashes; requires models:manage and platform-admin actor proof. Does not deploy Adapter or grant data access.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              additionalProperties: false
-              required: [expectedDraftRevision, confirmId]
-              properties:
-                expectedDraftRevision: { type: integer, minimum: 1 }
-                confirmId: { type: string, pattern: '^mcp_[a-f0-9]{32}$' }
-      responses:
-        '200': { description: Published revision, content: { application/json: { schema: { $ref: '#/components/schemas/McpServerResponse' } } } }
-        '409': { description: No changes or version conflict }
-  /api/v1/platform-admin/mcp-servers/{serverId}/withdraw:
-    parameters: [ { name: serverId, in: path, required: true, schema: { type: string, pattern: '^mcp_[a-f0-9]{32}$' } } ]
-    post:
-      tags: [MCP Server Governance]
-      operationId: withdrawPlatformMcpServer
-      description: Withdraw active publication, preserving history; requires models:manage and platform-admin actor proof.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              additionalProperties: false
-              required: [confirmId]
-              properties:
-                confirmId: { type: string, pattern: '^mcp_[a-f0-9]{32}$' }
-      responses:
-        '200': { description: Withdrawn, content: { application/json: { schema: { $ref: '#/components/schemas/McpServerResponse' } } } }
-  /api/v1/platform-admin/mcp-servers/{serverId}/revisions:
-    parameters: [ { name: serverId, in: path, required: true, schema: { type: string, pattern: '^mcp_[a-f0-9]{32}$' } } ]
-    get:
-      tags: [MCP Server Governance]
-      operationId: listPlatformMcpServerRevisions
-      description: Inspect immutable publication history; requires models:manage and platform-admin actor proof.
-      responses:
-        '200': { description: Revision history, content: { application/json: { schema: { $ref: '#/components/schemas/McpServerRevisionListResponse' } } } }
+        '200': { description: Server updated, content: { application/json: { schema: { $ref: '#/components/schemas/McpServerResponse' } } } }
+        '409': { description: Revision conflict or no availability change }
+        '422': { description: Invalid configuration or missing confirmation }
   /api/v1/platform-admin/applications/{applicationId}/model-access:
     parameters:
       - $ref: '#/components/parameters/ApplicationId'
@@ -685,14 +641,27 @@ components:
       additionalProperties: false
       required: [modelKey, operations]
       properties:
-        modelKey: { type: string }
+        modelKey: { type: string, pattern: '^[a-z][a-z0-9_]{1,62}$' }
         operations:
           type: array
           minItems: 1
           maxItems: 32
           uniqueItems: true
-          items: { type: string }
-    McpServerDraft:
+          items: { type: string, pattern: '^(get|query|create|update|delete|action:[a-z][a-z0-9_-]{0,62})$' }
+    McpKernelResourceSelection:
+      type: object
+      additionalProperties: false
+      required: [resourceKey, operations]
+      description: Kernel Person Directory is not a Model Registry model. Publishing configuration grants no Space Person Directory authority.
+      properties:
+        resourceKey: { type: string, enum: [person_directory] }
+        operations:
+          type: array
+          minItems: 1
+          maxItems: 5
+          uniqueItems: true
+          items: { type: string, enum: [list, get, create, update, delete] }
+    McpServerConfiguration:
       type: object
       additionalProperties: false
       required: [models]
@@ -701,37 +670,42 @@ components:
           type: array
           maxItems: 32
           items: { $ref: '#/components/schemas/McpModelSelection' }
+        resources:
+          type: array
+          maxItems: 1
+          items: { $ref: '#/components/schemas/McpKernelResourceSelection' }
     CreateMcpServerRequest:
       type: object
       additionalProperties: false
-      required: [name]
+      required: [name, configuration]
       properties:
         name: { type: string, minLength: 2, maxLength: 80 }
         description: { type: string, maxLength: 500 }
-        draft: { $ref: '#/components/schemas/McpServerDraft' }
-    EditMcpServerRequest:
+        configuration: { $ref: '#/components/schemas/McpServerConfiguration' }
+    UpdateMcpServerRequest:
       type: object
       additionalProperties: false
-      required: [expectedDraftRevision]
+      required: [expectedRevision]
+      description: Configure by supplying name/description/configuration. Enable/disable must be a separate request with only enabled and confirmId in addition to expectedRevision.
       properties:
-        expectedDraftRevision: { type: integer, minimum: 1 }
+        expectedRevision: { type: integer, minimum: 1 }
         name: { type: string, minLength: 2, maxLength: 80 }
         description: { type: string, maxLength: 500 }
-        draft: { $ref: '#/components/schemas/McpServerDraft' }
+        configuration: { $ref: '#/components/schemas/McpServerConfiguration' }
+        enabled: { type: boolean }
+        confirmId: { type: string, pattern: '^mcp_[a-f0-9]{32}$' }
     McpServerDefinition:
       type: object
-      additionalProperties: true
-      required: [id, path, name, description, status, draftRevision, draft, createdAt, updatedAt]
+      additionalProperties: false
+      required: [id, path, name, description, enabled, revision, configuration, createdAt, updatedAt]
       properties:
         id: { type: string, pattern: '^mcp_[a-f0-9]{32}$' }
         path: { type: string, pattern: '^/mcp/mcp_[a-f0-9]{32}$' }
         name: { type: string }
         description: { type: string }
-        status: { type: string, enum: [draft, published, withdrawn] }
-        draftRevision: { type: integer, minimum: 1 }
-        publishedRevision: { anyOf: [{ type: integer }, { type: 'null' }] }
-        draft: { $ref: '#/components/schemas/McpServerDraft' }
-        published: { anyOf: [{ type: object }, { type: 'null' }] }
+        enabled: { type: boolean }
+        revision: { type: integer, minimum: 1 }
+        configuration: { $ref: '#/components/schemas/McpServerConfiguration' }
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
     McpServerResponse:
@@ -746,22 +720,6 @@ components:
       required: [data]
       properties:
         data: { type: array, items: { $ref: '#/components/schemas/McpServerDefinition' } }
-    McpServerRevisionListResponse:
-      type: object
-      additionalProperties: false
-      required: [data]
-      properties:
-        data:
-          type: array
-          items:
-            type: object
-            required: [revision, manifestHash, manifest, publishedAt, publishedByUserId]
-            properties:
-              revision: { type: integer, minimum: 1 }
-              manifestHash: { type: string }
-              manifest: { type: object }
-              publishedAt: { type: string, format: date-time }
-              publishedByUserId: { type: string }
     ErrorResponse:
       type: object
       additionalProperties: false

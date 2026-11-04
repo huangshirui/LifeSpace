@@ -8,3 +8,5 @@
 .mcp-recovery{border-color:#efce99;background:#fffaf1}
 .mcp-recovery p{font-size:13px;color:#725b36;word-break:break-all}
 .mcp-recovery code{font-family:ui-monospace,SFMono-Regular,Consolas,monospace}
+
+.mcp-id{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12px!important;overflow-wrap:anywhere}.mcp-inline-help{font-size:12px;color:#b45309;margin:10px 0 0}
