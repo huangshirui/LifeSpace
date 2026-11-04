@@ -22,8 +22,8 @@
 <section class="card" aria-labelledby="selection-title">
 <div class="section-title"><div><h2 id="selection-title">选择授权上下文</h2><p>按顺序确认。权限本身不能在此扩大。</p></div><span class="step">01 / 02</span></div>
 <div class="fields">
-<label for="space">Space <small>空间</small></label><select id="space" required><option value="">请选择空间</option></select>
-<label for="application">Application <small>应用</small></label><select id="application" required disabled><option value="">请先选择空间</option></select>
+<label for="application">Application <small>应用</small></label><select id="application" required><option value="">请选择应用</option></select>
+<label for="space">Space <small>空间</small></label><select id="space" required disabled><option value="">请先选择应用</option></select>
 <label for="agent">Agent <small>实际执行者</small></label><select id="agent" required disabled><option value="">请先选择应用</option></select>
 <fieldset class="modes"><legend>执行许可模式 <small>Execution mode</small></legend>
 <label class="radio-row" for="direct"><input id="direct" type="radio" name="mode" value="direct" checked><span><strong>仅使用 Agent 自身权限</strong><small>仅限 Agent 当前独立持有的 Grant</small></span></label>
