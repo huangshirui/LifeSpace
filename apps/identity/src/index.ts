@@ -1,4 +1,5 @@
 import { registerWebLoginEmailRoutes } from "./web-login-email";
+import { registerOAuthAuthorizationServer } from "./oauth-authorization";
 import { createApp } from "./app";
 import { registerAccessIdentityRoutes } from "./access-identity";
 import { registerPlatformAdminActorRoutes } from "./platform-admin-actor";
@@ -21,6 +22,7 @@ export function createIdentityApp(options: Parameters<typeof registerAccessIdent
   registerPlatformInspectorRoutes(app);
   registerPlatformServiceAdminRoutes(app);
   registerServicePrincipalIntrospectionRoutes(app);
+  registerOAuthAuthorizationServer(app);
   return app;
 }
 
