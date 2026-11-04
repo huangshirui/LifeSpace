@@ -177,7 +177,7 @@ export async function accountFetch(req, env) {
     return fail(403, "INVALID_ORIGIN", "请从当前 Account 页面确认授权");
   }
   if (path !== "/api/session" && path !== "/api/oauth/request"
-    && path !== "/api/oauth/spaces" && path !== "/api/oauth/options"
+    && path !== "/api/oauth/choices"
     && path !== "/api/oauth/confirm") return fail(404, "NOT_FOUND", "接口不存在");
   if ((path === "/api/oauth/confirm") !== (req.method === "POST")) {
     return fail(405, "METHOD_NOT_ALLOWED", "不支持此请求方式");
@@ -215,32 +215,26 @@ export async function accountFetch(req, env) {
       }, resource: preview.resource, requestedScopes: preview.requestedScopes, expiresAt: preview.expiresAt,
     } });
   }
-  if (path === "/api/oauth/spaces") {
-    const upstream = await boundedUpstream(env, "CORE", "/api/v1/me/spaces", linked.token);
-    if (!upstream || !upstream.ok) return fail(503, "CORE_UNAVAILABLE", "无法读取你的 Space");
-    const rows = await arrayData(upstream);
-    if (!rows) return fail(502, "CORE_INVALID_RESPONSE", "Space 列表异常");
-    return responseJson({ data: rows.filter((r) => isObject(r)
-      && SPACE.test(r.id || "") && typeof r.name === "string"
-      && ["owner", "admin"].includes(r.role))
-      .slice(0, 100).map((r) => ({ id: r.id, name: r.name, role: r.role })) });
-  }
-  if (path === "/api/oauth/options") {
-    const spaceId = url.searchParams.get("space_id");
-    if (!SPACE.test(spaceId || "") || url.searchParams.size !== 1) {
-      return fail(400, "INVALID_REQUEST", "Space 参数无效");
-    }
-    const upstream = await boundedUpstream(env, "CORE",
-      "/api/v1/me/oauth/spaces/" + encodedPath(spaceId) + "/options", linked.token);
+  if (path === "/api/oauth/choices") {
+    if (url.search) return fail(400, "INVALID_REQUEST", "候选选择不接受额外参数");
+    const upstream = await boundedUpstream(env, "CORE", "/api/v1/me/oauth/choices", linked.token);
     if (!upstream || !upstream.ok) return fail(upstream?.status === 403 ? 403 : 503,
-      "OAUTH_OPTIONS_UNAVAILABLE", "未能读取当前 Space 的 Agent");
+      "OAUTH_CHOICES_UNAVAILABLE", "无法读取当前可用的应用与 Agent");
     const result = await data(upstream);
-    if (!result || !Array.isArray(result.candidates)) return fail(502, "CORE_INVALID_RESPONSE", "Agent 候选列表异常");
-    return responseJson({ data: { candidates: result.candidates.slice(0, 60).filter((r) =>
-      isObject(r) && AGENT.test(r.agentId || "") && APPLICATION.test(r.applicationId || "")
-      && typeof r.agentName === "string" && typeof r.applicationName === "string")
-      .map((r) => ({ agentId: r.agentId, applicationId: r.applicationId,
-        agentName: r.agentName, applicationName: r.applicationName })) } });
+    if (!result || !Array.isArray(result.candidates) || result.candidates.length > 100)
+      return fail(502, "CORE_INVALID_RESPONSE", "候选授权数据异常");
+    const choices = result.candidates.filter((r) => isObject(r)
+      && SPACE.test(r.spaceId || "") && APPLICATION.test(r.applicationId || "")
+      && AGENT.test(r.agentId || "") && typeof r.spaceName === "string"
+      && typeof r.agentName === "string" && typeof r.applicationName === "string");
+    if (choices.length !== result.candidates.length) {
+      return fail(502, "CORE_INVALID_RESPONSE", "候选授权数据异常");
+    }
+    return responseJson({ data: { candidates: choices.map((r) => ({
+      spaceId: r.spaceId, spaceName: r.spaceName,
+      applicationId: r.applicationId, applicationName: r.applicationName,
+      agentId: r.agentId, agentName: r.agentName,
+    })) } });
   }
   // POST: every confirmation must be a user interaction bound to this Account session.
   if (!await validCsrf(req, env, linked.user.id)) {
