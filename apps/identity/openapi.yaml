@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: LifeSpace Identity API
-  version: 0.17.0
+  version: 0.18.0
   description: Global LifeSpace user identity, profile, trusted application exchange, Cloudflare Access principal resolution/linking, application credential lifecycle, Agent identity/execution-token issuance, service principals and credential issuance API.
 paths:
   /health:
@@ -499,9 +499,65 @@ paths:
       security: [{ applicationCredential: [] }]
       responses:
         '204': { description: OAuth credential revoked }
+  /.well-known/oauth-authorization-server:
+    get:
+      description: RFC 8414 metadata; issuer and endpoints are deployment-configured, not derived from a caller-supplied Host header.
+      security: []
+      responses:
+        '200': { description: OAuth Authorization Server metadata }
+        '503': { description: Fail closed until OAuth issuer is configured }
+  /oauth/register:
+    post:
+      description: Public PKCE client registration (DCR); disabled by default, forbidden in production until explicit new policy and rate limits exist. A client display name is not authenticated vendor identity.
+      security: []
+      responses:
+        '201': { description: Client ID registered with exact redirect URIs }
+        '400': { description: Invalid client metadata or redirect URI }
+        '403': { description: DCR is disabled }
+  /oauth/authorize:
+    get:
+      description: Validate registered OAuth Client, exact callback, mandatory state, PKCE S256 and allowlisted Resource URI. Creates only an expiring pending request, then redirects to Account Consent; grants no Authority.
+      security: []
+      parameters:
+        - { name: client_id, in: query, required: true, schema: { type: string } }
+        - { name: redirect_uri, in: query, required: true, schema: { type: string, format: uri } }
+        - { name: response_type, in: query, required: true, schema: { type: string, const: code } }
+        - { name: state, in: query, required: true, schema: { type: string, minLength: 16 } }
+        - { name: code_challenge, in: query, required: true, schema: { type: string } }
+        - { name: code_challenge_method, in: query, required: true, schema: { type: string, const: S256 } }
+        - { name: resource, in: query, required: true, schema: { type: string, format: uri } }
+        - { name: scope, in: query, schema: { type: string } }
+      responses:
+        '302': { description: Account consent pending transaction redirect }
+        '400': { description: Invalid client/callback/PKCE/resource }
+  /oauth/requests/{requestId}/approve:
+    post:
+      description: Private Core-verified approval bridge. Requires Core Identity shared secret and an Identity-signed active User JWT issued for the configured Account Application. Only a Core service that has separately validated Account Consent and current User/Application/Space/Agent eligibility may invoke. This route is not browser/Account/third-party callable.
+      security: [{ internalServiceSecret: [] }]
+      parameters:
+        - { name: requestId, in: path, required: true, schema: { type: string, pattern: ^oar_ } }
+      responses:
+        '200': { description: One-time code and exact registered redirect returned only to trusted Core bridge }
+        '400': { description: Pending request missing, expired or already approved }
+        '401': { description: Missing trusted Core authentication }
+        '403': { description: Verified Account user/selected Agent not eligible }
+  /oauth/introspect:
+    post:
+      description: Private RFC 7662-style current-state opaque access token introspection. Exact resource must be provided; this result never substitutes for Core Grant/Delegation checks.
+      security: [{ oauthResourceServerSecret: [] }]
+      responses:
+        '200': { description: Current token and authorization state, or active=false }
+        '401': { description: Trusted Resource Server authentication is required }
+  /oauth/revoke:
+    post:
+      description: Revocation of a client's own opaque access or refresh credential; revoking refresh invalidates its Authorization. User-facing Authorization revocation is a later Account API.
+      security: []
+      responses:
+        '200': { description: Revocation accepted without token existence disclosure }
+        '401': { description: Unknown OAuth client }
   /oauth/token:
     post:
-      description: OAuth 2.0 client_credentials endpoint for service principals. The service principal ID is the OAuth client_id; client authentication may use HTTP Basic or form fields.
+      description: Shared OAuth token endpoint. Existing Service client_credentials retains its svc_* client identity and service JWT behavior. Public interactive clients use Auth Code + PKCE S256 or rotated refresh tokens and receive resource-limited opaque tokens.
       security: []
       requestBody:
         required: true
@@ -509,7 +565,7 @@ paths:
           application/x-www-form-urlencoded:
             schema: { $ref: '#/components/schemas/OAuthTokenRequest' }
       responses:
-        '200': { description: Short-lived service access token, content: { application/json: { schema: { $ref: '#/components/schemas/OAuthTokenResponse' } } } }
+        '200': { description: Short-lived Service JWT or resource-scoped interactive OAuth opaque token, content: { application/json: { schema: { $ref: '#/components/schemas/OAuthTokenResponse' } } } }
         '400': { description: OAuth invalid_request / unsupported_grant_type / invalid_scope }
         '401': { description: OAuth invalid_client }
   /introspection/v1/service-tokens:
@@ -542,6 +598,11 @@ components:
       type: apiKey
       in: header
       name: x-lifespace-internal-secret
+    oauthResourceServerSecret:
+      type: apiKey
+      in: header
+      name: x-lifespace-resource-secret
+      description: Dedicated Resource Server secret; never use a public OAuth bearer token as caller authentication.
   parameters:
     ApplicationId: { name: applicationId, in: path, required: true, schema: { type: string, minLength: 1 } }
     ApplicationCredentialId: { name: credentialId, in: path, required: true, schema: { type: string, pattern: ^apc_ } }
@@ -923,10 +984,15 @@ components:
       type: object
       required: [grant_type]
       properties:
-        grant_type: { type: string, const: client_credentials }
-        client_id: { type: string, pattern: ^svc_ }
-        client_secret: { type: string, writeOnly: true }
+        grant_type: { type: string, enum: [client_credentials, authorization_code, refresh_token] }
+        client_id: { type: string, description: "Service svc_* client_credentials or registered OAuth Client ocli_*" }
+        client_secret: { type: string, writeOnly: true, description: "Existing Service only; interactive PKCE Clients are public" }
         scope: { type: string }
+        code: { type: string, writeOnly: true }
+        code_verifier: { type: string, writeOnly: true }
+        redirect_uri: { type: string, format: uri }
+        refresh_token: { type: string, writeOnly: true }
+        resource: { type: string, format: uri }
     OAuthTokenResponse:
       type: object
       required: [access_token, token_type, expires_in, scope]
@@ -935,6 +1001,8 @@ components:
         token_type: { type: string, const: Bearer }
         expires_in: { type: integer, minimum: 300, maximum: 3600 }
         scope: { type: string }
+        refresh_token: { type: string, writeOnly: true, description: "Interactive OAuth only, rotated on each use" }
+        resource: { type: string, format: uri, description: "Exact interactive OAuth Resource Audience" }
     ServiceTokenIntrospectionResponse:
       type: object
       required: [data]
