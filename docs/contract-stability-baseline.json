@@ -426,6 +426,19 @@
           "operationPattern": "^GET /api/v1/me/oauth/(choices|spaces/\\{spaceId\\}/options)$"
         }
       ]
+    },
+    {
+      "id": "account-consent-bff",
+      "source": "apps/account/openapi.json",
+      "operationSetSha256": "sha256:1ba4cfdd310739c2ea86933072169ce6a6f3119c6d19c41e875f3cc40b829a5c",
+      "groups": [
+        {
+          "id": "account-oauth-consent",
+          "maturity": "candidate",
+          "visibility": "internal",
+          "operationPattern": "^(GET /api/(session|oauth/(request|choices))|POST /api/oauth/confirm)$"
+        }
+      ]
     }
   ]
 }
