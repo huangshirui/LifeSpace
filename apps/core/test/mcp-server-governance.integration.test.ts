@@ -140,6 +140,26 @@ describe("MCP Server direct configuration lifecycle", () => {
     expect((await enabled.json() as any).data).toMatchObject({ enabled: true, revision: 3 });
   });
 
+  it("can always disable a Server if its formerly published Model becomes unavailable", async () => {
+    const { call } = await setup();
+    const created = await call("POST", root, { name: "Retiring model", configuration: task });
+    expect(created.status).toBe(201);
+    const id = (await created.json() as any).data.id as string;
+    const db = (env as unknown as TestEnv).DB;
+    // Simulates a previously valid Model being retired after Server creation.
+    await db.prepare("UPDATE mcp_server_definitions SET config_json=? WHERE id=?")
+      .bind(JSON.stringify({ models: [{ modelKey: "no_longer_published", operations: ["get"] }] }), id).run();
+    const disabled = await call("PATCH", root + "/" + id, {
+      expectedRevision: 1, enabled: false, confirmId: id,
+    });
+    expect(disabled.status).toBe(200);
+    expect((await disabled.json() as any).data.enabled).toBe(false);
+    const rejected = await call("PATCH", root + "/" + id, {
+      expectedRevision: 2, enabled: true, confirmId: id,
+    });
+    expect(rejected.status).toBe(422);
+  });
+
   it("supports Person-only and mixed Model + Kernel resource, rejects fake person Model", async () => {
     const { call } = await setup();
     const mixed = { models: [{ modelKey: "task", operations: ["query"] }],

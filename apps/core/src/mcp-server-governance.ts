@@ -250,7 +250,9 @@ export function registerMcpServerGovernanceRoutes(app: App): void {
     if (changingState && input.enabled === true && !config.models.length && !config.resources?.length) {
       throw new ApiError("VALIDATION_ERROR", "Configure resources before enabling", 422);
     }
-    await validateModels(context, config);
+    // Disabling is fail-closed and must remain possible even when a previously
+    // configured Model has since been retired. Enabling or editing must validate.
+    if (!(changingState && input.enabled === false)) await validateModels(context, config);
     const enabled = changingState ? Number(input.enabled) : row.enabled;
     const stamp = now();
     const results = await context.env.DB.batch([
