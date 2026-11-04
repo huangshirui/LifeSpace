@@ -116,7 +116,7 @@
     {
       "id": "identity-application",
       "source": "apps/identity/openapi.yaml",
-      "operationSetSha256": "sha256:df2e20322770b9117c0d17b706303f856ae540453f479c1d765d90b5eb21ec3c",
+      "operationSetSha256": "sha256:bb3b1781397a66935e1da6608f97ba9c42d008f95b67ad3f4f40b29900a43f57",
       "groups": [
         {
           "id": "identity-operational",
@@ -201,6 +201,24 @@
           "maturity": "candidate",
           "visibility": "internal",
           "operationPattern": "^POST /internal/v1/access/session-check$"
+        },
+        {
+          "id": "identity-interactive-oauth-public",
+          "maturity": "candidate",
+          "visibility": "public",
+          "operationPattern": "^(GET /\\.well-known/oauth-authorization-server|GET /oauth/authorize|POST /oauth/(register|revoke))$"
+        },
+        {
+          "id": "identity-interactive-oauth-resource-introspection",
+          "maturity": "candidate",
+          "visibility": "internal",
+          "operationPattern": "^POST /oauth/introspect$"
+        },
+        {
+          "id": "identity-interactive-oauth-core-consent",
+          "maturity": "candidate",
+          "visibility": "internal",
+          "operationPattern": "^POST /oauth/requests/\\{requestId\\}/approve$"
         }
       ]
     },
