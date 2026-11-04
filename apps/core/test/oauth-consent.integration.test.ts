@@ -98,6 +98,14 @@ async function fixture(role: "owner" | "viewer" = "owner") {
 describe("Core Account OAuth Consent boundary", () => {
   it("requires a verified Account user, current Space manage permission and a dedicated Core-to-Identity secret", async () => {
     const f = await fixture();
+    const choices = await createApp().request(
+      "https://core.example.test/api/v1/me/oauth/choices",
+      { headers: { authorization: "Bearer " + f.bearer } }, f.bindings,
+    );
+    expect(choices.status).toBe(200);
+    expect(await choices.json()).toMatchObject({ data: { candidates: [
+      { spaceId: f.spaceId, agentId: f.agentId, applicationId: f.selected.applicationId },
+    ] } });
     const optionResponse = await createApp().request(
       "https://core.example.test/api/v1/me/oauth/spaces/" + f.spaceId + "/options",
       { headers: { authorization: "Bearer " + f.bearer } }, f.bindings,
