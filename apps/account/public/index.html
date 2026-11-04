@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'self'">
+<title>连接授权 · AISR Account</title>
+<link rel="stylesheet" href="/site.css"><script type="module" src="/app.js"></script>
+</head>
+<body>
+<header class="topbar"><a class="wordmark" href="/" aria-label="Account 首页"><span class="brand-mark">A</span><span class="brand-name">AISR<span class="brand-light"> / Account</span></span></a><span class="top-context">安全授权 · Secure access</span></header>
+<main class="main">
+<section class="masthead"><span class="eyebrow">LIFESPACE · IDENTITY</span><h1>连接授权</h1><p>选择外部客户端可以访问的应用、空间与执行 Agent。</p></section>
+<div id="loading" class="state" role="status" aria-live="polite">正在验证用户身份和授权请求…</div>
+<div id="error" class="state state-error hidden" role="alert"><strong id="error-title">无法继续授权</strong><p id="error-message"></p><button type="button" id="retry">重新检查</button></div>
+<div id="content" class="content hidden">
+<section class="card intro-card" aria-labelledby="client-title">
+<div class="client-avatar" aria-hidden="true">↗</div><div class="intro-main"><div class="section-label">请求连接的客户端</div>
+<h2 id="client-title"></h2><p class="notice">客户端名称由对方提交，尚未验证其品牌身份。</p>
+<p class="subline"><span>回调来源</span><code id="redirect-origin"></code></p>
+<p class="subline"><span>目标资源</span><code id="resource"></code></p></div></section>
+<section class="card" aria-labelledby="selection-title">
+<div class="section-title"><div><h2 id="selection-title">选择授权上下文</h2><p>按顺序确认。权限本身不能在此扩大。</p></div><span class="step">01 / 02</span></div>
+<div class="fields">
+<label for="space">Space <small>空间</small></label><select id="space" required><option value="">请选择空间</option></select>
+<label for="application">Application <small>应用</small></label><select id="application" required disabled><option value="">请先选择空间</option></select>
+<label for="agent">Agent <small>实际执行者</small></label><select id="agent" required disabled><option value="">请先选择应用</option></select>
+<fieldset class="modes"><legend>执行许可模式 <small>Execution mode</small></legend>
+<label class="radio-row" for="direct"><input id="direct" type="radio" name="mode" value="direct" checked><span><strong>仅使用 Agent 自身权限</strong><small>仅限 Agent 当前独立持有的 Grant</small></span></label>
+<label class="radio-row" for="allow"><input id="allow" type="radio" name="mode" value="allow"><span><strong>允许 Agent 申请用户授权</strong><small>只是允许申请；每次代表你操作仍需独立确认 Delegation</small></span></label>
+</fieldset></div></section>
+<section class="card" aria-labelledby="scope-title">
+<div class="section-title"><div><h2 id="scope-title">授权范围</h2><p>只读信息；请求的 Scope 不代表已经获得模型操作权限。</p></div><span class="step">02 / 02</span></div>
+<div class="scope-label">客户端请求</div><div id="scopes" class="scopes"></div><div class="rule"></div>
+<div class="scope-label">当前权限与后续委托</div>
+<p class="capability-note">Agent 的实际操作在每次调用时由 Core 按 Grant、Application × Model Access、模型策略和当前授权验证。此版本尚未提供完整的操作级权限投影，因此不会把请求范围冒充为有效能力。</p>
+<p class="delegation-note hidden" id="delegation-note">允许申请用户授权，但<strong>没有授予 User→Agent Delegation</strong>；后续申请仍需独立确认。</p>
+</section>
+<footer class="actions"><div id="signed-user" class="signed-user"></div><div class="buttons"><button id="cancel" type="button" class="ghost">暂不授权</button><button id="approve" type="button" class="primary" disabled>确认并继续 →</button></div></footer>
+<p class="footnote">授权后可在 Account 撤销。首次确认不会新增 Data Grant 或用户委托。</p>
+</div></main>
+</body></html>
