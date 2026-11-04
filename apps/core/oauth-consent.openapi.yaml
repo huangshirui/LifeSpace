@@ -7,6 +7,23 @@ info:
     Core verifies current Space manage authority, then calls Identity through a
     trusted Service Binding; this never creates a Data Grant or Delegation.
 paths:
+  /api/v1/me/oauth/choices:
+    get:
+      description: Account Application's authenticated manager User sees Application-first, Space/Agent candidate combinations derived from current memberships/Agent Data Grants and active Identity bindings. Read-only; not executable capability projection.
+      security: [{ accountUserBearer: [] }]
+      responses:
+        '200': { description: Bounded current candidate choices (at most 100 pairs) }
+        '403': { description: Non-Account or insufficient scope }
+        '503': { description: Identity binding unavailable }
+  /api/v1/me/oauth/spaces/{spaceId}/options:
+    get:
+      description: Account-only authenticated Space manager reads currently eligible Agent/Application candidates for one Space; selection is revalidated on confirm.
+      security: [{ accountUserBearer: [] }]
+      parameters:
+        - { in: path, name: spaceId, required: true, schema: { type: string, pattern: '^spc_' } }
+      responses:
+        '200': { description: Bounded Agent/Application candidates }
+        '403': { description: Missing current Space manage authority }
   /api/v1/me/oauth/requests/{requestId}/confirm:
     post:
       operationId: confirmOAuthConsent
