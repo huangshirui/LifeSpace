@@ -21,6 +21,7 @@ async function setup() {
     TOKEN_PUBLIC_KEY: pem("PUBLIC KEY", await crypto.subtle.exportKey("spki", pair.publicKey)),
     BOOTSTRAP_SECRET: "oauth-test-bootstrap",
     CORE_IDENTITY_SHARED_SECRET: "oauth-test-internal-core-only",
+    OAUTH_CORE_APPROVER_SECRET: "oauth-core-approver-only",
     OAUTH_RESOURCE_SERVER_SECRET: "oauth-test-resource-server-only",
     OAUTH_ISSUER: "https://auth.example.test",
     OAUTH_CONSENT_URL: "https://account.example.test/oauth/consent",
@@ -92,7 +93,7 @@ async function setup() {
   };
   const approve = async (requestId: string, coreSecret: string | null, override: Record<string, unknown> = {}) => {
     const headers: Record<string, string> = { "content-type": "application/json" };
-    if (coreSecret) headers["x-lifespace-internal-secret"] = coreSecret;
+    if (coreSecret) headers["x-lifespace-oauth-approver-secret"] = coreSecret;
     return request("/oauth/requests/" + requestId + "/approve", {
       method: "POST", headers,
       body: JSON.stringify({
@@ -151,8 +152,8 @@ describe("Identity OAuth Authorization Server (isolated candidate)", () => {
     const requestId = new URL(pending.headers.get("location")!).searchParams.get("request_id")!;
     expect(requestId).toMatch(/^oar_/);
     expect((await t.approve(requestId, null)).status).toBe(401);
-    expect((await t.approve(requestId, t.b.CORE_IDENTITY_SHARED_SECRET, { agentId: "agt_unbound" })).status).toBe(403);
-    const accepted = await t.approve(requestId, t.b.CORE_IDENTITY_SHARED_SECRET);
+    expect((await t.approve(requestId, t.b.OAUTH_CORE_APPROVER_SECRET, { agentId: "agt_unbound" })).status).toBe(403);
+    const accepted = await t.approve(requestId, t.b.OAUTH_CORE_APPROVER_SECRET);
     expect(accepted.status).toBe(200);
     const data = await accepted.json() as { redirect_url: string; authorization_id: string };
     const final = new URL(data.redirect_url);
@@ -160,7 +161,7 @@ describe("Identity OAuth Authorization Server (isolated candidate)", () => {
     expect(final.searchParams.get("state")).toContain("testState");
     const code = final.searchParams.get("code")!;
     expect(code).toMatch(/^lsp_oac_/);
-    expect((await t.approve(requestId, t.b.CORE_IDENTITY_SHARED_SECRET)).status).toBe(400);
+    expect((await t.approve(requestId, t.b.OAUTH_CORE_APPROVER_SECRET)).status).toBe(400);
     const exchange = { grant_type: "authorization_code", code, client_id: t.clientId, redirect_uri: t.redirect, code_verifier: t.verifier, resource: t.resource };
     expect((await t.token({ ...exchange, code_verifier: "x".repeat(64) })).status).toBe(400);
     expect((await t.token({ ...exchange, resource: "https://mcp.example.test/mcp/health" })).status).toBe(400);
@@ -188,7 +189,7 @@ describe("Identity OAuth Authorization Server (isolated candidate)", () => {
     const t = await setup();
     const pending = await t.authorize();
     const requestId = new URL(pending.headers.get("location")!).searchParams.get("request_id")!;
-    const accepted = await t.approve(requestId, t.b.CORE_IDENTITY_SHARED_SECRET);
+    const accepted = await t.approve(requestId, t.b.OAUTH_CORE_APPROVER_SECRET);
     const code = new URL((await accepted.json() as { redirect_url: string }).redirect_url).searchParams.get("code")!;
     const minted = await t.token({ grant_type: "authorization_code", code, code_verifier: t.verifier, client_id: t.clientId, redirect_uri: t.redirect });
     const access = (await minted.json() as { access_token: string }).access_token;
