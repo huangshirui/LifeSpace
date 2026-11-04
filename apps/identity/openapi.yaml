@@ -540,7 +540,7 @@ paths:
       responses:
         '302': { description: Account consent pending transaction redirect }
         '400': { description: Invalid client/callback/PKCE/resource }
-  /internal/v1/oauth/agent-candidates:
+  /oauth/core/agent-candidates:
     post:
       description: Core-only bounded resolution of currently active Agent/Application bindings for Agent IDs already selected by Core after checking the caller's Space Data Grants. Not a user-facing Agent Registry listing.
       security: [{ internalServiceSecret: [] }]
