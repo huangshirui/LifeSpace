@@ -2,6 +2,12 @@ import fs from "node:fs";
 import YAML from "yaml";
 
 const document = YAML.parse(fs.readFileSync(new URL("../oauth-consent.openapi.yaml", import.meta.url), "utf8"));
+const choices = document.paths?.["/api/v1/me/oauth/choices"]?.get;
+const options = document.paths?.["/api/v1/me/oauth/spaces/{spaceId}/options"]?.get;
+if (!choices?.security?.some((entry) => entry.accountUserBearer)
+  || !options?.security?.some((entry) => entry.accountUserBearer)) {
+  throw new Error("OAuth choices must require verified Account User");
+}
 const path = document.paths?.["/api/v1/me/oauth/requests/{requestId}/confirm"]?.post;
 if (document.openapi !== "3.1.0" || document.info?.version !== "0.1.0" || !path
   || !path.security?.some((entry) => entry.accountUserBearer)
