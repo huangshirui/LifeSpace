@@ -35,16 +35,9 @@ function parseConsent(body: unknown): ConsentInput {
 
 type AgentCandidate = { agentId: string; agentName: string; applicationId: string; applicationName: string };
 
-async function candidates(env: Bindings, spaceId: string): Promise<AgentCandidate[]> {
-  const rows = await env.DB.prepare(
-    "SELECT DISTINCT g.grantee_id agentId FROM data_grants g " +
-    "JOIN spaces s ON s.id=g.source_space_id AND s.deleted_at IS NULL " +
-    "WHERE g.source_space_id=? AND g.grantee_type='agent' " +
-    "AND g.resource_type IN ('space','model') AND g.permission IN ('read','write','manage') " +
-    "AND g.revoked_at IS NULL AND (g.expires_at IS NULL OR julianday(g.expires_at)>julianday('now')) " +
-    "ORDER BY g.grantee_id LIMIT 30",
-  ).bind(spaceId).all<{ agentId: string }>();
-  if (!rows.results.length) return [];
+async function resolveAgentContexts(env: Bindings, agentIds: string[]): Promise<AgentCandidate[]> {
+  if (!agentIds.length) return [];
+  if (agentIds.length > 30) throw new ApiError("INVALID_REQUEST", "Too many Agent contexts", 400);
   if (!env.IDENTITY || !env.CORE_IDENTITY_SHARED_SECRET) {
     throw new ApiError("OAUTH_NOT_CONFIGURED", "Identity Agent context is unavailable", 503);
   }
@@ -53,7 +46,7 @@ async function candidates(env: Bindings, spaceId: string): Promise<AgentCandidat
     result = await env.IDENTITY.fetch("https://identity.internal/internal/v1/oauth/agent-candidates", {
       method: "POST",
       headers: { "x-lifespace-internal-secret": env.CORE_IDENTITY_SHARED_SECRET, "content-type": "application/json" },
-      body: JSON.stringify({ agentIds: rows.results.map((r) => r.agentId) }),
+      body: JSON.stringify({ agentIds }),
     });
   } catch {
     throw new ApiError("OAUTH_IDENTITY_UNAVAILABLE", "Identity Agent context is unavailable", 503);
@@ -63,7 +56,7 @@ async function candidates(env: Bindings, spaceId: string): Promise<AgentCandidat
   if (!payload || typeof payload !== "object" || !Array.isArray((payload as { data?: unknown }).data)) {
     throw new ApiError("OAUTH_INVALID_RESPONSE", "Invalid Identity Agent context", 502);
   }
-  const allowedIds = new Set(rows.results.map((r) => r.agentId));
+  const allowedIds = new Set(agentIds);
   const data = (payload as { data: unknown[] }).data;
   if (data.length > 60 || data.some((item) => !item || typeof item !== "object"
     || typeof (item as AgentCandidate).agentId !== "string" || !allowedIds.has((item as AgentCandidate).agentId)
@@ -75,7 +68,50 @@ async function candidates(env: Bindings, spaceId: string): Promise<AgentCandidat
   return data as AgentCandidate[];
 }
 
+async function candidates(env: Bindings, spaceId: string): Promise<AgentCandidate[]> {
+  const rows = await env.DB.prepare(
+    "SELECT DISTINCT g.grantee_id agentId FROM data_grants g " +
+    "JOIN spaces s ON s.id=g.source_space_id AND s.deleted_at IS NULL " +
+    "WHERE g.source_space_id=? AND g.grantee_type='agent' " +
+    "AND g.resource_type IN ('space','model') AND g.permission IN ('read','write','manage') " +
+    "AND g.revoked_at IS NULL AND (g.expires_at IS NULL OR julianday(g.expires_at)>julianday('now')) " +
+    "ORDER BY g.grantee_id LIMIT 30"
+  ).bind(spaceId).all<{ agentId: string }>();
+  return resolveAgentContexts(env, rows.results.map((r) => r.agentId));
+}
+
 export function registerOAuthConsentRoutes(app: App): void {
+  // A single bounded read-only UX projection ordered by Application -> Space -> Agent.
+  // Deliberately shows only current owner/admin Space memberships. It never
+  // claims exact executable model operations or authorizes future execution.
+  app.get("/api/v1/me/oauth/choices", requireScope("spaces:manage"), async (c) => {
+    const principal = c.get("principal");
+    if (!c.env.OAUTH_ACCOUNT_APPLICATION_ID || principal.type !== "user"
+      || principal.clientId !== c.env.OAUTH_ACCOUNT_APPLICATION_ID
+      || principal.actor !== undefined || principal.purpose !== undefined) {
+      throw new ApiError("FORBIDDEN", "Account user session is required", 403);
+    }
+    const rows = await c.env.DB.prepare(
+      "SELECT DISTINCT s.id spaceId,s.name spaceName,g.grantee_id agentId " +
+      "FROM space_memberships m JOIN spaces s ON s.id=m.space_id AND s.deleted_at IS NULL " +
+      "JOIN data_grants g ON g.source_space_id=s.id " +
+      "WHERE m.user_id=? AND m.deleted_at IS NULL AND m.role IN ('owner','admin') " +
+      "AND g.grantee_type='agent' AND g.resource_type IN ('space','model') " +
+      "AND g.permission IN ('read','write','manage') AND g.revoked_at IS NULL " +
+      "AND (g.expires_at IS NULL OR julianday(g.expires_at)>julianday('now')) " +
+      "ORDER BY s.name,g.grantee_id LIMIT 100",
+    ).bind(principal.id).all<{ spaceId: string; spaceName: string; agentId: string }>();
+    const ids = [...new Set(rows.results.map((r) => r.agentId))].slice(0, 30);
+    const contexts = await resolveAgentContexts(c.env, ids);
+    const result = rows.results.filter((r) => ids.includes(r.agentId)).flatMap((space) =>
+      contexts.filter((agent) => agent.agentId === space.agentId)
+        .map((agent) => ({ ...agent, spaceId: space.spaceId, spaceName: space.spaceName }))
+    );
+    c.header("Cache-Control", "no-store");
+    return c.json(success({ candidates: result.slice(0, 100) }));
+  });
+
+
   app.get("/api/v1/me/oauth/spaces/:spaceId/options", requireScope("spaces:manage"), async (c) => {
     const principal = c.get("principal");
     if (!c.env.OAUTH_ACCOUNT_APPLICATION_ID || principal.type !== "user"
