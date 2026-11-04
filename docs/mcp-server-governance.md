@@ -24,13 +24,11 @@ LifeSpace Console 的「MCP Servers」负责管理一个平台公共领域 Serve
 
 ## UX / Console
 
-1. Open Platform → MCP Servers, view status, planned `/mcp/...` path and published version.
-2. Create a Server draft using only the name and optional description; Core automatically generates the Server ID and the fixed URL.
-3. Add one or more currently published Models; choose one or more declared operations per Model. Save the draft. Stale edits reject with `VERSION_CONFLICT`.
-4. Publish with exact Server ID confirmation; Core validates live Registry semantics and pins a version.
-5. Review immutable history; withdraw with explicit confirmation when needed.
-
-UI communicates that these are **catalog releases**, not deployed public MCP endpoints.
+1. Console → MCP Servers → **新建 Server** opens one clean configuration view. Core generates the stable Server ID and path; the operator only enters name and optional description.
+2. In the same view, add one or more already-published Models, then explicitly select permitted read/write/actions for each model. Model/operation choices come from Core's published Model Registry, not duplicated Console policy. Creation can have an empty model list only when intentionally saving an unfinished draft.
+3. **创建并发布** is the primary action and requires at least one model and valid selected operation(s). Console sends the selected draft to the existing authorized Core create endpoint and, after receiving the generated Server ID, publishes it with exact `confirmId`. Neither operation bypasses normal Platform Admin actor/executor proof or live Model capability checks.
+4. **保存草稿** is optional and does not publish. If the second stage (publish) fails, the Server already exists as a draft: the UI preserves the actual generated ID, allows retrying **only** publication, and links to that Server's detail view. If the first create request has an unknown network outcome, the UI advises checking the list before retrying to avoid accidental duplicates.
+5. Existing Servers retain draft editing → immutable version publication, with optimistic draft revision conflicts, history and withdrawal controls. Catalog publication does **not** activate the MCP Adapter URL or grant a client's data authority.
 
 ## Contract / API
 
