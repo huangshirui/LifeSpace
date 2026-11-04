@@ -2,7 +2,7 @@ import fs from "node:fs";
 import YAML from "yaml";
 
 const doc = YAML.parse(fs.readFileSync(new URL("../openapi.yaml",import.meta.url),"utf8"));
-if (doc.openapi !== "3.1.0" || doc.info?.version !== "0.17.0") {
+if (doc.openapi !== "3.1.0" || doc.info?.version !== "0.18.0") {
   throw new Error("Identity OpenAPI version metadata is invalid");
 }
 
@@ -30,6 +30,12 @@ for (const path of [
   "/api/v1/service-principals/{principalId}/oauth-credentials",
   "/api/v1/service-principals/{principalId}/oauth-credentials/{credentialId}",
   "/oauth/token",
+  "/.well-known/oauth-authorization-server",
+  "/oauth/register",
+  "/oauth/authorize",
+  "/oauth/requests/{requestId}/approve",
+  "/oauth/introspect",
+  "/oauth/revoke",
   "/introspection/v1/service-tokens",
   "/introspection/v1/agent-credentials",
 ]) {
@@ -113,6 +119,22 @@ if (oauthSecret?.writeOnly !== true || !String(oauthSecret?.pattern ?? "").inclu
   throw new Error("OAuth client secret must be one-time/write-only");
 }
 if (doc.paths?.["/oauth/token"]?.post?.security?.length !== 0) throw new Error("OAuth token endpoint must use OAuth client authentication, not a platform bearer requirement");
+const interactiveOAuthPaths = ["/oauth/authorize", "/oauth/introspect", "/oauth/revoke", "/oauth/register"];
+for (const path of interactiveOAuthPaths) {
+  if (!doc.paths?.[path]) throw new Error("Interactive OAuth contract missing " + path);
+}
+const consentBridge = doc.paths?.["/oauth/requests/{requestId}/approve"]?.post;
+if (!consentBridge?.security?.some((entry) => entry.internalServiceSecret)) {
+  throw new Error("OAuth approval must remain Core-trusted, never direct browser authority");
+}
+if (!doc.paths?.["/oauth/introspect"]?.post?.security?.some((entry) => entry.oauthResourceServerSecret)) {
+  throw new Error("Interactive OAuth introspection requires separate Resource Server trust");
+}
+const grants = doc.components?.schemas?.OAuthTokenRequest?.properties?.grant_type?.enum ?? [];
+for (const grant of ["client_credentials", "authorization_code", "refresh_token"]) {
+  if (!grants.includes(grant)) throw new Error("OAuth grant type missing: " + grant);
+}
+
 const introspectionSecurity = doc.paths?.["/introspection/v1/service-tokens"]?.post?.security ?? [];
 if (!introspectionSecurity.some((entry) => entry?.internalServiceSecret && entry?.serviceToken)) {
   throw new Error("Opaque token introspection must require both internal Core authentication and the presented service token");
