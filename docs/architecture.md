@@ -432,3 +432,8 @@ A globally registered `origin: external` business definition is referenceable me
 ## Unified Access account linking correction (2026-10-26)
 
 Identity 0.14/schema 13 supersedes the independent 0.13 mailbox authorization design. Mini-declared email creates a pending row in `access_principals`; verified Access login or code confirmation completes that same identity relation. Confirmed login resolves only issuer/subject. No permanent email fallback or separate mailbox grant table. See docs/application-authentication.md. Not deployed by this correction.
+
+
+## MCP domain Server publication catalog (V7 staging candidate)
+
+LifeSpace Core owns an administrative catalog of selected *already-published* Model operations by stable domain Server key, draft revision and immutable publication version. It does not own MCP session/transport/OAuth and does not turn protocol configuration into a Shared Reality record or Data Grant. `apps/console` provides the platform-admin editor using the established human actor proof plus controlled Core executor; `lifespace-adapters` will separately consume published manifests, intersect current Runtime Discovery and apply Core authority at tool execution. No direct Adapter D1 access or Connection registry is introduced.

@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: LifeSpace Core Platform Admin API
-  version: 0.5.0
+  version: 0.6.0
   description: >-
     Privileged LifeSpace Core control-plane contract for the LifeSpace Console and approved
     platform automation. This contract is separate from both the downstream Core Kernel Contract and
@@ -18,8 +18,91 @@ tags:
   - name: Space Grant Governance
   - name: Space External Governance
   - name: Model Governance
+  - name: MCP Server Governance
   - name: Platform Audit
 paths:
+  /api/v1/platform-admin/mcp-servers:
+    get:
+      tags: [MCP Server Governance]
+      operationId: listPlatformMcpServers
+      description: List domain MCP Server definitions; requires models:manage and platform-admin actor proof.
+      parameters:
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100 } }
+      responses:
+        '200': { description: MCP Server catalog, content: { application/json: { schema: { $ref: '#/components/schemas/McpServerListResponse' } } } }
+    post:
+      tags: [MCP Server Governance]
+      operationId: createPlatformMcpServer
+      description: Create a draft only; requires models:manage and platform-admin actor proof.
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/CreateMcpServerRequest' } } }
+      responses:
+        '201': { description: Draft created, content: { application/json: { schema: { $ref: '#/components/schemas/McpServerResponse' } } } }
+  /api/v1/platform-admin/mcp-servers/{serverKey}:
+    parameters: [ { name: serverKey, in: path, required: true, schema: { type: string } } ]
+    get:
+      tags: [MCP Server Governance]
+      operationId: getPlatformMcpServer
+      description: Inspect draft and published revision; requires models:manage and platform-admin actor proof.
+      responses:
+        '200': { description: MCP Server, content: { application/json: { schema: { $ref: '#/components/schemas/McpServerResponse' } } } }
+    patch:
+      tags: [MCP Server Governance]
+      operationId: editPlatformMcpServerDraft
+      description: Edit only draft with optimistic revision; requires models:manage and platform-admin actor proof.
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/EditMcpServerRequest' } } }
+      responses:
+        '200': { description: Draft saved, content: { application/json: { schema: { $ref: '#/components/schemas/McpServerResponse' } } } }
+        '409': { description: Draft version conflict }
+  /api/v1/platform-admin/mcp-servers/{serverKey}/publish:
+    parameters: [ { name: serverKey, in: path, required: true, schema: { type: string } } ]
+    post:
+      tags: [MCP Server Governance]
+      operationId: publishPlatformMcpServer
+      description: Publish immutable model/operation manifest pinned to Model schema hashes; requires models:manage and platform-admin actor proof. Does not deploy Adapter or grant data access.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [expectedDraftRevision, confirmKey]
+              properties:
+                expectedDraftRevision: { type: integer, minimum: 1 }
+                confirmKey: { type: string }
+      responses:
+        '200': { description: Published revision, content: { application/json: { schema: { $ref: '#/components/schemas/McpServerResponse' } } } }
+        '409': { description: No changes or version conflict }
+  /api/v1/platform-admin/mcp-servers/{serverKey}/withdraw:
+    parameters: [ { name: serverKey, in: path, required: true, schema: { type: string } } ]
+    post:
+      tags: [MCP Server Governance]
+      operationId: withdrawPlatformMcpServer
+      description: Withdraw active publication, preserving history; requires models:manage and platform-admin actor proof.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [confirmKey]
+              properties:
+                confirmKey: { type: string }
+      responses:
+        '200': { description: Withdrawn, content: { application/json: { schema: { $ref: '#/components/schemas/McpServerResponse' } } } }
+  /api/v1/platform-admin/mcp-servers/{serverKey}/revisions:
+    parameters: [ { name: serverKey, in: path, required: true, schema: { type: string } } ]
+    get:
+      tags: [MCP Server Governance]
+      operationId: listPlatformMcpServerRevisions
+      description: Inspect immutable publication history; requires models:manage and platform-admin actor proof.
+      responses:
+        '200': { description: Revision history, content: { application/json: { schema: { $ref: '#/components/schemas/McpServerRevisionListResponse' } } } }
   /api/v1/platform-admin/applications/{applicationId}/model-access:
     parameters:
       - $ref: '#/components/parameters/ApplicationId'
@@ -597,6 +680,90 @@ components:
       description: Requested control-plane resource was not found
       content: { application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } } }
   schemas:
+    McpModelSelection:
+      type: object
+      additionalProperties: false
+      required: [modelKey, operations]
+      properties:
+        modelKey: { type: string }
+        operations:
+          type: array
+          minItems: 1
+          maxItems: 32
+          uniqueItems: true
+          items: { type: string }
+    McpServerDraft:
+      type: object
+      additionalProperties: false
+      required: [models]
+      properties:
+        models:
+          type: array
+          maxItems: 32
+          items: { $ref: '#/components/schemas/McpModelSelection' }
+    CreateMcpServerRequest:
+      type: object
+      additionalProperties: false
+      required: [key, name]
+      properties:
+        key: { type: string, minLength: 2, maxLength: 40 }
+        name: { type: string, minLength: 2, maxLength: 80 }
+        description: { type: string, maxLength: 500 }
+        draft: { $ref: '#/components/schemas/McpServerDraft' }
+    EditMcpServerRequest:
+      type: object
+      additionalProperties: false
+      required: [expectedDraftRevision]
+      properties:
+        expectedDraftRevision: { type: integer, minimum: 1 }
+        name: { type: string, minLength: 2, maxLength: 80 }
+        description: { type: string, maxLength: 500 }
+        draft: { $ref: '#/components/schemas/McpServerDraft' }
+    McpServerDefinition:
+      type: object
+      additionalProperties: true
+      required: [id, key, path, name, description, status, draftRevision, draft, createdAt, updatedAt]
+      properties:
+        id: { type: string }
+        key: { type: string }
+        path: { type: string }
+        name: { type: string }
+        description: { type: string }
+        status: { type: string, enum: [draft, published, withdrawn] }
+        draftRevision: { type: integer, minimum: 1 }
+        publishedRevision: { anyOf: [{ type: integer }, { type: 'null' }] }
+        draft: { $ref: '#/components/schemas/McpServerDraft' }
+        published: { anyOf: [{ type: object }, { type: 'null' }] }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    McpServerResponse:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data: { $ref: '#/components/schemas/McpServerDefinition' }
+    McpServerListResponse:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/McpServerDefinition' } }
+    McpServerRevisionListResponse:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data:
+          type: array
+          items:
+            type: object
+            required: [revision, manifestHash, manifest, publishedAt, publishedByUserId]
+            properties:
+              revision: { type: integer, minimum: 1 }
+              manifestHash: { type: string }
+              manifest: { type: object }
+              publishedAt: { type: string, format: date-time }
+              publishedByUserId: { type: string }
     ErrorResponse:
       type: object
       additionalProperties: false

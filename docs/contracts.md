@@ -410,3 +410,8 @@ Identity 0.13 adds an authenticated user's explicit Application-scoped mailbox l
 ## 2026-10-26 correction: unified Access links
 
 The Identity 0.14/schema 13 account-link contract supersedes the earlier 0.13 mailbox-grant wording. Both entry points write `access_principals`; pending declarations grant no token and ordinary login resolves verified issuer/subject only. GET settings projects code-linked and email-prelinked state uniformly. See `application-authentication.md`. Not deployed by this correction.
+
+
+## Core Platform Admin 0.6.0 — MCP domain Server governance (in development)
+
+New `/api/v1/platform-admin/mcp-servers*` operations govern a protocol-specific, platform-owned publication catalog. They are **privileged** and remain outside the ordinary Kernel/Model Control Plane and ordinary Agent tool discovery. Core stores stable server keys and immutable versions of explicit model/operation allowlists pinned to current published Model Definition schema hashes. Publish does not authorize a caller and does not deploy any Adapter. This uses the existing Console `models:manage` platform executor scope plus purpose-bound human actor proof; it creates no new Space/Agent/Service/Connection authority. Contract source: `apps/core/platform-admin.openapi.yaml` 0.6.0 and `docs/mcp-server-governance.md`.

@@ -23,6 +23,7 @@ import { ApiError, failure, success } from "./http";
 import { registerModelAdminRoutes } from "./model-admin";
 import { registerModelAdminAiRoutes } from "./model-admin-ai";
 import { registerPlatformAdminRoutes } from "./platform-admin";
+import { registerMcpServerGovernanceRoutes } from "./mcp-server-governance";
 import { registerPlatformInspectorRoutes } from "./platform-inspector";
 import { registerSpaceRoutes } from "./spaces";
 import { registerSpaceLifecycleRoutes } from "./space-lifecycle";
@@ -113,6 +114,7 @@ export function createApp() {
   registerModelAdminRoutes(app);
   registerModelAdminAiRoutes(app);
   registerPlatformAdminRoutes(app);
+  registerMcpServerGovernanceRoutes(app);
   registerPlatformInspectorRoutes(app);
   registerEventSubscriptionRoutes(app);
   registerDelegationRoutes(app);
