@@ -244,6 +244,35 @@ export function registerOAuthAuthorizationServer(app: App) {
     return c.redirect(target.href, 302);
   });
 
+  // Account-only read of unbound/pending consent metadata. This never conveys
+  // current Data Grants, user entitlement or successful authorization.
+  app.get("/api/v1/me/oauth/requests/:requestId", async (c) => {
+    const principal = c.get("principal");
+    if (!c.env.OAUTH_ACCOUNT_APPLICATION_ID || principal.clientId !== c.env.OAUTH_ACCOUNT_APPLICATION_ID) {
+      return oauthError(c, 403, "access_denied", "Account user session is required");
+    }
+    const requestId = c.req.param("requestId");
+    if (!/^oar_[A-Za-z0-9_-]{16,128}$/u.test(requestId)) {
+      return oauthError(c, 400, "invalid_request", "Invalid OAuth authorization request");
+    }
+    const row = await c.env.DB.prepare(
+      "SELECT r.*, cl.display_name clientName, cl.status clientStatus FROM oauth_authorization_requests r JOIN oauth_clients cl ON cl.id=r.client_id WHERE r.id=?",
+    ).bind(requestId).first<OAuthRequest & { clientName: string; clientStatus: string }>();
+    if (!row || row.clientStatus !== "active" || row.status !== "pending" || Date.parse(row.expires_at) <= Date.now()) {
+      return oauthError(c, 400, "invalid_request", "OAuth request is not pending");
+    }
+    return c.json({ data: {
+      id: row.id,
+      client: {
+        id: row.client_id, name: row.clientName,
+        redirectOrigin: new URL(row.redirect_uri).origin,
+        verifiedVendor: false,
+      },
+      resource: row.resource, requestedScopes: json(row.scopes),
+      expiresAt: row.expires_at, status: row.status,
+    } }, 200, { "cache-control": "no-store" });
+  });
+
   // Private Core -> Identity boundary. The Account BFF cannot directly approve OAuth.
   // Core must first verify the user's Account session and selected Space/Agent eligibility.
   app.post("/oauth/requests/:requestId/approve", async (c) => {
