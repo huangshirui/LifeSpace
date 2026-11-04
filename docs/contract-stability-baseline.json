@@ -116,7 +116,7 @@
     {
       "id": "identity-application",
       "source": "apps/identity/openapi.yaml",
-      "operationSetSha256": "sha256:7e40a71007f70403f9de5dc4353f1085cdf8038a4fb5f68453aa4901fea5ef43",
+      "operationSetSha256": "sha256:8a7fe6ca8643e2b29c4a62e975e6b7d5ab88e27f7439c4ea020f4972b0218804",
       "groups": [
         {
           "id": "identity-operational",
@@ -230,7 +230,7 @@
           "id": "identity-core-oauth-agent-context",
           "maturity": "candidate",
           "visibility": "internal",
-          "operationPattern": "^POST /internal/v1/oauth/agent-candidates$"
+          "operationPattern": "^POST /oauth/core/agent-candidates$"
         }
       ]
     },
