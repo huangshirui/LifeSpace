@@ -15,6 +15,13 @@ export type Bindings = {
   ACCESS_TEAM_DOMAIN?: string;
   ENVIRONMENT?: string;
   PERFORMANCE_DIAGNOSTICS?: string;
+  // Interactive OAuth AS settings. All sensitive values are injected at deploy time.
+  OAUTH_ISSUER?: string;
+  OAUTH_CONSENT_URL?: string;
+  OAUTH_ACCOUNT_APPLICATION_ID?: string;
+  OAUTH_ALLOWED_RESOURCES?: string;
+  OAUTH_RESOURCE_SERVER_SECRET?: string;
+  OAUTH_DCR_ENABLED?: string;
 };
 
 export type RequestPerformanceTiming = {
