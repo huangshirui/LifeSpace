@@ -273,6 +273,35 @@ export function registerOAuthAuthorizationServer(app: App) {
     } }, 200, { "cache-control": "no-store" });
   });
 
+  // Core-only bounded resolution of Agent/Application identities that Core has
+  // already selected from a manager's current Space Data Grants.
+  app.post("/internal/v1/oauth/agent-candidates", async (c) => {
+    const provided = c.req.header("x-lifespace-internal-secret") || "";
+    if (!c.env.CORE_IDENTITY_SHARED_SECRET || !provided || !await equal(provided, c.env.CORE_IDENTITY_SHARED_SECRET)) {
+      return oauthError(c, 401, "invalid_client", "Trusted Core service is required");
+    }
+    const body = await c.req.json<unknown>().catch(() => null);
+    if (!body || typeof body !== "object" || Array.isArray(body) || Object.keys(body).some((k) => k !== "agentIds")) {
+      return oauthError(c, 400, "invalid_request", "Bounded Agent IDs are required");
+    }
+    const agentIds = (body as { agentIds?: unknown }).agentIds;
+    if (!Array.isArray(agentIds) || agentIds.length < 1 || agentIds.length > 30
+      || agentIds.some((v) => typeof v !== "string" || !/^agt_[A-Za-z0-9_-]{3,128}$/u.test(v))
+      || new Set(agentIds).size !== agentIds.length) {
+      return oauthError(c, 400, "invalid_request", "Invalid Agent candidate set");
+    }
+    const placeholders = agentIds.map(() => "?").join(",");
+    const result = await c.env.DB.prepare(
+      "SELECT ag.id agentId,ag.display_name agentName,ap.id applicationId,ap.name applicationName " +
+      "FROM agents ag JOIN agent_applications aa ON aa.agent_id=ag.id " +
+      "JOIN applications ap ON ap.id=aa.application_id " +
+      "WHERE ag.id IN (" + placeholders + ") AND ag.status='active' " +
+      "AND aa.status='active' AND aa.revoked_at IS NULL AND ap.status='active' " +
+      "ORDER BY ap.name,ag.display_name LIMIT 60",
+    ).bind(...agentIds).all<{ agentId: string; agentName: string; applicationId: string; applicationName: string }>();
+    return c.json({ data: result.results }, 200, { "cache-control": "no-store" });
+  });
+
   // Private Core -> Identity boundary. The Account BFF cannot directly approve OAuth.
   // Core must first verify the user's Account session and selected Space/Agent eligibility.
   app.post("/oauth/requests/:requestId/approve", async (c) => {
