@@ -46,6 +46,12 @@ if ((ui.match(/<ModelSelectionEditor /gu) ?? []).length !== 2) {
 if (ui.includes(">创建草稿</button>")) {
   throw new Error("Empty draft creation must not be the only create action");
 }
+if ((ui.match(/api<Server>\("\/api\/mcp-servers", "POST"/gu) ?? []).length !== 1) {
+  throw new Error("Retry publish must not create another MCP Server");
+}
+if (!ui.includes('void load();\n  }\n  async function create(')) {
+  throw new Error("Cancelling creation must refresh any draft created before a publish failure");
+}
 for (const marker of ["create-mcp-server", "publish-mcp-server", "confirmId"]) {
   if (!worker.includes(marker)) throw new Error("MCP BFF missing create/publish flow " + marker);
 }

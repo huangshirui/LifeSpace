@@ -211,6 +211,8 @@ export default function McpServersPage({ serverKey, navigate }: { serverKey?: st
     setError("");
     setNotice("");
     setCatalogStatus("idle");
+    // Refresh the catalog: a failed publish may still have created a persisted draft.
+    void load();
   }
   async function create(event: FormEvent<HTMLFormElement> | null, mode: "publish" | "draft") {
     event?.preventDefault();
