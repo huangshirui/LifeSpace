@@ -142,8 +142,9 @@ async function manifest(context: Context<AppEnv>, row: ServerRow): Promise<{ val
     const actions = isObject(definition.actions) ? definition.actions : {};
     for (const operation of selection.operations) {
       const action = ACTION.exec(operation);
+      const candidate = action ? actions[action[1] ?? ""] : null;
       const required = action
-        ? (isObject(actions[action[1]]) ? actions[action[1]].access : null)
+        ? (isObject(candidate) ? candidate.access : null)
         : (operation === "query" || operation === "get" ? "read" : "write");
       if ((required !== "read" && required !== "write") || !access.includes(required)) {
         throw new ApiError("VALIDATION_ERROR", selection.modelKey + " does not publish the required capability for " + operation, 422);
@@ -209,13 +210,13 @@ export function registerMcpServerGovernanceRoutes(app: App): void {
 
   app.get(base + "/:serverKey", async (context) => {
     await requirePlatformAdminContext(context, "models:manage");
-    const row = await findServer(context, context.req.param("serverKey"));
+    const row = await findServer(context, context.req.param("serverKey") ?? "");
     return context.json(success(rowDto(row, await currentPublication(context, row))));
   });
 
   app.patch(base + "/:serverKey", async (context) => {
     const admin = await requirePlatformAdminContext(context, "models:manage");
-    const row = await findServer(context, context.req.param("serverKey"));
+    const row = await findServer(context, context.req.param("serverKey") ?? "");
     const input = await body(context);
     rejectKeys(input, ["name", "description", "draft", "expectedDraftRevision"]);
     expectedRevision(input, row);
@@ -238,7 +239,7 @@ export function registerMcpServerGovernanceRoutes(app: App): void {
 
   app.post(base + "/:serverKey/publish", async (context) => {
     const admin = await requirePlatformAdminContext(context, "models:manage");
-    const row = await findServer(context, context.req.param("serverKey"));
+    const row = await findServer(context, context.req.param("serverKey") ?? "");
     const input = await body(context);
     rejectKeys(input, ["expectedDraftRevision", "confirmKey"]);
     expectedRevision(input, row);
@@ -267,7 +268,7 @@ export function registerMcpServerGovernanceRoutes(app: App): void {
 
   app.post(base + "/:serverKey/withdraw", async (context) => {
     const admin = await requirePlatformAdminContext(context, "models:manage");
-    const row = await findServer(context, context.req.param("serverKey"));
+    const row = await findServer(context, context.req.param("serverKey") ?? "");
     const input = await body(context);
     rejectKeys(input, ["confirmKey"]);
     if (input.confirmKey !== row.server_key) throw new ApiError("CONFIRMATION_REQUIRED", "Confirm the exact MCP Server key to withdraw", 422);
@@ -286,7 +287,7 @@ export function registerMcpServerGovernanceRoutes(app: App): void {
 
   app.get(base + "/:serverKey/revisions", async (context) => {
     await requirePlatformAdminContext(context, "models:manage");
-    const row = await findServer(context, context.req.param("serverKey"));
+    const row = await findServer(context, context.req.param("serverKey") ?? "");
     const results = await context.env.DB.prepare(
       "SELECT * FROM mcp_server_publications WHERE server_id=? ORDER BY revision DESC LIMIT 100"
     ).bind(row.id).all<PublicationRow>();
