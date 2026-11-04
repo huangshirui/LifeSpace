@@ -65,7 +65,7 @@ async function fixture(role: "owner" | "viewer" = "owner") {
     CORE_IDENTITY_SHARED_SECRET: "core-introspection-test",
     IDENTITY: {
       fetch: async (address: string, init?: RequestInit) => {
-        if (address.endsWith("/internal/v1/oauth/agent-candidates")) {
+        if (address.endsWith("/oauth/core/agent-candidates")) {
           const ids = JSON.parse(String(init?.body)) as { agentIds: string[] };
           expect(new Headers(init?.headers).get("x-lifespace-internal-secret")).toBe("core-introspection-test");
           return Response.json({ data: ids.agentIds.includes(agentId)
