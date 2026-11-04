@@ -137,7 +137,7 @@ test("same-origin, CSRF, explicit-intent, shape and client-controlled upstream p
     { headers: { ...mutatingHeaders(data.csrfToken, cookie), "sec-fetch-site": "cross-site" }, status: 403 },
     { headers: mutatingHeaders(data.csrfToken, cookie), body: JSON.stringify({ ...JSON.parse(consentBody()), principalUserId: "usr_admin" }), status: 400 },
     { headers: mutatingHeaders(data.csrfToken, cookie), body: JSON.stringify({ ...JSON.parse(consentBody()), intent: "some-other-intent" }), status: 400 },
-    { headers: mutatingHeaders(data.csrfToken, cookie), body: JSON.stringify({ ...JSON.parse(consentBody()), agentId: "agt_wrong" }), status: 400 },
+    { headers: mutatingHeaders(data.csrfToken, cookie), body: JSON.stringify({ ...JSON.parse(consentBody()), agentId: "invalid" }), status: 400 },
   ];
   for (const entry of failCases) {
     const res = await t.request("/api/oauth/confirm", { ...base, ...entry });
