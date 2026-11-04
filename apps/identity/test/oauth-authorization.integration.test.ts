@@ -115,7 +115,7 @@ async function setup() {
     method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({ client_id: clientId, token: opaque }),
   });
-  return { b, request, target, account, userId, agentId, clientId, verifier, redirect, resource, authorize, approve, token, introspect, revoke };
+  return { b, request, target, account, userId, userToken, agentId, clientId, verifier, redirect, resource, authorize, approve, token, introspect, revoke };
 }
 
 describe("Identity OAuth Authorization Server (isolated candidate)", () => {
@@ -145,6 +145,40 @@ describe("Identity OAuth Authorization Server (isolated candidate)", () => {
     })).status).toBe(403);
   });
 
+  it("returns only pending client metadata to authenticated Account, never scope authority or unverified vendor identity", async () => {
+    const t = await setup();
+    const pending = await t.authorize();
+    const requestId = new URL(pending.headers.get("location")!).searchParams.get("request_id")!;
+    const path = "/api/v1/me/oauth/requests/" + requestId;
+    expect((await t.request(path)).status).toBe(401);
+    const preview = await t.request(path, {
+      headers: { authorization: "Bearer " + t.userToken },
+    });
+    expect(preview.status).toBe(200);
+    const data = (await preview.json() as any).data;
+    expect(data).toMatchObject({
+      id: requestId,
+      client: { id: t.clientId, name: "Test MCP Client", verifiedVendor: false,
+        redirectOrigin: "https://client.example.test" },
+      resource: t.resource,
+      status: "pending", requestedScopes: ["resources:read"],
+    });
+    expect(JSON.stringify(data)).not.toContain("userToken");
+    expect(data).not.toHaveProperty("spaceId");
+    expect(data).not.toHaveProperty("agentId");
+    expect(data).not.toHaveProperty("currentGrants");
+    const otherUserToken = await t.request("/internal/v1/tokens", {
+      method: "POST",
+      headers: { authorization: "Bearer " + t.target.secret, "content-type": "application/json" },
+      body: JSON.stringify({ subjectId: t.userId, scopes: ["resources:read"] }),
+    });
+    expect(otherUserToken.status).toBe(200);
+    const alien = (await otherUserToken.json() as any).data.accessToken;
+    expect((await t.request(path, {
+      headers: { authorization: "Bearer " + alien },
+    })).status).toBe(403);
+  });
+
   it("requires trusted Core + Account-user proof before creating a one-time authorization; PKCE, resource and replay are enforced", async () => {
     const t = await setup();
     const pending = await t.authorize();
@@ -152,6 +186,7 @@ describe("Identity OAuth Authorization Server (isolated candidate)", () => {
     const requestId = new URL(pending.headers.get("location")!).searchParams.get("request_id")!;
     expect(requestId).toMatch(/^oar_/);
     expect((await t.approve(requestId, null)).status).toBe(401);
+    expect((await t.approve(requestId, t.b.CORE_IDENTITY_SHARED_SECRET)).status).toBe(401);
     expect((await t.approve(requestId, t.b.OAUTH_CORE_APPROVER_SECRET, { agentId: "agt_unbound" })).status).toBe(403);
     const accepted = await t.approve(requestId, t.b.OAUTH_CORE_APPROVER_SECRET);
     expect(accepted.status).toBe(200);
