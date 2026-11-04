@@ -514,6 +514,16 @@ paths:
         '201': { description: Client ID registered with exact redirect URIs }
         '400': { description: Invalid client metadata or redirect URI }
         '403': { description: DCR is disabled }
+  /api/v1/me/oauth/requests/{requestId}:
+    get:
+      description: Authenticated Account user reads pending OAuth client metadata and scopes. Client display name is unverified; these scopes are not current Core permissions.
+      security: [{ userBearer: [] }]
+      parameters:
+        - { in: path, name: requestId, required: true, schema: { type: string, pattern: '^oar_' } }
+      responses:
+        '200': { description: Pending request metadata for Account Consent; no-store }
+        '400': { description: Expired or completed OAuth request }
+        '403': { description: Caller is not the dedicated Account Application }
   /oauth/authorize:
     get:
       description: Validate registered OAuth Client, exact callback, mandatory state, PKCE S256 and allowlisted Resource URI. Creates only an expiring pending request, then redirects to Account Consent; grants no Authority.
@@ -532,8 +542,8 @@ paths:
         '400': { description: Invalid client/callback/PKCE/resource }
   /oauth/requests/{requestId}/approve:
     post:
-      description: Private Core-verified approval bridge. Requires Core Identity shared secret and an Identity-signed active User JWT issued for the configured Account Application. Only a Core service that has separately validated Account Consent and current User/Application/Space/Agent eligibility may invoke. This route is not browser/Account/third-party callable.
-      security: [{ internalServiceSecret: [] }]
+      description: Private Core-verified approval bridge. Requires dedicated Core OAuth approver secret and an Identity-signed active User JWT issued for the configured Account Application. Only a Core service that has separately validated Account Consent and current User/Application/Space/Agent eligibility may invoke. This route is not browser/Account/third-party callable.
+      security: [{ oauthCoreApproverSecret: [] }]
       parameters:
         - { name: requestId, in: path, required: true, schema: { type: string, pattern: ^oar_ } }
       responses:
@@ -598,6 +608,11 @@ components:
       type: apiKey
       in: header
       name: x-lifespace-internal-secret
+    oauthCoreApproverSecret:
+      type: apiKey
+      in: header
+      name: x-lifespace-oauth-approver-secret
+      description: Dedicated Core-to-Identity OAuth confirmation secret, distinct from regular introspection.
     oauthResourceServerSecret:
       type: apiKey
       in: header
