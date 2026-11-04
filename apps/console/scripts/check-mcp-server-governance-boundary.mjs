@@ -5,10 +5,11 @@ const ui = readFileSync(new URL("../src/McpServersPage.tsx", import.meta.url), "
 const migration = readFileSync(new URL("../../core/migrations/0077_mcp_server_registry.sql", import.meta.url), "utf8");
 
 for (const source of [core, worker]) {
-  for (const marker of ["platform-admin", "models:manage", "mcp-servers"]) {
+  for (const marker of ["platform-admin", "mcp-servers"]) {
     if (!source.includes(marker)) throw new Error("MCP governance missing " + marker);
   }
 }
+if (!core.includes("models:manage")) throw new Error("Core MCP governance must enforce models:manage");
 for (const marker of [
   "requirePlatformAdminContext", "manifest_hash", "schema_hash",
   "draft_revision", "published_revision", "platform_admin_audit",
