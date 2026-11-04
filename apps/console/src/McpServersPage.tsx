@@ -239,8 +239,20 @@ export default function McpServersPage({ serverKey, navigate }: { serverKey?: st
             expectedDraftRevision: server.draftRevision, confirmId: server.id,
           }, "publish-mcp-server");
         } catch (cause) {
-          const message = cause instanceof Error ? cause.message : "发布失败";
-          setError("Server 已创建并保留为草稿，但发布失败：" + message);
+          const message = cause instanceof Error ? cause.message : "发布结果未确认";
+          // A response can be lost after Core committed the publication.
+          // Read the canonical Server state before describing it as a draft.
+          try {
+            const current = await api<Server>(endpoint(server.id));
+            setCreatedDraft(current);
+            if (current.status === "published") {
+              navigate("/mcp-servers/" + encodeURIComponent(current.id));
+              return;
+            }
+            setError("Server 已保存为草稿，发布未完成：" + message);
+          } catch {
+            setError("Server 已创建，但发布结果未确认。请打开详情核对状态后再操作：" + message);
+          }
           return;
         }
       }
@@ -258,13 +270,18 @@ export default function McpServersPage({ serverKey, navigate }: { serverKey?: st
     setBusy(true);
     setError("");
     try {
-      await api<Server>(endpoint(createdDraft.id, "/publish"), "POST", {
-        expectedDraftRevision: createdDraft.draftRevision, confirmId: createdDraft.id,
+      const current = await api<Server>(endpoint(createdDraft.id));
+      if (current.status === "published") {
+        navigate("/mcp-servers/" + encodeURIComponent(current.id));
+        return;
+      }
+      await api<Server>(endpoint(current.id, "/publish"), "POST", {
+        expectedDraftRevision: current.draftRevision, confirmId: current.id,
       }, "publish-mcp-server");
-      navigate("/mcp-servers/" + encodeURIComponent(createdDraft.id));
+      navigate("/mcp-servers/" + encodeURIComponent(current.id));
     } catch (cause) {
-      const message = cause instanceof Error ? cause.message : "发布失败";
-      setError("草稿已保留，重试发布失败：" + message);
+      const message = cause instanceof Error ? cause.message : "发布结果未确认";
+      setError("发布结果未确认，请打开详情核对状态：" + message);
     } finally {
       setBusy(false);
     }
@@ -339,8 +356,8 @@ export default function McpServersPage({ serverKey, navigate }: { serverKey?: st
         {catalogStatus === "ready" && <ModelSelectionEditor models={models} value={createDraft}
           onChange={setCreateDraft} disabled={busy || Boolean(createdDraft)} />}
         {createdDraft ? <div className="mcp-panel mcp-recovery" role="status">
-          <strong>草稿已创建</strong>
-          <p>Server ID：<code>{createdDraft.id}</code>。发布未完成，不会重复创建。</p>
+          <strong>Server 已创建</strong>
+          <p>Server ID：<code>{createdDraft.id}</code>。如发布未完成，可重试；不会重复创建。</p>
           <div className="mcp-actions">
             <button type="button" className="mcp-primary" disabled={busy}
               onClick={() => void retryCreatePublish()}>重试发布</button>
