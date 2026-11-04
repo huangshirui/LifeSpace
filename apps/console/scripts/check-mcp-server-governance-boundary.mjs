@@ -29,6 +29,27 @@ for (const marker of ["exactSameOriginMutation", "x-lifespace-console-intent", "
 if (/request\.headers\.get\(["']authorization["']\)/u.test(worker)) {
   throw new Error("MCP BFF must not forward browser bearer credentials");
 }
+// The create journey must configure models and operations before creating a Server,
+// default to a two-stage create+publish, and never repeat create on a publish retry.
+for (const marker of [
+  "ModelSelectionEditor", "models={models} value={createDraft}", "onChange={setCreateDraft}",
+  'api<Model[]>("/api/models")', 'draft: { models: createDraft }',
+  'endpoint(server.id, "/publish")', "expectedDraftRevision: server.draftRevision",
+  "confirmId: server.id", "setCreatedDraft(server)", "retryCreatePublish",
+  "createdDraft.id", "创建并发布", "保存草稿", "管理草稿",
+]) {
+  if (!ui.includes(marker)) throw new Error("MCP create-and-publish journey missing " + marker);
+}
+if ((ui.match(/<ModelSelectionEditor /gu) ?? []).length !== 2) {
+  throw new Error("MCP create/edit pages must share the same Model operation editor");
+}
+if (ui.includes(">创建草稿</button>")) {
+  throw new Error("Empty draft creation must not be the only create action");
+}
+for (const marker of ["create-mcp-server", "publish-mcp-server", "confirmId"]) {
+  if (!worker.includes(marker)) throw new Error("MCP BFF missing create/publish flow " + marker);
+}
+
 for (const marker of ["draftRevision", "publishedRevision", "revisions", "模型与操作", "发布新版本", "撤回发布"]) {
   if (!ui.includes(marker)) throw new Error("MCP Server management journey missing " + marker);
 }

@@ -55,6 +55,84 @@ function sameDraft(a: Selection[], b: Selection[]) {
   return normalize(a) === normalize(b);
 }
 
+
+function validSelection(value: Selection[], models: Model[]): boolean {
+  if (value.length === 0 || value.length > 32) return false;
+  const modelMap = new Map(models.map((model) => [model.key, model]));
+  return value.every((item) => {
+    const available = operations(modelMap.get(item.modelKey));
+    return item.operations.length > 0
+      && item.operations.length <= 32
+      && item.operations.every((operation) => available.includes(operation));
+  });
+}
+
+function ModelSelectionEditor({
+  models, value, onChange, disabled = false,
+}: {
+  models: Model[];
+  value: Selection[];
+  onChange: (next: Selection[]) => void;
+  disabled?: boolean;
+}) {
+  const [pendingKey, setPendingKey] = useState("");
+  const modelMap = useMemo(() => new Map(models.map((model) => [model.key, model])), [models]);
+  const choices = models.filter((model) => !value.some((item) => item.modelKey === model.key) && operations(model).length > 0);
+
+  function addModel() {
+    const model = modelMap.get(pendingKey);
+    if (!model || !operations(model).length || value.length >= 32) return;
+    onChange([...value, { modelKey: model.key, operations: [] }]);
+    setPendingKey("");
+  }
+  function toggle(modelKey: string, operation: string) {
+    onChange(value.map((item) => {
+      if (item.modelKey !== modelKey) return item;
+      const checked = item.operations.includes(operation);
+      if (!checked && item.operations.length >= 32) return item;
+      return { ...item, operations: checked
+        ? item.operations.filter((entry) => entry !== operation)
+        : [...item.operations, operation] };
+    }));
+  }
+
+  return <section className="mcp-panel">
+    <div className="mcp-panel-head"><h2>模型与操作</h2><span>{value.length} 个模型</span></div>
+    {value.map((item) => {
+      const model = modelMap.get(item.modelKey);
+      const allowed = operations(model);
+      const choices = Array.from(new Set([...allowed, ...item.operations]));
+      return <div className="mcp-model" key={item.modelKey}>
+        <div className="mcp-model-head">
+          <div><strong>{model?.definition.display?.singular ?? item.modelKey}</strong>
+            <small>{item.modelKey}{model ? " · v" + model.version : " · 模型不可用"}</small></div>
+          <button type="button" className="mcp-text-button" disabled={disabled}
+            onClick={() => onChange(value.filter((entry) => entry.modelKey !== item.modelKey))}>移除</button>
+        </div>
+        <div className="mcp-operations">{choices.map((operation) => <label key={operation} className="mcp-check">
+          <input type="checkbox" disabled={disabled || (!item.operations.includes(operation) && item.operations.length >= 32)}
+            checked={item.operations.includes(operation)} onChange={() => toggle(item.modelKey, operation)} />
+          {label(operation)}{!allowed.includes(operation) && <em>已失效</em>}
+        </label>)}</div>
+        {!item.operations.length && <p className="mcp-inline-help">请选择至少一项操作</p>}
+      </div>;
+    })}
+    {!value.length && <div className="mcp-empty mcp-small">添加模型，再选择要开放的操作。</div>}
+    <div className="mcp-add">
+      <select aria-label="选择模型" value={pendingKey} disabled={disabled || value.length >= 32}
+        onChange={(event) => setPendingKey(event.target.value)}>
+        <option value="">选择已发布模型</option>
+        {choices.map((model) => <option value={model.key} key={model.key}>
+          {model.definition.display?.singular ?? model.key} · {model.key}
+        </option>)}
+      </select>
+      <button type="button" className="secondary-button" disabled={disabled || !pendingKey || value.length >= 32}
+        onClick={addModel}>添加模型</button>
+    </div>
+    {!choices.length && !value.length && <p className="mcp-caption">暂无可配置的已发布模型。</p>}
+  </section>;
+}
+
 export default function McpServersPage({ serverKey, navigate }: { serverKey?: string; navigate: (path: string) => void }) {
   const [rows, setRows] = useState<Server[]>([]);
   const [selected, setSelected] = useState<Server>();
@@ -67,10 +145,12 @@ export default function McpServersPage({ serverKey, navigate }: { serverKey?: st
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState("");
   const [newDescription, setNewDescription] = useState("");
+  const [createDraft, setCreateDraft] = useState<Selection[]>([]);
+  const [createdDraft, setCreatedDraft] = useState<Server | null>(null);
+  const [catalogStatus, setCatalogStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [draft, setDraft] = useState<Selection[]>([]);
-  const [newModel, setNewModel] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true); setError(""); setNotice("");
@@ -93,23 +173,101 @@ export default function McpServersPage({ serverKey, navigate }: { serverKey?: st
   }, [serverKey]);
   useEffect(() => { void load(); }, [load]);
 
-  const modelMap = useMemo(() => new Map(models.map((model) => [model.key, model])), [models]);
   const dirty = Boolean(selected && (selected.name !== name || selected.description !== description || !sameDraft(selected.draft.models, draft)));
-  const addChoices = models.filter((model) => !draft.some((item) => item.modelKey === model.key) && operations(model).length > 0);
+  const createPublishable = validSelection(createDraft, models);
+  const createSaveable = createDraft.length === 0 || validSelection(createDraft, models);
   async function mutate(action: () => Promise<void>) {
     setBusy(true); setError(""); setNotice("");
     try { await action(); }
     catch (cause) { setError(cause instanceof Error ? cause.message : "操作失败"); }
     finally { setBusy(false); }
   }
-  async function create(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    await mutate(async () => {
+  async function loadCreateModels() {
+    setCatalogStatus("loading");
+    setError("");
+    try {
+      const modelCatalog = await api<Model[]>("/api/models");
+      setModels(modelCatalog);
+      setCatalogStatus("ready");
+    } catch (cause) {
+      setCatalogStatus("error");
+      setError(cause instanceof Error ? cause.message : "模型列表加载失败");
+    }
+  }
+  function beginCreate() {
+    setCreating(true);
+    setCreatedDraft(null);
+    setNewName("");
+    setNewDescription("");
+    setCreateDraft([]);
+    setError("");
+    setNotice("");
+    void loadCreateModels();
+  }
+  function cancelCreate() {
+    if (busy) return;
+    setCreating(false);
+    setCreatedDraft(null);
+    setError("");
+    setNotice("");
+    setCatalogStatus("idle");
+  }
+  async function create(event: FormEvent<HTMLFormElement> | null, mode: "publish" | "draft") {
+    event?.preventDefault();
+    if (busy || createdDraft || catalogStatus !== "ready") return;
+    if (newName.trim().length < 2) {
+      setError("请输入至少两个字符的名称");
+      return;
+    }
+    if (!createSaveable || (mode === "publish" && !createPublishable)) {
+      setError("请为每个模型选择有效操作；发布时至少需要一个模型");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
       const server = await api<Server>("/api/mcp-servers", "POST", {
         name: newName.trim(), description: newDescription.trim(),
+        draft: { models: createDraft },
       }, "create-mcp-server");
-      setCreating(false); navigate("/mcp-servers/" + encodeURIComponent(server.id));
-    });
+      // Persist the server identity in UI state before attempting the second API request.
+      // If publishing fails, never create another server on Retry.
+      setCreatedDraft(server);
+      if (mode === "publish") {
+        try {
+          await api<Server>(endpoint(server.id, "/publish"), "POST", {
+            expectedDraftRevision: server.draftRevision, confirmId: server.id,
+          }, "publish-mcp-server");
+        } catch (cause) {
+          const message = cause instanceof Error ? cause.message : "发布失败";
+          setError("Server 已创建并保留为草稿，但发布失败：" + message);
+          return;
+        }
+      }
+      navigate("/mcp-servers/" + encodeURIComponent(server.id));
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : "请求失败";
+      // On a network error the POST may already have committed; avoid claiming no draft exists.
+      setError("创建结果未确认，请返回列表检查后再试，避免重复创建：" + message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function retryCreatePublish() {
+    if (!createdDraft || busy) return;
+    setBusy(true);
+    setError("");
+    try {
+      await api<Server>(endpoint(createdDraft.id, "/publish"), "POST", {
+        expectedDraftRevision: createdDraft.draftRevision, confirmId: createdDraft.id,
+      }, "publish-mcp-server");
+      navigate("/mcp-servers/" + encodeURIComponent(createdDraft.id));
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : "发布失败";
+      setError("草稿已保留，重试发布失败：" + message);
+    } finally {
+      setBusy(false);
+    }
   }
   async function save() {
     if (!selected || !dirty) return;
@@ -143,49 +301,61 @@ export default function McpServersPage({ serverKey, navigate }: { serverKey?: st
       await load(); setNotice("已撤回发布");
     });
   }
-  function addModel() {
-    const model = modelMap.get(newModel);
-    if (!model) return;
-    const allowed = operations(model);
-    if (!allowed.length) return;
-    setDraft((value) => [...value, { modelKey: model.key, operations: [allowed[0]] }]);
-    setNewModel("");
-  }
-  function toggle(key: string, op: string) {
-    setDraft((value) => value.map((m) => {
-      if (m.modelKey !== key) return m;
-      const on = m.operations.includes(op);
-      return { ...m, operations: on ? m.operations.filter((x) => x !== op) : [...m.operations, op] };
-    }));
-  }
 
   return <div className="mcp-page">
     <header className="mcp-header">
       <div>
         <div className="eyebrow">Platform</div>
-        <h1>{serverKey && selected ? selected.name : "领域 MCP Servers"}</h1>
-        <p>{serverKey && selected ? selected.path : "管理领域工具的模型与操作发布目录"}</p>
+        <h1>{serverKey && selected ? selected.name : creating ? "新建 MCP Server" : "领域 MCP Servers"}</h1>
+        <p>{serverKey && selected ? selected.path : creating ? "配置模型与操作，再创建并发布" : "管理领域工具的模型与操作发布目录"}</p>
       </div>
       <div className="mcp-toolbar">
         {serverKey
           ? <button type="button" className="secondary-button" onClick={() => navigate("/mcp-servers")}>返回列表</button>
-          : <button type="button" className="mcp-primary" onClick={() => setCreating((value) => !value)}>{creating ? "取消" : "新建 Server"}</button>}
+          : creating
+            ? <button type="button" className="secondary-button" disabled={busy} onClick={cancelCreate}>取消</button>
+            : <button type="button" className="mcp-primary" onClick={beginCreate}>新建 Server</button>}
       </div>
     </header>
 
     {error && <div className="mcp-message mcp-error" role="alert">{error}</div>}
     {notice && <div className="mcp-message mcp-success" role="status">{notice}</div>}
     {loading ? <div className="mcp-panel mcp-empty">正在加载…</div> : !serverKey ? <>
-      {creating && <section className="mcp-panel">
-        <h2>新建 MCP Server</h2>
-        <form className="mcp-create" onSubmit={(event) => void create(event)}>
-          <label>名称<input required minLength={2} maxLength={80} value={newName} onChange={(event) => setNewName(event.target.value)} placeholder="日常任务" /></label>
-          <p className="mcp-hint">连接地址由系统生成，创建后保持不变。</p>
-          <label className="mcp-full">描述（可选）<input maxLength={500} value={newDescription} onChange={(event) => setNewDescription(event.target.value)} placeholder="向客户端提供任务领域工具" /></label>
-          <div className="mcp-full"><button type="submit" className="mcp-primary" disabled={busy}>创建草稿</button></div>
-        </form>
-      </section>}
-      <section className="mcp-panel">
+      {creating ? <form className="mcp-create-form" onSubmit={(event) => void create(event, "publish")}>
+        <section className="mcp-panel">
+          <h2>基本信息</h2>
+          <div className="mcp-create">
+            <label>名称<input required minLength={2} maxLength={80} disabled={busy || Boolean(createdDraft)}
+              value={newName} onChange={(event) => setNewName(event.target.value)} placeholder="例如：任务管理" /></label>
+            <label className="mcp-full">描述（可选）<input maxLength={500} disabled={busy || Boolean(createdDraft)}
+              value={newDescription} onChange={(event) => setNewDescription(event.target.value)} placeholder="这个 Server 提供什么能力" /></label>
+          </div>
+        </section>
+        {catalogStatus === "loading" && <div className="mcp-panel mcp-empty">正在加载已发布模型…</div>}
+        {catalogStatus === "error" && <div className="mcp-panel mcp-empty">
+          模型列表加载失败。<button type="button" className="secondary-button"
+            onClick={() => void loadCreateModels()}>重新加载</button>
+        </div>}
+        {catalogStatus === "ready" && <ModelSelectionEditor models={models} value={createDraft}
+          onChange={setCreateDraft} disabled={busy || Boolean(createdDraft)} />}
+        {createdDraft ? <div className="mcp-panel mcp-recovery" role="status">
+          <strong>草稿已创建</strong>
+          <p>Server ID：<code>{createdDraft.id}</code>。发布未完成，不会重复创建。</p>
+          <div className="mcp-actions">
+            <button type="button" className="mcp-primary" disabled={busy}
+              onClick={() => void retryCreatePublish()}>重试发布</button>
+            <button type="button" className="secondary-button" disabled={busy}
+              onClick={() => navigate("/mcp-servers/" + encodeURIComponent(createdDraft.id))}>管理草稿</button>
+          </div>
+        </div> : <div className="mcp-actions">
+          <button type="submit" className="mcp-primary"
+            disabled={busy || catalogStatus !== "ready" || !createPublishable}>创建并发布</button>
+          <button type="button" className="secondary-button"
+            disabled={busy || catalogStatus !== "ready" || !createSaveable}
+            onClick={() => void create(null, "draft")}>保存草稿</button>
+        </div>}
+        <p className="mcp-caption">发布的是平台能力目录，不会自动部署 MCP Adapter 或授予客户端权限。</p>
+      </form> : <section className="mcp-panel">
         <div className="mcp-table-scroll"><table className="mcp-table"><thead><tr><th>名称</th><th>路径</th><th>状态</th><th>版本</th><th /></tr></thead><tbody>
           {rows.map((row) => <tr key={row.id}>
             <td><strong>{row.name}</strong><small>{row.description}</small></td>
@@ -196,8 +366,8 @@ export default function McpServersPage({ serverKey, navigate }: { serverKey?: st
           </tr>)}
         </tbody></table></div>
         {!rows.length && <div className="mcp-empty">尚无 MCP Server。点击右上角新建。</div>}
-      </section>
-      <p className="mcp-caption">发布会保存平台目录，不会自动部署 MCP Adapter 或创建客户端权限。</p>
+      </section>}
+      {!creating && <p className="mcp-caption">发布会保存平台目录，不会自动部署 MCP Adapter 或创建客户端权限。</p>}
     </> : selected ? <>
       <div className="mcp-summary">
         <div><span>状态</span><strong>{status(selected.status)}</strong></div>
@@ -212,30 +382,7 @@ export default function McpServersPage({ serverKey, navigate }: { serverKey?: st
           <label className="mcp-full">描述<input maxLength={500} value={description} onChange={(event) => setDescription(event.target.value)} /></label>
         </div>
       </section>
-      <section className="mcp-panel">
-        <div className="mcp-panel-head"><h2>模型与操作</h2><span>{draft.length} 个模型</span></div>
-        {draft.map((item) => {
-          const model = modelMap.get(item.modelKey);
-          const capabilities = Array.from(new Set([...operations(model), ...item.operations]));
-          return <div className="mcp-model" key={item.modelKey}>
-            <div className="mcp-model-head"><div><strong>{model?.definition.display?.singular ?? item.modelKey}</strong><small>{item.modelKey}{model ? " · v" + model.version : " · 模型不可用"}</small></div>
-              <button className="mcp-text-button" type="button" onClick={() => setDraft((value) => value.filter((m) => m.modelKey !== item.modelKey))}>移除</button>
-            </div>
-            <div className="mcp-operations">{capabilities.map((op) => <label key={op} className="mcp-check">
-              <input type="checkbox" checked={item.operations.includes(op)} onChange={() => toggle(item.modelKey, op)} />
-              {label(op)}{!operations(model).includes(op) && <em>已失效</em>}
-            </label>)}</div>
-          </div>;
-        })}
-        {!draft.length && <div className="mcp-empty mcp-small">请选择一个模型及其操作。</div>}
-        <div className="mcp-add">
-          <select aria-label="选择模型" value={newModel} onChange={(event) => setNewModel(event.target.value)}>
-            <option value="">选择已发布模型</option>
-            {addChoices.map((m) => <option value={m.key} key={m.key}>{m.definition.display?.singular ?? m.key} · {m.key}</option>)}
-          </select>
-          <button type="button" className="secondary-button" onClick={addModel} disabled={!newModel}>添加模型</button>
-        </div>
-      </section>
+      <ModelSelectionEditor models={models} value={draft} onChange={setDraft} disabled={busy} />
       <div className="mcp-actions">
         <button type="button" className="mcp-primary" disabled={busy || !dirty || draft.some((m) => !m.operations.length)} onClick={() => void save()}>保存草稿</button>
         <button type="button" className="secondary-button" disabled={busy || dirty || !draft.length} onClick={() => void publish()}>发布新版本</button>
