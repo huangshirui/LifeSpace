@@ -21,6 +21,7 @@ export type Bindings = {
   OAUTH_ACCOUNT_APPLICATION_ID?: string;
   OAUTH_ALLOWED_RESOURCES?: string;
   OAUTH_RESOURCE_SERVER_SECRET?: string;
+  OAUTH_CORE_APPROVER_SECRET?: string;
   OAUTH_DCR_ENABLED?: string;
 };
 
