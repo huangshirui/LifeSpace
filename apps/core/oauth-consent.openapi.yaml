@@ -1,0 +1,65 @@
+openapi: 3.1.0
+info:
+  title: LifeSpace Core Account OAuth Consent Bridge
+  version: 0.1.0
+  description: >
+    Candidate Account-only, user-session-bound OAuth consent confirmation.
+    Core verifies current Space manage authority, then calls Identity through a
+    trusted Service Binding; this never creates a Data Grant or Delegation.
+paths:
+  /api/v1/me/oauth/requests/{requestId}/confirm:
+    post:
+      operationId: confirmOAuthConsent
+      description: >
+        A dedicated Account backend submits a verified Identity-signed
+        Account Application user token. Core requires spaces:manage scope and
+        current manage authority for the selected Space. It alone contacts
+        Identity's internal approval boundary. The Agent remains Direct-only
+        unless a separate User Delegation is explicitly approved.
+      security: [{ accountUserBearer: [] }]
+      parameters:
+        - in: path
+          name: requestId
+          required: true
+          schema: { type: string, pattern: '^oar_' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [applicationId, spaceId, agentId, allowUserAuthorization]
+              properties:
+                applicationId: { type: string }
+                spaceId: { type: string, pattern: '^spc_' }
+                agentId: { type: string, pattern: '^agt_' }
+                allowUserAuthorization: { type: boolean }
+      responses:
+        '200':
+          description: User-confirmed Authorization Code redirect to return to the Account BFF; no-store.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: object
+                    required: [authorizationId, redirectUrl]
+                    properties:
+                      authorizationId: { type: string, pattern: '^oaz_' }
+                      redirectUrl: { type: string, format: uri }
+        '400': { description: Invalid request payload }
+        '401': { description: User JWT not authenticated }
+        '403': { description: Not Account user, lacking scope or current Space manage authority }
+        '409': { description: OAuth request expired, replaced or no longer pending }
+        '502': { description: Identity confirmation unavailable or invalid }
+        '503': { description: Trusted Core-to-Identity binding not configured }
+components:
+  securitySchemes:
+    accountUserBearer:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Identity-issued user JWT for configured Account Application only; never an OAuth Client credential.
