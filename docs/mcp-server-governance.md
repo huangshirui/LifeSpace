@@ -15,7 +15,7 @@ LifeSpace Console 的「MCP Servers」负责管理一个平台公共领域 Serve
 
 ## Domain Server definition / 定义
 
-- Stable `key`: lowercase slug, 2–40 characters; the planned Resource Server path is `/mcp/{key}`. Keys cannot be changed.
+- Core generates the immutable Server ID `mcp_<32 lowercase hexadecimal characters>` and the planned MCP Resource path `/mcp/{serverId}`. The Console user cannot choose or change either.
 - `name`, optional `description` and `draft.models[]`.
 - Model entry: unique published `modelKey`, explicit unique `operations[]` in `get/query/create/update/delete/action:<actionKey>` form.
 - Drafts may be initially empty. Publishing requires at least one model and validates every operation against the current published Model Definition: reads require `read`, mutations require `write`, and declared actions must exist with an exposed `read`/`write` requirement.
@@ -25,22 +25,22 @@ LifeSpace Console 的「MCP Servers」负责管理一个平台公共领域 Serve
 ## UX / Console
 
 1. Open Platform → MCP Servers, view status, planned `/mcp/...` path and published version.
-2. Create a Server draft using name and stable key.
+2. Create a Server draft using only the name and optional description; Core automatically generates the Server ID and the fixed URL.
 3. Add one or more currently published Models; choose one or more declared operations per Model. Save the draft. Stale edits reject with `VERSION_CONFLICT`.
-4. Publish with exact key confirmation; Core validates live Registry semantics and pins a version.
+4. Publish with exact Server ID confirmation; Core validates live Registry semantics and pins a version.
 5. Review immutable history; withdraw with explicit confirmation when needed.
 
 UI communicates that these are **catalog releases**, not deployed public MCP endpoints.
 
 ## Contract / API
 
-Privileged Core Platform Admin API `0.6.0`:
+Privileged Core Platform Admin API `0.7.0`:
 
 - `GET/POST /api/v1/platform-admin/mcp-servers`
-- `GET/PATCH /api/v1/platform-admin/mcp-servers/{serverKey}`
-- `POST /api/v1/platform-admin/mcp-servers/{serverKey}/publish`
-- `POST /api/v1/platform-admin/mcp-servers/{serverKey}/withdraw`
-- `GET /api/v1/platform-admin/mcp-servers/{serverKey}/revisions`
+- `GET/PATCH /api/v1/platform-admin/mcp-servers/{serverId}`
+- `POST /api/v1/platform-admin/mcp-servers/{serverId}/publish`
+- `POST /api/v1/platform-admin/mcp-servers/{serverId}/withdraw`
+- `GET /api/v1/platform-admin/mcp-servers/{serverId}/revisions`
 
 All calls require the paired service executor + short-lived human proof and use canonical Core D1 state. Console BFF exposes only matching bounded `/api/mcp-servers*` endpoints protected by exact Origin/Fetch Metadata/JSON/intent guards and action-specific request shape.
 
@@ -53,3 +53,7 @@ Tests cover admin actor/executor denial, malformed/duplicate draft inputs, model
 ## Next integration boundary
 
 A separate `lifespace-adapters` implementation consumes published definitions. The Adapter must reject stale manifest model hashes, unknown operations, unpublished Server status, and callers without current Core authorization. Until that is tested and deployed, the planned Server URL is not a live endpoint.
+
+## 2026-11-04 ID-based path correction / 无数据迁移
+
+Staging already applied Schema 77, but no MCP Server rows had been created when this change was approved. Do not edit historical migration 0077. Keep the original `server_key` non-null/unique column for schema compatibility and set it internally to exactly the generated `id` on creation. The Console create form and Core API never accept user-selected `key` or `id`; all management URLs and new manifests refer to `serverId`. This change requires new Core/Console Workers in Staging, **no D1 schema migration**. A future removal of the redundant legacy column would be a separate numbered migration. The Core Platform Admin candidate contract moves to 0.7.0. This catalog still does not deploy the actual MCP Adapter endpoints.
