@@ -46,6 +46,8 @@ async function fixture(role: "owner" | "viewer" = "owner") {
       .bind(spaceId, "OAuth consent test", userId, now, now, "UTC"),
     db.prepare("INSERT INTO space_memberships(id,space_id,user_id,role,created_at,updated_at) VALUES(?,?,?,?,?,?)")
       .bind("mem_" + suffix, spaceId, userId, role, now, now),
+    db.prepare("INSERT INTO data_grants(id,source_space_id,grantee_type,grantee_id,resource_type,resource_id,permission,created_by_user_id,created_at) VALUES(?,?, 'agent',?, 'space',NULL,'read',?,?)")
+      .bind("grt_" + suffix, spaceId, agentId, userId, now),
   ]);
   const pair = await keys();
   const bearer = await token(pair.privateKey, userId, appId);
@@ -60,8 +62,16 @@ async function fixture(role: "owner" | "viewer" = "owner") {
     IDENTITY_PUBLIC_KEY: pair.publicKey,
     OAUTH_ACCOUNT_APPLICATION_ID: appId,
     OAUTH_CORE_APPROVER_SECRET: "core-approval-secret-test",
+    CORE_IDENTITY_SHARED_SECRET: "core-introspection-test",
     IDENTITY: {
       fetch: async (address: string, init?: RequestInit) => {
+        if (address.endsWith("/internal/v1/oauth/agent-candidates")) {
+          const ids = JSON.parse(String(init?.body)) as { agentIds: string[] };
+          expect(new Headers(init?.headers).get("x-lifespace-internal-secret")).toBe("core-introspection-test");
+          return Response.json({ data: ids.agentIds.includes(agentId)
+            ? [{ agentId, agentName: "Test Agent", applicationId: targetApp, applicationName: "Target App" }]
+            : [] });
+        }
         forwarded.push({
           url: address,
           secret: new Headers(init?.headers).get("x-lifespace-oauth-approver-secret") ?? "",
@@ -88,6 +98,14 @@ async function fixture(role: "owner" | "viewer" = "owner") {
 describe("Core Account OAuth Consent boundary", () => {
   it("requires a verified Account user, current Space manage permission and a dedicated Core-to-Identity secret", async () => {
     const f = await fixture();
+    const optionResponse = await createApp().request(
+      "https://core.example.test/api/v1/me/oauth/spaces/" + f.spaceId + "/options",
+      { headers: { authorization: "Bearer " + f.bearer } }, f.bindings,
+    );
+    expect(optionResponse.status).toBe(200);
+    expect(await optionResponse.json()).toMatchObject({ data: { candidates: [
+      { agentId: f.agentId, applicationId: f.selected.applicationId },
+    ] } });
     const confirmed = await f.call();
     expect(confirmed.status).toBe(200);
     expect(await confirmed.json()).toMatchObject({
@@ -109,6 +127,7 @@ describe("Core Account OAuth Consent boundary", () => {
     expect((await f.call(otherUser)).status).toBe(403);
     expect((await f.call(f.bearer, { ...f.selected, principalUserId: f.userId })).status).toBe(400);
     expect((await f.call(f.bearer, f.selected, "not-an-oar")).status).toBe(400);
+    expect((await f.call(f.bearer, { ...f.selected, agentId: "agt_not_granted" })).status).toBe(403);
     expect(f.forwarded).toHaveLength(1);
 
     await f.db.prepare("UPDATE space_memberships SET role='viewer' WHERE space_id=? AND user_id=?")
