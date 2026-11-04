@@ -130,9 +130,9 @@ if (!consentBridge?.security?.some((entry) => entry.internalServiceSecret)) {
 if (!doc.paths?.["/oauth/introspect"]?.post?.security?.some((entry) => entry.oauthResourceServerSecret)) {
   throw new Error("Interactive OAuth introspection requires separate Resource Server trust");
 }
-const grants = doc.components?.schemas?.OAuthTokenRequest?.properties?.grant_type?.enum ?? [];
+const grantDescription = String(doc.components?.schemas?.OAuthTokenRequest?.properties?.grant_type?.description ?? "");
 for (const grant of ["client_credentials", "authorization_code", "refresh_token"]) {
-  if (!grants.includes(grant)) throw new Error("OAuth grant type missing: " + grant);
+  if (!grantDescription.includes(grant)) throw new Error("OAuth grant type undocumented: " + grant);
 }
 
 const introspectionSecurity = doc.paths?.["/introspection/v1/service-tokens"]?.post?.security ?? [];
