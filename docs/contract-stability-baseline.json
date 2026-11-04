@@ -116,7 +116,7 @@
     {
       "id": "identity-application",
       "source": "apps/identity/openapi.yaml",
-      "operationSetSha256": "sha256:1e41868dffb134e5495d885a3a726fa36d66b1d80807bfe5adf63ffd20aa37b8",
+      "operationSetSha256": "sha256:7e40a71007f70403f9de5dc4353f1085cdf8038a4fb5f68453aa4901fea5ef43",
       "groups": [
         {
           "id": "identity-operational",
@@ -225,6 +225,12 @@
           "maturity": "candidate",
           "visibility": "internal",
           "operationPattern": "^GET /api/v1/me/oauth/requests/\\{requestId\\}$"
+        },
+        {
+          "id": "identity-core-oauth-agent-context",
+          "maturity": "candidate",
+          "visibility": "internal",
+          "operationPattern": "^POST /internal/v1/oauth/agent-candidates$"
         }
       ]
     },
@@ -405,13 +411,19 @@
     {
       "id": "core-account-oauth-consent",
       "source": "apps/core/oauth-consent.openapi.yaml",
-      "operationSetSha256": "sha256:a6b03eecb9ee61c836c1a0a76676114ed4869d873bcc41e77b31653c12748f52",
+      "operationSetSha256": "sha256:0b4dc701e9667f37c30fcfe40815b99f7ec91fa214c8c037acb367b617147788",
       "groups": [
         {
           "id": "core-account-consent-confirm",
           "maturity": "candidate",
           "visibility": "internal",
           "operationPattern": "^POST /api/v1/me/oauth/requests/\\{requestId\\}/confirm$"
+        },
+        {
+          "id": "core-account-oauth-candidate-projection",
+          "maturity": "candidate",
+          "visibility": "internal",
+          "operationPattern": "^GET /api/v1/me/oauth/(choices|spaces/\\{spaceId\\}/options)$"
         }
       ]
     }
