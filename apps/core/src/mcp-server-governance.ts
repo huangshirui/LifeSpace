@@ -83,7 +83,10 @@ function parseBody(value: unknown): Json {
 async function body(context: Context<AppEnv>): Promise<Json> {
   const text = await context.req.text();
   if (new TextEncoder().encode(text).byteLength > 32768) throw new ApiError("REQUEST_TOO_LARGE", "MCP Server request is too large", 413);
-  return parseBody(JSON.parse(text || "null") as unknown);
+  let parsed: unknown;
+  try { parsed = JSON.parse(text || "null") as unknown; }
+  catch { throw new ApiError("INVALID_REQUEST", "Invalid MCP Server JSON body", 400); }
+  return parseBody(parsed);
 }
 function rowDto(row: ServerRow, publication?: PublicationRow | null) {
   return {
