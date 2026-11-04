@@ -540,6 +540,29 @@ paths:
       responses:
         '302': { description: Account consent pending transaction redirect }
         '400': { description: Invalid client/callback/PKCE/resource }
+  /internal/v1/oauth/agent-candidates:
+    post:
+      description: Core-only bounded resolution of currently active Agent/Application bindings for Agent IDs already selected by Core after checking the caller's Space Data Grants. Not a user-facing Agent Registry listing.
+      security: [{ internalServiceSecret: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [agentIds]
+              properties:
+                agentIds:
+                  type: array
+                  minItems: 1
+                  maxItems: 30
+                  uniqueItems: true
+                  items: { type: string, pattern: '^agt_' }
+      responses:
+        '200': { description: Active Agent/Application context rows, with names and IDs only; no grants or secrets }
+        '400': { description: Invalid or unbounded candidate set }
+        '401': { description: Core service authentication required }
   /oauth/requests/{requestId}/approve:
     post:
       description: Private Core-verified approval bridge. Requires dedicated Core OAuth approver secret and an Identity-signed active User JWT issued for the configured Account Application. Only a Core service that has separately validated Account Consent and current User/Application/Space/Agent eligibility may invoke. This route is not browser/Account/third-party callable.
