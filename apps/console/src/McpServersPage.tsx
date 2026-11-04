@@ -6,7 +6,7 @@ type Selection = { modelKey: string; operations: Operation[] };
 type ManifestModel = Selection & { modelVersion: number; schemaHash: string };
 type Revision = { revision: number; manifestHash: string; publishedAt: string; publishedByUserId: string; manifest: { models: ManifestModel[] } };
 type Server = {
-  id: string; key: string; path: string; name: string; description: string;
+  id: string; path: string; name: string; description: string;
   status: "draft" | "published" | "withdrawn";
   draftRevision: number; publishedRevision: number | null;
   draft: { models: Selection[] };
@@ -19,7 +19,7 @@ const names: Record<string,string> = {
   get: "读取单条", query: "查询", create: "创建", update: "更新", delete: "删除",
 };
 function label(op: string) { return names[op] ?? (op.startsWith("action:") ? "动作 · " + op.slice(7) : op); }
-function endpoint(key: string, suffix = "") { return "/api/mcp-servers/" + encodeURIComponent(key) + suffix; }
+function endpoint(id: string, suffix = "") { return "/api/mcp-servers/" + encodeURIComponent(id) + suffix; }
 function status(value: Server["status"]) { return { draft: "草稿", published: "已发布", withdrawn: "已撤回" }[value]; }
 async function api<T>(path: string, method: "GET" | "POST" | "PATCH" = "GET", payload?: unknown, intent?: string): Promise<T> {
   const res = await fetch(path, {
@@ -65,7 +65,6 @@ export default function McpServersPage({ serverKey, navigate }: { serverKey?: st
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [creating, setCreating] = useState(false);
-  const [newKey, setNewKey] = useState("");
   const [newName, setNewName] = useState("");
   const [newDescription, setNewDescription] = useState("");
   const [name, setName] = useState("");
@@ -107,15 +106,15 @@ export default function McpServersPage({ serverKey, navigate }: { serverKey?: st
     event.preventDefault();
     await mutate(async () => {
       const server = await api<Server>("/api/mcp-servers", "POST", {
-        key: newKey.trim(), name: newName.trim(), description: newDescription.trim(),
+        name: newName.trim(), description: newDescription.trim(),
       }, "create-mcp-server");
-      setCreating(false); navigate(endpoint(server.key).replace("/api/", "/"));
+      setCreating(false); navigate("/mcp-servers/" + encodeURIComponent(server.id));
     });
   }
   async function save() {
     if (!selected || !dirty) return;
     await mutate(async () => {
-      const server = await api<Server>(endpoint(selected.key), "PATCH", {
+      const server = await api<Server>(endpoint(selected.id), "PATCH", {
         expectedDraftRevision: selected.draftRevision,
         name: name.trim(), description: description.trim(),
         draft: { models: draft },
@@ -130,8 +129,8 @@ export default function McpServersPage({ serverKey, navigate }: { serverKey?: st
     if (!selected || dirty || draft.length === 0) return;
     if (!window.confirm("发布 " + selected.path + " 的新版本？")) return;
     await mutate(async () => {
-      await api<Server>(endpoint(selected.key, "/publish"), "POST", {
-        expectedDraftRevision: selected.draftRevision, confirmKey: selected.key,
+      await api<Server>(endpoint(selected.id, "/publish"), "POST", {
+        expectedDraftRevision: selected.draftRevision, confirmId: selected.id,
       }, "publish-mcp-server");
       await load(); setNotice("发布成功，历史版本已保留");
     });
@@ -140,7 +139,7 @@ export default function McpServersPage({ serverKey, navigate }: { serverKey?: st
     if (!selected || selected.status !== "published") return;
     if (!window.confirm("撤回 " + selected.path + " 的当前发布版本？")) return;
     await mutate(async () => {
-      await api<Server>(endpoint(selected.key, "/withdraw"), "POST", { confirmKey: selected.key }, "withdraw-mcp-server");
+      await api<Server>(endpoint(selected.id, "/withdraw"), "POST", { confirmId: selected.id }, "withdraw-mcp-server");
       await load(); setNotice("已撤回发布");
     });
   }
@@ -181,8 +180,7 @@ export default function McpServersPage({ serverKey, navigate }: { serverKey?: st
         <h2>新建 MCP Server</h2>
         <form className="mcp-create" onSubmit={(event) => void create(event)}>
           <label>名称<input required minLength={2} maxLength={80} value={newName} onChange={(event) => setNewName(event.target.value)} placeholder="日常任务" /></label>
-          <label>路径标识<input required pattern="[a-z][a-z0-9-]{1,39}" value={newKey} onChange={(event) => setNewKey(event.target.value)} placeholder="tasks" /></label>
-          <p className="mcp-path">/mcp/{newKey || "…"}</p>
+          <p className="mcp-hint">连接地址由系统生成，创建后保持不变。</p>
           <label className="mcp-full">描述（可选）<input maxLength={500} value={newDescription} onChange={(event) => setNewDescription(event.target.value)} placeholder="向客户端提供任务领域工具" /></label>
           <div className="mcp-full"><button type="submit" className="mcp-primary" disabled={busy}>创建草稿</button></div>
         </form>
@@ -194,7 +192,7 @@ export default function McpServersPage({ serverKey, navigate }: { serverKey?: st
             <td><code>{row.path}</code></td>
             <td><span className={"mcp-state mcp-" + row.status}>{status(row.status)}</span></td>
             <td>{row.publishedRevision ? "v" + row.publishedRevision : "—"}</td>
-            <td><button type="button" className="mcp-text-button" onClick={() => navigate("/mcp-servers/" + encodeURIComponent(row.key))}>管理</button></td>
+            <td><button type="button" className="mcp-text-button" onClick={() => navigate("/mcp-servers/" + encodeURIComponent(row.id))}>管理</button></td>
           </tr>)}
         </tbody></table></div>
         {!rows.length && <div className="mcp-empty">尚无 MCP Server。点击右上角新建。</div>}
@@ -207,7 +205,7 @@ export default function McpServersPage({ serverKey, navigate }: { serverKey?: st
         <div><span>草稿修订</span><strong>#{selected.draftRevision}</strong></div>
       </div>
       <section className="mcp-panel">
-        <div className="mcp-panel-head"><h2>基本信息</h2><span>路径标识创建后不可修改</span></div>
+        <div className="mcp-panel-head"><h2>基本信息</h2><span>连接地址创建后不可修改</span></div>
         <div className="mcp-fields">
           <label>名称<input maxLength={80} value={name} onChange={(event) => setName(event.target.value)} /></label>
           <label>路径<input value={selected.path} readOnly /></label>

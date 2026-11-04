@@ -10,7 +10,8 @@ type Operation = "get" | "query" | "create" | "update" | "delete" | `action:${st
 type ModelSelection = { modelKey: string; operations: Operation[] };
 type Draft = { models: ModelSelection[] };
 type ServerRow = {
-  id: string; server_key: string; display_name: string; description: string;
+  id: string; server_key: string; // schema 77: internal compatibility column always equals id for new rows
+  display_name: string; description: string;
   status: "draft" | "published" | "withdrawn"; draft_json: string;
   draft_revision: number; published_revision: number | null;
   created_by_user_id: string; updated_by_user_id: string;
@@ -19,7 +20,7 @@ type ServerRow = {
 type PublicationRow = { revision: number; manifest_json: string; manifest_hash: string; published_at: string; published_by_user_id: string };
 type PublishedModelRow = { model_key: string; version: number; schema_hash: string; definition_json: string };
 
-const KEY = /^[a-z][a-z0-9-]{1,39}$/u;
+const MCP_SERVER_ID = /^mcp_[a-f0-9]{32}$/u;
 const MODEL = /^[a-z][a-z0-9_]{1,62}$/u;
 const ACTION = /^action:([a-z][a-z0-9_-]{0,62})$/u;
 const OPERATIONS = new Set(["get", "query", "create", "update", "delete"]);
@@ -34,8 +35,8 @@ function rejectKeys(value: Json, allowed: string[]): void {
     throw new ApiError("INVALID_REQUEST", "Unexpected field in MCP Server configuration", 400);
   }
 }
-function serverKey(value: string): string {
-  if (!KEY.test(value)) throw new ApiError("VALIDATION_ERROR", "Server key must be a lowercase slug of 2-40 characters", 422);
+function canonicalServerId(value: string): string {
+  if (!MCP_SERVER_ID.test(value)) throw new ApiError("MCP_SERVER_NOT_FOUND", "MCP Server not found", 404);
   return value;
 }
 function displayName(value: unknown): string {
@@ -90,7 +91,7 @@ async function body(context: Context<AppEnv>): Promise<Json> {
 }
 function rowDto(row: ServerRow, publication?: PublicationRow | null) {
   return {
-    id: row.id, key: row.server_key, path: "/mcp/" + row.server_key,
+    id: row.id, path: "/mcp/" + row.id,
     name: row.display_name, description: row.description, status: row.status,
     draftRevision: row.draft_revision, publishedRevision: row.published_revision,
     draft: JSON.parse(row.draft_json) as Draft,
@@ -103,9 +104,9 @@ function rowDto(row: ServerRow, publication?: PublicationRow | null) {
     publishedAt: row.published_at, withdrawnAt: row.withdrawn_at,
   };
 }
-async function findServer(context: Context<AppEnv>, key: string): Promise<ServerRow> {
-  const row = await context.env.DB.prepare("SELECT * FROM mcp_server_definitions WHERE server_key=?")
-    .bind(serverKey(key)).first<ServerRow>();
+async function findServer(context: Context<AppEnv>, serverId: string): Promise<ServerRow> {
+  const row = await context.env.DB.prepare("SELECT * FROM mcp_server_definitions WHERE id=?")
+    .bind(canonicalServerId(serverId)).first<ServerRow>();
   if (!row) throw new ApiError("MCP_SERVER_NOT_FOUND", "MCP Server not found", 404);
   return row;
 }
@@ -156,7 +157,7 @@ async function manifest(context: Context<AppEnv>, row: ServerRow): Promise<{ val
     };
   });
   const value: Json = {
-    key: row.server_key, path: "/mcp/" + row.server_key,
+    serverId: row.id, path: "/mcp/" + row.id,
     name: row.display_name, description: row.description, models,
   };
   const bytes = new TextEncoder().encode(JSON.stringify(value));
@@ -180,7 +181,7 @@ export function registerMcpServerGovernanceRoutes(app: App): void {
       throw new ApiError("VALIDATION_ERROR", "limit must be between 1 and 100", 422);
     }
     if (Object.keys(context.req.queries()).some((key) => key !== "limit")) throw new ApiError("INVALID_REQUEST", "Unexpected query parameter", 400);
-    const rows = await context.env.DB.prepare("SELECT * FROM mcp_server_definitions ORDER BY server_key LIMIT ?")
+    const rows = await context.env.DB.prepare("SELECT * FROM mcp_server_definitions ORDER BY display_name COLLATE NOCASE, id LIMIT ?")
       .bind(limit).all<ServerRow>();
     return context.json(success(rows.results.map((row) => rowDto(row))));
   });
@@ -188,35 +189,32 @@ export function registerMcpServerGovernanceRoutes(app: App): void {
   app.post(base, async (context) => {
     const admin = await requirePlatformAdminContext(context, "models:manage");
     const input = await body(context);
-    rejectKeys(input, ["key", "name", "description", "draft"]);
-    const key = serverKey(String(input.key ?? ""));
+    rejectKeys(input, ["name", "description", "draft"]);
     const name = displayName(input.name);
     const desc = description(input.description ?? "");
     const draft = parseDraft(input.draft ?? { models: [] });
-    const existing = await context.env.DB.prepare("SELECT id FROM mcp_server_definitions WHERE server_key=?").bind(key).first();
-    if (existing) throw new ApiError("MCP_SERVER_EXISTS", "MCP Server key already exists", 409);
     const serverId = id(); const stamp = now();
     await context.env.DB.batch([
       context.env.DB.prepare(`INSERT INTO mcp_server_definitions(
         id,server_key,display_name,description,status,draft_json,draft_revision,published_revision,
         created_by_user_id,updated_by_user_id,created_at,updated_at,published_at,withdrawn_at
       ) VALUES(?,?,?,?,'draft',?,1,NULL,?,?,?,?,NULL,NULL)`)
-        .bind(serverId, key, name, desc, JSON.stringify(draft), admin.actor.id, admin.actor.id, stamp, stamp),
-      audit(context, admin, "mcp_server.create", serverId, { key, name }),
+        .bind(serverId, serverId, name, desc, JSON.stringify(draft), admin.actor.id, admin.actor.id, stamp, stamp),
+      audit(context, admin, "mcp_server.create", serverId, { serverId, name }),
     ]);
-    const row = await findServer(context, key);
+    const row = await findServer(context, serverId);
     return context.json(success(rowDto(row)), 201);
   });
 
-  app.get(base + "/:serverKey", async (context) => {
+  app.get(base + "/:serverId", async (context) => {
     await requirePlatformAdminContext(context, "models:manage");
-    const row = await findServer(context, context.req.param("serverKey") ?? "");
+    const row = await findServer(context, context.req.param("serverId") ?? "");
     return context.json(success(rowDto(row, await currentPublication(context, row))));
   });
 
-  app.patch(base + "/:serverKey", async (context) => {
+  app.patch(base + "/:serverId", async (context) => {
     const admin = await requirePlatformAdminContext(context, "models:manage");
-    const row = await findServer(context, context.req.param("serverKey") ?? "");
+    const row = await findServer(context, context.req.param("serverId") ?? "");
     const input = await body(context);
     rejectKeys(input, ["name", "description", "draft", "expectedDraftRevision"]);
     expectedRevision(input, row);
@@ -229,21 +227,21 @@ export function registerMcpServerGovernanceRoutes(app: App): void {
       context.env.DB.prepare(`UPDATE mcp_server_definitions SET display_name=?,description=?,draft_json=?,
         draft_revision=draft_revision+1,updated_by_user_id=?,updated_at=?
         WHERE id=? AND draft_revision=?`).bind(name, desc, JSON.stringify(draft), admin.actor.id, stamp, row.id, row.draft_revision),
-      audit(context, admin, "mcp_server.update", row.id, { key: row.server_key, draftRevision: row.draft_revision + 1 }),
+      audit(context, admin, "mcp_server.update", row.id, { serverId: row.id, draftRevision: row.draft_revision + 1 }),
     ];
     const result = await context.env.DB.batch(statements);
     if (result[0].meta.changes !== 1) throw new ApiError("VERSION_CONFLICT", "MCP Server draft changed during update", 409);
-    const updated = await findServer(context, row.server_key);
+    const updated = await findServer(context, row.id);
     return context.json(success(rowDto(updated, await currentPublication(context, updated))));
   });
 
-  app.post(base + "/:serverKey/publish", async (context) => {
+  app.post(base + "/:serverId/publish", async (context) => {
     const admin = await requirePlatformAdminContext(context, "models:manage");
-    const row = await findServer(context, context.req.param("serverKey") ?? "");
+    const row = await findServer(context, context.req.param("serverId") ?? "");
     const input = await body(context);
-    rejectKeys(input, ["expectedDraftRevision", "confirmKey"]);
+    rejectKeys(input, ["expectedDraftRevision", "confirmId"]);
     expectedRevision(input, row);
-    if (input.confirmKey !== row.server_key) throw new ApiError("CONFIRMATION_REQUIRED", "Confirm the exact MCP Server key to publish", 422);
+    if (input.confirmId !== row.id) throw new ApiError("CONFIRMATION_REQUIRED", "Confirm the exact MCP Server ID to publish", 422);
     const compiled = await manifest(context, row);
     const previous = await currentPublication(context, row);
     if (row.status === "published" && previous?.manifest_hash === compiled.hash) {
@@ -259,35 +257,35 @@ export function registerMcpServerGovernanceRoutes(app: App): void {
         published_at=?,withdrawn_at=NULL,updated_at=?,updated_by_user_id=?
         WHERE id=? AND draft_revision=? AND COALESCE(published_revision,0)=?`)
         .bind(revision, stamp, stamp, admin.actor.id, row.id, row.draft_revision, row.published_revision ?? 0),
-      audit(context, admin, "mcp_server.publish", row.id, { key: row.server_key, revision, manifestHash: compiled.hash }),
+      audit(context, admin, "mcp_server.publish", row.id, { serverId: row.id, revision, manifestHash: compiled.hash }),
     ]);
     if (results[1].meta.changes !== 1) throw new ApiError("VERSION_CONFLICT", "MCP Server changed during publication", 409);
-    const published = await findServer(context, row.server_key);
+    const published = await findServer(context, row.id);
     return context.json(success(rowDto(published, await currentPublication(context, published))));
   });
 
-  app.post(base + "/:serverKey/withdraw", async (context) => {
+  app.post(base + "/:serverId/withdraw", async (context) => {
     const admin = await requirePlatformAdminContext(context, "models:manage");
-    const row = await findServer(context, context.req.param("serverKey") ?? "");
+    const row = await findServer(context, context.req.param("serverId") ?? "");
     const input = await body(context);
-    rejectKeys(input, ["confirmKey"]);
-    if (input.confirmKey !== row.server_key) throw new ApiError("CONFIRMATION_REQUIRED", "Confirm the exact MCP Server key to withdraw", 422);
+    rejectKeys(input, ["confirmId"]);
+    if (input.confirmId !== row.id) throw new ApiError("CONFIRMATION_REQUIRED", "Confirm the exact MCP Server ID to withdraw", 422);
     if (row.status !== "published") throw new ApiError("INVALID_STATE", "Only published MCP Servers can be withdrawn", 409);
     const stamp = now();
     const result = await context.env.DB.batch([
       context.env.DB.prepare(`UPDATE mcp_server_definitions SET status='withdrawn',
         withdrawn_at=?,updated_at=?,updated_by_user_id=? WHERE id=? AND status='published'`)
         .bind(stamp, stamp, admin.actor.id, row.id),
-      audit(context, admin, "mcp_server.withdraw", row.id, { key: row.server_key, revision: row.published_revision }),
+      audit(context, admin, "mcp_server.withdraw", row.id, { serverId: row.id, revision: row.published_revision }),
     ]);
     if (result[0].meta.changes !== 1) throw new ApiError("VERSION_CONFLICT", "MCP Server was changed", 409);
-    const updated = await findServer(context, row.server_key);
+    const updated = await findServer(context, row.id);
     return context.json(success(rowDto(updated, await currentPublication(context, updated))));
   });
 
-  app.get(base + "/:serverKey/revisions", async (context) => {
+  app.get(base + "/:serverId/revisions", async (context) => {
     await requirePlatformAdminContext(context, "models:manage");
-    const row = await findServer(context, context.req.param("serverKey") ?? "");
+    const row = await findServer(context, context.req.param("serverId") ?? "");
     const results = await context.env.DB.prepare(
       "SELECT * FROM mcp_server_publications WHERE server_id=? ORDER BY revision DESC LIMIT 100"
     ).bind(row.id).all<PublicationRow>();

@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: LifeSpace Core Platform Admin API
-  version: 0.6.0
+  version: 0.7.0
   description: >-
     Privileged LifeSpace Core control-plane contract for the LifeSpace Console and approved
     platform automation. This contract is separate from both the downstream Core Kernel Contract and
@@ -33,14 +33,14 @@ paths:
     post:
       tags: [MCP Server Governance]
       operationId: createPlatformMcpServer
-      description: Create a draft only; requires models:manage and platform-admin actor proof.
+      description: Create a draft using a generated mcp_* ID and planned /mcp/{serverId} path; requires models:manage and platform-admin actor proof.
       requestBody:
         required: true
         content: { application/json: { schema: { $ref: '#/components/schemas/CreateMcpServerRequest' } } }
       responses:
         '201': { description: Draft created, content: { application/json: { schema: { $ref: '#/components/schemas/McpServerResponse' } } } }
-  /api/v1/platform-admin/mcp-servers/{serverKey}:
-    parameters: [ { name: serverKey, in: path, required: true, schema: { type: string } } ]
+  /api/v1/platform-admin/mcp-servers/{serverId}:
+    parameters: [ { name: serverId, in: path, required: true, schema: { type: string, pattern: '^mcp_[a-f0-9]{32}$' } } ]
     get:
       tags: [MCP Server Governance]
       operationId: getPlatformMcpServer
@@ -57,8 +57,8 @@ paths:
       responses:
         '200': { description: Draft saved, content: { application/json: { schema: { $ref: '#/components/schemas/McpServerResponse' } } } }
         '409': { description: Draft version conflict }
-  /api/v1/platform-admin/mcp-servers/{serverKey}/publish:
-    parameters: [ { name: serverKey, in: path, required: true, schema: { type: string } } ]
+  /api/v1/platform-admin/mcp-servers/{serverId}/publish:
+    parameters: [ { name: serverId, in: path, required: true, schema: { type: string, pattern: '^mcp_[a-f0-9]{32}$' } } ]
     post:
       tags: [MCP Server Governance]
       operationId: publishPlatformMcpServer
@@ -70,15 +70,15 @@ paths:
             schema:
               type: object
               additionalProperties: false
-              required: [expectedDraftRevision, confirmKey]
+              required: [expectedDraftRevision, confirmId]
               properties:
                 expectedDraftRevision: { type: integer, minimum: 1 }
-                confirmKey: { type: string }
+                confirmId: { type: string, pattern: '^mcp_[a-f0-9]{32}$' }
       responses:
         '200': { description: Published revision, content: { application/json: { schema: { $ref: '#/components/schemas/McpServerResponse' } } } }
         '409': { description: No changes or version conflict }
-  /api/v1/platform-admin/mcp-servers/{serverKey}/withdraw:
-    parameters: [ { name: serverKey, in: path, required: true, schema: { type: string } } ]
+  /api/v1/platform-admin/mcp-servers/{serverId}/withdraw:
+    parameters: [ { name: serverId, in: path, required: true, schema: { type: string, pattern: '^mcp_[a-f0-9]{32}$' } } ]
     post:
       tags: [MCP Server Governance]
       operationId: withdrawPlatformMcpServer
@@ -90,13 +90,13 @@ paths:
             schema:
               type: object
               additionalProperties: false
-              required: [confirmKey]
+              required: [confirmId]
               properties:
-                confirmKey: { type: string }
+                confirmId: { type: string, pattern: '^mcp_[a-f0-9]{32}$' }
       responses:
         '200': { description: Withdrawn, content: { application/json: { schema: { $ref: '#/components/schemas/McpServerResponse' } } } }
-  /api/v1/platform-admin/mcp-servers/{serverKey}/revisions:
-    parameters: [ { name: serverKey, in: path, required: true, schema: { type: string } } ]
+  /api/v1/platform-admin/mcp-servers/{serverId}/revisions:
+    parameters: [ { name: serverId, in: path, required: true, schema: { type: string, pattern: '^mcp_[a-f0-9]{32}$' } } ]
     get:
       tags: [MCP Server Governance]
       operationId: listPlatformMcpServerRevisions
@@ -704,9 +704,8 @@ components:
     CreateMcpServerRequest:
       type: object
       additionalProperties: false
-      required: [key, name]
+      required: [name]
       properties:
-        key: { type: string, minLength: 2, maxLength: 40 }
         name: { type: string, minLength: 2, maxLength: 80 }
         description: { type: string, maxLength: 500 }
         draft: { $ref: '#/components/schemas/McpServerDraft' }
@@ -722,11 +721,10 @@ components:
     McpServerDefinition:
       type: object
       additionalProperties: true
-      required: [id, key, path, name, description, status, draftRevision, draft, createdAt, updatedAt]
+      required: [id, path, name, description, status, draftRevision, draft, createdAt, updatedAt]
       properties:
-        id: { type: string }
-        key: { type: string }
-        path: { type: string }
+        id: { type: string, pattern: '^mcp_[a-f0-9]{32}$' }
+        path: { type: string, pattern: '^/mcp/mcp_[a-f0-9]{32}$' }
         name: { type: string }
         description: { type: string }
         status: { type: string, enum: [draft, published, withdrawn] }

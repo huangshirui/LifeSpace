@@ -455,7 +455,7 @@ async function revokeDataGrant(request: Request, env: Env, spaceId: string, gran
 
 
 // MCP Server control plane. All upstream targets are fixed Core Platform Admin operations.
-const MCP_KEY = /^[a-z][a-z0-9-]{1,39}$/u;
+const MCP_SERVER_ID = /^mcp_[a-f0-9]{32}$/u;
 const MCP_OPERATION = /^(get|query|create|update|delete|action:[a-z][a-z0-9_-]{0,62})$/u;
 function mcpDraft(value: unknown): { models: Array<{ modelKey: string; operations: string[] }> } | null {
   if (!isRecord(value) || Object.keys(value).some((key) => key !== "models")
@@ -476,15 +476,12 @@ function mcpDraft(value: unknown): { models: Array<{ modelKey: string; operation
 }
 function mcpBody(request: Request, value: JsonRecord, mode: "create" | "edit" | "publish" | "withdraw"): JsonRecord | Response {
   const allowed: Record<typeof mode, string[]> = {
-    create: ["key", "name", "description", "draft"],
+    create: ["name", "description", "draft"],
     edit: ["expectedDraftRevision", "name", "description", "draft"],
-    publish: ["expectedDraftRevision", "confirmKey"],
-    withdraw: ["confirmKey"],
+    publish: ["expectedDraftRevision", "confirmId"],
+    withdraw: ["confirmId"],
   };
   if (Object.keys(value).some((key) => !allowed[mode].includes(key))) return failure("INVALID_REQUEST", "Unsupported MCP Server field", 400, requestId(request));
-  if (mode === "create" && (typeof value.key !== "string" || !MCP_KEY.test(value.key))) {
-    return failure("VALIDATION_ERROR", "Invalid MCP Server key", 422, requestId(request));
-  }
   if ((mode === "create" || mode === "edit") && (value.name !== undefined || mode === "create")
     && (typeof value.name !== "string" || value.name.trim().length < 2 || value.name.trim().length > 80)) {
     return failure("VALIDATION_ERROR", "Name must be 2-80 characters", 422, requestId(request));
@@ -497,13 +494,13 @@ function mcpBody(request: Request, value: JsonRecord, mode: "create" | "edit" | 
     return failure("VALIDATION_ERROR", "Expected draft revision is required", 422, requestId(request));
   }
   if ((mode === "publish" || mode === "withdraw")
-    && (typeof value.confirmKey !== "string" || !MCP_KEY.test(value.confirmKey))) {
-    return failure("CONFIRMATION_REQUIRED", "Exact MCP Server key confirmation required", 422, requestId(request));
+    && (typeof value.confirmId !== "string" || !MCP_SERVER_ID.test(value.confirmId))) {
+    return failure("CONFIRMATION_REQUIRED", "Exact MCP Server ID confirmation required", 422, requestId(request));
   }
   if (value.draft !== undefined && !mcpDraft(value.draft)) {
     return failure("VALIDATION_ERROR", "Invalid model/operation selection", 422, requestId(request));
   }
-  if (mode === "create") return { key: value.key, name: value.name, description: value.description ?? "", draft: value.draft ?? { models: [] } };
+  if (mode === "create") return { name: value.name, description: value.description ?? "", draft: value.draft ?? { models: [] } };
   return value;
 }
 async function mcpCore(request: Request, env: Env, corePath: string, method: "GET" | "POST" | "PATCH", mode?: "create" | "edit" | "publish" | "withdraw"): Promise<Response> {
@@ -533,13 +530,13 @@ async function mcpCore(request: Request, env: Env, corePath: string, method: "GE
   if (data === null) return failure("UPSTREAM_RESPONSE_INVALID", "Invalid Core MCP Server response", 502, requestId(request));
   return json({ data }, result.response.status);
 }
-function mcpPath(pathname: string): { key: string; action: "" | "publish" | "withdraw" | "revisions" } | null {
+function mcpPath(pathname: string): { id: string; action: "" | "publish" | "withdraw" | "revisions" } | null {
   const match = /^\/api\/mcp-servers\/([^/]+)(?:\/(publish|withdraw|revisions))?$/u.exec(pathname);
   if (!match) return null;
   try {
-    const key = decodeURIComponent(match[1]);
-    if (!MCP_KEY.test(key)) return null;
-    return { key, action: (match[2] ?? "") as "" | "publish" | "withdraw" | "revisions" };
+    const id = decodeURIComponent(match[1]);
+    if (!MCP_SERVER_ID.test(id)) return null;
+    return { id, action: (match[2] ?? "") as "" | "publish" | "withdraw" | "revisions" };
   } catch { return null; }
 }
 
@@ -608,7 +605,7 @@ async function controlPlaneRoute(request: Request, env: Env): Promise<Response |
   }
   const mcp = mcpPath(url.pathname);
   if (mcp) {
-    const target = "/api/v1/platform-admin/mcp-servers/" + encodeURIComponent(mcp.key);
+    const target = "/api/v1/platform-admin/mcp-servers/" + encodeURIComponent(mcp.id);
     if (mcp.action === "" && request.method === "GET") return mcpCore(request, env, target, "GET");
     if (mcp.action === "" && request.method === "PATCH") return mcpCore(request, env, target, "PATCH", "edit");
     if (mcp.action === "revisions" && request.method === "GET") return mcpCore(request, env, target + "/revisions", "GET");

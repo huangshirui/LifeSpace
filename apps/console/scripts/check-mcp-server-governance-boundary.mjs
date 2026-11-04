@@ -10,13 +10,20 @@ for (const source of [core, worker]) {
   }
 }
 if (!core.includes("models:manage")) throw new Error("Core MCP governance must enforce models:manage");
+if (!core.includes(".bind(serverId, serverId") || core.includes('rejectKeys(input, ["key"')) {
+  throw new Error("Core must generate MCP Server ID and populate legacy schema-77 server_key internally");
+}
+if (ui.includes("newKey") || ui.includes("setNewKey") || ui.includes("selected.key") || ui.includes("confirmKey")) {
+  throw new Error("MCP Server UI must not request a user-configured key");
+}
+
 for (const marker of [
   "requirePlatformAdminContext", "manifest_hash", "schema_hash",
   "draft_revision", "published_revision", "platform_admin_audit",
 ]) {
   if (!core.includes(marker)) throw new Error("Core MCP governance must retain " + marker);
 }
-for (const marker of ["exactSameOriginMutation", "x-lifespace-console-intent", "requireAdminContext", "confirmKey", "mcpDraft", "mcpCore"]) {
+for (const marker of ["exactSameOriginMutation", "x-lifespace-console-intent", "requireAdminContext", "confirmId", "mcpDraft", "mcpCore"]) {
   if (!worker.includes(marker)) throw new Error("Console MCP governance must retain " + marker);
 }
 if (/request\.headers\.get\(["']authorization["']\)/u.test(worker)) {

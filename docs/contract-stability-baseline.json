@@ -355,7 +355,7 @@
     {
       "id": "core-platform-admin",
       "source": "apps/core/platform-admin.openapi.yaml",
-      "operationSetSha256": "sha256:860ddd888b643724208c94f6fe32f0b6ac4b415536c4782e0ba147621f6ec1b3",
+      "operationSetSha256": "sha256:7778948f13e9b8993c0e76eccb9e3fbf67c2018b2986afc851bba729973ce857",
       "groups": [
         {
           "id": "core-platform-admin",

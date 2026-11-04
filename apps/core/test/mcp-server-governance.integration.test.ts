@@ -47,7 +47,6 @@ async function setup() {
   }
   return { call, pair, app, executor, actor };
 }
-const key = () => "domain-" + crypto.randomUUID().replaceAll("-", "").slice(0, 18);
 
 describe("MCP domain Server governance", () => {
   it("enforces platform-admin human proof and controlled executor, not ordinary user/Space authority", async () => {
@@ -62,23 +61,30 @@ describe("MCP domain Server governance", () => {
 
   it("supports draft, model/action validation, immutable publication versions, withdraw and audit", async () => {
     const { call } = await setup();
-    const serverKey = key();
     const root = "/api/v1/platform-admin/mcp-servers";
-    const created = await call("POST", root, { key: serverKey, name: "Everyday tasks" });
+    const created = await call("POST", root, { name: "Everyday tasks" });
     expect(created.status).toBe(201);
     const first = (await created.json() as any).data;
-    expect(first).toMatchObject({ key: serverKey, path: "/mcp/" + serverKey, status: "draft", draftRevision: 1, publishedRevision: null });
-    expect((await call("POST", root, { key: serverKey, name: "Duplicate" })).status).toBe(409);
-    expect((await call("POST", root + "/" + serverKey + "/publish", { expectedDraftRevision: 1, confirmKey: serverKey })).status).toBe(422);
+    const serverId: string = first.id;
+    expect(serverId).toMatch(/^mcp_[a-f0-9]{32}$/u);
+    expect(first).toMatchObject({ id: serverId, path: "/mcp/" + serverId, status: "draft", draftRevision: 1, publishedRevision: null });
+    expect(first).not.toHaveProperty("key");
+    const sameName = await call("POST", root, { name: "Everyday tasks" });
+    expect(sameName.status).toBe(201);
+    expect((await sameName.json() as any).data.id).not.toBe(serverId);
+    expect((await call("POST", root, { name: "Not permitted", key: "tasks" })).status).toBe(400);
+    expect((await call("POST", root, { name: "Not permitted", id: serverId })).status).toBe(400);
+    expect((await call("GET", root + "/tasks")).status).toBe(404);
+    expect((await call("POST", root + "/" + serverId + "/publish", { expectedDraftRevision: 1, confirmId: serverId })).status).toBe(422);
 
     const draft = { models: [{ modelKey: "task", operations: ["query", "get", "action:complete"] }, { modelKey: "event", operations: ["query"] }] };
-    const updated = await call("PATCH", root + "/" + serverKey, { draft, expectedDraftRevision: 1, description: "Tasks and events" });
+    const updated = await call("PATCH", root + "/" + serverId, { draft, expectedDraftRevision: 1, description: "Tasks and events" });
     expect(updated.status).toBe(200);
     expect((await updated.json() as any).data.draftRevision).toBe(2);
-    expect((await call("PATCH", root + "/" + serverKey, { draft, expectedDraftRevision: 1 })).status).toBe(409);
-    expect((await call("POST", root + "/" + serverKey + "/publish", { expectedDraftRevision: 2, confirmKey: "another-key" })).status).toBe(422);
+    expect((await call("PATCH", root + "/" + serverId, { draft, expectedDraftRevision: 1 })).status).toBe(409);
+    expect((await call("POST", root + "/" + serverId + "/publish", { expectedDraftRevision: 2, confirmId: "another-key" })).status).toBe(422);
 
-    const published = await call("POST", root + "/" + serverKey + "/publish", { expectedDraftRevision: 2, confirmKey: serverKey });
+    const published = await call("POST", root + "/" + serverId + "/publish", { expectedDraftRevision: 2, confirmId: serverId });
     expect(published.status).toBe(200);
     const firstPub = (await published.json() as any).data;
     expect(firstPub).toMatchObject({ status: "published", publishedRevision: 1 });
@@ -87,32 +93,34 @@ describe("MCP domain Server governance", () => {
       expect.objectContaining({ modelKey: "event", operations: ["query"] }),
     ]));
     expect(firstPub.published.manifestHash).toHaveLength(64);
-    expect((await call("POST", root + "/" + serverKey + "/publish", { expectedDraftRevision: 2, confirmKey: serverKey })).status).toBe(409);
+    expect((await call("POST", root + "/" + serverId + "/publish", { expectedDraftRevision: 2, confirmId: serverId })).status).toBe(409);
 
-    const revised = await call("PATCH", root + "/" + serverKey, {
+    const revised = await call("PATCH", root + "/" + serverId, {
       draft: { models: [{ modelKey: "task", operations: ["get", "query"] }] },
       expectedDraftRevision: 2,
     });
     expect(revised.status).toBe(200);
-    const detail = (await (await call("GET", root + "/" + serverKey)).json() as any).data;
+    const detail = (await (await call("GET", root + "/" + serverId)).json() as any).data;
     expect(detail.status).toBe("published");
     expect(detail.publishedRevision).toBe(1);
     expect(detail.published.manifest.models).toHaveLength(2);
 
-    const version2 = await call("POST", root + "/" + serverKey + "/publish", { expectedDraftRevision: 3, confirmKey: serverKey });
+    const version2 = await call("POST", root + "/" + serverId + "/publish", { expectedDraftRevision: 3, confirmId: serverId });
     expect(version2.status).toBe(200);
     expect((await version2.json() as any).data.publishedRevision).toBe(2);
-    const history = (await (await call("GET", root + "/" + serverKey + "/revisions")).json() as any).data;
+    const history = (await (await call("GET", root + "/" + serverId + "/revisions")).json() as any).data;
     expect(history.map((item: any) => item.revision)).toEqual([2, 1]);
     expect(history[1].manifest.models).toHaveLength(2);
     const db = (env as unknown as TestEnv).DB;
-    const source = await db.prepare("SELECT id FROM mcp_server_definitions WHERE server_key=?").bind(serverKey).first<{id: string}>();
+    const source = await db.prepare("SELECT id,server_key FROM mcp_server_definitions WHERE id=?").bind(serverId).first<{id: string;server_key: string}>();
+    expect(source?.server_key).toBe(serverId);
+    expect(firstPub.published.manifest).toMatchObject({ serverId, path: "/mcp/" + serverId });
     await expect(db.prepare("UPDATE mcp_server_publications SET manifest_hash='tamper' WHERE server_id=?").bind(source!.id).run()).rejects.toThrow();
 
-    const withdrawn = await call("POST", root + "/" + serverKey + "/withdraw", { confirmKey: serverKey });
+    const withdrawn = await call("POST", root + "/" + serverId + "/withdraw", { confirmId: serverId });
     expect(withdrawn.status).toBe(200);
     expect((await withdrawn.json() as any).data.status).toBe("withdrawn");
-    expect((await call("POST", root + "/" + serverKey + "/withdraw", { confirmKey: serverKey })).status).toBe(409);
+    expect((await call("POST", root + "/" + serverId + "/withdraw", { confirmId: serverId })).status).toBe(409);
     const entries = (await (await call("GET", "/api/v1/platform-admin/audit?limit=100")).json() as any).data;
     expect(entries.some((entry: any) => entry.operation === "mcp_server.publish" && entry.targetId === source!.id)).toBe(true);
     expect(entries.some((entry: any) => entry.operation === "mcp_server.withdraw" && entry.targetId === source!.id)).toBe(true);
@@ -120,20 +128,22 @@ describe("MCP domain Server governance", () => {
 
   it("rejects unpublished models, unavailable actions and invalid draft input", async () => {
     const { call } = await setup();
-    const serverKey = key();
     const root = "/api/v1/platform-admin/mcp-servers";
-    expect((await call("POST", root, { key: "INVALID SPACE", name: "Broken" })).status).toBe(422);
-    expect((await call("POST", root, { key: serverKey, name: "Validation" })).status).toBe(201);
-    expect((await call("PATCH", root + "/" + serverKey, { expectedDraftRevision: 1, draft: { models: [
+    expect((await call("POST", root, { name: "" })).status).toBe(422);
+    expect((await call("POST", root, { key: "INVALID SPACE", name: "Broken" })).status).toBe(400);
+    const created = await call("POST", root, { name: "Validation" });
+    expect(created.status).toBe(201);
+    const serverId = (await created.json() as any).data.id as string;
+    expect((await call("PATCH", root + "/" + serverId, { expectedDraftRevision: 1, draft: { models: [
       { modelKey: "task", operations: ["query", "query"] },
     ] } })).status).toBe(422);
-    expect((await call("PATCH", root + "/" + serverKey, { expectedDraftRevision: 1, draft: { models: [
+    expect((await call("PATCH", root + "/" + serverId, { expectedDraftRevision: 1, draft: { models: [
       { modelKey: "model_that_does_not_exist", operations: ["query"] },
     ] } })).status).toBe(200);
-    expect((await call("POST", root + "/" + serverKey + "/publish", { expectedDraftRevision: 2, confirmKey: serverKey })).status).toBe(422);
-    expect((await call("PATCH", root + "/" + serverKey, { expectedDraftRevision: 2, draft: { models: [
+    expect((await call("POST", root + "/" + serverId + "/publish", { expectedDraftRevision: 2, confirmId: serverId })).status).toBe(422);
+    expect((await call("PATCH", root + "/" + serverId, { expectedDraftRevision: 2, draft: { models: [
       { modelKey: "task", operations: ["action:not_real"] },
     ] } })).status).toBe(200);
-    expect((await call("POST", root + "/" + serverKey + "/publish", { expectedDraftRevision: 3, confirmKey: serverKey })).status).toBe(422);
+    expect((await call("POST", root + "/" + serverId + "/publish", { expectedDraftRevision: 3, confirmId: serverId })).status).toBe(422);
   });
 });
