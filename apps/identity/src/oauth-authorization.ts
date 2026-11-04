@@ -275,7 +275,7 @@ export function registerOAuthAuthorizationServer(app: App) {
 
   // Core-only bounded resolution of Agent/Application identities that Core has
   // already selected from a manager's current Space Data Grants.
-  app.post("/internal/v1/oauth/agent-candidates", async (c) => {
+  app.post("/oauth/core/agent-candidates", async (c) => {
     const provided = c.req.header("x-lifespace-internal-secret") || "";
     if (!c.env.CORE_IDENTITY_SHARED_SECRET || !provided || !await equal(provided, c.env.CORE_IDENTITY_SHARED_SECRET)) {
       return oauthError(c, 401, "invalid_client", "Trusted Core service is required");
