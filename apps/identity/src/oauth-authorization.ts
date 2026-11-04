@@ -77,7 +77,7 @@ function formField(body: Record<string, unknown> | null, key: string): string {
 }
 async function form(c: Context<AppEnv>): Promise<Form | null> {
   if (!(c.req.header("content-type") || "").includes("application/x-www-form-urlencoded")) return null;
-  const body = await c.req.parseBody<Record<string, unknown>>().catch(() => null);
+  const body = await c.req.parseBody<Record<string, string | File>>().catch(() => null);
   if (!body || Object.values(body).some((v) => typeof v !== "string")) return null;
   return body as Form;
 }
