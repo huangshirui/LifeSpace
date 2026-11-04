@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "check": "node --test test/*.test.mjs && node --check worker/index.mjs && node --check public/app.js && pnpm build",
+    "check": "node scripts/check-api.mjs && node --test test/*.test.mjs && node --check worker/index.mjs && node --check public/app.js && pnpm build",
     "test": "node --test test/*.test.mjs",
     "build": "wrangler deploy --dry-run --outdir dist",
     "deploy:staging": "wrangler deploy --env staging",
