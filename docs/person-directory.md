@@ -158,3 +158,8 @@ CI includes a 500-Person lookup probe covering a 1-item page, a 100-item page, c
 A Space owner/admin can grant an external Service/Agent (or another supported grantee) `resourceType: "person_directory"`, `resourceId: null`, `permission: "read" | "write"` through the dedicated Candidate `/api/v1/spaces/{spaceId}/person-directory/grants` management API, while reusing the existing `data_grants` table and current-state checks. The Stable `/grants` collection stays space/model-only. `resourceId` must be null/omitted. `free_busy` and `manage` are rejected for this resource target.
 
 This Grant authorizes **only** the Person Directory `/people` endpoints and does **not** confer Space detail, membership, invitation, model-record, or Identity/User authority. A write Grant creates/updates/deletes **unlinked** Persons; linked Person changes retain their original self-update/owner-admin/Space-manage checks, and deletion remains forbidden. Credential scopes (`resources:read/write`), active Space state, grant expiry/revocation and represented-execution Delegation checks remain enforced. Existing User Membership and whole-Space Grant behavior is unchanged. No new storage table or migration is required: `data_grants.resource_type` already supports additional values.
+
+
+## MCP Server catalog Person exposure (Schema 78)
+
+The MCP Server capability selector now includes Person Directory as a Kernel resource with explicit list/get/create/update/delete operations, NOT an ordinary person Model. This config does not grant Person Directory access. Future MCP Adapters must enforce current Person Directory grants, credential scopes, Space authority, Delegation and linked-Person restrictions. Person Profile remains an ordinary descriptive Model.

@@ -1,57 +1,51 @@
-# LifeSpace MCP Domain Server Definition & Publication
+# MCP Server simplified configuration (LifeSpace)
 
-Status: **V7 Staging implementation candidate**, not a claim that public MCP transport is active.
+Status: V7 Staging candidate · Core Platform Admin 0.8.0 · Schema 78.
 
-## 中文摘要
+## 中文结论
 
-LifeSpace Console 的「MCP Servers」负责管理一个平台公共领域 Server 的**稳定标识、模型与操作集合及发布历史**。MCP Server 不是 Application、Space、Service/Agent、OAuth Client 或通用 Connection。一个 MCP Server 定义可列出多个已发布模型与每个模型的多个操作，不携带用户数据权限。发布只让 **Core 控制面目录版本**生效，**不会自动创建 URL 路由、部署 MCP Adapter 或分配 OAuth 权限**。
+领域 MCP Server 是平台级可直接编辑的能力配置，而非一个需要版本发布的制品。
+新建时填写名称、可选描述，并选定业务模型或 Person Directory 及其操作；创建成功立即启用。
+详情页「保存修改」即更新当前配置，另可单独「启用／停用」。
+不提供 Draft/Publish、v1/v2 配置发布历史或回滚按钮，只保留内部 revision 用来防止并发覆盖和平台管理员审计。
 
-## Authority / 归属
+## Public URL
 
-- Core is the canonical owner of the platform control-plane catalog, drafts, publication history and human/executor audit. No business record or Space ownership is transferred.
-- Console owns only a presentation and bounded same-origin BFF. All mutations require a verified Platform Admin actor proof and an operation-scoped Console Core service executor with existing `models:manage`; no bootstrap secret or ordinary Space credentials.
-- MCP Adapters will later consume an approved published catalog through a separate authenticated integration. They must reconcile it with *current* Core Runtime Discovery and re-authorize every execution. Published manifests do not override existing Application × Model Access, Credential Scope, Data Grant, Delegation or Model Policy.
-- Identity OAuth and third-party client/user consent are deliberately out of scope. The V6 `unified_connections` and `conn_*` proposals are not dependencies.
+Agreed planned external address: https://core.aisr.online/mcp/{serverId}.
+The stable Core-generated mcp_* ID is the URL key. There is no /v1/ path segment: MCP protocol version is negotiated within the protocol, and internal configuration revision is unrelated.
+The public domain is an integration entrance; actual MCP protocol execution remains in lifespace-adapters and is not implemented or activated by this configuration change.
 
-## Domain Server definition / 定义
+## Configuration
 
-- Core generates the immutable Server ID `mcp_<32 lowercase hexadecimal characters>` and the planned MCP Resource path `/mcp/{serverId}`. The Console user cannot choose or change either.
-- `name`, optional `description` and `draft.models[]`.
-- Model entry: unique published `modelKey`, explicit unique `operations[]` in `get/query/create/update/delete/action:<actionKey>` form.
-- Drafts may be initially empty. Publishing requires at least one model and validates every operation against the current published Model Definition: reads require `read`, mutations require `write`, and declared actions must exist with an exposed `read`/`write` requirement.
-- The publication manifest pins each model's current `version` and `schemaHash` alongside the selected operations. It is hashed with SHA-256; the frozen revision table is protected from UPDATE/DELETE by D1 triggers.
-- A published Server can have an edited draft while the prior revision stays active. Publishing the changed draft increments `publishedRevision`. Withdrawal stops being active in the management catalog but does not destroy the immutable revision history; later republishing increments the version.
+The canonical JSON configuration has:
+- models: array of published Model Registry modelKey plus explicit operations (get/query/create/update/delete/action:<actionKey>).
+- optional resources: array of independently typed Kernel resources. Only person_directory is supported, with list/get/create/update/delete operations.
+- at least one valid Model or Kernel resource must be selected on creation and on saving a new configuration.
 
-## UX / Console
+Person Directory is the Kernel-owned Space Person entity (per_*), not the ordinary person_profile Model.
+Selecting it in the MCP Server catalog does not create a Data Grant or grant client access.
+At actual MCP execution time, Adapters must intersect the configured tool allowlist with current Credential Scope, Application Model Access for ordinary Models, current Space/Person Directory Grant, Delegation and record Policy.
+For linked Persons, the Core Person Directory still enforces owner/self/edit/delete limits.
 
-1. Console → MCP Servers → **新建 Server** opens one clean configuration view. Core generates the stable Server ID and path; the operator only enters name and optional description.
-2. In the same view, add one or more already-published Models, then explicitly select permitted read/write/actions for each model. Model/operation choices come from Core's published Model Registry, not duplicated Console policy. Creation can have an empty model list only when intentionally saving an unfinished draft.
-3. **创建并发布** is the primary action and requires at least one model and valid selected operation(s). Console sends the selected draft to the existing authorized Core create endpoint and, after receiving the generated Server ID, publishes it with exact `confirmId`. Neither operation bypasses normal Platform Admin actor/executor proof or live Model capability checks.
-4. **保存草稿** is optional and does not publish. If the second stage (publish) fails, the Server already exists as a draft: the UI preserves the actual generated ID, allows retrying **only** publication, and links to that Server's detail view. If the first create request has an unknown network outcome, the UI advises checking the list before retrying to avoid accidental duplicates.
-5. Existing Servers retain draft editing → immutable version publication, with optimistic draft revision conflicts, history and withdrawal controls. Catalog publication does **not** activate the MCP Adapter URL or grant a client's data authority.
+## Core authority
 
-## Contract / API
+Core owns current state in mcp_server_definitions: id, display_name, description, enabled, config_json, revision, attribution and timestamps.
+GET/POST /api/v1/platform-admin/mcp-servers and GET/PATCH /api/v1/platform-admin/mcp-servers/{serverId} are the only control-plane routes.
+POST creates and enables after validating current published Model operations; PATCH edits current configuration with expectedRevision, or separately changes enabled with exact confirmId + expectedRevision.
+All operations require models:manage executor + short-lived human platform_admin_actor proof and are logged in platform_admin_audit.
+The Console BFF additionally requires same-origin JSON, operation-specific intent and ID confirmation when enabling/disabling.
 
-Privileged Core Platform Admin API `0.7.0`:
+## Schema 78 data conversion
 
-- `GET/POST /api/v1/platform-admin/mcp-servers`
-- `GET/PATCH /api/v1/platform-admin/mcp-servers/{serverId}`
-- `POST /api/v1/platform-admin/mcp-servers/{serverId}/publish`
-- `POST /api/v1/platform-admin/mcp-servers/{serverId}/withdraw`
-- `GET /api/v1/platform-admin/mcp-servers/{serverId}/revisions`
+Schema 77 has already been deployed to Staging; its SQL history is immutable. Schema 78 is a new numbered migration.
+For previously published Servers, convert the previously EFFECTIVE published manifest's selected operations, not a separately edited unpublished draft.
+Previously draft/withdrawn Servers become disabled configurations, retaining their selections for correction and possible re-enable.
+Preserve IDs, names, descriptions, creator/updater and timestamps. Drop the obsolete publication history table and its immutability triggers; keep platform_admin_audit.
+Back up Staging D1 before this breaking control-plane migration. Production remains unchanged unless independently approved.
 
-All calls require the paired service executor + short-lived human proof and use canonical Core D1 state. Console BFF exposes only matching bounded `/api/mcp-servers*` endpoints protected by exact Origin/Fetch Metadata/JSON/intent guards and action-specific request shape.
+## Console workflow and acceptance
 
-## Rollout, tests, rollback
-
-Migration `0077_mcp_server_registry.sql` is additive and replaces no existing Authority tables. Apply through the normal **Core Staging migration + Worker** pipeline before deploying the Console staging UI. **Do not run the Console-only deploy to introduce the new API**: that flow intentionally does not deploy/migrate Core. Use the existing platform Staging workflow with its release-candidate checks, then the isolated Console Staging deploy. Production is not in scope.
-
-Tests cover admin actor/executor denial, malformed/duplicate draft inputs, model/action validation, optimistic revisions, stable publication snapshots, withdrawal, immutable SQL history and audit. Before declaring staging Ready, run live Console browser creation/edit/publish/withdraw and verify the Core catalog remains consistent.
-
-## Next integration boundary
-
-A separate `lifespace-adapters` implementation consumes published definitions. The Adapter must reject stale manifest model hashes, unknown operations, unpublished Server status, and callers without current Core authorization. Until that is tested and deployed, the planned Server URL is not a live endpoint.
-
-## 2026-11-04 ID-based path correction / 无数据迁移
-
-Staging already applied Schema 77, but no MCP Server rows had been created when this change was approved. Do not edit historical migration 0077. Keep the original `server_key` non-null/unique column for schema compatibility and set it internally to exactly the generated `id` on creation. The Console create form and Core API never accept user-selected `key` or `id`; all management URLs and new manifests refer to `serverId`. This change requires new Core/Console Workers in Staging, **no D1 schema migration**. A future removal of the redundant legacy column would be a separate numbered migration. The Core Platform Admin candidate contract moves to 0.7.0. This catalog still does not deploy the actual MCP Adapter endpoints.
+Create with Model/Person selections and at least one operation → enabled. Save edits directly after validation → latest configuration, internal revision increment.
+Explicitly disable/enable with confirmation; don't erase capability selections. Detail → Back resets the stale create form.
+Tests: model-only, Person-only and mixed configuration, invalid Model/Kernel selection, revision conflict, platform authority and audit, migration conversion, no publish/revisions endpoints, no new user-facing version.
+The planned public MCP URL is not a live endpoint until a separate Adapter and OAuth integration is deployed.
