@@ -35,6 +35,7 @@ for (const path of [
   "/oauth/authorize",
   "/api/v1/me/oauth/requests/{requestId}",
   "/oauth/requests/{requestId}/approve",
+  "/internal/v1/oauth/agent-candidates",
   "/oauth/introspect",
   "/oauth/revoke",
   "/introspection/v1/service-tokens",
@@ -123,6 +124,9 @@ if (doc.paths?.["/oauth/token"]?.post?.security?.length !== 0) throw new Error("
 const interactiveOAuthPaths = ["/oauth/authorize", "/oauth/introspect", "/oauth/revoke", "/oauth/register"];
 for (const path of interactiveOAuthPaths) {
   if (!doc.paths?.[path]) throw new Error("Interactive OAuth contract missing " + path);
+}
+if (!doc.paths?.["/internal/v1/oauth/agent-candidates"]?.post?.security?.some((entry) => entry.internalServiceSecret)) {
+  throw new Error("OAuth Agent candidate lookup must remain Core-only");
 }
 const consentBridge = doc.paths?.["/oauth/requests/{requestId}/approve"]?.post;
 if (!consentBridge?.security?.some((entry) => entry.oauthCoreApproverSecret)) {
