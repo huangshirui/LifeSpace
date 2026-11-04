@@ -984,7 +984,7 @@ components:
       type: object
       required: [grant_type]
       properties:
-        grant_type: { type: string, enum: [client_credentials, authorization_code, refresh_token] }
+        grant_type: { type: string, description: 'Supported grant types are client_credentials (Service), authorization_code (PKCE) and refresh_token (interactive OAuth)' }
         client_id: { type: string, description: "Service svc_* client_credentials or registered OAuth Client ocli_*" }
         client_secret: { type: string, writeOnly: true, description: "Existing Service only; interactive PKCE Clients are public" }
         scope: { type: string }
