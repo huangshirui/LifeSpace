@@ -43,7 +43,7 @@ async function resolveAgentContexts(env: Bindings, agentIds: string[]): Promise<
   }
   let result: Response;
   try {
-    result = await env.IDENTITY.fetch("https://identity.internal/internal/v1/oauth/agent-candidates", {
+    result = await env.IDENTITY.fetch("https://identity.internal/oauth/core/agent-candidates", {
       method: "POST",
       headers: { "x-lifespace-internal-secret": env.CORE_IDENTITY_SHARED_SECRET, "content-type": "application/json" },
       body: JSON.stringify({ agentIds }),
