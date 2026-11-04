@@ -145,6 +145,26 @@ describe("Identity OAuth Authorization Server (isolated candidate)", () => {
     })).status).toBe(403);
   });
 
+  it("requires private Core authentication and bounded Agent IDs for active binding resolution", async () => {
+    const t = await setup();
+    const url = "/internal/v1/oauth/agent-candidates";
+    const post = (secret: string | null, agentIds: string[]) => t.request(url, {
+      method: "POST", headers: {
+        "content-type": "application/json",
+        ...(secret ? { "x-lifespace-internal-secret": secret } : {}),
+      },
+      body: JSON.stringify({ agentIds }),
+    });
+    expect((await post(null, [t.agentId])).status).toBe(401);
+    expect((await post(t.b.OAUTH_CORE_APPROVER_SECRET, [t.agentId])).status).toBe(401);
+    expect((await post(t.b.CORE_IDENTITY_SHARED_SECRET, [])).status).toBe(400);
+    const resolved = await post(t.b.CORE_IDENTITY_SHARED_SECRET, [t.agentId]);
+    expect(resolved.status).toBe(200);
+    expect(await resolved.json()).toMatchObject({ data: [
+      { agentId: t.agentId, applicationId: t.target.appId },
+    ] });
+  });
+
   it("returns only pending client metadata to authenticated Account, never scope authority or unverified vendor identity", async () => {
     const t = await setup();
     const pending = await t.authorize();
