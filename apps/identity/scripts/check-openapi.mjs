@@ -33,6 +33,7 @@ for (const path of [
   "/.well-known/oauth-authorization-server",
   "/oauth/register",
   "/oauth/authorize",
+  "/api/v1/me/oauth/requests/{requestId}",
   "/oauth/requests/{requestId}/approve",
   "/oauth/introspect",
   "/oauth/revoke",
@@ -124,8 +125,11 @@ for (const path of interactiveOAuthPaths) {
   if (!doc.paths?.[path]) throw new Error("Interactive OAuth contract missing " + path);
 }
 const consentBridge = doc.paths?.["/oauth/requests/{requestId}/approve"]?.post;
-if (!consentBridge?.security?.some((entry) => entry.internalServiceSecret)) {
+if (!consentBridge?.security?.some((entry) => entry.oauthCoreApproverSecret)) {
   throw new Error("OAuth approval must remain Core-trusted, never direct browser authority");
+}
+if (!doc.paths?.["/api/v1/me/oauth/requests/{requestId}"]?.get?.security?.some((entry) => entry.userBearer)) {
+  throw new Error("Pending OAuth Consent metadata must require Account user authentication");
 }
 if (!doc.paths?.["/oauth/introspect"]?.post?.security?.some((entry) => entry.oauthResourceServerSecret)) {
   throw new Error("Interactive OAuth introspection requires separate Resource Server trust");
