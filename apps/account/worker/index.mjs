@@ -189,7 +189,7 @@ export async function accountFetch(req, env) {
     if (!csrfToken) return fail(503, "ACCOUNT_NOT_CONFIGURED", "Account CSRF 安全配置缺失");
     return responseJson({ data: { user: linked.user, csrfToken } }, 200, {
       "set-cookie": CSRF_COOKIE + "=" + csrfToken
-        + "; Path=/api/oauth/confirm; Secure; HttpOnly; SameSite=Strict; Max-Age=" + CSRF_TTL_SECONDS,
+        + "; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=" + CSRF_TTL_SECONDS,
     });
   }
   if (path === "/api/oauth/request") {
