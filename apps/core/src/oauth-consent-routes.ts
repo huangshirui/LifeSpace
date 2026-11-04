@@ -33,7 +33,63 @@ function parseConsent(body: unknown): ConsentInput {
   return input as ConsentInput;
 }
 
+type AgentCandidate = { agentId: string; agentName: string; applicationId: string; applicationName: string };
+
+async function candidates(env: Bindings, spaceId: string): Promise<AgentCandidate[]> {
+  const rows = await env.DB.prepare(
+    "SELECT DISTINCT g.grantee_id agentId FROM data_grants g " +
+    "JOIN spaces s ON s.id=g.source_space_id AND s.deleted_at IS NULL " +
+    "WHERE g.source_space_id=? AND g.grantee_type='agent' " +
+    "AND g.resource_type IN ('space','model') AND g.permission IN ('read','write','manage') " +
+    "AND g.revoked_at IS NULL AND (g.expires_at IS NULL OR julianday(g.expires_at)>julianday('now')) " +
+    "ORDER BY g.grantee_id LIMIT 30",
+  ).bind(spaceId).all<{ agentId: string }>();
+  if (!rows.results.length) return [];
+  if (!env.IDENTITY || !env.CORE_IDENTITY_SHARED_SECRET) {
+    throw new ApiError("OAUTH_NOT_CONFIGURED", "Identity Agent context is unavailable", 503);
+  }
+  let result: Response;
+  try {
+    result = await env.IDENTITY.fetch("https://identity.internal/internal/v1/oauth/agent-candidates", {
+      method: "POST",
+      headers: { "x-lifespace-internal-secret": env.CORE_IDENTITY_SHARED_SECRET, "content-type": "application/json" },
+      body: JSON.stringify({ agentIds: rows.results.map((r) => r.agentId) }),
+    });
+  } catch {
+    throw new ApiError("OAUTH_IDENTITY_UNAVAILABLE", "Identity Agent context is unavailable", 503);
+  }
+  if (!result.ok) throw new ApiError("OAUTH_IDENTITY_UNAVAILABLE", "Identity Agent context was rejected", 503);
+  const payload = await result.json<unknown>().catch(() => null);
+  if (!payload || typeof payload !== "object" || !Array.isArray((payload as { data?: unknown }).data)) {
+    throw new ApiError("OAUTH_INVALID_RESPONSE", "Invalid Identity Agent context", 502);
+  }
+  const allowedIds = new Set(rows.results.map((r) => r.agentId));
+  const data = (payload as { data: unknown[] }).data;
+  if (data.length > 60 || data.some((item) => !item || typeof item !== "object"
+    || typeof (item as AgentCandidate).agentId !== "string" || !allowedIds.has((item as AgentCandidate).agentId)
+    || typeof (item as AgentCandidate).applicationId !== "string"
+    || typeof (item as AgentCandidate).agentName !== "string"
+    || typeof (item as AgentCandidate).applicationName !== "string")) {
+    throw new ApiError("OAUTH_INVALID_RESPONSE", "Invalid Identity Agent context", 502);
+  }
+  return data as AgentCandidate[];
+}
+
 export function registerOAuthConsentRoutes(app: App): void {
+  app.get("/api/v1/me/oauth/spaces/:spaceId/options", requireScope("spaces:manage"), async (c) => {
+    const principal = c.get("principal");
+    if (!c.env.OAUTH_ACCOUNT_APPLICATION_ID || principal.type !== "user"
+      || principal.clientId !== c.env.OAUTH_ACCOUNT_APPLICATION_ID
+      || principal.actor !== undefined || principal.purpose !== undefined) {
+      throw new ApiError("FORBIDDEN", "Account user session is required", 403);
+    }
+    const spaceId = c.req.param("spaceId");
+    if (!SPACE_ID.test(spaceId)) throw new ApiError("INVALID_REQUEST", "Invalid Space ID", 400);
+    await requireSpacePermission(c.env, principal, spaceId, "manage");
+    c.header("Cache-Control", "no-store");
+    return c.json(success({ candidates: await candidates(c.env, spaceId) }));
+  });
+
   // Account BFF only. Browser-provided user IDs, Agent OAuth credentials, and
   // unrelated application's user tokens can never activate an OAuth grant.
   app.post("/api/v1/me/oauth/requests/:requestId/confirm", requireScope("spaces:manage"), async (c) => {
@@ -52,6 +108,11 @@ export function registerOAuthConsentRoutes(app: App): void {
     // who can manage the selected Space. A viewer must not acquire a more
     // powerful Agent's existing independent Direct Grants by picking its ID.
     await requireSpacePermission(c.env, principal, selected.spaceId, "manage");
+    const valid = await candidates(c.env, selected.spaceId);
+    if (!valid.some((agent) => agent.agentId === selected.agentId && agent.applicationId === selected.applicationId)) {
+      throw new ApiError("OAUTH_SELECTION_DENIED", "Agent has no active usable Grant in the selected Space", 403);
+    }
+
 
     if (!c.env.IDENTITY || !c.env.OAUTH_CORE_APPROVER_SECRET) {
       throw new ApiError("OAUTH_NOT_CONFIGURED", "Trusted Identity OAuth approval is unavailable", 503);
