@@ -147,7 +147,7 @@ describe("Identity OAuth Authorization Server (isolated candidate)", () => {
 
   it("requires private Core authentication and bounded Agent IDs for active binding resolution", async () => {
     const t = await setup();
-    const url = "/internal/v1/oauth/agent-candidates";
+    const url = "/oauth/core/agent-candidates";
     const post = (secret: string | null, agentIds: string[]) => t.request(url, {
       method: "POST", headers: {
         "content-type": "application/json",
