@@ -233,3 +233,8 @@ A Console governance change is incomplete until:
 10. staging/production provisioning converges the exact executor scope ceiling required by the Platform Admin routes;
 11. isolated staging deployment remains isolated from Core/Identity deployment;
 12. real staging acceptance and browser smoke cover newly introduced mutations before production rollout.
+
+
+## MCP domain Servers (V7 staging candidate)
+
+The `/mcp-servers` Console page manages stable domain Server definitions as drafts and immutable published revisions through Core Platform Admin `/api/v1/platform-admin/mcp-servers*`. The BFF uses existing `models:manage` executor and purpose-bound human Platform Admin proof, and validates same-origin, request shape and confirmation. Server publication is a **control-plane catalog publication only**; it does not deploy an MCP Worker or create a third-party OAuth authorization. Models/actions are validated against Core's published Registry and pinned in the manifest; Adapters project only the intersection of the approved catalog and current Core authority in a later slice.

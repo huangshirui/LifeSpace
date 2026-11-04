@@ -59,3 +59,8 @@ remaining 404 against the corresponding `files.object_key` in the correct R2
 bucket. Back up D1, validate candidate counts and affected Record downloads in
 Staging, then use the normal manually approved Production release gates. Never
 blindly re-upload or infer a different File ID.
+
+
+## 0077 MCP domain Server definitions / 领域 MCP Server 发布目录
+
+Adds Core-owned platform-control-plane MCP Server drafts and immutable versioned publication manifests. Each server has a stable `/mcp/{key}` path and a bounded list of published models and explicit operations. Publishing pins current Model Registry `version/schema_hash` and audits the human platform administrator and controlled executor. This does **not** create an active MCP transport, grant a client data authority, or configure OAuth. Adapter consumption and runtime exposure require a separately reviewed integration. The superseded V6 `unified_connections` migration 0077 was never merged; never combine it with this new migration. Rollback retains the additive table and publication history.

@@ -3,7 +3,7 @@ import YAML from "yaml";
 
 const document = YAML.parse(fs.readFileSync(new URL("../platform-admin.openapi.yaml", import.meta.url), "utf8"));
 
-if (document.openapi !== "3.1.0" || document.info?.version !== "0.5.0") {
+if (document.openapi !== "3.1.0" || document.info?.version !== "0.6.0") {
   throw new Error("Core Platform Admin OpenAPI version metadata is invalid");
 }
 if (!document.info?.title?.includes("Platform Admin")) {
@@ -11,6 +11,11 @@ if (!document.info?.title?.includes("Platform Admin")) {
 }
 
 const requiredPaths = [
+  "/api/v1/platform-admin/mcp-servers",
+  "/api/v1/platform-admin/mcp-servers/{serverKey}",
+  "/api/v1/platform-admin/mcp-servers/{serverKey}/publish",
+  "/api/v1/platform-admin/mcp-servers/{serverKey}/withdraw",
+  "/api/v1/platform-admin/mcp-servers/{serverKey}/revisions",
   "/api/v1/platform-admin/applications/{applicationId}/model-access",
   "/api/v1/platform-admin/spaces",
   "/api/v1/platform-admin/spaces/{spaceId}",
@@ -50,6 +55,23 @@ if (schemes.bearerAuth?.bearerFormat !== "service JWT or lsp_svc_* Service API T
 const globalSecurity = document.security ?? [];
 if (!globalSecurity.some((entry) => entry?.bearerAuth && entry?.platformAdminActor)) {
   throw new Error("Core Platform Admin operations must require executor and actor proof together");
+}
+
+const mcp = document.paths?.["/api/v1/platform-admin/mcp-servers"];
+const mcpDetail = document.paths?.["/api/v1/platform-admin/mcp-servers/{serverKey}"];
+if (!mcp?.get || !mcp?.post || !mcpDetail?.get || !mcpDetail?.patch
+  || !document.paths?.["/api/v1/platform-admin/mcp-servers/{serverKey}/publish"]?.post
+  || !document.paths?.["/api/v1/platform-admin/mcp-servers/{serverKey}/withdraw"]?.post
+  || !document.paths?.["/api/v1/platform-admin/mcp-servers/{serverKey}/revisions"]?.get) {
+  throw new Error("MCP domain Server publication lifecycle is incomplete");
+}
+for (const op of [mcp.get,mcp.post,mcpDetail.get,mcpDetail.patch,
+  document.paths["/api/v1/platform-admin/mcp-servers/{serverKey}/publish"].post,
+  document.paths["/api/v1/platform-admin/mcp-servers/{serverKey}/withdraw"].post]) {
+  const description = String(op?.description ?? "");
+  if (!description.includes("models:manage") || !description.includes("platform-admin actor proof")) {
+    throw new Error("MCP Server governance requires model control-plane executor and actor proof");
+  }
 }
 
 const spaces = document.paths?.["/api/v1/platform-admin/spaces"];
