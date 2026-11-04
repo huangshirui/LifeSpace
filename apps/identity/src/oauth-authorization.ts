@@ -247,8 +247,8 @@ export function registerOAuthAuthorizationServer(app: App) {
   // Private Core -> Identity boundary. The Account BFF cannot directly approve OAuth.
   // Core must first verify the user's Account session and selected Space/Agent eligibility.
   app.post("/oauth/requests/:requestId/approve", async (c) => {
-    const key = c.req.header("x-lifespace-internal-secret") || "";
-    if (!c.env.CORE_IDENTITY_SHARED_SECRET || !key || !await equal(key, c.env.CORE_IDENTITY_SHARED_SECRET)) {
+    const key = c.req.header("x-lifespace-oauth-approver-secret") || "";
+    if (!c.env.OAUTH_CORE_APPROVER_SECRET || !key || !await equal(key, c.env.OAUTH_CORE_APPROVER_SECRET)) {
       return oauthError(c, 401, "invalid_client", "Trusted Core authorization is required");
     }
     if (!c.env.OAUTH_ACCOUNT_APPLICATION_ID || !c.env.TOKEN_PUBLIC_KEY) {
