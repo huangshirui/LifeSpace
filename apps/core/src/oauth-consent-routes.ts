@@ -185,7 +185,7 @@ export function registerOAuthConsentRoutes(app: App): void {
       modelPolicyApplied: false,
       models: visible.slice(0, 50).map(({ model, access }) => ({
         key: model.key,
-        name: model.definition.display?.name ?? model.key,
+        name: model.definition.display.singular,
         access,
       })),
       truncated: visible.length > 50,
