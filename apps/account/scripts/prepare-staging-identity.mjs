@@ -22,6 +22,23 @@ export function requireAudience(entries, expectedAudience) {
   if (active.length > 1) throw new Error("Duplicate active Account Audience");
   return active[0] ?? null;
 }
+export function identifyCredentialRotation(rows, issued) {
+  if (!Array.isArray(rows) || typeof issued !== "string" || !/^lsa_[A-Za-z0-9_-]{30,}$/u.test(issued)) {
+    throw new Error("Account credential metadata is invalid");
+  }
+  const active = rows.filter((row) => row?.status === "active" && row.revokedAt == null);
+  const suffix = issued.slice(-8);
+  const current = active.filter((row) => row.secretSuffix === suffix
+    && typeof row.id === "string" && /^apc_[A-Za-z0-9_-]+$/u.test(row.id));
+  if (current.length !== 1 || active.some((row) =>
+    typeof row.id !== "string" || !/^apc_[A-Za-z0-9_-]+$/u.test(row.id))) {
+    throw new Error("Cannot uniquely identify newly issued Account application credential");
+  }
+  return {
+    currentId: current[0].id,
+    oldIds: active.filter((row) => row.id !== current[0].id).map((row) => row.id),
+  };
+}
 async function main() {
   const issuer = "https://auth-staging.aisr.online";
   const bootstrap = process.env.LIFESPACE_STAGING_BOOTSTRAP_SECRET || "";
@@ -94,10 +111,16 @@ async function main() {
     current = requireAudience([add.payload?.data], audience);
   }
   if (!current) throw new Error("Account Audience could not be verified active");
+  const metadata = await request(path + "/credentials");
+  if (metadata.response.status !== 200) throw new Error("Could not inspect Account credential rotation");
+  const rotation = identifyCredentialRotation(metadata.payload?.data, issued);
   appendFileSync(envFile, "LIFESPACE_STAGING_ACCOUNT_APPLICATION_CREDENTIAL=" + issued + "\n");
+  appendFileSync(envFile, "LIFESPACE_STAGING_ACCOUNT_CURRENT_CREDENTIAL_ID=" + rotation.currentId + "\n");
+  appendFileSync(envFile, "LIFESPACE_STAGING_ACCOUNT_OLD_CREDENTIAL_IDS=" + rotation.oldIds.join(",") + "\n");
   console.log(JSON.stringify({
     ok: true, environment: "staging", applicationId: ACCOUNT_APPLICATION_ID,
     created, credentialRotated: !created, plaintextLogged: false,
+    supersededActiveCredentialCount: rotation.oldIds.length,
     audienceActive: true, noPlatformAdminScope: true,
     identitySchemaVersion: state.schemaVersion, noProductionChanges: true,
   }));
