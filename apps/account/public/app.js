@@ -1,6 +1,6 @@
 const $ = (id) => document.getElementById(id);
 const controls = { application: $("application"), space: $("space"), agent: $("agent") };
-const state = { csrf: null, request: null, choices: [], busy: false };
+const state = { csrf: null, request: null, choices: [], busy: false, previewLoaded: false, previewVersion: 0 };
 const requestId = new URL(location.href).searchParams.get("request_id");
 const show = (id, yes) => $(id).classList.toggle("hidden", !yes);
 function addOption(select, value, name) {
@@ -23,8 +23,65 @@ function updateButton() {
   const selected = state.choices.some((item) =>
     item.applicationId === controls.application.value
     && item.spaceId === controls.space.value && item.agentId === controls.agent.value);
-  $("approve").disabled = !selected || !state.csrf || state.busy;
+  $("approve").disabled = !selected || !state.csrf || state.busy || !state.previewLoaded;
 }
+function resetCapabilities() {
+  ++state.previewVersion;
+  state.previewLoaded = false;
+  $("capabilities").replaceChildren();
+  $("capabilities").textContent = "请选择 Agent 后查看当前能力基线。";
+}
+async function refreshCapabilities() {
+  resetCapabilities();
+  updateButton();
+  if (!controls.application.value || !controls.space.value || !controls.agent.value) return;
+  const version = state.previewVersion;
+  $("capabilities").textContent = "正在核实 Agent 当前模型权限…";
+  try {
+    const projection = await api("/api/oauth/capabilities?" + new URLSearchParams({
+      request_id: state.request.id,
+      application_id: controls.application.value,
+      space_id: controls.space.value,
+      agent_id: controls.agent.value,
+    }));
+    if (version !== state.previewVersion) return;
+    if (projection.kind !== "pre_policy_upper_bound" || !Array.isArray(projection.models)) {
+      throw new Error("权限预览响应异常");
+    }
+    const node = $("capabilities");
+    node.replaceChildren();
+    if (!projection.models.length) {
+      const p = document.createElement("p");
+      p.textContent = "当前 OAuth Scope 与 Agent Direct Grants 的交集中没有可列出的 Native 模型操作。";
+      node.append(p);
+    } else {
+      for (const model of projection.models) {
+        const line = document.createElement("div"); line.className = "capability-row";
+        const name = document.createElement("span");
+        name.className = "capability-name"; name.textContent = model.name + " · " + model.key;
+        line.append(name);
+        for (const access of model.access) {
+          const badge = document.createElement("span");
+          badge.className = "access-chip"; badge.textContent = access; line.append(badge);
+        }
+        node.append(line);
+      }
+    }
+    if (projection.truncated) {
+      const note = document.createElement("p");
+      note.textContent = "模型较多，仅展示部分结果。";
+      node.append(note);
+    }
+    state.previewLoaded = true;
+    updateButton();
+  } catch (error) {
+    if (version !== state.previewVersion) return;
+    $("capabilities").textContent =
+      "权限基线不可用，请重新选择 Agent 以重试。当前不能直接确认授权。";
+    updateButton();
+  }
+}
+
 function updateAgents() {
   controls.agent.replaceChildren();
   const filtered = state.choices.filter((row) =>
@@ -33,6 +90,7 @@ function updateAgents() {
   const unique = new Map(filtered.map((row) => [row.agentId, row.agentName]));
   for (const [id, name] of unique) addOption(controls.agent, id, name);
   controls.agent.disabled = !filtered.length;
+  resetCapabilities();
   updateButton();
 }
 function updateSpaces() {
@@ -82,7 +140,7 @@ async function initialize() {
 }
 controls.application.addEventListener("change", updateSpaces);
 controls.space.addEventListener("change", updateAgents);
-controls.agent.addEventListener("change", updateButton);
+controls.agent.addEventListener("change", refreshCapabilities);
 document.querySelectorAll('input[name="mode"]').forEach((el) =>
   el.addEventListener("change", () => show("delegation-note", $("allow").checked)));
 $("retry").addEventListener("click", initialize);
