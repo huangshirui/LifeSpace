@@ -3,6 +3,9 @@ import type { Bindings, Variables } from "./env";
 import { requireScope } from "./auth";
 import { requireSpacePermission } from "./authorization";
 import { ApiError, success } from "./http";
+import { listPublishedModels } from "./model-registry";
+import { visibleModelAccess } from "./runtime-discovery";
+import type { ModelAccess } from "./model-definition";
 
 type App = Hono<{ Bindings: Bindings; Variables: Variables }>;
 type ConsentInput = {
@@ -124,6 +127,69 @@ export function registerOAuthConsentRoutes(app: App): void {
     await requireSpacePermission(c.env, principal, spaceId, "manage");
     c.header("Cache-Control", "no-store");
     return c.json(success({ candidates: await candidates(c.env, spaceId) }));
+  });
+
+  // Only a pre-policy upper bound: do not claim model/record Policy, OAuth
+  // resource scope or final execution-time authority have been checked.
+  app.get("/api/v1/me/oauth/capabilities", requireScope("spaces:manage"), async (c) => {
+    const principal = c.get("principal");
+    if (!c.env.OAUTH_ACCOUNT_APPLICATION_ID || principal.type !== "user"
+      || principal.clientId !== c.env.OAUTH_ACCOUNT_APPLICATION_ID
+      || principal.actor !== undefined || principal.purpose !== undefined) {
+      throw new ApiError("FORBIDDEN", "Account user session is required", 403);
+    }
+    const query = new URL(c.req.url).searchParams;
+    const appId = query.get("applicationId");
+    const spaceId = query.get("spaceId");
+    const agentId = query.get("agentId");
+    if (query.size !== 3 || !safeApplication(appId) || !spaceId || !SPACE_ID.test(spaceId)
+      || !agentId || !AGENT_ID.test(agentId)) {
+      throw new ApiError("INVALID_REQUEST", "Application, Space and Agent must be selected exactly once", 400);
+    }
+    await requireSpacePermission(c.env, principal, spaceId, "manage");
+    const eligible = await candidates(c.env, spaceId);
+    if (!eligible.some((r) => r.applicationId === appId && r.agentId === agentId)) {
+      throw new ApiError("OAUTH_SELECTION_DENIED", "Agent/Application has no active Space Grant", 403);
+    }
+
+    const [catalog, grants] = await c.env.DB.batch([
+      c.env.DB.prepare(
+        "SELECT model_key,max_access FROM application_model_access WHERE application_id=?",
+      ).bind(appId),
+      c.env.DB.prepare(
+        "SELECT resource_type,resource_id,permission FROM data_grants " +
+        "WHERE source_space_id=? AND grantee_type='agent' AND grantee_id=? " +
+        "AND resource_type IN ('space','model') " +
+        "AND revoked_at IS NULL AND (expires_at IS NULL OR julianday(expires_at)>julianday('now'))",
+      ).bind(spaceId, agentId),
+    ]);
+    const modelAccess = new Map(
+      (catalog.results as { model_key: string; max_access: ModelAccess }[])
+        .map((r) => [r.model_key, r.max_access]),
+    );
+    const agentGrants = grants.results as Array<{
+      resource_type: "space" | "model"; resource_id: string | null;
+      permission: "free_busy" | "read" | "write" | "manage";
+    }>;
+    const direct = {
+      type: "agent" as const, id: agentId, clientId: appId,
+      tokenId: "oauth-consent-preview", scopes: ["resources:read", "resources:write", "resources:manage"],
+    };
+    const published = await listPublishedModels(c.env);
+    const visible = visibleModelAccess(direct, published, modelAccess, null, agentGrants);
+    c.header("Cache-Control", "no-store");
+    return c.json(success({
+      kind: "pre_policy_upper_bound",
+      nativeModelsOnly: true,
+      credentialScopesApplied: false,
+      modelPolicyApplied: false,
+      models: visible.slice(0, 50).map(({ model, access }) => ({
+        key: model.key,
+        name: model.definition.display?.name ?? model.key,
+        access,
+      })),
+      truncated: visible.length > 50,
+    }));
   });
 
   // Account BFF only. Browser-provided user IDs, Agent OAuth credentials, and
