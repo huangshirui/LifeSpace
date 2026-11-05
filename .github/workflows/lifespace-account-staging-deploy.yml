@@ -115,6 +115,8 @@ jobs:
           echo "OAuth approver secret synchronized to Core/Identity Staging (values hidden)"
       - name: Verify required binding NAMES without reading plaintext
         run: node apps/account/scripts/verify-staging-bindings.mjs
+      - name: Verify new Account credential and revoke superseded credentials
+        run: node apps/account/scripts/verify-staging-credential-rotation.mjs
       - name: Staging rollout summary
         if: success()
         run: |
@@ -124,7 +126,7 @@ jobs:
             echo "- Worker: `lifespace-account-staging`"
             echo "- Domain: `account-staging.aisr.online`"
             echo "- Access: independent owner-only application"
-            echo "- Identity Application: `app_lifespace_account_staging`"
+            echo "- Identity Application: `app_lifespace_account_staging` (new credential verified; superseded credentials revoked)"
             echo "- Data: no Account D1; OAuth → Identity D1, Space/Grant → Core D1"
             echo "- Services: `lifespace-identity-staging` / `lifespace-core-staging`"
             echo "- Production changes: none"
