@@ -219,7 +219,7 @@ function dto(model: PublishedModel, allowed: ModelAccess[]) {
   };
 }
 
-function visibleModelAccess(
+export function visibleModelAccess(
   principal: Principal,
   models: PublishedModel[],
   catalogByModel: Map<string, ModelAccess>,
