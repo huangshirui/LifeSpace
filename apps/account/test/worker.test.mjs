@@ -38,6 +38,18 @@ function fixture() {
       const path = new URL(req.url).pathname;
       calls.push({ service: "core", path, authorization: req.headers.get("authorization") });
       assert.equal(req.headers.get("authorization"), "Bearer " + issuerToken);
+      if (path === "/api/v1/me/oauth/capabilities") {
+        const query = new URL(req.url).searchParams;
+        assert.equal(query.get("applicationId"), app);
+        assert.equal(query.get("spaceId"), space);
+        assert.equal(query.get("agentId"), agent);
+        return Response.json({ data: {
+          kind: "pre_policy_upper_bound",
+          nativeModelsOnly: true, modelPolicyApplied: false,
+          models: [{ key: "task", name: "Task", access: ["read", "write"] }],
+          truncated: false,
+        } });
+      }
       if (path === "/api/v1/me/oauth/choices") return Response.json({ data: { candidates: [
         { applicationId: app, applicationName: "ALOHA", spaceId: space, spaceName: "Personal Space",
           agentId: agent, agentName: "ALOHA Agent" },
@@ -114,6 +126,24 @@ test("Access exchange is server-only and a user-bound signed CSRF cookie allows 
   assert.equal(confirmed.status, 200);
   assert.match((await confirmed.json()).data.redirectUrl, /^https:\/\/client\.example\.test\/callback\?code=/u);
   assert.equal(t.calls.filter((c) => c.service === "core" && c.path.endsWith("/confirm")).length, 1);
+});
+
+test("permission projection is bounded by current Identity OAuth scopes, not user-supplied scope claims", async () => {
+  const t = fixture();
+  const suffix = new URLSearchParams({
+    request_id: id, application_id: app, space_id: space, agent_id: agent,
+  });
+  const result = await t.request("/api/oauth/capabilities?" + suffix);
+  assert.equal(result.status, 200);
+  const data = (await result.json()).data;
+  assert.equal(data.kind, "pre_policy_upper_bound");
+  assert.equal(data.resourceCapabilityApplied, false);
+  assert.equal(data.modelPolicyApplied, false);
+  assert.deepEqual(data.models, [{ key: "task", name: "Task", access: ["read"] }]);
+  assert.deepEqual(data.requestedScopes, ["resources:read"]);
+  assert.equal((await t.request("/api/oauth/capabilities?" + suffix + "&scope=resources:write")).status, 400);
+  assert.equal((await t.request("/api/oauth/capabilities?" + suffix + "&agent_id=" + agent)).status, 400);
+  assert.equal(t.calls.filter((c) => c.service === "core" && c.path === "/api/v1/me/oauth/capabilities").length, 1);
 });
 
 test("missing Access proof and missing Account configuration fail closed", async () => {
