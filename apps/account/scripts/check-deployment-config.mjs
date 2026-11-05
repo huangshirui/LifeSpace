@@ -37,12 +37,17 @@ checkAccountEnvironment("production", "account.aisr.online", {
   identityWorker: "lifespace-identity", identityUrl: "https://auth.aisr.online",
   coreWorker: "lifespace-core", coreUrl: "https://core.aisr.online",
 });
-assert(identity.env.staging.vars?.OAUTH_ACCOUNT_APPLICATION_ID === "app_lifespace_account_staging"
- && core.env.staging.vars?.OAUTH_ACCOUNT_APPLICATION_ID === "app_lifespace_account_staging",
- "Core/Identity Staging must share Account Application identity");
-assert(identity.env.staging.vars?.OAUTH_ISSUER === "https://auth-staging.aisr.online"
- && identity.env.staging.vars?.OAUTH_CONSENT_URL === "https://account-staging.aisr.online/oauth/consent",
- "Staging OAuth issuer and Account Consent origin must be pinned");
+// Do not change the long-lived Core/Identity Wrangler bindings just to
+// introduce Account. The owner-only staging workflow provisions these values.
+const stageWorkflow = readFileSync(resolve(root, ".github/workflows/lifespace-account-staging-deploy.yml"), "utf8");
+for (const setting of ["OAUTH_ACCOUNT_APPLICATION_ID", "OAUTH_ISSUER", "OAUTH_CONSENT_URL", "OAUTH_CORE_APPROVER_SECRET"]) {
+  assert(stageWorkflow.includes("wrangler secret put " + setting + " --env staging"),
+    "Staging workflow must configure " + setting + " without new D1 bindings");
+}
+assert(stageWorkflow.includes("app_lifespace_account_staging")
+  && stageWorkflow.includes("https://auth-staging.aisr.online")
+  && stageWorkflow.includes("https://account-staging.aisr.online/oauth/consent"),
+  "Staging OAuth Account Application, issuer and Consent URL must be pinned");
 assert(!account.env.production.d1_databases && !account.env.staging.d1_databases,
  "Account must never receive an Identity or Core D1 binding");
 console.log("Account Worker staging/production isolation and zero-D1 checks passed");
