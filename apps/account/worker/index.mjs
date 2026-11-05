@@ -178,6 +178,7 @@ export async function accountFetch(req, env) {
   }
   if (path !== "/api/session" && path !== "/api/oauth/request"
     && path !== "/api/oauth/choices"
+    && path !== "/api/oauth/capabilities"
     && path !== "/api/oauth/confirm") return fail(404, "NOT_FOUND", "接口不存在");
   if ((path === "/api/oauth/confirm") !== (req.method === "POST")) {
     return fail(405, "METHOD_NOT_ALLOWED", "不支持此请求方式");
@@ -235,6 +236,55 @@ export async function accountFetch(req, env) {
       applicationId: r.applicationId, applicationName: r.applicationName,
       agentId: r.agentId, agentName: r.agentName,
     })) } });
+  }
+  if (path === "/api/oauth/capabilities") {
+    const requestId = url.searchParams.get("request_id");
+    const appId = url.searchParams.get("application_id");
+    const spaceId = url.searchParams.get("space_id");
+    const agentId = url.searchParams.get("agent_id");
+    if (url.searchParams.size !== 4 || !REQUEST.test(requestId || "")
+      || !APPLICATION.test(appId || "") || !SPACE.test(spaceId || "") || !AGENT.test(agentId || "")) {
+      return fail(400, "INVALID_REQUEST", "授权能力预览参数无效");
+    }
+    // Account obtains the immutable pending client scope limit from Identity,
+    // never trusting a supplied scope list to render an effective permission.
+    const pending = await boundedUpstream(env, "IDENTITY",
+      "/api/v1/me/oauth/requests/" + encodedPath(requestId), linked.token);
+    if (!pending || !pending.ok) {
+      return fail(409, "OAUTH_REQUEST_EXPIRED", "OAuth 授权请求已过期或不可用");
+    }
+    const requestInfo = await data(pending);
+    if (!requestInfo || requestInfo.id !== requestId || !Array.isArray(requestInfo.requestedScopes)
+      || requestInfo.requestedScopes.some((scope) => typeof scope !== "string" || scope.length > 128)) {
+      return fail(502, "IDENTITY_INVALID_RESPONSE", "OAuth Scope 信息不可用");
+    }
+    const target = "/api/v1/me/oauth/capabilities?" + new URLSearchParams({
+      applicationId: appId, spaceId, agentId,
+    });
+    const source = await boundedUpstream(env, "CORE", target, linked.token);
+    if (!source || !source.ok) return fail(source?.status === 403 ? 403 : 503,
+      "CAPABILITY_UNAVAILABLE", "无法读取当前 Agent 授权范围");
+    const projection = await data(source);
+    if (!projection || projection.kind !== "pre_policy_upper_bound"
+      || !Array.isArray(projection.models) || projection.models.length > 50
+      || projection.models.some((item) => !isObject(item) || !safeText(item.key, 80)
+        || !safeText(item.name, 150) || !Array.isArray(item.access)
+        || item.access.some((access) => !["read", "write", "manage"].includes(access)))) {
+      return fail(502, "CORE_INVALID_RESPONSE", "权限投影格式无效");
+    }
+    const scopes = new Set(requestInfo.requestedScopes);
+    return responseJson({ data: {
+      kind: "pre_policy_upper_bound",
+      resourceCapabilityApplied: false,
+      modelPolicyApplied: false,
+      nativeModelsOnly: true,
+      models: projection.models.map((model) => ({
+        key: model.key, name: model.name,
+        access: model.access.filter((operation) => scopes.has("resources:" + operation)),
+      })).filter((model) => model.access.length > 0),
+      truncated: projection.truncated === true,
+      requestedScopes: [...scopes],
+    } });
   }
   // POST: every confirmation must be a user interaction bound to this Account session.
   if (!await validCsrf(req, env, linked.user.id)) {
