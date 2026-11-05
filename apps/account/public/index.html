@@ -33,7 +33,9 @@
 <div class="section-title"><div><h2 id="scope-title">授权范围</h2><p>只读信息；请求的 Scope 不代表已经获得模型操作权限。</p></div><span class="step">02 / 02</span></div>
 <div class="scope-label">客户端请求</div><div id="scopes" class="scopes"></div><div class="rule"></div>
 <div class="scope-label">当前权限与后续委托</div>
-<p class="capability-note">Agent 的实际操作在每次调用时由 Core 按 Grant、Application × Model Access、模型策略和当前授权验证。此版本尚未提供完整的操作级权限投影，因此不会把请求范围冒充为有效能力。</p>
+<p class="capability-note">下面是当前 <strong>Agent Direct 能力基线</strong>：已按所选 Application 的模型访问上限、目标 Space 的有效 Data Grant、发布模型能力及当前请求的 OAuth Scope 收窄。模型策略、具体记录条件与 MCP Resource 能力仍会进一步限制它。</p>
+<div id="capabilities" class="capabilities" role="status" aria-live="polite">选择 Application、Space 和 Agent 后查看。</div>
+<p class="capability-note">这不是最终执行许可，Core 在每次调用时仍会重新验证。空白或无可用能力不会自动转成用户授权。</p>
 <p class="delegation-note hidden" id="delegation-note">允许申请用户授权，但<strong>没有授予 User→Agent Delegation</strong>；后续申请仍需独立确认。</p>
 </section>
 <footer class="actions"><div id="signed-user" class="signed-user"></div><div class="buttons"><button id="cancel" type="button" class="ghost">暂不授权</button><button id="approve" type="button" class="primary" disabled>确认并继续 →</button></div></footer>
