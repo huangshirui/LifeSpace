@@ -74,6 +74,6 @@ test("Staging platform convergence rejects contract/environment downgrade", asyn
  assert.equal(x.noMutations,true);
  await assert.rejects(
   assertStagingConverged(async()=>Response.json({data:actual.core})),
-  /Identity Staging is not converged/u,
+  /identity Staging is not converged/u,
  );
 });
