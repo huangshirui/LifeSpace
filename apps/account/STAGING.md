@@ -2,6 +2,26 @@
 
 > Development candidate on Draft PR #469; **not a deployment instruction to bypass platform release controls**. All environment changes must use a reviewed, repository-owner-triggered workflow on `main`, or a separately approved owner-operated equivalent with the same guards. Never deploy this draft branch directly.
 
+## Fixed topology / 已确定环境
+
+| Environment | Account Worker | Access hostname | Persistent data |
+| --- | --- | --- | --- |
+| Staging | `lifespace-account-staging` | `account-staging.aisr.online` | **No Account D1** |
+| Production | `lifespace-account` | `account.aisr.online` | **No Account D1** |
+
+Both Workers independently bind their own environment's `IDENTITY` and `CORE` services. Identity D1 owns OAuth Clients/Authorizations/Tokens; Core D1 owns Spaces, Grants and Delegations. No Account database and no cross-application D1 binding.
+
+### Owner-triggered Staging deployment / 独立发布入口
+
+The reviewed implementation lives at `.github/workflows/lifespace-account-staging-deploy.yml`:
+
+1. Merge reviewed OAuth foundation into `main` only after security/CI release gates. As repository owner, manually run `Deploy LifeSpace platform staging` **first** to converge Core and Identity.
+2. In GitHub `staging` Environment, configure `LIFESPACE_STAGING_OAUTH_CORE_APPROVER_SECRET` and `LIFESPACE_STAGING_ACCOUNT_CSRF_SECRET` as independent random values (at least 32 characters). The existing Staging secrets `CLOUDFLARE_API_TOKEN`, `LIFESPACE_STAGING_BOOTSTRAP_SECRET`, and variable `CLOUDFLARE_ACCOUNT_ID` must remain present.
+3. As repository owner on the `main` branch, manually trigger **Deploy LifeSpace Account staging**. The workflow fails closed on missing secrets, different actor/ref, unreviewed release, incompatible Core/Identity staging, or broad Access policy. It copies only the existing strict Owner-email Staging Access rule into a **separate** Account Access application, registers one dedicated minimal LifeSpace Application/Audience, deploys Account staging and injects server-only secrets to each proper Worker.
+4. Verify the Account site behind Cloudflare Access with a real browser. Finally run OAuth E2E only once its staging MCP Resource Server/Adapter has been built and reviewed. This workflow **never** deploys Production or creates a D1 database.
+
+Do **not** manually copy a Console `lsa_*` credential, reuse a Console Audience, or enable `platform:admin` in the Account Application.
+
 ## 0. Dependencies / 前置条件
 
 - Merge only after reviewed CI, candidate contract and threat-model checks; PR #469 is still Draft.
