@@ -411,7 +411,7 @@
     {
       "id": "core-account-oauth-consent",
       "source": "apps/core/oauth-consent.openapi.yaml",
-      "operationSetSha256": "sha256:0b4dc701e9667f37c30fcfe40815b99f7ec91fa214c8c037acb367b617147788",
+      "operationSetSha256": "sha256:0a0249c05cbac77a71e1e09909993c60048b9d94d469f5afdb1eff836c984b34",
       "groups": [
         {
           "id": "core-account-consent-confirm",
@@ -424,19 +424,31 @@
           "maturity": "candidate",
           "visibility": "internal",
           "operationPattern": "^GET /api/v1/me/oauth/(choices|spaces/\\{spaceId\\}/options)$"
+        },
+        {
+          "id": "core-account-oauth-capability-preview",
+          "maturity": "candidate",
+          "visibility": "internal",
+          "operationPattern": "^GET /api/v1/me/oauth/capabilities$"
         }
       ]
     },
     {
       "id": "account-consent-bff",
       "source": "apps/account/openapi.json",
-      "operationSetSha256": "sha256:1ba4cfdd310739c2ea86933072169ce6a6f3119c6d19c41e875f3cc40b829a5c",
+      "operationSetSha256": "sha256:00822b98fad813d047668a0312e6e95fba64eb25649da941daf09cd0bc742ce8",
       "groups": [
         {
           "id": "account-oauth-consent",
           "maturity": "candidate",
           "visibility": "internal",
           "operationPattern": "^(GET /api/(session|oauth/(request|choices))|POST /api/oauth/confirm)$"
+        },
+        {
+          "id": "account-oauth-capability-preview",
+          "maturity": "candidate",
+          "visibility": "internal",
+          "operationPattern": "^GET /api/oauth/capabilities$"
         }
       ]
     }
