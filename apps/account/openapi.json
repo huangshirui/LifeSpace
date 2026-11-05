@@ -128,6 +128,63 @@
           }
         }
       }
+    },
+    "/api/oauth/capabilities": {
+      "get": {
+        "summary": "Account BFF builds current Agent Direct model-level pre-policy upper bound, narrowed by Identity pending OAuth Scope",
+        "parameters": [
+          {
+            "name": "request_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^oar_"
+            }
+          },
+          {
+            "name": "application_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^app_"
+            }
+          },
+          {
+            "name": "space_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^spc_"
+            }
+          },
+          {
+            "name": "agent_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^agt_"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Bounded current Native model access projection, explicitly not Policy/resource verified"
+          },
+          "400": {
+            "description": "Invalid or duplicate selector"
+          },
+          "403": {
+            "description": "Current Core authority missing"
+          },
+          "409": {
+            "description": "OAuth pending request expired"
+          }
+        }
+      }
     }
   }
 }
