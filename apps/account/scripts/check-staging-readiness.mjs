@@ -54,7 +54,7 @@ export function inspectStatus(status, expected, service) {
 }
 
 export async function runStagingOAuthReadiness({ env = process.env, fetcher = fetch } = {}) {
-  const { STAGING_EXPECTATIONS } = await import("../../infra/scripts/staging-expectations.mjs");
+  const { STAGING_EXPECTATIONS } = await import("../../../infra/scripts/staging-expectations.mjs");
   const checks = {};
   const errors = [];
   const token = env.CLOUDFLARE_API_TOKEN || "";
