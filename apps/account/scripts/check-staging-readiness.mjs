@@ -1,6 +1,8 @@
 // Read-only readiness gate for a controlled owner-triggered Staging rollout.
 // It never creates Access Applications, changes DNS, issues credentials or deploys a Worker.
 import process from "node:process";
+import { pathToFileURL } from "node:url";
+import { strictPolicies } from "./prepare-staging-access.mjs";
 
 const ACCOUNT_DOMAIN = "account-staging.aisr.online";
 const ACCOUNT_SCRIPT = "lifespace-account-staging";
@@ -24,24 +26,12 @@ export function inspectAccessApplication(applications) {
 }
 
 export function inspectStrictPolicy(policies) {
-  const active = Array.isArray(policies) ? policies.filter((policy) => policy.decision === "allow") : [];
-  if (active.length === 0) return { ok: false, code: "ACCOUNT_POLICY_MISSING" };
-  // Fail closed: allow lists must contain an exact owner email. No Everyone,
-  // any service-token, broad email-domain or unbounded device posture rules.
-  for (const policy of active) {
-    const include = policy.include;
-    if (!Array.isArray(include) || !include.length) return { ok: false, code: "ACCOUNT_POLICY_BROAD" };
-    for (const rule of include) {
-      if (!rule || typeof rule !== "object" || Object.keys(rule).some((key) =>
-        ["everyone", "service_token", "any_valid_service_token", "email_domain", "group"].includes(key)
-      )) return { ok: false, code: "ACCOUNT_POLICY_BROAD" };
-      if (!rule.email || typeof rule.email.email !== "string"
-        || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(rule.email.email)) {
-        return { ok: false, code: "ACCOUNT_POLICY_REQUIRES_EXACT_EMAIL" };
-      }
-    }
+  try {
+    const active = strictPolicies(policies);
+    return { ok: true, allowPolicyCount: active.length };
+  } catch {
+    return { ok: false, code: "ACCOUNT_POLICY_NOT_STRICT_OWNER_EMAIL" };
   }
-  return { ok: true, allowPolicyCount: active.length };
 }
 
 export function inspectStatus(status, expected, service) {
@@ -113,7 +103,7 @@ export async function runStagingOAuthReadiness({ env = process.env, fetcher = fe
   return { ok, mutation: false, checks, errors };
 }
 
-if (process.argv[1] && import.meta.url === new URL("file://" + process.argv[1]).href) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const result = await runStagingOAuthReadiness();
   // Deliberately report only configuration existence, never secret values.
   process.stdout.write(JSON.stringify(result, null, 2) + "\n");
