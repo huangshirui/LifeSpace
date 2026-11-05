@@ -79,6 +79,19 @@ jobs:
         run: node apps/account/scripts/prepare-staging-access.mjs
       - name: Provision minimal LifeSpace Account Application and Access Audience
         run: node apps/account/scripts/prepare-staging-identity.mjs
+      - name: Configure Account-specific OAuth bindings in existing Core/Identity Staging
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '%s' 'app_lifespace_account_staging' |
+            pnpm --dir apps/core exec wrangler secret put OAUTH_ACCOUNT_APPLICATION_ID --env staging >/dev/null
+          printf '%s' 'app_lifespace_account_staging' |
+            pnpm --dir apps/identity exec wrangler secret put OAUTH_ACCOUNT_APPLICATION_ID --env staging >/dev/null
+          printf '%s' 'https://auth-staging.aisr.online' |
+            pnpm --dir apps/identity exec wrangler secret put OAUTH_ISSUER --env staging >/dev/null
+          printf '%s' 'https://account-staging.aisr.online/oauth/consent' |
+            pnpm --dir apps/identity exec wrangler secret put OAUTH_CONSENT_URL --env staging >/dev/null
+          echo "Account-only OAuth Staging settings configured on existing Workers"
       - name: Deploy only Account staging Worker
         run: pnpm --dir apps/account exec wrangler deploy --env staging
       - name: Set Account-owned secrets, without logging values
