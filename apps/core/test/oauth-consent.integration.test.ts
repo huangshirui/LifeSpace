@@ -2,6 +2,8 @@ import { env } from "cloudflare:workers";
 import { sign } from "hono/jwt";
 import { describe, expect, it } from "vitest";
 import { createApp } from "../src/app";
+import { publishModelDefinition } from "../src/model-registry";
+import type { Bindings, Principal } from "../src/env";
 
 type TestEnv = { DB: D1Database };
 type KeyPair = { privateKey: string; publicKey: string };
@@ -142,6 +144,58 @@ describe("Core Account OAuth Consent boundary", () => {
       .bind(f.spaceId, f.userId).run();
     expect((await f.call()).status).toBe(403);
     expect(f.forwarded).toHaveLength(1);
+  });
+
+  it("reuses live Core Model Access/Agent Data Grant intersection for pre-policy Native model preview", async () => {
+    const f = await fixture();
+    const modelKey = "oauth_direct_" + crypto.randomUUID().replaceAll("-", "").slice(0, 12);
+    const publisher: Principal = {
+      type: "service", id: "svc_oauth_test", clientId: "lifespace-platform-admin",
+      scopes: ["models:manage"], tokenId: "tok_oauth_publish",
+    };
+    await publishModelDefinition({ DB: f.db } as Bindings, publisher, {
+      definitionVersion: 1, key: modelKey,
+      display: { singular: "OAuth Direct Model", plural: "OAuth Direct Models" },
+      fields: { label: { type: "string", title: "Label", required: true, maxLength: 60 } },
+      access: ["read", "write"],
+      lifecycle: { optimisticConcurrency: true, softDelete: true },
+    }, "initial");
+    await f.db.prepare(
+      "INSERT INTO application_model_access(application_id,model_key,max_access,created_by_type,created_by_id) VALUES(?,?,?,?,?)",
+    ).bind(f.selected.applicationId, modelKey, "write", "service", "svc_oauth_test").run();
+    const path = "/api/v1/me/oauth/capabilities?" + new URLSearchParams({
+      applicationId: f.selected.applicationId, spaceId: f.spaceId, agentId: f.agentId,
+    });
+    const query = async (queryPath = path, bearer = f.bearer) =>
+      createApp().request("https://core.example.test" + queryPath,
+        { headers: { authorization: "Bearer " + bearer } }, f.bindings);
+    const first = await query();
+    expect(first.status).toBe(200);
+    expect(await first.json()).toMatchObject({
+      data: {
+        kind: "pre_policy_upper_bound", nativeModelsOnly: true, modelPolicyApplied: false,
+        credentialScopesApplied: false, models: [
+          { key: modelKey, name: "OAuth Direct Model", access: ["read"] },
+        ],
+      },
+    });
+    await f.db.prepare("UPDATE data_grants SET permission='write' WHERE source_space_id=? AND grantee_id=?")
+      .bind(f.spaceId, f.agentId).run();
+    const upgraded = await query();
+    expect((await upgraded.json()).data.models).toContainEqual(
+      { key: modelKey, name: "OAuth Direct Model", access: ["read", "write"] },
+    );
+    await f.db.prepare("UPDATE application_model_access SET max_access='read' WHERE application_id=? AND model_key=?")
+      .bind(f.selected.applicationId, modelKey).run();
+    const narrowed = await query();
+    expect((await narrowed.json()).data.models).toContainEqual(
+      { key: modelKey, name: "OAuth Direct Model", access: ["read"] },
+    );
+    expect((await query(path + "&spaceId=" + f.spaceId)).status).toBe(400);
+    expect((await query(path, await token(f.pair.privateKey, f.userId, "app_untrusted"))).status).toBe(403);
+    await f.db.prepare("UPDATE data_grants SET revoked_at=? WHERE source_space_id=? AND grantee_id=?")
+      .bind(new Date().toISOString(), f.spaceId, f.agentId).run();
+    expect((await query()).status).toBe(403);
   });
 
   it("denies non-manager consent, unavailable Service Binding, Identity rejection and malformed code redirect", async () => {
