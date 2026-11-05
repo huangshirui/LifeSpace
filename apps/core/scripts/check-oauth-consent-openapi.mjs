@@ -4,6 +4,11 @@ import YAML from "yaml";
 const document = YAML.parse(fs.readFileSync(new URL("../oauth-consent.openapi.yaml", import.meta.url), "utf8"));
 const choices = document.paths?.["/api/v1/me/oauth/choices"]?.get;
 const options = document.paths?.["/api/v1/me/oauth/spaces/{spaceId}/options"]?.get;
+const preview = document.paths?.["/api/v1/me/oauth/capabilities"]?.get;
+if (!preview?.security?.some((entry) => entry.accountUserBearer)
+  || !String(preview.description).includes("upper-bound")) {
+  throw new Error("Account capability preview must be explicitly authenticated and non-authoritative");
+}
 if (!choices?.security?.some((entry) => entry.accountUserBearer)
   || !options?.security?.some((entry) => entry.accountUserBearer)) {
   throw new Error("OAuth choices must require verified Account User");
