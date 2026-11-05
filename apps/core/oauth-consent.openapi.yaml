@@ -15,6 +15,24 @@ paths:
         '200': { description: Bounded current candidate choices (at most 100 pairs) }
         '403': { description: Non-Account or insufficient scope }
         '503': { description: Identity binding unavailable }
+  /api/v1/me/oauth/capabilities:
+    get:
+      description: >
+        Account-only, current-manager, selected active Agent direct model access
+        upper-bound preview from published Native Model Definition, current
+        Application Model Access and Agent Data Grants. Model Policy, OAuth
+        resource-specific MCP capability and requested credential scope must
+        still narrow results; never used as runtime authorization proof.
+      security: [{ accountUserBearer: [] }]
+      parameters:
+        - { in: query, name: applicationId, required: true, schema: { type: string, pattern: '^app_' } }
+        - { in: query, name: spaceId, required: true, schema: { type: string, pattern: '^spc_' } }
+        - { in: query, name: agentId, required: true, schema: { type: string, pattern: '^agt_' } }
+      responses:
+        '200': { description: Read-only, up to 50 currently eligible Native models and read/write/manage baseline }
+        '400': { description: Invalid or duplicate context selector }
+        '403': { description: Account User or current Agent/Space eligibility missing }
+        '503': { description: Identity Agent binding unavailable }
   /api/v1/me/oauth/spaces/{spaceId}/options:
     get:
       description: Account-only authenticated Space manager reads currently eligible Agent/Application candidates for one Space; selection is revalidated on confirm.
