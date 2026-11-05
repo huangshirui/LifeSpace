@@ -60,9 +60,13 @@ async function main() {
         accessTokenTtlSeconds: 900,
       },
     });
-    if (result.response.status !== 201) throw new Error("Account Application creation failed");
-    requireApplicationPolicy(result.payload?.data);
+    if (result.response.status !== 201 || result.payload?.data?.id !== ACCOUNT_APPLICATION_ID) {
+      throw new Error("Account Application creation failed");
+    }
     issued = result.payload?.data?.clientSecret;
+    const readBack = await request(path);
+    if (readBack.response.status !== 200) throw new Error("Created Account Application cannot be re-read");
+    requireApplicationPolicy(readBack.payload?.data);
     created = true;
   } else {
     if (existing.response.status !== 200) throw new Error("Cannot read Account Application");
