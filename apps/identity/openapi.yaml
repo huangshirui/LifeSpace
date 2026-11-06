@@ -581,6 +581,541 @@ paths:
       responses:
         '200': { description: Current token and authorization state, or active=false }
         '401': { description: Trusted Resource Server authentication is required }
+  /oauth/execution-tokens:
+    post:
+      description: Trusted same-environment OAuth Resource Server exchanges a currently active, exact-resource opaque read-scope bearer for a signed 60-second Agent Direct Core execution credential. The selected OAuth User is not the Principal; no implicit Delegation. Core rechecks current OAuth access and Agent/Application state on every request.
+      security: [{ oauthResourceServerSecret: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [token, resource]
+              properties:
+                token: { type: string, pattern: '^lsp_oat_', writeOnly: true }
+                resource: { type: string, format: uri }
+      responses:
+        '200': { description: Server-only short-lived, read-only signed Agent Direct Core token, restricted to the selected OAuth Space and current OAuth access }
+        '400': { description: Invalid request body }
+        '401': { description: Invalid Resource Server credential, OAuth token or Resource }
+        '503': { description: Identity signing material unavailable }
+  /introspection/v1/oauth-executions:
+    post:
+      description: Core-only current-state check for signed OAuth Agent execution credentials. Revalidates the exact OAuth token hash, authorization, client, Application, Agent, Resource and Space before each Core call. Revocation is immediate; no user Delegation is inferred.
+      security: [{ internalServiceSecret: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [authorizationId, tokenHash, clientId, resource, applicationId, agentId, spaceId]
+              properties:
+                authorizationId: { type: string, pattern: '^oaz_' }
+                tokenHash: { type: string, pattern: '^[a-f0-9]{64}    post:
+      description: Revocation of a client's own opaque access or refresh credential; revoking refresh invalidates its Authorization. User-facing Authorization revocation is a later Account API.
+      security: []
+      responses:
+        '200': { description: Revocation accepted without token existence disclosure }
+        '401': { description: Unknown OAuth client }
+  /oauth/token:
+    post:
+      description: Shared OAuth token endpoint. Existing Service client_credentials retains its svc_* client identity and service JWT behavior. Public interactive clients use Auth Code + PKCE S256 or rotated refresh tokens and receive resource-limited opaque tokens.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema: { $ref: '#/components/schemas/OAuthTokenRequest' }
+      responses:
+        '200': { description: Short-lived Service JWT or resource-scoped interactive OAuth opaque token, content: { application/json: { schema: { $ref: '#/components/schemas/OAuthTokenResponse' } } } }
+        '400': { description: OAuth invalid_request / unsupported_grant_type / invalid_scope }
+        '401': { description: OAuth invalid_client }
+  /introspection/v1/service-tokens:
+    post:
+      description: Internal Core-to-Identity opaque Service API Token introspection. Requires the Core/Identity internal service secret and is called through the Cloudflare Service Binding.
+      security: [{ internalServiceSecret: [], serviceToken: [] }]
+      responses:
+        '200': { description: Current token/principal state, content: { application/json: { schema: { $ref: '#/components/schemas/ServiceTokenIntrospectionResponse' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+components:
+  securitySchemes:
+    userBearer:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+    applicationCredential:
+      type: http
+      scheme: bearer
+      bearerFormat: lsa_ trusted application credential
+    serviceToken:
+      type: http
+      scheme: bearer
+      bearerFormat: lsp_svc_ opaque token
+    agentCredential:
+      type: http
+      scheme: bearer
+      bearerFormat: lsp_agt_ opaque credential
+      description: Opaque lsp_agt_* Agent API credential; accepted only on the internal introspection route.
+    internalServiceSecret:
+      type: apiKey
+      in: header
+      name: x-lifespace-internal-secret
+    oauthCoreApproverSecret:
+      type: apiKey
+      in: header
+      name: x-lifespace-oauth-approver-secret
+      description: Dedicated Core-to-Identity OAuth confirmation secret, distinct from regular introspection.
+    oauthResourceServerSecret:
+      type: apiKey
+      in: header
+      name: x-lifespace-resource-secret
+      description: Dedicated Resource Server secret; never use a public OAuth bearer token as caller authentication.
+  parameters:
+    ApplicationId: { name: applicationId, in: path, required: true, schema: { type: string, minLength: 1 } }
+    ApplicationCredentialId: { name: credentialId, in: path, required: true, schema: { type: string, pattern: ^apc_ } }
+    AccessAudienceId: { name: audienceId, in: path, required: true, schema: { type: string, pattern: ^aud_ } }
+    AccessLinkChallengeId: { name: challengeId, in: path, required: true, schema: { type: string, pattern: ^alc_ } }
+    PrincipalId: { name: principalId, in: path, required: true, schema: { type: string, pattern: ^svc_ } }
+    ServiceTokenId: { name: tokenId, in: path, required: true, schema: { type: string, pattern: ^sat_ } }
+    OAuthCredentialId: { name: credentialId, in: path, required: true, schema: { type: string, pattern: ^soc_ } }
+  schemas:
+    Agent:
+      type: object
+      additionalProperties: false
+      required: [id, displayName, status, createdAt, updatedAt]
+      properties:
+        id: { type: string, pattern: ^agt_ }
+        displayName: { type: string, minLength: 1, maxLength: 100 }
+        status: { type: string, enum: [active, disabled] }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    CreateAgentRequest:
+      type: object
+      additionalProperties: false
+      required: [displayName]
+      properties:
+        displayName: { type: string, minLength: 1, maxLength: 100 }
+    AgentResponse:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data: { $ref: '#/components/schemas/Agent' }
+    AgentListResponse:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data:
+          type: object
+          additionalProperties: false
+          required: [items]
+          properties:
+            items: { type: array, items: { $ref: '#/components/schemas/Agent' } }
+    AgentTokenRequest:
+      type: object
+      additionalProperties: false
+      required: [agentId]
+      description: Omit principalType/principalId for direct Agent execution; otherwise provide both. Current executable Principal types are user and agent.
+      properties:
+        principalType: { type: string, enum: [user, agent] }
+        principalId: { type: string, pattern: '^(usr_|agt_)' }
+        agentId: { type: string, pattern: ^agt_ }
+        scopes: { type: array, uniqueItems: true, items: { type: string, minLength: 1, maxLength: 100 }, default: [] }
+    AgentTokenResponse:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data:
+          type: object
+          additionalProperties: false
+          required: [accessToken, tokenType, expiresIn, scope, principalId, principalType, actor, applicationId, purpose]
+          properties:
+            accessToken: { type: string, writeOnly: true }
+            tokenType: { const: Bearer }
+            expiresIn: { type: integer, minimum: 1, maximum: 900 }
+            scope: { type: string }
+            principalId: { type: string, pattern: '^(usr_|agt_)' }
+            principalType: { type: string, enum: [user, agent] }
+            actor:
+              type: object
+              additionalProperties: false
+              required: [type, id]
+              properties:
+                type: { const: agent }
+                id: { type: string, pattern: ^agt_ }
+            applicationId: { type: string, minLength: 1 }
+            purpose: { type: string, const: agent_execution }
+    ErrorResponse:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          type: object
+          additionalProperties: false
+          required: [code, message, requestId]
+          properties:
+            code: { type: string }
+            message: { type: string }
+            requestId: { type: string }
+    WebLoginResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          additionalProperties: false
+          required: [email, version, linked, status]
+          properties:
+            email: { type: [string, 'null'], format: email }
+            version: { type: integer, minimum: 0 }
+            linked: { type: boolean, description: An active Access principal has been linked with this user-owned mailbox; the pending reservation is not proof of mailbox control. }
+    UserProfile:
+      type: object
+      additionalProperties: false
+      required: [id, displayName, avatarUrl, status, createdAt, updatedAt]
+      properties:
+        id: { type: string, pattern: ^usr_ }
+        displayName: { type: string, minLength: 1, maxLength: 50 }
+        avatarUrl: { type: [string, 'null'], format: uri }
+        status: { type: string, enum: [active, disabled] }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    UpdateProfileRequest:
+      type: object
+      additionalProperties: false
+      required: [displayName]
+      properties:
+        displayName: { type: string, minLength: 1, maxLength: 50 }
+    ProfileResponse:
+      type: object
+      required: [data]
+      properties: { data: { $ref: '#/components/schemas/UserProfile' } }
+    AvatarResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          additionalProperties: false
+          required: [avatarUrl]
+          properties: { avatarUrl: { type: string, format: uri } }
+    Application:
+      type: object
+      additionalProperties: false
+      required: [id, name, allowedScopes, trustedBackend, accessTokenTtlSeconds, status, createdAt, updatedAt]
+      properties:
+        id: { type: string }
+        name: { type: string, minLength: 1, maxLength: 100 }
+        allowedScopes: { type: array, uniqueItems: true, items: { type: string } }
+        trustedBackend: { type: boolean }
+        accessTokenTtlSeconds: { type: integer, minimum: 300, maximum: 3600 }
+        status: { type: string, enum: [active, disabled] }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    UpdateApplicationRequest:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        name: { type: string, minLength: 1, maxLength: 100 }
+        allowedScopes: { type: array, uniqueItems: true, items: { type: string, minLength: 1, maxLength: 100 } }
+        accessTokenTtlSeconds: { type: integer, minimum: 300, maximum: 3600 }
+        status: { type: string, enum: [active, disabled] }
+    ApplicationResponse: { type: object, required: [data], properties: { data: { $ref: '#/components/schemas/Application' } } }
+    ApplicationCredential:
+      type: object
+      additionalProperties: false
+      required: [id, applicationId, secretSuffix, status, createdAt, revokedAt]
+      properties:
+        id: { type: string, pattern: ^apc_ }
+        applicationId: { type: string }
+        secretSuffix: { type: string, minLength: 8, maxLength: 8 }
+        status: { type: string, enum: [active, revoked] }
+        createdAt: { type: string, format: date-time }
+        revokedAt: { type: [string, 'null'], format: date-time }
+    ApplicationCredentialListResponse: { type: object, required: [data], properties: { data: { type: array, items: { $ref: '#/components/schemas/ApplicationCredential' } } } }
+    CreateApplicationCredentialResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          allOf:
+            - { $ref: '#/components/schemas/ApplicationCredential' }
+            - type: object
+              required: [clientSecret]
+              properties: { clientSecret: { type: string, pattern: '^lsa_', writeOnly: true } }
+    AccessAudience:
+      type: object
+      additionalProperties: false
+      required: [id, applicationId, issuer, audience, status, createdAt, revokedAt]
+      properties:
+        id: { type: string, pattern: ^aud_ }
+        applicationId: { type: string }
+        issuer: { type: string, format: uri }
+        audience: { type: string, minLength: 1, maxLength: 256 }
+        status: { type: string, enum: [active, revoked] }
+        createdAt: { type: string, format: date-time }
+        revokedAt: { type: [string, 'null'], format: date-time }
+    RegisterAccessAudienceRequest:
+      type: object
+      additionalProperties: false
+      required: [audience]
+      properties:
+        audience: { type: string, minLength: 1, maxLength: 256, pattern: '^\\S+$' }
+    AccessAudienceResponse: { type: object, required: [data], properties: { data: { $ref: '#/components/schemas/AccessAudience' } } }
+    AccessAudienceListResponse: { type: object, required: [data], properties: { data: { type: array, items: { $ref: '#/components/schemas/AccessAudience' } } } }
+    AccessTokenExchangeRequest:
+      type: object
+      additionalProperties: false
+      required: [accessAssertion, requestedScopes]
+      properties:
+        accessAssertion: { type: string, minLength: 32, maxLength: 32768, writeOnly: true }
+        requestedScopes: { type: array, uniqueItems: true, items: { type: string, minLength: 1, maxLength: 100 } }
+    AccessRegistrationRequest:
+      type: object
+      additionalProperties: false
+      required: [accessAssertion, displayName, requestedScopes]
+      properties:
+        accessAssertion: { type: string, minLength: 32, maxLength: 32768, writeOnly: true }
+        displayName: { type: string, minLength: 1, maxLength: 50 }
+        requestedScopes: { type: array, uniqueItems: true, items: { type: string, minLength: 1, maxLength: 100 } }
+    AccessLinkChallengeRequest:
+      type: object
+      additionalProperties: false
+      required: [accessAssertion]
+      properties:
+        accessAssertion: { type: string, minLength: 32, maxLength: 32768, writeOnly: true }
+    UserTokenResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          additionalProperties: false
+          required: [accessToken, tokenType, expiresIn, scope]
+          properties:
+            accessToken: { type: string, writeOnly: true }
+            tokenType: { type: string, const: Bearer }
+            expiresIn: { type: integer, minimum: 300, maximum: 3600 }
+            scope: { type: string }
+    AccessRegistrationResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          additionalProperties: false
+          required: [user, accessToken, tokenType, expiresIn, scope]
+          properties:
+            user:
+              type: object
+              additionalProperties: false
+              required: [id, displayName]
+              properties:
+                id: { type: string, pattern: ^usr_ }
+                displayName: { type: string, minLength: 1, maxLength: 50 }
+            accessToken: { type: string, writeOnly: true }
+            tokenType: { type: string, const: Bearer }
+            expiresIn: { type: integer, minimum: 300, maximum: 3600 }
+            scope: { type: string }
+    AccessLinkChallengeResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          additionalProperties: false
+          required: [challengeId, expiresAt]
+          properties:
+            challengeId: { type: string, pattern: ^alc_ }
+            expiresAt: { type: string, format: date-time }
+    ServicePrincipal:
+      type: object
+      additionalProperties: false
+      required: [id, clientId, displayName, description, maxScopes, status, createdByUserId, createdAt, updatedAt, disabledAt]
+      properties:
+        id: { type: string, pattern: ^svc_ }
+        clientId: { type: string }
+        displayName: { type: string, minLength: 1, maxLength: 100 }
+        description: { type: [string, 'null'], maxLength: 500 }
+        maxScopes: { type: array, uniqueItems: true, items: { type: string } }
+        status: { type: string, enum: [active, disabled] }
+        createdByUserId: { type: [string, 'null'], pattern: ^usr_ }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        disabledAt: { type: [string, 'null'], format: date-time }
+    CreateServicePrincipalRequest:
+      type: object
+      additionalProperties: false
+      required: [displayName, maxScopes]
+      properties:
+        displayName: { type: string, minLength: 1, maxLength: 100 }
+        description: { type: [string, 'null'], maxLength: 500 }
+        maxScopes: { type: array, uniqueItems: true, items: { type: string } }
+        createdByUserId: { type: string, pattern: ^usr_ }
+    UpdateServicePrincipalRequest:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        displayName: { type: string, minLength: 1, maxLength: 100 }
+        description: { type: [string, 'null'], maxLength: 500 }
+        maxScopes: { type: array, uniqueItems: true, items: { type: string } }
+        status: { type: string, enum: [active, disabled] }
+    ServicePrincipalResponse: { type: object, required: [data], properties: { data: { $ref: '#/components/schemas/ServicePrincipal' } } }
+    ServicePrincipalListResponse: { type: object, required: [data], properties: { data: { type: array, items: { $ref: '#/components/schemas/ServicePrincipal' } } } }
+    ServiceToken:
+      type: object
+      additionalProperties: false
+      required: [id, principalId, displayPrefix, lastFour, label, scopes, audience, expiresAt, createdAt, createdByUserId, lastUsedAt, revokedAt]
+      properties:
+        id: { type: string, pattern: ^sat_ }
+        principalId: { type: string, pattern: ^svc_ }
+        displayPrefix: { type: string }
+        lastFour: { type: string, minLength: 4, maxLength: 4 }
+        label: { type: string, minLength: 1, maxLength: 100 }
+        scopes: { type: array, uniqueItems: true, items: { type: string } }
+        audience: { type: string, const: lifespace-core }
+        expiresAt: { type: [string, 'null'], format: date-time }
+        createdAt: { type: string, format: date-time }
+        createdByUserId: { type: [string, 'null'], pattern: ^usr_ }
+        lastUsedAt: { type: [string, 'null'], format: date-time }
+        revokedAt: { type: [string, 'null'], format: date-time }
+    CreateServiceTokenRequest:
+      type: object
+      additionalProperties: false
+      required: [label, scopes]
+      properties:
+        label: { type: string, minLength: 1, maxLength: 100 }
+        scopes: { type: array, uniqueItems: true, items: { type: string } }
+        expiresAt: { type: [string, 'null'], format: date-time }
+        createdByUserId: { type: string, pattern: ^usr_ }
+    UpdateServiceTokenRequest:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        label: { type: string, minLength: 1, maxLength: 100 }
+        scopes: { type: array, uniqueItems: true, items: { type: string } }
+        expiresAt: { type: [string, 'null'], format: date-time }
+    ServiceTokenResponse: { type: object, required: [data], properties: { data: { $ref: '#/components/schemas/ServiceToken' } } }
+    ServiceTokenListResponse: { type: object, required: [data], properties: { data: { type: array, items: { $ref: '#/components/schemas/ServiceToken' } } } }
+    CreateServiceTokenResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          allOf:
+            - { $ref: '#/components/schemas/ServiceToken' }
+            - type: object
+              required: [token]
+              properties: { token: { type: string, pattern: '^lsp_svc_', writeOnly: true } }
+    OAuthCredential:
+      type: object
+      additionalProperties: false
+      required: [id, principalId, secretSuffix, label, status, createdAt, createdByUserId, lastUsedAt, revokedAt]
+      properties:
+        id: { type: string, pattern: ^soc_ }
+        principalId: { type: string, pattern: ^svc_ }
+        secretSuffix: { type: string }
+        label: { type: string }
+        status: { type: string, enum: [active, revoked] }
+        createdAt: { type: string, format: date-time }
+        createdByUserId: { type: [string, 'null'], pattern: ^usr_ }
+        lastUsedAt: { type: [string, 'null'], format: date-time }
+        revokedAt: { type: [string, 'null'], format: date-time }
+    CreateOAuthCredentialRequest:
+      type: object
+      additionalProperties: false
+      required: [label]
+      properties:
+        label: { type: string, minLength: 1, maxLength: 100 }
+        createdByUserId: { type: string, pattern: ^usr_ }
+    CreateOAuthCredentialResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          allOf:
+            - { $ref: '#/components/schemas/OAuthCredential' }
+            - type: object
+              required: [clientId, clientSecret]
+              properties:
+                clientId: { type: string, pattern: ^svc_ }
+                clientSecret: { type: string, pattern: '^lsp_client_', writeOnly: true }
+    OAuthCredentialListResponse: { type: object, required: [data], properties: { data: { type: array, items: { $ref: '#/components/schemas/OAuthCredential' } } } }
+    OAuthTokenRequest:
+      type: object
+      required: [grant_type]
+      properties:
+        grant_type: { type: string, description: 'Supported grant types are client_credentials (Service), authorization_code (PKCE) and refresh_token (interactive OAuth)' }
+        client_id: { type: string, description: "Service svc_* client_credentials or registered OAuth Client ocli_*" }
+        client_secret: { type: string, writeOnly: true, description: "Existing Service only; interactive PKCE Clients are public" }
+        scope: { type: string }
+        code: { type: string, writeOnly: true }
+        code_verifier: { type: string, writeOnly: true }
+        redirect_uri: { type: string, format: uri }
+        refresh_token: { type: string, writeOnly: true }
+        resource: { type: string, format: uri }
+    OAuthTokenResponse:
+      type: object
+      required: [access_token, token_type, expires_in, scope]
+      properties:
+        access_token: { type: string, writeOnly: true }
+        token_type: { type: string, const: Bearer }
+        expires_in: { type: integer, minimum: 300, maximum: 3600 }
+        scope: { type: string }
+        refresh_token: { type: string, writeOnly: true, description: "Interactive OAuth only, rotated on each use" }
+        resource: { type: string, format: uri, description: "Exact interactive OAuth Resource Audience" }
+    ServiceTokenIntrospectionResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          required: [active]
+          properties:
+            active: { type: boolean }
+            audience: { type: string, const: lifespace-core }
+            principal:
+              type: object
+              required: [type, id, clientId, scopes, tokenId]
+              properties:
+                type: { type: string, const: service }
+                id: { type: string, pattern: ^svc_ }
+                clientId: { type: string }
+                scopes: { type: array, items: { type: string } }
+                tokenId: { type: string, pattern: ^sat_ }
+  responses:
+    InvalidRequest:
+      description: Invalid request
+      content: { application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } } }
+    Unauthorized:
+      description: Authentication failed
+      content: { application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } } }
+    Forbidden:
+      description: Scope/current identity state does not allow the request
+      content: { application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } } }
+    ValidationError:
+      description: Validation failed
+      content: { application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } } }
+, writeOnly: true }
+                clientId: { type: string, pattern: '^ocli_' }
+                resource: { type: string, format: uri }
+                applicationId: { type: string, pattern: '^app_' }
+                agentId: { type: string, pattern: '^agt_' }
+                spaceId: { type: string, pattern: '^spc_' }
+      responses:
+        '200': { description: Boolean data.active; false on revoked/expired/disabled/mismatched OAuth or Agent authority }
+        '400': { description: Invalid checked context }
+        '401': { description: Missing Core-only internal shared-secret authentication }
   /oauth/revoke:
     post:
       description: Revocation of a client's own opaque access or refresh credential; revoking refresh invalidates its Authorization. User-facing Authorization revocation is a later Account API.
