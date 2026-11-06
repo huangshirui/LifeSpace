@@ -69,6 +69,20 @@ function notConfigured(message: string): ApiError {
   return new ApiError("AUTHENTICATION_NOT_CONFIGURED", message, 500);
 }
 
+function validOAuthClientIdentifier(value: unknown): boolean {
+  if (typeof value !== "string" || value.length > 256) return false;
+  if (/^ocli_[A-Za-z0-9_-]+$/u.test(value)) return true;
+  // Identity verified the public metadata; Core only validates the signed
+  // identifier's shape and subsequently rechecks Identity's current state.
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && url.href === value
+      && !url.username && !url.password && !url.search && !url.hash
+      && url.pathname !== "/" && url.hostname.includes(".")
+      && !url.hostname.includes("*");
+  } catch { return false; }
+}
+
 function audienceIncludes(value: unknown, expected: string): boolean {
   if (typeof value === "string") return value === expected;
   return Array.isArray(value) && value.some((entry) => entry === expected);
@@ -126,7 +140,7 @@ export async function verifyAccessToken(rawToken: string, publicKey: string): Pr
           || typeof payload.oauth_access_hash !== "string"
           || !/^[a-f0-9]{64}$/u.test(payload.oauth_access_hash)
           || typeof payload.oauth_client_id !== "string"
-          || !/^ocli_[A-Za-z0-9_-]+$/u.test(payload.oauth_client_id)
+          || !validOAuthClientIdentifier(payload.oauth_client_id)
           || typeof payload.oauth_space_id !== "string"
           || !/^spc_[A-Za-z0-9_-]+$/u.test(payload.oauth_space_id)
           || typeof payload.oauth_resource !== "string"
