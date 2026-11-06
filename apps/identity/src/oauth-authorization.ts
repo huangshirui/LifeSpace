@@ -348,6 +348,8 @@ export function registerOAuthAuthorizationServer(app: App) {
       || agent.revokedAt || agent.appStatus !== "active" || !json(request.scopes).every((s) => json(agent.allowedScopes).includes(s))) {
       return oauthError(c, 403, "access_denied", "Selected Agent, Application or scope is not eligible");
     }
+    const currentIssuer = issuer(c);
+    if (!currentIssuer) return oauthError(c, 503, "temporarily_unavailable", "OAuth issuer unavailable");
     const authzId = id("oaz");
     const code = randomSecret("lsp_oac_");
     try {
@@ -365,6 +367,9 @@ export function registerOAuthAuthorizationServer(app: App) {
     const redirect = new URL(request.redirect_uri);
     redirect.searchParams.set("code", code);
     if (request.state) redirect.searchParams.set("state", request.state);
+    // RFC 9207 issuer identifier protects clients from AS mix-up during
+    // the browser callback. Never infer this from the request Host header.
+    redirect.searchParams.set("iss", currentIssuer);
     return c.json({ redirect_url: redirect.href, authorization_id: authzId }, 200, { "cache-control": "no-store" });
   });
 
