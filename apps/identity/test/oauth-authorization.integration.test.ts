@@ -161,6 +161,19 @@ describe("Identity OAuth Authorization Server (isolated candidate)", () => {
   });
 
 
+  it("advertises URL client metadata only with explicit OAuth CIMD opt-in", async () => {
+    const t = await setup();
+    const defaultMetadata = await t.request("/.well-known/oauth-authorization-server");
+    expect(defaultMetadata.status).toBe(200);
+    expect(await defaultMetadata.json()).not.toHaveProperty("client_id_metadata_document_supported");
+    (t.b as typeof t.b & { OAUTH_CIMD_ENABLED: string }).OAUTH_CIMD_ENABLED = "1";
+    const optInMetadata = await t.request("/.well-known/oauth-authorization-server");
+    expect(optInMetadata.status).toBe(200);
+    expect(await optInMetadata.json()).toMatchObject({
+      client_id_metadata_document_supported: true,
+    });
+  });
+
   it("publishes fixed issuer metadata, protects DCR and rejects redirect/PKCE/resource substitution", async () => {
     const t = await setup();
     const metadata = await t.request("/.well-known/oauth-authorization-server");
