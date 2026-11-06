@@ -2,6 +2,7 @@ import type { Context, Hono } from "hono";
 import { sign } from "hono/jwt";
 import type { Bindings, Variables } from "./env";
 import { authorization, eligible } from "./oauth-authorization";
+import { configuredOAuthResource } from "./oauth-mcp-resource";
 
 type AppEnv = { Bindings: Bindings; Variables: Variables };
 type App = Hono<AppEnv>;
@@ -35,9 +36,7 @@ async function secretMatches(presented: string, expected: string | undefined): P
 }
 
 function resourceAllowed(env: Bindings, resource: unknown): resource is string {
-  return typeof resource === "string"
-    && resource.length <= 1024
-    && (env.OAUTH_ALLOWED_RESOURCES || "").split(/\s+/u).filter(Boolean).includes(resource);
+  return configuredOAuthResource(env, resource) !== null;
 }
 
 function scopeList(raw: string): string[] {
