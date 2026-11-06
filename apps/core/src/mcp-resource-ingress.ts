@@ -11,8 +11,7 @@ function expectedOrigin(env: Bindings): string | null {
   if (env.ENVIRONMENT === "production") return "https://core.aisr.online";
   if (env.ENVIRONMENT === "staging") return "https://core-staging.aisr.online";
   // Local/test environments must explicitly opt in; never trust Host alone.
-  if (env.ENVIRONMENT !== "production" && env.ENVIRONMENT !== "staging"
-    && env.MCP_PUBLIC_ORIGIN && /^https:\/\/[a-z0-9.-]+$/u.test(env.MCP_PUBLIC_ORIGIN)) {
+  if (env.MCP_PUBLIC_ORIGIN && /^https:\/\/[a-z0-9.-]+$/u.test(env.MCP_PUBLIC_ORIGIN)) {
     return env.MCP_PUBLIC_ORIGIN;
   }
   return null;
