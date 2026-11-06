@@ -88,3 +88,12 @@ is deliberately isolated from ordinary Runtime principals; future performance
 convergence may batch it with the existing current-Authority read.
 
 No Account Center implementation and no production rollout are included.
+
+
+## Public resource ingress and Identity verification (dependent candidate)
+
+Core owns the single public origin `core[-staging].aisr.online`. The unprivileged `POST /mcp/{mcp_*}` and `GET /.well-known/oauth-protected-resource/mcp/{mcp_*}` routes first check the current `mcp_server_definitions.enabled` flag, then forward to one private `MCP_ADAPTER` Service Binding. They never bypass Identity OAuth or use a Platform Admin token. Unknown/disabled Servers return 404. Missing Adapter binding or a transport failure returns 503; no fallback to ordinary Core business APIs.
+
+The private `POST /internal/v1/oauth/mcp-resource/validate` route authenticates the same-environment Identity caller with the existing Core↔Identity shared secret, and returns only whether the exact canonical Resource is currently enabled. Identity requires this before creating and confirming dynamic OAuth grants; Core separately enforces the selected Space/Agent/Model query policy during every operation.
+
+The `MCP_ADAPTER` binding is intentionally **optional and not configured in canonical Wrangler environments yet**. The staging Adapter Worker must be separately deployed with no public routes and environment-matched CORE and IDENTITY bindings before the Core service binding is installed. No production change is implied by merging this candidate.
