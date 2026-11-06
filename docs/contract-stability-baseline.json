@@ -227,6 +227,18 @@
           "operationPattern": "^GET /api/v1/me/oauth/requests/\\{requestId\\}$"
         },
         {
+          "id": "identity-oauth-agent-execution-issuance",
+          "maturity": "candidate",
+          "visibility": "internal",
+          "operationPattern": "^POST /oauth/execution-tokens$"
+        },
+        {
+          "id": "identity-oauth-core-execution-revalidation",
+          "maturity": "candidate",
+          "visibility": "internal",
+          "operationPattern": "^POST /introspection/v1/oauth-executions$"
+        },
+        {
           "id": "identity-core-oauth-agent-context",
           "maturity": "candidate",
           "visibility": "internal",
