@@ -30,9 +30,12 @@ export function strictPolicies(policies) {
   });
 }
 export function assertAccountAccess(app, policies) {
+  // Cloudflare returns the same hostname in both domain and
+  // self_hosted_domains. Count distinct hostnames, not API fields.
+  const distinctDomains = new Set(applicationDomains(app));
   if (!app || app.type !== "self_hosted"
-    || applicationDomains(app).length !== 1
-    || !applicationDomains(app).includes(ACCOUNT_DOMAIN)
+    || distinctDomains.size !== 1
+    || !distinctDomains.has(ACCOUNT_DOMAIN)
     || app.name !== ACCOUNT_ACCESS_NAME
     || typeof app.aud !== "string" || !/^[A-Za-z0-9]{30,128}$/u.test(app.aud)) {
     throw new Error("Staging Account Access application must be isolated and active");
