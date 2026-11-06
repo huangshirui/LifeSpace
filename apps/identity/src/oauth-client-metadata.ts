@@ -18,7 +18,6 @@ export function cimdClientId(value: unknown): value is string {
   const host = url.hostname.toLowerCase();
   if (host.length > 253 || /[^a-z0-9.-]/u.test(host)
     || host.startsWith(".") || host.includes("..")
-    || /^(?:\\d{1,3}\\.){3}\\d{1,3}$/u.test(host)
     || host === "localhost" || host.endsWith(".localhost")
     || ["local", "internal", "test", "invalid", "example"].some(tld => host.endsWith("." + tld))) return false;
   const labels = host.split(".");
