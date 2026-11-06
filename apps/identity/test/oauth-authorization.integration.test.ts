@@ -120,6 +120,18 @@ async function setup() {
 }
 
 describe("Identity OAuth Authorization Server (isolated candidate)", () => {
+  it("returns verified OAuth issuer to the client on Consent approval (RFC 9207)", async () => {
+    const t = await setup();
+    const pending = await t.authorize();
+    expect(pending.status).toBe(302);
+    const requestId = new URL(pending.headers.get("location")!).searchParams.get("request_id")!;
+    const approved = await t.approve(requestId, t.b.OAUTH_CORE_APPROVER_SECRET);
+    expect(approved.status).toBe(200);
+    const url = new URL((await approved.json() as { redirect_url: string }).redirect_url);
+    expect(url.searchParams.get("iss")).toBe(t.b.OAUTH_ISSUER);
+    expect(url.searchParams.get("code")?.startsWith("lsp_oac_")).toBe(true);
+  });
+
   it("checks Core Server state at dynamic OAuth request and again at Consent approval", async () => {
     const t = await setup();
     const id = "mcp_" + crypto.randomUUID().replaceAll("-", "");
