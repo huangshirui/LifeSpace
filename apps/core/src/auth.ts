@@ -14,7 +14,8 @@ const MAX_OAUTH_EXECUTION_TTL_SECONDS = 60;
 export function oauthExecutionRouteAllowed(method: string, path: string, spaceId: string): boolean {
   if (method === "GET" && path === "/api/v1/me/_discovery/inventory") return true;
   if (!/^spc_[A-Za-z0-9_-]+$/u.test(spaceId)) return false;
-  const escaped = spaceId.replace(/[.*+?^${}()|[\]\\]/gu, "\\const AGENT_API_TOKEN_PREFIX = "lsp_agt_";");
+  // spaceId is validated against an ASCII-only identifier grammar above.
+  const escaped = spaceId;
   if (method === "GET") {
     return new RegExp("^/api/v1/spaces/" + escaped + "/_discovery/models/[a-z][a-z0-9_-]{0,63}$", "u").test(path);
   }
