@@ -116,7 +116,7 @@
     {
       "id": "identity-application",
       "source": "apps/identity/openapi.yaml",
-      "operationSetSha256": "sha256:df2e20322770b9117c0d17b706303f856ae540453f479c1d765d90b5eb21ec3c",
+      "operationSetSha256": "sha256:8a7fe6ca8643e2b29c4a62e975e6b7d5ab88e27f7439c4ea020f4972b0218804",
       "groups": [
         {
           "id": "identity-operational",
@@ -201,6 +201,36 @@
           "maturity": "candidate",
           "visibility": "internal",
           "operationPattern": "^POST /internal/v1/access/session-check$"
+        },
+        {
+          "id": "identity-interactive-oauth-public",
+          "maturity": "candidate",
+          "visibility": "public",
+          "operationPattern": "^(GET /\\.well-known/oauth-authorization-server|GET /oauth/authorize|POST /oauth/(register|revoke))$"
+        },
+        {
+          "id": "identity-interactive-oauth-resource-introspection",
+          "maturity": "candidate",
+          "visibility": "internal",
+          "operationPattern": "^POST /oauth/introspect$"
+        },
+        {
+          "id": "identity-interactive-oauth-core-consent",
+          "maturity": "candidate",
+          "visibility": "internal",
+          "operationPattern": "^POST /oauth/requests/\\{requestId\\}/approve$"
+        },
+        {
+          "id": "identity-account-oauth-request-preview",
+          "maturity": "candidate",
+          "visibility": "internal",
+          "operationPattern": "^GET /api/v1/me/oauth/requests/\\{requestId\\}$"
+        },
+        {
+          "id": "identity-core-oauth-agent-context",
+          "maturity": "candidate",
+          "visibility": "internal",
+          "operationPattern": "^POST /oauth/core/agent-candidates$"
         }
       ]
     },
@@ -375,6 +405,50 @@
           "maturity": "candidate",
           "visibility": "public",
           "operationPattern": "^(GET|POST|PATCH|DELETE) /api/v1/spaces/.*$"
+        }
+      ]
+    },
+    {
+      "id": "core-account-oauth-consent",
+      "source": "apps/core/oauth-consent.openapi.yaml",
+      "operationSetSha256": "sha256:0a0249c05cbac77a71e1e09909993c60048b9d94d469f5afdb1eff836c984b34",
+      "groups": [
+        {
+          "id": "core-account-consent-confirm",
+          "maturity": "candidate",
+          "visibility": "internal",
+          "operationPattern": "^POST /api/v1/me/oauth/requests/\\{requestId\\}/confirm$"
+        },
+        {
+          "id": "core-account-oauth-candidate-projection",
+          "maturity": "candidate",
+          "visibility": "internal",
+          "operationPattern": "^GET /api/v1/me/oauth/(choices|spaces/\\{spaceId\\}/options)$"
+        },
+        {
+          "id": "core-account-oauth-capability-preview",
+          "maturity": "candidate",
+          "visibility": "internal",
+          "operationPattern": "^GET /api/v1/me/oauth/capabilities$"
+        }
+      ]
+    },
+    {
+      "id": "account-consent-bff",
+      "source": "apps/account/openapi.json",
+      "operationSetSha256": "sha256:00822b98fad813d047668a0312e6e95fba64eb25649da941daf09cd0bc742ce8",
+      "groups": [
+        {
+          "id": "account-oauth-consent",
+          "maturity": "candidate",
+          "visibility": "internal",
+          "operationPattern": "^(GET /api/(session|oauth/(request|choices))|POST /api/oauth/confirm)$"
+        },
+        {
+          "id": "account-oauth-capability-preview",
+          "maturity": "candidate",
+          "visibility": "internal",
+          "operationPattern": "^GET /api/oauth/capabilities$"
         }
       ]
     }

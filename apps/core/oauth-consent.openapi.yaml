@@ -1,0 +1,100 @@
+openapi: 3.1.0
+info:
+  title: LifeSpace Core Account OAuth Consent Bridge
+  version: 0.1.0
+  description: >
+    Candidate Account-only, user-session-bound OAuth consent confirmation.
+    Core verifies current Space manage authority, then calls Identity through a
+    trusted Service Binding; this never creates a Data Grant or Delegation.
+paths:
+  /api/v1/me/oauth/choices:
+    get:
+      description: Account Application's authenticated manager User sees Application-first, Space/Agent candidate combinations derived from current memberships/Agent Data Grants and active Identity bindings. Read-only; not executable capability projection.
+      security: [{ accountUserBearer: [] }]
+      responses:
+        '200': { description: Bounded current candidate choices (at most 100 pairs) }
+        '403': { description: Non-Account or insufficient scope }
+        '503': { description: Identity binding unavailable }
+  /api/v1/me/oauth/capabilities:
+    get:
+      description: >
+        Account-only, current-manager, selected active Agent direct model access
+        upper-bound preview from published Native Model Definition, current
+        Application Model Access and Agent Data Grants. Model Policy, OAuth
+        resource-specific MCP capability and requested credential scope must
+        still narrow results; never used as runtime authorization proof.
+      security: [{ accountUserBearer: [] }]
+      parameters:
+        - { in: query, name: applicationId, required: true, schema: { type: string, pattern: '^app_' } }
+        - { in: query, name: spaceId, required: true, schema: { type: string, pattern: '^spc_' } }
+        - { in: query, name: agentId, required: true, schema: { type: string, pattern: '^agt_' } }
+      responses:
+        '200': { description: Read-only, up to 50 currently eligible Native models and read/write/manage baseline }
+        '400': { description: Invalid or duplicate context selector }
+        '403': { description: Account User or current Agent/Space eligibility missing }
+        '503': { description: Identity Agent binding unavailable }
+  /api/v1/me/oauth/spaces/{spaceId}/options:
+    get:
+      description: Account-only authenticated Space manager reads currently eligible Agent/Application candidates for one Space; selection is revalidated on confirm.
+      security: [{ accountUserBearer: [] }]
+      parameters:
+        - { in: path, name: spaceId, required: true, schema: { type: string, pattern: '^spc_' } }
+      responses:
+        '200': { description: Bounded Agent/Application candidates }
+        '403': { description: Missing current Space manage authority }
+  /api/v1/me/oauth/requests/{requestId}/confirm:
+    post:
+      operationId: confirmOAuthConsent
+      description: >
+        A dedicated Account backend submits a verified Identity-signed
+        Account Application user token. Core requires spaces:manage scope and
+        current manage authority for the selected Space. It alone contacts
+        Identity's internal approval boundary. The Agent remains Direct-only
+        unless a separate User Delegation is explicitly approved.
+      security: [{ accountUserBearer: [] }]
+      parameters:
+        - in: path
+          name: requestId
+          required: true
+          schema: { type: string, pattern: '^oar_' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [applicationId, spaceId, agentId, allowUserAuthorization]
+              properties:
+                applicationId: { type: string }
+                spaceId: { type: string, pattern: '^spc_' }
+                agentId: { type: string, pattern: '^agt_' }
+                allowUserAuthorization: { type: boolean }
+      responses:
+        '200':
+          description: User-confirmed Authorization Code redirect to return to the Account BFF; no-store.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: object
+                    required: [authorizationId, redirectUrl]
+                    properties:
+                      authorizationId: { type: string, pattern: '^oaz_' }
+                      redirectUrl: { type: string, format: uri }
+        '400': { description: Invalid request payload }
+        '401': { description: User JWT not authenticated }
+        '403': { description: Not Account user, lacking scope or current Space manage authority }
+        '409': { description: OAuth request expired, replaced or no longer pending }
+        '502': { description: Identity confirmation unavailable or invalid }
+        '503': { description: Trusted Core-to-Identity binding not configured }
+components:
+  securitySchemes:
+    accountUserBearer:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Identity-issued user JWT for configured Account Application only; never an OAuth Client credential.

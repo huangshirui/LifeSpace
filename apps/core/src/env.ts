@@ -48,6 +48,8 @@ export type Bindings = CloudflareBindings & {
   RECURRENCE_WINDOW_DAYS?: string;
   IDENTITY?: Fetcher;
   CORE_IDENTITY_SHARED_SECRET?: string;
+  OAUTH_ACCOUNT_APPLICATION_ID?: string;
+  OAUTH_CORE_APPROVER_SECRET?: string;
   ASSETS: R2Bucket;
   R2_S3_ACCOUNT_ID?: string;
   R2_S3_ACCESS_KEY_ID?: string;

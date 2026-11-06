@@ -1,0 +1,147 @@
+name: Deploy LifeSpace Account staging
+
+# Independent Account Worker, no D1; does not deploy Core/Identity.
+# The owner must first run the canonical platform staging release on main.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  checks: read
+  actions: read
+
+concurrency:
+  group: lifespace-staging-deploy
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: Require owner-triggered reviewed main release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Reject non-owner, non-main, or automated invocation
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_EVENT_NAME" = "workflow_dispatch"
+          test "$GITHUB_ACTOR" = "huangshirui"
+          test "$GITHUB_TRIGGERING_ACTOR" = "huangshirui"
+          test "$GITHUB_REF_NAME" = "main"
+      - uses: actions/checkout@v5
+      - name: Verify release candidate checks
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node infra/scripts/verify-release-candidate.mjs staging
+
+  deploy:
+    name: Provision Account and deploy isolated staging Worker
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: staging
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID || secrets.CLOUDFLARE_ACCOUNT_ID }}
+      LIFESPACE_STAGING_BOOTSTRAP_SECRET: ${{ secrets.LIFESPACE_STAGING_BOOTSTRAP_SECRET }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4.4.0
+        with:
+          version: 10.13.1
+          run_install: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+      - name: Check existing protected staging credentials before ANY mutation
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${CLOUDFLARE_API_TOKEN:-}"
+          test -n "${CLOUDFLARE_ACCOUNT_ID:-}"
+          test ${#LIFESPACE_STAGING_BOOTSTRAP_SECRET} -ge 32
+          echo "::add-mask::$LIFESPACE_STAGING_BOOTSTRAP_SECRET"
+          echo "Existing protected Cloudflare and Staging Bootstrap credentials present"
+      - name: Generate independent ephemeral Staging OAuth and CSRF secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import { randomBytes } from 'node:crypto';
+          import { appendFileSync } from 'node:fs';
+          const core = randomBytes(48).toString('base64url');
+          const csrf = randomBytes(48).toString('base64url');
+          if (core === csrf || core === process.env.LIFESPACE_STAGING_BOOTSTRAP_SECRET) {
+            throw new Error('Independent Staging secrets could not be generated');
+          }
+          for (const value of [core, csrf]) {
+            process.stdout.write('::add-mask::' + value + '\n');
+          }
+          appendFileSync(process.env.GITHUB_ENV,
+            'LIFESPACE_STAGING_OAUTH_CORE_APPROVER_SECRET=' + core + '\n' +
+            'LIFESPACE_STAGING_ACCOUNT_CSRF_SECRET=' + csrf + '\n',
+          );
+          process.stdout.write('Generated run-local Staging secrets (plaintext not logged)\n');
+          NODE
+      - name: Install reproducible dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Validate full repo and Account deployment matrix
+        run: pnpm check
+      - name: Verify Core and Identity staging already match this main release
+        run: node apps/account/scripts/check-platform-convergence.mjs
+      - name: Provision distinct Account Cloudflare Access application
+        run: node apps/account/scripts/prepare-staging-access.mjs
+      - name: Provision minimal LifeSpace Account Application and Access Audience
+        run: node apps/account/scripts/prepare-staging-identity.mjs
+      - name: Configure Account-specific OAuth bindings in existing Core/Identity Staging
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '%s' 'app_lifespace_account_staging' |
+            pnpm --dir apps/core exec wrangler secret put OAUTH_ACCOUNT_APPLICATION_ID --env staging >/dev/null
+          printf '%s' 'app_lifespace_account_staging' |
+            pnpm --dir apps/identity exec wrangler secret put OAUTH_ACCOUNT_APPLICATION_ID --env staging >/dev/null
+          printf '%s' 'https://auth-staging.aisr.online' |
+            pnpm --dir apps/identity exec wrangler secret put OAUTH_ISSUER --env staging >/dev/null
+          printf '%s' 'https://account-staging.aisr.online/oauth/consent' |
+            pnpm --dir apps/identity exec wrangler secret put OAUTH_CONSENT_URL --env staging >/dev/null
+          echo "Account-only OAuth Staging settings configured on existing Workers"
+      - name: Deploy only Account staging Worker
+        run: pnpm --dir apps/account exec wrangler deploy --env staging
+      - name: Set Account-owned secrets, without logging values
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${LIFESPACE_STAGING_ACCOUNT_APPLICATION_CREDENTIAL:-}"
+          printf '%s' "$LIFESPACE_STAGING_ACCOUNT_APPLICATION_CREDENTIAL" |
+            pnpm --dir apps/account exec wrangler secret put IDENTITY_APPLICATION_CREDENTIAL --env staging >/dev/null
+          printf '%s' "$LIFESPACE_STAGING_ACCOUNT_CSRF_SECRET" |
+            pnpm --dir apps/account exec wrangler secret put ACCOUNT_CSRF_SECRET --env staging >/dev/null
+          echo "Account credential and CSRF secret configured (values hidden)"
+      - name: Set independent OAuth Core approval secret on BOTH staging services
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '%s' "$LIFESPACE_STAGING_OAUTH_CORE_APPROVER_SECRET" |
+            pnpm --dir apps/core exec wrangler secret put OAUTH_CORE_APPROVER_SECRET --env staging >/dev/null
+          printf '%s' "$LIFESPACE_STAGING_OAUTH_CORE_APPROVER_SECRET" |
+            pnpm --dir apps/identity exec wrangler secret put OAUTH_CORE_APPROVER_SECRET --env staging >/dev/null
+          echo "OAuth approver secret synchronized to Core/Identity Staging (values hidden)"
+      - name: Verify required binding NAMES without reading plaintext
+        run: node apps/account/scripts/verify-staging-bindings.mjs
+      - name: Verify new Account credential and revoke superseded credentials
+        run: node apps/account/scripts/verify-staging-credential-rotation.mjs
+      - name: Staging rollout summary
+        if: success()
+        run: |
+          {
+            echo "## LifeSpace Account Staging (isolated Worker)"
+            echo ""
+            echo "- Worker: `lifespace-account-staging`"
+            echo "- Domain: `account-staging.aisr.online`"
+            echo "- Access: independent owner-only application"
+            echo "- Identity Application: `app_lifespace_account_staging` (new credential verified; superseded credentials revoked)"
+            echo "- Data: no Account D1; OAuth → Identity D1, Space/Grant → Core D1"
+            echo "- Services: `lifespace-identity-staging` / `lifespace-core-staging`"
+            echo "- Production changes: none"
+            echo "- OAuth MCP E2E: not yet verified"
+          } >> "$GITHUB_STEP_SUMMARY"

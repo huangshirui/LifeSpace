@@ -1,0 +1,17 @@
+{
+  "name": "@lifespace/account",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "node scripts/check-api.mjs && node scripts/check-deployment-config.mjs && node --test test/*.test.mjs && node --check worker/index.mjs && node --check public/app.js && pnpm build",
+    "test": "node --test test/*.test.mjs",
+    "check:staging-readiness": "node scripts/check-staging-readiness.mjs",
+    "build": "wrangler deploy --dry-run --outdir dist/local && wrangler deploy --dry-run --env staging --outdir dist/staging && wrangler deploy --dry-run --env production --outdir dist/production",
+    "deploy:staging": "wrangler deploy --env staging",
+    "deploy:production": "wrangler deploy --env production"
+  },
+  "devDependencies": {
+    "wrangler": "4.125.0"
+  }
+}

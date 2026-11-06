@@ -1,0 +1,190 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "LifeSpace Account OAuth Consent BFF",
+    "version": "0.1.0",
+    "description": "Same-origin, Cloudflare Access-authenticated User Consent. Browser never receives LifeSpace user bearer or privileged application credentials. All mutations have same-origin, Fetch Metadata, CSRF and current Core Authority gates."
+  },
+  "paths": {
+    "/api/session": {
+      "get": {
+        "summary": "Account-only Access user session and user-bound CSRF proof",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Current user and CSRF token, no-store and HttpOnly signed cookie"
+          },
+          "401": {
+            "description": "Missing or invalid Access Assertion"
+          },
+          "503": {
+            "description": "Account identity or CSRF not configured"
+          }
+        }
+      }
+    },
+    "/api/oauth/request": {
+      "get": {
+        "summary": "Pending Client, Resource and requested scopes. Not effective capability.",
+        "security": [],
+        "parameters": [
+          {
+            "name": "request_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^oar_"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Pending OAuth request"
+          },
+          "400": {
+            "description": "Invalid request ID"
+          },
+          "409": {
+            "description": "Expired request"
+          }
+        }
+      }
+    },
+    "/api/oauth/choices": {
+      "get": {
+        "summary": "Core-filtered current Application → Space → Agent candidates",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Bounded user-manageable choices"
+          },
+          "403": {
+            "description": "Insufficient Account user authority"
+          }
+        }
+      }
+    },
+    "/api/oauth/confirm": {
+      "post": {
+        "summary": "Explicit user confirm, same-origin and user-bound HMAC CSRF",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "intent",
+                  "requestId",
+                  "applicationId",
+                  "spaceId",
+                  "agentId",
+                  "allowUserAuthorization"
+                ],
+                "properties": {
+                  "intent": {
+                    "type": "string",
+                    "const": "confirm-oauth-authorization"
+                  },
+                  "requestId": {
+                    "type": "string",
+                    "pattern": "^oar_"
+                  },
+                  "applicationId": {
+                    "type": "string",
+                    "pattern": "^app_"
+                  },
+                  "spaceId": {
+                    "type": "string",
+                    "pattern": "^spc_"
+                  },
+                  "agentId": {
+                    "type": "string",
+                    "pattern": "^agt_"
+                  },
+                  "allowUserAuthorization": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Identity-generated exact callback URL after Core confirmation"
+          },
+          "400": {
+            "description": "Invalid selection"
+          },
+          "403": {
+            "description": "Origin/CSRF/user authority mismatch"
+          },
+          "409": {
+            "description": "Request no longer pending"
+          }
+        }
+      }
+    },
+    "/api/oauth/capabilities": {
+      "get": {
+        "summary": "Account BFF builds current Agent Direct model-level pre-policy upper bound, narrowed by Identity pending OAuth Scope",
+        "parameters": [
+          {
+            "name": "request_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^oar_"
+            }
+          },
+          {
+            "name": "application_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^app_"
+            }
+          },
+          {
+            "name": "space_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^spc_"
+            }
+          },
+          {
+            "name": "agent_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^agt_"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Bounded current Native model access projection, explicitly not Policy/resource verified"
+          },
+          "400": {
+            "description": "Invalid or duplicate selector"
+          },
+          "403": {
+            "description": "Current Core authority missing"
+          },
+          "409": {
+            "description": "OAuth pending request expired"
+          }
+        }
+      }
+    }
+  }
+}
