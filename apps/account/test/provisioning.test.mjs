@@ -17,6 +17,15 @@ test("Access provisioning allows exactly one distinct Account host and exact own
  assert.throws(()=>requireSingle([ACCESS,ACCESS],ACCESS.domain),/Duplicate/u);
  assert.equal(strictPolicies(POLICY)[0].name,"Only Me");
  assert.equal(assertAccountAccess(ACCESS,POLICY),ACCESS.aud);
+ // Real Cloudflare Access GET response repeats the same hostname in both fields.
+ // This must not be mistaken for a second exposed host.
+ const cloudflareResponse = { ...ACCESS, self_hosted_domains: [ACCESS.domain] };
+ assert.equal(assertAccountAccess(cloudflareResponse,POLICY),ACCESS.aud);
+ assert.equal(requireSingle([cloudflareResponse],ACCESS.domain),cloudflareResponse);
+ // A genuinely distinct hostname remains forbidden even with a matching legacy domain.
+ assert.throws(()=>assertAccountAccess({
+   ...cloudflareResponse, self_hosted_domains: [ACCESS.domain,"unexpected.aisr.online"],
+ },POLICY),/isolated/u);
  assert.throws(()=>assertAccountAccess({...ACCESS,domain:"account.aisr.online"},POLICY),/isolated/u);
  for(const bad of [
   [{decision:"allow",include:[{everyone:{}}]}],
