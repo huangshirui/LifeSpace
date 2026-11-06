@@ -25,6 +25,7 @@ import { registerModelAdminRoutes } from "./model-admin";
 import { registerModelAdminAiRoutes } from "./model-admin-ai";
 import { registerPlatformAdminRoutes } from "./platform-admin";
 import { registerMcpServerGovernanceRoutes } from "./mcp-server-governance";
+import { registerMcpResourceIngressRoutes } from "./mcp-resource-ingress";
 import { registerPlatformInspectorRoutes } from "./platform-inspector";
 import { registerSpaceRoutes } from "./spaces";
 import { registerSpaceLifecycleRoutes } from "./space-lifecycle";
@@ -116,6 +117,7 @@ export function createApp() {
   registerModelAdminAiRoutes(app);
   registerPlatformAdminRoutes(app);
   registerMcpServerGovernanceRoutes(app);
+  registerMcpResourceIngressRoutes(app);
   registerPlatformInspectorRoutes(app);
   registerEventSubscriptionRoutes(app);
   registerDelegationRoutes(app);
