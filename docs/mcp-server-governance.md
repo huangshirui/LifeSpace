@@ -97,3 +97,12 @@ Core owns the single public origin `core[-staging].aisr.online`. The unprivilege
 The private `POST /internal/v1/oauth/mcp-resource/validate` route authenticates the same-environment Identity caller with the existing Core↔Identity shared secret, and returns only whether the exact canonical Resource is currently enabled. Identity requires this before creating and confirming dynamic OAuth grants; Core separately enforces the selected Space/Agent/Model query policy during every operation.
 
 The `MCP_ADAPTER` binding is intentionally **optional and not configured in canonical Wrangler environments yet**. The staging Adapter Worker must be separately deployed with no public routes and environment-matched CORE and IDENTITY bindings before the Core service binding is installed. No production change is implied by merging this candidate.
+
+
+### Bounded batched semantics for MCP `tools/list`
+
+The OAuth Agent Direct read-only discovery path first obtains the one-Space current inventory and then uses `POST /api/v1/spaces/{spaceId}/_discovery/models/batch` with up to **32 unique model keys**. This is an internal Core API, not a new generic public authority. Core rejects non-OAuth callers, other Spaces, duplicate/unknown/non-selected/external models, and any model without current read Data Grant. It rechecks the current enabled MCP Server and allowed query operations before returning any model metadata. A stale `tools/list` never grants a later `tools/call`, which is separately checked.
+
+The batched design avoids a per-model Adapter→Core→Identity chain and stays below Cloudflare's 32 Worker-invocation-per-request service-binding limit. All-or-nothing authorization prevents partial responses that disclose unauthorized model semantics. Out-of-limit lists fail rather than silently truncating Server configuration.
+
+For a **read-only protocol wire** probe after protected Staging deployment, set `LIFESPACE_STAGING_MCP_RESOURCE_URI` to the exact enabled `https://core-staging.aisr.online/mcp/{mcp_*}` URI and run `node infra/scripts/verify-staging-mcp-server-wire.mjs`. This checks Resource metadata and invalid token rejection only, **not** OAuth Consent, token exchange or Core data access. The historical isolated `/mcp` probe is not canonical Server acceptance.
