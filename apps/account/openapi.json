@@ -1,9 +1,9 @@
 {
   "openapi": "3.1.0",
   "info": {
-    "title": "LifeSpace Account OAuth Consent BFF",
-    "version": "0.1.0",
-    "description": "Same-origin, Cloudflare Access-authenticated User Consent. Browser never receives LifeSpace user bearer or privileged application credentials. All mutations have same-origin, Fetch Metadata, CSRF and current Core Authority gates."
+    "title": "LifeSpace Account Center + OAuth Consent BFF",
+    "version": "0.2.0",
+    "description": "User-facing Account Center read-only current Space list plus original Access-protected OAuth Consent. Browser never receives LifeSpace bearer or privileged application credentials. Consent mutations enforce same-origin and CSRF."
   },
   "paths": {
     "/api/session": {
@@ -182,6 +182,33 @@
           },
           "409": {
             "description": "OAuth pending request expired"
+          }
+        }
+      }
+    },
+    "/api/account/spaces": {
+      "get": {
+        "summary": "List only the verified current user's active Core Space memberships",
+        "security": [],
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Bounded list of id, name, timezone and current membership role; no credentials or unrelated Space records"
+          },
+          "400": {
+            "description": "Unexpected query parameters"
+          },
+          "401": {
+            "description": "Missing verified Cloudflare Access session"
+          },
+          "403": {
+            "description": "Current Account user lacks Space read scope"
+          },
+          "502": {
+            "description": "Core list response malformed"
+          },
+          "503": {
+            "description": "Core or Identity unavailable"
           }
         }
       }
