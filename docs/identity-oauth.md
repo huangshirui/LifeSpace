@@ -66,3 +66,15 @@ After `Account → Core consent → Identity Auth Code/PKCE → OAuth Resource B
 All private endpoints are in the Identity Application OpenAPI, **candidate/internal**, using two distinct private boundaries: Resource Server secret for issuance and Core internal secret for live revalidation. No shared D1, new Agent Grant, OAuth Client fallback, platform-admin credential or old Access assertion is added.
 
 **Rollout boundary:** This source/contract candidate cannot be claimed as Staging/Production until the matching Adapters candidate, exact OAuth Resource Allowlist, same-environment bindings/secrets, deploy guard, and real positive/negative E2E are verified. Production configuration remains unchanged. The independently developed AISR Account Center UI is not modified by this candidate.
+
+
+## Dynamic Core MCP Resource registration (dependent candidate; no deployment)
+
+The accepted MCP Resource is the exact `https://core[-staging].aisr.online/mcp/{mcp_*}` URI, not a guessed domain slug or the former unscoped `/mcp`. `OAUTH_MCP_RESOURCE_ORIGIN` is an exact environment-specific origin. In this mode:
+
+- Identity accepts a properly formed Core-issued `mcp_*` Resource only after **private current-state verification** via the same-environment `CORE` Service Binding and existing `CORE_IDENTITY_SHARED_SECRET`. Core responds to `POST /internal/v1/oauth/mcp-resource/validate` using its own current MCP Server enabled flag and canonical origin; there is no direct cross-worker D1 access.
+- OAuth authorization startup **and** final Consent approval both verify the Server is still enabled. Identity token introspection and short-lived Agent execution preserve the exact Resource, while Core's live ingress and per-query Tool Policy block disabled or modified Servers on every invocation.
+- Fixed `OAUTH_ALLOWED_RESOURCES` remains available for historical isolated synthetic tests. A canonical dynamic Resource requires Core verification even if also present in that list. An unavailable Core binding/secret or disabled/missing Server fails closed. Do not introduce a wildcard host resource allowlist.
+- No new Account D1, generic Connection Registry, Cloudflare Managed OAuth, automatic User Delegation, or production deployment is introduced.
+
+Deployment order is a separate owner-controlled Staging gate: review LifeSpace #480 then dependent #485; release Core with the MCP ingress/private verification route and private Adapter Service Binding **only when** the independently private Adapter Worker exists; then converge Identity's CORE Service Binding and dynamic resource origin; finally run OAuth PKCE/Consent/MCP Staging acceptance. Do not treat passing synthetic CI as a live release.
