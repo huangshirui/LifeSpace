@@ -3,6 +3,7 @@ import { sign } from "hono/jwt";
 import type { Bindings, Variables } from "./env";
 import { authorization, eligible } from "./oauth-authorization";
 import { configuredOAuthResource } from "./oauth-mcp-resource";
+import { cimdClientId } from "./oauth-client-metadata";
 
 type AppEnv = { Bindings: Bindings; Variables: Variables };
 type App = Hono<AppEnv>;
@@ -64,7 +65,7 @@ function validContext(value: unknown): value is ExecutionContext {
   if (Object.keys(v).length !== 7) return false;
   return typeof v.authorizationId === "string" && /^oaz_[A-Za-z0-9_-]{10,128}$/u.test(v.authorizationId)
     && typeof v.tokenHash === "string" && /^[a-f0-9]{64}$/u.test(v.tokenHash)
-    && typeof v.clientId === "string" && /^ocli_[A-Za-z0-9_-]+$/u.test(v.clientId)
+    && typeof v.clientId === "string" && (/^ocli_[A-Za-z0-9_-]+$/u.test(v.clientId) || cimdClientId(v.clientId))
     && typeof v.resource === "string" && v.resource.length <= 1024
     && typeof v.applicationId === "string" && /^app_[A-Za-z0-9_-]+$/u.test(v.applicationId)
     && typeof v.agentId === "string" && /^agt_[A-Za-z0-9_-]+$/u.test(v.agentId)
