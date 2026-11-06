@@ -366,7 +366,8 @@ async function aggregateDiscoveryState(context: AppContext): Promise<AggregateDi
     candidateSpaceIds: [...new Set<string>([
       ...membershipsBySpace.keys(),
       ...grantsBySpace.keys(),
-    ])].sort((left, right) => left.localeCompare(right)),
+    ])].filter(spaceId => !principal.oauthExecution || spaceId === principal.oauthExecution.spaceId)
+      .sort((left, right) => left.localeCompare(right)),
   };
 }
 
