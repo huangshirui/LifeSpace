@@ -78,3 +78,37 @@ The accepted MCP Resource is the exact `https://core[-staging].aisr.online/mcp/{
 - No new Account D1, generic Connection Registry, Cloudflare Managed OAuth, automatic User Delegation, or production deployment is introduced.
 
 Deployment order is a separate owner-controlled Staging gate: review LifeSpace #480 then dependent #485; release Core with the MCP ingress/private verification route and private Adapter Service Binding **only when** the independently private Adapter Worker exists; then converge Identity's CORE Service Binding and dynamic resource origin; finally run OAuth PKCE/Consent/MCP Staging acceptance. Do not treat passing synthetic CI as a live release.
+
+
+## MCP 2026 Client ID Metadata Documents (CIMD, opt-in candidate)
+
+Identity can resolve an HTTPS URL as an OAuth `client_id` when
+`OAUTH_CIMD_ENABLED=1` is explicitly configured. This is **not** on by default
+and has **not** been enabled on Staging or Production. Registered opaque
+`ocli_*` clients and bounded Staging DCR remain supported.
+
+- On a valid Authorization Code + PKCE request, Identity fetches the exact
+  HTTPS Client ID Metadata Document with a 5-second timeout, an 8 KiB body cap,
+  no redirect following and strict JSON media type. The response must repeat
+  the **exact** `client_id`, include exact registered redirect URIs, and
+  specify a public `none` token-auth method if specified. Loopback HTTP
+  redirect URIs are permitted for native clients, not for metadata retrieval.
+- Parsed Client metadata is not vendor identity verification or a user data
+  grant. Account Consent must continue to show the unverified Client origin,
+  Application, Space, Agent and bounded permissions before approval.
+- URL-form Client IDs travel through Identity Authorization / opaque-token
+  introspection, signed Agent Direct Core execution and MCP Adapter without
+  becoming a principal or a server authority. Exact MCP Resource audience,
+  current Core Server policy and revocation remain mandatory.
+- Rejected: loopback, private/internal-looking, wildcard, HTTP and
+  credential-bearing metadata URLs, URL query/fragment and noncanonical
+  forms. The feature is intentionally *not production-ready* until operator
+  review of DNS rebinding / SSRF protection, public abuse and registration
+  rate limiting, cross-client metadata mutability and actual modern client
+  interoperability. A hostname-format check alone is not an SSRF defense.
+- Do not enable generic open DCR as a shortcut; Production rollout and
+  any external automatic client registration need separate deployment
+  and security acceptance.
+
+The OAuth callback now adds RFC 9207 `iss` equal to the fixed configured
+Identity issuer, to let clients detect authorization-server mix-up.
