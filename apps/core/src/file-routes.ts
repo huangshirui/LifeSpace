@@ -2,6 +2,7 @@ import { AwsClient } from "aws4fetch";
 import type { Context, Hono } from "hono";
 import type { Bindings, Principal, Variables } from "./env";
 import { ApiError, success } from "./http";
+import { measurePerformancePhase } from "./performance-timing";
 import { consumeSingleUseRead, requireModelAccess, type ModelAccessDecision } from "./model-authorization";
 import { getRuntimeModel, type PublishedModel } from "./model-registry";
 import { requireModelPolicy } from "./policy";
@@ -221,8 +222,12 @@ async function createSession(context: Context<AppEnv>) {
   }), 201);
 }
 
-async function verifyUploadedObject(env: Bindings, row: UploadSessionRow): Promise<R2Object> {
-  const object = await env.ASSETS.head(row.object_key);
+/** A single R2 GET supplies both the object metadata and its bytes.
+ * Previous HEAD + GET incurred two separate R2 calls and allowed a race
+ * between checking and reading the mutable signed-upload staging key.
+ */
+export async function readVerifiedUploadedObject(env: Bindings, row: UploadSessionRow): Promise<R2ObjectBody> {
+  const object = await env.ASSETS.get(row.object_key);
   if (!object) throw new ApiError("UPLOAD_INCOMPLETE", "Uploaded object is not available", 409);
   if (object.size !== row.expected_size) throw new ApiError("UPLOAD_MISMATCH", "Uploaded object size does not match the declared file", 409);
   const actualType = object.httpMetadata?.contentType?.toLowerCase();
@@ -237,7 +242,8 @@ async function acquireExecution(env: Bindings, row: UploadSessionRow): Promise<v
 
 async function completeSession(context: Context<AppEnv>) {
   const spaceId = context.req.param("spaceId")!;
-  const row = await loadSession(context.env, spaceId, context.req.param("uploadId")!);
+  const row = await measurePerformancePhase(context, "file.session_read", () =>
+    loadSession(context.env, spaceId, context.req.param("uploadId")!));
   if (row.status !== "pending") {
     if (row.status === "unknown" || row.status === "executing") throw new ApiError("EXTERNAL_WRITE_UNKNOWN", "Upload outcome is unknown and must not be retried blindly", 502);
     throw new ApiError("UPLOAD_STATE_CONFLICT", `Upload session is ${row.status}`, 409);
@@ -247,10 +253,12 @@ async function completeSession(context: Context<AppEnv>) {
     await context.env.ASSETS.delete(row.object_key).catch(() => undefined);
     throw new ApiError("UPLOAD_EXPIRED", "Upload session expired", 409);
   }
-  const target = await resolveTarget(context.env, context.get("principal"), spaceId, row.model_key, row.field_key, row.record_id, delegationId(context));
+  const target = await measurePerformancePhase(context, "file.authority", () =>
+    resolveTarget(context.env, context.get("principal"), spaceId, row.model_key, row.field_key, row.record_id, delegationId(context)));
   if (target.destination !== row.destination || !sameExecution(row, target.decision.principal)) throw new ApiError("UPLOAD_AUTHORITY_CHANGED", "Upload execution authority no longer matches the session", 403);
-  await verifyUploadedObject(context.env, row);
-  await acquireExecution(context.env, row);
+  const staged = await measurePerformancePhase(context, "file.stage_get", () =>
+    readVerifiedUploadedObject(context.env, row));
+  await measurePerformancePhase(context, "file.execution_claim", () => acquireExecution(context.env, row));
   const completedAt = new Date().toISOString();
 
   if (row.destination === "native") {
@@ -259,10 +267,6 @@ async function completeSession(context: Context<AppEnv>) {
       // The signed PUT URL must never address a durable File object. Otherwise a client
       // could overwrite a completed file until the upload signature expires.
       const permanentKey = `files/${spaceId}/${row.file_id}`;
-      const staged = await context.env.ASSETS.get(row.object_key);
-      if (!staged || staged.size !== row.expected_size || staged.httpMetadata?.contentType?.toLowerCase() !== row.content_type) {
-        throw new ApiError("UPLOAD_MISMATCH", "Staged file does not match upload session", 409);
-      }
       try {
         // Validate real object bytes and dimensions before promoting the Icon File.
         // The size check during upload initiation is not a security boundary.
@@ -270,14 +274,16 @@ async function completeSession(context: Context<AppEnv>) {
           ? new Uint8Array(await staged.arrayBuffer())
           : null;
         if (imageBytes) validateRecordIconImage(imageBytes, row.content_type);
-        await context.env.ASSETS.put(permanentKey, imageBytes ?? staged.body, { httpMetadata: { contentType: row.content_type } });
-        const promoted = await context.env.ASSETS.head(permanentKey);
+        await measurePerformancePhase(context, "file.promote_put", () =>
+          context.env.ASSETS.put(permanentKey, imageBytes ?? staged.body, { httpMetadata: { contentType: row.content_type } }));
+        const promoted = await measurePerformancePhase(context, "file.promote_head", () =>
+          context.env.ASSETS.head(permanentKey));
         if (!promoted || promoted.size !== row.expected_size || promoted.httpMetadata?.contentType?.toLowerCase() !== row.content_type) {
           throw new ApiError("FILE_FINALIZE_FAILED", "Promoted file verification failed", 502);
         }
         const execution = target.decision.principal;
         const executionActor = actor(execution);
-        await context.env.DB.batch([
+        await measurePerformancePhase(context, "file.publish_batch", () => context.env.DB.batch([
           context.env.DB.prepare(`INSERT INTO files(
             id,space_id,name,content_type,size_bytes,object_key,status,application_id,principal_type,principal_id,actor_type,actor_id,created_at
           ) VALUES(?,?,?,?,?,?,'ready',?,?,?,?,?,?)`).bind(
@@ -285,7 +291,7 @@ async function completeSession(context: Context<AppEnv>) {
             execution.clientId, execution.type, execution.id, executionActor.type, executionActor.id, completedAt,
           ),
           context.env.DB.prepare("UPDATE file_upload_sessions SET status='completed',completed_at=? WHERE id=? AND status='executing'").bind(completedAt, row.id),
-        ]);
+        ]));
       } catch (error) {
         // D1 may have committed before a transport error. Do not destroy a
         // permanent object that a ready File row might already reference.
@@ -298,11 +304,19 @@ async function completeSession(context: Context<AppEnv>) {
         if (safeToDelete) await context.env.ASSETS.delete(permanentKey).catch(() => undefined);
         throw error;
       }
+      // D1 publication and promoted R2 verification are complete. The staging
+      // key is no longer needed by readers, so remove it outside the response
+      // critical path. Scheduled cleanup is the durable retry if waitUntil
+      // cannot run (or fails); never delete the permanent File here.
       try {
-        await context.env.ASSETS.delete(row.object_key);
-        await context.env.DB.prepare("UPDATE file_upload_sessions SET cleaned_at=? WHERE id=? AND status='completed'")
-          .bind(new Date().toISOString(), row.id).run();
-      } catch { /* scheduled cleanup removes a completed session's staging object */ }
+        context.executionCtx.waitUntil((async () => {
+          try {
+            await context.env.ASSETS.delete(row.object_key);
+            await context.env.DB.prepare("UPDATE file_upload_sessions SET cleaned_at=? WHERE id=? AND status='completed'")
+              .bind(new Date().toISOString(), row.id).run();
+          } catch { /* scheduled cleanup retries completed sessions */ }
+        })());
+      } catch { /* non-Worker test runtime; scheduled cleanup will reconcile */ }
       return context.json(success({
         id: row.file_id,
         name: row.name,
