@@ -27,7 +27,8 @@ async function fixture() {
   const authId = "oaz_" + uuid;
   const client = "ocli_" + uuid;
   const tokenHash = "a".repeat(64);
-  const resource = "https://resource.example.test/mcp";
+  const serverId = "mcp_" + uuid;
+  const resource = "https://resource.example.test/mcp/" + serverId;
   const now = Math.floor(Date.now() / 1000);
   const claims = {
     iss: "lifespace-identity", aud: "lifespace-core",
@@ -41,6 +42,10 @@ async function fixture() {
   const db = (env as unknown as TestEnv).DB;
   const timestamp = new Date().toISOString();
   await db.batch([
+    db.prepare("INSERT INTO mcp_server_definitions(id,display_name,description,enabled,config_json,revision,created_by_user_id,updated_by_user_id,created_at,updated_at) VALUES(?,?,?,1,?,1,?,?,?,?)")
+      .bind(serverId, "Synthetic OAuth MCP Server", "",
+        JSON.stringify({ models: [{ modelKey: "task", operations: ["query"] }] }),
+        "usr_synthetic", "usr_synthetic", timestamp, timestamp),
     db.prepare("INSERT INTO spaces(id,name,created_by_user_id,created_at,updated_at,timezone) VALUES(?,?,?,?,?,?)")
       .bind(space, "Authorized OAuth Space", "usr_synthetic", timestamp, timestamp, "UTC"),
     db.prepare("INSERT INTO spaces(id,name,created_by_user_id,created_at,updated_at,timezone) VALUES(?,?,?,?,?,?)")
@@ -77,8 +82,16 @@ async function fixture() {
     }, bindings);
   };
   return {
-    agent, application, space, other, claims, jwt, request, publicKey,
+    agent, application, space, other, claims, jwt, request, publicKey, serverId,
     setActive: (value: boolean) => { active = value; },
+    setServerEnabled: async (enabled: boolean) => {
+      await db.prepare("UPDATE mcp_server_definitions SET enabled=? WHERE id=?")
+        .bind(enabled ? 1 : 0, serverId).run();
+    },
+    setServerOperations: async (operations: string[]) => {
+      await db.prepare("UPDATE mcp_server_definitions SET config_json=? WHERE id=?")
+        .bind(JSON.stringify({ models: [{ modelKey: "task", operations }] }), serverId).run();
+    },
     checks: () => checks, lastBody: () => lastBody,
   };
 }
@@ -151,4 +164,35 @@ describe("OAuth MCP Agent Direct execution: Core fail-closed route and Space bou
     }
     expect(f.checks()).toBe(0);
   });
+  it("denies a disabled Core MCP Server even while OAuth is still active", async () => {
+    const f = await fixture();
+    expect((await f.request("GET", "/api/v1/me/_discovery/inventory")).status).toBe(200);
+    await f.setServerEnabled(false);
+    expect((await f.request("GET", "/api/v1/me/_discovery/inventory")).status).toBe(403);
+    expect((await f.request("GET", "/api/v1/spaces/" + f.space + "/_discovery/models/task")).status).toBe(403);
+  });
+
+  it("prunes Model Query after live MCP Server operation changes", async () => {
+    const f = await fixture();
+    const first = await f.request("GET", "/api/v1/me/_discovery/inventory");
+    expect(first.status).toBe(200);
+    const models = (await first.json() as { data: { models: Array<{ key: string }> } }).data.models;
+    expect(models.some(model => model.key === "task")).toBe(true);
+    await f.setServerOperations(["get"]);
+    const second = await f.request("GET", "/api/v1/me/_discovery/inventory");
+    expect(second.status).toBe(200);
+    const body = await second.json() as { data: { models: unknown[]; spaces: unknown[] } };
+    expect(body.data.models).toEqual([]);
+    expect(body.data.spaces).toEqual([]);
+    expect((await f.request("GET", "/api/v1/spaces/" + f.space + "/_discovery/models/task")).status).toBe(403);
+    expect((await f.request("POST", "/api/v1/spaces/" + f.space + "/models/task/records/query", {}, {})).status).toBe(403);
+  });
+
+  it("rejects unknown configured MCP Server and pre-v7 unscoped /mcp resources", async () => {
+    const f = await fixture();
+    const missing = "https://resource.example.test/mcp/mcp_" + "e".repeat(32);
+    expect((await f.request("GET", "/api/v1/me/_discovery/inventory", { oauth_resource: missing })).status).toBe(403);
+    expect((await f.request("GET", "/api/v1/me/_discovery/inventory", { oauth_resource: "https://resource.example.test/mcp" })).status).toBe(401);
+  });
+
 });
