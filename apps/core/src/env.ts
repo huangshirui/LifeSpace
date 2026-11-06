@@ -32,7 +32,17 @@ export type Principal = {
   scopes: string[];
   tokenId: string;
   actor?: Actor;
-  purpose?: "agent_execution" | "agent_api";
+  purpose?: "agent_execution" | "agent_api" | "oauth_agent_execution";
+  // Verified signed Identity OAuth execution attributes. Never caller assertions.
+  oauthExecution?: {
+    authorizationId: string;
+    accessHash: string;
+    resource: string;
+    clientId: string;
+    spaceId: string;
+    applicationId: string;
+    agentId: string;
+  };
 };
 
 export type Bindings = CloudflareBindings & {
