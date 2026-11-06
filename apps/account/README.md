@@ -2,6 +2,15 @@
 
 Account is a new **independent user-facing** LifeSpace Worker. It is not the Platform Admin Console and does not introduce a new Connection Registry. Current scope is only OAuth Consent; other Account navigation remains future work.
 
+## AISR Account Center MVP / 账户中心首批页面
+
+- Default hostname root `/` redirects to `/center.html`, providing a bilingual, responsive Account Center navigation: Overview, Identity, Spaces, Connections & Authorizations, Activity.
+- `GET /api/session` uses the existing server-only Access → Identity exchange to show only the current user's ID/display name.
+- `GET /api/account/spaces` uses that same Account-scoped User token over the private Core Service Binding to read `GET /api/v1/me/spaces`. The BFF allows only valid `id/name/timezone/role` fields, bounds the list and never exposes its bearer token.
+- Connections, agent/service administration, OAuth authorization listing/revocation and activity are **explicitly not implemented** on this page. They show noninteractive "API pending" states and no invented records or permissions.
+- The existing `/oauth/consent?request_id=oar_...` static flow, browser JS, CSRF, confirmation and Scope preview are not changed. No independent D1 or `conn_*` registry.
+- Root/center UI is presentation (Experience), not a new LifeSpace Authority source. Space and identity continue to be owned by Core and Identity.
+
 ## Browser journey / 用户流程
 
 1. OAuth `/oauth/authorize` creates a pending request and redirects to the configured `OAUTH_CONSENT_URL` (`/oauth/consent?request_id=oar_*`).
