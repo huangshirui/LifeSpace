@@ -42,6 +42,9 @@ export type Principal = {
     spaceId: string;
     applicationId: string;
     agentId: string;
+    // Core-derived per-request MCP Server policy, never an Identity JWT claim.
+    serverId?: string;
+    queryModelKeys?: string[];
   };
 };
 
