@@ -27,6 +27,8 @@ export type Bindings = {
   OAUTH_RESOURCE_SERVER_SECRET?: string;
   OAUTH_CORE_APPROVER_SECRET?: string;
   OAUTH_DCR_ENABLED?: string;
+  // Opt-in HTTPS Client ID Metadata Documents; disabled unless explicitly enabled.
+  OAUTH_CIMD_ENABLED?: string;
 };
 
 export type RequestPerformanceTiming = {
