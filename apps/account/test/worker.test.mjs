@@ -38,6 +38,10 @@ function fixture() {
       const path = new URL(req.url).pathname;
       calls.push({ service: "core", path, authorization: req.headers.get("authorization") });
       assert.equal(req.headers.get("authorization"), "Bearer " + issuerToken);
+      if (path === "/api/v1/me/spaces") return Response.json({ data: [
+        { id: space, name: "个人空间", timezone: "Asia/Shanghai", role: "owner",
+          avatarUrl: "https://core.example.test/assets/avatar", version: 1 },
+      ] });
       if (path === "/api/v1/me/oauth/capabilities") {
         const query = new URL(req.url).searchParams;
         assert.equal(query.get("applicationId"), app);
@@ -185,4 +189,43 @@ test("Account static responses enforce CSP and no-referrer", async () => {
   assert.equal(res.status, 200);
   assert.match(res.headers.get("content-security-policy"), /frame-ancestors 'none'/u);
   assert.equal(res.headers.get("referrer-policy"), "no-referrer");
+});
+
+test("Account root opens Center without changing OAuth Consent and Spaces are real current-user Core data", async () => {
+  const t = fixture();
+  const home = await t.request("/");
+  assert.equal(home.status, 302);
+  assert.equal(home.headers.get("location"), "https://account-staging.example.test/center.html");
+  const consent = await t.request("/oauth/consent?request_id=" + id);
+  assert.equal(consent.status, 200);
+  const response = await t.request("/api/account/spaces");
+  assert.equal(response.status, 200);
+  const payload = await response.json();
+  assert.deepEqual(payload.data, [{ id: space, name: "个人空间",
+    timezone: "Asia/Shanghai", role: "owner" }]);
+  assert.ok(!JSON.stringify(payload).includes(issuerToken));
+  assert.ok(!JSON.stringify(payload).includes("avatarUrl"));
+  assert.equal(t.calls.filter((call) => call.service === "core"
+    && call.path === "/api/v1/me/spaces").length, 1);
+});
+
+test("Account Spaces rejects browser selectors, writes, missing identity and malformed upstream data", async () => {
+  const t = fixture();
+  assert.equal((await t.request("/api/account/spaces?spaceId=" + space)).status, 400);
+  assert.equal((await t.request("/api/account/spaces", { method: "POST",
+    headers: { origin: "https://account-staging.example.test", "sec-fetch-site": "same-origin",
+      "content-type": "application/json" }, body: "{}" })).status, 405);
+  const anonymous = await accountFetch(
+    new Request("https://account-staging.example.test/api/account/spaces"), t.env);
+  assert.equal(anonymous.status, 401);
+  const original = t.env.CORE;
+  t.env.CORE = { fetch: async (req) => {
+    if (new URL(req.url).pathname === "/api/v1/me/spaces") return Response.json({ data: [
+      { id: "spc_fake", name: "Foreign Space", timezone: "UTC", role: "superadmin" },
+    ] });
+    return original.fetch(req);
+  } };
+  assert.equal((await t.request("/api/account/spaces")).status, 502);
+  t.env.CORE = { fetch: async () => { throw new Error("unavailable"); } };
+  assert.equal((await t.request("/api/account/spaces")).status, 503);
 });
