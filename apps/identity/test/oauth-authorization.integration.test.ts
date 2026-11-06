@@ -1,4 +1,5 @@
 import { env } from "cloudflare:workers";
+import { verify } from "hono/jwt";
 import { describe, expect, it } from "vitest";
 import { createIdentityApp } from "../src/index";
 
@@ -254,4 +255,66 @@ describe("Identity OAuth Authorization Server (isolated candidate)", () => {
     await t.b.DB.prepare("UPDATE agents SET status='disabled' WHERE id=?").bind(t.agentId).run();
     expect(await (await t.introspect(access, t.resource)).json()).toEqual({ active: false });
   });
+  it("privately mints bounded Agent Direct Core JWT only from a live exact-resource OAuth bearer", async () => {
+    const t = await setup();
+    const pending = await t.authorize();
+    const requestId = new URL(pending.headers.get("location")!).searchParams.get("request_id")!;
+    const approved = await t.approve(requestId, t.b.OAUTH_CORE_APPROVER_SECRET);
+    expect(approved.status).toBe(200);
+    const code = new URL((await approved.json() as { redirect_url: string }).redirect_url).searchParams.get("code")!;
+    const issued = await t.token({
+      grant_type: "authorization_code", client_id: t.clientId,
+      redirect_uri: t.redirect, code, code_verifier: t.verifier, resource: t.resource,
+    });
+    expect(issued.status).toBe(200);
+    const oauthBearer = (await issued.json() as { access_token: string }).access_token;
+    const exchange = (secret: string | null, token: string, resource: string) => t.request("/oauth/execution-tokens", {
+      method: "POST",
+      headers: { "content-type": "application/json",
+        ...(secret ? { "x-lifespace-resource-secret": secret } : {}) },
+      body: JSON.stringify({ token, resource }),
+    });
+    expect((await exchange(null, oauthBearer, t.resource)).status).toBe(401);
+    expect((await exchange(t.b.CORE_IDENTITY_SHARED_SECRET, oauthBearer, t.resource)).status).toBe(401);
+    expect((await exchange(t.b.OAUTH_RESOURCE_SERVER_SECRET, oauthBearer, "https://mcp.example.test/mcp/health")).status).toBe(401);
+    expect((await exchange(t.b.OAUTH_RESOURCE_SERVER_SECRET, "lsp_oat_" + "z".repeat(43), t.resource)).status).toBe(401);
+    const issuedCore = await exchange(t.b.OAUTH_RESOURCE_SERVER_SECRET, oauthBearer, t.resource);
+    expect(issuedCore.status).toBe(200);
+    const data = (await issuedCore.json() as { data: {
+      accessToken: string; scope: string; expiresIn: number; applicationId: string; agentId: string; spaceId: string;
+    } }).data;
+    expect(data).toMatchObject({ scope: "resources:read", agentId: t.agentId, applicationId: t.target.appId, spaceId: "spc_oauth_test" });
+    expect(data.expiresIn).toBeGreaterThan(0);
+    expect(data.expiresIn).toBeLessThanOrEqual(60);
+    const claims = await verify(data.accessToken, t.b.TOKEN_PUBLIC_KEY, "RS256");
+    expect(claims).toMatchObject({
+      iss: "lifespace-identity", aud: "lifespace-core",
+      sub: t.agentId, azp: t.target.appId,
+      principal_type: "agent", principal_id: t.agentId,
+      actor_type: "agent", actor_id: t.agentId,
+      purpose: "oauth_agent_execution", scope: "resources:read",
+      oauth_space_id: "spc_oauth_test", oauth_resource: t.resource, oauth_client_id: t.clientId,
+    });
+    expect(claims).not.toHaveProperty("delegation_id");
+    expect(claims).not.toHaveProperty("principal_user_id");
+    const check = (context: Record<string, unknown>, secret: string | null) => t.request("/introspection/v1/oauth-executions", {
+      method: "POST", headers: { "content-type": "application/json",
+        ...(secret ? { "x-lifespace-internal-secret": secret } : {}) },
+      body: JSON.stringify(context),
+    });
+    const context = {
+      authorizationId: claims.oauth_authorization_id, tokenHash: claims.oauth_access_hash,
+      clientId: t.clientId, resource: t.resource,
+      applicationId: t.target.appId, agentId: t.agentId, spaceId: "spc_oauth_test",
+    };
+    expect((await check(context, null)).status).toBe(401);
+    expect((await check(context, t.b.OAUTH_RESOURCE_SERVER_SECRET)).status).toBe(401);
+    expect(await (await check(context, t.b.CORE_IDENTITY_SHARED_SECRET)).json()).toEqual({ data: { active: true } });
+    expect(await (await check({ ...context, spaceId: "spc_wrong" }, t.b.CORE_IDENTITY_SHARED_SECRET)).json()).toEqual({ data: { active: false } });
+    expect(await (await check({ ...context, agentId: "agt_wrong" }, t.b.CORE_IDENTITY_SHARED_SECRET)).json()).toEqual({ data: { active: false } });
+    expect((await t.revoke(oauthBearer)).status).toBe(200);
+    expect(await (await check(context, t.b.CORE_IDENTITY_SHARED_SECRET)).json()).toEqual({ data: { active: false } });
+    expect((await exchange(t.b.OAUTH_RESOURCE_SERVER_SECRET, oauthBearer, t.resource)).status).toBe(401);
+  });
+
 });
