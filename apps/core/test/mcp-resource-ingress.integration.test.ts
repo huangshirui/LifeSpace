@@ -17,6 +17,36 @@ async function server(enabled = 1) {
 }
 
 describe("Core public MCP ingress / OAuth protected resource boundary", () => {
+  it("privately validates enabled canonical resources for Identity without leaking configuration", async () => {
+    const enabled = await server(), disabled = await server(0);
+    const secret = "core-identity-trusted-test-secret";
+    const endpoint = origin + "/internal/v1/oauth/mcp-resource/validate";
+    const bindings = { DB: db, ENVIRONMENT: "staging", CORE_IDENTITY_SHARED_SECRET: secret };
+    const send = (resource: string, proof?: string) => createApp().request(endpoint, {
+      method: "POST", headers: {
+        "content-type": "application/json",
+        ...(proof ? { "x-lifespace-internal-secret": proof } : {}),
+      }, body: JSON.stringify({ resource }),
+    }, bindings);
+    expect((await send(origin + "/mcp/" + enabled)).status).toBe(401);
+    expect((await send(origin + "/mcp/" + enabled, "wrong")).status).toBe(401);
+    const accepted = await send(origin + "/mcp/" + enabled, secret);
+    expect(accepted.status).toBe(200);
+    expect(await accepted.json()).toEqual({ data: {
+      active: true, resource: origin + "/mcp/" + enabled, serverId: enabled,
+    } });
+    for (const value of [
+      origin + "/mcp/" + disabled,
+      origin + "/mcp/" + id(),
+      origin + "/mcp/" + enabled + "?extra=1",
+      "https://evil.example.test/mcp/" + enabled,
+      origin + "/mcp",
+    ]) {
+      const denied = await send(value, secret);
+      expect(await denied.json()).toEqual({ data: { active: false } });
+    }
+  });
+
   it("forwards multiple enabled Server paths and exact metadata to one private adapter, unchanged", async () => {
     const first = await server(), second = await server();
     const seen: Array<{ method: string; url: string; bearer: string | null }> = [];
