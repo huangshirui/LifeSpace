@@ -59,6 +59,11 @@ export async function currentMcpOAuthQueryPolicy(
   const selected = new Set(queryModelKeys);
 
   if (method === "GET" && path === INVENTORY) return { serverId, queryModelKeys };
+  // The actual requested Model list is validated by the batch handler
+  // against this freshly loaded policy before any semantics are returned.
+  if (method === "POST" && /^\/api\/v1\/spaces\/spc_[A-Za-z0-9_-]+\/_discovery\/models\/batch$/u.test(path)) {
+    return { serverId, queryModelKeys };
+  }
   const key = method === "GET" ? DETAIL_PATH.exec(path)?.[1]
     : method === "POST" ? QUERY_PATH.exec(path)?.[1] : null;
   if (!key || !selected.has(key)) throw forbidden();
