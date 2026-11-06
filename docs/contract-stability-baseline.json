@@ -436,7 +436,7 @@
     {
       "id": "account-consent-bff",
       "source": "apps/account/openapi.json",
-      "operationSetSha256": "sha256:00822b98fad813d047668a0312e6e95fba64eb25649da941daf09cd0bc742ce8",
+      "operationSetSha256": "sha256:cb6986cc36b2046b5c6ae00ab80fbb00cb8d312bfe18b0de532855377ca3d9e1",
       "groups": [
         {
           "id": "account-oauth-consent",
@@ -449,6 +449,12 @@
           "maturity": "candidate",
           "visibility": "internal",
           "operationPattern": "^GET /api/oauth/capabilities$"
+        },
+        {
+          "id": "account-center-current-spaces",
+          "maturity": "candidate",
+          "visibility": "internal",
+          "operationPattern": "^GET /api/account/spaces$"
         }
       ]
     }
