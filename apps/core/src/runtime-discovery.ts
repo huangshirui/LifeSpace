@@ -394,7 +394,14 @@ export function registerRuntimeDiscoveryRoutes(app: App): void {
   app.get("/api/v1/me/_discovery/inventory", async (context) => {
     const state = await aggregateDiscoveryState(context);
     const visibleModelKeys = new Set<string>();
-    const external = await visibleExternalModels(context.env,state.principal,state.candidateSpaceIds,context.req.header("x-lifespace-delegation-id"));
+    const oauthQueryKeys = state.principal.oauthExecution
+      ? new Set(state.principal.oauthExecution.queryModelKeys ?? [])
+      : null;
+    // OAuth tools are bounded by current Core MCP Server configuration.
+    // External models are not selected by the v1 MCP Server control plane.
+    const external = oauthQueryKeys
+      ? new Map()
+      : await visibleExternalModels(context.env,state.principal,state.candidateSpaceIds,context.req.header("x-lifespace-delegation-id"));
     const spaces = state.candidateSpaceIds.flatMap((spaceId) => {
       const visible = visibleModelAccess(
         state.principal,
@@ -404,12 +411,15 @@ export function registerRuntimeDiscoveryRoutes(app: App): void {
         state.grantsBySpace.get(spaceId) ?? [],
         state.delegatedAgent ? (state.delegatedBySpace.get(spaceId) ?? new Map<string, ModelAccess>()) : undefined,
       );
-      for (const entry of visible) visibleModelKeys.add(entry.model.key);
-      const externalHere=external.get(spaceId)??[];
-      return visible.length||externalHere.length ? [{
+      const selected = oauthQueryKeys
+        ? visible.filter(entry => oauthQueryKeys.has(entry.model.key))
+        : visible;
+      for (const entry of selected) visibleModelKeys.add(entry.model.key);
+      const externalHere = oauthQueryKeys ? [] : (external.get(spaceId) ?? []);
+      return selected.length||externalHere.length ? [{
         spaceId,
         spaceName: state.spaceNamesById.get(spaceId)!,
-        models: [...visible.map(({ model, access }) => ({ modelKey: model.key, access })),...externalHere.map(m=>({modelKey:m.key,access:m.access}))],
+        models: [...selected.map(({ model, access }) => ({ modelKey: model.key, access })),...externalHere.map(m=>({modelKey:m.key,access:m.access}))],
       }] : [];
     });
     const models = state.models
