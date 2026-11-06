@@ -43,8 +43,6 @@ jobs:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID || secrets.CLOUDFLARE_ACCOUNT_ID }}
       LIFESPACE_STAGING_BOOTSTRAP_SECRET: ${{ secrets.LIFESPACE_STAGING_BOOTSTRAP_SECRET }}
-      LIFESPACE_STAGING_OAUTH_CORE_APPROVER_SECRET: ${{ secrets.LIFESPACE_STAGING_OAUTH_CORE_APPROVER_SECRET }}
-      LIFESPACE_STAGING_ACCOUNT_CSRF_SECRET: ${{ secrets.LIFESPACE_STAGING_ACCOUNT_CSRF_SECRET }}
     steps:
       - uses: actions/checkout@v5
       - uses: pnpm/action-setup@v4.4.0
@@ -54,21 +52,36 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: 24
-      - name: Check required secrets before ANY mutation
+      - name: Check existing protected staging credentials before ANY mutation
         shell: bash
         run: |
           set -euo pipefail
           test -n "${CLOUDFLARE_API_TOKEN:-}"
           test -n "${CLOUDFLARE_ACCOUNT_ID:-}"
           test ${#LIFESPACE_STAGING_BOOTSTRAP_SECRET} -ge 32
-          test ${#LIFESPACE_STAGING_OAUTH_CORE_APPROVER_SECRET} -ge 32
-          test ${#LIFESPACE_STAGING_ACCOUNT_CSRF_SECRET} -ge 32
-          test "$LIFESPACE_STAGING_BOOTSTRAP_SECRET" != "$LIFESPACE_STAGING_OAUTH_CORE_APPROVER_SECRET"
-          test "$LIFESPACE_STAGING_ACCOUNT_CSRF_SECRET" != "$LIFESPACE_STAGING_OAUTH_CORE_APPROVER_SECRET"
           echo "::add-mask::$LIFESPACE_STAGING_BOOTSTRAP_SECRET"
-          echo "::add-mask::$LIFESPACE_STAGING_OAUTH_CORE_APPROVER_SECRET"
-          echo "::add-mask::$LIFESPACE_STAGING_ACCOUNT_CSRF_SECRET"
-          echo "Staging configuration validated (values hidden)"
+          echo "Existing protected Cloudflare and Staging Bootstrap credentials present"
+      - name: Generate independent ephemeral Staging OAuth and CSRF secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import { randomBytes } from 'node:crypto';
+          import { appendFileSync } from 'node:fs';
+          const core = randomBytes(48).toString('base64url');
+          const csrf = randomBytes(48).toString('base64url');
+          if (core === csrf || core === process.env.LIFESPACE_STAGING_BOOTSTRAP_SECRET) {
+            throw new Error('Independent Staging secrets could not be generated');
+          }
+          for (const value of [core, csrf]) {
+            process.stdout.write('::add-mask::' + value + '\\n');
+          }
+          appendFileSync(process.env.GITHUB_ENV,
+            'LIFESPACE_STAGING_OAUTH_CORE_APPROVER_SECRET=' + core + '\\n' +
+            'LIFESPACE_STAGING_ACCOUNT_CSRF_SECRET=' + csrf + '\\n',
+          );
+          process.stdout.write('Generated run-local Staging secrets (plaintext not logged)\\n');
+          NODE
       - name: Install reproducible dependencies
         run: pnpm install --frozen-lockfile
       - name: Validate full repo and Account deployment matrix
