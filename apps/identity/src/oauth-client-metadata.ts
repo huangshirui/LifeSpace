@@ -94,7 +94,7 @@ export async function fetchClientMetadata(
     const all = new Uint8Array(length);
     let offset = 0;
     for (const part of chunks) { all.set(part, offset); offset += part.byteLength; }
-    const data = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(all)) as unknown;
+    const data = JSON.parse(new TextDecoder("utf-8", { fatal: true, ignoreBOM: false }).decode(all)) as unknown;
     return parseClientMetadata(clientId, data);
   } catch { return null; }
 }
