@@ -1,6 +1,7 @@
 import type { Context, Hono } from "hono";
 import { verify } from "hono/jwt";
 import type { Bindings, Variables } from "./env";
+import { configuredOAuthResource, liveOAuthResource } from "./oauth-mcp-resource";
 
 type AppEnv = { Bindings: Bindings; Variables: Variables };
 type App = Hono<AppEnv>;
@@ -61,9 +62,7 @@ function issuer(c: Context<AppEnv>): string | null {
   return url && new URL(url).pathname === "/" && !new URL(url).search ? new URL(url).origin : null;
 }
 function allowedResource(c: Context<AppEnv>, value: unknown): string | null {
-  const resource = httpsUrl(value);
-  const allowed = (c.env.OAUTH_ALLOWED_RESOURCES || "").split(/\s+/).filter(Boolean);
-  return resource && allowed.includes(resource) ? resource : null;
+  return configuredOAuthResource(c.env, value);
 }
 function scopes(value: unknown): string[] | null {
   if (typeof value !== "string" || value.length > 1000) return null;
@@ -234,6 +233,10 @@ export function registerOAuthAuthorizationServer(app: App) {
       || !/^[A-Za-z0-9_-]{43}$/u.test(challenge) || !resource || requested === null) {
       return oauthError(c, 400, "invalid_request", "Code, state, S256 PKCE and approved resource are required");
     }
+    // A syntactically valid resource is not proof of an enabled Core MCP Server.
+    if (!await liveOAuthResource(c.env, resource)) {
+      return oauthError(c, 400, "invalid_request", "MCP resource is not currently enabled");
+    }
     const consent = httpsUrl(c.env.OAUTH_CONSENT_URL);
     if (!issuer(c) || !consent) return oauthError(c, 503, "temporarily_unavailable", "OAuth consent service is not configured");
     const requestId = id("oar");
@@ -332,6 +335,11 @@ export function registerOAuthAuthorizationServer(app: App) {
       .bind(c.req.param("requestId")).first<OAuthRequest>();
     if (!request || request.status !== "pending" || Date.parse(request.expires_at) <= Date.now()) {
       return oauthError(c, 400, "invalid_request", "Authorization request is missing, expired or completed");
+    }
+    // Recheck after a pending request is opened; a Server may be disabled
+    // before the user confirms Consent.
+    if (!await liveOAuthResource(c.env, request.resource)) {
+      return oauthError(c, 403, "access_denied", "MCP resource is no longer available");
     }
     const user = await c.env.DB.prepare("SELECT status FROM users WHERE id=?").bind(claims.sub).first<{ status: string }>();
     const agent = await c.env.DB.prepare("SELECT a.status agentStatus,aa.status bindingStatus,aa.revoked_at revokedAt,app.status appStatus,app.allowed_scopes allowedScopes FROM agents a JOIN agent_applications aa ON aa.agent_id=a.id JOIN applications app ON app.id=aa.application_id WHERE a.id=? AND app.id=?")
