@@ -74,7 +74,7 @@ async function privateValidation(c: Context<AppEnv>) {
   }
   let url: URL;
   try { url = new URL(resource); } catch { return c.json({ data: { active: false } }, 200); }
-  const match = /^\\/mcp\\/(mcp_[a-f0-9]{32})$/u.exec(url.pathname);
+  const match = new RegExp("^/mcp/(mcp_[a-f0-9]{32})$", "u").exec(url.pathname);
   if (url.origin !== origin || url.href !== resource || !match
     || url.username || url.password || url.search || url.hash) {
     return c.json({ data: { active: false } }, 200);
