@@ -120,6 +120,35 @@ async function setup() {
 }
 
 describe("Identity OAuth Authorization Server (isolated candidate)", () => {
+  it("checks Core Server state at dynamic OAuth request and again at Consent approval", async () => {
+    const t = await setup();
+    const id = "mcp_" + crypto.randomUUID().replaceAll("-", "");
+    const resource = "https://core.example.test/mcp/" + id;
+    (t.b as typeof t.b & { OAUTH_MCP_RESOURCE_ORIGIN: string }).OAUTH_MCP_RESOURCE_ORIGIN =
+      "https://core.example.test";
+    let active = false;
+    let validations = 0;
+    (t.b as typeof t.b & { CORE: { fetch: (url: string, init: RequestInit) => Promise<Response> } }).CORE = {
+      fetch: async (url: string, init: RequestInit) => {
+        validations++;
+        expect(new URL(url).pathname).toBe("/internal/v1/oauth/mcp-resource/validate");
+        expect(new Headers(init.headers).get("x-lifespace-internal-secret"))
+          .toBe(t.b.CORE_IDENTITY_SHARED_SECRET);
+        expect(JSON.parse(String(init.body))).toEqual({ resource });
+        return Response.json({ data: { active, ...(active ? { resource } : {}) } });
+      },
+    };
+    expect((await t.authorize({ resource })).status).toBe(400);
+    active = true;
+    const pending = await t.authorize({ resource });
+    expect(pending.status).toBe(302);
+    const requestId = new URL(pending.headers.get("location")!).searchParams.get("request_id")!;
+    active = false;
+    expect((await t.approve(requestId, t.b.OAUTH_CORE_APPROVER_SECRET)).status).toBe(403);
+    expect(validations).toBe(3);
+  });
+
+
   it("publishes fixed issuer metadata, protects DCR and rejects redirect/PKCE/resource substitution", async () => {
     const t = await setup();
     const metadata = await t.request("/.well-known/oauth-authorization-server");
