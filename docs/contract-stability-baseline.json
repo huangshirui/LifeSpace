@@ -116,7 +116,7 @@
     {
       "id": "identity-application",
       "source": "apps/identity/openapi.yaml",
-      "operationSetSha256": "sha256:2d3f1009b6e023d1bd53ae147ffbc95acb94a50eae929c99f82ed79b456dcb84",
+      "operationSetSha256": "sha256:48f93f95baa1f2cf09a04be6dcb803ef3bc75d36d6bffcff5ce3d8f9047b6649",
       "groups": [
         {
           "id": "identity-operational",
