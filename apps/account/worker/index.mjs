@@ -162,6 +162,11 @@ function callbackValid(value) {
 export async function accountFetch(req, env) {
   const url = new URL(req.url);
   const path = url.pathname;
+  // The Account Center is the default landing experience; OAuth Consent remains
+  // the existing isolated /oauth/consent route with its original static assets.
+  if (path === "/" && req.method === "GET") {
+    return Response.redirect(new URL("/center.html", url), 302);
+  }
   if (!path.startsWith("/api/")) {
     if (!env.ASSETS?.fetch) return fail(503, "ACCOUNT_ASSETS_MISSING", "Account 页面不可用");
     const asset = await env.ASSETS.fetch(req);
@@ -178,6 +183,7 @@ export async function accountFetch(req, env) {
   }
   if (path !== "/api/session" && path !== "/api/oauth/request"
     && path !== "/api/oauth/choices"
+    && path !== "/api/account/spaces"
     && path !== "/api/oauth/capabilities"
     && path !== "/api/oauth/confirm") return fail(404, "NOT_FOUND", "接口不存在");
   if ((path === "/api/oauth/confirm") !== (req.method === "POST")) {
@@ -192,6 +198,22 @@ export async function accountFetch(req, env) {
       "set-cookie": CSRF_COOKIE + "=" + csrfToken
         + "; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=" + CSRF_TTL_SECONDS,
     });
+  }
+  if (path === "/api/account/spaces") {
+    if (url.search) return fail(400, "INVALID_REQUEST", "空间列表不接受额外参数");
+    const upstream = await boundedUpstream(env, "CORE", "/api/v1/me/spaces", linked.token);
+    if (!upstream || !upstream.ok) return fail(upstream?.status === 403 ? 403 : 503,
+      "ACCOUNT_SPACES_UNAVAILABLE", "无法读取当前用户的空间");
+    const spaces = await arrayData(upstream);
+    if (!spaces || spaces.length > 200 || spaces.some((space) => !isObject(space)
+      || !SPACE.test(space.id || "") || !safeText(space.name, 160)
+      || !safeText(space.timezone, 100)
+      || !["owner", "admin", "editor", "viewer"].includes(space.role))) {
+      return fail(502, "CORE_INVALID_RESPONSE", "空间列表格式异常");
+    }
+    return responseJson({ data: spaces.map((space) => ({
+      id: space.id, name: space.name, timezone: space.timezone, role: space.role,
+    })) });
   }
   if (path === "/api/oauth/request") {
     const requestId = url.searchParams.get("request_id");
