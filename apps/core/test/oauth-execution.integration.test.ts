@@ -102,11 +102,13 @@ describe("OAuth MCP Agent Direct execution: Core fail-closed route and Space bou
     expect(oauthExecutionRouteAllowed("GET", "/api/v1/me/_discovery/inventory", sp)).toBe(true);
     expect(oauthExecutionRouteAllowed("GET", "/api/v1/spaces/" + sp + "/_discovery/models/task", sp)).toBe(true);
     expect(oauthExecutionRouteAllowed("POST", "/api/v1/spaces/" + sp + "/models/task/records/query", sp)).toBe(true);
+    expect(oauthExecutionRouteAllowed("POST", "/api/v1/spaces/" + sp + "/_discovery/models/batch", sp)).toBe(true);
     for (const [method, path] of [
       ["GET", "/api/v1/me/spaces"],
       ["GET", "/api/v1/me/_discovery"],
       ["GET", "/api/v1/spaces/spc_other/_discovery/models/task"],
       ["POST", "/api/v1/spaces/spc_other/models/task/records/query"],
+      ["POST", "/api/v1/spaces/spc_other/_discovery/models/batch"],
       ["POST", "/api/v1/spaces/" + sp + "/models/task/records"],
       ["DELETE", "/api/v1/spaces/" + sp + "/models/task/records/x"],
       ["GET", "/api/v1/spaces/" + sp + "/members"],
@@ -186,6 +188,28 @@ describe("OAuth MCP Agent Direct execution: Core fail-closed route and Space bou
     expect(body.data.spaces).toEqual([]);
     expect((await f.request("GET", "/api/v1/spaces/" + f.space + "/_discovery/models/task")).status).toBe(403);
     expect((await f.request("POST", "/api/v1/spaces/" + f.space + "/models/task/records/query", {}, {})).status).toBe(403);
+  });
+
+  it("batch semantic discovery rechecks every requested Model and live policy without extra Worker calls", async () => {
+    const f = await fixture();
+    const path = "/api/v1/spaces/" + f.space + "/_discovery/models/batch";
+    const allowed = await f.request("POST", path, {}, { modelKeys: ["task"] });
+    expect(allowed.status).toBe(200);
+    const body = await allowed.json() as { data: { models: Array<{modelKey: string; detail: {key: string}}> } };
+    expect(body.data.models).toHaveLength(1);
+    expect(body.data.models[0]).toMatchObject({ modelKey: "task", detail: { key: "task" } });
+    expect(f.checks()).toBe(1);
+    // Reject requests for unselected Models, duplicates, cross-Space and
+    // extra fields; returning a partial batch would leak semantic metadata.
+    expect((await f.request("POST", path, {}, { modelKeys: ["task", "activity"] })).status).toBe(404);
+    expect((await f.request("POST", path, {}, { modelKeys: ["task", "task"] })).status).toBe(400);
+    expect((await f.request("POST", path, {}, { modelKeys: ["task"], includeAll: true })).status).toBe(400);
+    expect((await f.request("POST",
+      "/api/v1/spaces/" + f.other + "/_discovery/models/batch", {}, { modelKeys: ["task"] })).status).toBe(403);
+    await f.setServerOperations(["get"]);
+    expect((await f.request("POST", path, {}, { modelKeys: ["task"] })).status).toBe(404);
+    await f.setServerEnabled(false);
+    expect((await f.request("POST", path, {}, { modelKeys: ["task"] })).status).toBe(403);
   });
 
   it("rejects unknown configured MCP Server and pre-v7 unscoped /mcp resources", async () => {
