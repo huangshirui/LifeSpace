@@ -166,6 +166,28 @@ describe("OAuth MCP Agent Direct execution: Core fail-closed route and Space bou
     }
     expect(f.checks()).toBe(0);
   });
+  it("validates HTTPS URL-form OAuth client ID in Identity-signed Agent JWT", async () => {
+    const f = await fixture();
+    const clientId = "https://client.example.com/oauth/client.json";
+    const signed = await f.jwt({ oauth_client_id: clientId });
+    await expect(verifyAccessToken(signed, f.publicKey)).resolves.toMatchObject({
+      oauthExecution: { clientId },
+      purpose: "oauth_agent_execution",
+    });
+    expect((await f.request("GET", "/api/v1/me/_discovery/inventory",
+      { oauth_client_id: clientId })).status).toBe(200);
+    expect(f.lastBody()).toMatchObject({ clientId });
+    for (const badId of [
+      "http://client.example.com/oauth/client.json",
+      "https://client.example.com/oauth/client.json?scope=all",
+      "https://client.example.com/",
+      "https://bad:pass@client.example.com/oauth/client.json",
+    ]) {
+      expect((await f.request("GET", "/api/v1/me/_discovery/inventory",
+        { oauth_client_id: badId })).status).toBe(401);
+    }
+  });
+
   it("denies a disabled Core MCP Server even while OAuth is still active", async () => {
     const f = await fixture();
     expect((await f.request("GET", "/api/v1/me/_discovery/inventory")).status).toBe(200);
