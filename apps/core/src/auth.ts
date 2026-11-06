@@ -4,6 +4,7 @@ import { isPrincipalType, type Bindings, type Principal, type Variables } from "
 import { ApiError } from "./http";
 import { servicePrincipalAuthority } from "./service-principal-authority";
 import { measurePerformancePhase } from "./performance-timing";
+import { currentMcpOAuthQueryPolicy, oauthMcpServerId } from "./mcp-oauth-server-policy";
 
 type AppEnv = { Bindings: Bindings; Variables: Variables };
 const MAX_ACCESS_TOKEN_TTL_SECONDS = 3600;
@@ -128,7 +129,7 @@ export async function verifyAccessToken(rawToken: string, publicKey: string): Pr
           || typeof payload.oauth_space_id !== "string"
           || !/^spc_[A-Za-z0-9_-]+$/u.test(payload.oauth_space_id)
           || typeof payload.oauth_resource !== "string"
-          || !/^https:\/\/[^\s]+\/mcp$/u.test(payload.oauth_resource)) throw unauthorized();
+          || !oauthMcpServerId(payload.oauth_resource)) throw unauthorized();
       } else if (oauthKeysPresent) {
         // A normal Agent JWT must never smuggle OAuth restrictions or purpose.
         throw unauthorized();
@@ -307,6 +308,12 @@ export function authenticate(): MiddlewareHandler<AppEnv> {
         throw new ApiError("FORBIDDEN", "OAuth Agent execution is limited to its selected Space and read-only query surface", 403);
       }
       await requireCurrentOAuthExecution(context.env, execution);
+      const policy = await currentMcpOAuthQueryPolicy(
+        context.env.DB, execution.resource, context.req.method, context.req.path,
+      );
+      principal = { ...principal, oauthExecution: {
+        ...execution, serverId: policy.serverId, queryModelKeys: policy.queryModelKeys,
+      } };
     }
     context.set("principal", principal);
     await next();
