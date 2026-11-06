@@ -74,13 +74,13 @@ jobs:
             throw new Error('Independent Staging secrets could not be generated');
           }
           for (const value of [core, csrf]) {
-            process.stdout.write('::add-mask::' + value + '\\n');
+            process.stdout.write('::add-mask::' + value + '\n');
           }
           appendFileSync(process.env.GITHUB_ENV,
-            'LIFESPACE_STAGING_OAUTH_CORE_APPROVER_SECRET=' + core + '\\n' +
-            'LIFESPACE_STAGING_ACCOUNT_CSRF_SECRET=' + csrf + '\\n',
+            'LIFESPACE_STAGING_OAUTH_CORE_APPROVER_SECRET=' + core + '\n' +
+            'LIFESPACE_STAGING_ACCOUNT_CSRF_SECRET=' + csrf + '\n',
           );
-          process.stdout.write('Generated run-local Staging secrets (plaintext not logged)\\n');
+          process.stdout.write('Generated run-local Staging secrets (plaintext not logged)\n');
           NODE
       - name: Install reproducible dependencies
         run: pnpm install --frozen-lockfile
