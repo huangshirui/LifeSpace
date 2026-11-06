@@ -21,6 +21,7 @@ export function oauthExecutionRouteAllowed(method: string, path: string, spaceId
     return new RegExp("^/api/v1/spaces/" + escaped + "/_discovery/models/[a-z][a-z0-9_-]{0,63}$", "u").test(path);
   }
   if (method === "POST") {
+    if (path === "/api/v1/spaces/" + escaped + "/_discovery/models/batch") return true;
     return new RegExp("^/api/v1/spaces/" + escaped + "/models/[a-z][a-z0-9_-]{0,63}/records/query$", "u").test(path);
   }
   return false;
