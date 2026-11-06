@@ -399,7 +399,7 @@ export function registerRuntimeDiscoveryRoutes(app: App): void {
       : null;
     // OAuth tools are bounded by current Core MCP Server configuration.
     // External models are not selected by the v1 MCP Server control plane.
-    const external = oauthQueryKeys
+    const external: Awaited<ReturnType<typeof visibleExternalModels>> = oauthQueryKeys
       ? new Map()
       : await visibleExternalModels(context.env,state.principal,state.candidateSpaceIds,context.req.header("x-lifespace-delegation-id"));
     const spaces = state.candidateSpaceIds.flatMap((spaceId) => {
