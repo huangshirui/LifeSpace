@@ -85,11 +85,11 @@ async function client(db: D1Database, clientId: string): Promise<OAuthClient | n
   if (!clientId || clientId.length > 256) return null;
   return db.prepare("SELECT id,redirect_uris,status FROM oauth_clients WHERE id=?").bind(clientId).first<OAuthClient>();
 }
-async function authorization(db: D1Database, authorizationId: string): Promise<Authorization | null> {
+export async function authorization(db: D1Database, authorizationId: string): Promise<Authorization | null> {
   return db.prepare("SELECT oa.*,u.status userStatus,a.status appStatus,a.allowed_scopes allowedScopes,ag.status agentStatus,aa.status bindingStatus,aa.revoked_at bindingRevoked,oc.status clientStatus FROM oauth_authorizations oa JOIN users u ON u.id=oa.user_id JOIN applications a ON a.id=oa.application_id JOIN agents ag ON ag.id=oa.agent_id JOIN agent_applications aa ON aa.agent_id=oa.agent_id AND aa.application_id=oa.application_id JOIN oauth_clients oc ON oc.id=oa.client_id WHERE oa.id=?")
     .bind(authorizationId).first<Authorization>();
 }
-function eligible(a: Authorization | null): a is Authorization {
+export function eligible(a: Authorization | null): a is Authorization {
   return Boolean(a) && a!.status === "active" && a!.userStatus === "active" && a!.appStatus === "active"
     && a!.agentStatus === "active" && a!.bindingStatus === "active" && !a!.bindingRevoked
     && a!.clientStatus === "active" && json(a!.scopes).every((s) => json(a!.allowedScopes).includes(s));
