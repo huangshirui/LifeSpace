@@ -82,9 +82,12 @@ async function privateValidation(c: Context<AppEnv>) {
   const row = await c.env.DB.prepare(
     "SELECT enabled FROM mcp_server_definitions WHERE id=?"
   ).bind(match[1]).first<ServerState>();
+  // A Server is not an OAuth-protected Resource until its private protocol
+  // transport is actually bound. Do not issue Consent to a dead endpoint.
+  const active = row?.enabled === 1 && Boolean(c.env.MCP_ADAPTER);
   return c.json({ data: {
-    active: row?.enabled === 1,
-    ...(row?.enabled === 1 ? { resource, serverId: match[1] } : {}),
+    active,
+    ...(active ? { resource, serverId: match[1] } : {}),
   } }, 200, { "cache-control": "no-store" });
 }
 
