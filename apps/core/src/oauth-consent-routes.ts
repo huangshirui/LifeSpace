@@ -192,6 +192,53 @@ export function registerOAuthConsentRoutes(app: App): void {
     }));
   });
 
+  // User Decline must not create a Grant. Only Account user sessions can
+  // signal denial, via the same private Core->Identity proof as approval.
+  app.post("/api/v1/me/oauth/requests/:requestId/deny", requireScope("spaces:manage"), async (c) => {
+    const principal = c.get("principal");
+    if (!c.env.OAUTH_ACCOUNT_APPLICATION_ID || principal.type !== "user"
+      || principal.clientId !== c.env.OAUTH_ACCOUNT_APPLICATION_ID
+      || principal.actor !== undefined || principal.purpose !== undefined) {
+      throw new ApiError("FORBIDDEN", "OAuth denial requires a verified Account user session", 403);
+    }
+    const requestId = c.req.param("requestId");
+    if (!OAUTH_REQUEST_ID.test(requestId)) throw new ApiError("INVALID_REQUEST", "Invalid OAuth request ID", 400);
+    const bearer = c.req.header("authorization")?.replace(/^Bearer\s+/iu, "") ?? "";
+    if (!bearer || !c.env.IDENTITY || !c.env.OAUTH_CORE_APPROVER_SECRET) {
+      throw new ApiError("OAUTH_NOT_CONFIGURED", "Trusted Identity OAuth denial is unavailable", 503);
+    }
+    let upstream: Response;
+    try {
+      upstream = await c.env.IDENTITY.fetch(
+        "https://identity.internal/oauth/requests/" + encodeURIComponent(requestId) + "/deny", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-lifespace-oauth-approver-secret": c.env.OAUTH_CORE_APPROVER_SECRET,
+          },
+          body: JSON.stringify({ userToken: bearer }),
+        },
+      );
+    } catch {
+      throw new ApiError("OAUTH_IDENTITY_UNAVAILABLE", "Identity denial bridge is unavailable", 503);
+    }
+    if (!upstream.ok) {
+      throw new ApiError("OAUTH_REQUEST_INVALID", "OAuth request is no longer pending or not eligible", upstream.status === 400 ? 409 : 403);
+    }
+    const payload = await upstream.json<{ redirect_url?: unknown }>().catch(() => null);
+    let url: URL;
+    try { url = new URL(String(payload?.redirect_url || "")); }
+    catch { throw new ApiError("OAUTH_INVALID_RESPONSE", "Invalid Identity denial redirect", 502); }
+    if ((url.protocol !== "https:" && !(url.protocol === "http:"
+        && ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)))
+      || url.username || url.password || url.searchParams.get("error") !== "access_denied"
+      || url.searchParams.has("code") || !url.searchParams.get("iss")) {
+      throw new ApiError("OAUTH_INVALID_RESPONSE", "Invalid Identity denial redirect", 502);
+    }
+    c.header("Cache-Control", "no-store");
+    return c.json(success({ redirectUrl: url.href }));
+  });
+
   // Account BFF only. Browser-provided user IDs, Agent OAuth credentials, and
   // unrelated application's user tokens can never activate an OAuth grant.
   app.post("/api/v1/me/oauth/requests/:requestId/confirm", requireScope("spaces:manage"), async (c) => {
