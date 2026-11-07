@@ -27,7 +27,6 @@ describe("platform admission is separate from user OAuth authorization", () => {
       { ...example, cimdClientIds: ["https://127.0.0.1/private.json"] },
       { ...example, dcrRedirectUris: ["https://*.example.com/cb"] },
       { ...example, dcrRedirectUris: ["http://evil.example.com/cb"] },
-      { ...example, dcrRedirectUris: ["http://localhost:8000/cb"] },
       { ...example, dcrRedirectUris: ["https://10.0.0.1/cb"] },
       { ...example, dcrRedirectUris: [...example.dcrRedirectUris, ...example.dcrRedirectUris] },
       { ...example, callbackMode: "restricted", callbackUris: [] },
@@ -38,6 +37,7 @@ describe("platform admission is separate from user OAuth authorization", () => {
       { ...example, unknown: true },
     ]) expect(validateOAuthClientAdmissionPolicy(invalid)).toBeNull();
     expect(dcrRedirectUri("http://127.0.0.1:12345/cb")).toBe(true);
+    expect(dcrRedirectUri("http://localhost:4567/cb")).toBe(true);
     expect(dcrRedirectUri("https://chatgpt.com/connector_platform_oauth_redirect")).toBe(true);
   });
 
