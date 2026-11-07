@@ -16,6 +16,7 @@ function fixture({ present = true, errorOn = "", invalidBinding = false } = {}) 
       ] });
     }
     if (init.method === "PUT" && url.endsWith("/secrets")) {
+      if (url.includes("api-success-false")) return Response.json({ success: false });
       if (url.includes(errorOn) && errorOn) return Response.json({ success: false }, { status: 400 });
       return Response.json({ success: true });
     }
@@ -50,6 +51,18 @@ test("paired secrets use the same value and touch staging Workers only", async (
   ]);
   assert.equal(f.requests.some(x => x.url.includes("/lifespace-core") || x.url.includes("/lifespace-identity/secrets")), false);
 });
+test("refuses HTTP 200 with Cloudflare success=false for a secret mutation", async () => {
+  const f = fixture();
+  const request = async (url, init) => {
+    if (url.endsWith("/lifespace-identity-staging/secrets") && init.method === "PUT") {
+      return Response.json({ success: false });
+    }
+    return f.request(url, init);
+  };
+  await assert.rejects(convergeStagingMcpResourceSecret(opts(request)), /convergence failed/);
+  assert.equal(f.requests.some(x => x.url.includes("/lifespace-mcp-adapter-staging/secrets")), false);
+});
+
 test("never modifies either Worker unless both staging scripts exist", async () => {
   const f = fixture({ present: false });
   await assert.rejects(convergeStagingMcpResourceSecret(opts(f.request)), /Both exact/);
