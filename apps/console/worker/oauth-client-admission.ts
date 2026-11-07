@@ -31,7 +31,7 @@ function value(data: unknown, key: string): string | null {
 }
 async function upstream(env: Env, path: string, init: RequestInit): Promise<Response> {
   const url = new URL(path, env.IDENTITY_BASE_URL);
-  const req = new Request(url, init);
+  const req = new Request(url.toString(), init);
   return env.IDENTITY ? env.IDENTITY.fetch(req) : fetch(req);
 }
 async function parse(res: Response): Promise<unknown> {
