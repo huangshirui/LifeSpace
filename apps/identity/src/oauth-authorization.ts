@@ -228,11 +228,30 @@ export function registerOAuthAuthorizationServer(app: App) {
   });
 
   app.post("/oauth/register", async (c) => {
-    if (c.env.OAUTH_DCR_ENABLED !== "1" || c.env.ENVIRONMENT === "production" || !issuer(c)) {
+    if (!dcrReady(c.env) || !issuer(c)) {
       return oauthError(c, 403, "access_denied", "Dynamic client registration is disabled");
     }
+    // Regional limiter + atomic global D1 quota: no unlimited anonymous writes.
+    if (c.env.ENVIRONMENT === "staging") {
+      if (!c.env.OAUTH_DCR_RATE_LIMITER) {
+        return oauthError(c, 503, "temporarily_unavailable", "DCR rate limiter is unavailable");
+      }
+      try {
+        const outcome = await c.env.OAUTH_DCR_RATE_LIMITER.limit({ key: "oauth-dcr-global" });
+        if (outcome.success !== true) {
+          return oauthError(c, 429, "rate_limited", "Client registration rate limit exceeded");
+        }
+      } catch {
+        return oauthError(c, 503, "temporarily_unavailable", "DCR rate limiter is unavailable");
+      }
+    }
+    if (!/^application\/json(?:\s*;|$)/iu.test(c.req.header("content-type") || "")) {
+      return oauthError(c, 400, "invalid_client_metadata", "Application/json is required");
+    }
     const raw = await c.req.text();
-    if (raw.length > 8192) return oauthError(c, 400, "invalid_client_metadata", "Client metadata is too large");
+    if (new TextEncoder().encode(raw).length > 8192) {
+      return oauthError(c, 400, "invalid_client_metadata", "Client metadata is too large");
+    }
     let input: Record<string, unknown> | null = null;
     try { input = JSON.parse(raw) as Record<string, unknown>; } catch { /* invalid */ }
     if (!input || Array.isArray(input) || !Array.isArray(input.redirect_uris)
