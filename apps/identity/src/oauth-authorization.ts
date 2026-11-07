@@ -57,7 +57,7 @@ function httpsUrl(value: unknown, allowLoopback = false): string | null {
   if (typeof value !== "string" || value.length > 1024) return null;
   try {
     const url = new URL(value);
-    const loopback = allowLoopback && url.protocol === "http:" && (url.hostname === "127.0.0.1" || url.hostname === "[::1]");
+    const loopback = allowLoopback && url.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
     if ((url.protocol !== "https:" && !loopback) || url.username || url.password || url.hash || url.hostname.includes("*")) return null;
     return url.href;
   } catch { return null; }
