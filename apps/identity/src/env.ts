@@ -27,6 +27,8 @@ export type Bindings = {
   OAUTH_RESOURCE_SERVER_SECRET?: string;
   OAUTH_CORE_APPROVER_SECRET?: string;
   OAUTH_DCR_ENABLED?: string;
+  // Staging-only public DCR registration limiter; missing binding fails closed.
+  OAUTH_DCR_RATE_LIMITER?: RateLimit;
   // Opt-in HTTPS Client ID Metadata Documents; disabled unless explicitly enabled.
   OAUTH_CIMD_ENABLED?: string;
   // Exact, operator-reviewed HTTPS CIMD document IDs. No host wildcards.
