@@ -4,7 +4,7 @@ import type { Bindings, Variables } from "./env";
 import { configuredOAuthResource, liveOAuthResource } from "./oauth-mcp-resource";
 import { cimdClientId, fetchClientMetadata } from "./oauth-client-metadata";
 import {
-  loadOAuthClientAdmissionPolicy, mayUseCimd, mayRegisterDcr,
+  loadOAuthClientAdmissionPolicy, mayUseCimd, mayRegisterDcr, callbackAllowed,
   type OAuthClientAdmissionPolicy,
 } from "./oauth-client-admission-policy";
 
@@ -99,19 +99,32 @@ async function clientForAuthorization(c: Context<AppEnv>, clientId: string): Pro
   if (!cimdReady(c.env, policy) || !mayUseCimd(policy, clientId)) return null;
   const existing = await client(c.env.DB, clientId);
   if (existing?.status === "disabled") return null;
+  // Open HTTPS document discovery is a network and database abuse boundary.
+  // Staging requests are rate-limited before outbound fetch, including
+  // revalidation at Consent time. No Worker binding => no fetch.
+  if (policy.cimdMode === "open" && c.env.ENVIRONMENT === "staging") {
+    if (!c.env.OAUTH_DCR_RATE_LIMITER) return null;
+    try {
+      const limit = await c.env.OAUTH_DCR_RATE_LIMITER.limit({ key: "oauth-cimd-fetch" });
+      if (!limit.success) return null;
+    } catch { return null; }
+  }
   const metadata = await fetchClientMetadata(clientId);
   if (!metadata) return null;
   const redirects = JSON.stringify(metadata.redirectUris);
   if (!existing) {
-    // Bound anonymous metadata registration growth; this is still subject
-    // to standard application-layer rate limiting before public enablement.
-    const count = await c.env.DB.prepare(
-      "SELECT count(*) AS total FROM oauth_clients WHERE id LIKE 'https://%'"
-    ).first<{ total: number }>();
-    if ((count?.total ?? 0) >= 1000) return null;
-    await c.env.DB.prepare(
-      "INSERT OR IGNORE INTO oauth_clients(id,display_name,redirect_uris,status,created_at) VALUES(?,?,?,'active',?)"
+    // One atomic statement prevents cross-region anonymous registration
+    // growth. A competing request for the same ID can safely reuse a matching
+    // registration, but may never expand its callback list.
+    const inserted = await c.env.DB.prepare(
+      "INSERT OR IGNORE INTO oauth_clients(id,display_name,redirect_uris,status,created_at) "
+      + "SELECT ?,?,?,'active',? WHERE "
+      + "(SELECT count(*) FROM oauth_clients WHERE id LIKE 'https://%') < 1000"
     ).bind(clientId, metadata.displayName, redirects, instant()).run();
+    if (inserted.meta.changes !== 1) {
+      const raced = await client(c.env.DB, clientId);
+      if (!raced || raced.status !== "active" || raced.redirect_uris !== redirects) return null;
+    }
   } else if (existing.redirect_uris !== redirects) {
     // A remote client must never silently expand or replace approved
     // callbacks after an earlier Consent was granted. An operator can
@@ -208,11 +221,14 @@ export async function exchangeInteractiveOAuthToken(c: Context<AppEnv>, body: Fo
 function dcrReady(env: Bindings, policy: OAuthClientAdmissionPolicy): boolean {
   return env.OAUTH_DCR_ENABLED === "1" && env.ENVIRONMENT !== "production"
     && (env.ENVIRONMENT !== "staging" || Boolean(env.OAUTH_DCR_RATE_LIMITER))
-    && policy.dcrEnabled && policy.dcrRedirectUris.length > 0;
+    && policy.dcrEnabled
+    && (policy.dcrMode === "open" || policy.dcrRedirectUris.length > 0);
 }
 function cimdReady(env: Bindings, policy: OAuthClientAdmissionPolicy): boolean {
-  return env.OAUTH_CIMD_ENABLED === "1"
-    && policy.cimdEnabled && policy.cimdClientIds.length > 0;
+  return env.OAUTH_CIMD_ENABLED === "1" && policy.cimdEnabled
+    && (policy.cimdMode === "restricted" && policy.cimdClientIds.length > 0
+      || policy.cimdMode === "open" && env.ENVIRONMENT !== "production"
+         && (env.ENVIRONMENT !== "staging" || Boolean(env.OAUTH_DCR_RATE_LIMITER)));
 }
 export function registerOAuthAuthorizationServer(app: App) {
   app.get("/.well-known/oauth-authorization-server", async (c) => {
@@ -225,6 +241,9 @@ export function registerOAuthAuthorizationServer(app: App) {
       introspection_endpoint: base + "/oauth/introspect",
       ...(cimdReady(c.env, admission) ? { client_id_metadata_document_supported: true } : {}),
       ...(dcrReady(c.env, admission) ? { registration_endpoint: base + "/oauth/register" } : {}),
+      // RFC 9207: response redirect issued after Consent carries the exact
+      // configured issuer; the issuer is never read from a request Host.
+      authorization_response_iss_parameter_supported: true,
       response_types_supported: ["code"], grant_types_supported: ["authorization_code", "refresh_token", "client_credentials"],
       token_endpoint_auth_methods_supported: ["none", "client_secret_basic", "client_secret_post"],
       code_challenge_methods_supported: ["S256"], scopes_supported: ["resources:read", "resources:write", "resources:manage"],
@@ -272,7 +291,8 @@ export function registerOAuthAuthorizationServer(app: App) {
     }
     const redirectUris = (input.redirect_uris as string[]).map((u) => httpsUrl(u, true)!);
     if (new Set(redirectUris).size !== redirectUris.length) return oauthError(c, 400, "invalid_redirect_uri", "Duplicate redirects");
-    if (!mayRegisterDcr(admission, redirectUris)) {
+    if (!mayRegisterDcr(admission, redirectUris)
+      || !redirectUris.every(uri => callbackAllowed(admission, uri))) {
       return oauthError(c, 403, "access_denied", "Client callback URI is not permitted by LifeSpace Console");
     }
     const name = typeof input.client_name === "string" && input.client_name.trim() && input.client_name.length <= 100
@@ -316,7 +336,9 @@ export function registerOAuthAuthorizationServer(app: App) {
     if (!registered || registered.status !== "active") {
       return oauthError(c, 400, "invalid_client", "Client is not registered or metadata is unavailable");
     }
-    if (!redirect || !json(registered.redirect_uris).includes(redirect)) {
+    const admission = await loadOAuthClientAdmissionPolicy(c.env.DB);
+    if (!redirect || !json(registered.redirect_uris).includes(redirect)
+      || !callbackAllowed(admission, redirect)) {
       return oauthError(c, 400, "invalid_request", "Redirect URI is not registered");
     }
 
@@ -427,6 +449,10 @@ export function registerOAuthAuthorizationServer(app: App) {
     // Remote metadata may disappear or change between authorization and
     // browser approval. Revalidate the pinned URL document before issuing
     // a code; never follow a newly advertised redirect.
+    const admission = await loadOAuthClientAdmissionPolicy(c.env.DB);
+    if (!callbackAllowed(admission, request.redirect_uri)) {
+      return oauthError(c, 403, "access_denied", "Callback is not allowed by current platform policy");
+    }
     if (cimdClientId(request.client_id)) {
       const currentClient = await clientForAuthorization(c, request.client_id);
       if (!currentClient || !json(currentClient.redirect_uris).includes(request.redirect_uri)) {
