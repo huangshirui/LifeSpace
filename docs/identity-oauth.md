@@ -100,6 +100,7 @@ and has **not** been enabled on Staging or Production. Registered opaque
   introspection, signed Agent Direct Core execution and MCP Adapter without
   becoming a principal or a server authority. Exact MCP Resource audience,
   current Core Server policy and revocation remain mandatory.
+- **Additional network gate:** `OAUTH_CIMD_ALLOWED_CLIENT_IDS` is a whitespace-delimited list of **exact, pre-reviewed HTTPS metadata document URLs** (max 100). Both `OAUTH_CIMD_ENABLED=1` and a matching URL are mandatory; otherwise Identity makes **no outbound metadata fetch**. An allowlisted domain alone is insufficient. Callbacks are pinned at the first successful registration; if a document changes its redirect list, Identity fails closed rather than silently updating the stored callbacks. The document and its registered callback are revalidated immediately before Consent approval.
 - Rejected: loopback, private/internal-looking, wildcard, HTTP and
   credential-bearing metadata URLs, URL query/fragment and noncanonical
   forms. The feature is intentionally *not production-ready* until operator
