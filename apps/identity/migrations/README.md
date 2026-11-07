@@ -12,3 +12,4 @@ Identity persistence is separate from Core persistence. Migration history is app
 
 0015 adds isolated OAuth Client/Authorization/one-time-code/access+refresh credential state for the Identity OAuth Server. This is not a Core Unified Connection registry. Schema 15, not deployed until a confirmed Identity release.
 0016 adds the revisioned Identity-owned OAuth Client Admission Policy (Console-managed CIMD exact metadata URLs and DCR exact callback URLs). It starts disabled with empty lists, records administrator attribution and does not create Client credentials, data Grants, or Consent. Identity schema 16; deploy only through the protected platform Staging migration flow first.
+0017 adds open/restricted registration modes for CIMD and DCR plus an independent optional platform callback restriction. Existing Identity policy remains restricted until an administrator changes it; OAuth per-client callback validation and user Consent are unchanged.
