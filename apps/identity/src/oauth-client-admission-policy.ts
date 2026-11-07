@@ -30,11 +30,10 @@ export function dcrRedirectUri(value: unknown): value is string {
   try {
     const url = new URL(value);
     // Native loopback HTTP redirects are permitted only for loopback hosts.
-    if (url.protocol === "http:") return ["127.0.0.1", "[::1]"].includes(url.hostname);
+    if (url.protocol === "http:") return ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
     const host = url.hostname.toLowerCase();
     if (host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local")
-      || host.endsWith(".internal") || host.endsWith(".test") || host.endsWith(".invalid")
-      || host.endsWith(".example") || host.endsWith(".onion")
+      || host.endsWith(".internal") || host.endsWith(".invalid") || host.endsWith(".onion")
       || /^\d+(?:\.\d+){3}$/u.test(host) || host.startsWith("[")) return false;
     return host.includes(".") && !host.includes("*");
   } catch { return false; }
