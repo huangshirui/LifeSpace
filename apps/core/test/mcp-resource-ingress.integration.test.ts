@@ -21,7 +21,8 @@ describe("Core public MCP ingress / OAuth protected resource boundary", () => {
     const enabled = await server(), disabled = await server(0);
     const secret = "core-identity-trusted-test-secret";
     const endpoint = origin + "/internal/v1/oauth/mcp-resource/validate";
-    const bindings = { DB: db, ENVIRONMENT: "staging", CORE_IDENTITY_SHARED_SECRET: secret };
+    const bindings = { DB: db, ENVIRONMENT: "staging", CORE_IDENTITY_SHARED_SECRET: secret,
+      MCP_ADAPTER: { fetch: async () => Response.json({}) } };
     const send = (resource: string, proof?: string) => createApp().request(endpoint, {
       method: "POST", headers: {
         "content-type": "application/json",
@@ -35,6 +36,15 @@ describe("Core public MCP ingress / OAuth protected resource boundary", () => {
     expect(await accepted.json()).toEqual({ data: {
       active: true, resource: origin + "/mcp/" + enabled, serverId: enabled,
     } });
+    const noAdapter = await createApp().request(endpoint, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-lifespace-internal-secret": secret,
+      },
+      body: JSON.stringify({ resource: origin + "/mcp/" + enabled }),
+    }, { DB: db, ENVIRONMENT: "staging", CORE_IDENTITY_SHARED_SECRET: secret });
+    expect(await noAdapter.json()).toEqual({ data: { active: false } });
     for (const value of [
       origin + "/mcp/" + disabled,
       origin + "/mcp/" + id(),
