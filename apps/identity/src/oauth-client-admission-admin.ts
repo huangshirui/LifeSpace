@@ -61,7 +61,7 @@ export function registerOAuthClientAdmissionAdminRoutes(app: App): void {
       + "id,actor_user_id,actor_application_id,actor_token_id,executor_application_id,"
       + "operation,target_type,target_id,summary_json,request_id,result,created_at)"
       + " SELECT ?,?,?,?,?,?,?,?,?,?,'success',? "
-      + "WHERE EXISTS (SELECT 1 FROM oauth_client_admission_policy WHERE id=1 AND revision=?)"
+      + "WHERE EXISTS (SELECT 1 FROM oauth_client_admission_policy WHERE id=1 AND last_change_id=?)"
     ).bind(
       auditId, actor.id, actor.clientId, actor.tokenId, c.get("currentApplicationId"),
       "oauth_client_admission.update", "oauth_client_admission", "global",
