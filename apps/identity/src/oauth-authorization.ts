@@ -491,6 +491,64 @@ export function registerOAuthAuthorizationServer(app: App) {
     return c.json({ redirect_url: redirect.href, authorization_id: authzId }, 200, { "cache-control": "no-store" });
   });
 
+  // Account's explicit "Decline" must return an RFC 9207 error response to
+  // the already validated client redirect without issuing a code/token.
+  // Only the private Core consent bridge, carrying a verified Account user
+  // proof, can reject a pending request. Anonymous callers cannot cancel it.
+  app.post("/oauth/requests/:requestId/deny", async (c) => {
+    const key = c.req.header("x-lifespace-oauth-approver-secret") || "";
+    if (!c.env.OAUTH_CORE_APPROVER_SECRET || !key || !await equal(key, c.env.OAUTH_CORE_APPROVER_SECRET)) {
+      return oauthError(c, 401, "invalid_client", "Trusted Core authorization is required");
+    }
+    if (!c.env.OAUTH_ACCOUNT_APPLICATION_ID || !c.env.TOKEN_PUBLIC_KEY) {
+      return oauthError(c, 503, "temporarily_unavailable", "OAuth consent proof is not configured");
+    }
+    const body = await c.req.json<{ userToken?: unknown }>().catch(() => null);
+    if (!body || typeof body.userToken !== "string") {
+      return oauthError(c, 400, "invalid_request", "Account user proof is required");
+    }
+    let claims: Record<string, unknown>;
+    try { claims = await verify(body.userToken, c.env.TOKEN_PUBLIC_KEY, "RS256"); }
+    catch { return oauthError(c, 401, "invalid_grant", "Account user proof is invalid"); }
+    const audiences = Array.isArray(claims.aud) ? claims.aud : [claims.aud];
+    if (claims.iss !== "lifespace-identity" || !audiences.includes("lifespace-identity")
+      || claims.principal_type !== "user" || claims.azp !== c.env.OAUTH_ACCOUNT_APPLICATION_ID
+      || typeof claims.sub !== "string") {
+      return oauthError(c, 403, "access_denied", "Account user proof is not eligible");
+    }
+    const user = await c.env.DB.prepare("SELECT status FROM users WHERE id=?")
+      .bind(claims.sub).first<{ status: string }>();
+    if (user?.status !== "active") {
+      return oauthError(c, 403, "access_denied", "Account user is not active");
+    }
+    const request = await c.env.DB.prepare(
+      "SELECT * FROM oauth_authorization_requests WHERE id=?"
+    ).bind(c.req.param("requestId")).first<OAuthRequest>();
+    if (!request || request.status !== "pending" || Date.parse(request.expires_at) <= Date.now()) {
+      return oauthError(c, 400, "invalid_request", "Authorization request is no longer pending");
+    }
+    const registered = await client(c.env.DB, request.client_id);
+    const admission = await loadOAuthClientAdmissionPolicy(c.env.DB);
+    if (!registered || !json(registered.redirect_uris).includes(request.redirect_uri)
+      || !callbackAllowed(admission, request.redirect_uri)) {
+      return oauthError(c, 403, "access_denied", "Registered callback is not eligible");
+    }
+    const currentIssuer = issuer(c);
+    if (!currentIssuer) return oauthError(c, 503, "temporarily_unavailable", "OAuth issuer unavailable");
+    const result = await c.env.DB.prepare(
+      "UPDATE oauth_authorization_requests SET status='denied' "
+      + "WHERE id=? AND status='pending' AND expires_at>?"
+    ).bind(request.id, instant()).run();
+    if (result.meta.changes !== 1) {
+      return oauthError(c, 400, "invalid_request", "Authorization request was already completed");
+    }
+    const redirect = new URL(request.redirect_uri);
+    redirect.searchParams.set("error", "access_denied");
+    if (request.state) redirect.searchParams.set("state", request.state);
+    redirect.searchParams.set("iss", currentIssuer);
+    return c.json({ redirect_url: redirect.href }, 200, { "cache-control": "no-store" });
+  });
+
   app.post("/oauth/introspect", async (c) => {
     const key = c.req.header("x-lifespace-resource-secret") || "";
     if (!c.env.OAUTH_RESOURCE_SERVER_SECRET || !key || !await equal(key, c.env.OAUTH_RESOURCE_SERVER_SECRET)) {
