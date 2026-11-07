@@ -1,6 +1,9 @@
 # Core-owned OAuth MCP Staging rollout (owner-controlled)
 
-**Status: release candidate; not yet deployed or E2E-accepted.** This is a cross-repository
+**Status (2026-11-07): private Staging Adapter deployed (Actions 42336470387),
+Identity/Adapter OAuth Resource Server secret paired (Actions 42338739134),
+Core Staging `MCP_ADAPTER` binding pending reviewed release; OAuth E2E not yet accepted.**
+This is a cross-repository
 integration gate, not a new Connection Registry, Cloudflare Managed OAuth or Production launch.
 
 ## Expected service graph
