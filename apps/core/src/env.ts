@@ -42,6 +42,9 @@ export type Principal = {
     spaceId: string;
     applicationId: string;
     agentId: string;
+    // Core-derived per-request MCP Server policy, never an Identity JWT claim.
+    serverId?: string;
+    queryModelKeys?: string[];
   };
 };
 
@@ -57,6 +60,10 @@ export type Bindings = CloudflareBindings & {
   IDENTITY_PUBLIC_KEY: string;
   RECURRENCE_WINDOW_DAYS?: string;
   IDENTITY?: Fetcher;
+  // Private transport binding, populated only after reviewed MCP staging setup.
+  MCP_ADAPTER?: Fetcher;
+  // Explicit opt-in for local/integration tests; public origins are fixed by ENVIRONMENT.
+  MCP_PUBLIC_ORIGIN?: string;
   CORE_IDENTITY_SHARED_SECRET?: string;
   OAUTH_ACCOUNT_APPLICATION_ID?: string;
   OAUTH_CORE_APPROVER_SECRET?: string;

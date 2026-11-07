@@ -4,6 +4,7 @@ import { isPrincipalType, type Bindings, type Principal, type Variables } from "
 import { ApiError } from "./http";
 import { servicePrincipalAuthority } from "./service-principal-authority";
 import { measurePerformancePhase } from "./performance-timing";
+import { currentMcpOAuthQueryPolicy, oauthMcpServerId } from "./mcp-oauth-server-policy";
 
 type AppEnv = { Bindings: Bindings; Variables: Variables };
 const MAX_ACCESS_TOKEN_TTL_SECONDS = 3600;
@@ -20,6 +21,7 @@ export function oauthExecutionRouteAllowed(method: string, path: string, spaceId
     return new RegExp("^/api/v1/spaces/" + escaped + "/_discovery/models/[a-z][a-z0-9_-]{0,63}$", "u").test(path);
   }
   if (method === "POST") {
+    if (path === "/api/v1/spaces/" + escaped + "/_discovery/models/batch") return true;
     return new RegExp("^/api/v1/spaces/" + escaped + "/models/[a-z][a-z0-9_-]{0,63}/records/query$", "u").test(path);
   }
   return false;
@@ -65,6 +67,20 @@ function unauthorized(): ApiError {
 
 function notConfigured(message: string): ApiError {
   return new ApiError("AUTHENTICATION_NOT_CONFIGURED", message, 500);
+}
+
+function validOAuthClientIdentifier(value: unknown): boolean {
+  if (typeof value !== "string" || value.length > 256) return false;
+  if (/^ocli_[A-Za-z0-9_-]+$/u.test(value)) return true;
+  // Identity verified the public metadata; Core only validates the signed
+  // identifier's shape and subsequently rechecks Identity's current state.
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && url.href === value
+      && !url.username && !url.password && !url.search && !url.hash
+      && url.pathname !== "/" && url.hostname.includes(".")
+      && !url.hostname.includes("*");
+  } catch { return false; }
 }
 
 function audienceIncludes(value: unknown, expected: string): boolean {
@@ -124,11 +140,11 @@ export async function verifyAccessToken(rawToken: string, publicKey: string): Pr
           || typeof payload.oauth_access_hash !== "string"
           || !/^[a-f0-9]{64}$/u.test(payload.oauth_access_hash)
           || typeof payload.oauth_client_id !== "string"
-          || !/^ocli_[A-Za-z0-9_-]+$/u.test(payload.oauth_client_id)
+          || !validOAuthClientIdentifier(payload.oauth_client_id)
           || typeof payload.oauth_space_id !== "string"
           || !/^spc_[A-Za-z0-9_-]+$/u.test(payload.oauth_space_id)
           || typeof payload.oauth_resource !== "string"
-          || !/^https:\/\/[^\s]+\/mcp$/u.test(payload.oauth_resource)) throw unauthorized();
+          || !oauthMcpServerId(payload.oauth_resource)) throw unauthorized();
       } else if (oauthKeysPresent) {
         // A normal Agent JWT must never smuggle OAuth restrictions or purpose.
         throw unauthorized();
@@ -307,6 +323,12 @@ export function authenticate(): MiddlewareHandler<AppEnv> {
         throw new ApiError("FORBIDDEN", "OAuth Agent execution is limited to its selected Space and read-only query surface", 403);
       }
       await requireCurrentOAuthExecution(context.env, execution);
+      const policy = await currentMcpOAuthQueryPolicy(
+        context.env.DB, execution.resource, context.req.method, context.req.path,
+      );
+      principal = { ...principal, oauthExecution: {
+        ...execution, serverId: policy.serverId, queryModelKeys: policy.queryModelKeys,
+      } };
     }
     context.set("principal", principal);
     await next();

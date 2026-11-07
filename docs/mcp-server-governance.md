@@ -49,3 +49,60 @@ Create with Model/Person selections and at least one operation → enabled. Save
 Explicitly disable/enable with confirmation; don't erase capability selections. Detail → Back resets the stale create form.
 Tests: model-only, Person-only and mixed configuration, invalid Model/Kernel selection, revision conflict, platform authority and audit, migration conversion, no publish/revisions endpoints, no new user-facing version.
 The planned public MCP URL is not a live endpoint until a separate Adapter and OAuth integration is deployed.
+
+
+## Runtime OAuth Agent Direct gate (separate dependent candidate; not deployed)
+
+This gate is **not** the privileged MCP Server Console API and does not
+expose Server configuration to an arbitrary OAuth client. It is the
+Core-owned enforcement of the current enabled Server Tool Exposure Policy.
+
+For an Identity-signed `purpose=oauth_agent_execution` read-only Agent JWT:
+
+1. The exact OAuth Resource URI must be an HTTPS URL whose path is
+   `/mcp/{mcp_*}` with a Core-generated 32-hex-character Server ID.
+   The old unscoped `/mcp` resource is **not** a governed Server.
+2. Core revalidates the OAuth Authorization/token/Agent binding through
+   Identity on every authenticated call. It also loads that Server's current
+   `enabled` flag and `config_json` from its own D1, never another app's D1.
+3. Only models with the explicit `query` operation remain in the OAuth
+   progressive Discovery inventory; the one selected Space constraint,
+   current Agent Data Grant, Application × Model Access and published model
+   access continue to narrow the result. External Models and Person Directory
+   are not exposed by this first Native Query-only slice.
+4. Each authenticated model semantic detail read and Canonical Query POST
+   checks that the same Server is still enabled and that the Model still has
+   its `query` operation. A stale Tool listing cannot bypass a changed
+   Server configuration. Missing/invalid Server or configuration fails closed.
+5. OAuth Scope is restricted to `resources:read` and the Actor/Principal
+   remains the current Agent. User Delegation requires its independent
+   explicit authorization process; `allowUserAuthorization` creates none.
+
+This is an **incremental candidate behind LifeSpace #480** (Identity-owned
+execution credential) and before [Issue #482](https://github.com/huangshirui/LifeSpace/issues/482)
+can be closed. Remaining dependencies: Adapter RFC 9728 path-aware routing
+for `/mcp/{serverId}`, Core-to-Adapter transport, exact Identity Resource
+allowlist + private Resource Server secret, reviewed OAuth client registration
+and full Staging acceptance. Current Core OAuth-specific D1 server-policy read
+is deliberately isolated from ordinary Runtime principals; future performance
+convergence may batch it with the existing current-Authority read.
+
+No Account Center implementation and no production rollout are included.
+
+
+## Public resource ingress and Identity verification (dependent candidate)
+
+Core owns the single public origin `core[-staging].aisr.online`. The unprivileged `POST /mcp/{mcp_*}` and `GET /.well-known/oauth-protected-resource/mcp/{mcp_*}` routes first check the current `mcp_server_definitions.enabled` flag, then forward to one private `MCP_ADAPTER` Service Binding. They never bypass Identity OAuth or use a Platform Admin token. Unknown/disabled Servers return 404. Missing Adapter binding or a transport failure returns 503; no fallback to ordinary Core business APIs.
+
+The private `POST /internal/v1/oauth/mcp-resource/validate` route authenticates the same-environment Identity caller with the existing Core↔Identity shared secret, and returns only whether the exact canonical Resource is currently enabled. Identity requires this before creating and confirming dynamic OAuth grants; Core separately enforces the selected Space/Agent/Model query policy during every operation.
+
+The `MCP_ADAPTER` binding is intentionally **optional and not configured in canonical Wrangler environments yet**. The staging Adapter Worker must be separately deployed with no public routes and environment-matched CORE and IDENTITY bindings before the Core service binding is installed. No production change is implied by merging this candidate.
+
+
+### Bounded batched semantics for MCP `tools/list`
+
+The OAuth Agent Direct read-only discovery path first obtains the one-Space current inventory and then uses `POST /api/v1/spaces/{spaceId}/_discovery/models/batch` with up to **32 unique model keys**. This is an internal Core API, not a new generic public authority. Core rejects non-OAuth callers, other Spaces, duplicate/unknown/non-selected/external models, and any model without current read Data Grant. It rechecks the current enabled MCP Server and allowed query operations before returning any model metadata. A stale `tools/list` never grants a later `tools/call`, which is separately checked.
+
+The batched design avoids a per-model Adapter→Core→Identity chain and stays below Cloudflare's 32 Worker-invocation-per-request service-binding limit. All-or-nothing authorization prevents partial responses that disclose unauthorized model semantics. Out-of-limit lists fail rather than silently truncating Server configuration.
+
+For a **read-only protocol wire** probe after protected Staging deployment, set `LIFESPACE_STAGING_MCP_RESOURCE_URI` to the exact enabled `https://core-staging.aisr.online/mcp/{mcp_*}` URI and run `node infra/scripts/verify-staging-mcp-server-wire.mjs`. This checks Resource metadata and invalid token rejection only, **not** OAuth Consent, token exchange or Core data access. The historical isolated `/mcp` probe is not canonical Server acceptance.
