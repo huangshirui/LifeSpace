@@ -139,6 +139,32 @@ describe("Identity OAuth Authorization Server (isolated candidate)", () => {
     expect(url.searchParams.get("code")?.startsWith("lsp_oac_")).toBe(true);
   });
 
+  it("returns issuer-bound access_denied for user rejection without a grant or reusable pending request", async () => {
+    const t = await setup();
+    const pending = await t.authorize();
+    expect(pending.status).toBe(302);
+    const requestId = new URL(pending.headers.get("location")!).searchParams.get("request_id")!;
+    const deny = (secret: string | null, userToken = t.userToken) => t.request(
+      "/oauth/requests/" + requestId + "/deny", {
+        method: "POST",
+        headers: { "content-type": "application/json",
+          ...(secret ? { "x-lifespace-oauth-approver-secret": secret } : {}) },
+        body: JSON.stringify({ userToken }),
+      });
+    expect((await deny(null)).status).toBe(401);
+    expect((await deny(t.b.OAUTH_CORE_APPROVER_SECRET, "forged-user-token")).status).toBe(401);
+    const response = await deny(t.b.OAUTH_CORE_APPROVER_SECRET);
+    expect(response.status).toBe(200);
+    const url = new URL((await response.json() as { redirect_url: string }).redirect_url);
+    expect(url.origin).toBe(new URL(t.redirect).origin);
+    expect(url.searchParams.get("error")).toBe("access_denied");
+    expect(url.searchParams.get("iss")).toBe(t.b.OAUTH_ISSUER);
+    expect(url.searchParams.get("state")).toBe("testState" + "x".repeat(36));
+    expect(url.searchParams.has("code")).toBe(false);
+    expect((await deny(t.b.OAUTH_CORE_APPROVER_SECRET)).status).toBe(400);
+    expect((await t.approve(requestId, t.b.OAUTH_CORE_APPROVER_SECRET)).status).toBe(400);
+  });
+
   it("checks Core Server state at dynamic OAuth request and again at Consent approval", async () => {
     const t = await setup();
     const id = "mcp_" + crypto.randomUUID().replaceAll("-", "");
