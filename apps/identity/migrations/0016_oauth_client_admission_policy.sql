@@ -8,6 +8,7 @@ CREATE TABLE oauth_client_admission_policy (
   cimd_client_ids_json TEXT NOT NULL DEFAULT '[]',
   dcr_redirect_uris_json TEXT NOT NULL DEFAULT '[]',
   revision INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1),
+  last_change_id TEXT NOT NULL DEFAULT '',
   updated_by_user_id TEXT REFERENCES users(id),
   updated_at TEXT NOT NULL
 );
