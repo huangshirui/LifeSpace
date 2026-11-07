@@ -1,0 +1,56 @@
+name: Verify LifeSpace MCP staging wire (read only)
+
+# This workflow performs four bounded public HTTP requests:
+#   1) Identity OAuth authorization server metadata (GET)
+#   2) Selected Core MCP Server protected-resource metadata (GET)
+#   3) MCP initialize without token (POST, must receive 401)
+#   4) MCP initialize with a fixed synthetic invalid token (POST, must receive 401)
+# It never authenticates, reads business data, mutates D1 or deploys Workers.
+on:
+  workflow_dispatch:
+    inputs:
+      resource_uri:
+        description: "Exact enabled Staging URI: https://core-staging.aisr.online/mcp/mcp_<32 hex>"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lifespace-mcp-staging-wire-probe
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Allow only owner-initiated checks on reviewed main
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_EVENT_NAME" = workflow_dispatch
+          test "$GITHUB_ACTOR" = huangshirui
+          test "$GITHUB_TRIGGERING_ACTOR" = huangshirui
+          test "$GITHUB_REF_NAME" = main
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Run fail-closed local probe tests
+        run: node --test infra/scripts/verify-staging-mcp-server-wire.test.mjs
+      - name: Verify live OAuth metadata and reject missing/forged tokens
+        env:
+          LIFESPACE_STAGING_MCP_RESOURCE_URI: ${{ inputs.resource_uri }}
+        run: node infra/scripts/verify-staging-mcp-server-wire.mjs
+      - name: Summarize scope
+        shell: bash
+        run: |
+          {
+            echo "## MCP staging public-wire probe"
+            echo ""
+            echo "- Checked exact resource metadata, OAuth PKCE issuer, missing-token 401 and synthetic forged-token 401"
+            echo "- No OAuth consent, access token exchange, tool invocation, Core query or user data"
+            echo "- No Cloudflare mutation, D1 writes or production calls"
+          } >> "$GITHUB_STEP_SUMMARY"
