@@ -1,67 +1,69 @@
-# MCP OAuth: Platform / Application / Account ownership
+# MCP OAuth: Platform / Application / Account
 
-**Decision (2026-11-07):** ordinary users connect a compatible third-party
-client without opening a platform-admin ticket or asking Console to approve a
-callback URL for each MCP connection.
+## Ownership
 
-## Three levels of authority
-
-| Owner | Policy / action |
+| Owner | Responsibility |
 | --- | --- |
-| LifeSpace **Console** | Enables supported OAuth client admission methods (CIMD, DCR), chooses protected automatic vs restricted mode, configures optional global exact callback restrictions, audits administrators, limits abuse and disables suspicious clients. Does **not** grant access to user information. |
-| **Application** / MCP Server settings | Controls which Application-owned MCP Server, models, tools, actions and maximum grants are published. Core applies current live Server and model policy on each invocation. Does **not** register an OAuth client for each user. |
-| **Account** | On each OAuth Consent transaction shows unverified client origin and exact requested MCP Resource; user chooses Application, Space, Agent execution mode and scopes. User manages and revokes their own resulting authorizations/connections. No platform administrator is needed. |
+| **LifeSpace Console** | Only two protocol switches (CIMD and DCR) plus one optional **Allowed callback URLs** list. Platform security, abuse protection, logging and client disablement remain server-side. |
+| **Application / MCP Server** | Which models, tools, actions, scopes and execution modes the application exposes. Live Core permission checks still apply. |
+| **Account** | User chooses Application, Space, Agent, execution mode and data scopes on Consent; user can review and revoke their own authorizations. |
 
-Client **registration** (CIMD metadata discovery or DCR) is not user authorization.
-A self-reported DCR client name is not proof of owning the vendor brand.
-CIMD metadata is untrusted public information; the browser Consent must show
-actual redirect origin and not silently grant User Delegation.
+**No platform administrator should need to register each ChatGPT/Claude/user callback URL.**
+OAuth client registration never implies a user Grant or Delegation.
 
-## Global platform registration policy (Identity schema 17)
+## Simplified Console OAuth settings (Identity schema 18)
 
-Stored in Identity D1 and edited from Console → Platform → OAuth 客户端,
-using Platform Admin permission, optimistic revision checking and audit.
+- **CIMD** switch enables protected automatic discovery of eligible public HTTPS
+  Client ID Metadata Documents. Identity validates the document, prevents
+  redirects and invalid metadata, pins registered callbacks, imposes a
+  Staging admission rate limiter and a bounded D1 client quota. An unverified
+  client name is **not** vendor identity proof.
+- **DCR** switch enables protected dynamic client registration with validated
+  callbacks, rate limit and an atomic D1 client quota.
+- **Allowed callback URLs** is **one optional platform-wide exact-match list**.
+  Empty (default) means no **additional** platform limitation. With entries,
+  the registered client's requested redirect must also be in the list.
+  **Every** OAuth authorization and token exchange still checks the
+  requesting client's own registered callback exactly, including when
+  the platform list is empty. No URL wildcards are accepted. Native local
+  loopback redirects follow the existing per-client validation.
+- Existing schema 17 strict CIMD/DCR allowlists are retired. Migration
+  `0018` disables a previously enabled *restricted* method before switching
+  it to automatic mode; an administrator must explicitly re-enable it.
+  Existing *open* methods remain enabled. Existing explicitly restricted
+  global callback URLs remain in place. This avoids accidentally granting
+  broader registration authority on deployment.
+- Runtime `OAUTH_CIMD_ENABLED` and `OAUTH_DCR_ENABLED` are independent
+  environment kill switches, not user-facing allowlists. Staging has
+  `OAUTH_DCR_RATE_LIMITER`; Production does not automatically activate
+  open client registration and needs an independent SSRF/DNS rebinding and
+  abuse review.
 
-- **CIMD**: enabled + `restricted` means exact approved metadata-document
-  Client IDs; enabled + `open` means accept a syntactically valid public HTTPS
-  Client ID URL, fetch strict JSON with no redirects, timeout and body cap,
-  require exact Client ID and registered redirect. In Staging, public
-  discovery is rate-limited; all client records have an atomic 1000-entry cap.
-- **DCR**: enabled + `restricted` means exact permitted registration
-  callbacks; enabled + `open` means a new client can register a validated
-  public HTTPS or local native-loopback URI without advance per-user
-  registration at Console. In Staging, DCR is rate-limited and capped at
-  1000 registered clients; Production has a separate kill switch.
-- **Allowed callback URLs**: common optional **additional** restriction:
-  `client` (default) validates only the exact callbacks registered with
-  that OAuth Client, or `restricted` (extra global exact-match entries)
-  which applies equally to CIMD, DCR and pre-registered clients. Neither
-  mode accepts `*` domain/path wildcards at authorization or token exchange.
-  RFC 8252 native loopback HTTP URIs are allowed and remain scoped to the
-  particular client registration.
-- Migration from schema 16 preserves all existing strict allowlists and
-  enabled flags; new modes default `restricted` and `client`.
-  An administrator must explicitly select `open`; nothing is automatically
-  promoted to open registration or Production.
+## Expected journey
 
-## ChatGPT callback (2026)
+1. User connects a compatible MCP Server from ChatGPT/Claude/etc.
+2. Identity accepts safe automatic client metadata discovery (CIMD) or DCR,
+   without a Console visit for that user's callback.
+3. Account displays the actual client request and the requested MCP resource.
+   User chooses Application/Space/Agent and explicitly consents.
+4. Identity issues a resource-bound token. Core restricts the caller to
+   the current published MCP tools, application model policy and Grants.
+5. User revokes or manages the authorization in Account.
 
-When the OAuth issuer advertises `authorization_response_iss_parameter_supported:
-true`, ChatGPT may use its stable `https://chatgpt.com/connector_platform_oauth_redirect`
-and CIMD Client ID `https://chatgpt.com/oauth/client.json`.
-Old connectors may continue using a callback-specific path. Do **not**
-configure `https://chatgpt.com/connector/oauth/<id>` as a new global Console
-requirement. The selected callback still must be in that client's current
-registered redirect list; Identity emits the fixed configured `iss` on
-OAuth authorization redirects, never reflecting the HTTP Host header.
+Where supported by the client, RFC 9207 stable ChatGPT OAuth redirect uses
+`https://chatgpt.com/connector_platform_oauth_redirect` after Identity
+advertises the issuer response parameter and includes matching `iss` on
+both successful and user-declined Consent responses. The client must still
+register this exact redirect.
 
-## Release/acceptance gates
+## Staging acceptance
 
-New schema version 17 requires Identity migrations before Identity Worker.
-Console must deploy separately. Safely test in Staging: metadata discoverability,
-CIMD direct URL, DCR without preconfigured callback, PKCE and redirect exactness,
-live Account Consent and read-only Core query, revoked/disabled clients,
-wrong MCP Server audience, cross-Space permissions, callback-policy changes,
-rate-limit failures and quota exhaustion. Do not declare open-mode Production
-approved without a separate SSRF/DNS rebinding and abuse review. Do not migrate
-old `conn_*` architecture or create a new generic Connection Registry.
+Deploy Identity migrations before the Identity Worker, then separately
+deploy Console Staging. Confirm the Console has just two switches and one
+optional callback field, and that disabled switches remove their OAuth
+discovery advertisement. Verify CIMD and DCR auto registration, both
+registered callback exactness and optional global callback restrictions,
+PKCE, the Account consent and denial callbacks, cross-MCP-resource
+isolation, Token revocation, rate limiter failures and client quota.
+Production is not approved until the additional outbound-metadata
+security and abuse review is complete.
