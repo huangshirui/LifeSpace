@@ -105,16 +105,19 @@ describe("Identity Platform Admin API", () => {
     const update = {
       expectedRevision: revision,
       cimdEnabled: true, dcrEnabled: true,
-      cimdClientIds: ["https://chatgpt.com/oauth/client.json"],
-      dcrRedirectUris: ["https://chatgpt.com/connector/oauth/50_CFoh9OsZj"],
+      cimdMode: "open", dcrMode: "open", callbackMode: "client",
+      cimdClientIds: [], dcrRedirectUris: [], callbackUris: [],
     };
     const send = (input: unknown) => request(route, { method: "PUT", headers, body: JSON.stringify(input) }, pair);
     expect((await send({ ...update, cimdClientIds: ["https://*.example.com/client.json"] })).status).toBe(422);
+    expect((await send({ ...update, callbackMode: "restricted" })).status).toBe(422);
     const changed = await send(update);
     expect(changed.status).toBe(200);
     const saved = (await changed.json() as any).data;
     expect(saved.revision).toBe(revision + 1);
     expect(saved.cimdEnabled).toBe(true);
+    expect(saved.dcrMode).toBe("open");
+    expect(saved.callbackMode).toBe("client");
     expect(saved.dcrRedirectUris).toEqual(update.dcrRedirectUris);
     const stale = await send(update);
     expect(stale.status).toBe(409);
@@ -128,7 +131,8 @@ describe("Identity Platform Admin API", () => {
     // Restore the shared isolated test policy to deny-all.
     expect((await send({
       expectedRevision: saved.revision,
-      cimdEnabled: false, dcrEnabled: false, cimdClientIds: [], dcrRedirectUris: [],
+      cimdEnabled: false, dcrEnabled: false, cimdMode: "restricted", dcrMode: "restricted",
+      callbackMode: "client", cimdClientIds: [], dcrRedirectUris: [], callbackUris: [],
     })).status).toBe(200);
   });
 
