@@ -166,7 +166,11 @@ describe("Identity OAuth Authorization Server (isolated candidate)", () => {
     const defaultMetadata = await t.request("/.well-known/oauth-authorization-server");
     expect(defaultMetadata.status).toBe(200);
     expect(await defaultMetadata.json()).not.toHaveProperty("client_id_metadata_document_supported");
-    (t.b as typeof t.b & { OAUTH_CIMD_ENABLED: string }).OAUTH_CIMD_ENABLED = "1";
+    const cimd = t.b as typeof t.b & { OAUTH_CIMD_ENABLED: string; OAUTH_CIMD_ALLOWED_CLIENT_IDS: string };
+    cimd.OAUTH_CIMD_ENABLED = "1";
+    const unpinned = await t.request("/.well-known/oauth-authorization-server");
+    expect(await unpinned.json()).not.toHaveProperty("client_id_metadata_document_supported");
+    cimd.OAUTH_CIMD_ALLOWED_CLIENT_IDS = "https://chatgpt.com/oauth/client.json";
     const optInMetadata = await t.request("/.well-known/oauth-authorization-server");
     expect(optInMetadata.status).toBe(200);
     expect(await optInMetadata.json()).toMatchObject({
@@ -198,6 +202,43 @@ describe("Identity OAuth Authorization Server (isolated candidate)", () => {
       method: "POST", headers: { "content-type": "application/json" },
       body: JSON.stringify({ redirect_uris: [t.redirect] }),
     })).status).toBe(403);
+  });
+
+  it("fails closed without staging DCR limiter, rejects exhausted budget and never advertises in Production", async () => {
+    const t = await setup();
+    const b = t.b as typeof t.b & {
+      OAUTH_DCR_RATE_LIMITER?: { limit: (options: { key: string }) => Promise<{ success: boolean }> };
+    };
+    b.ENVIRONMENT = "staging";
+    const before = await t.request("/.well-known/oauth-authorization-server");
+    expect(await before.json()).not.toHaveProperty("registration_endpoint");
+    const options = {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ redirect_uris: [t.redirect], token_endpoint_auth_method: "none" }),
+    };
+    expect((await t.request("/oauth/register", options)).status).toBe(403);
+    const keys: string[] = [];
+    b.OAUTH_DCR_RATE_LIMITER = {
+      limit: async ({ key }) => { keys.push(key); return { success: false }; },
+    };
+    const configured = await t.request("/.well-known/oauth-authorization-server");
+    expect(await configured.json()).toHaveProperty("registration_endpoint", t.b.OAUTH_ISSUER + "/oauth/register");
+    expect((await t.request("/oauth/register", options)).status).toBe(429);
+    expect(keys).toEqual(["oauth-dcr-global"]);
+    b.OAUTH_DCR_RATE_LIMITER = {
+      limit: async () => ({ success: true }),
+    };
+    expect((await t.request("/oauth/register", {
+      ...options, headers: { "content-type": "text/plain" },
+    })).status).toBe(400);
+    const accepted = await t.request("/oauth/register", options);
+    expect(accepted.status).toBe(201);
+    expect((await accepted.json() as { client_id: string }).client_id.startsWith("ocli_")).toBe(true);
+    b.ENVIRONMENT = "production";
+    const disabled = await t.request("/.well-known/oauth-authorization-server");
+    expect(await disabled.json()).not.toHaveProperty("registration_endpoint");
+    expect((await t.request("/oauth/register", options)).status).toBe(403);
   });
 
   it("requires private Core authentication and bounded Agent IDs for active binding resolution", async () => {
