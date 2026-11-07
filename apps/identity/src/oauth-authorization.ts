@@ -270,8 +270,15 @@ export function registerOAuthAuthorizationServer(app: App) {
     const name = typeof input.client_name === "string" && input.client_name.trim() && input.client_name.length <= 100
       ? input.client_name.trim() : "Unnamed OAuth Client";
     const clientId = id("ocli");
-    await c.env.DB.prepare("INSERT INTO oauth_clients(id,display_name,redirect_uris,status,created_at) VALUES(?,?,?,'active',?)")
-      .bind(clientId, name, JSON.stringify(redirectUris), instant()).run();
+    // Atomic global capacity limit complements the per-colo limiter and prevents
+    // unbounded anonymous registrations even across multiple regions.
+    const inserted = await c.env.DB.prepare(
+      "INSERT INTO oauth_clients(id,display_name,redirect_uris,status,created_at) "
+      + "SELECT ?,?,?,'active',? WHERE (SELECT count(*) FROM oauth_clients WHERE id LIKE 'ocli_%') < 1000"
+    ).bind(clientId, name, JSON.stringify(redirectUris), instant()).run();
+    if (inserted.meta.changes !== 1) {
+      return oauthError(c, 429, "rate_limited", "OAuth client registration capacity reached");
+    }
     return c.json({
       client_id: clientId, client_id_issued_at: Math.floor(Date.now() / 1000), client_name: name,
       redirect_uris: redirectUris, token_endpoint_auth_method: "none",
