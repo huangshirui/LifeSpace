@@ -29,7 +29,7 @@ const json = (value: string) => {
     return Array.isArray(result) ? result.filter((item): item is string => typeof item === "string") : [];
   } catch { return []; }
 };
-const oauthError = (c: Context<AppEnv>, status: 400 | 401 | 403 | 503, error: string, description: string) =>
+const oauthError = (c: Context<AppEnv>, status: 400 | 401 | 403 | 429 | 503, error: string, description: string) =>
   c.json({ error, error_description: description }, status);
 const randomSecret = (prefix: string) => {
   const bytes = crypto.getRandomValues(new Uint8Array(32));
@@ -200,6 +200,17 @@ export async function exchangeInteractiveOAuthToken(c: Context<AppEnv>, body: Fo
   return issueTokens(c, a, row.family_id);
 }
 
+// Registration features are advertised only when their safety gates exist.
+function dcrReady(env: Bindings): boolean {
+  return env.OAUTH_DCR_ENABLED === "1" && env.ENVIRONMENT !== "production"
+    && (env.ENVIRONMENT !== "staging" || Boolean(env.OAUTH_DCR_RATE_LIMITER));
+}
+function cimdReady(env: Bindings): boolean {
+  if (env.OAUTH_CIMD_ENABLED !== "1" || !env.OAUTH_CIMD_ALLOWED_CLIENT_IDS) return false;
+  const urls = env.OAUTH_CIMD_ALLOWED_CLIENT_IDS.split(/\s+/u).filter(Boolean);
+  return urls.length > 0 && urls.length <= 100
+    && urls.every(url => approvedCimdClientId(url, env.OAUTH_CIMD_ALLOWED_CLIENT_IDS));
+}
 export function registerOAuthAuthorizationServer(app: App) {
   app.get("/.well-known/oauth-authorization-server", (c) => {
     const base = issuer(c);
@@ -208,8 +219,8 @@ export function registerOAuthAuthorizationServer(app: App) {
       issuer: base, authorization_endpoint: base + "/oauth/authorize", token_endpoint: base + "/oauth/token",
       revocation_endpoint: base + "/oauth/revoke",
       introspection_endpoint: base + "/oauth/introspect",
-      ...(c.env.OAUTH_CIMD_ENABLED === "1" ? { client_id_metadata_document_supported: true } : {}),
-      ...(c.env.OAUTH_DCR_ENABLED === "1" && c.env.ENVIRONMENT !== "production" ? { registration_endpoint: base + "/oauth/register" } : {}),
+      ...(cimdReady(c.env) ? { client_id_metadata_document_supported: true } : {}),
+      ...(dcrReady(c.env) ? { registration_endpoint: base + "/oauth/register" } : {}),
       response_types_supported: ["code"], grant_types_supported: ["authorization_code", "refresh_token", "client_credentials"],
       token_endpoint_auth_methods_supported: ["none", "client_secret_basic", "client_secret_post"],
       code_challenge_methods_supported: ["S256"], scopes_supported: ["resources:read", "resources:write", "resources:manage"],
