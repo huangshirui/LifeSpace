@@ -16,6 +16,7 @@ tags:
   - name: Agent Admin
   - name: Identity Inspector
   - name: Service Admin
+  - name: OAuth Client Admission
   - name: Platform Audit
 paths:
   /api/v1/me/platform-admin-actor-token:
@@ -587,6 +588,47 @@ paths:
       responses:
         '204': { description: Service API Token revoked }
         '404': { $ref: '#/components/responses/NotFound' }
+  /internal/v1/platform-admin/oauth/client-admission:
+    get:
+      tags: [OAuth Client Admission]
+      operationId: readOAuthClientAdmission
+      description: >-
+        Read Identity-owned CIMD metadata URL and DCR redirect URI exact-match
+        allowlists plus independent enable switches. Requires applications:manage
+        executor and a current human platform-admin actor proof.
+      security: [{ applicationCredential: [], platformAdminActor: [] }]
+      responses:
+        '200': { description: Versioned client admission configuration }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    put:
+      tags: [OAuth Client Admission]
+      operationId: updateOAuthClientAdmission
+      description: >-
+        Atomically replace both exact-match allowlists, enforce optimistic
+        expectedRevision, and write actor-attributed Platform Admin audit.
+        This registers no OAuth client and creates no authorization or Grant.
+      security: [{ applicationCredential: [], platformAdminActor: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [expectedRevision, cimdEnabled, dcrEnabled, cimdClientIds, dcrRedirectUris]
+              properties:
+                expectedRevision: { type: integer, minimum: 1 }
+                cimdEnabled: { type: boolean }
+                dcrEnabled: { type: boolean }
+                cimdClientIds: { type: array, maxItems: 100, uniqueItems: true, items: { type: string, format: uri } }
+                dcrRedirectUris: { type: array, maxItems: 100, uniqueItems: true, items: { type: string, format: uri } }
+      responses:
+        '200': { description: Updated versioned client admission configuration }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { description: Concurrent update; refresh revision }
+        '422': { $ref: '#/components/responses/ValidationError' }
   /internal/v1/platform-admin/audit:
     get:
       tags: [Platform Audit]
