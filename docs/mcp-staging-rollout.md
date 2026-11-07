@@ -78,11 +78,29 @@ accepts the opaque public OAuth token; the Adapter cannot bypass Core Grants.
    Validate wrong Server audience, cross-Space, disabled Server, revoked
    authorization, refresh-token replay, changed query operation, invalid
    `Mcp-Name`, and OAuth metadata mismatch all fail closed.
-7. CIMD remains **disabled unless** `OAUTH_CIMD_ENABLED=1` and the exact
-   `OAUTH_CIMD_ALLOWED_CLIENT_IDS` operator list is installed. Do not enable
-   public anonymous client document discovery without a production-grade
-   SSRF/rate-limit review. Staging can initially use an explicitly pre-registered
-   OAuth test client; DCR is limited to Staging.
+7. **Staging CIMD+DCR rollout:** Identity Staging advertises CIMD only when
+   `OAUTH_CIMD_ENABLED=1` and valid exact `OAUTH_CIMD_ALLOWED_CLIENT_IDS`
+   are present. Initial exact reviewed ChatGPT URL clients are
+   `https://chatgpt.com/oauth/client.json` and
+   `https://chatgpt.com/oauth/50_CFoh9OsZj/client.json` (the latter is the
+   callback-specific candidate and must be validated against the actual
+   document and selected redirect URI during E2E). No wildcard, arbitrary URL
+   fetch or localhost redirect fallback. Remote CIMD metadata is unverified
+   client data, not proof of identity.
+8. Identity Staging also opts into DCR with `OAUTH_DCR_ENABLED=1` and
+   `OAUTH_DCR_RATE_LIMITER` (10 attempts / minute / Cloudflare location,
+   shared global key). If the binding is absent, the registration endpoint is
+   not advertised and cannot be used. A single atomic D1 INSERT caps generated
+   DCR registrations at 1000 across all regions; quota and registration are
+   intentionally **Staging-only**, not Production readiness. Requests with
+   invalid content type, redirects or methods are denied. Cloudflare Rate
+   Limiting is approximate/per-location, **not** strict globally.
+9. For a real ChatGPT test, use the custom MCP server wizard's **CIMD** or
+   **DCR** mode, not a supplied Client ID. For the current callback,
+   `https://chatgpt.com/connector/oauth/50_CFoh9OsZj`, verify that the
+   chosen CIMD document actually includes this exact redirect before Consent.
+   Use `resources:read` only. Test Authorization Code+PKCE, Account Consent,
+   `tools/list`, `tools/call`, revocation and denial paths.
 
 ## Explicitly out of scope
 
