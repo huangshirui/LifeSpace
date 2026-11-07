@@ -54,6 +54,12 @@ function fixture() {
         { applicationId: app, applicationName: "ALOHA", spaceId: space, spaceName: "Personal Space",
           agentId: agent, agentName: "ALOHA Agent" },
       ] } });
+      if (path === "/api/v1/me/oauth/requests/" + id + "/deny") {
+        assert.deepEqual(await req.json(), {});
+        return Response.json({ data: {
+          redirectUrl: "https://client.example.test/callback?error=access_denied&state=someopaque&iss=https%3A%2F%2Fauth-staging.example.test",
+        } });
+      }
       if (path === "/api/v1/me/oauth/requests/" + id + "/confirm") {
         const input = await req.json();
         assert.deepEqual(input, {
@@ -126,6 +132,32 @@ test("Access exchange is server-only and a user-bound signed CSRF cookie allows 
   assert.equal(confirmed.status, 200);
   assert.match((await confirmed.json()).data.redirectUrl, /^https:\/\/client\.example\.test\/callback\?code=/u);
   assert.equal(t.calls.filter((c) => c.service === "core" && c.path.endsWith("/confirm")).length, 1);
+});
+
+test("explicit OAuth decline requires same-origin signed CSRF and returns an issuer-bound error without a Grant", async () => {
+  const t = fixture();
+  const session = await t.request("/api/session");
+  const { data } = await session.json();
+  const cookie = session.headers.get("set-cookie").split(";")[0];
+  const good = {
+    method: "POST",
+    headers: mutatingHeaders(data.csrfToken, cookie),
+    body: JSON.stringify({ intent: "deny-oauth-authorization", requestId: id }),
+  };
+  assert.equal((await t.request("/api/oauth/deny", {
+    ...good, headers: mutatingHeaders("bad-token", cookie),
+  })).status, 403);
+  assert.equal((await t.request("/api/oauth/deny", {
+    ...good, body: JSON.stringify({ intent: "deny-oauth-authorization", requestId: id, userId: "usr_other" }),
+  })).status, 400);
+  const denied = await t.request("/api/oauth/deny", good);
+  assert.equal(denied.status, 200);
+  const uri = new URL((await denied.json()).data.redirectUrl);
+  assert.equal(uri.searchParams.get("error"), "access_denied");
+  assert.equal(uri.searchParams.get("iss"), "https://auth-staging.example.test");
+  assert.equal(uri.searchParams.has("code"), false);
+  assert.equal(t.calls.filter(c => c.service === "core" && c.path.endsWith("/deny")).length, 1);
+  assert.equal(t.calls.filter(c => c.service === "core" && c.path.endsWith("/confirm")).length, 0);
 });
 
 test("permission projection is bounded by current Identity OAuth scopes, not user-supplied scope claims", async () => {

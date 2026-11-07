@@ -78,32 +78,25 @@ accepts the opaque public OAuth token; the Adapter cannot bypass Core Grants.
    Validate wrong Server audience, cross-Space, disabled Server, revoked
    authorization, refresh-token replay, changed query operation, invalid
    `Mcp-Name`, and OAuth metadata mismatch all fail closed.
-7. **Identity-owned client admission settings:** LifeSpace Console → `OAuth 客户端`
-   manages two exact-match lists in Identity D1, with separate CIMD and DCR
-   toggles, optimistic revision control and Platform Admin audit. Default is
-   disabled with empty lists. These are **registration/admission controls**,
-   not Client authenticity proof and not Core Data Grants.
-8. **CIMD:** Operators add the real, verified client metadata document URL
-   (as the OAuth client ID), **not** the ChatGPT connector callback URL.
-   Identity fetches only exact allowlisted HTTPS documents, rejects unsafe
-   hosts/redirects, validates JSON, and pins redirect URI metadata.
-   `OAUTH_CIMD_ENABLED=1` in Staging remains an operational kill switch;
-   Console policy must also be enabled with at least one valid URL.
-9. **DCR:** Clients have no assigned Client ID before registering. The
-   configurable whitelist therefore lists **exact redirect URIs**, including
-   e.g. `https://chatgpt.com/connector/oauth/50_CFoh9OsZj`. All requested
-   callbacks must match. Staging further requires
-   `OAUTH_DCR_ENABLED=1`, `OAUTH_DCR_RATE_LIMITER`
-   (10 attempts/minute/Cloudflare location), and a 1000-client D1 cap.
-   If any gate is missing, public registration is refused.
-   Quota does not authenticate a vendor; suspicious clients remain unverified.
-10. **Acceptance:** Deploy Identity migrations + protected platform Staging,
-    then deploy Console Staging separately. Configure reviewed allowlist
-    entries via the Console page, refresh OAuth metadata, and test both
-    CIMD and DCR in ChatGPT with only `resources:read`.
-    Continue with PKCE, Account Consent, read-only tools, revocation and
-    cross-Server/Space denial. Production remains disabled pending a separate
-    protection review.
+7. **OAuth client admission (schema 17)**: after the platform Staging migration
+   and separate Console Staging deploy, go to **Platform → OAuth 客户端**.
+   Choose `open` for guarded self-service CIMD and/or DCR, or `restricted`
+   for specific managed clients. Do **not** add each ChatGPT user's callback
+   in Console. The shared callback option defaults to client registration
+   exact-match, with an optional extra global whitelist.
+8. **ChatGPT Staging E2E**: with the real test MCP Resource, verify
+   automatic CIMD using the stable `https://chatgpt.com/oauth/client.json`
+   (if ChatGPT presents it) and fallback DCR. With RFC 9207 issuer support
+   ChatGPT can use `https://chatgpt.com/connector_platform_oauth_redirect`;
+   old connector configurations may still use an ID-specific callback.
+   Confirm the actual Client's registered callback rather than guessing.
+9. Test PKCE and exact resource/callback validation, Account Consent
+   selecting Application/Space/Agent, success **and** user-decline `iss`,
+   read-only Core tools, revocation, cross-Resource/Space denial, and
+   registration/metadata rate limits. **Open Client admission must not
+   grant user or Agent authority.** Do not enable open-mode Production
+   until separate SSRF/DNS rebinding and abuse protections are reviewed.
+
 ## Explicitly out of scope
 
 - No Production Worker, route, OAuth secret, D1, Space, or Data Grant mutation.

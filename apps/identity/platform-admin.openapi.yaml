@@ -616,13 +616,17 @@ paths:
             schema:
               type: object
               additionalProperties: false
-              required: [expectedRevision, cimdEnabled, dcrEnabled, cimdClientIds, dcrRedirectUris]
+              required: [expectedRevision, cimdEnabled, dcrEnabled, cimdMode, dcrMode, callbackMode, cimdClientIds, dcrRedirectUris, callbackUris]
               properties:
                 expectedRevision: { type: integer, minimum: 1 }
                 cimdEnabled: { type: boolean }
                 dcrEnabled: { type: boolean }
+                cimdMode: { type: string, enum: [restricted, open] }
+                dcrMode: { type: string, enum: [restricted, open] }
+                callbackMode: { type: string, enum: [client, restricted] }
                 cimdClientIds: { type: array, maxItems: 100, uniqueItems: true, items: { type: string, format: uri } }
                 dcrRedirectUris: { type: array, maxItems: 100, uniqueItems: true, items: { type: string, format: uri } }
+                callbackUris: { type: array, maxItems: 100, uniqueItems: true, items: { type: string, format: uri } }
       responses:
         '200': { description: Updated versioned client admission configuration }
         '401': { $ref: '#/components/responses/Unauthorized' }

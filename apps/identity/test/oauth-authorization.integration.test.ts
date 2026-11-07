@@ -34,7 +34,9 @@ async function setup() {
   // Existing OAuth integration scenarios run with an explicit isolated
   // allowlist, never through anonymous or wildcard client registration.
   await b.DB.prepare(
-    "UPDATE oauth_client_admission_policy SET dcr_enabled=1,dcr_redirect_uris_json=? WHERE id=1"
+    "UPDATE oauth_client_admission_policy SET dcr_enabled=1,dcr_mode='restricted',"
+    + "cimd_enabled=0,cimd_mode='restricted',callback_mode='client',"
+    + "callback_uris_json='[]',cimd_client_ids_json='[]',dcr_redirect_uris_json=? WHERE id=1"
   ).bind(JSON.stringify(["https://client.example.test/callback"])).run();
   const request = (path: string, options: RequestInit = {}) => app.request("https://auth.example.test" + path, options, b);
   const bootstrap = async (scopes: string[]) => {
@@ -137,6 +139,32 @@ describe("Identity OAuth Authorization Server (isolated candidate)", () => {
     expect(url.searchParams.get("code")?.startsWith("lsp_oac_")).toBe(true);
   });
 
+  it("returns issuer-bound access_denied for user rejection without a grant or reusable pending request", async () => {
+    const t = await setup();
+    const pending = await t.authorize();
+    expect(pending.status).toBe(302);
+    const requestId = new URL(pending.headers.get("location")!).searchParams.get("request_id")!;
+    const deny = (secret: string | null, userToken = t.userToken) => t.request(
+      "/oauth/requests/" + requestId + "/deny", {
+        method: "POST",
+        headers: { "content-type": "application/json",
+          ...(secret ? { "x-lifespace-oauth-approver-secret": secret } : {}) },
+        body: JSON.stringify({ userToken }),
+      });
+    expect((await deny(null)).status).toBe(401);
+    expect((await deny(t.b.OAUTH_CORE_APPROVER_SECRET, "forged-user-token")).status).toBe(401);
+    const response = await deny(t.b.OAUTH_CORE_APPROVER_SECRET);
+    expect(response.status).toBe(200);
+    const url = new URL((await response.json() as { redirect_url: string }).redirect_url);
+    expect(url.origin).toBe(new URL(t.redirect).origin);
+    expect(url.searchParams.get("error")).toBe("access_denied");
+    expect(url.searchParams.get("iss")).toBe(t.b.OAUTH_ISSUER);
+    expect(url.searchParams.get("state")).toBe("testState" + "x".repeat(36));
+    expect(url.searchParams.has("code")).toBe(false);
+    expect((await deny(t.b.OAUTH_CORE_APPROVER_SECRET)).status).toBe(400);
+    expect((await t.approve(requestId, t.b.OAUTH_CORE_APPROVER_SECRET)).status).toBe(400);
+  });
+
   it("checks Core Server state at dynamic OAuth request and again at Consent approval", async () => {
     const t = await setup();
     const id = "mcp_" + crypto.randomUUID().replaceAll("-", "");
@@ -190,7 +218,8 @@ describe("Identity OAuth Authorization Server (isolated candidate)", () => {
     const metadata = await t.request("/.well-known/oauth-authorization-server");
     expect(metadata.status).toBe(200);
     expect(await metadata.json()).toMatchObject({
-      issuer: t.b.OAUTH_ISSUER, code_challenge_methods_supported: ["S256"],
+      issuer: t.b.OAUTH_ISSUER, authorization_response_iss_parameter_supported: true,
+      code_challenge_methods_supported: ["S256"],
       token_endpoint: t.b.OAUTH_ISSUER + "/oauth/token",
     });
     const wrongRedirect = await t.authorize({ redirect_uri: "https://evil.example.test/callback" });
@@ -250,6 +279,82 @@ describe("Identity OAuth Authorization Server (isolated candidate)", () => {
     const disabled = await t.request("/.well-known/oauth-authorization-server");
     expect(await disabled.json()).not.toHaveProperty("registration_endpoint");
     expect((await t.request("/oauth/register", options)).status).toBe(403);
+  });
+
+  it("admits a new DCR client without a platform callback entry while still enforcing its registered callback", async () => {
+    const t = await setup();
+    const env = t.b as typeof t.b & { OAUTH_DCR_RATE_LIMITER: { limit: () => Promise<{ success: boolean }> } };
+    env.ENVIRONMENT = "staging";
+    env.OAUTH_DCR_RATE_LIMITER = { limit: async () => ({ success: true }) };
+    await t.b.DB.prepare(
+      "UPDATE oauth_client_admission_policy SET dcr_enabled=1,dcr_mode='open',dcr_redirect_uris_json='[]',"
+      + "callback_mode='client',callback_uris_json='[]' WHERE id=1"
+    ).run();
+    const metadata = await t.request("/.well-known/oauth-authorization-server");
+    expect(await metadata.json()).toHaveProperty("registration_endpoint", t.b.OAUTH_ISSUER + "/oauth/register");
+    const redirect = "https://new-client.example.com/callback";
+    const registered = await t.request("/oauth/register", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ redirect_uris: [redirect], token_endpoint_auth_method: "none" }),
+    });
+    expect(registered.status).toBe(201);
+    const clientId = (await registered.json() as { client_id: string }).client_id;
+    expect((await t.authorize({ client_id: clientId, redirect_uri: redirect })).status).toBe(302);
+    expect((await t.authorize({ client_id: clientId, redirect_uri: "https://other-client.example.com/callback" })).status).toBe(400);
+    // The extra global callback setting is optional, but must constrain
+    // existing registrations too when an administrator enables it.
+    await t.b.DB.prepare(
+      "UPDATE oauth_client_admission_policy SET callback_mode='restricted',callback_uris_json=? WHERE id=1"
+    ).bind(JSON.stringify([t.redirect])).run();
+    expect((await t.authorize({ client_id: clientId, redirect_uri: redirect })).status).toBe(400);
+    expect((await t.request("/oauth/register", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ redirect_uris: [redirect] }),
+    })).status).toBe(403);
+  });
+
+  it("admits a CIMD client with an unlisted HTTPS Client ID only in guarded open mode", async () => {
+    const t = await setup();
+    const b = t.b as typeof t.b & {
+      OAUTH_CIMD_ENABLED: string;
+      OAUTH_DCR_RATE_LIMITER: { limit: ({ key }: { key: string }) => Promise<{ success: boolean }> };
+    };
+    b.ENVIRONMENT = "staging";
+    b.OAUTH_CIMD_ENABLED = "1";
+    const remoteId = "https://public-client.example.com/oauth/client.json";
+    const redirect = "https://client.example.test/callback";
+    await b.DB.prepare(
+      "UPDATE oauth_client_admission_policy SET cimd_enabled=1,cimd_mode='open',cimd_client_ids_json='[]' WHERE id=1"
+    ).run();
+    const withoutLimiter = await t.request("/.well-known/oauth-authorization-server");
+    expect(await withoutLimiter.json()).not.toHaveProperty("client_id_metadata_document_supported");
+    expect((await t.authorize({ client_id: remoteId, redirect_uri: redirect })).status).toBe(400);
+    const keys: string[] = [];
+    b.OAUTH_DCR_RATE_LIMITER = { limit: async ({ key }) => {
+      keys.push(key);
+      return { success: true };
+    } };
+    const oldFetch = globalThis.fetch;
+    let documentCalls = 0;
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      if (input !== remoteId) throw new Error("Unexpected metadata fetch");
+      documentCalls++;
+      return Response.json({
+        client_id: remoteId, client_name: "Unverified Public Agent",
+        redirect_uris: [redirect],
+        response_types: ["code"], token_endpoint_auth_method: "none",
+      });
+    }) as typeof fetch;
+    try {
+      const accepted = await t.authorize({ client_id: remoteId, redirect_uri: redirect });
+      expect(accepted.status).toBe(302);
+      expect(documentCalls).toBe(1);
+      expect(keys).toEqual(["oauth-cimd-fetch"]);
+      expect((await t.authorize({ client_id: remoteId,
+        redirect_uri: "https://other-client.example.com/callback" })).status).toBe(400);
+    } finally {
+      globalThis.fetch = oldFetch;
+    }
   });
 
   it("requires private Core authentication and bounded Agent IDs for active binding resolution", async () => {

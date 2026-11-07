@@ -144,8 +144,28 @@ controls.agent.addEventListener("change", refreshCapabilities);
 document.querySelectorAll('input[name="mode"]').forEach((el) =>
   el.addEventListener("change", () => show("delegation-note", $("allow").checked)));
 $("retry").addEventListener("click", initialize);
-$("cancel").addEventListener("click", () =>
-  failure("已停止授权", "没有创建 OAuth Authorization。你可以关闭此页面并返回客户端。"));
+$("cancel").addEventListener("click", async () => {
+  if (state.busy) return;
+  if (!state.csrf || !state.request?.id) {
+    failure("已停止授权", "没有创建 OAuth Authorization，你可以关闭此窗口。");
+    return;
+  }
+  state.busy = true; updateButton();
+  try {
+    const result = await api("/api/oauth/deny", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-lifespace-csrf": state.csrf },
+      body: JSON.stringify({
+        intent: "deny-oauth-authorization", requestId: state.request.id,
+      }),
+    });
+    if (!result.redirectUrl || !/^https?:\/\//u.test(result.redirectUrl)) throw new Error("无效的 OAuth 回调地址");
+    window.location.assign(result.redirectUrl);
+  } catch (err) {
+    state.busy = false;
+    failure("拒绝授权未完成", err instanceof Error ? err.message : "请重新打开授权页面");
+  }
+});
 $("approve").addEventListener("click", async () => {
   if ($("approve").disabled || !confirm("确认将所选 Application、Space 与 Agent 授权给此客户端？")) return;
   state.busy = true; updateButton(); $("approve").textContent = "正在确认…";

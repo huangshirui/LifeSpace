@@ -22,3 +22,11 @@
 .oad-error,.oad-notice{margin-bottom:16px;padding:12px 16px;border:1px solid #e5b0b0;border-radius:10px;color:#923333;background:#fff6f6}
 .oad-notice{border-color:#bddec7;color:#285d3a;background:#f7fdf9}
 @media(max-width:830px){.oad-grid{grid-template-columns:1fr}.oad-footer{flex-direction:column;align-items:stretch}.oad-save{align-items:stretch}.oad-header h1{font-size:23px}}
+.oad-select{display:block;width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid #ccd6e1;border-radius:9px;font:inherit;background:#fff;color:#1c2936}
+.oad-select:focus{outline:2px solid #b8d7fb;border-color:#5b97d7}
+.oad-spaced{margin-top:18px}
+.oad-open-note{background:#f3f7fc;border-radius:9px;color:#33465b;font-size:13px;line-height:1.7;padding:14px;margin:18px 0 0}
+.oad-callbacks{margin-top:18px}
+.oad-choice{display:flex;flex-direction:column;gap:12px;margin-top:12px;font-size:14px}
+.oad-choice label{display:flex;gap:8px;align-items:center;cursor:pointer}
+.oad-choice input{accent-color:#2860a5}
