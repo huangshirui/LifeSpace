@@ -2,7 +2,7 @@
 
 **Status (2026-11-07): private Staging Adapter deployed (Actions 42336470387),
 Identity/Adapter OAuth Resource Server secret paired (Actions 42338739134),
-Core Staging `MCP_ADAPTER` binding pending reviewed release; OAuth E2E not yet accepted.**
+Core Staging `MCP_ADAPTER` binding deployed (Actions 42339340052); read-only public-wire probe passed (Actions 42347634684); real OAuth E2E not yet accepted.**
 This is a cross-repository
 integration gate, not a new Connection Registry, Cloudflare Managed OAuth or Production launch.
 
@@ -78,30 +78,32 @@ accepts the opaque public OAuth token; the Adapter cannot bypass Core Grants.
    Validate wrong Server audience, cross-Space, disabled Server, revoked
    authorization, refresh-token replay, changed query operation, invalid
    `Mcp-Name`, and OAuth metadata mismatch all fail closed.
-7. **Staging CIMD+DCR rollout:** Identity Staging advertises CIMD only when
-   `OAUTH_CIMD_ENABLED=1` and valid exact `OAUTH_CIMD_ALLOWED_CLIENT_IDS`
-   are present. Initial exact reviewed ChatGPT URL clients are
-   `https://chatgpt.com/oauth/client.json` and
-   `https://chatgpt.com/oauth/50_CFoh9OsZj/client.json` (the latter is the
-   callback-specific candidate and must be validated against the actual
-   document and selected redirect URI during E2E). No wildcard, arbitrary URL
-   fetch or localhost redirect fallback. Remote CIMD metadata is unverified
-   client data, not proof of identity.
-8. Identity Staging also opts into DCR with `OAUTH_DCR_ENABLED=1` and
-   `OAUTH_DCR_RATE_LIMITER` (10 attempts / minute / Cloudflare location,
-   shared global key). If the binding is absent, the registration endpoint is
-   not advertised and cannot be used. A single atomic D1 INSERT caps generated
-   DCR registrations at 1000 across all regions; quota and registration are
-   intentionally **Staging-only**, not Production readiness. Requests with
-   invalid content type, redirects or methods are denied. Cloudflare Rate
-   Limiting is approximate/per-location, **not** strict globally.
-9. For a real ChatGPT test, use the custom MCP server wizard's **CIMD** or
-   **DCR** mode, not a supplied Client ID. For the current callback,
-   `https://chatgpt.com/connector/oauth/50_CFoh9OsZj`, verify that the
-   chosen CIMD document actually includes this exact redirect before Consent.
-   Use `resources:read` only. Test Authorization Code+PKCE, Account Consent,
-   `tools/list`, `tools/call`, revocation and denial paths.
-
+7. **Identity-owned client admission settings:** LifeSpace Console → `OAuth 客户端`
+   manages two exact-match lists in Identity D1, with separate CIMD and DCR
+   toggles, optimistic revision control and Platform Admin audit. Default is
+   disabled with empty lists. These are **registration/admission controls**,
+   not Client authenticity proof and not Core Data Grants.
+8. **CIMD:** Operators add the real, verified client metadata document URL
+   (as the OAuth client ID), **not** the ChatGPT connector callback URL.
+   Identity fetches only exact allowlisted HTTPS documents, rejects unsafe
+   hosts/redirects, validates JSON, and pins redirect URI metadata.
+   `OAUTH_CIMD_ENABLED=1` in Staging remains an operational kill switch;
+   Console policy must also be enabled with at least one valid URL.
+9. **DCR:** Clients have no assigned Client ID before registering. The
+   configurable whitelist therefore lists **exact redirect URIs**, including
+   e.g. `https://chatgpt.com/connector/oauth/50_CFoh9OsZj`. All requested
+   callbacks must match. Staging further requires
+   `OAUTH_DCR_ENABLED=1`, `OAUTH_DCR_RATE_LIMITER`
+   (10 attempts/minute/Cloudflare location), and a 1000-client D1 cap.
+   If any gate is missing, public registration is refused.
+   Quota does not authenticate a vendor; suspicious clients remain unverified.
+10. **Acceptance:** Deploy Identity migrations + protected platform Staging,
+    then deploy Console Staging separately. Configure reviewed allowlist
+    entries via the Console page, refresh OAuth metadata, and test both
+    CIMD and DCR in ChatGPT with only `resources:read`.
+    Continue with PKCE, Account Consent, read-only tools, revocation and
+    cross-Server/Space denial. Production remains disabled pending a separate
+    protection review.
 ## Explicitly out of scope
 
 - No Production Worker, route, OAuth secret, D1, Space, or Data Grant mutation.
