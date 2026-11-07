@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { consoleApi, ConsoleApiError } from "./api";
 import McpServersPage from "./McpServersPage";
+import OAuthClientAdmissionPage from "./OAuthClientAdmissionPage";
 import type {
   Application,
   ApplicationDetail,
@@ -20,6 +21,7 @@ type Route =
   | { page: "applications"; id?: string }
   | { page: "models"; id?: string }
   | { page: "mcp-servers"; id?: string }
+  | { page: "oauth-clients" }
   | { page: "users"; id?: string }
   | { page: "spaces"; id?: string }
   | { page: "audit" }
@@ -37,6 +39,7 @@ const navGroups = [
       { href: "/applications", label: "Applications", page: "applications" },
       { href: "/models", label: "Models", page: "models" },
       { href: "/mcp-servers", label: "MCP Servers", page: "mcp-servers" },
+      { href: "/oauth-clients", label: "OAuth 客户端", page: "oauth-clients" },
       { href: "/users", label: "Users", page: "users" },
       { href: "/spaces", label: "Spaces", page: "spaces" },
     ],
@@ -56,6 +59,7 @@ function parseRoute(pathname: string): Route {
   if (parts[0] === "applications") return { page: "applications", id: parts[1] };
   if (parts[0] === "models") return { page: "models", id: parts[1] };
   if (parts[0] === "mcp-servers") return { page: "mcp-servers", id: parts[1] };
+  if (parts[0] === "oauth-clients") return { page: "oauth-clients" };
   if (parts[0] === "users") return { page: "users", id: parts[1] };
   if (parts[0] === "spaces") return { page: "spaces", id: parts[1] };
   if (parts[0] === "audit") return { page: "audit" };
@@ -421,6 +425,7 @@ function AppContent({ route }: { route: Route }) {
   if (route.page === "applications") return <ApplicationsPage id={route.id} />;
   if (route.page === "models") return <ModelsPage id={route.id} />;
   if (route.page === "mcp-servers") return <McpServersPage serverKey={route.id} navigate={navigate} />;
+  if (route.page === "oauth-clients") return <OAuthClientAdmissionPage />;
   if (route.page === "users") return <UsersPage id={route.id} />;
   if (route.page === "spaces") return <SpacesPage id={route.id} />;
   if (route.page === "audit") return <AuditPage />;

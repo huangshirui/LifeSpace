@@ -359,7 +359,7 @@
     {
       "id": "identity-platform-admin",
       "source": "apps/identity/platform-admin.openapi.yaml",
-      "operationSetSha256": "sha256:e2b160542cfb8351598773b6bc2f89597a129cca370b5820a1a320b5a3c5cdc7",
+      "operationSetSha256": "sha256:08562cd30ac9f4aee5235e95eff6b8aca56cc4f96578a8ec1c131ea5fddd1772",
       "groups": [
         {
           "id": "identity-platform-admin",

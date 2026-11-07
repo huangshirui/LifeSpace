@@ -1,5 +1,6 @@
 import { registerWebLoginEmailRoutes } from "./web-login-email";
 import { registerOAuthAuthorizationServer } from "./oauth-authorization";
+import { registerOAuthClientAdmissionAdminRoutes } from "./oauth-client-admission-admin";
 import { registerOAuthExecutionRoutes } from "./oauth-execution";
 import { createApp } from "./app";
 import { registerAccessIdentityRoutes } from "./access-identity";
@@ -24,6 +25,7 @@ export function createIdentityApp(options: Parameters<typeof registerAccessIdent
   registerPlatformServiceAdminRoutes(app);
   registerServicePrincipalIntrospectionRoutes(app);
   registerOAuthAuthorizationServer(app);
+  registerOAuthClientAdmissionAdminRoutes(app);
   registerOAuthExecutionRoutes(app);
   return app;
 }

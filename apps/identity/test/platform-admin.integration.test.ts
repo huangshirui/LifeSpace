@@ -91,6 +91,47 @@ function adminHeaders(secret: string, actorToken?: string) {
 }
 
 describe("Identity Platform Admin API", () => {
+  it("manages CIMD/DCR allowlists with a human actor, revision check and audit", async () => {
+    const pair = await keys();
+    const console = await provisionConsole(pair);
+    const route = "/internal/v1/platform-admin/oauth/client-admission";
+    expect((await request(route, { method: "GET", headers: adminHeaders(console.applicationSecret) }, pair)).status).toBe(401);
+    const headers = { ...adminHeaders(console.applicationSecret, console.actorToken), "content-type": "application/json" };
+    const initial = await request(route, { method: "GET", headers }, pair);
+    expect(initial.status).toBe(200);
+    const policy = (await initial.json() as any).data;
+    expect(Array.isArray(policy.cimdClientIds)).toBe(true);
+    const revision = policy.revision as number;
+    const update = {
+      expectedRevision: revision,
+      cimdEnabled: true, dcrEnabled: true,
+      cimdClientIds: ["https://chatgpt.com/oauth/client.json"],
+      dcrRedirectUris: ["https://chatgpt.com/connector/oauth/50_CFoh9OsZj"],
+    };
+    const send = (input: unknown) => request(route, { method: "PUT", headers, body: JSON.stringify(input) }, pair);
+    expect((await send({ ...update, cimdClientIds: ["https://*.example.com/client.json"] })).status).toBe(422);
+    const changed = await send(update);
+    expect(changed.status).toBe(200);
+    const saved = (await changed.json() as any).data;
+    expect(saved.revision).toBe(revision + 1);
+    expect(saved.cimdEnabled).toBe(true);
+    expect(saved.dcrRedirectUris).toEqual(update.dcrRedirectUris);
+    const stale = await send(update);
+    expect(stale.status).toBe(409);
+    expect((await stale.json() as any).error.code).toBe("REVISION_CONFLICT");
+    const audit = await request("/internal/v1/platform-admin/audit?limit=100", {
+      method: "GET", headers: adminHeaders(console.applicationSecret, console.actorToken),
+    }, pair);
+    expect(audit.status).toBe(200);
+    const events = (await audit.json() as any).data as Array<{ operation: string; actorUserId: string }>;
+    expect(events.filter(e => e.operation === "oauth_client_admission.update" && e.actorUserId === console.userId)).toHaveLength(1);
+    // Restore the shared isolated test policy to deny-all.
+    expect((await send({
+      expectedRevision: saved.revision,
+      cimdEnabled: false, dcrEnabled: false, cimdClientIds: [], dcrRedirectUris: [],
+    })).status).toBe(200);
+  });
+
   it("requires both trusted Console application authority and verified same-application user actor proof", async () => {
     const pair = await keys();
     const console = await provisionConsole(pair);

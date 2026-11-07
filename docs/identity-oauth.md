@@ -100,7 +100,7 @@ and has **not** been enabled on Staging or Production. Registered opaque
   introspection, signed Agent Direct Core execution and MCP Adapter without
   becoming a principal or a server authority. Exact MCP Resource audience,
   current Core Server policy and revocation remain mandatory.
-- **Additional network gate:** `OAUTH_CIMD_ALLOWED_CLIENT_IDS` is a whitespace-delimited list of **exact, pre-reviewed HTTPS metadata document URLs** (max 100). Both `OAUTH_CIMD_ENABLED=1` and a matching URL are mandatory; otherwise Identity makes **no outbound metadata fetch**. An allowlisted domain alone is insufficient. Callbacks are pinned at the first successful registration; if a document changes its redirect list, Identity fails closed rather than silently updating the stored callbacks. The document and its registered callback are revalidated immediately before Consent approval.
+- **Operator-managed network gate:** In LifeSpace Console → **OAuth 客户端**, a privileged human administrator manages exact pre-reviewed HTTPS CIMD metadata URLs in **Identity D1** (up to 100 entries), with an independent enable switch. `OAUTH_CIMD_ENABLED=1` is a separate environment kill switch. Without both the switch and an enabled exact URL rule, Identity makes **no outbound metadata fetch**. An allowlisted domain alone is insufficient. Callbacks are pinned on first registration; a later redirect-list change fails closed, and the document is fetched again before Consent approval.
 - Rejected: loopback, private/internal-looking, wildcard, HTTP and
   credential-bearing metadata URLs, URL query/fragment and noncanonical
   forms. The feature is intentionally *not production-ready* until operator
@@ -113,3 +113,24 @@ and has **not** been enabled on Staging or Production. Registered opaque
 
 The OAuth callback now adds RFC 9207 `iss` equal to the fixed configured
 Identity issuer, to let clients detect authorization-server mix-up.
+
+
+## Console-managed OAuth client admission (Identity schema 16, Staging candidate)
+
+- Identity D1 table `oauth_client_admission_policy` owns exact CIMD metadata URLs,
+  exact DCR redirect URIs, per-method enable flags, revision and actor audit
+  attribution. This table has no user Grants, Client credentials, or secrets.
+- LifeSpace Console `/oauth-clients` displays **CIMD** and **DCR** sections,
+  validates both URL lists, and saves through the authenticated Console BFF to
+  `GET/PUT /internal/v1/platform-admin/oauth/client-admission`, using the
+  existing application executor and a short-lived human Platform Admin proof.
+- DCR clients do not have an issued Client ID before registration. Accordingly
+  its allowlist is an exact callback URI registration gate, **not** a statement
+  that the registrant owns the client name. All proposed callbacks must match.
+- Staging has separate environment opt-in switches, Cloudflare per-location DCR
+  rate limiting, and an atomic Identity D1 quota. Production's DCR remains
+  disabled; no production deployment is approved by this design.
+- Policy is default disabled and empty. An operator can add exact entries,
+  turn on either method and review an audit log without editing Wrangler.
+  Removing a registration allowlist entry stops new admissions; existing
+  OAuth Authorizations must be explicitly revoked if their access should end.

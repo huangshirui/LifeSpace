@@ -2,7 +2,7 @@
 
 **Status (2026-11-07): private Staging Adapter deployed (Actions 42336470387),
 Identity/Adapter OAuth Resource Server secret paired (Actions 42338739134),
-Core Staging `MCP_ADAPTER` binding pending reviewed release; OAuth E2E not yet accepted.**
+Core Staging `MCP_ADAPTER` binding deployed (Actions 42339340052); read-only public-wire probe passed (Actions 42347634684); real OAuth E2E not yet accepted.**
 This is a cross-repository
 integration gate, not a new Connection Registry, Cloudflare Managed OAuth or Production launch.
 
@@ -78,12 +78,32 @@ accepts the opaque public OAuth token; the Adapter cannot bypass Core Grants.
    Validate wrong Server audience, cross-Space, disabled Server, revoked
    authorization, refresh-token replay, changed query operation, invalid
    `Mcp-Name`, and OAuth metadata mismatch all fail closed.
-7. CIMD remains **disabled unless** `OAUTH_CIMD_ENABLED=1` and the exact
-   `OAUTH_CIMD_ALLOWED_CLIENT_IDS` operator list is installed. Do not enable
-   public anonymous client document discovery without a production-grade
-   SSRF/rate-limit review. Staging can initially use an explicitly pre-registered
-   OAuth test client; DCR is limited to Staging.
-
+7. **Identity-owned client admission settings:** LifeSpace Console → `OAuth 客户端`
+   manages two exact-match lists in Identity D1, with separate CIMD and DCR
+   toggles, optimistic revision control and Platform Admin audit. Default is
+   disabled with empty lists. These are **registration/admission controls**,
+   not Client authenticity proof and not Core Data Grants.
+8. **CIMD:** Operators add the real, verified client metadata document URL
+   (as the OAuth client ID), **not** the ChatGPT connector callback URL.
+   Identity fetches only exact allowlisted HTTPS documents, rejects unsafe
+   hosts/redirects, validates JSON, and pins redirect URI metadata.
+   `OAUTH_CIMD_ENABLED=1` in Staging remains an operational kill switch;
+   Console policy must also be enabled with at least one valid URL.
+9. **DCR:** Clients have no assigned Client ID before registering. The
+   configurable whitelist therefore lists **exact redirect URIs**, including
+   e.g. `https://chatgpt.com/connector/oauth/50_CFoh9OsZj`. All requested
+   callbacks must match. Staging further requires
+   `OAUTH_DCR_ENABLED=1`, `OAUTH_DCR_RATE_LIMITER`
+   (10 attempts/minute/Cloudflare location), and a 1000-client D1 cap.
+   If any gate is missing, public registration is refused.
+   Quota does not authenticate a vendor; suspicious clients remain unverified.
+10. **Acceptance:** Deploy Identity migrations + protected platform Staging,
+    then deploy Console Staging separately. Configure reviewed allowlist
+    entries via the Console page, refresh OAuth metadata, and test both
+    CIMD and DCR in ChatGPT with only `resources:read`.
+    Continue with PKCE, Account Consent, read-only tools, revocation and
+    cross-Server/Space denial. Production remains disabled pending a separate
+    protection review.
 ## Explicitly out of scope
 
 - No Production Worker, route, OAuth secret, D1, Space, or Data Grant mutation.
