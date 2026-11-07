@@ -78,24 +78,24 @@ accepts the opaque public OAuth token; the Adapter cannot bypass Core Grants.
    Validate wrong Server audience, cross-Space, disabled Server, revoked
    authorization, refresh-token replay, changed query operation, invalid
    `Mcp-Name`, and OAuth metadata mismatch all fail closed.
-7. **OAuth client admission (schema 17)**: after the platform Staging migration
-   and separate Console Staging deploy, go to **Platform → OAuth 客户端**.
-   Choose `open` for guarded self-service CIMD and/or DCR, or `restricted`
-   for specific managed clients. Do **not** add each ChatGPT user's callback
-   in Console. The shared callback option defaults to client registration
-   exact-match, with an optional extra global whitelist.
-8. **ChatGPT Staging E2E**: with the real test MCP Resource, verify
-   automatic CIMD using the stable `https://chatgpt.com/oauth/client.json`
-   (if ChatGPT presents it) and fallback DCR. With RFC 9207 issuer support
-   ChatGPT can use `https://chatgpt.com/connector_platform_oauth_redirect`;
-   old connector configurations may still use an ID-specific callback.
-   Confirm the actual Client's registered callback rather than guessing.
-9. Test PKCE and exact resource/callback validation, Account Consent
-   selecting Application/Space/Agent, success **and** user-decline `iss`,
-   read-only Core tools, revocation, cross-Resource/Space denial, and
-   registration/metadata rate limits. **Open Client admission must not
-   grant user or Agent authority.** Do not enable open-mode Production
-   until separate SSRF/DNS rebinding and abuse protections are reviewed.
+7. **OAuth client settings (schema 18)**: after the platform Staging
+   migration and separate Console deploy, go to **Platform → OAuth 客户端**.
+   The page has only CIMD and DCR enable switches, plus one optional
+   **Allowed callback URLs** field. Do not register per-connection callbacks
+   in Console. Leave the callback field empty for the normal self-service
+   flow; the per-client exact-match rule remains mandatory.
+8. Schema 18 intentionally disables a previously enabled strict CIMD/DCR
+   policy before retiring its old whitelist; the operator must explicitly
+   re-enable that feature. Existing open methods remain enabled.
+9. **ChatGPT Staging E2E**: verify CIMD using the actual client metadata URL,
+   and DCR fallback if needed. With RFC 9207 issuer support ChatGPT may use
+   the stable `https://chatgpt.com/connector_platform_oauth_redirect`.
+   Old connections can use callback-specific URLs; register the exact URI
+   on that OAuth Client, not in Console.
+10. Test PKCE, Account Consent and user denial, callback mismatch rejection,
+    cross-Server/Space denial, tool invocation, revocation, rate limits and
+    D1 quotas. Do not open Production before the outbound metadata security
+    and abuse review.
 
 ## Explicitly out of scope
 

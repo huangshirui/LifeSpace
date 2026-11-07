@@ -1,193 +1,146 @@
 import { useEffect, useState } from "react";
 import "./oauth-client-admission.css";
 
-type AdmissionMode = "restricted" | "open";
-type CallbackMode = "client" | "restricted";
 type Policy = {
-  cimdEnabled: boolean; dcrEnabled: boolean;
-  cimdMode: AdmissionMode; dcrMode: AdmissionMode; callbackMode: CallbackMode;
-  cimdClientIds: string[]; dcrRedirectUris: string[]; callbackUris: string[];
-  revision: number; updatedAt: string;
+  cimdEnabled: boolean;
+  dcrEnabled: boolean;
+  callbackUris: string[];
+  revision: number;
+  updatedAt: string;
 };
 type Draft = {
-  cimdEnabled: boolean; dcrEnabled: boolean;
-  cimdMode: AdmissionMode; dcrMode: AdmissionMode; callbackMode: CallbackMode;
-  cimdClientIds: string; dcrRedirectUris: string; callbackUris: string;
+  cimdEnabled: boolean;
+  dcrEnabled: boolean;
+  callbackUrls: string;
 };
 type Envelope = { data?: Policy; error?: { message?: string } };
-const lines = (value: string) => value.split(/\r?\n/u).map(line => line.trim()).filter(Boolean);
-const asDraft = (p: Policy): Draft => ({
-  cimdEnabled: p.cimdEnabled, dcrEnabled: p.dcrEnabled,
-  cimdMode: p.cimdMode, dcrMode: p.dcrMode, callbackMode: p.callbackMode,
-  cimdClientIds: p.cimdClientIds.join("\n"),
-  dcrRedirectUris: p.dcrRedirectUris.join("\n"),
-  callbackUris: p.callbackUris.join("\n"),
+
+const readLines = (value: string) => value.split(/\r?\n/u).map(url => url.trim()).filter(Boolean);
+const toDraft = (policy: Policy): Draft => ({
+  cimdEnabled: policy.cimdEnabled,
+  dcrEnabled: policy.dcrEnabled,
+  callbackUrls: policy.callbackUris.join("\n"),
 });
-const modes: Array<{ value: AdmissionMode; label: string }> = [
-  { value: "open", label: "受保护的自动注册" },
-  { value: "restricted", label: "仅指定客户端" },
-];
 
 export default function OAuthClientAdmissionPage() {
   const [current, setCurrent] = useState<Policy | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [confirmed, setConfirmed] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
 
-  async function refresh() {
+  async function reload() {
     setLoading(true);
     setError("");
     try {
       const res = await fetch("/api/oauth-client-admission", {
-        credentials: "same-origin", headers: { accept: "application/json" },
+        credentials: "same-origin",
+        headers: { accept: "application/json" },
       });
       const json = await res.json() as Envelope;
-      if (!res.ok || !json.data) throw new Error(json.error?.message || "无法读取 OAuth 客户端准入策略");
+      if (!res.ok || !json.data) throw new Error(json.error?.message || "无法读取配置");
       setCurrent(json.data);
-      setDraft(asDraft(json.data));
-      setConfirmed(false);
-    } catch (err) { setError(err instanceof Error ? err.message : "加载失败"); }
-    finally { setLoading(false); }
+      setDraft(toDraft(json.data));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "加载失败");
+    } finally {
+      setLoading(false);
+    }
   }
-  useEffect(() => { void refresh(); }, []);
+  useEffect(() => { void reload(); }, []);
 
-  const change = (next: Partial<Draft>) => {
-    setDraft(prev => prev ? { ...prev, ...next } : prev);
-    setConfirmed(false);
+  const update = (patch: Partial<Draft>) => {
+    setDraft(previous => previous ? { ...previous, ...patch } : previous);
     setNotice("");
   };
-  const cimd = lines(draft?.cimdClientIds || "");
-  const dcr = lines(draft?.dcrRedirectUris || "");
-  const callbacks = lines(draft?.callbackUris || "");
-  const lists = [cimd, dcr, callbacks];
+  const urls = readLines(draft?.callbackUrls || "");
+  const invalid = urls.length > 100 || new Set(urls).size !== urls.length;
   const changed = Boolean(current && draft && (
-    draft.cimdEnabled !== current.cimdEnabled || draft.dcrEnabled !== current.dcrEnabled
-    || draft.cimdMode !== current.cimdMode || draft.dcrMode !== current.dcrMode
-    || draft.callbackMode !== current.callbackMode
-    || JSON.stringify(cimd) !== JSON.stringify(current.cimdClientIds)
-    || JSON.stringify(dcr) !== JSON.stringify(current.dcrRedirectUris)
-    || JSON.stringify(callbacks) !== JSON.stringify(current.callbackUris)
+    current.cimdEnabled !== draft.cimdEnabled
+    || current.dcrEnabled !== draft.dcrEnabled
+    || JSON.stringify(current.callbackUris) !== JSON.stringify(urls)
   ));
-  const invalid = Boolean(draft && (
-    lists.some(list => list.length > 100 || new Set(list).size !== list.length)
-    || draft.cimdEnabled && draft.cimdMode === "restricted" && cimd.length === 0
-    || draft.dcrEnabled && draft.dcrMode === "restricted" && dcr.length === 0
-    || draft.callbackMode === "restricted" && callbacks.length === 0
-  ));
+
   async function save() {
-    if (!current || !draft || !changed || invalid || !confirmed || saving) return;
-    setSaving(true); setError(""); setNotice("");
+    if (!current || !draft || !changed || invalid || saving) return;
+    setSaving(true);
+    setError("");
+    setNotice("");
     try {
       const res = await fetch("/api/oauth-client-admission", {
-        method: "PUT", credentials: "same-origin",
+        method: "PUT",
+        credentials: "same-origin",
         headers: {
-          accept: "application/json", "content-type": "application/json",
+          accept: "application/json",
+          "content-type": "application/json",
           "x-lifespace-console-intent": "update-oauth-client-admission",
         },
         body: JSON.stringify({
           expectedRevision: current.revision,
-          cimdEnabled: draft.cimdEnabled, dcrEnabled: draft.dcrEnabled,
-          cimdMode: draft.cimdMode, dcrMode: draft.dcrMode,
-          callbackMode: draft.callbackMode,
-          cimdClientIds: cimd, dcrRedirectUris: dcr, callbackUris: callbacks,
+          cimdEnabled: draft.cimdEnabled,
+          dcrEnabled: draft.dcrEnabled,
+          callbackUris: urls,
         }),
       });
       const json = await res.json() as Envelope;
       if (!res.ok || !json.data) throw new Error(json.error?.message || "保存失败");
-      setCurrent(json.data); setDraft(asDraft(json.data)); setConfirmed(false);
-      setNotice("策略已更新。新注册会读取当前配置；已有授权请到 Account 另行撤销。");
-    } catch (err) { setError(err instanceof Error ? err.message : "保存失败，请重试"); }
-    finally { setSaving(false); }
+      setCurrent(json.data);
+      setDraft(toDraft(json.data));
+      setNotice("已保存。新客户端连接将使用当前配置。");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "保存失败，请重试");
+    } finally {
+      setSaving(false);
+    }
   }
 
   return <div className="oad-page">
     <header className="oad-header">
       <div>
         <div className="oad-eyebrow">Platform / OAuth</div>
-        <h1>客户端接入策略</h1>
-        <p>这里只管理平台如何识别第三方 OAuth Client。应用决定可开放的模型与操作，用户在 Account 自行授权 Application、Space、Agent 和权限。</p>
+        <h1>OAuth 客户端</h1>
+        <p>设置第三方客户端接入方式。用户数据权限仍由 Account 授权和 Core 控制。</p>
       </div>
-      <button type="button" className="secondary-button" disabled={loading || saving}
-        onClick={() => void refresh()}>刷新</button>
+      <button className="secondary-button" type="button" disabled={loading || saving}
+        onClick={() => void reload()}>刷新</button>
     </header>
+
     {error && <div className="oad-error" role="alert">{error}</div>}
     {notice && <div className="oad-notice" role="status">{notice}</div>}
-    {loading || !draft ? <div className="oad-panel">正在加载平台 OAuth 策略…</div> : <>
-      <div className="oad-grid">
-        <section className="oad-panel">
-          <div className="oad-panel-head">
-            <div><h2>CIMD</h2><p>客户端元数据发现 · 首选</p></div>
-            <label className="oad-switch"><input type="checkbox" checked={draft.cimdEnabled}
-              onChange={e => change({ cimdEnabled: e.target.checked })} />启用</label>
-          </div>
-          <label className="oad-label" htmlFor="cimd-mode">客户端准入</label>
-          <select id="cimd-mode" className="oad-select" value={draft.cimdMode}
-            onChange={e => change({ cimdMode: e.target.value as AdmissionMode })}>
-            {modes.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
-          </select>
-          {draft.cimdMode === "restricted" ? <>
-            <label className="oad-label oad-spaced" htmlFor="cimd-urls">允许的完整客户端元数据 URL</label>
-            <textarea id="cimd-urls" spellCheck={false} rows={5} value={draft.cimdClientIds}
-              onChange={e => change({ cimdClientIds: e.target.value })}
-              placeholder={"https://client.example.com/oauth/client.json\n每行一个完整 HTTPS URL"} />
-          </> : <p className="oad-open-note">客户端可通过 HTTPS 元数据 URL 自动发起连接，无需平台管理员逐个添加。仍验证公共地址、元数据、实际回调，并限制远程获取频率和注册总量。客户端身份未经供应商证明。</p>}
-          <p className="oad-help">CIMD 的 URL 是客户端元数据文档地址，不是 OAuth 回调 URL。</p>
-        </section>
-        <section className="oad-panel">
-          <div className="oad-panel-head">
-            <div><h2>DCR</h2><p>动态客户端注册 · 兼容模式</p></div>
-            <label className="oad-switch"><input type="checkbox" checked={draft.dcrEnabled}
-              onChange={e => change({ dcrEnabled: e.target.checked })} />启用</label>
-          </div>
-          <label className="oad-label" htmlFor="dcr-mode">客户端准入</label>
-          <select id="dcr-mode" className="oad-select" value={draft.dcrMode}
-            onChange={e => change({ dcrMode: e.target.value as AdmissionMode })}>
-            {modes.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
-          </select>
-          {draft.dcrMode === "restricted" ? <>
-            <label className="oad-label oad-spaced" htmlFor="dcr-urls">允许注册的完整回调 URL</label>
-            <textarea id="dcr-urls" spellCheck={false} rows={5} value={draft.dcrRedirectUris}
-              onChange={e => change({ dcrRedirectUris: e.target.value })}
-              placeholder={"https://client.example.com/callback\n每行一个完整 URL"} />
-          </> : <p className="oad-open-note">无需预先登记每个连接的回调地址。注册时记录客户端提交的精确回调列表；授权时严格匹配。受到注册限流和数据库总量限制，绝不代表已取得用户数据权限。</p>}
-          <p className="oad-help">DCR 在注册前没有 Client ID。单个客户端的回调始终要求精确匹配。</p>
-        </section>
-      </div>
-      <section className="oad-panel oad-callbacks">
-        <div className="oad-panel-head">
-          <div><h2>Allowed callback URLs · 全局额外限制</h2>
-            <p>统一作用于 CIMD、DCR 和预注册客户端，不区分客户端协议。</p></div>
-        </div>
-        <div className="oad-choice">
-          <label><input type="radio" name="callback-mode" checked={draft.callbackMode === "client"}
-            onChange={() => change({ callbackMode: "client" })} />按各客户端注册的精确回调地址验证（默认）</label>
-          <label><input type="radio" name="callback-mode" checked={draft.callbackMode === "restricted"}
-            onChange={() => change({ callbackMode: "restricted" })} />额外限制为平台指定的回调 URL</label>
-        </div>
-        {draft.callbackMode === "restricted" && <>
-          <label className="oad-label oad-spaced" htmlFor="callback-urls">平台允许的精确 URL</label>
-          <textarea id="callback-urls" spellCheck={false} rows={4} value={draft.callbackUris}
-            onChange={e => change({ callbackUris: e.target.value })}
-            placeholder="https://example.com/callback" />
-        </>}
-        <p className="oad-help">不接受通配符。开放自动注册 ≠ 任意跳转：OAuth 授权和 Token 交换仍匹配具体 Client 的回调地址；本机客户端可使用标准 loopback 回调。</p>
+    {loading || !draft ? <div className="oad-panel">正在加载 OAuth 配置…</div> : <>
+      <section className="oad-panel">
+        <h2>客户端注册方式</h2>
+        <label className="oad-toggle">
+          <span><strong>CIMD</strong><small>自动发现客户端元数据</small></span>
+          <input type="checkbox" checked={draft.cimdEnabled}
+            onChange={event => update({ cimdEnabled: event.target.checked })} />
+        </label>
+        <label className="oad-toggle">
+          <span><strong>DCR</strong><small>允许兼容客户端动态注册</small></span>
+          <input type="checkbox" checked={draft.dcrEnabled}
+            onChange={event => update({ dcrEnabled: event.target.checked })} />
+        </label>
       </section>
-      <section className="oad-footer">
-        <div>
-          <p>策略版本 {current?.revision} · {current?.updatedAt ? new Date(current.updatedAt).toLocaleString() : "尚未更新"}</p>
-          <p>平台配置不创建用户授权。撤销已有连接请前往 Account；Production 的开放模式仍受部署级安全开关约束。</p>
-        </div>
-        <div className="oad-save">
-          <label className="oad-confirm"><input type="checkbox" checked={confirmed}
-            disabled={!changed || invalid || saving} onChange={e => setConfirmed(e.target.checked)} />
-            确认保存平台 OAuth 安全策略</label>
-          <button type="button" className="oad-primary" disabled={!changed || invalid || !confirmed || saving}
-            onClick={() => void save()}>{saving ? "保存中…" : "保存策略"}</button>
-        </div>
+
+      <section className="oad-panel">
+        <h2>Allowed callback URLs</h2>
+        <p className="oad-help">留空表示不增加平台白名单限制（推荐）。需要限制时，每行填一个完整回调 URL。</p>
+        <textarea id="allowed-callback-urls" aria-label="Allowed callback URLs"
+          rows={4} spellCheck={false} value={draft.callbackUrls}
+          placeholder={"https://client.example.com/oauth/callback"}
+          onChange={event => update({ callbackUrls: event.target.value })} />
+        <p className="oad-help">无论是否留空，OAuth 始终要求回调与当前客户端注册的地址精确匹配；不支持通配符。</p>
+        {invalid && <p className="oad-validation" role="alert">最多 100 条回调地址，不允许重复。</p>}
       </section>
+
+      <footer className="oad-footer">
+        <small>配置版本 {current?.revision}</small>
+        <button type="button" className="oad-primary"
+          disabled={!changed || invalid || saving} onClick={() => void save()}>
+          {saving ? "保存中…" : "保存更改"}
+        </button>
+      </footer>
     </>}
   </div>;
 }

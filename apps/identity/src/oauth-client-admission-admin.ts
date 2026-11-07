@@ -33,7 +33,7 @@ export function registerOAuthClientAdmissionAdminRoutes(app: App): void {
       return fail(c, "INVALID_REQUEST", "JSON object required", 400);
     }
     const input = parsed as Record<string, unknown>;
-    if (Object.keys(input).some(key => !["expectedRevision", "cimdEnabled", "dcrEnabled", "cimdMode", "dcrMode", "callbackMode", "cimdClientIds", "dcrRedirectUris", "callbackUris"].includes(key))) {
+    if (Object.keys(input).some(key => !["expectedRevision", "cimdEnabled", "dcrEnabled", "callbackUris"].includes(key))) {
       return fail(c, "INVALID_REQUEST", "Unexpected admission policy field", 400);
     }
     const expectedRevision = input.expectedRevision;
@@ -47,13 +47,12 @@ export function registerOAuthClientAdmissionAdminRoutes(app: App): void {
     const auditId = "paa_" + crypto.randomUUID().replaceAll("-", "");
     const update = c.env.DB.prepare(
       "UPDATE oauth_client_admission_policy SET cimd_enabled=?,dcr_enabled=?,"
-      + "cimd_mode=?,dcr_mode=?,callback_mode=?,"
-      + "cimd_client_ids_json=?,dcr_redirect_uris_json=?,callback_uris_json=?,revision=revision+1,"
+      + "cimd_mode='open',dcr_mode='open',callback_mode=?, "
+      + "cimd_client_ids_json='[]',dcr_redirect_uris_json='[]',callback_uris_json=?,revision=revision+1,"
       + "updated_by_user_id=?,updated_at=?,last_change_id=? WHERE id=1 AND revision=?"
     ).bind(
       Number(policy.cimdEnabled), Number(policy.dcrEnabled),
-      policy.cimdMode, policy.dcrMode, policy.callbackMode,
-      JSON.stringify(policy.cimdClientIds), JSON.stringify(policy.dcrRedirectUris), JSON.stringify(policy.callbackUris),
+      policy.callbackUris.length ? "restricted" : "client", JSON.stringify(policy.callbackUris),
       actor.id, stamp, auditId, expectedRevision,
     );
     // Successful edits enter the regular Identity Platform Admin audit stream;
@@ -69,8 +68,7 @@ export function registerOAuthClientAdmissionAdminRoutes(app: App): void {
       "oauth_client_admission.update", "oauth_client_admission", "global",
       JSON.stringify({
         cimdEnabled: policy.cimdEnabled, dcrEnabled: policy.dcrEnabled,
-        cimdMode: policy.cimdMode, dcrMode: policy.dcrMode, callbackMode: policy.callbackMode,
-        cimdCount: policy.cimdClientIds.length, dcrCount: policy.dcrRedirectUris.length,
+        callbackRestrictionEnabled: policy.callbackUris.length > 0,
         callbackCount: policy.callbackUris.length,
       }), c.get("requestId"), stamp, auditId,
     );

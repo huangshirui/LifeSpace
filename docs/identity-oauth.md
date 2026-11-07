@@ -80,40 +80,28 @@ The accepted MCP Resource is the exact `https://core[-staging].aisr.online/mcp/{
 Deployment order is a separate owner-controlled Staging gate: review LifeSpace #480 then dependent #485; release Core with the MCP ingress/private verification route and private Adapter Service Binding **only when** the independently private Adapter Worker exists; then converge Identity's CORE Service Binding and dynamic resource origin; finally run OAuth PKCE/Consent/MCP Staging acceptance. Do not treat passing synthetic CI as a live release.
 
 
-## MCP Client Admission (schema 17)
+## MCP Client Admission (schema 18)
 
-Current design: see [MCP OAuth governance](./mcp-oauth-governance.md).
+The LifeSpace Console `Platform → OAuth 客户端` page has just **CIMD**
+and **DCR** enable switches and one optional **Allowed callback URLs** list.
+There are no per-method client URL allowlists or admission-mode selectors.
 
-- **Protocol registration is not a User Authorization.** CIMD and DCR are
-  registered at Identity; they do not grant `resources:*`, select a Space,
-  create Delegation, or bypass Core's live MCP Server/Grant checks.
-- LifeSpace Console **Platform → OAuth 客户端** owns per-method enable switches,
-  `open` vs `restricted` admission, and the **optional** global exact callback
-  restriction. Existing strict lists stay in Identity D1. No user-specific
-  callback must be entered by a platform admin in `open` mode.
-- CIMD `open` is Staging-only behind the environment kill switch and admission
-  rate limiter. Metadata fetching is limited to strictly parsed public HTTPS
-  Client ID URLs (5-second timeout, 8-KiB limit, no redirect), exact
-  `client_id`, validated client metadata and redirect list. The first
-  registration pins callbacks; later drift fails closed. The atomic D1 quota
-  limits client registrations. Open CIMD remains **not approved for Production**
-  until DNS rebinding/SSRF and abuse review.
-- DCR `open` registers new clients only after redirect URI validation, DCR
-  per-location rate limiting, atomic client quota, and strict public PKCE
-  requirements. Production DCR is disabled independently. Existing clients
-  are still bound to the precise registered callback on authorization and
-  token exchange.
-- **Shared callback policy** applies equally to pre-registered, CIMD and DCR
-  clients. Default `client` means only the specific Client's registered
-  exact redirects are accepted; optional `restricted` imposes a second,
-  platform-wide exact URL list. Wildcards are not supported. Native localhost
-  loopback callbacks remain available, as defined by registration rules.
-- Identity advertises RFC 9207
-  `authorization_response_iss_parameter_supported: true`. Both successful
-  and user-rejected Account Consent callbacks carry `iss` exactly equal to
-  the configured issuer, with the original `state`; invalid/unknown
-  callbacks are never reflected back in OAuth redirects.
-- Account lets the user choose Application, Space, Agent, execution mode and
-  scopes. Account Connect/Grant management remains separate from Console's
-  global admission controls. Removing an admission entry alone does not
-  revoke previously issued User Authorizations.
+- Enabling CIMD uses guarded public HTTPS metadata discovery, request
+  validation, callback pinning, rate limits and an atomic D1 quota.
+- Enabling DCR uses validated callback registrations, PKCE, rate limiting
+  and an atomic D1 registration quota.
+- Leaving Allowed callback URLs empty applies **no extra platform filter**;
+  every authorization still verifies the client-specific registered redirect
+  exactly. A nonempty list adds an extra platform-wide exact URI restriction
+  to CIMD, DCR and manually registered clients. Wildcards are not supported.
+- Schema 18 disables any previously enabled *restricted* CIMD/DCR switch
+  before retiring its per-method whitelist, avoiding silent widening during
+  deployment. The administrator explicitly re-enables the method.
+- Account owns user Consent (Application, Space, Agent and scope) and
+  revocation. Registering a client never grants access to user data.
+- Identity advertises RFC 9207 issuer support and returns the fixed `iss`
+  on both approval and user-declined authorization redirects.
+- Production remains separately gated and must not be opened without a
+  dedicated outbound metadata SSRF/DNS rebinding and abuse assessment.
+
+See [MCP OAuth governance](./mcp-oauth-governance.md).

@@ -7,69 +7,53 @@ import {
 const example = {
   cimdEnabled: true,
   dcrEnabled: true,
-  cimdMode: "restricted" as const,
-  dcrMode: "restricted" as const,
-  callbackMode: "client" as const,
-  cimdClientIds: ["https://chatgpt.com/oauth/client.json"],
-  dcrRedirectUris: ["https://chatgpt.com/connector/oauth/50_CFoh9OsZj"],
   callbackUris: [] as string[],
 };
-const saved = (policy: typeof example): OAuthClientAdmissionPolicy =>
-  ({ ...policy, revision: 1, updatedAt: "2026-11-07T00:00:00Z" });
+const saved = (policy: typeof example): OAuthClientAdmissionPolicy => ({
+  ...policy, revision: 3, updatedAt: "2026-11-07T00:00:00Z",
+});
 
-describe("platform admission is separate from user OAuth authorization", () => {
-  it("preserves strict existing policy and rejects unsafe rules", () => {
+describe("simple OAuth Console controls", () => {
+  it("accepts only two switches and an optional exact callback list", () => {
     expect(validateOAuthClientAdmissionPolicy(example)).toEqual(example);
-    for (const invalid of [
-      { ...example, cimdClientIds: [] },
+    for (const bad of [
+      { ...example, cimdMode: "restricted" },
       { ...example, dcrRedirectUris: [] },
-      { ...example, cimdClientIds: ["https://*.example.com/client.json"] },
-      { ...example, cimdClientIds: ["https://127.0.0.1/private.json"] },
-      { ...example, dcrRedirectUris: ["https://*.example.com/cb"] },
-      { ...example, dcrRedirectUris: ["http://evil.example.com/cb"] },
-      { ...example, dcrRedirectUris: ["https://10.0.0.1/cb"] },
-      { ...example, dcrRedirectUris: [...example.dcrRedirectUris, ...example.dcrRedirectUris] },
-      { ...example, callbackMode: "restricted", callbackUris: [] },
+      { ...example, callbackMode: "restricted" },
       { ...example, callbackUris: ["https://*.example.com/cb"] },
+      { ...example, callbackUris: ["http://evil.example.com/cb"] },
+      { ...example, callbackUris: ["https://127.0.0.1/cb"] },
       { ...example, callbackUris: ["https://a.example.com/cb", "https://a.example.com/cb"] },
-      { ...example, cimdMode: "all" },
-      { ...example, dcrMode: "all" },
-      { ...example, unknown: true },
-    ]) expect(validateOAuthClientAdmissionPolicy(invalid)).toBeNull();
-    expect(dcrRedirectUri("http://127.0.0.1:12345/cb")).toBe(true);
-    expect(dcrRedirectUri("http://localhost:4567/cb")).toBe(true);
-    expect(dcrRedirectUri("https://chatgpt.com/connector_platform_oauth_redirect")).toBe(true);
+      { ...example, callbackUris: Array.from({ length: 101 }, (_, i) => "https://a.example.com/cb/" + i) },
+      { ...example, callbackUris: "https://chatgpt.com/cb" },
+    ]) expect(validateOAuthClientAdmissionPolicy(bad)).toBeNull();
+    expect(validateOAuthClientAdmissionPolicy({
+      cimdEnabled: false, dcrEnabled: false, callbackUris: [],
+    })).not.toBeNull();
   });
 
-  it("allows bounded automatic client admission without administrator callbacks", () => {
-    const open = {
-      ...example,
-      cimdMode: "open" as const,
-      dcrMode: "open" as const,
-      cimdClientIds: [],
-      dcrRedirectUris: [],
-    };
-    expect(validateOAuthClientAdmissionPolicy(open)).toEqual(open);
-    const policy = saved(open);
+  it("enables safe client discovery and DCR without pre-registering callbacks in Console", () => {
+    const policy = saved(example);
     expect(mayUseCimd(policy, "https://client.example.com/oauth/client.json")).toBe(true);
-    expect(mayUseCimd(policy, "http://127.0.0.1/doc.json")).toBe(false);
-    expect(mayRegisterDcr(policy, ["https://new-client.example.com/cb"])).toBe(true);
-    expect(mayRegisterDcr(policy, ["https://new-client.example.com/cb", "https://127.0.0.1/cb"])).toBe(false);
+    expect(mayUseCimd(policy, "http://localhost/cimd")).toBe(false);
+    expect(mayRegisterDcr(policy, ["https://new-client.example.com/callback"])).toBe(true);
+    expect(mayRegisterDcr(policy, ["https://new-client.example.com/callback", "https://127.0.0.1/cb"])).toBe(false);
+    expect(dcrRedirectUri("http://127.0.0.1:12345/callback")).toBe(true);
+    expect(dcrRedirectUri("http://localhost:4567/callback")).toBe(true);
     expect(callbackAllowed(policy, "https://chatgpt.com/connector_platform_oauth_redirect")).toBe(true);
-    expect(callbackAllowed(policy, "https://*.example.com/cb")).toBe(false);
+    expect(callbackAllowed(policy, "https://*.example.com/callback")).toBe(false);
+    expect(mayUseCimd({ ...policy, cimdEnabled: false }, "https://client.example.com/oauth/client.json")).toBe(false);
+    expect(mayRegisterDcr({ ...policy, dcrEnabled: false }, ["https://client.example.com/cb"])).toBe(false);
   });
 
-  it("optional global callback restriction applies to CIMD, DCR and pre-registered clients", () => {
+  it("non-empty Allowed callback URLs adds a shared restriction without replacing exact client callback checks", () => {
     const policy = saved({
       ...example,
-      callbackMode: "restricted",
       callbackUris: ["https://chatgpt.com/connector_platform_oauth_redirect"],
     });
     expect(callbackAllowed(policy, "https://chatgpt.com/connector_platform_oauth_redirect")).toBe(true);
-    expect(callbackAllowed(policy, example.dcrRedirectUris[0])).toBe(false);
-    expect(mayUseCimd(policy, example.cimdClientIds[0])).toBe(true);
-    expect(mayRegisterDcr(policy, example.dcrRedirectUris)).toBe(true);
-    expect(mayUseCimd({ ...policy, cimdEnabled: false }, example.cimdClientIds[0])).toBe(false);
-    expect(mayRegisterDcr({ ...policy, dcrEnabled: false }, example.dcrRedirectUris)).toBe(false);
+    expect(callbackAllowed(policy, "https://chatgpt.com/connector/oauth/other")).toBe(false);
+    expect(mayUseCimd(policy, "https://client.example.com/oauth/client.json")).toBe(true);
+    expect(mayRegisterDcr(policy, ["https://client.example.com/callback"])).toBe(true);
   });
 });
