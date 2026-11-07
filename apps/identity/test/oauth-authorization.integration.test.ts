@@ -31,6 +31,11 @@ async function setup() {
     OAUTH_DCR_ENABLED: "1",
     OAUTH_ACCOUNT_APPLICATION_ID: "",
   };
+  // Existing OAuth integration scenarios run with an explicit isolated
+  // allowlist, never through anonymous or wildcard client registration.
+  await b.DB.prepare(
+    "UPDATE oauth_client_admission_policy SET dcr_enabled=1,dcr_redirect_uris_json=? WHERE id=1"
+  ).bind(JSON.stringify(["https://client.example.test/callback"])).run();
   const request = (path: string, options: RequestInit = {}) => app.request("https://auth.example.test" + path, options, b);
   const bootstrap = async (scopes: string[]) => {
     const appId = "app_oauth_" + crypto.randomUUID().replaceAll("-", "");
@@ -166,11 +171,13 @@ describe("Identity OAuth Authorization Server (isolated candidate)", () => {
     const defaultMetadata = await t.request("/.well-known/oauth-authorization-server");
     expect(defaultMetadata.status).toBe(200);
     expect(await defaultMetadata.json()).not.toHaveProperty("client_id_metadata_document_supported");
-    const cimd = t.b as typeof t.b & { OAUTH_CIMD_ENABLED: string; OAUTH_CIMD_ALLOWED_CLIENT_IDS: string };
+    const cimd = t.b as typeof t.b & { OAUTH_CIMD_ENABLED: string };
     cimd.OAUTH_CIMD_ENABLED = "1";
     const unpinned = await t.request("/.well-known/oauth-authorization-server");
     expect(await unpinned.json()).not.toHaveProperty("client_id_metadata_document_supported");
-    cimd.OAUTH_CIMD_ALLOWED_CLIENT_IDS = "https://chatgpt.com/oauth/client.json";
+    await t.b.DB.prepare(
+      "UPDATE oauth_client_admission_policy SET cimd_enabled=1,cimd_client_ids_json=? WHERE id=1"
+    ).bind(JSON.stringify(["https://chatgpt.com/oauth/client.json"])).run();
     const optInMetadata = await t.request("/.well-known/oauth-authorization-server");
     expect(optInMetadata.status).toBe(200);
     expect(await optInMetadata.json()).toMatchObject({
@@ -232,6 +239,10 @@ describe("Identity OAuth Authorization Server (isolated candidate)", () => {
     expect((await t.request("/oauth/register", {
       ...options, headers: { "content-type": "text/plain" },
     })).status).toBe(400);
+    const denied = await t.request("/oauth/register", {
+      ...options, body: JSON.stringify({ redirect_uris: ["https://unknown.example.com/cb"] }),
+    });
+    expect(denied.status).toBe(403);
     const accepted = await t.request("/oauth/register", options);
     expect(accepted.status).toBe(201);
     expect((await accepted.json() as { client_id: string }).client_id.startsWith("ocli_")).toBe(true);
