@@ -91,7 +91,7 @@ function adminHeaders(secret: string, actorToken?: string) {
 }
 
 describe("Identity Platform Admin API", () => {
-  it("manages CIMD/DCR allowlists with a human actor, revision check and audit", async () => {
+  it("manages two OAuth switches and optional callbacks with admin actor, revision and audit", async () => {
     const pair = await keys();
     const console = await provisionConsole(pair);
     const route = "/internal/v1/platform-admin/oauth/client-admission";
@@ -100,25 +100,23 @@ describe("Identity Platform Admin API", () => {
     const initial = await request(route, { method: "GET", headers }, pair);
     expect(initial.status).toBe(200);
     const policy = (await initial.json() as any).data;
-    expect(Array.isArray(policy.cimdClientIds)).toBe(true);
+    expect(Array.isArray(policy.callbackUris)).toBe(true);
     const revision = policy.revision as number;
     const update = {
       expectedRevision: revision,
       cimdEnabled: true, dcrEnabled: true,
-      cimdMode: "open", dcrMode: "open", callbackMode: "client",
-      cimdClientIds: [], dcrRedirectUris: [], callbackUris: [],
+      callbackUris: ["https://chatgpt.com/connector_platform_oauth_redirect"],
     };
     const send = (input: unknown) => request(route, { method: "PUT", headers, body: JSON.stringify(input) }, pair);
-    expect((await send({ ...update, cimdClientIds: ["https://*.example.com/client.json"] })).status).toBe(422);
-    expect((await send({ ...update, callbackMode: "restricted" })).status).toBe(422);
+    expect((await send({ ...update, cimdClientIds: ["https://chatgpt.com/oauth/client.json"] })).status).toBe(400);
+    expect((await send({ ...update, callbackUris: ["https://*.example.com/callback"] })).status).toBe(422);
     const changed = await send(update);
     expect(changed.status).toBe(200);
     const saved = (await changed.json() as any).data;
     expect(saved.revision).toBe(revision + 1);
     expect(saved.cimdEnabled).toBe(true);
-    expect(saved.dcrMode).toBe("open");
-    expect(saved.callbackMode).toBe("client");
-    expect(saved.dcrRedirectUris).toEqual(update.dcrRedirectUris);
+    expect(saved.dcrEnabled).toBe(true);
+    expect(saved.callbackUris).toEqual(update.callbackUris);
     const stale = await send(update);
     expect(stale.status).toBe(409);
     expect((await stale.json() as any).error.code).toBe("REVISION_CONFLICT");
@@ -131,8 +129,7 @@ describe("Identity Platform Admin API", () => {
     // Restore the shared isolated test policy to deny-all.
     expect((await send({
       expectedRevision: saved.revision,
-      cimdEnabled: false, dcrEnabled: false, cimdMode: "restricted", dcrMode: "restricted",
-      callbackMode: "client", cimdClientIds: [], dcrRedirectUris: [], callbackUris: [],
+      cimdEnabled: false, dcrEnabled: false, callbackUris: [],
     })).status).toBe(200);
   });
 
