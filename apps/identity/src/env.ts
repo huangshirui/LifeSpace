@@ -20,9 +20,17 @@ export type Bindings = {
   OAUTH_CONSENT_URL?: string;
   OAUTH_ACCOUNT_APPLICATION_ID?: string;
   OAUTH_ALLOWED_RESOURCES?: string;
+  // Canonical Core origin for dynamically configured MCP Server resources.
+  OAUTH_MCP_RESOURCE_ORIGIN?: string;
+  // Private same-environment Core service, never a public fetch.
+  CORE?: Fetcher;
   OAUTH_RESOURCE_SERVER_SECRET?: string;
   OAUTH_CORE_APPROVER_SECRET?: string;
   OAUTH_DCR_ENABLED?: string;
+  // Opt-in HTTPS Client ID Metadata Documents; disabled unless explicitly enabled.
+  OAUTH_CIMD_ENABLED?: string;
+  // Exact, operator-reviewed HTTPS CIMD document IDs. No host wildcards.
+  OAUTH_CIMD_ALLOWED_CLIENT_IDS?: string;
 };
 
 export type RequestPerformanceTiming = {
