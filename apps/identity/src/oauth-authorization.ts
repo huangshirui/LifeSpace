@@ -102,7 +102,7 @@ async function clientForAuthorization(c: Context<AppEnv>, clientId: string): Pro
   // Open HTTPS document discovery is a network and database abuse boundary.
   // Staging requests are rate-limited before outbound fetch, including
   // revalidation at Consent time. No Worker binding => no fetch.
-  if (policy.cimdMode === "open" && c.env.ENVIRONMENT === "staging") {
+  if (c.env.ENVIRONMENT === "staging") {
     if (!c.env.OAUTH_DCR_RATE_LIMITER) return null;
     try {
       const limit = await c.env.OAUTH_DCR_RATE_LIMITER.limit({ key: "oauth-cimd-fetch" });
@@ -221,14 +221,12 @@ export async function exchangeInteractiveOAuthToken(c: Context<AppEnv>, body: Fo
 function dcrReady(env: Bindings, policy: OAuthClientAdmissionPolicy): boolean {
   return env.OAUTH_DCR_ENABLED === "1" && env.ENVIRONMENT !== "production"
     && (env.ENVIRONMENT !== "staging" || Boolean(env.OAUTH_DCR_RATE_LIMITER))
-    && policy.dcrEnabled
-    && (policy.dcrMode === "open" || policy.dcrRedirectUris.length > 0);
+    && policy.dcrEnabled;
 }
 function cimdReady(env: Bindings, policy: OAuthClientAdmissionPolicy): boolean {
   return env.OAUTH_CIMD_ENABLED === "1" && policy.cimdEnabled
-    && (policy.cimdMode === "restricted" && policy.cimdClientIds.length > 0
-      || policy.cimdMode === "open" && env.ENVIRONMENT !== "production"
-         && (env.ENVIRONMENT !== "staging" || Boolean(env.OAUTH_DCR_RATE_LIMITER)));
+    && env.ENVIRONMENT !== "production"
+    && (env.ENVIRONMENT !== "staging" || Boolean(env.OAUTH_DCR_RATE_LIMITER));
 }
 export function registerOAuthAuthorizationServer(app: App) {
   app.get("/.well-known/oauth-authorization-server", async (c) => {
