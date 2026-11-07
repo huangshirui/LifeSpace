@@ -9,6 +9,47 @@ type AppEnv = { Bindings: Bindings; Variables: Variables };
 const MAX_ACCESS_TOKEN_TTL_SECONDS = 3600;
 const SERVICE_TOKEN_PREFIXES = ["lsp_svc_", "lsp_pat_"] as const;
 const AGENT_API_TOKEN_PREFIX = "lsp_agt_";
+const MAX_OAUTH_EXECUTION_TTL_SECONDS = 60;
+
+export function oauthExecutionRouteAllowed(method: string, path: string, spaceId: string): boolean {
+  if (method === "GET" && path === "/api/v1/me/_discovery/inventory") return true;
+  if (!/^spc_[A-Za-z0-9_-]+$/u.test(spaceId)) return false;
+  // spaceId is validated against an ASCII-only identifier grammar above.
+  const escaped = spaceId;
+  if (method === "GET") {
+    return new RegExp("^/api/v1/spaces/" + escaped + "/_discovery/models/[a-z][a-z0-9_-]{0,63}$", "u").test(path);
+  }
+  if (method === "POST") {
+    return new RegExp("^/api/v1/spaces/" + escaped + "/models/[a-z][a-z0-9_-]{0,63}/records/query$", "u").test(path);
+  }
+  return false;
+}
+
+async function requireCurrentOAuthExecution(env: Bindings, execution: NonNullable<Principal["oauthExecution"]>) {
+  if (!env.IDENTITY || !env.CORE_IDENTITY_SHARED_SECRET) throw notConfigured("OAuth Core introspection binding is not configured");
+  let response: Response;
+  try {
+    response = await env.IDENTITY.fetch("https://identity.internal/introspection/v1/oauth-executions", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-lifespace-internal-secret": env.CORE_IDENTITY_SHARED_SECRET,
+      },
+      body: JSON.stringify({
+        authorizationId: execution.authorizationId,
+        tokenHash: execution.accessHash,
+        clientId: execution.clientId,
+        resource: execution.resource,
+        applicationId: execution.applicationId,
+        agentId: execution.agentId,
+        spaceId: execution.spaceId,
+      }),
+    });
+  } catch { throw unauthorized(); }
+  const payload = response.ok ? await response.json<{ data?: { active?: boolean } }>().catch(() => null) : null;
+  if (payload?.data?.active !== true) throw unauthorized();
+}
+
 
 export function isOpaqueServiceApiToken(value: string): boolean {
   return SERVICE_TOKEN_PREFIXES.some((prefix) => value.startsWith(prefix));
@@ -43,13 +84,16 @@ export async function verifyAccessToken(rawToken: string, publicKey: string): Pr
     if (!isPrincipalType(payload.principal_type)) throw unauthorized();
     const scopes = typeof payload.scope === "string" ? payload.scope.split(/\s+/).filter(Boolean) : [];
 
+    const oauthKeysPresent = Object.keys(payload).some(key => key.startsWith("oauth_"));
+    const isOAuthExecution = payload.purpose === "oauth_agent_execution";
     const hasAgentExecutionClaims = payload.actor_type !== undefined
       || payload.actor_id !== undefined
       || payload.principal_id !== undefined
-      || payload.purpose === "agent_execution";
+      || payload.purpose === "agent_execution"
+      || isOAuthExecution || oauthKeysPresent;
     if (hasAgentExecutionClaims) {
       if (
-        payload.purpose !== "agent_execution"
+        (payload.purpose !== "agent_execution" && !isOAuthExecution)
         || payload.actor_type !== "agent"
         || typeof payload.actor_id !== "string"
         || !/^agt_[A-Za-z0-9_-]+$/u.test(payload.actor_id)
@@ -72,6 +116,23 @@ export async function verifyAccessToken(rawToken: string, publicKey: string): Pr
       }
 
       const directAgent = payload.principal_type === "agent" && principalId === payload.actor_id;
+      if (isOAuthExecution) {
+        if (!directAgent || payload.scope !== "resources:read"
+          || payload.exp - payload.iat > MAX_OAUTH_EXECUTION_TTL_SECONDS
+          || typeof payload.oauth_authorization_id !== "string"
+          || !/^oaz_[A-Za-z0-9_-]{10,128}$/u.test(payload.oauth_authorization_id)
+          || typeof payload.oauth_access_hash !== "string"
+          || !/^[a-f0-9]{64}$/u.test(payload.oauth_access_hash)
+          || typeof payload.oauth_client_id !== "string"
+          || !/^ocli_[A-Za-z0-9_-]+$/u.test(payload.oauth_client_id)
+          || typeof payload.oauth_space_id !== "string"
+          || !/^spc_[A-Za-z0-9_-]+$/u.test(payload.oauth_space_id)
+          || typeof payload.oauth_resource !== "string"
+          || !/^https:\/\/[^\s]+\/mcp$/u.test(payload.oauth_resource)) throw unauthorized();
+      } else if (oauthKeysPresent) {
+        // A normal Agent JWT must never smuggle OAuth restrictions or purpose.
+        throw unauthorized();
+      }
       return {
         type: payload.principal_type,
         id: principalId,
@@ -79,7 +140,16 @@ export async function verifyAccessToken(rawToken: string, publicKey: string): Pr
         scopes,
         tokenId: payload.jti,
         ...(directAgent ? {} : { actor: { type: "agent" as const, id: payload.actor_id } }),
-        purpose: "agent_execution",
+        purpose: isOAuthExecution ? "oauth_agent_execution" : "agent_execution",
+        ...(isOAuthExecution ? { oauthExecution: {
+          authorizationId: payload.oauth_authorization_id as string,
+          accessHash: payload.oauth_access_hash as string,
+          clientId: payload.oauth_client_id as string,
+          resource: payload.oauth_resource as string,
+          spaceId: payload.oauth_space_id as string,
+          applicationId: payload.azp,
+          agentId: payload.actor_id,
+        } } : {}),
       };
     }
 
@@ -231,6 +301,13 @@ export function authenticate(): MiddlewareHandler<AppEnv> {
       throw notConfigured("Identity public verification key is not configured");
     }
 
+    if (principal.purpose === "oauth_agent_execution") {
+      const execution = principal.oauthExecution;
+      if (!execution || !oauthExecutionRouteAllowed(context.req.method, context.req.path, execution.spaceId)) {
+        throw new ApiError("FORBIDDEN", "OAuth Agent execution is limited to its selected Space and read-only query surface", 403);
+      }
+      await requireCurrentOAuthExecution(context.env, execution);
+    }
     context.set("principal", principal);
     await next();
   };

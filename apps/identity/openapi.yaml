@@ -581,6 +581,50 @@ paths:
       responses:
         '200': { description: Current token and authorization state, or active=false }
         '401': { description: Trusted Resource Server authentication is required }
+  /oauth/execution-tokens:
+    post:
+      description: Private Resource Server exchange of a live, exact-resource opaque OAuth bearer into a signed read-only Agent Direct Core execution token. Maximum lifetime 60 seconds, selected Space binding, no implicit User Delegation. Core rechecks current OAuth revocation on every request.
+      security: [{ oauthResourceServerSecret: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [token, resource]
+              properties:
+                token: { type: string, pattern: '^lsp_oat_', writeOnly: true }
+                resource: { type: string, format: uri }
+      responses:
+        '200': { description: Server-only Agent Direct JWT bound to current OAuth token and selected Space }
+        '400': { description: Invalid request shape }
+        '401': { description: Resource Server proof or OAuth token denied }
+        '503': { description: Identity token signing unavailable }
+  /introspection/v1/oauth-executions:
+    post:
+      description: Private Core-to-Identity current-state revocation and identity binding check for each signed OAuth Agent execution JWT, covering token hash, authorization, client, Application, Agent, Resource and Space. No user Delegation is inferred.
+      security: [{ internalServiceSecret: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [authorizationId, tokenHash, clientId, resource, applicationId, agentId, spaceId]
+              properties:
+                authorizationId: { type: string, pattern: '^oaz_' }
+                tokenHash: { type: string, pattern: '^[a-f0-9]{64}$', writeOnly: true }
+                clientId: { type: string, pattern: '^ocli_' }
+                resource: { type: string, format: uri }
+                applicationId: { type: string, pattern: '^app_' }
+                agentId: { type: string, pattern: '^agt_' }
+                spaceId: { type: string, pattern: '^spc_' }
+      responses:
+        '200': { description: Active boolean with current Identity verification or false on revoked and mismatched scope }
+        '400': { description: Invalid execution context }
+        '401': { description: Core-only internal service proof required }
   /oauth/revoke:
     post:
       description: Revocation of a client's own opaque access or refresh credential; revoking refresh invalidates its Authorization. User-facing Authorization revocation is a later Account API.

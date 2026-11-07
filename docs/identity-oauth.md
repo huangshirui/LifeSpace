@@ -50,3 +50,66 @@ The candidate now includes a separate Cloudflare Access-backed `apps/account` Co
 - Run `node apps/account/scripts/check-staging-readiness.mjs` with **read-only** Cloudflare API credentials and Account ID after the candidate is merged and staged through the existing owner-triggered main-only platform deployment workflow. It checks exact staging Identity/Core versions, existence of the Account staging Worker, Account-specific Access app, and strict per-email Access policies.
 - The read-only gate intentionally cannot verify private Identity Access Audience registration or Account/Core/Identity secrets, and therefore cannot mark deployment fully ready without a separately protected operator verification. **A different, owner-only workflow** (`.github/workflows/lifespace-account-staging-deploy.yml`) provisions the Account Staging Access Application, minimal Identity Account Application/Audience and independent Worker Secrets after the canonical main-branch platform staging release. That workflow generates 48-byte random CSRF and OAuth Core approval secrets per run (Staging only), verifies the freshly issued Account `lsa_*`, and revokes superseded keys only after successful installation. Neither workflow bypasses the owner-only release gate; neither deploys Production.
 - Actual Account domain `account-staging.aisr.online` must be configured with a **dedicated** Cloudflare Access policy; it must not silently inherit Console Platform Admin authority or use the experimental MCP Preview OAuth policy.
+
+## MCP Resource → LifeSpace Agent Direct read-only execution bridge (candidate / 候选)
+
+This is a **new Identity OAuth path, not the retired Cloudflare Managed OAuth Preview**. Identity owns the OAuth authorization, Account owns the Consent UX, and Core alone authorizes data access. The Account application/Worker code is not a dependency of this trusted execution bridge beyond the existing consent record; parallel AISR Account Center development remains separate.
+
+After `Account → Core consent → Identity Auth Code/PKCE → OAuth Resource Bearer`, the Staging MCP Resource Server must:
+
+1. Privately introspect `lsp_oat_*` against Identity `POST /oauth/introspect` using its dedicated `OAUTH_RESOURCE_SERVER_SECRET`, with the **exact Resource URL**. Reject expired/revoked/mismatched tokens.
+2. Obtain a **short-lived (maximum 60 seconds) Agent Direct Core JWT** from Identity `POST /oauth/execution-tokens`, sending the public OAuth bearer only to Identity. Identity rereads the current token, authorization, Application, Agent binding, registered client and Resource before signing. Claims bind `purpose=oauth_agent_execution`, `principal_type=agent`, `actor_type=agent`, `azp` Application, one `oauth_space_id`, the exact `oauth_resource` and `oauth_access_hash`. Its scope is **only** `resources:read`.
+3. Call Core only with that signed Agent execution JWT. **The public OAuth bearer is never forwarded to Core; User OAuth consent does not become a User Principal or automatic Delegation.** `allowUserAuthorization` merely means the Agent may request explicit User authorization in a future flow.
+4. Core accepts this execution profile only on three read-only surfaces: `GET /api/v1/me/_discovery/inventory`, `GET /api/v1/spaces/{selectedSpaceId}/_discovery/models/{modelKey}`, and `POST /api/v1/spaces/{selectedSpaceId}/models/{modelKey}/records/query`. Core narrows the aggregate inventory to the selected Space, checks the normal current Agent Data Grant and Application Model Access, and must reject all other endpoints/mutations.
+5. Before **every** authorized Core request, Core independently calls the private Identity `POST /introspection/v1/oauth-executions` through its existing internal secret/Service Binding. This checks the current OAuth token hash, authorization, client, Application/Agent binding, Resource and Space. **Revocation takes effect immediately**, including during the remainder of a 60-second execution JWT lifetime. Core must fail closed if its Identity private verifier is unavailable.
+
+All private endpoints are in the Identity Application OpenAPI, **candidate/internal**, using two distinct private boundaries: Resource Server secret for issuance and Core internal secret for live revalidation. No shared D1, new Agent Grant, OAuth Client fallback, platform-admin credential or old Access assertion is added.
+
+**Rollout boundary:** This source/contract candidate cannot be claimed as Staging/Production until the matching Adapters candidate, exact OAuth Resource Allowlist, same-environment bindings/secrets, deploy guard, and real positive/negative E2E are verified. Production configuration remains unchanged. The independently developed AISR Account Center UI is not modified by this candidate.
+
+
+## Dynamic Core MCP Resource registration (dependent candidate; no deployment)
+
+The accepted MCP Resource is the exact `https://core[-staging].aisr.online/mcp/{mcp_*}` URI, not a guessed domain slug or the former unscoped `/mcp`. `OAUTH_MCP_RESOURCE_ORIGIN` is an exact environment-specific origin. In this mode:
+
+- Identity accepts a properly formed Core-issued `mcp_*` Resource only after **private current-state verification** via the same-environment `CORE` Service Binding and existing `CORE_IDENTITY_SHARED_SECRET`. Core responds to `POST /internal/v1/oauth/mcp-resource/validate` using its own current MCP Server enabled flag and canonical origin; there is no direct cross-worker D1 access.
+- OAuth authorization startup **and** final Consent approval both verify the Server is still enabled. Identity token introspection and short-lived Agent execution preserve the exact Resource, while Core's live ingress and per-query Tool Policy block disabled or modified Servers on every invocation.
+- Fixed `OAUTH_ALLOWED_RESOURCES` remains available for historical isolated synthetic tests. A canonical dynamic Resource requires Core verification even if also present in that list. An unavailable Core binding/secret or disabled/missing Server fails closed. Do not introduce a wildcard host resource allowlist.
+- No new Account D1, generic Connection Registry, Cloudflare Managed OAuth, automatic User Delegation, or production deployment is introduced.
+
+Deployment order is a separate owner-controlled Staging gate: review LifeSpace #480 then dependent #485; release Core with the MCP ingress/private verification route and private Adapter Service Binding **only when** the independently private Adapter Worker exists; then converge Identity's CORE Service Binding and dynamic resource origin; finally run OAuth PKCE/Consent/MCP Staging acceptance. Do not treat passing synthetic CI as a live release.
+
+
+## MCP 2026 Client ID Metadata Documents (CIMD, opt-in candidate)
+
+Identity can resolve an HTTPS URL as an OAuth `client_id` when
+`OAUTH_CIMD_ENABLED=1` is explicitly configured. This is **not** on by default
+and has **not** been enabled on Staging or Production. Registered opaque
+`ocli_*` clients and bounded Staging DCR remain supported.
+
+- On a valid Authorization Code + PKCE request, Identity fetches the exact
+  HTTPS Client ID Metadata Document with a 5-second timeout, an 8 KiB body cap,
+  no redirect following and strict JSON media type. The response must repeat
+  the **exact** `client_id`, include exact registered redirect URIs, and
+  specify a public `none` token-auth method if specified. Loopback HTTP
+  redirect URIs are permitted for native clients, not for metadata retrieval.
+- Parsed Client metadata is not vendor identity verification or a user data
+  grant. Account Consent must continue to show the unverified Client origin,
+  Application, Space, Agent and bounded permissions before approval.
+- URL-form Client IDs travel through Identity Authorization / opaque-token
+  introspection, signed Agent Direct Core execution and MCP Adapter without
+  becoming a principal or a server authority. Exact MCP Resource audience,
+  current Core Server policy and revocation remain mandatory.
+- **Additional network gate:** `OAUTH_CIMD_ALLOWED_CLIENT_IDS` is a whitespace-delimited list of **exact, pre-reviewed HTTPS metadata document URLs** (max 100). Both `OAUTH_CIMD_ENABLED=1` and a matching URL are mandatory; otherwise Identity makes **no outbound metadata fetch**. An allowlisted domain alone is insufficient. Callbacks are pinned at the first successful registration; if a document changes its redirect list, Identity fails closed rather than silently updating the stored callbacks. The document and its registered callback are revalidated immediately before Consent approval.
+- Rejected: loopback, private/internal-looking, wildcard, HTTP and
+  credential-bearing metadata URLs, URL query/fragment and noncanonical
+  forms. The feature is intentionally *not production-ready* until operator
+  review of DNS rebinding / SSRF protection, public abuse and registration
+  rate limiting, cross-client metadata mutability and actual modern client
+  interoperability. A hostname-format check alone is not an SSRF defense.
+- Do not enable generic open DCR as a shortcut; Production rollout and
+  any external automatic client registration need separate deployment
+  and security acceptance.
+
+The OAuth callback now adds RFC 9207 `iss` equal to the fixed configured
+Identity issuer, to let clients detect authorization-server mix-up.

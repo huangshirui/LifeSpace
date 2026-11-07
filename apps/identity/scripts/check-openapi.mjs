@@ -37,6 +37,8 @@ for (const path of [
   "/oauth/requests/{requestId}/approve",
   "/oauth/core/agent-candidates",
   "/oauth/introspect",
+  "/oauth/execution-tokens",
+  "/introspection/v1/oauth-executions",
   "/oauth/revoke",
   "/introspection/v1/service-tokens",
   "/introspection/v1/agent-credentials",
@@ -124,6 +126,10 @@ if (doc.paths?.["/oauth/token"]?.post?.security?.length !== 0) throw new Error("
 const interactiveOAuthPaths = ["/oauth/authorize", "/oauth/introspect", "/oauth/revoke", "/oauth/register"];
 for (const path of interactiveOAuthPaths) {
   if (!doc.paths?.[path]) throw new Error("Interactive OAuth contract missing " + path);
+}
+if (!doc.paths?.["/oauth/execution-tokens"]?.post?.security?.some((entry) => entry.oauthResourceServerSecret)
+  || !doc.paths?.["/introspection/v1/oauth-executions"]?.post?.security?.some((entry) => entry.internalServiceSecret)) {
+  throw new Error("OAuth Agent execution bridge requires separate private Resource Server issuance and Core-only current-state revalidation");
 }
 if (!doc.paths?.["/oauth/core/agent-candidates"]?.post?.security?.some((entry) => entry.internalServiceSecret)) {
   throw new Error("OAuth Agent candidate lookup must remain Core-only");
