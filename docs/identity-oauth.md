@@ -80,57 +80,40 @@ The accepted MCP Resource is the exact `https://core[-staging].aisr.online/mcp/{
 Deployment order is a separate owner-controlled Staging gate: review LifeSpace #480 then dependent #485; release Core with the MCP ingress/private verification route and private Adapter Service Binding **only when** the independently private Adapter Worker exists; then converge Identity's CORE Service Binding and dynamic resource origin; finally run OAuth PKCE/Consent/MCP Staging acceptance. Do not treat passing synthetic CI as a live release.
 
 
-## MCP 2026 Client ID Metadata Documents (CIMD, opt-in candidate)
+## MCP Client Admission (schema 17)
 
-Identity can resolve an HTTPS URL as an OAuth `client_id` when
-`OAUTH_CIMD_ENABLED=1` is explicitly configured. This is **not** on by default
-and has **not** been enabled on Staging or Production. Registered opaque
-`ocli_*` clients and bounded Staging DCR remain supported.
+Current design: see [MCP OAuth governance](./mcp-oauth-governance.md).
 
-- On a valid Authorization Code + PKCE request, Identity fetches the exact
-  HTTPS Client ID Metadata Document with a 5-second timeout, an 8 KiB body cap,
-  no redirect following and strict JSON media type. The response must repeat
-  the **exact** `client_id`, include exact registered redirect URIs, and
-  specify a public `none` token-auth method if specified. Loopback HTTP
-  redirect URIs are permitted for native clients, not for metadata retrieval.
-- Parsed Client metadata is not vendor identity verification or a user data
-  grant. Account Consent must continue to show the unverified Client origin,
-  Application, Space, Agent and bounded permissions before approval.
-- URL-form Client IDs travel through Identity Authorization / opaque-token
-  introspection, signed Agent Direct Core execution and MCP Adapter without
-  becoming a principal or a server authority. Exact MCP Resource audience,
-  current Core Server policy and revocation remain mandatory.
-- **Operator-managed network gate:** In LifeSpace Console → **OAuth 客户端**, a privileged human administrator manages exact pre-reviewed HTTPS CIMD metadata URLs in **Identity D1** (up to 100 entries), with an independent enable switch. `OAUTH_CIMD_ENABLED=1` is a separate environment kill switch. Without both the switch and an enabled exact URL rule, Identity makes **no outbound metadata fetch**. An allowlisted domain alone is insufficient. Callbacks are pinned on first registration; a later redirect-list change fails closed, and the document is fetched again before Consent approval.
-- Rejected: loopback, private/internal-looking, wildcard, HTTP and
-  credential-bearing metadata URLs, URL query/fragment and noncanonical
-  forms. The feature is intentionally *not production-ready* until operator
-  review of DNS rebinding / SSRF protection, public abuse and registration
-  rate limiting, cross-client metadata mutability and actual modern client
-  interoperability. A hostname-format check alone is not an SSRF defense.
-- Do not enable generic open DCR as a shortcut; Production rollout and
-  any external automatic client registration need separate deployment
-  and security acceptance.
-
-The OAuth callback now adds RFC 9207 `iss` equal to the fixed configured
-Identity issuer, to let clients detect authorization-server mix-up.
-
-
-## Console-managed OAuth client admission (Identity schema 16, Staging candidate)
-
-- Identity D1 table `oauth_client_admission_policy` owns exact CIMD metadata URLs,
-  exact DCR redirect URIs, per-method enable flags, revision and actor audit
-  attribution. This table has no user Grants, Client credentials, or secrets.
-- LifeSpace Console `/oauth-clients` displays **CIMD** and **DCR** sections,
-  validates both URL lists, and saves through the authenticated Console BFF to
-  `GET/PUT /internal/v1/platform-admin/oauth/client-admission`, using the
-  existing application executor and a short-lived human Platform Admin proof.
-- DCR clients do not have an issued Client ID before registration. Accordingly
-  its allowlist is an exact callback URI registration gate, **not** a statement
-  that the registrant owns the client name. All proposed callbacks must match.
-- Staging has separate environment opt-in switches, Cloudflare per-location DCR
-  rate limiting, and an atomic Identity D1 quota. Production's DCR remains
-  disabled; no production deployment is approved by this design.
-- Policy is default disabled and empty. An operator can add exact entries,
-  turn on either method and review an audit log without editing Wrangler.
-  Removing a registration allowlist entry stops new admissions; existing
-  OAuth Authorizations must be explicitly revoked if their access should end.
+- **Protocol registration is not a User Authorization.** CIMD and DCR are
+  registered at Identity; they do not grant `resources:*`, select a Space,
+  create Delegation, or bypass Core's live MCP Server/Grant checks.
+- LifeSpace Console **Platform → OAuth 客户端** owns per-method enable switches,
+  `open` vs `restricted` admission, and the **optional** global exact callback
+  restriction. Existing strict lists stay in Identity D1. No user-specific
+  callback must be entered by a platform admin in `open` mode.
+- CIMD `open` is Staging-only behind the environment kill switch and admission
+  rate limiter. Metadata fetching is limited to strictly parsed public HTTPS
+  Client ID URLs (5-second timeout, 8-KiB limit, no redirect), exact
+  `client_id`, validated client metadata and redirect list. The first
+  registration pins callbacks; later drift fails closed. The atomic D1 quota
+  limits client registrations. Open CIMD remains **not approved for Production**
+  until DNS rebinding/SSRF and abuse review.
+- DCR `open` registers new clients only after redirect URI validation, DCR
+  per-location rate limiting, atomic client quota, and strict public PKCE
+  requirements. Production DCR is disabled independently. Existing clients
+  are still bound to the precise registered callback on authorization and
+  token exchange.
+- **Shared callback policy** applies equally to pre-registered, CIMD and DCR
+  clients. Default `client` means only the specific Client's registered
+  exact redirects are accepted; optional `restricted` imposes a second,
+  platform-wide exact URL list. Wildcards are not supported. Native localhost
+  loopback callbacks remain available, as defined by registration rules.
+- Identity advertises RFC 9207
+  `authorization_response_iss_parameter_supported: true`. Both successful
+  and user-rejected Account Consent callbacks carry `iss` exactly equal to
+  the configured issuer, with the original `state`; invalid/unknown
+  callbacks are never reflected back in OAuth redirects.
+- Account lets the user choose Application, Space, Agent, execution mode and
+  scopes. Account Connect/Grant management remains separate from Console's
+  global admission controls. Removing an admission entry alone does not
+  revoke previously issued User Authorizations.
