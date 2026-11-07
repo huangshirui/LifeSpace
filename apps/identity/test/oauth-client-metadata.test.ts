@@ -32,7 +32,7 @@ describe("CIMD public client metadata is untrusted until verified", () => {
     expect(approvedCimdClientId(clientId, clientId + " " + clientId)).toBe(false);
     expect(approvedCimdClientId(clientId, clientId)).toBe(true);
     expect(approvedCimdClientId(clientId,
-      "https://other.example.com/oauth/client.json\\n" + clientId)).toBe(true);
+      "https://other.example.com/oauth/client.json\n" + clientId)).toBe(true);
     expect(approvedCimdClientId(clientId + "?foo=bar", clientId)).toBe(false);
     expect(approvedCimdClientId(clientId, clientId + " http://localhost/bad")).toBe(false);
   });
