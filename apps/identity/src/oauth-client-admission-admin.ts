@@ -52,7 +52,7 @@ export function registerOAuthClientAdmissionAdminRoutes(app: App): void {
     ).bind(
       Number(policy.cimdEnabled), Number(policy.dcrEnabled),
       JSON.stringify(policy.cimdClientIds), JSON.stringify(policy.dcrRedirectUris),
-      actor.id, stamp, expectedRevision,
+      actor.id, stamp, auditId, expectedRevision,
     );
     // Successful edits enter the regular Identity Platform Admin audit stream;
     // no untrusted remote metadata is stored in the audit summary.
