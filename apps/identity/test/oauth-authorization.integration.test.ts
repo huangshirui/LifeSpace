@@ -31,13 +31,12 @@ async function setup() {
     OAUTH_DCR_ENABLED: "1",
     OAUTH_ACCOUNT_APPLICATION_ID: "",
   };
-  // Existing OAuth integration scenarios run with an explicit isolated
-  // allowlist, never through anonymous or wildcard client registration.
+  // Isolated fixtures must explicitly enable DCR; production and new
+  // databases remain closed by default. No per-client URL allowlist.
   await b.DB.prepare(
-    "UPDATE oauth_client_admission_policy SET dcr_enabled=1,dcr_mode='restricted',"
-    + "cimd_enabled=0,cimd_mode='restricted',callback_mode='client',"
-    + "callback_uris_json='[]',cimd_client_ids_json='[]',dcr_redirect_uris_json=? WHERE id=1"
-  ).bind(JSON.stringify(["https://client.example.test/callback"])).run();
+    "UPDATE oauth_client_admission_policy SET dcr_enabled=1,cimd_enabled=0,"
+    + "callback_mode='client',callback_uris_json='[]' WHERE id=1"
+  ).run();
   const request = (path: string, options: RequestInit = {}) => app.request("https://auth.example.test" + path, options, b);
   const bootstrap = async (scopes: string[]) => {
     const appId = "app_oauth_" + crypto.randomUUID().replaceAll("-", "");
@@ -204,8 +203,8 @@ describe("Identity OAuth Authorization Server (isolated candidate)", () => {
     const unpinned = await t.request("/.well-known/oauth-authorization-server");
     expect(await unpinned.json()).not.toHaveProperty("client_id_metadata_document_supported");
     await t.b.DB.prepare(
-      "UPDATE oauth_client_admission_policy SET cimd_enabled=1,cimd_client_ids_json=? WHERE id=1"
-    ).bind(JSON.stringify(["https://chatgpt.com/oauth/client.json"])).run();
+      "UPDATE oauth_client_admission_policy SET cimd_enabled=1 WHERE id=1"
+    ).run();
     const optInMetadata = await t.request("/.well-known/oauth-authorization-server");
     expect(optInMetadata.status).toBe(200);
     expect(await optInMetadata.json()).toMatchObject({
@@ -287,8 +286,7 @@ describe("Identity OAuth Authorization Server (isolated candidate)", () => {
     env.ENVIRONMENT = "staging";
     env.OAUTH_DCR_RATE_LIMITER = { limit: async () => ({ success: true }) };
     await t.b.DB.prepare(
-      "UPDATE oauth_client_admission_policy SET dcr_enabled=1,dcr_mode='open',dcr_redirect_uris_json='[]',"
-      + "callback_mode='client',callback_uris_json='[]' WHERE id=1"
+      "UPDATE oauth_client_admission_policy SET dcr_enabled=1,callback_mode='client',callback_uris_json='[]' WHERE id=1"
     ).run();
     const metadata = await t.request("/.well-known/oauth-authorization-server");
     expect(await metadata.json()).toHaveProperty("registration_endpoint", t.b.OAUTH_ISSUER + "/oauth/register");
@@ -324,7 +322,7 @@ describe("Identity OAuth Authorization Server (isolated candidate)", () => {
     const remoteId = "https://public-client.example.com/oauth/client.json";
     const redirect = "https://client.example.test/callback";
     await b.DB.prepare(
-      "UPDATE oauth_client_admission_policy SET cimd_enabled=1,cimd_mode='open',cimd_client_ids_json='[]' WHERE id=1"
+      "UPDATE oauth_client_admission_policy SET cimd_enabled=1 WHERE id=1"
     ).run();
     const withoutLimiter = await t.request("/.well-known/oauth-authorization-server");
     expect(await withoutLimiter.json()).not.toHaveProperty("client_id_metadata_document_supported");
