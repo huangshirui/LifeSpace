@@ -36,6 +36,7 @@ const requiredPaths = [
   "/internal/v1/platform-admin/applications/{applicationId}/service-principals/{principalId}",
   "/internal/v1/platform-admin/applications/{applicationId}/service-principals/{principalId}/tokens",
   "/internal/v1/platform-admin/applications/{applicationId}/service-principals/{principalId}/tokens/{tokenId}",
+  "/internal/v1/platform-admin/oauth/client-admission",
   "/internal/v1/platform-admin/audit",
 ];
 for (const path of requiredPaths) {
@@ -155,6 +156,17 @@ if (!String(createdSecret?.description ?? "").includes("exactly once")) {
 }
 if (!String(createdSecret?.description ?? "").includes("lsp_svc_*")) {
   throw new Error("Platform-managed Service API Token issuance must advertise canonical lsp_svc_*");
+}
+
+const admission = document.paths?.["/internal/v1/platform-admin/oauth/client-admission"];
+for (const method of ["get", "put"]) {
+  const op = admission?.[method];
+  if (!op?.security?.some(entry => entry.applicationCredential && entry.platformAdminActor)) {
+    throw new Error("OAuth admission management requires executor + platform-admin proof");
+  }
+}
+if (!admission?.put?.requestBody?.content?.["application/json"]?.schema?.properties?.expectedRevision) {
+  throw new Error("OAuth admission policy must be revision-controlled");
 }
 
 const serialized = JSON.stringify(document);
