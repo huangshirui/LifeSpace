@@ -68,7 +68,7 @@ export function registerOAuthClientAdmissionAdminRoutes(app: App): void {
       JSON.stringify({
         cimdEnabled: policy.cimdEnabled, dcrEnabled: policy.dcrEnabled,
         cimdCount: policy.cimdClientIds.length, dcrCount: policy.dcrRedirectUris.length,
-      }), c.get("requestId"), stamp, Number(expectedRevision) + 1,
+      }), c.get("requestId"), stamp, auditId,
     );
     const results = await c.env.DB.batch([update, audit]);
     if (results[0]?.meta.changes !== 1) {
