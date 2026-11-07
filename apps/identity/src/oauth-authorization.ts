@@ -2,7 +2,7 @@ import type { Context, Hono } from "hono";
 import { verify } from "hono/jwt";
 import type { Bindings, Variables } from "./env";
 import { configuredOAuthResource, liveOAuthResource } from "./oauth-mcp-resource";
-import { cimdClientId, fetchClientMetadata } from "./oauth-client-metadata";
+import { cimdClientId, approvedCimdClientId, fetchClientMetadata } from "./oauth-client-metadata";
 
 type AppEnv = { Bindings: Bindings; Variables: Variables };
 type App = Hono<AppEnv>;
@@ -91,7 +91,8 @@ async function client(db: D1Database, clientId: string): Promise<OAuthClient | n
 // previously cached redirect list or creates a permissive Client registration.
 async function clientForAuthorization(c: Context<AppEnv>, clientId: string): Promise<OAuthClient | null> {
   if (!cimdClientId(clientId)) return client(c.env.DB, clientId);
-  if (c.env.OAUTH_CIMD_ENABLED !== "1") return null;
+  if (c.env.OAUTH_CIMD_ENABLED !== "1"
+    || !approvedCimdClientId(clientId, c.env.OAUTH_CIMD_ALLOWED_CLIENT_IDS)) return null;
   const existing = await client(c.env.DB, clientId);
   if (existing?.status === "disabled") return null;
   const metadata = await fetchClientMetadata(clientId);
@@ -108,9 +109,10 @@ async function clientForAuthorization(c: Context<AppEnv>, clientId: string): Pro
       "INSERT OR IGNORE INTO oauth_clients(id,display_name,redirect_uris,status,created_at) VALUES(?,?,?,'active',?)"
     ).bind(clientId, metadata.displayName, redirects, instant()).run();
   } else if (existing.redirect_uris !== redirects) {
-    await c.env.DB.prepare(
-      "UPDATE oauth_clients SET display_name=?,redirect_uris=? WHERE id=? AND status='active'"
-    ).bind(metadata.displayName, redirects, clientId).run();
+    // A remote client must never silently expand or replace approved
+    // callbacks after an earlier Consent was granted. An operator can
+    // disable/review/re-register a changed Client, but not auto-migrate it.
+    return null;
   }
   return client(c.env.DB, clientId);
 }
@@ -260,6 +262,10 @@ export function registerOAuthAuthorizationServer(app: App) {
       || !/^[A-Za-z0-9_-]{43}$/u.test(challenge) || !resource || requested === null) {
       return oauthError(c, 400, "invalid_request", "Code, state, S256 PKCE and approved resource are required");
     }
+    // A syntactically valid resource is not proof of an enabled Core MCP Server.
+    if (!await liveOAuthResource(c.env, resource)) {
+      return oauthError(c, 400, "invalid_request", "MCP resource is not currently enabled");
+    }
     // Only valid OAuth requests may trigger a bounded remote CIMD fetch.
     const registered = await clientForAuthorization(c, clientId);
     if (!registered || registered.status !== "active") {
@@ -268,10 +274,7 @@ export function registerOAuthAuthorizationServer(app: App) {
     if (!redirect || !json(registered.redirect_uris).includes(redirect)) {
       return oauthError(c, 400, "invalid_request", "Redirect URI is not registered");
     }
-    // A syntactically valid resource is not proof of an enabled Core MCP Server.
-    if (!await liveOAuthResource(c.env, resource)) {
-      return oauthError(c, 400, "invalid_request", "MCP resource is not currently enabled");
-    }
+
     const consent = httpsUrl(c.env.OAUTH_CONSENT_URL);
     if (!issuer(c) || !consent) return oauthError(c, 503, "temporarily_unavailable", "OAuth consent service is not configured");
     const requestId = id("oar");
@@ -375,6 +378,15 @@ export function registerOAuthAuthorizationServer(app: App) {
     // before the user confirms Consent.
     if (!await liveOAuthResource(c.env, request.resource)) {
       return oauthError(c, 403, "access_denied", "MCP resource is no longer available");
+    }
+    // Remote metadata may disappear or change between authorization and
+    // browser approval. Revalidate the pinned URL document before issuing
+    // a code; never follow a newly advertised redirect.
+    if (cimdClientId(request.client_id)) {
+      const currentClient = await clientForAuthorization(c, request.client_id);
+      if (!currentClient || !json(currentClient.redirect_uris).includes(request.redirect_uri)) {
+        return oauthError(c, 403, "access_denied", "Client metadata is no longer eligible");
+      }
     }
     const user = await c.env.DB.prepare("SELECT status FROM users WHERE id=?").bind(claims.sub).first<{ status: string }>();
     const agent = await c.env.DB.prepare("SELECT a.status agentStatus,aa.status bindingStatus,aa.revoked_at revokedAt,app.status appStatus,app.allowed_scopes allowedScopes FROM agents a JOIN agent_applications aa ON aa.agent_id=a.id JOIN applications app ON app.id=aa.application_id WHERE a.id=? AND app.id=?")
