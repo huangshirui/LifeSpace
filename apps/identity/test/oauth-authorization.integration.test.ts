@@ -34,7 +34,9 @@ async function setup() {
   // Existing OAuth integration scenarios run with an explicit isolated
   // allowlist, never through anonymous or wildcard client registration.
   await b.DB.prepare(
-    "UPDATE oauth_client_admission_policy SET dcr_enabled=1,dcr_redirect_uris_json=? WHERE id=1"
+    "UPDATE oauth_client_admission_policy SET dcr_enabled=1,dcr_mode='restricted',"
+    + "cimd_enabled=0,cimd_mode='restricted',callback_mode='client',"
+    + "callback_uris_json='[]',cimd_client_ids_json='[]',dcr_redirect_uris_json=? WHERE id=1"
   ).bind(JSON.stringify(["https://client.example.test/callback"])).run();
   const request = (path: string, options: RequestInit = {}) => app.request("https://auth.example.test" + path, options, b);
   const bootstrap = async (scopes: string[]) => {
@@ -190,7 +192,8 @@ describe("Identity OAuth Authorization Server (isolated candidate)", () => {
     const metadata = await t.request("/.well-known/oauth-authorization-server");
     expect(metadata.status).toBe(200);
     expect(await metadata.json()).toMatchObject({
-      issuer: t.b.OAUTH_ISSUER, code_challenge_methods_supported: ["S256"],
+      issuer: t.b.OAUTH_ISSUER, authorization_response_iss_parameter_supported: true,
+      code_challenge_methods_supported: ["S256"],
       token_endpoint: t.b.OAUTH_ISSUER + "/oauth/token",
     });
     const wrongRedirect = await t.authorize({ redirect_uri: "https://evil.example.test/callback" });
