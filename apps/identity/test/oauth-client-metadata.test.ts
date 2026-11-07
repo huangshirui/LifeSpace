@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  cimdClientId, fetchClientMetadata, parseClientMetadata, publicRedirectUri,
+  cimdClientId, approvedCimdClientId, fetchClientMetadata, parseClientMetadata, publicRedirectUri,
 } from "../src/oauth-client-metadata";
 
 const clientId = "https://client.example.com/oauth/client.json";
@@ -22,6 +22,19 @@ describe("CIMD public client metadata is untrusted until verified", () => {
       "https://admin:password@client.example.com/metadata.json",
       clientId + "?redirect=https://evil.com", clientId + "#secret",
     ]) expect(cimdClientId(candidate)).toBe(false);
+  });
+
+  it("rejects every unpinned CIMD client, including host lookalikes", () => {
+    expect(approvedCimdClientId(clientId, "")).toBe(false);
+    expect(approvedCimdClientId(clientId, undefined)).toBe(false);
+    expect(approvedCimdClientId(clientId, "https://client.example.com/other.json")).toBe(false);
+    expect(approvedCimdClientId(clientId, "https://*.example.com/oauth/client.json")).toBe(false);
+    expect(approvedCimdClientId(clientId, clientId + " " + clientId)).toBe(false);
+    expect(approvedCimdClientId(clientId, clientId)).toBe(true);
+    expect(approvedCimdClientId(clientId,
+      "https://other.example.com/oauth/client.json\\n" + clientId)).toBe(true);
+    expect(approvedCimdClientId(clientId + "?foo=bar", clientId)).toBe(false);
+    expect(approvedCimdClientId(clientId, clientId + " http://localhost/bad")).toBe(false);
   });
 
   it("binds the exact metadata-document client_id to explicit callback URIs", () => {
