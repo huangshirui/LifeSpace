@@ -120,6 +120,60 @@ async function setup() {
 }
 
 describe("Identity OAuth Authorization Server (isolated candidate)", () => {
+  it("returns verified OAuth issuer to the client on Consent approval (RFC 9207)", async () => {
+    const t = await setup();
+    const pending = await t.authorize();
+    expect(pending.status).toBe(302);
+    const requestId = new URL(pending.headers.get("location")!).searchParams.get("request_id")!;
+    const approved = await t.approve(requestId, t.b.OAUTH_CORE_APPROVER_SECRET);
+    expect(approved.status).toBe(200);
+    const url = new URL((await approved.json() as { redirect_url: string }).redirect_url);
+    expect(url.searchParams.get("iss")).toBe(t.b.OAUTH_ISSUER);
+    expect(url.searchParams.get("code")?.startsWith("lsp_oac_")).toBe(true);
+  });
+
+  it("checks Core Server state at dynamic OAuth request and again at Consent approval", async () => {
+    const t = await setup();
+    const id = "mcp_" + crypto.randomUUID().replaceAll("-", "");
+    const resource = "https://core.example.test/mcp/" + id;
+    (t.b as typeof t.b & { OAUTH_MCP_RESOURCE_ORIGIN: string }).OAUTH_MCP_RESOURCE_ORIGIN =
+      "https://core.example.test";
+    let active = false;
+    let validations = 0;
+    (t.b as typeof t.b & { CORE: { fetch: (url: string, init: RequestInit) => Promise<Response> } }).CORE = {
+      fetch: async (url: string, init: RequestInit) => {
+        validations++;
+        expect(new URL(url).pathname).toBe("/internal/v1/oauth/mcp-resource/validate");
+        expect(new Headers(init.headers).get("x-lifespace-internal-secret"))
+          .toBe(t.b.CORE_IDENTITY_SHARED_SECRET);
+        expect(JSON.parse(String(init.body))).toEqual({ resource });
+        return Response.json({ data: { active, ...(active ? { resource } : {}) } });
+      },
+    };
+    expect((await t.authorize({ resource })).status).toBe(400);
+    active = true;
+    const pending = await t.authorize({ resource });
+    expect(pending.status).toBe(302);
+    const requestId = new URL(pending.headers.get("location")!).searchParams.get("request_id")!;
+    active = false;
+    expect((await t.approve(requestId, t.b.OAUTH_CORE_APPROVER_SECRET)).status).toBe(403);
+    expect(validations).toBe(3);
+  });
+
+
+  it("advertises URL client metadata only with explicit OAuth CIMD opt-in", async () => {
+    const t = await setup();
+    const defaultMetadata = await t.request("/.well-known/oauth-authorization-server");
+    expect(defaultMetadata.status).toBe(200);
+    expect(await defaultMetadata.json()).not.toHaveProperty("client_id_metadata_document_supported");
+    (t.b as typeof t.b & { OAUTH_CIMD_ENABLED: string }).OAUTH_CIMD_ENABLED = "1";
+    const optInMetadata = await t.request("/.well-known/oauth-authorization-server");
+    expect(optInMetadata.status).toBe(200);
+    expect(await optInMetadata.json()).toMatchObject({
+      client_id_metadata_document_supported: true,
+    });
+  });
+
   it("publishes fixed issuer metadata, protects DCR and rejects redirect/PKCE/resource substitution", async () => {
     const t = await setup();
     const metadata = await t.request("/.well-known/oauth-authorization-server");
