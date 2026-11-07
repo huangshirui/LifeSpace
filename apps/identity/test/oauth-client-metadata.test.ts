@@ -50,6 +50,20 @@ describe("CIMD public client metadata is untrusted until verified", () => {
       { ...metadata, token_endpoint_auth_method: "client_secret_basic" },
       { ...metadata, client_name: "" },
     ]) expect(parseClientMetadata(clientId, bad)).toBeNull();
+    // ChatGPT 2026 CIMD advertises both public "none" and private_key_jwt.
+    expect(parseClientMetadata(clientId, {
+      ...metadata,
+      token_endpoint_auth_method: "private_key_jwt",
+      token_endpoint_auth_methods_supported: ["none", "private_key_jwt"],
+    })).not.toBeNull();
+    expect(parseClientMetadata(clientId, {
+      ...metadata,
+      token_endpoint_auth_methods_supported: ["private_key_jwt"],
+    })).toBeNull();
+    expect(parseClientMetadata(clientId, {
+      ...metadata,
+      token_endpoint_auth_methods_supported: "none",
+    })).toBeNull();
     expect(publicRedirectUri("http://localhost:3000/callback")).toBe(true);
     expect(publicRedirectUri("http://127.0.0.1:3000/callback")).toBe(true);
     expect(publicRedirectUri("https://client.example.com/callback")).toBe(true);
