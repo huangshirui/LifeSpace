@@ -1,3 +1,5 @@
+import { displayModelName, displayOperation, displayScope } from "./capability-labels.js";
+
 const $ = (id) => document.getElementById(id);
 const controls = { application: $("application"), space: $("space"), agent: $("agent") };
 const state = { csrf: null, request: null, choices: [], busy: false, previewLoaded: false, previewVersion: 0 };
@@ -29,14 +31,14 @@ function resetCapabilities() {
   ++state.previewVersion;
   state.previewLoaded = false;
   $("capabilities").replaceChildren();
-  $("capabilities").textContent = "请选择 Agent 后查看当前能力基线。";
+  $("capabilities").textContent = "选择 Agent 后查看当前可预览的数据类型。";
 }
 async function refreshCapabilities() {
   resetCapabilities();
   updateButton();
   if (!controls.application.value || !controls.space.value || !controls.agent.value) return;
   const version = state.previewVersion;
-  $("capabilities").textContent = "正在核实 Agent 当前模型权限…";
+  $("capabilities").textContent = "正在读取 Agent 数据访问权限预览…";
   try {
     const projection = await api("/api/oauth/capabilities?" + new URLSearchParams({
       request_id: state.request.id,
@@ -52,24 +54,29 @@ async function refreshCapabilities() {
     node.replaceChildren();
     if (!projection.models.length) {
       const p = document.createElement("p");
-      p.textContent = "当前 OAuth Scope 与 Agent Direct Grants 的交集中没有可列出的 Native 模型操作。";
+      p.textContent = "当前 Agent 暂无可预览的数据访问能力。";
       node.append(p);
     } else {
       for (const model of projection.models) {
         const line = document.createElement("div"); line.className = "capability-row";
         const name = document.createElement("span");
-        name.className = "capability-name"; name.textContent = model.name + " · " + model.key;
+        name.className = "capability-name";
+        name.textContent = displayModelName(model);
+        name.title = "模型标识：" + model.key;
         line.append(name);
         for (const access of model.access) {
           const badge = document.createElement("span");
-          badge.className = "access-chip"; badge.textContent = access; line.append(badge);
+          badge.className = "access-chip";
+          badge.textContent = displayOperation(access);
+          badge.title = "操作代码：" + access;
+          line.append(badge);
         }
         node.append(line);
       }
     }
     if (projection.truncated) {
       const note = document.createElement("p");
-      note.textContent = "模型较多，仅展示部分结果。";
+      note.textContent = "数据类型较多，仅显示部分权限预览。";
       node.append(note);
     }
     state.previewLoaded = true;
@@ -77,7 +84,7 @@ async function refreshCapabilities() {
   } catch (error) {
     if (version !== state.previewVersion) return;
     $("capabilities").textContent =
-      "权限基线不可用，请重新选择 Agent 以重试。当前不能直接确认授权。";
+      "暂时无法获取权限预览。请重新选择 Agent 后重试。";
     updateButton();
   }
 }
@@ -131,7 +138,10 @@ async function initialize() {
     $("signed-user").textContent = "当前用户：" + session.user.displayName;
     $("scopes").replaceChildren();
     for (const scope of oauth.requestedScopes.length ? oauth.requestedScopes : ["未请求额外 Scope"]) {
-      const span = document.createElement("span"); span.textContent = scope; $("scopes").append(span);
+      const span = document.createElement("span");
+      span.textContent = displayScope(scope);
+      span.title = scope;
+      $("scopes").append(span);
     }
     updateApplications(); show("loading", false); show("content", true);
   } catch (err) {
