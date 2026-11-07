@@ -27,13 +27,13 @@ accepts the opaque public OAuth token; the Adapter cannot bypass Core Grants.
 2. Both repositories' latest combined CI must pass, including synthetic 20-model
    batch tests, no-token/invalid-token metadata challenge and disabled/removed
    tool tests. The Cloudflare Worker-to-Worker request budget is 32 invocations.
-3. In **lifespace-adapters**, the owner must configure a protected GitHub
-   `staging` Environment containing `CLOUDFLARE_API_TOKEN`,
-   `CLOUDFLARE_ACCOUNT_ID` and a random, 32+-character
-   `LIFESPACE_STAGING_OAUTH_RESOURCE_SERVER_SECRET`. This **same** value
-   must also be installed in **LifeSpace Identity Staging** as
-   `OAUTH_RESOURCE_SERVER_SECRET`; an Adapter-only secret does not suffice.
-   Never expose, commit or print the value.
+3. The **lifespace-adapters** repository must have a protected GitHub
+   `staging` Environment with its existing `CLOUDFLARE_API_TOKEN` and
+   `CLOUDFLARE_ACCOUNT_ID`. The **LifeSpace** repository staging Environment
+   must also have its existing Cloudflare deploy credentials. Do **not**
+   copy or store the cross-Worker Resource Server secret in either repository:
+   the owner-only LifeSpace paired-secret workflow generates it once per run
+   and writes it directly to both exact Staging Workers.
 4. Confirm `lifespace-core-staging` and `lifespace-identity-staging` exist
    in the **same Cloudflare account**. Preserve HomeMew/n8n existing production
    Service and Agent credentials. Core/Identity's shared internal secret must
@@ -44,31 +44,38 @@ accepts the opaque public OAuth token; the Adapter cannot bypass Core Grants.
 1. Run the *owner-only manual* **Deploy private LifeSpace MCP adapter staging**
    GitHub workflow in `lifespace-adapters` on reviewed `main`. It uses
    `adapters/mcp/wrangler.staging.jsonc`, disables workers.dev and previews,
-   declares no routes, binds private CORE and IDENTITY, and puts the Resource
-   Server secret without logging it. A failure here blocks the later Core deploy.
-2. Confirm the secret is installed on Identity Staging. Deploy the reviewed
-   LifeSpace **Identity/Core** `main` using the normal protected platform
-   Staging release. Core staging alone adds the `MCP_ADAPTER` binding to
-   `lifespace-mcp-adapter-staging`; **Production Core has no such binding**.
-   The Identity staging `CORE` binding resolves current `mcp_*` enabled
+   declares no routes and binds private CORE and IDENTITY. This first deployment
+   deliberately omits the secret: the Adapter fails closed until the next step.
+2. Run **Converge private MCP OAuth staging resource secret**, the owner-only
+   LifeSpace `main` workflow. It verifies both exact Staging Workers already
+   exist, generates one new cryptographically random Resource Server secret,
+   writes it to Identity Staging **and** private MCP Adapter Staging through the
+   Cloudflare API, and checks both binding names without reading secret values.
+   A partial failure blocks E2E; rerun the workflow to pair a new secret.
+3. Deploy the reviewed LifeSpace **Identity/Core** `main` through the protected
+   platform Staging release. The **Core `MCP_ADAPTER` Service Binding** is a
+   separate final release change after Adapter existence, generated Wrangler
+   types and full candidate CI are verified. Until then Core's ingress returns
+   503, not a fallback business API. Production Core has no Adapter binding.
+   The Identity staging `CORE` binding validates current `mcp_*` enabled
    state before OAuth/Consent.
-3. Create/enable a harmless `mcp_*` Server with one read-only published model
+4. Create/enable a harmless `mcp_*` Server with one read-only published model
    on an isolated Staging Space/Agent. Ensure Account shows the actual
    Application, Space, Agent, execution mode and *requested* read capability.
    An Agent Direct read does not imply User Delegation. Do not reuse real user data.
-4. Set `LIFESPACE_STAGING_MCP_RESOURCE_URI` to the exact
+5. Set `LIFESPACE_STAGING_MCP_RESOURCE_URI` to the exact
    `https://core-staging.aisr.online/mcp/{mcp_*}` URL and run
    `node infra/scripts/verify-staging-mcp-server-wire.mjs`. Passing checks
    only RFC 9728 document, Identity issuer+PKCE metadata, Bearer 401 challenge
    and invalid-token denial — **not OAuth/Consent/data E2E**.
-5. Run a *real* registered Staging OAuth client through Authorization Code+PKCE,
+6. Run a *real* registered Staging OAuth client through Authorization Code+PKCE,
    Account browser Consent, token exchange, stateless `server/discover` /
    `tools/list` / `tools/call` (or legacy `initialize`), and a bounded
    Core read-only query. Verify the client is unverified in Account UI.
    Validate wrong Server audience, cross-Space, disabled Server, revoked
    authorization, refresh-token replay, changed query operation, invalid
    `Mcp-Name`, and OAuth metadata mismatch all fail closed.
-6. CIMD remains **disabled unless** `OAUTH_CIMD_ENABLED=1` and the exact
+7. CIMD remains **disabled unless** `OAUTH_CIMD_ENABLED=1` and the exact
    `OAUTH_CIMD_ALLOWED_CLIENT_IDS` operator list is installed. Do not enable
    public anonymous client document discovery without a production-grade
    SSRF/rate-limit review. Staging can initially use an explicitly pre-registered
