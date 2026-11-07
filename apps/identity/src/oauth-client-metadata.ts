@@ -27,6 +27,16 @@ export function cimdClientId(value: unknown): value is string {
   return true;
 }
 
+// A valid HTTPS URL is NOT sufficient to authorize an outbound fetch from
+// Identity. Only operator-pinned, exact metadata document IDs are eligible.
+// Host-only matching and suffix wildcard rules would reintroduce SSRF.
+export function approvedCimdClientId(clientId: unknown, allowlist: unknown): clientId is string {
+  if (!cimdClientId(clientId) || typeof allowlist !== "string" || allowlist.length > 8192) return false;
+  const allowed = allowlist.split(/\\s+/u).filter(Boolean);
+  if (allowed.length === 0 || allowed.length > 100 || new Set(allowed).size !== allowed.length) return false;
+  return allowed.every(cimdClientId) && allowed.includes(clientId);
+}
+
 export function publicRedirectUri(value: unknown): value is string {
   if (typeof value !== "string" || value.length > 1024) return false;
   let url: URL;
