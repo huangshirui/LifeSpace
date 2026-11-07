@@ -48,7 +48,7 @@ export function registerOAuthClientAdmissionAdminRoutes(app: App): void {
     const update = c.env.DB.prepare(
       "UPDATE oauth_client_admission_policy SET cimd_enabled=?,dcr_enabled=?,"
       + "cimd_client_ids_json=?,dcr_redirect_uris_json=?,revision=revision+1,"
-      + "updated_by_user_id=?,updated_at=? WHERE id=1 AND revision=?"
+      + "updated_by_user_id=?,updated_at=?,last_change_id=? WHERE id=1 AND revision=?"
     ).bind(
       Number(policy.cimdEnabled), Number(policy.dcrEnabled),
       JSON.stringify(policy.cimdClientIds), JSON.stringify(policy.dcrRedirectUris),
