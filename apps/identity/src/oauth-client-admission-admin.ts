@@ -40,7 +40,7 @@ export function registerOAuthClientAdmissionAdminRoutes(app: App): void {
     const changes = { ...input };
     delete changes.expectedRevision;
     const policy = validateOAuthClientAdmissionPolicy(changes);
-    if (!policy || !Number.isSafeInteger(expectedRevision) || Number(expectedRevision) < 1) {
+    if (!policy || typeof expectedRevision !== "number" || !Number.isSafeInteger(expectedRevision) || expectedRevision < 1) {
       return fail(c, "VALIDATION_ERROR", "Invalid exact URLs, feature toggles or revision", 422);
     }
     const stamp = new Date().toISOString();
