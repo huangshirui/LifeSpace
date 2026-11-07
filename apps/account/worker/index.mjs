@@ -179,8 +179,8 @@ export async function accountFetch(req, env) {
   if (path !== "/api/session" && path !== "/api/oauth/request"
     && path !== "/api/oauth/choices"
     && path !== "/api/oauth/capabilities"
-    && path !== "/api/oauth/confirm") return fail(404, "NOT_FOUND", "接口不存在");
-  if ((path === "/api/oauth/confirm") !== (req.method === "POST")) {
+    && path !== "/api/oauth/confirm" && path !== "/api/oauth/deny") return fail(404, "NOT_FOUND", "接口不存在");
+  if ((path === "/api/oauth/confirm" || path === "/api/oauth/deny") !== (req.method === "POST")) {
     return fail(405, "METHOD_NOT_ALLOWED", "不支持此请求方式");
   }
   const linked = await session(req, env);
@@ -294,6 +294,33 @@ export async function accountFetch(req, env) {
   if (raw.length > 2048) return fail(413, "REQUEST_TOO_LARGE", "授权内容过大");
   let input;
   try { input = JSON.parse(raw); } catch { return fail(400, "INVALID_REQUEST", "授权内容无效"); }
+  if (path === "/api/oauth/deny") {
+    if (!isObject(input) || Object.keys(input).some(k => !["intent", "requestId"].includes(k))
+      || input.intent !== "deny-oauth-authorization" || !REQUEST.test(input.requestId || "")) {
+      return fail(400, "INVALID_REQUEST", "拒绝授权请求无效");
+    }
+    let rejected;
+    try {
+      rejected = await service(env, "CORE",
+        "/api/v1/me/oauth/requests/" + encodedPath(input.requestId) + "/deny", {
+          method: "POST",
+          headers: { authorization: "Bearer " + linked.token, "content-type": JSON_TYPE },
+          body: "{}",
+        });
+    } catch { return fail(503, "CORE_UNAVAILABLE", "无法完成拒绝授权"); }
+    if (!rejected.ok) return fail([400, 403, 409].includes(rejected.status) ? rejected.status : 503,
+      "OAUTH_DENIAL_FAILED", "授权请求已过期或不可用");
+    const result = await data(rejected);
+    let redirect;
+    try { redirect = new URL(result?.redirectUrl); } catch { return fail(502, "CORE_INVALID_RESPONSE", "OAuth 拒绝回调异常"); }
+    if (!(redirect.protocol === "https:" ||
+      (redirect.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(redirect.hostname)))
+      || redirect.username || redirect.password || redirect.searchParams.get("error") !== "access_denied"
+      || redirect.searchParams.has("code") || !redirect.searchParams.get("iss")) {
+      return fail(502, "CORE_INVALID_RESPONSE", "OAuth 拒绝回调异常");
+    }
+    return responseJson({ data: { redirectUrl: redirect.href } });
+  }
   const selected = parseConfirm(input);
   if (!selected) return fail(400, "INVALID_REQUEST", "授权选择不完整");
   let approval;
