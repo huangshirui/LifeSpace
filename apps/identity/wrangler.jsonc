@@ -16,7 +16,6 @@
         "ACCESS_TEAM_DOMAIN": "https://aisronline.cloudflareaccess.com",
         "OAUTH_MCP_RESOURCE_ORIGIN": "https://core-staging.aisr.online",
         "OAUTH_CIMD_ENABLED": "1",
-        "OAUTH_CIMD_ALLOWED_CLIENT_IDS": "https://chatgpt.com/oauth/client.json https://chatgpt.com/oauth/50_CFoh9OsZj/client.json",
         "OAUTH_DCR_ENABLED": "1"
       },
       "ratelimits": [
