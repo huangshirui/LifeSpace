@@ -98,6 +98,32 @@ async function fixture(role: "owner" | "viewer" = "owner") {
 }
 
 describe("Core Account OAuth Consent boundary", () => {
+  it("forwards Account-only explicit denial without approval or leaking arbitrary callbacks", async () => {
+    const f = await fixture();
+    f.changeUpstream(200, {
+      redirect_url: "https://client.example.test/callback?error=access_denied&state=opaque&iss=https%3A%2F%2Fauth.example.test",
+    });
+    const call = (bearer = f.bearer) => createApp().request(
+      "https://core.example.test/api/v1/me/oauth/requests/" + f.requestId + "/deny", {
+        method: "POST", headers: { authorization: "Bearer " + bearer },
+      }, f.bindings,
+    );
+    const result = await call();
+    expect(result.status).toBe(200);
+    expect((await result.json() as any).data.redirectUrl).toContain("error=access_denied");
+    expect(f.forwarded).toEqual([{
+      url: "https://identity.internal/oauth/requests/" + f.requestId + "/deny",
+      secret: "core-approval-secret-test",
+      body: { userToken: f.bearer },
+    }]);
+    const alien = await token(f.pair.privateKey, f.userId, "app_other");
+    expect((await call(alien)).status).toBe(403);
+    f.changeUpstream(200, { redirect_url: "https://client.example.test/callback?code=stolen&iss=https%3A%2F%2Fauth.example.test" });
+    expect((await call()).status).toBe(502);
+    f.changeUpstream(200, { redirect_url: "javascript:alert(1)?error=access_denied&iss=https%3A%2F%2Fauth.example.test" });
+    expect((await call()).status).toBe(502);
+  });
+
   it("requires a verified Account user, current Space manage permission and a dedicated Core-to-Identity secret", async () => {
     const f = await fixture();
     const choices = await createApp().request(
