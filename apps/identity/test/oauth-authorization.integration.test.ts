@@ -268,9 +268,9 @@ describe("Identity OAuth Authorization Server (isolated candidate)", () => {
       ...options, headers: { "content-type": "text/plain" },
     })).status).toBe(400);
     const denied = await t.request("/oauth/register", {
-      ...options, body: JSON.stringify({ redirect_uris: ["https://unknown.example.com/cb"] }),
+      ...options, body: JSON.stringify({ redirect_uris: ["https://*.example.com/cb"] }),
     });
-    expect(denied.status).toBe(403);
+    expect(denied.status).toBe(400);
     const accepted = await t.request("/oauth/register", options);
     expect(accepted.status).toBe(201);
     expect((await accepted.json() as { client_id: string }).client_id.startsWith("ocli_")).toBe(true);
