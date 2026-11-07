@@ -1,6 +1,8 @@
 import type { Context, Hono } from "hono";
 import { verify } from "hono/jwt";
 import type { Bindings, Variables } from "./env";
+import { configuredOAuthResource, liveOAuthResource } from "./oauth-mcp-resource";
+import { cimdClientId, approvedCimdClientId, fetchClientMetadata } from "./oauth-client-metadata";
 
 type AppEnv = { Bindings: Bindings; Variables: Variables };
 type App = Hono<AppEnv>;
@@ -61,9 +63,7 @@ function issuer(c: Context<AppEnv>): string | null {
   return url && new URL(url).pathname === "/" && !new URL(url).search ? new URL(url).origin : null;
 }
 function allowedResource(c: Context<AppEnv>, value: unknown): string | null {
-  const resource = httpsUrl(value);
-  const allowed = (c.env.OAUTH_ALLOWED_RESOURCES || "").split(/\s+/).filter(Boolean);
-  return resource && allowed.includes(resource) ? resource : null;
+  return configuredOAuthResource(c.env, value);
 }
 function scopes(value: unknown): string[] | null {
   if (typeof value !== "string" || value.length > 1000) return null;
@@ -85,6 +85,38 @@ async function client(db: D1Database, clientId: string): Promise<OAuthClient | n
   if (!clientId || clientId.length > 256) return null;
   return db.prepare("SELECT id,redirect_uris,status FROM oauth_clients WHERE id=?").bind(clientId).first<OAuthClient>();
 }
+// A URL-form client_id is treated as unverified metadata; only an explicit
+// operator opt-in enables outbound discovery. The current document is fetched
+// anew for each consent attempt; absent/invalid metadata never falls back to a
+// previously cached redirect list or creates a permissive Client registration.
+async function clientForAuthorization(c: Context<AppEnv>, clientId: string): Promise<OAuthClient | null> {
+  if (!cimdClientId(clientId)) return client(c.env.DB, clientId);
+  if (c.env.OAUTH_CIMD_ENABLED !== "1"
+    || !approvedCimdClientId(clientId, c.env.OAUTH_CIMD_ALLOWED_CLIENT_IDS)) return null;
+  const existing = await client(c.env.DB, clientId);
+  if (existing?.status === "disabled") return null;
+  const metadata = await fetchClientMetadata(clientId);
+  if (!metadata) return null;
+  const redirects = JSON.stringify(metadata.redirectUris);
+  if (!existing) {
+    // Bound anonymous metadata registration growth; this is still subject
+    // to standard application-layer rate limiting before public enablement.
+    const count = await c.env.DB.prepare(
+      "SELECT count(*) AS total FROM oauth_clients WHERE id LIKE 'https://%'"
+    ).first<{ total: number }>();
+    if ((count?.total ?? 0) >= 1000) return null;
+    await c.env.DB.prepare(
+      "INSERT OR IGNORE INTO oauth_clients(id,display_name,redirect_uris,status,created_at) VALUES(?,?,?,'active',?)"
+    ).bind(clientId, metadata.displayName, redirects, instant()).run();
+  } else if (existing.redirect_uris !== redirects) {
+    // A remote client must never silently expand or replace approved
+    // callbacks after an earlier Consent was granted. An operator can
+    // disable/review/re-register a changed Client, but not auto-migrate it.
+    return null;
+  }
+  return client(c.env.DB, clientId);
+}
+
 export async function authorization(db: D1Database, authorizationId: string): Promise<Authorization | null> {
   return db.prepare("SELECT oa.*,u.status userStatus,a.status appStatus,a.allowed_scopes allowedScopes,ag.status agentStatus,aa.status bindingStatus,aa.revoked_at bindingRevoked,oc.status clientStatus FROM oauth_authorizations oa JOIN users u ON u.id=oa.user_id JOIN applications a ON a.id=oa.application_id JOIN agents ag ON ag.id=oa.agent_id JOIN agent_applications aa ON aa.agent_id=oa.agent_id AND aa.application_id=oa.application_id JOIN oauth_clients oc ON oc.id=oa.client_id WHERE oa.id=?")
     .bind(authorizationId).first<Authorization>();
@@ -176,6 +208,7 @@ export function registerOAuthAuthorizationServer(app: App) {
       issuer: base, authorization_endpoint: base + "/oauth/authorize", token_endpoint: base + "/oauth/token",
       revocation_endpoint: base + "/oauth/revoke",
       introspection_endpoint: base + "/oauth/introspect",
+      ...(c.env.OAUTH_CIMD_ENABLED === "1" ? { client_id_metadata_document_supported: true } : {}),
       ...(c.env.OAUTH_DCR_ENABLED === "1" && c.env.ENVIRONMENT !== "production" ? { registration_endpoint: base + "/oauth/register" } : {}),
       response_types_supported: ["code"], grant_types_supported: ["authorization_code", "refresh_token", "client_credentials"],
       token_endpoint_auth_methods_supported: ["none", "client_secret_basic", "client_secret_post"],
@@ -219,12 +252,7 @@ export function registerOAuthAuthorizationServer(app: App) {
   app.get("/oauth/authorize", async (c) => {
     const params = new URL(c.req.url).searchParams;
     const clientId = params.get("client_id") || "";
-    const registered = await client(c.env.DB, clientId);
-    if (!registered || registered.status !== "active") return oauthError(c, 400, "invalid_client", "Client is not registered");
     const redirect = params.get("redirect_uri");
-    if (!redirect || !json(registered.redirect_uris).includes(redirect)) {
-      return oauthError(c, 400, "invalid_request", "Redirect URI is not registered");
-    }
     const state = params.get("state");
     const challenge = params.get("code_challenge");
     const resource = allowedResource(c, params.get("resource"));
@@ -234,6 +262,19 @@ export function registerOAuthAuthorizationServer(app: App) {
       || !/^[A-Za-z0-9_-]{43}$/u.test(challenge) || !resource || requested === null) {
       return oauthError(c, 400, "invalid_request", "Code, state, S256 PKCE and approved resource are required");
     }
+    // A syntactically valid resource is not proof of an enabled Core MCP Server.
+    if (!await liveOAuthResource(c.env, resource)) {
+      return oauthError(c, 400, "invalid_request", "MCP resource is not currently enabled");
+    }
+    // Only valid OAuth requests may trigger a bounded remote CIMD fetch.
+    const registered = await clientForAuthorization(c, clientId);
+    if (!registered || registered.status !== "active") {
+      return oauthError(c, 400, "invalid_client", "Client is not registered or metadata is unavailable");
+    }
+    if (!redirect || !json(registered.redirect_uris).includes(redirect)) {
+      return oauthError(c, 400, "invalid_request", "Redirect URI is not registered");
+    }
+
     const consent = httpsUrl(c.env.OAUTH_CONSENT_URL);
     if (!issuer(c) || !consent) return oauthError(c, 503, "temporarily_unavailable", "OAuth consent service is not configured");
     const requestId = id("oar");
@@ -333,6 +374,20 @@ export function registerOAuthAuthorizationServer(app: App) {
     if (!request || request.status !== "pending" || Date.parse(request.expires_at) <= Date.now()) {
       return oauthError(c, 400, "invalid_request", "Authorization request is missing, expired or completed");
     }
+    // Recheck after a pending request is opened; a Server may be disabled
+    // before the user confirms Consent.
+    if (!await liveOAuthResource(c.env, request.resource)) {
+      return oauthError(c, 403, "access_denied", "MCP resource is no longer available");
+    }
+    // Remote metadata may disappear or change between authorization and
+    // browser approval. Revalidate the pinned URL document before issuing
+    // a code; never follow a newly advertised redirect.
+    if (cimdClientId(request.client_id)) {
+      const currentClient = await clientForAuthorization(c, request.client_id);
+      if (!currentClient || !json(currentClient.redirect_uris).includes(request.redirect_uri)) {
+        return oauthError(c, 403, "access_denied", "Client metadata is no longer eligible");
+      }
+    }
     const user = await c.env.DB.prepare("SELECT status FROM users WHERE id=?").bind(claims.sub).first<{ status: string }>();
     const agent = await c.env.DB.prepare("SELECT a.status agentStatus,aa.status bindingStatus,aa.revoked_at revokedAt,app.status appStatus,app.allowed_scopes allowedScopes FROM agents a JOIN agent_applications aa ON aa.agent_id=a.id JOIN applications app ON app.id=aa.application_id WHERE a.id=? AND app.id=?")
       .bind(body.agentId, body.applicationId).first<{ agentStatus: string; bindingStatus: string; revokedAt: string | null; appStatus: string; allowedScopes: string }>();
@@ -340,6 +395,8 @@ export function registerOAuthAuthorizationServer(app: App) {
       || agent.revokedAt || agent.appStatus !== "active" || !json(request.scopes).every((s) => json(agent.allowedScopes).includes(s))) {
       return oauthError(c, 403, "access_denied", "Selected Agent, Application or scope is not eligible");
     }
+    const currentIssuer = issuer(c);
+    if (!currentIssuer) return oauthError(c, 503, "temporarily_unavailable", "OAuth issuer unavailable");
     const authzId = id("oaz");
     const code = randomSecret("lsp_oac_");
     try {
@@ -357,6 +414,9 @@ export function registerOAuthAuthorizationServer(app: App) {
     const redirect = new URL(request.redirect_uri);
     redirect.searchParams.set("code", code);
     if (request.state) redirect.searchParams.set("state", request.state);
+    // RFC 9207 issuer identifier protects clients from AS mix-up during
+    // the browser callback. Never infer this from the request Host header.
+    redirect.searchParams.set("iss", currentIssuer);
     return c.json({ redirect_url: redirect.href, authorization_id: authzId }, 200, { "cache-control": "no-store" });
   });
 
