@@ -26,6 +26,7 @@ export async function convergeStagingMcpResourceSecret({
   if (!index.ok) throw new Error("Unable to inspect staging Worker inventory");
   let listing;
   try { listing = await index.json(); } catch { throw new Error("Invalid Worker inventory"); }
+  if (listing?.success !== true) throw new Error("Cloudflare staging Worker inventory was not confirmed");
   const available = new Set(Array.isArray(listing?.result)
     ? listing.result.map(worker => worker?.id || worker?.name).filter(Boolean) : []);
   if (!TARGETS.every(name => available.has(name))) {
@@ -46,7 +47,10 @@ export async function convergeStagingMcpResourceSecret({
       headers: { ...headers, "content-type": "application/json" },
       body: JSON.stringify({ name: NAME, type: "secret_text", text: value }),
     }).catch(() => null);
-    if (!response?.ok) throw new Error("Staging Resource Server secret convergence failed for " + name);
+    const outcome = response?.ok ? await response.json().catch(() => null) : null;
+    if (outcome?.success !== true) {
+      throw new Error("Staging Resource Server secret convergence failed for " + name);
+    }
   }
   for (const name of TARGETS) {
     const response = await request(origin + "/" + name + "/secrets", {
@@ -54,7 +58,7 @@ export async function convergeStagingMcpResourceSecret({
     }).catch(() => null);
     if (!response?.ok) throw new Error("Staging Worker secret name verification failed for " + name);
     const payload = await response.json().catch(() => null);
-    if (!Array.isArray(payload?.result)
+    if (payload?.success !== true || !Array.isArray(payload.result)
       || !payload.result.some(binding => binding.name === NAME)) {
       throw new Error("Expected Staging Resource Server secret binding missing for " + name);
     }
