@@ -2,7 +2,11 @@ import type { Context, Hono } from "hono";
 import { verify } from "hono/jwt";
 import type { Bindings, Variables } from "./env";
 import { configuredOAuthResource, liveOAuthResource } from "./oauth-mcp-resource";
-import { cimdClientId, approvedCimdClientId, fetchClientMetadata } from "./oauth-client-metadata";
+import { cimdClientId, fetchClientMetadata } from "./oauth-client-metadata";
+import {
+  loadOAuthClientAdmissionPolicy, mayUseCimd, mayRegisterDcr,
+  type OAuthClientAdmissionPolicy,
+} from "./oauth-client-admission-policy";
 
 type AppEnv = { Bindings: Bindings; Variables: Variables };
 type App = Hono<AppEnv>;
@@ -91,8 +95,8 @@ async function client(db: D1Database, clientId: string): Promise<OAuthClient | n
 // previously cached redirect list or creates a permissive Client registration.
 async function clientForAuthorization(c: Context<AppEnv>, clientId: string): Promise<OAuthClient | null> {
   if (!cimdClientId(clientId)) return client(c.env.DB, clientId);
-  if (c.env.OAUTH_CIMD_ENABLED !== "1"
-    || !approvedCimdClientId(clientId, c.env.OAUTH_CIMD_ALLOWED_CLIENT_IDS)) return null;
+  const policy = await loadOAuthClientAdmissionPolicy(c.env.DB);
+  if (!cimdReady(c.env, policy) || !mayUseCimd(policy, clientId)) return null;
   const existing = await client(c.env.DB, clientId);
   if (existing?.status === "disabled") return null;
   const metadata = await fetchClientMetadata(clientId);
@@ -201,26 +205,26 @@ export async function exchangeInteractiveOAuthToken(c: Context<AppEnv>, body: Fo
 }
 
 // Registration features are advertised only when their safety gates exist.
-function dcrReady(env: Bindings): boolean {
+function dcrReady(env: Bindings, policy: OAuthClientAdmissionPolicy): boolean {
   return env.OAUTH_DCR_ENABLED === "1" && env.ENVIRONMENT !== "production"
-    && (env.ENVIRONMENT !== "staging" || Boolean(env.OAUTH_DCR_RATE_LIMITER));
+    && (env.ENVIRONMENT !== "staging" || Boolean(env.OAUTH_DCR_RATE_LIMITER))
+    && policy.dcrEnabled && policy.dcrRedirectUris.length > 0;
 }
-function cimdReady(env: Bindings): boolean {
-  if (env.OAUTH_CIMD_ENABLED !== "1" || !env.OAUTH_CIMD_ALLOWED_CLIENT_IDS) return false;
-  const urls = env.OAUTH_CIMD_ALLOWED_CLIENT_IDS.split(/\s+/u).filter(Boolean);
-  return urls.length > 0 && urls.length <= 100
-    && urls.every(url => approvedCimdClientId(url, env.OAUTH_CIMD_ALLOWED_CLIENT_IDS));
+function cimdReady(env: Bindings, policy: OAuthClientAdmissionPolicy): boolean {
+  return env.OAUTH_CIMD_ENABLED === "1"
+    && policy.cimdEnabled && policy.cimdClientIds.length > 0;
 }
 export function registerOAuthAuthorizationServer(app: App) {
-  app.get("/.well-known/oauth-authorization-server", (c) => {
+  app.get("/.well-known/oauth-authorization-server", async (c) => {
     const base = issuer(c);
+    const admission = await loadOAuthClientAdmissionPolicy(c.env.DB);
     if (!base) return oauthError(c, 503, "temporarily_unavailable", "OAuth issuer is not configured");
     return c.json({
       issuer: base, authorization_endpoint: base + "/oauth/authorize", token_endpoint: base + "/oauth/token",
       revocation_endpoint: base + "/oauth/revoke",
       introspection_endpoint: base + "/oauth/introspect",
-      ...(cimdReady(c.env) ? { client_id_metadata_document_supported: true } : {}),
-      ...(dcrReady(c.env) ? { registration_endpoint: base + "/oauth/register" } : {}),
+      ...(cimdReady(c.env, admission) ? { client_id_metadata_document_supported: true } : {}),
+      ...(dcrReady(c.env, admission) ? { registration_endpoint: base + "/oauth/register" } : {}),
       response_types_supported: ["code"], grant_types_supported: ["authorization_code", "refresh_token", "client_credentials"],
       token_endpoint_auth_methods_supported: ["none", "client_secret_basic", "client_secret_post"],
       code_challenge_methods_supported: ["S256"], scopes_supported: ["resources:read", "resources:write", "resources:manage"],
@@ -228,7 +232,8 @@ export function registerOAuthAuthorizationServer(app: App) {
   });
 
   app.post("/oauth/register", async (c) => {
-    if (!dcrReady(c.env) || !issuer(c)) {
+    const admission = await loadOAuthClientAdmissionPolicy(c.env.DB);
+    if (!dcrReady(c.env, admission) || !issuer(c)) {
       return oauthError(c, 403, "access_denied", "Dynamic client registration is disabled");
     }
     // Regional limiter + atomic global D1 quota: no unlimited anonymous writes.
@@ -267,6 +272,9 @@ export function registerOAuthAuthorizationServer(app: App) {
     }
     const redirectUris = (input.redirect_uris as string[]).map((u) => httpsUrl(u, true)!);
     if (new Set(redirectUris).size !== redirectUris.length) return oauthError(c, 400, "invalid_redirect_uri", "Duplicate redirects");
+    if (!mayRegisterDcr(admission, redirectUris)) {
+      return oauthError(c, 403, "access_denied", "Client callback URI is not permitted by LifeSpace Console");
+    }
     const name = typeof input.client_name === "string" && input.client_name.trim() && input.client_name.length <= 100
       ? input.client_name.trim() : "Unnamed OAuth Client";
     const clientId = id("ocli");
