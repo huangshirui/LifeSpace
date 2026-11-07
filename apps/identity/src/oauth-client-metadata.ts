@@ -57,7 +57,16 @@ export function parseClientMetadata(clientId: string, document: unknown): Public
     || !data.redirect_uris.length || data.redirect_uris.length > MAX_REDIRECTS
     || !data.redirect_uris.every(publicRedirectUri)
     || new Set(data.redirect_uris).size !== data.redirect_uris.length
-    || (data.token_endpoint_auth_method !== undefined && data.token_endpoint_auth_method !== "none")
+    // Transition-era clients may publish both singular preferred auth method
+    // and plural methods. The plural set must explicitly allow public "none";
+    // the preferred private_key_jwt method does not prohibit using none.
+    || (data.token_endpoint_auth_methods_supported !== undefined
+      && (!Array.isArray(data.token_endpoint_auth_methods_supported)
+        || data.token_endpoint_auth_methods_supported.length > 8
+        || !data.token_endpoint_auth_methods_supported.includes("none")
+        || data.token_endpoint_auth_methods_supported.some(method => typeof method !== "string")))
+    || (data.token_endpoint_auth_methods_supported === undefined
+      && data.token_endpoint_auth_method !== undefined && data.token_endpoint_auth_method !== "none")
     || (data.response_types !== undefined && JSON.stringify(data.response_types) !== JSON.stringify(["code"]))
     || (data.grant_types !== undefined && (!Array.isArray(data.grant_types)
       || data.grant_types.some(v => v !== "authorization_code" && v !== "refresh_token")
