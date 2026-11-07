@@ -31,8 +31,6 @@ export type Bindings = {
   OAUTH_DCR_RATE_LIMITER?: RateLimit;
   // Opt-in HTTPS Client ID Metadata Documents; disabled unless explicitly enabled.
   OAUTH_CIMD_ENABLED?: string;
-  // Exact, operator-reviewed HTTPS CIMD document IDs. No host wildcards.
-  OAUTH_CIMD_ALLOWED_CLIENT_IDS?: string;
 };
 
 export type RequestPerformanceTiming = {
