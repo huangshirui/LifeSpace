@@ -583,7 +583,7 @@ paths:
         '401': { description: Trusted Resource Server authentication is required }
   /oauth/execution-tokens:
     post:
-      description: Private Resource Server exchange of a live, exact-resource opaque OAuth bearer into a signed Agent Direct Core execution token. Default read-only; Staging additionally preserves resources:write only when both the live access token and current authorization consent it. Production remains read-only. Maximum lifetime 60 seconds, selected Space binding, no implicit User Delegation. Core rechecks current OAuth revocation on every request.
+      description: Private Resource Server exchange of a live, exact-resource opaque OAuth bearer into a signed Agent Direct Core execution token. Default read-only; resources:write is preserved only when the live access token and current authorization both explicitly consented, and Core still checks the exact current Server operation and Agent authority. Scope semantics are identical in Staging and Production; deployment policy and transport bindings separately control availability. Maximum lifetime 60 seconds, selected Space binding, no implicit User Delegation. Core rechecks current OAuth revocation on every request.
       security: [{ oauthResourceServerSecret: [] }]
       requestBody:
         required: true
