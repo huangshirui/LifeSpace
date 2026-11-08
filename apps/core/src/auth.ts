@@ -53,12 +53,15 @@ async function requireCurrentOAuthExecution(env: Bindings, execution: NonNullabl
       }),
     });
   } catch { throw unauthorized(); }
-  const payload = response.ok ? await response.json<{ data?: { active?: boolean; scopes?: string[] } }>().catch(() => null) : null;
+  const payload = response.ok ? await response.json<{ data?: { active?: boolean; scopes?: string[];
+    userId?: string; allowUserAuthorization?: boolean } }>().catch(() => null) : null;
   if (payload?.data?.active !== true) throw unauthorized();
   // Legacy introspection may only validate read. Write requires live consent evidence.
   const current = payload.data.scopes ?? ["resources:read"];
   if (!Array.isArray(current) || current.some(scope => typeof scope !== "string")
-    || scopes.some(scope => !current.includes(scope))) throw unauthorized();
+    || scopes.some(scope => !current.includes(scope))
+    || payload?.data?.userId !== execution.userId
+    || payload?.data?.allowUserAuthorization !== execution.allowUserAuthorization) throw unauthorized();
 }
 
 
@@ -154,7 +157,10 @@ export async function verifyAccessToken(rawToken: string, publicKey: string): Pr
           || typeof payload.oauth_space_id !== "string"
           || !/^spc_[A-Za-z0-9_-]+$/u.test(payload.oauth_space_id)
           || typeof payload.oauth_resource !== "string"
-          || !oauthMcpServerId(payload.oauth_resource)) throw unauthorized();
+          || !oauthMcpServerId(payload.oauth_resource)
+          || typeof payload.oauth_user_id !== "string"
+          || !/^usr_[A-Za-z0-9_-]+$/u.test(payload.oauth_user_id)
+          || typeof payload.oauth_allow_user_authorization !== "boolean") throw unauthorized();
       } else if (oauthKeysPresent) {
         // A normal Agent JWT must never smuggle OAuth restrictions or purpose.
         throw unauthorized();
@@ -175,6 +181,8 @@ export async function verifyAccessToken(rawToken: string, publicKey: string): Pr
           spaceId: payload.oauth_space_id as string,
           applicationId: payload.azp,
           agentId: payload.actor_id,
+          userId: payload.oauth_user_id as string,
+          allowUserAuthorization: payload.oauth_allow_user_authorization as boolean,
         } } : {}),
       };
     }
