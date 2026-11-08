@@ -1,6 +1,17 @@
 # Identity Interactive OAuth Authorization Server / 交互式 OAuth 授权服务
 
-Status: **candidate on independent feature branch; not deployed**. This is Identity's protocol and credential work, not a general `conn_*` registry and not a replacement for Core Authority.
+Status: **Staging deployed; Production convergence in development. No production OAuth MCP release has been verified.** This is Identity's protocol and credential work, not a general `conn_*` registry and not a replacement for Core Authority.
+
+## 2026-11-08 · 生产能力收敛（开发中，未生产发布）
+
+> 本节是较早「Staging-only Candidate」段落的后续修订；它们是实施历史，不应当再被解读为当前目标。真正 Production 发布状态以 `docs/production/` 和发布工作流证据为准。
+
+- OAuth MCP 的协议与 Authority（权限）语义不由 `ENVIRONMENT` 决定。Core 每次根据**当前启用的** `mcp_*` Server、其模型/Kernel 操作列表，提供用于 OAuth 的资源 Scope 上限（`resources:read` 或 `resources:read resources:write`）；该值只表示 Server 能力，不是用户/Agent 的 Data Grant。
+- 核心 OAuth 授权仅接受客户端实际申请且 Server 允许的 Scope；未指定时按最小读取处理，管理/未知 Scope 不会被隐式映射为 MCP 数据管理。首次 Account Consent 显示实际请求，不自动扩权；旧 read-only token 不会变成 write token。
+- Identity 当前有效 Authorization + Access Token 的 Scope 才进入短期 Agent Direct JWT。Core 对每个操作重新核对 OAuth 当前授权、选定 Space/Resource、MCP Server operation、Application × Model Access、Agent Data Grant、Model Policy、记录版本；Staging/Production 共享相同语义。没有配对资源/秘密/Service Binding 的环境继续 fail closed。
+- CIMD/DCR 以环境中的明确特性开关 **且** Console 当前准入策略 **且** 同环境 Rate Limiter 为前置条件；Production 不再因名字而硬拒绝，但默认配置仍不启用注册，必须单独走受保护的上线审批。允许生产注册绝不等于验证第三方品牌身份。
+- `allowUserAuthorization` 仅表示未来可申请用户 Delegation。Core `arq_*`/`dlg_*` 与 Account 独立人工确认、显式 Principal=User/Actor=Agent、撤销及审计尚需在正式发布前完成。Native `get`/Action/Person Directory/External Tool 的配置与暴露差异也仍是正式验收阻塞项。
+- 发布追踪：[LifeSpace #499](https://github.com/huangshirui/LifeSpace/issues/499)。代码合并/Staging 测试不构成 Production 能力声明。
 
 ## Authority / 权限分工
 
