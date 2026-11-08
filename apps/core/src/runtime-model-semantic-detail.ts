@@ -59,7 +59,7 @@ export function registerRuntimeModelSemanticDetailRoutes(app: App): void {
     const spaceId = context.req.param("spaceId");
     const execution = principal.oauthExecution;
     if (principal.purpose !== "oauth_agent_execution" || !execution
-      || execution.spaceId !== spaceId || !execution.queryModelKeys) {
+      || execution.spaceId !== spaceId || !execution.toolModelKeys) {
       throw new ApiError("FORBIDDEN", "OAuth MCP batch discovery is not available", 403);
     }
     const raw = await context.req.text();
@@ -78,7 +78,7 @@ export function registerRuntimeModelSemanticDetailRoutes(app: App): void {
       || new Set(keys).size !== keys.length) {
       throw new ApiError("INVALID_REQUEST", "Invalid or repeated model keys", 400);
     }
-    const exposed = new Set(execution.queryModelKeys);
+    const exposed = new Set(execution.toolModelKeys);
     if (keys.some(key => !exposed.has(key))) throw opaqueNotFound();
     // Do not leak partial visibility: any missing/retired/ungranted Model
     // rejects the entire batch, without exposing other semantic definitions.
@@ -123,7 +123,12 @@ export function registerRuntimeModelSemanticDetailRoutes(app: App): void {
             operations: inputs, $defs: selectedDefs };
         }
       }
-      models.push({ modelKey: key, detail: { ...detail, ...(mutations ? { mutations } : {}) } });
+      models.push({ modelKey: key, detail: {
+        ...detail,
+        mcpOperations: execution.modelOperations?.[key]?.filter(op =>
+          ["get", "query", "create", "update", "delete"].includes(op)) ?? [],
+        ...(mutations ? { mutations } : {}),
+      } });
     }
     return context.json(success({ models }), 200, { "cache-control": "no-store" });
   });
