@@ -447,6 +447,41 @@ describe("OAuth MCP Agent Direct execution: Core fail-closed route and Space bou
     })).status).toBe(401);
   });
 
+  it("discovers and runs Native create through the same opaque operation contract, with current server policy", async () => {
+    const f=await fixture();
+    const base="/api/v1/spaces/"+f.space;
+    await f.db.prepare(
+      "UPDATE data_grants SET permission='write' WHERE source_space_id=? AND grantee_type='agent' AND grantee_id=? AND resource_type='space'"
+    ).bind(f.space,f.agent).run();
+    await f.db.prepare(
+      "UPDATE application_model_access SET max_access='write' WHERE application_id=? AND model_key='task'"
+    ).bind(f.application).run();
+    await f.setServerOperations(["query","create"]);
+    f.setConsentScopes(["resources:read","resources:write"]);
+    const claims={scope:"resources:read resources:write"};
+    const projected=await f.request("GET",base+"/_discovery/operations",claims);
+    expect(projected.status).toBe(200);
+    const body=await projected.json() as {data:{operations:Array<{
+      modelKey:string;operation:string;operationRef:string;inputSchema:{
+        properties:Record<string,unknown>;$defs?:Record<string,unknown>;
+      };
+    }>}};
+    const create=body.data.operations.find(o=>o.modelKey==="task"&&o.operation==="create");
+    expect(create).toBeDefined();
+    expect(create?.inputSchema.properties.data).toMatchObject({$ref:expect.stringMatching(/^#\/\$defs\//u)});
+    expect(create?.inputSchema.$defs).toBeDefined();
+    const mutation=await f.request("POST",base+"/_operations/"+create!.operationRef+"/invoke",claims,{
+      arguments:{spaceId:f.space,data:{name:"Synthetic operation created"}},
+    });
+    expect(mutation.status).toBe(201);
+    const created=await mutation.json() as {data:{id:string}};
+    expect(created.data.id).toMatch(/^rec_/u);
+    await f.setServerOperations(["query"]);
+    expect((await f.request("POST",base+"/_operations/"+create!.operationRef+"/invoke",claims,{
+      arguments:{spaceId:f.space,data:{name:"Stale operation"}},
+    })).status).toBe(404);
+  });
+
   it("exposes Kernel Person through the exact same generic operation envelope as a normal Model", async () => {
     const f=await fixture();
     const base="/api/v1/spaces/"+f.space;
