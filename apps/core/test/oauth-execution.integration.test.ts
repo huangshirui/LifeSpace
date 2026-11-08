@@ -396,8 +396,19 @@ describe("OAuth MCP Agent Direct execution: Core fail-closed route and Space bou
     const headers={"x-lifespace-delegation-id":delegationId};
     const created=await f.request("POST",base,represented,{name:"Approved once"},headers);
     expect(created.status).toBe(201);
-    const data=await created.json() as {data:{createdBy:{id:string;type:string}}};
-    expect(data.data.createdBy).toMatchObject({type:"agent",id:f.agent});
+    const data=await created.json() as {data:{id:string;createdBy:{id:string;type:string}}};
+    // Record ownership/audit displays the User Principal. The authoritative
+    // Change explicitly attributes the actual Agent Actor and Delegation.
+    expect(data.data.createdBy).toMatchObject({type:"user",id:f.oauthUser});
+    const change=await f.db.prepare(
+      "SELECT principal_type,principal_id,actor_type,actor_id,application_id,delegation_id " +
+      "FROM resource_changes WHERE record_id=? ORDER BY occurred_at DESC LIMIT 1"
+    ).bind(data.data.id).first<Record<string,string>>();
+    expect(change).toMatchObject({
+      principal_type:"user",principal_id:f.oauthUser,
+      actor_type:"agent",actor_id:f.agent,
+      application_id:f.application,delegation_id:delegationId,
+    });
     expect((await f.request("POST",base,represented,{name:"Again"},headers)).status).toBe(403);
     const scoped=await f.request("POST",base+"/query",represented,{limit:1},headers);
     expect(scoped.status).toBe(403);
