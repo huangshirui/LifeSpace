@@ -319,14 +319,19 @@ export function registerOAuthAuthorizationServer(app: App) {
     const state = params.get("state");
     const challenge = params.get("code_challenge");
     const resource = allowedResource(c, params.get("resource"));
-    const requested = scopes(params.get("scope") || "");
+    const parsedScopes = scopes(params.get("scope") || "");
+    // Missing client Scope means minimum read, not empty unusable consent.
+    // The Client cannot ask for manage/admin or any unsupported OAuth MCP Scope.
+    const requested = parsedScopes && parsedScopes.length ? parsedScopes : parsedScopes ? ["resources:read"] : null;
     if (params.get("response_type") !== "code" || !state || state.length < 16 || state.length > 1024
       || params.get("code_challenge_method") !== "S256" || !challenge
-      || !/^[A-Za-z0-9_-]{43}$/u.test(challenge) || !resource || requested === null) {
+      || !/^[A-Za-z0-9_-]{43}$/u.test(challenge) || !resource || requested === null
+      || !requested.includes("resources:read")
+      || requested.some(scope => scope !== "resources:read" && scope !== "resources:write")) {
       return oauthError(c, 400, "invalid_request", "Code, state, S256 PKCE and approved resource are required");
     }
     // A syntactically valid resource is not proof of an enabled Core MCP Server.
-    if (!await liveOAuthResource(c.env, resource)) {
+    if (!await liveOAuthResource(c.env, resource, requested)) {
       return oauthError(c, 400, "invalid_request", "MCP resource is not currently enabled");
     }
     // Only valid OAuth requests may trigger a bounded remote CIMD fetch.
@@ -441,7 +446,7 @@ export function registerOAuthAuthorizationServer(app: App) {
     }
     // Recheck after a pending request is opened; a Server may be disabled
     // before the user confirms Consent.
-    if (!await liveOAuthResource(c.env, request.resource)) {
+    if (!await liveOAuthResource(c.env, request.resource, json(request.scopes))) {
       return oauthError(c, 403, "access_denied", "MCP resource is no longer available");
     }
     // Remote metadata may disappear or change between authorization and
