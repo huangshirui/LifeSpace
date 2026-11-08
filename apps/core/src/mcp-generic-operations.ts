@@ -199,7 +199,7 @@ function targetRequest(c:ContextApp,item:Entry,args:Record<string,unknown>) {
       if(Object.keys(query).some(k=>!["search","limit","cursor"].includes(k)))throw denied();
       const params=new URLSearchParams();
       if(typeof query.search==="string")params.set("q",query.search);
-      if(Number.isInteger(query.limit))params.set("limit",String(query.limit));
+      if(Number.isInteger(query.limit))params.set("limit",String(query.limit as number));
       if(typeof query.cursor==="string")params.set("cursor",query.cursor);
       path=personBase+(params.size?"?"+params:"");
     }else{
