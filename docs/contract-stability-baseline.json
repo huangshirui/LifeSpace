@@ -116,7 +116,7 @@
     {
       "id": "identity-application",
       "source": "apps/identity/openapi.yaml",
-      "operationSetSha256": "sha256:48f93f95baa1f2cf09a04be6dcb803ef3bc75d36d6bffcff5ce3d8f9047b6649",
+      "operationSetSha256": "sha256:d9d21d9f0e7b2e058ac77afd3eecca45b2509a88bc5a46c45570d5d0b9225202",
       "groups": [
         {
           "id": "identity-operational",
@@ -430,7 +430,7 @@
     {
       "id": "core-account-oauth-consent",
       "source": "apps/core/oauth-consent.openapi.yaml",
-      "operationSetSha256": "sha256:0a0249c05cbac77a71e1e09909993c60048b9d94d469f5afdb1eff836c984b34",
+      "operationSetSha256": "sha256:0f3919f52773d4da8644da540d8d238aef1da6800a62f9973e3ffa1958475a83",
       "groups": [
         {
           "id": "core-account-consent-confirm",
@@ -462,7 +462,7 @@
     {
       "id": "account-consent-bff",
       "source": "apps/account/openapi.json",
-      "operationSetSha256": "sha256:00822b98fad813d047668a0312e6e95fba64eb25649da941daf09cd0bc742ce8",
+      "operationSetSha256": "sha256:b1a685bb6009a8dcfd0798e4be7f0f398f6f5457fd232100ff09261d9b9edede",
       "groups": [
         {
           "id": "account-oauth-consent",
