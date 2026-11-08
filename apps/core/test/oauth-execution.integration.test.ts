@@ -27,6 +27,7 @@ async function fixture() {
   const authId = "oaz_" + uuid;
   const oauthUser = "usr_" + uuid;
   const client = "ocli_" + uuid;
+  const accountApp = "app_account_" + uuid;
   const tokenHash = "a".repeat(64);
   const serverId = "mcp_" + uuid;
   const resource = "https://resource.example.test/mcp/" + serverId;
@@ -60,35 +61,55 @@ async function fixture() {
       .bind(application, "task", "read", "service", "svc_synthetic"),
   ]);
   let active = true, checks = 0, lastBody: unknown;
+  let delegationEnabled = false;
   let consentScopes = ["resources:read"];
   const bindings = {
     ENVIRONMENT: "staging", DB: db, IDENTITY_PUBLIC_KEY: publicKey,
     CORE_IDENTITY_SHARED_SECRET: "synthetic-core-to-identity-shared-secret",
+    OAUTH_ACCOUNT_APPLICATION_ID: accountApp,
     IDENTITY: { fetch: async (url: string, init: RequestInit) => {
       checks++;
-      expect(new URL(url).pathname).toBe("/introspection/v1/oauth-executions");
+      const pathname = new URL(url).pathname;
+      expect(["/introspection/v1/oauth-executions",
+        "/introspection/v1/oauth-delegation-authorizations"]).toContain(pathname);
       expect(new Headers(init.headers).get("x-lifespace-internal-secret"))
         .toBe("synthetic-core-to-identity-shared-secret");
       lastBody = JSON.parse(String(init.body));
       return Response.json({ data: {
-        active, scopes: consentScopes, userId: oauthUser, allowUserAuthorization: false,
+        active: active && (pathname !== "/introspection/v1/oauth-delegation-authorizations"
+          || delegationEnabled), scopes: consentScopes, userId: oauthUser,
+        allowUserAuthorization: delegationEnabled,
       } });
     } },
   };
   const jwt = (patch: Record<string, unknown> = {}) => sign({ ...claims, ...patch }, key, "RS256");
-  const request = async (method: string, path: string, patch: Record<string, unknown> = {}, body?: unknown) => {
+  const request = async (method: string, path: string, patch: Record<string, unknown> = {}, body?: unknown,
+    extraHeaders: Record<string,string> = {}) => {
     const bearer = await jwt(patch);
     return createApp().request("http://localhost" + path, {
       method, headers: {
         authorization: "Bearer " + bearer,
-        ...(body === undefined ? {} : { "content-type": "application/json" }),
+        ...(body === undefined ? {} : { "content-type": "application/json" }), ...extraHeaders,
       },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     }, bindings);
   };
+  const accountToken = (userId = oauthUser) => sign({
+    iss: "lifespace-identity", aud: "lifespace-core", sub: userId,
+    azp: accountApp, principal_type: "user", scope: "profile:read spaces:read spaces:manage",
+    iat: now, exp: now + 600, jti: "tok_account_" + uuid,
+  }, key, "RS256");
+  const accountRequest = async (method:string,path:string,body?:unknown,userId=oauthUser) =>
+    createApp().request("http://localhost"+path,{
+      method, headers:{authorization:"Bearer "+await accountToken(userId),
+        ...(body===undefined?{}:{"content-type":"application/json"})},
+      ...(body===undefined?{}:{body:JSON.stringify(body)}),
+    },bindings);
   return {
     agent, application, space, other, claims, jwt, request, publicKey, serverId,
+    accountRequest, oauthUser, accountApp, authId, client, resource,
     db, setConsentScopes: (v: string[]) => { consentScopes = v; },
+    setDelegationEnabled: (enabled: boolean) => { delegationEnabled = enabled; },
     setEnvironment: (v: string) => { bindings.ENVIRONMENT = v; },
     setActive: (value: boolean) => { active = value; },
     setServerEnabled: async (enabled: boolean) => {
@@ -311,6 +332,60 @@ describe("OAuth MCP Agent Direct execution: Core fail-closed route and Space bou
     // then ordinary record-level access determines whether the record exists.
     expect((await f.request("GET",
       "/api/v1/spaces/" + f.space + "/models/task/records/rec_missing")).status).toBe(404);
+  });
+
+  it("third-party OAuth Account confirms only intended User, trusted Agent API remains isolated, Delegation consumes once", async () => {
+    const f=await fixture();
+    const base="/api/v1/spaces/"+f.space+"/models/task/records";
+    const transport="/api/v1/spaces/"+f.space+"/oauth-delegation-requests";
+    await f.setServerOperations(["query","create","get"]);
+    f.setDelegationEnabled(true);
+    f.setConsentScopes(["resources:read","resources:write"]);
+    const timestamp=new Date().toISOString();
+    await f.db.batch([
+      f.db.prepare("INSERT INTO space_memberships(id,space_id,user_id,role,created_at,updated_at) VALUES(?,?,?,'owner',?,?)")
+        .bind("mem_"+crypto.randomUUID().replaceAll("-",""),f.space,f.oauthUser,timestamp,timestamp),
+      f.db.prepare("UPDATE application_model_access SET max_access='write' WHERE application_id=? AND model_key='task'")
+        .bind(f.application),
+    ]);
+    const jwtPatch={scope:"resources:read resources:write",oauth_allow_user_authorization:true};
+    expect((await f.request("POST",base,jwtPatch,{name:"Direct create denied"})).status).toBe(403);
+    const applied=await f.request("POST",transport,jwtPatch,{
+      modelKey:"task",operation:"create",reason:"Create one approved task",
+    });
+    expect(applied.status).toBe(201);
+    const requested=await applied.json() as {data:{id:string;approvalUrl:string;status:string}};
+    expect(requested.data.status).toBe("pending");
+    expect(requested.data.approvalUrl).toContain("account-staging.aisr.online/delegation?request_id="+requested.data.id);
+    expect((await f.request("POST",
+      "/api/v1/spaces/"+f.space+"/authorization-requests/"+requested.data.id+"/confirm",
+      jwtPatch,{principalUserId:f.oauthUser})).status).toBe(403);
+    const before=await f.accountRequest("GET","/api/v1/me/oauth/delegation-requests/"+requested.data.id);
+    expect(before.status).toBe(200);
+    expect((await f.accountRequest("POST",
+      "/api/v1/me/oauth/delegation-requests/"+requested.data.id+"/approve",
+      {}, "usr_other")).status).toBe(404);
+    const confirmed=await f.accountRequest("POST",
+      "/api/v1/me/oauth/delegation-requests/"+requested.data.id+"/approve",{});
+    expect(confirmed.status).toBe(200);
+    const approved=await confirmed.json() as {data:{delegations:Array<{id:string}>}};
+    const delegationId=approved.data.delegations[0]!.id;
+    expect(delegationId).toMatch(/^dlg_/u);
+    expect((await f.accountRequest("POST",
+      "/api/v1/me/oauth/delegation-requests/"+requested.data.id+"/approve",{})).status).toBe(409);
+    const represented={...jwtPatch,principal_type:"user",principal_id:f.oauthUser,
+      oauth_delegation_id:delegationId};
+    expect((await f.request("POST",base,represented,{name:"No selector"})).status).toBe(403);
+    const headers={"x-lifespace-delegation-id":delegationId};
+    const created=await f.request("POST",base,represented,{name:"Approved once"},headers);
+    expect(created.status).toBe(201);
+    const data=await created.json() as {data:{createdBy:{id:string;type:string}}};
+    expect(data.data.createdBy).toMatchObject({type:"agent",id:f.agent});
+    expect((await f.request("POST",base,represented,{name:"Again"},headers)).status).toBe(403);
+    const scoped=await f.request("POST",base+"/query",represented,{limit:1},headers);
+    expect(scoped.status).toBe(403);
+    f.setActive(false);
+    expect((await f.request("POST",base,represented,{name:"Revoked"},headers)).status).toBe(401);
   });
 
   it("rejects unknown configured MCP Server and pre-v7 unscoped /mcp resources", async () => {
