@@ -29,10 +29,11 @@ async function setup() {
     OAUTH_ALLOWED_RESOURCES: "https://mcp.example.test/mcp/tasks https://mcp.example.test/mcp/health",
     ENVIRONMENT: "test",
     OAUTH_DCR_ENABLED: "1",
+    OAUTH_DCR_RATE_LIMITER: { limit: async (_: { key: string }) => ({ success: true }) },
     OAUTH_ACCOUNT_APPLICATION_ID: "",
   };
-  // Isolated fixtures must explicitly enable DCR; production and new
-  // databases remain closed by default. No per-client URL allowlist.
+  // Isolated tests enable DCR explicitly. The default database policy remains
+  // closed; any environment also requires an independent configured limiter.
   await b.DB.prepare(
     "UPDATE oauth_client_admission_policy SET dcr_enabled=1,cimd_enabled=0,"
     + "callback_mode='client',callback_uris_json='[]' WHERE id=1"
@@ -242,15 +243,16 @@ describe("Identity OAuth Authorization Server (isolated candidate)", () => {
     expect((await t.request("/oauth/register", {
       method: "POST", headers: { "content-type": "application/json" },
       body: JSON.stringify({ redirect_uris: [t.redirect] }),
-    })).status).toBe(403);
+    })).status).toBe(201);
   });
 
-  it("fails closed without staging DCR limiter, rejects exhausted budget and never advertises in Production", async () => {
+  it("fails closed without a DCR limiter, rejects exhausted budget, and supports guarded Production", async () => {
     const t = await setup();
     const b = t.b as typeof t.b & {
       OAUTH_DCR_RATE_LIMITER?: { limit: (options: { key: string }) => Promise<{ success: boolean }> };
     };
     b.ENVIRONMENT = "staging";
+    Reflect.deleteProperty(b, "OAUTH_DCR_RATE_LIMITER");
     const before = await t.request("/.well-known/oauth-authorization-server");
     expect(await before.json()).not.toHaveProperty("registration_endpoint");
     const options = {
@@ -281,8 +283,11 @@ describe("Identity OAuth Authorization Server (isolated candidate)", () => {
     expect(accepted.status).toBe(201);
     expect((await accepted.json() as { client_id: string }).client_id.startsWith("ocli_")).toBe(true);
     b.ENVIRONMENT = "production";
-    const disabled = await t.request("/.well-known/oauth-authorization-server");
-    expect(await disabled.json()).not.toHaveProperty("registration_endpoint");
+    const available = await t.request("/.well-known/oauth-authorization-server");
+    expect(await available.json()).toHaveProperty("registration_endpoint");
+    expect((await t.request("/oauth/register", options)).status).toBe(201);
+    // Operator disabling the policy must take effect immediately.
+    await t.b.DB.prepare("UPDATE oauth_client_admission_policy SET dcr_enabled=0 WHERE id=1").run();
     expect((await t.request("/oauth/register", options)).status).toBe(403);
   });
 
