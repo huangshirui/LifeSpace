@@ -5,6 +5,7 @@ const CSRF_COOKIE = "__Host-lifespace-consent";
 const CSRF_TTL_SECONDS = 600;
 const SCOPES = ["profile:read", "spaces:read", "spaces:manage"];
 const REQUEST = /^oar_[A-Za-z0-9_-]{16,128}$/u;
+const DELEGATION_REQUEST = /^arq_[a-f0-9]{32}$/u;
 const SPACE = /^spc_[A-Za-z0-9_-]{3,128}$/u;
 const AGENT = /^agt_[A-Za-z0-9_-]{3,128}$/u;
 const APPLICATION = /^app_[A-Za-z0-9_-]{3,128}$/u;
@@ -164,7 +165,11 @@ export async function accountFetch(req, env) {
   const path = url.pathname;
   if (!path.startsWith("/api/")) {
     if (!env.ASSETS?.fetch) return fail(503, "ACCOUNT_ASSETS_MISSING", "Account 页面不可用");
-    const asset = await env.ASSETS.fetch(req);
+    // Distinct URL-based third-party approval experience. Owned/WeCom
+    // confirmation transports do not use this Account page.
+    const assetRequest = path === "/delegation" ?
+      new Request(new URL("/delegation.html", url.origin), req) : req;
+    const asset = await env.ASSETS.fetch(assetRequest);
     const headers = new Headers(asset.headers);
     headers.set("referrer-policy", "no-referrer");
     headers.set("x-content-type-options", "nosniff");
@@ -179,8 +184,11 @@ export async function accountFetch(req, env) {
   if (path !== "/api/session" && path !== "/api/oauth/request"
     && path !== "/api/oauth/choices"
     && path !== "/api/oauth/capabilities"
+    && path !== "/api/delegation/request"
+    && path !== "/api/delegation/approve" && path !== "/api/delegation/deny"
     && path !== "/api/oauth/confirm" && path !== "/api/oauth/deny") return fail(404, "NOT_FOUND", "接口不存在");
-  if ((path === "/api/oauth/confirm" || path === "/api/oauth/deny") !== (req.method === "POST")) {
+  if ((path === "/api/oauth/confirm" || path === "/api/oauth/deny"
+    || path === "/api/delegation/approve" || path === "/api/delegation/deny") !== (req.method === "POST")) {
     return fail(405, "METHOD_NOT_ALLOWED", "不支持此请求方式");
   }
   const linked = await session(req, env);
@@ -192,6 +200,33 @@ export async function accountFetch(req, env) {
       "set-cookie": CSRF_COOKIE + "=" + csrfToken
         + "; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=" + CSRF_TTL_SECONDS,
     });
+  }
+  if (path === "/api/delegation/request") {
+    const requestId = url.searchParams.get("request_id");
+    if (url.searchParams.size !== 1 || !DELEGATION_REQUEST.test(requestId || "")) {
+      return fail(400, "INVALID_REQUEST", "委托申请编号无效");
+    }
+    const source = await boundedUpstream(env, "CORE",
+      "/api/v1/me/oauth/delegation-requests/" + encodedPath(requestId), linked.token);
+    if (!source?.ok) return fail(source?.status === 404 ? 404 : source?.status === 403 ? 403 : 503,
+      "DELEGATION_REQUEST_UNAVAILABLE", "委托申请已失效或不属于当前用户");
+    const preview = await data(source);
+    if (!preview || preview.id !== requestId || !DELEGATION_REQUEST.test(preview.id)
+      || !SPACE.test(preview.spaceId || "") || !AGENT.test(preview.agentId || "")
+      || !APPLICATION.test(preview.applicationId || "") || !safeText(preview.modelKey, 70)
+      || !["get", "query", "create", "update", "delete"].includes(preview.operation)
+      || !["pending", "approved", "denied", "expired"].includes(preview.status)
+      || !safeText(preview.resource, 1024) || !safeText(preview.reason, 300)
+      || !safeText(preview.expiresAt, 80)) {
+      return fail(502, "CORE_INVALID_RESPONSE", "无法验证委托申请详情");
+    }
+    return responseJson({ data: {
+      id:preview.id, status:preview.status, applicationId:preview.applicationId,
+      spaceId:preview.spaceId, agentId:preview.agentId,
+      resource:preview.resource, modelKey:preview.modelKey,
+      operation:preview.operation, reason:preview.reason,
+      expiresAt:preview.expiresAt,
+    } });
   }
   if (path === "/api/oauth/request") {
     const requestId = url.searchParams.get("request_id");
@@ -300,6 +335,32 @@ export async function accountFetch(req, env) {
   if (raw.length > 2048) return fail(413, "REQUEST_TOO_LARGE", "授权内容过大");
   let input;
   try { input = JSON.parse(raw); } catch { return fail(400, "INVALID_REQUEST", "授权内容无效"); }
+  if (path === "/api/delegation/approve" || path === "/api/delegation/deny") {
+    const approve = path.endsWith("/approve");
+    if (!isObject(input) || Object.keys(input).length !== 2
+      || input.intent !== (approve ? "approve-user-delegation" : "deny-user-delegation")
+      || !DELEGATION_REQUEST.test(input.requestId || "")) {
+      return fail(400, "INVALID_REQUEST", "委托确认请求无效");
+    }
+    let decision;
+    try {
+      decision = await service(env, "CORE",
+        "/api/v1/me/oauth/delegation-requests/" + encodedPath(input.requestId)
+        + (approve ? "/approve" : "/deny"), {
+          method: "POST",
+          headers: { authorization: "Bearer " + linked.token, "content-type": JSON_TYPE },
+          body: "{}",
+        });
+    } catch { return fail(503, "CORE_UNAVAILABLE", "无法完成本次委托确认"); }
+    if (!decision.ok) return fail([400, 403, 404, 409].includes(decision.status) ? decision.status : 503,
+      "DELEGATION_DECISION_FAILED", "委托申请已失效或当前用户无权确认");
+    const result = await data(decision);
+    if (!result || result.id !== input.requestId
+      || result.status !== (approve ? "approved" : "denied")) {
+      return fail(502, "CORE_INVALID_RESPONSE", "委托确认结果无效");
+    }
+    return responseJson({ data: { requestId: result.id, status: result.status } });
+  }
   if (path === "/api/oauth/deny") {
     if (!isObject(input) || Object.keys(input).some(k => !["intent", "requestId"].includes(k))
       || input.intent !== "deny-oauth-authorization" || !REQUEST.test(input.requestId || "")) {
