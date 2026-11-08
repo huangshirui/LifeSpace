@@ -9,7 +9,7 @@ const app = "app_" + "d".repeat(32);
 const access = "a".repeat(50) + ".b.c";
 const issuerToken = "test-identity-user-token";
 
-function fixture() {
+function fixture(requestedScopes = ["resources:read"]) {
   const calls = [];
   const identity = {
     fetch: async (req) => {
@@ -27,7 +27,7 @@ function fixture() {
       } });
       if (path === "/api/v1/me/oauth/requests/" + id) return Response.json({ data: {
         id, client: { name: "Claimed ChatGPT", id: "ocli_client1", redirectOrigin: "https://client.example.test", verifiedVendor: false },
-        resource: "https://mcp.example.test/mcp/tasks", requestedScopes: ["resources:read"],
+        resource: "https://mcp.example.test/mcp/tasks", requestedScopes,
         expiresAt: "2026-11-04T12:00:00.000Z",
       } });
       throw new Error("Unknown Identity route: " + path);
@@ -43,10 +43,13 @@ function fixture() {
         assert.equal(query.get("applicationId"), app);
         assert.equal(query.get("spaceId"), space);
         assert.equal(query.get("agentId"), agent);
+        assert.equal(query.get("resource"), "https://mcp.example.test/mcp/tasks");
         return Response.json({ data: {
           kind: "pre_policy_upper_bound",
           nativeModelsOnly: true, modelPolicyApplied: false,
-          models: [{ key: "task", name: "Task", access: ["read", "write"] }],
+          resourceCapabilityApplied: true,
+          models: [{ key: "task", name: "Task", access: ["read", "write"],
+            operations: ["query", "create", "update"] }],
           truncated: false,
         } });
       }
@@ -169,13 +172,29 @@ test("permission projection is bounded by current Identity OAuth scopes, not use
   assert.equal(result.status, 200);
   const data = (await result.json()).data;
   assert.equal(data.kind, "pre_policy_upper_bound");
-  assert.equal(data.resourceCapabilityApplied, false);
+  assert.equal(data.resourceCapabilityApplied, true);
   assert.equal(data.modelPolicyApplied, false);
-  assert.deepEqual(data.models, [{ key: "task", name: "Task", access: ["read"] }]);
+  assert.deepEqual(data.models, [{ key: "task", name: "Task", access: ["read"], operations: ["query"] }]);
   assert.deepEqual(data.requestedScopes, ["resources:read"]);
   assert.equal((await t.request("/api/oauth/capabilities?" + suffix + "&scope=resources:write")).status, 400);
   assert.equal((await t.request("/api/oauth/capabilities?" + suffix + "&agent_id=" + agent)).status, 400);
   assert.equal(t.calls.filter((c) => c.service === "core" && c.path === "/api/v1/me/oauth/capabilities").length, 1);
+});
+
+test("explicit read+write client consent previews only Core-selected supported operations", async () => {
+  const t = fixture(["resources:read", "resources:write"]);
+  const suffix = new URLSearchParams({
+    request_id: id, application_id: app, space_id: space, agent_id: agent,
+  });
+  const result = await t.request("/api/oauth/capabilities?" + suffix);
+  assert.equal(result.status, 200);
+  const data = (await result.json()).data;
+  assert.equal(data.resourceCapabilityApplied, true);
+  assert.deepEqual(data.models, [{
+    key: "task", name: "Task", access: ["read", "write"],
+    operations: ["query", "create", "update"],
+  }]);
+  assert.deepEqual(data.requestedScopes, ["resources:read", "resources:write"]);
 });
 
 test("missing Access proof and missing Account configuration fail closed", async () => {
