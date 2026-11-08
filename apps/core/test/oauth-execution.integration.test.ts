@@ -201,7 +201,7 @@ describe("OAuth MCP Agent Direct execution: Core fail-closed route and Space bou
     expect((await f.request("GET", "/api/v1/spaces/" + f.space + "/_discovery/models/task")).status).toBe(403);
   });
 
-  it("prunes Model Query after live MCP Server operation changes", async () => {
+  it("keeps Get-only Model discovery but revokes Query after live MCP Server operation changes", async () => {
     const f = await fixture();
     const first = await f.request("GET", "/api/v1/me/_discovery/inventory");
     expect(first.status).toBe(200);
@@ -211,9 +211,10 @@ describe("OAuth MCP Agent Direct execution: Core fail-closed route and Space bou
     const second = await f.request("GET", "/api/v1/me/_discovery/inventory");
     expect(second.status).toBe(200);
     const body = await second.json() as { data: { models: unknown[]; spaces: unknown[] } };
-    expect(body.data.models).toEqual([]);
-    expect(body.data.spaces).toEqual([]);
-    expect((await f.request("GET", "/api/v1/spaces/" + f.space + "/_discovery/models/task")).status).toBe(403);
+    // Get is still enabled, so the model remains discoverable; Query is not.
+    expect(body.data.models).toHaveLength(1);
+    expect(body.data.spaces).toHaveLength(1);
+    expect((await f.request("GET", "/api/v1/spaces/" + f.space + "/_discovery/models/task")).status).toBe(200);
     expect((await f.request("POST", "/api/v1/spaces/" + f.space + "/models/task/records/query", {}, {})).status).toBe(403);
   });
 
@@ -234,7 +235,9 @@ describe("OAuth MCP Agent Direct execution: Core fail-closed route and Space bou
     expect((await f.request("POST",
       "/api/v1/spaces/" + f.other + "/_discovery/models/batch", {}, { modelKeys: ["task"] })).status).toBe(403);
     await f.setServerOperations(["get"]);
-    expect((await f.request("POST", path, {}, { modelKeys: ["task"] })).status).toBe(404);
+    const getOnly = await f.request("POST", path, {}, { modelKeys: ["task"] });
+    expect(getOnly.status).toBe(200);
+    expect((await getOnly.json() as { data: {models: Array<{detail:{mcpOperations:string[]}}> }}).data.models[0].detail.mcpOperations).toEqual(["get"]);
     await f.setServerEnabled(false);
     expect((await f.request("POST", path, {}, { modelKeys: ["task"] })).status).toBe(403);
   });
