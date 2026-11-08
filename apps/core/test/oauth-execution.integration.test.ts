@@ -104,6 +104,7 @@ describe("OAuth MCP Agent Direct execution: Core fail-closed route and Space bou
     const sp = "spc_synthetic";
     expect(oauthExecutionRouteAllowed("GET", "/api/v1/me/_discovery/inventory", sp)).toBe(true);
     expect(oauthExecutionRouteAllowed("GET", "/api/v1/spaces/" + sp + "/_discovery/models/task", sp)).toBe(true);
+    expect(oauthExecutionRouteAllowed("GET", "/api/v1/spaces/" + sp + "/models/task/records/rec_synthetic", sp)).toBe(true);
     expect(oauthExecutionRouteAllowed("POST", "/api/v1/spaces/" + sp + "/models/task/records/query", sp)).toBe(true);
     expect(oauthExecutionRouteAllowed("POST", "/api/v1/spaces/" + sp + "/_discovery/models/batch", sp)).toBe(true);
     for (const [method, path] of [
@@ -261,6 +262,12 @@ describe("OAuth MCP Agent Direct execution: Core fail-closed route and Space bou
     const createdBody = await created.json() as { data: { id: string; version: number; createdBy: { type: string; id: string } } };
     expect(createdBody.data.createdBy).toMatchObject({ type: "agent", id: f.agent });
     const record = createdBody.data;
+    // Native Get is visible only if the current Server explicitly enables get.
+    expect((await f.request("GET", base + "/" + record.id)).status).toBe(403);
+    await f.setServerOperations(["get", "query", "create", "update", "delete"]);
+    const got = await f.request("GET", base + "/" + record.id);
+    expect(got.status).toBe(200);
+    expect((await got.json() as { data: { id: string } }).data.id).toBe(record.id);
     expect((await f.request("PATCH", base + "/" + record.id, patch, { version: record.version, name: "Updated synthetic OAuth task" })).status).toBe(200);
     expect((await f.request("PATCH", base + "/" + record.id, patch, { version: record.version, name: "Stale update" })).status).toBe(409);
     // Narrowing Server exposure immediately denies the old mutation.
@@ -277,6 +284,26 @@ describe("OAuth MCP Agent Direct execution: Core fail-closed route and Space bou
     expect((await f.request("DELETE", base + "/" + record.id, patch, { version: record.version + 1 })).status).toBe(204);
     expect((await f.request("POST", base, {}, { name: "No write scope" })).status).toBe(403);
     expect((await f.request("POST", base.replace(f.space, f.other), patch, { name: "Cross-Space" })).status).toBe(403);
+  });
+
+  it("get-only MCP Server discovers the model, but cannot invoke Query or mutation", async () => {
+    const f = await fixture();
+    await f.setServerOperations(["get"]);
+    const inventory = await f.request("GET", "/api/v1/me/_discovery/inventory");
+    expect(inventory.status).toBe(200);
+    const state = await inventory.json() as { data: { spaces: Array<{ models: Array<{ modelKey: string }> }> } };
+    expect(state.data.spaces.flatMap(s => s.models).some(m => m.modelKey === "task")).toBe(true);
+    expect((await f.request("POST",
+      "/api/v1/spaces/" + f.space + "/models/task/records/query", {}, {})).status).toBe(403);
+    const batch = await f.request("POST", "/api/v1/spaces/" + f.space + "/_discovery/models/batch",
+      {}, { modelKeys: ["task"] });
+    expect(batch.status).toBe(200);
+    const projected = await batch.json() as { data: { models: Array<{ detail: { mcpOperations: string[] } }> } };
+    expect(projected.data.models[0].detail.mcpOperations).toEqual(["get"]);
+    // The canonical Get is allowed through routing and current Server policy,
+    // then ordinary record-level access determines whether the record exists.
+    expect((await f.request("GET",
+      "/api/v1/spaces/" + f.space + "/models/task/records/rec_missing")).status).toBe(404);
   });
 
   it("rejects unknown configured MCP Server and pre-v7 unscoped /mcp resources", async () => {
