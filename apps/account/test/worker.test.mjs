@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { accountFetch } from "../worker/index.mjs";
 
 const id = "oar_" + "a".repeat(32);
+const arq = "arq_" + "f".repeat(32);
 const space = "spc_" + "b".repeat(32);
 const agent = "agt_" + "c".repeat(32);
 const app = "app_" + "d".repeat(32);
@@ -38,6 +39,18 @@ function fixture(requestedScopes = ["resources:read"]) {
       const path = new URL(req.url).pathname;
       calls.push({ service: "core", path, authorization: req.headers.get("authorization") });
       assert.equal(req.headers.get("authorization"), "Bearer " + issuerToken);
+      if (path === "/api/v1/me/oauth/delegation-requests/" + arq) return Response.json({ data: {
+        id: arq, status:"pending", applicationId:app,spaceId:space,agentId:agent,
+        clientId:"ocli_client1", resource:"https://mcp.example.test/mcp/tasks",
+        modelKey:"task", operation:"create", reason:"Create one authorized task",
+        expiresAt:"2030-11-08T12:00:00.000Z",
+      } });
+      if (path === "/api/v1/me/oauth/delegation-requests/" + arq + "/approve"
+        || path === "/api/v1/me/oauth/delegation-requests/" + arq + "/deny") {
+        assert.equal(req.method,"POST");
+        assert.deepEqual(await req.json(), {});
+        return Response.json({data:{id:arq,status:path.endsWith("/approve")?"approved":"denied"}});
+      }
       if (path === "/api/v1/me/oauth/capabilities") {
         const query = new URL(req.url).searchParams;
         assert.equal(query.get("applicationId"), app);
@@ -195,6 +208,39 @@ test("explicit read+write client consent previews only Core-selected supported o
     operations: ["query", "create", "update"],
   }]);
   assert.deepEqual(data.requestedScopes, ["resources:read", "resources:write"]);
+});
+
+test("third-party web Delegation requires signed Account session, CSRF and explicit approve/deny", async () => {
+  const t=fixture();
+  const link=await t.request("/api/delegation/request?request_id="+arq);
+  assert.equal(link.status,200);
+  const request=(await link.json()).data;
+  assert.equal(request.operation,"create");
+  assert.equal(request.reason,"Create one authorized task");
+  assert.ok(!JSON.stringify(request).includes(issuerToken));
+  assert.equal((await t.request("/api/delegation/request?request_id=arq_forged")).status,400);
+  assert.equal((await t.request("/api/delegation/approve",{method:"POST",headers:{
+    "content-type":"application/json","origin":"https://account-staging.example.test",
+    "sec-fetch-site":"same-origin"},body:JSON.stringify({
+      intent:"approve-user-delegation",requestId:arq,
+    })})).status,403);
+  const session=await t.request("/api/session");
+  const proof=(await session.json()).data.csrfToken;
+  const cookie=session.headers.get("set-cookie").split(";")[0];
+  const valid=mutatingHeaders(proof,cookie);
+  const approval=await t.request("/api/delegation/approve",{method:"POST",headers:valid,
+    body:JSON.stringify({intent:"approve-user-delegation",requestId:arq})});
+  assert.equal(approval.status,200);
+  assert.deepEqual((await approval.json()).data,{requestId:arq,status:"approved"});
+  const refusal=await t.request("/api/delegation/deny",{method:"POST",headers:valid,
+    body:JSON.stringify({intent:"deny-user-delegation",requestId:arq})});
+  assert.equal(refusal.status,200);
+  assert.deepEqual((await refusal.json()).data,{requestId:arq,status:"denied"});
+  const forged=await t.request("/api/delegation/approve",{method:"POST",headers:valid,
+    body:JSON.stringify({intent:"approve-user-delegation",requestId:arq,principalUserId:"usr_other"})});
+  assert.equal(forged.status,400);
+  // Existing OAuth consent and trusted n8n/WeCom routes remain independent.
+  assert.equal(t.calls.filter(x=>x.path.includes("/authorization-requests/")).length,0);
 });
 
 test("missing Access proof and missing Account configuration fail closed", async () => {
