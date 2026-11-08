@@ -109,13 +109,52 @@ export function registerOAuthExecutionRoutes(app: App) {
       oauth_authorization_id: selected.id, oauth_access_hash: tokenHash,
       oauth_resource: selected.resource, oauth_client_id: selected.client_id,
       oauth_space_id: selected.space_id,
+      // Consent User remains the owner, NOT the direct operation Principal.
+      // Web Delegation requires a separate explicit arq_* / dlg_* approval.
+      oauth_user_id: selected.user_id,
+      oauth_allow_user_authorization: selected.allow_user_authorization === 1,
       iat: now, exp, jti: "tok_" + crypto.randomUUID().replaceAll("-", ""),
     }, c.env.TOKEN_PRIVATE_KEY, "RS256");
     return c.json({ data: {
       accessToken: token, tokenType: "Bearer", expiresIn: exp - now, scope,
       applicationId: selected.application_id, agentId: selected.agent_id,
       spaceId: selected.space_id,
+      allowUserAuthorization: selected.allow_user_authorization === 1,
     } }, 200, { "cache-control": "no-store", pragma: "no-cache" });
+  });
+
+  // Private Core-only lookup for an immutable arq_* ↔ OAuth grant binding.
+  // No public Account or Agent may call this endpoint; the shared secret
+  // authenticates the calling Core Worker, not the end-user approver.
+  app.post("/introspection/v1/oauth-delegation-authorizations", async (c: Context<AppEnv>) => {
+    if (!await secretMatches(c.req.header("x-lifespace-internal-secret") || "", c.env.CORE_IDENTITY_SHARED_SECRET)) {
+      return oauthFailure(401, "invalid_client");
+    }
+    const body = await c.req.json<unknown>().catch(() => null);
+    if (!body || typeof body !== "object" || Array.isArray(body)) return oauthFailure(400, "invalid_request");
+    const v = body as Record<string, unknown>;
+    const keys = ["authorizationId", "clientId", "resource", "applicationId", "agentId", "userId", "spaceId"];
+    if (Object.keys(v).length !== keys.length || keys.some(k => typeof v[k] !== "string")
+      || !/^oaz_[A-Za-z0-9_-]{10,128}$/u.test(String(v.authorizationId))
+      || !/^usr_[A-Za-z0-9_-]+$/u.test(String(v.userId))
+      || !/^agt_[A-Za-z0-9_-]+$/u.test(String(v.agentId))
+      || !/^app_[A-Za-z0-9_-]+$/u.test(String(v.applicationId))
+      || !/^spc_[A-Za-z0-9_-]+$/u.test(String(v.spaceId))
+      || !(/^ocli_[A-Za-z0-9_-]+$/u.test(String(v.clientId)) || cimdClientId(v.clientId))
+      || !resourceAllowed(c.env, v.resource)) return oauthFailure(400, "invalid_request");
+    const selected = await authorization(c.env.DB, String(v.authorizationId));
+    const active = Boolean(eligible(selected)
+      && selected?.allow_user_authorization === 1
+      && selected.client_id === v.clientId
+      && selected.resource === v.resource
+      && selected.application_id === v.applicationId
+      && selected.agent_id === v.agentId
+      && selected.user_id === v.userId
+      && selected.space_id === v.spaceId);
+    return c.json({ data: {
+      active,
+      ...(active ? { scopes: scopeList(selected!.scopes) } : {}),
+    } }, 200, { "cache-control": "no-store" });
   });
 
   // Private Core → Identity current-state check on *every Core request*. A
@@ -135,6 +174,10 @@ export function registerOAuthExecutionRoutes(app: App) {
       && selected.application_id === body.applicationId
       && selected.agent_id === body.agentId
       && selected.space_id === body.spaceId);
-    return c.json({ data: { active, ...(active ? { scopes: match!.scopes } : {}) } }, 200, { "cache-control": "no-store" });
+    return c.json({ data: { active, ...(active ? {
+      scopes: match!.scopes,
+      userId: selected!.user_id,
+      allowUserAuthorization: selected!.allow_user_authorization === 1,
+    } : {}) } }, 200, { "cache-control": "no-store" });
   });
 }
