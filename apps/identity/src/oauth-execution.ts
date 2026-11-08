@@ -56,9 +56,10 @@ async function validAccess(env: Bindings, tokenHash: string, resource: string) {
   if (!eligible(selected) || selected.resource !== row.resource || selected.client_id !== row.client_id) return null;
   const scopes = scopeList(row.scopes);
   if (!scopes.includes(READ_SCOPE) || !scopeList(selected.scopes).includes(READ_SCOPE)) return null;
-  return { selected, row, scopes: [READ_SCOPE, ...(env.ENVIRONMENT === "staging"
-    && scopes.includes("resources:write") && scopeList(selected.scopes).includes("resources:write")
-    ? ["resources:write"] : [])] };
+  // Consent and the access token bound the actual OAuth ceiling. Deployment
+  // environment never changes Principal / Actor / credential Scope semantics.
+  return { selected, row, scopes: [READ_SCOPE, ...(scopes.includes("resources:write")
+    && scopeList(selected.scopes).includes("resources:write") ? ["resources:write"] : [])] };
 }
 
 function validContext(value: unknown): value is ExecutionContext {
