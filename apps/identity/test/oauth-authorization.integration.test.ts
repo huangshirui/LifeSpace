@@ -518,12 +518,38 @@ describe("Identity OAuth Authorization Server (isolated candidate)", () => {
     };
     expect((await check(context, null)).status).toBe(401);
     expect((await check(context, t.b.OAUTH_RESOURCE_SERVER_SECRET)).status).toBe(401);
-    expect(await (await check(context, t.b.CORE_IDENTITY_SHARED_SECRET)).json()).toEqual({ data: { active: true } });
+    expect(await (await check(context, t.b.CORE_IDENTITY_SHARED_SECRET)).json()).toEqual({ data: { active: true, scopes: ["resources:read"] } });
     expect(await (await check({ ...context, spaceId: "spc_wrong" }, t.b.CORE_IDENTITY_SHARED_SECRET)).json()).toEqual({ data: { active: false } });
     expect(await (await check({ ...context, agentId: "agt_wrong" }, t.b.CORE_IDENTITY_SHARED_SECRET)).json()).toEqual({ data: { active: false } });
     expect((await t.revoke(oauthBearer)).status).toBe(200);
     expect(await (await check(context, t.b.CORE_IDENTITY_SHARED_SECRET)).json()).toEqual({ data: { active: false } });
     expect((await exchange(t.b.OAUTH_RESOURCE_SERVER_SECRET, oauthBearer, t.resource)).status).toBe(401);
+  });
+
+  it("preserves only consented write Scope in staging, narrows production, and rechecks live Scope", async () => {
+    const t = await setup();
+    const pending = await t.authorize({ scope: "resources:read resources:write" });
+    const id = new URL(pending.headers.get("location")!).searchParams.get("request_id")!;
+    const approved = await t.approve(id, t.b.OAUTH_CORE_APPROVER_SECRET);
+    expect(approved.status).toBe(200);
+    const code = new URL((await approved.json() as { redirect_url: string }).redirect_url).searchParams.get("code")!;
+    const issued = await t.token({ grant_type: "authorization_code", client_id: t.clientId,
+      code, code_verifier: t.verifier, redirect_uri: t.redirect, resource: t.resource });
+    const bearer = (await issued.json() as { access_token: string }).access_token;
+    const exchange = () => t.request("/oauth/execution-tokens", {
+      method: "POST", headers: { "content-type": "application/json", "x-lifespace-resource-secret": t.b.OAUTH_RESOURCE_SERVER_SECRET },
+      body: JSON.stringify({ token: bearer, resource: t.resource }),
+    });
+    t.b.ENVIRONMENT = "staging";
+    const data = (await (await exchange()).json() as { data: { scope: string; accessToken: string } }).data;
+    expect(data.scope).toBe("resources:read resources:write");
+    expect((await verify(data.accessToken, t.b.TOKEN_PUBLIC_KEY, "RS256")).principal_type).toBe("agent");
+    t.b.ENVIRONMENT = "production";
+    expect((await (await exchange()).json() as { data: { scope: string } }).data.scope).toBe("resources:read");
+    t.b.ENVIRONMENT = "staging";
+    await t.b.DB.prepare("UPDATE oauth_authorizations SET scopes=? WHERE client_id=?")
+      .bind(JSON.stringify(["resources:read"]), t.clientId).run();
+    expect((await (await exchange()).json() as { data: { scope: string } }).data.scope).toBe("resources:read");
   });
 
 });

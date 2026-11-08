@@ -437,3 +437,13 @@ Identity 0.14/schema 13 supersedes the independent 0.13 mailbox authorization de
 ## MCP Server configuration as a replaceable Adapter surface (V7)
 
 Core owns platform-authoritative MCP Server current configuration and enabled state per stable mcp_* ID. This is tool exposure metadata, not Space Shared Reality or a Data Grant, and does not inherit Model Registry publication-version semantics. Console is a privileged presentation/BFF with human actor proof plus scoped executor; current config is validated on each save, changes audited and guarded by an internal optimistic revision. A Server may select published business Model operations or separate Kernel person_directory operations; actual MCP execution must enforce current Resource and Space authority. Planned public URL: https://core.aisr.online/mcp/{serverId}; lifespace-adapters owns MCP protocol runtime behind the future route. No dynamic transport or OAuth is activated by this configuration work.
+
+## Staging OAuth MCP mutation slice / OAuth MCP 写入边界
+
+Staging-only Native Agent Direct single-record create/update/delete is governed by
+current OAuth read+write consent, exact selected Space and enabled MCP Server
+operation, Application × Model Access, Agent Data Grant, Model capability/Policy
+and optimistic concurrency. Identity issues at most 60-second execution JWTs; Core
+rechecks live scopes on every request. Production and existing read-only clients
+remain read-only. No implicit User Delegation, External write, batch or admin
+surface is added. Contract projection and release details: `docs/identity-oauth.md`.

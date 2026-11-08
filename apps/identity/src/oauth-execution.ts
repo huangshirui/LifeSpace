@@ -56,7 +56,9 @@ async function validAccess(env: Bindings, tokenHash: string, resource: string) {
   if (!eligible(selected) || selected.resource !== row.resource || selected.client_id !== row.client_id) return null;
   const scopes = scopeList(row.scopes);
   if (!scopes.includes(READ_SCOPE) || !scopeList(selected.scopes).includes(READ_SCOPE)) return null;
-  return { selected, row };
+  return { selected, row, scopes: [READ_SCOPE, ...(env.ENVIRONMENT === "staging"
+    && scopes.includes("resources:write") && scopeList(selected.scopes).includes("resources:write")
+    ? ["resources:write"] : [])] };
 }
 
 function validContext(value: unknown): value is ExecutionContext {
@@ -92,7 +94,8 @@ export function registerOAuthExecutionRoutes(app: App) {
     const match = await validAccess(c.env, tokenHash, input.resource);
     if (!match) return oauthFailure(401, "invalid_token");
     if (!c.env.TOKEN_PRIVATE_KEY) return oauthFailure(503, "temporarily_unavailable");
-    const { selected, row } = match;
+    const { selected, row, scopes } = match;
+    const scope = scopes.join(" ");
     const now = Math.floor(Date.now() / 1000);
     const exp = Math.min(now + MAX_EXECUTION_TTL_SECONDS, Math.floor(Date.parse(row.expires_at) / 1000));
     if (exp <= now) return oauthFailure(401, "invalid_token");
@@ -101,14 +104,14 @@ export function registerOAuthExecutionRoutes(app: App) {
       sub: selected.agent_id, azp: selected.application_id,
       principal_type: "agent", principal_id: selected.agent_id,
       actor_type: "agent", actor_id: selected.agent_id,
-      purpose: "oauth_agent_execution", scope: READ_SCOPE,
+      purpose: "oauth_agent_execution", scope,
       oauth_authorization_id: selected.id, oauth_access_hash: tokenHash,
       oauth_resource: selected.resource, oauth_client_id: selected.client_id,
       oauth_space_id: selected.space_id,
       iat: now, exp, jti: "tok_" + crypto.randomUUID().replaceAll("-", ""),
     }, c.env.TOKEN_PRIVATE_KEY, "RS256");
     return c.json({ data: {
-      accessToken: token, tokenType: "Bearer", expiresIn: exp - now, scope: READ_SCOPE,
+      accessToken: token, tokenType: "Bearer", expiresIn: exp - now, scope,
       applicationId: selected.application_id, agentId: selected.agent_id,
       spaceId: selected.space_id,
     } }, 200, { "cache-control": "no-store", pragma: "no-cache" });
@@ -131,6 +134,6 @@ export function registerOAuthExecutionRoutes(app: App) {
       && selected.application_id === body.applicationId
       && selected.agent_id === body.agentId
       && selected.space_id === body.spaceId);
-    return c.json({ data: { active } }, 200, { "cache-control": "no-store" });
+    return c.json({ data: { active, ...(active ? { scopes: match!.scopes } : {}) } }, 200, { "cache-control": "no-store" });
   });
 }

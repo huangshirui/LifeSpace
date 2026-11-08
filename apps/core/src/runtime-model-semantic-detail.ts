@@ -1,5 +1,8 @@
 import { getExternalModel,isExternalModelKey,externalAuthorityModel } from "./external-model";
 import { externalSemanticDetail } from "./external-runtime";
+import { getActiveModelContract } from "./model-contract-store";
+import { getOrCreateActiveModelContract } from "./model-contract-service";
+import { versionRequestSchema, type JsonSchema } from "./model-contract";
 import type { Hono } from "hono";
 import type { Bindings, Principal, Variables } from "./env";
 import { ApiError, success } from "./http";
@@ -49,7 +52,8 @@ export function registerRuntimeModelSemanticDetailRoutes(app: App): void {
   // Batch-only optimization for Identity OAuth Agent Direct MCP discovery.
   // One short-lived signed execution token; every requested Model still passes
   // current Core Server policy, Space restriction, and ordinary Data Grant checks.
-  // No External Models, User Delegation, or write surface is exposed.
+  // Native write schemas are included only with Staging + live write consent and Grants.
+  // External Models and implicit User Delegation remain excluded.
   app.post("/api/v1/spaces/:spaceId/_discovery/models/batch", async (context) => {
     const principal = context.get("principal");
     const spaceId = context.req.param("spaceId");
@@ -79,6 +83,7 @@ export function registerRuntimeModelSemanticDetailRoutes(app: App): void {
     // Do not leak partial visibility: any missing/retired/ungranted Model
     // rejects the entire batch, without exposing other semantic definitions.
     const models = [];
+    let contract: Awaited<ReturnType<typeof getOrCreateActiveModelContract>> | undefined;
     for (const key of keys as string[]) {
       if (isExternalModelKey(key)) throw opaqueNotFound();
       const model = await getRuntimeModel(context.env, key);
@@ -86,7 +91,39 @@ export function registerRuntimeModelSemanticDetailRoutes(app: App): void {
       const decision = await requireCurrentVisibility(context.env, principal, spaceId, model);
       const detail = projectModelSemanticFacts(model);
       await consumeSingleUseRead(context.env, decision);
-      models.push({ modelKey: key, detail });
+      let mutations: Record<string, unknown> | undefined;
+      const operations = execution.modelOperations?.[key]?.filter(op => ["create", "update", "delete"].includes(op)) ?? [];
+      if (context.env.ENVIRONMENT === "staging" && principal.scopes.includes("resources:write") && operations.length) {
+        const writable = await requireModelAccess(context.env, principal, spaceId, model, "write").catch(error => {
+          if (error instanceof ApiError && [403, 404, 405].includes(error.status)) return null;
+          throw error;
+        });
+        if (writable) {
+          contract ??= await getActiveModelContract(context.env) ?? await getOrCreateActiveModelContract(context.env);
+          const metadata = (contract.jsonSchema["x-lifespace-models"] as Record<string, Record<string, unknown>>)[key];
+          if (!metadata || metadata.version !== model.version || metadata.schemaHash !== model.schemaHash) throw opaqueNotFound();
+          const defs = contract.jsonSchema.$defs as Record<string, JsonSchema>;
+          const selectedDefs: Record<string, JsonSchema> = {};
+          const include = (ref: string): void => {
+            if (!ref.startsWith("#/$defs/")) throw opaqueNotFound();
+            const name = ref.slice(8);
+            if (selectedDefs[name]) return;
+            if (!defs[name]) throw opaqueNotFound();
+            selectedDefs[name] = defs[name];
+            for (const match of JSON.stringify(defs[name]).matchAll(/"\$ref":"([^"]+)"/gu)) include(match[1]);
+          };
+          const inputs: Record<string, unknown> = {};
+          for (const op of operations) {
+            // Delete uses the same canonical version metadata as Update.
+            const ref = String(op === "create" ? metadata.createSchema : metadata.updateSchema);
+            if (op === "delete") inputs[op] = versionRequestSchema();
+            else { include(ref); inputs[op] = { $ref: ref }; }
+          }
+          mutations = { contractId: contract.id, modelVersion: model.version, schemaHash: model.schemaHash,
+            operations: inputs, $defs: selectedDefs };
+        }
+      }
+      models.push({ modelKey: key, detail: { ...detail, ...(mutations ? { mutations } : {}) } });
     }
     return context.json(success({ models }), 200, { "cache-control": "no-store" });
   });

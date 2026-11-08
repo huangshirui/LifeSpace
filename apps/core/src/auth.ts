@@ -12,13 +12,17 @@ const SERVICE_TOKEN_PREFIXES = ["lsp_svc_", "lsp_pat_"] as const;
 const AGENT_API_TOKEN_PREFIX = "lsp_agt_";
 const MAX_OAUTH_EXECUTION_TTL_SECONDS = 60;
 
-export function oauthExecutionRouteAllowed(method: string, path: string, spaceId: string): boolean {
+export function oauthExecutionRouteAllowed(method: string, path: string, spaceId: string, write = false): boolean {
   if (method === "GET" && path === "/api/v1/me/_discovery/inventory") return true;
   if (!/^spc_[A-Za-z0-9_-]+$/u.test(spaceId)) return false;
   // spaceId is validated against an ASCII-only identifier grammar above.
   const escaped = spaceId;
   if (method === "GET") {
     return new RegExp("^/api/v1/spaces/" + escaped + "/_discovery/models/[a-z][a-z0-9_-]{0,63}$", "u").test(path);
+  }
+  if (write && new RegExp("^/api/v1/spaces/" + escaped + "/models/[a-z][a-z0-9_-]{0,63}/records(?:/rec_[A-Za-z0-9_-]+)?$", "u").test(path)) {
+    return method === "POST" && path.endsWith("/records")
+      || (method === "PATCH" || method === "DELETE") && !path.endsWith("/records");
   }
   if (method === "POST") {
     if (path === "/api/v1/spaces/" + escaped + "/_discovery/models/batch") return true;
@@ -27,7 +31,7 @@ export function oauthExecutionRouteAllowed(method: string, path: string, spaceId
   return false;
 }
 
-async function requireCurrentOAuthExecution(env: Bindings, execution: NonNullable<Principal["oauthExecution"]>) {
+async function requireCurrentOAuthExecution(env: Bindings, execution: NonNullable<Principal["oauthExecution"]>, scopes: string[]) {
   if (!env.IDENTITY || !env.CORE_IDENTITY_SHARED_SECRET) throw notConfigured("OAuth Core introspection binding is not configured");
   let response: Response;
   try {
@@ -48,8 +52,12 @@ async function requireCurrentOAuthExecution(env: Bindings, execution: NonNullabl
       }),
     });
   } catch { throw unauthorized(); }
-  const payload = response.ok ? await response.json<{ data?: { active?: boolean } }>().catch(() => null) : null;
+  const payload = response.ok ? await response.json<{ data?: { active?: boolean; scopes?: string[] } }>().catch(() => null) : null;
   if (payload?.data?.active !== true) throw unauthorized();
+  // Legacy introspection may only validate read. Write requires live consent evidence.
+  const current = payload.data.scopes ?? ["resources:read"];
+  if (!Array.isArray(current) || current.some(scope => typeof scope !== "string")
+    || scopes.some(scope => !current.includes(scope))) throw unauthorized();
 }
 
 
@@ -133,7 +141,8 @@ export async function verifyAccessToken(rawToken: string, publicKey: string): Pr
 
       const directAgent = payload.principal_type === "agent" && principalId === payload.actor_id;
       if (isOAuthExecution) {
-        if (!directAgent || payload.scope !== "resources:read"
+        if (!directAgent || typeof payload.scope !== "string"
+          || !["resources:read", "resources:read resources:write"].includes(payload.scope)
           || payload.exp - payload.iat > MAX_OAUTH_EXECUTION_TTL_SECONDS
           || typeof payload.oauth_authorization_id !== "string"
           || !/^oaz_[A-Za-z0-9_-]{10,128}$/u.test(payload.oauth_authorization_id)
@@ -319,15 +328,16 @@ export function authenticate(): MiddlewareHandler<AppEnv> {
 
     if (principal.purpose === "oauth_agent_execution") {
       const execution = principal.oauthExecution;
-      if (!execution || !oauthExecutionRouteAllowed(context.req.method, context.req.path, execution.spaceId)) {
-        throw new ApiError("FORBIDDEN", "OAuth Agent execution is limited to its selected Space and read-only query surface", 403);
+      if (!execution || !oauthExecutionRouteAllowed(context.req.method, context.req.path, execution.spaceId,
+        context.env.ENVIRONMENT === "staging" && principal.scopes.includes("resources:write"))) {
+        throw new ApiError("FORBIDDEN", "OAuth Agent execution is limited to its selected Space and enabled model operation surface", 403);
       }
-      await requireCurrentOAuthExecution(context.env, execution);
+      await requireCurrentOAuthExecution(context.env, execution, principal.scopes);
       const policy = await currentMcpOAuthQueryPolicy(
         context.env.DB, execution.resource, context.req.method, context.req.path,
       );
       principal = { ...principal, oauthExecution: {
-        ...execution, serverId: policy.serverId, queryModelKeys: policy.queryModelKeys,
+        ...execution, serverId: policy.serverId, queryModelKeys: policy.queryModelKeys, modelOperations: policy.modelOperations,
       } };
     }
     context.set("principal", principal);

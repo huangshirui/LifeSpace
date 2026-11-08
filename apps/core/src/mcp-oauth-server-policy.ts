@@ -3,7 +3,7 @@ import { ApiError } from "./http";
 // Core owns the current MCP Server selection. OAuth Scope, current Agent
 // authority, and this tool-exposure policy are independent restrictions.
 type ServerRow = { enabled: number; config_json: string };
-export type McpOAuthQueryPolicy = { serverId: string; queryModelKeys: string[] };
+export type McpOAuthQueryPolicy = { serverId: string; queryModelKeys: string[]; modelOperations: Record<string, string[]> };
 const SERVER_ID = /^mcp_[a-f0-9]{32}$/u;
 const MODEL_KEY = /^[a-z][a-z0-9_]{1,62}$/u;
 const QUERY_PATH = /^\/api\/v1\/spaces\/spc_[A-Za-z0-9_-]+\/models\/([a-z][a-z0-9_]{1,62})\/records\/query$/u;
@@ -56,16 +56,25 @@ export async function currentMcpOAuthQueryPolicy(
   ).bind(serverId).first<ServerRow>();
   if (!row || row.enabled !== 1) throw forbidden();
   const queryModelKeys = allowedMcpQueryModels(row.config_json);
+  const modelOperations = Object.fromEntries((JSON.parse(row.config_json).models as Array<{modelKey: string; operations: string[]}>).map(m => [m.modelKey, m.operations]));
   const selected = new Set(queryModelKeys);
 
-  if (method === "GET" && path === INVENTORY) return { serverId, queryModelKeys };
+  if (method === "GET" && path === INVENTORY) return { serverId, queryModelKeys, modelOperations };
   // The actual requested Model list is validated by the batch handler
   // against this freshly loaded policy before any semantics are returned.
   if (method === "POST" && /^\/api\/v1\/spaces\/spc_[A-Za-z0-9_-]+\/_discovery\/models\/batch$/u.test(path)) {
-    return { serverId, queryModelKeys };
+    return { serverId, queryModelKeys, modelOperations };
+  }
+  const mutation = /^\/api\/v1\/spaces\/spc_[A-Za-z0-9_-]+\/models\/([a-z][a-z0-9_]{1,62})\/records(?:\/(rec_[A-Za-z0-9_-]+))?$/u.exec(path);
+  const operation = method === "POST" && !mutation?.[2] ? "create"
+    : method === "PATCH" && mutation?.[2] ? "update"
+    : method === "DELETE" && mutation?.[2] ? "delete" : null;
+  if (mutation && operation) {
+    if (mutation[1].startsWith("ext_") || !modelOperations[mutation[1]]?.includes(operation)) throw forbidden();
+    return { serverId, queryModelKeys, modelOperations };
   }
   const key = method === "GET" ? DETAIL_PATH.exec(path)?.[1]
     : method === "POST" ? QUERY_PATH.exec(path)?.[1] : null;
   if (!key || !selected.has(key)) throw forbidden();
-  return { serverId, queryModelKeys };
+  return { serverId, queryModelKeys, modelOperations };
 }

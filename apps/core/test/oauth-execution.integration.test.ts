@@ -58,8 +58,9 @@ async function fixture() {
       .bind(application, "task", "read", "service", "svc_synthetic"),
   ]);
   let active = true, checks = 0, lastBody: unknown;
+  let consentScopes = ["resources:read"];
   const bindings = {
-    DB: db, IDENTITY_PUBLIC_KEY: publicKey,
+    ENVIRONMENT: "staging", DB: db, IDENTITY_PUBLIC_KEY: publicKey,
     CORE_IDENTITY_SHARED_SECRET: "synthetic-core-to-identity-shared-secret",
     IDENTITY: { fetch: async (url: string, init: RequestInit) => {
       checks++;
@@ -67,7 +68,7 @@ async function fixture() {
       expect(new Headers(init.headers).get("x-lifespace-internal-secret"))
         .toBe("synthetic-core-to-identity-shared-secret");
       lastBody = JSON.parse(String(init.body));
-      return Response.json({ data: { active } });
+      return Response.json({ data: { active, scopes: consentScopes } });
     } },
   };
   const jwt = (patch: Record<string, unknown> = {}) => sign({ ...claims, ...patch }, key, "RS256");
@@ -83,6 +84,8 @@ async function fixture() {
   };
   return {
     agent, application, space, other, claims, jwt, request, publicKey, serverId,
+    db, setConsentScopes: (v: string[]) => { consentScopes = v; },
+    setEnvironment: (v: string) => { bindings.ENVIRONMENT = v; },
     setActive: (value: boolean) => { active = value; },
     setServerEnabled: async (enabled: boolean) => {
       await db.prepare("UPDATE mcp_server_definitions SET enabled=? WHERE id=?")
@@ -153,8 +156,9 @@ describe("OAuth MCP Agent Direct execution: Core fail-closed route and Space bou
   it("rejects forged scope, User representation, long-lived JWT and unsanctioned OAuth context", async () => {
     const f = await fixture();
     for (const patch of [
-      { scope: "resources:read resources:write" },
+      { scope: "resources:write" },
       { scope: "resources:manage" },
+      { scope: ["resources:read"] },
       { principal_type: "user", principal_id: "usr_forged" },
       { purpose: "agent_execution" },
       { oauth_space_id: null },
@@ -232,6 +236,48 @@ describe("OAuth MCP Agent Direct execution: Core fail-closed route and Space bou
     expect((await f.request("POST", path, {}, { modelKeys: ["task"] })).status).toBe(404);
     await f.setServerEnabled(false);
     expect((await f.request("POST", path, {}, { modelKeys: ["task"] })).status).toBe(403);
+  });
+
+  it("allows staging CRUD only with live write consent, Server operation, Agent Grant and Application Access", async () => {
+    const f = await fixture();
+    const patch = { scope: "resources:read resources:write" };
+    f.setConsentScopes(["resources:read", "resources:write"]);
+    await f.setServerOperations(["query", "create", "update", "delete"]);
+    const base = "/api/v1/spaces/" + f.space + "/models/task/records";
+    // A signed write claim does not fill a missing Agent Data Grant.
+    expect((await f.request("POST", base, patch, { name: "Synthetic OAuth task" })).status).toBe(403);
+    await f.db.prepare("UPDATE data_grants SET permission='write' WHERE source_space_id=? AND grantee_id=?")
+      .bind(f.space, f.agent).run();
+    expect((await f.request("POST", base, patch, { name: "Synthetic OAuth task" })).status).toBe(403);
+    await f.db.prepare("UPDATE application_model_access SET max_access='write' WHERE application_id=? AND model_key='task'")
+      .bind(f.application).run();
+    const batch = await f.request("POST", "/api/v1/spaces/" + f.space + "/_discovery/models/batch", patch, { modelKeys: ["task"] });
+    expect(batch.status).toBe(200);
+    const preview = await batch.json() as { data: { models: Array<{ detail: { mutations: { contractId: string; operations: Record<string, unknown> } } }> } };
+    expect(preview.data.models[0].detail.mutations.contractId).toMatch(/^mct_/u);
+    expect(Object.keys(preview.data.models[0].detail.mutations.operations)).toEqual(["create", "update", "delete"]);
+    const created = await f.request("POST", base, patch, { name: "Synthetic OAuth task" });
+    expect(created.status).toBe(201);
+    const createdBody = await created.json() as { data: { id: string; version: number; createdBy: { type: string; id: string } } };
+    expect(createdBody.data.createdBy).toMatchObject({ type: "agent", id: f.agent });
+    const record = createdBody.data;
+    expect((await f.request("PATCH", base + "/" + record.id, patch, { version: record.version, name: "Updated synthetic OAuth task" })).status).toBe(200);
+    expect((await f.request("PATCH", base + "/" + record.id, patch, { version: record.version, name: "Stale update" })).status).toBe(409);
+    // Narrowing Server exposure immediately denies the old mutation.
+    await f.setServerOperations(["query"]);
+    expect((await f.request("DELETE", base + "/" + record.id, patch, { version: record.version + 1 })).status).toBe(403);
+    await f.setServerOperations(["query", "delete"]);
+    // Removing write from live OAuth consent invalidates a still-valid JWT.
+    f.setConsentScopes(["resources:read"]);
+    expect((await f.request("DELETE", base + "/" + record.id, patch, { version: record.version + 1 })).status).toBe(401);
+    f.setConsentScopes(["resources:read", "resources:write"]);
+    // Production remains read-only even for a correctly signed write claim.
+    f.setEnvironment("production");
+    expect((await f.request("DELETE", base + "/" + record.id, patch, { version: record.version + 1 })).status).toBe(403);
+    f.setEnvironment("staging");
+    expect((await f.request("DELETE", base + "/" + record.id, patch, { version: record.version + 1 })).status).toBe(204);
+    expect((await f.request("POST", base, {}, { name: "No write scope" })).status).toBe(403);
+    expect((await f.request("POST", base.replace(f.space, f.other), patch, { name: "Cross-Space" })).status).toBe(403);
   });
 
   it("rejects unknown configured MCP Server and pre-v7 unscoped /mcp resources", async () => {
