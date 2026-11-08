@@ -45,6 +45,7 @@ export type Principal = {
     // Core-derived per-request MCP Server policy, never an Identity JWT claim.
     serverId?: string;
     queryModelKeys?: string[];
+    modelOperations?: Record<string, string[]>;
   };
 };
 
