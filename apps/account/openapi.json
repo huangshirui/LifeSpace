@@ -2,8 +2,8 @@
   "openapi": "3.1.0",
   "info": {
     "title": "LifeSpace Account OAuth Consent BFF",
-    "version": "0.1.0",
-    "description": "Same-origin, Cloudflare Access-authenticated User Consent. Browser never receives LifeSpace user bearer or privileged application credentials. All mutations have same-origin, Fetch Metadata, CSRF and current Core Authority gates."
+    "version": "0.2.0",
+    "description": "Same-origin, Cloudflare Access-authenticated User Consent. Browser never receives LifeSpace user bearer or privileged application credentials. All mutations have same-origin, Fetch Metadata, CSRF and current Core Authority gates. Independently supports third-party OAuth MCP link-based one-time User Delegation review; trusted app and WeCom approval channels remain unmodified."
   },
   "paths": {
     "/api/session": {
@@ -182,6 +182,136 @@
           },
           "409": {
             "description": "OAuth pending request expired"
+          }
+        }
+      }
+    },
+    "/api/delegation/request": {
+      "get": {
+        "summary": "Get intended User-bound third-party OAuth MCP Authorization Request preview",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "request_id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^arq_[a-f0-9]{32}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Sanitized exact App/Space/Resource/Model/Operation request for the verified Account User"
+          },
+          "401": {
+            "description": "Account session required"
+          },
+          "403": {
+            "description": "Wrong user or revoked OAuth authorization"
+          },
+          "404": {
+            "description": "Unknown or cross-user request"
+          }
+        }
+      }
+    },
+    "/api/delegation/approve": {
+      "post": {
+        "summary": "Approve one pending third-party OAuth MCP User Delegation through authenticated Account session",
+        "description": "Requires verified Account User JWT, same-origin request, User-bound signed CSRF cookie/header, explicit intent and requestId. Does not expose or alter trusted in-app or WeCom approval APIs.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "intent",
+                  "requestId"
+                ],
+                "properties": {
+                  "intent": {
+                    "const": "approve-user-delegation"
+                  },
+                  "requestId": {
+                    "type": "string",
+                    "pattern": "^arq_[a-f0-9]{32}$"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Current User confirmed, canonical Core arq transitions and single-use dlg issued"
+          },
+          "400": {
+            "description": "Invalid confirmation"
+          },
+          "401": {
+            "description": "Account session required"
+          },
+          "403": {
+            "description": "Origin, CSRF, or User mismatch"
+          },
+          "404": {
+            "description": "Cross-user request must not leak"
+          },
+          "409": {
+            "description": "Expired, consumed or already finalized Authorization Request"
+          }
+        }
+      }
+    },
+    "/api/delegation/deny": {
+      "post": {
+        "summary": "Deny one pending third-party OAuth MCP User Delegation through authenticated Account session",
+        "description": "Requires verified Account User JWT, same-origin request, User-bound signed CSRF cookie/header, explicit intent and requestId. Does not expose or alter trusted in-app or WeCom approval APIs.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "intent",
+                  "requestId"
+                ],
+                "properties": {
+                  "intent": {
+                    "const": "deny-user-delegation"
+                  },
+                  "requestId": {
+                    "type": "string",
+                    "pattern": "^arq_[a-f0-9]{32}$"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Current User explicitly rejected; no Delegation issued"
+          },
+          "400": {
+            "description": "Invalid confirmation"
+          },
+          "401": {
+            "description": "Account session required"
+          },
+          "403": {
+            "description": "Origin, CSRF, or User mismatch"
+          },
+          "404": {
+            "description": "Cross-user request must not leak"
+          },
+          "409": {
+            "description": "Expired, consumed or already finalized Authorization Request"
           }
         }
       }
