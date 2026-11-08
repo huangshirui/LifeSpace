@@ -26,7 +26,6 @@ export function oauthExecutionRouteAllowed(method: string, path: string, spaceId
   const escaped = spaceId;
   if (method === "GET") {
     return path === "/api/v1/spaces/" + escaped + "/_discovery/operations"
-      || path === "/api/v1/spaces/" + escaped + "/_discovery/mcp/person-directory"
       || new RegExp("^/api/v1/spaces/" + escaped + "/people(?:/per_[A-Za-z0-9_-]+)?$", "u").test(path)
       || new RegExp("^/api/v1/spaces/" + escaped + "/_discovery/models/[a-z][a-z0-9_-]{0,63}$", "u").test(path)
       || new RegExp("^/api/v1/spaces/" + escaped + "/models/[a-z][a-z0-9_]{1,62}/records/rec_[A-Za-z0-9_-]+$", "u").test(path);
