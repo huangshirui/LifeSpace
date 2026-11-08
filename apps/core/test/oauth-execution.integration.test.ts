@@ -158,6 +158,7 @@ describe("OAuth MCP Agent Direct execution: Core fail-closed route and Space bou
     for (const patch of [
       { scope: "resources:write" },
       { scope: "resources:manage" },
+      { scope: ["resources:read"] },
       { principal_type: "user", principal_id: "usr_forged" },
       { purpose: "agent_execution" },
       { oauth_space_id: null },
