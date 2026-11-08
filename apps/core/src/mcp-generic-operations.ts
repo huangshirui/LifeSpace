@@ -196,6 +196,7 @@ async function manifest(c:ContextApp):Promise<Entry[]>{
 }
 function targetRequest(c:ContextApp,item:Entry,args:Record<string,unknown>) {
   const spaceId=c.req.param("spaceId");
+  if(typeof spaceId!=="string"||!/^spc_[A-Za-z0-9_-]+$/u.test(spaceId))throw denied();
   if(Object.keys(args).some(k=>!["spaceId","recordId","data"].includes(k))
     ||args.spaceId!==spaceId)throw denied();
   const op=item.dto.operation;
