@@ -58,9 +58,9 @@ This is a **new Identity OAuth path, not the retired Cloudflare Managed OAuth Pr
 After `Account → Core consent → Identity Auth Code/PKCE → OAuth Resource Bearer`, the Staging MCP Resource Server must:
 
 1. Privately introspect `lsp_oat_*` against Identity `POST /oauth/introspect` using its dedicated `OAUTH_RESOURCE_SERVER_SECRET`, with the **exact Resource URL**. Reject expired/revoked/mismatched tokens.
-2. Obtain a **short-lived (maximum 60 seconds) Agent Direct Core JWT** from Identity `POST /oauth/execution-tokens`, sending the public OAuth bearer only to Identity. Identity rereads the current token, authorization, Application, Agent binding, registered client and Resource before signing. Claims bind `purpose=oauth_agent_execution`, `principal_type=agent`, `actor_type=agent`, `azp` Application, one `oauth_space_id`, the exact `oauth_resource` and `oauth_access_hash`. Its scope is **only** `resources:read`.
+2. Obtain a **short-lived (maximum 60 seconds) Agent Direct Core JWT** from Identity `POST /oauth/execution-tokens`, sending the public OAuth bearer only to Identity. Identity rereads the current token, authorization, Application, Agent binding, registered client and Resource before signing. Claims bind `purpose=oauth_agent_execution`, `principal_type=agent`, `actor_type=agent`, `azp` Application, one `oauth_space_id`, the exact `oauth_resource` and `oauth_access_hash`. Its default scope is `resources:read`. In **Staging only**, it also preserves `resources:write` when present in both the Access Token and current Authorization consent. Production continues to issue read-only execution tokens.
 3. Call Core only with that signed Agent execution JWT. **The public OAuth bearer is never forwarded to Core; User OAuth consent does not become a User Principal or automatic Delegation.** `allowUserAuthorization` merely means the Agent may request explicit User authorization in a future flow.
-4. Core accepts this execution profile only on three read-only surfaces: `GET /api/v1/me/_discovery/inventory`, `GET /api/v1/spaces/{selectedSpaceId}/_discovery/models/{modelKey}`, and `POST /api/v1/spaces/{selectedSpaceId}/models/{modelKey}/records/query`. Core narrows the aggregate inventory to the selected Space, checks the normal current Agent Data Grant and Application Model Access, and must reject all other endpoints/mutations.
+4. Core accepts this execution profile only on three read-only surfaces: `GET /api/v1/me/_discovery/inventory`, `GET /api/v1/spaces/{selectedSpaceId}/_discovery/models/{modelKey}`, and `POST /api/v1/spaces/{selectedSpaceId}/models/{modelKey}/records/query`. Core narrows the aggregate inventory to the selected Space, checks the normal current Agent Data Grant and Application Model Access, and must reject all other endpoints. In **Staging only**, write-scoped execution may additionally POST the Native record collection, PATCH one record or DELETE one record, constrained by the current MCP Server exact operation allowlist and normal Model Grant/Policy/concurrency checks. No batch mutation, Action, External mutation, admin endpoint or implicit User Delegation is enabled.
 5. Before **every** authorized Core request, Core independently calls the private Identity `POST /introspection/v1/oauth-executions` through its existing internal secret/Service Binding. This checks the current OAuth token hash, authorization, client, Application/Agent binding, Resource and Space. **Revocation takes effect immediately**, including during the remainder of a 60-second execution JWT lifetime. Core must fail closed if its Identity private verifier is unavailable.
 
 All private endpoints are in the Identity Application OpenAPI, **candidate/internal**, using two distinct private boundaries: Resource Server secret for issuance and Core internal secret for live revalidation. No shared D1, new Agent Grant, OAuth Client fallback, platform-admin credential or old Access assertion is added.
@@ -105,3 +105,31 @@ There are no per-method client URL allowlists or admission-mode selectors.
   dedicated outbound metadata SSRF/DNS rebinding and abuse assessment.
 
 See [MCP OAuth governance](./mcp-oauth-governance.md).
+
+## Staging Native Agent Direct mutation contract / Staging 原生模型直接写入
+
+Development slice; **not a Production capability**. The Native single-record CRUD
+surface requires read + write OAuth consent, selected-Space binding, the same
+Model's `query` exposure for discovery and an explicitly enabled `create`, `update`
+or `delete` MCP Server operation. Application Model Access, current Agent Grant,
+Model write capability, Model Policy and optimistic concurrency remain Core checks.
+The consenting User is not the operation Principal: Principal=Actor=Agent.
+`allowUserAuthorization=true` alone does not enable represented execution.
+
+Batch semantic discovery optionally includes `detail.mutations` only for current
+Staging write-authorized Native Models. It contains `contractId` (`mct_*`),
+`modelVersion`, `schemaHash`, `operations` (Create/Update JSON Schema refs, Delete
+version schema), and a closed `$defs` dependency subset from the stored immutable
+Model Contract. Contracts mismatching the current Model fail closed. The Adapter
+must verify identity and consume this schema, never handwrite business fields.
+Current Core write access is checked for each returned Model; one active contract
+snapshot is read per batch only when at least one write tool is authorized. It is
+not re-generated on each request and no per-record database queries are added.
+
+Each Core request introspects live OAuth consent and rejects any execution JWT
+scope removed from that ceiling. A legacy read-only introspection response may
+validate read but never establishes write. Existing read-only clients are unchanged.
+An old Adapter remains query-only; deploy reviewed Identity/Core first, then the
+Adapter. Staging release remains an owner-triggered action. Reconnect with explicit
+write scope only for actual CRUD acceptance; a read-only connection must not gain
+write from a broader Data Grant or Server configuration.
