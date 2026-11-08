@@ -97,6 +97,33 @@ describe("Generic Query Engine", () => {
     expect(new Set(assigned.items.map((item) => item.id))).toEqual(new Set([first.id, third.id]));
   });
 
+  it("searches literal 48-100 character keywords and wildcard characters without LIKE limits", async () => {
+    const { spaceId, model } = await fixture();
+    const longRecord = await createGenericResource(bindings(), actor, spaceId, model, {
+      name: "Legacy long-search fixture",
+      description: "q".repeat(100),
+    });
+    const symbols = await createGenericResource(bindings(), actor, spaceId, model, {
+      name: "Legacy symbols %_\\ marker",
+    });
+
+    for (const length of [48, 49, 50, 100]) {
+      const result = await queryGenericResources(bindings(), spaceId, model,
+        new URLSearchParams({ q: "Q".repeat(length) }));
+      expect(result.items.map((item) => item.id)).toEqual([longRecord.id]);
+    }
+    for (const literal of ["%", "_", "\\", "%_\\"]) {
+      const result = await queryGenericResources(bindings(), spaceId, model,
+        new URLSearchParams({ q: literal }));
+      expect(result.items.map((item) => item.id)).toEqual([symbols.id]);
+    }
+    const missing = await queryGenericResources(bindings(), spaceId, model,
+      new URLSearchParams({ q: "x".repeat(100) }));
+    expect(missing.items).toHaveLength(0);
+    await expect(queryGenericResources(bindings(), spaceId, model,
+      new URLSearchParams({ q: "q".repeat(101) }))).rejects.toMatchObject({ status: 400 });
+  });
+
   it("paginates single-field declared sorts with stable cursor binding and nulls last", async () => {
     const { spaceId, model, first, second, sameDue, third, noDue, noDueOther } = await fixture();
     const page1 = await queryGenericResources(bindings(), spaceId, model, new URLSearchParams({ sort: "dueDate:asc", limit: "1" }));
