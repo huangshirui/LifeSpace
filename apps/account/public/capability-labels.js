@@ -23,6 +23,11 @@ const operationNames = Object.freeze({
   write: "可修改",
   manage: "可管理",
   free_busy: "可查看忙闲",
+  get: "可获取详情",
+  query: "可查询",
+  create: "可创建",
+  update: "可修改",
+  delete: "可删除",
 });
 const scopeNames = Object.freeze({
   "resources:read": "读取信息",
