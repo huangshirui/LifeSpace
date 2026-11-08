@@ -68,14 +68,10 @@ export function configuredMcpOAuthScopes(configJson: string): string[] {
       || row.operations.some(op => typeof op !== "string")) throw forbidden();
     return row.operations.some(op => ["create", "update", "delete"].includes(op));
   });
-  const personWrites = (config.resources as unknown[] | undefined ?? []).some(entry => {
-    if (!entry || typeof entry !== "object" || Array.isArray(entry)) throw forbidden();
-    const row = entry as { resourceKey?: unknown; operations?: unknown };
-    if (row.resourceKey !== "person_directory" || !Array.isArray(row.operations)
-      || row.operations.some(op => typeof op !== "string")) throw forbidden();
-    return row.operations.some(op => ["create", "update", "delete"].includes(op));
-  });
-  return ["resources:read", ...(modelWrites || personWrites ? ["resources:write"] : [])];
+  // Person Directory remains a Kernel MCP adapter follow-up. Do not advertise
+  // OAuth write simply because a currently unsupported Person operation is
+  // configured; only wired Native model mutations contribute to the ceiling.
+  return ["resources:read", ...(modelWrites ? ["resources:write"] : [])];
 }
 
 // Discover any Native Model with an actually exposed MCP operation. Query
