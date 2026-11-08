@@ -49,16 +49,17 @@ function account(principal: Principal, env: Bindings) {
   return principal.id;
 }
 function approvalOrigin(env: Bindings): string {
-  const value = env.MCP_DELEGATION_ACCOUNT_ORIGIN;
+  // These are deployment routes, not authorization semantics.
+  // An explicit owner-configured override may replace the canonical host.
+  const value = env.MCP_DELEGATION_ACCOUNT_ORIGIN ||
+    (env.ENVIRONMENT === "staging" ? "https://account-staging.aisr.online"
+      : env.ENVIRONMENT === "production" ? "https://account.aisr.online" : "");
   if (typeof value !== "string") throw new ApiError("OAUTH_NOT_CONFIGURED", "Delegation confirmation page is unavailable", 503);
   let url: URL;
   try { url = new URL(value); } catch { throw new ApiError("OAUTH_NOT_CONFIGURED", "Invalid approval origin", 503); }
   if (url.protocol !== "https:" || url.pathname !== "/" || url.search || url.hash
     || url.username || url.password) throw new ApiError("OAUTH_NOT_CONFIGURED", "Invalid approval origin", 503);
   return url.origin;
-}
-function approvalUrl(env: Bindings, id: string) {
-  return approvalOrigin(env) + "/delegation?request_id=" + encodeURIComponent(id);
 }
 async function serverOperation(env: Bindings, resource: string, modelKey: string, operation: Op) {
   const serverId = oauthMcpServerId(resource);
