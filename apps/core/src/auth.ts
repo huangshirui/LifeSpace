@@ -18,7 +18,8 @@ export function oauthExecutionRouteAllowed(method: string, path: string, spaceId
   // spaceId is validated against an ASCII-only identifier grammar above.
   const escaped = spaceId;
   if (method === "GET") {
-    return new RegExp("^/api/v1/spaces/" + escaped + "/_discovery/models/[a-z][a-z0-9_-]{0,63}$", "u").test(path);
+    return new RegExp("^/api/v1/spaces/" + escaped + "/_discovery/models/[a-z][a-z0-9_-]{0,63}$", "u").test(path)
+      || new RegExp("^/api/v1/spaces/" + escaped + "/models/[a-z][a-z0-9_]{1,62}/records/rec_[A-Za-z0-9_-]+$", "u").test(path);
   }
   if (write && new RegExp("^/api/v1/spaces/" + escaped + "/models/[a-z][a-z0-9_-]{0,63}/records(?:/rec_[A-Za-z0-9_-]+)?$", "u").test(path)) {
     return method === "POST" && path.endsWith("/records")
@@ -337,7 +338,8 @@ export function authenticate(): MiddlewareHandler<AppEnv> {
         context.env.DB, execution.resource, context.req.method, context.req.path,
       );
       principal = { ...principal, oauthExecution: {
-        ...execution, serverId: policy.serverId, queryModelKeys: policy.queryModelKeys, modelOperations: policy.modelOperations,
+        ...execution, serverId: policy.serverId, queryModelKeys: policy.queryModelKeys,
+        toolModelKeys: policy.toolModelKeys, modelOperations: policy.modelOperations,
       } };
     }
     context.set("principal", principal);
