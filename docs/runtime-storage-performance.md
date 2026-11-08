@@ -253,3 +253,12 @@ Relation tests cover 1060 edges with 1000 hidden before 60 visible, 50+10 comple
 ## Recurrence gates / 周期计划性能门禁（#338）
 
 No recurrence query is added to ordinary Task completion or to records with no recurring intent. One-Space 20-Plan preparation uses grouped scheduling state, grouped typed hydration, de-duplicated current Authority and one current-root Identity HTTP call; opaque Service/Agent authentication adds one credential introspection. Warm User JWT/Service Token mutation budget <=8 Core D1 RTT; represented opaque Agent <=9. Indexed rolling same-Space batch budget <=8 D1 RTT. Global/Space-local next_materialize_at indexes select due work, and an active-future partial occurrence index plus stable-ID current/history lookup avoid full-plan/history scans. The 1000 parked-Plan test gates <1000 D1 rows read and uses query-plan evidence; its local wall time is not a deployed latency promise. Window 0..90 days and total <=20 materialized Tasks per invocation are internal bounded settings. Cursor/CAS/unique occurrence constraints preserve concurrent retry correctness. Exact-candidate deployed JWT/Service/Agent latency remains a release gate; ordinary Runtime budgets are unchanged.
+
+### Staging OAuth MCP mutation schema preview
+
+Only write-authorized Native batch semantic discovery loads one active immutable
+Model Contract snapshot per batch and checks version/schema hash against current
+model metadata. A missing initial snapshot uses the existing canonical initializer;
+a mismatched snapshot fails closed. Normal read-only discovery retains its previous
+budget; no per-record I/O is added. Model write authorization remains per selected
+model current-state checking, never cached with immutable schema.
