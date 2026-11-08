@@ -193,10 +193,6 @@ function comparisonSqlOperator(operator: GenericComparisonOperator): string {
   }
 }
 
-function escapeLike(value: string): string {
-  return value.replaceAll("\\", "\\\\").replaceAll("%", "\\%").replaceAll("_", "\\_");
-}
-
 function querySignature(params: URLSearchParams): string {
   const entries = [...params.entries()]
     .filter(([key]) => key !== "cursor" && key !== "limit")
@@ -463,8 +459,9 @@ export async function queryGenericResources(
     for (const fieldKey of searchable) {
       const field = model.definition.fields[fieldKey];
       if (!field || !["string", "text", "enum"].includes(field.type)) continue;
-      clauses.push(`lower(CAST(${typedScalarExpression(model, fieldKey)} AS TEXT)) LIKE lower(?) ESCAPE '\\'`);
-      args.push(`%${escapeLike(normalized)}%`);
+      // Keep legacy Generic GET's literal search semantics aligned with Canonical Query.
+      clauses.push(`instr(lower(CAST(${typedScalarExpression(model, fieldKey)} AS TEXT)), lower(?)) > 0`);
+      args.push(normalized);
     }
     if (!clauses.length) throw new ApiError("INVALID_QUERY", `Model ${model.key} has no text-searchable fields`, 400);
     sql += ` AND (${clauses.join(" OR ")})`;
