@@ -239,3 +239,11 @@ A globally registered `origin: external` business definition is referenceable me
 ### Kernel 0.53.0 · File / Upload Capability
 
 Native `file` / `file_list` values are stable `fil_*` identities whose bytes remain outside ordinary typed Record storage. File transfer uses bounded `upl_*` sessions and short-lived R2 signed URLs. External `file_ref_list` keeps Provider-owned reference semantics; an External field may separately advertise upload capability while remaining unavailable to ordinary Record mutation. Consumers must never persist upload/download URLs as File identity.
+
+### Staging-only Native mutation projection
+
+OAuth MCP batch semantics may add `mutations` with `contractId`, `modelVersion`,
+`schemaHash`, `operations` and a closed `$defs` subset from the active immutable
+Model Contract. This is current capability preview, not authority: every create,
+update or delete rechecks Core authority, Policy and version. Absent/mismatched
+contract evidence must not produce mutation tools. See `docs/identity-oauth.md`.
