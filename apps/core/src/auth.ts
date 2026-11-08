@@ -25,8 +25,14 @@ export function oauthExecutionRouteAllowed(method: string, path: string, spaceId
   // spaceId is validated against an ASCII-only identifier grammar above.
   const escaped = spaceId;
   if (method === "GET") {
-    return new RegExp("^/api/v1/spaces/" + escaped + "/_discovery/models/[a-z][a-z0-9_-]{0,63}$", "u").test(path)
+    return path === "/api/v1/spaces/" + escaped + "/_discovery/mcp/person-directory"
+      || new RegExp("^/api/v1/spaces/" + escaped + "/people(?:/per_[A-Za-z0-9_-]+)?$", "u").test(path)
+      || new RegExp("^/api/v1/spaces/" + escaped + "/_discovery/models/[a-z][a-z0-9_-]{0,63}$", "u").test(path)
       || new RegExp("^/api/v1/spaces/" + escaped + "/models/[a-z][a-z0-9_]{1,62}/records/rec_[A-Za-z0-9_-]+$", "u").test(path);
+  }
+  if (write && new RegExp("^/api/v1/spaces/" + escaped + "/people(?:/per_[A-Za-z0-9_-]+)?$", "u").test(path)) {
+    return method === "POST" && path.endsWith("/people")
+      || (method === "PATCH" || method === "DELETE") && !path.endsWith("/people");
   }
   if (write && new RegExp("^/api/v1/spaces/" + escaped + "/models/[a-z][a-z0-9_-]{0,63}/records(?:/rec_[A-Za-z0-9_-]+)?$", "u").test(path)) {
     return method === "POST" && path.endsWith("/records")
@@ -34,6 +40,7 @@ export function oauthExecutionRouteAllowed(method: string, path: string, spaceId
   }
   if (method === "POST") {
     if (path === "/api/v1/spaces/" + escaped + "/_discovery/models/batch") return true;
+    if (write && new RegExp("^/api/v1/spaces/" + escaped + "/models/[a-z][a-z0-9_]{1,62}/records/rec_[A-Za-z0-9_-]+/actions/[a-z][a-z0-9_-]{0,62}$", "u").test(path)) return true;
     return new RegExp("^/api/v1/spaces/" + escaped + "/models/[a-z][a-z0-9_-]{0,63}/records/query$", "u").test(path);
   }
   return false;
@@ -384,6 +391,7 @@ export function authenticate(): MiddlewareHandler<AppEnv> {
       principal = { ...principal, oauthExecution: {
         ...execution, serverId: policy.serverId, queryModelKeys: policy.queryModelKeys,
         toolModelKeys: policy.toolModelKeys, modelOperations: policy.modelOperations,
+        personOperations: policy.personOperations,
       } };
     }
     context.set("principal", principal);
