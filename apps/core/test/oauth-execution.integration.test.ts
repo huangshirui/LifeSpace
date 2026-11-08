@@ -257,7 +257,9 @@ describe("OAuth MCP Agent Direct execution: Core fail-closed route and Space bou
     expect(Object.keys(preview.data.models[0].detail.mutations.operations)).toEqual(["create", "update", "delete"]);
     const created = await f.request("POST", base, patch, { name: "Synthetic OAuth task" });
     expect(created.status).toBe(201);
-    const record = (await created.json() as { data: { id: string; version: number } }).data;
+    const createdBody = await created.json() as { data: { id: string; version: number; createdBy: { type: string; id: string } } };
+    expect(createdBody.data.createdBy).toMatchObject({ type: "agent", id: f.agent });
+    const record = createdBody.data;
     expect((await f.request("PATCH", base + "/" + record.id, patch, { version: record.version, name: "Updated synthetic OAuth task" })).status).toBe(200);
     expect((await f.request("PATCH", base + "/" + record.id, patch, { version: record.version, name: "Stale update" })).status).toBe(409);
     // Narrowing Server exposure immediately denies the old mutation.
