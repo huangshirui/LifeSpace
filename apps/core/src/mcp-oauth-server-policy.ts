@@ -147,9 +147,6 @@ export async function currentMcpOAuthQueryPolicy(
     if (!personOperations.includes(personOp)) throw forbidden();
     return { serverId, queryModelKeys, toolModelKeys, modelOperations, personOperations };
   }
-  if (method === "GET" && /^\/api\/v1\/spaces\/spc_[A-Za-z0-9_-]+\/_discovery\/mcp\/person-directory$/u.test(path)) {
-    return { serverId, queryModelKeys, toolModelKeys, modelOperations, personOperations };
-  }
   const action = /^\/api\/v1\/spaces\/spc_[A-Za-z0-9_-]+\/models\/([a-z][a-z0-9_]{1,62})\/records\/rec_[A-Za-z0-9_-]+\/actions\/([a-z][a-z0-9_-]{0,62})$/u.exec(path);
   if (method === "POST" && action) {
     if (!modelOperations[action[1]]?.includes("action:" + action[2])) throw forbidden();
