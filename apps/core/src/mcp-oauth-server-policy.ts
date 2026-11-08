@@ -3,7 +3,7 @@ import { ApiError } from "./http";
 // Core owns the current MCP Server selection. OAuth Scope, current Agent
 // authority, and this tool-exposure policy are independent restrictions.
 type ServerRow = { enabled: number; config_json: string };
-export type McpOAuthQueryPolicy = { serverId: string; queryModelKeys: string[]; toolModelKeys: string[]; modelOperations: Record<string, string[]> };
+export type McpOAuthQueryPolicy = { serverId: string; queryModelKeys: string[]; toolModelKeys: string[]; modelOperations: Record<string, string[]>; personOperations: string[] };
 const SERVER_ID = /^mcp_[a-f0-9]{32}$/u;
 const MODEL_KEY = /^[a-z][a-z0-9_]{1,62}$/u;
 const QUERY_PATH = /^\/api\/v1\/spaces\/spc_[A-Za-z0-9_-]+\/models\/([a-z][a-z0-9_]{1,62})\/records\/query$/u;
@@ -68,10 +68,18 @@ export function configuredMcpOAuthScopes(configJson: string): string[] {
       || row.operations.some(op => typeof op !== "string")) throw forbidden();
     return row.operations.some(op => ["create", "update", "delete"].includes(op));
   });
-  // Person Directory remains a Kernel MCP adapter follow-up. Do not advertise
-  // OAuth write simply because a currently unsupported Person operation is
-  // configured; only wired Native model mutations contribute to the ceiling.
-  return ["resources:read", ...(modelWrites ? ["resources:write"] : [])];
+  const resources = config.resources ?? [];
+  const personWrites = (resources as unknown[]).some(entry => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) throw forbidden();
+    const value = entry as {resourceKey?:unknown;operations?:unknown};
+    if (value.resourceKey !== "person_directory" || !Array.isArray(value.operations)) throw forbidden();
+    return value.operations.some(op => ["create","update","delete"].includes(op));
+  });
+  // Configured action operations are governed Changes. The exact published
+  // action access requirement is checked again by Core on discovery/execution.
+  const actions = config.models.some(entry =>
+    (entry as {operations:string[]}).operations.some(op => op.startsWith("action:")));
+  return ["resources:read", ...((modelWrites || personWrites || actions) ? ["resources:write"] : [])];
 }
 
 // Discover any Native Model with an actually exposed MCP operation. Query
@@ -90,7 +98,7 @@ export function allowedMcpToolModels(configJson: string): string[] {
       || !Array.isArray(operations) || !operations.length
       || operations.some(op => typeof op !== "string")) throw forbidden();
     seen.add(modelKey);
-    if (operations.some(op => ["get","query","create","update","delete"].includes(op))) allowed.push(modelKey);
+    if (operations.some(op => ["get","query","create","update","delete"].includes(op) || op.startsWith("action:"))) allowed.push(modelKey);
   }
   return allowed.sort();
 }
@@ -106,15 +114,38 @@ export async function currentMcpOAuthQueryPolicy(
   if (!row || row.enabled !== 1) throw forbidden();
   const queryModelKeys = allowedMcpQueryModels(row.config_json);
   const toolModelKeys = allowedMcpToolModels(row.config_json);
-  const modelOperations = Object.fromEntries((JSON.parse(row.config_json).models as Array<{modelKey: string; operations: string[]}>).map(m => [m.modelKey, m.operations]));
+  const parsed = JSON.parse(row.config_json) as {
+    models: Array<{modelKey:string;operations:string[]}>;
+    resources?: Array<{resourceKey:string;operations:string[]}>;
+  };
+  const modelOperations = Object.fromEntries(parsed.models.map(m => [m.modelKey, m.operations]));
+  const personOperations = parsed.resources?.find(r => r.resourceKey === "person_directory")?.operations ?? [];
   const selected = new Set(queryModelKeys);
   const gettable = new Set(toolModelKeys);
 
-  if (method === "GET" && path === INVENTORY) return { serverId, queryModelKeys, toolModelKeys, modelOperations };
+  if (method === "GET" && path === INVENTORY) return { serverId, queryModelKeys, toolModelKeys, modelOperations, personOperations };
   // The actual requested Model list is validated by the batch handler
   // against this freshly loaded policy before any semantics are returned.
   if (method === "POST" && /^\/api\/v1\/spaces\/spc_[A-Za-z0-9_-]+\/_discovery\/models\/batch$/u.test(path)) {
-    return { serverId, queryModelKeys, toolModelKeys, modelOperations };
+    return { serverId, queryModelKeys, toolModelKeys, modelOperations, personOperations };
+  }
+  // Kernel Person is an independently granted resource, not a model.
+  const person = /^\/api\/v1\/spaces\/spc_[A-Za-z0-9_-]+\/people(?:\/(per_[A-Za-z0-9_-]+))?$/u.exec(path);
+  const personOp = person && (method === "GET" ? (person[1] ? "get" : "list")
+    : method === "POST" && !person[1] ? "create"
+    : method === "PATCH" && person[1] ? "update"
+    : method === "DELETE" && person[1] ? "delete" : null);
+  if (personOp) {
+    if (!personOperations.includes(personOp)) throw forbidden();
+    return { serverId, queryModelKeys, toolModelKeys, modelOperations, personOperations };
+  }
+  if (method === "GET" && /^\/api\/v1\/spaces\/spc_[A-Za-z0-9_-]+\/_discovery\/mcp\/person-directory$/u.test(path)) {
+    return { serverId, queryModelKeys, toolModelKeys, modelOperations, personOperations };
+  }
+  const action = /^\/api\/v1\/spaces\/spc_[A-Za-z0-9_-]+\/models\/([a-z][a-z0-9_]{1,62})\/records\/rec_[A-Za-z0-9_-]+\/actions\/([a-z][a-z0-9_-]{0,62})$/u.exec(path);
+  if (method === "POST" && action) {
+    if (!modelOperations[action[1]]?.includes("action:" + action[2])) throw forbidden();
+    return { serverId, queryModelKeys, toolModelKeys, modelOperations, personOperations };
   }
   const mutation = /^\/api\/v1\/spaces\/spc_[A-Za-z0-9_-]+\/models\/([a-z][a-z0-9_]{1,62})\/records(?:\/(rec_[A-Za-z0-9_-]+))?$/u.exec(path);
   const operation = method === "POST" && !mutation?.[2] ? "create"
@@ -122,15 +153,15 @@ export async function currentMcpOAuthQueryPolicy(
     : method === "DELETE" && mutation?.[2] ? "delete" : null;
   if (mutation && operation) {
     if (mutation[1].startsWith("ext_") || !modelOperations[mutation[1]]?.includes(operation)) throw forbidden();
-    return { serverId, queryModelKeys, toolModelKeys, modelOperations };
+    return { serverId, queryModelKeys, toolModelKeys, modelOperations, personOperations };
   }
   const readRecord = /^\/api\/v1\/spaces\/spc_[A-Za-z0-9_-]+\/models\/([a-z][a-z0-9_]{1,62})\/records\/rec_[A-Za-z0-9_-]+$/u.exec(path);
   if (method === "GET" && readRecord) {
     if (!gettable.has(readRecord[1]) || !modelOperations[readRecord[1]]?.includes("get")) throw forbidden();
-    return { serverId, queryModelKeys, toolModelKeys, modelOperations };
+    return { serverId, queryModelKeys, toolModelKeys, modelOperations, personOperations };
   }
   const key = method === "GET" ? DETAIL_PATH.exec(path)?.[1]
     : method === "POST" ? QUERY_PATH.exec(path)?.[1] : null;
   if (!key || !(method === "GET" ? gettable.has(key) : selected.has(key))) throw forbidden();
-  return { serverId, queryModelKeys, toolModelKeys, modelOperations };
+  return { serverId, queryModelKeys, toolModelKeys, modelOperations, personOperations };
 }
