@@ -40,7 +40,7 @@ export function oauthExecutionRouteAllowed(method: string, path: string, spaceId
   }
   if (method === "POST") {
     if (path === "/api/v1/spaces/" + escaped + "/_discovery/models/batch") return true;
-    if (write && new RegExp("^/api/v1/spaces/" + escaped + "/models/[a-z][a-z0-9_]{1,62}/records/rec_[A-Za-z0-9_-]+/actions/[a-z][a-z0-9_-]{0,62}$", "u").test(path)) return true;
+    if (new RegExp("^/api/v1/spaces/" + escaped + "/models/[a-z][a-z0-9_]{1,62}/records/rec_[A-Za-z0-9_-]+/actions/[a-z][a-z0-9_-]{0,62}$", "u").test(path)) return true;
     return new RegExp("^/api/v1/spaces/" + escaped + "/models/[a-z][a-z0-9_-]{0,63}/records/query$", "u").test(path);
   }
   return false;
