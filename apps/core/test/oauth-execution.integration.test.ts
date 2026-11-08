@@ -411,7 +411,9 @@ describe("OAuth MCP Agent Direct execution: Core fail-closed route and Space bou
     });
     expect((await f.request("POST",base,represented,{name:"Again"},headers)).status).toBe(403);
     const scoped=await f.request("POST",base+"/query",represented,{limit:1},headers);
-    expect(scoped.status).toBe(403);
+    // Exact approved operation mismatch is deliberately indistinguishable
+    // from another User/Client/Server's delegation (404, not scope disclosure).
+    expect(scoped.status).toBe(404);
     f.setActive(false);
     expect((await f.request("POST",base,represented,{name:"Revoked"},headers)).status).toBe(401);
   });
