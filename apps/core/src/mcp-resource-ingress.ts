@@ -1,11 +1,12 @@
 import type { Context, Hono } from "hono";
 import type { Bindings, Variables } from "./env";
+import { configuredMcpOAuthScopes } from "./mcp-oauth-server-policy";
 
 type AppEnv = { Bindings: Bindings; Variables: Variables };
 type App = Hono<AppEnv>;
 
 const SERVER_ID = /^mcp_[a-f0-9]{32}$/u;
-type ServerState = { enabled: number };
+type ServerState = { enabled: number; config_json: string };
 
 export function expectedOrigin(env: Bindings): string | null {
   if (env.ENVIRONMENT === "production") return "https://core.aisr.online";
@@ -26,7 +27,7 @@ async function forward(c: Context<AppEnv>, serverId: string) {
     return c.json({ error: "MCP resource origin unavailable" }, 403);
   }
   const row = await c.env.DB.prepare(
-    "SELECT enabled FROM mcp_server_definitions WHERE id=?"
+    "SELECT enabled,config_json FROM mcp_server_definitions WHERE id=?"
   ).bind(serverId).first<ServerState>();
   if (!row || row.enabled !== 1) {
     return c.json({ error: "MCP Server not found" }, 404, { "cache-control": "no-store" });
@@ -39,7 +40,13 @@ async function forward(c: Context<AppEnv>, serverId: string) {
   try {
     // Preserve exact original HTTPS Resource URI and OAuth bearer for the
     // private Adapter. Core does not interpret OAuth or grant data access here.
-    const response = await adapter.fetch(c.req.raw);
+    // Core replaces this private advisory header after reading the current
+    // Server configuration. A forged public header is never propagated.
+    // The Adapter uses it for RFC 9728 metadata / initial OAuth challenge,
+    // NOT as a credential or an authorization decision.
+    const forwarded = new Headers(c.req.raw.headers);
+    forwarded.set("x-lifespace-mcp-scope-ceiling", configuredMcpOAuthScopes(row.config_json).join(" "));
+    const response = await adapter.fetch(new Request(c.req.raw, { headers: forwarded }));
     const headers = new Headers(response.headers);
     headers.set("cache-control", "no-store");
     return new Response(response.body, { status: response.status, headers });
@@ -87,7 +94,7 @@ async function privateValidation(c: Context<AppEnv>) {
   const active = row?.enabled === 1 && Boolean(c.env.MCP_ADAPTER);
   return c.json({ data: {
     active,
-    ...(active ? { resource, serverId: match[1] } : {}),
+    ...(active ? { resource, serverId: match[1], scopes: configuredMcpOAuthScopes(row.config_json) } : {}),
   } }, 200, { "cache-control": "no-store" });
 }
 
