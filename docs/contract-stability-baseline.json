@@ -430,7 +430,7 @@
     {
       "id": "core-account-oauth-consent",
       "source": "apps/core/oauth-consent.openapi.yaml",
-      "operationSetSha256": "sha256:0f3919f52773d4da8644da540d8d238aef1da6800a62f9973e3ffa1958475a83",
+      "operationSetSha256": "sha256:bdaaf5654baece514a52020b89338ad6b30de63f29d1c559756f96656336cad1",
       "groups": [
         {
           "id": "core-account-consent-confirm",
