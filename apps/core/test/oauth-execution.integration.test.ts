@@ -418,6 +418,69 @@ describe("OAuth MCP Agent Direct execution: Core fail-closed route and Space bou
     expect((await f.request("POST",base,represented,{name:"Revoked"},headers)).status).toBe(401);
   });
 
+  it("projects ordinary model operations through one opaque Core tool catalog and rechecks on invocation", async () => {
+    const f=await fixture();
+    const base="/api/v1/spaces/"+f.space;
+    const preview=await f.request("GET",base+"/_discovery/operations");
+    expect(preview.status).toBe(200);
+    const data=await preview.json() as {data:{operations:Array<{
+      modelKey:string;operation:string;operationRef:string;inputSchema:Record<string,unknown>;
+    }>}};
+    const query=data.data.operations.find(x=>x.modelKey==="task"&&x.operation==="query");
+    expect(query).toBeDefined();
+    expect(query?.operationRef).toMatch(/^op_[a-f0-9]{64}$/u);
+    expect(JSON.stringify(data)).not.toMatch(/"origin"|"provider"|"person_directory"/u);
+    const route=base+"/_operations/"+query!.operationRef+"/invoke";
+    const result=await f.request("POST",route,{},{
+      arguments:{spaceId:f.space,data:{page:{limit:1}}},
+    });
+    expect(result.status).toBe(200);
+    const forged=await f.request("POST",route,{},{
+      arguments:{spaceId:f.other,data:{}},
+    });
+    expect(forged.status).toBe(404);
+    expect((await f.request("GET",
+      "/api/v1/spaces/"+f.other+"/_discovery/operations")).status).toBe(403);
+    f.setActive(false);
+    expect((await f.request("POST",route,{},{
+      arguments:{spaceId:f.space,data:{}},
+    })).status).toBe(401);
+  });
+
+  it("exposes Kernel Person through the exact same generic operation envelope as a normal Model", async () => {
+    const f=await fixture();
+    const base="/api/v1/spaces/"+f.space;
+    await f.db.prepare("UPDATE mcp_server_definitions SET config_json=? WHERE id=?")
+      .bind(JSON.stringify({models:[],resources:[{resourceKey:"person_directory",operations:["list","get","create"]}]}),f.serverId).run();
+    await f.db.prepare(
+      "INSERT INTO data_grants(id,source_space_id,grantee_type,grantee_id,resource_type,resource_id,permission,created_by_user_id,created_at) "+
+      "VALUES(?,?,'agent',?,'person_directory',NULL,'write',?,?)"
+    ).bind("grt_person_"+crypto.randomUUID().replaceAll("-",""),f.space,f.agent,"usr_synthetic",new Date().toISOString()).run();
+    f.setConsentScopes(["resources:read","resources:write"]);
+    const patch={scope:"resources:read resources:write"};
+    const preview=await f.request("GET",base+"/_discovery/operations",patch);
+    expect(preview.status).toBe(200);
+    const found=await preview.json() as {data:{operations:Array<{
+      modelKey:string;operation:string;operationRef:string;inputSchema:unknown;
+    }>}};
+    const tools=found.data.operations;
+    expect(tools.map(x=>x.operation)).toContain("query");
+    const create=tools.find(x=>x.modelKey==="person"&&x.operation==="create")!;
+    expect(create.operationRef).toMatch(/^op_[a-f0-9]{64}$/u);
+    expect(JSON.stringify(found)).not.toContain("person_directory");
+    expect(JSON.stringify(found)).not.toContain("external");
+    const made=await f.request("POST",base+"/_operations/"+create.operationRef+"/invoke",patch,{
+      arguments:{spaceId:f.space,data:{displayName:"Synthetic Person"}},
+    });
+    expect(made.status).toBe(201);
+    const created=await made.json() as {data:{id:string;displayName:string}};
+    expect(created.data).toMatchObject({displayName:"Synthetic Person"});
+    expect(created.data.id).toMatch(/^per_/u);
+    expect((await f.request("POST",base+"/_operations/"+create.operationRef+"/invoke",patch,{
+      arguments:{spaceId:f.other,data:{displayName:"Cross Space"}},
+    })).status).toBe(404);
+  });
+
   it("rejects unknown configured MCP Server and pre-v7 unscoped /mcp resources", async () => {
     const f = await fixture();
     const missing = "https://resource.example.test/mcp/mcp_" + "e".repeat(32);
