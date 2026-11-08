@@ -56,7 +56,8 @@ async function requireCurrentOAuthExecution(env: Bindings, execution: NonNullabl
   if (payload?.data?.active !== true) throw unauthorized();
   // Legacy introspection may only validate read. Write requires live consent evidence.
   const current = payload.data.scopes ?? ["resources:read"];
-  if (scopes.some(scope => !current.includes(scope))) throw unauthorized();
+  if (!Array.isArray(current) || current.some(scope => typeof scope !== "string")
+    || scopes.some(scope => !current.includes(scope))) throw unauthorized();
 }
 
 
@@ -140,7 +141,8 @@ export async function verifyAccessToken(rawToken: string, publicKey: string): Pr
 
       const directAgent = payload.principal_type === "agent" && principalId === payload.actor_id;
       if (isOAuthExecution) {
-        if (!directAgent || !["resources:read", "resources:read resources:write"].includes(String(payload.scope))
+        if (!directAgent || typeof payload.scope !== "string"
+          || !["resources:read", "resources:read resources:write"].includes(payload.scope)
           || payload.exp - payload.iat > MAX_OAUTH_EXECUTION_TTL_SECONDS
           || typeof payload.oauth_authorization_id !== "string"
           || !/^oaz_[A-Za-z0-9_-]{10,128}$/u.test(payload.oauth_authorization_id)
