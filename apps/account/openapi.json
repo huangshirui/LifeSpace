@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "LifeSpace Account OAuth Consent BFF",
-    "version": "0.2.0",
+    "version": "0.1.0",
     "description": "Same-origin, Cloudflare Access-authenticated User Consent. Browser never receives LifeSpace user bearer or privileged application credentials. All mutations have same-origin, Fetch Metadata, CSRF and current Core Authority gates. Independently supports third-party OAuth MCP link-based one-time User Delegation review; trusted app and WeCom approval channels remain unmodified."
   },
   "paths": {
