@@ -273,7 +273,7 @@ export async function accountFetch(req, env) {
         || !safeText(item.name, 150) || !Array.isArray(item.access)
         || item.access.some((access) => !["read", "write", "manage"].includes(access))
         || !Array.isArray(item.operations) || item.operations.length > 5
-        || item.operations.some((op) => !["query", "create", "update", "delete"].includes(op)))) {
+        || item.operations.some((op) => !["get", "query", "create", "update", "delete"].includes(op)))) {
       return fail(502, "CORE_INVALID_RESPONSE", "权限投影格式无效");
     }
     const scopes = new Set(requestInfo.requestedScopes);
@@ -286,7 +286,7 @@ export async function accountFetch(req, env) {
         key: model.key, name: model.name,
         access: model.access.filter((operation) => scopes.has("resources:" + operation)),
         operations: model.operations.filter((operation) =>
-          scopes.has(operation === "query" ? "resources:read" : "resources:write")),
+          scopes.has(["get", "query"].includes(operation) ? "resources:read" : "resources:write")),
       })).filter((model) => model.operations.length > 0),
       truncated: projection.truncated === true,
       requestedScopes: [...scopes],
