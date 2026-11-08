@@ -37,11 +37,18 @@ function operationSchema(spaceId:string,op:Operation,data?:JsonSchema,recordId?:
     properties.recordId=recordId??schemaString;
     required.push("recordId");
   }
+  let definitions:Record<string,unknown>|undefined;
   if(op!=="get"){
-    properties.data=data??{type:"object",additionalProperties:false};
+    const wireData=structuredClone(data??{type:"object",additionalProperties:false});
+    if(wireData.$defs && typeof wireData.$defs==="object"&&!Array.isArray(wireData.$defs)){
+      definitions=wireData.$defs as Record<string,unknown>;
+      delete wireData.$defs;
+    }
+    properties.data=wireData;
     if(op!=="query")required.push("data");
   }
-  return {type:"object",additionalProperties:false,properties,required};
+  return {type:"object",additionalProperties:false,properties,required,
+    ...(definitions?{$defs:definitions}:{})};
 }
 async function ref(key:string) {
   const hash=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(key));
@@ -148,8 +155,19 @@ async function manifest(c:ContextApp):Promise<Entry[]>{
           const inputRef=metadata?.[op==="create"?"createSchema":"updateSchema"];
           if(typeof inputRef!=="string")continue;
           const defs=contract.jsonSchema.$defs as Record<string,JsonSchema>;
-          if(!inputRef.startsWith("#/$defs/")||!defs[inputRef.slice(8)])continue;
-          schema={$ref:inputRef,$defs:structuredClone(defs)};
+          if(!defs||!inputRef.startsWith("#/$defs/")||!defs[inputRef.slice(8)]
+            ||metadata?.schemaHash!==model.schemaHash||metadata?.version!==model.version)continue;
+          const selected:Record<string,JsonSchema>={};
+          const include=(source:string):void=>{
+            if(!source.startsWith("#/$defs/"))throw denied();
+            const key=source.slice(8);
+            if(selected[key])return;
+            if(!defs[key]||Object.keys(selected).length>64)throw denied();
+            selected[key]=structuredClone(defs[key]);
+            for(const m of JSON.stringify(defs[key]).matchAll(/"\\$ref":"([^"]+)"/gu))include(m[1]);
+          };
+          include(inputRef);
+          schema={$ref:inputRef,$defs:selected};
         }
         await push("native",key,names(semantic.display.singular),op as Operation,schema);
       }else if(op.startsWith("action:")){
