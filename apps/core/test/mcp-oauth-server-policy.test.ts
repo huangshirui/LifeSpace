@@ -35,7 +35,8 @@ describe("Core-owned MCP Server resource and operation boundary", () => {
       { modelKey: "event", operations: ["action:close"] },
     ] });
     expect(allowedMcpQueryModels(config)).toEqual(["task"]);
-    expect(allowedMcpToolModels(config)).toEqual(["activity", "anniversary", "task"]);
+    // Explicit Action-only Models are also genuine selected MCP tools.
+    expect(allowedMcpToolModels(config)).toEqual(["activity", "anniversary", "event", "task"]);
     expect(configuredMcpOAuthScopes(config)).toEqual(["resources:read", "resources:write"]);
   });
 
