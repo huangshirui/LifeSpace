@@ -1034,10 +1034,6 @@ async function compileFilter(
   return predicateFragment(env, principal, spaceId, model, filter, principalPersonId);
 }
 
-function escapeLike(value: string): string {
-  return value.replaceAll("\\", "\\\\").replaceAll("%", "\\%").replaceAll("_", "\\_");
-}
-
 function searchFragment(model: PublishedModel, text: string): SqlFragment {
   const clauses: string[] = [];
   const args: unknown[] = [];
@@ -1050,8 +1046,9 @@ function searchFragment(model: PublishedModel, text: string): SqlFragment {
         ? typedScalarExpression(model, fieldKey)
         : null;
     if (!expression) continue;
-    clauses.push(`lower(CAST(${expression} AS TEXT)) LIKE lower(?) ESCAPE '\\'`);
-    args.push(`%${escapeLike(text)}%`);
+    // Literal, case-insensitive substring search; avoids D1's LIKE pattern complexity limit.
+    clauses.push(`instr(lower(CAST(${expression} AS TEXT)), lower(?)) > 0`);
+    args.push(text);
   }
   if (!clauses.length) throw new ApiError("INVALID_QUERY", `Model ${model.key} has no text-searchable fields`, 400);
   return { sql: `(${clauses.join(" OR ")})`, args };

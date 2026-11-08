@@ -232,6 +232,39 @@ describe("Canonical Typed Query", () => {
     expect(all.items.map((item) => item.id)).toEqual([weekBoth.id]);
   });
 
+  it("searches full-length literal substrings without D1 LIKE pattern failures", async () => {
+    const { spaceId, model } = await taskFixture();
+    const longText = "q".repeat(100);
+    const longRecord = await createGenericResource(bindings(), actor, spaceId, model, {
+      name: "Long literal search",
+      description: longText,
+    });
+    const symbols = await createGenericResource(bindings(), actor, spaceId, model, {
+      name: "Symbols %_\\ marker",
+    });
+
+    for (const length of [48, 49, 50, 100]) {
+      const page = await queryCanonicalResources(bindings(), actor, spaceId, model, {
+        search: { text: "Q".repeat(length) },
+        page: { limit: 10 },
+      });
+      expect(page.items.map((item) => item.id)).toEqual([longRecord.id]);
+    }
+    for (const literal of ["%", "_", "\\", "%_\\"]) {
+      const page = await queryCanonicalResources(bindings(), actor, spaceId, model, {
+        search: { text: literal },
+      });
+      expect(page.items.map((item) => item.id)).toEqual([symbols.id]);
+    }
+    const missing = await queryCanonicalResources(bindings(), actor, spaceId, model, {
+      search: { text: "x".repeat(100) },
+    });
+    expect(missing.items).toHaveLength(0);
+    await expect(queryCanonicalResources(bindings(), actor, spaceId, model, {
+      search: { text: "q".repeat(101) },
+    })).rejects.toMatchObject({ status: 400 });
+  });
+
   it("composes Search + Filter + multi-sort + cursor and binds normalized semantics", async () => {
     const { spaceId, model, weekA, weekBoth } = await taskFixture();
     const first = await queryCanonicalResources(bindings(), actor, spaceId, model, {
