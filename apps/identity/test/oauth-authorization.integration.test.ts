@@ -530,7 +530,7 @@ describe("Identity OAuth Authorization Server (isolated candidate)", () => {
     };
     expect((await check(context, null)).status).toBe(401);
     expect((await check(context, t.b.OAUTH_RESOURCE_SERVER_SECRET)).status).toBe(401);
-    expect(await (await check(context, t.b.CORE_IDENTITY_SHARED_SECRET)).json()).toEqual({ data: { active: true, scopes: ["resources:read"] } });
+    expect(await (await check(context, t.b.CORE_IDENTITY_SHARED_SECRET)).json()).toEqual({ data: { active: true, scopes: ["resources:read"], userId: t.userId, allowUserAuthorization: true } });
     expect(await (await check({ ...context, spaceId: "spc_wrong" }, t.b.CORE_IDENTITY_SHARED_SECRET)).json()).toEqual({ data: { active: false } });
     expect(await (await check({ ...context, agentId: "agt_wrong" }, t.b.CORE_IDENTITY_SHARED_SECRET)).json()).toEqual({ data: { active: false } });
     expect((await t.revoke(oauthBearer)).status).toBe(200);
