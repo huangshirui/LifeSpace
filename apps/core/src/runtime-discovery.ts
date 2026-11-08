@@ -397,13 +397,11 @@ export function registerRuntimeDiscoveryRoutes(app: App): void {
     const oauthQueryKeys = state.principal.oauthExecution
       ? new Set(state.principal.oauthExecution.toolModelKeys ?? [])
       : null;
-    // OAuth inventory must apply the exact current enabled Server allowlist
-    // to Space-local External bindings as well as Native models. Provider
-    // field/snapshot authority remains in Core, not in the MCP adapter.
-    const external = await visibleExternalModels(context.env,state.principal,
-      oauthQueryKeys ? state.candidateSpaceIds.filter(id => id === state.principal.oauthExecution?.spaceId)
-        : state.candidateSpaceIds,
-      context.req.header("x-lifespace-delegation-id"));
+    // OAuth tools are bounded by current Core MCP Server configuration.
+    // External models are not selected by the v1 MCP Server control plane.
+    const external: Awaited<ReturnType<typeof visibleExternalModels>> = oauthQueryKeys
+      ? new Map()
+      : await visibleExternalModels(context.env,state.principal,state.candidateSpaceIds,context.req.header("x-lifespace-delegation-id"));
     const spaces = state.candidateSpaceIds.flatMap((spaceId) => {
       const visible = visibleModelAccess(
         state.principal,
@@ -417,8 +415,7 @@ export function registerRuntimeDiscoveryRoutes(app: App): void {
         ? visible.filter(entry => oauthQueryKeys.has(entry.model.key))
         : visible;
       for (const entry of selected) visibleModelKeys.add(entry.model.key);
-      const externalHere = (external.get(spaceId) ?? [])
-        .filter(model => !oauthQueryKeys || oauthQueryKeys.has(model.key));
+      const externalHere = oauthQueryKeys ? [] : (external.get(spaceId) ?? []);
       return selected.length||externalHere.length ? [{
         spaceId,
         spaceName: state.spaceNamesById.get(spaceId)!,
@@ -429,9 +426,7 @@ export function registerRuntimeDiscoveryRoutes(app: App): void {
       .filter((model) => visibleModelKeys.has(model.key))
       .sort((left, right) => left.key.localeCompare(right.key))
       .map(inventoryModel);
-    const externalInventory=[...external.values()].flat()
-      .filter(m => !oauthQueryKeys || oauthQueryKeys.has(m.key))
-      .map(m=>({key:m.key,origin:m.origin,spaceId:m.spaceId,schemaHash:m.schemaHash,display:m.display,runtimeCapabilities:m.runtimeCapabilities,contract:m.contract}));
+    const externalInventory=[...external.values()].flat().map(m=>({key:m.key,origin:m.origin,spaceId:m.spaceId,schemaHash:m.schemaHash,display:m.display,runtimeCapabilities:m.runtimeCapabilities,contract:m.contract}));
 
     return context.json(success({ semanticDetailPathTemplate, models: [...models,...externalInventory], spaces }));
   });
