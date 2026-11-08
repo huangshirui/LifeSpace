@@ -31,14 +31,14 @@ function resetCapabilities() {
   ++state.previewVersion;
   state.previewLoaded = false;
   $("capabilities").replaceChildren();
-  $("capabilities").textContent = "选择 Agent 后查看当前可预览的数据类型。";
+  $("capabilities").textContent = "选择 Agent 后查看此 MCP Server 的可用操作。";
 }
 async function refreshCapabilities() {
   resetCapabilities();
   updateButton();
   if (!controls.application.value || !controls.space.value || !controls.agent.value) return;
   const version = state.previewVersion;
-  $("capabilities").textContent = "正在读取 Agent 数据访问权限预览…";
+  $("capabilities").textContent = "正在核对 MCP Server 与 Agent 当前权限…";
   try {
     const projection = await api("/api/oauth/capabilities?" + new URLSearchParams({
       request_id: state.request.id,
@@ -54,7 +54,7 @@ async function refreshCapabilities() {
     node.replaceChildren();
     if (!projection.models.length) {
       const p = document.createElement("p");
-      p.textContent = "当前 Agent 暂无可预览的数据访问能力。";
+      p.textContent = "此 MCP Server 暂无当前 Agent 可执行的操作。";
       node.append(p);
     } else {
       for (const model of projection.models) {
@@ -64,11 +64,11 @@ async function refreshCapabilities() {
         name.textContent = displayModelName(model);
         name.title = "模型标识：" + model.key;
         line.append(name);
-        for (const access of model.access) {
+        for (const operation of model.operations) {
           const badge = document.createElement("span");
           badge.className = "access-chip";
-          badge.textContent = displayOperation(access);
-          badge.title = "操作代码：" + access;
+          badge.textContent = displayOperation(operation);
+          badge.title = "操作代码：" + operation;
           line.append(badge);
         }
         node.append(line);
