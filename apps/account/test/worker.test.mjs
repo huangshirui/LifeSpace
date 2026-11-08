@@ -3,13 +3,14 @@ import assert from "node:assert/strict";
 import { accountFetch } from "../worker/index.mjs";
 
 const id = "oar_" + "a".repeat(32);
+const arq = "arq_" + "f".repeat(32);
 const space = "spc_" + "b".repeat(32);
 const agent = "agt_" + "c".repeat(32);
 const app = "app_" + "d".repeat(32);
 const access = "a".repeat(50) + ".b.c";
 const issuerToken = "test-identity-user-token";
 
-function fixture() {
+function fixture(requestedScopes = ["resources:read"]) {
   const calls = [];
   const identity = {
     fetch: async (req) => {
@@ -27,7 +28,7 @@ function fixture() {
       } });
       if (path === "/api/v1/me/oauth/requests/" + id) return Response.json({ data: {
         id, client: { name: "Claimed ChatGPT", id: "ocli_client1", redirectOrigin: "https://client.example.test", verifiedVendor: false },
-        resource: "https://mcp.example.test/mcp/tasks", requestedScopes: ["resources:read"],
+        resource: "https://mcp.example.test/mcp/tasks", requestedScopes,
         expiresAt: "2026-11-04T12:00:00.000Z",
       } });
       throw new Error("Unknown Identity route: " + path);
@@ -38,15 +39,30 @@ function fixture() {
       const path = new URL(req.url).pathname;
       calls.push({ service: "core", path, authorization: req.headers.get("authorization") });
       assert.equal(req.headers.get("authorization"), "Bearer " + issuerToken);
+      if (path === "/api/v1/me/oauth/delegation-requests/" + arq) return Response.json({ data: {
+        id: arq, status:"pending", applicationId:app,spaceId:space,agentId:agent,
+        clientId:"ocli_client1", resource:"https://mcp.example.test/mcp/tasks",
+        modelKey:"task", operation:"create", reason:"Create one authorized task",
+        expiresAt:"2030-11-08T12:00:00.000Z",
+      } });
+      if (path === "/api/v1/me/oauth/delegation-requests/" + arq + "/approve"
+        || path === "/api/v1/me/oauth/delegation-requests/" + arq + "/deny") {
+        assert.equal(req.method,"POST");
+        assert.deepEqual(await req.json(), {});
+        return Response.json({data:{id:arq,status:path.endsWith("/approve")?"approved":"denied"}});
+      }
       if (path === "/api/v1/me/oauth/capabilities") {
         const query = new URL(req.url).searchParams;
         assert.equal(query.get("applicationId"), app);
         assert.equal(query.get("spaceId"), space);
         assert.equal(query.get("agentId"), agent);
+        assert.equal(query.get("resource"), "https://mcp.example.test/mcp/tasks");
         return Response.json({ data: {
           kind: "pre_policy_upper_bound",
           nativeModelsOnly: true, modelPolicyApplied: false,
-          models: [{ key: "task", name: "Task", access: ["read", "write"] }],
+          resourceCapabilityApplied: true,
+          models: [{ key: "task", name: "Task", access: ["read", "write"],
+            operations: ["query", "create", "update"] }],
           truncated: false,
         } });
       }
@@ -169,13 +185,62 @@ test("permission projection is bounded by current Identity OAuth scopes, not use
   assert.equal(result.status, 200);
   const data = (await result.json()).data;
   assert.equal(data.kind, "pre_policy_upper_bound");
-  assert.equal(data.resourceCapabilityApplied, false);
+  assert.equal(data.resourceCapabilityApplied, true);
   assert.equal(data.modelPolicyApplied, false);
-  assert.deepEqual(data.models, [{ key: "task", name: "Task", access: ["read"] }]);
+  assert.deepEqual(data.models, [{ key: "task", name: "Task", access: ["read"], operations: ["query"] }]);
   assert.deepEqual(data.requestedScopes, ["resources:read"]);
   assert.equal((await t.request("/api/oauth/capabilities?" + suffix + "&scope=resources:write")).status, 400);
   assert.equal((await t.request("/api/oauth/capabilities?" + suffix + "&agent_id=" + agent)).status, 400);
   assert.equal(t.calls.filter((c) => c.service === "core" && c.path === "/api/v1/me/oauth/capabilities").length, 1);
+});
+
+test("explicit read+write client consent previews only Core-selected supported operations", async () => {
+  const t = fixture(["resources:read", "resources:write"]);
+  const suffix = new URLSearchParams({
+    request_id: id, application_id: app, space_id: space, agent_id: agent,
+  });
+  const result = await t.request("/api/oauth/capabilities?" + suffix);
+  assert.equal(result.status, 200);
+  const data = (await result.json()).data;
+  assert.equal(data.resourceCapabilityApplied, true);
+  assert.deepEqual(data.models, [{
+    key: "task", name: "Task", access: ["read", "write"],
+    operations: ["query", "create", "update"],
+  }]);
+  assert.deepEqual(data.requestedScopes, ["resources:read", "resources:write"]);
+});
+
+test("third-party web Delegation requires signed Account session, CSRF and explicit approve/deny", async () => {
+  const t=fixture();
+  const link=await t.request("/api/delegation/request?request_id="+arq);
+  assert.equal(link.status,200);
+  const request=(await link.json()).data;
+  assert.equal(request.operation,"create");
+  assert.equal(request.reason,"Create one authorized task");
+  assert.ok(!JSON.stringify(request).includes(issuerToken));
+  assert.equal((await t.request("/api/delegation/request?request_id=arq_forged")).status,400);
+  assert.equal((await t.request("/api/delegation/approve",{method:"POST",headers:{
+    "content-type":"application/json","origin":"https://account-staging.example.test",
+    "sec-fetch-site":"same-origin"},body:JSON.stringify({
+      intent:"approve-user-delegation",requestId:arq,
+    })})).status,403);
+  const session=await t.request("/api/session");
+  const proof=(await session.json()).data.csrfToken;
+  const cookie=session.headers.get("set-cookie").split(";")[0];
+  const valid=mutatingHeaders(proof,cookie);
+  const approval=await t.request("/api/delegation/approve",{method:"POST",headers:valid,
+    body:JSON.stringify({intent:"approve-user-delegation",requestId:arq})});
+  assert.equal(approval.status,200);
+  assert.deepEqual((await approval.json()).data,{requestId:arq,status:"approved"});
+  const refusal=await t.request("/api/delegation/deny",{method:"POST",headers:valid,
+    body:JSON.stringify({intent:"deny-user-delegation",requestId:arq})});
+  assert.equal(refusal.status,200);
+  assert.deepEqual((await refusal.json()).data,{requestId:arq,status:"denied"});
+  const forged=await t.request("/api/delegation/approve",{method:"POST",headers:valid,
+    body:JSON.stringify({intent:"approve-user-delegation",requestId:arq,principalUserId:"usr_other"})});
+  assert.equal(forged.status,400);
+  // Existing OAuth consent and trusted n8n/WeCom routes remain independent.
+  assert.equal(t.calls.filter(x=>x.path.includes("/authorization-requests/")).length,0);
 });
 
 test("missing Access proof and missing Account configuration fail closed", async () => {

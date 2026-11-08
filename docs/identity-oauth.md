@@ -1,6 +1,27 @@
 # Identity Interactive OAuth Authorization Server / 交互式 OAuth 授权服务
 
-Status: **candidate on independent feature branch; not deployed**. This is Identity's protocol and credential work, not a general `conn_*` registry and not a replacement for Core Authority.
+## 2026-11-08 · Third-party OAuth MCP User Delegation / 第三方网页确认（待 Staging 真实验收）
+
+- Third-party Client access does not imply User Principal. The initial OAuth account page only records `allowUserAuthorization` eligibility; `resources:write` is a separate client Scope. Agent Direct remains `Principal=Actor=Agent`.
+- A signed, current-authorized OAuth Agent may create a pending `arq_*` for exactly one allowed Native Model operation (get/query/create/update/delete), with a short-lived LifeSpace Account URL and request-reason preview. The intended `usr_*` is taken only from verified, current Identity Authorization, never an Agent argument. Requests are bounded by selected Client/Application/Agent/Space/Resource, current exact Server operation, OAuth Scope, TTL and rate limit.
+- On `/delegation?request_id=arq_*`, LifeSpace Account independently authenticates its own User via Cloudflare Access → Identity, displays exact operation/Resource, and POSTs an explicit CSRF-protected Approve/Deny to Core. Core validates that the intended User matches the authenticated Account principal, rechecks the bound OAuth Authorization and current User/App Authority, and creates an immutable, short-lived `dlg_*` (one successful use) atomically with approval. The URL/request ID alone is NOT a bearer authority.
+- To execute, the third-party MCP client explicitly selects that approved `dlg_*`; private Identity mints a ≤60-second represented JWT with `Principal=User, Actor=Agent` and signed OAuth Resource/Client/Agent/User/Space/Delegation context. Every Core call independently validates current OAuth state, exact approved `arq_*` operation binding, current Delegation and User authority, server operation, model policy, version and atomic single-use consumption/Change attribution. Other operations/cross-Space use fail closed.
+- Existing **ALOHA app-internal confirmation** and **WeCom trusted Router chat confirmation** remain unchanged. The original trusted `/authorization-requests/.../confirm` path refuses `oauth_mcp` requests even if a trusted Agent knows the request ID; OAuth credentials cannot call the trusted path. All three channels share only Core `arq_*` and `dlg_*` domain facts, not confirmation UX or credentials.
+- **Release status:** Source in [LifeSpace PR #500](https://github.com/huangshirui/LifeSpace/pull/500) + companion Adapters PR #38; no deployed or real Staging end-to-end approval proof yet. Account User, expired/revoked/cross-channel and represented execution tests are separate release gates under #499. Existing historical Staging-only sections below are superseded for current target design and do not indicate Production readiness.
+
+
+Status: **Staging deployed; Production convergence in development. No production OAuth MCP release has been verified.** This is Identity's protocol and credential work, not a general `conn_*` registry and not a replacement for Core Authority.
+
+## 2026-11-08 · 生产能力收敛（开发中，未生产发布）
+
+> 本节是较早「Staging-only Candidate」段落的后续修订；它们是实施历史，不应当再被解读为当前目标。真正 Production 发布状态以 `docs/production/` 和发布工作流证据为准。
+
+- OAuth MCP 的协议与 Authority（权限）语义不由 `ENVIRONMENT` 决定。Core 每次根据**当前启用的** `mcp_*` Server、其模型/Kernel 操作列表，提供用于 OAuth 的资源 Scope 上限（`resources:read` 或 `resources:read resources:write`）；该值只表示 Server 能力，不是用户/Agent 的 Data Grant。
+- 核心 OAuth 授权仅接受客户端实际申请且 Server 允许的 Scope；未指定时按最小读取处理，管理/未知 Scope 不会被隐式映射为 MCP 数据管理。首次 Account Consent 显示实际请求，不自动扩权；旧 read-only token 不会变成 write token。
+- Identity 当前有效 Authorization + Access Token 的 Scope 才进入短期 Agent Direct JWT。Core 对每个操作重新核对 OAuth 当前授权、选定 Space/Resource、MCP Server operation、Application × Model Access、Agent Data Grant、Model Policy、记录版本；Staging/Production 共享相同语义。没有配对资源/秘密/Service Binding 的环境继续 fail closed。
+- CIMD/DCR 以环境中的明确特性开关 **且** Console 当前准入策略 **且** 同环境 Rate Limiter 为前置条件；Production 不再因名字而硬拒绝，但默认配置仍不启用注册，必须单独走受保护的上线审批。允许生产注册绝不等于验证第三方品牌身份。
+- `allowUserAuthorization` 仅表示未来可申请用户 Delegation。Core `arq_*`/`dlg_*` 与 Account 独立人工确认、显式 Principal=User/Actor=Agent、撤销及审计尚需在正式发布前完成。Native `get`/Action/Person Directory/External Tool 的配置与暴露差异也仍是正式验收阻塞项。
+- 发布追踪：[LifeSpace #499](https://github.com/huangshirui/LifeSpace/issues/499)。代码合并/Staging 测试不构成 Production 能力声明。
 
 ## Authority / 权限分工
 

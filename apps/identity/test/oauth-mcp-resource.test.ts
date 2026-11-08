@@ -42,17 +42,19 @@ describe("Identity Core-owned dynamic OAuth Resource trust", () => {
         const resource = JSON.parse(String(init.body)).resource as string;
         calls.push(resource);
         return Response.json({ data: {
-          active, resource,
+          active, resource, scopes: ["resources:read", "resources:write"],
         } });
       } },
     } as unknown as Bindings;
     expect(await liveOAuthResource(env, first)).toBe(true);
+    expect(await liveOAuthResource(env, first, ["resources:read", "resources:write"])).toBe(true);
+    expect(await liveOAuthResource(env, first, ["resources:manage"])).toBe(false);
     expect(await liveOAuthResource(env, second)).toBe(true);
-    expect(calls).toEqual([first, second]);
+    expect(calls).toEqual([first, first, first, second]);
     active = false;
     expect(await liveOAuthResource(env, first)).toBe(false);
     expect(await liveOAuthResource(env, origin + "/mcp/mcp_bad")).toBe(false);
-    expect(calls).toHaveLength(3);
+    expect(calls).toHaveLength(5);
     expect(await liveOAuthResource({
       ...env, CORE: undefined,
     }, first)).toBe(false);

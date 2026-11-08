@@ -395,7 +395,7 @@ export function registerRuntimeDiscoveryRoutes(app: App): void {
     const state = await aggregateDiscoveryState(context);
     const visibleModelKeys = new Set<string>();
     const oauthQueryKeys = state.principal.oauthExecution
-      ? new Set(state.principal.oauthExecution.queryModelKeys ?? [])
+      ? new Set(state.principal.oauthExecution.toolModelKeys ?? [])
       : null;
     // OAuth tools are bounded by current Core MCP Server configuration.
     // External models are not selected by the v1 MCP Server control plane.

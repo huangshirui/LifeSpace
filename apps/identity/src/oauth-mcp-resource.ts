@@ -38,7 +38,9 @@ export function configuredOAuthResource(env: Bindings, value: unknown): string |
     ? value : null;
 }
 
-export async function liveOAuthResource(env: Bindings, value: unknown): Promise<boolean> {
+export async function liveOAuthResource(
+  env: Bindings, value: unknown, requestedScopes: readonly string[] = [],
+): Promise<boolean> {
   const resource = configuredOAuthResource(env, value);
   if (!resource) return false;
   // Legacy explicit allowlisted test resources do not require Core validation.
@@ -56,7 +58,13 @@ export async function liveOAuthResource(env: Bindings, value: unknown): Promise<
       body: JSON.stringify({ resource }),
     });
     if (!response.ok) return false;
-    const result = await response.json<{ data?: { active?: boolean; resource?: string } }>().catch(() => null);
-    return result?.data?.active === true && result.data.resource === resource;
+    const result = await response.json<{ data?: { active?: boolean; resource?: string; scopes?: unknown } }>().catch(() => null);
+    if (result?.data?.active !== true || result.data.resource !== resource) return false;
+    // The current, enabled Core MCP Server is the OAuth capability ceiling.
+    // A missing/malformed ceiling must not silently default to write access.
+    const offered = result.data.scopes;
+    if (!Array.isArray(offered) || !offered.includes("resources:read")
+      || offered.some(scope => scope !== "resources:read" && scope !== "resources:write")) return false;
+    return requestedScopes.every(scope => offered.includes(scope));
   } catch { return false; }
 }

@@ -32,8 +32,8 @@
 <section class="card" aria-labelledby="scope-title">
 <div class="section-title"><div><h2 id="scope-title">授权范围</h2><p>确认客户端请求的权限，以及 Agent 现有权限的预览。</p></div><span class="step">02 / 02</span></div>
 <div class="scope-label">客户端申请的权限</div><div id="scopes" class="scopes"></div><div class="rule"></div>
-<div class="scope-label">Agent 当前权限预览 <span class="scope-sublabel">仅供参考</span></div>
-<p class="capability-note">以下是所选 Agent 在该应用与空间中可能使用的数据类型，已按当前请求权限收窄。<strong>这不是 ChatGPT 最终能调用的工具或数据清单</strong>；目标 MCP Server 及记录权限仍会进一步限制。</p>
+<div class="scope-label">本次连接可用操作 <span class="scope-sublabel">仅供参考</span></div>
+<p class="capability-note">仅显示目标 MCP Server 已配置、客户端已申请且 Agent 当前获准的操作。具体记录的 Policy 与撤权状态仍由 Core 在执行时复核。</p>
 <div id="capabilities" class="capabilities" role="status" aria-live="polite">选择 Application、Space 和 Agent 后查看。</div>
 <p class="capability-note">实际允许的操作由 Core 在每次调用时重新验证。没有可用权限不会自动转为用户授权。</p>
 <p class="delegation-note hidden" id="delegation-note">允许申请用户授权，但<strong>没有授予 User→Agent Delegation</strong>；后续申请仍需独立确认。</p>

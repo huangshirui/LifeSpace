@@ -25,7 +25,9 @@ async function fixture() {
   const space = "spc_" + uuid;
   const other = "spc_other_" + uuid;
   const authId = "oaz_" + uuid;
+  const oauthUser = "usr_" + uuid;
   const client = "ocli_" + uuid;
+  const accountApp = "app_account_" + uuid;
   const tokenHash = "a".repeat(64);
   const serverId = "mcp_" + uuid;
   const resource = "https://resource.example.test/mcp/" + serverId;
@@ -37,6 +39,7 @@ async function fixture() {
     scope: "resources:read", oauth_authorization_id: authId,
     oauth_access_hash: tokenHash, oauth_client_id: client,
     oauth_resource: resource, oauth_space_id: space,
+    oauth_user_id: oauthUser, oauth_allow_user_authorization: false,
     iat: now, exp: now + 50, jti: "tok_" + uuid,
   };
   const db = (env as unknown as TestEnv).DB;
@@ -58,33 +61,67 @@ async function fixture() {
       .bind(application, "task", "read", "service", "svc_synthetic"),
   ]);
   let active = true, checks = 0, lastBody: unknown;
+  let delegationEnabled = false;
   let consentScopes = ["resources:read"];
   const bindings = {
     ENVIRONMENT: "staging", DB: db, IDENTITY_PUBLIC_KEY: publicKey,
     CORE_IDENTITY_SHARED_SECRET: "synthetic-core-to-identity-shared-secret",
+    OAUTH_ACCOUNT_APPLICATION_ID: accountApp,
     IDENTITY: { fetch: async (url: string, init: RequestInit) => {
       checks++;
-      expect(new URL(url).pathname).toBe("/introspection/v1/oauth-executions");
+      const pathname = new URL(url).pathname;
+      expect(["/introspection/v1/oauth-executions",
+        "/introspection/v1/oauth-delegation-authorizations"]).toContain(pathname);
       expect(new Headers(init.headers).get("x-lifespace-internal-secret"))
         .toBe("synthetic-core-to-identity-shared-secret");
       lastBody = JSON.parse(String(init.body));
-      return Response.json({ data: { active, scopes: consentScopes } });
+      return Response.json({ data: {
+        active: active && (pathname !== "/introspection/v1/oauth-delegation-authorizations"
+          || delegationEnabled), scopes: consentScopes, userId: oauthUser,
+        allowUserAuthorization: delegationEnabled,
+      } });
     } },
   };
   const jwt = (patch: Record<string, unknown> = {}) => sign({ ...claims, ...patch }, key, "RS256");
-  const request = async (method: string, path: string, patch: Record<string, unknown> = {}, body?: unknown) => {
+  const request = async (method: string, path: string, patch: Record<string, unknown> = {}, body?: unknown,
+    extraHeaders: Record<string,string> = {}) => {
     const bearer = await jwt(patch);
     return createApp().request("http://localhost" + path, {
       method, headers: {
         authorization: "Bearer " + bearer,
-        ...(body === undefined ? {} : { "content-type": "application/json" }),
+        ...(body === undefined ? {} : { "content-type": "application/json" }), ...extraHeaders,
       },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     }, bindings);
   };
+  const trustedAgentToken = () => sign({
+    iss:"lifespace-identity",aud:"lifespace-core",sub:agent,azp:application,
+    principal_type:"agent",principal_id:agent,actor_type:"agent",actor_id:agent,
+    purpose:"agent_execution",scope:"resources:read resources:write",
+    iat:now,exp:now+600,jti:"tok_trusted_"+uuid,
+  },key,"RS256");
+  const trustedRequest = async (method:string,path:string,body?:unknown) =>
+    createApp().request("http://localhost"+path,{
+      method,headers:{authorization:"Bearer "+await trustedAgentToken(),
+        ...(body===undefined?{}:{"content-type":"application/json"})},
+      ...(body===undefined?{}:{body:JSON.stringify(body)}),
+    },bindings);
+  const accountToken = (userId = oauthUser) => sign({
+    iss: "lifespace-identity", aud: "lifespace-core", sub: userId,
+    azp: accountApp, principal_type: "user", scope: "profile:read spaces:read spaces:manage",
+    iat: now, exp: now + 600, jti: "tok_account_" + uuid,
+  }, key, "RS256");
+  const accountRequest = async (method:string,path:string,body?:unknown,userId=oauthUser) =>
+    createApp().request("http://localhost"+path,{
+      method, headers:{authorization:"Bearer "+await accountToken(userId),
+        ...(body===undefined?{}:{"content-type":"application/json"})},
+      ...(body===undefined?{}:{body:JSON.stringify(body)}),
+    },bindings);
   return {
     agent, application, space, other, claims, jwt, request, publicKey, serverId,
+    accountRequest, trustedRequest, oauthUser, accountApp, authId, client, resource,
     db, setConsentScopes: (v: string[]) => { consentScopes = v; },
+    setDelegationEnabled: (enabled: boolean) => { delegationEnabled = enabled; },
     setEnvironment: (v: string) => { bindings.ENVIRONMENT = v; },
     setActive: (value: boolean) => { active = value; },
     setServerEnabled: async (enabled: boolean) => {
@@ -104,6 +141,7 @@ describe("OAuth MCP Agent Direct execution: Core fail-closed route and Space bou
     const sp = "spc_synthetic";
     expect(oauthExecutionRouteAllowed("GET", "/api/v1/me/_discovery/inventory", sp)).toBe(true);
     expect(oauthExecutionRouteAllowed("GET", "/api/v1/spaces/" + sp + "/_discovery/models/task", sp)).toBe(true);
+    expect(oauthExecutionRouteAllowed("GET", "/api/v1/spaces/" + sp + "/models/task/records/rec_synthetic", sp)).toBe(true);
     expect(oauthExecutionRouteAllowed("POST", "/api/v1/spaces/" + sp + "/models/task/records/query", sp)).toBe(true);
     expect(oauthExecutionRouteAllowed("POST", "/api/v1/spaces/" + sp + "/_discovery/models/batch", sp)).toBe(true);
     for (const [method, path] of [
@@ -200,7 +238,7 @@ describe("OAuth MCP Agent Direct execution: Core fail-closed route and Space bou
     expect((await f.request("GET", "/api/v1/spaces/" + f.space + "/_discovery/models/task")).status).toBe(403);
   });
 
-  it("prunes Model Query after live MCP Server operation changes", async () => {
+  it("keeps Get-only Model discovery but revokes Query after live MCP Server operation changes", async () => {
     const f = await fixture();
     const first = await f.request("GET", "/api/v1/me/_discovery/inventory");
     expect(first.status).toBe(200);
@@ -210,9 +248,10 @@ describe("OAuth MCP Agent Direct execution: Core fail-closed route and Space bou
     const second = await f.request("GET", "/api/v1/me/_discovery/inventory");
     expect(second.status).toBe(200);
     const body = await second.json() as { data: { models: unknown[]; spaces: unknown[] } };
-    expect(body.data.models).toEqual([]);
-    expect(body.data.spaces).toEqual([]);
-    expect((await f.request("GET", "/api/v1/spaces/" + f.space + "/_discovery/models/task")).status).toBe(403);
+    // Get is still enabled, so the model remains discoverable; Query is not.
+    expect(body.data.models).toHaveLength(1);
+    expect(body.data.spaces).toHaveLength(1);
+    expect((await f.request("GET", "/api/v1/spaces/" + f.space + "/_discovery/models/task")).status).toBe(200);
     expect((await f.request("POST", "/api/v1/spaces/" + f.space + "/models/task/records/query", {}, {})).status).toBe(403);
   });
 
@@ -233,12 +272,14 @@ describe("OAuth MCP Agent Direct execution: Core fail-closed route and Space bou
     expect((await f.request("POST",
       "/api/v1/spaces/" + f.other + "/_discovery/models/batch", {}, { modelKeys: ["task"] })).status).toBe(403);
     await f.setServerOperations(["get"]);
-    expect((await f.request("POST", path, {}, { modelKeys: ["task"] })).status).toBe(404);
+    const getOnly = await f.request("POST", path, {}, { modelKeys: ["task"] });
+    expect(getOnly.status).toBe(200);
+    expect((await getOnly.json() as { data: {models: Array<{detail:{mcpOperations:string[]}}> }}).data.models[0].detail.mcpOperations).toEqual(["get"]);
     await f.setServerEnabled(false);
     expect((await f.request("POST", path, {}, { modelKeys: ["task"] })).status).toBe(403);
   });
 
-  it("allows staging CRUD only with live write consent, Server operation, Agent Grant and Application Access", async () => {
+  it("allows consented CRUD regardless of environment, bounded by current Server/Grant/Application", async () => {
     const f = await fixture();
     const patch = { scope: "resources:read resources:write" };
     f.setConsentScopes(["resources:read", "resources:write"]);
@@ -261,6 +302,12 @@ describe("OAuth MCP Agent Direct execution: Core fail-closed route and Space bou
     const createdBody = await created.json() as { data: { id: string; version: number; createdBy: { type: string; id: string } } };
     expect(createdBody.data.createdBy).toMatchObject({ type: "agent", id: f.agent });
     const record = createdBody.data;
+    // Native Get is visible only if the current Server explicitly enables get.
+    expect((await f.request("GET", base + "/" + record.id)).status).toBe(403);
+    await f.setServerOperations(["get", "query", "create", "update", "delete"]);
+    const got = await f.request("GET", base + "/" + record.id);
+    expect(got.status).toBe(200);
+    expect((await got.json() as { data: { id: string } }).data.id).toBe(record.id);
     expect((await f.request("PATCH", base + "/" + record.id, patch, { version: record.version, name: "Updated synthetic OAuth task" })).status).toBe(200);
     expect((await f.request("PATCH", base + "/" + record.id, patch, { version: record.version, name: "Stale update" })).status).toBe(409);
     // Narrowing Server exposure immediately denies the old mutation.
@@ -271,13 +318,104 @@ describe("OAuth MCP Agent Direct execution: Core fail-closed route and Space bou
     f.setConsentScopes(["resources:read"]);
     expect((await f.request("DELETE", base + "/" + record.id, patch, { version: record.version + 1 })).status).toBe(401);
     f.setConsentScopes(["resources:read", "resources:write"]);
-    // Production remains read-only even for a correctly signed write claim.
+    // Production semantics are not artificially narrowed: current consent,
+    // configured Server operation and Core authority decide the outcome.
     f.setEnvironment("production");
-    expect((await f.request("DELETE", base + "/" + record.id, patch, { version: record.version + 1 })).status).toBe(403);
-    f.setEnvironment("staging");
     expect((await f.request("DELETE", base + "/" + record.id, patch, { version: record.version + 1 })).status).toBe(204);
     expect((await f.request("POST", base, {}, { name: "No write scope" })).status).toBe(403);
     expect((await f.request("POST", base.replace(f.space, f.other), patch, { name: "Cross-Space" })).status).toBe(403);
+  });
+
+  it("get-only MCP Server discovers the model, but cannot invoke Query or mutation", async () => {
+    const f = await fixture();
+    await f.setServerOperations(["get"]);
+    const inventory = await f.request("GET", "/api/v1/me/_discovery/inventory");
+    expect(inventory.status).toBe(200);
+    const state = await inventory.json() as { data: { spaces: Array<{ models: Array<{ modelKey: string }> }> } };
+    expect(state.data.spaces.flatMap(s => s.models).some(m => m.modelKey === "task")).toBe(true);
+    expect((await f.request("POST",
+      "/api/v1/spaces/" + f.space + "/models/task/records/query", {}, {})).status).toBe(403);
+    const batch = await f.request("POST", "/api/v1/spaces/" + f.space + "/_discovery/models/batch",
+      {}, { modelKeys: ["task"] });
+    expect(batch.status).toBe(200);
+    const projected = await batch.json() as { data: { models: Array<{ detail: { mcpOperations: string[] } }> } };
+    expect(projected.data.models[0].detail.mcpOperations).toEqual(["get"]);
+    // The canonical Get is allowed through routing and current Server policy,
+    // then ordinary record-level access determines whether the record exists.
+    expect((await f.request("GET",
+      "/api/v1/spaces/" + f.space + "/models/task/records/rec_missing")).status).toBe(404);
+  });
+
+  it("third-party OAuth Account confirms only intended User, trusted Agent API remains isolated, Delegation consumes once", async () => {
+    const f=await fixture();
+    const base="/api/v1/spaces/"+f.space+"/models/task/records";
+    const transport="/api/v1/spaces/"+f.space+"/oauth-delegation-requests";
+    await f.setServerOperations(["query","create","get"]);
+    f.setDelegationEnabled(true);
+    f.setConsentScopes(["resources:read","resources:write"]);
+    const timestamp=new Date().toISOString();
+    await f.db.batch([
+      f.db.prepare("INSERT INTO space_memberships(id,space_id,user_id,role,created_at,updated_at) VALUES(?,?,?,'owner',?,?)")
+        .bind("mem_"+crypto.randomUUID().replaceAll("-",""),f.space,f.oauthUser,timestamp,timestamp),
+      f.db.prepare("UPDATE application_model_access SET max_access='write' WHERE application_id=? AND model_key='task'")
+        .bind(f.application),
+    ]);
+    const jwtPatch={scope:"resources:read resources:write",oauth_allow_user_authorization:true};
+    expect((await f.request("POST",base,jwtPatch,{name:"Direct create denied"})).status).toBe(403);
+    const applied=await f.request("POST",transport,jwtPatch,{
+      modelKey:"task",operation:"create",reason:"Create one approved task",
+    });
+    expect(applied.status).toBe(201);
+    const requested=await applied.json() as {data:{id:string;approvalUrl:string;status:string}};
+    expect(requested.data.status).toBe("pending");
+    expect(requested.data.approvalUrl).toContain("account-staging.aisr.online/delegation?request_id="+requested.data.id);
+    expect((await f.request("POST",
+      "/api/v1/spaces/"+f.space+"/authorization-requests/"+requested.data.id+"/confirm",
+      jwtPatch,{principalUserId:f.oauthUser})).status).toBe(403);
+    // Even a genuinely trusted Agent's original approval transport cannot
+    // approve a request created under the third-party OAuth Account channel.
+    expect((await f.trustedRequest("POST",
+      "/api/v1/spaces/"+f.space+"/authorization-requests/"+requested.data.id+"/confirm",
+      {principalUserId:f.oauthUser})).status).toBe(404);
+    const before=await f.accountRequest("GET","/api/v1/me/oauth/delegation-requests/"+requested.data.id);
+    expect(before.status).toBe(200);
+    expect((await f.accountRequest("POST",
+      "/api/v1/me/oauth/delegation-requests/"+requested.data.id+"/approve",
+      {}, "usr_other")).status).toBe(404);
+    const confirmed=await f.accountRequest("POST",
+      "/api/v1/me/oauth/delegation-requests/"+requested.data.id+"/approve",{});
+    expect(confirmed.status).toBe(200);
+    const approved=await confirmed.json() as {data:{delegations:Array<{id:string}>}};
+    const delegationId=approved.data.delegations[0]!.id;
+    expect(delegationId).toMatch(/^dlg_/u);
+    expect((await f.accountRequest("POST",
+      "/api/v1/me/oauth/delegation-requests/"+requested.data.id+"/approve",{})).status).toBe(409);
+    const represented={...jwtPatch,principal_type:"user",principal_id:f.oauthUser,
+      oauth_delegation_id:delegationId};
+    expect((await f.request("POST",base,represented,{name:"No selector"})).status).toBe(403);
+    const headers={"x-lifespace-delegation-id":delegationId};
+    const created=await f.request("POST",base,represented,{name:"Approved once"},headers);
+    expect(created.status).toBe(201);
+    const data=await created.json() as {data:{id:string;createdBy:{id:string;type:string}}};
+    // Record ownership/audit displays the User Principal. The authoritative
+    // Change explicitly attributes the actual Agent Actor and Delegation.
+    expect(data.data.createdBy).toMatchObject({type:"user",id:f.oauthUser});
+    const change=await f.db.prepare(
+      "SELECT principal_type,principal_id,actor_type,actor_id,application_id,delegation_id " +
+      "FROM resource_changes WHERE record_id=? ORDER BY occurred_at DESC LIMIT 1"
+    ).bind(data.data.id).first<Record<string,string>>();
+    expect(change).toMatchObject({
+      principal_type:"user",principal_id:f.oauthUser,
+      actor_type:"agent",actor_id:f.agent,
+      application_id:f.application,delegation_id:delegationId,
+    });
+    expect((await f.request("POST",base,represented,{name:"Again"},headers)).status).toBe(403);
+    const scoped=await f.request("POST",base+"/query",represented,{limit:1},headers);
+    // Exact approved operation mismatch is deliberately indistinguishable
+    // from another User/Client/Server's delegation (404, not scope disclosure).
+    expect(scoped.status).toBe(404);
+    f.setActive(false);
+    expect((await f.request("POST",base,represented,{name:"Revoked"},headers)).status).toBe(401);
   });
 
   it("rejects unknown configured MCP Server and pre-v7 unscoped /mcp resources", async () => {

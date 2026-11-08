@@ -52,14 +52,14 @@ export function registerRuntimeModelSemanticDetailRoutes(app: App): void {
   // Batch-only optimization for Identity OAuth Agent Direct MCP discovery.
   // One short-lived signed execution token; every requested Model still passes
   // current Core Server policy, Space restriction, and ordinary Data Grant checks.
-  // Native write schemas are included only with Staging + live write consent and Grants.
+  // Native write schemas require live write consent, current Server operations and Grants.
   // External Models and implicit User Delegation remain excluded.
   app.post("/api/v1/spaces/:spaceId/_discovery/models/batch", async (context) => {
     const principal = context.get("principal");
     const spaceId = context.req.param("spaceId");
     const execution = principal.oauthExecution;
     if (principal.purpose !== "oauth_agent_execution" || !execution
-      || execution.spaceId !== spaceId || !execution.queryModelKeys) {
+      || execution.spaceId !== spaceId || !execution.toolModelKeys) {
       throw new ApiError("FORBIDDEN", "OAuth MCP batch discovery is not available", 403);
     }
     const raw = await context.req.text();
@@ -78,7 +78,7 @@ export function registerRuntimeModelSemanticDetailRoutes(app: App): void {
       || new Set(keys).size !== keys.length) {
       throw new ApiError("INVALID_REQUEST", "Invalid or repeated model keys", 400);
     }
-    const exposed = new Set(execution.queryModelKeys);
+    const exposed = new Set(execution.toolModelKeys);
     if (keys.some(key => !exposed.has(key))) throw opaqueNotFound();
     // Do not leak partial visibility: any missing/retired/ungranted Model
     // rejects the entire batch, without exposing other semantic definitions.
@@ -93,7 +93,7 @@ export function registerRuntimeModelSemanticDetailRoutes(app: App): void {
       await consumeSingleUseRead(context.env, decision);
       let mutations: Record<string, unknown> | undefined;
       const operations = execution.modelOperations?.[key]?.filter(op => ["create", "update", "delete"].includes(op)) ?? [];
-      if (context.env.ENVIRONMENT === "staging" && principal.scopes.includes("resources:write") && operations.length) {
+      if (principal.scopes.includes("resources:write") && operations.length) {
         const writable = await requireModelAccess(context.env, principal, spaceId, model, "write").catch(error => {
           if (error instanceof ApiError && [403, 404, 405].includes(error.status)) return null;
           throw error;
@@ -123,7 +123,12 @@ export function registerRuntimeModelSemanticDetailRoutes(app: App): void {
             operations: inputs, $defs: selectedDefs };
         }
       }
-      models.push({ modelKey: key, detail: { ...detail, ...(mutations ? { mutations } : {}) } });
+      models.push({ modelKey: key, detail: {
+        ...detail,
+        mcpOperations: execution.modelOperations?.[key]?.filter(op =>
+          ["get", "query", "create", "update", "delete"].includes(op)) ?? [],
+        ...(mutations ? { mutations } : {}),
+      } });
     }
     return context.json(success({ models }), 200, { "cache-control": "no-store" });
   });

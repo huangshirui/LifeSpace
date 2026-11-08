@@ -102,13 +102,11 @@ async function clientForAuthorization(c: Context<AppEnv>, clientId: string): Pro
   // Open HTTPS document discovery is a network and database abuse boundary.
   // Staging requests are rate-limited before outbound fetch, including
   // revalidation at Consent time. No Worker binding => no fetch.
-  if (c.env.ENVIRONMENT === "staging") {
-    if (!c.env.OAUTH_DCR_RATE_LIMITER) return null;
-    try {
-      const limit = await c.env.OAUTH_DCR_RATE_LIMITER.limit({ key: "oauth-cimd-fetch" });
-      if (!limit.success) return null;
-    } catch { return null; }
-  }
+  if (!c.env.OAUTH_DCR_RATE_LIMITER) return null;
+  try {
+    const limit = await c.env.OAUTH_DCR_RATE_LIMITER.limit({ key: "oauth-cimd-fetch" });
+    if (!limit.success) return null;
+  } catch { return null; }
   const metadata = await fetchClientMetadata(clientId);
   if (!metadata) return null;
   const redirects = JSON.stringify(metadata.redirectUris);
@@ -219,14 +217,12 @@ export async function exchangeInteractiveOAuthToken(c: Context<AppEnv>, body: Fo
 
 // Registration features are advertised only when their safety gates exist.
 function dcrReady(env: Bindings, policy: OAuthClientAdmissionPolicy): boolean {
-  return env.OAUTH_DCR_ENABLED === "1" && env.ENVIRONMENT !== "production"
-    && (env.ENVIRONMENT !== "staging" || Boolean(env.OAUTH_DCR_RATE_LIMITER))
-    && policy.dcrEnabled;
+  return env.OAUTH_DCR_ENABLED === "1"
+    && Boolean(env.OAUTH_DCR_RATE_LIMITER) && policy.dcrEnabled;
 }
 function cimdReady(env: Bindings, policy: OAuthClientAdmissionPolicy): boolean {
   return env.OAUTH_CIMD_ENABLED === "1" && policy.cimdEnabled
-    && env.ENVIRONMENT !== "production"
-    && (env.ENVIRONMENT !== "staging" || Boolean(env.OAUTH_DCR_RATE_LIMITER));
+    && Boolean(env.OAUTH_DCR_RATE_LIMITER);
 }
 export function registerOAuthAuthorizationServer(app: App) {
   app.get("/.well-known/oauth-authorization-server", async (c) => {
@@ -254,18 +250,16 @@ export function registerOAuthAuthorizationServer(app: App) {
       return oauthError(c, 403, "access_denied", "Dynamic client registration is disabled");
     }
     // Regional limiter + atomic global D1 quota: no unlimited anonymous writes.
-    if (c.env.ENVIRONMENT === "staging") {
-      if (!c.env.OAUTH_DCR_RATE_LIMITER) {
-        return oauthError(c, 503, "temporarily_unavailable", "DCR rate limiter is unavailable");
+    if (!c.env.OAUTH_DCR_RATE_LIMITER) {
+      return oauthError(c, 503, "temporarily_unavailable", "DCR rate limiter is unavailable");
+    }
+    try {
+      const outcome = await c.env.OAUTH_DCR_RATE_LIMITER.limit({ key: "oauth-dcr-global" });
+      if (outcome.success !== true) {
+        return oauthError(c, 429, "rate_limited", "Client registration rate limit exceeded");
       }
-      try {
-        const outcome = await c.env.OAUTH_DCR_RATE_LIMITER.limit({ key: "oauth-dcr-global" });
-        if (outcome.success !== true) {
-          return oauthError(c, 429, "rate_limited", "Client registration rate limit exceeded");
-        }
-      } catch {
-        return oauthError(c, 503, "temporarily_unavailable", "DCR rate limiter is unavailable");
-      }
+    } catch {
+      return oauthError(c, 503, "temporarily_unavailable", "DCR rate limiter is unavailable");
     }
     if (!/^application\/json(?:\s*;|$)/iu.test(c.req.header("content-type") || "")) {
       return oauthError(c, 400, "invalid_client_metadata", "Application/json is required");
@@ -319,14 +313,19 @@ export function registerOAuthAuthorizationServer(app: App) {
     const state = params.get("state");
     const challenge = params.get("code_challenge");
     const resource = allowedResource(c, params.get("resource"));
-    const requested = scopes(params.get("scope") || "");
+    const parsedScopes = scopes(params.get("scope") || "");
+    // Missing client Scope means minimum read, not empty unusable consent.
+    // The Client cannot ask for manage/admin or any unsupported OAuth MCP Scope.
+    const requested = parsedScopes && parsedScopes.length ? parsedScopes : parsedScopes ? ["resources:read"] : null;
     if (params.get("response_type") !== "code" || !state || state.length < 16 || state.length > 1024
       || params.get("code_challenge_method") !== "S256" || !challenge
-      || !/^[A-Za-z0-9_-]{43}$/u.test(challenge) || !resource || requested === null) {
+      || !/^[A-Za-z0-9_-]{43}$/u.test(challenge) || !resource || requested === null
+      || !requested.includes("resources:read")
+      || requested.some(scope => scope !== "resources:read" && scope !== "resources:write")) {
       return oauthError(c, 400, "invalid_request", "Code, state, S256 PKCE and approved resource are required");
     }
     // A syntactically valid resource is not proof of an enabled Core MCP Server.
-    if (!await liveOAuthResource(c.env, resource)) {
+    if (!await liveOAuthResource(c.env, resource, requested)) {
       return oauthError(c, 400, "invalid_request", "MCP resource is not currently enabled");
     }
     // Only valid OAuth requests may trigger a bounded remote CIMD fetch.
@@ -441,7 +440,7 @@ export function registerOAuthAuthorizationServer(app: App) {
     }
     // Recheck after a pending request is opened; a Server may be disabled
     // before the user confirms Consent.
-    if (!await liveOAuthResource(c.env, request.resource)) {
+    if (!await liveOAuthResource(c.env, request.resource, json(request.scopes))) {
       return oauthError(c, 403, "access_denied", "MCP resource is no longer available");
     }
     // Remote metadata may disappear or change between authorization and

@@ -56,9 +56,10 @@ async function validAccess(env: Bindings, tokenHash: string, resource: string) {
   if (!eligible(selected) || selected.resource !== row.resource || selected.client_id !== row.client_id) return null;
   const scopes = scopeList(row.scopes);
   if (!scopes.includes(READ_SCOPE) || !scopeList(selected.scopes).includes(READ_SCOPE)) return null;
-  return { selected, row, scopes: [READ_SCOPE, ...(env.ENVIRONMENT === "staging"
-    && scopes.includes("resources:write") && scopeList(selected.scopes).includes("resources:write")
-    ? ["resources:write"] : [])] };
+  // Consent and the access token bound the actual OAuth ceiling. Deployment
+  // environment never changes Principal / Actor / credential Scope semantics.
+  return { selected, row, scopes: [READ_SCOPE, ...(scopes.includes("resources:write")
+    && scopeList(selected.scopes).includes("resources:write") ? ["resources:write"] : [])] };
 }
 
 function validContext(value: unknown): value is ExecutionContext {
@@ -84,17 +85,22 @@ export function registerOAuthExecutionRoutes(app: App) {
     }
     const body = await c.req.json<unknown>().catch(() => null);
     if (!body || typeof body !== "object" || Array.isArray(body)
-      || Object.keys(body).some((x) => x !== "token" && x !== "resource")) {
+      || Object.keys(body).some((x) => x !== "token" && x !== "resource" && x !== "delegationId")) {
       return oauthFailure(400, "invalid_request");
     }
     const input = body as Record<string, unknown>;
     if (typeof input.token !== "string" || !/^lsp_oat_[A-Za-z0-9_-]{32,256}$/u.test(input.token)
       || !resourceAllowed(c.env, input.resource)) return oauthFailure(401, "invalid_token");
+    const requestedDelegation = input.delegationId;
+    if (requestedDelegation !== undefined && (typeof requestedDelegation !== "string"
+      || !/^dlg_[A-Za-z0-9_-]+$/u.test(requestedDelegation))) return oauthFailure(400, "invalid_request");
     const tokenHash = await sha256(input.token);
     const match = await validAccess(c.env, tokenHash, input.resource);
     if (!match) return oauthFailure(401, "invalid_token");
     if (!c.env.TOKEN_PRIVATE_KEY) return oauthFailure(503, "temporarily_unavailable");
     const { selected, row, scopes } = match;
+    const represented = requestedDelegation !== undefined;
+    if (represented && selected.allow_user_authorization !== 1) return oauthFailure(401, "access_denied");
     const scope = scopes.join(" ");
     const now = Math.floor(Date.now() / 1000);
     const exp = Math.min(now + MAX_EXECUTION_TTL_SECONDS, Math.floor(Date.parse(row.expires_at) / 1000));
@@ -102,19 +108,60 @@ export function registerOAuthExecutionRoutes(app: App) {
     const token = await sign({
       iss: "lifespace-identity", aud: "lifespace-core",
       sub: selected.agent_id, azp: selected.application_id,
-      principal_type: "agent", principal_id: selected.agent_id,
+      principal_type: represented ? "user" : "agent",
+      principal_id: represented ? selected.user_id : selected.agent_id,
       actor_type: "agent", actor_id: selected.agent_id,
       purpose: "oauth_agent_execution", scope,
       oauth_authorization_id: selected.id, oauth_access_hash: tokenHash,
       oauth_resource: selected.resource, oauth_client_id: selected.client_id,
       oauth_space_id: selected.space_id,
+      // Consent User remains the owner, NOT the direct operation Principal.
+      // Web Delegation requires a separate explicit arq_* / dlg_* approval.
+      oauth_user_id: selected.user_id,
+      oauth_allow_user_authorization: selected.allow_user_authorization === 1,
+      ...(represented ? {oauth_delegation_id: requestedDelegation} : {}),
       iat: now, exp, jti: "tok_" + crypto.randomUUID().replaceAll("-", ""),
     }, c.env.TOKEN_PRIVATE_KEY, "RS256");
     return c.json({ data: {
       accessToken: token, tokenType: "Bearer", expiresIn: exp - now, scope,
       applicationId: selected.application_id, agentId: selected.agent_id,
       spaceId: selected.space_id,
+      allowUserAuthorization: selected.allow_user_authorization === 1,
     } }, 200, { "cache-control": "no-store", pragma: "no-cache" });
+  });
+
+  // Private Core-only lookup for an immutable arq_* ↔ OAuth grant binding.
+  // No public Account or Agent may call this endpoint; the shared secret
+  // authenticates the calling Core Worker, not the end-user approver.
+  app.post("/introspection/v1/oauth-delegation-authorizations", async (c: Context<AppEnv>) => {
+    if (!await secretMatches(c.req.header("x-lifespace-internal-secret") || "", c.env.CORE_IDENTITY_SHARED_SECRET)) {
+      return oauthFailure(401, "invalid_client");
+    }
+    const body = await c.req.json<unknown>().catch(() => null);
+    if (!body || typeof body !== "object" || Array.isArray(body)) return oauthFailure(400, "invalid_request");
+    const v = body as Record<string, unknown>;
+    const keys = ["authorizationId", "clientId", "resource", "applicationId", "agentId", "userId", "spaceId"];
+    if (Object.keys(v).length !== keys.length || keys.some(k => typeof v[k] !== "string")
+      || !/^oaz_[A-Za-z0-9_-]{10,128}$/u.test(String(v.authorizationId))
+      || !/^usr_[A-Za-z0-9_-]+$/u.test(String(v.userId))
+      || !/^agt_[A-Za-z0-9_-]+$/u.test(String(v.agentId))
+      || !/^app_[A-Za-z0-9_-]+$/u.test(String(v.applicationId))
+      || !/^spc_[A-Za-z0-9_-]+$/u.test(String(v.spaceId))
+      || !(/^ocli_[A-Za-z0-9_-]+$/u.test(String(v.clientId)) || cimdClientId(v.clientId))
+      || !resourceAllowed(c.env, v.resource)) return oauthFailure(400, "invalid_request");
+    const selected = await authorization(c.env.DB, String(v.authorizationId));
+    const active = Boolean(eligible(selected)
+      && selected?.allow_user_authorization === 1
+      && selected.client_id === v.clientId
+      && selected.resource === v.resource
+      && selected.application_id === v.applicationId
+      && selected.agent_id === v.agentId
+      && selected.user_id === v.userId
+      && selected.space_id === v.spaceId);
+    return c.json({ data: {
+      active,
+      ...(active ? { scopes: scopeList(selected!.scopes) } : {}),
+    } }, 200, { "cache-control": "no-store" });
   });
 
   // Private Core → Identity current-state check on *every Core request*. A
@@ -134,6 +181,10 @@ export function registerOAuthExecutionRoutes(app: App) {
       && selected.application_id === body.applicationId
       && selected.agent_id === body.agentId
       && selected.space_id === body.spaceId);
-    return c.json({ data: { active, ...(active ? { scopes: match!.scopes } : {}) } }, 200, { "cache-control": "no-store" });
+    return c.json({ data: { active, ...(active ? {
+      scopes: match!.scopes,
+      userId: selected!.user_id,
+      allowUserAuthorization: selected!.allow_user_authorization === 1,
+    } : {}) } }, 200, { "cache-control": "no-store" });
   });
 }
