@@ -329,7 +329,7 @@ export function authenticate(): MiddlewareHandler<AppEnv> {
     if (principal.purpose === "oauth_agent_execution") {
       const execution = principal.oauthExecution;
       if (!execution || !oauthExecutionRouteAllowed(context.req.method, context.req.path, execution.spaceId,
-        context.env.ENVIRONMENT === "staging" && principal.scopes.includes("resources:write"))) {
+        principal.scopes.includes("resources:write"))) {
         throw new ApiError("FORBIDDEN", "OAuth Agent execution is limited to its selected Space and enabled model operation surface", 403);
       }
       await requireCurrentOAuthExecution(context.env, execution, principal.scopes);
