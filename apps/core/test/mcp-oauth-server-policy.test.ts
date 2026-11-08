@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { allowedMcpQueryModels, oauthMcpServerId } from "../src/mcp-oauth-server-policy";
+import { allowedMcpQueryModels, allowedMcpToolModels, configuredMcpOAuthScopes, oauthMcpServerId } from "../src/mcp-oauth-server-policy";
 
 describe("Core-owned MCP Server resource and operation boundary", () => {
   const id = "mcp_" + "a".repeat(32);
@@ -25,6 +25,18 @@ describe("Core-owned MCP Server resource and operation boundary", () => {
       { modelKey: "event", operations: ["query", "create"] },
     ], resources: [{ resourceKey: "person_directory", operations: ["list"] }] })))
       .toEqual(["event", "task"]);
+  });
+
+  it("discovers Get-only and mutation-only models but never grants unconfigured Query", () => {
+    const config = JSON.stringify({ models: [
+      { modelKey: "task", operations: ["query"] },
+      { modelKey: "activity", operations: ["get"] },
+      { modelKey: "anniversary", operations: ["create"] },
+      { modelKey: "event", operations: ["action:close"] },
+    ] });
+    expect(allowedMcpQueryModels(config)).toEqual(["task"]);
+    expect(allowedMcpToolModels(config)).toEqual(["activity", "anniversary", "task"]);
+    expect(configuredMcpOAuthScopes(config)).toEqual(["resources:read", "resources:write"]);
   });
 
   it("fails closed on malformed or duplicate selected model configuration", () => {
