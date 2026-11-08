@@ -1,0 +1,120 @@
+openapi: 3.1.0
+info:
+  title: LifeSpace Core Generic Operations (Candidate)
+  version: 0.1.0
+  description: |
+    Protocol-neutral, authenticated operation projection for the current OAuth
+    MCP Agent execution context. This contract is Core-owned. Internal Native,
+    Space Person and External Provider resolution is never a consumer contract.
+    An operationRef is not an authority grant or bearer credential.
+servers:
+  - url: https://core.example.com
+security:
+  - oauthAgentExecution: []
+paths:
+  /api/v1/spaces/{spaceId}/_discovery/operations:
+    get:
+      operationId: discoverCurrentSpaceOperations
+      summary: Current authorized Model operations / 当前授权模型操作目录
+      description: |
+        Projects only the current selected Space, Core MCP Server operation
+        configuration, current OAuth token scopes, Application Model Access,
+        Space/Data Grants, Kernel Person authority, Provider capability and
+        model policy. The result is a preview, not an authority lease.
+      parameters:
+        - $ref: '#/components/parameters/spaceId'
+      responses:
+        '200':
+          description: Current operation catalog; no Provider, storage origin or Kernel type
+          headers:
+            Cache-Control:
+              schema: { type: string, enum: [no-store] }
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: object
+                    required: [operations]
+                    properties:
+                      operations:
+                        type: array
+                        maxItems: 128
+                        items: { $ref: '#/components/schemas/OperationDescriptor' }
+        '401': { description: Invalid, expired or revoked signed OAuth execution proof }
+        '403': { description: Selected Space, Scope or current MCP Server is unavailable }
+        '404': { description: No visible matching operation }
+        '503': { description: Current Identity or Core authority evidence unavailable }
+  /api/v1/spaces/{spaceId}/_operations/{operationRef}/invoke:
+    post:
+      operationId: invokeCurrentSpaceOperation
+      summary: Execute a selected current Model operation / 执行当前模型操作
+      description: |
+        The operationRef is a non-authorizing selector. Core re-resolves and
+        revalidates the exact Server/Space/Model operation and current actor,
+        OAuth, Application, Data Grant, Policy and model-specific capabilities
+        before dispatching through the existing canonical Kernel/Model APIs.
+        Current candidate accepts Agent Direct; exact User-delegated operation
+        equivalence requires a separate hardened authorization gate.
+      parameters:
+        - $ref: '#/components/parameters/spaceId'
+        - name: operationRef
+          in: path
+          required: true
+          schema: { type: string, pattern: '^op_[a-f0-9]{64}$' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [arguments]
+              additionalProperties: false
+              properties:
+                arguments:
+                  type: object
+                  description: Values must match the current OperationDescriptor.inputSchema
+      responses:
+        '200': { description: Current authorized read or updated record response }
+        '201': { description: Current authorized created record }
+        '204': { description: Successful delete, no response body }
+        '400': { description: Invalid model operation input }
+        '401': { description: Revoked, invalid or expired token }
+        '403': { description: Insufficient current scope, Data Grant or Model authority }
+        '404': { description: Unknown, stale, cross-Space or unauthorized operation selector }
+        '409': { description: Record version or state conflict }
+        '503': { description: Current authorization/Provider dependency unavailable }
+components:
+  securitySchemes:
+    oauthAgentExecution:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        Private, Identity-signed <=60s OAuth MCP Core execution JWT.
+        The third-party OAuth access token must never be forwarded to Core.
+  parameters:
+    spaceId:
+      name: spaceId
+      in: path
+      required: true
+      schema: { type: string, pattern: '^spc_[A-Za-z0-9_-]+$' }
+  schemas:
+    OperationDescriptor:
+      type: object
+      additionalProperties: false
+      required: [modelKey, display, operation, operationRef, inputSchema, title, description]
+      properties:
+        modelKey: { type: string, pattern: '^[a-z][a-z0-9_]{1,62}$' }
+        display: { type: string, minLength: 1 }
+        operation:
+          type: string
+          pattern: '^(query|get|create|update|delete|action:[a-z][a-z0-9_-]{0,62})$'
+        operationRef: { type: string, pattern: '^op_[a-f0-9]{64}$' }
+        inputSchema:
+          type: object
+          description: Core-owned JSON Schema; no provider or origin fields
+        title: { type: string, minLength: 1 }
+        description: { type: string }
