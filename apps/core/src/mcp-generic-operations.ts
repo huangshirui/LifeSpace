@@ -185,7 +185,8 @@ function targetRequest(c:ContextApp,item:Entry,args:Record<string,unknown>) {
   if(["get","update","delete"].includes(op)||op.startsWith("action:")){
     if(typeof refId!=="string"||!ID.test(refId))throw denied();
   }else if(refId!==undefined)throw denied();
-  const data=args.data;
+  // Empty Query has the same meaning on all Core-owned model families.
+  const data=op==="query"&&args.data===undefined?{}:args.data;
   if(op!=="get"&&(data===undefined||typeof data!=="object"||data===null||Array.isArray(data)))
     throw new ApiError("INVALID_REQUEST","Operation requires an object payload",400);
   const base="/api/v1/spaces/"+encodeURIComponent(spaceId);
