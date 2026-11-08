@@ -46,6 +46,38 @@ export function allowedMcpQueryModels(configJson: string): string[] {
   return allowed.sort();
 }
 
+// Public OAuth Scope discovery is a Server capability ceiling, never a
+// Data Grant. Only Core may derive it from the current enabled Server config.
+// The authenticated Agent/User/Client may still have strictly fewer rights.
+export function configuredMcpOAuthScopes(configJson: string): string[] {
+  let raw: unknown;
+  try { raw = JSON.parse(configJson); } catch { throw forbidden(); }
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw forbidden();
+  const config = raw as { models?: unknown; resources?: unknown };
+  if (!Array.isArray(config.models) || config.models.length > 32
+    || (config.resources !== undefined && (!Array.isArray(config.resources) || config.resources.length > 1))) {
+    throw forbidden();
+  }
+  // Match the canonical MCP Server operation language; no environment flag,
+  // client claim, token Scope or user selection may widen this ceiling.
+  const modelWrites = config.models.some(entry => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) throw forbidden();
+    const row = entry as { modelKey?: unknown; operations?: unknown };
+    if (typeof row.modelKey !== "string" || !MODEL_KEY.test(row.modelKey)
+      || !Array.isArray(row.operations) || !row.operations.length
+      || row.operations.some(op => typeof op !== "string")) throw forbidden();
+    return row.operations.some(op => ["create", "update", "delete"].includes(op));
+  });
+  const personWrites = (config.resources as unknown[] | undefined ?? []).some(entry => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) throw forbidden();
+    const row = entry as { resourceKey?: unknown; operations?: unknown };
+    if (row.resourceKey !== "person_directory" || !Array.isArray(row.operations)
+      || row.operations.some(op => typeof op !== "string")) throw forbidden();
+    return row.operations.some(op => ["create", "update", "delete"].includes(op));
+  });
+  return ["resources:read", ...(modelWrites || personWrites ? ["resources:write"] : [])];
+}
+
 export async function currentMcpOAuthQueryPolicy(
   db: D1Database, resource: string, method: string, path: string,
 ): Promise<McpOAuthQueryPolicy> {
