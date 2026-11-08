@@ -335,6 +335,7 @@ describe("Identity OAuth Authorization Server (isolated candidate)", () => {
     await b.DB.prepare(
       "UPDATE oauth_client_admission_policy SET cimd_enabled=1 WHERE id=1"
     ).run();
+    Reflect.deleteProperty(b, "OAUTH_DCR_RATE_LIMITER");
     const withoutLimiter = await t.request("/.well-known/oauth-authorization-server");
     expect(await withoutLimiter.json()).not.toHaveProperty("client_id_metadata_document_supported");
     expect((await t.authorize({ client_id: remoteId, redirect_uri: redirect })).status).toBe(400);
