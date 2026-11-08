@@ -124,10 +124,10 @@ export async function currentMcpOAuthQueryPolicy(
   const gettable = new Set(toolModelKeys);
 
   if (method === "GET" && path === INVENTORY) return { serverId, queryModelKeys, toolModelKeys, modelOperations, personOperations };
-  if (method === "GET" && /^\\/api\\/v1\\/spaces\\/spc_[A-Za-z0-9_-]+\\/_discovery\\/operations$/u.test(path)) {
+  if (method === "GET" && new RegExp("^/api/v1/spaces/spc_[A-Za-z0-9_-]+/_discovery/operations$", "u").test(path)) {
     return { serverId, queryModelKeys, toolModelKeys, modelOperations, personOperations };
   }
-  if (method === "POST" && /^\\/api\\/v1\\/spaces\\/spc_[A-Za-z0-9_-]+\\/_operations\\/op_[a-f0-9]{64}\\/invoke$/u.test(path)) {
+  if (method === "POST" && new RegExp("^/api/v1/spaces/spc_[A-Za-z0-9_-]+/_operations/op_[a-f0-9]{64}/invoke$", "u").test(path)) {
     // The executor resolves the opaque current operation and routes back
     // through existing canonical Core authorization; this is not a grant.
     return { serverId, queryModelKeys, toolModelKeys, modelOperations, personOperations };
