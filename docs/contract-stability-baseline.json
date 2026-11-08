@@ -243,6 +243,13 @@
           "maturity": "candidate",
           "visibility": "internal",
           "operationPattern": "^POST /oauth/core/agent-candidates$"
+        },
+        {
+          "id": "identity-oauth-delegation-consent-bridge",
+          "operationPattern": "^POST /introspection/v1/oauth-delegation-authorizations$",
+          "maturity": "candidate",
+          "visibility": "internal",
+          "commitment": "Core-only OAuth Authorization owner and Delegation eligibility revalidation without public User principal claims."
         }
       ]
     },
@@ -442,6 +449,13 @@
           "maturity": "candidate",
           "visibility": "internal",
           "operationPattern": "^GET /api/v1/me/oauth/capabilities$"
+        },
+        {
+          "id": "core-third-party-oauth-delegation-web",
+          "operationPattern": "^(GET|POST) /api/v1/spaces/\\{spaceId\\}/oauth-delegation-requests(?:/\\{requestId\\})?$|^(GET|POST) /api/v1/me/oauth/delegation-requests/\\{requestId\\}(?:/\\{decision\\})?$",
+          "maturity": "candidate",
+          "visibility": "internal",
+          "commitment": "OAuth Agent pending requests and Account-only human confirmation separate from trusted Agent request approval."
         }
       ]
     },
@@ -461,6 +475,13 @@
           "maturity": "candidate",
           "visibility": "internal",
           "operationPattern": "^GET /api/oauth/capabilities$"
+        },
+        {
+          "id": "account-third-party-oauth-delegation-approval",
+          "operationPattern": "^(GET /api/delegation/request|POST /api/delegation/(approve|deny))$",
+          "maturity": "candidate",
+          "visibility": "internal",
+          "commitment": "Third-party Agent link-based Account review with verified User and CSRF; no client-side approval."
         }
       ]
     }
