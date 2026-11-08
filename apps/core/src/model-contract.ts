@@ -698,7 +698,7 @@ function resourceSchema(model: PublishedModel): JsonSchema {
   };
 }
 
-function versionRequestSchema(): JsonSchema {
+export function versionRequestSchema(): JsonSchema {
   return {
     type: "object",
     additionalProperties: false,
