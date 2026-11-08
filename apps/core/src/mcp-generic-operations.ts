@@ -18,7 +18,7 @@ type AppEnv={Bindings:Bindings;Variables:Variables};
 type ContextApp=Context<AppEnv>;
 type Access="read"|"write";
 type Kind="native"|"external"|"person"|"action";
-type Operation="query"|"get"|"create"|"update"|"delete"|\`action:\${string}\`;
+type Operation="query"|"get"|"create"|"update"|"delete"|`action:${string}`;
 type Contract={ contractId?:string; modelKey:string; display:string; operation:Operation;
   operationRef:string; inputSchema:Record<string,unknown>; title:string; description:string; };
 type Entry={dto:Contract;kind:Kind;target:string;actionKey?:string};
@@ -147,7 +147,6 @@ async function manifest(c:ContextApp):Promise<Entry[]>{
           const metadata=(contract.jsonSchema["x-lifespace-models"] as Record<string,Record<string,unknown>>)?.[key];
           const inputRef=metadata?.[op==="create"?"createSchema":"updateSchema"];
           if(typeof inputRef!=="string")continue;
-          schema={...contract.jsonSchema.$defs as JsonSchema}; // replaced below
           const defs=contract.jsonSchema.$defs as Record<string,JsonSchema>;
           if(!inputRef.startsWith("#/$defs/")||!defs[inputRef.slice(8)])continue;
           schema={$ref:inputRef,$defs:structuredClone(defs)};
