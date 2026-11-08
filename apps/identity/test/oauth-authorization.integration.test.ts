@@ -171,6 +171,7 @@ describe("Identity OAuth Authorization Server (isolated candidate)", () => {
     (t.b as typeof t.b & { OAUTH_MCP_RESOURCE_ORIGIN: string }).OAUTH_MCP_RESOURCE_ORIGIN =
       "https://core.example.test";
     let active = false;
+    let offeredScopes = ["resources:read"];
     let validations = 0;
     (t.b as typeof t.b & { CORE: { fetch: (url: string, init: RequestInit) => Promise<Response> } }).CORE = {
       fetch: async (url: string, init: RequestInit) => {
@@ -179,17 +180,20 @@ describe("Identity OAuth Authorization Server (isolated candidate)", () => {
         expect(new Headers(init.headers).get("x-lifespace-internal-secret"))
           .toBe(t.b.CORE_IDENTITY_SHARED_SECRET);
         expect(JSON.parse(String(init.body))).toEqual({ resource });
-        return Response.json({ data: { active, ...(active ? { resource } : {}) } });
+        return Response.json({ data: { active, ...(active ? { resource, scopes: offeredScopes } : {}) } });
       },
     };
     expect((await t.authorize({ resource })).status).toBe(400);
     active = true;
-    const pending = await t.authorize({ resource });
+    // A client cannot manufacture write consent for a read-only MCP Server.
+    expect((await t.authorize({ resource, scope: "resources:read resources:write" })).status).toBe(400);
+    offeredScopes = ["resources:read", "resources:write"];
+    const pending = await t.authorize({ resource, scope: "resources:read resources:write" });
     expect(pending.status).toBe(302);
     const requestId = new URL(pending.headers.get("location")!).searchParams.get("request_id")!;
     active = false;
     expect((await t.approve(requestId, t.b.OAUTH_CORE_APPROVER_SECRET)).status).toBe(403);
-    expect(validations).toBe(3);
+    expect(validations).toBe(4);
   });
 
 
@@ -227,6 +231,8 @@ describe("Identity OAuth Authorization Server (isolated candidate)", () => {
     expect(weakPkce.status).toBe(400);
     const wrongResource = await t.authorize({ resource: "https://mcp.example.test/mcp/health/unpublished" });
     expect(wrongResource.status).toBe(400);
+    expect((await t.authorize({ scope: "resources:manage" })).status).toBe(400);
+    expect((await t.authorize({ scope: "resources:read unsupported:scope" })).status).toBe(400);
     const badRegistration = await t.request("/oauth/register", {
       method: "POST", headers: { "content-type": "application/json" },
       body: JSON.stringify({ redirect_uris: ["https://*.example.test/cb"] }),
@@ -526,7 +532,7 @@ describe("Identity OAuth Authorization Server (isolated candidate)", () => {
     expect((await exchange(t.b.OAUTH_RESOURCE_SERVER_SECRET, oauthBearer, t.resource)).status).toBe(401);
   });
 
-  it("preserves only consented write Scope in staging, narrows production, and rechecks live Scope", async () => {
+  it("preserves explicit read/write consent across environments and rechecks live Scope", async () => {
     const t = await setup();
     const pending = await t.authorize({ scope: "resources:read resources:write" });
     const id = new URL(pending.headers.get("location")!).searchParams.get("request_id")!;
@@ -545,7 +551,7 @@ describe("Identity OAuth Authorization Server (isolated candidate)", () => {
     expect(data.scope).toBe("resources:read resources:write");
     expect((await verify(data.accessToken, t.b.TOKEN_PUBLIC_KEY, "RS256")).principal_type).toBe("agent");
     t.b.ENVIRONMENT = "production";
-    expect((await (await exchange()).json() as { data: { scope: string } }).data.scope).toBe("resources:read");
+    expect((await (await exchange()).json() as { data: { scope: string } }).data.scope).toBe("resources:read resources:write");
     t.b.ENVIRONMENT = "staging";
     await t.b.DB.prepare("UPDATE oauth_authorizations SET scopes=? WHERE client_id=?")
       .bind(JSON.stringify(["resources:read"]), t.clientId).run();
