@@ -6,6 +6,8 @@ import { ApiError, success } from "./http";
 import { listPublishedModels } from "./model-registry";
 import { visibleModelAccess } from "./runtime-discovery";
 import type { ModelAccess } from "./model-definition";
+import { oauthMcpServerId } from "./mcp-oauth-server-policy";
+import { expectedOrigin } from "./mcp-resource-ingress";
 
 type App = Hono<{ Bindings: Bindings; Variables: Variables }>;
 type ConsentInput = {
@@ -129,8 +131,9 @@ export function registerOAuthConsentRoutes(app: App): void {
     return c.json(success({ candidates: await candidates(c.env, spaceId) }));
   });
 
-  // Only a pre-policy upper bound: do not claim model/record Policy, OAuth
-  // resource scope or final execution-time authority have been checked.
+  // Read-only pre-policy preview. It MUST include the selected Core MCP
+  // Server operation allowlist; record Policy and OAuth client Scope are
+  // independently narrowed by Core execution and the Account BFF.
   app.get("/api/v1/me/oauth/capabilities", requireScope("spaces:manage"), async (c) => {
     const principal = c.get("principal");
     if (!c.env.OAUTH_ACCOUNT_APPLICATION_ID || principal.type !== "user"
@@ -142,11 +145,43 @@ export function registerOAuthConsentRoutes(app: App): void {
     const appId = query.get("applicationId");
     const spaceId = query.get("spaceId");
     const agentId = query.get("agentId");
-    if (query.size !== 3 || !safeApplication(appId) || !spaceId || !SPACE_ID.test(spaceId)
-      || !agentId || !AGENT_ID.test(agentId)) {
+    const resource = query.get("resource");
+    const serverId = resource ? oauthMcpServerId(resource) : null;
+    if (query.size !== 4 || !safeApplication(appId) || !spaceId || !SPACE_ID.test(spaceId)
+      || !agentId || !AGENT_ID.test(agentId) || !resource || !serverId
+      || new URL(resource).origin !== expectedOrigin(c.env)) {
       throw new ApiError("INVALID_REQUEST", "Application, Space and Agent must be selected exactly once", 400);
     }
     await requireSpacePermission(c.env, principal, spaceId, "manage");
+    const server = await c.env.DB.prepare(
+      "SELECT enabled,config_json FROM mcp_server_definitions WHERE id=?",
+    ).bind(serverId).first<{ enabled: number; config_json: string }>();
+    if (!server || server.enabled !== 1) {
+      throw new ApiError("OAUTH_SELECTION_DENIED", "MCP Server is not enabled", 403);
+    }
+    let config: unknown;
+    try { config = JSON.parse(server.config_json); } catch {
+      throw new ApiError("OAUTH_SELECTION_DENIED", "MCP Server configuration is invalid", 403);
+    }
+    const selections = (config as { models?: unknown } | null)?.models;
+    if (!Array.isArray(selections) || selections.length > 32) {
+      throw new ApiError("OAUTH_SELECTION_DENIED", "MCP Server configuration is invalid", 403);
+    }
+    // Only currently supported Native MCP model tools are previewed.
+    // Get/Action/Person/External do not become phantom tools here.
+    const exposed = new Map<string, string[]>();
+    for (const entry of selections) {
+      if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+        throw new ApiError("OAUTH_SELECTION_DENIED", "MCP Server configuration is invalid", 403);
+      }
+      const { modelKey, operations } = entry as { modelKey?: unknown; operations?: unknown };
+      if (typeof modelKey !== "string" || !/^[a-z][a-z0-9_]{1,62}$/u.test(modelKey)
+        || !Array.isArray(operations) || operations.some(op => typeof op !== "string")
+        || exposed.has(modelKey)) {
+        throw new ApiError("OAUTH_SELECTION_DENIED", "MCP Server configuration is invalid", 403);
+      }
+      exposed.set(modelKey, operations.filter(op => ["query", "create", "update", "delete"].includes(op)));
+    }
     const eligible = await candidates(c.env, spaceId);
     if (!eligible.some((r) => r.applicationId === appId && r.agentId === agentId)) {
       throw new ApiError("OAUTH_SELECTION_DENIED", "Agent/Application has no active Space Grant", 403);
@@ -177,18 +212,24 @@ export function registerOAuthConsentRoutes(app: App): void {
     };
     const published = await listPublishedModels(c.env);
     const visible = visibleModelAccess(direct, published, modelAccess, null, agentGrants);
+    const selected = visible.flatMap(({ model, access }) => {
+      const operations = (exposed.get(model.key) ?? []).filter(op =>
+        op === "query" ? access.includes("read") : access.includes("write"));
+      if (!operations.length) return [];
+      return [{
+        key: model.key, name: model.definition.display.singular, operations,
+        access: [...new Set(operations.map(op => op === "query" ? "read" : "write"))],
+      }];
+    });
     c.header("Cache-Control", "no-store");
     return c.json(success({
       kind: "pre_policy_upper_bound",
       nativeModelsOnly: true,
+      resourceCapabilityApplied: true,
       credentialScopesApplied: false,
       modelPolicyApplied: false,
-      models: visible.slice(0, 50).map(({ model, access }) => ({
-        key: model.key,
-        name: model.definition.display.singular,
-        access,
-      })),
-      truncated: visible.length > 50,
+      models: selected.slice(0, 50),
+      truncated: selected.length > 50,
     }));
   });
 
