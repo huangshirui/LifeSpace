@@ -5,13 +5,13 @@ import { createApp } from "../src/app";
 const db = (env as unknown as { DB: D1Database }).DB;
 const origin = "https://core-staging.aisr.online";
 const id = () => "mcp_" + crypto.randomUUID().replaceAll("-", "");
-async function server(enabled = 1) {
+async function server(enabled = 1, operations: string[] = ["query"]) {
   const serverId = id();
   const now = new Date().toISOString();
   await db.prepare(
     "INSERT INTO mcp_server_definitions(id,display_name,description,enabled,config_json,revision,created_by_user_id,updated_by_user_id,created_at,updated_at) VALUES(?,?,?,?,?,1,?,?,?,?)"
   ).bind(serverId, "Ingress test", "", enabled,
-    JSON.stringify({ models: [{ modelKey: "task", operations: ["query"] }] }),
+    JSON.stringify({ models: [{ modelKey: "task", operations }] }),
     "usr_synthetic", "usr_synthetic", now, now).run();
   return serverId;
 }
@@ -35,6 +35,12 @@ describe("Core public MCP ingress / OAuth protected resource boundary", () => {
     expect(accepted.status).toBe(200);
     expect(await accepted.json()).toEqual({ data: {
       active: true, resource: origin + "/mcp/" + enabled, serverId: enabled,
+      scopes: ["resources:read"],
+    } });
+    const writable = await server(1, ["query", "create", "update"]);
+    expect(await (await send(origin + "/mcp/" + writable, secret)).json()).toEqual({ data: {
+      active: true, resource: origin + "/mcp/" + writable, serverId: writable,
+      scopes: ["resources:read", "resources:write"],
     } });
     const noAdapter = await createApp().request(endpoint, {
       method: "POST",
@@ -58,14 +64,15 @@ describe("Core public MCP ingress / OAuth protected resource boundary", () => {
   });
 
   it("forwards multiple enabled Server paths and exact metadata to one private adapter, unchanged", async () => {
-    const first = await server(), second = await server();
-    const seen: Array<{ method: string; url: string; bearer: string | null }> = [];
+    const first = await server(), second = await server(1, ["query", "create", "update"]);
+    const seen: Array<{ method: string; url: string; bearer: string | null; scopeCeiling: string | null }> = [];
     const bindings = {
       DB: db, ENVIRONMENT: "staging",
       MCP_ADAPTER: { fetch: async (request: Request) => {
         seen.push({
           method: request.method, url: request.url,
           bearer: request.headers.get("authorization"),
+          scopeCeiling: request.headers.get("x-lifespace-mcp-scope-ceiling"),
         });
         if (request.method === "GET") {
           return Response.json({ resource: origin + "/mcp/" + first }, {
@@ -88,14 +95,17 @@ describe("Core public MCP ingress / OAuth protected resource boundary", () => {
     expect(metadata.headers.get("cache-control")).toBe("no-store");
     const rpc = await createApp().request(origin + "/mcp/" + second, {
       method: "POST",
-      headers: { authorization: "Bearer lsp_oat_test", "content-type": "application/json" },
+      headers: { authorization: "Bearer lsp_oat_test", "content-type": "application/json",
+        "x-lifespace-mcp-scope-ceiling": "resources:manage" },
       body: JSON.stringify({ jsonrpc: "2.0", method: "initialize", id: 1 }),
     }, bindings);
     expect(rpc.status).toBe(401);
     expect(rpc.headers.get("www-authenticate")).toContain("/mcp/" + second);
     expect(seen).toEqual([
-      { method: "GET", url: origin + "/.well-known/oauth-protected-resource/mcp/" + first, bearer: null },
-      { method: "POST", url: origin + "/mcp/" + second, bearer: "Bearer lsp_oat_test" },
+      { method: "GET", url: origin + "/.well-known/oauth-protected-resource/mcp/" + first, bearer: null,
+        scopeCeiling: "resources:read" },
+      { method: "POST", url: origin + "/mcp/" + second, bearer: "Bearer lsp_oat_test",
+        scopeCeiling: "resources:read resources:write" },
     ]);
   });
 
