@@ -25,6 +25,7 @@ async function fixture() {
   const space = "spc_" + uuid;
   const other = "spc_other_" + uuid;
   const authId = "oaz_" + uuid;
+  const oauthUser = "usr_" + uuid;
   const client = "ocli_" + uuid;
   const tokenHash = "a".repeat(64);
   const serverId = "mcp_" + uuid;
@@ -37,6 +38,7 @@ async function fixture() {
     scope: "resources:read", oauth_authorization_id: authId,
     oauth_access_hash: tokenHash, oauth_client_id: client,
     oauth_resource: resource, oauth_space_id: space,
+    oauth_user_id: oauthUser, oauth_allow_user_authorization: false,
     iat: now, exp: now + 50, jti: "tok_" + uuid,
   };
   const db = (env as unknown as TestEnv).DB;
@@ -68,7 +70,9 @@ async function fixture() {
       expect(new Headers(init.headers).get("x-lifespace-internal-secret"))
         .toBe("synthetic-core-to-identity-shared-secret");
       lastBody = JSON.parse(String(init.body));
-      return Response.json({ data: { active, scopes: consentScopes } });
+      return Response.json({ data: {
+        active, scopes: consentScopes, userId: oauthUser, allowUserAuthorization: false,
+      } });
     } },
   };
   const jwt = (patch: Record<string, unknown> = {}) => sign({ ...claims, ...patch }, key, "RS256");
