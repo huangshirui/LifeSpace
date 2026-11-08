@@ -124,7 +124,7 @@ export async function currentMcpOAuthQueryPolicy(
     if (mutation[1].startsWith("ext_") || !modelOperations[mutation[1]]?.includes(operation)) throw forbidden();
     return { serverId, queryModelKeys, toolModelKeys, modelOperations };
   }
-  const readRecord = /^\\/api\\/v1\\/spaces\\/spc_[A-Za-z0-9_-]+\\/models\\/([a-z][a-z0-9_]{1,62})\\/records\\/rec_[A-Za-z0-9_-]+$/u.exec(path);
+  const readRecord = /^\/api\/v1\/spaces\/spc_[A-Za-z0-9_-]+\/models\/([a-z][a-z0-9_]{1,62})\/records\/rec_[A-Za-z0-9_-]+$/u.exec(path);
   if (method === "GET" && readRecord) {
     if (!gettable.has(readRecord[1]) || !modelOperations[readRecord[1]]?.includes("get")) throw forbidden();
     return { serverId, queryModelKeys, toolModelKeys, modelOperations };
