@@ -102,13 +102,11 @@ async function clientForAuthorization(c: Context<AppEnv>, clientId: string): Pro
   // Open HTTPS document discovery is a network and database abuse boundary.
   // Staging requests are rate-limited before outbound fetch, including
   // revalidation at Consent time. No Worker binding => no fetch.
-  if (c.env.ENVIRONMENT === "staging") {
-    if (!c.env.OAUTH_DCR_RATE_LIMITER) return null;
-    try {
-      const limit = await c.env.OAUTH_DCR_RATE_LIMITER.limit({ key: "oauth-cimd-fetch" });
-      if (!limit.success) return null;
-    } catch { return null; }
-  }
+  if (!c.env.OAUTH_DCR_RATE_LIMITER) return null;
+  try {
+    const limit = await c.env.OAUTH_DCR_RATE_LIMITER.limit({ key: "oauth-cimd-fetch" });
+    if (!limit.success) return null;
+  } catch { return null; }
   const metadata = await fetchClientMetadata(clientId);
   if (!metadata) return null;
   const redirects = JSON.stringify(metadata.redirectUris);
@@ -219,14 +217,12 @@ export async function exchangeInteractiveOAuthToken(c: Context<AppEnv>, body: Fo
 
 // Registration features are advertised only when their safety gates exist.
 function dcrReady(env: Bindings, policy: OAuthClientAdmissionPolicy): boolean {
-  return env.OAUTH_DCR_ENABLED === "1" && env.ENVIRONMENT !== "production"
-    && (env.ENVIRONMENT !== "staging" || Boolean(env.OAUTH_DCR_RATE_LIMITER))
-    && policy.dcrEnabled;
+  return env.OAUTH_DCR_ENABLED === "1"
+    && Boolean(env.OAUTH_DCR_RATE_LIMITER) && policy.dcrEnabled;
 }
 function cimdReady(env: Bindings, policy: OAuthClientAdmissionPolicy): boolean {
   return env.OAUTH_CIMD_ENABLED === "1" && policy.cimdEnabled
-    && env.ENVIRONMENT !== "production"
-    && (env.ENVIRONMENT !== "staging" || Boolean(env.OAUTH_DCR_RATE_LIMITER));
+    && Boolean(env.OAUTH_DCR_RATE_LIMITER);
 }
 export function registerOAuthAuthorizationServer(app: App) {
   app.get("/.well-known/oauth-authorization-server", async (c) => {
@@ -254,18 +250,16 @@ export function registerOAuthAuthorizationServer(app: App) {
       return oauthError(c, 403, "access_denied", "Dynamic client registration is disabled");
     }
     // Regional limiter + atomic global D1 quota: no unlimited anonymous writes.
-    if (c.env.ENVIRONMENT === "staging") {
-      if (!c.env.OAUTH_DCR_RATE_LIMITER) {
-        return oauthError(c, 503, "temporarily_unavailable", "DCR rate limiter is unavailable");
+    if (!c.env.OAUTH_DCR_RATE_LIMITER) {
+      return oauthError(c, 503, "temporarily_unavailable", "DCR rate limiter is unavailable");
+    }
+    try {
+      const outcome = await c.env.OAUTH_DCR_RATE_LIMITER.limit({ key: "oauth-dcr-global" });
+      if (outcome.success !== true) {
+        return oauthError(c, 429, "rate_limited", "Client registration rate limit exceeded");
       }
-      try {
-        const outcome = await c.env.OAUTH_DCR_RATE_LIMITER.limit({ key: "oauth-dcr-global" });
-        if (outcome.success !== true) {
-          return oauthError(c, 429, "rate_limited", "Client registration rate limit exceeded");
-        }
-      } catch {
-        return oauthError(c, 503, "temporarily_unavailable", "DCR rate limiter is unavailable");
-      }
+    } catch {
+      return oauthError(c, 503, "temporarily_unavailable", "DCR rate limiter is unavailable");
     }
     if (!/^application\/json(?:\s*;|$)/iu.test(c.req.header("content-type") || "")) {
       return oauthError(c, 400, "invalid_client_metadata", "Application/json is required");
