@@ -189,8 +189,17 @@ describe("Core Account OAuth Consent boundary", () => {
     await f.db.prepare(
       "INSERT INTO application_model_access(application_id,model_key,max_access,created_by_type,created_by_id) VALUES(?,?,?,?,?)",
     ).bind(f.selected.applicationId, modelKey, "write", "service", "svc_oauth_test").run();
+    const serverId = "mcp_" + crypto.randomUUID().replaceAll("-", "");
+    await f.db.prepare(
+      "INSERT INTO mcp_server_definitions(id,display_name,description,enabled,config_json,revision,created_by_user_id,updated_by_user_id,created_at,updated_at) "
+      + "VALUES(?, 'OAuth Consent Server', '', 1, ?, 1, ?, ?, ?, ?)",
+    ).bind(serverId, JSON.stringify({ models: [{
+      modelKey, operations: ["query", "create", "update"],
+    }] }), f.userId, f.userId, new Date().toISOString(), new Date().toISOString()).run();
+    (f.bindings as typeof f.bindings & { MCP_PUBLIC_ORIGIN: string }).MCP_PUBLIC_ORIGIN = "https://core.example.test";
+    const resource = "https://core.example.test/mcp/" + serverId;
     const path = "/api/v1/me/oauth/capabilities?" + new URLSearchParams({
-      applicationId: f.selected.applicationId, spaceId: f.spaceId, agentId: f.agentId,
+      applicationId: f.selected.applicationId, spaceId: f.spaceId, agentId: f.agentId, resource,
     });
     const query = async (queryPath = path, bearer = f.bearer) =>
       createApp().request("https://core.example.test" + queryPath,
@@ -200,8 +209,8 @@ describe("Core Account OAuth Consent boundary", () => {
     expect(await first.json()).toMatchObject({
       data: {
         kind: "pre_policy_upper_bound", nativeModelsOnly: true, modelPolicyApplied: false,
-        credentialScopesApplied: false, models: [
-          { key: modelKey, name: "OAuth Direct Model", access: ["read"] },
+        credentialScopesApplied: false, resourceCapabilityApplied: true, models: [
+          { key: modelKey, name: "OAuth Direct Model", access: ["read"], operations: ["query"] },
         ],
       },
     });
@@ -209,15 +218,20 @@ describe("Core Account OAuth Consent boundary", () => {
       .bind(f.spaceId, f.agentId).run();
     const upgraded = await query();
     expect((await upgraded.json()).data.models).toContainEqual(
-      { key: modelKey, name: "OAuth Direct Model", access: ["read", "write"] },
+      { key: modelKey, name: "OAuth Direct Model", access: ["read", "write"],
+        operations: ["query", "create", "update"] },
     );
     await f.db.prepare("UPDATE application_model_access SET max_access='read' WHERE application_id=? AND model_key=?")
       .bind(f.selected.applicationId, modelKey).run();
     const narrowed = await query();
     expect((await narrowed.json()).data.models).toContainEqual(
-      { key: modelKey, name: "OAuth Direct Model", access: ["read"] },
+      { key: modelKey, name: "OAuth Direct Model", access: ["read"], operations: ["query"] },
     );
     expect((await query(path + "&spaceId=" + f.spaceId)).status).toBe(400);
+    expect((await query(path.replace("core.example.test", "evil.example.test"))).status).toBe(400);
+    await f.db.prepare("UPDATE mcp_server_definitions SET enabled=0 WHERE id=?").bind(serverId).run();
+    expect((await query()).status).toBe(403);
+    await f.db.prepare("UPDATE mcp_server_definitions SET enabled=1 WHERE id=?").bind(serverId).run();
     expect((await query(path, await token(f.pair.privateKey, f.userId, "app_untrusted"))).status).toBe(403);
     await f.db.prepare("UPDATE data_grants SET revoked_at=? WHERE source_space_id=? AND grantee_id=?")
       .bind(new Date().toISOString(), f.spaceId, f.agentId).run();
