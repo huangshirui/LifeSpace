@@ -182,7 +182,18 @@ async function loadRequest(env: Bindings, spaceId: string, requestId: string): P
 }
 
 function assertOwned(principal: Principal, actor: Actor, loaded: { row: RequestRow; items: CanonicalItem[] } | null) {
-  if (!loaded
+  // The OAuth MCP Account-confirmation channel is a distinct trust boundary.
+  // Its immutable arq_* lives in the same Core tables, but the existing
+  // trusted Agent workflow must NEVER confirm it with a supplied User ID.
+  // This predicate does not change any pre-existing trusted arq_* behavior.
+  let thirdPartyApproval = false;
+  if (loaded?.row.correlation_json) {
+    try {
+      const correlation = JSON.parse(loaded.row.correlation_json) as Record<string, unknown>;
+      thirdPartyApproval = correlation?.channel === "oauth_mcp";
+    } catch { /* Existing legacy malformed correlations retain old behavior. */ }
+  }
+  if (!loaded || thirdPartyApproval
       || loaded.row.application_id !== principal.clientId
       || loaded.row.requesting_agent_id !== actor.id) {
     throw new ApiError("AUTHORIZATION_REQUEST_NOT_FOUND", "Authorization Request not found", 404);
