@@ -1,5 +1,15 @@
 # Identity Interactive OAuth Authorization Server / 交互式 OAuth 授权服务
 
+## 2026-11-08 · Third-party OAuth MCP User Delegation / 第三方网页确认（待 Staging 真实验收）
+
+- Third-party Client access does not imply User Principal. The initial OAuth account page only records `allowUserAuthorization` eligibility; `resources:write` is a separate client Scope. Agent Direct remains `Principal=Actor=Agent`.
+- A signed, current-authorized OAuth Agent may create a pending `arq_*` for exactly one allowed Native Model operation (get/query/create/update/delete), with a short-lived LifeSpace Account URL and request-reason preview. The intended `usr_*` is taken only from verified, current Identity Authorization, never an Agent argument. Requests are bounded by selected Client/Application/Agent/Space/Resource, current exact Server operation, OAuth Scope, TTL and rate limit.
+- On `/delegation?request_id=arq_*`, LifeSpace Account independently authenticates its own User via Cloudflare Access → Identity, displays exact operation/Resource, and POSTs an explicit CSRF-protected Approve/Deny to Core. Core validates that the intended User matches the authenticated Account principal, rechecks the bound OAuth Authorization and current User/App Authority, and creates an immutable, short-lived `dlg_*` (one successful use) atomically with approval. The URL/request ID alone is NOT a bearer authority.
+- To execute, the third-party MCP client explicitly selects that approved `dlg_*`; private Identity mints a ≤60-second represented JWT with `Principal=User, Actor=Agent` and signed OAuth Resource/Client/Agent/User/Space/Delegation context. Every Core call independently validates current OAuth state, exact approved `arq_*` operation binding, current Delegation and User authority, server operation, model policy, version and atomic single-use consumption/Change attribution. Other operations/cross-Space use fail closed.
+- Existing **ALOHA app-internal confirmation** and **WeCom trusted Router chat confirmation** remain unchanged. The original trusted `/authorization-requests/.../confirm` path refuses `oauth_mcp` requests even if a trusted Agent knows the request ID; OAuth credentials cannot call the trusted path. All three channels share only Core `arq_*` and `dlg_*` domain facts, not confirmation UX or credentials.
+- **Release status:** Source in [LifeSpace PR #500](https://github.com/huangshirui/LifeSpace/pull/500) + companion Adapters PR #38; no deployed or real Staging end-to-end approval proof yet. Account User, expired/revoked/cross-channel and represented execution tests are separate release gates under #499. Existing historical Staging-only sections below are superseded for current target design and do not indicate Production readiness.
+
+
 Status: **Staging deployed; Production convergence in development. No production OAuth MCP release has been verified.** This is Identity's protocol and credential work, not a general `conn_*` registry and not a replacement for Core Authority.
 
 ## 2026-11-08 · 生产能力收敛（开发中，未生产发布）
