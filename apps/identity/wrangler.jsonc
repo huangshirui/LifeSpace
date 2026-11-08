@@ -30,6 +30,12 @@
       "name": "lifespace-identity",
       "placement": { "mode": "smart" },
       "vars": { "ENVIRONMENT": "production", "ACCESS_TEAM_DOMAIN": "https://aisronline.cloudflareaccess.com", "OAUTH_MCP_RESOURCE_ORIGIN": "https://core.aisr.online" },
+      // Production client registration stays off until BOTH the operator's
+      // explicit environment flag and Console D1 admission policy enable it.
+      // Rate limiting is mandatory whenever either CIMD or DCR is enabled.
+      "ratelimits": [
+        { "name": "OAUTH_DCR_RATE_LIMITER", "namespace_id": "26742", "simple": { "limit": 10, "period": 60 } }
+      ],
       "routes": [{ "pattern": "auth.aisr.online", "custom_domain": true }],
       "services": [{ "binding": "CORE", "service": "lifespace-core" }],
       "d1_databases": [{ "binding": "DB", "database_name": "lifespace-identity", "database_id": "00000000-0000-0000-0000-000000000013", "migrations_dir": "migrations" }],
