@@ -52,7 +52,7 @@ export function registerRuntimeModelSemanticDetailRoutes(app: App): void {
   // Batch-only optimization for Identity OAuth Agent Direct MCP discovery.
   // One short-lived signed execution token; every requested Model still passes
   // current Core Server policy, Space restriction, and ordinary Data Grant checks.
-  // Native write schemas are included only with Staging + live write consent and Grants.
+  // Native write schemas require live write consent, current Server operations and Grants.
   // External Models and implicit User Delegation remain excluded.
   app.post("/api/v1/spaces/:spaceId/_discovery/models/batch", async (context) => {
     const principal = context.get("principal");
@@ -93,7 +93,7 @@ export function registerRuntimeModelSemanticDetailRoutes(app: App): void {
       await consumeSingleUseRead(context.env, decision);
       let mutations: Record<string, unknown> | undefined;
       const operations = execution.modelOperations?.[key]?.filter(op => ["create", "update", "delete"].includes(op)) ?? [];
-      if (context.env.ENVIRONMENT === "staging" && principal.scopes.includes("resources:write") && operations.length) {
+      if (principal.scopes.includes("resources:write") && operations.length) {
         const writable = await requireModelAccess(context.env, principal, spaceId, model, "write").catch(error => {
           if (error instanceof ApiError && [403, 404, 405].includes(error.status)) return null;
           throw error;
