@@ -10,7 +10,6 @@ import type { ModelAccess } from "./model-definition";
 import { consumeSingleUseRead, requireModelAccess, type ModelAccessDecision } from "./model-authorization";
 import { getRuntimeModel, type PublishedModel } from "./model-registry";
 import { projectModelSemanticFacts } from "./model-semantic-projection";
-import { requirePersonDirectoryPermission } from "./authorization";
 
 type AppEnv = { Bindings: Bindings; Variables: Variables };
 type App = Hono<AppEnv>;
@@ -49,36 +48,12 @@ async function requireCurrentVisibility(
 }
 
 export function registerRuntimeModelSemanticDetailRoutes(app: App): void {
-  // Person Directory is a Kernel resource with independent Data Grants.
-  // The endpoint returns only currently executable Server operations and
-  // does not leak Person records, membership details or global User IDs.
-  app.get("/api/v1/spaces/:spaceId/_discovery/mcp/person-directory", async (context) => {
-    const principal = context.get("principal"), spaceId = context.req.param("spaceId");
-    const execution = principal.oauthExecution;
-    if (principal.purpose !== "oauth_agent_execution" || !execution
-      || execution.spaceId !== spaceId) throw opaqueNotFound();
-    const configured = execution.personOperations ?? [];
-    const permission = async (level: "read" | "write") => {
-      if (!principal.scopes.includes("resources:" + level)) return false;
-      try {
-        await requirePersonDirectoryPermission(context.env,principal,spaceId,level);
-        return true;
-      } catch (e) {
-        if (e instanceof ApiError && [403,404].includes(e.status)) return false;
-        throw e;
-      }
-    };
-    const [canRead,canWrite] = await Promise.all([permission("read"),permission("write")]);
-    const operations = configured.filter(op =>
-      ["list","get"].includes(op) ? canRead : ["create","update","delete"].includes(op) && canWrite);
-    return context.json(success({resourceKey:"person_directory",operations}),200,{"cache-control":"no-store"});
-  });
 
   // Batch-only optimization for Identity OAuth Agent Direct MCP discovery.
   // One short-lived signed execution token; every requested Model still passes
   // current Core Server policy, Space restriction, and ordinary Data Grant checks.
   // Native write schemas require live write consent, current Server operations and Grants.
-  // External Provider capability is pruned per current Space binding.
+  // External Models and implicit User Delegation remain excluded.
   app.post("/api/v1/spaces/:spaceId/_discovery/models/batch", async (context) => {
     const principal = context.get("principal");
     const spaceId = context.req.param("spaceId");
@@ -110,48 +85,20 @@ export function registerRuntimeModelSemanticDetailRoutes(app: App): void {
     const models = [];
     let contract: Awaited<ReturnType<typeof getOrCreateActiveModelContract>> | undefined;
     for (const key of keys as string[]) {
+      if (isExternalModelKey(key)) throw opaqueNotFound();
       const model = await getRuntimeModel(context.env, key);
-      if (!model) throw opaqueNotFound();
-      if (isExternalModelKey(key) || model.definition.origin === "external") {
-        const external = await getExternalModel(context.env,spaceId,key);
-        if (!external) throw opaqueNotFound();
-        const externalModel = externalAuthorityModel(external);
-        const allowed: ModelAccess[] = [];
-        for (const access of ["read","write"] as const) {
-          if (!principal.scopes.includes(scopeForAccess[access])
-            || !externalModel.definition.access.includes(access)) continue;
-          const decision = await requireModelAccess(context.env,principal,spaceId,externalModel,access)
-            .catch(error=>{
-              if (error instanceof ApiError && [403,404,405].includes(error.status)) return null;
-              throw error;
-            });
-          if (decision) allowed.push(access);
-        }
-        if (!allowed.length) throw opaqueNotFound();
-        const detail = externalSemanticDetail(external,allowed);
-        const configured = execution.modelOperations?.[key] ?? [];
-        const operations = configured.filter(op => {
-          const permission = ["get","query"].includes(op) ? "read" : "write";
-          return allowed.includes(permission)
-            && detail.runtimeCapabilities[op as keyof typeof detail.runtimeCapabilities] === true;
-        });
-        if (!operations.length) throw opaqueNotFound();
-        models.push({modelKey:key,detail:{...detail,mcpOperations:operations}});
-        continue;
-      }
+      if (!model || model.definition.origin === "external") throw opaqueNotFound();
       const decision = await requireCurrentVisibility(context.env, principal, spaceId, model);
       const detail = projectModelSemanticFacts(model);
       await consumeSingleUseRead(context.env, decision);
       let mutations: Record<string, unknown> | undefined;
       const operations = execution.modelOperations?.[key]?.filter(op => ["create", "update", "delete"].includes(op)) ?? [];
-      const configured = execution.modelOperations?.[key] ?? [];
-      const needsWrite = operations.length || configured.some(op => op.startsWith("action:"));
-      const writable = principal.scopes.includes("resources:write") && needsWrite
-        ? await requireModelAccess(context.env, principal, spaceId, model, "write").catch(error => {
-            if (error instanceof ApiError && [403, 404, 405].includes(error.status)) return null;
-            throw error;
-          }) : null;
-      if (writable && operations.length) {
+      if (principal.scopes.includes("resources:write") && operations.length) {
+        const writable = await requireModelAccess(context.env, principal, spaceId, model, "write").catch(error => {
+          if (error instanceof ApiError && [403, 404, 405].includes(error.status)) return null;
+          throw error;
+        });
+        if (writable) {
           contract ??= await getActiveModelContract(context.env) ?? await getOrCreateActiveModelContract(context.env);
           const metadata = (contract.jsonSchema["x-lifespace-models"] as Record<string, Record<string, unknown>>)[key];
           if (!metadata || metadata.version !== model.version || metadata.schemaHash !== model.schemaHash) throw opaqueNotFound();
@@ -174,17 +121,12 @@ export function registerRuntimeModelSemanticDetailRoutes(app: App): void {
           }
           mutations = { contractId: contract.id, modelVersion: model.version, schemaHash: model.schemaHash,
             operations: inputs, $defs: selectedDefs };
+        }
       }
-      const modelActions = detail.actions.filter(action => configured.includes("action:" + action.key)
-        && principal.scopes.includes(scopeForAccess[action.access as ModelAccess])
-        && (action.access === "read" || Boolean(writable)));
       models.push({ modelKey: key, detail: {
         ...detail,
-        actions: modelActions,
-        mcpOperations: configured.filter(op =>
-          ["get", "query"].includes(op)
-          || (["create","update","delete"].includes(op) && Boolean(mutations))
-          || modelActions.some(action => op === "action:" + action.key)),
+        mcpOperations: execution.modelOperations?.[key]?.filter(op =>
+          ["get", "query", "create", "update", "delete"].includes(op)) ?? [],
         ...(mutations ? { mutations } : {}),
       } });
     }
