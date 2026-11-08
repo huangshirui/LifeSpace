@@ -583,7 +583,7 @@ paths:
         '401': { description: Trusted Resource Server authentication is required }
   /oauth/execution-tokens:
     post:
-      description: Private Resource Server exchange of a live, exact-resource opaque OAuth bearer into a signed Agent Direct Core execution token. Default read-only; resources:write is preserved only when the live access token and current authorization both explicitly consented, and Core still checks the exact current Server operation and Agent authority. Scope semantics are identical in Staging and Production; deployment policy and transport bindings separately control availability. Maximum lifetime 60 seconds, selected Space binding, no implicit User Delegation. Core rechecks current OAuth revocation on every request.
+      description: Private Resource Server exchange of a live, exact-resource opaque OAuth bearer into a signed Core JWT. Default direct Principal=Actor=Agent; explicit, consented, bounded delegationId may request Principal=User / Actor=Agent execution, but Core must still verify the exact approved arq_/dlg_ link and live current User authority. resources:write only when actual token and authorization both consented. Maximum lifetime 60 seconds; Core checks revocation each operation.
       security: [{ oauthResourceServerSecret: [] }]
       requestBody:
         required: true
@@ -596,14 +596,15 @@ paths:
               properties:
                 token: { type: string, pattern: '^lsp_oat_', writeOnly: true }
                 resource: { type: string, format: uri }
+                delegationId: { type: string, pattern: '^dlg_', description: Optional explicit Core Delegation selector for User Principal represented by the selected Agent; not an approval bearer. }
       responses:
-        '200': { description: Server-only Agent Direct JWT bound to current OAuth token and selected Space }
+        '200': { description: Server-only Agent Direct or expressly delegated User/Agent JWT bound to exact current OAuth token and Space }
         '400': { description: Invalid request shape }
         '401': { description: Resource Server proof or OAuth token denied }
         '503': { description: Identity token signing unavailable }
   /introspection/v1/oauth-executions:
     post:
-      description: Private Core-to-Identity current-state revocation and identity binding check for each signed OAuth Agent execution JWT, covering token hash, authorization, client, Application, Agent, Resource and Space. Active responses additionally report the current effective scopes; Core rejects execution JWT scopes absent from that live ceiling. No user Delegation is inferred.
+      description: Private Core-to-Identity current-state revocation and identity binding check for each OAuth Agent JWT, covering token hash, authorization, client, User owner, delegation opt-in, Application, Agent, Resource and Space. Active responses additionally report scopes and exact approved User/allow-user-delegation state; approval still requires independent LifeSpace Account User verification and Core arq_/dlg_ checks.
       security: [{ internalServiceSecret: [] }]
       requestBody:
         required: true
@@ -625,6 +626,30 @@ paths:
         '200': { description: Active boolean with current Identity verification or false on revoked and mismatched scope }
         '400': { description: Invalid execution context }
         '401': { description: Core-only internal service proof required }
+  /introspection/v1/oauth-delegation-authorizations:
+    post:
+      description: Core-only check binding a User Delegation approval to the exact live OAuth Authorization and selected User, Client, Application, Agent, Space, MCP Resource; requires allowUserAuthorization and active identities, never grants a Delegation on its own.
+      security: [{ internalServiceSecret: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [authorizationId, clientId, resource, applicationId, agentId, userId, spaceId]
+              properties:
+                authorizationId: { type: string, pattern: '^oaz_' }
+                clientId: { type: string, minLength: 1 }
+                resource: { type: string, format: uri }
+                applicationId: { type: string, pattern: '^app_' }
+                agentId: { type: string, pattern: '^agt_' }
+                userId: { type: string, pattern: '^usr_' }
+                spaceId: { type: string, pattern: '^spc_' }
+      responses:
+        '200': { description: Current active state and allowed scopes; false when authorization revoked, not opted in or any dimension mismatches }
+        '400': { description: Invalid exact-bound context }
+        '401': { description: Private Core service proof missing }
   /oauth/revoke:
     post:
       description: Revocation of a client's own opaque access or refresh credential; revoking refresh invalidates its Authorization. User-facing Authorization revocation is a later Account API.
