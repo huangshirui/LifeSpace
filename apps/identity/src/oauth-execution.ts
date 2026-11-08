@@ -85,17 +85,22 @@ export function registerOAuthExecutionRoutes(app: App) {
     }
     const body = await c.req.json<unknown>().catch(() => null);
     if (!body || typeof body !== "object" || Array.isArray(body)
-      || Object.keys(body).some((x) => x !== "token" && x !== "resource")) {
+      || Object.keys(body).some((x) => x !== "token" && x !== "resource" && x !== "delegationId")) {
       return oauthFailure(400, "invalid_request");
     }
     const input = body as Record<string, unknown>;
     if (typeof input.token !== "string" || !/^lsp_oat_[A-Za-z0-9_-]{32,256}$/u.test(input.token)
       || !resourceAllowed(c.env, input.resource)) return oauthFailure(401, "invalid_token");
+    const requestedDelegation = input.delegationId;
+    if (requestedDelegation !== undefined && (typeof requestedDelegation !== "string"
+      || !/^dlg_[A-Za-z0-9_-]+$/u.test(requestedDelegation))) return oauthFailure(400, "invalid_request");
     const tokenHash = await sha256(input.token);
     const match = await validAccess(c.env, tokenHash, input.resource);
     if (!match) return oauthFailure(401, "invalid_token");
     if (!c.env.TOKEN_PRIVATE_KEY) return oauthFailure(503, "temporarily_unavailable");
     const { selected, row, scopes } = match;
+    const represented = requestedDelegation !== undefined;
+    if (represented && selected.allow_user_authorization !== 1) return oauthFailure(401, "access_denied");
     const scope = scopes.join(" ");
     const now = Math.floor(Date.now() / 1000);
     const exp = Math.min(now + MAX_EXECUTION_TTL_SECONDS, Math.floor(Date.parse(row.expires_at) / 1000));
@@ -103,7 +108,8 @@ export function registerOAuthExecutionRoutes(app: App) {
     const token = await sign({
       iss: "lifespace-identity", aud: "lifespace-core",
       sub: selected.agent_id, azp: selected.application_id,
-      principal_type: "agent", principal_id: selected.agent_id,
+      principal_type: represented ? "user" : "agent",
+      principal_id: represented ? selected.user_id : selected.agent_id,
       actor_type: "agent", actor_id: selected.agent_id,
       purpose: "oauth_agent_execution", scope,
       oauth_authorization_id: selected.id, oauth_access_hash: tokenHash,
@@ -113,6 +119,7 @@ export function registerOAuthExecutionRoutes(app: App) {
       // Web Delegation requires a separate explicit arq_* / dlg_* approval.
       oauth_user_id: selected.user_id,
       oauth_allow_user_authorization: selected.allow_user_authorization === 1,
+      ...(represented ? {oauth_delegation_id: requestedDelegation} : {}),
       iat: now, exp, jti: "tok_" + crypto.randomUUID().replaceAll("-", ""),
     }, c.env.TOKEN_PRIVATE_KEY, "RS256");
     return c.json({ data: {
