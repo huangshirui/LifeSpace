@@ -356,3 +356,13 @@ The Identity 0.14/schema 13 account-link contract supersedes the earlier 0.13 ma
 ## Person Directory Data Grant (Kernel 0.54.0)
 
 The first-class Kernel Person Directory (`per_*`, not an ordinary Model Registry model) accepts `resourceType=person_directory`, `resourceId=null` Data Grants managed by the new Candidate `/person-directory/grants` API with `read` or `write` permission. Active current-state Person Directory authority is the higher of (a) existing User Membership / whole-Space Grant and (b) this dedicated Grant, always bounded by the `resources:read/write` credential scope and current explicit Space Delegation for represented execution. A Person Directory Grant never contributes to `requireSpacePermission` or Generic Runtime model authorization; it confers no Space detail or membership/Identity management. Linked Person mutation retains the existing self-service and Space-manage checks. Revocation, expiry and closed Space fail closed; no DB migration is needed.
+
+## OAuth MCP Staging write intersection / OAuth MCP 写入边界
+
+Staging-only Native Agent Direct single-record create/update/delete is governed by
+current OAuth read+write consent, exact selected Space and enabled MCP Server
+operation, Application × Model Access, Agent Data Grant, Model capability/Policy
+and optimistic concurrency. Identity issues at most 60-second execution JWTs; Core
+rechecks live scopes on every request. Production and existing read-only clients
+remain read-only. No implicit User Delegation, External write, batch or admin
+surface is added. Contract projection and release details: `docs/identity-oauth.md`.
