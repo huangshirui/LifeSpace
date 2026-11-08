@@ -7,6 +7,253 @@ info:
     Core verifies current Space manage authority, then calls Identity through a
     trusted Service Binding; this never creates a Data Grant or Delegation.
 paths:
+  /api/v1/spaces/{spaceId}/oauth-delegation-requests:
+    post:
+      operationId: requestOAuthMcpUserDelegation
+      description: Third-party OAuth Agent only; requests one exact current Server Native Model operation from the OAuth consenting User. Creates a pending arq_* with no authority and returns a LifeSpace Account URL. The existing trusted Agent/WeCom request/confirm endpoints are not reused as a public OAuth approval transport.
+      security: [{ oauthAgentCoreBearer: [] }]
+      parameters:
+        - { in: path, name: spaceId, required: true, schema: { type: string, pattern: '^spc_' } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [modelKey, operation, reason]
+              properties:
+                modelKey: { type: string, pattern: '^[a-z][a-z0-9_]{1,62}
+    get:
+      description: Account Application's authenticated manager User sees Application-first, Space/Agent candidate combinations derived from current memberships/Agent Data Grants and active Identity bindings. Read-only; not executable capability projection.
+      security: [{ accountUserBearer: [] }]
+      responses:
+        '200': { description: Bounded current candidate choices (at most 100 pairs) }
+        '403': { description: Non-Account or insufficient scope }
+        '503': { description: Identity binding unavailable }
+  /api/v1/me/oauth/capabilities:
+    get:
+      description: >
+        Account-only, current-manager, selected active Agent direct model access
+        upper-bound preview from published Native Model Definition, current
+        Application Model Access, Agent Data Grants, and the exact enabled
+        Core MCP Server operation allowlist. The Account BFF applies the
+        pending OAuth Client's immutable requested Scopes; record-specific
+        Policy and execution-time state must still narrow results. Preview
+        is not runtime authorization proof.
+      security: [{ accountUserBearer: [] }]
+      parameters:
+        - { in: query, name: applicationId, required: true, schema: { type: string, pattern: '^app_' } }
+        - { in: query, name: spaceId, required: true, schema: { type: string, pattern: '^spc_' } }
+        - { in: query, name: agentId, required: true, schema: { type: string, pattern: '^agt_' } }
+        - { in: query, name: resource, required: true, description: Exact current Core MCP Server HTTPS Resource URI from pending Identity OAuth request, schema: { type: string, format: uri } }
+      responses:
+        '200': { description: Read-only, up to 50 currently eligible Native models, allowed model operations (query/create/update/delete), and resourceCapabilityApplied=true; Account must narrow to requested OAuth Scopes }
+        '400': { description: Invalid or duplicate context selector }
+        '403': { description: Account User or current Agent/Space eligibility missing }
+        '503': { description: Identity Agent binding unavailable }
+  /api/v1/me/oauth/spaces/{spaceId}/options:
+    get:
+      description: Account-only authenticated Space manager reads currently eligible Agent/Application candidates for one Space; selection is revalidated on confirm.
+      security: [{ accountUserBearer: [] }]
+      parameters:
+        - { in: path, name: spaceId, required: true, schema: { type: string, pattern: '^spc_' } }
+      responses:
+        '200': { description: Bounded Agent/Application candidates }
+        '403': { description: Missing current Space manage authority }
+  /api/v1/me/oauth/requests/{requestId}/confirm:
+    post:
+      operationId: confirmOAuthConsent
+      description: >
+        A dedicated Account backend submits a verified Identity-signed
+        Account Application user token. Core requires spaces:manage scope and
+        current manage authority for the selected Space. It alone contacts
+        Identity's internal approval boundary. The Agent remains Direct-only
+        unless a separate User Delegation is explicitly approved.
+      security: [{ accountUserBearer: [] }]
+      parameters:
+        - in: path
+          name: requestId
+          required: true
+          schema: { type: string, pattern: '^oar_' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [applicationId, spaceId, agentId, allowUserAuthorization]
+              properties:
+                applicationId: { type: string }
+                spaceId: { type: string, pattern: '^spc_' }
+                agentId: { type: string, pattern: '^agt_' }
+                allowUserAuthorization: { type: boolean }
+      responses:
+        '200':
+          description: User-confirmed Authorization Code redirect to return to the Account BFF; no-store.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: object
+                    required: [authorizationId, redirectUrl]
+                    properties:
+                      authorizationId: { type: string, pattern: '^oaz_' }
+                      redirectUrl: { type: string, format: uri }
+        '400': { description: Invalid request payload }
+        '401': { description: User JWT not authenticated }
+        '403': { description: Not Account user, lacking scope or current Space manage authority }
+        '409': { description: OAuth request expired, replaced or no longer pending }
+        '502': { description: Identity confirmation unavailable or invalid }
+        '503': { description: Trusted Core-to-Identity binding not configured }
+components:
+  securitySchemes:
+    oauthAgentCoreBearer:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Identity-signed 60s exact OAuth Resource Agent execution token, never the public OAuth bearer.
+    accountUserBearer:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Identity-issued user JWT for configured Account Application only; never an OAuth Client credential.
+ }
+                operation: { type: string, enum: [get, query, create, update, delete] }
+                reason: { type: string, minLength: 4, maxLength: 250 }
+      responses:
+        '201': { description: Pending arq and exact Account URL; no Delegation issued }
+        '400': { description: Invalid operation, model, or reason }
+        '403': { description: OAuth opt-in, active Scope or current Server operation missing }
+        '429': { description: Too many pending requests }
+  /api/v1/spaces/{spaceId}/oauth-delegation-requests/{requestId}:
+    get:
+      operationId: currentOAuthMcpDelegationStatus
+      description: OAuth Agent only; exact grant, selected Resource, Space and Agent bound status of its own pending or decided request; returns dlg_* only after a real Account approval.
+      security: [{ oauthAgentCoreBearer: [] }]
+      responses:
+        '200': { description: Current request status and optional approved Delegation id }
+        '404': { description: Other Client, User, Server or Agent's request }
+  /api/v1/me/oauth/delegation-requests/{requestId}:
+    get:
+      operationId: getAccountUserOAuthMcpDelegationRequest
+      description: Verifies exact Account Application User and active OAuth Consent before exposing the bounded request details. A link alone grants no read or approve authority.
+      security: [{ accountUserBearer: [] }]
+      responses:
+        '200': { description: Current exact User-bound request and operation preview }
+        '403': { description: Current OAuth authorization or Server operation revoked }
+        '404': { description: Wrong User or non-Account request }
+  /api/v1/me/oauth/delegation-requests/{requestId}/{decision}:
+    post:
+      operationId: accountDecideOAuthMcpDelegation
+      description: Account User verified by Identity, bound to intended User. POST empty object after same-origin signed CSRF check in Account BFF. approve atomically issues one bounded, single-use dlg_*; deny creates no authority. This does not change trusted in-app or WeCom approval contracts.
+      security: [{ accountUserBearer: [] }]
+      parameters:
+        - { in: path, name: requestId, required: true, schema: { type: string, pattern: '^arq_[a-f0-9]{32}
+    get:
+      description: Account Application's authenticated manager User sees Application-first, Space/Agent candidate combinations derived from current memberships/Agent Data Grants and active Identity bindings. Read-only; not executable capability projection.
+      security: [{ accountUserBearer: [] }]
+      responses:
+        '200': { description: Bounded current candidate choices (at most 100 pairs) }
+        '403': { description: Non-Account or insufficient scope }
+        '503': { description: Identity binding unavailable }
+  /api/v1/me/oauth/capabilities:
+    get:
+      description: >
+        Account-only, current-manager, selected active Agent direct model access
+        upper-bound preview from published Native Model Definition, current
+        Application Model Access, Agent Data Grants, and the exact enabled
+        Core MCP Server operation allowlist. The Account BFF applies the
+        pending OAuth Client's immutable requested Scopes; record-specific
+        Policy and execution-time state must still narrow results. Preview
+        is not runtime authorization proof.
+      security: [{ accountUserBearer: [] }]
+      parameters:
+        - { in: query, name: applicationId, required: true, schema: { type: string, pattern: '^app_' } }
+        - { in: query, name: spaceId, required: true, schema: { type: string, pattern: '^spc_' } }
+        - { in: query, name: agentId, required: true, schema: { type: string, pattern: '^agt_' } }
+        - { in: query, name: resource, required: true, description: Exact current Core MCP Server HTTPS Resource URI from pending Identity OAuth request, schema: { type: string, format: uri } }
+      responses:
+        '200': { description: Read-only, up to 50 currently eligible Native models, allowed model operations (query/create/update/delete), and resourceCapabilityApplied=true; Account must narrow to requested OAuth Scopes }
+        '400': { description: Invalid or duplicate context selector }
+        '403': { description: Account User or current Agent/Space eligibility missing }
+        '503': { description: Identity Agent binding unavailable }
+  /api/v1/me/oauth/spaces/{spaceId}/options:
+    get:
+      description: Account-only authenticated Space manager reads currently eligible Agent/Application candidates for one Space; selection is revalidated on confirm.
+      security: [{ accountUserBearer: [] }]
+      parameters:
+        - { in: path, name: spaceId, required: true, schema: { type: string, pattern: '^spc_' } }
+      responses:
+        '200': { description: Bounded Agent/Application candidates }
+        '403': { description: Missing current Space manage authority }
+  /api/v1/me/oauth/requests/{requestId}/confirm:
+    post:
+      operationId: confirmOAuthConsent
+      description: >
+        A dedicated Account backend submits a verified Identity-signed
+        Account Application user token. Core requires spaces:manage scope and
+        current manage authority for the selected Space. It alone contacts
+        Identity's internal approval boundary. The Agent remains Direct-only
+        unless a separate User Delegation is explicitly approved.
+      security: [{ accountUserBearer: [] }]
+      parameters:
+        - in: path
+          name: requestId
+          required: true
+          schema: { type: string, pattern: '^oar_' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [applicationId, spaceId, agentId, allowUserAuthorization]
+              properties:
+                applicationId: { type: string }
+                spaceId: { type: string, pattern: '^spc_' }
+                agentId: { type: string, pattern: '^agt_' }
+                allowUserAuthorization: { type: boolean }
+      responses:
+        '200':
+          description: User-confirmed Authorization Code redirect to return to the Account BFF; no-store.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: object
+                    required: [authorizationId, redirectUrl]
+                    properties:
+                      authorizationId: { type: string, pattern: '^oaz_' }
+                      redirectUrl: { type: string, format: uri }
+        '400': { description: Invalid request payload }
+        '401': { description: User JWT not authenticated }
+        '403': { description: Not Account user, lacking scope or current Space manage authority }
+        '409': { description: OAuth request expired, replaced or no longer pending }
+        '502': { description: Identity confirmation unavailable or invalid }
+        '503': { description: Trusted Core-to-Identity binding not configured }
+components:
+  securitySchemes:
+    accountUserBearer:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Identity-issued user JWT for configured Account Application only; never an OAuth Client credential.
+ } }
+        - { in: path, name: decision, required: true, schema: { type: string, enum: [approve, deny] } }
+      responses:
+        '200': { description: User-confirmed terminal status, approved Delegation only when explicitly approved }
+        '403': { description: Current OAuth, Account User or requested authority denied }
+        '404': { description: Wrong User, cross-Client or cross-Server request }
+        '409': { description: Expired or already decided request }
   /api/v1/me/oauth/choices:
     get:
       description: Account Application's authenticated manager User sees Application-first, Space/Agent candidate combinations derived from current memberships/Agent Data Grants and active Identity bindings. Read-only; not executable capability projection.
