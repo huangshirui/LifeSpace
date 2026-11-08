@@ -91,6 +91,14 @@ await call("unregistered_resource_rejected", authorize({
 }), {}, 400, "invalid_request");
 await call("unknown_oauth_client_rejected", authorize({}), {}, 400, "invalid_client");
 
+// The public CIMD client used by the current Staging ChatGPT connection is already
+// registered. Alter just the callback PATH on the same HTTPS origin: exact URI
+// matching must reject it before persisting an Authorization Request.
+await call("registered_client_wrong_callback_path_rejected", authorize({
+  client_id: "https://chatgpt.com/oauth/client.json",
+  redirect_uri: "https://chatgpt.com/connector/oauth/unregistered-path-staging-negative",
+}), {}, 400, "invalid_request");
+
 // Intentionally invalid registration must NOT create a Client.
 await call("invalid_redirect_registration_rejected", issuer.origin + "/oauth/register", {
   method: "POST",
@@ -105,6 +113,14 @@ await call("unknown_token_client_rejected", issuer.origin + "/oauth/token",
   form({ grant_type: "authorization_code", client_id: "ocli_ghost_synthetic_no_registration",
     code: "lsp_oac_" + randomBytes(32).toString("base64url"),
     redirect_uri: base.redirect_uri, code_verifier: "a".repeat(64) }), 401, "invalid_client");
+// A registered public Client must also reject a syntactically plausible but
+// never-issued Refresh Token. This proves invalid-token denial, NOT replay of a
+// real consumed Refresh Token (which requires a dedicated live consent).
+await call("registered_client_fake_refresh_token_rejected", issuer.origin + "/oauth/token",
+  form({ grant_type: "refresh_token",
+    client_id: "https://chatgpt.com/oauth/client.json",
+    refresh_token: "lsp_ort_" + randomBytes(32).toString("base64url"),
+    resource: resource.href }), 400, "invalid_grant");
 await call("private_introspection_secret_required", issuer.origin + "/oauth/introspect",
   form({ token: forgedBearer, resource: resource.href }), 401, "invalid_client");
 
