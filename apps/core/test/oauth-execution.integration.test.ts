@@ -94,6 +94,18 @@ async function fixture() {
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     }, bindings);
   };
+  const trustedAgentToken = () => sign({
+    iss:"lifespace-identity",aud:"lifespace-core",sub:agent,azp:application,
+    principal_type:"agent",principal_id:agent,actor_type:"agent",actor_id:agent,
+    purpose:"agent_execution",scope:"resources:read resources:write",
+    iat:now,exp:now+600,jti:"tok_trusted_"+uuid,
+  },key,"RS256");
+  const trustedRequest = async (method:string,path:string,body?:unknown) =>
+    createApp().request("http://localhost"+path,{
+      method,headers:{authorization:"Bearer "+await trustedAgentToken(),
+        ...(body===undefined?{}:{"content-type":"application/json"})},
+      ...(body===undefined?{}:{body:JSON.stringify(body)}),
+    },bindings);
   const accountToken = (userId = oauthUser) => sign({
     iss: "lifespace-identity", aud: "lifespace-core", sub: userId,
     azp: accountApp, principal_type: "user", scope: "profile:read spaces:read spaces:manage",
@@ -107,7 +119,7 @@ async function fixture() {
     },bindings);
   return {
     agent, application, space, other, claims, jwt, request, publicKey, serverId,
-    accountRequest, oauthUser, accountApp, authId, client, resource,
+    accountRequest, trustedRequest, oauthUser, accountApp, authId, client, resource,
     db, setConsentScopes: (v: string[]) => { consentScopes = v; },
     setDelegationEnabled: (enabled: boolean) => { delegationEnabled = enabled; },
     setEnvironment: (v: string) => { bindings.ENVIRONMENT = v; },
@@ -360,6 +372,11 @@ describe("OAuth MCP Agent Direct execution: Core fail-closed route and Space bou
     expect((await f.request("POST",
       "/api/v1/spaces/"+f.space+"/authorization-requests/"+requested.data.id+"/confirm",
       jwtPatch,{principalUserId:f.oauthUser})).status).toBe(403);
+    // Even a genuinely trusted Agent's original approval transport cannot
+    // approve a request created under the third-party OAuth Account channel.
+    expect((await f.trustedRequest("POST",
+      "/api/v1/spaces/"+f.space+"/authorization-requests/"+requested.data.id+"/confirm",
+      {principalUserId:f.oauthUser})).status).toBe(404);
     const before=await f.accountRequest("GET","/api/v1/me/oauth/delegation-requests/"+requested.data.id);
     expect(before.status).toBe(200);
     expect((await f.accountRequest("POST",
