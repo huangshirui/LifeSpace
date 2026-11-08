@@ -45,6 +45,7 @@ export type Principal = {
     // Verified OAuth Consent owner, not an implicit operation Principal.
     userId?: string;
     allowUserAuthorization?: boolean;
+    delegationId?: string;
     // Core-derived per-request MCP Server policy, never an Identity JWT claim.
     serverId?: string;
     queryModelKeys?: string[];
@@ -72,6 +73,8 @@ export type Bindings = CloudflareBindings & {
   CORE_IDENTITY_SHARED_SECRET?: string;
   OAUTH_ACCOUNT_APPLICATION_ID?: string;
   OAUTH_CORE_APPROVER_SECRET?: string;
+  // Same-environment public Account origin, never a trusted approval secret.
+  MCP_DELEGATION_ACCOUNT_ORIGIN?: string;
   ASSETS: R2Bucket;
   R2_S3_ACCOUNT_ID?: string;
   R2_S3_ACCESS_KEY_ID?: string;
