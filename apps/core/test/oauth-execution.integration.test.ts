@@ -238,7 +238,7 @@ describe("OAuth MCP Agent Direct execution: Core fail-closed route and Space bou
     expect((await f.request("POST", path, {}, { modelKeys: ["task"] })).status).toBe(403);
   });
 
-  it("allows staging CRUD only with live write consent, Server operation, Agent Grant and Application Access", async () => {
+  it("allows consented CRUD regardless of environment, bounded by current Server/Grant/Application", async () => {
     const f = await fixture();
     const patch = { scope: "resources:read resources:write" };
     f.setConsentScopes(["resources:read", "resources:write"]);
@@ -271,10 +271,9 @@ describe("OAuth MCP Agent Direct execution: Core fail-closed route and Space bou
     f.setConsentScopes(["resources:read"]);
     expect((await f.request("DELETE", base + "/" + record.id, patch, { version: record.version + 1 })).status).toBe(401);
     f.setConsentScopes(["resources:read", "resources:write"]);
-    // Production remains read-only even for a correctly signed write claim.
+    // Production semantics are not artificially narrowed: current consent,
+    // configured Server operation and Core authority decide the outcome.
     f.setEnvironment("production");
-    expect((await f.request("DELETE", base + "/" + record.id, patch, { version: record.version + 1 })).status).toBe(403);
-    f.setEnvironment("staging");
     expect((await f.request("DELETE", base + "/" + record.id, patch, { version: record.version + 1 })).status).toBe(204);
     expect((await f.request("POST", base, {}, { name: "No write scope" })).status).toBe(403);
     expect((await f.request("POST", base.replace(f.space, f.other), patch, { name: "Cross-Space" })).status).toBe(403);
