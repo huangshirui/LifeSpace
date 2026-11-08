@@ -255,33 +255,39 @@ export async function accountFetch(req, env) {
     }
     const requestInfo = await data(pending);
     if (!requestInfo || requestInfo.id !== requestId || !Array.isArray(requestInfo.requestedScopes)
+      || !safeText(requestInfo.resource, 1024)
       || requestInfo.requestedScopes.some((scope) => typeof scope !== "string" || scope.length > 128)) {
       return fail(502, "IDENTITY_INVALID_RESPONSE", "OAuth Scope 信息不可用");
     }
     const target = "/api/v1/me/oauth/capabilities?" + new URLSearchParams({
-      applicationId: appId, spaceId, agentId,
+      applicationId: appId, spaceId, agentId, resource: requestInfo.resource,
     });
     const source = await boundedUpstream(env, "CORE", target, linked.token);
     if (!source || !source.ok) return fail(source?.status === 403 ? 403 : 503,
       "CAPABILITY_UNAVAILABLE", "无法读取当前 Agent 授权范围");
     const projection = await data(source);
     if (!projection || projection.kind !== "pre_policy_upper_bound"
+      || projection.resourceCapabilityApplied !== true
       || !Array.isArray(projection.models) || projection.models.length > 50
       || projection.models.some((item) => !isObject(item) || !safeText(item.key, 80)
         || !safeText(item.name, 150) || !Array.isArray(item.access)
-        || item.access.some((access) => !["read", "write", "manage"].includes(access)))) {
+        || item.access.some((access) => !["read", "write", "manage"].includes(access))
+        || !Array.isArray(item.operations) || item.operations.length > 5
+        || item.operations.some((op) => !["query", "create", "update", "delete"].includes(op)))) {
       return fail(502, "CORE_INVALID_RESPONSE", "权限投影格式无效");
     }
     const scopes = new Set(requestInfo.requestedScopes);
     return responseJson({ data: {
       kind: "pre_policy_upper_bound",
-      resourceCapabilityApplied: false,
+      resourceCapabilityApplied: true,
       modelPolicyApplied: false,
       nativeModelsOnly: true,
       models: projection.models.map((model) => ({
         key: model.key, name: model.name,
         access: model.access.filter((operation) => scopes.has("resources:" + operation)),
-      })).filter((model) => model.access.length > 0),
+        operations: model.operations.filter((operation) =>
+          scopes.has(operation === "query" ? "resources:read" : "resources:write")),
+      })).filter((model) => model.operations.length > 0),
       truncated: projection.truncated === true,
       requestedScopes: [...scopes],
     } });
