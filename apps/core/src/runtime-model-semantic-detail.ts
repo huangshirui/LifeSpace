@@ -144,12 +144,14 @@ export function registerRuntimeModelSemanticDetailRoutes(app: App): void {
       await consumeSingleUseRead(context.env, decision);
       let mutations: Record<string, unknown> | undefined;
       const operations = execution.modelOperations?.[key]?.filter(op => ["create", "update", "delete"].includes(op)) ?? [];
-      if (principal.scopes.includes("resources:write") && operations.length) {
-        const writable = await requireModelAccess(context.env, principal, spaceId, model, "write").catch(error => {
-          if (error instanceof ApiError && [403, 404, 405].includes(error.status)) return null;
-          throw error;
-        });
-        if (writable) {
+      const configured = execution.modelOperations?.[key] ?? [];
+      const needsWrite = operations.length || configured.some(op => op.startsWith("action:"));
+      const writable = principal.scopes.includes("resources:write") && needsWrite
+        ? await requireModelAccess(context.env, principal, spaceId, model, "write").catch(error => {
+            if (error instanceof ApiError && [403, 404, 405].includes(error.status)) return null;
+            throw error;
+          }) : null;
+      if (writable && operations.length) {
           contract ??= await getActiveModelContract(context.env) ?? await getOrCreateActiveModelContract(context.env);
           const metadata = (contract.jsonSchema["x-lifespace-models"] as Record<string, Record<string, unknown>>)[key];
           if (!metadata || metadata.version !== model.version || metadata.schemaHash !== model.schemaHash) throw opaqueNotFound();
@@ -172,12 +174,10 @@ export function registerRuntimeModelSemanticDetailRoutes(app: App): void {
           }
           mutations = { contractId: contract.id, modelVersion: model.version, schemaHash: model.schemaHash,
             operations: inputs, $defs: selectedDefs };
-        }
       }
-      const configured = execution.modelOperations?.[key] ?? [];
       const modelActions = detail.actions.filter(action => configured.includes("action:" + action.key)
         && principal.scopes.includes(scopeForAccess[action.access as ModelAccess])
-        && (action.access === "read" || Boolean(mutations)));
+        && (action.access === "read" || Boolean(writable)));
       models.push({ modelKey: key, detail: {
         ...detail,
         actions: modelActions,
