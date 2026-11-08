@@ -91,6 +91,14 @@ await call("unregistered_resource_rejected", authorize({
 }), {}, 400, "invalid_request");
 await call("unknown_oauth_client_rejected", authorize({}), {}, 400, "invalid_client");
 
+// The public CIMD client used by the current Staging ChatGPT connection is already
+// registered. Alter just the callback PATH on the same HTTPS origin: exact URI
+// matching must reject it before persisting an Authorization Request.
+await call("registered_client_wrong_callback_path_rejected", authorize({
+  client_id: "https://chatgpt.com/oauth/client.json",
+  redirect_uri: "https://chatgpt.com/connector/oauth/unregistered-path-staging-negative",
+}), {}, 400, "invalid_request");
+
 // Intentionally invalid registration must NOT create a Client.
 await call("invalid_redirect_registration_rejected", issuer.origin + "/oauth/register", {
   method: "POST",
