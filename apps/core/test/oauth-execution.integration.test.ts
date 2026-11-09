@@ -456,6 +456,90 @@ describe("OAuth MCP Agent Direct execution: Core fail-closed route and Space bou
     expect((await f.request("POST",base,represented,{name:"Revoked"},headers)).status).toBe(401);
   });
 
+  it("Account-approved Person Delegation uses only narrow Person Authority and atomically consumes each use", async () => {
+    const f=await fixture();
+    const personBase="/api/v1/spaces/"+f.space+"/people";
+    const requests="/api/v1/spaces/"+f.space+"/oauth-delegation-requests";
+    const now=new Date().toISOString();
+    f.setDelegationEnabled(true);
+    f.setConsentScopes(["resources:read","resources:write"]);
+    await f.db.batch([
+      f.db.prepare("UPDATE mcp_server_definitions SET config_json=? WHERE id=?")
+        .bind(JSON.stringify({models:[],resources:[{resourceKey:"person_directory",
+          operations:["list","get","create","update","delete"]}]}),f.serverId),
+      f.db.prepare("INSERT INTO space_memberships(id,space_id,user_id,role,created_at,updated_at) VALUES(?,?,?,'owner',?,?)")
+        .bind("mem_"+crypto.randomUUID().replaceAll("-",""),f.space,f.oauthUser,now,now),
+    ]);
+    const actor={scope:"resources:read resources:write",oauth_allow_user_authorization:true};
+    const approve=async(operation:string)=>{
+      const applied=await f.request("POST",requests,actor,{
+        modelKey:"person",operation,reason:"User approves exactly one Person operation",
+      });
+      expect(applied.status).toBe(201);
+      const pending=await applied.json() as {data:{id:string;approvalUrl:string}};
+      expect(pending.data.approvalUrl).toContain("/delegation?request_id="+pending.data.id);
+      expect((await f.trustedRequest("POST",
+        "/api/v1/spaces/"+f.space+"/authorization-requests/"+pending.data.id+"/confirm",
+        {principalUserId:f.oauthUser})).status).toBe(404);
+      expect((await f.accountRequest("POST",
+        "/api/v1/me/oauth/delegation-requests/"+pending.data.id+"/approve",{},"usr_unrelated")).status).toBe(404);
+      const granted=await f.accountRequest("POST",
+        "/api/v1/me/oauth/delegation-requests/"+pending.data.id+"/approve",{});
+      expect(granted.status).toBe(200);
+      const body=await granted.json() as {data:{delegations:Array<{id:string}>}};
+      const id=body.data.delegations[0]!.id;
+      const narrow=await f.db.prepare("SELECT target_type,target_id,max_access FROM delegation_scopes WHERE delegation_id=?")
+        .bind(id).first<{target_type:string;target_id:string;max_access:string}>();
+      expect(narrow).toMatchObject({target_type:"model",target_id:"person_directory",
+        max_access:["query","get"].includes(operation)?"read":"write"});
+      return {id,claims:{...actor,principal_type:"user",principal_id:f.oauthUser,oauth_delegation_id:id},
+        headers:{"x-lifespace-delegation-id":id}};
+    };
+    const create=await approve("create");
+    const made=await f.request("POST",personBase,create.claims,
+      {displayName:"Synthetic One",alternateNames:["Alias"]},create.headers);
+    expect(made.status).toBe(201);
+    const created=await made.json() as {data:{id:string;version:number}};
+    expect(created.data.id).toMatch(/^per_/u);
+    const change=await f.db.prepare("SELECT principal_type,principal_id,actor_type,actor_id,delegation_id FROM space_person_changes WHERE person_id=? AND operation='create'")
+      .bind(created.data.id).first<Record<string,string>>();
+    expect(change).toMatchObject({principal_type:"user",principal_id:f.oauthUser,actor_type:"agent",
+      actor_id:f.agent,delegation_id:create.id});
+    expect((await f.request("POST",personBase,create.claims,{displayName:"Replay"},create.headers)).status).toBe(403);
+    expect((await f.request("POST","/api/v1/spaces/"+f.space+"/models/task/records",
+      create.claims,{name:"Must never inherit Task rights"},create.headers)).status).toBe(404);
+
+    const query=await approve("query");
+    expect((await f.request("GET",personBase+"?q=Synthetic",query.claims,undefined,query.headers)).status).toBe(200);
+    expect((await f.request("GET",personBase,query.claims,undefined,query.headers)).status).toBe(403);
+    const get=await approve("get");
+    expect((await f.request("GET",personBase+"/"+created.data.id,get.claims,undefined,get.headers)).status).toBe(200);
+    expect((await f.request("GET",personBase+"/"+created.data.id,get.claims,undefined,get.headers)).status).toBe(403);
+    const update=await approve("update");
+    const edited=await f.request("PATCH",personBase+"/"+created.data.id,update.claims,
+      {version:created.data.version,displayName:"Synthetic Updated"},update.headers);
+    expect(edited.status).toBe(200);
+    expect((await f.request("PATCH",personBase+"/"+created.data.id,update.claims,
+      {version:created.data.version,displayName:"Replay"},update.headers)).status).toBe(403);
+    const next=await edited.json() as {data:{version:number}};
+    const del=await approve("delete");
+    expect((await f.request("DELETE",personBase+"/"+created.data.id,del.claims,
+      {version:next.data.version},del.headers)).status).toBe(204);
+    expect((await f.request("DELETE",personBase+"/"+created.data.id,del.claims,
+      {version:next.data.version},del.headers)).status).toBe(403);
+
+    // Unavailable or revoked Person authority cannot be approved.
+    await f.db.prepare("DELETE FROM space_memberships WHERE user_id=? AND space_id=?")
+      .bind(f.oauthUser,f.space).run();
+    const pending=await f.request("POST",requests,actor,{
+      modelKey:"person",operation:"create",reason:"Request after Person authority revoked",
+    });
+    expect(pending.status).toBe(201);
+    const p=await pending.json() as {data:{id:string}};
+    expect((await f.accountRequest("POST",
+      "/api/v1/me/oauth/delegation-requests/"+p.data.id+"/approve",{})).status).toBe(403);
+  });
+
   it("projects ordinary model operations through one opaque Core tool catalog and rechecks on invocation", async () => {
     const f=await fixture();
     const base="/api/v1/spaces/"+f.space;

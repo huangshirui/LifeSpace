@@ -1,5 +1,18 @@
 # Space Person Directory
 
+## Third-party Account-approved Person Delegation / 第三方 Person 委托（待 CI 与 Staging 验收）
+
+Core represents Person Directory to third-party MCP consumers as the normal public `modelKey:person` operation subset: `query` (Kernel list), `get`, `create`, `update`, `delete`. The underlying existing Kernel routes, Person data, independent Grant and linked User restrictions do **not** change.
+
+An untrusted OAuth MCP Agent can request an exact one-use `arq_*` for `modelKey:person` and a single operation allowed by the current MCP Server `resources.person_directory` selection. The intended User confirms on LifeSpace Account (never through trusted `principalUserId` transport). Core issues a **narrow model target** `target_type=model,target_id=person_directory` and rechecks live User Person Directory `read/write` authority; it is **not** a Space-target Delegation and cannot authorize another ordinary Model or Space management. Represented execution always has Principal=User, Actor=Agent, the same Application/Client/Resource/Space binding and an explicit `dlg_*` selector.
+
+Only the OAuth MCP execution profile accepts this narrow Person target; existing trusted Agent API Person execution still requires its established Space target. The `space_person_change_delegations` trigger atomically consumes single-use write authority with each committed `pchg_*`; Person reads consume after lookup before returning. Person linked-User self-service/Admin/membership ownership checks remain unchanged.
+
+The three Core Delegation lifetime forms are generic: `maxUses:1` for single-use, `expiresAt` without a max-uses ceiling for repeated time-limited authorization, and no `expiresAt` / no max-uses for long-lived authorization until current authority loss or revocation. **Third-party Account-link requests continue to issue only one-use Delegations** in this batch; the generic Core ability is not a grant to untrusted clients to request longer leases.
+
+**Release truth:** implementation in candidate branches, not deployed nor real-browser accepted yet.
+
+
 Status: Candidate for Core Kernel 0.47.0
 
 Space Person (`per_*`) is Kernel-owned Shared Reality. It is the stable same-Space identity anchor used by metadata-driven `person` / `person_list` fields, Reference Projection, Membership linkage and Person-facing applications. It is not an ordinary Model Registry model.

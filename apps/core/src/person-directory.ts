@@ -310,9 +310,17 @@ async function requireDirectoryAccess(
   if (chain.length) {
     const needed = required === "write" ? permissionRank.write : permissionRank.read;
     for (const row of chain) {
+      const legacySpace = row.delegation_target_type === "space"
+        && row.delegation_target_id === spaceId;
+      // OAuth third-party Person Delegation has the strictly narrower
+      // Kernel-only target. Existing trusted Agent API Space-target behavior
+      // is unchanged; neither mode receives a broader Space permission.
+      const oauthPerson = authenticated.purpose === "oauth_agent_execution"
+        && Boolean(authenticated.actor)
+        && row.delegation_target_type === "model"
+        && row.delegation_target_id === "person_directory";
       if (
-        row.delegation_target_type !== "space"
-        || row.delegation_target_id !== spaceId
+        !(legacySpace || oauthPerson)
         || permissionRank[row.delegation_max_access] < needed
       ) {
         throw new ApiError(

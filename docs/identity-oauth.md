@@ -1,5 +1,12 @@
 # Identity Interactive OAuth Authorization Server / 交互式 OAuth 授权服务
 
+## 2026-11-09 · Person Directory Account Delegation / 第三方网页 Person 授权（候选）
+
+For `modelKey:person`, the third-party OAuth MCP Agent can request exactly the current Server-selected `query/get/create/update/delete` operations. Core internally maps `query` to Kernel `list` and `modelKey:person` to a narrow `model:person_directory` Delegation target; it is never a broad `space` grant. After independent Account User approval, Core enforces current Person Data Grant/Membership and linked User restrictions, signed Principal=User / Actor=Agent, current OAuth Consent/Client/Resource and one-use replay prevention. The existing trusted ALOHA/verified WeCom Agent confirmation path remains unchanged. This adds no new route, database schema, or Agent/Identity credential type.
+
+Core supports generic lifetime modes (one-use, time-limited repeated, and indefinite revocable). The **third-party Account-link confirmation UX remains intentionally one-use only**, not a lifetime chooser. The prospective Person behavior is **not Production / deployed Staging** until the exact SHA is promoted and real OAuth E2E is verified.
+
+
 ## 2026-11-08 · Third-party OAuth MCP User Delegation / 第三方网页确认（待 Staging 真实验收）
 
 - Third-party Client access does not imply User Principal. The initial OAuth account page only records `allowUserAuthorization` eligibility; `resources:write` is a separate client Scope. Agent Direct remains `Principal=Actor=Agent`.

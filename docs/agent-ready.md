@@ -1,5 +1,18 @@
 # Agent-ready Authority and Change
 
+## 2026-11-09 · Delegation 的三种时效形式 / Lifetime modes
+
+| Type / 类型 | Generic Core constraints | Effective behavior |
+| --- | --- | --- |
+| 一次性 / Single-use | `maxUses:1` (optionally with `expiresAt`) | At most one successful in-Core business execution; mutation is consumed atomically with Change, reads conditionally before returning |
+| 限时可重复 / Time-bounded repeated | `expiresAt:<future RFC3339>`, no `maxUses` | Repeat use only while the current principal still has authority, until expiry or revocation |
+| 长期可撤销 / Long-lived revocable | Neither `maxUses` nor `expiresAt` | May be used while current scopes, Space/Data Grants, Application policy and all delegation chain constraints still permit; revocation takes effect immediately |
+
+These are supported by the generic Core Delegation and trusted Authorization Request APIs, **not automatically offered by every consumer UI**. In particular, a third-party OAuth MCP `arq_*` approved on LifeSpace Account currently always issues `maxUses:1` plus a short `expiresAt`; it does not expose a client-selected time-bounded or indefinite privilege. Do not confuse initial OAuth client Consent or Refresh Token lifetime with the separate Core User Delegation lifetime.
+
+Third-party Person Directory represented execution uses a narrow `model:person_directory` scope, approved only by the independent Account channel and checked against the current Person Grant. Trusted Agent API behavior retains its original Space-target Person profile. No third-party Channel may silently borrow trusted Agent confirmation identity claims.
+
+
 Status: **Active platform authority specification**.
 
 ## 中文摘要
