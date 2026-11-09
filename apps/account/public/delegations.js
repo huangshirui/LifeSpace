@@ -31,7 +31,8 @@ async function revoke(item,button){
 function render(item){
   const article=document.createElement("article");article.className="card";
   const title=document.createElement("h3");title.textContent=item.modelKey+" · "+item.operation;
-  article.append(title,line("Agent",item.agentId),line("Application",item.applicationId),
+  article.append(title,line("OAuth Client",item.clientId),line("MCP Resource",item.resource),
+    line("Agent",item.agentId),line("Application",item.applicationId),
     line("Space",item.spaceId),line("授权方式",item.mode==="once"?"一次性":item.mode==="timed"?"限时可重复":"长期直到撤销"),
     line("创建时间",new Date(item.createdAt).toLocaleString()),
     line("到期时间",item.expiresAt?new Date(item.expiresAt).toLocaleString():"不会自动到期"));
