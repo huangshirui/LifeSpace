@@ -61,7 +61,8 @@ function fixture(requestedScopes = ["resources:read"]) {
       if (path === "/api/v1/me/oauth/delegations") {
         assert.equal(new URL(req.url).searchParams.get("offset"),"0");
         return Response.json({data:{items:[{
-          id:dlg,applicationId:app,spaceId:space,agentId:agent,modelKey:"task",
+          id:dlg,applicationId:app,spaceId:space,agentId:agent,clientId:"ocli_client1",
+          resource:"https://mcp.example.test/mcp/tasks",modelKey:"task",
           operation:"create",createdAt:"2026-11-09T00:00:00.000Z",
           expiresAt:null,mode:"until_revoked",
         }],nextOffset:null}});
@@ -237,6 +238,7 @@ test("third-party web Delegation requires signed Account session, CSRF and expli
   assert.equal(link.status,200);
   const request=(await link.json()).data;
   assert.equal(request.operation,"create");
+  assert.equal(request.clientId,"ocli_client1");
   assert.equal(request.reason,"Create one authorized task");
   assert.ok(!JSON.stringify(request).includes(issuerToken));
   assert.equal((await t.request("/api/delegation/request?request_id=arq_forged")).status,400);
@@ -287,7 +289,10 @@ test("Account lifetime selection is explicit, bounded, CSRF-protected, and revoc
   assert.equal(t.calls.filter(x=>x.service==="core-approval").length,5);
   const listing=await t.request("/api/delegations?offset=0");
   assert.equal(listing.status,200);
-  assert.deepEqual((await listing.json()).data.items[0].mode,"until_revoked");
+  const listed=(await listing.json()).data.items[0];
+  assert.equal(listed.mode,"until_revoked");
+  assert.equal(listed.clientId,"ocli_client1");
+  assert.equal(listed.resource,"https://mcp.example.test/mcp/tasks");
   assert.equal((await t.request("/api/delegations?offset=-1")).status,400);
   assert.equal((await t.request("/api/delegations/revoke",{method:"POST",
     headers:valid,body:JSON.stringify({intent:"revoke-user-delegation",delegationId:"dlg_forged"})})).status,503);
