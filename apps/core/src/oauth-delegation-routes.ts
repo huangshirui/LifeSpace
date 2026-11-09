@@ -175,7 +175,7 @@ async function load(env: Bindings, id: string) {
   if (details.results.length !== 1 || details.results[0]?.target_type !== "model"
     || details.results[0]?.target_id !== delegationTarget(binding.modelKey)
     || details.results[0]?.max_access !== accessOf(binding.operation,binding.requestedAccess)
-    || ![1,null].includes(details.results[0]?.max_uses)
+    || (details.results[0]?.max_uses !== 1 && details.results[0]?.max_uses !== null)
     || (details.results[0]?.delegation_expires_at !== null
       && !Number.isFinite(Date.parse(details.results[0]!.delegation_expires_at!)))
     || details.results[0]?.remaining_redelegation_depth !== 0) throw fail();
