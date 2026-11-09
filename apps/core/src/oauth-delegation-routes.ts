@@ -96,7 +96,8 @@ async function serverOperation(env: Bindings, resource: string, spaceId: string,
   if (model.definition.origin === "external") {
     if (ACTION.test(operation)) throw fail();
     const bound=await getExternalModel(env,spaceId,modelKey);
-    if (!bound || bound.status!=="active" || !bound.snapshot.capabilities[operation]
+    const externalOperation=operation as "get"|"query"|"create"|"update"|"delete";
+    if (!bound || bound.status!=="active" || !bound.snapshot.capabilities[externalOperation]
       || (accessOf(operation)==="write" && bound.declared_access!=="write")) throw fail();
     // Provider writes are not atomic with Core D1. The current third-party
     // bridge issues maxUses=1 and cannot truthfully promise at-most-once
