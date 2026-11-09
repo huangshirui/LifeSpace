@@ -1,5 +1,10 @@
 # Agent-ready Authority and Change
 
+## 2026-11-09 · Provider write attempt exception / 外部系统写入例外
+
+The generic native/Kernel single-use rule below consumes on **one successful, atomic in-Core Change**. External Provider write is deliberately different because the Provider's commit cannot join Core D1: the Product Owner explicitly chose one authorized **outbound write attempt**, even if the Provider fails or returns an uncertain outcome. After current authority and local input/audit preflight, Core conditionally consumes `maxUses:1` before Provider I/O; no automatic retry under that Delegation, and the user must reapprove a later attempt. External audit remains `succeeded | failed | unknown`. This does not widen current Grants or make an external write transaction atomic, and does not modify Person/Native single-use mutation behavior.
+
+
 ## 2026-11-09 · Delegation 的三种时效形式 / Lifetime modes
 
 | Type / 类型 | Generic Core constraints | Effective behavior |

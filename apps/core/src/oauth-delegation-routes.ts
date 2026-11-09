@@ -116,12 +116,10 @@ async function serverOperation(env: Bindings, resource: string, spaceId: string,
     const externalOperation=operation as "get"|"query"|"create"|"update"|"delete";
     if (!bound || bound.status!=="active" || !bound.snapshot.capabilities[externalOperation]
       || (accessOf(operation)==="write" && bound.declared_access!=="write")) throw fail();
-    // Provider writes are not atomic with Core D1. The current third-party
-    // bridge issues maxUses=1 and cannot truthfully promise at-most-once
-    // External mutation. Direct Agent execution remains independently allowed.
-    if (accessOf(operation)==="write") throw new ApiError(
-      "EXTERNAL_SINGLE_USE_UNSUPPORTED",
-      "A single-use delegated External write cannot be guaranteed",422);
+    // Single-use External mutations are permitted. The Core External
+    // Runtime consumes current Delegation in D1 BEFORE one Provider write
+    // attempt; error/timeout never releases the Delegation. The Account
+    // approval binds the same exact operation, scope, Client and Space.
   } else {
     const action=ACTION.exec(operation);
     const required:Access = action

@@ -1,5 +1,10 @@
 # Identity Interactive OAuth Authorization Server / 交互式 OAuth 授权服务
 
+## 2026-11-09 · Third-party External delegated write attempt / 第三方外部写入授权（待部署）
+
+The Owner decided that a one-use OAuth MCP `arq_*` → Account-confirmed `dlg_*` may authorize a Provider-backed External write when the current MCP Server operation, OAuth Scope, User authority, Application Model Access, Space/Data Grant, Core bound Model/Provider and current record policy permit it. **One User approval means one external write attempt, regardless of outcome**, not one successful remote commit. Core consumes the approved one-use Delegation before Provider I/O, prevents replay/auto-retry, audits unknown outcomes, and requires a new Account approval for any subsequent attempt. A timeout may have modified the Provider; inspect current state before reapproval where possible. No trusted ALOHA/verified-WeCom UX changes and no new lifetime modes: Account still issues one-use only.
+
+
 ## 2026-11-09 · Person Directory Account Delegation / 第三方网页 Person 授权（候选）
 
 For `modelKey:person`, the third-party OAuth MCP Agent can request exactly the current Server-selected `query/get/create/update/delete` operations. Core internally maps `query` to Kernel `list` and `modelKey:person` to a narrow `model:person_directory` Delegation target; it is never a broad `space` grant. After independent Account User approval, Core enforces current Person Data Grant/Membership and linked User restrictions, signed Principal=User / Actor=Agent, current OAuth Consent/Client/Resource and one-use replay prevention. The existing trusted ALOHA/verified WeCom Agent confirmation path remains unchanged. This adds no new route, database schema, or Agent/Identity credential type.

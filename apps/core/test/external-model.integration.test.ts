@@ -965,31 +965,101 @@ describe("Space-local External Model framework", () => {
     expect(f.metric.d1).toBe(4);
   });
 
-  it("single-use external delegated writes fail closed", async () => {
-    const f = await fixture();
-    await f.authorize();
-    const agent = "agt_synthetic";
-    const issue = await f.request(
-      `/api/v1/spaces/${f.space}/delegations`,
-      "POST",
-      {
-        actor: { type: "agent", id: agent },
-        scope: { target: { type: "model", id: f.model }, maxAccess: "write" },
-        constraints: { maxUses: 1 },
-      },
-    );
-    expect(issue.status).toBe(201);
-    const delegation = ((await issue.json()) as any).data.id;
-    const delegated = await f.token(f.user, "user", ["resources:write"], agent);
-    f.state.calls = [];
-    expect(
-      (
-        await f.request(f.path, "POST", { [field]: 2 }, delegated, {
-          "x-lifespace-delegation-id": delegation,
-        })
-      ).status,
-    ).toBe(422);
+  it("single-use External Delegation permits exactly one Provider write attempt, consumed before success or failure", async () => {
+    const f=await fixture();await f.authorize();
+    const agent="agt_synthetic";
+    const issue=async()=>{
+      const res=await f.request("/api/v1/spaces/"+f.space+"/delegations","POST",{
+        actor:{type:"agent",id:agent},
+        scope:{target:{type:"model",id:f.model},maxAccess:"write"},
+        constraints:{maxUses:1},
+      });
+      expect(res.status).toBe(201);
+      return ((await res.json()) as any).data.id as string;
+    };
+    const delegated=await f.token(f.user,"user",["resources:write"],agent);
+    const attempt=async(id:string,input:Record<string,unknown>={[field]:2})=>
+      f.request(f.path,"POST",input,delegated,{"x-lifespace-delegation-id":id});
+    const state=async(id:string)=>f.db.prepare("SELECT consumed_at FROM delegations WHERE id=?")
+      .bind(id).first<{consumed_at:string|null}>();
+    const audit=async(id:string)=>f.db.prepare(
+      "SELECT result FROM external_operation_audit WHERE delegation_id=? ORDER BY occurred_at DESC LIMIT 1")
+      .bind(id).first<{result:string}>();
+
+    const successful=await issue();
+    f.state.calls=[];
+    expect((await attempt(successful)).status).toBe(201);
+    expect(f.state.calls).toEqual(["create"]);
+    expect((await state(successful))?.consumed_at).not.toBeNull();
+    expect((await audit(successful))?.result).toBe("succeeded");
+    expect((await attempt(successful)).status).toBe(403);
+    expect(f.state.calls).toEqual(["create"]);
+
+    // Failure at Provider still consumes User authorization; no hidden retry.
+    const failed=await issue();
+    f.state.error="EXTERNAL_UNAVAILABLE";
+    f.state.calls=[];
+    const failure=await attempt(failed);
+    expect(failure.status).toBeGreaterThanOrEqual(400);
+    expect(f.state.calls).toEqual(["create"]);
+    expect((await state(failed))?.consumed_at).not.toBeNull();
+    expect((await audit(failed))?.result).toBe("unknown");
+    expect((await attempt(failed)).status).toBe(403);
+    expect(f.state.calls).toEqual(["create"]);
+
+    // A new independent User Delegation may authorize another attempt.
+    f.state.error=null;
+    const reapproved=await issue();
+    expect((await attempt(reapproved)).status).toBe(201);
+    expect((await state(reapproved))?.consumed_at).not.toBeNull();
+
+    // Invalid payload is rejected locally before Provider I/O and before
+    // the authorization is used. This is not an outbound write attempt.
+    const invalid=await issue();
+    f.state.calls=[];
+    expect((await attempt(invalid,{unknown:1})).status).toBeGreaterThanOrEqual(400);
     expect(f.state.calls).toEqual([]);
+    expect((await state(invalid))?.consumed_at).toBeNull();
+  });
+
+  it("concurrent External single-use attempts allow only one Provider call, no safe automatic retry", async () => {
+    const f=await fixture();await f.authorize();
+    const agent="agt_synthetic";
+    const issue=await f.request("/api/v1/spaces/"+f.space+"/delegations","POST",{
+      actor:{type:"agent",id:agent},
+      scope:{target:{type:"model",id:f.model},maxAccess:"write"},
+      constraints:{maxUses:1},
+    });
+    expect(issue.status).toBe(201);
+    const delegation=((await issue.json()) as any).data.id as string;
+    const token=await f.token(f.user,"user",["resources:write"],agent);
+    const attempt=()=>f.request(f.path,"POST",{[field]:5},token,{"x-lifespace-delegation-id":delegation});
+    f.state.calls=[];
+    const results=await Promise.all([attempt(),attempt()]);
+    expect(results.map(r=>r.status).sort((a,b)=>a-b)).toEqual([201,403]);
+    expect(f.state.calls).toEqual(["create"]);
+    const consumed=await f.db.prepare("SELECT consumed_at FROM delegations WHERE id=?")
+      .bind(delegation).first<{consumed_at:string|null}>();
+    expect(consumed?.consumed_at).toBeTruthy();
+
+    const retry=await f.request("/api/v1/spaces/"+f.space+"/delegations","POST",{
+      actor:{type:"agent",id:agent},
+      scope:{target:{type:"model",id:f.model},maxAccess:"write"},
+      constraints:{maxUses:1},
+    });
+    expect(retry.status).toBe(201);
+    const retryId=((await retry.json()) as any).data.id as string;
+    f.state.mismatch=1;
+    f.state.calls=[];
+    const response=await f.request(f.path,"POST",{[field]:6},token,
+      {"x-lifespace-delegation-id":retryId});
+    expect(response.status).toBeGreaterThanOrEqual(400);
+    // Although the Provider claimed retrySafe schema drift, a one-use
+    // approval never issues a second outbound write attempt.
+    expect(f.state.calls).toEqual(["create"]);
+    const once=await f.db.prepare("SELECT consumed_at FROM delegations WHERE id=?")
+      .bind(retryId).first<{consumed_at:string|null}>();
+    expect(once?.consumed_at).toBeTruthy();
   });
 
   it("records local synthetic latency and structural costs separately from live Provider SLA", async () => {

@@ -493,12 +493,6 @@ export async function executeExternalOperation(
   let m = model;
   const write =
     operation === "create" || operation === "update" || operation === "delete" || operation === "upload";
-  if (write && decision.authority.singleUse)
-    throw new ApiError(
-      "EXTERNAL_SINGLE_USE_UNSUPPORTED",
-      "External writes cannot atomically consume single-use Delegation",
-      422,
-    );
   if (
     !(operation === "upload" ? externalUploadAvailable(m, input) : m.snapshot.capabilities[operation]) ||
     (write && m.declared_access !== "write")
@@ -545,6 +539,14 @@ export async function executeExternalOperation(
       };
     };
     let prepared = await prepare();
+    // Owner-approved rule for Provider-backed writes: one Delegation
+    // permits ONE outbound write ATTEMPT, regardless of its outcome.
+    // Consume the entire valid single-use chain atomically in Core D1
+    // after schema/permission/audit preflight, BEFORE Provider I/O. If
+    // consumption fails, no Provider call may start. On timeout/error it
+    // stays consumed and a new Account authorization is required.
+    if (write && decision.authority.singleUse)
+      await consumeSingleUseRead(env, decision);
     let result: unknown;
     try {
       result = await callExternalAdapter(
@@ -560,7 +562,8 @@ export async function executeExternalOperation(
       if (
         !(error instanceof ExternalError) ||
         error.code !== "EXTERNAL_SCHEMA_CHANGED" ||
-        !error.retrySafe
+        !error.retrySafe ||
+        (write && decision.authority.singleUse)
       )
         throw error;
       m = await refreshExternalModel(env, m);
