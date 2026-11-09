@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "LifeSpace Account OAuth Consent BFF",
-    "version": "0.1.0",
+    "version": "0.2.0",
     "description": "Same-origin, Cloudflare Access-authenticated User Consent. Browser never receives LifeSpace user bearer or privileged application credentials. All mutations have same-origin, Fetch Metadata, CSRF and current Core Authority gates. Independently supports third-party OAuth MCP link-based one-time User Delegation review; trusted app and WeCom approval channels remain unmodified."
   },
   "paths": {
@@ -219,7 +219,7 @@
     "/api/delegation/approve": {
       "post": {
         "summary": "Approve one pending third-party OAuth MCP User Delegation through authenticated Account session",
-        "description": "Requires verified Account User JWT, same-origin request, User-bound signed CSRF cookie/header, explicit intent and requestId. Does not expose or alter trusted in-app or WeCom approval APIs.",
+        "description": "Requires signed Account User, same-origin CSRF and explicit User-selected lifetime. Once is default; timed 1/24/168 hours (max 7 days); until_revoked is indefinite but revocable.",
         "requestBody": {
           "required": true,
           "content": {
@@ -238,6 +238,22 @@
                   "requestId": {
                     "type": "string",
                     "pattern": "^arq_[a-f0-9]{32}$"
+                  },
+                  "mode": {
+                    "type": "string",
+                    "enum": [
+                      "once",
+                      "timed",
+                      "until_revoked"
+                    ]
+                  },
+                  "durationMinutes": {
+                    "type": "integer",
+                    "enum": [
+                      60,
+                      1440,
+                      10080
+                    ]
                   }
                 }
               }
@@ -312,6 +328,76 @@
           },
           "409": {
             "description": "Expired, consumed or already finalized Authorization Request"
+          }
+        }
+      }
+    },
+    "/api/delegations": {
+      "get": {
+        "summary": "List current Account-approved third-party OAuth MCP Delegations",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9999
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Only own current active OAuth MCP delegations"
+          },
+          "401": {
+            "description": "Account session required"
+          },
+          "503": {
+            "description": "Core unavailable"
+          }
+        }
+      }
+    },
+    "/api/delegations/revoke": {
+      "post": {
+        "summary": "Revoke an Account User's own third-party OAuth MCP Delegation",
+        "description": "Account session, same-origin and CSRF required. Works when original OAuth Authorization is revoked.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "intent",
+                  "delegationId"
+                ],
+                "properties": {
+                  "intent": {
+                    "type": "string",
+                    "const": "revoke-user-delegation"
+                  },
+                  "delegationId": {
+                    "type": "string",
+                    "pattern": "^dlg_[A-Za-z0-9_-]+$"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Delegation revoked"
+          },
+          "403": {
+            "description": "Invalid CSRF"
+          },
+          "404": {
+            "description": "Not owned or no longer active"
           }
         }
       }
