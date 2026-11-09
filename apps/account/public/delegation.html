@@ -23,15 +23,27 @@
 <p class="subline"><span>Resource</span><code id="resource"></code></p>
 </section>
 <section class="card">
-<div class="section-title"><div><h2>申请执行什么？</h2><p>这次确认仅允许指定操作，最多成功执行一次。</p></div></div>
+<div class="section-title"><div><h2>申请执行什么？</h2><p>授权只针对下列模型与操作；修改或删除可能影响模型内多条记录。</p></div></div>
 <p class="subline"><span>数据模型</span><strong id="model"></strong></p>
 <p class="subline"><span>操作</span><strong id="operation"></strong></p>
 <p class="subline"><span>申请原因</span><span id="reason"></span></p>
 <p class="subline"><span>申请有效期</span><span id="expiry"></span></p>
+
+<fieldset class="modes" aria-label="选择委托授权期限">
+<legend>本次委托授权期限 <small>Delegation lifetime</small></legend>
+<label class="radio-row"><input type="radio" name="delegation-mode" value="once" checked><span><strong>仅这一次（默认）</strong><small>最多一次执行，批准后 30 分钟内有效</small></span></label>
+<label class="radio-row"><input type="radio" name="delegation-mode" value="timed"><span><strong>限时授权，可重复执行</strong><small>只针对上述模型及操作，到期自动失效</small></span></label>
+<label for="duration">限时有效期</label><select id="duration" disabled>
+<option value="60">1 小时</option><option value="1440">24 小时</option><option value="10080">7 天</option>
+</select>
+<label class="radio-row"><input type="radio" name="delegation-mode" value="until_revoked"><span><strong>长期授权，直到撤销</strong><small>允许反复执行该模型操作；不会自动到期</small></span></label>
+</fieldset>
+<p id="lifetime-warning" class="capability-note">授权仅允许执行一次，且仍会实时检查 OAuth、用户权限及模型策略。</p>
+<p class="capability-note">限时与长期授权可能持续修改该模型内多条记录。仅在信任客户端且确实需要持续代办时选择。<a href="/delegations" target="_blank" rel="noopener noreferrer">管理或撤销已批准授权</a>。</p>
 <p class="capability-note">提交后仍需要满足你当前的 Space / Model 权限、Application 访问限制和记录 Policy。你可拒绝或撤销 Delegation；确认链接本身不是授权凭证。</p>
 </section>
 <footer class="actions"><div class="signed-user" id="user"></div><div class="buttons"><button id="deny" type="button" class="ghost">拒绝</button><button id="approve" type="button" class="primary">允许这一次</button></div></footer>
 </div>
-<div id="done" class="state hidden" role="status" aria-live="polite"><strong id="done-title"></strong><p id="done-message"></p><p>请返回原来的 Agent 对话继续。</p></div>
+<div id="done" class="state hidden" role="status" aria-live="polite"><strong id="done-title"></strong><p id="done-message"></p><p>请返回原来的 Agent 对话继续，或前往 <a href="/delegations">授权管理</a> 撤销。</p></div>
 </main>
 </body></html>
