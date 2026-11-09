@@ -456,6 +456,78 @@ describe("OAuth MCP Agent Direct execution: Core fail-closed route and Space bou
     expect((await f.request("POST",base,represented,{name:"Revoked"},headers)).status).toBe(401);
   });
 
+  it("Account User can grant bounded repeated / long-lived exact operation and revoke without OAuth consent", async () => {
+    const f=await fixture();
+    const base="/api/v1/spaces/"+f.space+"/models/task/records";
+    const requests="/api/v1/spaces/"+f.space+"/oauth-delegation-requests";
+    const now=new Date().toISOString();
+    f.setDelegationEnabled(true);
+    f.setConsentScopes(["resources:read","resources:write"]);
+    await f.setServerOperations(["query","get","create"]);
+    await f.db.batch([
+      f.db.prepare("INSERT INTO space_memberships(id,space_id,user_id,role,created_at,updated_at) VALUES(?,?,?,'owner',?,?)")
+        .bind("mem_"+crypto.randomUUID().replaceAll("-",""),f.space,f.oauthUser,now,now),
+      f.db.prepare("UPDATE application_model_access SET max_access='write' WHERE application_id=? AND model_key='task'")
+        .bind(f.application),
+    ]);
+    const actor={scope:"resources:read resources:write",oauth_allow_user_authorization:true};
+    const issue=async()=>{
+      const result=await f.request("POST",requests,actor,{
+        modelKey:"task",operation:"create",reason:"Repeated governed task creation",
+      });
+      expect(result.status).toBe(201);
+      return (await result.json() as {data:{id:string}}).data.id;
+    };
+    const approvalPath=(id:string)=>"/api/v1/me/oauth/delegation-requests/"+id+"/approve";
+    const first=await issue();
+    for(const bad of [{mode:"timed",durationMinutes:30},{mode:"until_revoked",durationMinutes:60},
+      {mode:"timed",durationMinutes:"60"},{mode:"admin"}]){
+      expect((await f.accountRequest("POST",approvalPath(first),bad)).status).toBe(400);
+    }
+    const timed=await f.accountRequest("POST",approvalPath(first),{mode:"timed",durationMinutes:60});
+    expect(timed.status).toBe(200);
+    const timedId=(await timed.json() as {data:{delegations:Array<{id:string}>}}).data.delegations[0]!.id;
+    const timedRow=await f.db.prepare("SELECT max_uses,expires_at FROM delegations WHERE id=?")
+      .bind(timedId).first<{max_uses:number|null;expires_at:string|null}>();
+    expect(timedRow?.max_uses).toBeNull();
+    expect(Date.parse(timedRow!.expires_at!)).toBeGreaterThan(Date.now());
+    const delegated=(id:string)=>({...actor,principal_type:"user",principal_id:f.oauthUser,oauth_delegation_id:id});
+    const header=(id:string)=>({"x-lifespace-delegation-id":id});
+    expect((await f.request("POST",base,delegated(timedId),{name:"Timed first"},header(timedId))).status).toBe(201);
+    expect((await f.request("POST",base,delegated(timedId),{name:"Timed second"},header(timedId))).status).toBe(201);
+    expect((await f.request("POST",base+"/query",delegated(timedId),{limit:1},header(timedId))).status).toBe(404);
+    // Expiry is a current-state authority check; the same signed delegation cannot extend it.
+    await f.db.prepare("UPDATE delegations SET expires_at=? WHERE id=?")
+      .bind("2020-01-01T00:00:00.000Z",timedId).run();
+    expect((await f.request("POST",base,delegated(timedId),{name:"After expiry"},header(timedId))).status).toBe(403);
+
+    const second=await issue();
+    const indefinite=await f.accountRequest("POST",approvalPath(second),{mode:"until_revoked"});
+    expect(indefinite.status).toBe(200);
+    const longId=(await indefinite.json() as {data:{delegations:Array<{id:string}>}}).data.delegations[0]!.id;
+    const longRow=await f.db.prepare("SELECT max_uses,expires_at FROM delegations WHERE id=?")
+      .bind(longId).first<{max_uses:number|null;expires_at:string|null}>();
+    expect(longRow?.max_uses).toBeNull();
+    expect(longRow?.expires_at).toBeNull();
+    const listed=await f.accountRequest("GET","/api/v1/me/oauth/delegations");
+    expect(listed.status).toBe(200);
+    const listData=await listed.json() as {data:{items:Array<{id:string;mode:string}>}};
+    expect(listData.data.items).toEqual(expect.arrayContaining([
+      expect.objectContaining({id:longId,mode:"until_revoked"}),
+    ]));
+    expect((await f.accountRequest("POST","/api/v1/me/oauth/delegations/"+longId+"/revoke",{},"usr_other")).status).toBe(404);
+    expect((await f.request("POST",base,delegated(longId),{name:"Long first"},header(longId))).status).toBe(201);
+    expect((await f.request("POST",base,delegated(longId),{name:"Long second"},header(longId))).status).toBe(201);
+    f.setActive(false);
+    // A revoked OAuth Authorization must block execution, but never block User revocation.
+    expect((await f.request("POST",base,delegated(longId),{name:"OAuth revoked"},header(longId))).status).toBe(401);
+    const revoked=await f.accountRequest("POST","/api/v1/me/oauth/delegations/"+longId+"/revoke",{});
+    expect(revoked.status).toBe(200);
+    expect((await f.accountRequest("POST","/api/v1/me/oauth/delegations/"+longId+"/revoke",{})).status).toBe(404);
+    const noLong=await f.accountRequest("GET","/api/v1/me/oauth/delegations");
+    expect((await noLong.json() as {data:{items:Array<{id:string}>}}).data.items.some(x=>x.id===longId)).toBe(false);
+  });
+
   it("Account-approved Person Delegation uses only narrow Person Authority and atomically consumes each use", async () => {
     const f=await fixture();
     const personBase="/api/v1/spaces/"+f.space+"/people";
