@@ -220,7 +220,8 @@ export async function accountFetch(req, env) {
     const preview = await data(source);
     if (!preview || preview.id !== requestId || !DELEGATION_REQUEST.test(preview.id)
       || !SPACE.test(preview.spaceId || "") || !AGENT.test(preview.agentId || "")
-      || !APPLICATION.test(preview.applicationId || "") || !safeText(preview.modelKey, 70)
+      || !APPLICATION.test(preview.applicationId || "") || !safeText(preview.clientId, 1024)
+      || !safeText(preview.modelKey, 70)
       || !["get", "query", "create", "update", "delete"].includes(preview.operation)
       || !["pending", "approved", "denied", "expired"].includes(preview.status)
       || !safeText(preview.resource, 1024) || !safeText(preview.reason, 300)
@@ -230,7 +231,7 @@ export async function accountFetch(req, env) {
     return responseJson({ data: {
       id:preview.id, status:preview.status, applicationId:preview.applicationId,
       spaceId:preview.spaceId, agentId:preview.agentId,
-      resource:preview.resource, modelKey:preview.modelKey,
+      clientId:preview.clientId, resource:preview.resource, modelKey:preview.modelKey,
       operation:preview.operation, reason:preview.reason,
       expiresAt:preview.expiresAt,
     } });
@@ -249,7 +250,8 @@ export async function accountFetch(req, env) {
       || (page.nextOffset!==null && (!Number.isInteger(page.nextOffset) || page.nextOffset<0))
       || page.items.some(item=>!isObject(item) || !DELEGATION_ID.test(item.id||"")
         || !APPLICATION.test(item.applicationId||"") || !SPACE.test(item.spaceId||"")
-        || !AGENT.test(item.agentId||"") || !safeText(item.modelKey,70)
+        || !AGENT.test(item.agentId||"") || !safeText(item.clientId,1024)
+        || !safeText(item.resource,1024) || !safeText(item.modelKey,70)
         || !safeText(item.operation,90) || !safeText(item.createdAt,80)
         || !(item.expiresAt===null || safeText(item.expiresAt,80))
         || !APPROVAL_MODES.has(item.mode))) {
