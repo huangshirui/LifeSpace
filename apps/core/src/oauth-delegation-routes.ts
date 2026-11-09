@@ -308,7 +308,8 @@ export function registerOAuthDelegationRoutes(app: App): void {
     const items=rows.results.slice(0,50).map(row=>{
       const binding=JSON.parse(row.correlation_json) as Binding;
       return {id:row.id,applicationId:row.application_id,spaceId:row.source_space_id,
-        agentId:row.actor_id,modelKey:binding.modelKey,operation:binding.operation,
+        agentId:row.actor_id,clientId:binding.clientId,resource:binding.resource,
+        modelKey:binding.modelKey,operation:binding.operation,
         createdAt:row.created_at,expiresAt:row.expires_at,
         mode:row.max_uses===1?"once":row.expires_at?"timed":"until_revoked"};
     });
