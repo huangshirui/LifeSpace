@@ -653,15 +653,32 @@ describe("OAuth MCP Agent Direct execution: Core fail-closed route and Space bou
     await f.setServerOperations(["query","create"]);
     f.setConsentScopes(["resources:read","resources:write"]);
     const claims={scope:"resources:read resources:write"};
+    const readOnly={scope:"resources:read"};
+    // Discoverability and executability differ: existing Agent write Grants
+    // may be advertised for an explicit OAuth Scope upgrade, but a read token
+    // must never execute a mutation.
+    const previewRead=await f.request("GET",base+"/_discovery/operations",readOnly);
+    expect(previewRead.status).toBe(200);
+    const readCatalog=await previewRead.json() as {data:{operations:Array<{
+      modelKey:string;operation:string;operationRef:string;requiredScopes:string[];
+    }>}};
+    const pendingWrite=readCatalog.data.operations.find(x=>x.modelKey==="task"&&x.operation==="create");
+    expect(pendingWrite?.requiredScopes).toEqual(["resources:read","resources:write"]);
+    const beforeRead=await f.request("GET",base+"/_discovery/operations",readOnly);
+    expect(beforeRead.status).toBe(200);
+    expect((await f.request("POST",base+"/_operations/"+pendingWrite!.operationRef+"/invoke",readOnly,{
+      arguments:{spaceId:f.space,data:{name:"Must not write with only read Scope"}},
+    })).status).toBe(403);
     const projected=await f.request("GET",base+"/_discovery/operations",claims);
     expect(projected.status).toBe(200);
     const body=await projected.json() as {data:{operations:Array<{
-      modelKey:string;operation:string;operationRef:string;inputSchema:{
+      modelKey:string;operation:string;operationRef:string;requiredScopes:string[];inputSchema:{
         properties:Record<string,unknown>;$defs?:Record<string,unknown>;
       };
     }>}};
     const create=body.data.operations.find(o=>o.modelKey==="task"&&o.operation==="create");
     expect(create).toBeDefined();
+    expect(create?.requiredScopes).toEqual(["resources:read","resources:write"]);
     expect(create?.inputSchema.properties.data).toMatchObject({$ref:expect.stringMatching(/^#\/\$defs\//u)});
     expect(create?.inputSchema.$defs).toBeDefined();
     const mutation=await f.request("POST",base+"/_operations/"+create!.operationRef+"/invoke",claims,{
@@ -687,6 +704,15 @@ describe("OAuth MCP Agent Direct execution: Core fail-closed route and Space bou
     ).bind("grt_person_"+crypto.randomUUID().replaceAll("-",""),f.space,f.agent,"usr_synthetic",new Date().toISOString()).run();
     f.setConsentScopes(["resources:read","resources:write"]);
     const patch={scope:"resources:read resources:write"};
+    const previewRead=await f.request("GET",base+"/_discovery/operations",{scope:"resources:read"});
+    expect(previewRead.status).toBe(200);
+    const personPreview=await previewRead.json() as {data:{operations:Array<{
+      modelKey:string;operation:string;operationRef:string;requiredScopes:string[];
+    }>}};
+    const personCreate=personPreview.data.operations.find(x=>x.modelKey==="person"&&x.operation==="create");
+    expect(personCreate?.requiredScopes).toEqual(["resources:read","resources:write"]);
+    expect((await f.request("POST",base+"/_operations/"+personCreate!.operationRef+"/invoke",
+      {scope:"resources:read"},{arguments:{spaceId:f.space,data:{displayName:"Read must not create"}}})).status).toBe(403);
     const preview=await f.request("GET",base+"/_discovery/operations",patch);
     expect(preview.status).toBe(200);
     const found=await preview.json() as {data:{operations:Array<{
@@ -727,6 +753,13 @@ describe("OAuth MCP Agent Direct execution: Core fail-closed route and Space bou
     expect(preview.status).toBe(200);
     const before=await preview.json() as {data:{operations:Array<{operation:string;modelKey:string}>}};
     expect(before.data.operations.filter(op=>op.modelKey==="person").map(op=>op.operation))
+      .toEqual(["query","get"]);
+    // The opposite direction is also important: a token with write Scope
+    // does not advertise any ungranted Person write operation.
+    const readTokenBefore=await f.request("GET",base+"/_discovery/operations",{scope:"resources:read"});
+    expect(readTokenBefore.status).toBe(200);
+    const readOnlyPerson=await readTokenBefore.json() as {data:{operations:Array<{operation:string;modelKey:string}>}};
+    expect(readOnlyPerson.data.operations.filter(op=>op.modelKey==="person").map(op=>op.operation))
       .toEqual(["query","get"]);
     await f.db.prepare("UPDATE data_grants SET permission='write' WHERE id=?").bind(grantId).run();
     const after=await f.request("GET",base+"/_discovery/operations",patch);

@@ -1,3 +1,9 @@
+## 2026-11-09 · MCP OAuth discoverability versus execution / 授权范围与工具发现（待 Staging 验收）
+
+Generic Operation Projection `apps/core/mcp-operations.openapi.yaml` advances from Candidate 0.1.0 to 0.2.0. Its new required `requiredScopes` descriptor field distinguishes a currently discoverable operation from one executable by the current OAuth token. Core may preview a write operation requiring explicit OAuth step-up only after checking the same Agent's already-current underlying write authority; the actual read-only token cannot execute it. The Core-owned prerequisite survives across Native, Person, External, and Action surfaces without Adapter-local authority decisions. The Adapter maps this to per-tool `securitySchemes`, and insufficient-scope calls fail with HTTP 403 and the RFC 6750/MCP `WWW-Authenticate` step-up challenge. An additional tool-result `mcp/www_authenticate` hint is compatibility metadata, never execution authority. Upgrade requires a new explicit Client OAuth request and Account user approval; no silent Scope widening.
+
+**Deployment order:** Stage Core before the matching MCP Adapter; previous Adapter ignores the newly added field, whereas the new Adapter requires it and fails closed when absent. Existing OAuth tokens keep their original Scope, so after Staging deployment reauthorization must be performed by a client actually requesting write Scope. Real MCP E2E and independent User Delegation lifetime/revocation tests are still release gates, not implied by CI.
+
 # LifeSpace Contract Strategy
 
 ## 2026-11-09 · Unified current Operation Projection candidate / 通用操作投影契约

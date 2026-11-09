@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: LifeSpace Core Generic Operations (Candidate)
-  version: 0.1.0
+  version: 0.2.0
   description: |
     Protocol-neutral, authenticated operation projection for the current OAuth
     MCP Agent execution context. This contract is Core-owned. Internal Native,
@@ -15,12 +15,17 @@ paths:
   /api/v1/spaces/{spaceId}/_discovery/operations:
     get:
       operationId: discoverCurrentSpaceOperations
-      summary: Current authorized Model operations / 当前授权模型操作目录
+      summary: Current discoverable Model operations / 当前可发现模型操作目录
       description: |
         Projects only the current selected Space, Core MCP Server operation
-        configuration, current OAuth token scopes, Application Model Access,
-        Space/Data Grants, Kernel Person authority, Provider capability and
-        model policy. The result is a preview, not an authority lease.
+        configuration, the OAuth credential's read Scope, current Application
+        Model Access, Space/Data Grants, Kernel Person authority, Provider
+        capability and model policy. When the current Agent already has
+        independent write authority, a read-only OAuth token may discover a
+        write operation with requiredScopes including resources:write. This
+        allows a standards-compliant OAuth client to request explicit step-up
+        authorization without receiving execution authority or an implied
+        User Delegation. The result is a preview, never an authority lease.
       parameters:
         - $ref: '#/components/parameters/spaceId'
       responses:
@@ -56,6 +61,8 @@ paths:
         revalidates the exact Server/Space/Model operation and current actor,
         OAuth, Application, Data Grant, Policy and model-specific capabilities
         before dispatching through the existing canonical Kernel/Model APIs.
+        Any missing descriptor requiredScopes produces HTTP 403 even when the
+        operation was visible with a narrower OAuth token.
         Current candidate accepts Agent Direct; exact User-delegated operation
         equivalence requires a separate hardened authorization gate.
       parameters:
@@ -105,14 +112,26 @@ components:
     OperationDescriptor:
       type: object
       additionalProperties: false
-      required: [modelKey, display, operation, operationRef, inputSchema, title, description]
+      required: [modelKey, display, operation, operationRef, inputSchema, title, description, requiredScopes]
       properties:
         modelKey: { type: string, pattern: '^[a-z][a-z0-9_]{1,62}$' }
         display: { type: string, minLength: 1 }
         operation:
           type: string
           pattern: '^(query|get|create|update|delete|action:[a-z][a-z0-9_-]{0,62})$'
-        operationRef: { type: string, pattern: '^op_[a-f0-9]{64}$' }
+        operationRef: { type: string, pattern: '^op_[a-f0-9]{64}
+          type: object
+          description: Core-owned JSON Schema; no provider or origin fields
+        title: { type: string, minLength: 1 }
+        description: { type: string }
+ }
+        requiredScopes:
+          type: array
+          minItems: 1
+          maxItems: 2
+          uniqueItems: true
+          items: { type: string, enum: ['resources:read', 'resources:write'] }
+          description: Credential scopes required to execute; not proof of any Grant
         inputSchema:
           type: object
           description: Core-owned JSON Schema; no provider or origin fields

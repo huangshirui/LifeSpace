@@ -20,7 +20,8 @@ type Access="read"|"write";
 type Kind="native"|"external"|"person"|"action";
 type Operation="query"|"get"|"create"|"update"|"delete"|`action:${string}`;
 type Contract={ contractId?:string; modelKey:string; display:string; operation:Operation;
-  operationRef:string; inputSchema:Record<string,unknown>; title:string; description:string; };
+  operationRef:string; inputSchema:Record<string,unknown>; title:string; description:string;
+  requiredScopes:string[]; };
 type Entry={dto:Contract;kind:Kind;target:string;actionKey?:string};
 type JsonSchema=Record<string,unknown>;
 const MODEL=/^[a-z][a-z0-9_]{1,62}$/u;
@@ -92,14 +93,24 @@ function personData(op:Operation):JsonSchema {
   if(op==="delete")return {type:"object",additionalProperties:false,properties:{version},required:["version"]};
   return {type:"object",additionalProperties:false};
 }
+// Discovery may preview an already-granted Agent write capability even when
+// this OAuth token currently carries only read Scope. This is a local
+// hypothetical credential-Scope probe, NOT a minted token or authorization:
+// real invocation below and canonical handlers always use the original
+// authenticated Principal and recheck every current authority boundary.
+function discoveryPrincipal(p:Principal,access:Access):Principal {
+  if(access==="write"&&!p.scopes.includes("resources:write"))
+    return {...p,scopes:[...p.scopes,"resources:write"]};
+  return p;
+}
 async function may(env:Bindings,p:Principal,spaceId:string,model:Parameters<typeof requireModelAccess>[3],access:Access) {
-  if(!p.scopes.includes("resources:"+access))return false;
-  try {await requireModelAccess(env,p,spaceId,model,access);return true;}
+  if(!p.scopes.includes("resources:read"))return false;
+  try {await requireModelAccess(env,discoveryPrincipal(p,access),spaceId,model,access);return true;}
   catch(e){if(e instanceof ApiError&&[403,404,405].includes(e.status))return false;throw e;}
 }
 async function personMay(env:Bindings,p:Principal,spaceId:string,access:Access) {
-  if(!p.scopes.includes("resources:"+access))return false;
-  try {await requirePersonDirectoryPermission(env,p,spaceId,access);return true;}
+  if(!p.scopes.includes("resources:read"))return false;
+  try {await requirePersonDirectoryPermission(env,discoveryPrincipal(p,access),spaceId,access);return true;}
   catch(e){if(e instanceof ApiError&&[403,404].includes(e.status))return false;throw e;}
 }
 async function manifest(c:ContextApp):Promise<Entry[]>{
@@ -118,7 +129,7 @@ async function manifest(c:ContextApp):Promise<Entry[]>{
       ??(await getOrCreateActiveModelContract(c.env));
     return contractCache;
   };
-  const push=async(kind:Kind,modelKey:string,display:string,operation:Operation,data?:JsonSchema,actionKey?:string)=>{
+  const push=async(kind:Kind,modelKey:string,display:string,operation:Operation,data?:JsonSchema,actionKey?:string,access:Access=["query","get"].includes(operation)?"read":"write")=>{
     if(out.length>=MAX_OPERATIONS)throw new ApiError("OPERATION_LIMIT","Too many configured MCP operations",413);
     const opRef=await ref([policy.serverId,spaceId,modelKey,operation,kind].join(":"));
     const dataSchema=operationSchema(spaceId,operation,data);
@@ -126,6 +137,7 @@ async function manifest(c:ContextApp):Promise<Entry[]>{
     out.push({kind,target:modelKey,actionKey,
       dto:{modelKey,display,operation,operationRef:opRef,
         inputSchema:dataSchema,title:toolOp+" "+display,
+        requiredScopes:access==="read"?["resources:read"]:["resources:read","resources:write"],
         description:"LifeSpace "+toolOp+". Current Core Resource, Space, Model, Policy and Delegation are revalidated at execution."}});
   };
   for(const [key, configured]of Object.entries(policy.modelOperations)){
@@ -189,11 +201,15 @@ async function manifest(c:ContextApp):Promise<Entry[]>{
       }else if(op.startsWith("action:")){
         const actionKey=op.slice(7);
         const action=semantic.actions.find(a=>a.key===actionKey);
-        if(!action||!(action.access==="read"?read:write))continue;
+        // OAuth MCP advertises only read/write credential scopes. A published
+        // manage-only Action must stay unavailable instead of being silently
+        // downgraded to write in the projected tool contract.
+        if(!action||(action.access!=="read"&&action.access!=="write")
+          ||!(action.access==="read"?read:write))continue;
         await push("action",key,names(semantic.display.singular),op as Operation,
           action.kind==="workflow"
             ?{type:"object",additionalProperties:false,properties:{version},required:["version"]}
-            :{type:"object",description:"Published Capability action input, validated by Core."},actionKey);
+            :{type:"object",description:"Published Capability action input, validated by Core."},actionKey,action.access==="read"?"read":"write");
       }
     }
   }
@@ -271,6 +287,11 @@ export function registerMcpGenericOperationRoutes(app:Hono<AppEnv>):void {
     if(!args||typeof args!=="object"||Array.isArray(args))throw denied();
     const item=(await manifest(c)).find(op=>op.dto.operationRef===c.req.param("operationRef"));
     if(!item)throw denied();
+    // A discoverable write operation is not executable with a read-only token.
+    // Scope upgrade is an independent OAuth consent; do not pass the preview
+    // Principal through to the canonical operation or the provider.
+    if(!item.dto.requiredScopes.every(scope=>c.get("principal").scopes.includes(scope)))
+      throw new ApiError("CREDENTIAL_SCOPE_INSUFFICIENT","OAuth write Scope required",403);
     const {method,path,body}=targetRequest(c,item,args as Record<string,unknown>);
     const headers=new Headers({authorization:c.req.header("authorization")||"",
       accept:"application/json",...(body===undefined?{}:{"content-type":"application/json"})});

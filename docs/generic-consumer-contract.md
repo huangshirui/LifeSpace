@@ -1,3 +1,11 @@
+## 2026-11-09 · OAuth Scope-aware operation discovery / OAuth 范围升级与发现（Candidate）
+
+A **discoverable** Operation is not the same as an **executable** Operation. For an Identity-verified OAuth Agent carrying `resources:read`, Core may disclose a currently configured write Operation **only when that same Agent already has the required independent current Application × Model Access and Space/Data Grant (or independent Person Directory Grant)**. The limited scope is evaluated as a **hypothetical preview input only** to the existing Core permission evaluator; it is not an authorization grant, minted credential, persisted permission, or new effective execution Principal. Only a currently configured MCP Server operation, publishable/model-compatible schema, supported Provider capability, and current independent Grant may be projected. Without a matching Grant or current enabled Server operation the tool stays absent even if the OAuth client requested read/write.
+
+Every operation descriptor now includes canonical `requiredScopes` (read for Query/Get; read+write for Change operations; Action Scope follows Core's published Action access), in addition to `operationRef`, `modelKey`, `inputSchema`, and display metadata. This is a **protocol-neutral capability prerequisite**, not a client-provided value or an Authority Decision. At `_operations/{operationRef}/invoke`, Core again checks the **actual, unmodified** authenticated Principal's scopes before canonical inner execution, and the inner model/Person/External route rechecks all current operation authorization. OAuth clients may request extra Scope only through user consent; read-only bearer tokens must never execute or implicitly gain write.
+
+The MCP Adapter must project this Core-owned scope contract (rather than deriving an independent list from model origin or operation naming), use HTTP 403 `WWW-Authenticate: Bearer ... error="insufficient_scope"` per generic MCP/OAuth, and may additionally include MCP tool-result `_meta["mcp/www_authenticate"]` as an optional client compatibility signal. The original protected-resource RFC 9728 metadata and 401 discovery remain authoritative for any client. This intentionally does not encode ChatGPT-specific plan semantics in LifeSpace.
+
 # LifeSpace Generic Consumer Contract
 
 ## 2026-11-08 · Unified operation projection for protocol adapters / 统一操作投影
