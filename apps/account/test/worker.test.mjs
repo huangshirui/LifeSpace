@@ -9,6 +9,7 @@ const agent = "agt_" + "c".repeat(32);
 const app = "app_" + "d".repeat(32);
 const access = "a".repeat(50) + ".b.c";
 const issuerToken = "test-identity-user-token";
+const dlg = "dlg_" + "e".repeat(32);
 
 function fixture(requestedScopes = ["resources:read"]) {
   const calls = [];
@@ -48,8 +49,29 @@ function fixture(requestedScopes = ["resources:read"]) {
       if (path === "/api/v1/me/oauth/delegation-requests/" + arq + "/approve"
         || path === "/api/v1/me/oauth/delegation-requests/" + arq + "/deny") {
         assert.equal(req.method,"POST");
-        assert.deepEqual(await req.json(), {});
+        const approval=await req.json();
+        if(path.endsWith("/deny"))assert.deepEqual(approval,{});
+        else assert.ok(JSON.stringify(approval)==="{}"
+          || approval.mode==="once"
+          || approval.mode==="until_revoked"
+          || (approval.mode==="timed" && [60,1440,10080].includes(approval.durationMinutes)));
+        calls.push({service:"core-approval",path,payload:approval});
         return Response.json({data:{id:arq,status:path.endsWith("/approve")?"approved":"denied"}});
+      }
+      if (path === "/api/v1/me/oauth/delegations") {
+        assert.equal(new URL(req.url).searchParams.get("offset"),"0");
+        return Response.json({data:{items:[{
+          id:dlg,applicationId:app,spaceId:space,agentId:agent,clientId:"ocli_client1",
+          resource:"https://mcp.example.test/mcp/tasks",modelKey:"task",
+          operation:"create",createdAt:"2026-11-09T00:00:00.000Z",
+          expiresAt:null,mode:"until_revoked",
+        }],nextOffset:null}});
+      }
+      if (path === "/api/v1/me/oauth/delegations/" + dlg + "/revoke") {
+        assert.equal(req.method,"POST");
+        assert.deepEqual(await req.json(),{});
+        calls.push({service:"core-revoke",path});
+        return Response.json({data:{id:dlg,revoked:true}});
       }
       if (path === "/api/v1/me/oauth/capabilities") {
         const query = new URL(req.url).searchParams;
@@ -216,6 +238,7 @@ test("third-party web Delegation requires signed Account session, CSRF and expli
   assert.equal(link.status,200);
   const request=(await link.json()).data;
   assert.equal(request.operation,"create");
+  assert.equal(request.clientId,"ocli_client1");
   assert.equal(request.reason,"Create one authorized task");
   assert.ok(!JSON.stringify(request).includes(issuerToken));
   assert.equal((await t.request("/api/delegation/request?request_id=arq_forged")).status,400);
@@ -241,6 +264,45 @@ test("third-party web Delegation requires signed Account session, CSRF and expli
   assert.equal(forged.status,400);
   // Existing OAuth consent and trusted n8n/WeCom routes remain independent.
   assert.equal(t.calls.filter(x=>x.path.includes("/authorization-requests/")).length,0);
+});
+
+test("Account lifetime selection is explicit, bounded, CSRF-protected, and revocable", async () => {
+  const t=fixture();
+  const session=await t.request("/api/session");
+  const valid=mutatingHeaders((await session.json()).data.csrfToken,
+    session.headers.get("set-cookie").split(";")[0]);
+  const approve=async mode=>t.request("/api/delegation/approve",{
+    method:"POST",headers:valid,
+    body:JSON.stringify({intent:"approve-user-delegation",requestId:arq,...mode}),
+  });
+  for(const mode of [{mode:"once"},{mode:"timed",durationMinutes:60},
+    {mode:"timed",durationMinutes:1440},{mode:"timed",durationMinutes:10080},
+    {mode:"until_revoked"}]) {
+    assert.equal((await approve(mode)).status,200);
+  }
+  for(const invalid of [
+    {mode:"timed",durationMinutes:15},{mode:"timed",durationMinutes:10081},
+    {mode:"until_revoked",durationMinutes:60},{mode:"unknown"},
+    {mode:"once",durationMinutes:60},{mode:"timed",durationMinutes:"60"},
+    {mode:"until_revoked",principalUserId:"usr_other"},
+  ])assert.equal((await approve(invalid)).status,400);
+  assert.equal(t.calls.filter(x=>x.service==="core-approval").length,5);
+  const listing=await t.request("/api/delegations?offset=0");
+  assert.equal(listing.status,200);
+  const listed=(await listing.json()).data.items[0];
+  assert.equal(listed.mode,"until_revoked");
+  assert.equal(listed.clientId,"ocli_client1");
+  assert.equal(listed.resource,"https://mcp.example.test/mcp/tasks");
+  assert.equal((await t.request("/api/delegations?offset=-1")).status,400);
+  assert.equal((await t.request("/api/delegations/revoke",{method:"POST",
+    headers:valid,body:JSON.stringify({intent:"revoke-user-delegation",delegationId:"dlg_forged"})})).status,503);
+  assert.equal((await t.request("/api/delegations/revoke",{method:"POST",headers:valid,
+    body:JSON.stringify({intent:"revoke-user-delegation",delegationId:dlg,userId:"usr_other"})})).status,400);
+  const revoked=await t.request("/api/delegations/revoke",{method:"POST",headers:valid,
+    body:JSON.stringify({intent:"revoke-user-delegation",delegationId:dlg})});
+  assert.equal(revoked.status,200);
+  assert.equal((await revoked.json()).data.revoked,true);
+  assert.equal(t.calls.filter(x=>x.service==="core-revoke").length,1);
 });
 
 test("missing Access proof and missing Account configuration fail closed", async () => {

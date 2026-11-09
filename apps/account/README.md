@@ -24,3 +24,9 @@ Staging readiness: run `node apps/account/scripts/check-staging-readiness.mjs` w
 The owner-triggered Account Staging workflow generates its two dedicated Staging secrets on the protected runner (no manual secret-copy step); each redeploy rotates CSRF sessions and the shared Core↔Identity Staging approval secret. Original existing platform staging credentials are still required.
 
 Staging deployment is intentionally **not** performed by this PR; domain/Access registration and Core/Identity release convergence must be confirmed first. Run `pnpm --filter @lifespace/account check` for local tests and Worker dry-run.
+
+## Third-party OAuth User Delegation lifetime choices (2026-11-09 candidate)
+
+The Account `/delegation?request_id=arq_*` page offers the user (not the OAuth Agent) once (default, 30-minute one-use), timed (1 hour / 24 hours / 7 days of repeated exact-model-operation use), or indefinite until revoked. This is a second consent event, not the initial OAuth execution-mode switch. All decisions require the current Account User session, strict Origin/Fetch Metadata, signed CSRF and Core's fresh authority checks. A recurring authorization remains bounded to the approved Client, Resource, Space, model and operation; it is not a general write grant.
+
+`/delegations` and its Account BFF APIs list and revoke the signed-in User's active `oauth_mcp` delegations independently of current OAuth status. Revocation does not undo previous writes. This is development source, not deployment proof.

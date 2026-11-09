@@ -1,3 +1,9 @@
+## Third-party Delegation lifetime extension (2026-11-09 / development)
+
+For `modelKey:person`, the Account User may explicitly select once, bounded repeated (1h / 24h / 7d), or revocable indefinite authorization on the **same exact Person Directory operation**. Generic Core Person Directory authority and linked User restrictions are unchanged. The default stays once; no OAuth Agent selects or silently renews a longer lifetime. Only the intended Account User can approve and later revoke their active `dlg_*`.
+
+This updates the earlier one-use-only historical description below; not Staging-accepted or Production.
+
 # Space Person Directory
 
 ## Third-party Account-approved Person Delegation / 第三方 Person 委托（待 CI 与 Staging 验收）

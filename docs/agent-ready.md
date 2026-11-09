@@ -1,3 +1,9 @@
+## 2026-11-09 · Third-party Account-controlled Delegation lifetimes (candidate / 待验收)
+
+Core's existing generic Delegation lifetime forms are now exposed to third-party OAuth MCP users **only via an independently authenticated LifeSpace Account approval page**, as proposed in [PR #505](https://github.com/huangshirui/LifeSpace/pull/505): once (default, maxUses=1, 30-minute TTL); time-limited repeated exact-operation use (1h/24h/7d); or indefinite until revoked. The OAuth Agent is never permitted to choose this lifetime. The selected Client/Application/Resource/Space/Agent/model/operation binding, verified Principal=User and Actor=Agent, current OAuth authority, user Grant, model policy and record constraints remain effective at every execution. Long-lived grants are listed and revocable by the authenticated Account User even after OAuth disconnect.
+
+For External Provider writes, **one-use** grants are still consumed before a single outbound attempt regardless of outcome; repeated/indefinite grants may authorize multiple separate Provider attempts and do not add cross-system atomicity or exactly-once guarantees. This candidate is not Staging/Production deployment proof. Older one-use-only notes below describe the historical release.
+
 # Agent-ready Authority and Change
 
 ## 2026-11-09 · Provider write attempt exception / 外部系统写入例外

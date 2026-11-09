@@ -430,7 +430,7 @@
     {
       "id": "core-account-oauth-consent",
       "source": "apps/core/oauth-consent.openapi.yaml",
-      "operationSetSha256": "sha256:bdaaf5654baece514a52020b89338ad6b30de63f29d1c559756f96656336cad1",
+      "operationSetSha256": "sha256:1a15ae182fbb822dc05f9212d69a9465f13406197c9926e350f3a3bf8ba546f2",
       "groups": [
         {
           "id": "core-account-consent-confirm",
@@ -456,13 +456,20 @@
           "maturity": "candidate",
           "visibility": "internal",
           "commitment": "OAuth Agent pending requests and Account-only human confirmation separate from trusted Agent request approval."
+        },
+        {
+          "id": "core-third-party-oauth-delegation-management",
+          "operationPattern": "^(GET /api/v1/me/oauth/delegations|POST /api/v1/me/oauth/delegations/\\{delegationId\\}/revoke)$",
+          "maturity": "candidate",
+          "visibility": "internal",
+          "commitment": "Account User alone may list/revoke own third-party OAuth Delegation independently of current OAuth consent and without affecting trusted channels."
         }
       ]
     },
     {
       "id": "account-consent-bff",
       "source": "apps/account/openapi.json",
-      "operationSetSha256": "sha256:b1a685bb6009a8dcfd0798e4be7f0f398f6f5457fd232100ff09261d9b9edede",
+      "operationSetSha256": "sha256:5b3aa1ba6359e94e12a2533a694de7df2bfc1bd17750a939cf2c19f7481bea85",
       "groups": [
         {
           "id": "account-oauth-consent",
@@ -482,6 +489,13 @@
           "maturity": "candidate",
           "visibility": "internal",
           "commitment": "Third-party Agent link-based Account review with verified User and CSRF; no client-side approval."
+        },
+        {
+          "id": "account-third-party-oauth-delegation-management",
+          "operationPattern": "^(GET /api/delegations|POST /api/delegations/revoke)$",
+          "maturity": "candidate",
+          "visibility": "internal",
+          "commitment": "Account BFF exposes User-only CSRF-bound revocation and current active Delegation list with no agent self-approval."
         }
       ]
     }

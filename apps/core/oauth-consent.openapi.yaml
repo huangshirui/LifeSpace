@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: LifeSpace Core Account OAuth Consent Bridge
-  version: 0.1.0
+  version: 0.2.0
   description: >
     Candidate Account-only, user-session-bound OAuth consent confirmation.
     Core verifies current Space manage authority, then calls Identity through a
@@ -67,18 +67,63 @@ paths:
       operationId: accountDecideOAuthMcpDelegation
       description: >
         Identity-confirmed Account User, same-origin and CSRF checked by
-        Account BFF. Approve atomically issues one short-lived, single-use
-        dlg_*; Deny grants no authority. Does not modify trusted in-app
+        Account BFF. Approve atomically issues a User-selected single-use,
+        time-limited repeated-use (1h/24h/7d), or until-revoked dlg_*.
+        Only the authenticated Account User may choose the lifetime;
+        omission retains the legacy single-use default. Deny grants no authority. Does not modify trusted in-app
         or WeCom confirmation contracts.
       security: [{ accountUserBearer: [] }]
       parameters:
         - { in: path, name: requestId, required: true, schema: { type: string, pattern: '^arq_' } }
         - { in: path, name: decision, required: true, schema: { type: string, enum: [approve, deny] } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                mode: { type: string, enum: [once, timed, until_revoked] }
+                durationMinutes: { type: integer, enum: [60, 1440, 10080] }
+              description: >
+                mode timed requires one of the listed durationMinutes values.
+                Other modes prohibit durationMinutes. Empty object means once.
       responses:
-        '200': { description: Explicit User-confirmed decision and optional single-use Delegation }
+        '200': { description: User-confirmed decision with chosen Delegation lifetime }
         '403': { description: OAuth, Account User or requested authority denied }
         '404': { description: Wrong User or cross-Client request }
         '409': { description: Expired or previously finalized request }
+  /api/v1/me/oauth/delegations:
+    get:
+      operationId: listAccountOAuthMcpDelegations
+      description: >
+        Lists only currently usable Account-approved OAuth MCP Delegations
+        belonging to the signed-in User. Does not depend on live OAuth Consent,
+        so a disconnected client cannot prevent revocation.
+      security: [{ accountUserBearer: [] }]
+      parameters:
+        - { in: query, name: offset, required: false, schema: { type: integer, minimum: 0, maximum: 9999 } }
+      responses:
+        '200': { description: Bounded page of own active delegations with nextOffset }
+        '403': { description: Non-Account User }
+  /api/v1/me/oauth/delegations/{delegationId}/revoke:
+    post:
+      operationId: revokeAccountOAuthMcpDelegation
+      description: >
+        Owner-only Account session revocation independent of OAuth state;
+        never revokes another User's or a trusted in-app delegation.
+      security: [{ accountUserBearer: [] }]
+      parameters:
+        - { in: path, name: delegationId, required: true, schema: { type: string, pattern: '^dlg_' } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: false, maxProperties: 0 }
+      responses:
+        '200': { description: Delegation revoked }
+        '404': { description: Not found or not owned by Account User }
   /api/v1/me/oauth/choices:
     get:
       description: Account Application's authenticated manager User sees Application-first, Space/Agent candidate combinations derived from current memberships/Agent Data Grants and active Identity bindings. Read-only; not executable capability projection.

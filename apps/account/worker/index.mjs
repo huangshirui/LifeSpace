@@ -6,6 +6,9 @@ const CSRF_TTL_SECONDS = 600;
 const SCOPES = ["profile:read", "spaces:read", "spaces:manage"];
 const REQUEST = /^oar_[A-Za-z0-9_-]{16,128}$/u;
 const DELEGATION_REQUEST = /^arq_[a-f0-9]{32}$/u;
+const DELEGATION_ID = /^dlg_[A-Za-z0-9_-]+$/u;
+const APPROVAL_MODES = new Set(["once","timed","until_revoked"]);
+const APPROVAL_DURATIONS = new Set([60,1440,10080]);
 const SPACE = /^spc_[A-Za-z0-9_-]{3,128}$/u;
 const AGENT = /^agt_[A-Za-z0-9_-]{3,128}$/u;
 const APPLICATION = /^app_[A-Za-z0-9_-]{3,128}$/u;
@@ -168,7 +171,9 @@ export async function accountFetch(req, env) {
     // Distinct URL-based third-party approval experience. Owned/WeCom
     // confirmation transports do not use this Account page.
     const assetRequest = path === "/delegation" ?
-      new Request(new URL("/delegation.html", url.origin), req) : req;
+      new Request(new URL("/delegation.html", url.origin), req)
+      : path === "/delegations" ?
+        new Request(new URL("/delegations.html", url.origin), req) : req;
     const asset = await env.ASSETS.fetch(assetRequest);
     const headers = new Headers(asset.headers);
     headers.set("referrer-policy", "no-referrer");
@@ -186,9 +191,11 @@ export async function accountFetch(req, env) {
     && path !== "/api/oauth/capabilities"
     && path !== "/api/delegation/request"
     && path !== "/api/delegation/approve" && path !== "/api/delegation/deny"
+    && path !== "/api/delegations" && path !== "/api/delegations/revoke"
     && path !== "/api/oauth/confirm" && path !== "/api/oauth/deny") return fail(404, "NOT_FOUND", "接口不存在");
   if ((path === "/api/oauth/confirm" || path === "/api/oauth/deny"
-    || path === "/api/delegation/approve" || path === "/api/delegation/deny") !== (req.method === "POST")) {
+    || path === "/api/delegation/approve" || path === "/api/delegation/deny"
+    || path === "/api/delegations/revoke") !== (req.method === "POST")) {
     return fail(405, "METHOD_NOT_ALLOWED", "不支持此请求方式");
   }
   const linked = await session(req, env);
@@ -213,7 +220,8 @@ export async function accountFetch(req, env) {
     const preview = await data(source);
     if (!preview || preview.id !== requestId || !DELEGATION_REQUEST.test(preview.id)
       || !SPACE.test(preview.spaceId || "") || !AGENT.test(preview.agentId || "")
-      || !APPLICATION.test(preview.applicationId || "") || !safeText(preview.modelKey, 70)
+      || !APPLICATION.test(preview.applicationId || "") || !safeText(preview.clientId, 1024)
+      || !safeText(preview.modelKey, 70)
       || !["get", "query", "create", "update", "delete"].includes(preview.operation)
       || !["pending", "approved", "denied", "expired"].includes(preview.status)
       || !safeText(preview.resource, 1024) || !safeText(preview.reason, 300)
@@ -223,10 +231,33 @@ export async function accountFetch(req, env) {
     return responseJson({ data: {
       id:preview.id, status:preview.status, applicationId:preview.applicationId,
       spaceId:preview.spaceId, agentId:preview.agentId,
-      resource:preview.resource, modelKey:preview.modelKey,
+      clientId:preview.clientId, resource:preview.resource, modelKey:preview.modelKey,
       operation:preview.operation, reason:preview.reason,
       expiresAt:preview.expiresAt,
     } });
+  }
+
+  if (path === "/api/delegations") {
+    const offset = url.searchParams.get("offset") ?? "0";
+    if ((url.searchParams.size && (url.searchParams.size!==1 || !url.searchParams.has("offset")))
+      || !/^(0|[1-9][0-9]{0,3})$/u.test(offset))
+      return fail(400,"INVALID_REQUEST","授权列表页码无效");
+    const response=await boundedUpstream(env,"CORE",
+      "/api/v1/me/oauth/delegations?offset="+offset,linked.token);
+    if (!response?.ok) return fail(503,"DELEGATIONS_UNAVAILABLE","无法读取当前委托授权");
+    const page=await data(response);
+    if (!page || !Array.isArray(page.items) || page.items.length>50
+      || (page.nextOffset!==null && (!Number.isInteger(page.nextOffset) || page.nextOffset<0))
+      || page.items.some(item=>!isObject(item) || !DELEGATION_ID.test(item.id||"")
+        || !APPLICATION.test(item.applicationId||"") || !SPACE.test(item.spaceId||"")
+        || !AGENT.test(item.agentId||"") || !safeText(item.clientId,1024)
+        || !safeText(item.resource,1024) || !safeText(item.modelKey,70)
+        || !safeText(item.operation,90) || !safeText(item.createdAt,80)
+        || !(item.expiresAt===null || safeText(item.expiresAt,80))
+        || !APPROVAL_MODES.has(item.mode))) {
+      return fail(502,"CORE_INVALID_RESPONSE","委托授权列表格式无效");
+    }
+    return responseJson({data:{items:page.items,nextOffset:page.nextOffset}});
   }
   if (path === "/api/oauth/request") {
     const requestId = url.searchParams.get("request_id");
@@ -337,9 +368,17 @@ export async function accountFetch(req, env) {
   try { input = JSON.parse(raw); } catch { return fail(400, "INVALID_REQUEST", "授权内容无效"); }
   if (path === "/api/delegation/approve" || path === "/api/delegation/deny") {
     const approve = path.endsWith("/approve");
-    if (!isObject(input) || Object.keys(input).length !== 2
+    const fields=Object.keys(input||{});
+    if (!isObject(input) || fields.some(k=>!["intent","requestId","mode","durationMinutes"].includes(k))
       || input.intent !== (approve ? "approve-user-delegation" : "deny-user-delegation")
-      || !DELEGATION_REQUEST.test(input.requestId || "")) {
+      || !DELEGATION_REQUEST.test(input.requestId || "")
+      || (!approve && fields.length!==2)
+      || (approve && !(
+        (input.mode===undefined && fields.length===2)
+        || (input.mode==="once" && fields.length===3)
+        || (input.mode==="until_revoked" && fields.length===3)
+        || (input.mode==="timed" && fields.length===4 && APPROVAL_DURATIONS.has(input.durationMinutes))
+      ))) {
       return fail(400, "INVALID_REQUEST", "委托确认请求无效");
     }
     let decision;
@@ -349,7 +388,9 @@ export async function accountFetch(req, env) {
         + (approve ? "/approve" : "/deny"), {
           method: "POST",
           headers: { authorization: "Bearer " + linked.token, "content-type": JSON_TYPE },
-          body: "{}",
+          body: approve ? JSON.stringify(input.mode===undefined ? {} : {
+            mode:input.mode,...(input.mode==="timed"?{durationMinutes:input.durationMinutes}:{})
+          }) : "{}",
         });
     } catch { return fail(503, "CORE_UNAVAILABLE", "无法完成本次委托确认"); }
     if (!decision.ok) return fail([400, 403, 404, 409].includes(decision.status) ? decision.status : 503,
@@ -360,6 +401,26 @@ export async function accountFetch(req, env) {
       return fail(502, "CORE_INVALID_RESPONSE", "委托确认结果无效");
     }
     return responseJson({ data: { requestId: result.id, status: result.status } });
+  }
+
+  if (path === "/api/delegations/revoke") {
+    if (!isObject(input) || Object.keys(input).length!==2
+      || input.intent!=="revoke-user-delegation" || !DELEGATION_ID.test(input.delegationId||""))
+      return fail(400,"INVALID_REQUEST","撤销委托请求无效");
+    let revoked;
+    try {
+      revoked=await service(env,"CORE",
+        "/api/v1/me/oauth/delegations/"+encodedPath(input.delegationId)+"/revoke",{
+          method:"POST",headers:{authorization:"Bearer "+linked.token,"content-type":JSON_TYPE},
+          body:"{}",
+        });
+    } catch { return fail(503,"CORE_UNAVAILABLE","无法撤销委托授权"); }
+    if (!revoked.ok) return fail([403,404].includes(revoked.status)?revoked.status:503,
+      "DELEGATION_REVOKE_FAILED","委托不存在、已失效或不属于当前用户");
+    const result=await data(revoked);
+    if (!result || result.id!==input.delegationId || result.revoked!==true)
+      return fail(502,"CORE_INVALID_RESPONSE","委托撤销结果无效");
+    return responseJson({data:{id:result.id,revoked:true}});
   }
   if (path === "/api/oauth/deny") {
     if (!isObject(input) || Object.keys(input).some(k => !["intent", "requestId"].includes(k))
