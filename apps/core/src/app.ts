@@ -8,6 +8,7 @@ import type { Bindings, Variables } from "./env";
 import { authenticate } from "./auth";
 import { registerDelegationRoutes } from "./delegation-routes";
 import { registerAuthorizationRequestRoutes } from "./authorization-request-routes";
+import { registerMcpGenericOperationRoutes } from "./mcp-generic-operations";
 import { registerOAuthDelegationRoutes } from "./oauth-delegation-routes";
 import { registerOAuthConsentRoutes } from "./oauth-consent-routes";
 import { registerChangeHistoryRoutes } from "./change-history";
@@ -123,6 +124,7 @@ export function createApp() {
   registerEventSubscriptionRoutes(app);
   registerDelegationRoutes(app);
   registerAuthorizationRequestRoutes(app);
+  registerMcpGenericOperationRoutes(app);
   registerOAuthDelegationRoutes(app);
   registerOAuthConsentRoutes(app);
   registerChangeHistoryRoutes(app);

@@ -2,15 +2,19 @@ import type { Hono } from "hono";
 import type { Bindings, Principal, Variables } from "./env";
 import { ApiError, success } from "./http";
 import { oauthMcpServerId } from "./mcp-oauth-server-policy";
+import { getRuntimeModel } from "./model-registry";
+import { getExternalModel } from "./external-model";
 import { delegationIssueStatements, delegationIssueDtos, prepareDelegationIssues } from "./delegation-routes";
 
 // This is a transport-specific pending-approval bridge, NOT a second
 // Delegation authority. Trusted in-app / WeCom arq_* routes are untouched.
 type App = Hono<{ Bindings: Bindings; Variables: Variables }>;
-type Op = "get" | "query" | "create" | "update" | "delete";
+type Op = "get" | "query" | "create" | "update" | "delete" | `action:${string}`;
+type Access = "read" | "write";
 type Binding = {
   channel: "oauth_mcp"; authorizationId: string; clientId: string;
   resource: string; modelKey: string; operation: Op; reason: string;
+  requestedAccess?: Access;
 };
 type RequestRow = {
   id: string; application_id: string; requesting_agent_id: string;
@@ -23,14 +27,23 @@ type ItemRow = {
 };
 const ARQ = /^arq_[a-f0-9]{32}$/u;
 const MODEL = /^[a-z][a-z0-9_]{1,62}$/u;
-const OPS = new Set<Op>(["get","query","create","update","delete"]);
+const OPS = new Set<string>(["get","query","create","update","delete"]);
+const ACTION = /^action:([a-z][a-z0-9_-]{0,62})$/u;
+const validOp = (value: unknown): value is Op => typeof value === "string"
+  && (OPS.has(value) || ACTION.test(value));
 const ACCOUNT_TIMEOUT_MINUTES = 10;
 const DELEGATION_TIMEOUT_MINUTES = 30;
 const APPROVAL_LIMIT = 10;
 const fail = () => new ApiError("OAUTH_DELEGATION_NOT_FOUND", "Delegation request is not available", 404);
 const statusOf = (row: RequestRow) => row.transition_status ||
   (Date.parse(row.expires_at) <= Date.now() ? "expired" : "pending");
-const accessOf = (operation: Op) => operation === "get" || operation === "query" ? "read" : "write";
+const accessOf = (operation: Op, actual?: Access): Access => {
+  if (ACTION.test(operation)) {
+    if (actual !== "read" && actual !== "write") throw fail();
+    return actual;
+  }
+  return operation === "get" || operation === "query" ? "read" : "write";
+};
 const uuid = (prefix: string) => prefix + "_" + crypto.randomUUID().replaceAll("-", "");
 
 function agent(principal: Principal) {
@@ -61,7 +74,7 @@ function approvalOrigin(env: Bindings): string {
     || url.username || url.password) throw new ApiError("OAUTH_NOT_CONFIGURED", "Invalid approval origin", 503);
   return url.origin;
 }
-async function serverOperation(env: Bindings, resource: string, modelKey: string, operation: Op) {
+async function serverOperation(env: Bindings, resource: string, spaceId: string, modelKey: string, operation: Op) {
   const serverId = oauthMcpServerId(resource);
   if (!serverId) throw fail();
   const row = await env.DB.prepare("SELECT enabled,config_json FROM mcp_server_definitions WHERE id=?")
@@ -75,6 +88,33 @@ async function serverOperation(env: Bindings, resource: string, modelKey: string
   const chosen = entry.find(x => x && typeof x === "object" && !Array.isArray(x)
     && (x as {modelKey?:unknown}).modelKey === modelKey) as {operations?: unknown} | undefined;
   if (!chosen || !Array.isArray(chosen.operations) || !chosen.operations.includes(operation)) throw fail();
+  // OAuth Account approval must never issue an unusable Delegation just
+  // because an MCP Server configuration lists an operation. Use the same
+  // published Model origin and current Provider capability as Core runtime.
+  const model=await getRuntimeModel(env,modelKey);
+  if (!model) throw fail();
+  if (model.definition.origin === "external") {
+    if (ACTION.test(operation)) throw fail();
+    const bound=await getExternalModel(env,spaceId,modelKey);
+    const externalOperation=operation as "get"|"query"|"create"|"update"|"delete";
+    if (!bound || bound.status!=="active" || !bound.snapshot.capabilities[externalOperation]
+      || (accessOf(operation)==="write" && bound.declared_access!=="write")) throw fail();
+    // Provider writes are not atomic with Core D1. The current third-party
+    // bridge issues maxUses=1 and cannot truthfully promise at-most-once
+    // External mutation. Direct Agent execution remains independently allowed.
+    if (accessOf(operation)==="write") throw new ApiError(
+      "EXTERNAL_SINGLE_USE_UNSUPPORTED",
+      "A single-use delegated External write cannot be guaranteed",422);
+  } else {
+    const action=ACTION.exec(operation);
+    const required:Access = action
+      ? model.definition.actions?.[action[1]]?.access as Access
+      : accessOf(operation);
+    if ((required!=="read" && required!=="write")
+      || !model.definition.access.includes(required)) throw fail();
+    return required;
+  }
+  return accessOf(operation);
 }
 async function load(env: Bindings, id: string) {
   if (!ARQ.test(id)) throw fail();
@@ -91,14 +131,14 @@ async function load(env: Bindings, id: string) {
     || typeof binding.resource !== "string" || !oauthMcpServerId(binding.resource)
     || typeof binding.clientId !== "string"
     || typeof binding.modelKey !== "string" || !MODEL.test(binding.modelKey)
-    || !OPS.has(binding.operation) || typeof binding.reason !== "string") throw fail();
+    || !validOp(binding.operation) || typeof binding.reason !== "string") throw fail();
   const details = await env.DB.prepare(
     "SELECT ordinal,target_type,target_id,max_access,max_uses,delegation_expires_at,remaining_redelegation_depth " +
     "FROM authorization_request_items WHERE request_id=? ORDER BY ordinal"
   ).bind(id).all<ItemRow>();
   if (details.results.length !== 1 || details.results[0]?.target_type !== "model"
     || details.results[0]?.target_id !== binding.modelKey
-    || details.results[0]?.max_access !== accessOf(binding.operation)
+    || details.results[0]?.max_access !== accessOf(binding.operation,binding.requestedAccess)
     || details.results[0]?.max_uses !== 1 || details.results[0]?.remaining_redelegation_depth !== 0) throw fail();
   return {row, binding, item:details.results[0]!};
 }
@@ -131,11 +171,11 @@ async function liveConsent(env: Bindings, row: RequestRow, binding: Binding) {
   const result = response.ok ? await response.json<{data?:{active?:boolean;scopes?:unknown}}>().catch(()=>null) : null;
   const scopes = result?.data?.scopes;
   if (result?.data?.active !== true || !Array.isArray(scopes)
-    || !scopes.includes("resources:read")
-    || (accessOf(binding.operation) === "write" && !scopes.includes("resources:write"))) {
+    || !scopes.includes("resources:" + accessOf(binding.operation,binding.requestedAccess))) {
     throw new ApiError("OAUTH_AUTHORIZATION_REVOKED", "OAuth authorization is unavailable", 403);
   }
-  await serverOperation(env,binding.resource,binding.modelKey,binding.operation);
+  const current=await serverOperation(env,binding.resource,row.source_space_id,binding.modelKey,binding.operation);
+  if (current !== accessOf(binding.operation,binding.requestedAccess)) throw fail();
   return scopes as string[];
 }
 function assertAgentOwner(principal: Principal, row: RequestRow, binding: Binding) {
@@ -171,7 +211,12 @@ export async function requireOAuthMcpDelegatedOperation(
     || loaded.binding.clientId !== x.clientId || loaded.binding.resource !== x.resource) throw fail();
   const prefix="/api/v1/spaces/" + x.spaceId + "/models/" + loaded.binding.modelKey + "/records";
   const op:Op=loaded.binding.operation;
-  const valid = op==="query" ? method==="POST" && path===prefix+"/query"
+  const action=ACTION.exec(op);
+  const valid = action
+    ? method==="POST" && path.startsWith(prefix+"/")
+      && /^rec_[A-Za-z0-9_-]+$/u.test(path.slice(prefix.length+1).split("/")[0])
+      && path === prefix+"/"+path.slice(prefix.length+1).split("/")[0]+"/actions/"+action[1]
+    : op==="query" ? method==="POST" && path===prefix+"/query"
     : op==="create" ? method==="POST" && path===prefix
     : op==="get" ? method==="GET" && /^rec_[A-Za-z0-9_-]+$/u.test(path.slice(prefix.length+1)) && path.startsWith(prefix+"/")
     : (op==="update" || op==="delete") && method===(op==="update"?"PATCH":"DELETE")
@@ -193,13 +238,13 @@ export function registerOAuthDelegationRoutes(app: App): void {
     const v=input as Record<string,unknown>;
     if (Object.keys(v).some(key=>!["modelKey","operation","reason"].includes(key))
       || typeof v.modelKey!=="string" || !MODEL.test(v.modelKey)
-      || !OPS.has(v.operation as Op)
+      || !validOp(v.operation)
       || typeof v.reason!=="string" || v.reason.trim().length<4 || v.reason.trim().length>250)
       throw new ApiError("INVALID_REQUEST","A model, supported operation and concise reason are required",400);
     const operation=v.operation as Op, modelKey=v.modelKey;
-    if (!principal.scopes.includes(accessOf(operation)==="write"?"resources:write":"resources:read"))
+    const requestedAccess=await serverOperation(c.env,x.resource,spaceId,modelKey,operation);
+    if (!principal.scopes.includes("resources:"+requestedAccess))
       throw new ApiError("FORBIDDEN","Client did not request the operation's OAuth Scope",403);
-    await serverOperation(c.env,x.resource,modelKey,operation);
     const origin=approvalOrigin(c.env);
     const now=new Date();
     const count=await c.env.DB.prepare(
@@ -211,7 +256,7 @@ export function registerOAuthDelegationRoutes(app: App): void {
     const expiration=new Date(now.getTime()+ACCOUNT_TIMEOUT_MINUTES*60000).toISOString();
     const delegationExpiresAt=new Date(now.getTime()+DELEGATION_TIMEOUT_MINUTES*60000).toISOString();
     const binding:Binding={channel:"oauth_mcp",authorizationId:x.authorizationId,clientId:x.clientId,
-      resource:x.resource,modelKey,operation,reason:v.reason.trim()};
+      resource:x.resource,modelKey,operation,requestedAccess,reason:v.reason.trim()};
     await c.env.DB.batch([
       c.env.DB.prepare(
         "INSERT INTO authorization_requests(id,application_id,requesting_agent_id,intended_user_id,source_space_id,"+
@@ -222,7 +267,7 @@ export function registerOAuthDelegationRoutes(app: App): void {
       c.env.DB.prepare(
         "INSERT INTO authorization_request_items(request_id,ordinal,target_type,target_id,max_access,max_uses,delegation_expires_at,remaining_redelegation_depth) "+
         "VALUES(?,0,'model',?,?,1,?,0)"
-      ).bind(requestId,modelKey,accessOf(operation),delegationExpiresAt),
+      ).bind(requestId,modelKey,requestedAccess,delegationExpiresAt),
     ]);
     c.header("Cache-Control","no-store");
     return c.json(success({id:requestId,status:"pending",approvalUrl:origin+"/delegation?request_id="+requestId,

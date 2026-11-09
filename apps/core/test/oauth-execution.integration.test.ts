@@ -377,6 +377,19 @@ describe("OAuth MCP Agent Direct execution: Core fail-closed route and Space bou
     expect((await f.trustedRequest("POST",
       "/api/v1/spaces/"+f.space+"/authorization-requests/"+requested.data.id+"/confirm",
       {principalUserId:f.oauthUser})).status).toBe(404);
+    // A future externally confirmed channel must not accidentally become
+    // a trusted Agent approval path just because its tag is not "oauth_mcp".
+    const original=await f.db.prepare(
+      "SELECT correlation_json FROM authorization_requests WHERE id=?")
+      .bind(requested.data.id).first<{correlation_json:string}>();
+    const future={...JSON.parse(original!.correlation_json),channel:"future_web_approval"};
+    await f.db.prepare("UPDATE authorization_requests SET correlation_json=? WHERE id=?")
+      .bind(JSON.stringify(future),requested.data.id).run();
+    expect((await f.trustedRequest("POST",
+      "/api/v1/spaces/"+f.space+"/authorization-requests/"+requested.data.id+"/confirm",
+      {principalUserId:f.oauthUser})).status).toBe(404);
+    await f.db.prepare("UPDATE authorization_requests SET correlation_json=? WHERE id=?")
+      .bind(original!.correlation_json,requested.data.id).run();
     const before=await f.accountRequest("GET","/api/v1/me/oauth/delegation-requests/"+requested.data.id);
     expect(before.status).toBe(200);
     expect((await f.accountRequest("POST",
@@ -414,8 +427,157 @@ describe("OAuth MCP Agent Direct execution: Core fail-closed route and Space bou
     // Exact approved operation mismatch is deliberately indistinguishable
     // from another User/Client/Server's delegation (404, not scope disclosure).
     expect(scoped.status).toBe(404);
+
+    // The same Account-link channel also handles a published *semantic Action*
+    // without giving any trusted Agent or OAuth client permission to self-approve.
+    await f.setServerOperations(["query","get","create","action:complete"]);
+    const actionRequested=await f.request("POST",transport,jwtPatch,{
+      modelKey:"task",operation:"action:complete",reason:"Complete exactly this authorized task",
+    });
+    expect(actionRequested.status).toBe(201);
+    const actionArq=await actionRequested.json() as {data:{id:string;approvalUrl:string}};
+    expect((await f.trustedRequest("POST",
+      "/api/v1/spaces/"+f.space+"/authorization-requests/"+actionArq.data.id+"/confirm",
+      {principalUserId:f.oauthUser})).status).toBe(404);
+    const actionApproved=await f.accountRequest("POST",
+      "/api/v1/me/oauth/delegation-requests/"+actionArq.data.id+"/approve",{});
+    expect(actionApproved.status).toBe(200);
+    const actionBody=await actionApproved.json() as {data:{delegations:Array<{id:string}>}};
+    const actionDlg=actionBody.data.delegations[0]!.id;
+    const actionRepresented={...jwtPatch,principal_type:"user",principal_id:f.oauthUser,
+      oauth_delegation_id:actionDlg};
+    const actionPath=base+"/"+data.data.id+"/actions/complete";
+    const actionOnce=await f.request("POST",actionPath,actionRepresented,
+      {version:1},{"x-lifespace-delegation-id":actionDlg});
+    expect(actionOnce.status).toBe(200);
+    expect((await f.request("POST",actionPath,actionRepresented,
+      {version:1},{"x-lifespace-delegation-id":actionDlg})).status).toBe(403);
     f.setActive(false);
     expect((await f.request("POST",base,represented,{name:"Revoked"},headers)).status).toBe(401);
+  });
+
+  it("projects ordinary model operations through one opaque Core tool catalog and rechecks on invocation", async () => {
+    const f=await fixture();
+    const base="/api/v1/spaces/"+f.space;
+    const preview=await f.request("GET",base+"/_discovery/operations");
+    expect(preview.status).toBe(200);
+    const data=await preview.json() as {data:{operations:Array<{
+      modelKey:string;operation:string;operationRef:string;inputSchema:Record<string,unknown>;
+    }>}};
+    const query=data.data.operations.find(x=>x.modelKey==="task"&&x.operation==="query");
+    expect(query).toBeDefined();
+    expect(query?.operationRef).toMatch(/^op_[a-f0-9]{64}$/u);
+    expect(JSON.stringify(data)).not.toMatch(/"origin"|"provider"|"person_directory"/u);
+    const route=base+"/_operations/"+query!.operationRef+"/invoke";
+    const result=await f.request("POST",route,{},{
+      arguments:{spaceId:f.space,data:{page:{limit:1}}},
+    });
+    expect(result.status).toBe(200);
+    const forged=await f.request("POST",route,{},{
+      arguments:{spaceId:f.other,data:{}},
+    });
+    expect(forged.status).toBe(404);
+    expect((await f.request("GET",
+      "/api/v1/spaces/"+f.other+"/_discovery/operations")).status).toBe(403);
+    f.setActive(false);
+    expect((await f.request("POST",route,{},{
+      arguments:{spaceId:f.space,data:{}},
+    })).status).toBe(401);
+  });
+
+  it("discovers and runs Native create through the same opaque operation contract, with current server policy", async () => {
+    const f=await fixture();
+    const base="/api/v1/spaces/"+f.space;
+    await f.db.prepare(
+      "UPDATE data_grants SET permission='write' WHERE source_space_id=? AND grantee_type='agent' AND grantee_id=? AND resource_type='space'"
+    ).bind(f.space,f.agent).run();
+    await f.db.prepare(
+      "UPDATE application_model_access SET max_access='write' WHERE application_id=? AND model_key='task'"
+    ).bind(f.application).run();
+    await f.setServerOperations(["query","create"]);
+    f.setConsentScopes(["resources:read","resources:write"]);
+    const claims={scope:"resources:read resources:write"};
+    const projected=await f.request("GET",base+"/_discovery/operations",claims);
+    expect(projected.status).toBe(200);
+    const body=await projected.json() as {data:{operations:Array<{
+      modelKey:string;operation:string;operationRef:string;inputSchema:{
+        properties:Record<string,unknown>;$defs?:Record<string,unknown>;
+      };
+    }>}};
+    const create=body.data.operations.find(o=>o.modelKey==="task"&&o.operation==="create");
+    expect(create).toBeDefined();
+    expect(create?.inputSchema.properties.data).toMatchObject({$ref:expect.stringMatching(/^#\/\$defs\//u)});
+    expect(create?.inputSchema.$defs).toBeDefined();
+    const mutation=await f.request("POST",base+"/_operations/"+create!.operationRef+"/invoke",claims,{
+      arguments:{spaceId:f.space,data:{name:"Synthetic operation created"}},
+    });
+    expect(mutation.status).toBe(201);
+    const created=await mutation.json() as {data:{id:string}};
+    expect(created.data.id).toMatch(/^rec_/u);
+    await f.setServerOperations(["query"]);
+    expect((await f.request("POST",base+"/_operations/"+create!.operationRef+"/invoke",claims,{
+      arguments:{spaceId:f.space,data:{name:"Stale operation"}},
+    })).status).toBe(404);
+  });
+
+  it("exposes Kernel Person through the exact same generic operation envelope as a normal Model", async () => {
+    const f=await fixture();
+    const base="/api/v1/spaces/"+f.space;
+    await f.db.prepare("UPDATE mcp_server_definitions SET config_json=? WHERE id=?")
+      .bind(JSON.stringify({models:[],resources:[{resourceKey:"person_directory",operations:["list","get","create"]}]}),f.serverId).run();
+    await f.db.prepare(
+      "INSERT INTO data_grants(id,source_space_id,grantee_type,grantee_id,resource_type,resource_id,permission,created_by_user_id,created_at) "+
+      "VALUES(?,?,'agent',?,'person_directory',NULL,'write',?,?)"
+    ).bind("grt_person_"+crypto.randomUUID().replaceAll("-",""),f.space,f.agent,"usr_synthetic",new Date().toISOString()).run();
+    f.setConsentScopes(["resources:read","resources:write"]);
+    const patch={scope:"resources:read resources:write"};
+    const preview=await f.request("GET",base+"/_discovery/operations",patch);
+    expect(preview.status).toBe(200);
+    const found=await preview.json() as {data:{operations:Array<{
+      modelKey:string;operation:string;operationRef:string;inputSchema:unknown;
+    }>}};
+    const tools=found.data.operations;
+    expect(tools.map(x=>x.operation)).toContain("query");
+    const create=tools.find(x=>x.modelKey==="person"&&x.operation==="create")!;
+    expect(create.operationRef).toMatch(/^op_[a-f0-9]{64}$/u);
+    expect(JSON.stringify(found)).not.toContain("person_directory");
+    expect(JSON.stringify(found)).not.toContain("external");
+    const made=await f.request("POST",base+"/_operations/"+create.operationRef+"/invoke",patch,{
+      arguments:{spaceId:f.space,data:{displayName:"Synthetic Person"}},
+    });
+    expect(made.status).toBe(201);
+    const created=await made.json() as {data:{id:string;displayName:string}};
+    expect(created.data).toMatchObject({displayName:"Synthetic Person"});
+    expect(created.data.id).toMatch(/^per_/u);
+    expect((await f.request("POST",base+"/_operations/"+create.operationRef+"/invoke",patch,{
+      arguments:{spaceId:f.other,data:{displayName:"Cross Space"}},
+    })).status).toBe(404);
+  });
+
+  it("does not advertise Person update from OAuth write Scope plus a read-only Person Grant", async () => {
+    const f=await fixture();
+    const base="/api/v1/spaces/"+f.space;
+    await f.db.prepare("UPDATE mcp_server_definitions SET config_json=? WHERE id=?")
+      .bind(JSON.stringify({models:[],resources:[{resourceKey:"person_directory",
+        operations:["list","get","update"]}]}),f.serverId).run();
+    const grantId="grt_person_"+crypto.randomUUID().replaceAll("-","");
+    await f.db.prepare(
+      "INSERT INTO data_grants(id,source_space_id,grantee_type,grantee_id,resource_type,resource_id,permission,created_by_user_id,created_at) "+
+      "VALUES(?,?,'agent',?,'person_directory',NULL,'read',?,?)"
+    ).bind(grantId,f.space,f.agent,"usr_synthetic",new Date().toISOString()).run();
+    f.setConsentScopes(["resources:read","resources:write"]);
+    const patch={scope:"resources:read resources:write"};
+    const preview=await f.request("GET",base+"/_discovery/operations",patch);
+    expect(preview.status).toBe(200);
+    const before=await preview.json() as {data:{operations:Array<{operation:string;modelKey:string}>}};
+    expect(before.data.operations.filter(op=>op.modelKey==="person").map(op=>op.operation))
+      .toEqual(["query","get"]);
+    await f.db.prepare("UPDATE data_grants SET permission='write' WHERE id=?").bind(grantId).run();
+    const after=await f.request("GET",base+"/_discovery/operations",patch);
+    expect(after.status).toBe(200);
+    const eligible=await after.json() as {data:{operations:Array<{operation:string;modelKey:string}>}};
+    expect(eligible.data.operations.filter(op=>op.modelKey==="person").map(op=>op.operation))
+      .toEqual(["query","get","update"]);
   });
 
   it("rejects unknown configured MCP Server and pre-v7 unscoped /mcp resources", async () => {

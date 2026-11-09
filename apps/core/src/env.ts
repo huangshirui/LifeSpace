@@ -51,6 +51,7 @@ export type Principal = {
     queryModelKeys?: string[];
     toolModelKeys?: string[];
     modelOperations?: Record<string, string[]>;
+    personOperations?: string[];
   };
 };
 
