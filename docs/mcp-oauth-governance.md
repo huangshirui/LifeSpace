@@ -1,3 +1,9 @@
+## 2026-11-09 · User-owned delegated lifetime decision (development)
+
+Account second-stage web approval, independent of OAuth login consent, supports **once** (default; max 1 use and 30 minutes), **timed** (repeat exact operation for 1h/24h/7d), and **until revoked** (repeat exact operation until User revocation). The third-party Agent does not submit or choose an expanded lifetime; Core accepts lifetime selections only from the signed-in intended Account User, through the CSRF-bound BFF. Long-lived grants are revocable at Account `/delegations` without requiring a live OAuth client token. OAuth revocation and Space/Model/Data Grant reduction remain authoritative on every call. Model+operation targeting is unchanged and may encompass multiple records, explicitly disclosed to users. Trusted ALOHA/WeCom confirmations are unaffected.
+
+Implementation is not yet deployed or real Staging-accepted.
+
 # MCP OAuth: Platform / Application / Account
 
 ## Delegation trust boundary / 委托两类信任边界
