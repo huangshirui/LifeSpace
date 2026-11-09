@@ -1,5 +1,25 @@
 # MCP OAuth: Platform / Application / Account
 
+## Delegation trust boundary / 委托两类信任边界
+
+LifeSpace classifies **the verified approval channel**, not the programming
+framework, by trust. Using n8n Nodes, WorkBuddy, a bot, a particular OAuth
+client name, or an MCP transport **never makes an application trusted**.
+
+| Trust class | Verified precondition | Human confirmation | Execution authority |
+| --- | --- | --- | --- |
+| **Trusted / 可信应用** (ALOHA, or a carefully verified enterprise messenger Router built with n8n) | LifeSpace-issued bounded Application/Agent credentials **and** the application/backend has independently verified the human identity, tied the incoming chat/session to a fixed LifeSpace `usr_*`, and protected its confirmation Router from injection/replay | Existing in-app UI or verified enterprise chat Router; `principalUserId` is only asserted by that separately trusted backend | Existing Agent `arq_*` trusted confirm/deny and Core `dlg_*`; **no change in this release** |
+| **Untrusted third-party / 不可信第三方** (ChatGPT, Claude, 豆包, WorkBuddy, other non-owned clients) | Dynamically registered/validated OAuth Client and an explicit, live User Consent for exact Application/Agent/Space/MCP Resource and scopes; client metadata/name is not a trusted identity assertion | Explicit LifeSpace Account HTTPS URL; Account independently authenticates its User via verified Access→Identity, requires CSRF-safe same-origin approve/deny and matches the immutable `arq_*` | Core issues bounded, single-use `dlg_*` only after Account approval; represented User Principal / Agent Actor is checked on each execution |
+
+**Security invariants:**
+- An OAuth/third-party Agent cannot create a trusted request, approve it, claim a User ID or use trusted confirmation APIs merely because it executes in n8n or has the same Agent identity.
+- The trusted Agent confirmation API must reject **all explicitly tagged externally approved `arq_*` channels**, including new future channels; the third-party Account endpoint must accept only `channel:oauth_mcp` and the independently signed-in intended User. Both use the same Core `arq_*`/`dlg_*` facts but not the same authority to confirm.
+- Consent to `resources:write` and `allowUserAuthorization` permits **requesting** appropriate operations, not executing under User authority. Direct OAuth execution remains Principal=Actor=Agent unless an exact already-approved Delegation is supplied. Cached MCP tool names are never permission.
+- A capability subset is legitimate: an external Provider or Kernel Person operation unsupported by the canonical Core runtime must be absent or unavailable, not invented in Adapter or made broad through Space Delegation. In particular, External Provider writes cannot claim atomic single-use Delegation consumption across the provider boundary.
+- Future alternative untrusted confirmation channels may be added after separate review; none may fall back to the trusted `principalUserId` confirmation transport.
+
+**Scope of this release:** preserve all already existing trusted ALOHA/WeCom/Agent API flows, implement and verify the Account-link channel for third-party OAuth MCP, and enforce current Model/Provider operation ceilings. No n8n framework-based trust classification, no second Delegation store and no automatic conversion of existing trusted applications.
+
 ## Ownership
 
 | Owner | Responsibility |
