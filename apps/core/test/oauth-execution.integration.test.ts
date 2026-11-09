@@ -427,6 +427,31 @@ describe("OAuth MCP Agent Direct execution: Core fail-closed route and Space bou
     // Exact approved operation mismatch is deliberately indistinguishable
     // from another User/Client/Server's delegation (404, not scope disclosure).
     expect(scoped.status).toBe(404);
+
+    // The same Account-link channel also handles a published *semantic Action*
+    // without giving any trusted Agent or OAuth client permission to self-approve.
+    await f.setServerOperations(["query","get","create","action:complete"]);
+    const actionRequested=await f.request("POST",transport,jwtPatch,{
+      modelKey:"task",operation:"action:complete",reason:"Complete exactly this authorized task",
+    });
+    expect(actionRequested.status).toBe(201);
+    const actionArq=await actionRequested.json() as {data:{id:string;approvalUrl:string}};
+    expect((await f.trustedRequest("POST",
+      "/api/v1/spaces/"+f.space+"/authorization-requests/"+actionArq.data.id+"/confirm",
+      {principalUserId:f.oauthUser})).status).toBe(404);
+    const actionApproved=await f.accountRequest("POST",
+      "/api/v1/me/oauth/delegation-requests/"+actionArq.data.id+"/approve",{});
+    expect(actionApproved.status).toBe(200);
+    const actionBody=await actionApproved.json() as {data:{delegations:Array<{id:string}>}};
+    const actionDlg=actionBody.data.delegations[0]!.id;
+    const actionRepresented={...jwtPatch,principal_type:"user",principal_id:f.oauthUser,
+      oauth_delegation_id:actionDlg};
+    const actionPath=base+"/"+data.data.id+"/actions/complete";
+    const actionOnce=await f.request("POST",actionPath,actionRepresented,
+      {version:1},{"x-lifespace-delegation-id":actionDlg});
+    expect(actionOnce.status).toBe(200);
+    expect((await f.request("POST",actionPath,actionRepresented,
+      {version:1},{"x-lifespace-delegation-id":actionDlg})).status).toBe(403);
     f.setActive(false);
     expect((await f.request("POST",base,represented,{name:"Revoked"},headers)).status).toBe(401);
   });
