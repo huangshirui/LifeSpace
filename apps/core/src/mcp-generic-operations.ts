@@ -187,8 +187,9 @@ async function manifest(c:ContextApp):Promise<Entry[]>{
     for(const op of choices){
       const normalized=op==="list"?"query":op;
       if(!["query","get","create","update","delete"].includes(normalized))continue;
-      const available=["query","get"].includes(normalized)?read:op==="update"
-        ?read&&principal.scopes.includes("resources:write"):write;
+      // Person Directory write is independently granted by Core. A read
+      // Grant plus OAuth write Scope never creates a write capability.
+      const available=["query","get"].includes(normalized)?read:write;
       if(available)await push("person","person","Person",normalized as Operation,personData(normalized as Operation));
     }
   }
