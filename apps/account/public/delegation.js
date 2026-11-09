@@ -3,6 +3,15 @@ const REQUEST = /^arq_[a-f0-9]{32}$/u;
 const labels = {get:"读取单条记录",query:"查询记录",create:"创建记录",update:"修改记录",delete:"删除记录"};
 const id = new URL(location.href).searchParams.get("request_id");
 let csrf = "", busy = false, record = null;
+const chosenMode=()=>document.querySelector('input[name="delegation-mode"]:checked')?.value||"once";
+function updateLifetime(){
+  const mode=chosenMode();
+  $("duration").disabled=mode!=="timed";
+  $("approve").textContent=mode==="once"?"允许这一次":mode==="timed"?"允许限时操作":"允许长期操作";
+  $("lifetime-warning").textContent=mode==="once"?"仅一次执行；批准后 30 分钟内有效。"
+    :mode==="timed"?"授权期间可反复执行上述模型操作，直到过期或被你撤销。"
+    :"高权限提醒：此授权不会自动过期，Agent 可持续执行上述模型操作，直到你主动撤销。";
+}
 const show = (key,yes) => $(key).classList.toggle("hidden",!yes);
 async function call(path,options={}) {
   const reply = await fetch(path,{...options,credentials:"same-origin",
@@ -29,7 +38,7 @@ function finish(status) {
   show("loading",false);show("error",false);show("content",false);show("done",true);
   $("done-title").textContent=status==="approved"?"委托已获批准":"已拒绝本次委托";
   $("done-message").textContent=status==="approved"?
-    "已生成有次数与时限约束的 Delegation；原 Agent 必须持有效 OAuth 凭证并且通过 Core 权限校验才能执行。":
+    "已记录你选择的委托期限，仍须实时满足 OAuth、Space / Grant 与模型权限。你可以在授权管理页撤销。":
     "本次申请未产生 Delegation。";
 }
 async function init(){
@@ -49,16 +58,25 @@ async function init(){
 }
 async function decide(approve){
   if(busy||!record||record.status!=="pending"||!csrf)return;
+  const mode=chosenMode();
+  if(approve && mode!=="once"){
+    const detail=mode==="timed"?"在 "+$("duration").selectedOptions[0].textContent+" 内可重复执行"
+      :"长期有效，直到你主动撤销";
+    if(!confirm("确认允许这个 Agent "+detail+"？\\n它可能修改所选模型内多条记录。"))return;
+  }
   busy=true;$("approve").disabled=true;$("deny").disabled=true;
   try{
     const status=await call("/api/delegation/"+(approve?"approve":"deny"),{
       method:"POST",headers:{"content-type":"application/json","x-lifespace-csrf":csrf},
-      body:JSON.stringify({intent:approve?"approve-user-delegation":"deny-user-delegation",requestId:id}),
+      body:JSON.stringify({intent:approve?"approve-user-delegation":"deny-user-delegation",requestId:id,
+        ...(approve?{mode,...(mode==="timed"?{durationMinutes:Number($("duration").value)}:{})}:{})}),
     });
     finish(status.status);
   }catch(e){error(e.message||"委托确认失败");}
   finally{busy=false;$("approve").disabled=false;$("deny").disabled=false;}
 }
+document.querySelectorAll('input[name="delegation-mode"]').forEach(el=>el.addEventListener("change",updateLifetime));
+updateLifetime();
 $("retry").addEventListener("click",()=>{show("error",false);show("loading",true);init();});
 $("approve").addEventListener("click",()=>decide(true));
 $("deny").addEventListener("click",()=>decide(false));
