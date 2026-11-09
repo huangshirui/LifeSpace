@@ -168,13 +168,11 @@ export async function accountFetch(req, env) {
   const path = url.pathname;
   if (!path.startsWith("/api/")) {
     if (!env.ASSETS?.fetch) return fail(503, "ACCOUNT_ASSETS_MISSING", "Account 页面不可用");
-    // Distinct URL-based third-party approval experience. Owned/WeCom
-    // confirmation transports do not use this Account page.
-    const assetRequest = path === "/delegation" ?
-      new Request(new URL("/delegation.html", url.origin), req)
-      : path === "/delegations" ?
-        new Request(new URL("/delegations.html", url.origin), req) : req;
-    const asset = await env.ASSETS.fetch(assetRequest);
+    // Static Assets' default HTML handling already maps extensionless URLs
+    // such as /delegation to delegation.html. Rewriting to the .html file here
+    // makes ASSETS redirect back to /delegation, creating an infinite loop.
+    // Keep the original URL (including the opaque request_id query) intact.
+    const asset = await env.ASSETS.fetch(req);
     const headers = new Headers(asset.headers);
     headers.set("referrer-policy", "no-referrer");
     headers.set("x-content-type-options", "nosniff");
