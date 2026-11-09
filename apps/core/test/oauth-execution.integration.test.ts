@@ -516,6 +516,32 @@ describe("OAuth MCP Agent Direct execution: Core fail-closed route and Space bou
     })).status).toBe(404);
   });
 
+  it("does not advertise Person update from OAuth write Scope plus a read-only Person Grant", async () => {
+    const f=await fixture();
+    const base="/api/v1/spaces/"+f.space;
+    await f.db.prepare("UPDATE mcp_server_definitions SET config_json=? WHERE id=?")
+      .bind(JSON.stringify({models:[],resources:[{resourceKey:"person_directory",
+        operations:["list","get","update"]}]}),f.serverId).run();
+    const grantId="grt_person_"+crypto.randomUUID().replaceAll("-","");
+    await f.db.prepare(
+      "INSERT INTO data_grants(id,source_space_id,grantee_type,grantee_id,resource_type,resource_id,permission,created_by_user_id,created_at) "+
+      "VALUES(?,?,'agent',?,'person_directory',NULL,'read',?,?)"
+    ).bind(grantId,f.space,f.agent,"usr_synthetic",new Date().toISOString()).run();
+    f.setConsentScopes(["resources:read","resources:write"]);
+    const patch={scope:"resources:read resources:write"};
+    const preview=await f.request("GET",base+"/_discovery/operations",patch);
+    expect(preview.status).toBe(200);
+    const before=await preview.json() as {data:{operations:Array<{operation:string;modelKey:string}>}};
+    expect(before.data.operations.filter(op=>op.modelKey==="person").map(op=>op.operation))
+      .toEqual(["query","get"]);
+    await f.db.prepare("UPDATE data_grants SET permission='write' WHERE id=?").bind(grantId).run();
+    const after=await f.request("GET",base+"/_discovery/operations",patch);
+    expect(after.status).toBe(200);
+    const eligible=await after.json() as {data:{operations:Array<{operation:string;modelKey:string}>}};
+    expect(eligible.data.operations.filter(op=>op.modelKey==="person").map(op=>op.operation))
+      .toEqual(["query","get","update"]);
+  });
+
   it("rejects unknown configured MCP Server and pre-v7 unscoped /mcp resources", async () => {
     const f = await fixture();
     const missing = "https://resource.example.test/mcp/mcp_" + "e".repeat(32);
