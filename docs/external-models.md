@@ -1,5 +1,14 @@
 # Space-local External Models / 空间外部模型
 
+## Delegation for External Provider writes / 第三方外部写入授权（2026-11-09）
+
+**Owner decision:** An approved one-use User Delegation authorizes at most one **outbound Provider write attempt**, not one successful Provider commit. Core validates the current User/Agent/Application/Space/Model/Provider capability, operation and Delegation, persists a pending `external_operation_audit`, then atomically consumes all required single-use Delegation chain links in D1 **before** the first Provider write request. If consumption fails, Core does not call the Provider. If Provider succeeds, returns failure, times out or has an unknown outcome, the Delegation remains consumed and cannot be replayed; another requested write needs a fresh `arq_*` and independently approved `dlg_*`.
+
+The backend must never automatically retry a one-use delegated Provider mutation (even when a Provider declares a schema mismatch `retrySafe`). On unknown outcomes, advise reading the current record state before seeking fresh approval because a remote write might already have succeeded. This is at-most-one authorized outbound attempt, **not** cross-system exactly-once delivery or a transactional Provider commit. It does not alter Native/Person success-commit Delegation semantics or verified trusted ALOHA/WeCom confirmation channels. Third-party OAuth/Account still provides an exact one-use operation only; generic Core has separate time-bounded repeated and revocable long-lived delegation modes.
+
+**Release status:** Candidate until source PR CI and Staging real-client approval/execution are verified; not a current Production claim.
+
+
 ## 2026-11-09 · External single-use Delegation as one Provider attempt / 外部写入按尝试消费
 
 **Owner-approved business rule:** A current `maxUses:1` Delegation for an External Model authorizes **at most one outbound Provider mutation attempt**, not one successful external commit. The Core External Runtime validates current Principal=User / Actor=Agent, current Delegation, Space/Model/Provider/Connection capabilities, exact operation, input and audit-preflight, then **atomically consumes all required one-use Delegation chain rows in D1 before Provider I/O begins**. If conditional consumption loses a replay race, Core must not call Provider.
