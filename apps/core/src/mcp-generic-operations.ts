@@ -209,7 +209,7 @@ async function manifest(c:ContextApp):Promise<Entry[]>{
         await push("action",key,names(semantic.display.singular),op as Operation,
           action.kind==="workflow"
             ?{type:"object",additionalProperties:false,properties:{version},required:["version"]}
-            :{type:"object",description:"Published Capability action input, validated by Core."},actionKey,action.access);
+            :{type:"object",description:"Published Capability action input, validated by Core."},actionKey,action.access==="read"?"read":"write");
       }
     }
   }
