@@ -2,6 +2,8 @@ import type { Hono } from "hono";
 import type { Bindings, Principal, Variables } from "./env";
 import { ApiError, success } from "./http";
 import { oauthMcpServerId } from "./mcp-oauth-server-policy";
+import { getRuntimeModel } from "./model-registry";
+import { getExternalModel } from "./external-model";
 import { delegationIssueStatements, delegationIssueDtos, prepareDelegationIssues } from "./delegation-routes";
 
 // This is a transport-specific pending-approval bridge, NOT a second
@@ -61,7 +63,7 @@ function approvalOrigin(env: Bindings): string {
     || url.username || url.password) throw new ApiError("OAUTH_NOT_CONFIGURED", "Invalid approval origin", 503);
   return url.origin;
 }
-async function serverOperation(env: Bindings, resource: string, modelKey: string, operation: Op) {
+async function serverOperation(env: Bindings, resource: string, spaceId: string, modelKey: string, operation: Op) {
   const serverId = oauthMcpServerId(resource);
   if (!serverId) throw fail();
   const row = await env.DB.prepare("SELECT enabled,config_json FROM mcp_server_definitions WHERE id=?")
@@ -75,6 +77,25 @@ async function serverOperation(env: Bindings, resource: string, modelKey: string
   const chosen = entry.find(x => x && typeof x === "object" && !Array.isArray(x)
     && (x as {modelKey?:unknown}).modelKey === modelKey) as {operations?: unknown} | undefined;
   if (!chosen || !Array.isArray(chosen.operations) || !chosen.operations.includes(operation)) throw fail();
+  // OAuth Account approval must never issue an unusable Delegation just
+  // because an MCP Server configuration lists an operation. Use the same
+  // published Model origin and current Provider capability as Core runtime.
+  const model=await getRuntimeModel(env,modelKey);
+  if (!model) throw fail();
+  if (model.definition.origin === "external") {
+    const bound=await getExternalModel(env,spaceId,modelKey);
+    if (!bound || bound.status!=="active" || !bound.snapshot.capabilities[operation]
+      || (accessOf(operation)==="write" && bound.declared_access!=="write")) throw fail();
+    // Provider writes are not atomic with Core D1. The current third-party
+    // bridge issues maxUses=1 and cannot truthfully promise at-most-once
+    // External mutation. Direct Agent execution remains independently allowed.
+    if (accessOf(operation)==="write") throw new ApiError(
+      "EXTERNAL_SINGLE_USE_UNSUPPORTED",
+      "A single-use delegated External write cannot be guaranteed",422);
+  } else {
+    const access=model.definition.access;
+    if (!Array.isArray(access) || !access.includes(accessOf(operation))) throw fail();
+  }
 }
 async function load(env: Bindings, id: string) {
   if (!ARQ.test(id)) throw fail();
@@ -131,11 +152,10 @@ async function liveConsent(env: Bindings, row: RequestRow, binding: Binding) {
   const result = response.ok ? await response.json<{data?:{active?:boolean;scopes?:unknown}}>().catch(()=>null) : null;
   const scopes = result?.data?.scopes;
   if (result?.data?.active !== true || !Array.isArray(scopes)
-    || !scopes.includes("resources:read")
-    || (accessOf(binding.operation) === "write" && !scopes.includes("resources:write"))) {
+    || !scopes.includes("resources:" + accessOf(binding.operation))) {
     throw new ApiError("OAUTH_AUTHORIZATION_REVOKED", "OAuth authorization is unavailable", 403);
   }
-  await serverOperation(env,binding.resource,binding.modelKey,binding.operation);
+  await serverOperation(env,binding.resource,row.source_space_id,binding.modelKey,binding.operation);
   return scopes as string[];
 }
 function assertAgentOwner(principal: Principal, row: RequestRow, binding: Binding) {
@@ -199,7 +219,7 @@ export function registerOAuthDelegationRoutes(app: App): void {
     const operation=v.operation as Op, modelKey=v.modelKey;
     if (!principal.scopes.includes(accessOf(operation)==="write"?"resources:write":"resources:read"))
       throw new ApiError("FORBIDDEN","Client did not request the operation's OAuth Scope",403);
-    await serverOperation(c.env,x.resource,modelKey,operation);
+    await serverOperation(c.env,x.resource,spaceId,modelKey,operation);
     const origin=approvalOrigin(c.env);
     const now=new Date();
     const count=await c.env.DB.prepare(
