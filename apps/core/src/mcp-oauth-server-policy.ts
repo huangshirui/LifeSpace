@@ -157,7 +157,10 @@ export async function currentMcpOAuthQueryPolicy(
     : method === "PATCH" && mutation?.[2] ? "update"
     : method === "DELETE" && mutation?.[2] ? "delete" : null;
   if (mutation && operation) {
-    if (mutation[1].startsWith("ext_") || !modelOperations[mutation[1]]?.includes(operation)) throw forbidden();
+    // The Server selects an ordinary model operation, not a storage kind.
+    // Core's canonical External/Native runtime remains responsible for live
+    // Provider capabilities, Data Grants, Model Policy and actual write safety.
+    if (!modelOperations[mutation[1]]?.includes(operation)) throw forbidden();
     return { serverId, queryModelKeys, toolModelKeys, modelOperations, personOperations };
   }
   const readRecord = /^\/api\/v1\/spaces\/spc_[A-Za-z0-9_-]+\/models\/([a-z][a-z0-9_]{1,62})\/records\/rec_[A-Za-z0-9_-]+$/u.exec(path);
