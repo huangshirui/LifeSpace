@@ -672,7 +672,7 @@ describe("OAuth MCP Agent Direct execution: Core fail-closed route and Space bou
     const projected=await f.request("GET",base+"/_discovery/operations",claims);
     expect(projected.status).toBe(200);
     const body=await projected.json() as {data:{operations:Array<{
-      modelKey:string;operation:string;operationRef:string;inputSchema:{
+      modelKey:string;operation:string;operationRef:string;requiredScopes:string[];inputSchema:{
         properties:Record<string,unknown>;$defs?:Record<string,unknown>;
       };
     }>}};
