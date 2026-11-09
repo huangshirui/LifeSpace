@@ -1,3 +1,16 @@
+## 2026-11-09 · Account-selected third-party Delegation lifetimes / 第三方授权期限（三选一，开发待验收）
+
+User-selected **Account approval**, not Agent-requested escalation, now chooses one of:
+- **once (default)**: one approved operation, expires 30 minutes after approval;
+- **timed**: repeat the exact approved model operation for 1 hour / 24 hours / 7 days (explicit Account option, maximum 7 days);
+- **until_revoked**: repeat that exact operation until Account User revokes it or current OAuth/Space/Grant/Model authority ceases.
+
+The original OAuth consent only enables requesting a Delegation; every `arq_*` still requires independent Account session and CSRF-protected approval. The operation-bound `dlg_*` keeps User Principal / Agent Actor, Client/Application/Resource/Space binding and current Core authorization. Account `/delegations` lists and revokes own active third-party grants, even after OAuth disconnect. The request URL expires in 10 minutes; selecting an unlimited lifetime never broadens the model/operation target or overrides live revocation checks.
+
+External Provider single-use writes still consume **before one outbound attempt**. An explicitly approved recurring or indefinite External write may cause multiple individual Provider attempts; no exactly-once or cross-Provider atomicity guarantee is implied. The UI warns that repeated approvals can modify multiple records in the selected model.
+
+This is **source on an unmerged development branch**, not deployed Staging or Production; CI + browser/Staging E2E and owner review remain required. Historical sections below describe earlier one-use-only slices.
+
 # Identity Interactive OAuth Authorization Server / 交互式 OAuth 授权服务
 
 ## 2026-11-09 · Third-party External delegated write attempt / 第三方外部写入授权（待部署）
