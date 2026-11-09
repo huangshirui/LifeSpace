@@ -338,6 +338,38 @@ test("same-origin, CSRF, explicit-intent, shape and client-controlled upstream p
   assert.equal((await t.request("/api/oauth/confirm", { method: "GET" })).status, 405);
 });
 
+test("Account static clean URLs keep the original route and delegation query intact", async () => {
+  const t=fixture();
+  const seen=[];
+  t.env.ASSETS={fetch:async request=>{
+    const u=new URL(request.url);
+    seen.push({pathname:u.pathname,search:u.search});
+    // Cloudflare Static Assets defaults to auto-trailing-slash: the asset
+    // binding handles .html internally when given the clean page URL.
+    assert.equal(u.pathname.endsWith(".html"),false);
+    return new Response("<html>synthetic clean page</html>",{
+      status:200,headers:{"content-type":"text/html"},
+    });
+  }};
+  for(const path of [
+    "/delegation?request_id="+arq,
+    "/delegations",
+    "/oauth/consent?request_id="+id,
+  ]){
+    const response=await t.request(path);
+    assert.equal(response.status,200,path);
+    assert.equal(response.headers.get("location"),null,path);
+    assert.match(response.headers.get("content-security-policy"),/frame-ancestors 'none'/u);
+    assert.equal(response.headers.get("referrer-policy"),"no-referrer");
+    assert.match(await response.text(),/synthetic clean page/u);
+  }
+  assert.deepEqual(seen,[
+    {pathname:"/delegation",search:"?request_id="+arq},
+    {pathname:"/delegations",search:""},
+    {pathname:"/oauth/consent",search:"?request_id="+id},
+  ]);
+});
+
 test("Account static responses enforce CSP and no-referrer", async () => {
   const t = fixture();
   const res = await t.request("/oauth/consent");
