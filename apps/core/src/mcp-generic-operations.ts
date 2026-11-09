@@ -201,7 +201,11 @@ async function manifest(c:ContextApp):Promise<Entry[]>{
       }else if(op.startsWith("action:")){
         const actionKey=op.slice(7);
         const action=semantic.actions.find(a=>a.key===actionKey);
-        if(!action||!(action.access==="read"?read:write))continue;
+        // OAuth MCP advertises only read/write credential scopes. A published
+        // manage-only Action must stay unavailable instead of being silently
+        // downgraded to write in the projected tool contract.
+        if(!action||(action.access!=="read"&&action.access!=="write")
+          ||!(action.access==="read"?read:write))continue;
         await push("action",key,names(semantic.display.singular),op as Operation,
           action.kind==="workflow"
             ?{type:"object",additionalProperties:false,properties:{version},required:["version"]}
