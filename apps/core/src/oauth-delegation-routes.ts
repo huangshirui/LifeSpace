@@ -423,7 +423,8 @@ export function registerOAuthDelegationRoutes(app: App): void {
     }
     const delegated:Principal={type:"user",id:userId,clientId:loaded.row.application_id,
       scopes,tokenId:principal.tokenId};
-    const constraints={maxUses:lifetime!.maxUses,expiresAt:lifetime!.expiresAt,remainingRedelegationDepth:0};
+    const constraints={...(lifetime!.maxUses===1?{maxUses:1 as const}:{}),
+      ...(lifetime!.expiresAt?{expiresAt:lifetime!.expiresAt}:{}),remainingRedelegationDepth:0};
     const issues=await prepareDelegationIssues(c.env,delegated,loaded.row.source_space_id,[{
       actor:{type:"agent",id:loaded.row.requesting_agent_id},
       scope:{target:{type:"model",id:delegationTarget(loaded.binding.modelKey)},maxAccess:loaded.item.max_access},
