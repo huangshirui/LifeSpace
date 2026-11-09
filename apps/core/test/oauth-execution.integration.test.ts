@@ -377,6 +377,19 @@ describe("OAuth MCP Agent Direct execution: Core fail-closed route and Space bou
     expect((await f.trustedRequest("POST",
       "/api/v1/spaces/"+f.space+"/authorization-requests/"+requested.data.id+"/confirm",
       {principalUserId:f.oauthUser})).status).toBe(404);
+    // A future externally confirmed channel must not accidentally become
+    // a trusted Agent approval path just because its tag is not "oauth_mcp".
+    const original=await f.db.prepare(
+      "SELECT correlation_json FROM authorization_requests WHERE id=?")
+      .bind(requested.data.id).first<{correlation_json:string}>();
+    const future={...JSON.parse(original!.correlation_json),channel:"future_web_approval"};
+    await f.db.prepare("UPDATE authorization_requests SET correlation_json=? WHERE id=?")
+      .bind(JSON.stringify(future),requested.data.id).run();
+    expect((await f.trustedRequest("POST",
+      "/api/v1/spaces/"+f.space+"/authorization-requests/"+requested.data.id+"/confirm",
+      {principalUserId:f.oauthUser})).status).toBe(404);
+    await f.db.prepare("UPDATE authorization_requests SET correlation_json=? WHERE id=?")
+      .bind(original!.correlation_json,requested.data.id).run();
     const before=await f.accountRequest("GET","/api/v1/me/oauth/delegation-requests/"+requested.data.id);
     expect(before.status).toBe(200);
     expect((await f.accountRequest("POST",
