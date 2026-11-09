@@ -4,6 +4,7 @@ import { ApiError, success } from "./http";
 import { oauthMcpServerId } from "./mcp-oauth-server-policy";
 import { getRuntimeModel } from "./model-registry";
 import { getExternalModel } from "./external-model";
+import { requirePersonDirectoryPermission } from "./authorization";
 import { delegationIssueStatements, delegationIssueDtos, prepareDelegationIssues } from "./delegation-routes";
 
 // This is a transport-specific pending-approval bridge, NOT a second
@@ -27,6 +28,9 @@ type ItemRow = {
 };
 const ARQ = /^arq_[a-f0-9]{32}$/u;
 const MODEL = /^[a-z][a-z0-9_]{1,62}$/u;
+const PERSON_MODEL = "person";
+const PERSON_TARGET = "person_directory";
+const delegationTarget = (modelKey: string) => modelKey === PERSON_MODEL ? PERSON_TARGET : modelKey;
 const OPS = new Set<string>(["get","query","create","update","delete"]);
 const ACTION = /^action:([a-z][a-z0-9_-]{0,62})$/u;
 const validOp = (value: unknown): value is Op => typeof value === "string"
@@ -83,6 +87,19 @@ async function serverOperation(env: Bindings, resource: string, spaceId: string,
   let config: unknown;
   try { config = JSON.parse(row.config_json); } catch { throw fail(); }
   if (!config || typeof config !== "object" || Array.isArray(config)) throw fail();
+  // Person is exposed as an ordinary consumer-facing "person" model, but
+  // the exact Kernel target and current Grant stay Core-private.
+  if (modelKey === PERSON_MODEL) {
+    if (ACTION.test(operation)) throw fail();
+    const resources = (config as {resources?: unknown}).resources;
+    if (!Array.isArray(resources)) throw fail();
+    const person = resources.find(r => r && typeof r === "object" && !Array.isArray(r)
+      && (r as {resourceKey?:unknown}).resourceKey === PERSON_TARGET) as
+        {operations?:unknown} | undefined;
+    const selected = operation === "query" ? "list" : operation;
+    if (!person || !Array.isArray(person.operations) || !person.operations.includes(selected)) throw fail();
+    return accessOf(operation);
+  }
   const entry = (config as {models?: unknown}).models;
   if (!Array.isArray(entry) || entry.length > 32) throw fail();
   const chosen = entry.find(x => x && typeof x === "object" && !Array.isArray(x)
@@ -137,7 +154,7 @@ async function load(env: Bindings, id: string) {
     "FROM authorization_request_items WHERE request_id=? ORDER BY ordinal"
   ).bind(id).all<ItemRow>();
   if (details.results.length !== 1 || details.results[0]?.target_type !== "model"
-    || details.results[0]?.target_id !== binding.modelKey
+    || details.results[0]?.target_id !== delegationTarget(binding.modelKey)
     || details.results[0]?.max_access !== accessOf(binding.operation,binding.requestedAccess)
     || details.results[0]?.max_uses !== 1 || details.results[0]?.remaining_redelegation_depth !== 0) throw fail();
   return {row, binding, item:details.results[0]!};
@@ -209,8 +226,20 @@ export async function requireOAuthMcpDelegatedOperation(
     || loaded.row.intended_user_id !== principal.id || loaded.row.requesting_agent_id !== x.agentId
     || loaded.row.source_space_id !== x.spaceId || loaded.binding.authorizationId !== x.authorizationId
     || loaded.binding.clientId !== x.clientId || loaded.binding.resource !== x.resource) throw fail();
-  const prefix="/api/v1/spaces/" + x.spaceId + "/models/" + loaded.binding.modelKey + "/records";
   const op:Op=loaded.binding.operation;
+  const personPrefix="/api/v1/spaces/" + x.spaceId + "/people";
+  if (loaded.binding.modelKey === PERSON_MODEL) {
+    const personRecord=new RegExp("^"+personPrefix+"/per_[A-Za-z0-9_-]+$","u").test(path);
+    const validPerson = op === "query" ? method === "GET" && path === personPrefix
+      : op === "create" ? method === "POST" && path === personPrefix
+      : op === "get" ? method === "GET" && personRecord
+      : op === "update" ? method === "PATCH" && personRecord
+      : op === "delete" ? method === "DELETE" && personRecord : false;
+    if (!validPerson) throw fail();
+    await liveConsent(env,loaded.row,loaded.binding);
+    return;
+  }
+  const prefix="/api/v1/spaces/" + x.spaceId + "/models/" + loaded.binding.modelKey + "/records";
   const action=ACTION.exec(op);
   const valid = action
     ? method==="POST" && path.startsWith(prefix+"/")
@@ -267,7 +296,7 @@ export function registerOAuthDelegationRoutes(app: App): void {
       c.env.DB.prepare(
         "INSERT INTO authorization_request_items(request_id,ordinal,target_type,target_id,max_access,max_uses,delegation_expires_at,remaining_redelegation_depth) "+
         "VALUES(?,0,'model',?,?,1,?,0)"
-      ).bind(requestId,modelKey,requestedAccess,delegationExpiresAt),
+      ).bind(requestId,delegationTarget(modelKey),requestedAccess,delegationExpiresAt),
     ]);
     c.header("Cache-Control","no-store");
     return c.json(success({id:requestId,status:"pending",approvalUrl:origin+"/delegation?request_id="+requestId,
@@ -313,7 +342,7 @@ export function registerOAuthDelegationRoutes(app: App): void {
     const constraints={maxUses:1 as const,expiresAt:loaded.item.delegation_expires_at,remainingRedelegationDepth:0};
     const issues=await prepareDelegationIssues(c.env,delegated,loaded.row.source_space_id,[{
       actor:{type:"agent",id:loaded.row.requesting_agent_id},
-      scope:{target:{type:"model",id:loaded.binding.modelKey},maxAccess:loaded.item.max_access},
+      scope:{target:{type:"model",id:delegationTarget(loaded.binding.modelKey)},maxAccess:loaded.item.max_access},
       constraints,
     }],{type:"user",id:userId});
     const issue=issues[0]!;
