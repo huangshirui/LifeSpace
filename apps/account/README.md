@@ -1,5 +1,10 @@
 # LifeSpace Account · User Center + OAuth Consent / 账户中心与授权门户
 
+## 2026-11-10 · 资料只读与退出登录
+
+- 「账号与安全」中的姓名和邮箱输入框默认 `readonly`；只有用户点击该字段独立的「编辑」才允许输入和保存；「取消」恢复已确认数据，成功保存后回到只读。姓名编辑不替代邮箱变更的再次确认与待验证流程。
+- 「退出登录」按钮必须经用户确认后导航至当前应用**同源** `/cdn-cgi/access/logout`。Cloudflare Access 会撤销当前用户在同一 Access Team 下的会话（不是仅本 Account 页面）；其他受保护应用可能需要重新登录，令牌失效可能有短暂传播延迟。此操作**不撤销 Identity OAuth Authorization / Core Delegation / Service Credentials**。不引入 Account 自建 Session/Auth 或跨域登出 URL；工作流仍由 Owner 手动部署。
+
 ## Account Center 用户体验与自助操作（候选 v0.4.0，待 Staging 验收）
  
  - 保留四栏用户账户中心，统一 Lucide SVG、布局和简洁中文文案；OAuth 技术标识默认收在“技术详情”。
