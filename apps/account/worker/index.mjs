@@ -275,7 +275,7 @@ export async function accountFetch(req, env) {
     const item = await data(upstream);
     if (!item || item.id !== spaceId || !safeText(item.name, 160)
       || !safeText(item.timezone, 100) || !Number.isInteger(item.version)
-      || !isObject(item.access)) {
+      || !["owner","admin","editor","viewer","grant"].includes(item.access)) {
       return fail(502, "CORE_INVALID_RESPONSE", "空间详情格式异常");
     }
     return responseJson({ data: {
