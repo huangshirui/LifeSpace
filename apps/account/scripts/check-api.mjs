@@ -3,7 +3,7 @@ const api = JSON.parse(fs.readFileSync(new URL("../openapi.json", import.meta.ur
 const expect = ["/api/account/authorizations",
   "/api/account/authorizations/{authorizationId}",
   "/api/account/authorizations/{authorizationId}/revoke", "/api/account/login-email", "/api/account/spaces",
-  "/api/account/spaces/{spaceId}", "/api/account/spaces/{spaceId}/members", "/api/session", "/api/oauth/request", "/api/oauth/choices", "/api/oauth/capabilities", "/api/oauth/confirm"];
+  "/api/account/spaces/{spaceId}", "/api/account/spaces/{spaceId}/members", "/api/account/spaces/{spaceId}/external-connections", "/api/session", "/api/oauth/request", "/api/oauth/choices", "/api/oauth/capabilities", "/api/oauth/confirm"];
 if (api.openapi !== "3.1.0" || api.info.version !== "0.3.0") throw new Error("Account BFF contract mismatch");
 for (const path of expect) if (!api.paths[path]) throw new Error("Missing Account route " + path);
 const confirmation = api.paths["/api/oauth/confirm"].post;
