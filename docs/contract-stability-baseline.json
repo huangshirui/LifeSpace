@@ -116,7 +116,7 @@
     {
       "id": "identity-application",
       "source": "apps/identity/openapi.yaml",
-      "operationSetSha256": "sha256:d9d21d9f0e7b2e058ac77afd3eecca45b2509a88bc5a46c45570d5d0b9225202",
+      "operationSetSha256": "sha256:00dd54cc2f54a46dd03decb5c1c85364a2d0d2ccebc4a59f3206a7f8dd5cd3ca",
       "groups": [
         {
           "id": "identity-operational",
@@ -250,6 +250,13 @@
           "maturity": "candidate",
           "visibility": "internal",
           "commitment": "Core-only OAuth Authorization owner and Delegation eligibility revalidation without public User principal claims."
+        },
+        {
+          "id": "identity-user-owned-oauth-authorization",
+          "maturity": "candidate",
+          "visibility": "internal",
+          "operationPattern": "^(GET /api/v1/me/oauth/authorizations(?:/\\{authorizationId\\})?|POST /api/v1/me/oauth/authorizations/\\{authorizationId\\}/revoke)$",
+          "commitment": "An Account User can manage own Authorization ID, revocation invalidates tokens without disabling any shared Agent."
         }
       ]
     },
@@ -469,7 +476,7 @@
     {
       "id": "account-consent-bff",
       "source": "apps/account/openapi.json",
-      "operationSetSha256": "sha256:b7d14179f9fb1f0b2880ce8aaa57292e18fc3fe013be3940621269b9910f3031",
+      "operationSetSha256": "sha256:69371fb8ffdd0de2683b72b3a047e0937e7a71c80a1c7a3e9e505c62c33d5a50",
       "groups": [
         {
           "id": "account-oauth-consent",
@@ -503,6 +510,13 @@
           "visibility": "internal",
           "operationPattern": "^GET /api/account/(login-email|spaces(?:/\\\\{spaceId\\\\}(?:/members)?)?)$",
           "commitment": "Read-only Identity and Core snapshots for the verified current user; never confers Space or platform administration."
+        },
+        {
+          "id": "account-user-owned-oauth-authorization",
+          "maturity": "candidate",
+          "visibility": "internal",
+          "operationPattern": "^(GET /api/account/authorizations(?:/\\{authorizationId\\})?|POST /api/account/authorizations/\\{authorizationId\\}/revoke)$",
+          "commitment": "Only the current Account user may list/get/revoke an individual OAuth Authorization, never Agent-wide grants."
         }
       ]
     }
