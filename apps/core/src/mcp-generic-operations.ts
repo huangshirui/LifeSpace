@@ -20,8 +20,8 @@ type Access="read"|"write";
 type Kind="native"|"external"|"person"|"action";
 type Operation="query"|"get"|"create"|"update"|"delete"|`action:${string}`;
 type Contract={ contractId?:string; modelKey:string; display:string; operation:Operation;
-  operationRef:string; inputSchema:Record<string,unknown>; title:string; description:string;
-  requiredScopes:string[]; };
+  operationRef:string; inputSchema:Record<string,unknown>; outputSchema?:Record<string,unknown>;
+  title:string; description:string; requiredScopes:string[]; };
 type Entry={dto:Contract;kind:Kind;target:string;actionKey?:string};
 type JsonSchema=Record<string,unknown>;
 const MODEL=/^[a-z][a-z0-9_]{1,62}$/u;
@@ -50,6 +50,46 @@ function operationSchema(spaceId:string,op:Operation,data?:JsonSchema,recordId?:
   }
   return {type:"object",additionalProperties:false,properties,required,
     ...(definitions?{$defs:definitions}:{})};
+}
+// Canonical output shapes are projected from the immutable Native Model
+// Contract, just like input schemas. Person/External/Actions have distinct
+// return contracts and MUST NOT be guessed from Native resources.
+function nativeOutputSchema(bundle:Record<string,unknown>,key:string,
+  modelVersion:number,schemaHash:string,op:Operation):JsonSchema|undefined {
+  if(!["query","get","create","update"].includes(op))return undefined;
+  const metadata=(bundle["x-lifespace-models"] as Record<string,Record<string,unknown>>|undefined)?.[key];
+  const source=metadata?.resourceSchema;
+  if(metadata?.version!==modelVersion || metadata?.schemaHash!==schemaHash
+    ||typeof source!=="string"||!source.startsWith("#/$defs/"))return undefined;
+  const defs=bundle.$defs as Record<string,JsonSchema>|undefined;
+  if(!defs||!defs[source.slice(8)])return undefined;
+  const selected:Record<string,JsonSchema>={};
+  const include=(ref:string):void=>{
+    if(!ref.startsWith("#/$defs/"))throw denied();
+    const name=ref.slice(8);
+    if(selected[name])return;
+    if(!defs[name]||Object.keys(selected).length>=64)throw denied();
+    selected[name]=structuredClone(defs[name]);
+    const visit=(value:unknown):void=>{
+      if(!value||typeof value!=="object")return;
+      if(Array.isArray(value)){for(const item of value)visit(item);return;}
+      const entry=value as Record<string,unknown>;
+      if(typeof entry.$ref==="string")include(entry.$ref);
+      for(const child of Object.values(entry))visit(child);
+    };
+    visit(defs[name]);
+  };
+  include(source);
+  if(op==="query")return {
+    type:"object",
+    required:["items"],
+    properties:{
+      items:{type:"array",items:{$ref:source}},
+      nextCursor:{anyOf:[{type:"string"},{type:"null"}]},
+    },
+    $defs:selected,
+  };
+  return {type:"object",$ref:source,$defs:selected};
 }
 async function ref(key:string) {
   const hash=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(key));
@@ -129,14 +169,16 @@ async function manifest(c:ContextApp):Promise<Entry[]>{
       ??(await getOrCreateActiveModelContract(c.env));
     return contractCache;
   };
-  const push=async(kind:Kind,modelKey:string,display:string,operation:Operation,data?:JsonSchema,actionKey?:string,access:Access=["query","get"].includes(operation)?"read":"write")=>{
+  const push=async(kind:Kind,modelKey:string,display:string,operation:Operation,data?:JsonSchema,actionKey?:string,access:Access=["query","get"].includes(operation)?"read":"write",outputSchema?:JsonSchema)=>{
     if(out.length>=MAX_OPERATIONS)throw new ApiError("OPERATION_LIMIT","Too many configured MCP operations",413);
     const opRef=await ref([policy.serverId,spaceId,modelKey,operation,kind].join(":"));
     const dataSchema=operationSchema(spaceId,operation,data);
     const toolOp=operation.startsWith("action:")?"action":operation;
     out.push({kind,target:modelKey,actionKey,
       dto:{modelKey,display,operation,operationRef:opRef,
-        inputSchema:dataSchema,title:toolOp+" "+display,
+        inputSchema:dataSchema,
+        ...(outputSchema?{outputSchema}:{}),
+        title:toolOp+" "+display,
         requiredScopes:access==="read"?["resources:read"]:["resources:read","resources:write"],
         description:"LifeSpace "+toolOp+". Current Core Resource, Space, Model, Policy and Delegation are revalidated at execution."}});
   };
@@ -197,7 +239,10 @@ async function manifest(c:ContextApp):Promise<Entry[]>{
           include(inputRef);
           schema={$ref:inputRef,$defs:selected};
         }
-        await push("native",key,names(semantic.display.singular),op as Operation,schema);
+        const output=op==="delete"?undefined:nativeOutputSchema(
+          (await currentContract()).jsonSchema,key,model.version,model.schemaHash,op as Operation);
+        await push("native",key,names(semantic.display.singular),op as Operation,
+          schema,undefined,undefined,output);
       }else if(op.startsWith("action:")){
         const actionKey=op.slice(7);
         const action=semantic.actions.find(a=>a.key===actionKey);
