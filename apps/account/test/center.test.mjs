@@ -36,7 +36,7 @@ function setup({ avatarUrl = "https://auth-staging.example.test/assets/users/" +
     if(path==="/api/v1/spaces/"+SPACE){
       if(coreStatus!==200)return Response.json({error:{code:"FORBIDDEN"}},{status:coreStatus});
       return Response.json({data:{
-        id:SPACE,name:"Personal Space",timezone:"Asia/Shanghai",version:2,access:{read:true,manage:true},
+        id:SPACE,name:"Personal Space",timezone:"Asia/Shanghai",version:2,access:"owner",
       }});
     }
     if(path==="/api/v1/spaces/"+SPACE+"/members")return Response.json({data:[{
