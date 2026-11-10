@@ -60,6 +60,15 @@ function setup({ avatarUrl = "https://auth-staging.example.test/assets/users/" +
         id:SPACE,name:"Personal Space",timezone:"Asia/Shanghai",version:2,access:"owner",
       }});
     }
+    if(path==="/api/v1/spaces/"+SPACE+"/external-connections") {
+      if(coreStatus!==200)return Response.json({error:{code:"FORBIDDEN"}},{status:coreStatus});
+      return Response.json({data:{items:[{
+        id:"exs_"+"b".repeat(32),spaceId:SPACE,providerKey:"notion",
+        displayName:"Private Notion",status:"active",access:"read",
+        createdAt:"2026-11-10T00:00:00Z",
+        credentialRef:"should-not-appear-in-browser",resourceDiscovery:true,
+      }]}});
+    }
     if(path==="/api/v1/spaces/"+SPACE+"/members")return Response.json({data:[{
       userId:USER,displayName:"User test",role:"owner",
     }]});
@@ -170,4 +179,22 @@ test("Account Center independently revokes owner OAuth authorization with signed
   assert.deepEqual((await allowed.json()).data,{id:OAUTH_ID,revoked:true});
   const after=await t.request("/api/account/authorizations?offset=0");
   assert.equal((await after.json()).data.items[0].status,"revoked");
+});
+
+test("External Data listing uses current Space manager Core authority and strips provider credential references",async()=>{
+  const t=setup();
+  const external=await t.request("/api/account/spaces/"+SPACE+"/external-connections");
+  assert.equal(external.status,200);
+  const item=(await external.json()).data.items[0];
+  assert.equal(item.providerKey,"notion");
+  assert.equal(item.displayName,"Private Notion");
+  assert.equal(item.access,"read");
+  assert.ok(!JSON.stringify(item).includes("credentialRef"));
+  assert.ok(!JSON.stringify(item).includes("should-not-appear"));
+  assert.ok(t.calls.some(c=>c.path==="/api/v1/spaces/"+SPACE+"/external-connections"
+    && c.auth==="Bearer "+t.token));
+  assert.equal((await t.request("/api/account/spaces/"+SPACE+"/external-connections?userId=usr_other")).status,400);
+  assert.equal((await t.request("/api/account/spaces/spc_other/external-connections")).status,404);
+  const blocked=setup({coreStatus:403});
+  assert.equal((await blocked.request("/api/account/spaces/"+SPACE+"/external-connections")).status,403);
 });
