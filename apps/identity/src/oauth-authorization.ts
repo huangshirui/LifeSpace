@@ -378,6 +378,79 @@ export function registerOAuthAuthorizationServer(app: App) {
     } }, 200, { "cache-control": "no-store" });
   });
 
+  // Owner-only management of each OAuth Authorization. Account is the only
+  // trusted interactive client; third-party OAuth clients cannot list/revoke a
+  // user's authorizations, and one shared Agent never implies a shared grant.
+  const accountOwner = (c: Context<AppEnv>) => {
+    const principal = c.get("principal");
+    return c.env.OAUTH_ACCOUNT_APPLICATION_ID
+      && principal.clientId === c.env.OAUTH_ACCOUNT_APPLICATION_ID
+      && principal.scopes.includes("profile:read") ? principal.id : null;
+  };
+  type UserAuthorization = {
+    id:string;client_id:string;clientName:string;resource:string;application_id:string;
+    space_id:string;agent_id:string;allow_user_authorization:number;scopes:string;
+    status:string;created_at:string;revoked_at:string|null;
+  };
+  const toOwnerAuthorization = (row: UserAuthorization) => ({
+    id:row.id,clientId:row.client_id,clientName:row.clientName,verifiedVendor:false,
+    resource:row.resource,applicationId:row.application_id,spaceId:row.space_id,
+    agentId:row.agent_id,allowUserAuthorization:row.allow_user_authorization===1,
+    scopes:json(row.scopes),status:row.status,createdAt:row.created_at,revokedAt:row.revoked_at,
+  });
+  const ownerSelection = "SELECT oa.id,oa.client_id,cl.display_name clientName,oa.resource,"
+    + "oa.application_id,oa.space_id,oa.agent_id,oa.allow_user_authorization,oa.scopes,"
+    + "oa.status,oa.created_at,oa.revoked_at FROM oauth_authorizations oa "
+    + "JOIN oauth_clients cl ON cl.id=oa.client_id WHERE oa.user_id=?";
+  app.get("/api/v1/me/oauth/authorizations", async (c) => {
+    const userId=accountOwner(c);
+    if(!userId)return oauthError(c,403,"access_denied","Account user session required");
+    const params=new URL(c.req.url).searchParams;
+    const offset=params.get("offset")??"0";
+    if((params.size && (params.size!==1 || !params.has("offset")))
+      || !/^(0|[1-9][0-9]{0,3})$/u.test(offset))
+      return oauthError(c,400,"invalid_request","Invalid authorization list offset");
+    const rows=await c.env.DB.prepare(ownerSelection
+      + " ORDER BY oa.created_at DESC,oa.id DESC LIMIT 21 OFFSET ?")
+      .bind(userId,Number(offset)).all<UserAuthorization>();
+    const items=rows.results.slice(0,20).map(toOwnerAuthorization);
+    return c.json({data:{items,nextOffset:rows.results.length>20?Number(offset)+20:null}},
+      200,{"cache-control":"no-store"});
+  });
+  app.get("/api/v1/me/oauth/authorizations/:authorizationId", async (c) => {
+    const userId=accountOwner(c), authorizationId=c.req.param("authorizationId");
+    if(!userId)return oauthError(c,403,"access_denied","Account user session required");
+    if(!/^oaz_[A-Za-z0-9_-]{16,128}$/u.test(authorizationId))
+      return oauthError(c,400,"invalid_request","Invalid authorization identifier");
+    const row=await c.env.DB.prepare(ownerSelection+" AND oa.id=?")
+      .bind(userId,authorizationId).first<UserAuthorization>();
+    if(!row)return c.json({error:{code:"AUTHORIZATION_NOT_FOUND",message:"Authorization not found"}},404);
+    return c.json({data:toOwnerAuthorization(row)},200,{"cache-control":"no-store"});
+  });
+  app.post("/api/v1/me/oauth/authorizations/:authorizationId/revoke", async (c) => {
+    const userId=accountOwner(c), authorizationId=c.req.param("authorizationId");
+    if(!userId)return oauthError(c,403,"access_denied","Account user session required");
+    if(!/^oaz_[A-Za-z0-9_-]{16,128}$/u.test(authorizationId))
+      return oauthError(c,400,"invalid_request","Invalid authorization identifier");
+    if(!/^application\/json(?:\s*;|$)/iu.test(c.req.header("content-type")||""))
+      return oauthError(c,400,"invalid_request","JSON content type required");
+    const body=await c.req.json<Record<string,unknown>>().catch(()=>null);
+    if(!body || Array.isArray(body) || Object.keys(body).length!==0)
+      return oauthError(c,400,"invalid_request","Revocation body must be empty");
+    const row=await c.env.DB.prepare("SELECT status FROM oauth_authorizations WHERE id=? AND user_id=?")
+      .bind(authorizationId,userId).first<{status:string}>();
+    if(!row)return c.json({error:{code:"AUTHORIZATION_NOT_FOUND",message:"Authorization not found"}},404);
+    if(row.status!=="active")return c.json({error:{code:"ALREADY_REVOKED",message:"Authorization is not active"}},409);
+    const revoked=await c.env.DB.prepare(
+      "UPDATE oauth_authorizations SET status='revoked',revoked_at=? WHERE id=? AND user_id=? AND status='active'"
+    ).bind(instant(),authorizationId,userId).run();
+    if(revoked.meta.changes!==1)
+      return c.json({error:{code:"AUTHORIZATION_CHANGED",message:"Authorization changed"}},409);
+    // Current-state eligibility rejects outstanding access, refresh and
+    // unexchanged authorization-code use; never disable a shared Agent.
+    return c.json({data:{id:authorizationId,revoked:true}},200,{"cache-control":"no-store"});
+  });
+
   // Core-only bounded resolution of Agent/Application identities that Core has
   // already selected from a manager's current Space Data Grants.
   app.post("/oauth/core/agent-candidates", async (c) => {
