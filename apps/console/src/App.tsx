@@ -32,20 +32,25 @@ type Remote<T> = { loading: boolean; data?: T; error?: ConsoleApiError };
 const PageToolbarContext = createContext<ReactNode>(null);
 
 const navGroups = [
-  { label: "", items: [{ href: "/", label: "Overview", page: "overview" }] },
+  { label: "", items: [{ href: "/", label: "总览 Overview", page: "overview" }] },
   {
-    label: "Platform",
+    label: "平台管理",
     items: [
-      { href: "/applications", label: "Applications", page: "applications" },
-      { href: "/models", label: "Models", page: "models" },
-      { href: "/mcp-servers", label: "MCP Servers", page: "mcp-servers" },
-      { href: "/oauth-clients", label: "OAuth 客户端", page: "oauth-clients" },
       { href: "/users", label: "Users", page: "users" },
       { href: "/spaces", label: "Spaces", page: "spaces" },
+      { href: "/models", label: "Models", page: "models" },
     ],
   },
   {
-    label: "Operations",
+    label: "应用与接入",
+    items: [
+      { href: "/applications", label: "Applications", page: "applications" },
+      { href: "/mcp-servers", label: "MCP Servers", page: "mcp-servers" },
+      { href: "/oauth-clients", label: "OAuth 客户端", page: "oauth-clients" },
+    ],
+  },
+  {
+    label: "运行维护",
     items: [
       { href: "/audit", label: "Audit", page: "audit" },
       { href: "/system", label: "System", page: "system" },
