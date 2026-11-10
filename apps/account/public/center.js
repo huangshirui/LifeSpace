@@ -3,7 +3,7 @@ const PANELS = new Set(["account","spaces","connections","audit"]);
 const TABS = new Set(["oauth","delegations","direct","event","external"]);
 const roles = {owner:"所有者",admin:"管理员",editor:"编辑者",viewer:"查看者"};
 const opNames = {query:"查询",get:"查看",create:"新增",update:"修改",delete:"删除"};
-const state = {user:null,csrf:null,spaces:[],space:null,delegationsLoaded:false,delegationOffset:0,delegationsBusy:false,revokeId:null};
+const state = {user:null,csrf:null,spaces:[],space:null,oauthLoaded:false,oauthOffset:0,oauthBusy:false,delegationsLoaded:false,delegationOffset:0,delegationsBusy:false,revokeId:null,revokeKind:null};
 const msg = e => e instanceof Error ? e.message : "请求暂时不可用";
 async function api(path,options={}) {
   const response = await fetch(path,{...options,credentials:"same-origin",
@@ -93,6 +93,7 @@ function selectTab(tab,updateHash=true) {
   for(const node of document.querySelectorAll("[data-tab-panel]"))node.hidden=node.dataset.tabPanel!==tab;
   if(updateHash)location.hash="#connections/"+tab;
   if(tab==="delegations" && state.csrf && !state.delegationsLoaded)void loadDelegations(true);
+  if(tab==="oauth" && state.csrf && !state.oauthLoaded)void loadOauth(true);
 }
 function renderSpaces() {
   const target=$("space-list");target.replaceChildren();
@@ -160,6 +161,50 @@ async function loadSpaceDetail(id) {
     if(state.space===id)target.replaceChildren(el("p","placeholder","无法读取空间详情："+msg(e)));
   }
 }
+function authorizationRow(item) {
+  const card=el("article","delegation-item"),head=el("div","delegation-head"),intro=el("div");
+  intro.append(el("strong","",item.clientName),el("p","",item.clientId));
+  const status=item.status==="active"?"有效授权":"已撤销";
+  if(item.status==="active"){
+    const button=el("button","button danger","撤销授权");button.type="button";
+    button.addEventListener("click",()=>openRevoke(item,"oauth"));
+    head.append(intro,button);
+  }else head.append(intro,el("span","tag",status));
+  const tags=el("div","delegation-tags");
+  tags.append(el("span","tag",status),
+    el("span","tag",item.allowUserAuthorization?"允许申请单独委托":"仅 Agent 自身权限"));
+  for(const scope of item.scopes)tags.append(el("span","tag",scope));
+  const detail=el("details");detail.append(el("summary","","查看授权实例与资源"));
+  const dl=el("dl");
+  for(const [name,value] of [["Authorization",item.id],["Client ID",item.clientId],
+    ["Resource",item.resource],["Application",item.applicationId],["Space",item.spaceId],
+    ["Agent",item.agentId],["授权于",formatTime(item.createdAt)],
+    ["撤销于",item.revokedAt?formatTime(item.revokedAt):"—"]]) {
+    dl.append(el("dt","",name),el("dd","",value));
+  }
+  detail.append(dl);card.append(head,tags,detail);return card;
+}
+async function loadOauth(reset=false) {
+  if(state.oauthBusy)return;
+  state.oauthBusy=true;
+  const target=$("oauth-items"),label=$("oauth-message");
+  $("more-oauth").hidden=true;
+  label.textContent="正在读取当前用户的 OAuth 授权实例…";label.hidden=false;
+  try {
+    const offset=reset?0:state.oauthOffset;
+    const page=await api("/api/account/authorizations?offset="+offset);
+    if(!Array.isArray(page.items))throw new Error("授权列表格式异常");
+    if(reset)target.replaceChildren();
+    for(const item of page.items)target.append(authorizationRow(item));
+    state.oauthOffset=page.nextOffset??0;
+    state.oauthLoaded=true;
+    $("more-oauth").hidden=page.nextOffset===null;
+    label.hidden=target.children.length>0;
+    if(!label.hidden)label.textContent="当前账户没有已创建的 OAuth 授权实例。";
+  } catch(e) {
+    label.hidden=false;label.textContent="读取 OAuth 授权失败："+msg(e);
+  } finally {state.oauthBusy=false;}
+}
 function humanLifetime(item) {
   if(item.mode==="once")return "一次性";
   if(item.mode==="timed")return "限时 · "+(item.expiresAt?formatTime(item.expiresAt):"未知有效期");
@@ -208,34 +253,47 @@ async function loadDelegations(reset=false) {
     state.delegationsBusy=false;
   }
 }
-function openRevoke(item) {
-  if(state.delegationsBusy || !state.csrf)return;
-  state.revokeId=item.id;
-  $("revoke-detail").textContent="确认撤销「"+item.modelKey+" · "+(opNames[item.operation]||item.operation)
-    +"」？后续调用将被拒绝，已经完成的操作不会撤回。";
+function openRevoke(item,kind="delegation") {
+  if(state.delegationsBusy || state.oauthBusy || !state.csrf)return;
+  state.revokeId=item.id;state.revokeKind=kind;
+  $("revoke-detail").textContent=kind==="oauth"
+    ? "确认撤销「"+item.clientName+"」当前授权实例？此客户端的旧 Token 将失效，但其他授权和共享 Agent 不受影响。"
+    : "确认撤销「"+item.modelKey+" · "+(opNames[item.operation]||item.operation)
+      +"」？后续调用将被拒绝，已经完成的操作不会撤回。";
   $("revoke-error").hidden=true;
   $("revoke-dialog").showModal();
 }
 function closeRevoke() {
   if(state.delegationsBusy)return;
-  state.revokeId=null;
+  state.revokeId=null;state.revokeKind=null;
   $("revoke-dialog").close();
 }
 async function revoke() {
-  if(!state.revokeId || state.delegationsBusy)return;
-  const selectedId=state.revokeId;
+  if(!state.revokeId || state.delegationsBusy || state.oauthBusy)return;
+  const selectedId=state.revokeId,kind=state.revokeKind;
   const confirm=$("revoke-confirm"),cancel=$("revoke-cancel");
   confirm.disabled=true;cancel.disabled=true;
   try {
-    await api("/api/delegations/revoke",{method:"POST",
+    await api(kind==="oauth"
+      ? "/api/account/authorizations/"+encodeURIComponent(selectedId)+"/revoke"
+      : "/api/delegations/revoke",{method:"POST",
       headers:{"content-type":"application/json","x-lifespace-csrf":state.csrf},
-      body:JSON.stringify({intent:"revoke-user-delegation",delegationId:selectedId})});
-    state.revokeId=null;
+      body:JSON.stringify(kind==="oauth"
+        ? {intent:"revoke-oauth-authorization",authorizationId:selectedId}
+        : {intent:"revoke-user-delegation",delegationId:selectedId})});
+    state.revokeId=null;state.revokeKind=null;
     $("revoke-dialog").close();
-    state.delegationsLoaded=false;
-    await loadDelegations(true);
-    $("delegations-message").textContent="委托已撤销，当前列表已更新。";
-    $("delegations-message").hidden=false;
+    if(kind==="oauth"){
+      state.oauthLoaded=false;
+      await loadOauth(true);
+      $("oauth-message").textContent="OAuth 授权已撤销，列表已从服务器刷新。";
+      $("oauth-message").hidden=false;
+    }else{
+      state.delegationsLoaded=false;
+      await loadDelegations(true);
+      $("delegations-message").textContent="委托已撤销，列表已从服务器刷新。";
+      $("delegations-message").hidden=false;
+    }
   } catch(e) {
     $("revoke-error").textContent="撤销未完成："+msg(e);
     $("revoke-error").hidden=false;
@@ -248,7 +306,10 @@ async function init() {
   try {
     await loadAccount();
     if(currentPage().view==="spaces")await loadSpaces();
-    if(currentPage().view==="connections"&&currentPage().tab==="delegations")await loadDelegations(true);
+    if(currentPage().view==="connections"){
+      if(currentPage().tab==="delegations")await loadDelegations(true);
+      if(currentPage().tab==="oauth")await loadOauth(true);
+    }
   } catch(e) {
     showError(msg(e));
     $("nav-name").textContent="身份尚未验证";
@@ -260,10 +321,12 @@ async function init() {
 $("retry").addEventListener("click",init);
 $("refresh-spaces").addEventListener("click",loadSpaces);
 $("refresh-delegations").addEventListener("click",()=>loadDelegations(true));
+$("refresh-oauth").addEventListener("click",()=>loadOauth(true));
+$("more-oauth").addEventListener("click",()=>loadOauth(false));
 $("more-delegations").addEventListener("click",()=>loadDelegations(false));
 $("revoke-confirm").addEventListener("click",revoke);
 $("revoke-cancel").addEventListener("click",closeRevoke);
-$("revoke-dialog").addEventListener("cancel",e=>{if(state.delegationsBusy)e.preventDefault();else state.revokeId=null;});
+$("revoke-dialog").addEventListener("cancel",e=>{if(state.delegationsBusy||state.oauthBusy)e.preventDefault();else {state.revokeId=null;state.revokeKind=null;}});
 $("mobile-menu").addEventListener("click",()=>{
   const open=!$("sidebar").classList.contains("open");
   $("sidebar").classList.toggle("open",open);
