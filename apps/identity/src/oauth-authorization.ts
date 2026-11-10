@@ -146,10 +146,10 @@ async function revokeOAuthAuthorization(
     + "WHERE id=? AND status='active'"
     + (conditionalOwner ? " AND user_id=?" : ""),
   );
-  const result = conditionalOwner
-    ? await statement.bind(timestamp, authorizationId, ownerUserId).run()
-    : await statement.bind(timestamp, authorizationId).run();
-  return result.meta.changes === 1;
+  if (ownerUserId !== undefined) {
+    return (await statement.bind(timestamp, authorizationId, ownerUserId).run()).meta.changes === 1;
+  }
+  return (await statement.bind(timestamp, authorizationId).run()).meta.changes === 1;
 }
 
 export async function authorization(db: D1Database, authorizationId: string): Promise<Authorization | null> {
