@@ -81,7 +81,13 @@
         </div>
         <div class="surface tab-panel" data-tab-panel="direct" hidden><h2>Agent / Service API</h2><p>这类访问依赖各自的 Agent / Service 身份、Credential Scope 与 Core Data Grant，不等于 OAuth 客户端授权。</p><div class="not-connected"><strong>当前账户暂不提供此类凭据的直接管理</strong><p>使用所属 Application 的设置入口创建或轮换凭据；Account 将在具备用户级授权读取接口后聚合管理。不得通过平台管理员凭据代替用户操作。</p></div></div>
         <div class="surface tab-panel" data-tab-panel="event" hidden><h2>事件推送</h2><p>Webhook Endpoint、事件订阅和投递状态由 Core 管理。</p><div class="not-connected"><strong>用户级管理入口待接入</strong><p>只展示你当前 Space 内有权查看的订阅，不从应用配置猜测授权。</p></div></div>
-        <div class="surface tab-panel" data-tab-panel="external" hidden><h2>外部数据源</h2><p>Notion、飞书等是 Provider-backed External Connections，与访问 LifeSpace 的 OAuth 授权不同。</p><div class="not-connected"><strong>数据源管理入口待接入</strong><p>现有 Provider 凭据和模型绑定仍由所属 Space 的受信管理流程维护，浏览器不会展示密钥。</p></div></div>
+        <div class="surface tab-panel" data-tab-panel="external" hidden>
+          <div class="panel-header"><div><h2>外部数据源</h2><p>当前用户有权管理的 Space 下，已配置的 Provider Connection。OAuth 客户端授权和数据源凭据是两类不同的权限。</p></div><button id="refresh-external" class="button subtle" type="button">刷新</button></div>
+          <div class="field-row"><label for="external-space">选择 Space</label><select id="external-space" aria-label="外部数据源所属空间"><option value="">正在读取空间…</option></select></div>
+          <p id="external-message" class="placeholder" role="status">打开此标签页后读取外部数据源列表…</p>
+          <div id="external-items" class="delegation-items"></div>
+          <p class="subdued">仅展示 Provider、读写模式和连接状态等非敏感元数据。凭据创建、轮换和模型绑定仍在现有受信管理流程完成，Account 不读取或显示 Provider Token。</p>
+        </div>
       </section>
       <section class="page" data-panel="audit" hidden aria-labelledby="audit-heading">
         <div class="page-heading"><div><span class="eyebrow">ACCOUNT ACTIVITY</span><h1 id="audit-heading">活动与审计</h1><p>身份关联、授权、撤销与权限变更记录。</p></div></div>
