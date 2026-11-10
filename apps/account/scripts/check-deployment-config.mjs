@@ -6,6 +6,11 @@ const read = (name) => JSON.parse(readFileSync(resolve(root, "apps", name, "wran
 const account = read("account");
 const core = read("core");
 const identity = read("identity");
+const identitySource = readFileSync(resolve(root, "apps/identity/wrangler.jsonc"), "utf8");
+const identityProductionSection = identitySource.slice(identitySource.indexOf('"production": {'));
+if (!identityProductionSection || (identityProductionSection.match(/"services"\s*:/gu) || []).length !== 1) {
+  throw new Error("[account-deployment] Identity Production must declare exactly one services key");
+}
 function assert(value, message) { if (!value) throw new Error("[account-deployment] " + message); }
 function names(entries) { return Object.fromEntries((entries || []).map((v) => [v.binding, v.service])); }
 function checkAccountEnvironment(environment, site, related) {

@@ -35,7 +35,6 @@
       ],
       "routes": [{ "pattern": "auth.aisr.online", "custom_domain": true }],
       "services": [{ "binding": "CORE", "service": "lifespace-core" }],
-      "services": [{ "binding": "CORE", "service": "lifespace-core" }],
       "d1_databases": [{ "binding": "DB", "database_name": "lifespace-identity", "database_id": "00000000-0000-0000-0000-000000000013", "migrations_dir": "migrations" }],
       "r2_buckets": [{ "binding": "ASSETS", "bucket_name": "lifespace-assets" }]
     }
