@@ -63,6 +63,12 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,su
 .form-controls{display:flex;align-items:center;gap:9px;min-width:0}
 input:not([type=file]),select{min-height:40px;border:1px solid #dae3ee;border-radius:10px;color:#263b56;background:#fff;padding:10px 12px;font-size:14px;min-width:0}
 .form-controls input{flex:1}
+.form-controls input[readonly]{background:#f6f8fb;color:#62748a;cursor:default}
+.logout-card{max-width:900px;display:flex;justify-content:space-between;align-items:center;gap:20px;margin-top:18px}
+.logout-card h2{font-size:15px}
+.logout-card p{color:#8492a8;margin:7px 0 0}
+.logout-button{color:#a84954;border-color:#e4c8cd}
+.logout-button:hover{background:#fff5f6}
 input::placeholder{color:#a3afbf}
 .inline-note{font-size:12px;color:#8796aa;margin:14px 0 0}
 .action-status{padding:13px 16px;border-radius:10px;background:#eef5ff;color:#315c98;border:1px solid #d9e6fb;font-size:13px;margin:14px 0;line-height:1.5}
@@ -159,6 +165,8 @@ dialog p{font-size:14px;line-height:1.7;color:#61758b}
   .profile-head{gap:12px;flex-wrap:wrap}
   .profile-avatar{width:57px;height:57px}
   .profile-head>.button{width:100%}
+  .logout-card{flex-direction:column;align-items:stretch}
+  .logout-card .button{align-self:flex-start}
   .edit-form{grid-template-columns:1fr;gap:12px}
   .form-controls{align-items:stretch}
   .form-grid{grid-template-columns:1fr}

@@ -3,7 +3,7 @@ const PANELS = new Set(["account","spaces","connections","audit"]);
 const TABS = new Set(["oauth","delegations","external"]);
 const roles = {owner:"所有者",admin:"管理员",editor:"编辑者",viewer:"查看者"};
 const opNames = {query:"查询",get:"查看",create:"新增",update:"修改",delete:"删除"};
-const state = {user:null,csrf:null,spaces:[],space:null,auditLoaded:false,auditOffset:0,auditBusy:false,externalLoaded:false,oauthLoaded:false,oauthOffset:0,oauthBusy:false,delegationsLoaded:false,delegationOffset:0,delegationsBusy:false,revokeId:null,revokeKind:null,revokeBusy:false,emailVersion:null,invite:null,spaceNames:new Map(),nameCandidates:[],referenceLoaded:false,busyAction:false};
+const state = {user:null,csrf:null,spaces:[],space:null,auditLoaded:false,auditOffset:0,auditBusy:false,externalLoaded:false,oauthLoaded:false,oauthOffset:0,oauthBusy:false,delegationsLoaded:false,delegationOffset:0,delegationsBusy:false,revokeId:null,revokeKind:null,revokeBusy:false,emailVersion:null,emailValue:null,invite:null,spaceNames:new Map(),nameCandidates:[],referenceLoaded:false,busyAction:false};
 const msg = e => e instanceof Error ? e.message : "请求暂时不可用";
 async function api(path,options={}) {
   const response = await fetch(path,{...options,credentials:"same-origin",
@@ -47,6 +47,7 @@ function updateUser(user) {
   $("profile-id").textContent=user.id;
   $("profile-subtitle").textContent="我的个人资料";
   $("name-input").value=user.displayName;
+  $("name-edit").disabled=!state.csrf;
   setAvatar($("nav-avatar"),user.displayName,user.avatarUrl);
   setAvatar($("profile-avatar"),user.displayName,user.avatarUrl);
 }
@@ -59,6 +60,8 @@ async function loadAccount() {
   try {
     const data=await api("/api/account/login-email");
     state.emailVersion=data.version;
+    state.emailValue=data.email || "";
+    $("email-edit").disabled=!Number.isSafeInteger(data.version);
     $("profile-email").textContent=data.email || "未设置";
     $("email-input").value=data.email || "";
     const names={linked:"已验证邮箱",pending:"等待新邮箱验证",unlinked:"尚未关联邮箱"};
@@ -71,6 +74,9 @@ async function loadAccount() {
     $("email-status").textContent="请刷新重试";
     $("nav-email").textContent="账户中心";
     state.emailVersion=null;
+    state.emailValue=null;
+    $("email-input").value="";
+    $("email-edit").disabled=true;
   }
 }
 function currentPage() {
@@ -457,19 +463,56 @@ async function revoke() {
 function busySubmit(form,busy){
   for(const control of form.querySelectorAll("button,input,select"))control.disabled=busy;
 }
+function setProfileEdit(kind,editing){
+  const name=kind==="name";
+  const prefix=name?"name":"email";
+  const input=$(prefix+"-input");
+  if(editing){
+    if(state.busyAction || !state.csrf || (name?!state.user:!Number.isSafeInteger(state.emailVersion)))return;
+  }else{
+    input.value=name?(state.user?.displayName||""):(state.emailValue||"");
+  }
+  input.readOnly=!editing;
+  $(prefix+"-edit").hidden=editing;
+  $(prefix+"-cancel").hidden=!editing;
+  $(prefix+"-save").hidden=!editing;
+  if(editing)input.focus();
+}
 function bindForms(){
+  for(const kind of ["name","email"]){
+    $(kind+"-edit").addEventListener("click",()=>setProfileEdit(kind,true));
+    $(kind+"-cancel").addEventListener("click",()=>{
+      if(state.busyAction)return;
+      setProfileEdit(kind,false);
+    });
+  }
+  $("logout").addEventListener("click",()=>{
+    if(state.busyAction || state.revokeBusy)return;
+    if(!window.confirm("退出将结束 Cloudflare Access 登录，其他使用相同 Access 登录的应用也可能需要重新登录。已有 OAuth 和 AI 委托授权不会撤销。确定退出吗？"))return;
+    state.csrf=null;
+    window.location.assign("/cdn-cgi/access/logout");
+  });
   $("profile-form").addEventListener("submit",async event=>{
     event.preventDefault();
-    if(state.busyAction || !state.csrf)return;
+    if(state.busyAction || !state.csrf || $("name-input").readOnly)return;
     const displayName=$("name-input").value.trim();
     if(!displayName)return;
+    if(displayName===state.user?.displayName){
+      setProfileEdit("name",false);
+      notice("account-action-status","姓名没有变化。");
+      return;
+    }
     state.busyAction=true;busySubmit($("profile-form"),true);
     try{
       const result=await post("/api/account/profile",{intent:"update-profile",displayName});
       updateUser({...state.user,displayName:result.displayName});
+      setProfileEdit("name",false);
       notice("account-action-status","姓名已保存。");
     }catch(e){notice("account-action-status","姓名保存失败："+msg(e),true);}
-    finally{state.busyAction=false;busySubmit($("profile-form"),false);}
+    finally{
+      state.busyAction=false;busySubmit($("profile-form"),false);
+      $("name-edit").disabled=!Boolean(state.csrf && state.user);
+    }
   });
   $("avatar-upload").addEventListener("click",()=>$("avatar-file").click());
   $("avatar-file").addEventListener("change",async()=>{
@@ -492,12 +535,13 @@ function bindForms(){
   });
   $("email-form").addEventListener("submit",async event=>{
     event.preventDefault();
-    if(state.busyAction || !state.csrf)return;
+    if(state.busyAction || !state.csrf || $("email-input").readOnly)return;
     const email=$("email-input").value.trim().toLowerCase();
     if(!email || !Number.isSafeInteger(state.emailVersion)){
       notice("account-action-status","请刷新账户信息后重试。",true);return;
     }
-    if(email===$("profile-email").textContent){
+    if(email===state.emailValue){
+      setProfileEdit("email",false);
       notice("account-action-status","邮箱没有变化。");return;
     }
     if(!window.confirm("更改登录邮箱需要验证新邮箱，且原邮箱的部分登录方式可能立即失效。确定继续吗？"))return;
@@ -507,14 +551,19 @@ function bindForms(){
         intent:"change-login-email",email,version:state.emailVersion,
       });
       state.emailVersion=result.version;
+      state.emailValue=result.email;
       $("profile-email").textContent=result.email;
       $("email-input").value=result.email;
       $("nav-email").textContent=result.email;
       $("email-status").textContent=result.linked?"已验证邮箱":"等待新邮箱验证";
+      setProfileEdit("email",false);
       notice("email-note",result.linked?"":"请使用新邮箱完成登录验证。当前浏览器的登录状态可能发生变化。");
       notice("account-action-status",result.linked?"邮箱已保存。":"邮箱已更新，待验证新邮箱。");
     }catch(e){notice("account-action-status","邮箱变更失败："+msg(e),true);}
-    finally{state.busyAction=false;busySubmit($("email-form"),false);}
+    finally{
+      state.busyAction=false;busySubmit($("email-form"),false);
+      $("email-edit").disabled=!Number.isSafeInteger(state.emailVersion);
+    }
   });
   $("space-create-toggle").addEventListener("click",()=>{
     $("space-create-form").hidden=!$("space-create-form").hidden;
