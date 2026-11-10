@@ -451,6 +451,143 @@ async function revoke() {
     confirm.disabled=false;cancel.disabled=false;
   }
 }
+
+function busySubmit(form,busy){
+  for(const control of form.querySelectorAll("button,input,select"))control.disabled=busy;
+}
+function bindForms(){
+  $("profile-form").addEventListener("submit",async event=>{
+    event.preventDefault();
+    if(state.busyAction || !state.csrf)return;
+    const displayName=$("name-input").value.trim();
+    if(!displayName)return;
+    state.busyAction=true;busySubmit($("profile-form"),true);
+    try{
+      const result=await post("/api/account/profile",{intent:"update-profile",displayName});
+      updateUser({...state.user,displayName:result.displayName});
+      notice("account-action-status","姓名已保存。");
+    }catch(e){notice("account-action-status","姓名保存失败："+msg(e),true);}
+    finally{state.busyAction=false;busySubmit($("profile-form"),false);}
+  });
+  $("avatar-upload").addEventListener("click",()=>$("avatar-file").click());
+  $("avatar-file").addEventListener("change",async()=>{
+    const file=$("avatar-file").files?.[0];
+    if(!file || state.busyAction || !state.csrf)return;
+    if(file.size>5*1024*1024 || !["image/png","image/jpeg","image/webp"].includes(file.type)){
+      notice("account-action-status","请上传不超过 5 MB 的 JPG、PNG 或 WebP 图片。",true);
+      return;
+    }
+    state.busyAction=true;$("avatar-upload").disabled=true;
+    try{
+      const body=new FormData();body.append("avatar",file,file.name);
+      const result=await api("/api/account/profile/avatar",{
+        method:"POST",headers:{"x-lifespace-csrf":state.csrf},body,
+      });
+      updateUser({...state.user,avatarUrl:result.avatarUrl});
+      notice("account-action-status","头像已更新。");
+    }catch(e){notice("account-action-status","头像上传失败："+msg(e),true);}
+    finally{state.busyAction=false;$("avatar-upload").disabled=false;$("avatar-file").value="";}
+  });
+  $("email-form").addEventListener("submit",async event=>{
+    event.preventDefault();
+    if(state.busyAction || !state.csrf)return;
+    const email=$("email-input").value.trim().toLowerCase();
+    if(!email || !Number.isSafeInteger(state.emailVersion)){
+      notice("account-action-status","请刷新账户信息后重试。",true);return;
+    }
+    if(email===$("profile-email").textContent){
+      notice("account-action-status","邮箱没有变化。");return;
+    }
+    if(!window.confirm("更改登录邮箱需要验证新邮箱，且原邮箱的部分登录方式可能立即失效。确定继续吗？"))return;
+    state.busyAction=true;busySubmit($("email-form"),true);
+    try{
+      const result=await post("/api/account/login-email/change",{
+        intent:"change-login-email",email,version:state.emailVersion,
+      });
+      state.emailVersion=result.version;
+      $("profile-email").textContent=result.email;
+      $("email-input").value=result.email;
+      $("nav-email").textContent=result.email;
+      $("email-status").textContent=result.linked?"已验证邮箱":"等待新邮箱验证";
+      notice("email-note",result.linked?"":"请使用新邮箱完成登录验证。当前浏览器的登录状态可能发生变化。");
+      notice("account-action-status",result.linked?"邮箱已保存。":"邮箱已更新，待验证新邮箱。");
+    }catch(e){notice("account-action-status","邮箱变更失败："+msg(e),true);}
+    finally{state.busyAction=false;busySubmit($("email-form"),false);}
+  });
+  $("space-create-toggle").addEventListener("click",()=>{
+    $("space-create-form").hidden=!$("space-create-form").hidden;
+    $("space-invite-form").hidden=true;notice("space-action-status","");
+  });
+  $("space-join-toggle").addEventListener("click",()=>{
+    $("space-invite-form").hidden=!$("space-invite-form").hidden;
+    $("space-create-form").hidden=true;notice("space-action-status","");
+  });
+  $("space-create-cancel").addEventListener("click",()=>$("space-create-form").hidden=true);
+  $("space-invite-cancel").addEventListener("click",()=>{
+    $("space-invite-form").hidden=true;state.invite=null;
+    $("space-invite-preview").hidden=true;$("space-join-confirm").hidden=true;
+  });
+  $("space-create-form").addEventListener("submit",async event=>{
+    event.preventDefault();
+    if(state.busyAction || !state.csrf)return;
+    state.busyAction=true;busySubmit($("space-create-form"),true);
+    try{
+      const result=await post("/api/account/spaces/create",{
+        intent:"create-space",name:$("space-name-input").value.trim(),
+        timezone:$("space-zone-input").value,
+      });
+      $("space-create-form").hidden=true;
+      $("space-name-input").value="";
+      state.space=result.id;
+      await loadSpaces();
+      notice("space-action-status","空间「"+result.name+"」已创建。");
+    }catch(e){notice("space-action-status","创建失败："+msg(e),true);}
+    finally{state.busyAction=false;busySubmit($("space-create-form"),false);}
+  });
+  $("space-invite-input").addEventListener("input",()=>{
+    state.invite=null;$("space-invite-preview").hidden=true;
+    $("space-join-confirm").hidden=true;
+  });
+  $("space-invite-form").addEventListener("submit",async event=>{
+    event.preventDefault();
+    if(state.busyAction || !state.csrf)return;
+    const token=$("space-invite-input").value.trim();
+    if(!token)return;
+    state.busyAction=true;busySubmit($("space-invite-form"),true);
+    try{
+      const preview=await post("/api/account/spaces/invite-preview",{
+        intent:"preview-space-invite",token,
+      });
+      state.invite=preview.canJoin?{token,spaceId:preview.space.id}:null;
+      $("space-invite-preview").textContent=preview.canJoin
+        ?"即将加入「"+preview.space.name+"」 · "+(roles[preview.role]||"成员")
+        :"这份邀请当前不可使用。";
+      $("space-invite-preview").hidden=false;
+      $("space-join-confirm").hidden=!preview.canJoin;
+    }catch(e){
+      $("space-invite-preview").textContent="邀请码验证失败："+msg(e);
+      $("space-invite-preview").hidden=false;state.invite=null;
+    }finally{state.busyAction=false;busySubmit($("space-invite-form"),false);}
+  });
+  $("space-join-confirm").addEventListener("click",async()=>{
+    if(state.busyAction || !state.csrf || !state.invite)return;
+    const token=$("space-invite-input").value.trim();
+    if(token!==state.invite.token)return;
+    const accepted=state.invite;
+    state.busyAction=true;$("space-join-confirm").disabled=true;
+    try{
+      const result=await post("/api/account/spaces/join",{intent:"join-space",token});
+      if(result.spaceId!==accepted.spaceId)throw Error("加入的空间与邀请预览不一致，请重新检查");
+      $("space-invite-form").hidden=true;$("space-invite-input").value="";
+      $("space-invite-preview").hidden=true;$("space-join-confirm").hidden=true;
+      state.invite=null;state.space=result.spaceId;
+      await loadSpaces();
+      notice("space-action-status","已加入空间。");
+    }catch(e){notice("space-action-status","加入失败："+msg(e),true);}
+    finally{state.busyAction=false;$("space-join-confirm").disabled=false;}
+  });
+}
+
 async function init() {
   clearError();
   try {
@@ -493,6 +630,7 @@ $("mobile-shade").addEventListener("click",closeMenu);
 for(const tab of document.querySelectorAll("[data-tab]")){
   tab.addEventListener("click",()=>selectTab(tab.dataset.tab));
 }
+bindForms();
 window.addEventListener("hashchange",navigate);
 navigate();
 void init();
