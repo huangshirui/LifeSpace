@@ -32,6 +32,28 @@ test("Account Center is not the old OAuth Consent/parallel overview implementati
   assert.match(css,/@media\(max-width:650px\)/u);
 });
 
+test("Account Center uses domain-neutral browser title and no inert developer-management tabs",()=>{
+  for(const file of ["center.html","index.html","delegation.html","delegations.html"]){
+    const page=readFileSync(new URL("../public/"+file,import.meta.url),"utf8");
+    assert.match(page,/<title>账户中心<\/title>/u,file);
+    assert.doesNotMatch(page,/AISR Account|AISR\s*<|\bAISR\b/u,file);
+  }
+  assert.match(html,/<strong>账户中心<\/strong>/u);
+  assert.match(js,/document\.title="账户中心"/u);
+  assert.doesNotMatch(html,/data-tab="(direct|event)"|data-tab-panel="(direct|event)"/u);
+  assert.doesNotMatch(js,/new Set\(\["oauth","delegations","direct"/u);
+  assert.match(html,/其他应用内委托将在统一查询接入后显示/u);
+});
+
+test("Delegation cards expose all three lifetime labels and expiry without needing technical details",()=>{
+  assert.match(js,/item\.mode==="once"\)return "一次性"/u);
+  assert.match(js,/item\.mode==="timed"\)return "限时"/u);
+  assert.match(js,/return "长期 · 直到撤销"/u);
+  assert.match(js,/el\("span","tag",item\.expiresAt\s*\?/u);
+  assert.match(js,/到期：/u);
+  assert.match(js,/无固定到期时间/u);
+});
+
 test("Account Center renders upstream content as text and revocation is an explicit POST",()=>{
   assert.match(js,/function el\(tag,className,value\)/u);
   assert.match(js,/node\.textContent=String\(value\)/u);
