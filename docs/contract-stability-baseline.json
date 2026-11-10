@@ -508,7 +508,7 @@
           "id": "account-user-scoped-center",
           "maturity": "candidate",
           "visibility": "internal",
-          "operationPattern": "^GET /api/account/(login-email|spaces(?:/\\\\{spaceId\\\\}(?:/members)?)?)$",
+          "operationPattern": "^GET /api/account/(login-email|spaces(?:/[{]spaceId[}](?:/members)?)?)$",
           "commitment": "Read-only Identity and Core snapshots for the verified current user; never confers Space or platform administration."
         },
         {
