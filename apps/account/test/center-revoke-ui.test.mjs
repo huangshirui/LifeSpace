@@ -82,20 +82,20 @@ test("OAuth cards identify individual grants and never duplicate the revoked bad
   };
   const descendants=element=>[element,...element.children.flatMap(descendants)];
   const active=descendants(exposed.authorizationRow(item));
-  assert.equal(active.filter(n=>n.textContent==="撤销此授权").length,1);
+  assert.equal(active.filter(n=>n.textContent==="断开此授权").length,1);
   assert.equal(active.filter(n=>n.textContent==="未撤销").length,1);
-  assert.equal(active.filter(n=>n.textContent?.includes("授权实例 · "+ID.slice(-8))).length,1);
+  assert.equal(active.filter(n=>n.textContent?.includes("授权于 ")).length,1);
 
   const revoked=descendants(exposed.authorizationRow({
     ...item,status:"revoked",revokedAt:"2026-11-10T01:00:00Z",
   }));
   assert.equal(revoked.filter(n=>n.textContent==="已撤销").length,1);
-  assert.equal(revoked.filter(n=>n.textContent==="撤销此授权").length,0);
+  assert.equal(revoked.filter(n=>n.textContent==="断开此授权").length,0);
 
   exposed.state.csrf="test-csrf";
   exposed.openRevoke(item,"oauth");
-  assert.equal(element("revoke-heading").textContent,"撤销此 OAuth 授权实例");
-  assert.match(element("revoke-detail").textContent,new RegExp(ID));
-  assert.match(element("revoke-detail").textContent,/同一客户端的其他授权实例及共享 Agent 不受影响/u);
+  assert.equal(element("revoke-heading").textContent,"断开应用授权");
+  assert.match(element("revoke-detail").textContent,new RegExp(ID.slice(-8)));
+  assert.match(element("revoke-detail").textContent,/其他授权不会受影响/u);
   assert.equal(element("revoke-dialog").open,true);
 });
