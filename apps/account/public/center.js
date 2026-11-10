@@ -3,7 +3,7 @@ const PANELS = new Set(["account","spaces","connections","audit"]);
 const TABS = new Set(["oauth","delegations","direct","event","external"]);
 const roles = {owner:"所有者",admin:"管理员",editor:"编辑者",viewer:"查看者"};
 const opNames = {query:"查询",get:"查看",create:"新增",update:"修改",delete:"删除"};
-const state = {user:null,csrf:null,spaces:[],space:null,oauthLoaded:false,oauthOffset:0,oauthBusy:false,delegationsLoaded:false,delegationOffset:0,delegationsBusy:false,revokeId:null,revokeKind:null};
+const state = {user:null,csrf:null,spaces:[],space:null,externalLoaded:false,oauthLoaded:false,oauthOffset:0,oauthBusy:false,delegationsLoaded:false,delegationOffset:0,delegationsBusy:false,revokeId:null,revokeKind:null};
 const msg = e => e instanceof Error ? e.message : "请求暂时不可用";
 async function api(path,options={}) {
   const response = await fetch(path,{...options,credentials:"same-origin",
@@ -94,6 +94,7 @@ function selectTab(tab,updateHash=true) {
   if(updateHash)location.hash="#connections/"+tab;
   if(tab==="delegations" && state.csrf && !state.delegationsLoaded)void loadDelegations(true);
   if(tab==="oauth" && state.csrf && !state.oauthLoaded)void loadOauth(true);
+  if(tab==="external" && state.csrf && !state.externalLoaded)void loadExternal(true);
 }
 function renderSpaces() {
   const target=$("space-list");target.replaceChildren();
@@ -159,6 +160,63 @@ async function loadSpaceDetail(id) {
     }
   } catch(e) {
     if(state.space===id)target.replaceChildren(el("p","placeholder","无法读取空间详情："+msg(e)));
+  }
+}
+async function loadExternal(reset=false) {
+  const select=$("external-space"),target=$("external-items"),message=$("external-message");
+  if(reset){
+    select.replaceChildren(el("option","","读取空间中…"));
+    select.disabled=true;
+    try {
+      // A Space manager is still rechecked by Core for each actual list read.
+      const spaces=await api("/api/account/spaces");
+      if(!Array.isArray(spaces))throw new Error("空间列表格式异常");
+      const candidates=spaces.filter(item=>["owner","admin"].includes(item.role));
+      select.replaceChildren();
+      for(const space of candidates){
+        const option=el("option","",space.name);option.value=space.id;select.append(option);
+      }
+      select.disabled=candidates.length===0;
+      if(!candidates.length){
+        target.replaceChildren();message.hidden=false;
+        message.textContent="当前账户没有可管理的 Space，因此不能读取外部数据源配置。";
+        state.externalLoaded=true;
+        return;
+      }
+    } catch(e) {
+      message.hidden=false;message.textContent="无法读取空间："+msg(e);
+      target.replaceChildren();
+      return;
+    }
+  }
+  if(!select.value)return;
+  target.replaceChildren();message.hidden=false;
+  message.textContent="正在从 Core 读取 Space 内的外部数据源…";
+  const selected=select.value;
+  try{
+    const data=await api("/api/account/spaces/"+encodeURIComponent(selected)+"/external-connections");
+    if(select.value!==selected)return;
+    if(!Array.isArray(data.items))throw new Error("数据源列表格式异常");
+    for(const item of data.items){
+      const article=el("article","delegation-item"),head=el("div","delegation-head");
+      const details=el("div");
+      details.append(el("strong","",item.displayName),el("p","",item.providerKey));
+      head.append(details,el("span","role",item.status==="active"?"已启用":item.status==="revoked"?"已撤销":"已停用"));
+      const chips=el("div","delegation-tags");
+      chips.append(el("span","tag",item.access==="write"?"读写":"只读"));
+      const more=el("details");more.append(el("summary","","查看连接元数据"));
+      const dl=el("dl");
+      for(const [name,value] of [["Connection",item.id],["Space",item.spaceId],
+        ["Provider",item.providerKey],["创建时间",formatTime(item.createdAt)]]){
+        dl.append(el("dt","",name),el("dd","",value));
+      }
+      more.append(dl);article.append(head,chips,more);target.append(article);
+    }
+    message.hidden=data.items.length>0;
+    if(!message.hidden)message.textContent="当前 Space 尚未配置外部数据源。";
+    state.externalLoaded=true;
+  }catch(e){
+    message.hidden=false;message.textContent="无法读取外部数据源："+msg(e);
   }
 }
 function authorizationRow(item) {
@@ -309,6 +367,7 @@ async function init() {
     if(currentPage().view==="connections"){
       if(currentPage().tab==="delegations")await loadDelegations(true);
       if(currentPage().tab==="oauth")await loadOauth(true);
+      if(currentPage().tab==="external")await loadExternal(true);
     }
   } catch(e) {
     showError(msg(e));
@@ -322,6 +381,8 @@ $("retry").addEventListener("click",init);
 $("refresh-spaces").addEventListener("click",loadSpaces);
 $("refresh-delegations").addEventListener("click",()=>loadDelegations(true));
 $("refresh-oauth").addEventListener("click",()=>loadOauth(true));
+$("refresh-external").addEventListener("click",()=>loadExternal(true));
+$("external-space").addEventListener("change",()=>loadExternal(false));
 $("more-oauth").addEventListener("click",()=>loadOauth(false));
 $("more-delegations").addEventListener("click",()=>loadDelegations(false));
 $("revoke-confirm").addEventListener("click",revoke);
