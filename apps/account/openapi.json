@@ -624,6 +624,40 @@
           }
         }
       }
+    },
+    "/api/account/spaces/{spaceId}/external-connections": {
+      "get": {
+        "summary": "User-owned Space manager view of external provider connection metadata; excludes Provider Credential plaintext and opaque credentialRef",
+        "security": [],
+        "parameters": [
+          {
+            "name": "spaceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^spc_"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Core-authorized connection metadata only"
+          },
+          "403": {
+            "description": "Space management permission required"
+          },
+          "404": {
+            "description": "Space not found"
+          },
+          "502": {
+            "description": "Invalid Core response"
+          },
+          "503": {
+            "description": "Core unavailable"
+          }
+        }
+      }
     }
   }
 }
