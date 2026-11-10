@@ -11,22 +11,25 @@
 
 Both Workers independently bind their own environment's `IDENTITY` and `CORE` services. Identity D1 owns OAuth Clients/Authorizations/Tokens; Core D1 owns Spaces, Grants and Delegations. No Account database and no cross-application D1 binding.
 
-### Owner-triggered Staging deployment / 独立发布入口
+### Owner-triggered Staging deployment / 独立发布与维护入口
 
-The reviewed implementation lives at `.github/workflows/lifespace-account-staging-deploy.yml`:
+**普通 Account 页面/逻辑修改，只运行 [Deploy LifeSpace Account staging](../../.github/workflows/lifespace-account-staging-deploy.yml)**，不需要先重复运行 Platform Staging。部署工作流仅：
 
-1. Merge reviewed OAuth foundation into `main` only after security/CI release gates. As repository owner, manually run `Deploy LifeSpace platform staging` **first** to converge Core and Identity.
-2. No new manually copied Account or OAuth secrets are required. The protected Account Staging deployment job generates **two independent 48-byte random secrets for each run**, masks them and installs them only in the relevant Workers. The existing `staging` Environment secrets `CLOUDFLARE_API_TOKEN`, `LIFESPACE_STAGING_BOOTSTRAP_SECRET` and variable `CLOUDFLARE_ACCOUNT_ID` must already be configured by the existing platform staging release. A repeat deployment rotates the Staging CSRF and Core↔Identity approval secrets, invalidating outstanding Consent CSRF sessions; this is accepted only in Staging and never touches Production.
-3. As repository owner on the `main` branch, manually trigger **Deploy LifeSpace Account staging**. The workflow fails closed on missing secrets, different actor/ref, unreviewed release, incompatible Core/Identity staging, or broad Access policy. It copies only the existing strict Owner-email Staging Access rule into a **separate** Account Access application, registers one dedicated minimal LifeSpace Application/Audience, deploys Account staging and injects server-only secrets to each proper Worker.
-4. The workflow identifies the freshly issued Account `lsa_*` and all prior active credentials. After Account Worker Secret installation, it verifies the new credential against Identity's self-inspection endpoint, then revokes superseded credentials and confirms only the current one remains active. On failure, older keys are preserved; rerunning a successful release reconciles them. Secret plaintext is never logged.
-5. Verify the Account site behind Cloudflare Access with a real browser. Finally run OAuth E2E only once its staging MCP Resource Server/Adapter has been built and reviewed. This workflow **never** deploys Production or creates a D1 database.
+1. 强制仓库 Owner 手工 `workflow_dispatch`、`main`、通过完整仓库 CI 与受保护的 `staging` 环境门禁；
+2. 只读检查 Core/Identity 已部署版本是否与当前发布契约和 Schema 匹配；检查 Account Cloudflare Access 独立域名、Owner-only Policy；通过 Cloudflare API 只读检查 Account/Core/Identity 所需 Secret **绑定名称**；
+3. **只部署** `lifespace-account-staging` Worker 代码与静态资源；Wrangler 会保留已存在的 Worker Secrets，不重新签发 `lsa_*`、不改 Cloudflare Access Policy、不修改 OAuth Shared Secrets，不运行 Core/Identity 迁移或发布；
+4. 部署后只读复核 Secret 绑定名称。任何前置配置缺失应立即失败，不允许在普通发布中自动补配置或偷偷升级权限。
 
-Do **not** manually copy a Console `lsa_*` credential, reuse a Console Audience, or enable `platform:admin` in the Account Application.
+**仅首次初始化、明确的 Scope/Access 配置变更或经人工决定的密钥轮换**，才运行独立的 [Provision / rotate LifeSpace Account staging](../../.github/workflows/lifespace-account-staging-provision.yml)。该维护流程必须由 Owner 手动选择 `main` 并输入精确确认值 `PROVISION_OR_ROTATE_ACCOUNT_STAGING`，与普通/平台部署共用同一个并发锁。它包含原先的 Cloudflare Access Application 建立/核验、Identity Account Application/Audience 注册/受控 Scope 升级、单独 `lsa_*` 凭据签发与先验证后撤旧，以及必要时对 Core/Identity Staging 写入 OAuth 相关 Secret 的操作。**`wrangler secret put` 会立即创建/部署 Worker 新版本**，因此维护流程会影响 Core/Identity 的 Worker 部署及现有 OAuth 批准/CSRF 会话；只能作为明确的特殊操作，不可由普通发布自动调用。
+
+首次采用本拆分流程时，若 Staging 的 Account Application 仍是旧三 Scope，必须先由 Owner 执行一次维护流程将其迁移到已审定的五 Scope，否则当前 Account BFF 申请 `profile:write`、`spaces:write` 的 User Token 可能失败。**平台代码或契约发生实际变更**时，才先单独运行 [Deploy LifeSpace platform staging](../../.github/workflows/staging-deploy.yml) 使 Core/Identity 达到兼容版本。
+
+密钥明文仅在受保护的维护工作流运行中使用；普通 Account 发布不再需要 `LIFESPACE_STAGING_BOOTSTRAP_SECRET`。两条工作流均不自动运行、不使用 Production、无 Account D1。
 
 ## 0. Dependencies / 前置条件
 
 - Merge pre-deploy correctness review #516 with passing exact-head CI; #469 is historical and merged. No Staging claim follows from CI alone.
-- Owner initiates the canonical `staging-deploy.yml` on `main`; require the exact Identity/Core contract and schema versions declared by the reviewed `infra/scripts/staging-expectations.mjs` at the release SHA. Do not use the experimental MCP Preview or its OAuth credentials as an excuse to break existing workflows.
+- 在真正的 Core/Identity 平台代码或 Schema/契约变化、且当前 Staging 尚未兼容时，由 Owner 先手工执行 `staging-deploy.yml`；普通 Account 修改不重复部署 Core/Identity。发布 SHA 的 Core/Identity 契约版本与 Schema 必须符合 `infra/scripts/staging-expectations.mjs`。
 - Confirm `auth-staging.aisr.online/api/v1/status` and `core-staging.aisr.online/api/v1/status` report staging and exact expected schema/contract versions. Do not skip the existing staging golden-flow verification.
 - The public Account Web domain is `account-staging.aisr.online`. It is **not** the platform-admin Console (`lifespace-staging.aisr.online`).
 
@@ -45,6 +48,8 @@ Do **not** manually copy a Console `lsa_*` credential, reuse a Console Audience,
 
 ## 3. Dedicated trust and OAuth settings / 凭据隔离
 
+以下是**显式 Provision/Rotate 工作流**的初始化/轮换要求，普通 Account 发布绝不执行这些 Secret 操作。
+
 - Generate a new independent random `OAUTH_CORE_APPROVER_SECRET` (at least 32 unpredictable bytes) and install the **same secret** on Core and Identity Staging only. It must not equal `CORE_IDENTITY_SHARED_SECRET`, `OAUTH_RESOURCE_SERVER_SECRET` or an Account credential.
 - Generate a separate random `ACCOUNT_CSRF_SECRET` (32+ random bytes) for Account Staging only.
 - Set fixed Identity `OAUTH_ISSUER=https://auth-staging.aisr.online`, `OAUTH_CONSENT_URL=https://account-staging.aisr.online/oauth/consent`. Never derive the issuer from an untrusted Host header.
@@ -55,7 +60,7 @@ Do **not** manually copy a Console `lsa_*` credential, reuse a Console Audience,
 ## 4. Verification gates / 验收清单
 
 1. Run `pnpm --filter @lifespace/account check` and full repository CI for the exact staged SHA.
-2. Run `node apps/account/scripts/check-staging-readiness.mjs` with read-only Cloudflare API token and Account ID. This check **always reports the unverified private registration/secret gates** until an approved operator verifies them separately; do not simply override its failure.
+2. 对普通 Account 发布，运行 `node apps/account/scripts/verify-staging-access.mjs` 和 `node apps/account/scripts/verify-staging-bindings.mjs` 作只读预检。原 `check-staging-readiness.mjs` 是 OAuth 端到端私有配置盘点，会故意把无法独立读取的私有注册/Secret 标为待核，**不要**以这个盘点报错作为普通代码部署的自动配置理由。
 3. As Account owner, login via Access; assert raw Access JWT does not appear in browser responses or logs. Verify non-Account issuer/app JWT, removed Space manager membership, revoked Agent Grant and revoked Agent/Application bindings all fail confirmation.
 4. Verify no valid prior `request_id`, duplicate Code, wrong client redirect, PKCE downgrade, wrong Resource or revoked authorization can be replayed or exchanged.
 5. Verify Application → Space → Agent → execution mode, the **pre-policy Native model upper-bound** (read/write limited by currently requested OAuth Scope), mobile UI and explicit consent click. If model preview cannot load, approval is disabled.
