@@ -158,7 +158,8 @@ describe("Identity OAuth Authorization Server (isolated candidate)", () => {
     const exchange=await t.token({grant_type:"authorization_code",client_id:t.clientId,code,
       redirect_uri:t.redirect,code_verifier:t.verifier});
     expect(exchange.status).toBe(200);
-    const access=(await exchange.json() as {access_token:string}).access_token;
+    const issued=(await exchange.json() as {access_token:string;refresh_token:string});
+    const access=issued.access_token;
     const introspected=await t.introspect(access,t.resource);
     expect((await introspected.json() as {active:boolean}).active).toBe(true);
     expect((await t.request("/api/v1/me/oauth/authorizations",{headers:{authorization:"Bearer "+t.userToken}})).status).toBe(403);
@@ -196,6 +197,10 @@ describe("Identity OAuth Authorization Server (isolated candidate)", () => {
     expect(statuses.find(row=>row.id===second.authorization_id)?.status).toBe("active");
     const denied=await t.introspect(access,t.resource);
     expect((await denied.json() as {active:boolean}).active).toBe(false);
+    const refreshDenied=await t.token({grant_type:"refresh_token",client_id:t.clientId,
+      refresh_token:issued.refresh_token});
+    expect(refreshDenied.status).toBe(400);
+    expect((await refreshDenied.json() as {error:string}).error).toBe("invalid_grant");
   });
 
 
