@@ -91,7 +91,11 @@
       </section>
       <section class="page" data-panel="audit" hidden aria-labelledby="audit-heading">
         <div class="page-heading"><div><span class="eyebrow">ACCOUNT ACTIVITY</span><h1 id="audit-heading">活动与审计</h1><p>身份关联、授权、撤销与权限变更记录。</p></div></div>
-        <div class="surface"><h2>安全操作记录</h2><div class="not-connected"><span aria-hidden="true">◷</span><strong>用户可见的审计接口尚未开放</strong><p>这不表示没有活动记录。发布前需要通过只返回当前用户有权查看的安全审计接口验收，不能使用 Console 管理员权限代查。</p></div></div>
+        <div class="surface"><div class="panel-header"><div><h2>OAuth 授权活动</h2><p>来自 Identity 的真实授权和撤销时间，适用于当前账户的第三方连接。</p></div><button id="refresh-audit" type="button" class="button subtle">刷新</button></div>
+        <p id="audit-message" class="placeholder" role="status">打开此页面后读取授权活动…</p>
+        <div id="audit-items" class="delegation-items"></div>
+        <button id="more-audit" type="button" class="button subtle" hidden>加载更多</button>
+        <p class="subdued">此视图不是完整的安全审计日志：目前只展示 Identity OAuth Authorization 的创建/撤销记录。账户关联、服务凭据与 Space 变更的统一用户级审计契约仍需补齐，不能使用 Console 管理员审计替代。</p></div>
       </section>
     </div>
   </main>
