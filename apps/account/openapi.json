@@ -1,9 +1,9 @@
 {
   "openapi": "3.1.0",
   "info": {
-    "title": "LifeSpace Account OAuth Consent BFF",
-    "version": "0.2.0",
-    "description": "Same-origin, Cloudflare Access-authenticated User Consent. Browser never receives LifeSpace user bearer or privileged application credentials. All mutations have same-origin, Fetch Metadata, CSRF and current Core Authority gates. Independently supports third-party OAuth MCP link-based one-time User Delegation review; trusted app and WeCom approval channels remain unmodified."
+    "title": "LifeSpace Account Center and OAuth Consent BFF",
+    "version": "0.3.0",
+    "description": "Same-origin Cloudflare Access user sessions; read-only Identity/Core Account Center, OAuth consent, and user-owned third-party Delegation approval/revocation. No Account database, cross-service direct D1 access or privileged admin credential."
   },
   "paths": {
     "/api/session": {
@@ -400,6 +400,120 @@
             "description": "Not owned or no longer active"
           }
         }
+      }
+    },
+    "/api/account/login-email": {
+      "get": {
+        "summary": "Identity-verified current user's declared Web login mailbox and linkage status (read-only)",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Scoped to the current verified Account user"
+          },
+          "401": {
+            "description": "Access session missing"
+          },
+          "403": {
+            "description": "Current user cannot access resource"
+          },
+          "502": {
+            "description": "Invalid upstream response"
+          },
+          "503": {
+            "description": "Authoritative upstream unavailable"
+          }
+        }
+      }
+    },
+    "/api/account/spaces": {
+      "get": {
+        "summary": "Current user's Core Space memberships only (read-only)",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Scoped to the current verified Account user"
+          },
+          "401": {
+            "description": "Access session missing"
+          },
+          "403": {
+            "description": "Current user cannot access resource"
+          },
+          "502": {
+            "description": "Invalid upstream response"
+          },
+          "503": {
+            "description": "Authoritative upstream unavailable"
+          }
+        }
+      }
+    },
+    "/api/account/spaces/{spaceId}": {
+      "get": {
+        "summary": "Current user's Core-authorized Space detail, no privileged admin read",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Scoped to the current verified Account user"
+          },
+          "401": {
+            "description": "Access session missing"
+          },
+          "403": {
+            "description": "Current user cannot access resource"
+          },
+          "502": {
+            "description": "Invalid upstream response"
+          },
+          "503": {
+            "description": "Authoritative upstream unavailable"
+          }
+        },
+        "parameters": [
+          {
+            "name": "spaceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^spc_[A-Za-z0-9_-]{3,128}$"
+            }
+          }
+        ]
+      }
+    },
+    "/api/account/spaces/{spaceId}/members": {
+      "get": {
+        "summary": "Current user's Core-authorized member view for a Space",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Scoped to the current verified Account user"
+          },
+          "401": {
+            "description": "Access session missing"
+          },
+          "403": {
+            "description": "Current user cannot access resource"
+          },
+          "502": {
+            "description": "Invalid upstream response"
+          },
+          "503": {
+            "description": "Authoritative upstream unavailable"
+          }
+        },
+        "parameters": [
+          {
+            "name": "spaceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^spc_[A-Za-z0-9_-]{3,128}$"
+            }
+          }
+        ]
       }
     }
   }
