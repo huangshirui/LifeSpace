@@ -49,12 +49,9 @@ test("successful OAuth revoke cannot be misreported as a refreshed list if the f
     document:{getElementById:element,createElement:()=>node(),querySelectorAll:()=>[]},
     location:{hash:"#account"},window:{addEventListener(){}},fetch,Response,
   };
-  runInNewContext(code,sandbox);
-  // The script initializes its own login; awaiting the same callback also
-  // ensures all Account DOM state is initialized before the user action.
-  const exposed=runInNewContext(code+"\n;({state,revoke})",{
-    ...sandbox,document:{getElementById:element,createElement:()=>node(),querySelectorAll:()=>[]},
-  });
+  // Evaluate once. The callback is invoked against the same deterministic DOM
+  // snapshot used by the UI controller, with no browser/network side effects.
+  const exposed=runInNewContext(code+"\n;({state,revoke})",sandbox);
   exposed.state.csrf="test-csrf";
   exposed.state.revokeId=ID;
   exposed.state.revokeKind="oauth";
