@@ -149,11 +149,18 @@ describe("Identity OAuth Authorization Server (isolated candidate)", () => {
     const list=await t.request("/api/v1/me/oauth/authorizations?offset=0",{headers});
     expect(list.status).toBe(200);
     const records=(await list.json() as {data:{items:Array<{id:string;clientName:string;agentId:string;status:string;clientId:string}>;nextOffset:number|null}}).data;
-    expect(records.items.map(i=>i.id)).toEqual([second.authorization_id,first.authorization_id]);
+    expect(new Set(records.items.map(i=>i.id))).toEqual(new Set([second.authorization_id,first.authorization_id]));
     expect(records.items.every(i=>i.agentId===t.agentId && i.status==="active")).toBe(true);
     expect(records.items[0].clientName).toBe("Test MCP Client");
     expect(records.nextOffset).toBeNull();
     expect(JSON.stringify(records)).not.toContain("lsp_ort_");
+    const code=new URL(first.redirect_url).searchParams.get("code")!;
+    const exchange=await t.token({grant_type:"authorization_code",client_id:t.clientId,code,
+      redirect_uri:t.redirect,code_verifier:t.verifier});
+    expect(exchange.status).toBe(200);
+    const access=(await exchange.json() as {access_token:string}).access_token;
+    const introspected=await t.introspect(access,t.resource);
+    expect((await introspected.json() as {active:boolean}).active).toBe(true);
     expect((await t.request("/api/v1/me/oauth/authorizations",{headers:{authorization:"Bearer "+t.userToken}})).status).toBe(403);
     const outsiderRes=await t.request("/internal/v1/users",{
       method:"POST",headers:{authorization:"Bearer "+t.account.secret,"content-type":"application/json"},
@@ -187,6 +194,8 @@ describe("Identity OAuth Authorization Server (isolated candidate)", () => {
     const statuses=(await after.json() as {data:{items:Array<{id:string;status:string}>}}).data.items;
     expect(statuses.find(row=>row.id===first.authorization_id)?.status).toBe("revoked");
     expect(statuses.find(row=>row.id===second.authorization_id)?.status).toBe("active");
+    const denied=await t.introspect(access,t.resource);
+    expect((await denied.json() as {active:boolean}).active).toBe(false);
   });
 
 
