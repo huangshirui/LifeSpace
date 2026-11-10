@@ -40,5 +40,5 @@ if(process.argv[1]&&path.resolve(process.argv[1])===fileURLToPath(import.meta.ur
  const backend=process.argv[3]==='backend';
  const consoleApp=process.argv[3]==='console';
  const accountApp=process.argv[3]==='account';
- await runReleaseGate({requiredCheck:platform?'check':backend?'check':'Test, typecheck and build HomeMew Web',stagingWorkflow:platform?(consoleApp?'lifespace-console-staging-deploy.yml':'staging-deploy.yml'):backend?'backend-staging-deploy.yml':'web-preview-deploy.yml'});
+ await runReleaseGate({requiredCheck:platform?'check':backend?'check':'Test, typecheck and build HomeMew Web',stagingWorkflow:platform?(accountApp?'lifespace-account-staging-deploy.yml':consoleApp?'lifespace-console-staging-deploy.yml':'staging-deploy.yml'):backend?'backend-staging-deploy.yml':'web-preview-deploy.yml'});
 }
