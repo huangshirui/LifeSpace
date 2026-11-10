@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data: https://auth-staging.aisr.online https://auth.aisr.online; object-src 'none'; base-uri 'none'; form-action 'self'">
+<title>账号与安全 · AISR Account</title>
+<link rel="stylesheet" href="/center.css">
+<script type="module" src="/center.js"></script>
+</head>
+<body>
+<div class="layout">
+  <div class="mobile-shade" id="mobile-shade" hidden></div>
+  <aside class="sidebar" id="sidebar">
+    <a class="person" href="#account" aria-label="我的账户">
+      <span class="avatar" id="nav-avatar" aria-hidden="true">A</span>
+      <span class="person-meta"><strong id="nav-name">正在核验…</strong><small id="nav-email">LifeSpace Identity</small></span>
+    </a>
+    <nav class="menu" aria-label="账户中心">
+      <a href="#account" data-view="account" aria-current="page"><span class="menu-icon" aria-hidden="true">◉</span><span>账号与安全</span></a>
+      <a href="#spaces" data-view="spaces"><span class="menu-icon" aria-hidden="true">▦</span><span>我的空间</span></a>
+      <a href="#connections" data-view="connections"><span class="menu-icon" aria-hidden="true">↔</span><span>连接与授权</span></a>
+      <a href="#audit" data-view="audit"><span class="menu-icon" aria-hidden="true">◷</span><span>活动与审计</span></a>
+    </nav>
+    <div class="sidebar-bottom"><span class="online-mark" aria-hidden="true"></span>Powered by LifeSpace</div>
+  </aside>
+  <main class="main" id="main">
+    <header class="mobile-header">
+      <button id="mobile-menu" class="icon-button" type="button" aria-label="打开导航" aria-expanded="false">☰</button>
+      <strong>AISR / Account</strong><span class="mobile-header-spacer"></span>
+    </header>
+    <div class="content">
+      <div id="session-error" class="notice error" role="alert" hidden><strong>无法验证当前账户</strong><p id="session-error-message"></p><button id="retry" type="button" class="button">重新检查</button></div>
+      <section class="page" data-panel="account" aria-labelledby="account-heading">
+        <div class="page-heading"><div><span class="eyebrow">MY ACCOUNT</span><h1 id="account-heading">账号与安全</h1><p>统一的 LifeSpace 身份和登录信息。</p></div></div>
+        <div class="surface profile-card"><div class="profile-head">
+          <div class="profile-avatar" id="profile-avatar" aria-hidden="true">A</div>
+          <div><h2 id="profile-name">正在验证身份…</h2><p id="profile-subtitle">身份由 LifeSpace Identity 管理</p></div>
+        </div><div class="detail-list">
+          <div class="detail-row"><span>LifeSpace 用户 ID</span><code id="profile-id">—</code></div>
+          <div class="detail-row"><span>登录邮箱</span><span id="profile-email">正在读取…</span></div>
+          <div class="detail-row"><span>邮箱关联状态</span><span id="email-status">正在读取…</span></div>
+          <div class="detail-row"><span>Web 认证方式</span><span>Cloudflare Access</span></div>
+        </div></div>
+        <div class="surface info-surface"><h2>安全与身份管理</h2><p>访问页面不会修改任何 Grant、Delegation 或凭据。登录邮箱的关联必须由 Identity 验证；不能仅根据第三方显示的邮箱自动合并账户。</p><p class="subdued">修改账户资料和登录凭据需要独立、安全的身份操作接口。本页仅展示当前服务端已验证的信息。</p></div>
+      </section>
+      <section class="page" data-panel="spaces" hidden aria-labelledby="spaces-heading">
+        <div class="page-heading"><div><span class="eyebrow">MY SPACES</span><h1 id="spaces-heading">我的空间</h1><p>你当前加入的 Space，以及自己的实际访问权限。</p></div></div>
+        <div class="space-grid">
+          <div class="surface"><div class="panel-header"><h2>已加入的空间</h2><button class="button subtle" type="button" id="refresh-spaces">刷新</button></div><div id="space-list" class="space-list"><p class="placeholder">正在读取空间…</p></div></div>
+          <div class="surface"><div class="panel-header"><h2>空间详情</h2><span class="note-mini" id="space-detail-label">选择一个空间</span></div>
+            <div id="space-detail"><p class="placeholder">从左侧选择 Space，查看当前成员和可读取的信息。</p></div>
+          </div>
+        </div>
+        <p class="footnote">本页仅读取当前用户可以访问的 Space，不授予额外的成员角色或数据权限。空间创建、邀请、编辑和关闭属于后续需要独立验收的受治理操作。</p>
+      </section>
+      <section class="page" data-panel="connections" hidden aria-labelledby="connections-heading">
+        <div class="page-heading"><div><span class="eyebrow">ACCESS CONTROL</span><h1 id="connections-heading">连接与授权</h1><p>查看外部访问和你明确批准的委托。授权与凭据来自 Identity / Core，不创建新的 Connection 实体。</p></div></div>
+        <div class="tabs" role="tablist" aria-label="连接类型">
+          <button type="button" data-tab="oauth" role="tab" aria-selected="true">OAuth 应用</button>
+          <button type="button" data-tab="delegations" role="tab" aria-selected="false">Agent 委托</button>
+          <button type="button" data-tab="direct" role="tab" aria-selected="false">Agent / Service</button>
+          <button type="button" data-tab="event" role="tab" aria-selected="false">事件推送</button>
+          <button type="button" data-tab="external" role="tab" aria-selected="false">外部数据源</button>
+        </div>
+        <div class="surface tab-panel" data-tab-panel="oauth">
+          <div class="panel-header"><div><h2>已授权 OAuth 客户端</h2><p>显示当前账户真实的 OAuth 授权实例。撤销某个 Client 的授权不会停用共享 Agent 或其他授权。</p></div><button class="button subtle" id="refresh-oauth" type="button">刷新</button></div>
+          <div id="oauth-message" class="placeholder" role="status">打开此标签后读取真实 OAuth 授权记录…</div>
+          <div id="oauth-items" class="delegation-items"></div>
+          <button class="button subtle" id="more-oauth" type="button" hidden>加载更多</button>
+          <p class="subdued">客户端显示名称由外部系统提交，不能单凭名称证明品牌身份。查看具体 Client ID、目标 Resource 与授权 Scope 再决定是否撤销。</p>
+        </div>
+        <div class="surface tab-panel" data-tab-panel="delegations" hidden>
+          <div class="panel-header"><div><h2>我的 Agent 委托</h2><p>真实有效的第三方委托授权；撤销后不能继续用于新的操作。</p></div><button class="button subtle" id="refresh-delegations" type="button">刷新</button></div>
+          <div id="delegations-message" class="placeholder" role="status">打开此标签页后读取授权…</div>
+          <div id="delegation-items" class="delegation-items"></div>
+          <button class="button subtle" id="more-delegations" type="button" hidden>加载更多</button>
+          <p class="subdued">支持一次性、限时和长期委托。OAuth 断开后，仍可从此处撤销有效委托。</p>
+          <a href="/delegations" class="text-link">使用独立的委托管理页</a>
+        </div>
+        <div class="surface tab-panel" data-tab-panel="direct" hidden><h2>Agent / Service API</h2><p>这类访问依赖各自的 Agent / Service 身份、Credential Scope 与 Core Data Grant，不等于 OAuth 客户端授权。</p><div class="not-connected"><strong>当前账户暂不提供此类凭据的直接管理</strong><p>使用所属 Application 的设置入口创建或轮换凭据；Account 将在具备用户级授权读取接口后聚合管理。不得通过平台管理员凭据代替用户操作。</p></div></div>
+        <div class="surface tab-panel" data-tab-panel="event" hidden><h2>事件推送</h2><p>Webhook Endpoint、事件订阅和投递状态由 Core 管理。</p><div class="not-connected"><strong>用户级管理入口待接入</strong><p>只展示你当前 Space 内有权查看的订阅，不从应用配置猜测授权。</p></div></div>
+        <div class="surface tab-panel" data-tab-panel="external" hidden>
+          <div class="panel-header"><div><h2>外部数据源</h2><p>当前用户有权管理的 Space 下，已配置的 Provider Connection。OAuth 客户端授权和数据源凭据是两类不同的权限。</p></div><button id="refresh-external" class="button subtle" type="button">刷新</button></div>
+          <div class="field-row"><label for="external-space">选择 Space</label><select id="external-space" aria-label="外部数据源所属空间"><option value="">正在读取空间…</option></select></div>
+          <p id="external-message" class="placeholder" role="status">打开此标签页后读取外部数据源列表…</p>
+          <div id="external-items" class="delegation-items"></div>
+          <p class="subdued">仅展示 Provider、读写模式和连接状态等非敏感元数据。凭据创建、轮换和模型绑定仍在现有受信管理流程完成，Account 不读取或显示 Provider Token。</p>
+        </div>
+      </section>
+      <section class="page" data-panel="audit" hidden aria-labelledby="audit-heading">
+        <div class="page-heading"><div><span class="eyebrow">ACCOUNT ACTIVITY</span><h1 id="audit-heading">活动与审计</h1><p>身份关联、授权、撤销与权限变更记录。</p></div></div>
+        <div class="surface"><div class="panel-header"><div><h2>OAuth 授权活动</h2><p>来自 Identity 的真实授权和撤销时间，适用于当前账户的第三方连接。</p></div><button id="refresh-audit" type="button" class="button subtle">刷新</button></div>
+        <p id="audit-message" class="placeholder" role="status">打开此页面后读取授权活动…</p>
+        <div id="audit-items" class="delegation-items"></div>
+        <button id="more-audit" type="button" class="button subtle" hidden>加载更多</button>
+        <p class="subdued">此视图不是完整的安全审计日志：目前只展示 Identity OAuth Authorization 的创建/撤销记录。账户关联、服务凭据与 Space 变更的统一用户级审计契约仍需补齐，不能使用 Console 管理员审计替代。</p></div>
+      </section>
+    </div>
+  </main>
+</div>
+<dialog id="revoke-dialog" aria-labelledby="revoke-heading" aria-describedby="revoke-detail">
+  <h2 id="revoke-heading">撤销委托授权</h2><p id="revoke-detail"></p>
+  <p id="revoke-error" class="dialog-error" role="alert" hidden></p>
+  <div class="dialog-actions"><button type="button" id="revoke-cancel" class="button">取消</button><button type="button" id="revoke-confirm" class="button danger">确认撤销</button></div>
+</dialog>
+</body></html>

@@ -1,9 +1,9 @@
 {
   "openapi": "3.1.0",
   "info": {
-    "title": "LifeSpace Account OAuth Consent BFF",
-    "version": "0.2.0",
-    "description": "Same-origin, Cloudflare Access-authenticated User Consent. Browser never receives LifeSpace user bearer or privileged application credentials. All mutations have same-origin, Fetch Metadata, CSRF and current Core Authority gates. Independently supports third-party OAuth MCP link-based one-time User Delegation review; trusted app and WeCom approval channels remain unmodified."
+    "title": "LifeSpace Account Center and OAuth Consent BFF",
+    "version": "0.3.0",
+    "description": "Same-origin Cloudflare Access user sessions; Identity/Core Account Center with user-scoped OAuth Authorization revocation, OAuth consent, and user-owned third-party Delegation approval/revocation. No Account database, cross-service direct D1 access or privileged admin credential."
   },
   "paths": {
     "/api/session": {
@@ -398,6 +398,263 @@
           },
           "404": {
             "description": "Not owned or no longer active"
+          }
+        }
+      }
+    },
+    "/api/account/login-email": {
+      "get": {
+        "summary": "Identity-verified current user's declared Web login mailbox and linkage status (read-only)",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Scoped to the current verified Account user"
+          },
+          "401": {
+            "description": "Access session missing"
+          },
+          "403": {
+            "description": "Current user cannot access resource"
+          },
+          "502": {
+            "description": "Invalid upstream response"
+          },
+          "503": {
+            "description": "Authoritative upstream unavailable"
+          }
+        }
+      }
+    },
+    "/api/account/spaces": {
+      "get": {
+        "summary": "Current user's Core Space memberships only (read-only)",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Scoped to the current verified Account user"
+          },
+          "401": {
+            "description": "Access session missing"
+          },
+          "403": {
+            "description": "Current user cannot access resource"
+          },
+          "502": {
+            "description": "Invalid upstream response"
+          },
+          "503": {
+            "description": "Authoritative upstream unavailable"
+          }
+        }
+      }
+    },
+    "/api/account/spaces/{spaceId}": {
+      "get": {
+        "summary": "Current user's Core-authorized Space detail, no privileged admin read",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Scoped to the current verified Account user"
+          },
+          "401": {
+            "description": "Access session missing"
+          },
+          "403": {
+            "description": "Current user cannot access resource"
+          },
+          "502": {
+            "description": "Invalid upstream response"
+          },
+          "503": {
+            "description": "Authoritative upstream unavailable"
+          }
+        },
+        "parameters": [
+          {
+            "name": "spaceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^spc_[A-Za-z0-9_-]{3,128}$"
+            }
+          }
+        ]
+      }
+    },
+    "/api/account/spaces/{spaceId}/members": {
+      "get": {
+        "summary": "Current user's Core-authorized member view for a Space",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Scoped to the current verified Account user"
+          },
+          "401": {
+            "description": "Access session missing"
+          },
+          "403": {
+            "description": "Current user cannot access resource"
+          },
+          "502": {
+            "description": "Invalid upstream response"
+          },
+          "503": {
+            "description": "Authoritative upstream unavailable"
+          }
+        },
+        "parameters": [
+          {
+            "name": "spaceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^spc_[A-Za-z0-9_-]{3,128}$"
+            }
+          }
+        ]
+      }
+    },
+    "/api/account/authorizations": {
+      "get": {
+        "summary": "Account-only current user OAuth authorization list, paginated, no secrets",
+        "security": [],
+        "parameters": [
+          {
+            "name": "offset",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9999
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Only the current user's OAuth grants"
+          },
+          "403": {
+            "description": "Not an authorized Account session"
+          },
+          "503": {
+            "description": "Identity unavailable"
+          }
+        }
+      }
+    },
+    "/api/account/authorizations/{authorizationId}": {
+      "get": {
+        "summary": "Account-only detail of exactly one owned OAuth authorization",
+        "security": [],
+        "parameters": [
+          {
+            "name": "authorizationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^oaz_"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Owned authorization only"
+          },
+          "404": {
+            "description": "Not found or not owned"
+          }
+        }
+      }
+    },
+    "/api/account/authorizations/{authorizationId}/revoke": {
+      "post": {
+        "summary": "Explicit current-user OAuth authorization revocation (independent of shared Agent)",
+        "security": [],
+        "parameters": [
+          {
+            "name": "authorizationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^oaz_"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "intent",
+                  "authorizationId"
+                ],
+                "properties": {
+                  "intent": {
+                    "type": "string",
+                    "const": "revoke-oauth-authorization"
+                  },
+                  "authorizationId": {
+                    "type": "string",
+                    "pattern": "^oaz_"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Current user authorization revoked; old OAuth tokens denied"
+          },
+          "403": {
+            "description": "Same-origin CSRF/session failed"
+          },
+          "404": {
+            "description": "Not owned"
+          },
+          "409": {
+            "description": "Already revoked or changed"
+          }
+        }
+      }
+    },
+    "/api/account/spaces/{spaceId}/external-connections": {
+      "get": {
+        "summary": "User-owned Space manager view of external provider connection metadata; excludes Provider Credential plaintext and opaque credentialRef",
+        "security": [],
+        "parameters": [
+          {
+            "name": "spaceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^spc_"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Core-authorized connection metadata only"
+          },
+          "403": {
+            "description": "Space management permission required"
+          },
+          "404": {
+            "description": "Space not found"
+          },
+          "502": {
+            "description": "Invalid Core response"
+          },
+          "503": {
+            "description": "Core unavailable"
           }
         }
       }
