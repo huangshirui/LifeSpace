@@ -72,10 +72,11 @@ test("Account Center reads only verified user profile, declared mailbox and own 
   const t=setup();
   const session=await t.request("/api/session");
   assert.equal(session.status,200);
+  const rawSession=await session.clone().text();
   const profile=(await session.json()).data.user;
   assert.deepEqual(profile,{id:USER,displayName:"User test",
     avatarUrl:"https://auth-staging.example.test/assets/users/"+USER+"/avatar"});
-  assert.ok(!(await session.clone().text()).includes(t.token));
+  assert.ok(!rawSession.includes(t.token));
   const email=await t.request("/api/account/login-email");
   assert.equal(email.status,200);
   assert.deepEqual((await email.json()).data,{email:"verified@example.test",status:"linked",linked:true});
