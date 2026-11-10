@@ -16,6 +16,11 @@ function setup({ avatarUrl = "https://auth-staging.example.test/assets/users/" +
     spaceId:SPACE,agentId:"agt_123456",allowUserAuthorization:true,
     scopes:["resources:read"],status:authStatus,createdAt:"2026-11-10T00:00:00Z",
     revokedAt:authStatus==="active"?null:"2026-11-10T01:00:00Z",
+    // Deliberately emulate future upstream additions: Account must never
+    // forward bearer/refresh material or internal credential references.
+    accessToken:"would-be-sensitive-access-token",
+    refreshToken:"would-be-sensitive-refresh-token",
+    credentialRef:"would-be-sensitive-credential-ref",
   });
   const identity = { fetch: async request => {
     const url = new URL(request.url), path = url.pathname;
@@ -157,8 +162,15 @@ test("Account Center independently revokes owner OAuth authorization with signed
   assert.equal(row.status,"active");
   assert.equal(row.clientName,"Claimed ChatGPT");
   assert.ok(!JSON.stringify(row).includes(t.token));
+  assert.equal(Object.hasOwn(row,"accessToken"),false);
+  assert.equal(Object.hasOwn(row,"refreshToken"),false);
+  assert.equal(Object.hasOwn(row,"credentialRef"),false);
   const detailed=await t.request("/api/account/authorizations/"+OAUTH_ID);
-  assert.equal((await detailed.json()).data.id,OAUTH_ID);
+  const detail=(await detailed.json()).data;
+  assert.equal(detail.id,OAUTH_ID);
+  assert.equal(Object.hasOwn(detail,"accessToken"),false);
+  assert.equal(Object.hasOwn(detail,"refreshToken"),false);
+  assert.equal(Object.hasOwn(detail,"credentialRef"),false);
   const withoutCsrf=await t.request("/api/account/authorizations/"+OAUTH_ID+"/revoke",{
     method:"POST",headers:{"origin":"https://account-staging.example.test",
       "sec-fetch-site":"same-origin","content-type":"application/json"},

@@ -132,6 +132,26 @@ async function clientForAuthorization(c: Context<AppEnv>, clientId: string): Pro
   return client(c.env.DB, clientId);
 }
 
+// One Authorization state transition for Account owner revocation, RFC 7009
+// refresh-token revocation and Refresh replay protection. Token-only access
+// revocation remains separate: revoking one access token MUST NOT disable
+// the entire Authorization.
+async function revokeOAuthAuthorization(
+  db: D1Database, authorizationId: string, ownerUserId?: string,
+): Promise<boolean> {
+  const timestamp = instant();
+  const conditionalOwner = ownerUserId !== undefined;
+  const statement = db.prepare(
+    "UPDATE oauth_authorizations SET status='revoked',revoked_at=? "
+    + "WHERE id=? AND status='active'"
+    + (conditionalOwner ? " AND user_id=?" : ""),
+  );
+  if (ownerUserId !== undefined) {
+    return (await statement.bind(timestamp, authorizationId, ownerUserId).run()).meta.changes === 1;
+  }
+  return (await statement.bind(timestamp, authorizationId).run()).meta.changes === 1;
+}
+
 export async function authorization(db: D1Database, authorizationId: string): Promise<Authorization | null> {
   return db.prepare("SELECT oa.*,u.status userStatus,a.status appStatus,a.allowed_scopes allowedScopes,ag.status agentStatus,aa.status bindingStatus,aa.revoked_at bindingRevoked,oc.status clientStatus FROM oauth_authorizations oa JOIN users u ON u.id=oa.user_id JOIN applications a ON a.id=oa.application_id JOIN agents ag ON ag.id=oa.agent_id JOIN agent_applications aa ON aa.agent_id=oa.agent_id AND aa.application_id=oa.application_id JOIN oauth_clients oc ON oc.id=oa.client_id WHERE oa.id=?")
     .bind(authorizationId).first<Authorization>();
@@ -197,8 +217,7 @@ export async function exchangeInteractiveOAuthToken(c: Context<AppEnv>, body: Fo
     return oauthError(c, 400, "invalid_grant", "Refresh token is invalid or expired");
   }
   if (row.consumed_at) {
-    await c.env.DB.prepare("UPDATE oauth_authorizations SET status='revoked',revoked_at=? WHERE id=? AND status='active'")
-      .bind(instant(), row.authorization_id).run();
+    await revokeOAuthAuthorization(c.env.DB, row.authorization_id);
     return oauthError(c, 400, "invalid_grant", "Refresh reuse detected; authorization revoked");
   }
   const a = await authorization(c.env.DB, row.authorization_id);
@@ -208,8 +227,7 @@ export async function exchangeInteractiveOAuthToken(c: Context<AppEnv>, body: Fo
   const consumed = await c.env.DB.prepare("UPDATE oauth_refresh_tokens SET consumed_at=? WHERE token_hash=? AND consumed_at IS NULL AND revoked_at IS NULL AND expires_at>?")
     .bind(instant(), refreshHash, instant()).run();
   if (consumed.meta.changes !== 1) {
-    await c.env.DB.prepare("UPDATE oauth_authorizations SET status='revoked',revoked_at=? WHERE id=? AND status='active'")
-      .bind(instant(), row.authorization_id).run();
+    await revokeOAuthAuthorization(c.env.DB, row.authorization_id);
     return oauthError(c, 400, "invalid_grant", "Concurrent refresh reuse detected");
   }
   return issueTokens(c, a, row.family_id);
@@ -441,10 +459,7 @@ export function registerOAuthAuthorizationServer(app: App) {
       .bind(authorizationId,userId).first<{status:string}>();
     if(!row)return c.json({error:{code:"AUTHORIZATION_NOT_FOUND",message:"Authorization not found"}},404);
     if(row.status!=="active")return c.json({error:{code:"ALREADY_REVOKED",message:"Authorization is not active"}},409);
-    const revoked=await c.env.DB.prepare(
-      "UPDATE oauth_authorizations SET status='revoked',revoked_at=? WHERE id=? AND user_id=? AND status='active'"
-    ).bind(instant(),authorizationId,userId).run();
-    if(revoked.meta.changes!==1)
+    if(!await revokeOAuthAuthorization(c.env.DB, authorizationId, userId))
       return c.json({error:{code:"AUTHORIZATION_CHANGED",message:"Authorization changed"}},409);
     // Current-state eligibility rejects outstanding access, refresh and
     // unexchanged authorization-code use; never disable a shared Agent.
@@ -654,8 +669,7 @@ export function registerOAuthAuthorizationServer(app: App) {
       .bind(instant(), digest, clientId).run();
     const refresh = await c.env.DB.prepare("SELECT authorization_id FROM oauth_refresh_tokens WHERE token_hash=? AND client_id=?")
       .bind(digest, clientId).first<{ authorization_id: string }>();
-    if (refresh) await c.env.DB.prepare("UPDATE oauth_authorizations SET status='revoked',revoked_at=? WHERE id=? AND status='active'")
-      .bind(instant(), refresh.authorization_id).run();
+    if (refresh) await revokeOAuthAuthorization(c.env.DB, refresh.authorization_id);
     return c.body(null, 200, { "cache-control": "no-store" });
   });
 }

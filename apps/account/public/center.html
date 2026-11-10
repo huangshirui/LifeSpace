@@ -69,7 +69,7 @@
           <div id="oauth-message" class="placeholder" role="status">打开此标签后读取真实 OAuth 授权记录…</div>
           <div id="oauth-items" class="delegation-items"></div>
           <button class="button subtle" id="more-oauth" type="button" hidden>加载更多</button>
-          <p class="subdued">客户端显示名称由外部系统提交，不能单凭名称证明品牌身份。查看具体 Client ID、目标 Resource 与授权 Scope 再决定是否撤销。</p>
+          <p class="subdued">客户端显示名称由外部系统提交，不能单凭名称证明品牌身份。状态“未撤销”只表示授权记录未被主动撤销，不保证当前 Agent、Space Grant 或 MCP Server 仍允许执行。请核对 Client ID、Resource 与 Scope。</p>
         </div>
         <div class="surface tab-panel" data-tab-panel="delegations" hidden>
           <div class="panel-header"><div><h2>我的 Agent 委托</h2><p>真实有效的第三方委托授权；撤销后不能继续用于新的操作。</p></div><button class="button subtle" id="refresh-delegations" type="button">刷新</button></div>

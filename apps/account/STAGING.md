@@ -1,6 +1,6 @@
 # Account OAuth Staging rollout / Account OAuth 预发布验收
 
-> Development candidate on Draft PR #469; **not a deployment instruction to bypass platform release controls**. All environment changes must use a reviewed, repository-owner-triggered workflow on `main`, or a separately approved owner-operated equivalent with the same guards. Never deploy this draft branch directly.
+> Account Center and OAuth Consent source is merged as #515, with pre-deploy verification and dedup changes in #516. **A merged source or green CI does not establish Staging acceptance.** Only reviewed owner-triggered workflows on `main` may deploy. Never deploy a draft branch.
 
 ## Fixed topology / 已确定环境
 
@@ -25,7 +25,7 @@ Do **not** manually copy a Console `lsa_*` credential, reuse a Console Audience,
 
 ## 0. Dependencies / 前置条件
 
-- Merge only after reviewed CI, candidate contract and threat-model checks; PR #469 is still Draft.
+- Merge pre-deploy correctness review #516 with passing exact-head CI; #469 is historical and merged. No Staging claim follows from CI alone.
 - Owner initiates the canonical `staging-deploy.yml` on `main`; require new Identity schema 15 and candidate Identity contract 0.18.0, with compatible Core. Do not use the experimental MCP Preview or its OAuth credentials as an excuse to break existing workflows.
 - Confirm `auth-staging.aisr.online/api/v1/status` and `core-staging.aisr.online/api/v1/status` report staging and exact expected schema/contract versions. Do not skip the existing staging golden-flow verification.
 - The public Account Web domain is `account-staging.aisr.online`. It is **not** the platform-admin Console (`lifespace-staging.aisr.online`).

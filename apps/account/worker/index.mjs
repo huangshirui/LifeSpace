@@ -28,6 +28,18 @@ function validAuthorization(item) {
     && ["active","revoked"].includes(item.status) && safeText(item.createdAt,80)
     && (item.revokedAt===null || safeText(item.revokedAt,80));
 }
+// Explicitly project account-facing fields. An added upstream property must
+// never silently become an Account browser response (especially OAuth material).
+function authorizationDto(item) {
+  return {
+    id: item.id, clientId: item.clientId, clientName: item.clientName,
+    verifiedVendor: false, resource: item.resource,
+    applicationId: item.applicationId, spaceId: item.spaceId, agentId: item.agentId,
+    allowUserAuthorization: item.allowUserAuthorization,
+    scopes: [...item.scopes], status: item.status,
+    createdAt: item.createdAt, revokedAt: item.revokedAt,
+  };
+}
 function avatarFromIdentity(profile, env) {
   if (!safeText(profile?.avatarUrl, 2048)) return null;
   try {
@@ -281,7 +293,7 @@ export async function accountFetch(req, env) {
       || result.items.some(item=>!validAuthorization(item))
       || !(result.nextOffset===null || (Number.isInteger(result.nextOffset) && result.nextOffset>=0)))
       return fail(502,"IDENTITY_INVALID_RESPONSE","OAuth 授权列表格式异常");
-    return responseJson({data:{items:result.items,nextOffset:result.nextOffset}});
+    return responseJson({data:{items:result.items.map(authorizationDto),nextOffset:result.nextOffset}});
   }
   const ownedAuthorization=ACCOUNT_AUTHORIZATION.exec(path);
   if(ownedAuthorization && !ownedAuthorization[2]) {
@@ -293,7 +305,7 @@ export async function accountFetch(req, env) {
     const item=await data(upstream);
     if(!validAuthorization(item) || item.id!==ownedAuthorization[1])
       return fail(502,"IDENTITY_INVALID_RESPONSE","OAuth 授权详情格式异常");
-    return responseJson({data:item});
+    return responseJson({data:authorizationDto(item)});
   }
   const external = ACCOUNT_EXTERNAL.exec(path);
   if (external) {

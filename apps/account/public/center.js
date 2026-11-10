@@ -3,7 +3,7 @@ const PANELS = new Set(["account","spaces","connections","audit"]);
 const TABS = new Set(["oauth","delegations","direct","event","external"]);
 const roles = {owner:"所有者",admin:"管理员",editor:"编辑者",viewer:"查看者"};
 const opNames = {query:"查询",get:"查看",create:"新增",update:"修改",delete:"删除"};
-const state = {user:null,csrf:null,spaces:[],space:null,auditLoaded:false,auditOffset:0,auditBusy:false,externalLoaded:false,oauthLoaded:false,oauthOffset:0,oauthBusy:false,delegationsLoaded:false,delegationOffset:0,delegationsBusy:false,revokeId:null,revokeKind:null};
+const state = {user:null,csrf:null,spaces:[],space:null,auditLoaded:false,auditOffset:0,auditBusy:false,externalLoaded:false,oauthLoaded:false,oauthOffset:0,oauthBusy:false,delegationsLoaded:false,delegationOffset:0,delegationsBusy:false,revokeId:null,revokeKind:null,revokeBusy:false};
 const msg = e => e instanceof Error ? e.message : "请求暂时不可用";
 async function api(path,options={}) {
   const response = await fetch(path,{...options,credentials:"same-origin",
@@ -167,7 +167,7 @@ function auditRow(item) {
   const card=el("article","delegation-item"),head=el("div","delegation-head");
   const title=el("div");
   title.append(el("strong","",item.clientName),el("p","",item.resource));
-  head.append(title,el("span","role",item.status==="revoked"?"已撤销":"有效"));
+  head.append(title,el("span","role",item.status==="revoked"?"已撤销":"未撤销"));
   card.append(head);
   const facts=el("div","delegation-tags");
   facts.append(el("span","tag","授权于 "+formatTime(item.createdAt)));
@@ -262,7 +262,7 @@ async function loadExternal(reset=false) {
 function authorizationRow(item) {
   const card=el("article","delegation-item"),head=el("div","delegation-head"),intro=el("div");
   intro.append(el("strong","",item.clientName),el("p","",item.clientId));
-  const status=item.status==="active"?"有效授权":"已撤销";
+  const status=item.status==="active"?"未撤销":"已撤销";
   if(item.status==="active"){
     const button=el("button","button danger","撤销授权");button.type="button";
     button.addEventListener("click",()=>openRevoke(item,"oauth"));
@@ -283,7 +283,7 @@ function authorizationRow(item) {
   detail.append(dl);card.append(head,tags,detail);return card;
 }
 async function loadOauth(reset=false) {
-  if(state.oauthBusy)return;
+  if(state.oauthBusy)return false;
   state.oauthBusy=true;
   const target=$("oauth-items"),label=$("oauth-message");
   $("more-oauth").hidden=true;
@@ -299,8 +299,10 @@ async function loadOauth(reset=false) {
     $("more-oauth").hidden=page.nextOffset===null;
     label.hidden=target.children.length>0;
     if(!label.hidden)label.textContent="当前账户没有已创建的 OAuth 授权实例。";
+    return true;
   } catch(e) {
     label.hidden=false;label.textContent="读取 OAuth 授权失败："+msg(e);
+    return false;
   } finally {state.oauthBusy=false;}
 }
 function humanLifetime(item) {
@@ -329,7 +331,7 @@ function delegationRow(item) {
   detail.append(dl);card.append(head,tags,detail);return card;
 }
 async function loadDelegations(reset=false) {
-  if(state.delegationsBusy)return;
+  if(state.delegationsBusy)return false;
   state.delegationsBusy=true;
   const target=$("delegation-items"),label=$("delegations-message");
   $("more-delegations").hidden=true;
@@ -345,14 +347,16 @@ async function loadDelegations(reset=false) {
     $("more-delegations").hidden=page.nextOffset===null;
     label.hidden=target.children.length>0;
     if(!label.hidden)label.textContent="当前没有有效的第三方 Agent 委托。";
+    return true;
   } catch(e) {
     label.hidden=false;label.textContent="读取委托失败："+msg(e);
+    return false;
   } finally {
     state.delegationsBusy=false;
   }
 }
 function openRevoke(item,kind="delegation") {
-  if(state.delegationsBusy || state.oauthBusy || !state.csrf)return;
+  if(state.revokeBusy || state.delegationsBusy || state.oauthBusy || !state.csrf)return;
   state.revokeId=item.id;state.revokeKind=kind;
   $("revoke-detail").textContent=kind==="oauth"
     ? "确认撤销「"+item.clientName+"」当前授权实例？此客户端的旧 Token 将失效，但其他授权和共享 Agent 不受影响。"
@@ -362,14 +366,15 @@ function openRevoke(item,kind="delegation") {
   $("revoke-dialog").showModal();
 }
 function closeRevoke() {
-  if(state.delegationsBusy)return;
+  if(state.revokeBusy || state.delegationsBusy || state.oauthBusy)return;
   state.revokeId=null;state.revokeKind=null;
   $("revoke-dialog").close();
 }
 async function revoke() {
-  if(!state.revokeId || state.delegationsBusy || state.oauthBusy)return;
+  if(!state.revokeId || state.revokeBusy || state.delegationsBusy || state.oauthBusy)return;
   const selectedId=state.revokeId,kind=state.revokeKind;
   const confirm=$("revoke-confirm"),cancel=$("revoke-cancel");
+  state.revokeBusy=true;
   confirm.disabled=true;cancel.disabled=true;
   try {
     await api(kind==="oauth"
@@ -380,22 +385,30 @@ async function revoke() {
         ? {intent:"revoke-oauth-authorization",authorizationId:selectedId}
         : {intent:"revoke-user-delegation",delegationId:selectedId})});
     state.revokeId=null;state.revokeKind=null;
+    state.auditLoaded=false;
     $("revoke-dialog").close();
     if(kind==="oauth"){
       state.oauthLoaded=false;
-      await loadOauth(true);
-      $("oauth-message").textContent="OAuth 授权已撤销，列表已从服务器刷新。";
+      const refreshed=await loadOauth(true);
+      if(!refreshed)$("oauth-items").replaceChildren();
+      $("oauth-message").textContent=refreshed
+        ? "OAuth 授权已撤销，服务器列表已更新。"
+        : "OAuth 授权已撤销，但列表刷新失败，请点击“刷新”核对当前状态。";
       $("oauth-message").hidden=false;
     }else{
       state.delegationsLoaded=false;
-      await loadDelegations(true);
-      $("delegations-message").textContent="委托已撤销，列表已从服务器刷新。";
+      const refreshed=await loadDelegations(true);
+      if(!refreshed)$("delegation-items").replaceChildren();
+      $("delegations-message").textContent=refreshed
+        ? "委托已撤销，服务器列表已更新。"
+        : "委托已撤销，但列表刷新失败，请点击“刷新”核对当前状态。";
       $("delegations-message").hidden=false;
     }
   } catch(e) {
     $("revoke-error").textContent="撤销未完成："+msg(e);
     $("revoke-error").hidden=false;
   } finally {
+    state.revokeBusy=false;
     confirm.disabled=false;cancel.disabled=false;
   }
 }
@@ -430,7 +443,7 @@ $("more-oauth").addEventListener("click",()=>loadOauth(false));
 $("more-delegations").addEventListener("click",()=>loadDelegations(false));
 $("revoke-confirm").addEventListener("click",revoke);
 $("revoke-cancel").addEventListener("click",closeRevoke);
-$("revoke-dialog").addEventListener("cancel",e=>{if(state.delegationsBusy||state.oauthBusy)e.preventDefault();else {state.revokeId=null;state.revokeKind=null;}});
+$("revoke-dialog").addEventListener("cancel",e=>{if(state.revokeBusy||state.delegationsBusy||state.oauthBusy)e.preventDefault();else {state.revokeId=null;state.revokeKind=null;}});
 $("mobile-menu").addEventListener("click",()=>{
   const open=!$("sidebar").classList.contains("open");
   $("sidebar").classList.toggle("open",open);
