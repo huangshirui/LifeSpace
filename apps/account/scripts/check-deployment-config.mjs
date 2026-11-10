@@ -37,17 +37,50 @@ checkAccountEnvironment("production", "account.aisr.online", {
   identityWorker: "lifespace-identity", identityUrl: "https://auth.aisr.online",
   coreWorker: "lifespace-core", coreUrl: "https://core.aisr.online",
 });
-// Do not change the long-lived Core/Identity Wrangler bindings just to
-// introduce Account. The owner-only staging workflow provisions these values.
-const stageWorkflow = readFileSync(resolve(root, ".github/workflows/lifespace-account-staging-deploy.yml"), "utf8");
-for (const setting of ["OAUTH_ACCOUNT_APPLICATION_ID", "OAUTH_ISSUER", "OAUTH_CONSENT_URL", "OAUTH_CORE_APPROVER_SECRET"]) {
-  assert(stageWorkflow.includes("wrangler secret put " + setting + " --env staging"),
-    "Staging workflow must configure " + setting + " without new D1 bindings");
+// Account code deployment must never modify neighboring service Workers or credentials.
+// The exceptional owner-confirmed workflow retains the original protected bootstrap.
+const ordinary = readFileSync(resolve(root, ".github/workflows/lifespace-account-staging-deploy.yml"), "utf8");
+const provisioning = readFileSync(resolve(root, ".github/workflows/lifespace-account-staging-provision.yml"), "utf8");
+for(const [name,workflow] of [["routine",ordinary],["provisioning",provisioning]]){
+  assert(workflow.includes("workflow_dispatch:") && workflow.includes('test "$GITHUB_ACTOR" = "huangshirui"')
+    && workflow.includes('test "$GITHUB_TRIGGERING_ACTOR" = "huangshirui"')
+    && workflow.includes('test "$GITHUB_REF_NAME" = "main"'),
+  name+" staging workflow must require explicit owner-triggered main");
+  assert(workflow.includes("group: lifespace-staging-deploy"),
+    name+" workflow must share the platform rollout concurrency lock");
 }
-assert(stageWorkflow.includes("app_lifespace_account_staging")
-  && stageWorkflow.includes("https://auth-staging.aisr.online")
-  && stageWorkflow.includes("https://account-staging.aisr.online/oauth/consent"),
-  "Staging OAuth Account Application, issuer and Consent URL must be pinned");
+assert(ordinary.includes("verify-staging-access.mjs")
+  && ordinary.includes("verify-staging-bindings.mjs")
+  && ordinary.includes("check-platform-convergence.mjs"),
+"Routine Account release must verify current Access, secret binding names and compatible platform versions");
+for(const forbidden of [
+  "wrangler secret put", "wrangler secret delete", "wrangler versions secret",
+  "prepare-staging-access.mjs", "prepare-staging-identity.mjs",
+  "verify-staging-credential-rotation.mjs", "LIFESPACE_STAGING_BOOTSTRAP_SECRET",
+  "db:migrate:", "OAUTH_CORE_APPROVER_SECRET=", "OAUTH_CORE_APPROVER_SECRET --env",
+  "OAUTH_ACCOUNT_APPLICATION_ID --env",
+]){
+  assert(!ordinary.includes(forbidden),"Routine Account release must not provision or rotate: "+forbidden);
+}
+const ordinaryDeploys=[...ordinary.matchAll(/(?:wrangler|pnpm) deploy[^\n]*/gu)].map(x=>x[0]);
+assert(ordinary.includes("pnpm --dir apps/account exec wrangler deploy --env staging")
+  && ordinaryDeploys.length===1 && ordinaryDeploys[0].includes("wrangler deploy --env staging"),
+  "Routine Account rollout must contain exactly one Account-only Wrangler deploy");
+assert(!ordinary.includes("pnpm --dir apps/core exec wrangler")
+  && !ordinary.includes("pnpm --dir apps/identity exec wrangler"),
+  "Routine Account workflow must not issue Wrangler commands against Core or Identity");
+assert(provisioning.includes('test "$CONFIRM_PROVISION" = "PROVISION_OR_ROTATE_ACCOUNT_STAGING"'),
+  "Explicit provisioning and secret rotation must require a separate operator confirmation");
+for(const setting of ["OAUTH_ACCOUNT_APPLICATION_ID","OAUTH_ISSUER","OAUTH_CONSENT_URL","OAUTH_CORE_APPROVER_SECRET"]){
+  assert(provisioning.includes("wrangler secret put "+setting+" --env staging"),
+    "Explicit owner-confirmed provisioning must retain "+setting+" without creating new D1 bindings");
+}
+assert(provisioning.includes("app_lifespace_account_staging")
+  && provisioning.includes("https://auth-staging.aisr.online")
+  && provisioning.includes("https://account-staging.aisr.online/oauth/consent")
+  && provisioning.includes("prepare-staging-identity.mjs")
+  && provisioning.includes("verify-staging-credential-rotation.mjs"),
+  "Exceptional staging provisioning must preserve the exact Account identity and rotation gates");
 assert(!account.env.production.d1_databases && !account.env.staging.d1_databases,
  "Account must never receive an Identity or Core D1 binding");
 console.log("Account Worker staging/production isolation and zero-D1 checks passed");
