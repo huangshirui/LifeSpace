@@ -3,7 +3,7 @@ const PANELS = new Set(["account","spaces","connections","audit"]);
 const TABS = new Set(["oauth","delegations","direct","event","external"]);
 const roles = {owner:"所有者",admin:"管理员",editor:"编辑者",viewer:"查看者"};
 const opNames = {query:"查询",get:"查看",create:"新增",update:"修改",delete:"删除"};
-const state = {user:null,csrf:null,spaces:[],space:null,externalLoaded:false,oauthLoaded:false,oauthOffset:0,oauthBusy:false,delegationsLoaded:false,delegationOffset:0,delegationsBusy:false,revokeId:null,revokeKind:null};
+const state = {user:null,csrf:null,spaces:[],space:null,auditLoaded:false,auditOffset:0,auditBusy:false,externalLoaded:false,oauthLoaded:false,oauthOffset:0,oauthBusy:false,delegationsLoaded:false,delegationOffset:0,delegationsBusy:false,revokeId:null,revokeKind:null};
 const msg = e => e instanceof Error ? e.message : "请求暂时不可用";
 async function api(path,options={}) {
   const response = await fetch(path,{...options,credentials:"same-origin",
@@ -86,6 +86,7 @@ function navigate() {
   document.title=names[view]+" · AISR Account";
   closeMenu();
   if(view==="spaces" && state.user && !state.spacesLoaded)void loadSpaces();
+  if(view==="audit" && state.csrf && !state.auditLoaded)void loadAudit(true);
 }
 function selectTab(tab,updateHash=true) {
   if(!TABS.has(tab))tab="oauth";
@@ -161,6 +162,45 @@ async function loadSpaceDetail(id) {
   } catch(e) {
     if(state.space===id)target.replaceChildren(el("p","placeholder","无法读取空间详情："+msg(e)));
   }
+}
+function auditRow(item) {
+  const card=el("article","delegation-item"),head=el("div","delegation-head");
+  const title=el("div");
+  title.append(el("strong","",item.clientName),el("p","",item.resource));
+  head.append(title,el("span","role",item.status==="revoked"?"已撤销":"有效"));
+  card.append(head);
+  const facts=el("div","delegation-tags");
+  facts.append(el("span","tag","授权于 "+formatTime(item.createdAt)));
+  if(item.revokedAt)facts.append(el("span","tag","撤销于 "+formatTime(item.revokedAt)));
+  card.append(facts);
+  const detail=el("details");
+  detail.append(el("summary","","查看授权边界"));
+  const list=el("dl");
+  for(const [name,value] of [["Authorization",item.id],["Client ID",item.clientId],
+    ["Space",item.spaceId],["Agent",item.agentId],["Application",item.applicationId]]){
+    list.append(el("dt","",name),el("dd","",value));
+  }
+  detail.append(list);card.append(detail);return card;
+}
+async function loadAudit(reset=false) {
+  if(state.auditBusy)return;
+  state.auditBusy=true;
+  const target=$("audit-items"),message=$("audit-message");
+  $("more-audit").hidden=true;message.hidden=false;
+  message.textContent="正在从 Identity 读取当前账户的 OAuth 授权活动…";
+  try{
+    const page=await api("/api/account/authorizations?offset="+(reset?0:state.auditOffset));
+    if(!Array.isArray(page.items))throw new Error("活动记录响应异常");
+    if(reset)target.replaceChildren();
+    for(const item of page.items)target.append(auditRow(item));
+    state.auditOffset=page.nextOffset??0;
+    state.auditLoaded=true;
+    $("more-audit").hidden=page.nextOffset===null;
+    message.hidden=target.children.length>0;
+    if(!message.hidden)message.textContent="当前没有可读取的 OAuth 授权活动。";
+  }catch(e) {
+    message.hidden=false;message.textContent="读取授权活动失败："+msg(e);
+  }finally{state.auditBusy=false;}
 }
 async function loadExternal(reset=false) {
   const select=$("external-space"),target=$("external-items"),message=$("external-message");
@@ -369,6 +409,7 @@ async function init() {
       if(currentPage().tab==="oauth")await loadOauth(true);
       if(currentPage().tab==="external")await loadExternal(true);
     }
+    if(currentPage().view==="audit")await loadAudit(true);
   } catch(e) {
     showError(msg(e));
     $("nav-name").textContent="身份尚未验证";
@@ -382,6 +423,8 @@ $("refresh-spaces").addEventListener("click",loadSpaces);
 $("refresh-delegations").addEventListener("click",()=>loadDelegations(true));
 $("refresh-oauth").addEventListener("click",()=>loadOauth(true));
 $("refresh-external").addEventListener("click",()=>loadExternal(true));
+$("refresh-audit").addEventListener("click",()=>loadAudit(true));
+$("more-audit").addEventListener("click",()=>loadAudit(false));
 $("external-space").addEventListener("change",()=>loadExternal(false));
 $("more-oauth").addEventListener("click",()=>loadOauth(false));
 $("more-delegations").addEventListener("click",()=>loadDelegations(false));
