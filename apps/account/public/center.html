@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="referrer" content="no-referrer">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data: https://auth-staging.aisr.online https://auth.aisr.online; object-src 'none'; base-uri 'none'; form-action 'self'">
-<title>账号与安全 · AISR Account</title>
+<title>账户中心</title>
 <link rel="stylesheet" href="/center.css">
 <script type="module" src="/center.js"></script>
 </head>
@@ -50,7 +50,7 @@
   <main class="main" id="main">
     <header class="mobile-header">
       <button id="mobile-menu" class="icon-button" type="button" aria-label="打开导航" aria-expanded="false"><svg class="icon"><use href="#i-menu"/></svg></button>
-      <strong>AISR Account</strong><span class="mobile-header-spacer"></span>
+      <strong>账户中心</strong><span class="mobile-header-spacer"></span>
     </header>
     <div class="content">
       <div id="session-error" class="notice error" role="alert" hidden><strong>账户暂时无法加载</strong><p id="session-error-message"></p><button id="retry" type="button" class="button">重新检查</button></div>
@@ -119,8 +119,6 @@
           <button type="button" data-tab="oauth" role="tab" aria-selected="true">已连接应用</button>
           <button type="button" data-tab="delegations" role="tab" aria-selected="false">AI 委托</button>
           <button type="button" data-tab="external" role="tab" aria-selected="false">数据连接</button>
-          <button type="button" data-tab="direct" role="tab" aria-selected="false">Agent / Service</button>
-          <button type="button" data-tab="event" role="tab" aria-selected="false">事件推送</button>
         </div>
         <div class="surface tab-panel" data-tab-panel="oauth">
           <div class="panel-header"><h2>已连接应用</h2><button class="button subtle compact" id="refresh-oauth" type="button"><svg class="icon"><use href="#i-refresh-cw"/></svg>刷新</button></div>
@@ -132,6 +130,7 @@
           <div class="panel-header"><h2>AI 委托</h2><button class="button subtle compact" id="refresh-delegations" type="button"><svg class="icon"><use href="#i-refresh-cw"/></svg>刷新</button></div>
           <div id="delegations-message" class="placeholder" role="status">正在读取…</div>
           <div id="delegation-items" class="delegation-items"></div>
+          <p class="inline-note">目前显示通过账户授权的 AI 委托。其他应用内委托将在统一查询接入后显示。</p>
           <button class="button subtle" id="more-delegations" type="button" hidden>加载更多</button>
         </div>
         <div class="surface tab-panel" data-tab-panel="external" hidden>
@@ -140,8 +139,6 @@
           <p id="external-message" class="placeholder" role="status">正在读取…</p>
           <div id="external-items" class="delegation-items"></div>
         </div>
-        <div class="surface tab-panel" data-tab-panel="direct" hidden><h2>Agent 与 Service 接入</h2><div class="empty-feature"><svg class="icon"><use href="#i-server"/></svg><strong>请在对应应用中管理</strong><p>密钥和自动化权限由所属应用管理，账户中心暂不提供直接配置。</p></div></div>
-        <div class="surface tab-panel" data-tab-panel="event" hidden><h2>事件推送</h2><div class="empty-feature"><svg class="icon"><use href="#i-webhook"/></svg><strong>请在对应应用中管理</strong><p>事件订阅及通知设置由所属应用管理。</p></div></div>
       </section>
       <section class="page" data-panel="audit" hidden aria-labelledby="audit-heading">
         <div class="page-heading"><div><h1 id="audit-heading">活动与审计</h1><p>查看你授权过的应用和撤销记录。</p></div></div>
