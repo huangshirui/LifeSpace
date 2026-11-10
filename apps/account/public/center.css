@@ -66,6 +66,7 @@ input:not([type=file]),select{min-height:40px;border:1px solid #dae3ee;border-ra
 input::placeholder{color:#a3afbf}
 .inline-note{font-size:12px;color:#8796aa;margin:14px 0 0}
 .action-status{padding:13px 16px;border-radius:10px;background:#eef5ff;color:#315c98;border:1px solid #d9e6fb;font-size:13px;margin:14px 0;line-height:1.5}
+.action-status[data-error="true"]{background:#fff3f4;border-color:#f2d6db;color:#ae4250}
 .technical-details{padding-top:23px}
 .technical-details summary,.delegation-item summary{cursor:pointer;color:#7485a0;font-size:12px}
 .technical-details summary:hover,.delegation-item summary:hover{color:#315fbd}
