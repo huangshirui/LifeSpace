@@ -24,7 +24,7 @@ function label(item) { return item?.displayName || item?.name || item?.id || "â€
 function setAvatar(target,name,url) {
   target.replaceChildren();
   if(typeof url === "string" && url.startsWith("https://auth") && url.includes("/assets/users/")) {
-    const img=el("img");img.src=url;img.alt="";
+    const img=el("img");img.src=url+(url.includes("?")?"&":"?")+"v="+Date.now();img.alt="";
     img.addEventListener("error",()=>target.replaceChildren(document.createTextNode((name||"A").slice(0,1))));
     target.append(img);
   } else target.textContent=(name||"A").slice(0,1);
