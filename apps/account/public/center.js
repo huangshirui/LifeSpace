@@ -1,6 +1,6 @@
 const $ = id => document.getElementById(id);
 const PANELS = new Set(["account","spaces","connections","audit"]);
-const TABS = new Set(["oauth","delegations","direct","event","external"]);
+const TABS = new Set(["oauth","delegations","external"]);
 const roles = {owner:"所有者",admin:"管理员",editor:"编辑者",viewer:"查看者"};
 const opNames = {query:"查询",get:"查看",create:"新增",update:"修改",delete:"删除"};
 const state = {user:null,csrf:null,spaces:[],space:null,auditLoaded:false,auditOffset:0,auditBusy:false,externalLoaded:false,oauthLoaded:false,oauthOffset:0,oauthBusy:false,delegationsLoaded:false,delegationOffset:0,delegationsBusy:false,revokeId:null,revokeKind:null,revokeBusy:false,emailVersion:null,invite:null,spaceNames:new Map(),nameCandidates:[],referenceLoaded:false,busyAction:false};
@@ -91,7 +91,7 @@ function navigate() {
   }
   if(view==="connections")selectTab(tab,false);
   const names={account:"账号与安全",spaces:"我的空间",connections:"连接与授权",audit:"活动与审计"};
-  document.title=names[view]+" · AISR Account";
+  document.title="账户中心";
   closeMenu();
   if(view==="spaces" && state.user && !state.spacesLoaded)void loadSpaces();
   if(view==="audit" && state.csrf && !state.auditLoaded)void loadAudit(true);
@@ -344,7 +344,7 @@ async function loadOauth(reset=false) {
 }
 function humanLifetime(item) {
   if(item.mode==="once")return "一次性";
-  if(item.mode==="timed")return "限时 · "+(item.expiresAt?formatTime(item.expiresAt):"未知有效期");
+  if(item.mode==="timed")return "限时";
   return "长期 · 直到撤销";
 }
 function delegationRow(item) {
@@ -357,6 +357,8 @@ function delegationRow(item) {
   head.append(intro,button);
   const tags=el("div","delegation-tags");
   tags.append(el("span","tag",humanLifetime(item)));
+  tags.append(el("span","tag",item.expiresAt
+    ?"到期："+formatTime(item.expiresAt):"无固定到期时间"));
   const detail=el("details");
   detail.append(el("summary","","查看授权边界"));
   const dl=el("dl");
