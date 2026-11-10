@@ -476,7 +476,7 @@
     {
       "id": "account-consent-bff",
       "source": "apps/account/openapi.json",
-      "operationSetSha256": "sha256:69371fb8ffdd0de2683b72b3a047e0937e7a71c80a1c7a3e9e505c62c33d5a50",
+      "operationSetSha256": "sha256:c3eedd91ae6254c6e84e2ed0e6cd2b80e0617d61ef36dc9cf6d973db3c04e45a",
       "groups": [
         {
           "id": "account-oauth-consent",
@@ -508,7 +508,7 @@
           "id": "account-user-scoped-center",
           "maturity": "candidate",
           "visibility": "internal",
-          "operationPattern": "^GET /api/account/(login-email|spaces(?:/[{]spaceId[}](?:/members)?)?)$",
+          "operationPattern": "^GET /api/account/(login-email|spaces(?:/[{]spaceId[}](?:/(?:members|external-connections))?)?)$",
           "commitment": "Read-only Identity and Core snapshots for the verified current user; never confers Space or platform administration."
         },
         {
