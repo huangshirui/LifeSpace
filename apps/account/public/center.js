@@ -261,13 +261,14 @@ async function loadExternal(reset=false) {
 }
 function authorizationRow(item) {
   const card=el("article","delegation-item"),head=el("div","delegation-head"),intro=el("div");
-  intro.append(el("strong","",item.clientName),el("p","",item.clientId));
+  intro.append(el("strong","",item.clientName),el("p","",item.clientId),
+    el("p","","授权实例 · "+item.id.slice(-8)+" · 授权于 "+formatTime(item.createdAt)));
   const status=item.status==="active"?"未撤销":"已撤销";
   if(item.status==="active"){
-    const button=el("button","button danger","撤销授权");button.type="button";
+    const button=el("button","button danger","撤销此授权");button.type="button";
     button.addEventListener("click",()=>openRevoke(item,"oauth"));
     head.append(intro,button);
-  }else head.append(intro,el("span","tag",status));
+  }else head.append(intro);
   const tags=el("div","delegation-tags");
   tags.append(el("span","tag",status),
     el("span","tag",item.allowUserAuthorization?"允许申请单独委托":"仅 Agent 自身权限"));
@@ -358,8 +359,9 @@ async function loadDelegations(reset=false) {
 function openRevoke(item,kind="delegation") {
   if(state.revokeBusy || state.delegationsBusy || state.oauthBusy || !state.csrf)return;
   state.revokeId=item.id;state.revokeKind=kind;
+  $("revoke-heading").textContent=kind==="oauth"?"撤销此 OAuth 授权实例":"撤销委托授权";
   $("revoke-detail").textContent=kind==="oauth"
-    ? "确认撤销「"+item.clientName+"」当前授权实例？此客户端的旧 Token 将失效，但其他授权和共享 Agent 不受影响。"
+    ? "确认撤销「"+item.clientName+"」的这一条 OAuth 授权实例（"+item.id+"）？仅此实例关联的 Access/Refresh Token 将失效；同一客户端的其他授权实例及共享 Agent 不受影响。"
     : "确认撤销「"+item.modelKey+" · "+(opNames[item.operation]||item.operation)
       +"」？后续调用将被拒绝，已经完成的操作不会撤回。";
   $("revoke-error").hidden=true;
