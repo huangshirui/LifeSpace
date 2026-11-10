@@ -21,7 +21,7 @@ function fixture(requestedScopes = ["resources:read"]) {
         assert.equal(req.headers.get("authorization"), "Bearer account-lsa-test");
         const body = await req.json();
         assert.equal(body.accessAssertion, access);
-        assert.deepEqual(body.requestedScopes, ["profile:read", "spaces:read", "spaces:manage"]);
+        assert.deepEqual(body.requestedScopes, ["profile:read", "profile:write", "spaces:read", "spaces:write", "spaces:manage"]);
         return Response.json({ data: { accessToken: issuerToken } });
       }
       if (path === "/api/v1/me") return Response.json({ data: {
@@ -353,7 +353,6 @@ test("Account static clean URLs keep the original route and delegation query int
   }};
   for(const path of [
     "/delegation?request_id="+arq,
-    "/delegations",
     "/oauth/consent?request_id="+id,
   ]){
     const response=await t.request(path);
@@ -365,7 +364,6 @@ test("Account static clean URLs keep the original route and delegation query int
   }
   assert.deepEqual(seen,[
     {pathname:"/delegation",search:"?request_id="+arq},
-    {pathname:"/delegations",search:""},
     {pathname:"/oauth/consent",search:"?request_id="+id},
   ]);
 });
