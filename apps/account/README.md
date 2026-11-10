@@ -1,5 +1,12 @@
 # LifeSpace Account · User Center + OAuth Consent / 账户中心与授权门户
 
+## 2026-11-10 · Account Staging 独立发布 / 解除跨服务密钥耦合
+
+- **普通更新**：只使用 `.github/workflows/lifespace-account-staging-deploy.yml`，完成完整 CI、Core/Identity 版本兼容、Owner-only Cloudflare Access 策略以及三个 Staging Worker Secret 绑定**名称**的只读检查，随后仅对 Account Worker 运行 `wrangler deploy`。已有 Account Worker Secret 自动保留；不会重签 `lsa_*`、升级 Identity Application、部署 Core/Identity、变更 OAuth Shared Secret 或运行数据库迁移。
+- **显式初始化/轮换**：只有建立/修复 Account 接入、批准的 Scope/Access 配置变更或主动密钥轮换，才运行 `.github/workflows/lifespace-account-staging-provision.yml`，必须由 Owner 从 `main` 手工触发且输入 `PROVISION_OR_ROTATE_ACCOUNT_STAGING`。该特殊流程会对 Core/Identity Staging 执行 `wrangler secret put` 并可能重新部署相应 Worker，不能当成普通 Account 部署。
+- **平台独立性**：`staging-deploy.yml` 只有在 Core/Identity 的源码、Schema、契约或配置确实需要变更时执行。普通 Account 更新不再要求先重新部署平台。两个 Account 工作流和 Platform Staging 共享并发锁，均不自动触发。
+- **安全**：没有持久 Account 数据库；正常发布不读取 Bootstrap Secret，不读取/输出任何 Secret 明文。已有 Staging 若尚未从三 Scope 升级为获准的五 Scope，需先明确执行一次维护流程，不能普通部署时偷偷扩权。详细前置与验证条件见 [STAGING.md](./STAGING.md)。
+
 ## 2026-11-10 · 资料只读与退出登录
 
 - 「账号与安全」中的姓名和邮箱输入框默认 `readonly`；只有用户点击该字段独立的「编辑」才允许输入和保存；「取消」恢复已确认数据，成功保存后回到只读。姓名编辑不替代邮箱变更的再次确认与待验证流程。
