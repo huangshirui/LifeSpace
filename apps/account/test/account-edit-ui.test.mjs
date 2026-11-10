@@ -17,6 +17,7 @@ function harness(){
       classList:{add(){},remove(){},toggle(){},contains(){return false;}},
       append(...items){this.children.push(...items);},
       replaceChildren(...items){this.children=[...items];},
+      querySelectorAll(){return [];},
       addEventListener(kind,handler){events.set(kind,handler);},
       focus(){this.focused=true;},setAttribute(){},removeAttribute(){},
       showModal(){this.open=true;},close(){this.open=false;},
