@@ -65,8 +65,11 @@
           <button type="button" data-tab="external" role="tab" aria-selected="false">外部数据源</button>
         </div>
         <div class="surface tab-panel" data-tab-panel="oauth">
-          <div class="panel-header"><div><h2>已授权 OAuth 客户端</h2><p>每条 OAuth Authorization 都应该独立显示并单独撤销，不影响复用同一 Agent 的其他客户端。</p></div></div>
-          <div class="not-connected"><span aria-hidden="true">↗</span><strong>授权记录管理接口待接入</strong><p>OAuth Consent 已可单独完成授权；当前 Account 尚未提供可靠的用户级授权列表及独立撤销接口。这里不会将“未读取到”误显示成“没有授权”。</p></div>
+          <div class="panel-header"><div><h2>已授权 OAuth 客户端</h2><p>显示当前账户真实的 OAuth 授权实例。撤销某个 Client 的授权不会停用共享 Agent 或其他授权。</p></div><button class="button subtle" id="refresh-oauth" type="button">刷新</button></div>
+          <div id="oauth-message" class="placeholder" role="status">打开此标签后读取真实 OAuth 授权记录…</div>
+          <div id="oauth-items" class="delegation-items"></div>
+          <button class="button subtle" id="more-oauth" type="button" hidden>加载更多</button>
+          <p class="subdued">客户端显示名称由外部系统提交，不能单凭名称证明品牌身份。查看具体 Client ID、目标 Resource 与授权 Scope 再决定是否撤销。</p>
         </div>
         <div class="surface tab-panel" data-tab-panel="delegations" hidden>
           <div class="panel-header"><div><h2>我的 Agent 委托</h2><p>真实有效的第三方委托授权；撤销后不能继续用于新的操作。</p></div><button class="button subtle" id="refresh-delegations" type="button">刷新</button></div>
