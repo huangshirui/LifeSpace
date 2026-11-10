@@ -1,3 +1,7 @@
+## 2026-11-10 · Account Center 只读用户界面契约（开发候选）
+
+Account BFF `apps/account/openapi.json` Candidate 0.3.0 新增 user-scoped 只读页面接口：已声明登录邮箱、当前用户空间列表、单个 Space 详情和成员列表。接口只通过已验证的 Account Access 会话签发短期 User Token 调用 Identity/Core；服务端沿用原始权限计算，不共享 D1，不发布新的 Connector / Credential / Grant 概念。前端 `/` 进入 Account Center，OAuth Consent、User Delegation 保持独立且不会默认进入请求过期页。V7 UX 调整版原型仅作为体验参考。当前 OAuth Authorization 自助 list/get/revoke 与 Activity 审计读取仍待 #481/#514 后端契约，不能标记为已交付或已部署。Production 仍以 `docs/production/*` 与部署证据为准。
+
 ## 2026-11-09 · MCP OAuth discoverability versus execution / 授权范围与工具发现（待 Staging 验收）
 
 Generic Operation Projection `apps/core/mcp-operations.openapi.yaml` advances from Candidate 0.1.0 to 0.2.0. Its new required `requiredScopes` descriptor field distinguishes a currently discoverable operation from one executable by the current OAuth token. Core may preview a write operation requiring explicit OAuth step-up only after checking the same Agent's already-current underlying write authority; the actual read-only token cannot execute it. The Core-owned prerequisite survives across Native, Person, External, and Action surfaces without Adapter-local authority decisions. The Adapter maps this to per-tool `securitySchemes`, and insufficient-scope calls fail with HTTP 403 and the RFC 6750/MCP `WWW-Authenticate` step-up challenge. An additional tool-result `mcp/www_authenticate` hint is compatibility metadata, never execution authority. Upgrade requires a new explicit Client OAuth request and Account user approval; no silent Scope widening.
