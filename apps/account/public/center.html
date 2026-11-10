@@ -19,6 +19,7 @@
   <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></symbol>
   <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
   <symbol id="i-log-in" viewBox="0 0 24 24"><path d="M10 17l5-5-5-5M15 12H3"/><path d="M12 3h6a3 3 0 0 1 3 3v12a3 3 0 0 1-3 3h-6"/></symbol>
+  <symbol id="i-log-out" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5M21 12H9"/></symbol>
   <symbol id="i-refresh-cw" viewBox="0 0 24 24"><path d="M20 11a8 8 0 0 0-14.3-4.9L4 8"/><path d="M4 4v4h4"/><path d="M4 13a8 8 0 0 0 14.3 4.9L20 16"/><path d="M20 20v-4h-4"/></symbol>
   <symbol id="i-pencil" viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></symbol>
   <symbol id="i-camera" viewBox="0 0 24 24"><path d="M14 4h-4l-2 3H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-4Z"/><circle cx="12" cy="13" r="3"/></symbol>
@@ -65,11 +66,21 @@
           </div>
           <form id="profile-form" class="edit-form">
             <div class="form-copy"><label for="name-input">显示名称</label><p>此名称会显示在你的账户资料中。</p></div>
-            <div class="form-controls"><input id="name-input" type="text" minlength="1" maxlength="50" required autocomplete="name"><button type="submit" class="button primary">保存</button></div>
+            <div class="form-controls">
+              <input id="name-input" type="text" minlength="1" maxlength="50" required autocomplete="name" readonly>
+              <button id="name-edit" type="button" class="button" disabled>编辑</button>
+              <button id="name-cancel" type="button" class="button subtle" hidden>取消</button>
+              <button id="name-save" type="submit" class="button primary" hidden>保存</button>
+            </div>
           </form>
           <form id="email-form" class="edit-form">
             <div class="form-copy"><label for="email-input">登录邮箱</label><p id="email-status">正在读取…</p></div>
-            <div class="form-controls"><input id="email-input" type="email" maxlength="254" required autocomplete="email"><button type="submit" class="button">更改邮箱</button></div>
+            <div class="form-controls">
+              <input id="email-input" type="email" maxlength="254" required autocomplete="email" readonly>
+              <button id="email-edit" type="button" class="button" disabled>编辑</button>
+              <button id="email-cancel" type="button" class="button subtle" hidden>取消</button>
+              <button id="email-save" type="submit" class="button primary" hidden>保存</button>
+            </div>
           </form>
           <p id="email-note" class="inline-note" hidden></p>
           <p id="account-action-status" class="action-status" role="status" hidden></p>
@@ -80,6 +91,13 @@
               <div class="detail-row"><span>登录方式</span><span>Cloudflare Access</span></div>
             </div>
           </details>
+        </div>
+        <div class="surface logout-card">
+          <div>
+            <h2>退出登录</h2>
+            <p>退出会结束当前 Cloudflare Access 登录，并可能影响其他使用相同登录的应用。</p>
+          </div>
+          <button id="logout" type="button" class="button logout-button"><svg class="icon"><use href="#i-log-out"/></svg>退出登录</button>
         </div>
       </section>
       <section class="page" data-panel="spaces" hidden aria-labelledby="spaces-heading">
