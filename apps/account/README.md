@@ -6,11 +6,11 @@
 - V7 UX 调整版只作为视觉与用户旅程参考。导航：账号与安全、我的空间、连接与授权、活动与审计；用户头像/姓名/邮箱区域必须来自验证的 Identity 用户及已声明邮箱。无模拟记录、无独立「总览」页，不新增 Account D1 或通用 conn_*。
 - 新增 Account BFF 只读接口 `GET /api/account/login-email`、`GET /api/account/spaces`、`GET /api/account/spaces/:spaceId` 和 `.../members`。每次使用当前 Access→Identity User Token 调 Identity/Core，并由上游执行当前权限检查；不缓存 Authority，不把 User Token 交给浏览器。
 - Delegation 标签页调用既有 `GET /api/delegations` 和带 CSRF 的撤销操作，逐项展示并真实刷新服务器状态。OAuth Authorization 列表与单独撤销现通过 Identity 用户级 API 接入；Agent/Service/API、Event Push、用户审计尚缺真实 user-scoped 管理契约；External Data 列表已可通过 Core 当前 Space Manager 读权限获取非敏感元数据，但创建/轮换/撤销仍需要独立治理流程，页面**明确标注待接入**，不可误报为“空列表”或已完成；见 #481 与 #514。
-- Account Center 本身只是 Exposure/Experience；用户资料变更、Space 创建/邀请/修改、OAuth 授权撤销、审计等后续写入必须依照 Identity/Core 本来的授权模型独立验收。不要将只读页面合并等同于这批完整 Production 交付。
+- Account Center 本身只是 Exposure/Experience；用户资料变更、Space 创建/邀请/修改和完整安全审计等后续功能必须依照 Identity/Core 本来的授权模型独立验收；OAuth 授权撤销已由 Identity 自助接口承担，仍待 Staging 真正验收。不要将只读页面合并等同于这批完整 Production 交付。
 
 
 
-Account is a new **independent user-facing** LifeSpace Worker. It is not the Platform Admin Console and does not introduce a new Connection Registry. Current scope is only OAuth Consent; other Account navigation remains future work.
+Account is an **independent user-facing** LifeSpace Worker, not the Platform Admin Console. It provides Account Center read-only identity/Space views, current-user OAuth Authorization list/revoke, Delegation self-management and Space-manager External Connection metadata. Full security audit and broader Agent/Service/Event governance still require governed user-scoped APIs. No generic Connection Registry or Account D1 is introduced.
 
 ## Browser journey / 用户流程
 
@@ -33,7 +33,7 @@ Staging readiness: run `node apps/account/scripts/check-staging-readiness.mjs` w
 
 The owner-triggered Account Staging workflow generates its two dedicated Staging secrets on the protected runner (no manual secret-copy step); each redeploy rotates CSRF sessions and the shared Core↔Identity Staging approval secret. Original existing platform staging credentials are still required.
 
-Staging deployment is intentionally **not** performed by this PR; domain/Access registration and Core/Identity release convergence must be confirmed first. Run `pnpm --filter @lifespace/account check` for local tests and Worker dry-run.
+Staging is not implied by a merge or CI result. The repository owner must first deploy the reviewed platform main release, then the Account Staging Worker and verify its actual browser/OAuth/Delegation behavior before Production. Run `pnpm --filter @lifespace/account check` for local tests and Worker dry-run.
 
 ## Third-party OAuth User Delegation lifetime choices (2026-11-09 candidate)
 
