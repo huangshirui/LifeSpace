@@ -5,9 +5,18 @@ import { accountFetch } from "../worker/index.mjs";
 const ACCESS = "a".repeat(50) + ".b.c";
 const SPACE = "spc_" + "b".repeat(32);
 const USER = "usr_test123";
+const OAUTH_ID = "oaz_" + "e".repeat(32);
 function setup({ avatarUrl = "https://auth-staging.example.test/assets/users/" + USER + "/avatar", coreStatus = 200 } = {}) {
   const calls = [];
   const token = "test-account-only-user-token";
+  let authStatus = "active";
+  const ownerAuthorization = () => ({
+    id:OAUTH_ID,clientId:"ocli_client1",clientName:"Claimed ChatGPT",verifiedVendor:false,
+    resource:"https://core-staging.example.test/mcp/mcp_123456",applicationId:"app_123456",
+    spaceId:SPACE,agentId:"agt_123456",allowUserAuthorization:true,
+    scopes:["resources:read"],status:authStatus,createdAt:"2026-11-10T00:00:00Z",
+    revokedAt:authStatus==="active"?null:"2026-11-10T01:00:00Z",
+  });
   const identity = { fetch: async request => {
     const url = new URL(request.url), path = url.pathname;
     calls.push({ service: "identity", path, auth: request.headers.get("authorization") });
@@ -24,6 +33,18 @@ function setup({ avatarUrl = "https://auth-staging.example.test/assets/users/" +
     if(path==="/api/v1/me/web-login")return Response.json({data:{
       email:"verified@example.test",linked:true,status:"linked",version:1,
     }});
+    if(path==="/api/v1/me/oauth/authorizations"){
+      assert.equal(new URL(request.url).searchParams.get("offset"),"0");
+      return Response.json({data:{items:[ownerAuthorization()],nextOffset:null}});
+    }
+    if(path==="/api/v1/me/oauth/authorizations/"+OAUTH_ID)
+      return Response.json({data:ownerAuthorization()});
+    if(path==="/api/v1/me/oauth/authorizations/"+OAUTH_ID+"/revoke"){
+      assert.equal(request.method,"POST");
+      assert.deepEqual(await request.json(),{});
+      authStatus="revoked";
+      return Response.json({data:{id:OAUTH_ID,revoked:true}});
+    }
     throw Error("Unexpected Identity request: "+path);
   }};
   const core = { fetch: async request => {
@@ -116,4 +137,37 @@ test("Account Center strips an untrusted avatar origin before reaching the brows
   const result=await t.request("/api/session");
   assert.equal(result.status,200);
   assert.equal((await result.json()).data.user.avatarUrl,null);
+});
+
+test("Account Center independently revokes owner OAuth authorization with signed-CSRF gate",async()=>{
+  const t=setup();
+  const listed=await t.request("/api/account/authorizations?offset=0");
+  assert.equal(listed.status,200);
+  const row=(await listed.json()).data.items[0];
+  assert.equal(row.id,OAUTH_ID);
+  assert.equal(row.status,"active");
+  assert.equal(row.clientName,"Claimed ChatGPT");
+  assert.ok(!JSON.stringify(row).includes(t.token));
+  const detailed=await t.request("/api/account/authorizations/"+OAUTH_ID);
+  assert.equal((await detailed.json()).data.id,OAUTH_ID);
+  const withoutCsrf=await t.request("/api/account/authorizations/"+OAUTH_ID+"/revoke",{
+    method:"POST",headers:{"origin":"https://account-staging.example.test",
+      "sec-fetch-site":"same-origin","content-type":"application/json"},
+    body:JSON.stringify({intent:"revoke-oauth-authorization",authorizationId:OAUTH_ID}),
+  });
+  assert.equal(withoutCsrf.status,403);
+  const session=await t.request("/api/session");
+  const csrf=(await session.json()).data.csrfToken;
+  const cookie=session.headers.get("set-cookie").split(";")[0];
+  const allowed=await t.request("/api/account/authorizations/"+OAUTH_ID+"/revoke",{
+    method:"POST",
+    headers:{"origin":"https://account-staging.example.test",
+      "sec-fetch-site":"same-origin","content-type":"application/json",
+      "x-lifespace-csrf":csrf,"cookie":cookie},
+    body:JSON.stringify({intent:"revoke-oauth-authorization",authorizationId:OAUTH_ID}),
+  });
+  assert.equal(allowed.status,200);
+  assert.deepEqual((await allowed.json()).data,{id:OAUTH_ID,revoked:true});
+  const after=await t.request("/api/account/authorizations?offset=0");
+  assert.equal((await after.json()).data.items[0].status,"revoked");
 });
