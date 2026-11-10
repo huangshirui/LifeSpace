@@ -524,6 +524,42 @@ paths:
         '200': { description: Pending request metadata for Account Consent; no-store }
         '400': { description: Expired or completed OAuth request }
         '403': { description: Caller is not the dedicated Account Application }
+  /api/v1/me/oauth/authorizations:
+    get:
+      description: Account-only paginated OAuth Authorization records owned by the verified current user. Client display names are unverified; no bearer tokens or secret hashes are returned.
+      security: [{ userBearer: [] }]
+      parameters:
+        - { name: offset, in: query, schema: { type: integer, minimum: 0, maximum: 9999 } }
+      responses:
+        '200': { description: Current user's individual authorizations, including revoked items and optional nextOffset, no-store }
+        '400': { description: Invalid pagination }
+        '403': { description: Dedicated Account Application and profile:read are required }
+  /api/v1/me/oauth/authorizations/{authorizationId}:
+    get:
+      description: Inspect precisely one OAuth Authorization owned by the verified Account user.
+      security: [{ userBearer: [] }]
+      parameters:
+        - { name: authorizationId, in: path, required: true, schema: { type: string, pattern: '^oaz_' } }
+      responses:
+        '200': { description: User-owned authorization details; no OAuth token material }
+        '403': { description: Dedicated Account Application and profile:read are required }
+        '404': { description: Authorization absent or belongs to another user }
+  /api/v1/me/oauth/authorizations/{authorizationId}/revoke:
+    post:
+      description: Revoke exactly one current user's OAuth Authorization; existing access/refresh tokens fail current-state validation and no shared Agent identity or Grant is modified.
+      security: [{ userBearer: [] }]
+      parameters:
+        - { name: authorizationId, in: path, required: true, schema: { type: string, pattern: '^oaz_' } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: false, maxProperties: 0 }
+      responses:
+        '200': { description: Authorization revoked }
+        '403': { description: Dedicated Account Application and profile:read are required }
+        '404': { description: Authorization absent or belongs to another user }
+        '409': { description: Authorization already revoked or concurrently changed }
   /oauth/authorize:
     get:
       description: Validate registered OAuth Client, exact callback, mandatory state, PKCE S256 and allowlisted Resource URI. Creates only an expiring pending request, then redirects to Account Consent; grants no Authority.
