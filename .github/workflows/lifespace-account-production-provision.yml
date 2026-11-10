@@ -1,0 +1,153 @@
+name: First-time provision LifeSpace Account production
+
+# One-time owner operation only. No automatic dispatch or credential rotation.
+# Requires private MCP Adapter plus canonical Core/Identity Production release.
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: "Type INITIALIZE_ACCOUNT_PRODUCTION_ONCE"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  checks: read
+  actions: read
+  pull-requests: read
+
+concurrency:
+  group: lifespace-production-change
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require owner, main and first-use confirmation
+        shell: bash
+        env:
+          OPERATOR_CONFIRMATION: ${{ inputs.confirmation }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_EVENT_NAME" = workflow_dispatch
+          test "$GITHUB_ACTOR" = huangshirui
+          test "$GITHUB_TRIGGERING_ACTOR" = huangshirui
+          test "$GITHUB_REF_NAME" = main
+          test "$OPERATOR_CONFIRMATION" = INITIALIZE_ACCOUNT_PRODUCTION_ONCE
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+      - name: Require reviewed exact-SHA Platform Staging candidate
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node infra/scripts/verify-release-candidate.mjs production
+
+  provision:
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    environment: production
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID || secrets.CLOUDFLARE_ACCOUNT_ID }}
+      LIFESPACE_PRODUCTION_BOOTSTRAP_SECRET: ${{ secrets.LIFESPACE_PRODUCTION_BOOTSTRAP_SECRET }}
+      LIFESPACE_PRODUCTION_ACCOUNT_CSRF_SECRET: ${{ secrets.LIFESPACE_PRODUCTION_ACCOUNT_CSRF_SECRET }}
+      LIFESPACE_PRODUCTION_OAUTH_CORE_APPROVER_SECRET: ${{ secrets.LIFESPACE_PRODUCTION_OAUTH_CORE_APPROVER_SECRET }}
+      LIFESPACE_PRODUCTION_OAUTH_RESOURCE_SERVER_SECRET: ${{ secrets.LIFESPACE_PRODUCTION_OAUTH_RESOURCE_SERVER_SECRET }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4.4.0
+        with:
+          version: 10.13.1
+          run_install: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+      - name: Verify protected independent Production secret inputs without logging
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${#CLOUDFLARE_ACCOUNT_ID}" -eq 32
+          for value in "$CLOUDFLARE_API_TOKEN" "$LIFESPACE_PRODUCTION_BOOTSTRAP_SECRET" \
+            "$LIFESPACE_PRODUCTION_ACCOUNT_CSRF_SECRET" \
+            "$LIFESPACE_PRODUCTION_OAUTH_CORE_APPROVER_SECRET" \
+            "$LIFESPACE_PRODUCTION_OAUTH_RESOURCE_SERVER_SECRET"; do
+            test "${#value}" -ge 32 || { echo "Missing or undersized protected Production secret"; exit 1; }
+            echo "::add-mask::$value"
+          done
+          test "$LIFESPACE_PRODUCTION_ACCOUNT_CSRF_SECRET" != "$LIFESPACE_PRODUCTION_OAUTH_CORE_APPROVER_SECRET"
+          test "$LIFESPACE_PRODUCTION_OAUTH_RESOURCE_SERVER_SECRET" != "$LIFESPACE_PRODUCTION_OAUTH_CORE_APPROVER_SECRET"
+      - name: Validate repository, schema, security and Account deployment contract
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm check
+      - name: Require compatible live Core and Identity Production version
+        run: node apps/account/scripts/check-platform-production-convergence.mjs
+      - name: Reject implicit secret rotation and require private Adapter
+        run: node apps/account/scripts/check-production-first-use.mjs
+      - name: Provision protected Account Access before public Account route
+        env:
+          LIFESPACE_PRODUCTION_ACCOUNT_ALLOW_ACCESS_CREATE: "1"
+        run: node apps/account/scripts/prepare-production-access.mjs
+      - name: Create narrow Production Account Application and exact Audience
+        run: node apps/account/scripts/prepare-production-identity.mjs
+      - name: Verify one-time Application credential with Identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$LIFESPACE_PRODUCTION_ACCOUNT_APPLICATION_CREDENTIAL"
+          STATUS="$(curl -sS -o /dev/null -w '%{http_code}' \
+            -H "Authorization: Bearer $LIFESPACE_PRODUCTION_ACCOUNT_APPLICATION_CREDENTIAL" \
+            https://auth.aisr.online/internal/v1/applications/self)"
+          test "$STATUS" = 200 || { echo "Account credential failed Identity self-inspection"; exit 1; }
+      - name: Deploy protected Account Production Worker only
+        run: pnpm --dir apps/account exec wrangler deploy --env production
+      - name: Configure Account-owned backend and CSRF secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '%s' "$LIFESPACE_PRODUCTION_ACCOUNT_APPLICATION_CREDENTIAL" |
+            pnpm --dir apps/account exec wrangler secret put IDENTITY_APPLICATION_CREDENTIAL --env production >/dev/null
+          printf '%s' "$LIFESPACE_PRODUCTION_ACCOUNT_CSRF_SECRET" |
+            pnpm --dir apps/account exec wrangler secret put ACCOUNT_CSRF_SECRET --env production >/dev/null
+      - name: Configure paired Core and Identity OAuth secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '%s' app_lifespace_account |
+            pnpm --dir apps/core exec wrangler secret put OAUTH_ACCOUNT_APPLICATION_ID --env production >/dev/null
+          printf '%s' app_lifespace_account |
+            pnpm --dir apps/identity exec wrangler secret put OAUTH_ACCOUNT_APPLICATION_ID --env production >/dev/null
+          printf '%s' https://auth.aisr.online |
+            pnpm --dir apps/identity exec wrangler secret put OAUTH_ISSUER --env production >/dev/null
+          printf '%s' https://account.aisr.online/oauth/consent |
+            pnpm --dir apps/identity exec wrangler secret put OAUTH_CONSENT_URL --env production >/dev/null
+          printf '%s' "$LIFESPACE_PRODUCTION_OAUTH_CORE_APPROVER_SECRET" |
+            pnpm --dir apps/core exec wrangler secret put OAUTH_CORE_APPROVER_SECRET --env production >/dev/null
+          printf '%s' "$LIFESPACE_PRODUCTION_OAUTH_CORE_APPROVER_SECRET" |
+            pnpm --dir apps/identity exec wrangler secret put OAUTH_CORE_APPROVER_SECRET --env production >/dev/null
+          printf '%s' "$LIFESPACE_PRODUCTION_OAUTH_RESOURCE_SERVER_SECRET" |
+            pnpm --dir apps/identity exec wrangler secret put OAUTH_RESOURCE_SERVER_SECRET --env production >/dev/null
+          echo "Protected OAuth pair names installed; plaintext values withheld"
+      - name: Verify owner Access and same-environment Worker/secret bindings
+        run: |
+          node apps/account/scripts/verify-production-access.mjs
+          node apps/account/scripts/verify-production-bindings.mjs
+      - name: Summarize without sensitive identifiers
+        shell: bash
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<'EOF'
+          ## Account Production first-use bootstrap
+
+          - Access: distinct owner-only policy installed before Worker route activation
+          - Account: private server credential, CSRF, no Account D1
+          - Identity: first-time narrow Account Application and matching Access Audience
+          - Core/Identity: paired OAuth secret names and same-environment Service Bindings
+          - CIMD/DCR: remain disabled unless separately authorized in Console policy
+          - This workflow did not migrate Production DB or automatically enable MCP Servers
+          - Real OAuth/Consent/Delegation smoke remains separate Owner signoff
+          EOF

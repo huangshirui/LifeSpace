@@ -1,5 +1,7 @@
 # MCP + Account Center Production Release Runbook / 首次生产发布操作指引
 
+**Current implementation checklist / 当前可执行操作顺序**：参见 [MCP + Account 生产首次初始化](./mcp-account-production-bootstrap.md)。
+
 > **Status: PRE-RELEASE (not deployed) / 未上线。** This is an operator-reviewed rollout plan, **not** a description of currently deployed Production capabilities. The authoritative production truth remains in `docs/production/` and changes only after successful exact-SHA deployment.
 >
 > Release tracking: [LifeSpace #499](https://github.com/huangshirui/LifeSpace/issues/499), [Account #514](https://github.com/huangshirui/LifeSpace/issues/514), [Production #511](https://github.com/huangshirui/LifeSpace/issues/511), [Adapters #50](https://github.com/huangshirui/lifespace-adapters/issues/50).
@@ -50,7 +52,7 @@ Before the first production mutation, use **read-only** Cloudflare/Identity insp
 
 **Order matters**: prepare Access policy and registered Identity Account application; owner-approve the exact accepted private Adapter Production transport; provision independent Production secrets/credentials through a protected store; deploy Core/Identity with their reviewed same-environment bindings using **the canonical Owner-only Production workflow**; deploy protected Account with its credentials and verify callbacks/CSRF; only then enable a disposable Production MCP Server for acceptance. Resolve any required Core/Identity pairwise deploy/order dependency before mutation. Do not copy Staging secrets, disable Access to bootstrap, or use Platform Admin tokens in Account.
 
-No workflow in this repository may dispatch the canonical production workflow on the owner's behalf. Only the Owner executes `.github/workflows/production-deploy.yml` with `DEPLOY_PRODUCTION` after signing off on reviewed candidate and APAC performance gate. Adapter private preparation has its own explicit confirmations. **A final dedicated Account production provisioning process remains required**; do not treat an unreviewed manual `wrangler deploy` as a complete security procedure.
+No workflow in this repository may dispatch the canonical production workflow on the owner's behalf. Only the Owner executes `.github/workflows/production-deploy.yml` with `DEPLOY_PRODUCTION` after signing off on reviewed candidate and APAC performance gate. Adapter private preparation has its own explicit confirmations. **The separate Owner-confirmed Account first-use provisioning and Account-only routine deploy workflows are now implemented but NOT executed**; see the checklist above. Unreviewed manual `wrangler deploy` is not a substitute.
 
 ## 4. Production smoke, rollback, closeout / 正式验收与回滚
 
