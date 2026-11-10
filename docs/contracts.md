@@ -1,3 +1,11 @@
+## 2026-11-10 · Account Center 用户自助能力与体验重构（候选 v0.4.0，尚未部署）
+
+Account BFF `apps/account/openapi.json` Candidate 0.4.0 在既有 OAuth Consent / Delegation / current-user read 基础上新增：当前 User 的 Identity 姓名更新、头像上传、登录邮箱变更（仅声明待验证，不自动合并或证明新邮箱归属），以及 Core 的通用 Space 创建、邀请预览/加入。全部变更经过 Account 自己的 Cloudflare Access 会话、Same-Origin、CSRF、明确的 `profile:write` 或 `spaces:write` Scope 与 Identity/Core 当前权限重算；不新增 Account D1 / 管理员执行器。浏览器只接收白名单用户信息，不接收 Credential、Token 或 Provider Secret。
+
+Staging Account Application 允许 Scope 由固定旧组合 `profile:read spaces:read spaces:manage` 升级为经本次用户评审授权的固定新组合 `profile:read profile:write spaces:read spaces:write spaces:manage`。仅 Staging 的 Owner 手动部署流程允许对**准确匹配旧组合**的 Account Application 执行一次受控迁移，其他配置漂移拒绝。HomeMew 的家庭目录/人数/业务约束不自动传播至通用 Space；应用专属家庭创建/加入仍由 HomeMew 管理。
+
+Account UI 用本地 SVG Lucide 图标统一中文主界面和空间布局，OAuth Client URI、Application/Space/Agent/Resource ID 收进技术详情，名称优先使用用户有权读取的 Space 和 OAuth 候选投影；显示名不是第三方品牌验证。日常 Agent Delegation 管理跳转统一 Account 标签，独立 `/delegation` 交易确认页保持原行为。用户级 Delegation 执行审计、Agent/Service/Event Push 完整自助管理不在本补丁完成范围，页面不得声称已覆盖。此处仅描述**候选代码与下一次 Staging 验收目标**，不表示已部署或可发布 Production。
+
 ## 2026-11-10 · Account Center 只读用户界面契约（开发候选）
 
 Account BFF `apps/account/openapi.json` Candidate 0.3.0 新增 user-scoped 只读页面接口：已声明登录邮箱、当前用户空间列表、单个 Space 详情和成员列表。接口只通过已验证的 Account Access 会话签发短期 User Token 调用 Identity/Core；服务端沿用原始权限计算，不共享 D1，不发布新的 Connector / Credential / Grant 概念。前端 `/` 进入 Account Center，OAuth Consent、User Delegation 保持独立且不会默认进入请求过期页。V7 UX 调整版原型仅作为体验参考。本批新增 Identity 当前用户 OAuth Authorization list/get/revoke，单条授权撤销立即阻断旧 Token 且不会停用复用 Agent 的其他授权；Activity 审计读取仍待 #481/#514 后端契约。候选实现须 Staging 实测，不能标记为已交付或已部署。Production 仍以 `docs/production/*` 与部署证据为准。
