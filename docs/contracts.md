@@ -1,6 +1,6 @@
 ## 2026-11-10 · Account Center 只读用户界面契约（开发候选）
 
-Account BFF `apps/account/openapi.json` Candidate 0.3.0 新增 user-scoped 只读页面接口：已声明登录邮箱、当前用户空间列表、单个 Space 详情和成员列表。接口只通过已验证的 Account Access 会话签发短期 User Token 调用 Identity/Core；服务端沿用原始权限计算，不共享 D1，不发布新的 Connector / Credential / Grant 概念。前端 `/` 进入 Account Center，OAuth Consent、User Delegation 保持独立且不会默认进入请求过期页。V7 UX 调整版原型仅作为体验参考。当前 OAuth Authorization 自助 list/get/revoke 与 Activity 审计读取仍待 #481/#514 后端契约，不能标记为已交付或已部署。Production 仍以 `docs/production/*` 与部署证据为准。
+Account BFF `apps/account/openapi.json` Candidate 0.3.0 新增 user-scoped 只读页面接口：已声明登录邮箱、当前用户空间列表、单个 Space 详情和成员列表。接口只通过已验证的 Account Access 会话签发短期 User Token 调用 Identity/Core；服务端沿用原始权限计算，不共享 D1，不发布新的 Connector / Credential / Grant 概念。前端 `/` 进入 Account Center，OAuth Consent、User Delegation 保持独立且不会默认进入请求过期页。V7 UX 调整版原型仅作为体验参考。本批新增 Identity 当前用户 OAuth Authorization list/get/revoke，单条授权撤销立即阻断旧 Token 且不会停用复用 Agent 的其他授权；Activity 审计读取仍待 #481/#514 后端契约。候选实现须 Staging 实测，不能标记为已交付或已部署。Production 仍以 `docs/production/*` 与部署证据为准。
 
 ## 2026-11-09 · MCP OAuth discoverability versus execution / 授权范围与工具发现（待 Staging 验收）
 
