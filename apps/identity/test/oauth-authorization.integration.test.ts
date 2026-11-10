@@ -50,7 +50,7 @@ async function setup() {
     const data = await res.json() as { data: { clientSecret: string } };
     return { appId, secret: data.data.clientSecret };
   };
-  const account = await bootstrap(["resources:read", "resources:write"]);
+  const account = await bootstrap(["resources:read", "resources:write", "profile:read"]);
   b.OAUTH_ACCOUNT_APPLICATION_ID = account.appId;
   const target = await bootstrap(["resources:read", "resources:write"]);
   const userRes = await request("/internal/v1/users", {
@@ -127,6 +127,69 @@ async function setup() {
 }
 
 describe("Identity OAuth Authorization Server (isolated candidate)", () => {
+  it("lets only the verified Account owner list/revoke individual OAuth grants without disabling a shared Agent", async () => {
+    const t=await setup();
+    const ownerRes=await t.request("/internal/v1/tokens",{
+      method:"POST",
+      headers:{authorization:"Bearer "+t.account.secret,"content-type":"application/json"},
+      body:JSON.stringify({subjectId:t.userId,scopes:["profile:read"]}),
+    });
+    expect(ownerRes.status).toBe(200);
+    const ownerToken=(await ownerRes.json() as {data:{accessToken:string}}).data.accessToken;
+    const headers={authorization:"Bearer "+ownerToken};
+    const grant=async()=>{
+      const pending=await t.authorize();
+      expect(pending.status).toBe(302);
+      const requestId=new URL(pending.headers.get("location")!).searchParams.get("request_id")!;
+      const result=await t.approve(requestId,t.b.OAUTH_CORE_APPROVER_SECRET);
+      expect(result.status).toBe(200);
+      return (await result.json() as {authorization_id:string;redirect_url:string});
+    };
+    const first=await grant(),second=await grant();
+    const list=await t.request("/api/v1/me/oauth/authorizations?offset=0",{headers});
+    expect(list.status).toBe(200);
+    const records=(await list.json() as {data:{items:Array<{id:string;clientName:string;agentId:string;status:string;clientId:string}>;nextOffset:number|null}}).data;
+    expect(records.items.map(i=>i.id)).toEqual([second.authorization_id,first.authorization_id]);
+    expect(records.items.every(i=>i.agentId===t.agentId && i.status==="active")).toBe(true);
+    expect(records.items[0].clientName).toBe("Test MCP Client");
+    expect(records.nextOffset).toBeNull();
+    expect(JSON.stringify(records)).not.toContain("lsp_ort_");
+    expect((await t.request("/api/v1/me/oauth/authorizations",{headers:{authorization:"Bearer "+t.userToken}})).status).toBe(403);
+    const outsiderRes=await t.request("/internal/v1/users",{
+      method:"POST",headers:{authorization:"Bearer "+t.account.secret,"content-type":"application/json"},
+      body:JSON.stringify({displayName:"Other Account user"}),
+    });
+    expect(outsiderRes.status).toBe(201);
+    const otherId=(await outsiderRes.json() as {data:{id:string}}).data.id;
+    const otherTokenRes=await t.request("/internal/v1/tokens",{
+      method:"POST",headers:{authorization:"Bearer "+t.account.secret,"content-type":"application/json"},
+      body:JSON.stringify({subjectId:otherId,scopes:["profile:read"]}),
+    });
+    const otherToken=(await otherTokenRes.json() as {data:{accessToken:string}}).data.accessToken;
+    const otherHeaders={authorization:"Bearer "+otherToken};
+    const otherList=await t.request("/api/v1/me/oauth/authorizations",{headers:otherHeaders});
+    expect((await otherList.json() as {data:{items:unknown[]}}).data.items).toEqual([]);
+    expect((await t.request("/api/v1/me/oauth/authorizations/"+first.authorization_id,{headers:otherHeaders})).status).toBe(404);
+    expect((await t.request("/api/v1/me/oauth/authorizations/"+first.authorization_id+"/revoke",{
+      method:"POST",headers:{...otherHeaders,"content-type":"application/json"},body:"{}",
+    })).status).toBe(404);
+    const revoked=await t.request("/api/v1/me/oauth/authorizations/"+first.authorization_id+"/revoke",{
+      method:"POST",headers:{...headers,"content-type":"application/json"},body:"{}",
+    });
+    expect(revoked.status).toBe(200);
+    expect((await revoked.json() as {data:{id:string;revoked:boolean}}).data).toEqual({
+      id:first.authorization_id,revoked:true,
+    });
+    expect((await t.request("/api/v1/me/oauth/authorizations/"+first.authorization_id+"/revoke",{
+      method:"POST",headers:{...headers,"content-type":"application/json"},body:"{}",
+    })).status).toBe(409);
+    const after=await t.request("/api/v1/me/oauth/authorizations",{headers});
+    const statuses=(await after.json() as {data:{items:Array<{id:string;status:string}>}}).data.items;
+    expect(statuses.find(row=>row.id===first.authorization_id)?.status).toBe("revoked");
+    expect(statuses.find(row=>row.id===second.authorization_id)?.status).toBe("active");
+  });
+
+
   it("returns verified OAuth issuer to the client on Consent approval (RFC 9207)", async () => {
     const t = await setup();
     const pending = await t.authorize();
