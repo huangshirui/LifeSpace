@@ -209,6 +209,9 @@ export async function accountFetch(req, env) {
   if (path === "/" && req.method === "GET") {
     return Response.redirect(new URL("/center", url), 302);
   }
+  if (path === "/delegations" && req.method === "GET") {
+    return Response.redirect(new URL("/center#connections/delegations",url),302);
+  }
   if (!path.startsWith("/api/")) {
     if (!env.ASSETS?.fetch) return fail(503, "ACCOUNT_ASSETS_MISSING", "Account 页面不可用");
     // Static Assets' default HTML handling already maps extensionless URLs
