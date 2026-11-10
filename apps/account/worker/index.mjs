@@ -13,8 +13,20 @@ const SPACE = /^spc_[A-Za-z0-9_-]{3,128}$/u;
 const AGENT = /^agt_[A-Za-z0-9_-]{3,128}$/u;
 const APPLICATION = /^app_[A-Za-z0-9_-]{3,128}$/u;
 const JSON_TYPE = "application/json; charset=utf-8";
+const ACCOUNT_AUTHORIZATION = /^\/api\/account\/authorizations\/(oaz_[A-Za-z0-9_-]{16,128})(?:\/(revoke))?$/u;
 const ACCOUNT_SPACE_DETAIL = /^\/api\/account\/spaces\/(spc_[A-Za-z0-9_-]{3,128})(?:\/(members))?$/u;
 const SPACE_ROLES = new Set(["owner","admin","editor","viewer"]);
+function validAuthorization(item) {
+  return isObject(item) && /^oaz_[A-Za-z0-9_-]{16,128}$/u.test(item.id||"")
+    && safeText(item.clientId,1024) && safeText(item.clientName,200)
+    && safeText(item.resource,1024) && APPLICATION.test(item.applicationId||"")
+    && SPACE.test(item.spaceId||"") && AGENT.test(item.agentId||"")
+    && typeof item.allowUserAuthorization==="boolean"
+    && Array.isArray(item.scopes) && item.scopes.length<=2
+    && item.scopes.every(scope=>["resources:read","resources:write"].includes(scope))
+    && ["active","revoked"].includes(item.status) && safeText(item.createdAt,80)
+    && (item.revokedAt===null || safeText(item.revokedAt,80));
+}
 function avatarFromIdentity(profile, env) {
   if (!safeText(profile?.avatarUrl, 2048)) return null;
   try {
@@ -207,11 +219,13 @@ export async function accountFetch(req, env) {
     && path !== "/api/delegation/approve" && path !== "/api/delegation/deny"
     && path !== "/api/delegations" && path !== "/api/delegations/revoke"
     && path !== "/api/account/spaces" && path !== "/api/account/login-email"
+    && path !== "/api/account/authorizations" && !ACCOUNT_AUTHORIZATION.test(path)
     && !ACCOUNT_SPACE_DETAIL.test(path)
     && path !== "/api/oauth/confirm" && path !== "/api/oauth/deny") return fail(404, "NOT_FOUND", "接口不存在");
   if ((path === "/api/oauth/confirm" || path === "/api/oauth/deny"
     || path === "/api/delegation/approve" || path === "/api/delegation/deny"
-    || path === "/api/delegations/revoke") !== (req.method === "POST")) {
+    || path === "/api/delegations/revoke"
+    || ACCOUNT_AUTHORIZATION.exec(path)?.[2] === "revoke") !== (req.method === "POST")) {
     return fail(405, "METHOD_NOT_ALLOWED", "不支持此请求方式");
   }
   const linked = await session(req, env);
@@ -251,6 +265,34 @@ export async function accountFetch(req, env) {
     return responseJson({ data: spaces.map(item => ({
       id: item.id, name: item.name, timezone: item.timezone, role: item.role,
     })) });
+  }
+  if (path === "/api/account/authorizations") {
+    const offset = url.searchParams.get("offset") ?? "0";
+    if ((url.searchParams.size && (url.searchParams.size!==1 || !url.searchParams.has("offset")))
+      || !/^(0|[1-9][0-9]{0,3})$/u.test(offset))
+      return fail(400,"INVALID_REQUEST","授权记录页码无效");
+    const upstream = await boundedUpstream(env,"IDENTITY",
+      "/api/v1/me/oauth/authorizations?offset="+offset,linked.token);
+    if(!upstream?.ok)return fail(upstream?.status===403?403:503,
+      "AUTHORIZATIONS_UNAVAILABLE","无法读取当前用户的 OAuth 授权记录");
+    const result=await data(upstream);
+    if(!result || !Array.isArray(result.items) || result.items.length>20
+      || result.items.some(item=>!validAuthorization(item))
+      || !(result.nextOffset===null || (Number.isInteger(result.nextOffset) && result.nextOffset>=0)))
+      return fail(502,"IDENTITY_INVALID_RESPONSE","OAuth 授权列表格式异常");
+    return responseJson({data:{items:result.items,nextOffset:result.nextOffset}});
+  }
+  const ownedAuthorization=ACCOUNT_AUTHORIZATION.exec(path);
+  if(ownedAuthorization && !ownedAuthorization[2]) {
+    if(url.search)return fail(400,"INVALID_REQUEST","授权详情不接受额外参数");
+    const upstream=await boundedUpstream(env,"IDENTITY",
+      "/api/v1/me/oauth/authorizations/"+encodedPath(ownedAuthorization[1]),linked.token);
+    if(!upstream?.ok)return fail([403,404].includes(upstream?.status)?upstream.status:503,
+      "AUTHORIZATION_UNAVAILABLE","授权不存在或不属于当前用户");
+    const item=await data(upstream);
+    if(!validAuthorization(item) || item.id!==ownedAuthorization[1])
+      return fail(502,"IDENTITY_INVALID_RESPONSE","OAuth 授权详情格式异常");
+    return responseJson({data:item});
   }
   const spaceDetail = ACCOUNT_SPACE_DETAIL.exec(path);
   if (spaceDetail) {
@@ -441,6 +483,26 @@ export async function accountFetch(req, env) {
   if (raw.length > 2048) return fail(413, "REQUEST_TOO_LARGE", "授权内容过大");
   let input;
   try { input = JSON.parse(raw); } catch { return fail(400, "INVALID_REQUEST", "授权内容无效"); }
+  if (ownedAuthorization?.[2] === "revoke") {
+    if(!isObject(input) || Object.keys(input).length!==2
+      || input.intent!=="revoke-oauth-authorization"
+      || input.authorizationId!==ownedAuthorization[1])
+      return fail(400,"INVALID_REQUEST","撤销 OAuth 授权请求无效");
+    let source;
+    try {
+      source=await service(env,"IDENTITY",
+        "/api/v1/me/oauth/authorizations/"+encodedPath(input.authorizationId)+"/revoke",{
+          method:"POST",headers:{authorization:"Bearer "+linked.token,"content-type":JSON_TYPE},
+          body:"{}",
+        });
+    } catch {return fail(503,"IDENTITY_UNAVAILABLE","无法撤销 OAuth 授权");}
+    if(!source.ok)return fail([403,404,409].includes(source.status)?source.status:503,
+      "OAUTH_REVOKE_FAILED","授权已失效、不属于当前用户或已被撤销");
+    const result=await data(source);
+    if(!result || result.id!==input.authorizationId || result.revoked!==true)
+      return fail(502,"IDENTITY_INVALID_RESPONSE","OAuth 撤销结果异常");
+    return responseJson({data:{id:result.id,revoked:true}});
+  }
   if (path === "/api/delegation/approve" || path === "/api/delegation/deny") {
     const approve = path.endsWith("/approve");
     const fields=Object.keys(input||{});
