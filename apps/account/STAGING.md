@@ -1,6 +1,6 @@
 # Account OAuth Staging rollout / Account OAuth 预发布验收
 
-> Account Center and OAuth Consent source is merged as #515, with pre-deploy verification and dedup changes in #516. **A merged source or green CI does not establish Staging acceptance.** Only reviewed owner-triggered workflows on `main` may deploy. Never deploy a draft branch.
+> Account Center was introduced in #515, with pre-deploy verification #516 and revocation UX #517; the new self-service redesign is a separate reviewed candidate. **A merged source or green CI does not establish Staging acceptance.** Only reviewed owner-triggered workflows on `main` may deploy. Never deploy a draft branch.
 
 ## Fixed topology / 已确定环境
 
@@ -26,7 +26,7 @@ Do **not** manually copy a Console `lsa_*` credential, reuse a Console Audience,
 ## 0. Dependencies / 前置条件
 
 - Merge pre-deploy correctness review #516 with passing exact-head CI; #469 is historical and merged. No Staging claim follows from CI alone.
-- Owner initiates the canonical `staging-deploy.yml` on `main`; require new Identity schema 15 and candidate Identity contract 0.18.0, with compatible Core. Do not use the experimental MCP Preview or its OAuth credentials as an excuse to break existing workflows.
+- Owner initiates the canonical `staging-deploy.yml` on `main`; require the exact Identity/Core contract and schema versions declared by the reviewed `infra/scripts/staging-expectations.mjs` at the release SHA. Do not use the experimental MCP Preview or its OAuth credentials as an excuse to break existing workflows.
 - Confirm `auth-staging.aisr.online/api/v1/status` and `core-staging.aisr.online/api/v1/status` report staging and exact expected schema/contract versions. Do not skip the existing staging golden-flow verification.
 - The public Account Web domain is `account-staging.aisr.online`. It is **not** the platform-admin Console (`lifespace-staging.aisr.online`).
 
@@ -38,7 +38,7 @@ Do **not** manually copy a Console `lsa_*` credential, reuse a Console Audience,
 
 ## 2. Account LifeSpace Application / Identity 身份源
 
-- Via the approved Identity bootstrap/provisioning workflow (not browser JavaScript), ensure a dedicated active trusted Application `app_lifespace_account_staging` with **exactly** `profile:read`, `spaces:read`, `spaces:manage`, and 900-second JWT TTL. No platform-admin, grant modification, or service-automation scopes.
+- Via the approved Identity bootstrap/provisioning workflow (not browser JavaScript), ensure a dedicated active trusted Application `app_lifespace_account_staging` with **exactly** `profile:read`, `profile:write`, `spaces:read`, `spaces:write`, `spaces:manage`, and 900-second JWT TTL. Existing exact legacy three-scope Staging Account application may be upgraded via the reviewed owner-triggered provisioning step only; any other policy drift fails closed. No platform-admin, grant modification, or service-automation scopes.
 - Register the Account Access Audience in Identity **only** against that Account Application, and verify it is active and unique.
 - Issue the Account `lsa_*` credential using the existing one-time secret provision mechanism. Inject it only as Account Staging Worker secret `IDENTITY_APPLICATION_CREDENTIAL`; never write plaintext into the repository, workflow logs, browser or Notion.
 - Set `OAUTH_ACCOUNT_APPLICATION_ID=app_lifespace_account_staging` on **both** Core and Identity Staging (exact match). Do not change existing Console Application mapping.

@@ -4,7 +4,8 @@ import process from "node:process";
 import { STAGING_EXPECTATIONS } from "../../../infra/scripts/staging-expectations.mjs";
 
 export const ACCOUNT_APPLICATION_ID = "app_lifespace_account_staging";
-export const ACCOUNT_APPLICATION_SCOPES = ["profile:read", "spaces:read", "spaces:manage"];
+export const ACCOUNT_APPLICATION_SCOPES = ["profile:read", "profile:write", "spaces:read", "spaces:write", "spaces:manage"];
+export const LEGACY_ACCOUNT_APPLICATION_SCOPES = ["profile:read", "spaces:read", "spaces:manage"];
 const ACCOUNT_APPLICATION_NAME = "LifeSpace Account staging";
 
 export function requireApplicationPolicy(app) {
@@ -87,7 +88,23 @@ async function main() {
     created = true;
   } else {
     if (existing.response.status !== 200) throw new Error("Cannot read Account Application");
-    requireApplicationPolicy(existing.payload?.data);
+    const original = existing.payload?.data;
+    // Explicit, bounded Staging-only transition. Reject every unrecognized policy
+    // instead of silently granting arbitrary scopes to a reused Application.
+    const legacy = original?.id===ACCOUNT_APPLICATION_ID
+      && original?.name===ACCOUNT_APPLICATION_NAME
+      && original?.status==="active" && original?.trustedBackend===true
+      && original?.accessTokenTtlSeconds===900
+      && Array.isArray(original?.allowedScopes)
+      && original.allowedScopes.length===LEGACY_ACCOUNT_APPLICATION_SCOPES.length
+      && LEGACY_ACCOUNT_APPLICATION_SCOPES.every(scope=>original.allowedScopes.includes(scope));
+    if(legacy){
+      const migration=await request(path,{
+        method:"PATCH",body:{allowedScopes:ACCOUNT_APPLICATION_SCOPES},
+      });
+      if(migration.response.status!==200)throw new Error("Explicit Account Staging scope migration failed");
+      requireApplicationPolicy(migration.payload?.data);
+    }else requireApplicationPolicy(original);
     // Overlap active credentials while staging switches Workers. Never revoke
     // previous active credentials until a separately verified cutover.
     const result = await request(path + "/credentials", { method: "POST" });

@@ -114,7 +114,7 @@ test("Account Center reads only verified user profile, declared mailbox and own 
   assert.ok(!rawSession.includes(t.token));
   const email=await t.request("/api/account/login-email");
   assert.equal(email.status,200);
-  assert.deepEqual((await email.json()).data,{email:"verified@example.test",status:"linked",linked:true});
+  assert.deepEqual((await email.json()).data,{email:"verified@example.test",status:"linked",linked:true,version:1});
   const spaces=await t.request("/api/account/spaces");
   assert.equal(spaces.status,200);
   assert.deepEqual((await spaces.json()).data,[{id:SPACE,name:"Personal Space",timezone:"Asia/Shanghai",role:"owner"}]);

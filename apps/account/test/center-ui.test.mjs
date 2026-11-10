@@ -23,7 +23,11 @@ test("Account Center is not the old OAuth Consent/parallel overview implementati
   assert.match(html,/data-tab="delegations"/u);
   assert.match(html,/data-tab="external"/u);
   assert.match(html,/id="revoke-dialog"/u);
-  assert.match(html,/未撤销.*不保证当前 Agent/u);
+  assert.match(html,/id="profile-form"/u);
+  assert.match(html,/id="space-create-form"/u);
+  assert.match(html,/id="space-invite-form"/u);
+  assert.match(html,/href="#i-link-2"/u);
+  assert.doesNotMatch(html,/MY SPACES|online-mark|使用独立的委托管理页/u);
   assert.doesNotMatch(js,/有效授权/u);
   assert.match(css,/@media\(max-width:650px\)/u);
 });

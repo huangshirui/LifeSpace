@@ -3,7 +3,7 @@ const PANELS = new Set(["account","spaces","connections","audit"]);
 const TABS = new Set(["oauth","delegations","direct","event","external"]);
 const roles = {owner:"所有者",admin:"管理员",editor:"编辑者",viewer:"查看者"};
 const opNames = {query:"查询",get:"查看",create:"新增",update:"修改",delete:"删除"};
-const state = {user:null,csrf:null,spaces:[],space:null,auditLoaded:false,auditOffset:0,auditBusy:false,externalLoaded:false,oauthLoaded:false,oauthOffset:0,oauthBusy:false,delegationsLoaded:false,delegationOffset:0,delegationsBusy:false,revokeId:null,revokeKind:null,revokeBusy:false};
+const state = {user:null,csrf:null,spaces:[],space:null,auditLoaded:false,auditOffset:0,auditBusy:false,externalLoaded:false,oauthLoaded:false,oauthOffset:0,oauthBusy:false,delegationsLoaded:false,delegationOffset:0,delegationsBusy:false,revokeId:null,revokeKind:null,revokeBusy:false,emailVersion:null,invite:null,spaceNames:new Map(),nameCandidates:[],referenceLoaded:false,busyAction:false};
 const msg = e => e instanceof Error ? e.message : "请求暂时不可用";
 async function api(path,options={}) {
   const response = await fetch(path,{...options,credentials:"same-origin",
@@ -24,7 +24,7 @@ function label(item) { return item?.displayName || item?.name || item?.id || "�
 function setAvatar(target,name,url) {
   target.replaceChildren();
   if(typeof url === "string" && url.startsWith("https://auth") && url.includes("/assets/users/")) {
-    const img=el("img");img.src=url;img.alt="";
+    const img=el("img");img.src=url+(url.includes("?")?"&":"?")+"v="+Date.now();img.alt="";
     img.addEventListener("error",()=>target.replaceChildren(document.createTextNode((name||"A").slice(0,1))));
     target.append(img);
   } else target.textContent=(name||"A").slice(0,1);
@@ -38,12 +38,15 @@ function showError(value) {
   $("session-error").hidden=false;
 }
 function clearError() { $("session-error").hidden=true; }
+function notice(id,message,error=false){const n=$(id);n.textContent=message;n.hidden=!message;n.dataset.error=String(error);}
+async function post(path,value){return api(path,{method:"POST",headers:{"content-type":"application/json","x-lifespace-csrf":state.csrf},body:JSON.stringify(value)});}
 function updateUser(user) {
   state.user=user;
   $("nav-name").textContent=user.displayName;
   $("profile-name").textContent=user.displayName;
   $("profile-id").textContent=user.id;
-  $("profile-subtitle").textContent="已验证 LifeSpace 用户身份";
+  $("profile-subtitle").textContent="我的个人资料";
+  $("name-input").value=user.displayName;
   setAvatar($("nav-avatar"),user.displayName,user.avatarUrl);
   setAvatar($("profile-avatar"),user.displayName,user.avatarUrl);
 }
@@ -55,14 +58,19 @@ async function loadAccount() {
   updateUser(session.user);
   try {
     const data=await api("/api/account/login-email");
+    state.emailVersion=data.version;
     $("profile-email").textContent=data.email || "未设置";
-    const names={linked:"已关联",pending:"待验证关联",unlinked:"未关联"};
+    $("email-input").value=data.email || "";
+    const names={linked:"已验证邮箱",pending:"等待新邮箱验证",unlinked:"尚未关联邮箱"};
     $("email-status").textContent=names[data.status] || "暂不可用";
-    $("nav-email").textContent=data.linked && data.email ? data.email : "LifeSpace Identity";
+    $("nav-email").textContent=data.email || "账户中心";
+    notice("email-note",data.status==="pending"
+      ?"新邮箱尚未验证。请使用新的邮箱完成登录验证后再继续。":"");
   } catch(e) {
     $("profile-email").textContent="暂时无法读取";
     $("email-status").textContent="请刷新重试";
-    $("nav-email").textContent="LifeSpace Identity";
+    $("nav-email").textContent="账户中心";
+    state.emailVersion=null;
   }
 }
 function currentPage() {
@@ -100,15 +108,15 @@ function selectTab(tab,updateHash=true) {
 function renderSpaces() {
   const target=$("space-list");target.replaceChildren();
   if(!state.spaces.length){
-    target.append(el("p","placeholder","当前没有已加入的 Space。"));
+    target.append(el("p","placeholder","还没有空间，可创建或通过邀请加入。"));
     return;
   }
   for(const space of state.spaces) {
     const button=el("button","space-choice");button.type="button";
     button.setAttribute("aria-pressed",String(state.space===space.id));
     const initial=el("span","space-initial",space.name.slice(0,1));
-    const name=el("span");name.append(el("strong","",space.name),el("small","",space.timezone));
-    button.append(initial,name,el("span","role",roles[space.role]||space.role));
+    const name=el("span");name.append(el("strong","",space.name),el("small","",roles[space.role]||space.role));
+    button.append(initial,name);
     button.addEventListener("click",()=>{state.space=space.id;renderSpaces();void loadSpaceDetail(space.id);});
     target.append(button);
   }
@@ -120,6 +128,7 @@ async function loadSpaces() {
     if(!Array.isArray(list))throw new Error("空间列表格式异常");
     state.spaces=list;
     state.spacesLoaded=true;
+    state.spaceNames=new Map(list.map(space=>[space.id,space.name]));
     if(state.space && !list.some(item=>item.id===state.space))state.space=null;
     if(!state.space && list.length)state.space=list[0].id;
     renderSpaces();
@@ -141,8 +150,8 @@ async function loadSpaceDetail(id) {
     const space=state.spaces.find(item=>item.id===id);
     $("space-detail-label").textContent=roles[space?.role]||"当前成员";
     target.replaceChildren(el("h3","space-detail-title",info.name),
-      detailRow("Space ID",info.id),detailRow("时区",info.timezone),
-      detailRow("当前角色",roles[space?.role]||"已授权访问"));
+      detailRow("时区",info.timezone),
+      detailRow("我的角色",roles[space?.role]||"已授权访问"));
     const divider=el("hr","section-divider");target.append(divider,el("h2","","成员"));
     const listing=el("div","member-list");target.append(listing);
     try {
@@ -152,10 +161,13 @@ async function loadSpaceDetail(id) {
       if(!members.length) listing.append(el("p","placeholder","暂无可读取的成员。"));
       for(const member of members) {
         const row=el("div","member-row");
-        const detail=el("span");detail.append(el("strong","",member.displayName),el("small","",member.userId));
+        const detail=el("span");detail.append(el("strong","",member.displayName));
         row.append(detail,el("span","role",roles[member.role]||member.role));
         listing.append(row);
       }
+      const tech=el("details","technical-details");
+      tech.append(el("summary","","空间标识"),detailRow("Space ID",info.id));
+      target.append(tech);
     } catch(e) {
       if(state.space===id)listing.append(el("p","placeholder","无法读取成员："+msg(e)));
     }
@@ -166,7 +178,7 @@ async function loadSpaceDetail(id) {
 function auditRow(item) {
   const card=el("article","delegation-item"),head=el("div","delegation-head");
   const title=el("div");
-  title.append(el("strong","",item.clientName),el("p","",item.resource));
+  title.append(el("strong","",item.clientName),el("p","","授权空间："+(state.spaceNames.get(item.spaceId)||"已关联空间")));
   head.append(title,el("span","role",item.status==="revoked"?"已撤销":"未撤销"));
   card.append(head);
   const facts=el("div","delegation-tags");
@@ -187,8 +199,9 @@ async function loadAudit(reset=false) {
   state.auditBusy=true;
   const target=$("audit-items"),message=$("audit-message");
   $("more-audit").hidden=true;message.hidden=false;
-  message.textContent="正在从 Identity 读取当前账户的 OAuth 授权活动…";
+  message.textContent="正在读取授权记录…";
   try{
+    await loadReferenceNames();
     const page=await api("/api/account/authorizations?offset="+(reset?0:state.auditOffset));
     if(!Array.isArray(page.items))throw new Error("活动记录响应异常");
     if(reset)target.replaceChildren();
@@ -231,7 +244,7 @@ async function loadExternal(reset=false) {
   }
   if(!select.value)return;
   target.replaceChildren();message.hidden=false;
-  message.textContent="正在从 Core 读取 Space 内的外部数据源…";
+  message.textContent="正在读取数据连接…";
   const selected=select.value;
   try{
     const data=await api("/api/account/spaces/"+encodeURIComponent(selected)+"/external-connections");
@@ -240,11 +253,11 @@ async function loadExternal(reset=false) {
     for(const item of data.items){
       const article=el("article","delegation-item"),head=el("div","delegation-head");
       const details=el("div");
-      details.append(el("strong","",item.displayName),el("p","",item.providerKey));
+      details.append(el("strong","",item.displayName),el("p","","连接到 "+(state.spaceNames.get(item.spaceId)||"当前空间")));
       head.append(details,el("span","role",item.status==="active"?"已启用":item.status==="revoked"?"已撤销":"已停用"));
       const chips=el("div","delegation-tags");
       chips.append(el("span","tag",item.access==="write"?"读写":"只读"));
-      const more=el("details");more.append(el("summary","","查看连接元数据"));
+      const more=el("details");more.append(el("summary","","技术详情"));
       const dl=el("dl");
       for(const [name,value] of [["Connection",item.id],["Space",item.spaceId],
         ["Provider",item.providerKey],["创建时间",formatTime(item.createdAt)]]){
@@ -259,25 +272,47 @@ async function loadExternal(reset=false) {
     message.hidden=false;message.textContent="无法读取外部数据源："+msg(e);
   }
 }
+async function loadReferenceNames(){
+  if(state.referenceLoaded)return;
+  state.referenceLoaded=true;
+  const [spaces,choices]=await Promise.allSettled([
+    api("/api/account/spaces"),api("/api/oauth/choices"),
+  ]);
+  if(spaces.status==="fulfilled" && Array.isArray(spaces.value)){
+    state.spaceNames=new Map(spaces.value.map(item=>[item.id,item.name]));
+  }
+  if(choices.status==="fulfilled" && Array.isArray(choices.value?.candidates)){
+    state.nameCandidates=choices.value.candidates;
+  }
+}
+function readableContext(item){
+  const exact=state.nameCandidates.find(x=>x.spaceId===item.spaceId
+    && x.applicationId===item.applicationId && x.agentId===item.agentId);
+  const parts=[state.spaceNames.get(item.spaceId)||exact?.spaceName,
+    exact?.applicationName,exact?.agentName].filter(Boolean);
+  return parts.length?parts.join(" · "):"已授权访问的空间";
+}
 function authorizationRow(item) {
   const card=el("article","delegation-item"),head=el("div","delegation-head"),intro=el("div");
-  intro.append(el("strong","",item.clientName),el("p","",item.clientId),
-    el("p","","授权实例 · "+item.id.slice(-8)+" · 授权于 "+formatTime(item.createdAt)));
+  intro.append(el("strong","",item.clientName),
+    el("p","",readableContext(item)),
+    el("p","","授权于 "+formatTime(item.createdAt)));
   const status=item.status==="active"?"未撤销":"已撤销";
   if(item.status==="active"){
-    const button=el("button","button danger","撤销此授权");button.type="button";
+    const button=el("button","button danger","断开此授权");button.type="button";
     button.addEventListener("click",()=>openRevoke(item,"oauth"));
     head.append(intro,button);
   }else head.append(intro);
   const tags=el("div","delegation-tags");
   tags.append(el("span","tag",status),
-    el("span","tag",item.allowUserAuthorization?"允许申请单独委托":"仅 Agent 自身权限"));
-  for(const scope of item.scopes)tags.append(el("span","tag",scope));
-  const detail=el("details");detail.append(el("summary","","查看授权实例与资源"));
+    el("span","tag","申请范围："+(item.scopes.includes("resources:write")?"读取、写入":"读取")));
+  if(item.allowUserAuthorization)tags.append(el("span","tag","可申请额外授权"));
+  const detail=el("details");detail.append(el("summary","","技术详情"));
   const dl=el("dl");
   for(const [name,value] of [["Authorization",item.id],["Client ID",item.clientId],
     ["Resource",item.resource],["Application",item.applicationId],["Space",item.spaceId],
-    ["Agent",item.agentId],["授权于",formatTime(item.createdAt)],
+    ["Agent",item.agentId],["OAuth Scope",item.scopes.join(", ")],
+    ["授权实例",item.id.slice(-8)],["授权于",formatTime(item.createdAt)],
     ["撤销于",item.revokedAt?formatTime(item.revokedAt):"—"]]) {
     dl.append(el("dt","",name),el("dd","",value));
   }
@@ -288,9 +323,10 @@ async function loadOauth(reset=false) {
   state.oauthBusy=true;
   const target=$("oauth-items"),label=$("oauth-message");
   $("more-oauth").hidden=true;
-  label.textContent="正在读取当前用户的 OAuth 授权实例…";label.hidden=false;
+  label.textContent="正在读取连接…";label.hidden=false;
   try {
     const offset=reset?0:state.oauthOffset;
+    await loadReferenceNames();
     const page=await api("/api/account/authorizations?offset="+offset);
     if(!Array.isArray(page.items))throw new Error("授权列表格式异常");
     if(reset)target.replaceChildren();
@@ -314,13 +350,13 @@ function humanLifetime(item) {
 function delegationRow(item) {
   const card=el("article","delegation-item");
   const head=el("div","delegation-head");const intro=el("div");
-  intro.append(el("strong","",(item.modelKey||"模型")+" · "+(opNames[item.operation]||item.operation)),
-    el("p","","批准于 "+formatTime(item.createdAt)));
+  intro.append(el("strong","",(item.modelKey||"数据")+" · "+(opNames[item.operation]||item.operation)),
+    el("p","",(state.spaceNames.get(item.spaceId)||"已授权空间")+" · 批准于 "+formatTime(item.createdAt)));
   const button=el("button","button danger","撤销");button.type="button";
   button.addEventListener("click",()=>openRevoke(item));
   head.append(intro,button);
   const tags=el("div","delegation-tags");
-  tags.append(el("span","tag",humanLifetime(item)),el("span","tag",item.clientId));
+  tags.append(el("span","tag",humanLifetime(item)));
   const detail=el("details");
   detail.append(el("summary","","查看授权边界"));
   const dl=el("dl");
@@ -336,9 +372,10 @@ async function loadDelegations(reset=false) {
   state.delegationsBusy=true;
   const target=$("delegation-items"),label=$("delegations-message");
   $("more-delegations").hidden=true;
-  label.textContent="正在读取当前有效委托…";label.hidden=false;
+  label.textContent="正在读取委托…";label.hidden=false;
   try {
     const offset=reset?0:state.delegationOffset;
+    await loadReferenceNames();
     const page=await api("/api/delegations?offset="+offset);
     if(!Array.isArray(page.items))throw new Error("委托列表格式异常");
     if(reset)target.replaceChildren();
@@ -359,9 +396,9 @@ async function loadDelegations(reset=false) {
 function openRevoke(item,kind="delegation") {
   if(state.revokeBusy || state.delegationsBusy || state.oauthBusy || !state.csrf)return;
   state.revokeId=item.id;state.revokeKind=kind;
-  $("revoke-heading").textContent=kind==="oauth"?"撤销此 OAuth 授权实例":"撤销委托授权";
+  $("revoke-heading").textContent=kind==="oauth"?"断开应用授权":"撤销委托授权";
   $("revoke-detail").textContent=kind==="oauth"
-    ? "确认撤销「"+item.clientName+"」的这一条 OAuth 授权实例（"+item.id+"）？仅此实例关联的 Access/Refresh Token 将失效；同一客户端的其他授权实例及共享 Agent 不受影响。"
+    ? "断开「"+item.clientName+"」的这一条授权？其他授权不会受影响。授权编号："+item.id.slice(-8)
     : "确认撤销「"+item.modelKey+" · "+(opNames[item.operation]||item.operation)
       +"」？后续调用将被拒绝，已经完成的操作不会撤回。";
   $("revoke-error").hidden=true;
@@ -394,7 +431,7 @@ async function revoke() {
       const refreshed=await loadOauth(true);
       if(!refreshed)$("oauth-items").replaceChildren();
       $("oauth-message").textContent=refreshed
-        ? "OAuth 授权已撤销，服务器列表已更新。"
+        ? "已断开这条授权。"
         : "OAuth 授权已撤销，但列表刷新失败，请点击“刷新”核对当前状态。";
       $("oauth-message").hidden=false;
     }else{
@@ -414,6 +451,143 @@ async function revoke() {
     confirm.disabled=false;cancel.disabled=false;
   }
 }
+
+function busySubmit(form,busy){
+  for(const control of form.querySelectorAll("button,input,select"))control.disabled=busy;
+}
+function bindForms(){
+  $("profile-form").addEventListener("submit",async event=>{
+    event.preventDefault();
+    if(state.busyAction || !state.csrf)return;
+    const displayName=$("name-input").value.trim();
+    if(!displayName)return;
+    state.busyAction=true;busySubmit($("profile-form"),true);
+    try{
+      const result=await post("/api/account/profile",{intent:"update-profile",displayName});
+      updateUser({...state.user,displayName:result.displayName});
+      notice("account-action-status","姓名已保存。");
+    }catch(e){notice("account-action-status","姓名保存失败："+msg(e),true);}
+    finally{state.busyAction=false;busySubmit($("profile-form"),false);}
+  });
+  $("avatar-upload").addEventListener("click",()=>$("avatar-file").click());
+  $("avatar-file").addEventListener("change",async()=>{
+    const file=$("avatar-file").files?.[0];
+    if(!file || state.busyAction || !state.csrf)return;
+    if(file.size>5*1024*1024 || !["image/png","image/jpeg","image/webp"].includes(file.type)){
+      notice("account-action-status","请上传不超过 5 MB 的 JPG、PNG 或 WebP 图片。",true);
+      return;
+    }
+    state.busyAction=true;$("avatar-upload").disabled=true;
+    try{
+      const body=new FormData();body.append("avatar",file,file.name);
+      const result=await api("/api/account/profile/avatar",{
+        method:"POST",headers:{"x-lifespace-csrf":state.csrf},body,
+      });
+      updateUser({...state.user,avatarUrl:result.avatarUrl});
+      notice("account-action-status","头像已更新。");
+    }catch(e){notice("account-action-status","头像上传失败："+msg(e),true);}
+    finally{state.busyAction=false;$("avatar-upload").disabled=false;$("avatar-file").value="";}
+  });
+  $("email-form").addEventListener("submit",async event=>{
+    event.preventDefault();
+    if(state.busyAction || !state.csrf)return;
+    const email=$("email-input").value.trim().toLowerCase();
+    if(!email || !Number.isSafeInteger(state.emailVersion)){
+      notice("account-action-status","请刷新账户信息后重试。",true);return;
+    }
+    if(email===$("profile-email").textContent){
+      notice("account-action-status","邮箱没有变化。");return;
+    }
+    if(!window.confirm("更改登录邮箱需要验证新邮箱，且原邮箱的部分登录方式可能立即失效。确定继续吗？"))return;
+    state.busyAction=true;busySubmit($("email-form"),true);
+    try{
+      const result=await post("/api/account/login-email/change",{
+        intent:"change-login-email",email,version:state.emailVersion,
+      });
+      state.emailVersion=result.version;
+      $("profile-email").textContent=result.email;
+      $("email-input").value=result.email;
+      $("nav-email").textContent=result.email;
+      $("email-status").textContent=result.linked?"已验证邮箱":"等待新邮箱验证";
+      notice("email-note",result.linked?"":"请使用新邮箱完成登录验证。当前浏览器的登录状态可能发生变化。");
+      notice("account-action-status",result.linked?"邮箱已保存。":"邮箱已更新，待验证新邮箱。");
+    }catch(e){notice("account-action-status","邮箱变更失败："+msg(e),true);}
+    finally{state.busyAction=false;busySubmit($("email-form"),false);}
+  });
+  $("space-create-toggle").addEventListener("click",()=>{
+    $("space-create-form").hidden=!$("space-create-form").hidden;
+    $("space-invite-form").hidden=true;notice("space-action-status","");
+  });
+  $("space-join-toggle").addEventListener("click",()=>{
+    $("space-invite-form").hidden=!$("space-invite-form").hidden;
+    $("space-create-form").hidden=true;notice("space-action-status","");
+  });
+  $("space-create-cancel").addEventListener("click",()=>$("space-create-form").hidden=true);
+  $("space-invite-cancel").addEventListener("click",()=>{
+    $("space-invite-form").hidden=true;state.invite=null;
+    $("space-invite-preview").hidden=true;$("space-join-confirm").hidden=true;
+  });
+  $("space-create-form").addEventListener("submit",async event=>{
+    event.preventDefault();
+    if(state.busyAction || !state.csrf)return;
+    state.busyAction=true;busySubmit($("space-create-form"),true);
+    try{
+      const result=await post("/api/account/spaces/create",{
+        intent:"create-space",name:$("space-name-input").value.trim(),
+        timezone:$("space-zone-input").value,
+      });
+      $("space-create-form").hidden=true;
+      $("space-name-input").value="";
+      state.space=result.id;
+      await loadSpaces();
+      notice("space-action-status","空间「"+result.name+"」已创建。");
+    }catch(e){notice("space-action-status","创建失败："+msg(e),true);}
+    finally{state.busyAction=false;busySubmit($("space-create-form"),false);}
+  });
+  $("space-invite-input").addEventListener("input",()=>{
+    state.invite=null;$("space-invite-preview").hidden=true;
+    $("space-join-confirm").hidden=true;
+  });
+  $("space-invite-form").addEventListener("submit",async event=>{
+    event.preventDefault();
+    if(state.busyAction || !state.csrf)return;
+    const token=$("space-invite-input").value.trim();
+    if(!token)return;
+    state.busyAction=true;busySubmit($("space-invite-form"),true);
+    try{
+      const preview=await post("/api/account/spaces/invite-preview",{
+        intent:"preview-space-invite",token,
+      });
+      state.invite=preview.canJoin?{token,spaceId:preview.space.id}:null;
+      $("space-invite-preview").textContent=preview.canJoin
+        ?"即将加入「"+preview.space.name+"」 · "+(roles[preview.role]||"成员")
+        :"这份邀请当前不可使用。";
+      $("space-invite-preview").hidden=false;
+      $("space-join-confirm").hidden=!preview.canJoin;
+    }catch(e){
+      $("space-invite-preview").textContent="邀请码验证失败："+msg(e);
+      $("space-invite-preview").hidden=false;state.invite=null;
+    }finally{state.busyAction=false;busySubmit($("space-invite-form"),false);}
+  });
+  $("space-join-confirm").addEventListener("click",async()=>{
+    if(state.busyAction || !state.csrf || !state.invite)return;
+    const token=$("space-invite-input").value.trim();
+    if(token!==state.invite.token)return;
+    const accepted=state.invite;
+    state.busyAction=true;$("space-join-confirm").disabled=true;
+    try{
+      const result=await post("/api/account/spaces/join",{intent:"join-space",token});
+      if(result.spaceId!==accepted.spaceId)throw Error("加入的空间与邀请预览不一致，请重新检查");
+      $("space-invite-form").hidden=true;$("space-invite-input").value="";
+      $("space-invite-preview").hidden=true;$("space-join-confirm").hidden=true;
+      state.invite=null;state.space=result.spaceId;
+      await loadSpaces();
+      notice("space-action-status","已加入空间。");
+    }catch(e){notice("space-action-status","加入失败："+msg(e),true);}
+    finally{state.busyAction=false;$("space-join-confirm").disabled=false;}
+  });
+}
+
 async function init() {
   clearError();
   try {
@@ -456,6 +630,7 @@ $("mobile-shade").addEventListener("click",closeMenu);
 for(const tab of document.querySelectorAll("[data-tab]")){
   tab.addEventListener("click",()=>selectTab(tab.dataset.tab));
 }
+bindForms();
 window.addEventListener("hashchange",navigate);
 navigate();
 void init();

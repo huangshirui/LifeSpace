@@ -1,5 +1,16 @@
 # LifeSpace Account · User Center + OAuth Consent / 账户中心与授权门户
 
+## Account Center 用户体验与自助操作（候选 v0.4.0，待 Staging 验收）
+ 
+ - 保留四栏用户账户中心，统一 Lucide SVG、布局和简洁中文文案；OAuth 技术标识默认收在“技术详情”。
+ - Account 应用本期明确允许 `profile:read`、`profile:write`、`spaces:read`、`spaces:write`、`spaces:manage`。浏览器只通过同源 BFF 操作，写操作带用户会话、Origin、Fetch Metadata 和 HMAC CSRF；Identity/Core 是最终权限权威。
+ - Identity 用户资料：更新姓名、头像和已声明登录邮箱（变更后待验证，不证明新邮箱所有权，某些原邮箱的 Access 登录关联可能失效）。
+ - Core 通用 Space：创建空间、预览邀请码和确认加入；**不把任意 Space 自动注册为 HomeMew 家庭**，HomeMew Web 暂不修改。
+ - 日常委托管理的旧 `/delegations` URL 导向 `/center#connections/delegations`，第三方 AI 的独立 `/delegation` 交易批准页保持不变。
+ - Agent/Service API 与 Event Push 的用户级治理、完整 Delegation/操作审计继续按 #514 实施。Production 尚未发布。
+ 
+ ### 历史只读候选说明
+ 
 ## Account Center 本期页面（开发候选，未部署）
 
 - `/` 由 Account Worker 302 跳转至 `/center`，`/center.html` 为静态页面文件；`/oauth/consent` 与 `/delegation` 保持独立的授权交易入口，不能因主页切换破坏 OAuth 回调与独立委托。
