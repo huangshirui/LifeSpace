@@ -3,7 +3,7 @@
 const ACCESS_HEADER = "cf-access-jwt-assertion";
 const CSRF_COOKIE = "__Host-lifespace-consent";
 const CSRF_TTL_SECONDS = 600;
-const SCOPES = ["profile:read", "spaces:read", "spaces:manage"];
+const SCOPES = ["profile:read", "profile:write", "spaces:read", "spaces:write", "spaces:manage"];
 const REQUEST = /^oar_[A-Za-z0-9_-]{16,128}$/u;
 const DELEGATION_REQUEST = /^arq_[a-f0-9]{32}$/u;
 const DELEGATION_ID = /^dlg_[A-Za-z0-9_-]+$/u;
@@ -126,11 +126,13 @@ async function session(req, env) {
   return { token: userToken, user: { id: profile.id, displayName: profile.displayName, avatarUrl: avatarFromIdentity(profile, env) } };
 }
 const toUrl = (origin, path) => new URL(path, origin).href;
-function sameOriginMutation(req) {
+function sameOriginMutation(req, allowMultipart = false) {
   const url = new URL(req.url);
   return req.headers.get("origin") === url.origin
     && req.headers.get("sec-fetch-site") === "same-origin"
-    && /^application\/json(?:\s*;|$)/iu.test(req.headers.get("content-type") || "");
+    && (allowMultipart
+      ? /^multipart\/form-data;\s*boundary=/iu.test(req.headers.get("content-type") || "")
+      : /^application\/json(?:\s*;|$)/iu.test(req.headers.get("content-type") || ""));
 }
 function b64(bytes) {
   return btoa(String.fromCharCode(...bytes)).replace(/\+/gu, "-").replace(/\//gu, "_").replace(/=+$/u, "");
@@ -222,7 +224,7 @@ export async function accountFetch(req, env) {
     return new Response(asset.body, { status: asset.status, statusText: asset.statusText, headers });
   }
   if (req.method !== "GET" && req.method !== "POST") return fail(405, "METHOD_NOT_ALLOWED", "不支持此请求方式");
-  if (req.method === "POST" && !sameOriginMutation(req)) {
+  if (req.method === "POST" && !sameOriginMutation(req, path === "/api/account/profile/avatar")) {
     return fail(403, "INVALID_ORIGIN", "请从当前 Account 页面确认授权");
   }
   if (path !== "/api/session" && path !== "/api/oauth/request"
@@ -232,13 +234,19 @@ export async function accountFetch(req, env) {
     && path !== "/api/delegation/approve" && path !== "/api/delegation/deny"
     && path !== "/api/delegations" && path !== "/api/delegations/revoke"
     && path !== "/api/account/spaces" && path !== "/api/account/login-email"
+    && !["/api/account/profile","/api/account/profile/avatar",
+      "/api/account/login-email/change","/api/account/spaces/create",
+      "/api/account/spaces/invite-preview","/api/account/spaces/join"].includes(path)
     && path !== "/api/account/authorizations" && !ACCOUNT_AUTHORIZATION.test(path)
     && !ACCOUNT_SPACE_DETAIL.test(path) && !ACCOUNT_EXTERNAL.test(path)
     && path !== "/api/oauth/confirm" && path !== "/api/oauth/deny") return fail(404, "NOT_FOUND", "接口不存在");
+  const mutation = ["/api/account/profile","/api/account/profile/avatar",
+    "/api/account/login-email/change","/api/account/spaces/create",
+    "/api/account/spaces/invite-preview","/api/account/spaces/join"].includes(path);
   if ((path === "/api/oauth/confirm" || path === "/api/oauth/deny"
     || path === "/api/delegation/approve" || path === "/api/delegation/deny"
     || path === "/api/delegations/revoke"
-    || ACCOUNT_AUTHORIZATION.exec(path)?.[2] === "revoke") !== (req.method === "POST")) {
+    || ACCOUNT_AUTHORIZATION.exec(path)?.[2] === "revoke" || mutation) !== (req.method === "POST")) {
     return fail(405, "METHOD_NOT_ALLOWED", "不支持此请求方式");
   }
   const linked = await session(req, env);
@@ -259,10 +267,11 @@ export async function accountFetch(req, env) {
     const state = await data(upstream);
     if (!state || !["linked", "pending", "unlinked"].includes(state.status)
       || !(state.email === null || safeText(state.email, 254))
-      || typeof state.linked !== "boolean") {
+      || typeof state.linked !== "boolean" || !Number.isSafeInteger(state.version)
+      || state.version < 0) {
       return fail(502, "IDENTITY_INVALID_RESPONSE", "账号邮箱响应异常");
     }
-    return responseJson({ data: { email: state.email, status: state.status, linked: state.linked } });
+    return responseJson({ data: { email: state.email, status: state.status, linked: state.linked, version: state.version } });
   }
   if (path === "/api/account/spaces") {
     if (url.search) return fail(400, "INVALID_REQUEST", "空间列表不接受额外参数");
@@ -512,15 +521,126 @@ export async function accountFetch(req, env) {
       requestedScopes: [...scopes],
     } });
   }
-  // POST: every confirmation must be a user interaction bound to this Account session.
+  // All Account mutations are same-origin, owner-session-bound and CSRF-protected.
+  // Identity/Core retain the final authorization decision; Account has no admin bypass.
   if (!await validCsrf(req, env, linked.user.id)) {
     return fail(403, "INVALID_CSRF", "授权确认已过期，请重新打开确认页面");
   }
-  const raw = await req.text();
+  if (path === "/api/account/profile/avatar") {
+    if (url.search) return fail(400,"INVALID_REQUEST","上传头像不接受额外参数");
+    const declaredLength = Number(req.headers.get("content-length") || "0");
+    if (declaredLength > 6 * 1024 * 1024) return fail(413,"AVATAR_TOO_LARGE","头像文件不能超过 5 MB");
+    let form;
+    try { form = await req.formData(); }
+    catch { return fail(400,"INVALID_AVATAR","头像文件格式无效"); }
+    if ([...form.keys()].length !== 1 || !form.has("avatar")) {
+      return fail(400,"INVALID_AVATAR","请选择一张头像图片");
+    }
+    const file=form.get("avatar");
+    if (!(file instanceof File) || file.size<1 || file.size>5*1024*1024
+      || !["image/jpeg","image/png","image/webp"].includes(file.type)) {
+      return fail(422,"INVALID_AVATAR","头像仅支持 JPG、PNG、WebP，最大 5 MB");
+    }
+    const body=new FormData();body.set("avatar",file,file.name || "avatar");
+    let upstream;
+    try {upstream=await service(env,"IDENTITY","/api/v1/me/avatar",{
+      method:"PUT",headers:{authorization:"Bearer "+linked.token},body,
+    });}catch{return fail(503,"IDENTITY_UNAVAILABLE","无法保存头像");}
+    if(!upstream.ok)return fail([400,403,413,415].includes(upstream.status)?upstream.status:503,
+      "AVATAR_UPDATE_FAILED","无法保存头像，请更换图片后重试");
+    const result=await data(upstream);
+    const avatarUrl=avatarFromIdentity({id:linked.user.id,avatarUrl:result?.avatarUrl},env);
+    if(!avatarUrl)return fail(502,"IDENTITY_INVALID_RESPONSE","头像已提交，但返回地址无效");
+    return responseJson({data:{avatarUrl}});
+  }
+    const raw = await req.text();
   if (raw.length > 2048) return fail(413, "REQUEST_TOO_LARGE", "授权内容过大");
   let input;
   try { input = JSON.parse(raw); } catch { return fail(400, "INVALID_REQUEST", "授权内容无效"); }
-  if (ownedAuthorization?.[2] === "revoke") {
+  if (path === "/api/account/profile") {
+    if(url.search || !isObject(input) || Object.keys(input).sort().join(",")!=="displayName,intent"
+      || input.intent!=="update-profile" || !safeText(input.displayName,50)
+      || input.displayName.trim().length<1) return fail(400,"INVALID_REQUEST","请输入有效的姓名");
+    let upstream;
+    try{upstream=await service(env,"IDENTITY","/api/v1/me",{
+      method:"PATCH",headers:{authorization:"Bearer "+linked.token,"content-type":JSON_TYPE},
+      body:JSON.stringify({displayName:input.displayName.trim()}),
+    });}catch{return fail(503,"IDENTITY_UNAVAILABLE","姓名保存失败");}
+    if(!upstream.ok)return fail(upstream.status===403?403:upstream.status===422?422:503,
+      "PROFILE_UPDATE_FAILED","无法保存姓名");
+    const result=await data(upstream);
+    if(!result || result.id!==linked.user.id || !safeText(result.displayName,50))
+      return fail(502,"IDENTITY_INVALID_RESPONSE","姓名更新响应异常");
+    return responseJson({data:{id:result.id,displayName:result.displayName}});
+  }
+  if(path==="/api/account/login-email/change") {
+    if(url.search || !isObject(input) || Object.keys(input).sort().join(",")!=="email,intent,version"
+      || input.intent!=="change-login-email" || !safeText(input.email,254)
+      || !Number.isSafeInteger(input.version) || input.version<0)
+      return fail(400,"INVALID_REQUEST","邮箱或版本信息无效");
+    let upstream;
+    try{upstream=await service(env,"IDENTITY","/api/v1/me/web-login",{
+      method:"PATCH",headers:{authorization:"Bearer "+linked.token,"content-type":JSON_TYPE},
+      body:JSON.stringify({email:input.email.trim().toLowerCase(),version:input.version}),
+    });}catch{return fail(503,"IDENTITY_UNAVAILABLE","无法更新登录邮箱");}
+    if(!upstream.ok)return fail([400,403,409,422].includes(upstream.status)?upstream.status:503,
+      "EMAIL_CHANGE_FAILED",upstream.status===409?"邮箱已变更或被占用，请刷新重试":"邮箱变更失败");
+    const state=await data(upstream);
+    if(!state || !safeText(state.email,254) || !Number.isSafeInteger(state.version)
+      || state.version<0 || !["linked","pending","unlinked"].includes(state.status)
+      || typeof state.linked!=="boolean")
+      return fail(502,"IDENTITY_INVALID_RESPONSE","邮箱变更响应异常");
+    return responseJson({data:{email:state.email,status:state.status,linked:state.linked,version:state.version}});
+  }
+  if(path==="/api/account/spaces/create") {
+    if(url.search || !isObject(input) || input.intent!=="create-space"
+      || Object.keys(input).some(k=>!["intent","name","timezone"].includes(k))
+      || !safeText(input.name,100) || !input.name.trim()
+      || !safeText(input.timezone,100))
+      return fail(400,"INVALID_REQUEST","空间名称或时区无效");
+    let upstream;
+    try{upstream=await service(env,"CORE","/api/v1/spaces",{
+      method:"POST",headers:{authorization:"Bearer "+linked.token,"content-type":JSON_TYPE},
+      body:JSON.stringify({name:input.name.trim(),timezone:input.timezone,
+        ownerDisplayName:linked.user.displayName}),
+    });}catch{return fail(503,"CORE_UNAVAILABLE","无法创建空间");}
+    if(!upstream.ok)return fail([400,403,409,422].includes(upstream.status)?upstream.status:503,
+      "SPACE_CREATE_FAILED","创建空间失败");
+    const result=await data(upstream);
+    if(!result || !SPACE.test(result.id||"") || !safeText(result.name,100)
+      || result.role!=="owner")
+      return fail(502,"CORE_INVALID_RESPONSE","新空间响应异常");
+    return responseJson({data:{id:result.id,name:result.name,role:"owner"}},201);
+  }
+  if(path==="/api/account/spaces/invite-preview" || path==="/api/account/spaces/join") {
+    const preview=path.endsWith("invite-preview");
+    if(url.search || !isObject(input)
+      || Object.keys(input).sort().join(",")!=="intent,token"
+      || input.intent!==(preview?"preview-space-invite":"join-space")
+      || !safeText(input.token,256) || input.token.trim()!==input.token)
+      return fail(400,"INVALID_REQUEST","邀请码无效");
+    let upstream;
+    try{upstream=await service(env,"CORE",preview?
+      "/api/v1/space-invites/preview":"/api/v1/space-invites/join",{
+      method:"POST",headers:{authorization:"Bearer "+linked.token,"content-type":JSON_TYPE},
+      body:JSON.stringify(preview?{token:input.token}:{token:input.token,displayName:linked.user.displayName}),
+    });}catch{return fail(503,"CORE_UNAVAILABLE","无法验证或使用邀请码");}
+    if(!upstream.ok)return fail([400,403,404,409,410,422].includes(upstream.status)?upstream.status:503,
+      "SPACE_INVITE_FAILED","邀请码无效、已过期或当前无法加入");
+    const result=await data(upstream);
+    if(preview){
+      if(!result || !isObject(result.space) || !SPACE.test(result.space.id||"")
+        || !safeText(result.space.name,100) || !SPACE_ROLES.has(result.role)
+        || typeof result.canJoin!=="boolean")
+        return fail(502,"CORE_INVALID_RESPONSE","邀请预览异常");
+      return responseJson({data:{space:{id:result.space.id,name:result.space.name},
+        role:result.role,canJoin:result.canJoin}});
+    }
+    if(!result || !SPACE.test(result.spaceId||"") || !SPACE_ROLES.has(result.role))
+      return fail(502,"CORE_INVALID_RESPONSE","加入空间响应异常");
+    return responseJson({data:{spaceId:result.spaceId,role:result.role}},201);
+  }
+    if (ownedAuthorization?.[2] === "revoke") {
     if(!isObject(input) || Object.keys(input).length!==2
       || input.intent!=="revoke-oauth-authorization"
       || input.authorizationId!==ownedAuthorization[1])
