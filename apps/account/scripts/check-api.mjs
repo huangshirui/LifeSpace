@@ -1,7 +1,8 @@
 import fs from "node:fs";
 const api = JSON.parse(fs.readFileSync(new URL("../openapi.json", import.meta.url), "utf8"));
-const expect = ["/api/session", "/api/oauth/request", "/api/oauth/choices", "/api/oauth/capabilities", "/api/oauth/confirm"];
-if (api.openapi !== "3.1.0" || api.info.version !== "0.2.0") throw new Error("Account BFF contract mismatch");
+const expect = ["/api/account/login-email", "/api/account/spaces",
+  "/api/account/spaces/{spaceId}", "/api/account/spaces/{spaceId}/members", "/api/session", "/api/oauth/request", "/api/oauth/choices", "/api/oauth/capabilities", "/api/oauth/confirm"];
+if (api.openapi !== "3.1.0" || api.info.version !== "0.3.0") throw new Error("Account BFF contract mismatch");
 for (const path of expect) if (!api.paths[path]) throw new Error("Missing Account route " + path);
 const confirmation = api.paths["/api/oauth/confirm"].post;
 const schema = confirmation?.requestBody?.content?.["application/json"]?.schema;
@@ -25,4 +26,4 @@ if (approvalSchema?.additionalProperties !== false
     || !api.paths["/api/delegations/revoke"]?.post) {
   throw new Error("Account lifetime/owner-revocation contract is missing or unbounded");
 }
-console.log("Account BFF OAuth Consent and User Delegation lifetime contract checks passed");
+console.log("Account Center, OAuth Consent and User Delegation contracts passed");
