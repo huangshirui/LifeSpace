@@ -450,13 +450,24 @@ export default function App({ toolbar }: { toolbar?: ReactNode }) {
 
   return <div className="app-shell">
     <aside className="sidebar">
-      <div className="brand"><div className="brand-mark">LS</div><div><strong>LifeSpace</strong><span>Console</span></div></div>
+      <div className="brand">
+        <div className="brand-mark">LS</div>
+        <div className="brand-copy">
+          <strong>LifeSpace</strong>
+          <div className="brand-meta">
+            <span>Console</span>
+            <span className={`brand-environment ${production ? "production" : "staging"}`} role="status" aria-label={production ? "生产环境" : "测试环境"}>
+              <span className="environment-dot" aria-hidden="true" />
+              {production ? "PRODUCTION" : "STAGING"}
+            </span>
+          </div>
+        </div>
+      </div>
       <nav>{navGroups.map((group, index) => <div className="nav-group" key={`${group.label}-${index}`}>{group.label && <div className="nav-label">{group.label}</div>}{group.items.map((item) => <button key={item.href} className={route.page === item.page ? "nav-item active" : "nav-item"} onClick={() => navigate(item.href)}>{item.label}</button>)}</div>)}</nav>
       <div className="sidebar-footer">
         <div className="operator"><div className="avatar">{current.user.displayName.slice(0, 1).toUpperCase()}</div><div><strong>{current.user.displayName}</strong><span>{current.user.id}</span></div></div>
-        <div className={`sidebar-environment ${production ? "production" : "staging"}`} role="status">
-          <strong><span className="environment-dot" />{production ? "PRODUCTION" : "STAGING"}</strong>
-          <span>{production ? "生产环境 · 写操作需确认并审计" : "测试环境 · 写操作需确认并审计"}</span>
+        <div className="sidebar-context">
+          <span>写操作需确认并审计</span>
           <small>Console {current.consoleVersion}</small>
         </div>
       </div>
