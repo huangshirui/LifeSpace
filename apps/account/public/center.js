@@ -3,7 +3,7 @@ const PANELS = new Set(["account","spaces","connections","audit"]);
 const TABS = new Set(["oauth","delegations","direct","event","external"]);
 const roles = {owner:"所有者",admin:"管理员",editor:"编辑者",viewer:"查看者"};
 const opNames = {query:"查询",get:"查看",create:"新增",update:"修改",delete:"删除"};
-const state = {user:null,csrf:null,spaces:[],space:null,auditLoaded:false,auditOffset:0,auditBusy:false,externalLoaded:false,oauthLoaded:false,oauthOffset:0,oauthBusy:false,delegationsLoaded:false,delegationOffset:0,delegationsBusy:false,revokeId:null,revokeKind:null,revokeBusy:false};
+const state = {user:null,csrf:null,spaces:[],space:null,auditLoaded:false,auditOffset:0,auditBusy:false,externalLoaded:false,oauthLoaded:false,oauthOffset:0,oauthBusy:false,delegationsLoaded:false,delegationOffset:0,delegationsBusy:false,revokeId:null,revokeKind:null,revokeBusy:false,emailVersion:null,invite:null,spaceNames:new Map(),nameCandidates:[],referenceLoaded:false,busyAction:false};
 const msg = e => e instanceof Error ? e.message : "请求暂时不可用";
 async function api(path,options={}) {
   const response = await fetch(path,{...options,credentials:"same-origin",
@@ -38,12 +38,15 @@ function showError(value) {
   $("session-error").hidden=false;
 }
 function clearError() { $("session-error").hidden=true; }
+function notice(id,message,error=false){const n=$(id);n.textContent=message;n.hidden=!message;n.dataset.error=String(error);}
+async function post(path,value){return api(path,{method:"POST",headers:{"content-type":"application/json","x-lifespace-csrf":state.csrf},body:JSON.stringify(value)});}
 function updateUser(user) {
   state.user=user;
   $("nav-name").textContent=user.displayName;
   $("profile-name").textContent=user.displayName;
   $("profile-id").textContent=user.id;
-  $("profile-subtitle").textContent="已验证 LifeSpace 用户身份";
+  $("profile-subtitle").textContent="我的个人资料";
+  $("name-input").value=user.displayName;
   setAvatar($("nav-avatar"),user.displayName,user.avatarUrl);
   setAvatar($("profile-avatar"),user.displayName,user.avatarUrl);
 }
@@ -55,14 +58,19 @@ async function loadAccount() {
   updateUser(session.user);
   try {
     const data=await api("/api/account/login-email");
+    state.emailVersion=data.version;
     $("profile-email").textContent=data.email || "未设置";
-    const names={linked:"已关联",pending:"待验证关联",unlinked:"未关联"};
+    $("email-input").value=data.email || "";
+    const names={linked:"已验证邮箱",pending:"等待新邮箱验证",unlinked:"尚未关联邮箱"};
     $("email-status").textContent=names[data.status] || "暂不可用";
-    $("nav-email").textContent=data.linked && data.email ? data.email : "LifeSpace Identity";
+    $("nav-email").textContent=data.email || "账户中心";
+    notice("email-note",data.status==="pending"
+      ?"新邮箱尚未验证。请使用新的邮箱完成登录验证后再继续。":"");
   } catch(e) {
     $("profile-email").textContent="暂时无法读取";
     $("email-status").textContent="请刷新重试";
-    $("nav-email").textContent="LifeSpace Identity";
+    $("nav-email").textContent="账户中心";
+    state.emailVersion=null;
   }
 }
 function currentPage() {
@@ -100,15 +108,15 @@ function selectTab(tab,updateHash=true) {
 function renderSpaces() {
   const target=$("space-list");target.replaceChildren();
   if(!state.spaces.length){
-    target.append(el("p","placeholder","当前没有已加入的 Space。"));
+    target.append(el("p","placeholder","还没有空间，可创建或通过邀请加入。"));
     return;
   }
   for(const space of state.spaces) {
     const button=el("button","space-choice");button.type="button";
     button.setAttribute("aria-pressed",String(state.space===space.id));
     const initial=el("span","space-initial",space.name.slice(0,1));
-    const name=el("span");name.append(el("strong","",space.name),el("small","",space.timezone));
-    button.append(initial,name,el("span","role",roles[space.role]||space.role));
+    const name=el("span");name.append(el("strong","",space.name),el("small","",roles[space.role]||space.role));
+    button.append(initial,name);
     button.addEventListener("click",()=>{state.space=space.id;renderSpaces();void loadSpaceDetail(space.id);});
     target.append(button);
   }
@@ -120,6 +128,7 @@ async function loadSpaces() {
     if(!Array.isArray(list))throw new Error("空间列表格式异常");
     state.spaces=list;
     state.spacesLoaded=true;
+    state.spaceNames=new Map(list.map(space=>[space.id,space.name]));
     if(state.space && !list.some(item=>item.id===state.space))state.space=null;
     if(!state.space && list.length)state.space=list[0].id;
     renderSpaces();
@@ -141,8 +150,8 @@ async function loadSpaceDetail(id) {
     const space=state.spaces.find(item=>item.id===id);
     $("space-detail-label").textContent=roles[space?.role]||"当前成员";
     target.replaceChildren(el("h3","space-detail-title",info.name),
-      detailRow("Space ID",info.id),detailRow("时区",info.timezone),
-      detailRow("当前角色",roles[space?.role]||"已授权访问"));
+      detailRow("时区",info.timezone),
+      detailRow("我的角色",roles[space?.role]||"已授权访问"));
     const divider=el("hr","section-divider");target.append(divider,el("h2","","成员"));
     const listing=el("div","member-list");target.append(listing);
     try {
@@ -152,10 +161,13 @@ async function loadSpaceDetail(id) {
       if(!members.length) listing.append(el("p","placeholder","暂无可读取的成员。"));
       for(const member of members) {
         const row=el("div","member-row");
-        const detail=el("span");detail.append(el("strong","",member.displayName),el("small","",member.userId));
+        const detail=el("span");detail.append(el("strong","",member.displayName));
         row.append(detail,el("span","role",roles[member.role]||member.role));
         listing.append(row);
       }
+      const tech=el("details","technical-details");
+      tech.append(el("summary","","空间标识"),detailRow("Space ID",info.id));
+      target.append(tech);
     } catch(e) {
       if(state.space===id)listing.append(el("p","placeholder","无法读取成员："+msg(e)));
     }
