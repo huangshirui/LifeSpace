@@ -329,6 +329,9 @@ jobs:
       - name: Resolve production D1 IDs
         run: node infra/scripts/resolve-production-d1.mjs
 
+      - name: Verify Production D1 schema and Time Travel recovery before mutation
+        run: node infra/scripts/verify-production-d1-time-travel.mjs
+
       - name: Preflight production custom domains
         env:
           PRODUCTION_DOMAIN_PREFLIGHT_ONLY: "1"
