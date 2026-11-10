@@ -13,6 +13,18 @@ const SPACE = /^spc_[A-Za-z0-9_-]{3,128}$/u;
 const AGENT = /^agt_[A-Za-z0-9_-]{3,128}$/u;
 const APPLICATION = /^app_[A-Za-z0-9_-]{3,128}$/u;
 const JSON_TYPE = "application/json; charset=utf-8";
+const ACCOUNT_SPACE_DETAIL = /^\/api\/account\/spaces\/(spc_[A-Za-z0-9_-]{3,128})(?:\/(members))?$/u;
+const SPACE_ROLES = new Set(["owner","admin","editor","viewer"]);
+function avatarFromIdentity(profile, env) {
+  if (!safeText(profile?.avatarUrl, 2048)) return null;
+  try {
+    const parsed = new URL(profile.avatarUrl);
+    const base = new URL(env.IDENTITY_BASE_URL);
+    return parsed.origin === base.origin
+      && parsed.pathname === "/assets/users/" + encodeURIComponent(profile.id) + "/avatar"
+      && !parsed.search && !parsed.hash ? parsed.href : null;
+  } catch { return null; }
+}
 
 function responseJson(payload, status = 200, extra = {}) {
   return new Response(JSON.stringify(payload), {
@@ -86,7 +98,7 @@ async function session(req, env) {
     || typeof profile.displayName !== "string" || profile.status !== "active") {
     return fail(403, "ACCOUNT_USER_UNAVAILABLE", "LifeSpace 用户不存在或不可用");
   }
-  return { token: userToken, user: { id: profile.id, displayName: profile.displayName } };
+  return { token: userToken, user: { id: profile.id, displayName: profile.displayName, avatarUrl: avatarFromIdentity(profile, env) } };
 }
 const toUrl = (origin, path) => new URL(path, origin).href;
 function sameOriginMutation(req) {
@@ -166,6 +178,10 @@ function callbackValid(value) {
 export async function accountFetch(req, env) {
   const url = new URL(req.url);
   const path = url.pathname;
+  // The Account Center owns the root; OAuth Consent remains an isolated transaction at /oauth/consent.
+  if (path === "/" && req.method === "GET") {
+    return Response.redirect(new URL("/center", url), 302);
+  }
   if (!path.startsWith("/api/")) {
     if (!env.ASSETS?.fetch) return fail(503, "ACCOUNT_ASSETS_MISSING", "Account 页面不可用");
     // Static Assets' default HTML handling already maps extensionless URLs
@@ -177,7 +193,7 @@ export async function accountFetch(req, env) {
     headers.set("referrer-policy", "no-referrer");
     headers.set("x-content-type-options", "nosniff");
     headers.set("content-security-policy",
-      "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'");
+      "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data: https://auth-staging.aisr.online https://auth.aisr.online; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'");
     return new Response(asset.body, { status: asset.status, statusText: asset.statusText, headers });
   }
   if (req.method !== "GET" && req.method !== "POST") return fail(405, "METHOD_NOT_ALLOWED", "不支持此请求方式");
@@ -190,6 +206,8 @@ export async function accountFetch(req, env) {
     && path !== "/api/delegation/request"
     && path !== "/api/delegation/approve" && path !== "/api/delegation/deny"
     && path !== "/api/delegations" && path !== "/api/delegations/revoke"
+    && path !== "/api/account/spaces" && path !== "/api/account/login-email"
+    && !ACCOUNT_SPACE_DETAIL.test(path)
     && path !== "/api/oauth/confirm" && path !== "/api/oauth/deny") return fail(404, "NOT_FOUND", "接口不存在");
   if ((path === "/api/oauth/confirm" || path === "/api/oauth/deny"
     || path === "/api/delegation/approve" || path === "/api/delegation/deny"
@@ -205,6 +223,65 @@ export async function accountFetch(req, env) {
       "set-cookie": CSRF_COOKIE + "=" + csrfToken
         + "; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=" + CSRF_TTL_SECONDS,
     });
+  }
+  if (path === "/api/account/login-email") {
+    if (url.search) return fail(400, "INVALID_REQUEST", "账号信息不接受额外参数");
+    const upstream = await boundedUpstream(env, "IDENTITY", "/api/v1/me/web-login", linked.token);
+    if (!upstream?.ok) return fail(upstream?.status === 403 ? 403 : 503,
+      "ACCOUNT_EMAIL_UNAVAILABLE", "无法读取已声明的登录邮箱");
+    const state = await data(upstream);
+    if (!state || !["linked", "pending", "unlinked"].includes(state.status)
+      || !(state.email === null || safeText(state.email, 254))
+      || typeof state.linked !== "boolean") {
+      return fail(502, "IDENTITY_INVALID_RESPONSE", "账号邮箱响应异常");
+    }
+    return responseJson({ data: { email: state.email, status: state.status, linked: state.linked } });
+  }
+  if (path === "/api/account/spaces") {
+    if (url.search) return fail(400, "INVALID_REQUEST", "空间列表不接受额外参数");
+    const upstream = await boundedUpstream(env, "CORE", "/api/v1/me/spaces", linked.token);
+    if (!upstream?.ok) return fail(upstream?.status === 403 ? 403 : 503,
+      "ACCOUNT_SPACES_UNAVAILABLE", "无法读取当前用户的空间");
+    const spaces = await arrayData(upstream);
+    if (!spaces || spaces.length > 200 || spaces.some(item => !isObject(item)
+      || !SPACE.test(item.id || "") || !safeText(item.name, 160)
+      || !safeText(item.timezone, 100) || !SPACE_ROLES.has(item.role))) {
+      return fail(502, "CORE_INVALID_RESPONSE", "空间列表格式异常");
+    }
+    return responseJson({ data: spaces.map(item => ({
+      id: item.id, name: item.name, timezone: item.timezone, role: item.role,
+    })) });
+  }
+  const spaceDetail = ACCOUNT_SPACE_DETAIL.exec(path);
+  if (spaceDetail) {
+    if (url.search) return fail(400, "INVALID_REQUEST", "空间详情不接受额外参数");
+    const spaceId = spaceDetail[1];
+    const members = spaceDetail[2] === "members";
+    const upstream = await boundedUpstream(env, "CORE",
+      "/api/v1/spaces/" + encodedPath(spaceId) + (members ? "/members" : ""), linked.token);
+    if (!upstream?.ok) return fail([403, 404].includes(upstream?.status) ? upstream.status : 503,
+      "ACCOUNT_SPACE_UNAVAILABLE", "空间不存在或当前用户无权访问");
+    if (members) {
+      const rows = await arrayData(upstream);
+      if (!rows || rows.length > 500 || rows.some(item => !isObject(item)
+        || !safeText(item.userId, 150) || !SPACE_ROLES.has(item.role)
+        || !safeText(item.displayName, 160))) {
+        return fail(502, "CORE_INVALID_RESPONSE", "空间成员列表格式异常");
+      }
+      return responseJson({ data: rows.map(item => ({
+        userId: item.userId, displayName: item.displayName, role: item.role,
+      })) });
+    }
+    const item = await data(upstream);
+    if (!item || item.id !== spaceId || !safeText(item.name, 160)
+      || !safeText(item.timezone, 100) || !Number.isInteger(item.version)
+      || !isObject(item.access)) {
+      return fail(502, "CORE_INVALID_RESPONSE", "空间详情格式异常");
+    }
+    return responseJson({ data: {
+      id: item.id, name: item.name, timezone: item.timezone,
+      version: item.version, access: item.access,
+    } });
   }
   if (path === "/api/delegation/request") {
     const requestId = url.searchParams.get("request_id");
