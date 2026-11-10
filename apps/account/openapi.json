@@ -2,8 +2,8 @@
   "openapi": "3.1.0",
   "info": {
     "title": "LifeSpace Account Center and OAuth Consent BFF",
-    "version": "0.3.0",
-    "description": "Same-origin Cloudflare Access user sessions; Identity/Core Account Center with user-scoped OAuth Authorization revocation, OAuth consent, and user-owned third-party Delegation approval/revocation. No Account database, cross-service direct D1 access or privileged admin credential."
+    "version": "0.4.0",
+    "description": "Same-origin Cloudflare Access user BFF for Identity-owned profile and OAuth, Core-owned Space/invite and Delegation; user-bound CSRF mutations. No Account database, cross-service D1 access or privileged admin credential."
   },
   "paths": {
     "/api/session": {
@@ -404,7 +404,7 @@
     },
     "/api/account/login-email": {
       "get": {
-        "summary": "Identity-verified current user's declared Web login mailbox and linkage status (read-only)",
+        "summary": "Current declared login mailbox, verification state and optimistic version",
         "security": [],
         "responses": {
           "200": {
@@ -655,6 +655,359 @@
           },
           "503": {
             "description": "Core unavailable"
+          }
+        }
+      }
+    },
+    "/api/account/profile": {
+      "post": {
+        "summary": "Update current global display name through Identity",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "intent",
+                  "displayName"
+                ],
+                "properties": {
+                  "intent": {
+                    "type": "string",
+                    "const": "update-profile"
+                  },
+                  "displayName": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 50
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated current-user non-secret data"
+          },
+          "201": {
+            "description": "Created Space or membership"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "No Access session"
+          },
+          "403": {
+            "description": "CSRF, scope or current Core/Identity authority denied"
+          },
+          "409": {
+            "description": "Changed version or no longer available"
+          },
+          "502": {
+            "description": "Invalid upstream response"
+          },
+          "503": {
+            "description": "Upstream unavailable"
+          }
+        }
+      }
+    },
+    "/api/account/profile/avatar": {
+      "post": {
+        "summary": "Upload current-user avatar through Identity; 5 MB JPEG/PNG/WebP",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "avatar"
+                ],
+                "properties": {
+                  "avatar": {
+                    "type": "string",
+                    "format": "binary"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated current-user non-secret data"
+          },
+          "201": {
+            "description": "Created Space or membership"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "No Access session"
+          },
+          "403": {
+            "description": "CSRF, scope or current Core/Identity authority denied"
+          },
+          "409": {
+            "description": "Changed version or no longer available"
+          },
+          "502": {
+            "description": "Invalid upstream response"
+          },
+          "503": {
+            "description": "Upstream unavailable"
+          }
+        }
+      }
+    },
+    "/api/account/login-email/change": {
+      "post": {
+        "summary": "Declare a new global login mailbox, requiring subsequent independent verification",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "intent",
+                  "email",
+                  "version"
+                ],
+                "properties": {
+                  "intent": {
+                    "type": "string",
+                    "const": "change-login-email"
+                  },
+                  "email": {
+                    "type": "string",
+                    "format": "email",
+                    "maxLength": 254
+                  },
+                  "version": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated current-user non-secret data"
+          },
+          "201": {
+            "description": "Created Space or membership"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "No Access session"
+          },
+          "403": {
+            "description": "CSRF, scope or current Core/Identity authority denied"
+          },
+          "409": {
+            "description": "Changed version or no longer available"
+          },
+          "502": {
+            "description": "Invalid upstream response"
+          },
+          "503": {
+            "description": "Upstream unavailable"
+          }
+        }
+      }
+    },
+    "/api/account/spaces/create": {
+      "post": {
+        "summary": "Create a generic LifeSpace Space with current authenticated user as Owner",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "intent",
+                  "name",
+                  "timezone"
+                ],
+                "properties": {
+                  "intent": {
+                    "type": "string",
+                    "const": "create-space"
+                  },
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 100
+                  },
+                  "timezone": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 100
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated current-user non-secret data"
+          },
+          "201": {
+            "description": "Created Space or membership"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "No Access session"
+          },
+          "403": {
+            "description": "CSRF, scope or current Core/Identity authority denied"
+          },
+          "409": {
+            "description": "Changed version or no longer available"
+          },
+          "502": {
+            "description": "Invalid upstream response"
+          },
+          "503": {
+            "description": "Upstream unavailable"
+          }
+        }
+      }
+    },
+    "/api/account/spaces/invite-preview": {
+      "post": {
+        "summary": "Preview a bounded current-user Core invitation before acceptance",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "intent",
+                  "token"
+                ],
+                "properties": {
+                  "intent": {
+                    "type": "string",
+                    "const": "preview-space-invite"
+                  },
+                  "token": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated current-user non-secret data"
+          },
+          "201": {
+            "description": "Created Space or membership"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "No Access session"
+          },
+          "403": {
+            "description": "CSRF, scope or current Core/Identity authority denied"
+          },
+          "409": {
+            "description": "Changed version or no longer available"
+          },
+          "502": {
+            "description": "Invalid upstream response"
+          },
+          "503": {
+            "description": "Upstream unavailable"
+          }
+        }
+      }
+    },
+    "/api/account/spaces/join": {
+      "post": {
+        "summary": "Accept an invitation through Core current-user Space membership rules",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "intent",
+                  "token"
+                ],
+                "properties": {
+                  "intent": {
+                    "type": "string",
+                    "const": "join-space"
+                  },
+                  "token": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated current-user non-secret data"
+          },
+          "201": {
+            "description": "Created Space or membership"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "No Access session"
+          },
+          "403": {
+            "description": "CSRF, scope or current Core/Identity authority denied"
+          },
+          "409": {
+            "description": "Changed version or no longer available"
+          },
+          "502": {
+            "description": "Invalid upstream response"
+          },
+          "503": {
+            "description": "Upstream unavailable"
           }
         }
       }
