@@ -167,7 +167,7 @@ function auditRow(item) {
   const card=el("article","delegation-item"),head=el("div","delegation-head");
   const title=el("div");
   title.append(el("strong","",item.clientName),el("p","",item.resource));
-  head.append(title,el("span","role",item.status==="revoked"?"已撤销":"有效"));
+  head.append(title,el("span","role",item.status==="revoked"?"已撤销":"未撤销"));
   card.append(head);
   const facts=el("div","delegation-tags");
   facts.append(el("span","tag","授权于 "+formatTime(item.createdAt)));
@@ -262,7 +262,7 @@ async function loadExternal(reset=false) {
 function authorizationRow(item) {
   const card=el("article","delegation-item"),head=el("div","delegation-head"),intro=el("div");
   intro.append(el("strong","",item.clientName),el("p","",item.clientId));
-  const status=item.status==="active"?"有效授权":"已撤销";
+  const status=item.status==="active"?"未撤销":"已撤销";
   if(item.status==="active"){
     const button=el("button","button danger","撤销授权");button.type="button";
     button.addEventListener("click",()=>openRevoke(item,"oauth"));
