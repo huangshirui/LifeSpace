@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFileSync } from "node:fs";
 import { queueAttachmentSnapshot } from "./production-cloudflare-shapes.mjs";
 
 test("accepts Queue attachments exposed with Wrangler current script field", () => {
@@ -38,4 +39,24 @@ test("does not accept another Worker as the production Queue attachment", () => 
   }, []);
   assert.equal(snapshot.consumerAttached, false);
   assert.equal(snapshot.producerAttached, false);
+});
+
+test("Production MCP ingress uses private same-environment Core and Identity bindings", () => {
+  const readConfig = (name) => JSON.parse(readFileSync(new URL(name, import.meta.url), "utf8")
+    .replace(/^\s*\/\/.*$/gmu, ""));
+  const core = readConfig("../../apps/core/wrangler.jsonc");
+  const identity = readConfig("../../apps/identity/wrangler.jsonc");
+  assert.deepEqual(core.env.production.services, [
+    { binding: "IDENTITY", service: "lifespace-identity" },
+    { binding: "MCP_ADAPTER", service: "lifespace-mcp-adapter" },
+  ]);
+  assert.deepEqual(identity.env.production.services, [
+    { binding: "CORE", service: "lifespace-core" },
+  ]);
+  assert.equal(core.env.production.vars.ENVIRONMENT, "production");
+  assert.equal(identity.env.production.vars.ENVIRONMENT, "production");
+  assert.equal(core.env.staging.services.find((x) => x.binding === "MCP_ADAPTER").service,
+    "lifespace-mcp-adapter-staging");
+  assert.equal(identity.env.staging.services.find((x) => x.binding === "CORE").service,
+    "lifespace-core-staging");
 });
