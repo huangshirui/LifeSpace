@@ -13,6 +13,7 @@ const SPACE = /^spc_[A-Za-z0-9_-]{3,128}$/u;
 const AGENT = /^agt_[A-Za-z0-9_-]{3,128}$/u;
 const APPLICATION = /^app_[A-Za-z0-9_-]{3,128}$/u;
 const JSON_TYPE = "application/json; charset=utf-8";
+const ACCOUNT_EXTERNAL = /^\/api\/account\/spaces\/(spc_[A-Za-z0-9_-]{3,128})\/external-connections$/u;
 const ACCOUNT_AUTHORIZATION = /^\/api\/account\/authorizations\/(oaz_[A-Za-z0-9_-]{16,128})(?:\/(revoke))?$/u;
 const ACCOUNT_SPACE_DETAIL = /^\/api\/account\/spaces\/(spc_[A-Za-z0-9_-]{3,128})(?:\/(members))?$/u;
 const SPACE_ROLES = new Set(["owner","admin","editor","viewer"]);
@@ -220,7 +221,7 @@ export async function accountFetch(req, env) {
     && path !== "/api/delegations" && path !== "/api/delegations/revoke"
     && path !== "/api/account/spaces" && path !== "/api/account/login-email"
     && path !== "/api/account/authorizations" && !ACCOUNT_AUTHORIZATION.test(path)
-    && !ACCOUNT_SPACE_DETAIL.test(path)
+    && !ACCOUNT_SPACE_DETAIL.test(path) && !ACCOUNT_EXTERNAL.test(path)
     && path !== "/api/oauth/confirm" && path !== "/api/oauth/deny") return fail(404, "NOT_FOUND", "接口不存在");
   if ((path === "/api/oauth/confirm" || path === "/api/oauth/deny"
     || path === "/api/delegation/approve" || path === "/api/delegation/deny"
@@ -293,6 +294,30 @@ export async function accountFetch(req, env) {
     if(!validAuthorization(item) || item.id!==ownedAuthorization[1])
       return fail(502,"IDENTITY_INVALID_RESPONSE","OAuth 授权详情格式异常");
     return responseJson({data:item});
+  }
+  const external = ACCOUNT_EXTERNAL.exec(path);
+  if (external) {
+    if (url.search) return fail(400,"INVALID_REQUEST","外部数据源列表不接受额外参数");
+    const source=await boundedUpstream(env,"CORE",
+      "/api/v1/spaces/"+encodedPath(external[1])+"/external-connections",linked.token);
+    if(!source?.ok) return fail([403,404].includes(source?.status)?source.status:503,
+      "EXTERNAL_CONNECTIONS_UNAVAILABLE","当前用户无法读取这个 Space 的外部数据源");
+    const payload=await data(source);
+    if(!payload || !Array.isArray(payload.items) || payload.items.length>500
+      || payload.items.some(item=>!isObject(item)
+        || !/^exs_[A-Za-z0-9_-]{8,128}$/u.test(item.id||"")
+        || item.spaceId!==external[1] || !safeText(item.providerKey,100)
+        || !safeText(item.displayName,100)
+        || !["active","disabled","revoked"].includes(item.status)
+        || !["read","write",null].includes(item.access)
+        || !safeText(item.createdAt,80))) {
+      return fail(502,"CORE_INVALID_RESPONSE","外部数据源列表响应异常");
+    }
+    return responseJson({data:{items:payload.items.map(item=>({
+      id:item.id,spaceId:item.spaceId,providerKey:item.providerKey,
+      displayName:item.displayName,status:item.status,access:item.access,
+      createdAt:item.createdAt,
+    }))}});
   }
   const spaceDetail = ACCOUNT_SPACE_DETAIL.exec(path);
   if (spaceDetail) {
