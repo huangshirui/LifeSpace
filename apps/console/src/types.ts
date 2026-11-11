@@ -8,6 +8,7 @@ export type ConsoleSession = {
   user: {
     id: string;
     displayName: string;
+    avatarUrl: string | null;
     status: "active" | "disabled" | string;
   };
 };
