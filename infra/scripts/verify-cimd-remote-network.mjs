@@ -15,6 +15,10 @@ assert.ok(process.env.CLOUDFLARE_API_TOKEN, "Missing protected Cloudflare API to
 const localBase = "http://127.0.0.1:8797";
 const token = randomBytes(32).toString("hex");
 const dnsFlipEnabled = process.env.CIMD_DNS_FLIP === "1";
+if (dnsFlipEnabled) {
+  assert.ok(process.env.CIMD_DNS_TEST_TOKEN,
+    "Dedicated CIMD_DNS_TEST_TOKEN is required for any DNS-mutating acceptance; never fall back to deploy token");
+}
 const dnsFlipHost = dnsFlipEnabled
   ? "cimd-rebind-" + randomUUID().replaceAll("-", "") + ".aisr.online" : null;
 const args = [
@@ -81,7 +85,7 @@ try {
   if (dnsFlipHost) {
     const result = await runControlledDnsFlip({
       accountId: process.env.CLOUDFLARE_ACCOUNT_ID,
-      token: process.env.CIMD_DNS_TEST_TOKEN || process.env.CLOUDFLARE_API_TOKEN,
+      token: process.env.CIMD_DNS_TEST_TOKEN,
       host: dnsFlipHost,
       previewUrl: localBase + "/dns-flip", authToken: token,
     });
