@@ -10,6 +10,26 @@ const BASE = "https://auth-staging.aisr.online";
 const CORE_ORIGIN = "https://core-staging.aisr.online";
 const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
 const apiToken = process.env.CLOUDFLARE_API_TOKEN;
+const stagingD1 = { identity: null, core: null };
+async function discoverStagingDatabases() {
+  for (const [service, worker] of [
+    ["identity", "lifespace-identity-staging"],
+    ["core", "lifespace-core-staging"],
+  ]) {
+    const response = await fetch(
+      `https://api.cloudflare.com/client/v4/accounts/${accountId}/workers/scripts/${worker}/settings`,
+      {
+        headers: { authorization: `Bearer ${apiToken}` },
+        signal: AbortSignal.timeout(15000),
+      },
+    );
+    const data = await response.json();
+    assert.ok(response.ok && data.success, `Cannot verify ${service} staging Worker`);
+    const binding = data.result?.bindings?.find(b => b.type === "d1" && b.name === "DB");
+    assert.match(binding?.id || "", /^[a-f0-9-]{36}$/, "Missing staging D1 binding");
+    stagingD1[service] = binding.id;
+  }
+}
 assert.ok(/^[a-f0-9]{32}$/.test(accountId || ""), "Staging Cloudflare account ID required");
 assert.ok(apiToken, "Staging-scoped Cloudflare API token required");
 const nonce = randomUUID().replaceAll("-", "");
@@ -40,8 +60,8 @@ async function request(path, init = {}) {
 }
 async function api(sql, params = []) {
   assert.ok(/^\s*(SELECT|DELETE)\b/i.test(sql), "Only scoped reads or cleanup deletes allowed");
-  const url = `https://api.cloudflare.com/client/v4/accounts/${accountId}/d1/database/${process.env.IDENTITY_STAGING_D1_ID}/query`;
-  assert.ok(/^[0-9a-f-]{36}$/.test(process.env.IDENTITY_STAGING_D1_ID || ""), "Staging Identity D1 ID required");
+  assert.ok(stagingD1.identity, "Identity staging D1 binding not verified");
+  const url = `https://api.cloudflare.com/client/v4/accounts/${accountId}/d1/database/${stagingD1.identity}/query`;
   const response = await fetch(url, {
     method: "POST",
     signal: AbortSignal.timeout(15000),
@@ -58,8 +78,8 @@ async function api(sql, params = []) {
   return data.result[0].results ?? [];
 }
 async function coreApi(sql) {
-  const coreId = process.env.CORE_STAGING_D1_ID;
-  assert.ok(/^[0-9a-f-]{36}$/.test(coreId || ""), "Staging Core D1 ID required");
+  const coreId = stagingD1.core;
+  assert.ok(coreId, "Core staging D1 binding not verified");
   const url = `https://api.cloudflare.com/client/v4/accounts/${accountId}/d1/database/${coreId}/query`;
   const response = await fetch(url, {
     method: "POST",
@@ -114,6 +134,7 @@ async function cleanup() {
   passed("ephemeral OAuth test records cleaned");
 }
 async function run() {
+  await discoverStagingDatabases();
   const metadataResponse = await request("/.well-known/oauth-authorization-server");
   assert.equal(metadataResponse.status, 200);
   const metadata = await metadataResponse.json();
