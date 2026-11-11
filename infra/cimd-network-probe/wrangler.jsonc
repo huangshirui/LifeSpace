@@ -1,0 +1,14 @@
+{
+  "$schema": "../../apps/identity/node_modules/wrangler/config-schema.json",
+  "name": "lifespace-cimd-network-probe-preview",
+  "main": "worker.ts",
+  "compatibility_date": "2026-08-08",
+  "compatibility_flags": [
+    "global_fetch_strictly_public"
+  ],
+  "workers_dev": false,
+  "preview_urls": false,
+  "observability": {
+    "enabled": false
+  }
+}
