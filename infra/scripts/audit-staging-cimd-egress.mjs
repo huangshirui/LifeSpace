@@ -6,6 +6,7 @@
 // No create/update/delete Cloudflare APIs. No Production reads/writes.
 import assert from "node:assert/strict";
 import { fileURLToPath } from "node:url";
+import { resolve } from "node:path";
 
 const WORKER = "lifespace-identity-staging";
 
@@ -105,6 +106,6 @@ async function main() {
     throw new Error("CIMD must remain disabled and unbound until private-IP/DNS-rebinding egress proof is approved");
   }
 }
-if (process.argv[1] && fileURLToPath(import.meta.url) === fileURLToPath(new URL("file://" + process.argv[1], import.meta.url))) {
+if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
   await main();
 }
