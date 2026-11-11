@@ -10,6 +10,7 @@
   "env": {
     "staging": {
       "name": "lifespace-identity-staging",
+      "compatibility_flags": ["global_fetch_strictly_public"],
       "placement": { "mode": "smart" },
       "vars": {
         "ENVIRONMENT": "staging",
