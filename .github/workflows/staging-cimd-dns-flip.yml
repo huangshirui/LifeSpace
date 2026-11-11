@@ -21,7 +21,7 @@ jobs:
     timeout-minutes: 12
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      CIMD_DNS_TEST_TOKEN: ${{ secrets.CIMD_DNS_TEST_TOKEN || secrets.CLOUDFLARE_API_TOKEN }}
+      CIMD_DNS_TEST_TOKEN: ${{ secrets.CIMD_DNS_TEST_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID || secrets.CLOUDFLARE_ACCOUNT_ID }}
       CIMD_DNS_FLIP: "1"
     steps:
@@ -34,7 +34,10 @@ jobs:
           test "$GITHUB_TRIGGERING_ACTOR" = "huangshirui"
           test "$GITHUB_REF_NAME" = "main"
           test -n "${CLOUDFLARE_API_TOKEN:-}"
-          test -n "${CIMD_DNS_TEST_TOKEN:-}"
+          if [[ -z "${CIMD_DNS_TEST_TOKEN:-}" ]]; then
+            echo "::error::Missing staging CIMD_DNS_TEST_TOKEN. Create a Cloudflare API token with Zone:Zone:Read and Zone:DNS:Edit limited to aisr.online, then add as protected Staging secret."
+            exit 1
+          fi
           test "${#CLOUDFLARE_ACCOUNT_ID}" -eq 32
 
       - uses: actions/checkout@v5
@@ -51,6 +54,9 @@ jobs:
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
 
+      - name: Check dedicated Cloudflare DNS token (read-only, before dependency install)
+        run: node infra/scripts/preflight-cimd-dns-token.mjs
+
       - name: Install pinned dependencies
         run: pnpm install --frozen-lockfile
 
@@ -58,6 +64,7 @@ jobs:
         shell: bash
         run: |
           node --check infra/scripts/cimd-controlled-dns-flip.mjs
+          node --check infra/scripts/preflight-cimd-dns-token.mjs
           node --check infra/scripts/verify-cimd-remote-network.mjs
           node --test infra/scripts/verify-cimd-network-contract.test.mjs
           pnpm --dir apps/identity exec wrangler deploy --dry-run --config ../../infra/cimd-network-probe/wrangler.jsonc
