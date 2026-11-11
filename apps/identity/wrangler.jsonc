@@ -14,9 +14,7 @@
       "vars": {
         "ENVIRONMENT": "staging",
         "ACCESS_TEAM_DOMAIN": "https://aisronline.cloudflareaccess.com",
-        "OAUTH_MCP_RESOURCE_ORIGIN": "https://core-staging.aisr.online",
-        "OAUTH_CIMD_ENABLED": "1",
-        "OAUTH_DCR_ENABLED": "1"
+        "OAUTH_MCP_RESOURCE_ORIGIN": "https://core-staging.aisr.online"
       },
       "ratelimits": [
         { "name": "OAUTH_DCR_RATE_LIMITER", "namespace_id": "26741", "simple": { "limit": 10, "period": 60 } }
