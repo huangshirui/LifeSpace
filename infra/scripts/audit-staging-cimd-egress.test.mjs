@@ -1,62 +1,69 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { assessCimdStaging, auditCimdStaging } from "./audit-staging-cimd-egress.mjs";
 
-const flag = value => ({ name: "OAUTH_CIMD_ENABLED", type: "plain_text", text: value });
-const egress = { name: "OAUTH_CIMD_EGRESS", type: "vpc_network" };
-const allowAllPrivateRule = {
-  enabled: true,
-  action: "block",
-  filters: ["l4"],
-  traffic: "net.dst.ip in {10.0.0.0/8 127.0.0.0/8 192.168.0.0/16 fc00::/7}",
-};
-
-test("CIMD is safely closed only with disabled release switch and no egress binding", () => {
-  const result = assessCimdStaging({ bindings: [flag("0")] });
-  assert.equal(result.safeClosed, true);
-  assert.equal(result.code, "SAFE_CLOSED");
-  assert.equal(result.deploymentFlag, "0");
+const publicFlag = ["global_fetch_strictly_public"];
+const worker = (flag = "0", options = {}) => ({
+  compatibility_flags: options.compatibility_flags ?? publicFlag,
+  bindings: [
+    { name: "OAUTH_CIMD_ENABLED", type: "plain_text", text: flag },
+    ...(options.networkBindings ?? []),
+  ],
 });
 
-test("an enabled CIMD switch is not accepted even if no egress binding exists", () => {
-  const result = assessCimdStaging({ bindings: [flag("1")] });
-  assert.equal(result.safeClosed, false);
-  assert.equal(result.code, "CIMD_DEPLOYMENT_FLAG_NOT_CLOSED");
+test("Wrangler requires strictly-public fetch for Identity Staging only", () => {
+  const config = JSON.parse(readFileSync(new URL("../../apps/identity/wrangler.jsonc", import.meta.url), "utf8"));
+  assert.deepEqual(config.env.staging.compatibility_flags, publicFlag);
+  assert.equal(config.env.staging.vars.OAUTH_CIMD_ENABLED, "0");
+  assert.equal(config.env.production.compatibility_flags, undefined,
+    "No change to Production until separate release acceptance");
+  assert.equal(config.env.production.vars.OAUTH_CIMD_ENABLED, undefined);
+  assert.equal(config.env.staging.vpc_networks, undefined);
+  assert.equal(config.env.production.vpc_networks, undefined);
 });
 
-test("an egress binding is unapproved regardless of release flag or Gateway rules", () => {
-  for (const value of ["0", "1"]) {
-    const result = assessCimdStaging({
-      bindings: [flag(value), egress], gatewayRules: [allowAllPrivateRule],
-    });
-    assert.equal(result.safeClosed, false);
-    assert.equal(result.code, "EGRESS_ATTACHED_WITHOUT_NETWORK_SECURITY_ATTESTATION");
-    assert.equal(result.gatewayNetworkDenyCount, 1);
-    // Enabled blocking rules are not proof of DNS-rebinding safety.
+test("deployed strictly public fetch and disabled switch is safe-closed", () => {
+  const r = assessCimdStaging(worker());
+  assert.equal(r.safeClosed, true);
+  assert.equal(r.status, "SAFE_CLOSED");
+  assert.equal(r.strictPublicFetch, true);
+});
+
+test("flag absent or disabled must refuse release even when the switch is off", () => {
+  for (const flags of [[], ["global_fetch_private_origin"]]) {
+    const r = assessCimdStaging(worker("0", { compatibility_flags: flags }));
+    assert.equal(r.safeClosed, false);
   }
 });
 
-test("a disabled Gateway private-network rule does not count as enforcement", () => {
-  const result = assessCimdStaging({
-    bindings: [flag("0")], gatewayRules: [{ ...allowAllPrivateRule, enabled: false }],
-  });
-  assert.equal(result.safeClosed, true);
-  assert.equal(result.gatewayNetworkDenyCount, 0);
-  assert.equal(result.gatewayDisabledNetworkDenyCount, 1);
+test("a CIMD-enabled Staging Worker is not yet approved without live SSRF network probes", () => {
+  assert.equal(assessCimdStaging(worker("1")).safeClosed, false);
+  assert.equal(assessCimdStaging(worker("missing")).safeClosed, false);
+  assert.equal(assessCimdStaging({ compatibility_flags: publicFlag }).safeClosed, false);
 });
 
-test("read-only Cloudflare audit tolerates missing Gateway listing only when safely closed", async () => {
-  const opts = {
-    accountId: "a".repeat(32), token: "fake-test-token",
-    fetchSettings: async () => ({ bindings: [flag("0")] }),
-    fetchGatewayRules: async () => { throw Error("token detail must not leak"); },
+test("any private VPC egress binding fails closed regardless of strict public flag", () => {
+  for (const item of [
+    { name: "OAUTH_CIMD_EGRESS", type: "vpc_network" },
+    { name: "SOME_OTHER_PRIVATE_NETWORK", type: "vpc_network" },
+  ]) {
+    const r = assessCimdStaging(worker("0", { networkBindings: [item] }));
+    assert.equal(r.safeClosed, false);
+    assert.equal(r.networkBindings.length, 1);
+  }
+});
+
+test("audit is read-only and rejects a deployed Worker missing required flag", async () => {
+  const options = {
+    accountId: "a".repeat(32),
+    token: "redacted_test_token",
+    getSettings: async () => worker(),
   };
-  const result = await auditCimdStaging(opts);
-  assert.equal(result.safeClosed, true);
-  assert.match(result.gatewayReadError, /not readable/u);
-  assert.doesNotMatch(JSON.stringify(result), /token detail/u);
-  const unsafe = await auditCimdStaging({
-    ...opts, fetchSettings: async () => ({ bindings: [flag("1"), egress] }),
+  assert.equal((await auditCimdStaging(options)).safeClosed, true);
+  const invalid = await auditCimdStaging({
+    ...options,
+    getSettings: async () => worker("0", { compatibility_flags: [] }),
   });
-  assert.equal(unsafe.safeClosed, false);
+  assert.equal(invalid.safeClosed, false);
 });
