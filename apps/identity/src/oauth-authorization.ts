@@ -48,7 +48,7 @@ async function cleanupOrphanOAuthClients(db: D1Database): Promise<void> {
   await db.prepare(
     "DELETE FROM oauth_clients WHERE id IN ("
     + "SELECT c.id FROM oauth_clients c WHERE "
-    + "(c.id LIKE 'ocli_%' OR c.id LIKE 'https://%') AND c.created_at<? "
+    + "(c.id LIKE 'ocli_%' OR c.id LIKE 'https://%') AND c.status='active' AND c.created_at<? "
     + "AND NOT EXISTS (SELECT 1 FROM oauth_authorization_requests r WHERE r.client_id=c.id) "
     + "AND NOT EXISTS (SELECT 1 FROM oauth_authorizations a WHERE a.client_id=c.id) "
     + "AND NOT EXISTS (SELECT 1 FROM oauth_authorization_codes ac WHERE ac.client_id=c.id) "
