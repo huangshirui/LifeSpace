@@ -457,7 +457,6 @@ export default function App({ toolbar }: { toolbar?: ReactNode }) {
           <div className="brand-meta">
             <span>Console</span>
             <span className={`brand-environment ${production ? "production" : "staging"}`} role="status" aria-label={production ? "生产环境" : "测试环境"}>
-              <span className="environment-dot" aria-hidden="true" />
               {production ? "PRODUCTION" : "STAGING"}
             </span>
           </div>
@@ -465,11 +464,19 @@ export default function App({ toolbar }: { toolbar?: ReactNode }) {
       </div>
       <nav>{navGroups.map((group, index) => <div className="nav-group" key={`${group.label}-${index}`}>{group.label && <div className="nav-label">{group.label}</div>}{group.items.map((item) => <button key={item.href} className={route.page === item.page ? "nav-item active" : "nav-item"} onClick={() => navigate(item.href)}>{item.label}</button>)}</div>)}</nav>
       <div className="sidebar-footer">
-        <div className="operator"><div className="avatar">{current.user.displayName.slice(0, 1).toUpperCase()}</div><div><strong>{current.user.displayName}</strong><span>{current.user.id}</span></div></div>
-        <div className="sidebar-context">
-          <span>写操作需确认并审计</span>
-          <small>Console {current.consoleVersion}</small>
-        </div>
+        <a
+          className="operator"
+          href={production ? "https://account.aisr.online/center#account" : "https://account-staging.aisr.online/center#account"}
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label={`打开 ${current.user.displayName} 的 AISR 账户中心（新标签页）`}
+        >
+          <span className="avatar" aria-hidden="true">
+            {current.user.displayName.slice(0, 1).toUpperCase()}
+            {current.user.avatarUrl && <img src={current.user.avatarUrl} alt="" referrerPolicy="no-referrer" onError={(event) => { event.currentTarget.style.display = "none"; }} />}
+          </span>
+          <span className="operator-meta"><strong>{current.user.displayName}</strong><span>账户中心</span></span>
+        </a>
       </div>
     </aside>
     <div className="workspace">
