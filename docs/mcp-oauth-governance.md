@@ -78,6 +78,32 @@ OAuth client registration never implies a user Grant or Delegation.
   DNS rebinding/SSRF negative tests. No migration or deletion of valid
   OAuth client credentials, authorizations or tokens is permitted.
 
+## 2026-11-11 · CIMD Secure Egress release gate (candidate, NOT deployed)
+
+- Staging deliberately sets `OAUTH_CIMD_ENABLED=0` until an independent, staged
+  private-IP / DNS-rebinding security acceptance is complete. This is in
+  addition to the Console admission switch and the missing-by-default
+  `OAUTH_CIMD_EGRESS` network binding. Enabling a VPC binding by itself
+  **does not** make arbitrary CIMD discovery safe.
+- Workers VPC `cf1:network` reaches both public Internet through Gateway and
+  private Tunnel/Mesh/WAN routes. Attaching it without verified Network
+  policies may *expand* SSRF reachability. Cloudflare Gateway DNS/HTTP
+  filtering alone is not evidence that final resolved IPv4/IPv6 addresses
+  are blocked at connection time. Any private/special-purpose destination or
+  DNS rebinding attempt must be blocked before rollout.
+- The separate `infra/scripts/audit-staging-cimd-egress.mjs` performs a
+  read-only cloud configuration inspection and **only accepts safe closure**
+  (Staging flag disabled and Egress binding absent). An enabled Gateway rule
+  is reported but is *not* treated as penetration-test evidence. The
+  canonical Owner-dispatched staging workflow runs this after Identity deploy.
+  No automatic workflow can modify the canonical Staging or Production
+  release approvals.
+- To move toward open CIMD, separately design a constrained egress path,
+  prove it cannot route to private/special IPv4/IPv6 addresses including via
+  changed DNS resolutions, then extend the audit from strict safe-closure to
+  a reproducible security-proof check. Until then, DCR is the available
+  automatic OAuth client registration mechanism.
+
 ## Expected journey
 
 1. User connects a compatible MCP Server from ChatGPT/Claude/etc.
