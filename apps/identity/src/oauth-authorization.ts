@@ -233,14 +233,13 @@ export async function exchangeInteractiveOAuthToken(c: Context<AppEnv>, body: Fo
   return issueTokens(c, a, row.family_id);
 }
 
-// Registration features are advertised only when their safety gates exist.
+// Console owns both admission switches. A missing rate limiter always fails closed;
+// neither protocol can be advertised or used without this runtime safeguard.
 function dcrReady(env: Bindings, policy: OAuthClientAdmissionPolicy): boolean {
-  return env.OAUTH_DCR_ENABLED === "1"
-    && Boolean(env.OAUTH_DCR_RATE_LIMITER) && policy.dcrEnabled;
+  return Boolean(env.OAUTH_DCR_RATE_LIMITER) && policy.dcrEnabled;
 }
 function cimdReady(env: Bindings, policy: OAuthClientAdmissionPolicy): boolean {
-  return env.OAUTH_CIMD_ENABLED === "1" && policy.cimdEnabled
-    && Boolean(env.OAUTH_DCR_RATE_LIMITER);
+  return Boolean(env.OAUTH_DCR_RATE_LIMITER) && policy.cimdEnabled;
 }
 export function registerOAuthAuthorizationServer(app: App) {
   app.get("/.well-known/oauth-authorization-server", async (c) => {
