@@ -508,12 +508,14 @@ paths:
         '503': { description: Fail closed until OAuth issuer is configured }
   /oauth/register:
     post:
-      description: Public PKCE client registration (DCR); disabled by default, forbidden in production until explicit new policy and rate limits exist. A client display name is not authenticated vendor identity.
+      description: Public PKCE client registration (DCR), available only when both operator policy and deployment security gates allow it; anonymous requests are rate-limited and subject to global storage quota. A client display name is not authenticated vendor identity.
       security: []
       responses:
         '201': { description: Client ID registered with exact redirect URIs }
         '400': { description: Invalid client metadata or redirect URI }
         '403': { description: DCR is disabled }
+        '429': { description: Registration rate or global storage quota exceeded }
+        '503': { description: Required limiter is unavailable }
   /api/v1/me/oauth/requests/{requestId}:
     get:
       description: Authenticated Account user reads pending OAuth client metadata and scopes. Client display name is unverified; these scopes are not current Core permissions.
@@ -562,7 +564,7 @@ paths:
         '409': { description: Authorization already revoked or concurrently changed }
   /oauth/authorize:
     get:
-      description: Validate registered OAuth Client, exact callback, mandatory state, PKCE S256 and allowlisted Resource URI. Creates only an expiring pending request, then redirects to Account Consent; grants no Authority.
+      description: Validate registered OAuth Client, exact callback, mandatory state, PKCE S256 and allowlisted Resource URI. Anonymous requests require rate limiting and atomic active-pending quota (1000). Creates only an expiring pending request, then redirects to Account Consent; grants no Authority.
       security: []
       parameters:
         - { name: client_id, in: query, required: true, schema: { type: string } }
@@ -576,6 +578,8 @@ paths:
       responses:
         '302': { description: Account consent pending transaction redirect }
         '400': { description: Invalid client/callback/PKCE/resource }
+        '429': { description: Authorization rate or active pending capacity exceeded }
+        '503': { description: Required authorization limiter or consent service unavailable }
   /oauth/core/agent-candidates:
     post:
       description: Core-only bounded resolution of currently active Agent/Application bindings for Agent IDs already selected by Core after checking the caller's Space Data Grants. Not a user-facing Agent Registry listing.
