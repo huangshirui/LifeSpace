@@ -89,7 +89,7 @@ async function boundedRequestText(request: Request, maxBytes: number): Promise<s
     const bytes = new Uint8Array(length);
     let offset = 0;
     for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
-    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    return new TextDecoder("utf-8", { fatal: true, ignoreBOM: false }).decode(bytes);
   } catch {
     await reader.cancel().catch(() => undefined);
     return null;
