@@ -1,87 +1,53 @@
-// Read-only Cloudflare staging CIMD egress safety preflight.
-// IMPORTANT: neither a VPC binding nor a Gateway policy is sufficient proof
-// of connection-time protection against private routes or DNS rebinding.
-// This preflight reports safe *closure*. Never claim open-CIMD acceptance.
+// Read-only check of the deployed LifeSpace Staging CIMD network boundary.
+// The Cloudflare runtime's global_fetch_strictly_public flag forces public
+// Internet routing even for same-zone URLs. No VPC Network egress is allowed.
+// Passing means SAFE CLOSED, not "DNS rebinding E2E verified" or CIMD enabled.
 //
-// No create/update/delete Cloudflare APIs. No Production reads/writes.
+// This audit never modifies Cloudflare configuration or Production.
 import assert from "node:assert/strict";
+import { appendFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
 
 const WORKER = "lifespace-identity-staging";
+const STRICT_PUBLIC_FLAG = "global_fetch_strictly_public";
 
-export function assessCimdStaging({ bindings = [], gatewayRules = null }) {
-  const flag = bindings.find(b => b.name === "OAUTH_CIMD_ENABLED");
-  const egress = bindings.find(b => b.name === "OAUTH_CIMD_EGRESS");
-  const isEnabled = flag?.type === "plain_text" && flag.text === "1";
-  const policyRules = Array.isArray(gatewayRules) ? gatewayRules : [];
-  const networkBlocks = policyRules.filter(rule =>
-    rule.enabled === true && rule.action === "block"
-    && Array.isArray(rule.filters) && rule.filters.includes("l4")
-    && typeof rule.traffic === "string" && rule.traffic.includes("net.dst.ip"));
-  const dormantBlocks = policyRules.filter(rule =>
-    rule.enabled === false && rule.action === "block"
-    && Array.isArray(rule.filters) && rule.filters.includes("l4")
-    && typeof rule.traffic === "string" && rule.traffic.includes("net.dst.ip"));
-  // Binding presence does not attest Gateway policy correctness, including
-  // destination IP *at actual connection time* or DNS rebinding protection.
-  // Until independent negative-network acceptance exists, no staging Worker
-  // should have an active CIMD egress binding.
-  const safeClosed = !isEnabled && !egress;
-  const code = egress
-    ? "EGRESS_ATTACHED_WITHOUT_NETWORK_SECURITY_ATTESTATION"
-    : isEnabled
-      ? "CIMD_DEPLOYMENT_FLAG_NOT_CLOSED"
-      : "SAFE_CLOSED";
+export function assessCimdStaging(settings = {}) {
+  const bindings = Array.isArray(settings.bindings) ? settings.bindings : [];
+  const compatibilityFlags = Array.isArray(settings.compatibility_flags) ? settings.compatibility_flags : [];
+  const config = bindings.find(binding => binding.name === "OAUTH_CIMD_ENABLED");
+  const vpc = bindings.filter(binding => binding.type === "vpc_network" || binding.name === "OAUTH_CIMD_EGRESS");
+  const explicitOff = config?.type === "plain_text" && config.text === "0";
+  const strictPublic = compatibilityFlags.includes(STRICT_PUBLIC_FLAG);
+  const noPrivateEgress = vpc.length === 0;
+  const safeClosed = explicitOff && strictPublic && noPrivateEgress;
   return {
     safeClosed,
-    code,
     worker: WORKER,
-    deploymentFlag: flag?.type === "plain_text" ? flag.text : "missing",
-    egressBinding: egress ? { name: egress.name, type: egress.type } : null,
-    gatewayNetworkDenyCount: networkBlocks.length,
-    gatewayDisabledNetworkDenyCount: dormantBlocks.length,
-    gatewayRulesReadable: gatewayRules !== null,
-    warning: "No Gateway ruleset or VPC binding alone proves DNS rebinding safety; require independent connection-time negative tests and authorized release.",
+    deploymentFlag: config?.type === "plain_text" ? config.text : "missing",
+    strictPublicFetch: strictPublic,
+    networkBindings: vpc.map(b => ({ name: b.name, type: b.type })),
+    status: safeClosed ? "SAFE_CLOSED" : "RELEASE_GATE_FAILED",
+    note: "Public-only fetch configuration is not equivalent to live DNS rebinding/SSRF penetration test evidence.",
   };
 }
 
-async function cfGet(accountId, token, path) {
-  const response = await fetch(`https://api.cloudflare.com/client/v4/accounts/${accountId}${path}`, {
-    headers: { Authorization: `Bearer ${token}` },
-    signal: AbortSignal.timeout(15000),
-    redirect: "error",
-  });
-  const json = await response.json().catch(() => null);
-  if (!response.ok || json?.success !== true) {
-    throw new Error(`Cloudflare read-only API failed: ${path} HTTP ${response.status}`);
-  }
-  return json.result;
-}
-
-export async function auditCimdStaging({ accountId, token, fetchSettings, fetchGatewayRules } = {}) {
+export async function auditCimdStaging({ accountId, token, getSettings } = {}) {
   assert.match(accountId || "", /^[a-f0-9]{32}$/u, "Cloudflare account ID required");
   assert.ok(typeof token === "string" && token.length > 5, "Cloudflare API token required");
-  const getSettings = fetchSettings
-    || (() => cfGet(accountId, token, `/workers/scripts/${WORKER}/settings`));
-  const getGateway = fetchGatewayRules
-    || (() => cfGet(accountId, token, "/gateway/rules"));
-  const settings = await getSettings();
-  let gatewayRules = null;
-  let gatewayReadError = null;
-  try {
-    gatewayRules = await getGateway();
-    if (!Array.isArray(gatewayRules)) gatewayReadError = "Gateway policy list not an array";
-  } catch {
-    // Gateway API permission is not necessary for reporting a safely closed
-    // feature. Presence of a binding never passes regardless of this read.
-    gatewayReadError = "Gateway policy list not readable with current token";
-  }
-  const result = assessCimdStaging({
-    bindings: settings?.bindings,
-    gatewayRules: Array.isArray(gatewayRules) ? gatewayRules : null,
-  });
-  return { ...result, gatewayReadError };
+  const fetchSettings = getSettings || async () => {
+    const response = await fetch(
+      `https://api.cloudflare.com/client/v4/accounts/${accountId}/workers/scripts/${WORKER}/settings`,
+      { headers: { authorization: `Bearer ${token}` },
+        signal: AbortSignal.timeout(15000), redirect: "error" },
+    );
+    const data = await response.json().catch(() => null);
+    if (!response.ok || data?.success !== true) {
+      throw new Error(`Cloudflare Staging Worker read-only audit failed (HTTP ${response.status})`);
+    }
+    return data.result;
+  };
+  return assessCimdStaging(await fetchSettings());
 }
 
 async function main() {
@@ -91,19 +57,18 @@ async function main() {
   });
   console.log("Staging CIMD egress audit: " + JSON.stringify(result));
   if (process.env.GITHUB_STEP_SUMMARY) {
-    const { appendFile } = await import("node:fs/promises");
     await appendFile(process.env.GITHUB_STEP_SUMMARY,
-      "\n## CIMD Staging Egress Release Gate\n"
-      + "- Result: **" + (result.safeClosed ? "SAFE_CLOSED" : "NOT_READY") + "**\n"
-      + "- Deployment flag: `" + result.deploymentFlag + "`\n"
-      + "- Egress attached: `" + Boolean(result.egressBinding) + "`\n"
-      + "- Active Gateway destination-IP block rules (not proof of DNS rebinding safety): "
-      + result.gatewayNetworkDenyCount + "\n"
-      + "- Dormant destination-IP block rules: " + result.gatewayDisabledNetworkDenyCount + "\n"
-      + "- Explicit scope: no live SSRF test and no Production acceptance.\n");
+      "\n## CIMD Public-Only Network Gate\n"
+      + "- Staging release flag: `" + result.deploymentFlag + "`\n"
+      + "- Cloudflare global fetch strictly public: `" + result.strictPublicFetch + "`\n"
+      + "- VPC/private egress bindings: `" + result.networkBindings.length + "`\n"
+      + "- Result: **" + result.status + "**\n"
+      + "- Pending: live negative DNS rebinding tests and positive CIMD metadata discovery.\n");
   }
   if (!result.safeClosed) {
-    throw new Error("CIMD must remain disabled and unbound until private-IP/DNS-rebinding egress proof is approved");
+    throw new Error(
+      "Staging CIMD release gate requires flag=0, global_fetch_strictly_public and no VPC egress",
+    );
   }
 }
 if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
