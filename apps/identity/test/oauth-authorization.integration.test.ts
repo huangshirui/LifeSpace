@@ -470,8 +470,8 @@ describe("Identity OAuth Authorization Server (isolated candidate)", () => {
     expect((await t.authorize()).status).toBe(429);
     b.OAUTH_AUTHORIZE_RATE_LIMITER = { limit: async () => ({ success: true }) };
 
-    // A dead request cannot block capacity and must never be confused with
-    // a real consent linked to a durable authorization.
+    // The shared worker test DB may contain legitimate pending fixtures from
+    // earlier tests. Fill only the remaining capacity, then delete OUR rows.
     const oldRequest = "oar_expired_unbound_test";
     const now = new Date().toISOString();
     await b.DB.prepare(
@@ -481,25 +481,37 @@ describe("Identity OAuth Authorization Server (isolated candidate)", () => {
     ).bind(oldRequest, t.clientId, t.redirect, "testState" + "x".repeat(36),
       t.resource, JSON.stringify(["resources:read"]), "a".repeat(43),
       new Date(Date.now() - 2 * 3600000).toISOString(), now).run();
-    expect((await t.authorize()).status).toBe(302);
-    expect(await b.DB.prepare("SELECT id FROM oauth_authorization_requests WHERE id=?")
-      .bind(oldRequest).first()).toBeNull();
-
-    // The one successful request plus 999 synthetic pending rows exactly
-    // fills the global D1 quota. No Cloudflare colo rate counter is relied on.
-    const expires = new Date(Date.now() + 600000).toISOString();
-    await b.DB.prepare(
-      "WITH RECURSIVE seq(n) AS (SELECT 1 UNION ALL SELECT n+1 FROM seq WHERE n<999) "
-      + "INSERT INTO oauth_authorization_requests"
-      + "(id,client_id,redirect_uri,state,resource,scopes,code_challenge,status,expires_at,created_at)"
-      + " SELECT 'oar_quota_'||n,?,?,?,?,?,?,'pending',?,? FROM seq"
-    ).bind(t.clientId, t.redirect, "testState" + "x".repeat(36),
-      t.resource, JSON.stringify(["resources:read"]), "a".repeat(43), expires, now).run();
-    expect((await t.authorize()).status).toBe(429);
-    const count = await b.DB.prepare(
-      "SELECT count(*) as n FROM oauth_authorization_requests WHERE status='pending' AND expires_at>?"
-    ).bind(now).first<{ n: number }>();
-    expect(count?.n).toBe(1000);
+    const accepted = await t.authorize();
+    expect(accepted.status).toBe(302);
+    const ownRequestId = new URL(accepted.headers.get("location")!).searchParams.get("request_id")!;
+    try {
+      expect(await b.DB.prepare("SELECT id FROM oauth_authorization_requests WHERE id=?")
+        .bind(oldRequest).first()).toBeNull();
+      const liveBefore = await b.DB.prepare(
+        "SELECT count(*) as n FROM oauth_authorization_requests WHERE status='pending' AND expires_at>?"
+      ).bind(now).first<{ n: number }>();
+      const remaining = 1000 - (liveBefore?.n ?? 0);
+      expect(remaining).toBeGreaterThan(0);
+      const expires = new Date(Date.now() + 600000).toISOString();
+      await b.DB.prepare(
+        "WITH RECURSIVE seq(n) AS (SELECT 1 WHERE ?>0 "
+        + "UNION ALL SELECT n+1 FROM seq WHERE n+1<=?) "
+        + "INSERT INTO oauth_authorization_requests"
+        + "(id,client_id,redirect_uri,state,resource,scopes,code_challenge,status,expires_at,created_at)"
+        + " SELECT 'oar_quota_'||n,?,?,?,?,?,?,'pending',?,? FROM seq"
+      ).bind(remaining, remaining, t.clientId, t.redirect, "testState" + "x".repeat(36),
+        t.resource, JSON.stringify(["resources:read"]), "a".repeat(43), expires, now).run();
+      expect((await t.authorize()).status).toBe(429);
+      const count = await b.DB.prepare(
+        "SELECT count(*) as n FROM oauth_authorization_requests WHERE status='pending' AND expires_at>?"
+      ).bind(now).first<{ n: number }>();
+      expect(count?.n).toBe(1000);
+    } finally {
+      // Vitest's shared D1 fixture persists between tests in this file.
+      await b.DB.prepare("DELETE FROM oauth_authorization_requests WHERE id GLOB 'oar_quota_*'").run();
+      await b.DB.prepare("DELETE FROM oauth_authorization_requests WHERE id=?")
+        .bind(ownRequestId).run();
+    }
   });
 
   it("reclaims only expired and never-used anonymous DCR clients", async () => {
