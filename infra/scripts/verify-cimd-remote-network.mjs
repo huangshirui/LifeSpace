@@ -81,7 +81,7 @@ try {
   if (dnsFlipHost) {
     const result = await runControlledDnsFlip({
       accountId: process.env.CLOUDFLARE_ACCOUNT_ID,
-      token: process.env.CLOUDFLARE_API_TOKEN,
+      token: process.env.CIMD_DNS_TEST_TOKEN || process.env.CLOUDFLARE_API_TOKEN,
       host: dnsFlipHost,
       previewUrl: localBase + "/dns-flip", authToken: token,
     });
