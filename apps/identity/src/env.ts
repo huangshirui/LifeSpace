@@ -31,10 +31,9 @@ export type Bindings = {
   OAUTH_DCR_RATE_LIMITER?: RateLimit;
   // Independent guard for anonymous /oauth/authorize requests.
   OAUTH_AUTHORIZE_RATE_LIMITER?: RateLimit;
-  // Dedicated, network-policy-enforced egress (Workers VPC/Gateway).
-  // Never fall back to global fetch for untrusted CIMD URLs.
-  OAUTH_CIMD_EGRESS?: Fetcher;
   // Opt-in HTTPS Client ID Metadata Documents; disabled unless explicitly enabled.
+  // Opening this additionally requires the verified Cloudflare
+  // global_fetch_strictly_public deployment flag (outside the type system).
   OAUTH_CIMD_ENABLED?: string;
 };
 
