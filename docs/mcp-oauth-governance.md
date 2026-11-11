@@ -108,6 +108,44 @@ OAuth client registration never implies a user Grant or Delegation.
   may the Staging switch be separately enabled. Production needs a
   distinct security and release approval.
 
+## 2026-11-11 · Controlled authoritative DNS flip acceptance (candidate / not executed)
+
+- Owner-gated `.github/workflows/staging-cimd-dns-flip.yml` uses the
+  previously vetted isolated Cloudflare remote preview with
+  `global_fetch_strictly_public`, no Identity D1/Service/VPC connections.
+  It creates **one unpredictable DNS-only A record** under
+  `cimd-rebind-<nonce>.aisr.online`, initially pointing at the public
+  `1.1.1.1`, and then changes the **same** record to deliberately
+  unassigned/private `10.255.255.254`. TTL is 120 seconds.
+- The script first checks the hostname does not exist, and obtains the
+  current exact DNS zone and authoritative NS names directly via the
+  Cloudflare API. It requires both nameservers to agree on the public
+  address, then both to agree on the private address; after an extra
+  130-second cache expiry delay it probes the fixed hostname through
+  the temporary remote Worker again. The request can never choose
+  arbitrary destination names or paths; no remote response body is
+  exposed to the caller.
+- **Cleanup is not optional**: a `finally` block re-reads the exact
+  DNS record ID, hostname, type, and unproxied state before deleting
+  it, then verifies no record remains. Cancellation or force-kill
+  before cleanup may still require an operator to inspect
+  `cimd-rebind-*.aisr.online` for an abandoned record. The workflow
+  requires direct Owner dispatch from main, not PR CI.
+- **Evidence interpretation**: this demonstrates authoritative DNS
+  changing **between requests** and checks that no HTTP 2xx occurs
+  after the private transition. It **cannot** establish which cached
+  answer the Worker used or a change **within one TLS connection**.
+  Both results must be reported explicitly. Therefore this test
+  alone must not be cited as a complete DNS rebinding security proof
+  or used to enable Staging/Production CIMD. The lower-level
+  strict-public network enforcement and existing negative direct-IP
+  tests remain essential.
+- The DNS test adds/removes a *new, random, isolated record* in the
+  existing Cloudflare `aisr.online` zone, **never** existing service
+  records. No LifeSpace Staging or Production Worker is deployed,
+  no OAuth token is created, and no Cloudflare Gateway private
+  traffic policy is changed.
+
 ## Expected journey
 
 1. User connects a compatible MCP Server from ChatGPT/Claude/etc.
