@@ -84,6 +84,7 @@ jobs:
         run: |
           node --test infra/scripts/verify-cimd-network-contract.test.mjs infra/scripts/cimd-controlled-dns-flip.test.mjs
           node --check infra/scripts/cimd-controlled-dns-flip.mjs
+          node --check infra/scripts/preflight-cimd-dns-token.mjs
           node --check infra/scripts/verify-cimd-remote-network.mjs
           pnpm --dir apps/identity exec wrangler deploy --dry-run --config ../../infra/cimd-network-probe/wrangler.jsonc
 
