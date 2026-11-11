@@ -4,7 +4,8 @@
 // Production, private Tunnel/Mesh/WAN or arbitrary user-provided URLs.
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
+import { runControlledDnsFlip } from "./cimd-controlled-dns-flip.mjs";
 import { appendFile } from "node:fs/promises";
 import { setTimeout as sleep } from "node:timers/promises";
 
@@ -13,10 +14,14 @@ assert.match(process.env.CLOUDFLARE_ACCOUNT_ID || "", /^[a-f0-9]{32}$/,
 assert.ok(process.env.CLOUDFLARE_API_TOKEN, "Missing protected Cloudflare API token");
 const localBase = "http://127.0.0.1:8797";
 const token = randomBytes(32).toString("hex");
+const dnsFlipEnabled = process.env.CIMD_DNS_FLIP === "1";
+const dnsFlipHost = dnsFlipEnabled
+  ? "cimd-rebind-" + randomUUID().replaceAll("-", "") + ".aisr.online" : null;
 const args = [
   "--dir", "apps/identity", "exec", "wrangler", "dev",
   "--remote", "--config", "../../infra/cimd-network-probe/wrangler.jsonc",
   "--ip", "127.0.0.1", "--port", "8797", "--var", `PROBE_TOKEN:${token}`,
+  ...(dnsFlipHost ? ["--var", `REBIND_HOST:${dnsFlipHost}`] : []),
 ];
 const child = spawn("pnpm", args, { cwd: process.cwd(), stdio: ["ignore", "pipe", "pipe"],
   detached: true, env: { ...process.env, NO_COLOR: "1", CI: "true" } });
@@ -73,13 +78,28 @@ try {
   console.log("PASS: all 5 private/loopback probes produced no 2xx responses");
   console.log("NOT TESTED: in-flight DNS rebinding with controlled authoritative DNS");
 
+  if (dnsFlipHost) {
+    const result = await runControlledDnsFlip({
+      accountId: process.env.CLOUDFLARE_ACCOUNT_ID,
+      token: process.env.CLOUDFLARE_API_TOKEN,
+      host: dnsFlipHost,
+      previewUrl: localBase + "/dns-flip", authToken: token,
+    });
+    assert.equal(result.authoritativeFlipObserved, true);
+    assert.equal(result.noPrivate2xxObserved, true);
+    assert.equal(result.inFlightDnsRebindingProven, false);
+    console.log("PASS: controlled authoritative DNS public-to-private change between requests");
+    console.log("NOT PROVEN: in-flight DNS rebinding or actual remote edge resolved-IP selection");
+  }
+
   if (process.env.GITHUB_STEP_SUMMARY) {
     await appendFile(process.env.GITHUB_STEP_SUMMARY,
       "\n## Live CIMD network reachability tests (temporary Cloudflare remote preview)\n"
       + "- Public metadata: PASS\n"
       + "- Same-zone strict-public routing: PASS\n"
       + "- Five fixed private/loopback network reachability probes: NO 2xx\n"
-      + "- **In-flight DNS rebinding: NOT TESTED** (requires controlled authoritative DNS)\n"
+      + "- **In-flight DNS rebinding: NOT PROVEN** (single-connection or worker-resolved IP is not exposed)\n"
+      + (dnsFlipHost ? "- Isolated authoritative A-record public→private transition: PASS; record deleted\n" : "")
       + "- Worker preview is ephemeral; no LifeSpace staging/production code or settings modified\n");
   }
 } catch (error) {
