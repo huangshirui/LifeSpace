@@ -76,6 +76,9 @@ jobs:
       - name: Validate manual staging OAuth security script syntax
         if: steps.validation.outputs.run_full == 'true'
         run: node --check infra/scripts/verify-staging-oauth-security.mjs
+      - name: Verify CIMD egress safety gate unit tests
+        if: steps.validation.outputs.run_full == 'true'
+        run: node --test infra/scripts/audit-staging-cimd-egress.test.mjs
       - name: Resolve pinned provider revision from manifest
         if: steps.validation.outputs.run_full == 'true'
         id: external_provider
