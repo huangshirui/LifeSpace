@@ -27,6 +27,36 @@ type RefreshRow = { authorization_id: string; client_id: string; family_id: stri
 const id = (prefix: string) => prefix + "_" + crypto.randomUUID().replaceAll("-", "");
 const instant = () => new Date().toISOString();
 const secondsFromNow = (seconds: number) => new Date(Date.now() + seconds * 1000).toISOString();
+const MAX_LIVE_PENDING_OAUTH_REQUESTS = 1000;
+
+// Bounded opportunistic GC. Keep approved requests and every referenced
+// authorization/code/token untouched; only dead, unreferenced attempts can go.
+// This runs behind the registration/authorization rate-limit gates.
+async function cleanupStaleOAuthAttempts(db: D1Database): Promise<void> {
+  await db.prepare(
+    "DELETE FROM oauth_authorization_requests WHERE id IN ("
+    + "SELECT r.id FROM oauth_authorization_requests r WHERE r.expires_at<? "
+    + "AND NOT EXISTS (SELECT 1 FROM oauth_authorizations a WHERE a.request_id=r.id) "
+    + "ORDER BY r.expires_at LIMIT 50)"
+  ).bind(secondsFromNow(-3600)).run();
+}
+
+// An unused anonymous client may be reclaimed after seven days. No Client
+// with any request/authorization history is eligible until dead requests are
+// safely cleaned above; the DB foreign keys are a final safety boundary.
+async function cleanupOrphanOAuthClients(db: D1Database): Promise<void> {
+  await db.prepare(
+    "DELETE FROM oauth_clients WHERE id IN ("
+    + "SELECT c.id FROM oauth_clients c WHERE "
+    + "(c.id LIKE 'ocli_%' OR c.id LIKE 'https://%') AND c.status='active' AND c.created_at<? "
+    + "AND NOT EXISTS (SELECT 1 FROM oauth_authorization_requests r WHERE r.client_id=c.id) "
+    + "AND NOT EXISTS (SELECT 1 FROM oauth_authorizations a WHERE a.client_id=c.id) "
+    + "AND NOT EXISTS (SELECT 1 FROM oauth_authorization_codes ac WHERE ac.client_id=c.id) "
+    + "AND NOT EXISTS (SELECT 1 FROM oauth_access_tokens at WHERE at.client_id=c.id) "
+    + "AND NOT EXISTS (SELECT 1 FROM oauth_refresh_tokens rt WHERE rt.client_id=c.id) "
+    + "ORDER BY c.created_at LIMIT 25)"
+  ).bind(secondsFromNow(-7 * 86400)).run();
+}
 const json = (value: string) => {
   try {
     const result: unknown = JSON.parse(value);
@@ -35,6 +65,36 @@ const json = (value: string) => {
 };
 const oauthError = (c: Context<AppEnv>, status: 400 | 401 | 403 | 429 | 503, error: string, description: string) =>
   c.json({ error, error_description: description }, status);
+
+// Do not materialize a caller-controlled oversized DCR body before checking
+// its byte count. Content-Length is only a quick rejection, not the boundary.
+async function boundedRequestText(request: Request, maxBytes: number): Promise<string | null> {
+  const advertised = request.headers.get("content-length");
+  if (advertised && Number(advertised) > maxBytes) return null;
+  const reader = request.body?.getReader();
+  if (!reader) return null;
+  const chunks: Uint8Array[] = [];
+  let length = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      length += value.byteLength;
+      if (length > maxBytes) {
+        await reader.cancel().catch(() => undefined);
+        return null;
+      }
+      chunks.push(value);
+    }
+    const bytes = new Uint8Array(length);
+    let offset = 0;
+    for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+    return new TextDecoder("utf-8", { fatal: true, ignoreBOM: false }).decode(bytes);
+  } catch {
+    await reader.cancel().catch(() => undefined);
+    return null;
+  }
+}
 const randomSecret = (prefix: string) => {
   const bytes = crypto.getRandomValues(new Uint8Array(32));
   return prefix + btoa(String.fromCharCode(...bytes)).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/u, "");
@@ -107,7 +167,13 @@ async function clientForAuthorization(c: Context<AppEnv>, clientId: string): Pro
     const limit = await c.env.OAUTH_DCR_RATE_LIMITER.limit({ key: "oauth-cimd-fetch" });
     if (!limit.success) return null;
   } catch { return null; }
-  const metadata = await fetchClientMetadata(clientId);
+  // Global fetch would permit an attacker-controlled DNS answer to select an
+  // unreviewed outbound destination. Require a separately governed Gateway
+  // egress binding; missing/unhealthy egress must fail closed.
+  const egress = c.env.OAUTH_CIMD_EGRESS;
+  if (!egress) return null;
+  const metadata = await fetchClientMetadata(clientId,
+    (input, init) => egress.fetch(String(input), init));
   if (!metadata) return null;
   const redirects = JSON.stringify(metadata.redirectUris);
   if (!existing) {
@@ -240,7 +306,8 @@ function dcrReady(env: Bindings, policy: OAuthClientAdmissionPolicy): boolean {
 }
 function cimdReady(env: Bindings, policy: OAuthClientAdmissionPolicy): boolean {
   return env.OAUTH_CIMD_ENABLED === "1" && policy.cimdEnabled
-    && Boolean(env.OAUTH_DCR_RATE_LIMITER);
+    && Boolean(env.OAUTH_DCR_RATE_LIMITER)
+    && Boolean(env.OAUTH_CIMD_EGRESS);
 }
 export function registerOAuthAuthorizationServer(app: App) {
   app.get("/.well-known/oauth-authorization-server", async (c) => {
@@ -282,9 +349,9 @@ export function registerOAuthAuthorizationServer(app: App) {
     if (!/^application\/json(?:\s*;|$)/iu.test(c.req.header("content-type") || "")) {
       return oauthError(c, 400, "invalid_client_metadata", "Application/json is required");
     }
-    const raw = await c.req.text();
-    if (new TextEncoder().encode(raw).length > 8192) {
-      return oauthError(c, 400, "invalid_client_metadata", "Client metadata is too large");
+    const raw = await boundedRequestText(c.req.raw, 8192);
+    if (raw === null) {
+      return oauthError(c, 400, "invalid_client_metadata", "Client metadata is too large or invalid");
     }
     let input: Record<string, unknown> | null = null;
     try { input = JSON.parse(raw) as Record<string, unknown>; } catch { /* invalid */ }
@@ -307,6 +374,8 @@ export function registerOAuthAuthorizationServer(app: App) {
     }
     const name = typeof input.client_name === "string" && input.client_name.trim() && input.client_name.length <= 100
       ? input.client_name.trim() : "Unnamed OAuth Client";
+    await cleanupStaleOAuthAttempts(c.env.DB);
+    await cleanupOrphanOAuthClients(c.env.DB);
     const clientId = id("ocli");
     // Atomic global capacity limit complements the per-colo limiter and prevents
     // unbounded anonymous registrations even across multiple regions.
@@ -342,6 +411,19 @@ export function registerOAuthAuthorizationServer(app: App) {
       || requested.some(scope => scope !== "resources:read" && scope !== "resources:write")) {
       return oauthError(c, 400, "invalid_request", "Code, state, S256 PKCE and approved resource are required");
     }
+    // Anonymous authorize requests can otherwise consume Core reads and D1
+    // writes without ever reaching the protected Account consent page.
+    if (!c.env.OAUTH_AUTHORIZE_RATE_LIMITER) {
+      return oauthError(c, 503, "temporarily_unavailable", "OAuth authorization limiter is unavailable");
+    }
+    try {
+      const outcome = await c.env.OAUTH_AUTHORIZE_RATE_LIMITER.limit({ key: "oauth-authorize-global" });
+      if (outcome.success !== true) {
+        return oauthError(c, 429, "rate_limited", "OAuth authorization rate limit exceeded");
+      }
+    } catch {
+      return oauthError(c, 503, "temporarily_unavailable", "OAuth authorization limiter is unavailable");
+    }
     // A syntactically valid resource is not proof of an enabled Core MCP Server.
     if (!await liveOAuthResource(c.env, resource, requested)) {
       return oauthError(c, 400, "invalid_request", "MCP resource is not currently enabled");
@@ -359,9 +441,21 @@ export function registerOAuthAuthorizationServer(app: App) {
 
     const consent = httpsUrl(c.env.OAUTH_CONSENT_URL);
     if (!issuer(c) || !consent) return oauthError(c, 503, "temporarily_unavailable", "OAuth consent service is not configured");
+    await cleanupStaleOAuthAttempts(c.env.DB);
     const requestId = id("oar");
-    await c.env.DB.prepare("INSERT INTO oauth_authorization_requests(id,client_id,redirect_uri,state,resource,scopes,code_challenge,status,expires_at,created_at) VALUES(?,?,?,?,?,?,?,'pending',?,?)")
-      .bind(requestId, clientId, redirect, state, resource, JSON.stringify(requested), challenge, secondsFromNow(600), instant()).run();
+    // Atomic global admission quota; per-colo limiter alone is not a global
+    // write bound under distributed traffic.
+    const inserted = await c.env.DB.prepare(
+      "INSERT INTO oauth_authorization_requests"
+      + "(id,client_id,redirect_uri,state,resource,scopes,code_challenge,status,expires_at,created_at)"
+      + " SELECT ?,?,?,?,?,?,?,'pending',?,? WHERE "
+      + "(SELECT count(*) FROM oauth_authorization_requests"
+      + " WHERE status='pending' AND expires_at>?)<?"
+    ).bind(requestId, clientId, redirect, state, resource, JSON.stringify(requested),
+      challenge, secondsFromNow(600), instant(), instant(), MAX_LIVE_PENDING_OAUTH_REQUESTS).run();
+    if (inserted.meta.changes !== 1) {
+      return oauthError(c, 429, "rate_limited", "OAuth authorization capacity reached");
+    }
     const target = new URL(consent);
     target.searchParams.set("request_id", requestId);
     return c.redirect(target.href, 302);

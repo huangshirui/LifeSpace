@@ -30,6 +30,7 @@ async function setup() {
     ENVIRONMENT: "test",
     OAUTH_DCR_ENABLED: "1",
     OAUTH_DCR_RATE_LIMITER: { limit: async (_: { key: string }) => ({ success: true }) },
+    OAUTH_AUTHORIZE_RATE_LIMITER: { limit: async (_: { key: string }) => ({ success: true }) },
     OAUTH_ACCOUNT_APPLICATION_ID: "",
   };
   // Isolated tests enable DCR explicitly. The default database policy remains
@@ -280,13 +281,19 @@ describe("Identity OAuth Authorization Server (isolated candidate)", () => {
     const defaultMetadata = await t.request("/.well-known/oauth-authorization-server");
     expect(defaultMetadata.status).toBe(200);
     expect(await defaultMetadata.json()).not.toHaveProperty("client_id_metadata_document_supported");
-    const cimd = t.b as typeof t.b & { OAUTH_CIMD_ENABLED: string };
+    const cimd = t.b as typeof t.b & {
+      OAUTH_CIMD_ENABLED: string;
+      OAUTH_CIMD_EGRESS?: { fetch: (url: string, init?: RequestInit) => Promise<Response> };
+    };
     cimd.OAUTH_CIMD_ENABLED = "1";
     const unpinned = await t.request("/.well-known/oauth-authorization-server");
     expect(await unpinned.json()).not.toHaveProperty("client_id_metadata_document_supported");
     await t.b.DB.prepare(
       "UPDATE oauth_client_admission_policy SET cimd_enabled=1 WHERE id=1"
     ).run();
+    const noEgress = await t.request("/.well-known/oauth-authorization-server");
+    expect(await noEgress.json()).not.toHaveProperty("client_id_metadata_document_supported");
+    cimd.OAUTH_CIMD_EGRESS = { fetch: (url, init) => globalThis.fetch(url, init) };
     const optInMetadata = await t.request("/.well-known/oauth-authorization-server");
     expect(optInMetadata.status).toBe(200);
     expect(await optInMetadata.json()).toMatchObject({
@@ -356,6 +363,10 @@ describe("Identity OAuth Authorization Server (isolated candidate)", () => {
       ...options, body: JSON.stringify({ redirect_uris: ["https://*.example.com/cb"] }),
     });
     expect(denied.status).toBe(400);
+    const oversized = await t.request("/oauth/register", {
+      ...options, body: JSON.stringify({ redirect_uris: [t.redirect], unused: "x".repeat(9000) }),
+    });
+    expect(oversized.status).toBe(400);
     const accepted = await t.request("/oauth/register", options);
     expect(accepted.status).toBe(201);
     expect((await accepted.json() as { client_id: string }).client_id.startsWith("ocli_")).toBe(true);
@@ -403,10 +414,12 @@ describe("Identity OAuth Authorization Server (isolated candidate)", () => {
     const t = await setup();
     const b = t.b as typeof t.b & {
       OAUTH_CIMD_ENABLED: string;
+      OAUTH_CIMD_EGRESS?: { fetch: (url: string, init?: RequestInit) => Promise<Response> };
       OAUTH_DCR_RATE_LIMITER: { limit: ({ key }: { key: string }) => Promise<{ success: boolean }> };
     };
     b.ENVIRONMENT = "staging";
     b.OAUTH_CIMD_ENABLED = "1";
+    b.OAUTH_CIMD_EGRESS = { fetch: (url, init) => globalThis.fetch(url, init) };
     const remoteId = "https://public-client.example.com/oauth/client.json";
     const redirect = "https://client.example.test/callback";
     await b.DB.prepare(
@@ -416,6 +429,12 @@ describe("Identity OAuth Authorization Server (isolated candidate)", () => {
     const withoutLimiter = await t.request("/.well-known/oauth-authorization-server");
     expect(await withoutLimiter.json()).not.toHaveProperty("client_id_metadata_document_supported");
     expect((await t.authorize({ client_id: remoteId, redirect_uri: redirect })).status).toBe(400);
+    Reflect.deleteProperty(b, "OAUTH_CIMD_EGRESS");
+    b.OAUTH_DCR_RATE_LIMITER = { limit: async () => ({ success: true }) };
+    const withoutEgress = await t.request("/.well-known/oauth-authorization-server");
+    expect(await withoutEgress.json()).not.toHaveProperty("client_id_metadata_document_supported");
+    expect((await t.authorize({ client_id: remoteId, redirect_uri: redirect })).status).toBe(400);
+    b.OAUTH_CIMD_EGRESS = { fetch: (url, init) => globalThis.fetch(url, init) };
     const keys: string[] = [];
     b.OAUTH_DCR_RATE_LIMITER = { limit: async ({ key }) => {
       keys.push(key);
@@ -442,6 +461,90 @@ describe("Identity OAuth Authorization Server (isolated candidate)", () => {
     } finally {
       globalThis.fetch = oldFetch;
     }
+  });
+
+  it("rate-limits authorization and bounds live pending writes across regions", async () => {
+    const t = await setup();
+    const b = t.b as typeof t.b & {
+      OAUTH_AUTHORIZE_RATE_LIMITER?: { limit: () => Promise<{ success: boolean }> };
+    };
+    Reflect.deleteProperty(b, "OAUTH_AUTHORIZE_RATE_LIMITER");
+    expect((await t.authorize()).status).toBe(503);
+    b.OAUTH_AUTHORIZE_RATE_LIMITER = { limit: async () => ({ success: false }) };
+    expect((await t.authorize()).status).toBe(429);
+    b.OAUTH_AUTHORIZE_RATE_LIMITER = { limit: async () => ({ success: true }) };
+
+    // The shared worker test DB may contain legitimate pending fixtures from
+    // earlier tests. Fill only the remaining capacity, then delete OUR rows.
+    const oldRequest = "oar_expired_unbound_test";
+    const now = new Date().toISOString();
+    await b.DB.prepare(
+      "INSERT INTO oauth_authorization_requests"
+      + "(id,client_id,redirect_uri,state,resource,scopes,code_challenge,status,expires_at,created_at)"
+      + " VALUES(?,?,?,?,?,?,?,'pending',?,?)"
+    ).bind(oldRequest, t.clientId, t.redirect, "testState" + "x".repeat(36),
+      t.resource, JSON.stringify(["resources:read"]), "a".repeat(43),
+      new Date(Date.now() - 2 * 3600000).toISOString(), now).run();
+    const accepted = await t.authorize();
+    expect(accepted.status).toBe(302);
+    const ownRequestId = new URL(accepted.headers.get("location")!).searchParams.get("request_id")!;
+    try {
+      expect(await b.DB.prepare("SELECT id FROM oauth_authorization_requests WHERE id=?")
+        .bind(oldRequest).first()).toBeNull();
+      const liveBefore = await b.DB.prepare(
+        "SELECT count(*) as n FROM oauth_authorization_requests WHERE status='pending' AND expires_at>?"
+      ).bind(now).first<{ n: number }>();
+      const remaining = 1000 - (liveBefore?.n ?? 0);
+      expect(remaining).toBeGreaterThan(0);
+      const expires = new Date(Date.now() + 600000).toISOString();
+      await b.DB.prepare(
+        "WITH RECURSIVE seq(n) AS (SELECT 1 WHERE ?>0 "
+        + "UNION ALL SELECT n+1 FROM seq WHERE n+1<=?) "
+        + "INSERT INTO oauth_authorization_requests"
+        + "(id,client_id,redirect_uri,state,resource,scopes,code_challenge,status,expires_at,created_at)"
+        + " SELECT 'oar_quota_'||n,?,?,?,?,?,?,'pending',?,? FROM seq"
+      ).bind(remaining, remaining, t.clientId, t.redirect, "testState" + "x".repeat(36),
+        t.resource, JSON.stringify(["resources:read"]), "a".repeat(43), expires, now).run();
+      expect((await t.authorize()).status).toBe(429);
+      const count = await b.DB.prepare(
+        "SELECT count(*) as n FROM oauth_authorization_requests WHERE status='pending' AND expires_at>?"
+      ).bind(now).first<{ n: number }>();
+      expect(count?.n).toBe(1000);
+    } finally {
+      // Vitest's shared D1 fixture persists between tests in this file.
+      await b.DB.prepare("DELETE FROM oauth_authorization_requests WHERE id GLOB 'oar_quota_*'").run();
+      await b.DB.prepare("DELETE FROM oauth_authorization_requests WHERE id=?")
+        .bind(ownRequestId).run();
+    }
+  });
+
+  it("reclaims only expired and never-used anonymous DCR clients", async () => {
+    const t = await setup();
+    const b = t.b;
+    const old = "ocli_unused_" + crypto.randomUUID().replaceAll("-", "");
+    const retained = "ocli_active_" + crypto.randomUUID().replaceAll("-", "");
+    const oldCreated = new Date(Date.now() - 8 * 86400000).toISOString();
+    const redirectJson = JSON.stringify([t.redirect]);
+    for (const clientId of [old, retained]) {
+      await b.DB.prepare(
+        "INSERT INTO oauth_clients(id,display_name,redirect_uris,status,created_at)"
+        + " VALUES(?,?,?,'active',?)"
+      ).bind(clientId, "Synthetic older client", redirectJson, oldCreated).run();
+    }
+    await b.DB.prepare(
+      "INSERT INTO oauth_authorization_requests"
+      + "(id,client_id,redirect_uri,state,resource,scopes,code_challenge,status,expires_at,created_at)"
+      + " VALUES(?,?,?,?,?,?,?,'pending',?,?)"
+    ).bind("oar_retain_active_client", retained, t.redirect, "testState" + "x".repeat(36),
+      t.resource, JSON.stringify(["resources:read"]), "a".repeat(43),
+      new Date(Date.now() + 600000).toISOString(), new Date().toISOString()).run();
+    const res = await t.request("/oauth/register", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ redirect_uris: ["https://another-client.example.com/callback"] }),
+    });
+    expect(res.status).toBe(201);
+    expect(await b.DB.prepare("SELECT id FROM oauth_clients WHERE id=?").bind(old).first()).toBeNull();
+    expect(await b.DB.prepare("SELECT id FROM oauth_clients WHERE id=?").bind(retained).first()).not.toBeNull();
   });
 
   it("requires private Core authentication and bounded Agent IDs for active binding resolution", async () => {

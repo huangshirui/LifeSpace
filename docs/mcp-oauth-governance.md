@@ -39,13 +39,22 @@ OAuth client registration never implies a user Grant or Delegation.
 
 ## Simplified Console OAuth settings (Identity schema 18)
 
-- **CIMD** switch enables protected automatic discovery of eligible public HTTPS
-  Client ID Metadata Documents. Identity validates the document, prevents
-  redirects and invalid metadata, pins registered callbacks, imposes a
-  Staging admission rate limiter and a bounded D1 client quota. An unverified
-  client name is **not** vendor identity proof.
+- **CIMD** switch requests automatic discovery of eligible public HTTPS
+  Client ID Metadata Documents. The effective runtime additionally requires
+  `OAUTH_CIMD_ENABLED=1`, DCR rate limiter and a **dedicated, policy-enforced
+  `OAUTH_CIMD_EGRESS` binding**. A regular global Worker `fetch` is forbidden
+  for untrusted metadata documents, and no egress binding is supplied by
+  default. Egress policy must be independently verified to block all special
+  IP ranges and DNS rebinding at connection time. Until verified, CIMD remains
+  unavailable (including when the Console switch is on). Metadata parsing,
+  no redirect, callback pinning and document size limits remain mandatory.
+  An unverified client name is **not** vendor identity proof.
 - **DCR** switch enables protected dynamic client registration with validated
-  callbacks, rate limit and an atomic D1 client quota.
+  callbacks, rate limit and an atomic D1 client quota. Unreferenced anonymous
+  clients older than seven days are reclaimed in bounded on-demand batches;
+  no client with pending requests, authorization/code/token references, or
+  explicit disablement is auto-removed. Expired unbound request attempts
+  older than one hour are deleted in bounded batches.
 - **Allowed callback URLs** is **one optional platform-wide exact-match list**.
   Empty (default) means no **additional** platform limitation. With entries,
   the registered client's requested redirect must also be in the list.
@@ -59,11 +68,15 @@ OAuth client registration never implies a user Grant or Delegation.
   Existing *open* methods remain enabled. Existing explicitly restricted
   global callback URLs remain in place. This avoids accidentally granting
   broader registration authority on deployment.
-- Runtime `OAUTH_CIMD_ENABLED` and `OAUTH_DCR_ENABLED` are independent
-  environment kill switches, not user-facing allowlists. Staging has
-  `OAUTH_DCR_RATE_LIMITER`; Production does not automatically activate
-  open client registration and needs an independent SSRF/DNS rebinding and
-  abuse review.
+- Runtime `OAUTH_CIMD_ENABLED` and `OAUTH_DCR_ENABLED` remain independent
+  deployment release/incident switches. Both environments require
+  `OAUTH_DCR_RATE_LIMITER`; `/oauth/authorize` separately requires
+  `OAUTH_AUTHORIZE_RATE_LIMITER` (100/minute per colo) plus an atomic D1
+  quota of 1000 **live pending** requests. Missing rate limiter fails closed.
+  The per-colo limiter is not a global quota. Production cannot activate
+  arbitrary-CIMD discovery before verified Secure Egress policy and real
+  DNS rebinding/SSRF negative tests. No migration or deletion of valid
+  OAuth client credentials, authorizations or tokens is permitted.
 
 ## Expected journey
 
@@ -87,9 +100,12 @@ register this exact redirect.
 Deploy Identity migrations before the Identity Worker, then separately
 deploy Console Staging. Confirm the Console has just two switches and one
 optional callback field, and that disabled switches remove their OAuth
-discovery advertisement. Verify CIMD and DCR auto registration, both
-registered callback exactness and optional global callback restrictions,
-PKCE, the Account consent and denial callbacks, cross-MCP-resource
-isolation, Token revocation, rate limiter failures and client quota.
+discovery advertisement. Verify DCR auto registration and (only after secure egress provisioning)
+CIMD metadata discovery, both registered callback exactness and optional
+global callback restrictions, PKCE, the Account consent and denial callbacks,
+cross-MCP-resource isolation, Token revocation, both rate limiter failures,
+live pending-request quota, orphan registration cleanup, and final egress
+network policy including DNS rebinding. A staging CIMD switch alone is not
+sufficient for successful discovery.
 Production is not approved until the additional outbound-metadata
 security and abuse review is complete.

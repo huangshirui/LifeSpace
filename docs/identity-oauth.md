@@ -61,8 +61,8 @@ Status: **Staging deployed; Production convergence in development. No production
 ## Endpoints / 端点
 
 - Authorization Server Metadata `/.well-known/oauth-authorization-server` (RFC 8414).
-- Optional protected registration `POST /oauth/register` (RFC 7591): public DCR is **disabled by default**, requiring `OAUTH_DCR_ENABLED=1` (staging/non-production only). Client registration is not official vendor identity verification.
-- `GET /oauth/authorize`: validates exact redirect, mandatory `state`, PKCE S256 and Resource URI; creates only an expiring **pending** transaction and redirects to configured Account Consent.
+- Optional protected registration `POST /oauth/register` (RFC 7591): public DCR is **disabled by default**, requiring Console policy, `OAUTH_DCR_ENABLED=1` and a live rate limiter. It is subject to a global D1 quota; unused anonymous Client records without any dependent request or authorization are reclaimable after seven days. Client registration is not official vendor identity verification.
+- `GET /oauth/authorize`: validates exact redirect, mandatory `state`, PKCE S256 and Resource URI; requires an independent authorization rate limiter and an atomic bound of 1000 live pending requests, creates only an expiring **pending** transaction, then redirects to configured Account Consent. Unbound expired requests are cleaned in bounded batches.
 - `POST /oauth/requests/:requestId/approve`: internal *Core-trusted* approval only, using a dedicated `OAUTH_CORE_APPROVER_SECRET` and verified user JWT bound to the Account Application. Core verifies current Space `manage` authority before private confirmation; Identity independently checks active User/Application/Agent binding. The conservative Space-manage gate prevents a viewer from selecting an Agent with stronger independent Direct Grants. Do not expose this credential to Account/browser/clients; if the Core confirmation bridge is unavailable, no authorization can become active.
 - `GET /api/v1/me/oauth/requests/:requestId` (Identity): Account-authenticated read-only pending request metadata; the unverified Client display name and requested scopes must not be presented as granted capability.
 - `POST /api/v1/me/oauth/requests/:requestId/confirm` (Core): Account Application user JWT with `spaces:manage` and current Space `manage`; Core privately confirms through Identity. This step creates no Data Grant or User→Agent Delegation.
@@ -77,7 +77,9 @@ Status: **Staging deployed; Production convergence in development. No production
 - `OAUTH_ACCOUNT_APPLICATION_ID`: the dedicated registered Account application ID, from which confirmed user JWTs must originate.
 - `OAUTH_ALLOWED_RESOURCES`: whitespace-separated exact HTTPS MCP Resource identifiers; no broad wildcard.
 - `OAUTH_RESOURCE_SERVER_SECRET`: separately provisioned strong introspection caller secret.
-- `OAUTH_DCR_ENABLED=1`: non-production only, optional compatibility switch; rate limiting/WAF required before public registration.
+- `OAUTH_DCR_ENABLED=1`: deployment/incident switch; Console admission and rate limiting/WAF security still apply before public registration.
+- `OAUTH_AUTHORIZE_RATE_LIMITER`: dedicated limiter required for anonymous authorization before resource discovery, with an independent global pending request D1 quota.
+- `OAUTH_CIMD_EGRESS`: separate, secure, policy-enforced outbound Fetcher/VPC network binding for CIMD metadata documents. Missing binding fails closed and metadata discovery is not advertised. Do not substitute unrestricted global `fetch` or claim DNS rebinding safety based solely on preflight DNS checks; complete connection-time IP policy security review before provisioning.
 - `OAUTH_CORE_APPROVER_SECRET`: a **new and independent** Core→Identity secret for only the private approval bridge, distinct from `CORE_IDENTITY_SHARED_SECRET` and all OAuth client/resource credentials. Provision in both Core and Identity without exposing to Account BFF or browser.
 
 ## Required follow-on bridges and acceptance

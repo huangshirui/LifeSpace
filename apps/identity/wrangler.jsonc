@@ -19,7 +19,8 @@
         "OAUTH_DCR_ENABLED": "1"
       },
       "ratelimits": [
-        { "name": "OAUTH_DCR_RATE_LIMITER", "namespace_id": "26741", "simple": { "limit": 10, "period": 60 } }
+        { "name": "OAUTH_DCR_RATE_LIMITER", "namespace_id": "26741", "simple": { "limit": 10, "period": 60 } },
+        { "name": "OAUTH_AUTHORIZE_RATE_LIMITER", "namespace_id": "26843", "simple": { "limit": 100, "period": 60 } }
       ],
       "routes": [{ "pattern": "auth-staging.aisr.online", "custom_domain": true }],
       "services": [{ "binding": "CORE", "service": "lifespace-core-staging" }],
@@ -31,7 +32,8 @@
       "placement": { "mode": "smart" },
       "vars": { "ENVIRONMENT": "production", "ACCESS_TEAM_DOMAIN": "https://aisronline.cloudflareaccess.com", "OAUTH_MCP_RESOURCE_ORIGIN": "https://core.aisr.online" },
       "ratelimits": [
-        { "name": "OAUTH_DCR_RATE_LIMITER", "namespace_id": "26742", "simple": { "limit": 10, "period": 60 } }
+        { "name": "OAUTH_DCR_RATE_LIMITER", "namespace_id": "26742", "simple": { "limit": 10, "period": 60 } },
+        { "name": "OAUTH_AUTHORIZE_RATE_LIMITER", "namespace_id": "26844", "simple": { "limit": 100, "period": 60 } }
       ],
       "routes": [{ "pattern": "auth.aisr.online", "custom_domain": true }],
       "services": [{ "binding": "CORE", "service": "lifespace-core" }],
