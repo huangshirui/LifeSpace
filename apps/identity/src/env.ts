@@ -29,6 +29,11 @@ export type Bindings = {
   OAUTH_DCR_ENABLED?: string;
   // Staging-only public DCR registration limiter; missing binding fails closed.
   OAUTH_DCR_RATE_LIMITER?: RateLimit;
+  // Independent guard for anonymous /oauth/authorize requests.
+  OAUTH_AUTHORIZE_RATE_LIMITER?: RateLimit;
+  // Dedicated, network-policy-enforced egress (Workers VPC/Gateway).
+  // Never fall back to global fetch for untrusted CIMD URLs.
+  OAUTH_CIMD_EGRESS?: Fetcher;
   // Opt-in HTTPS Client ID Metadata Documents; disabled unless explicitly enabled.
   OAUTH_CIMD_ENABLED?: string;
 };
