@@ -93,9 +93,11 @@ OAuth client registration never implies a user Grant or Delegation.
   This protects against a DNS answer that changes from public to private
   between an application-layer preflight and the actual connection; no
   application-side DNS preflight is treated as proof.
-- The flag is declared **Staging only** during evaluation. Production
-  compatibility flags remain unchanged. Staging `OAUTH_CIMD_ENABLED=0`
-  stays explicitly closed; an enabled Console switch does not override it.
+- The flag is declared for both Staging and future Production Identity
+  deployments, so enabling the CIMD feature cannot rely on the unsafe
+  same-zone origin bypass. **No Production deployment is performed by this
+  change.** Staging `OAUTH_CIMD_ENABLED=0` stays explicitly closed; an
+  enabled Console switch does not override it.
   Existing DCR admission is unaffected.
 - `infra/scripts/audit-staging-cimd-egress.mjs` reads the actual Worker
   settings and requires: deployed strict-public compatibility flag,
