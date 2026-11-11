@@ -79,6 +79,13 @@ jobs:
       - name: Verify CIMD egress safety gate unit tests
         if: steps.validation.outputs.run_full == 'true'
         run: node --test infra/scripts/audit-staging-cimd-egress.test.mjs
+      - name: Check isolated CIMD remote network acceptance contract and bundle
+        if: steps.validation.outputs.run_full == 'true'
+        run: |
+          node --test infra/scripts/verify-cimd-network-contract.test.mjs
+          node --check infra/scripts/verify-cimd-remote-network.mjs
+          pnpm --dir apps/identity exec wrangler deploy --dry-run --config ../../infra/cimd-network-probe/wrangler.jsonc
+
       - name: Resolve pinned provider revision from manifest
         if: steps.validation.outputs.run_full == 'true'
         id: external_provider
