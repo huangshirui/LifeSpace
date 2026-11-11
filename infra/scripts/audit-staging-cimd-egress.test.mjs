@@ -16,8 +16,8 @@ test("Wrangler requires strictly-public fetch for Identity Staging only", () => 
   const config = JSON.parse(readFileSync(new URL("../../apps/identity/wrangler.jsonc", import.meta.url), "utf8"));
   assert.deepEqual(config.env.staging.compatibility_flags, publicFlag);
   assert.equal(config.env.staging.vars.OAUTH_CIMD_ENABLED, "0");
-  assert.equal(config.env.production.compatibility_flags, undefined,
-    "No change to Production until separate release acceptance");
+  assert.deepEqual(config.env.production.compatibility_flags, publicFlag,
+    "Future Production activation must also use public-only fetch; no Production deployment here");
   assert.equal(config.env.production.vars.OAUTH_CIMD_ENABLED, undefined);
   assert.equal(config.env.staging.vpc_networks, undefined);
   assert.equal(config.env.production.vpc_networks, undefined);
