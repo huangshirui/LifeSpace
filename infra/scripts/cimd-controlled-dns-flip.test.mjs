@@ -12,6 +12,22 @@ test("DNS flip is owner-only, main-only, staging env and does not run on PR or d
   assert.match(source, /environment: staging/);
   assert.doesNotMatch(source, /^\s+(push|pull_request|schedule|workflow_run|repository_dispatch):/mu);
   assert.match(source, /CIMD_DNS_FLIP: "1"/);
+  assert.match(source, /CIMD_DNS_TEST_TOKEN:.*secrets\.CIMD_DNS_TEST_TOKEN/);
+  assert.doesNotMatch(source, /CIMD_DNS_TEST_TOKEN:.*\|\|.*secrets\.CLOUDFLARE_API_TOKEN/);
+  assert.match(source, /node infra\/scripts\/preflight-cimd-dns-token\.mjs/);
+  assert.ok(source.indexOf("preflight-cimd-dns-token.mjs") < source.indexOf("pnpm install --frozen-lockfile"),
+    "DNS permission preflight must precede installation and remote preview");
+});
+
+test("isolated DNS token never falls back to the general deployment token", () => {
+  const runner = read("verify-cimd-remote-network.mjs");
+  const preflight = read("preflight-cimd-dns-token.mjs");
+  assert.match(runner, /token: process\.env\.CIMD_DNS_TEST_TOKEN/);
+  assert.doesNotMatch(runner, /CIMD_DNS_TEST_TOKEN\s*\|\|/);
+  assert.match(preflight, /\/zones\?name=/);
+  assert.match(preflight, /\/dns_records\?name\.startswith=/);
+  assert.match(preflight, /No DNS records changed/);
+  assert.doesNotMatch(preflight, /method:\s*"POST"|method:\s*"PATCH"|method:\s*"DELETE"/);
 });
 
 test("DNS flip is confined to random A record and protected cleanup path", () => {
