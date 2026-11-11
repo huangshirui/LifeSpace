@@ -30,6 +30,7 @@ async function setup() {
     ENVIRONMENT: "test",
     OAUTH_DCR_ENABLED: "1",
     OAUTH_DCR_RATE_LIMITER: { limit: async (_: { key: string }) => ({ success: true }) },
+    OAUTH_AUTHORIZE_RATE_LIMITER: { limit: async (_: { key: string }) => ({ success: true }) },
     OAUTH_ACCOUNT_APPLICATION_ID: "",
   };
   // Isolated tests enable DCR explicitly. The default database policy remains
@@ -280,13 +281,19 @@ describe("Identity OAuth Authorization Server (isolated candidate)", () => {
     const defaultMetadata = await t.request("/.well-known/oauth-authorization-server");
     expect(defaultMetadata.status).toBe(200);
     expect(await defaultMetadata.json()).not.toHaveProperty("client_id_metadata_document_supported");
-    const cimd = t.b as typeof t.b & { OAUTH_CIMD_ENABLED: string };
+    const cimd = t.b as typeof t.b & {
+      OAUTH_CIMD_ENABLED: string;
+      OAUTH_CIMD_EGRESS?: { fetch: (url: string, init?: RequestInit) => Promise<Response> };
+    };
     cimd.OAUTH_CIMD_ENABLED = "1";
     const unpinned = await t.request("/.well-known/oauth-authorization-server");
     expect(await unpinned.json()).not.toHaveProperty("client_id_metadata_document_supported");
     await t.b.DB.prepare(
       "UPDATE oauth_client_admission_policy SET cimd_enabled=1 WHERE id=1"
     ).run();
+    const noEgress = await t.request("/.well-known/oauth-authorization-server");
+    expect(await noEgress.json()).not.toHaveProperty("client_id_metadata_document_supported");
+    cimd.OAUTH_CIMD_EGRESS = { fetch: (url, init) => globalThis.fetch(url, init) };
     const optInMetadata = await t.request("/.well-known/oauth-authorization-server");
     expect(optInMetadata.status).toBe(200);
     expect(await optInMetadata.json()).toMatchObject({
@@ -403,10 +410,12 @@ describe("Identity OAuth Authorization Server (isolated candidate)", () => {
     const t = await setup();
     const b = t.b as typeof t.b & {
       OAUTH_CIMD_ENABLED: string;
+      OAUTH_CIMD_EGRESS?: { fetch: (url: string, init?: RequestInit) => Promise<Response> };
       OAUTH_DCR_RATE_LIMITER: { limit: ({ key }: { key: string }) => Promise<{ success: boolean }> };
     };
     b.ENVIRONMENT = "staging";
     b.OAUTH_CIMD_ENABLED = "1";
+    b.OAUTH_CIMD_EGRESS = { fetch: (url, init) => globalThis.fetch(url, init) };
     const remoteId = "https://public-client.example.com/oauth/client.json";
     const redirect = "https://client.example.test/callback";
     await b.DB.prepare(
@@ -416,6 +425,12 @@ describe("Identity OAuth Authorization Server (isolated candidate)", () => {
     const withoutLimiter = await t.request("/.well-known/oauth-authorization-server");
     expect(await withoutLimiter.json()).not.toHaveProperty("client_id_metadata_document_supported");
     expect((await t.authorize({ client_id: remoteId, redirect_uri: redirect })).status).toBe(400);
+    Reflect.deleteProperty(b, "OAUTH_CIMD_EGRESS");
+    b.OAUTH_DCR_RATE_LIMITER = { limit: async () => ({ success: true }) };
+    const withoutEgress = await t.request("/.well-known/oauth-authorization-server");
+    expect(await withoutEgress.json()).not.toHaveProperty("client_id_metadata_document_supported");
+    expect((await t.authorize({ client_id: remoteId, redirect_uri: redirect })).status).toBe(400);
+    b.OAUTH_CIMD_EGRESS = { fetch: (url, init) => globalThis.fetch(url, init) };
     const keys: string[] = [];
     b.OAUTH_DCR_RATE_LIMITER = { limit: async ({ key }) => {
       keys.push(key);
