@@ -216,6 +216,9 @@ jobs:
             sleep 5
           done
 
+      - name: Verify CIMD stays closed until protected egress is independently validated
+        run: node infra/scripts/audit-staging-cimd-egress.mjs
+
       - name: Prepare ephemeral authenticated staging smoke
         run: node infra/scripts/prepare-staging-smoke.mjs
 
