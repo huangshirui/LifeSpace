@@ -160,20 +160,22 @@ async function clientForAuthorization(c: Context<AppEnv>, clientId: string): Pro
   const existing = await client(c.env.DB, clientId);
   if (existing?.status === "disabled") return null;
   // Open HTTPS document discovery is a network and database abuse boundary.
-  // Staging requests are rate-limited before outbound fetch, including
-  // revalidation at Consent time. No Worker binding => no fetch.
+  // Requests are rate-limited before outbound fetch, including revalidation
+  // at Consent time. The deployment MUST enable Cloudflare's
+  // global_fetch_strictly_public compatibility flag before CIMD activation.
+  // This forces global fetch through the public Internet boundary, including
+  // requests to the Worker's own Cloudflare zone, rather than private origins.
+  // Never use VPC Network or private Service Bindings for untrusted metadata.
   if (!c.env.OAUTH_DCR_RATE_LIMITER) return null;
   try {
     const limit = await c.env.OAUTH_DCR_RATE_LIMITER.limit({ key: "oauth-cimd-fetch" });
     if (!limit.success) return null;
   } catch { return null; }
-  // Global fetch would permit an attacker-controlled DNS answer to select an
-  // unreviewed outbound destination. Require a separately governed Gateway
-  // egress binding; missing/unhealthy egress must fail closed.
-  const egress = c.env.OAUTH_CIMD_EGRESS;
-  if (!egress) return null;
-  const metadata = await fetchClientMetadata(clientId,
-    (input, init) => egress.fetch(String(input), init));
+  // Global fetch is permitted here ONLY with deployment-enforced
+  // global_fetch_strictly_public; the Staging release gate verifies the live
+  // Worker compatibility flag and keeps CIMD disabled until negative network
+  // tests prove private-address and DNS-rebinding refusal.
+  const metadata = await fetchClientMetadata(clientId);
   if (!metadata) return null;
   const redirects = JSON.stringify(metadata.redirectUris);
   if (!existing) {
@@ -306,8 +308,7 @@ function dcrReady(env: Bindings, policy: OAuthClientAdmissionPolicy): boolean {
 }
 function cimdReady(env: Bindings, policy: OAuthClientAdmissionPolicy): boolean {
   return env.OAUTH_CIMD_ENABLED === "1" && policy.cimdEnabled
-    && Boolean(env.OAUTH_DCR_RATE_LIMITER)
-    && Boolean(env.OAUTH_CIMD_EGRESS);
+    && Boolean(env.OAUTH_DCR_RATE_LIMITER);
 }
 export function registerOAuthAuthorizationServer(app: App) {
   app.get("/.well-known/oauth-authorization-server", async (c) => {
