@@ -56,7 +56,7 @@ export default {
       // not request JSON, URL parameters or headers. It is an unpredictable,
       // isolated, short-lived DNS A record owned by this acceptance job.
       const hostname = env.REBIND_HOST;
-      if (!hostname || !/^cimd-rebind-[a-f0-9]{32}\\.aisr\\.online$/u.test(hostname)) {
+      if (!hostname || !/^cimd-rebind-[a-f0-9]{32}\.aisr\.online$/u.test(hostname)) {
         return new Response("No verified isolated DNS test host", { status: 503 });
       }
       const phase = request.headers.get("x-cimd-dns-phase");
