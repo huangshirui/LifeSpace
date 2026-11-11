@@ -65,6 +65,36 @@ const json = (value: string) => {
 };
 const oauthError = (c: Context<AppEnv>, status: 400 | 401 | 403 | 429 | 503, error: string, description: string) =>
   c.json({ error, error_description: description }, status);
+
+// Do not materialize a caller-controlled oversized DCR body before checking
+// its byte count. Content-Length is only a quick rejection, not the boundary.
+async function boundedRequestText(request: Request, maxBytes: number): Promise<string | null> {
+  const advertised = request.headers.get("content-length");
+  if (advertised && Number(advertised) > maxBytes) return null;
+  const reader = request.body?.getReader();
+  if (!reader) return null;
+  const chunks: Uint8Array[] = [];
+  let length = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      length += value.byteLength;
+      if (length > maxBytes) {
+        await reader.cancel().catch(() => undefined);
+        return null;
+      }
+      chunks.push(value);
+    }
+    const bytes = new Uint8Array(length);
+    let offset = 0;
+    for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch {
+    await reader.cancel().catch(() => undefined);
+    return null;
+  }
+}
 const randomSecret = (prefix: string) => {
   const bytes = crypto.getRandomValues(new Uint8Array(32));
   return prefix + btoa(String.fromCharCode(...bytes)).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/u, "");
@@ -319,9 +349,9 @@ export function registerOAuthAuthorizationServer(app: App) {
     if (!/^application\/json(?:\s*;|$)/iu.test(c.req.header("content-type") || "")) {
       return oauthError(c, 400, "invalid_client_metadata", "Application/json is required");
     }
-    const raw = await c.req.text();
-    if (new TextEncoder().encode(raw).length > 8192) {
-      return oauthError(c, 400, "invalid_client_metadata", "Client metadata is too large");
+    const raw = await boundedRequestText(c.req.raw, 8192);
+    if (raw === null) {
+      return oauthError(c, 400, "invalid_client_metadata", "Client metadata is too large or invalid");
     }
     let input: Record<string, unknown> | null = null;
     try { input = JSON.parse(raw) as Record<string, unknown>; } catch { /* invalid */ }
