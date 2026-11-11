@@ -58,7 +58,8 @@ jobs:
           - DCR automatic registration, negative metadata/callback/size checks
           - OAuth S256 PKCE, live MCP Resource, pending Account Consent
           - No unapproved Token, no unchecked introspection
-          - Untrusted CIMD URL blocked while OAUTH_CIMD_EGRESS is unprovisioned
+          - Untrusted CIMD URL blocked while CIMD Staging release flag stays off
+          - Strict-public fetch flag and no VPC egress verified by canonical Staging audit
           - Ephemeral Client and pending request cleaned
           - **Not** a Cloudflare Secure Egress / DNS rebinding verification
           - **Not** an authenticated human Consent / Token exchange / refresh end-to-end test

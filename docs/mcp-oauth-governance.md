@@ -40,15 +40,17 @@ OAuth client registration never implies a user Grant or Delegation.
 ## Simplified Console OAuth settings (Identity schema 18)
 
 - **CIMD** switch requests automatic discovery of eligible public HTTPS
-  Client ID Metadata Documents. The effective runtime additionally requires
-  `OAUTH_CIMD_ENABLED=1`, DCR rate limiter and a **dedicated, policy-enforced
-  `OAUTH_CIMD_EGRESS` binding**. A regular global Worker `fetch` is forbidden
-  for untrusted metadata documents, and no egress binding is supplied by
-  default. Egress policy must be independently verified to block all special
-  IP ranges and DNS rebinding at connection time. Until verified, CIMD remains
-  unavailable (including when the Console switch is on). Metadata parsing,
-  no redirect, callback pinning and document size limits remain mandatory.
-  An unverified client name is **not** vendor identity proof.
+  Client ID Metadata Documents. An enabled deployment additionally requires
+  `OAUTH_CIMD_ENABLED=1`, the DCR rate limiter, and **Cloudflare's
+  `global_fetch_strictly_public` compatibility flag** on the deployed Identity
+  Worker. This forces untrusted `fetch()` through the public-Internet network
+  boundary, even when a URL refers to the Worker's own zone; it does not
+  bypass Cloudflare security to reach a private origin. Do not attach a VPC
+  Network/private egress binding to CIMD. The current Staging feature flag
+  stays off until the strict-public routing and DNS rebinding negative probes
+  are verified. HTTPS-only metadata, redirects disabled, callback pinning and
+  bounded metadata size remain mandatory. The client display name is **not**
+  a verified vendor identity.
 - **DCR** switch enables protected dynamic client registration with validated
   callbacks, rate limit and an atomic D1 client quota. Unreferenced anonymous
   clients older than seven days are reclaimed in bounded on-demand batches;
@@ -74,35 +76,37 @@ OAuth client registration never implies a user Grant or Delegation.
   `OAUTH_AUTHORIZE_RATE_LIMITER` (100/minute per colo) plus an atomic D1
   quota of 1000 **live pending** requests. Missing rate limiter fails closed.
   The per-colo limiter is not a global quota. Production cannot activate
-  arbitrary-CIMD discovery before verified Secure Egress policy and real
-  DNS rebinding/SSRF negative tests. No migration or deletion of valid
+  arbitrary-CIMD discovery before verified strict-public fetch deployment
+  and real DNS rebinding/SSRF negative tests. No migration or deletion of valid
   OAuth client credentials, authorizations or tokens is permitted.
 
-## 2026-11-11 · CIMD Secure Egress release gate (candidate, NOT deployed)
+## 2026-11-11 · CIMD strictly-public fetch release gate (candidate, NOT deployed)
 
-- Staging deliberately sets `OAUTH_CIMD_ENABLED=0` until an independent, staged
-  private-IP / DNS-rebinding security acceptance is complete. This is in
-  addition to the Console admission switch and the missing-by-default
-  `OAUTH_CIMD_EGRESS` network binding. Enabling a VPC binding by itself
-  **does not** make arbitrary CIMD discovery safe.
-- Workers VPC `cf1:network` reaches both public Internet through Gateway and
-  private Tunnel/Mesh/WAN routes. Attaching it without verified Network
-  policies may *expand* SSRF reachability. Cloudflare Gateway DNS/HTTP
-  filtering alone is not evidence that final resolved IPv4/IPv6 addresses
-  are blocked at connection time. Any private/special-purpose destination or
-  DNS rebinding attempt must be blocked before rollout.
-- The separate `infra/scripts/audit-staging-cimd-egress.mjs` performs a
-  read-only cloud configuration inspection and **only accepts safe closure**
-  (Staging flag disabled and Egress binding absent). An enabled Gateway rule
-  is reported but is *not* treated as penetration-test evidence. The
-  canonical Owner-dispatched staging workflow runs this after Identity deploy.
-  No automatic workflow can modify the canonical Staging or Production
-  release approvals.
-- To move toward open CIMD, separately design a constrained egress path,
-  prove it cannot route to private/special IPv4/IPv6 addresses including via
-  changed DNS resolutions, then extend the audit from strict safe-closure to
-  a reproducible security-proof check. Until then, DCR is the available
-  automatic OAuth client registration mechanism.
+- Previous candidate used a dedicated `OAUTH_CIMD_EGRESS` VPC/Gateway
+  binding. This was intentionally **not** provisioned, because
+  `cf1:network` can also reach private Tunnel/Mesh/WAN routes.
+- Cloudflare's documented `global_fetch_strictly_public` compatibility
+  flag provides a simpler public-only network boundary: global `fetch()`
+  requests, including same-zone URLs, traverse Cloudflare's public entry
+  rather than the zone's private origin bypass. The Workerd public outbound
+  network refuses private IP destinations at the actual connection layer.
+  This protects against a DNS answer that changes from public to private
+  between an application-layer preflight and the actual connection; no
+  application-side DNS preflight is treated as proof.
+- The flag is declared for both Staging and future Production Identity
+  deployments, so enabling the CIMD feature cannot rely on the unsafe
+  same-zone origin bypass. **No Production deployment is performed by this
+  change.** Staging `OAUTH_CIMD_ENABLED=0` stays explicitly closed; an
+  enabled Console switch does not override it.
+  Existing DCR admission is unaffected.
+- `infra/scripts/audit-staging-cimd-egress.mjs` reads the actual Worker
+  settings and requires: deployed strict-public compatibility flag,
+  disabled CIMD deployment switch, and no VPC network bindings. It
+  verifies safe configuration, **not** a live SSRF/DNS rebinding attack.
+- Only after controlled public/private DNS, same-zone private-origin and
+  rebinding negative tests, and a positive HTTPS CIMD metadata test pass
+  may the Staging switch be separately enabled. Production needs a
+  distinct security and release approval.
 
 ## Expected journey
 

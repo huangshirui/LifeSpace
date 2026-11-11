@@ -10,6 +10,7 @@
   "env": {
     "staging": {
       "name": "lifespace-identity-staging",
+      "compatibility_flags": ["global_fetch_strictly_public"],
       "placement": { "mode": "smart" },
       "vars": {
         "ENVIRONMENT": "staging",
@@ -29,6 +30,7 @@
     },
     "production": {
       "name": "lifespace-identity",
+      "compatibility_flags": ["global_fetch_strictly_public"],
       "placement": { "mode": "smart" },
       "vars": { "ENVIRONMENT": "production", "ACCESS_TEAM_DOMAIN": "https://aisronline.cloudflareaccess.com", "OAUTH_MCP_RESOURCE_ORIGIN": "https://core.aisr.online" },
       "ratelimits": [
