@@ -35,7 +35,7 @@ export function assessCimdStaging(settings = {}) {
 export async function auditCimdStaging({ accountId, token, getSettings } = {}) {
   assert.match(accountId || "", /^[a-f0-9]{32}$/u, "Cloudflare account ID required");
   assert.ok(typeof token === "string" && token.length > 5, "Cloudflare API token required");
-  const fetchSettings = getSettings || async () => {
+  const fetchSettings = getSettings || (async () => {
     const response = await fetch(
       `https://api.cloudflare.com/client/v4/accounts/${accountId}/workers/scripts/${WORKER}/settings`,
       { headers: { authorization: `Bearer ${token}` },
@@ -46,7 +46,7 @@ export async function auditCimdStaging({ accountId, token, getSettings } = {}) {
       throw new Error(`Cloudflare Staging Worker read-only audit failed (HTTP ${response.status})`);
     }
     return data.result;
-  };
+  });
   return assessCimdStaging(await fetchSettings());
 }
 
