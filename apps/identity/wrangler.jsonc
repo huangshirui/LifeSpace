@@ -15,7 +15,7 @@
         "ENVIRONMENT": "staging",
         "ACCESS_TEAM_DOMAIN": "https://aisronline.cloudflareaccess.com",
         "OAUTH_MCP_RESOURCE_ORIGIN": "https://core-staging.aisr.online",
-        "OAUTH_CIMD_ENABLED": "1",
+        "OAUTH_CIMD_ENABLED": "0",
         "OAUTH_DCR_ENABLED": "1"
       },
       "ratelimits": [
