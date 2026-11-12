@@ -122,6 +122,41 @@ describe("CIMD public client metadata is untrusted until verified", () => {
     expect(await precheckCimdDns("client.example.com", (async()=>Response.json({Status:0,Answer:[]})) as typeof fetch)).toBe(false);
   });
 
+  it("constructs DNS requests in the actual Workers runtime and never follows resolver redirects", async () => {
+    const calls: string[] = [];
+    const fake = (async (url: string, init: RequestInit) => {
+      // The Workers Vitest pool executes this Request constructor in workerd.
+      // Mocking fetch alone previously hid the unsupported redirect:error mode.
+      const request = new Request(url, init);
+      calls.push(request.url);
+      expect(request.redirect).toBe("manual");
+      return url.startsWith("https://cloudflare-dns.com/dns-query?")
+        ? dnsAnswer(url) : Response.json(metadata);
+    }) as typeof fetch;
+    expect(await fetchClientMetadata(clientId, fake)).toMatchObject({clientId});
+    expect(calls).toHaveLength(3);
+    expect(calls.filter(url => url.includes("dns-query"))).toHaveLength(2);
+
+    for (const status of [301, 302, 307, 308, 204]) {
+      let metadataCalled = false;
+      const denied = (async (url: string, init: RequestInit) => {
+        const request = new Request(url, init);
+        expect(request.redirect).toBe("manual");
+        if (!url.startsWith("https://cloudflare-dns.com/dns-query?")) {
+          metadataCalled = true;
+          return Response.json(metadata);
+        }
+        // A 3xx with syntactically valid public DNS JSON is still denied.
+        return new Response(status === 204 ? null : JSON.stringify({
+          Status: 0, Answer: url.endsWith("type=1") ? [{type:1,data:"8.8.8.8"}] : [],
+        }), {status, headers:{location:"https://other.example.com/dns-query",
+          "content-type":"application/dns-json"}});
+      }) as typeof fetch;
+      expect(await fetchClientMetadata(clientId, denied)).toBeNull();
+      expect(metadataCalled).toBe(false);
+    }
+  });
+
   it("never follows redirects, limits bytes and requires JSON media type", async () => {
     const calls: Array<{ url: string; redirect?: string }> = [];
     const fake = async (url: string, init: RequestInit) => {
