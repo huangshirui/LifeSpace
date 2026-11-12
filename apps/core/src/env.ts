@@ -91,9 +91,21 @@ export type Bindings = CloudflareBindings & {
   PERFORMANCE_DIAGNOSTICS?: string;
 };
 
+// Bounded, request-local diagnostics only; no authority data or SQL bindings.
+export type AuthorityD1Timing = {
+  wallMs: number;
+  statements: number;
+  success: boolean;
+  sqlDurationMs: number | null;
+  reportedDurationMs: number | null;
+  rowsRead: number | null;
+  regions: string[];
+  colos: string[];
+};
 export type RequestPerformanceTiming = {
   startedAt: number;
   phases: Record<string, number>;
+  authorityD1?: AuthorityD1Timing[];
 };
 
 export type Variables = {

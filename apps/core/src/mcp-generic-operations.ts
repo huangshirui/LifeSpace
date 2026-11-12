@@ -5,12 +5,12 @@ import type { Context, Hono } from "hono";
 import { requirePersonDirectoryPermission } from "./authorization";
 import { getExternalModel, externalAuthorityModel } from "./external-model";
 import { externalSemanticDetail } from "./external-runtime";
-import { requireModelAccess } from "./model-authorization";
+import { evaluateModelAccessMany, type ModelAccessRequest, type ModelAuthorityTarget } from "./model-authorization";
 import { getRuntimeModel } from "./model-registry";
 import { projectModelSemanticFacts } from "./model-semantic-projection";
 import { getActiveModelContract } from "./model-contract-store";
 import { getOrCreateActiveModelContract } from "./model-contract-service";
-import { currentMcpOAuthQueryPolicy } from "./mcp-oauth-server-policy";
+import { authorityD1Observer } from "./performance-timing";
 import type { Bindings, Principal, Variables } from "./env";
 import { ApiError, success } from "./http";
 
@@ -103,24 +103,78 @@ function discoveryPrincipal(p:Principal,access:Access):Principal {
     return {...p,scopes:[...p.scopes,"resources:write"]};
   return p;
 }
-async function may(env:Bindings,p:Principal,spaceId:string,model:Parameters<typeof requireModelAccess>[3],access:Access) {
-  if(!p.scopes.includes("resources:read"))return false;
-  try {await requireModelAccess(env,discoveryPrincipal(p,access),spaceId,model,access);return true;}
-  catch(e){if(e instanceof ApiError&&[403,404,405].includes(e.status))return false;throw e;}
-}
 async function personMay(env:Bindings,p:Principal,spaceId:string,access:Access) {
   if(!p.scopes.includes("resources:read"))return false;
   try {await requirePersonDirectoryPermission(env,discoveryPrincipal(p,access),spaceId,access);return true;}
   catch(e){if(e instanceof ApiError&&[403,404].includes(e.status))return false;throw e;}
 }
-async function manifest(c:ContextApp):Promise<Entry[]>{
+async function manifest(c:ContextApp,targetRef?:string):Promise<Entry[]>{
   const principal=c.get("principal"),execution=principal.oauthExecution;
   const spaceId=c.req.param("spaceId");
   if(principal.purpose!=="oauth_agent_execution"||!execution||execution.spaceId!==spaceId
     ||principal.actor)throw denied();
-  const policy=await currentMcpOAuthQueryPolicy(c.env.DB,execution.resource,
-    "GET","/api/v1/me/_discovery/inventory");
+  // authenticate() has already resolved the live Server policy on this
+  // request. Never reuse it across requests or treat it as data authority.
+  if(!execution.serverId||!execution.modelOperations||!execution.personOperations)throw denied();
+  const policy={serverId:execution.serverId,modelOperations:execution.modelOperations,
+    personOperations:execution.personOperations};
   const out:Entry[]=[];
+  const operationRef=(kind:Kind,key:string,op:string)=>ref([policy.serverId,spaceId,key,op,kind].join(":"));
+  const matches=async(kind:Kind,key:string,op:string)=>!targetRef||await operationRef(kind,key,op)===targetRef;
+  const validCrud=(op:string)=>["query","get","create","update","delete"].includes(op);
+  type Candidate={key:string;configured:string[];model:NonNullable<Awaited<ReturnType<typeof getRuntimeModel>>>;
+    bound:Awaited<ReturnType<typeof getExternalModel>>;authority:ModelAuthorityTarget;
+    semantic?:ReturnType<typeof projectModelSemanticFacts>};
+  const candidates:Candidate[]=[];
+  const requests:ModelAccessRequest[]=[];
+  const requested:{key:string;access:Access}[]=[];
+  // Resolve stable metadata and select the opaque target before any mutable
+  // model authority or External binding reads. Full discovery batches every
+  // selected model's current authority, de-duplicating read/write snapshots.
+  for(const [key,operations] of Object.entries(policy.modelOperations)){
+    if(!MODEL.test(key)||!Array.isArray(operations)||!operations.length)throw denied();
+    const model=await getRuntimeModel(c.env,key);
+    if(!model)continue;
+    const external=model.definition.origin==="external";
+    const configured:string[]=[];
+    for(const op of operations){
+      if(validCrud(op)){
+        if(await matches(external?"external":"native",key,op))configured.push(op);
+      }else if(!external&&op.startsWith("action:")&&await matches("action",key,op))configured.push(op);
+    }
+    if(!configured.length)continue;
+    const bound=external?await getExternalModel(c.env,spaceId,key):null;
+    if(external&&!bound)continue;
+    const authority=bound?externalAuthorityModel(bound):model;
+    const semantic=external?undefined:projectModelSemanticFacts(model);
+    candidates.push({key,configured,model,bound,authority,semantic});
+    const needed=new Set<Access>();
+    for(const op of configured){
+      if(op==="query"||op==="get")needed.add("read");
+      else if(validCrud(op))needed.add("write");
+      else{
+        const action=semantic?.actions.find(a=>a.key===op.slice(7));
+        if(action?.access==="read"||action?.access==="write")needed.add(action.access);
+      }
+    }
+    for(const access of needed){
+      requested.push({key,access});
+      requests.push({model:authority,required:access,observeAuthorityBatch:authorityD1Observer(c)});
+    }
+  }
+  const permissions=new Map<string,{read:boolean;write:boolean}>();
+  if(principal.scopes.includes("resources:read")&&requests.length){
+    // The hypothetical write Scope only controls discoverability, never
+    // invocation. Both levels read the same current base-Authority snapshot.
+    const evaluated=await evaluateModelAccessMany(c.env,discoveryPrincipal(principal,"write"),spaceId,requests);
+    evaluated.forEach((result,i)=>{
+      if(!result.ok&&![403,404,405].includes(result.error.status))throw result.error;
+      const {key,access}=requested[i]!;
+      const permission=permissions.get(key)??{read:false,write:false};
+      permission[access]=result.ok;
+      permissions.set(key,permission);
+    });
+  }
   // One immutable contract read per tool-list request, not one D1 lookup
   // for each model and operation.
   let contractCache: Awaited<ReturnType<typeof getOrCreateActiveModelContract>> | undefined;
@@ -131,7 +185,8 @@ async function manifest(c:ContextApp):Promise<Entry[]>{
   };
   const push=async(kind:Kind,modelKey:string,display:string,operation:Operation,data?:JsonSchema,actionKey?:string,access:Access=["query","get"].includes(operation)?"read":"write")=>{
     if(out.length>=MAX_OPERATIONS)throw new ApiError("OPERATION_LIMIT","Too many configured MCP operations",413);
-    const opRef=await ref([policy.serverId,spaceId,modelKey,operation,kind].join(":"));
+    const opRef=await operationRef(kind,modelKey,operation);
+    if(targetRef&&opRef!==targetRef)return;
     const dataSchema=operationSchema(spaceId,operation,data);
     const toolOp=operation.startsWith("action:")?"action":operation;
     out.push({kind,target:modelKey,actionKey,
@@ -140,15 +195,9 @@ async function manifest(c:ContextApp):Promise<Entry[]>{
         requiredScopes:access==="read"?["resources:read"]:["resources:read","resources:write"],
         description:"LifeSpace "+toolOp+". Current Core Resource, Space, Model, Policy and Delegation are revalidated at execution."}});
   };
-  for(const [key, configured]of Object.entries(policy.modelOperations)){
-    if(!MODEL.test(key)||!Array.isArray(configured)||!configured.length)throw denied();
-    const model=await getRuntimeModel(c.env,key);
-    if(!model)continue;
-    if(model.definition.origin==="external"){
-      const bound=await getExternalModel(c.env,spaceId,key);
-      if(!bound)continue;
-      const decision=externalAuthorityModel(bound);
-      const [read,write]=await Promise.all([may(c.env,principal,spaceId,decision,"read"),may(c.env,principal,spaceId,decision,"write")]);
+  for(const {key,configured,model,bound,semantic} of candidates){
+    const {read,write}=permissions.get(key)??{read:false,write:false};
+    if(bound){
       const detail=externalSemanticDetail(bound,[...(read?["read"]:[]),...(write?["write"]:[])]);
       for(const op of configured){
         if(!["query","get","create","update","delete"].includes(op))continue;
@@ -160,8 +209,7 @@ async function manifest(c:ContextApp):Promise<Entry[]>{
       }
       continue;
     }
-    const [read,write]=await Promise.all([may(c.env,principal,spaceId,model,"read"),may(c.env,principal,spaceId,model,"write")]);
-    const semantic=projectModelSemanticFacts(model);
+    if(!semantic)continue;
     for(const op of configured){
       if(["query","get","create","update","delete"].includes(op)){
         if(!(op==="query"||op==="get"?read:write))continue;
@@ -213,11 +261,17 @@ async function manifest(c:ContextApp):Promise<Entry[]>{
       }
     }
   }
-  const choices=policy.personOperations??[];
+  const choices:string[]=[];
+  for(const op of policy.personOperations){
+    const normalized=op==="list"?"query":op;
+    if(validCrud(normalized)&&await matches("person","person",normalized))choices.push(normalized);
+  }
   if(choices.length){
-    const [read,write]=await Promise.all([personMay(c.env,principal,spaceId,"read"),personMay(c.env,principal,spaceId,"write")]);
-    for(const op of choices){
-      const normalized=op==="list"?"query":op;
+    const [read,write]=await Promise.all([
+      choices.some(op=>op==="query"||op==="get")?personMay(c.env,principal,spaceId,"read"):false,
+      choices.some(op=>op!=="query"&&op!=="get")?personMay(c.env,principal,spaceId,"write"):false,
+    ]);
+    for(const normalized of choices){
       if(!["query","get","create","update","delete"].includes(normalized))continue;
       // Person Directory write is independently granted by Core. A read
       // Grant plus OAuth write Scope never creates a write capability.
@@ -285,7 +339,7 @@ export function registerMcpGenericOperationRoutes(app:Hono<AppEnv>):void {
       ||Object.keys(input).length!==1||!("arguments" in input))throw denied();
     const args=(input as {arguments:unknown}).arguments;
     if(!args||typeof args!=="object"||Array.isArray(args))throw denied();
-    const item=(await manifest(c)).find(op=>op.dto.operationRef===c.req.param("operationRef"));
+    const item=(await manifest(c,c.req.param("operationRef")))[0];
     if(!item)throw denied();
     // A discoverable write operation is not executable with a read-only token.
     // Scope upgrade is an independent OAuth consent; do not pass the preview

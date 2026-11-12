@@ -1,6 +1,6 @@
 import { env } from "cloudflare:workers";
 import { sign } from "hono/jwt";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createApp } from "../src/app";
 import { oauthExecutionRouteAllowed, verifyAccessToken } from "../src/auth";
 
@@ -60,11 +60,34 @@ async function fixture() {
     db.prepare("INSERT INTO application_model_access(application_id,model_key,max_access,created_by_type,created_by_id) VALUES(?,?,?,?,?)")
       .bind(application, "task", "read", "service", "svc_synthetic"),
   ]);
+  // Count actual base-authority SQL preparations and binding round trips,
+  // not mock elapsed time. The unwrapped DB is retained for fixture writes.
+  let authorityStatements=0, pendingAuthorityStatements=0;
+  const authorityBatches:number[]=[];
+  const countedDb=new Proxy(db,{
+    get(target,property){
+      if(property==="prepare")return (sql:string)=>{
+        if(sql.includes("AS catalog_access")&&sql.includes("AS membership_role")){
+          authorityStatements++;pendingAuthorityStatements++;
+        }
+        return db.prepare(sql);
+      };
+      if(property==="batch")return (statements:D1PreparedStatement[])=>{
+        if(pendingAuthorityStatements){
+          authorityBatches.push(pendingAuthorityStatements);
+          pendingAuthorityStatements=0;
+        }
+        return db.batch(statements);
+      };
+      const value=Reflect.get(target,property,target);
+      return typeof value==="function"?value.bind(target):value;
+    },
+  });
   let active = true, checks = 0, lastBody: unknown;
   let delegationEnabled = false;
   let consentScopes = ["resources:read"];
   const bindings = {
-    ENVIRONMENT: "staging", DB: db, IDENTITY_PUBLIC_KEY: publicKey,
+    ENVIRONMENT: "staging", DB: countedDb, IDENTITY_PUBLIC_KEY: publicKey,
     CORE_IDENTITY_SHARED_SECRET: "synthetic-core-to-identity-shared-secret",
     OAUTH_ACCOUNT_APPLICATION_ID: accountApp,
     IDENTITY: { fetch: async (url: string, init: RequestInit) => {
@@ -133,6 +156,8 @@ async function fixture() {
         .bind(JSON.stringify({ models: [{ modelKey: "task", operations }] }), serverId).run();
     },
     checks: () => checks, lastBody: () => lastBody,
+    resetAuthorityMetrics:()=>{authorityStatements=0;pendingAuthorityStatements=0;authorityBatches.length=0;},
+    authorityMetrics:()=>({statements:authorityStatements,batches:[...authorityBatches]}),
   };
 }
 
@@ -639,6 +664,61 @@ describe("OAuth MCP Agent Direct execution: Core fail-closed route and Space bou
     expect((await f.request("POST",route,{},{
       arguments:{spaceId:f.space,data:{}},
     })).status).toBe(401);
+  });
+
+  it("batches current discovery authority and resolves only the invoked model, with request-correlated D1 timing", async () => {
+    const f=await fixture();
+    const base="/api/v1/spaces/"+f.space;
+    await f.db.batch([
+      f.db.prepare("UPDATE data_grants SET permission='write' WHERE source_space_id=? AND grantee_id=?").bind(f.space,f.agent),
+      f.db.prepare("UPDATE application_model_access SET max_access='write' WHERE application_id=?").bind(f.application),
+      ...["event","wish"].map(key=>f.db.prepare(
+        "INSERT INTO application_model_access(application_id,model_key,max_access,created_by_type,created_by_id) VALUES(?,?,?,?,?)"
+      ).bind(f.application,key,"write","service","svc_synthetic")),
+      f.db.prepare("UPDATE mcp_server_definitions SET config_json=? WHERE id=?").bind(
+        JSON.stringify({models:["task","event","wish"].map(modelKey=>({modelKey,operations:["query","get","create"]}))}),f.serverId),
+    ]);
+    const log=vi.spyOn(console,"log").mockImplementation(()=>undefined);
+    try{
+      f.resetAuthorityMetrics();
+      const catalog=await f.request("GET",base+"/_discovery/operations");
+      expect(catalog.status).toBe(200);
+      const rows=(await catalog.json() as {data:{operations:Array<{modelKey:string;operation:string;operationRef:string}>}}).data.operations;
+      expect(rows.filter(x=>x.operation==="create").map(x=>x.modelKey).sort()).toEqual(["event","task","wish"]);
+      // Read and write use one current snapshot per model in a single batch.
+      expect(f.authorityMetrics()).toEqual({statements:3,batches:[3]});
+      const selected=rows.find(x=>x.modelKey==="task"&&x.operation==="query")!;
+      expect(selected).toBeDefined();
+      const route=base+"/_operations/"+selected.operationRef+"/invoke";
+      f.resetAuthorityMetrics();
+      const invoked=await f.request("POST",route,{},{
+        arguments:{spaceId:f.space,data:{page:{limit:1}}},
+      });
+      expect(invoked.status).toBe(200);
+      // One target projection, then independent canonical execution; unrelated
+      // configured models must not incur authority SQL or schema projection.
+      expect(f.authorityMetrics()).toEqual({statements:2,batches:[1,1]});
+      log.mockClear();
+      const requestId="perf-authority-synthetic";
+      const direct=await f.request("POST",base+"/models/task/records/query",{},{
+        page:{limit:1},
+      },{"x-request-id":requestId});
+      expect(direct.status).toBe(200);
+      const timings=log.mock.calls.map(([value])=>{
+        try{return JSON.parse(String(value));}catch{return null;}
+      }).filter(value=>value?.message==="LifeSpace performance timing"&&value.requestId===requestId);
+      expect(timings).toHaveLength(1);
+      expect(timings[0].authorityD1).toEqual([expect.objectContaining({
+        wallMs:expect.any(Number),statements:1,success:true,
+        regions:expect.any(Array),colos:expect.any(Array),
+      })]);
+      // Old operation reference remains non-authorizing after current Grant loss.
+      await f.db.prepare("UPDATE data_grants SET revoked_at=? WHERE source_space_id=? AND grantee_id=?")
+        .bind(new Date().toISOString(),f.space,f.agent).run();
+      expect((await f.request("POST",route,{},{
+        arguments:{spaceId:f.space,data:{page:{limit:1}}},
+      })).status).toBe(404);
+    }finally{log.mockRestore();}
   });
 
   it("discovers and runs Native create through the same opaque operation contract, with current server policy", async () => {
