@@ -1,7 +1,7 @@
 import type { Context, Hono } from "hono";
 import { sign } from "hono/jwt";
 import type { Bindings, Variables } from "./env";
-import { authorization, eligible } from "./oauth-authorization";
+import { authorization, currentOAuthAccess, eligible } from "./oauth-authorization";
 import { configuredOAuthResource } from "./oauth-mcp-resource";
 import { cimdClientId } from "./oauth-client-metadata";
 
@@ -10,10 +10,6 @@ type App = Hono<AppEnv>;
 
 const READ_SCOPE = "resources:read";
 const MAX_EXECUTION_TTL_SECONDS = 60;
-type TokenRow = {
-  authorization_id: string; client_id: string; resource: string; scopes: string;
-  expires_at: string; revoked_at: string | null;
-};
 type ExecutionContext = {
   authorizationId: string; tokenHash: string; clientId: string;
   resource: string; applicationId: string; agentId: string; spaceId: string;
@@ -47,13 +43,9 @@ function scopeList(raw: string): string[] {
 }
 
 async function validAccess(env: Bindings, tokenHash: string, resource: string) {
-  const row = await env.DB.prepare(
-    "SELECT authorization_id,client_id,resource,scopes,expires_at,revoked_at " +
-    "FROM oauth_access_tokens WHERE token_hash=?",
-  ).bind(tokenHash).first<TokenRow>();
-  if (!row || row.resource !== resource || row.revoked_at || Date.parse(row.expires_at) <= Date.now()) return null;
-  const selected = await authorization(env.DB, row.authorization_id);
-  if (!eligible(selected) || selected.resource !== row.resource || selected.client_id !== row.client_id) return null;
+  const match = await currentOAuthAccess(env.DB, tokenHash, resource);
+  if (!match) return null;
+  const { selected, row } = match;
   const scopes = scopeList(row.scopes);
   if (!scopes.includes(READ_SCOPE) || !scopeList(selected.scopes).includes(READ_SCOPE)) return null;
   // Consent and the access token bound the actual OAuth ceiling. Deployment
