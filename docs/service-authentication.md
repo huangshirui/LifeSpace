@@ -405,3 +405,7 @@ and optimistic concurrency. Identity issues at most 60-second execution JWTs; Co
 rechecks live scopes on every request. Production and existing read-only clients
 remain read-only. No implicit User Delegation, External write, batch or admin
 surface is added. Contract projection and release details: `docs/identity-oauth.md`.
+
+## Isolated CIMD metadata transport (candidate)
+
+The deployment-owned Node egress endpoint authenticates only Identity's metadata retrieval with an independent environment-specific 256-bit random shared secret. It is not a LifeSpace Service API Token, OAuth credential, Core approver secret or User/Agent authority. Never forward these credentials or client-supplied headers upstream. The relay has no databases, private-network bindings or LifeSpace API privileges. Identity requires its exact HTTPS endpoint and secret before advertising CIMD and rejects failure rather than falling back to direct fetch. Staging and Production secrets and deployments must remain separate; see `infra/cimd-egress/README.md`.
