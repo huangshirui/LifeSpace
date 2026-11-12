@@ -132,9 +132,15 @@ export async function precheckCimdDns(host: string, fetcher: typeof fetch): Prom
     const query = async (family: 4 | 6): Promise<number> => {
       const type = family === 4 ? 1 : 28;
       const url = "https://cloudflare-dns.com/dns-query?name=" + encodeURIComponent(host) + "&type=" + type;
-      const response = await fetcher(url, { method:"GET", redirect:"error", signal:AbortSignal.timeout(2000),
+      // Workers does not implement redirect:"error" (Request throws TypeError).
+      // Manual redirects plus exact status validation preserve fail-closed
+      // behavior: a resolver redirect is never followed or trusted.
+      const response = await fetcher(url, { method:"GET", redirect:"manual", signal:AbortSignal.timeout(2000),
         headers:{accept:"application/dns-json"} });
-      if (!response.ok) throw Error("DNS_UNAVAILABLE");
+      if (response.status !== 200) {
+        await response.body?.cancel().catch(() => undefined);
+        throw Error("DNS_UNAVAILABLE");
+      }
       const raw = await response.text();
       if (raw.length > 16384) throw Error("DNS_TOO_LARGE");
       const result = JSON.parse(raw) as {Status?: number; TC?: boolean; Answer?: Array<{type:number;data:unknown}>};
