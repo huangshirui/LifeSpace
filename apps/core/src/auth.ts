@@ -363,7 +363,8 @@ export function authenticate(): MiddlewareHandler<AppEnv> {
         principal.scopes.includes("resources:write"))) {
         throw new ApiError("FORBIDDEN", "OAuth Agent execution is limited to its selected Space and enabled model operation surface", 403);
       }
-      await requireCurrentOAuthExecution(context.env, execution, principal.scopes);
+      await measurePerformancePhase(context, "security.oauth_execution_state",
+        () => requireCurrentOAuthExecution(context.env, execution, principal.scopes));
       const oauthRequestPath = "/api/v1/spaces/" + execution.spaceId + "/oauth-delegation-requests";
       const isApprovalTransport = context.req.path === oauthRequestPath ||
         (context.req.path.startsWith(oauthRequestPath + "/") &&
@@ -380,15 +381,17 @@ export function authenticate(): MiddlewareHandler<AppEnv> {
         const delegated = context.req.header("x-lifespace-delegation-id");
         if (!execution.delegationId || delegated !== execution.delegationId)
           throw new ApiError("FORBIDDEN", "Signed OAuth Delegation selector is required", 403);
-        await requireOAuthMcpDelegatedOperation(
-          context.env, principal, context.req.method, context.req.path, delegated,
-        );
+        await measurePerformancePhase(context, "security.oauth_delegation_operation",
+          () => requireOAuthMcpDelegatedOperation(
+            context.env, principal, context.req.method, context.req.path, delegated,
+          ));
       } else if (context.req.header("x-lifespace-delegation-id")) {
         throw new ApiError("FORBIDDEN", "Direct OAuth execution cannot select Delegation", 403);
       }
-      const policy = await currentMcpOAuthQueryPolicy(
-        context.env.DB, execution.resource, context.req.method, context.req.path,
-      );
+      const policy = await measurePerformancePhase(context, "security.oauth_server_policy",
+        () => currentMcpOAuthQueryPolicy(
+          context.env.DB, execution.resource, context.req.method, context.req.path,
+        ));
       principal = { ...principal, oauthExecution: {
         ...execution, serverId: policy.serverId, queryModelKeys: policy.queryModelKeys,
         toolModelKeys: policy.toolModelKeys, modelOperations: policy.modelOperations,
