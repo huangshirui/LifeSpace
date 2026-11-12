@@ -220,9 +220,33 @@ async function revokeOAuthAuthorization(
   return (await statement.bind(timestamp, authorizationId).run()).meta.changes === 1;
 }
 
+const AUTHORIZATION_COLUMNS = "oa.*,u.status userStatus,a.status appStatus,a.allowed_scopes allowedScopes,ag.status agentStatus,aa.status bindingStatus,aa.revoked_at bindingRevoked,oc.status clientStatus";
+const AUTHORIZATION_RELATIONS = "oauth_authorizations oa JOIN users u ON u.id=oa.user_id JOIN applications a ON a.id=oa.application_id JOIN agents ag ON ag.id=oa.agent_id JOIN agent_applications aa ON aa.agent_id=oa.agent_id AND aa.application_id=oa.application_id JOIN oauth_clients oc ON oc.id=oa.client_id";
 export async function authorization(db: D1Database, authorizationId: string): Promise<Authorization | null> {
-  return db.prepare("SELECT oa.*,u.status userStatus,a.status appStatus,a.allowed_scopes allowedScopes,ag.status agentStatus,aa.status bindingStatus,aa.revoked_at bindingRevoked,oc.status clientStatus FROM oauth_authorizations oa JOIN users u ON u.id=oa.user_id JOIN applications a ON a.id=oa.application_id JOIN agents ag ON ag.id=oa.agent_id JOIN agent_applications aa ON aa.agent_id=oa.agent_id AND aa.application_id=oa.application_id JOIN oauth_clients oc ON oc.id=oa.client_id WHERE oa.id=?")
+  return db.prepare("SELECT " + AUTHORIZATION_COLUMNS + " FROM " + AUTHORIZATION_RELATIONS + " WHERE oa.id=?")
     .bind(authorizationId).first<Authorization>();
+}
+
+type AccessSnapshot = Authorization & {
+  accessClientId: string; accessResource: string; accessScopes: string;
+  accessExpiresAt: string; accessRevokedAt: string | null;
+};
+// One current-state SQL snapshot for all three OAuth access verification
+// entrypoints. The Token hash is indexed; no authority cache or extra trust
+// in the token/JWT. The same eligibility predicate applies as before.
+export async function currentOAuthAccess(db: D1Database, tokenHash: string, resource: string) {
+  const snapshot = await db.prepare(
+    "SELECT " + AUTHORIZATION_COLUMNS + ",at.client_id accessClientId,at.resource accessResource,"
+    + "at.scopes accessScopes,at.expires_at accessExpiresAt,at.revoked_at accessRevokedAt "
+    + "FROM " + AUTHORIZATION_RELATIONS
+    + " JOIN oauth_access_tokens at ON oa.id=at.authorization_id WHERE at.token_hash=?"
+  ).bind(tokenHash).first<AccessSnapshot>();
+  if (!eligible(snapshot) || snapshot.accessResource !== resource || snapshot.resource !== snapshot.accessResource
+    || snapshot.client_id !== snapshot.accessClientId || snapshot.accessRevokedAt
+    || !Number.isFinite(Date.parse(snapshot.accessExpiresAt)) || Date.parse(snapshot.accessExpiresAt) <= Date.now()) return null;
+  const { accessClientId, accessResource, accessScopes, accessExpiresAt, accessRevokedAt, ...selected } = snapshot;
+  return { selected, row: { client_id: accessClientId, resource: accessResource,
+    scopes: accessScopes, expires_at: accessExpiresAt, revoked_at: accessRevokedAt } };
 }
 export function eligible(a: Authorization | null): a is Authorization {
   return Boolean(a) && a!.status === "active" && a!.userStatus === "active" && a!.appStatus === "active"
@@ -738,11 +762,9 @@ export function registerOAuthAuthorizationServer(app: App) {
     const token = formField(body, "token");
     const resource = allowedResource(c, formField(body, "resource"));
     if (!token || !resource) return c.json({ active: false });
-    const row = await c.env.DB.prepare("SELECT authorization_id,client_id,resource,scopes,expires_at,revoked_at FROM oauth_access_tokens WHERE token_hash=?")
-      .bind(await hash(token)).first<{ authorization_id: string; client_id: string; resource: string; scopes: string; expires_at: string; revoked_at: string | null }>();
-    if (!row || row.resource !== resource || row.revoked_at || Date.parse(row.expires_at) <= Date.now()) return c.json({ active: false });
-    const a = await authorization(c.env.DB, row.authorization_id);
-    if (!eligible(a) || a.resource !== row.resource || a.client_id !== row.client_id) return c.json({ active: false });
+    const match = await currentOAuthAccess(c.env.DB, await hash(token), resource);
+    if (!match) return c.json({ active: false });
+    const { selected: a, row } = match;
     return c.json({
       active: true, client_id: a.client_id, authorization_id: a.id, sub: a.user_id,
       application_id: a.application_id, space_id: a.space_id, agent_id: a.agent_id,

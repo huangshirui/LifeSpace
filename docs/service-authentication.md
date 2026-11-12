@@ -409,3 +409,8 @@ surface is added. Contract projection and release details: `docs/identity-oauth.
 ## 2026-11-12 · Console-owned OAuth admission (candidate)
 
 CIMD and DCR public-client admission has one Console-managed Identity policy per environment; no runtime feature-variable or relay credential. Service client_credentials, machine credentials and all OAuth token lifecycles remain unchanged. Network and limiter deployment prerequisites are audited separately.
+
+
+### OAuth current access snapshot (performance implementation)
+
+Interactive OAuth access-token introspection, private execution-token issuance and Core execution introspection share one current Identity D1 statement joining the indexed opaque token hash to Authorization and current User, Application, Agent, Agent/Application binding and Client. The existing eligibility, exact Resource/Client, expiry and revocation checks remain; malformed expiry fails closed. The execution scope remains the intersection of token and consent scopes. No positive authorization cache, credential format, public response contract, TTL, or cross-service trust change. Other independent execution-time Core checks remain mandatory. One database round trip per Identity validation replaces two; real latency requires deployment and equivalent live measurement.

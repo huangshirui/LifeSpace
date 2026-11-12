@@ -2,6 +2,7 @@ import { env } from "cloudflare:workers";
 import { verify } from "hono/jwt";
 import { describe, expect, it } from "vitest";
 import { createIdentityApp } from "../src/index";
+import { currentOAuthAccess } from "../src/oauth-authorization";
 
 type TestEnv = { DB: D1Database };
 const app = createIdentityApp();
@@ -728,6 +729,58 @@ describe("Identity OAuth Authorization Server (isolated candidate)", () => {
     expect((await t.revoke(oauthBearer)).status).toBe(200);
     expect(await (await check(context, t.b.CORE_IDENTITY_SHARED_SECRET)).json()).toEqual({ data: { active: false } });
     expect((await exchange(t.b.OAUTH_RESOURCE_SERVER_SECRET, oauthBearer, t.resource)).status).toBe(401);
+  });
+
+  it("reads each current OAuth access snapshot with one D1 statement and fails closed on live changes", async () => {
+    const t = await setup();
+    const pending = await t.authorize();
+    const requestId = new URL(pending.headers.get("location")!).searchParams.get("request_id")!;
+    const approved = await t.approve(requestId, t.b.OAUTH_CORE_APPROVER_SECRET);
+    expect(approved.status).toBe(200);
+    const code = new URL((await approved.json() as {redirect_url:string}).redirect_url).searchParams.get("code")!;
+    const issued = await t.token({grant_type:"authorization_code",client_id:t.clientId,
+      redirect_uri:t.redirect,code,code_verifier:t.verifier,resource:t.resource});
+    expect(issued.status).toBe(200);
+    const bearer=(await issued.json() as {access_token:string}).access_token;
+    const digest=Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256",new TextEncoder().encode(bearer))),
+      b=>b.toString(16).padStart(2,"0")).join("");
+    const queries:string[]=[];
+    const db=new Proxy(t.b.DB,{
+      get(target,key){
+        if(key==="prepare")return (sql:string)=>{queries.push(sql);return target.prepare(sql);};
+        const value=Reflect.get(target,key,target);
+        return typeof value==="function"?value.bind(target):value;
+      },
+    });
+    const snapshot=await currentOAuthAccess(db,digest,t.resource);
+    expect(snapshot?.selected).toMatchObject({agent_id:t.agentId,application_id:t.target.appId,client_id:t.clientId});
+    expect(queries).toHaveLength(1);
+    expect(queries[0]).toContain("JOIN oauth_access_tokens");
+    expect(await currentOAuthAccess(db,digest,"https://mcp.example.test/mcp/health")).toBeNull();
+    expect(await currentOAuthAccess(db,"f".repeat(64),t.resource)).toBeNull();
+
+    const check=async()=>{
+      expect(await currentOAuthAccess(db,digest,t.resource)).toBeNull();
+      expect(await (await t.introspect(bearer,t.resource)).json()).toEqual({active:false});
+      const exchange=await t.request("/oauth/execution-tokens",{method:"POST",
+        headers:{"content-type":"application/json","x-lifespace-resource-secret":t.b.OAUTH_RESOURCE_SERVER_SECRET},
+        body:JSON.stringify({token:bearer,resource:t.resource})});
+      expect(exchange.status).toBe(401);
+    };
+    // Each transition is visible immediately; no positive cache from the
+    // earlier successful snapshot. Restore only synthetic fixture rows.
+    await t.b.DB.prepare("UPDATE oauth_clients SET status='disabled' WHERE id=?").bind(t.clientId).run();
+    await check();
+    await t.b.DB.prepare("UPDATE oauth_clients SET status='active' WHERE id=?").bind(t.clientId).run();
+    await t.b.DB.prepare("UPDATE agents SET status='disabled' WHERE id=?").bind(t.agentId).run();
+    await check();
+    await t.b.DB.prepare("UPDATE agents SET status='active' WHERE id=?").bind(t.agentId).run();
+    await t.b.DB.prepare("UPDATE applications SET allowed_scopes='[]' WHERE id=?").bind(t.target.appId).run();
+    await check();
+    await t.b.DB.prepare("UPDATE applications SET allowed_scopes=? WHERE id=?").bind(JSON.stringify(["resources:read","resources:write"]),t.target.appId).run();
+    expect(await currentOAuthAccess(db,digest,t.resource)).not.toBeNull();
+    await t.b.DB.prepare("UPDATE oauth_access_tokens SET expires_at=? WHERE token_hash=?").bind("2000-01-01T00:00:00Z",digest).run();
+    await check();
   });
 
   it("preserves explicit read/write consent across environments and rechecks live Scope", async () => {
