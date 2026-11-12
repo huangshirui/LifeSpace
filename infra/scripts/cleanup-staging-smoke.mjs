@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
 import process from "node:process";
+import { closeCreatedSmokeSpace } from "./staging-smoke-space-lifecycle.mjs";
 
 const identityBase = (process.env.LIFESPACE_IDENTITY_STAGING_URL ?? "https://auth-staging.aisr.online").replace(/\/+$/u, "");
 const coreBase = (process.env.LIFESPACE_CORE_STAGING_URL ?? "https://core-staging.aisr.online").replace(/\/+$/u, "");
@@ -83,6 +84,7 @@ async function coreRequest(path, { method = "GET", body } = {}) {
 }
 
 const warnings = [];
+let spaceRetirement = "not-created";
 if (userBearer && spaceId && serviceGrantId) {
   try {
     const revokedGrant = await coreRequest(`/api/v1/spaces/${spaceId}/grants/${serviceGrantId}`, { method: "DELETE" });
@@ -90,6 +92,20 @@ if (userBearer && spaceId && serviceGrantId) {
   } catch (error) {
     warnings.push(`Runtime Service Data Grant revocation failed: ${error instanceof Error ? error.message : String(error)}`);
   }
+}
+
+// Close only a Space whose run-local creation marker, owner, Application and
+// exact name all agree. Use the governed Core lifecycle API before revoking
+// the Application credential. No D1 deletion or historical name-based sweep.
+try {
+  spaceRetirement = await closeCreatedSmokeSpace({
+    coreBase, identityBase, applicationId, spaceId, userBearer,
+    createdSpaceId: process.env.LIFESPACE_STAGING_SMOKE_CREATED_SPACE_ID,
+    ownerId: process.env.LIFESPACE_STAGING_SMOKE_USER_ID,
+    runId: process.env.GITHUB_RUN_ID, runAttempt: process.env.GITHUB_RUN_ATTEMPT,
+  }, coreRequest);
+} catch (error) {
+  warnings.push("Run-created Space retirement failed: " + (error instanceof Error ? error.message : "unknown error"));
 }
 
 if (applicationSecret && principalId && tokenId) {
@@ -174,6 +190,7 @@ console.log(JSON.stringify({
   serviceTokenRevocationAttempted: Boolean(applicationSecret && principalId && tokenId),
   serviceRuntimeGrantRevocationAttempted: Boolean(userBearer && spaceId && serviceGrantId),
   modelAccessCleanupAttempted: true,
+  spaceRetirement,
   applicationCredentialRevoked,
   applicationDisabled,
   applicationAbsent,
