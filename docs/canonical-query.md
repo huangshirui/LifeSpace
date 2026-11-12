@@ -83,6 +83,8 @@ Result envelope:
 
 Current matching semantics are model-scoped text retrieval over declared text-like fields. Storage may later use D1 FTS or another index, but indexing strategy is not public semantics.
 
+Search is a literal, case-insensitive substring match over declared searchable fields (up to 100 characters), not SQL wildcard syntax: `%`, `_` and `\\` are ordinary characters. The Native D1 planner uses bounded `instr(lower(field), lower(?)) > 0` predicates instead of SQLite `LIKE` patterns to avoid D1's shorter LIKE-pattern complexity limit. This does not change the normalized query or cursor signature, and introduces no extra D1 round trips.
+
 Search and Filter both restrict the candidate set. When both are present, only records satisfying the Filter and matching Search are candidates for Sort/Pagination. A consumer must not model keyword retrieval as a synthetic field predicate.
 
 ## 3. Filter Boolean AST

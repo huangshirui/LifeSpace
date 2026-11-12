@@ -1,3 +1,4 @@
+import oauthClientAdmissionWorker from "./oauth-client-admission";
 import externalConnectionsWorker from "./external-connections";
 import platformOverviewWorker from "./platform-overview";
 
@@ -18,6 +19,7 @@ export default {
     if (request.method === "GET" && url.pathname === "/api/overview" && !url.search) {
       return platformOverviewWorker.fetch(request, env);
     }
+    if (url.pathname === "/api/oauth-client-admission") return oauthClientAdmissionWorker.fetch(request, env);
     return externalConnectionsWorker.fetch(request, env);
   },
 } satisfies ExportedHandler<Env>;

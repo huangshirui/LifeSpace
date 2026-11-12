@@ -1,0 +1,67 @@
+name: Verify LifeSpace staging OAuth security
+
+# A manually initiated, staging-only protocol acceptance workflow.
+# This is NOT a deployment workflow and may never trigger one.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lifespace-staging-oauth-security
+  cancel-in-progress: false
+
+jobs:
+  acceptance:
+    name: Real staging OAuth protocol and abuse checks
+    runs-on: ubuntu-latest
+    environment: staging
+    timeout-minutes: 12
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID || secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - name: Enforce direct owner intent and main-only staging tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_EVENT_NAME" = "workflow_dispatch"
+          test "$GITHUB_ACTOR" = "huangshirui"
+          test "$GITHUB_TRIGGERING_ACTOR" = "huangshirui"
+          test "$GITHUB_REF_NAME" = "main"
+          test -n "${CLOUDFLARE_API_TOKEN:-}"
+          test "${#CLOUDFLARE_ACCOUNT_ID}" -eq 32
+
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Validate acceptance script
+        run: node --check infra/scripts/verify-staging-oauth-security.mjs
+
+      - name: Run real Staging OAuth acceptance and cleanup
+        run: node infra/scripts/verify-staging-oauth-security.mjs
+
+      - name: Summarize verified scope
+        if: ${{ success() }}
+        shell: bash
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<'EOF'
+          ## Staging OAuth security protocol acceptance
+
+          - Verified against real Staging public endpoints and staging D1
+          - Console policy matched to discovery; enabled DCR tested, disabled DCR denied
+          - OAuth S256 PKCE, live MCP Resource, pending Account Consent
+          - No unapproved Token, no unchecked introspection
+          - Enabled CIMD tested for live admission and private DNS/callback denial; disabled features are not claimed as positively tested
+          - Strict-public fetch, no VPC and native configuration verified by canonical Staging audit
+          - Ephemeral Client and pending request cleaned
+          - **Not** a full connection-time DNS rebinding proof
+          - **Not** an authenticated human Consent / Token exchange / refresh end-to-end test
+          - **Not** approval to activate CIMD or deploy Production
+          EOF

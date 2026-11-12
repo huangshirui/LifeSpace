@@ -1,5 +1,16 @@
 # Space-local External Models / 空间外部模型
 
+## 2026-11-09 · External single-use Delegation as one Provider attempt / 外部写入按尝试消费
+
+**Owner-approved business rule:** A current `maxUses:1` Delegation for an External Model authorizes **at most one outbound Provider mutation attempt**, not one successful external commit. The Core External Runtime validates current Principal=User / Actor=Agent, current Delegation, Space/Model/Provider/Connection capabilities, exact operation, input and audit-preflight, then **atomically consumes all required one-use Delegation chain rows in D1 before Provider I/O begins**. If conditional consumption loses a replay race, Core must not call Provider.
+
+The Delegation remains consumed whether the Provider succeeds, rejects the write, disconnects, times out, or reports uncertain result. Core records `external_operation_audit.result = succeeded | failed | unknown` using its existing audit flow. A new write needs a fresh User approval; on an unknown/timeout outcome, first read back the current provider record when possible to avoid unintended duplicates. There is no cross-Provider/D1 distributed commit or exactly-once success promise.
+
+For a **single-use delegated Provider write**, do not automatically retry `EXTERNAL_SCHEMA_CHANGED` even if the Adapter marks a schema error retry-safe: one approved external attempt means one outbound call. Direct Agent/long-lived normal External execution retains existing safe-retry handling. Invalid local input or unavailable pending audit prevents Provider invocation and therefore does not consume an attempt.
+
+This is Core-owned execution semantics; Adapters must not mark Native `version` mandatory for External data. Trusted in-app or verified-WeCom confirmation UX remains separate and unchanged. The change is source-candidate only until merged/deployed and Staging E2E passes.
+
+
 Status: staging candidate implementation contract for Federated Truth / External Data; not a production capability until canonical staging and production release gates pass.
 
 External Model is a **Query** relationship to provider-authoritative Shared World/Knowledge. Core owns Semantics, Authority and Context Projection (A1/A3/A5); the provider owns record payload/schema. Core never mirrors external business records.
@@ -76,7 +87,7 @@ Read/query/write use the same `/models/{modelKey}/records` paths. Ordinary recor
 
 get/query/create/update/delete and bounded per-item bulk may be supported. `atomicBatch`, `transaction`, `versionedWrite`, `actions`, Native Eventing and Native record history are false. Caller-supplied version is rejected. Unified `/models/batch` accepts External CRUD with explicit `atomicConsistency=false` and optional request-wide `delegationId`; atomic/default requests reject before any write. `/models/bulk` remains compatible. Mixed Native/External CRUD requests retain per-item semantics with no distributed transaction; independent relation_create/relation_delete actions can follow Provider CRUD in an explicitly non-atomic request. Request-local create clientRefs resolve after successful record creation; failed or unknown creates fail dependent relations. Provider record writes and D1 edges do not roll back together. Attached semanticRelations on a Provider create remain unavailable; use independent relation_create.
 
-External operation audit is `pending -> succeeded | failed | unknown`. It captures verified Application/Principal/Actor/Delegation chain, operation, identity, timestamp and status; no record payload, secret or historical schema. Write audit is persisted **before** Provider execution. Crash/network ambiguity remains pending/unknown; it is never reported as a guaranteed failure and never retried blindly. This is operation attribution, not Native Change/outbox or Information Provenance. Single-use delegated writes are rejected because Provider success and D1 consumption cannot be atomically guaranteed. Single-use reads use the existing conditional consumption before returning data.
+External operation audit is `pending -> succeeded | failed | unknown`. It captures verified Application/Principal/Actor/Delegation chain, operation, identity, timestamp and status; no record payload, secret or historical schema. Write audit is persisted **before** Provider execution. Crash/network ambiguity remains pending/unknown; it is never reported as a guaranteed failure and never retried blindly. This is operation attribution, not Native Change/outbox or Information Provenance. Single-use delegated writes use one-attempt semantics: after current authorization and pending audit, Core conditionally consumes the Delegation before Provider I/O; success, failure or unknown outcome never restores the consumed authorization. Single-use reads use conditional consumption before returning data.
 
 ## Freshness and failures / 新鲜度与失败
 

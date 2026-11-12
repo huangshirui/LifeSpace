@@ -1,0 +1,182 @@
+import { describe, expect, it } from "vitest";
+import {
+  cimdClientId, approvedCimdClientId, fetchClientMetadata, parseClientMetadata, publicRedirectUri, ordinaryPublicIp, precheckCimdDns,
+} from "../src/oauth-client-metadata";
+
+const clientId = "https://client.example.com/oauth/client.json";
+const metadata = {
+  client_id: clientId, client_name: "Synthetic MCP Client",
+  redirect_uris: ["https://client.example.com/callback", "http://127.0.0.1:9000/oauth/callback"],
+  grant_types: ["authorization_code", "refresh_token"],
+  response_types: ["code"], token_endpoint_auth_method: "none",
+};
+
+const dnsAnswer = (url: string, ip = "8.8.8.8") => Response.json({
+  Status: 0, Answer: url.endsWith("type=1") ? [{type:1,data:ip}] : [],
+});
+const withDns = (response: Response) => (async (url: string) =>
+  url.startsWith("https://cloudflare-dns.com/dns-query?") ? dnsAnswer(url) : response) as typeof fetch;
+
+describe("CIMD public client metadata is untrusted until verified", () => {
+  it("requires a public HTTPS metadata URL with a path, not internal network targets", () => {
+    expect(cimdClientId(clientId)).toBe(true);
+    for (const candidate of [
+      "https://localhost/client.json", "https://127.0.0.1/client.json",
+      "https://[::1]/client.json", "http://client.example.com/oauth/client.json",
+      "https://client.example.com", "https://client.local/client.json",
+      "https://svc.internal/client.json", "https://client.example.test/oauth/client.json",
+      "https://admin:password@client.example.com/metadata.json",
+      clientId + "?redirect=https://evil.com", clientId + "#secret",
+    ]) expect(cimdClientId(candidate)).toBe(false);
+  });
+
+  it("rejects every unpinned CIMD client, including host lookalikes", () => {
+    expect(approvedCimdClientId(clientId, "")).toBe(false);
+    expect(approvedCimdClientId(clientId, undefined)).toBe(false);
+    expect(approvedCimdClientId(clientId, "https://client.example.com/other.json")).toBe(false);
+    expect(approvedCimdClientId(clientId, "https://*.example.com/oauth/client.json")).toBe(false);
+    expect(approvedCimdClientId(clientId, clientId + " " + clientId)).toBe(false);
+    expect(approvedCimdClientId(clientId, clientId)).toBe(true);
+    expect(approvedCimdClientId(clientId,
+      "https://other.example.com/oauth/client.json\n" + clientId)).toBe(true);
+    expect(approvedCimdClientId(clientId + "?foo=bar", clientId)).toBe(false);
+    expect(approvedCimdClientId(clientId, clientId + " http://localhost/bad")).toBe(false);
+  });
+
+  it("binds the exact metadata-document client_id to explicit callback URIs", () => {
+    expect(parseClientMetadata(clientId, metadata)).toEqual({
+      clientId, displayName: "Synthetic MCP Client", redirectUris: metadata.redirect_uris,
+    });
+    for (const bad of [
+      { ...metadata, client_id: "https://evil.example.com/client.json" },
+      { ...metadata, redirect_uris: ["https://*.example.com/callback"] },
+      { ...metadata, redirect_uris: ["http://evil.example.com/callback"] },
+      { ...metadata, redirect_uris: ["http://localhost.local/callback"] },
+      { ...metadata, redirect_uris: [metadata.redirect_uris[0], metadata.redirect_uris[0]] },
+      { ...metadata, token_endpoint_auth_method: "client_secret_basic" },
+      { ...metadata, client_name: "" },
+    ]) expect(parseClientMetadata(clientId, bad)).toBeNull();
+    // ChatGPT 2026 CIMD advertises both public "none" and private_key_jwt.
+    expect(parseClientMetadata(clientId, {
+      ...metadata,
+      token_endpoint_auth_method: "private_key_jwt",
+      token_endpoint_auth_methods_supported: ["none", "private_key_jwt"],
+    })).not.toBeNull();
+    expect(parseClientMetadata(clientId, {
+      ...metadata,
+      token_endpoint_auth_methods_supported: ["private_key_jwt"],
+    })).toBeNull();
+    expect(parseClientMetadata(clientId, {
+      ...metadata,
+      token_endpoint_auth_methods_supported: "none",
+    })).toBeNull();
+    expect(publicRedirectUri("http://localhost:3000/callback")).toBe(true);
+    expect(publicRedirectUri("http://127.0.0.1:3000/callback")).toBe(true);
+    expect(publicRedirectUri("https://client.example.com/callback")).toBe(true);
+  });
+
+  it("accepts compatible multi-grant metadata without granting new authority", () => {
+    const chatgptId = "https://chatgpt.com/oauth/client.json";
+    const chatgpt = {
+      client_id: chatgptId, client_name: "ChatGPT",
+      redirect_uris: ["https://chatgpt.com/connector_platform_oauth_redirect"],
+      token_endpoint_auth_method: "private_key_jwt",
+      token_endpoint_auth_methods_supported: ["none", "private_key_jwt"],
+      grant_types: ["authorization_code", "refresh_token", "urn:ietf:params:oauth:grant-type:jwt-bearer"],
+      response_types: ["code"],
+      jwks_uri: "https://chatgpt.com/oauth/jwks.json",
+    };
+    expect(parseClientMetadata(chatgptId, chatgpt)).toEqual({
+      clientId: chatgptId, displayName: "ChatGPT", redirectUris: chatgpt.redirect_uris,
+    });
+    expect(parseClientMetadata(clientId, {
+      ...metadata, grant_types: ["authorization_code", "urn:example:future-grant"],
+    })).toEqual({
+      clientId, displayName: metadata.client_name, redirectUris: metadata.redirect_uris,
+    });
+    for (const grant_types of [
+      ["urn:ietf:params:oauth:grant-type:jwt-bearer"],
+      ["authorization_code", 123],
+      ["authorization_code", "bad grant"],
+      ["authorization_code", "authorization_code"],
+      ["authorization_code", ""],
+    ]) expect(parseClientMetadata(clientId, { ...metadata, grant_types })).toBeNull();
+  });
+
+  it("blocks special-use addresses including globally routable special ranges", async () => {
+    for (const ip of ["127.0.0.1","10.1.2.3","169.254.1.1","100.64.0.1","192.0.0.9","192.31.196.1","224.1.2.3","256.1.1.1"])
+      expect(ordinaryPublicIp(ip,4)).toBe(false);
+    for (const ip of ["::1","::ffff:8.8.8.8","fd00::1","fe80::1","2001:db8::1","2001:1::1","2620:4f:8000::1","3fff::1"])
+      expect(ordinaryPublicIp(ip,6)).toBe(false);
+    expect(ordinaryPublicIp("8.8.8.8",4)).toBe(true);
+    expect(ordinaryPublicIp("2606:4700::1111",6)).toBe(true);
+    let documentCalled = false;
+    const mixed = (async (url: string) => {
+      if (url.includes("dns-query")) return Response.json({Status:0,Answer:url.endsWith("type=1")?
+        [{type:1,data:"8.8.8.8"},{type:1,data:"127.0.0.1"}]:[]});
+      documentCalled = true; return Response.json(metadata);
+    }) as typeof fetch;
+    expect(await fetchClientMetadata(clientId,mixed)).toBeNull();
+    expect(documentCalled).toBe(false);
+    expect(await precheckCimdDns("client.example.com", (async()=>Response.json({Status:2})) as typeof fetch)).toBe(false);
+    expect(await precheckCimdDns("client.example.com", (async()=>Response.json({Status:0,Answer:[]})) as typeof fetch)).toBe(false);
+  });
+
+  it("constructs DNS requests in the actual Workers runtime and never follows resolver redirects", async () => {
+    const calls: string[] = [];
+    const fake = (async (url: string, init: RequestInit) => {
+      // The Workers Vitest pool executes this Request constructor in workerd.
+      // Mocking fetch alone previously hid the unsupported redirect:error mode.
+      const request = new Request(url, init);
+      calls.push(request.url);
+      expect(request.redirect).toBe("manual");
+      return url.startsWith("https://cloudflare-dns.com/dns-query?")
+        ? dnsAnswer(url) : Response.json(metadata);
+    }) as typeof fetch;
+    expect(await fetchClientMetadata(clientId, fake)).toMatchObject({clientId});
+    expect(calls).toHaveLength(3);
+    expect(calls.filter(url => url.includes("dns-query"))).toHaveLength(2);
+
+    for (const status of [301, 302, 307, 308, 204]) {
+      let metadataCalled = false;
+      const denied = (async (url: string, init: RequestInit) => {
+        const request = new Request(url, init);
+        expect(request.redirect).toBe("manual");
+        if (!url.startsWith("https://cloudflare-dns.com/dns-query?")) {
+          metadataCalled = true;
+          return Response.json(metadata);
+        }
+        // A 3xx with syntactically valid public DNS JSON is still denied.
+        return new Response(status === 204 ? null : JSON.stringify({
+          Status: 0, Answer: url.endsWith("type=1") ? [{type:1,data:"8.8.8.8"}] : [],
+        }), {status, headers:{location:"https://other.example.com/dns-query",
+          "content-type":"application/dns-json"}});
+      }) as typeof fetch;
+      expect(await fetchClientMetadata(clientId, denied)).toBeNull();
+      expect(metadataCalled).toBe(false);
+    }
+  });
+
+  it("never follows redirects, limits bytes and requires JSON media type", async () => {
+    const calls: Array<{ url: string; redirect?: string }> = [];
+    const fake = async (url: string, init: RequestInit) => {
+      if (url.startsWith("https://cloudflare-dns.com/dns-query?")) return dnsAnswer(url);
+      calls.push({ url, redirect: init.redirect });
+      return new Response(JSON.stringify(metadata), {
+        status: 200, headers: { "content-type": "application/json" },
+      });
+    };
+    const read = await fetchClientMetadata(clientId, fake as typeof fetch);
+    expect(read?.clientId).toBe(clientId);
+    expect(calls).toEqual([{ url: clientId, redirect: "manual" }]);
+    expect(await fetchClientMetadata(clientId, withDns(new Response(null, {
+      status: 302, headers: { location: "https://evil.example.com/redirect" },
+    })))).toBeNull();
+    expect(await fetchClientMetadata(clientId, withDns(new Response("A".repeat(9000), {
+      headers: { "content-type": "application/json" },
+    })))).toBeNull();
+    expect(await fetchClientMetadata(clientId, withDns(new Response(JSON.stringify(metadata), {
+      headers: { "content-type": "text/html" },
+    })))).toBeNull();
+  });
+});

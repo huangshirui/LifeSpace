@@ -69,12 +69,19 @@ describe("Metadata-driven Recurrence runtime", () => {
     const task = (await f.tasks(plan.id))[0];
     const attempts = await Promise.allSettled([1, 2].map(() => executeWorkflowAction(f.bindings, f.fresh(), f.spaceId, f.taskModel, task.record_id, "complete", 1)));
     expect(attempts.filter(r => r.status === "fulfilled")).toHaveLength(1);
-    expect(await f.tasks(plan.id)).toHaveLength(2);
+    const initialTasks = await f.tasks(plan.id);
+    expect(initialTasks).toHaveLength(2);
+    // Reopening/re-completing must preserve the already materialized successor.
+    // A fixed excluded date is invalid when completion genuinely lands 30 days before it.
+    const successorDueDate = initialTasks[1].dueDate;
+    const successorOccurrenceId = initialTasks[1].occurrenceId;
     const completed = await getGenericResource(f.bindings, f.spaceId, f.taskModel, task.record_id);
     const reopened = await executeWorkflowAction(f.bindings, f.fresh(), f.spaceId, f.taskModel, task.record_id, "reopen", completed!.version);
     await executeWorkflowAction(f.bindings, f.fresh(), f.spaceId, f.taskModel, task.record_id, "complete", reopened.version);
-    expect(await f.tasks(plan.id)).toHaveLength(2);
-    expect((await f.tasks(plan.id))[1].dueDate).not.toBe("2026-12-01");
+    const afterRetryTasks = await f.tasks(plan.id);
+    expect(afterRetryTasks).toHaveLength(2);
+    expect(afterRetryTasks[1].dueDate).toBe(successorDueDate);
+    expect(afterRetryTasks[1].occurrenceId).toBe(successorOccurrenceId);
   });
   it("pause completion records anchor; resume creates one next Task; cancel requires explicit skip", async () => {
     const f = await fixture();

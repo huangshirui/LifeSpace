@@ -253,6 +253,8 @@ The effective result is the intersection. The token cannot use a model absent fr
 
 Initial role vocabulary remains small: `owner`, `admin`, `editor`, `viewer`. Published model policy or sensitive-data Capabilities may further reduce these defaults. Roles are not a substitute for model checks.
 
+**Owner preservation / 所有者不可被普通成员操作剥夺（#456）**: Space creation grants `owner` to the creating User. The ordinary add/invite/update member routes cannot assign or transfer `owner`. Neither an `admin` nor an `owner` may remove an Owner membership through `DELETE /api/v1/spaces/{spaceId}/members/{userId}`, and the Owner cannot leave through `POST /api/v1/spaces/{spaceId}/leave`; both cases fail with `OWNER_ROLE_IMMUTABLE` (409). An Owner may still demote/remove `admin`, `editor`, or `viewer` members, subject to current credential scope and Space authority. Owner changes require a separate governed transfer contract, which is not implemented. Member removal and leave must never leave an active Space without an Owner. Revoking Membership does not implicitly revoke independent Data Grants held by the same principal.
+
 Kernel lifecycle rules apply uniformly to Spaces unless a future platform-level distinction is explicitly introduced. Product-specific classifications and lifecycle differences belong downstream and must not be inferred from a Space type or naming convention.
 
 ### Space lifecycle authority
@@ -354,3 +356,17 @@ The Identity 0.14/schema 13 account-link contract supersedes the earlier 0.13 ma
 ## Person Directory Data Grant (Kernel 0.54.0)
 
 The first-class Kernel Person Directory (`per_*`, not an ordinary Model Registry model) accepts `resourceType=person_directory`, `resourceId=null` Data Grants managed by the new Candidate `/person-directory/grants` API with `read` or `write` permission. Active current-state Person Directory authority is the higher of (a) existing User Membership / whole-Space Grant and (b) this dedicated Grant, always bounded by the `resources:read/write` credential scope and current explicit Space Delegation for represented execution. A Person Directory Grant never contributes to `requireSpacePermission` or Generic Runtime model authorization; it confers no Space detail or membership/Identity management. Linked Person mutation retains the existing self-service and Space-manage checks. Revocation, expiry and closed Space fail closed; no DB migration is needed.
+
+## OAuth MCP Staging write intersection / OAuth MCP 写入边界
+
+Staging-only Native Agent Direct single-record create/update/delete is governed by
+current OAuth read+write consent, exact selected Space and enabled MCP Server
+operation, Application × Model Access, Agent Data Grant, Model capability/Policy
+and optimistic concurrency. Identity issues at most 60-second execution JWTs; Core
+rechecks live scopes on every request. Production and existing read-only clients
+remain read-only. No implicit User Delegation, External write, batch or admin
+surface is added. Contract projection and release details: `docs/identity-oauth.md`.
+
+## 2026-11-12 · Console-owned OAuth admission (candidate)
+
+CIMD and DCR current admission policy belongs to Identity D1 and is managed only by authorized Console operators; no duplicate deployment switches. Changing discovery grants no User/Agent authority and does not revoke existing OAuth grants/tokens. Existing callback and per-operation checks remain.

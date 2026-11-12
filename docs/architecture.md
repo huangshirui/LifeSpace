@@ -432,3 +432,26 @@ A globally registered `origin: external` business definition is referenceable me
 ## Unified Access account linking correction (2026-10-26)
 
 Identity 0.14/schema 13 supersedes the independent 0.13 mailbox authorization design. Mini-declared email creates a pending row in `access_principals`; verified Access login or code confirmation completes that same identity relation. Confirmed login resolves only issuer/subject. No permanent email fallback or separate mailbox grant table. See docs/application-authentication.md. Not deployed by this correction.
+
+
+## MCP Server configuration as a replaceable Adapter surface (V7)
+
+Core owns platform-authoritative MCP Server current configuration and enabled state per stable mcp_* ID. This is tool exposure metadata, not Space Shared Reality or a Data Grant, and does not inherit Model Registry publication-version semantics. Console is a privileged presentation/BFF with human actor proof plus scoped executor; current config is validated on each save, changes audited and guarded by an internal optimistic revision. A Server may select published business Model operations or separate Kernel person_directory operations; actual MCP execution must enforce current Resource and Space authority. Planned public URL: https://core.aisr.online/mcp/{serverId}; lifespace-adapters owns MCP protocol runtime behind the future route. No dynamic transport or OAuth is activated by this configuration work.
+
+## Staging OAuth MCP mutation slice / OAuth MCP 写入边界
+
+Staging-only Native Agent Direct single-record create/update/delete is governed by
+current OAuth read+write consent, exact selected Space and enabled MCP Server
+operation, Application × Model Access, Agent Data Grant, Model capability/Policy
+and optimistic concurrency. Identity issues at most 60-second execution JWTs; Core
+rechecks live scopes on every request. Production and existing read-only clients
+remain read-only. No implicit User Delegation, External write, batch or admin
+surface is added. Contract projection and release details: `docs/identity-oauth.md`.
+
+## CIMD native public outbound boundary (candidate, 2026-11-12)
+
+Identity retains authority ownership; metadata retrieval is untrusted protocol adapter input. Use Cloudflare strict-public global fetch with no VPC/private network bindings, bounded DNS preflight and no credentials/redirects. No separate Node relay. This serves Bounded Authority; DNS preflight does not pin connections or guarantee full special-use draft compliance. See #530.
+
+## 2026-11-12 · Console-owned OAuth admission (candidate)
+
+The current Identity D1 admission policy is the single source of truth for CIMD and DCR enablement. Staging and Production are isolated through their own Identity databases, not duplicated environment flags. Mandatory network and limiter configuration is a deployment invariant, not a second product switch.

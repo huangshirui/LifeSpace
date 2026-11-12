@@ -1,5 +1,5 @@
 import type { Hono } from "hono";
-import { requireSpacePermission, type Permission } from "./authorization";
+import { requirePersonDirectoryPermission, requireSpacePermission, type Permission } from "./authorization";
 import {
   delegationChainStatement,
   delegationExpiryNarrows,
@@ -368,7 +368,19 @@ async function validateScopesAuthorityMany(
     }
   }
 
-  const distinctModelKeys = [...new Set(targetModelKeys.filter((value): value is string => Boolean(value)))];
+  // Person Directory is a narrow Kernel authority target, not a Native model.
+  // A model-scoped "person_directory" Delegation never grants other models
+  // or Space management. Do not require a published Model Registry entry.
+  const personScopes = scopes.filter(scope => scope.target.type === "model"
+    && scope.target.id === "person_directory");
+  for (const scope of personScopes) {
+    if (scope.maxAccess !== "read" && scope.maxAccess !== "write") {
+      throw new ApiError("INVALID_REQUEST", "Person Directory Delegation allows read or write", 400);
+    }
+    await requirePersonDirectoryPermission(env, rootPrincipal, spaceId, scope.maxAccess);
+  }
+  const distinctModelKeys = [...new Set(targetModelKeys.filter((value): value is string =>
+    Boolean(value) && value !== "person_directory"))];
   const models = new Map<string, Awaited<ReturnType<typeof resolveSpaceAuthorityModel>>>();
   await Promise.all(distinctModelKeys.map(async (modelKey) => {
     const model = await resolveSpaceAuthorityModel(env, spaceId, modelKey);
@@ -382,7 +394,7 @@ async function validateScopesAuthorityMany(
 
   const modelRequests = scopes.flatMap((scope, index) => {
     const modelKey = targetModelKeys[index];
-    if (!modelKey) return [];
+    if (!modelKey || (scope.target.type === "model" && scope.target.id === "person_directory")) return [];
     const model = models.get(modelKey);
     if (!model) throw new Error(`Prepared model ${modelKey} missing`);
     return [{

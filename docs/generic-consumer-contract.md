@@ -1,4 +1,27 @@
+## 2026-11-09 · OAuth Scope-aware operation discovery / OAuth 范围升级与发现（Candidate）
+
+A **discoverable** Operation is not the same as an **executable** Operation. For an Identity-verified OAuth Agent carrying `resources:read`, Core may disclose a currently configured write Operation **only when that same Agent already has the required independent current Application × Model Access and Space/Data Grant (or independent Person Directory Grant)**. The limited scope is evaluated as a **hypothetical preview input only** to the existing Core permission evaluator; it is not an authorization grant, minted credential, persisted permission, or new effective execution Principal. Only a currently configured MCP Server operation, publishable/model-compatible schema, supported Provider capability, and current independent Grant may be projected. Without a matching Grant or current enabled Server operation the tool stays absent even if the OAuth client requested read/write.
+
+Every operation descriptor now includes canonical `requiredScopes` (read for Query/Get; read+write for Change operations; Action Scope follows Core's published Action access), in addition to `operationRef`, `modelKey`, `inputSchema`, and display metadata. This is a **protocol-neutral capability prerequisite**, not a client-provided value or an Authority Decision. At `_operations/{operationRef}/invoke`, Core again checks the **actual, unmodified** authenticated Principal's scopes before canonical inner execution, and the inner model/Person/External route rechecks all current operation authorization. OAuth clients may request extra Scope only through user consent; read-only bearer tokens must never execute or implicitly gain write.
+
+The MCP Adapter must project this Core-owned scope contract (rather than deriving an independent list from model origin or operation naming), use HTTP 403 `WWW-Authenticate: Bearer ... error="insufficient_scope"` per generic MCP/OAuth, and may additionally include MCP tool-result `_meta["mcp/www_authenticate"]` as an optional client compatibility signal. The original protected-resource RFC 9728 metadata and 401 discovery remain authoritative for any client. This intentionally does not encode ChatGPT-specific plan semantics in LifeSpace.
+
 # LifeSpace Generic Consumer Contract
+
+## 2026-11-08 · Unified operation projection for protocol adapters / 统一操作投影
+
+**Decision:** The Core/Adapter boundary must not expose ordinary Native, Space Person Directory or Space-bound External data as three different tool families. A connected Agent sees the same ordinary **Model / Record / Operation** abstraction. Core may internally resolve each request through Typed Native Runtime, Kernel Person Directory, or a Provider-owned External binding, but the Adapter must never require `person_directory`, `origin: external`, `ext_*`, `per_*`, or Provider/Connection routing branches to enumerate or execute tools.
+
+Core is the authority for the complete current operation contract: model identity and labels, operation name (list/query/get/create/update/delete/action), input JSON Schema, opaque record selector, Space scope, current Server operation allowlist, execution mapping and current effective permission. The protocol-neutral contract is a bounded current-principal **Operation Projection**, not a shadow Registry. The Adapter may map one projection to MCP tools, display annotations, or an equivalent future protocol; it must not decide whether the underlying model is Kernel, Native, or External.
+
+The operation selector returned by Core is an **opaque, non-authorizing reference**, not a bearer token. Runtime execution must re-resolve the active Server selection, Application access, credential scope, Data Grant / independent Kernel Person authority, current OAuth Authorization, Delegation, record/field Policy, schema snapshot and concurrent state. Person-linked ownership and lifecycle, External provider capabilities and lack of Native `version`, Native immutable `mct_*` and Action workflow semantics remain Core-internal validation differences, not client-side conditional logic.
+
+For the existing OAuth MCP path, design the projection and execution as a **common, bounded, authenticated Core read + command surface**: `GET /api/v1/spaces/{spaceId}/_discovery/operations` and `POST /api/v1/spaces/{spaceId}/_operations/{operationRef}/invoke`. The projection provides protocol-neutral `{operationRef,modelKey,display,operation,inputSchema}`; the execution endpoint receives `{arguments}` and dispatches through the existing Kernel/runtime authorization. Neither endpoint is a privileged Console/Platform Admin channel. A stale `operationRef` or stale tool list grants nothing. The actual external MCP tool names are generated uniformly (for example `lifespace.create.<modelKey>`), not `lifespace.person.*` or `lifespace.external.*`.
+
+**Compatibility:** Preserve existing direct Kernel Person APIs, ordinary model APIs, External providers, granted User/Agent boundaries, and the three independent delegation confirmation UX paths. For a third-party represented User operation, Core resolves the selected operation to a matching bounded `arq_*`/`dlg_*`; no Person/External special approval path exists in the Adapter. Do not widen the scope of a current Delegation merely because the consumer sees a uniform tool.
+
+**Status:** architectural decision and in-progress source candidate only. Do not claim this protocol-neutral operation projection is implemented or deployed until its Core interface, Adapter consumption, tests and Staging real E2E all pass.
+
 
 Updated: 2026-10-17
 
@@ -239,3 +262,16 @@ A globally registered `origin: external` business definition is referenceable me
 ### Kernel 0.53.0 · File / Upload Capability
 
 Native `file` / `file_list` values are stable `fil_*` identities whose bytes remain outside ordinary typed Record storage. File transfer uses bounded `upl_*` sessions and short-lived R2 signed URLs. External `file_ref_list` keeps Provider-owned reference semantics; an External field may separately advertise upload capability while remaining unavailable to ordinary Record mutation. Consumers must never persist upload/download URLs as File identity.
+
+### Staging-only Native mutation projection
+
+OAuth MCP batch semantics may add `mutations` with `contractId`, `modelVersion`,
+`schemaHash`, `operations` and a closed `$defs` subset from the active immutable
+Model Contract. This is current capability preview, not authority: every create,
+update or delete rechecks Core authority, Policy and version. Absent/mismatched
+contract evidence must not produce mutation tools. See `docs/identity-oauth.md`.
+
+
+### Generic Operation Projection 0.3.0 — targeted discovery (candidate)
+
+`GET /api/v1/spaces/{spaceId}/_discovery/operations` accepts optional exact `modelKey` and `operation` query filters; operation requires modelKey. Omission preserves the full catalog. Invalid/duplicate parameters are rejected (400); unavailable matching operations return an empty catalog, without disclosing why. Filter before live authority reads, provider binding access and schema projection. This is the same protocol-neutral current-state discovery contract, useful for any generic consumer resolving a known operation without fetching unrelated schemas. The existing invoke selector and canonical checks remain unchanged. No cross-request authority cache, new authority concept, or MCP-specific tool naming in Core. Deploy compatible Core before the optimized Adapter for actual latency improvement; an older Core ignoring filters can still safely return the full current catalog to an Adapter that selects the exact requested tool.

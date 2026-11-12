@@ -15,6 +15,21 @@ export type Bindings = {
   ACCESS_TEAM_DOMAIN?: string;
   ENVIRONMENT?: string;
   PERFORMANCE_DIAGNOSTICS?: string;
+  // Interactive OAuth AS settings. All sensitive values are injected at deploy time.
+  OAUTH_ISSUER?: string;
+  OAUTH_CONSENT_URL?: string;
+  OAUTH_ACCOUNT_APPLICATION_ID?: string;
+  OAUTH_ALLOWED_RESOURCES?: string;
+  // Canonical Core origin for dynamically configured MCP Server resources.
+  OAUTH_MCP_RESOURCE_ORIGIN?: string;
+  // Private same-environment Core service, never a public fetch.
+  CORE?: Fetcher;
+  OAUTH_RESOURCE_SERVER_SECRET?: string;
+  OAUTH_CORE_APPROVER_SECRET?: string;
+  // Public DCR/CIMD registration limiter; missing binding fails closed.
+  OAUTH_DCR_RATE_LIMITER?: RateLimit;
+  // Independent guard for anonymous /oauth/authorize requests.
+  OAUTH_AUTHORIZE_RATE_LIMITER?: RateLimit;
 };
 
 export type RequestPerformanceTiming = {

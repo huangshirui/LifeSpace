@@ -182,7 +182,21 @@ async function loadRequest(env: Bindings, spaceId: string, requestId: string): P
 }
 
 function assertOwned(principal: Principal, actor: Actor, loaded: { row: RequestRow; items: CanonicalItem[] } | null) {
-  if (!loaded
+  // Trust belongs to the verified application confirmation channel, not
+  // to a framework such as n8n. The trusted API creates only sessionId /
+  // conversationId correlations; ANY separately tagged approval channel
+  // (OAuth MCP today, additional user-confirmation channels in future) must
+  // never be confirmed via this API with a client-supplied principalUserId.
+  let externalApprovalChannel = false;
+  if (loaded?.row.correlation_json) {
+    try {
+      const correlation: unknown = JSON.parse(loaded.row.correlation_json);
+      externalApprovalChannel = Boolean(correlation && typeof correlation === "object"
+        && !Array.isArray(correlation)
+        && Object.hasOwn(correlation,"channel"));
+    } catch { /* Preserve existing legacy malformed correlation behavior. */ }
+  }
+  if (!loaded || externalApprovalChannel
       || loaded.row.application_id !== principal.clientId
       || loaded.row.requesting_agent_id !== actor.id) {
     throw new ApiError("AUTHORIZATION_REQUEST_NOT_FOUND", "Authorization Request not found", 404);

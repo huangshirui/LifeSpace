@@ -1,5 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { consoleApi, ConsoleApiError } from "./api";
+import McpServersPage from "./McpServersPage";
+import OAuthClientAdmissionPage from "./OAuthClientAdmissionPage";
 import type {
   Application,
   ApplicationDetail,
@@ -18,6 +20,8 @@ type Route =
   | { page: "overview" }
   | { page: "applications"; id?: string }
   | { page: "models"; id?: string }
+  | { page: "mcp-servers"; id?: string }
+  | { page: "oauth-clients" }
   | { page: "users"; id?: string }
   | { page: "spaces"; id?: string }
   | { page: "audit" }
@@ -28,18 +32,25 @@ type Remote<T> = { loading: boolean; data?: T; error?: ConsoleApiError };
 const PageToolbarContext = createContext<ReactNode>(null);
 
 const navGroups = [
-  { label: "", items: [{ href: "/", label: "Overview", page: "overview" }] },
+  { label: "", items: [{ href: "/", label: "总览 Overview", page: "overview" }] },
   {
-    label: "Platform",
+    label: "平台管理",
     items: [
-      { href: "/applications", label: "Applications", page: "applications" },
-      { href: "/models", label: "Models", page: "models" },
       { href: "/users", label: "Users", page: "users" },
       { href: "/spaces", label: "Spaces", page: "spaces" },
+      { href: "/models", label: "Models", page: "models" },
     ],
   },
   {
-    label: "Operations",
+    label: "应用与接入",
+    items: [
+      { href: "/applications", label: "Applications", page: "applications" },
+      { href: "/mcp-servers", label: "MCP Servers", page: "mcp-servers" },
+      { href: "/oauth-clients", label: "OAuth 客户端", page: "oauth-clients" },
+    ],
+  },
+  {
+    label: "运行维护",
     items: [
       { href: "/audit", label: "Audit", page: "audit" },
       { href: "/system", label: "System", page: "system" },
@@ -52,6 +63,8 @@ function parseRoute(pathname: string): Route {
   if (!parts.length) return { page: "overview" };
   if (parts[0] === "applications") return { page: "applications", id: parts[1] };
   if (parts[0] === "models") return { page: "models", id: parts[1] };
+  if (parts[0] === "mcp-servers") return { page: "mcp-servers", id: parts[1] };
+  if (parts[0] === "oauth-clients") return { page: "oauth-clients" };
   if (parts[0] === "users") return { page: "users", id: parts[1] };
   if (parts[0] === "spaces") return { page: "spaces", id: parts[1] };
   if (parts[0] === "audit") return { page: "audit" };
@@ -416,6 +429,8 @@ function AppContent({ route }: { route: Route }) {
   if (route.page === "overview") return <OverviewPage />;
   if (route.page === "applications") return <ApplicationsPage id={route.id} />;
   if (route.page === "models") return <ModelsPage id={route.id} />;
+  if (route.page === "mcp-servers") return <McpServersPage serverKey={route.id} navigate={navigate} />;
+  if (route.page === "oauth-clients") return <OAuthClientAdmissionPage />;
   if (route.page === "users") return <UsersPage id={route.id} />;
   if (route.page === "spaces") return <SpacesPage id={route.id} />;
   if (route.page === "audit") return <AuditPage />;
@@ -435,15 +450,33 @@ export default function App({ toolbar }: { toolbar?: ReactNode }) {
 
   return <div className="app-shell">
     <aside className="sidebar">
-      <div className="brand"><div className="brand-mark">LS</div><div><strong>LifeSpace</strong><span>Console</span></div></div>
+      <div className="brand">
+        <div className="brand-mark">LS</div>
+        <div className="brand-copy">
+          <strong>LifeSpace</strong>
+          <div className="brand-meta">
+            <span>Console</span>
+            <span className={`brand-environment ${production ? "production" : "staging"}`} role="status" aria-label={production ? "生产环境" : "测试环境"}>
+              {production ? "PRODUCTION" : "STAGING"}
+            </span>
+          </div>
+        </div>
+      </div>
       <nav>{navGroups.map((group, index) => <div className="nav-group" key={`${group.label}-${index}`}>{group.label && <div className="nav-label">{group.label}</div>}{group.items.map((item) => <button key={item.href} className={route.page === item.page ? "nav-item active" : "nav-item"} onClick={() => navigate(item.href)}>{item.label}</button>)}</div>)}</nav>
       <div className="sidebar-footer">
-        <div className="operator"><div className="avatar">{current.user.displayName.slice(0, 1).toUpperCase()}</div><div><strong>{current.user.displayName}</strong><span>{current.user.id}</span></div></div>
-        <div className={`sidebar-environment ${production ? "production" : "staging"}`} role="status">
-          <strong><span className="environment-dot" />{production ? "PRODUCTION" : "STAGING"}</strong>
-          <span>{production ? "生产环境 · 写操作需确认并审计" : "测试环境 · 写操作需确认并审计"}</span>
-          <small>Console {current.consoleVersion}</small>
-        </div>
+        <a
+          className="operator"
+          href={production ? "https://account.aisr.online/center#account" : "https://account-staging.aisr.online/center#account"}
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label={`打开 ${current.user.displayName} 的 AISR 账户中心（新标签页）`}
+        >
+          <span className="avatar" aria-hidden="true">
+            {current.user.displayName.slice(0, 1).toUpperCase()}
+            {current.user.avatarUrl && <img src={current.user.avatarUrl} alt="" referrerPolicy="no-referrer" onError={(event) => { event.currentTarget.style.display = "none"; }} />}
+          </span>
+          <span className="operator-meta"><strong>{current.user.displayName}</strong><span>账户中心</span></span>
+        </a>
       </div>
     </aside>
     <div className="workspace">

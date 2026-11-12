@@ -395,3 +395,17 @@ Downstream applications do not need to repin their business contract merely beca
 ## Recurrence current-root projection / 周期计划身份复核（Identity 0.12.0，开发中）
 
 `POST /introspection/v1/recurrence-roots` is internal Core-to-Identity traffic authenticated by the existing shared secret through the Service Binding. It accepts 1..40 already-enrolled User/Service/Agent root identities, checks current Application and identity/binding state and returns scope ceilings set-wise in one D1 batch. It issues no credential, Delegation or data Authority. Core intersects the enrolled scope ceiling with this fresh projection and its own current business authority. A credential used to enroll the Plan is not retained; application/principal disable and ceiling reduction still stop subsequent materialization. Preserve the canonical Core-first → Identity rollout. Recurrence generation fails closed while the new Identity projection is unavailable; accept the capability only after both services converge.
+
+## OAuth Resource Server execution scope / OAuth MCP 写入边界
+
+Staging-only Native Agent Direct single-record create/update/delete is governed by
+current OAuth read+write consent, exact selected Space and enabled MCP Server
+operation, Application × Model Access, Agent Data Grant, Model capability/Policy
+and optimistic concurrency. Identity issues at most 60-second execution JWTs; Core
+rechecks live scopes on every request. Production and existing read-only clients
+remain read-only. No implicit User Delegation, External write, batch or admin
+surface is added. Contract projection and release details: `docs/identity-oauth.md`.
+
+## 2026-11-12 · Console-owned OAuth admission (candidate)
+
+CIMD and DCR public-client admission has one Console-managed Identity policy per environment; no runtime feature-variable or relay credential. Service client_credentials, machine credentials and all OAuth token lifecycles remain unchanged. Network and limiter deployment prerequisites are audited separately.

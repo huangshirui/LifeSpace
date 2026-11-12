@@ -1,4 +1,23 @@
+## Third-party Delegation lifetime extension (2026-11-09 / development)
+
+For `modelKey:person`, the Account User may explicitly select once, bounded repeated (1h / 24h / 7d), or revocable indefinite authorization on the **same exact Person Directory operation**. Generic Core Person Directory authority and linked User restrictions are unchanged. The default stays once; no OAuth Agent selects or silently renews a longer lifetime. Only the intended Account User can approve and later revoke their active `dlg_*`.
+
+This updates the earlier one-use-only historical description below; not Staging-accepted or Production.
+
 # Space Person Directory
+
+## Third-party Account-approved Person Delegation / 第三方 Person 委托（待 CI 与 Staging 验收）
+
+Core represents Person Directory to third-party MCP consumers as the normal public `modelKey:person` operation subset: `query` (Kernel list), `get`, `create`, `update`, `delete`. The underlying existing Kernel routes, Person data, independent Grant and linked User restrictions do **not** change.
+
+An untrusted OAuth MCP Agent can request an exact one-use `arq_*` for `modelKey:person` and a single operation allowed by the current MCP Server `resources.person_directory` selection. The intended User confirms on LifeSpace Account (never through trusted `principalUserId` transport). Core issues a **narrow model target** `target_type=model,target_id=person_directory` and rechecks live User Person Directory `read/write` authority; it is **not** a Space-target Delegation and cannot authorize another ordinary Model or Space management. Represented execution always has Principal=User, Actor=Agent, the same Application/Client/Resource/Space binding and an explicit `dlg_*` selector.
+
+Only the OAuth MCP execution profile accepts this narrow Person target; existing trusted Agent API Person execution still requires its established Space target. The `space_person_change_delegations` trigger atomically consumes single-use write authority with each committed `pchg_*`; Person reads consume after lookup before returning. Person linked-User self-service/Admin/membership ownership checks remain unchanged.
+
+The three Core Delegation lifetime forms are generic: `maxUses:1` for single-use, `expiresAt` without a max-uses ceiling for repeated time-limited authorization, and no `expiresAt` / no max-uses for long-lived authorization until current authority loss or revocation. **Third-party Account-link requests continue to issue only one-use Delegations** in this batch; the generic Core ability is not a grant to untrusted clients to request longer leases.
+
+**Release truth:** implementation in candidate branches, not deployed nor real-browser accepted yet.
+
 
 Status: Candidate for Core Kernel 0.47.0
 
@@ -158,3 +177,8 @@ CI includes a 500-Person lookup probe covering a 1-item page, a 100-item page, c
 A Space owner/admin can grant an external Service/Agent (or another supported grantee) `resourceType: "person_directory"`, `resourceId: null`, `permission: "read" | "write"` through the dedicated Candidate `/api/v1/spaces/{spaceId}/person-directory/grants` management API, while reusing the existing `data_grants` table and current-state checks. The Stable `/grants` collection stays space/model-only. `resourceId` must be null/omitted. `free_busy` and `manage` are rejected for this resource target.
 
 This Grant authorizes **only** the Person Directory `/people` endpoints and does **not** confer Space detail, membership, invitation, model-record, or Identity/User authority. A write Grant creates/updates/deletes **unlinked** Persons; linked Person changes retain their original self-update/owner-admin/Space-manage checks, and deletion remains forbidden. Credential scopes (`resources:read/write`), active Space state, grant expiry/revocation and represented-execution Delegation checks remain enforced. Existing User Membership and whole-Space Grant behavior is unchanged. No new storage table or migration is required: `data_grants.resource_type` already supports additional values.
+
+
+## MCP Server catalog Person exposure (Schema 78)
+
+The MCP Server capability selector now includes Person Directory as a Kernel resource with explicit list/get/create/update/delete operations, NOT an ordinary person Model. This config does not grant Person Directory access. Future MCP Adapters must enforce current Person Directory grants, credential scopes, Space authority, Delegation and linked-Person restrictions. Person Profile remains an ordinary descriptive Model.

@@ -1,0 +1,90 @@
+name: Verify LifeSpace CIMD DNS public-private flip
+
+# Owner-only controlled authoritative DNS transition, not a LifeSpace deploy.
+# Creates and deletes ONE cryptographically random, unproxied A record under
+# aisr.online. Does not edit/delete any pre-existing business DNS records.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lifespace-staging-cimd-dns-flip
+  cancel-in-progress: false
+
+jobs:
+  dns-flip:
+    name: Isolated Cloudflare DNS public-to-private edge validation
+    runs-on: ubuntu-latest
+    environment: staging
+    timeout-minutes: 12
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CIMD_DNS_TEST_TOKEN: ${{ secrets.CIMD_DNS_TEST_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID || secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CIMD_DNS_FLIP: "1"
+    steps:
+      - name: Require direct owner trigger on main and protected credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_EVENT_NAME" = "workflow_dispatch"
+          test "$GITHUB_ACTOR" = "huangshirui"
+          test "$GITHUB_TRIGGERING_ACTOR" = "huangshirui"
+          test "$GITHUB_REF_NAME" = "main"
+          test -n "${CLOUDFLARE_API_TOKEN:-}"
+          if [[ -z "${CIMD_DNS_TEST_TOKEN:-}" ]]; then
+            echo "::error::Missing staging CIMD_DNS_TEST_TOKEN. Create a Cloudflare API token with Zone:Zone:Read and Zone:DNS:Edit limited to aisr.online, then add as protected Staging secret."
+            exit 1
+          fi
+          test "${#CLOUDFLARE_ACCOUNT_ID}" -eq 32
+
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+
+      - uses: pnpm/action-setup@v4.4.0
+        with:
+          version: 10.13.1
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Check dedicated Cloudflare DNS token (read-only, before dependency install)
+        run: node infra/scripts/preflight-cimd-dns-token.mjs
+
+      - name: Install pinned dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate probes and isolated Worker build
+        shell: bash
+        run: |
+          node --check infra/scripts/cimd-controlled-dns-flip.mjs
+          node --check infra/scripts/preflight-cimd-dns-token.mjs
+          node --check infra/scripts/verify-cimd-remote-network.mjs
+          node --test infra/scripts/verify-cimd-network-contract.test.mjs
+          pnpm --dir apps/identity exec wrangler deploy --dry-run --config ../../infra/cimd-network-probe/wrangler.jsonc
+
+      - name: Flip isolated DNS A record with automatic cleanup
+        run: node infra/scripts/verify-cimd-remote-network.mjs
+
+      - name: Record evidence boundaries
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<'EOF'
+          ### Isolated DNS transition security acceptance
+
+          - Creates one random `cimd-rebind-<nonce>.aisr.online` unproxied A record
+          - Requires two authoritative Cloudflare NS to observe public→private transition
+          - Repeats fixed edge fetch after authoritative change and a 130-second TTL wait
+          - Deletes the exact DNS record ID (with name and type validation) in a finally block
+          - Tests DNS change **between requests**, NOT an in-flight same-connection rebinding
+          - Does not reveal which DNS answer remote Worker's runtime used
+          - No persistent Worker deploy, Identity/Data/Auth changes, or Production activation
+          - A cancellation/crash before finally may require manual DNS cleanup
+          EOF

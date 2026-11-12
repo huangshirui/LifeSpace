@@ -9,7 +9,7 @@
     "build": "vite build && node --check dist/lifespace_console_local/index.js",
     "check:staging-isolation": "node scripts/check-staging-deploy-isolation.mjs",
     "check:production-isolation": "node scripts/check-production-deploy-isolation.mjs",
-    "check:control-plane": "node scripts/check-control-plane-boundary.mjs",
+    "check:control-plane": "node scripts/check-control-plane-boundary.mjs && node scripts/check-mcp-server-governance-boundary.mjs",
     "check:application-config": "node scripts/check-application-configuration-boundary.mjs",
     "check:agent-governance": "node scripts/check-agent-governance-boundary.mjs",
     "check:credential-governance": "node scripts/check-credential-governance-boundary.mjs",

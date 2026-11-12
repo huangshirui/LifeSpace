@@ -1,4 +1,28 @@
+## 2026-11-09 · Third-party Account-controlled Delegation lifetimes (candidate / 待验收)
+
+Core's existing generic Delegation lifetime forms are now exposed to third-party OAuth MCP users **only via an independently authenticated LifeSpace Account approval page**, as proposed in [PR #505](https://github.com/huangshirui/LifeSpace/pull/505): once (default, maxUses=1, 30-minute TTL); time-limited repeated exact-operation use (1h/24h/7d); or indefinite until revoked. The OAuth Agent is never permitted to choose this lifetime. The selected Client/Application/Resource/Space/Agent/model/operation binding, verified Principal=User and Actor=Agent, current OAuth authority, user Grant, model policy and record constraints remain effective at every execution. Long-lived grants are listed and revocable by the authenticated Account User even after OAuth disconnect.
+
+For External Provider writes, **one-use** grants are still consumed before a single outbound attempt regardless of outcome; repeated/indefinite grants may authorize multiple separate Provider attempts and do not add cross-system atomicity or exactly-once guarantees. This candidate is not Staging/Production deployment proof. Older one-use-only notes below describe the historical release.
+
 # Agent-ready Authority and Change
+
+## 2026-11-09 · Provider write attempt exception / 外部系统写入例外
+
+The generic native/Kernel single-use rule below consumes on **one successful, atomic in-Core Change**. External Provider write is deliberately different because the Provider's commit cannot join Core D1: the Product Owner explicitly chose one authorized **outbound write attempt**, even if the Provider fails or returns an uncertain outcome. After current authority and local input/audit preflight, Core conditionally consumes `maxUses:1` before Provider I/O; no automatic retry under that Delegation, and the user must reapprove a later attempt. External audit remains `succeeded | failed | unknown`. This does not widen current Grants or make an external write transaction atomic, and does not modify Person/Native single-use mutation behavior.
+
+
+## 2026-11-09 · Delegation 的三种时效形式 / Lifetime modes
+
+| Type / 类型 | Generic Core constraints | Effective behavior |
+| --- | --- | --- |
+| 一次性 / Single-use | `maxUses:1` (optionally with `expiresAt`) | At most one successful in-Core business execution; mutation is consumed atomically with Change, reads conditionally before returning |
+| 限时可重复 / Time-bounded repeated | `expiresAt:<future RFC3339>`, no `maxUses` | Repeat use only while the current principal still has authority, until expiry or revocation |
+| 长期可撤销 / Long-lived revocable | Neither `maxUses` nor `expiresAt` | May be used while current scopes, Space/Data Grants, Application policy and all delegation chain constraints still permit; revocation takes effect immediately |
+
+These are supported by the generic Core Delegation and trusted Authorization Request APIs, **not automatically offered by every consumer UI**. In particular, a third-party OAuth MCP `arq_*` approved on LifeSpace Account currently always issues `maxUses:1` plus a short `expiresAt`; it does not expose a client-selected time-bounded or indefinite privilege. Do not confuse initial OAuth client Consent or Refresh Token lifetime with the separate Core User Delegation lifetime.
+
+Third-party Person Directory represented execution uses a narrow `model:person_directory` scope, approved only by the independent Account channel and checked against the current Person Grant. Trusted Agent API behavior retains its original Space-target Person profile. No third-party Channel may silently borrow trusted Agent confirmation identity claims.
+
 
 Status: **Active platform authority specification**.
 

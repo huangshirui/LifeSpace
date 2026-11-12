@@ -28,6 +28,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          test "$GITHUB_EVENT_NAME" = workflow_dispatch || { echo "production provisioning must be manually dispatched" >&2; exit 1; }
+          test "$GITHUB_ACTOR" = huangshirui || { echo "Production provisioning requires repository Owner" >&2; exit 1; }
+          test "$GITHUB_TRIGGERING_ACTOR" = huangshirui || { echo "Production provisioning requires direct Owner trigger" >&2; exit 1; }
           test "${{ inputs.confirmation }}" = "PROVISION_PRODUCTION" || { echo "confirmation must be PROVISION_PRODUCTION" >&2; exit 1; }
           test "$GITHUB_REF_NAME" = "main" || { echo "production provisioning must run from main" >&2; exit 1; }
 

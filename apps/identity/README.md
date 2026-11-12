@@ -40,3 +40,7 @@ Access-token lifetime is an application policy, not a caller-controlled request 
 - Core enforces the platform maximum of one hour but does not decide each application's exact TTL.
 
 Space membership, Data Grants and life-domain authorization remain Core responsibilities and are evaluated against current Core state rather than encoded as long-lived mutable permissions in the token.
+
+## Interactive OAuth candidate (Identity 0.18.0)
+
+See [Identity OAuth Authorization Server](../../docs/identity-oauth.md). Auth Code + PKCE, public Client registration, token rotation and resource-scoped introspection are a separate authorization plane from existing Service `client_credentials`. The Account/Core trusted Consent bridge and MCP Adapter remain separate integration steps; no end-user OAuth grant is approved by an arbitrary browser or external client.

@@ -233,3 +233,8 @@ A Console governance change is incomplete until:
 10. staging/production provisioning converges the exact executor scope ceiling required by the Platform Admin routes;
 11. isolated staging deployment remains isolated from Core/Identity deployment;
 12. real staging acceptance and browser smoke cover newly introduced mutations before production rollout.
+
+
+## MCP Servers: direct configuration UX (V7)
+
+Console /mcp-servers creates and immediately enables a domain MCP Server with selected business Models, explicit operations and optional Kernel Person Directory operations. Details allow direct Save, Disable and Enable, not a Draft/Publish journey. Each Server retains the Core-generated mcp_* ID and planned https://core.aisr.online/mcp/{serverId} URL. Internal revision protects stale edits but does not represent a published client version. Core Platform Admin 0.8.0 + Schema 78 own the source of truth; BFF requires existing models:manage executor, human Platform Admin actor proof, bounded same-origin intent and exact ID confirmation for enable/disable. Person Directory grants remain independent of Model grants. Staging deploy order: Core migration+Worker first; Console Worker/UI second.

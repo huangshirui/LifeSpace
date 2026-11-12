@@ -453,6 +453,117 @@ async function revokeDataGrant(request: Request, env: Env, spaceId: string, gran
   return json({ data: { grantId, revoked: true } });
 }
 
+
+// MCP Server control plane: one active configuration, one internal revision.
+const MCP_SERVER_ID = /^mcp_[a-f0-9]{32}$/u;
+const MCP_OPERATION = /^(get|query|create|update|delete|action:[a-z][a-z0-9_-]{0,62})$/u;
+function mcpConfiguration(value: unknown): {
+  models: Array<{ modelKey: string; operations: string[] }>;
+  resources?: Array<{ resourceKey: "person_directory"; operations: string[] }>;
+} | null {
+  if (!isRecord(value) || Object.keys(value).some((key) => key !== "models" && key !== "resources")
+    || !Array.isArray(value.models) || value.models.length > 32) return null;
+  const seen = new Set<string>();
+  const models: Array<{ modelKey: string; operations: string[] }> = [];
+  for (const entry of value.models) {
+    if (!isRecord(entry) || Object.keys(entry).some((key) => key !== "modelKey" && key !== "operations")
+      || typeof entry.modelKey !== "string" || !validModelKey(entry.modelKey) || seen.has(entry.modelKey)
+      || !Array.isArray(entry.operations) || entry.operations.length < 1 || entry.operations.length > 32) return null;
+    seen.add(entry.modelKey);
+    if (entry.operations.some((operation) => typeof operation !== "string" || !MCP_OPERATION.test(operation))
+      || new Set(entry.operations).size !== entry.operations.length) return null;
+    models.push({ modelKey: entry.modelKey, operations: entry.operations as string[] });
+  }
+  let resources: Array<{ resourceKey: "person_directory"; operations: string[] }> | undefined;
+  if (value.resources !== undefined) {
+    if (!Array.isArray(value.resources) || value.resources.length > 1) return null;
+    const allowed = new Set(["list", "get", "create", "update", "delete"]);
+    resources = [];
+    for (const entry of value.resources) {
+      if (!isRecord(entry) || Object.keys(entry).some((key) => key !== "resourceKey" && key !== "operations")
+        || entry.resourceKey !== "person_directory" || !Array.isArray(entry.operations)
+        || entry.operations.length < 1 || entry.operations.length > 5
+        || entry.operations.some((op) => typeof op !== "string" || !allowed.has(op))
+        || new Set(entry.operations).size !== entry.operations.length) return null;
+      resources.push({ resourceKey: "person_directory", operations: entry.operations as string[] });
+    }
+  }
+  if (!models.length && !resources?.length) return null;
+  return resources ? { models, resources } : { models };
+}
+function mcpBody(request: Request, value: JsonRecord, mode: "create" | "edit"): JsonRecord | Response {
+  const keys = mode === "create" ? ["name", "description", "configuration"]
+    : ["expectedRevision", "name", "description", "configuration", "enabled", "confirmId"];
+  if (Object.keys(value).some((key) => !keys.includes(key))) {
+    return failure("INVALID_REQUEST", "Unexpected MCP Server field", 400, requestId(request));
+  }
+  if ((mode === "create" || value.name !== undefined)
+    && (typeof value.name !== "string" || value.name.trim().length < 2 || value.name.trim().length > 80)) {
+    return failure("VALIDATION_ERROR", "Name must be 2-80 characters", 422, requestId(request));
+  }
+  if (value.description !== undefined && (typeof value.description !== "string" || value.description.length > 500)) {
+    return failure("VALIDATION_ERROR", "Description must be at most 500 characters", 422, requestId(request));
+  }
+  if (value.configuration !== undefined && !mcpConfiguration(value.configuration)) {
+    return failure("VALIDATION_ERROR", "Select at least one valid Model or Person resource", 422, requestId(request));
+  }
+  if (mode === "create") {
+    if (!mcpConfiguration(value.configuration)) {
+      return failure("VALIDATION_ERROR", "MCP Server requires at least one configured capability", 422, requestId(request));
+    }
+    return { name: value.name, description: value.description ?? "", configuration: value.configuration };
+  }
+  if (!Number.isInteger(value.expectedRevision) || Number(value.expectedRevision) < 1) {
+    return failure("VALIDATION_ERROR", "Expected configuration revision required", 422, requestId(request));
+  }
+  if (value.enabled !== undefined) {
+    if (typeof value.enabled !== "boolean" || typeof value.confirmId !== "string"
+      || !MCP_SERVER_ID.test(value.confirmId)
+      || Object.keys(value).some((key) => !["expectedRevision", "enabled", "confirmId"].includes(key))) {
+      return failure("CONFIRMATION_REQUIRED", "Enable/disable requires exact Server ID and separate operation", 422, requestId(request));
+    }
+  } else if (value.confirmId !== undefined
+    || (value.name === undefined && value.description === undefined && value.configuration === undefined)) {
+    return failure("INVALID_REQUEST", "No changes or unexpected confirmation", 400, requestId(request));
+  }
+  return value;
+}
+async function mcpCore(request: Request, env: Env, corePath: string, method: "GET" | "POST" | "PATCH", mode?: "create" | "edit"): Promise<Response> {
+  let bodyValue: JsonRecord | undefined;
+  if (mode) {
+    const parsed = await readJsonObject(request);
+    if (parsed instanceof Response) return parsed;
+    const normalized = mcpBody(request, parsed, mode);
+    if (normalized instanceof Response) return normalized;
+    const intent = mode === "create" ? "create-mcp-server"
+      : normalized.enabled === true ? "enable-mcp-server"
+      : normalized.enabled === false ? "disable-mcp-server" : "edit-mcp-server";
+    const guard = exactSameOriginMutation(request, intent);
+    if (guard) return guard;
+    bodyValue = normalized;
+  } else if (new URL(request.url).search) {
+    return failure("INVALID_REQUEST", "Unexpected query parameters", 400, requestId(request));
+  }
+  const admin = await requireAdminContext(request, env);
+  if (admin instanceof Response) return admin;
+  const result = await serviceRequest(env.CORE, env.CORE_BASE_URL, corePath, {
+    method, headers: coreHeaders(admin, Boolean(mode)),
+    ...(mode ? { body: JSON.stringify(bodyValue) } : {}),
+  });
+  if (!result.response.ok) return upstreamFailure(request, result, "MCP_SERVER_OPERATION_FAILED", "MCP Server governance request failed");
+  const data = dataRecord(result.payload) ?? dataArray(result.payload);
+  if (data === null) return failure("UPSTREAM_RESPONSE_INVALID", "Invalid Core MCP Server response", 502, requestId(request));
+  return json({ data }, result.response.status);
+}
+function mcpPath(pathname: string): string | null {
+  const match = /^\/api\/mcp-servers\/([^/]+)$/u.exec(pathname);
+  if (!match) return null;
+  try {
+    const id = decodeURIComponent(match[1] ?? "");
+    return MCP_SERVER_ID.test(id) ? id : null;
+  } catch { return null; }
+}
+
 function applicationModelAccessTarget(pathname: string): string | null {
   const match = /^\/api\/applications\/([^/]+)\/model-access$/u.exec(pathname);
   if (!match) return null;
@@ -511,6 +622,18 @@ function spaceGrantItemTarget(pathname: string): { spaceId: string; grantId: str
 
 async function controlPlaneRoute(request: Request, env: Env): Promise<Response | null> {
   const url = new URL(request.url);
+  if (url.pathname === "/api/mcp-servers") {
+    if (request.method === "GET") return mcpCore(request, env, "/api/v1/platform-admin/mcp-servers", "GET");
+    if (request.method === "POST") return mcpCore(request, env, "/api/v1/platform-admin/mcp-servers", "POST", "create");
+    return failure("METHOD_NOT_ALLOWED", "Method not allowed", 405, requestId(request));
+  }
+  const mcp = mcpPath(url.pathname);
+  if (mcp) {
+    const target = "/api/v1/platform-admin/mcp-servers/" + encodeURIComponent(mcp);
+    if (request.method === "GET") return mcpCore(request, env, target, "GET");
+    if (request.method === "PATCH") return mcpCore(request, env, target, "PATCH", "edit");
+    return failure("METHOD_NOT_ALLOWED", "Method not allowed", 405, requestId(request));
+  }
   if (request.method === "GET" && url.pathname === "/api/models") return platformModels(request, env);
   const readModelKey = modelTarget(url.pathname);
   if (request.method === "GET" && readModelKey) return platformModel(request, env, readModelKey);

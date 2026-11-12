@@ -329,6 +329,9 @@ jobs:
       - name: Resolve production D1 IDs
         run: node infra/scripts/resolve-production-d1.mjs
 
+      - name: Verify Production D1 schema and Time Travel recovery before mutation
+        run: node infra/scripts/verify-production-d1-time-travel.mjs
+
       - name: Preflight production custom domains
         env:
           PRODUCTION_DOMAIN_PREFLIGHT_ONLY: "1"
@@ -366,6 +369,9 @@ jobs:
 
       - name: Deploy Identity after compatible Core
         run: pnpm --dir apps/identity exec wrangler deploy --env production
+
+      - name: Verify deployed Identity strict-public configuration
+        run: node infra/scripts/audit-staging-cimd-egress.mjs --production
 
       - name: Ensure production custom domains
         run: node infra/scripts/ensure-production-domains.mjs

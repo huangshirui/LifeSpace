@@ -165,11 +165,13 @@ async function removeMembership(context: Context<AppEnv>, targetUserId: string, 
   if (!selfLeave && targetUserId === principal.id) throw new ApiError("CANNOT_REMOVE_SELF", "Use the leave endpoint", 409);
   const target = await findMembership(context.env, spaceId, targetUserId);
   if (!target) throw new ApiError("MEMBER_NOT_FOUND", "Active Space member not found", 404);
+  // Removing the sole Owner would orphan the Space; ownership transfer requires its own governed lifecycle.
+  if (target.role === "owner") throw new ApiError("OWNER_ROLE_IMMUTABLE", "Owner membership cannot be removed", 409);
   const removedAt = now();
   const results = await context.env.DB.batch([
     context.env.DB.prepare(`UPDATE space_memberships SET deleted_at=?,updated_at=?,version=version+1
-      WHERE id=? AND deleted_at IS NULL
-      AND (role NOT IN ('owner','admin') OR EXISTS (
+      WHERE id=? AND deleted_at IS NULL AND role!='owner'
+      AND (role!='admin' OR EXISTS (
         SELECT 1 FROM space_memberships other
         WHERE other.space_id=? AND other.deleted_at IS NULL AND other.role IN ('owner','admin') AND other.id!=?
       ))`).bind(removedAt, removedAt, target.id, spaceId, target.id),

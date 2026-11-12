@@ -216,6 +216,12 @@ jobs:
             sleep 5
           done
 
+      - name: Verify deployed CIMD strict-public configuration
+        run: node infra/scripts/audit-staging-cimd-egress.mjs
+
+      - name: Verify Staging OAuth discovery matches Console policy
+        run: node infra/scripts/verify-staging-oauth-security.mjs --cimd-only --allow-disabled
+
       - name: Prepare ephemeral authenticated staging smoke
         run: node infra/scripts/prepare-staging-smoke.mjs
 

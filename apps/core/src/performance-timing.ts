@@ -1,5 +1,5 @@
 import type { Context } from "hono";
-import type { Bindings, Variables } from "./env";
+import type { AuthorityD1Timing, Bindings, Variables } from "./env";
 
 type AppEnv = { Bindings: Bindings; Variables: Variables };
 
@@ -35,6 +35,17 @@ export async function measurePerformancePhase<T>(
   }
 }
 
+// This observer is never a credential or authorization input. Only existing
+// request diagnostics opt in, with a fixed cap and no extra D1 calls.
+export function authorityD1Observer(context: Context<AppEnv>): ((sample: AuthorityD1Timing) => void) | undefined {
+  const timing = context.get("performanceTiming");
+  if (!timing) return undefined;
+  return sample => {
+    const list = timing.authorityD1 ??= [];
+    if (list.length < 8) list.push(sample);
+  };
+}
+
 export function logPerformanceTiming(context: Context<AppEnv>): void {
   const timing = context.get("performanceTiming");
   if (!timing) return;
@@ -48,5 +59,6 @@ export function logPerformanceTiming(context: Context<AppEnv>): void {
     totalMs: rounded(performance.now() - timing.startedAt),
     cfPlacement: context.req.header("cf-placement") ?? undefined,
     phases: timing.phases,
+    ...(timing.authorityD1?.length ? { authorityD1: timing.authorityD1 } : {}),
   }));
 }

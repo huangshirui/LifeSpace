@@ -1,0 +1,14 @@
+{
+  "client_id": "https://cdn.jsdelivr.net/gh/huangshirui/LifeSpace@main/infra/cimd-network-probe/client.json",
+  "client_name": "LifeSpace CIMD public-network test fixture",
+  "redirect_uris": [
+    "https://oauth-acceptance.example.org/callback"
+  ],
+  "grant_types": [
+    "authorization_code"
+  ],
+  "response_types": [
+    "code"
+  ],
+  "token_endpoint_auth_method": "none"
+}

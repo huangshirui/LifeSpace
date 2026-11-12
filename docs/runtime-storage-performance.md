@@ -253,3 +253,29 @@ Relation tests cover 1060 edges with 1000 hidden before 60 visible, 50+10 comple
 ## Recurrence gates / 周期计划性能门禁（#338）
 
 No recurrence query is added to ordinary Task completion or to records with no recurring intent. One-Space 20-Plan preparation uses grouped scheduling state, grouped typed hydration, de-duplicated current Authority and one current-root Identity HTTP call; opaque Service/Agent authentication adds one credential introspection. Warm User JWT/Service Token mutation budget <=8 Core D1 RTT; represented opaque Agent <=9. Indexed rolling same-Space batch budget <=8 D1 RTT. Global/Space-local next_materialize_at indexes select due work, and an active-future partial occurrence index plus stable-ID current/history lookup avoid full-plan/history scans. The 1000 parked-Plan test gates <1000 D1 rows read and uses query-plan evidence; its local wall time is not a deployed latency promise. Window 0..90 days and total <=20 materialized Tasks per invocation are internal bounded settings. Cursor/CAS/unique occurrence constraints preserve concurrent retry correctness. Exact-candidate deployed JWT/Service/Agent latency remains a release gate; ordinary Runtime budgets are unchanged.
+
+### Staging OAuth MCP mutation schema preview
+
+Only write-authorized Native batch semantic discovery loads one active immutable
+Model Contract snapshot per batch and checks version/schema hash against current
+model metadata. A missing initial snapshot uses the existing canonical initializer;
+a mismatched snapshot fails closed. Normal read-only discovery retains its previous
+budget; no per-record I/O is added. Model write authorization remains per selected
+model current-state checking, never cached with immutable schema.
+
+
+### 2026-11-12 · Authority I/O diagnostics and bounded MCP projection (candidate)
+
+Ordinary Native routes attach bounded, request-correlated `authorityD1` diagnostics to the existing performance timing event: Worker binding wall time, statement count, D1-reported SQL duration (when available), reported duration, rows read and region/colo. Missing provider metadata stays null; do not infer SQL execution from Worker wall time or placement from ingress. No additional query, SQL text, result rows, bindings, credentials or authority cache is introduced. The existing diagnostic kill switch applies. This is evidence for #543, not proof of its root cause or a change to the APAC gate.
+
+Current OAuth MCP discovery reuses the authenticated request's already checked Server selection, resolves configured candidates, and batches model authority through the existing de-duplicated Authority evaluator. Read/write preview can share one base snapshot per model; hypothetical write Scope affects discovery only. Invoke resolves the opaque reference against the current configured operations before mutable model/binding reads, projects only that target and then independently enters the canonical route with the original credential. Unknown, revoked and unconfigured operations remain unavailable. No authority data is cached across requests. Person remains independently authorized and External provider state is still checked. The full discovery response remains bounded to 128 visible operations; invoking one explicitly configured operation does not build or count unrelated tools. Adapter-side unconditional discovery and end-to-end MCP latency remain follow-up #544. No public schema, migration, release threshold or production change is implied.
+
+
+### Generic Operation Projection 0.3.0 — targeted discovery (candidate)
+
+`GET /api/v1/spaces/{spaceId}/_discovery/operations` accepts optional exact `modelKey` and `operation` query filters; operation requires modelKey. Omission preserves the full catalog. Invalid/duplicate parameters are rejected (400); unavailable matching operations return an empty catalog, without disclosing why. Filter before live authority reads, provider binding access and schema projection. This is the same protocol-neutral current-state discovery contract, useful for any generic consumer resolving a known operation without fetching unrelated schemas. The existing invoke selector and canonical checks remain unchanged. No cross-request authority cache, new authority concept, or MCP-specific tool naming in Core. Deploy compatible Core before the optimized Adapter for actual latency improvement; an older Core ignoring filters can still safely return the full current catalog to an Adapter that selects the exact requested tool.
+
+
+### Staging synthetic fixture lifecycle (candidate)
+
+New run-scoped smoke Spaces use the existing governed owner-only logical close operation after the final test, before test Application disable. The run-local creation marker is exported immediately after successful creation; cleanup requires exact Staging origins, GitHub run/attempt, matching fixture Application, Space ID, verified original owner and exact generated Space name/current version. No historical name-based mutation, physical deletion, new lifecycle authority, or data-retention policy is introduced. Closed Space records and audit history remain stored, and existing cleanup still retires test credentials even if closure fails. Historical fixtures require a separate reviewed inventory/retention decision. Logical closure bounds growth of active fixtures, not D1 disk size; no claim that it fixes D1 latency.

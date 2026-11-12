@@ -222,17 +222,43 @@ async function createSession(context: Context<AppEnv>) {
   }), 201);
 }
 
-/** A single R2 GET supplies both the object metadata and its bytes.
- * Previous HEAD + GET incurred two separate R2 calls and allowed a race
- * between checking and reading the mutable signed-upload staging key.
- */
-export async function readVerifiedUploadedObject(env: Bindings, row: UploadSessionRow): Promise<R2ObjectBody> {
-  const object = await env.ASSETS.get(row.object_key);
+function verifyUploadedMetadata<T extends R2Object>(object: T | null, row: UploadSessionRow): T {
   if (!object) throw new ApiError("UPLOAD_INCOMPLETE", "Uploaded object is not available", 409);
   if (object.size !== row.expected_size) throw new ApiError("UPLOAD_MISMATCH", "Uploaded object size does not match the declared file", 409);
   const actualType = object.httpMetadata?.contentType?.toLowerCase();
   if (!actualType || actualType !== row.content_type) throw new ApiError("UPLOAD_MISMATCH", "Uploaded object content type does not match the declared file", 409);
   return object;
+}
+
+/** Native promotion consumes the same R2 snapshot whose metadata was validated.
+ * External providers fetch the signed source themselves; do not read their bytes here. */
+export async function verifyStagedUpload(env: Bindings, row: UploadSessionRow): Promise<R2ObjectBody | null> {
+  if (row.destination === "external") {
+    verifyUploadedMetadata(await env.ASSETS.head(row.object_key), row);
+    return null;
+  }
+  const staged = await env.ASSETS.get(row.object_key);
+  try {
+    return verifyUploadedMetadata(staged, row);
+  } catch (error) {
+    if (staged) await staged.body.cancel().catch(() => undefined);
+    throw error;
+  }
+}
+
+/** Call only after a Native File is verified and atomically published.
+ * Scheduled cleanup remains the durable fallback; never touch the permanent key. */
+export function scheduleCompletedNativeUploadCleanup(context: Context<AppEnv>, row: UploadSessionRow): void {
+  try {
+    const executionCtx = context.executionCtx;
+    executionCtx.waitUntil((async () => {
+      try {
+        await context.env.ASSETS.delete(row.object_key);
+        await context.env.DB.prepare("UPDATE file_upload_sessions SET cleaned_at=? WHERE id=? AND status='completed'")
+          .bind(new Date().toISOString(), row.id).run();
+      } catch { /* scheduled cleanup retries completed sessions */ }
+    })());
+  } catch { /* no execution context; scheduled cleanup reconciles */ }
 }
 
 async function acquireExecution(env: Bindings, row: UploadSessionRow): Promise<void> {
@@ -256,9 +282,14 @@ async function completeSession(context: Context<AppEnv>) {
   const target = await measurePerformancePhase(context, "file.authority", () =>
     resolveTarget(context.env, context.get("principal"), spaceId, row.model_key, row.field_key, row.record_id, delegationId(context)));
   if (target.destination !== row.destination || !sameExecution(row, target.decision.principal)) throw new ApiError("UPLOAD_AUTHORITY_CHANGED", "Upload execution authority no longer matches the session", 403);
-  const staged = await measurePerformancePhase(context, "file.stage_get", () =>
-    readVerifiedUploadedObject(context.env, row));
-  await measurePerformancePhase(context, "file.execution_claim", () => acquireExecution(context.env, row));
+  const staged = await measurePerformancePhase(context, row.destination === "native" ? "file.stage_get" : "file.stage_head", () =>
+    verifyStagedUpload(context.env, row));
+  try {
+    await measurePerformancePhase(context, "file.execution_claim", () => acquireExecution(context.env, row));
+  } catch (error) {
+    if (staged) await staged.body.cancel().catch(() => undefined);
+    throw error;
+  }
   const completedAt = new Date().toISOString();
 
   if (row.destination === "native") {
@@ -267,6 +298,7 @@ async function completeSession(context: Context<AppEnv>) {
       // The signed PUT URL must never address a durable File object. Otherwise a client
       // could overwrite a completed file until the upload signature expires.
       const permanentKey = `files/${spaceId}/${row.file_id}`;
+      if (!staged) throw new ApiError("UPLOAD_STATE_INVALID", "Native upload is missing verified bytes", 500);
       try {
         // Validate real object bytes and dimensions before promoting the Icon File.
         // The size check during upload initiation is not a security boundary.
@@ -304,19 +336,7 @@ async function completeSession(context: Context<AppEnv>) {
         if (safeToDelete) await context.env.ASSETS.delete(permanentKey).catch(() => undefined);
         throw error;
       }
-      // D1 publication and promoted R2 verification are complete. The staging
-      // key is no longer needed by readers, so remove it outside the response
-      // critical path. Scheduled cleanup is the durable retry if waitUntil
-      // cannot run (or fails); never delete the permanent File here.
-      try {
-        context.executionCtx.waitUntil((async () => {
-          try {
-            await context.env.ASSETS.delete(row.object_key);
-            await context.env.DB.prepare("UPDATE file_upload_sessions SET cleaned_at=? WHERE id=? AND status='completed'")
-              .bind(new Date().toISOString(), row.id).run();
-          } catch { /* scheduled cleanup retries completed sessions */ }
-        })());
-      } catch { /* non-Worker test runtime; scheduled cleanup will reconcile */ }
+      scheduleCompletedNativeUploadCleanup(context, row);
       return context.json(success({
         id: row.file_id,
         name: row.name,

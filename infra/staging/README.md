@@ -141,3 +141,18 @@ The canonical staging workflow automatically exercises **a real synthetic Native
 create an ephemeral published File-capable model; obtain `upl_*` + presigned PUT; upload bytes into `uploads/native/`; complete to a new permanent `fil_*`; attach/download through the Record with the current Authority; reject deletion while referenced; soft-delete the Record and delete the detached File. It retires the synthetic model and removes temporary model access. An R2 smoke failure fails the workflow.
 
 When `LIFESPACE_EXTERNAL_PROVIDER_ACTIVE=1`, the existing real Notion self-service smoke additionally uploads a synthetic file through `file_ref_list.upload` using the same session transport, then proves the original Notion External file reference survives and the new Provider-owned URL is returned. If External Provider is disabled, **Notion upload is not accepted**, even when the Native smoke is green. Production remains manual and is not inferred from staging success.
+
+
+## MCP Adapter via Worker Preview / MCP 适配器预览环境（2026-11）
+
+The MCP implementation and its **independent deployment** belong to [LifeSpace Adapters](https://github.com/huangshirui/lifespace-adapters), not to the LifeSpace platform staging workflow. Read the [MCP Adapter deployment and acceptance instructions](https://github.com/huangshirui/lifespace-adapters/blob/main/adapters/mcp/README.md) for current Cloudflare Workers Previews, Access Managed OAuth, and isolated Service Binding setup. LifeSpace remains the sole source of truth for Application, Identity, Access Audience registration, Model Access, Space/Data Grants, and effective authorization.
+
+### Console-governed Staging authority（控制台授权）
+
+1. Use the **LifeSpace Staging Console** to manage a dedicated, trusted MCP Application with only the required `resources:read` credential scope. Do not introduce a Bootstrap consumer or another MCP-specific application-creation Action.
+2. Register the Cloudflare **Preview** Managed OAuth Access Audience to that exact Application via Console. Audience configuration is independent from Worker deployment or hostname choice. A retired custom-domain audience must not substitute for the currently protected Preview audience.
+3. Grant only explicitly needed ordinary models **read** in Application × Model Access. Current User/Space/Grant/Policy authority is checked again by Core on each request. Console and Platform Admin control-plane operations are not part of this ordinary MCP projection.
+4. Create/revoke the dedicated `lsa_*` through authorized Console workflows, then install its plaintext **only** into the explicitly selected trusted Staging Worker Preview Secret `LIFESPACE_APPLICATION_CREDENTIAL`. Do not put it into GitHub, an untrusted branch, the generic Previews Base shared by arbitrary branches, this repository, or a public log.
+5. Confirm the newly issued credential belongs to the intended active MCP Application, has the expected read-only scope, and matches the registered Preview Access Audience; installing a Secret does not itself validate those associations. Test Managed OAuth browser sign-in → Identity's verified User mapping → MCP `initialize`, `tools/list`, `tools/call` → Core's effective authorization, as well as denied/revoked-user/model/Space cases. Preview deployment and static CI alone do not establish end-to-end correctness.
+
+The former owner-only `Install LifeSpace MCP staging credential` GitHub Action and related scripts were retired after switching to independently managed Worker Previews. There is no MCP credential-install or MCP deployment workflow inside this platform repository. Platform staging and production deployment remain owner-gated and separate.

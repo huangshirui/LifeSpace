@@ -1,3 +1,11 @@
+## 2026-11-10 · Account Staging deploy/authority decoupling
+
+Account is an independent user-facing Worker. Its routine code/static-asset deployment **must not** mutate the Core or Identity Worker, Identity Application registrations/Audiences, any OAuth shared secret, Access security policy or persistent data. Account Staging deploy verifies existing Core/Identity contract/schema compatibility, Account-only Access exact-Owner policy, and existing non-secret Worker binding names, then deploys only the Account Worker. Existing Wrangler Worker Secrets are retained by normal code deployment; no per-release `lsa_*` or CSRF/shared-secret rotation.
+
+Initial Account bootstrap, explicitly authorized Account Application Scope/Access changes, and intentional credential/approval-secret rotations are **exceptional maintenance operations**. They require an independent owner-initiated, confirmed staging provisioning workflow, preserve the exact current trust/credential rotation verification gates, and may change/redeploy Core/Identity Worker versions through Cloudflare Secret writes. They must not be silently included in routine Account deployment. Full Platform Staging deploy remains explicit and is only needed for actual platform code/schema/contract/configuration changes. Both staged workflows share the platform deployment concurrency lock and cannot automatically dispatch canonical deployments.
+
+This deployment separation does not move OAuth Authorization or User identity from Identity, Space/Data Grants or Delegations from Core, create an Account D1, or grant Account platform-administrator authority. Production deployment requirements remain independent and unchanged.
+
 # Trusted Application and Access Authentication
 
 ## Status

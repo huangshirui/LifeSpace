@@ -1,0 +1,1036 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "LifeSpace Account Center and OAuth Consent BFF",
+    "version": "0.5.0",
+    "description": "Same-origin Cloudflare Access user BFF for Identity-owned profile and OAuth, Core-owned Space/invite and Delegation; user-bound CSRF mutations. No Account database, cross-service D1 access or privileged admin credential."
+  },
+  "paths": {
+    "/api/session": {
+      "get": {
+        "summary": "Account-only Access user session and user-bound CSRF proof",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Current active user, CSRF token, and optional loginEmail (null if unavailable), no-store and HttpOnly signed cookie"
+          },
+          "400": {
+            "description": "Unknown or duplicate session query parameter"
+          },
+          "401": {
+            "description": "Missing or invalid Access Assertion"
+          },
+          "403": {
+            "description": "Current Access/User validation denied"
+          },
+          "503": {
+            "description": "Account identity or CSRF not configured"
+          }
+        },
+        "parameters": [
+          {
+            "name": "include",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "login-email"
+              ]
+            },
+            "description": "Optional current declared mailbox projection. Shares the same freshly exchanged Account credential. Absent retains previous response; null means unavailable."
+          }
+        ]
+      }
+    },
+    "/api/oauth/request": {
+      "get": {
+        "summary": "Pending Client, Resource and requested scopes. Not effective capability.",
+        "security": [],
+        "parameters": [
+          {
+            "name": "request_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^oar_"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Pending OAuth request"
+          },
+          "400": {
+            "description": "Invalid request ID"
+          },
+          "409": {
+            "description": "Expired request"
+          }
+        }
+      }
+    },
+    "/api/oauth/choices": {
+      "get": {
+        "summary": "Core-filtered current Application → Space → Agent candidates",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Bounded user-manageable choices"
+          },
+          "403": {
+            "description": "Insufficient Account user authority"
+          }
+        }
+      }
+    },
+    "/api/oauth/confirm": {
+      "post": {
+        "summary": "Explicit user confirm, same-origin and user-bound HMAC CSRF",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "intent",
+                  "requestId",
+                  "applicationId",
+                  "spaceId",
+                  "agentId",
+                  "allowUserAuthorization"
+                ],
+                "properties": {
+                  "intent": {
+                    "type": "string",
+                    "const": "confirm-oauth-authorization"
+                  },
+                  "requestId": {
+                    "type": "string",
+                    "pattern": "^oar_"
+                  },
+                  "applicationId": {
+                    "type": "string",
+                    "pattern": "^app_"
+                  },
+                  "spaceId": {
+                    "type": "string",
+                    "pattern": "^spc_"
+                  },
+                  "agentId": {
+                    "type": "string",
+                    "pattern": "^agt_"
+                  },
+                  "allowUserAuthorization": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Identity-generated exact callback URL after Core confirmation"
+          },
+          "400": {
+            "description": "Invalid selection"
+          },
+          "403": {
+            "description": "Origin/CSRF/user authority mismatch"
+          },
+          "409": {
+            "description": "Request no longer pending"
+          }
+        }
+      }
+    },
+    "/api/oauth/capabilities": {
+      "get": {
+        "summary": "Account BFF builds current Agent Direct model-level pre-policy upper bound, narrowed by Identity pending OAuth Scope",
+        "parameters": [
+          {
+            "name": "request_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^oar_"
+            }
+          },
+          {
+            "name": "application_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^app_"
+            }
+          },
+          {
+            "name": "space_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^spc_"
+            }
+          },
+          {
+            "name": "agent_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^agt_"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Bounded current Native model access projection, explicitly not Policy/resource verified"
+          },
+          "400": {
+            "description": "Invalid or duplicate selector"
+          },
+          "403": {
+            "description": "Current Core authority missing"
+          },
+          "409": {
+            "description": "OAuth pending request expired"
+          }
+        }
+      }
+    },
+    "/api/delegation/request": {
+      "get": {
+        "summary": "Get intended User-bound third-party OAuth MCP Authorization Request preview",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "request_id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^arq_[a-f0-9]{32}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Sanitized exact App/Space/Resource/Model/Operation request for the verified Account User"
+          },
+          "401": {
+            "description": "Account session required"
+          },
+          "403": {
+            "description": "Wrong user or revoked OAuth authorization"
+          },
+          "404": {
+            "description": "Unknown or cross-user request"
+          }
+        }
+      }
+    },
+    "/api/delegation/approve": {
+      "post": {
+        "summary": "Approve one pending third-party OAuth MCP User Delegation through authenticated Account session",
+        "description": "Requires signed Account User, same-origin CSRF and explicit User-selected lifetime. Once is default; timed 1/24/168 hours (max 7 days); until_revoked is indefinite but revocable.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "intent",
+                  "requestId"
+                ],
+                "properties": {
+                  "intent": {
+                    "const": "approve-user-delegation"
+                  },
+                  "requestId": {
+                    "type": "string",
+                    "pattern": "^arq_[a-f0-9]{32}$"
+                  },
+                  "mode": {
+                    "type": "string",
+                    "enum": [
+                      "once",
+                      "timed",
+                      "until_revoked"
+                    ]
+                  },
+                  "durationMinutes": {
+                    "type": "integer",
+                    "enum": [
+                      60,
+                      1440,
+                      10080
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Current User confirmed, canonical Core arq transitions and single-use dlg issued"
+          },
+          "400": {
+            "description": "Invalid confirmation"
+          },
+          "401": {
+            "description": "Account session required"
+          },
+          "403": {
+            "description": "Origin, CSRF, or User mismatch"
+          },
+          "404": {
+            "description": "Cross-user request must not leak"
+          },
+          "409": {
+            "description": "Expired, consumed or already finalized Authorization Request"
+          }
+        }
+      }
+    },
+    "/api/delegation/deny": {
+      "post": {
+        "summary": "Deny one pending third-party OAuth MCP User Delegation through authenticated Account session",
+        "description": "Requires verified Account User JWT, same-origin request, User-bound signed CSRF cookie/header, explicit intent and requestId. Does not expose or alter trusted in-app or WeCom approval APIs.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "intent",
+                  "requestId"
+                ],
+                "properties": {
+                  "intent": {
+                    "const": "deny-user-delegation"
+                  },
+                  "requestId": {
+                    "type": "string",
+                    "pattern": "^arq_[a-f0-9]{32}$"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Current User explicitly rejected; no Delegation issued"
+          },
+          "400": {
+            "description": "Invalid confirmation"
+          },
+          "401": {
+            "description": "Account session required"
+          },
+          "403": {
+            "description": "Origin, CSRF, or User mismatch"
+          },
+          "404": {
+            "description": "Cross-user request must not leak"
+          },
+          "409": {
+            "description": "Expired, consumed or already finalized Authorization Request"
+          }
+        }
+      }
+    },
+    "/api/delegations": {
+      "get": {
+        "summary": "List current Account-approved third-party OAuth MCP Delegations",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9999
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Only own current active OAuth MCP delegations"
+          },
+          "401": {
+            "description": "Account session required"
+          },
+          "503": {
+            "description": "Core unavailable"
+          }
+        }
+      }
+    },
+    "/api/delegations/revoke": {
+      "post": {
+        "summary": "Revoke an Account User's own third-party OAuth MCP Delegation",
+        "description": "Account session, same-origin and CSRF required. Works when original OAuth Authorization is revoked.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "intent",
+                  "delegationId"
+                ],
+                "properties": {
+                  "intent": {
+                    "type": "string",
+                    "const": "revoke-user-delegation"
+                  },
+                  "delegationId": {
+                    "type": "string",
+                    "pattern": "^dlg_[A-Za-z0-9_-]+$"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Delegation revoked"
+          },
+          "403": {
+            "description": "Invalid CSRF"
+          },
+          "404": {
+            "description": "Not owned or no longer active"
+          }
+        }
+      }
+    },
+    "/api/account/login-email": {
+      "get": {
+        "summary": "Current declared login mailbox, verification state and optimistic version",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Scoped to the current verified Account user"
+          },
+          "401": {
+            "description": "Access session missing"
+          },
+          "403": {
+            "description": "Current user cannot access resource"
+          },
+          "502": {
+            "description": "Invalid upstream response"
+          },
+          "503": {
+            "description": "Authoritative upstream unavailable"
+          }
+        }
+      }
+    },
+    "/api/account/spaces": {
+      "get": {
+        "summary": "Current user's Core Space memberships only (read-only)",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Scoped to the current verified Account user"
+          },
+          "401": {
+            "description": "Access session missing"
+          },
+          "403": {
+            "description": "Current user cannot access resource"
+          },
+          "502": {
+            "description": "Invalid upstream response"
+          },
+          "503": {
+            "description": "Authoritative upstream unavailable"
+          }
+        }
+      }
+    },
+    "/api/account/spaces/{spaceId}": {
+      "get": {
+        "summary": "Current user's Core-authorized Space detail, no privileged admin read",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Scoped to the current verified Account user"
+          },
+          "401": {
+            "description": "Access session missing"
+          },
+          "403": {
+            "description": "Current user cannot access resource"
+          },
+          "502": {
+            "description": "Invalid upstream response"
+          },
+          "503": {
+            "description": "Authoritative upstream unavailable"
+          }
+        },
+        "parameters": [
+          {
+            "name": "spaceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^spc_[A-Za-z0-9_-]{3,128}$"
+            }
+          }
+        ]
+      }
+    },
+    "/api/account/spaces/{spaceId}/members": {
+      "get": {
+        "summary": "Current user's Core-authorized member view for a Space",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Scoped to the current verified Account user"
+          },
+          "401": {
+            "description": "Access session missing"
+          },
+          "403": {
+            "description": "Current user cannot access resource"
+          },
+          "502": {
+            "description": "Invalid upstream response"
+          },
+          "503": {
+            "description": "Authoritative upstream unavailable"
+          }
+        },
+        "parameters": [
+          {
+            "name": "spaceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^spc_[A-Za-z0-9_-]{3,128}$"
+            }
+          }
+        ]
+      }
+    },
+    "/api/account/authorizations": {
+      "get": {
+        "summary": "Account-only current user OAuth authorization list, paginated, no secrets",
+        "security": [],
+        "parameters": [
+          {
+            "name": "offset",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9999
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Only the current user's OAuth grants"
+          },
+          "403": {
+            "description": "Not an authorized Account session"
+          },
+          "503": {
+            "description": "Identity unavailable"
+          }
+        }
+      }
+    },
+    "/api/account/authorizations/{authorizationId}": {
+      "get": {
+        "summary": "Account-only detail of exactly one owned OAuth authorization",
+        "security": [],
+        "parameters": [
+          {
+            "name": "authorizationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^oaz_"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Owned authorization only"
+          },
+          "404": {
+            "description": "Not found or not owned"
+          }
+        }
+      }
+    },
+    "/api/account/authorizations/{authorizationId}/revoke": {
+      "post": {
+        "summary": "Explicit current-user OAuth authorization revocation (independent of shared Agent)",
+        "security": [],
+        "parameters": [
+          {
+            "name": "authorizationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^oaz_"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "intent",
+                  "authorizationId"
+                ],
+                "properties": {
+                  "intent": {
+                    "type": "string",
+                    "const": "revoke-oauth-authorization"
+                  },
+                  "authorizationId": {
+                    "type": "string",
+                    "pattern": "^oaz_"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Current user authorization revoked; old OAuth tokens denied"
+          },
+          "403": {
+            "description": "Same-origin CSRF/session failed"
+          },
+          "404": {
+            "description": "Not owned"
+          },
+          "409": {
+            "description": "Already revoked or changed"
+          }
+        }
+      }
+    },
+    "/api/account/spaces/{spaceId}/external-connections": {
+      "get": {
+        "summary": "User-owned Space manager view of external provider connection metadata; excludes Provider Credential plaintext and opaque credentialRef",
+        "security": [],
+        "parameters": [
+          {
+            "name": "spaceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^spc_"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Core-authorized connection metadata only"
+          },
+          "403": {
+            "description": "Space management permission required"
+          },
+          "404": {
+            "description": "Space not found"
+          },
+          "502": {
+            "description": "Invalid Core response"
+          },
+          "503": {
+            "description": "Core unavailable"
+          }
+        }
+      }
+    },
+    "/api/account/profile": {
+      "post": {
+        "summary": "Update current global display name through Identity",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "intent",
+                  "displayName"
+                ],
+                "properties": {
+                  "intent": {
+                    "type": "string",
+                    "const": "update-profile"
+                  },
+                  "displayName": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 50
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated current-user non-secret data"
+          },
+          "201": {
+            "description": "Created Space or membership"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "No Access session"
+          },
+          "403": {
+            "description": "CSRF, scope or current Core/Identity authority denied"
+          },
+          "409": {
+            "description": "Changed version or no longer available"
+          },
+          "502": {
+            "description": "Invalid upstream response"
+          },
+          "503": {
+            "description": "Upstream unavailable"
+          }
+        }
+      }
+    },
+    "/api/account/profile/avatar": {
+      "post": {
+        "summary": "Upload current-user avatar through Identity; 5 MB JPEG/PNG/WebP",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "avatar"
+                ],
+                "properties": {
+                  "avatar": {
+                    "type": "string",
+                    "format": "binary"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated current-user non-secret data"
+          },
+          "201": {
+            "description": "Created Space or membership"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "No Access session"
+          },
+          "403": {
+            "description": "CSRF, scope or current Core/Identity authority denied"
+          },
+          "409": {
+            "description": "Changed version or no longer available"
+          },
+          "502": {
+            "description": "Invalid upstream response"
+          },
+          "503": {
+            "description": "Upstream unavailable"
+          }
+        }
+      }
+    },
+    "/api/account/login-email/change": {
+      "post": {
+        "summary": "Declare a new global login mailbox, requiring subsequent independent verification",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "intent",
+                  "email",
+                  "version"
+                ],
+                "properties": {
+                  "intent": {
+                    "type": "string",
+                    "const": "change-login-email"
+                  },
+                  "email": {
+                    "type": "string",
+                    "format": "email",
+                    "maxLength": 254
+                  },
+                  "version": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated current-user non-secret data"
+          },
+          "201": {
+            "description": "Created Space or membership"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "No Access session"
+          },
+          "403": {
+            "description": "CSRF, scope or current Core/Identity authority denied"
+          },
+          "409": {
+            "description": "Changed version or no longer available"
+          },
+          "502": {
+            "description": "Invalid upstream response"
+          },
+          "503": {
+            "description": "Upstream unavailable"
+          }
+        }
+      }
+    },
+    "/api/account/spaces/create": {
+      "post": {
+        "summary": "Create a generic LifeSpace Space with current authenticated user as Owner",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "intent",
+                  "name",
+                  "timezone"
+                ],
+                "properties": {
+                  "intent": {
+                    "type": "string",
+                    "const": "create-space"
+                  },
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 100
+                  },
+                  "timezone": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 100
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated current-user non-secret data"
+          },
+          "201": {
+            "description": "Created Space or membership"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "No Access session"
+          },
+          "403": {
+            "description": "CSRF, scope or current Core/Identity authority denied"
+          },
+          "409": {
+            "description": "Changed version or no longer available"
+          },
+          "502": {
+            "description": "Invalid upstream response"
+          },
+          "503": {
+            "description": "Upstream unavailable"
+          }
+        }
+      }
+    },
+    "/api/account/spaces/invite-preview": {
+      "post": {
+        "summary": "Preview a bounded current-user Core invitation before acceptance",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "intent",
+                  "token"
+                ],
+                "properties": {
+                  "intent": {
+                    "type": "string",
+                    "const": "preview-space-invite"
+                  },
+                  "token": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated current-user non-secret data"
+          },
+          "201": {
+            "description": "Created Space or membership"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "No Access session"
+          },
+          "403": {
+            "description": "CSRF, scope or current Core/Identity authority denied"
+          },
+          "409": {
+            "description": "Changed version or no longer available"
+          },
+          "502": {
+            "description": "Invalid upstream response"
+          },
+          "503": {
+            "description": "Upstream unavailable"
+          }
+        }
+      }
+    },
+    "/api/account/spaces/join": {
+      "post": {
+        "summary": "Accept an invitation through Core current-user Space membership rules",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "intent",
+                  "token"
+                ],
+                "properties": {
+                  "intent": {
+                    "type": "string",
+                    "const": "join-space"
+                  },
+                  "token": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated current-user non-secret data"
+          },
+          "201": {
+            "description": "Created Space or membership"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "No Access session"
+          },
+          "403": {
+            "description": "CSRF, scope or current Core/Identity authority denied"
+          },
+          "409": {
+            "description": "Changed version or no longer available"
+          },
+          "502": {
+            "description": "Invalid upstream response"
+          },
+          "503": {
+            "description": "Upstream unavailable"
+          }
+        }
+      }
+    }
+  }
+}

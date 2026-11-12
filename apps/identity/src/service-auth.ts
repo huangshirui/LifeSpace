@@ -1,6 +1,7 @@
 import type { Context } from "hono";
 import { Hono } from "hono";
 import { sign } from "hono/jwt";
+import { exchangeInteractiveOAuthToken } from "./oauth-authorization";
 import type { Bindings, Variables } from "./env";
 import { measurePerformancePhase } from "./performance-timing";
 
@@ -431,7 +432,8 @@ export function registerServiceAuthenticationRoutes(app: App): void {
     const contentType = c.req.header("content-type") ?? "";
     if (!contentType.includes("application/x-www-form-urlencoded")) return oauthError(c, 400, "invalid_request", "Form-encoded request is required");
     const form = await c.req.parseBody<Record<string, string>>().catch(() => null);
-    if (!form || form.grant_type !== "client_credentials") return oauthError(c, 400, "unsupported_grant_type", "grant_type must be client_credentials");
+    if (!form) return oauthError(c, 400, "invalid_request", "Form body is required");
+    if (form.grant_type !== "client_credentials") return exchangeInteractiveOAuthToken(c, form);
     let clientId = typeof form.client_id === "string" ? form.client_id : "";
     let clientSecret = typeof form.client_secret === "string" ? form.client_secret : "";
     const authorization = c.req.header("authorization");

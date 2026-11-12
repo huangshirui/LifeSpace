@@ -295,6 +295,13 @@ if (space.response.status !== 201 || !space.payload?.data?.id || !space.payload?
 const spaceId = space.payload.data.id;
 const personId = space.payload.data.ownerPersonId;
 
+// Capture provenance as soon as the exact run-created Space is known. Later
+// test setup may fail; cleanup must not infer an eligible Space from its name.
+exportEnv("LIFESPACE_STAGING_SMOKE_CREATED_SPACE_ID", spaceId);
+exportEnv("LIFESPACE_STAGING_SPACE_ID", spaceId);
+exportEnv("LIFESPACE_STAGING_SMOKE_USER_ID", userId);
+exportEnv("LIFESPACE_STAGING_USER_BEARER", userBearer, { secret: true });
+
 const serviceGrant = await jsonRequest(coreBase, `/api/v1/spaces/${spaceId}/grants`, {
   method: "POST",
   bearer: userBearer,
@@ -311,6 +318,7 @@ if (serviceGrant.response.status !== 201 || !serviceGrant.payload?.data?.id) {
   throw new Error(`Staging Runtime service grant creation failed: ${serviceGrant.response.status} ${JSON.stringify(serviceGrant.payload)}`);
 }
 const serviceGrantId = serviceGrant.payload.data.id;
+exportEnv("LIFESPACE_STAGING_SMOKE_SERVICE_GRANT_ID", serviceGrantId);
 
 const serviceRuntimeProbe = await requestUntil(
   "Core Runtime service-token verification",
@@ -337,18 +345,14 @@ exportEnv("LIFESPACE_CORE_STAGING_URL", coreBase);
 exportEnv("LIFESPACE_IDENTITY_STAGING_URL", identityBase);
 exportEnv("LIFESPACE_STAGING_MODEL_ADMIN_BEARER", serviceBearer, { secret: true });
 exportEnv("LIFESPACE_STAGING_SERVICE_BEARER", serviceBearer, { secret: true });
-exportEnv("LIFESPACE_STAGING_USER_BEARER", userBearer, { secret: true });
 exportEnv("LIFESPACE_STAGING_CLAIMANT_USER_BEARER", claimantBearer, { secret: true });
-exportEnv("LIFESPACE_STAGING_SPACE_ID", spaceId);
 exportEnv("LIFESPACE_STAGING_PERSON_ID", personId);
 exportEnv("LIFESPACE_STAGING_CLAIMANT_PERSON_ID", claimantPersonId);
 exportEnv("LIFESPACE_STAGING_SPACE_TIMEZONE", "UTC");
 exportEnv("LIFESPACE_STAGING_VIEWING_TIMEZONE", "UTC");
-exportEnv("LIFESPACE_STAGING_SMOKE_USER_ID", userId);
 exportEnv("LIFESPACE_STAGING_SMOKE_CLAIMANT_USER_ID", claimantUserId);
 exportEnv("LIFESPACE_STAGING_SMOKE_SERVICE_PRINCIPAL_ID", servicePrincipalId);
 exportEnv("LIFESPACE_STAGING_SMOKE_SERVICE_TOKEN_ID", serviceTokenId);
-exportEnv("LIFESPACE_STAGING_SMOKE_SERVICE_GRANT_ID", serviceGrantId);
 exportEnv("ALLOW_AI_UNCONFIGURED", "1");
 
 console.log(JSON.stringify({

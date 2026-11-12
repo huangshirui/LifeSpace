@@ -32,7 +32,27 @@ export type Principal = {
   scopes: string[];
   tokenId: string;
   actor?: Actor;
-  purpose?: "agent_execution" | "agent_api";
+  purpose?: "agent_execution" | "agent_api" | "oauth_agent_execution";
+  // Verified signed Identity OAuth execution attributes. Never caller assertions.
+  oauthExecution?: {
+    authorizationId: string;
+    accessHash: string;
+    resource: string;
+    clientId: string;
+    spaceId: string;
+    applicationId: string;
+    agentId: string;
+    // Verified OAuth Consent owner, not an implicit operation Principal.
+    userId?: string;
+    allowUserAuthorization?: boolean;
+    delegationId?: string;
+    // Core-derived per-request MCP Server policy, never an Identity JWT claim.
+    serverId?: string;
+    queryModelKeys?: string[];
+    toolModelKeys?: string[];
+    modelOperations?: Record<string, string[]>;
+    personOperations?: string[];
+  };
 };
 
 export type Bindings = CloudflareBindings & {
@@ -47,7 +67,15 @@ export type Bindings = CloudflareBindings & {
   IDENTITY_PUBLIC_KEY: string;
   RECURRENCE_WINDOW_DAYS?: string;
   IDENTITY?: Fetcher;
+  // Private transport binding, populated only after reviewed MCP staging setup.
+  MCP_ADAPTER?: Fetcher;
+  // Explicit opt-in for local/integration tests; public origins are fixed by ENVIRONMENT.
+  MCP_PUBLIC_ORIGIN?: string;
   CORE_IDENTITY_SHARED_SECRET?: string;
+  OAUTH_ACCOUNT_APPLICATION_ID?: string;
+  OAUTH_CORE_APPROVER_SECRET?: string;
+  // Same-environment public Account origin, never a trusted approval secret.
+  MCP_DELEGATION_ACCOUNT_ORIGIN?: string;
   ASSETS: R2Bucket;
   R2_S3_ACCOUNT_ID?: string;
   R2_S3_ACCESS_KEY_ID?: string;
@@ -63,9 +91,21 @@ export type Bindings = CloudflareBindings & {
   PERFORMANCE_DIAGNOSTICS?: string;
 };
 
+// Bounded, request-local diagnostics only; no authority data or SQL bindings.
+export type AuthorityD1Timing = {
+  wallMs: number;
+  statements: number;
+  success: boolean;
+  sqlDurationMs: number | null;
+  reportedDurationMs: number | null;
+  rowsRead: number | null;
+  regions: string[];
+  colos: string[];
+};
 export type RequestPerformanceTiming = {
   startedAt: number;
   phases: Record<string, number>;
+  authorityD1?: AuthorityD1Timing[];
 };
 
 export type Variables = {
