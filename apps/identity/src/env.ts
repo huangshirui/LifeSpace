@@ -32,9 +32,11 @@ export type Bindings = {
   // Independent guard for anonymous /oauth/authorize requests.
   OAUTH_AUTHORIZE_RATE_LIMITER?: RateLimit;
   // Opt-in HTTPS Client ID Metadata Documents; disabled unless explicitly enabled.
-  // Opening this additionally requires the verified Cloudflare
-  // global_fetch_strictly_public deployment flag (outside the type system).
+  // A dedicated public-only egress endpoint and independent 256-bit secret
+  // are mandatory. Never forward Identity/Core/user credentials to it.
   OAUTH_CIMD_ENABLED?: string;
+  OAUTH_CIMD_EGRESS_URL?: string;
+  OAUTH_CIMD_EGRESS_SECRET?: string;
 };
 
 export type RequestPerformanceTiming = {
