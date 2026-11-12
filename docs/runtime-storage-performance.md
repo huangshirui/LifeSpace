@@ -262,3 +262,10 @@ model metadata. A missing initial snapshot uses the existing canonical initializ
 a mismatched snapshot fails closed. Normal read-only discovery retains its previous
 budget; no per-record I/O is added. Model write authorization remains per selected
 model current-state checking, never cached with immutable schema.
+
+
+### 2026-11-12 · Authority I/O diagnostics and bounded MCP projection (candidate)
+
+Ordinary Native routes attach bounded, request-correlated `authorityD1` diagnostics to the existing performance timing event: Worker binding wall time, statement count, D1-reported SQL duration (when available), reported duration, rows read and region/colo. Missing provider metadata stays null; do not infer SQL execution from Worker wall time or placement from ingress. No additional query, SQL text, result rows, bindings, credentials or authority cache is introduced. The existing diagnostic kill switch applies. This is evidence for #543, not proof of its root cause or a change to the APAC gate.
+
+Current OAuth MCP discovery reuses the authenticated request's already checked Server selection, resolves configured candidates, and batches model authority through the existing de-duplicated Authority evaluator. Read/write preview can share one base snapshot per model; hypothetical write Scope affects discovery only. Invoke resolves the opaque reference against the current configured operations before mutable model/binding reads, projects only that target and then independently enters the canonical route with the original credential. Unknown, revoked and unconfigured operations remain unavailable. No authority data is cached across requests. Person remains independently authorized and External provider state is still checked. The full discovery response remains bounded to 128 visible operations; invoking one explicitly configured operation does not build or count unrelated tools. Adapter-side unconditional discovery and end-to-end MCP latency remain follow-up #544. No public schema, migration, release threshold or production change is implied.

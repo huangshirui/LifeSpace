@@ -22,7 +22,7 @@ import { isTemporalSpecialQuery, queryTemporalResources } from "./temporal-query
 import { loadSpaceTemporalContext, type SpaceTemporalContext } from "./temporal-capability";
 import { ApiError, success } from "./http";
 import { consumeSingleUseRead, requireModelAccess } from "./model-authorization";
-import { measurePerformancePhase } from "./performance-timing";
+import { authorityD1Observer, measurePerformancePhase } from "./performance-timing";
 import { getRuntimeModel, type PublishedModel } from "./model-registry";
 import { requireModelPolicy } from "./policy";
 import { loadResourceAudits, requireResourceAudit, type ResourceAudit } from "./resource-audit";
@@ -158,7 +158,7 @@ export function registerGenericResourceRoutes(app: App): void {
     const access = await measurePerformancePhase(
       context,
       "runtime.access_check",
-      () => requireModelAccess(context.env, principal, spaceId, resolved, "read", accessSelector(context)),
+      () => requireModelAccess(context.env, principal, spaceId, resolved, "read", accessSelector(context), authorityD1Observer(context)),
     );
     await measurePerformancePhase(
       context,
@@ -199,7 +199,7 @@ export function registerGenericResourceRoutes(app: App): void {
     const access = await measurePerformancePhase(
       context,
       "runtime.access_check",
-      () => requireModelAccess(context.env, principal, spaceId, resolved, "read", accessSelector(context)),
+      () => requireModelAccess(context.env, principal, spaceId, resolved, "read", accessSelector(context), authorityD1Observer(context)),
     );
     await measurePerformancePhase(
       context,
@@ -237,7 +237,7 @@ export function registerGenericResourceRoutes(app: App): void {
     const access = await measurePerformancePhase(
       context,
       "runtime.access_check",
-      () => requireModelAccess(context.env, principal, spaceId, resolved, "write", accessSelector(context)),
+      () => requireModelAccess(context.env, principal, spaceId, resolved, "write", accessSelector(context), authorityD1Observer(context)),
     );
     const input = await body(context);
     const prepared = prepareCapabilityCreateInput(resolved, input);
@@ -276,7 +276,7 @@ export function registerGenericResourceRoutes(app: App): void {
     const access = await measurePerformancePhase(
       context,
       "runtime.access_check",
-      () => requireModelAccess(context.env, principal, spaceId, resolved, "read", accessSelector(context, recordId)),
+      () => requireModelAccess(context.env, principal, spaceId, resolved, "read", accessSelector(context, recordId), authorityD1Observer(context)),
     );
     const resource = await measurePerformancePhase(
       context,
@@ -307,7 +307,7 @@ export function registerGenericResourceRoutes(app: App): void {
     const access = await measurePerformancePhase(
       context,
       "runtime.access_check",
-      () => requireModelAccess(context.env, principal, spaceId, resolved, "write", accessSelector(context, recordId)),
+      () => requireModelAccess(context.env, principal, spaceId, resolved, "write", accessSelector(context, recordId), authorityD1Observer(context)),
     );
     const request = await body(context);
     const expected = positiveVersion(request.version);
@@ -353,7 +353,7 @@ export function registerGenericResourceRoutes(app: App): void {
     const resolved = await model(context);
     const principal = context.get("principal");
     const recordId = pathParam(context, "recordId");
-    const access = await requireModelAccess(context.env, principal, spaceId, resolved, "write", accessSelector(context, recordId));
+    const access = await requireModelAccess(context.env, principal, spaceId, resolved, "write", accessSelector(context, recordId), authorityD1Observer(context));
     const input = await body(context);
     if (Object.keys(input).some((key) => key !== "version")) throw new ApiError("INVALID_REQUEST", "Delete accepts only version", 400);
     const resource = await getGenericResource(context.env, spaceId, resolved, recordId);
@@ -377,7 +377,7 @@ export function registerGenericResourceRoutes(app: App): void {
     const resolved = await model(context);
     const principal = context.get("principal");
     const recordId = pathParam(context, "recordId");
-    const access = await requireModelAccess(context.env, principal, spaceId, resolved, "read", accessSelector(context, recordId));
+    const access = await requireModelAccess(context.env, principal, spaceId, resolved, "read", accessSelector(context, recordId), authorityD1Observer(context));
     const resource = await getGenericResource(context.env, spaceId, resolved, recordId);
     if (!resource) throw new ApiError("RESOURCE_NOT_FOUND", "Resource not found", 404);
     await requireModelPolicy(context.env, access.principal, spaceId, resolved, "read", resource, undefined, { principalPersonId: access.policyIdentity.principalPersonId, actorPersonId: access.policyIdentity.actorPersonId });
@@ -394,7 +394,7 @@ export function registerGenericResourceRoutes(app: App): void {
     const spaceId = pathParam(context, "spaceId");
     const resolved = await model(context);
     const recordId = pathParam(context, "recordId");
-    const access = await requireModelAccess(context.env, context.get("principal"), spaceId, resolved, "read", accessSelector(context, recordId));
+    const access = await requireModelAccess(context.env, context.get("principal"), spaceId, resolved, "read", accessSelector(context, recordId), authorityD1Observer(context));
     const resource = await getGenericResource(context.env, spaceId, resolved, recordId);
     if (!resource) throw new ApiError("RESOURCE_NOT_FOUND", "Resource not found", 404);
     await requireModelPolicy(context.env, access.principal, spaceId, resolved, "read", resource, undefined, {
@@ -424,6 +424,7 @@ export function registerGenericResourceRoutes(app: App): void {
       resolved,
       requiredAccess,
       accessSelector(context, recordId),
+      authorityD1Observer(context),
     );
     const input = await body(context);
     if (capabilityAccess) {

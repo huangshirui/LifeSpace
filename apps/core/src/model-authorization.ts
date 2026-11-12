@@ -8,7 +8,7 @@ import {
   type DelegationChainRow,
 } from "./delegation-chain";
 import { ENTITY_ROLE_CAPABILITIES, type AuthoritySource } from "./entity-role-capability";
-import type { Actor, Bindings, Principal } from "./env";
+import type { Actor, AuthorityD1Timing, Bindings, Principal } from "./env";
 import { ApiError } from "./http";
 import type { ModelAccess } from "./model-definition";
 export type ModelAuthorityTarget = { key: string; definition: { access: ModelAccess[] } };
@@ -47,6 +47,7 @@ export type ModelAccessRequest = {
   model: ModelAuthorityTarget;
   required: ModelAccess;
   selector?: DelegationSelector;
+  observeAuthorityBatch?: (sample: AuthorityD1Timing) => void;
 };
 
 export type ModelAuthorityDecision = {
@@ -413,6 +414,43 @@ export async function evaluateRecurrenceRoots(env: Bindings, entries: readonly {
   });
 }
 
+// D1 statement metadata may be absent in local runtimes or on failure.
+// Keep SQL time distinct from the wall time around the same Worker binding call.
+async function readAuthorityBatch(
+  env: Bindings,
+  statements: D1PreparedStatement[],
+  observe?: (sample: AuthorityD1Timing) => void,
+): Promise<D1Result<Record<string, unknown>>[]> {
+  if (!observe) return env.DB.batch<Record<string, unknown>>(statements);
+  const start = performance.now();
+  let results: D1Result<Record<string, unknown>>[] | null = null;
+  try {
+    results = await env.DB.batch<Record<string, unknown>>(statements);
+    return results;
+  } finally {
+    const wallMs = Math.round((performance.now() - start) * 10) / 10;
+    const metadata = (results ?? []).map(result => result.meta as unknown as {
+      duration?: number; timings?: { sql_duration_ms?: number }; rows_read?: number;
+      served_by_region?: string; served_by_colo?: string;
+    });
+    const sum = (values: (number | undefined)[]) =>
+      values.length === statements.length && values.every(value => typeof value === "number" && Number.isFinite(value) && value >= 0)
+        ? Math.round(values.reduce<number>((total, value) => total + (value ?? 0), 0) * 10) / 10
+        : null;
+    const labels = (values: (string | undefined)[]) => [...new Set(values.filter(
+      (value): value is string => typeof value === "string" && /^[A-Za-z0-9_-]{1,40}$/u.test(value),
+    ))].slice(0, 8);
+    observe({
+      wallMs, statements: statements.length, success: results !== null && results.every(result => result.success),
+      sqlDurationMs: sum(metadata.map(value => value.timings?.sql_duration_ms)),
+      reportedDurationMs: sum(metadata.map(value => value.duration)),
+      rowsRead: sum(metadata.map(value => value.rows_read)),
+      regions: labels(metadata.map(value => value.served_by_region)),
+      colos: labels(metadata.map(value => value.served_by_colo)),
+    });
+  }
+}
+
 async function evaluateModelAccessManyResolved(
   env: Bindings,
   principal: Principal,
@@ -452,8 +490,9 @@ async function evaluateModelAccessManyResolved(
     ...uniqueBases.map((entry) => entry.statement),
     ...(shouldLoadChains ? [delegationChainStatement(env, uniqueLeafIds)] : []),
   ];
+  const observer = requests.find(request => request.observeAuthorityBatch)?.observeAuthorityBatch;
   const results = statements.length
-    ? await env.DB.batch<Record<string, unknown>>(statements)
+    ? await readAuthorityBatch(env, statements, observer)
     : [];
 
   const baseRows = new Map<string, BaseAuthoritySnapshotRow | null>();
@@ -624,11 +663,13 @@ export async function requireModelAccess(
   model: ModelAuthorityTarget,
   required: ModelAccess,
   selector: DelegationSelector = {},
+  observeAuthorityBatch?: (sample: AuthorityD1Timing) => void,
 ): Promise<ModelAccessDecision> {
   const [decision] = await requireModelAccessMany(env, principal, spaceId, [{
     model,
     required,
     selector,
+    observeAuthorityBatch,
   }]);
   return decision!;
 }
