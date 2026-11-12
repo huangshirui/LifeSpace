@@ -270,3 +270,8 @@ OAuth MCP batch semantics may add `mutations` with `contractId`, `modelVersion`,
 Model Contract. This is current capability preview, not authority: every create,
 update or delete rechecks Core authority, Policy and version. Absent/mismatched
 contract evidence must not produce mutation tools. See `docs/identity-oauth.md`.
+
+
+### Generic Operation Projection 0.3.0 — targeted discovery (candidate)
+
+`GET /api/v1/spaces/{spaceId}/_discovery/operations` accepts optional exact `modelKey` and `operation` query filters; operation requires modelKey. Omission preserves the full catalog. Invalid/duplicate parameters are rejected (400); unavailable matching operations return an empty catalog, without disclosing why. Filter before live authority reads, provider binding access and schema projection. This is the same protocol-neutral current-state discovery contract, useful for any generic consumer resolving a known operation without fetching unrelated schemas. The existing invoke selector and canonical checks remain unchanged. No cross-request authority cache, new authority concept, or MCP-specific tool naming in Core. Deploy compatible Core before the optimized Adapter for actual latency improvement; an older Core ignoring filters can still safely return the full current catalog to an Adapter that selects the exact requested tool.
