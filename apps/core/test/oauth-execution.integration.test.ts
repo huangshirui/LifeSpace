@@ -687,6 +687,18 @@ describe("OAuth MCP Agent Direct execution: Core fail-closed route and Space bou
       expect(rows.filter(x=>x.operation==="create").map(x=>x.modelKey).sort()).toEqual(["event","task","wish"]);
       // Read and write use one current snapshot per model in a single batch.
       expect(f.authorityMetrics()).toEqual({statements:3,batches:[3]});
+      f.resetAuthorityMetrics();
+      const narrow=await f.request("GET",base+"/_discovery/operations?modelKey=task&operation=query");
+      expect(narrow.status).toBe(200);
+      const narrowed=(await narrow.json() as {data:{operations:typeof rows}}).data.operations;
+      expect(narrowed.map(x=>[x.modelKey,x.operation])).toEqual([["task","query"]]);
+      expect(f.authorityMetrics()).toEqual({statements:1,batches:[1]});
+      const unknown=await f.request("GET",base+"/_discovery/operations?modelKey=unknown&operation=query");
+      expect(unknown.status).toBe(200);
+      expect((await unknown.json() as {data:{operations:unknown[]}}).data.operations).toEqual([]);
+      for(const params of ["operation=query","modelKey=task&modelKey=event","modelKey=task&operation=invalid","modelKey=task&other=1"]){
+        expect((await f.request("GET",base+"/_discovery/operations?"+params)).status).toBe(400);
+      }
       const selected=rows.find(x=>x.modelKey==="task"&&x.operation==="query")!;
       expect(selected).toBeDefined();
       const route=base+"/_operations/"+selected.operationRef+"/invoke";
@@ -715,6 +727,9 @@ describe("OAuth MCP Agent Direct execution: Core fail-closed route and Space bou
       // Old operation reference remains non-authorizing after current Grant loss.
       await f.db.prepare("UPDATE data_grants SET revoked_at=? WHERE source_space_id=? AND grantee_id=?")
         .bind(new Date().toISOString(),f.space,f.agent).run();
+      const hidden=await f.request("GET",base+"/_discovery/operations?modelKey=task&operation=query");
+      expect(hidden.status).toBe(200);
+      expect((await hidden.json() as {data:{operations:unknown[]}}).data.operations).toEqual([]);
       expect((await f.request("POST",route,{},{
         arguments:{spaceId:f.space,data:{page:{limit:1}}},
       })).status).toBe(404);

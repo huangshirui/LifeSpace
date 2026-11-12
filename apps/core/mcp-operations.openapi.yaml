@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: LifeSpace Core Generic Operations (Candidate)
-  version: 0.2.0
+  version: 0.3.0
   description: |
     Protocol-neutral, authenticated operation projection for the current OAuth
     MCP Agent execution context. This contract is Core-owned. Internal Native,
@@ -26,8 +26,20 @@ paths:
         allows a standards-compliant OAuth client to request explicit step-up
         authorization without receiving execution authority or an implied
         User Delegation. The result is a preview, never an authority lease.
+        Optional exact modelKey and operation filters narrow this current projection
+        before authority/schema hydration. operation requires modelKey; no match
+        returns an empty operations array, including hidden or revoked operations.
       parameters:
         - $ref: '#/components/parameters/spaceId'
+        - name: modelKey
+          in: query
+          required: false
+          schema: { type: string, pattern: '^[a-z][a-z0-9_]{1,62}$' }
+        - name: operation
+          in: query
+          required: false
+          description: Requires modelKey; exact operation, not an authority claim.
+          schema: { type: string, pattern: '^(query|get|create|update|delete|action:[a-z][a-z0-9_-]{0,62})$' }
       responses:
         '200':
           description: Current operation catalog; no Provider, storage origin or Kernel type
@@ -48,6 +60,7 @@ paths:
                         type: array
                         maxItems: 128
                         items: { $ref: '#/components/schemas/OperationDescriptor' }
+        '400': { description: Malformed or duplicate projection filter }
         '401': { description: Invalid, expired or revoked signed OAuth execution proof }
         '403': { description: Selected Space, Scope or current MCP Server is unavailable }
         '404': { description: No visible matching operation }
@@ -119,12 +132,7 @@ components:
         operation:
           type: string
           pattern: '^(query|get|create|update|delete|action:[a-z][a-z0-9_-]{0,62})$'
-        operationRef: { type: string, pattern: '^op_[a-f0-9]{64}
-          type: object
-          description: Core-owned JSON Schema; no provider or origin fields
-        title: { type: string, minLength: 1 }
-        description: { type: string }
- }
+        operationRef: { type: string, pattern: '^op_[a-f0-9]{64}$' }
         requiredScopes:
           type: array
           minItems: 1

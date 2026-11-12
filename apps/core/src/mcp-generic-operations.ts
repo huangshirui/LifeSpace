@@ -108,7 +108,19 @@ async function personMay(env:Bindings,p:Principal,spaceId:string,access:Access) 
   try {await requirePersonDirectoryPermission(env,discoveryPrincipal(p,access),spaceId,access);return true;}
   catch(e){if(e instanceof ApiError&&[403,404].includes(e.status))return false;throw e;}
 }
-async function manifest(c:ContextApp,targetRef?:string):Promise<Entry[]>{
+type ProjectionFilter={modelKey:string;operation?:string};
+function projectionFilter(c:ContextApp):ProjectionFilter|undefined{
+  const params=new URL(c.req.url).searchParams;
+  if(!params.size)return undefined;
+  const modelKey=params.get("modelKey"),operation=params.get("operation");
+  if([...params.keys()].some(key=>key!=="modelKey"&&key!=="operation")
+    ||params.getAll("modelKey").length!==1||params.getAll("operation").length>1
+    ||!modelKey||!MODEL.test(modelKey)
+    ||(operation!==null&&!/^(query|get|create|update|delete|action:[a-z][a-z0-9_-]{0,62})$/u.test(operation)))
+    throw new ApiError("INVALID_REQUEST","Invalid operation projection filter",400);
+  return {modelKey,...(operation===null?{}:{operation})};
+}
+async function manifest(c:ContextApp,targetRef?:string,filter?:ProjectionFilter):Promise<Entry[]>{
   const principal=c.get("principal"),execution=principal.oauthExecution;
   const spaceId=c.req.param("spaceId");
   if(principal.purpose!=="oauth_agent_execution"||!execution||execution.spaceId!==spaceId
@@ -120,7 +132,9 @@ async function manifest(c:ContextApp,targetRef?:string):Promise<Entry[]>{
     personOperations:execution.personOperations};
   const out:Entry[]=[];
   const operationRef=(kind:Kind,key:string,op:string)=>ref([policy.serverId,spaceId,key,op,kind].join(":"));
-  const matches=async(kind:Kind,key:string,op:string)=>!targetRef||await operationRef(kind,key,op)===targetRef;
+  const matches=async(kind:Kind,key:string,op:string)=>
+    (!filter||(filter.modelKey===key&&(!filter.operation||filter.operation===op)))
+    &&(!targetRef||await operationRef(kind,key,op)===targetRef);
   const validCrud=(op:string)=>["query","get","create","update","delete"].includes(op);
   type Candidate={key:string;configured:string[];model:NonNullable<Awaited<ReturnType<typeof getRuntimeModel>>>;
     bound:Awaited<ReturnType<typeof getExternalModel>>;authority:ModelAuthorityTarget;
@@ -133,6 +147,7 @@ async function manifest(c:ContextApp,targetRef?:string):Promise<Entry[]>{
   // selected model's current authority, de-duplicating read/write snapshots.
   for(const [key,operations] of Object.entries(policy.modelOperations)){
     if(!MODEL.test(key)||!Array.isArray(operations)||!operations.length)throw denied();
+    if(filter&&filter.modelKey!==key)continue;
     const model=await getRuntimeModel(c.env,key);
     if(!model)continue;
     const external=model.definition.origin==="external";
@@ -326,7 +341,7 @@ function targetRequest(c:ContextApp,item:Entry,args:Record<string,unknown>) {
 }
 export function registerMcpGenericOperationRoutes(app:Hono<AppEnv>):void {
   app.get("/api/v1/spaces/:spaceId/_discovery/operations",async c=>{
-    const all=await manifest(c);
+    const all=await manifest(c,undefined,projectionFilter(c));
     return c.json(success({operations:all.map(e=>e.dto)}),200,{"cache-control":"no-store"});
   });
   app.post("/api/v1/spaces/:spaceId/_operations/:operationRef/invoke",async c=>{
