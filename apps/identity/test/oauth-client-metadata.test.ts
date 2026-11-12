@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  cimdClientId, cimdEgressConfigured, fetchClientMetadataViaEgress, fetchClientMetadata, parseClientMetadata, publicRedirectUri,
+  cimdClientId, approvedCimdClientId, fetchClientMetadata, parseClientMetadata, publicRedirectUri, ordinaryPublicIp, precheckCimdDns,
 } from "../src/oauth-client-metadata";
 
 const clientId = "https://client.example.com/oauth/client.json";
@@ -10,6 +10,12 @@ const metadata = {
   grant_types: ["authorization_code", "refresh_token"],
   response_types: ["code"], token_endpoint_auth_method: "none",
 };
+
+const dnsAnswer = (url: string, ip = "8.8.8.8") => Response.json({
+  Status: 0, Answer: url.endsWith("type=1") ? [{type:1,data:ip}] : [],
+});
+const withDns = (response: Response) => (async (url: string) =>
+  url.startsWith("https://cloudflare-dns.com/dns-query?") ? dnsAnswer(url) : response) as typeof fetch;
 
 describe("CIMD public client metadata is untrusted until verified", () => {
   it("requires a public HTTPS metadata URL with a path, not internal network targets", () => {
@@ -24,30 +30,17 @@ describe("CIMD public client metadata is untrusted until verified", () => {
     ]) expect(cimdClientId(candidate)).toBe(false);
   });
 
-  it("requires an authenticated fixed egress endpoint and never fetches a client URL directly", async () => {
-    const endpoint = "https://egress.example.com/api/cimd";
-    const secret = "a".repeat(64);
-    const calls: Array<{input: unknown; init?: RequestInit}> = [];
-    const transport = (async (input: RequestInfo | URL, init?: RequestInit) => {
-      calls.push({input, init});
-      return Response.json(metadata);
-    }) as typeof fetch;
-    for (const bad of [undefined, "", "http://egress.example.com/api/cimd",
-      "https://egress.example.com/other", endpoint + "?x=1"]) {
-      expect(cimdEgressConfigured(bad, secret)).toBe(false);
-      expect(await fetchClientMetadataViaEgress(clientId, bad, secret, transport)).toBeNull();
-    }
-    expect(await fetchClientMetadataViaEgress(clientId, endpoint, "bad", transport)).toBeNull();
-    expect(calls).toHaveLength(0);
-    expect(await fetchClientMetadataViaEgress(clientId, endpoint, secret, transport)).not.toBeNull();
-    expect(calls).toHaveLength(1);
-    expect(calls[0].input).toBe(endpoint);
-    expect(calls[0].init).toMatchObject({
-      method: "POST", redirect: "manual", body: JSON.stringify({client_id: clientId}),
-      headers: {"content-type": "application/json", authorization: "Bearer " + secret},
-    });
-    const failing = (async () => new Response(null, {status:302, headers:{location:clientId}})) as typeof fetch;
-    expect(await fetchClientMetadataViaEgress(clientId, endpoint, secret, failing)).toBeNull();
+  it("rejects every unpinned CIMD client, including host lookalikes", () => {
+    expect(approvedCimdClientId(clientId, "")).toBe(false);
+    expect(approvedCimdClientId(clientId, undefined)).toBe(false);
+    expect(approvedCimdClientId(clientId, "https://client.example.com/other.json")).toBe(false);
+    expect(approvedCimdClientId(clientId, "https://*.example.com/oauth/client.json")).toBe(false);
+    expect(approvedCimdClientId(clientId, clientId + " " + clientId)).toBe(false);
+    expect(approvedCimdClientId(clientId, clientId)).toBe(true);
+    expect(approvedCimdClientId(clientId,
+      "https://other.example.com/oauth/client.json\n" + clientId)).toBe(true);
+    expect(approvedCimdClientId(clientId + "?foo=bar", clientId)).toBe(false);
+    expect(approvedCimdClientId(clientId, clientId + " http://localhost/bad")).toBe(false);
   });
 
   it("binds the exact metadata-document client_id to explicit callback URIs", () => {
@@ -110,9 +103,29 @@ describe("CIMD public client metadata is untrusted until verified", () => {
     ]) expect(parseClientMetadata(clientId, { ...metadata, grant_types })).toBeNull();
   });
 
+  it("blocks special-use addresses including globally routable special ranges", async () => {
+    for (const ip of ["127.0.0.1","10.1.2.3","169.254.1.1","100.64.0.1","192.0.0.9","192.31.196.1","224.1.2.3","256.1.1.1"])
+      expect(ordinaryPublicIp(ip,4)).toBe(false);
+    for (const ip of ["::1","::ffff:8.8.8.8","fd00::1","fe80::1","2001:db8::1","2001:1::1","2620:4f:8000::1","3fff::1"])
+      expect(ordinaryPublicIp(ip,6)).toBe(false);
+    expect(ordinaryPublicIp("8.8.8.8",4)).toBe(true);
+    expect(ordinaryPublicIp("2606:4700::1111",6)).toBe(true);
+    let documentCalled = false;
+    const mixed = (async (url: string) => {
+      if (url.includes("dns-query")) return Response.json({Status:0,Answer:url.endsWith("type=1")?
+        [{type:1,data:"8.8.8.8"},{type:1,data:"127.0.0.1"}]:[]});
+      documentCalled = true; return Response.json(metadata);
+    }) as typeof fetch;
+    expect(await fetchClientMetadata(clientId,mixed)).toBeNull();
+    expect(documentCalled).toBe(false);
+    expect(await precheckCimdDns("client.example.com", (async()=>Response.json({Status:2})) as typeof fetch)).toBe(false);
+    expect(await precheckCimdDns("client.example.com", (async()=>Response.json({Status:0,Answer:[]})) as typeof fetch)).toBe(false);
+  });
+
   it("never follows redirects, limits bytes and requires JSON media type", async () => {
     const calls: Array<{ url: string; redirect?: string }> = [];
     const fake = async (url: string, init: RequestInit) => {
+      if (url.startsWith("https://cloudflare-dns.com/dns-query?")) return dnsAnswer(url);
       calls.push({ url, redirect: init.redirect });
       return new Response(JSON.stringify(metadata), {
         status: 200, headers: { "content-type": "application/json" },
@@ -121,14 +134,14 @@ describe("CIMD public client metadata is untrusted until verified", () => {
     const read = await fetchClientMetadata(clientId, fake as typeof fetch);
     expect(read?.clientId).toBe(clientId);
     expect(calls).toEqual([{ url: clientId, redirect: "manual" }]);
-    expect(await fetchClientMetadata(clientId, (async () => new Response(null, {
+    expect(await fetchClientMetadata(clientId, withDns(new Response(null, {
       status: 302, headers: { location: "https://evil.example.com/redirect" },
-    })) as typeof fetch)).toBeNull();
-    expect(await fetchClientMetadata(clientId, (async () => new Response("A".repeat(9000), {
+    })))).toBeNull();
+    expect(await fetchClientMetadata(clientId, withDns(new Response("A".repeat(9000), {
       headers: { "content-type": "application/json" },
-    })) as typeof fetch)).toBeNull();
-    expect(await fetchClientMetadata(clientId, (async () => new Response(JSON.stringify(metadata), {
+    })))).toBeNull();
+    expect(await fetchClientMetadata(clientId, withDns(new Response(JSON.stringify(metadata), {
       headers: { "content-type": "text/html" },
-    })) as typeof fetch)).toBeNull();
+    })))).toBeNull();
   });
 });

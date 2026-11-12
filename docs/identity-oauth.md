@@ -44,7 +44,7 @@ Status: **Staging deployed; Production convergence in development. No production
 - OAuth MCP 的协议与 Authority（权限）语义不由 `ENVIRONMENT` 决定。Core 每次根据**当前启用的** `mcp_*` Server、其模型/Kernel 操作列表，提供用于 OAuth 的资源 Scope 上限（`resources:read` 或 `resources:read resources:write`）；该值只表示 Server 能力，不是用户/Agent 的 Data Grant。
 - 核心 OAuth 授权仅接受客户端实际申请且 Server 允许的 Scope；未指定时按最小读取处理，管理/未知 Scope 不会被隐式映射为 MCP 数据管理。首次 Account Consent 显示实际请求，不自动扩权；旧 read-only token 不会变成 write token。
 - Identity 当前有效 Authorization + Access Token 的 Scope 才进入短期 Agent Direct JWT。Core 对每个操作重新核对 OAuth 当前授权、选定 Space/Resource、MCP Server operation、Application × Model Access、Agent Data Grant、Model Policy、记录版本；Staging/Production 共享相同语义。没有配对资源/秘密/Service Binding 的环境继续 fail closed。
-- CIMD/DCR 以环境中的明确特性开关 **且** Console 当前准入策略 **且** 同环境 Rate Limiter 为前置条件；Production 不再因名字而硬拒绝，但默认配置仍不启用注册，必须单独走受保护的上线审批。允许生产注册绝不等于验证第三方品牌身份。
+- CIMD/DCR 以各环境 Console 当前准入策略作为唯一功能开关，且仍要求同环境必要的 Rate Limiter 与网络安全部署约束；新数据库默认关闭，既有策略值不变。Production 代码发布仍须单独走受保护的上线审批。允许生产注册绝不等于验证第三方品牌身份。
 - `allowUserAuthorization` 仅表示未来可申请用户 Delegation。Core `arq_*`/`dlg_*` 与 Account 独立人工确认、显式 Principal=User/Actor=Agent、撤销及审计尚需在正式发布前完成。Native `get`/Action/Person Directory/External Tool 的配置与暴露差异也仍是正式验收阻塞项。
 - 发布追踪：[LifeSpace #499](https://github.com/huangshirui/LifeSpace/issues/499)。代码合并/Staging 测试不构成 Production 能力声明。
 
@@ -61,7 +61,7 @@ Status: **Staging deployed; Production convergence in development. No production
 ## Endpoints / 端点
 
 - Authorization Server Metadata `/.well-known/oauth-authorization-server` (RFC 8414).
-- Optional protected registration `POST /oauth/register` (RFC 7591): public DCR is **disabled by default**, requiring Console policy, `OAUTH_DCR_ENABLED=1` and a live rate limiter. It is subject to a global D1 quota; unused anonymous Client records without any dependent request or authorization are reclaimable after seven days. Client registration is not official vendor identity verification.
+- Optional protected registration `POST /oauth/register` (RFC 7591): public DCR is **disabled by default**, requiring enabled Console policy and a live rate limiter. It is subject to a global D1 quota; unused anonymous Client records without any dependent request or authorization are reclaimable after seven days. Client registration is not official vendor identity verification.
 - `GET /oauth/authorize`: validates exact redirect, mandatory `state`, PKCE S256 and Resource URI; requires an independent authorization rate limiter and an atomic bound of 1000 live pending requests, creates only an expiring **pending** transaction, then redirects to configured Account Consent. Unbound expired requests are cleaned in bounded batches.
 - `POST /oauth/requests/:requestId/approve`: internal *Core-trusted* approval only, using a dedicated `OAUTH_CORE_APPROVER_SECRET` and verified user JWT bound to the Account Application. Core verifies current Space `manage` authority before private confirmation; Identity independently checks active User/Application/Agent binding. The conservative Space-manage gate prevents a viewer from selecting an Agent with stronger independent Direct Grants. Do not expose this credential to Account/browser/clients; if the Core confirmation bridge is unavailable, no authorization can become active.
 - `GET /api/v1/me/oauth/requests/:requestId` (Identity): Account-authenticated read-only pending request metadata; the unverified Client display name and requested scopes must not be presented as granted capability.
@@ -77,9 +77,9 @@ Status: **Staging deployed; Production convergence in development. No production
 - `OAUTH_ACCOUNT_APPLICATION_ID`: the dedicated registered Account application ID, from which confirmed user JWTs must originate.
 - `OAUTH_ALLOWED_RESOURCES`: whitespace-separated exact HTTPS MCP Resource identifiers; no broad wildcard.
 - `OAUTH_RESOURCE_SERVER_SECRET`: separately provisioned strong introspection caller secret.
-- `OAUTH_DCR_ENABLED=1`: deployment/incident switch; Console admission and rate limiting/WAF security still apply before public registration.
+- CIMD/DCR admission: current Identity D1 policy, administered via Console, is the only feature switch. No deployment variables or redeploy needed to change it. The mandatory limiter and network checks remain.
 - `OAUTH_AUTHORIZE_RATE_LIMITER`: dedicated limiter required for anonymous authorization before resource discovery, with an independent global pending request D1 quota.
-- `OAUTH_CIMD_EGRESS_URL` and `OAUTH_CIMD_EGRESS_SECRET`: deployment-owned HTTPS `/api/cimd` endpoint and independent 32-byte hexadecimal credential for the isolated Node metadata transport (`infra/cimd-egress`). Both are mandatory for CIMD discovery; no direct client-URL fetch fallback. The relay checks every A/AAAA address against IANA special-purpose ranges, connects to a verified literal IP with original Host/SNI and certificate verification, and rejects redirects, oversized/non-JSON documents and peer mismatches. `global_fetch_strictly_public` remains defense in depth for Identity; it is not the connection-pinning control. Staging defaults closed and can be explicitly enabled by its owner workflow after actual relay preflight. Production remains separately gated.
+- `global_fetch_strictly_public` (Cloudflare Worker compatibility flag): required network boundary for CIMD metadata. It routes every global `fetch()` via the public Internet entry, including Identity's own zone; no private VPC egress binding is permitted for CIMD. Declared in Staging and Production Wrangler configurations, but only deployed in Staging during evaluation; Production rollout remains separately gated. The native configuration is audited at both owner deployments; Console can immediately disable discovery. Do not infer real network safety solely from a DNS preflight or a successful dry-run build.
 - `OAUTH_CORE_APPROVER_SECRET`: a **new and independent** Core→Identity secret for only the private approval bridge, distinct from `CORE_IDENTITY_SHARED_SECRET` and all OAuth client/resource credentials. Provision in both Core and Identity without exposing to Account BFF or browser.
 
 ## Required follow-on bridges and acceptance
@@ -134,7 +134,7 @@ The LifeSpace Console `Platform → OAuth 客户端` page has just **CIMD**
 and **DCR** enable switches and one optional **Allowed callback URLs** list.
 There are no per-method client URL allowlists or admission-mode selectors.
 
-- Enabling CIMD uses authenticated connection-pinned public HTTPS metadata discovery (no client/vendor allowlist), request
+- Enabling CIMD uses guarded public HTTPS metadata discovery, request
   validation, callback pinning, rate limits and an atomic D1 quota.
 - Enabling DCR uses validated callback registrations, PKCE, rate limiting
   and an atomic D1 registration quota.
@@ -181,3 +181,7 @@ An old Adapter remains query-only; deploy reviewed Identity/Core first, then the
 Adapter. Staging release remains an owner-triggered action. Reconnect with explicit
 write scope only for actual CRUD acceptance; a read-only connection must not gain
 write from a broader Data Grant or Server configuration.
+
+## 2026-11-12 · CIMD native egress closeout (candidate)
+
+Owner approved retaining Cloudflare native strict-public fetch and a fail-closed A/AAAA preflight against special-use addresses. No VPC/private binding, external relay, secret, or vendor-specific allowlist. DNS checks do not pin the actual connection; no full draft conformance claim. Staging owner deployment verifies discovery against actual Console policy and runs positive live admission checks when CIMD is enabled; otherwise positive acceptance remains outstanding. Production remains separately gated. See #530 and `docs/mcp-oauth-governance.md`.

@@ -367,6 +367,6 @@ rechecks live scopes on every request. Production and existing read-only clients
 remain read-only. No implicit User Delegation, External write, batch or admin
 surface is added. Contract projection and release details: `docs/identity-oauth.md`.
 
-## CIMD discovery is not authority (candidate)
+## 2026-11-12 · Console-owned OAuth admission (candidate)
 
-The independent authenticated metadata egress operation can retrieve only an eligible public client document. Its transport credential confers no LifeSpace API permission, Application access, Space authority, Delegation or token issuance. Identity validates the document and exact callback and rechecks it at Consent; extra client-declared grant types do not enable server token grants. Missing egress, unapproved network targets or invalid documents fail closed. No client URL allowlist or vendor-specific exception is required.
+CIMD and DCR current admission policy belongs to Identity D1 and is managed only by authorized Console operators; no duplicate deployment switches. Changing discovery grants no User/Agent authority and does not revoke existing OAuth grants/tokens. Existing callback and per-operation checks remain.

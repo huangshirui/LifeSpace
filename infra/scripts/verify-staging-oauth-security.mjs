@@ -40,6 +40,7 @@ let ownedClientId = null;
 let ownedRequestId = null;
 const outcomes = [];
 const cimdOnly = process.argv.includes("--cimd-only");
+const allowDisabled = process.argv.includes("--allow-disabled");
 const cimdFixture = "https://cdn.jsdelivr.net/gh/huangshirui/LifeSpace@main/infra/cimd-network-probe/client.json";
 const cimdOfficial = "https://chatgpt.com/oauth/client.json";
 const cimdCases = [
@@ -168,13 +169,34 @@ async function cleanup() {
   }
   passed("ephemeral OAuth test records cleaned");
 }
+async function verifyConsoleDiscovery() {
+  const policy = (await api("SELECT cimd_enabled,dcr_enabled FROM oauth_client_admission_policy WHERE id=1"))[0];
+  assert.ok(policy && [0,1].includes(policy.cimd_enabled) && [0,1].includes(policy.dcr_enabled), "Console admission policy missing");
+  const response = await request("/.well-known/oauth-authorization-server");
+  assert.equal(response.status,200);
+  const metadata = await response.json();
+  assert.equal(metadata.issuer,BASE);
+  assert.equal(metadata.client_id_metadata_document_supported, policy.cimd_enabled ? true : undefined);
+  assert.equal(metadata.registration_endpoint, policy.dcr_enabled ? BASE+"/oauth/register" : undefined);
+  passed("Both discovery capabilities match the current Console policy");
+  if (!policy.dcr_enabled) {
+    const denied = await request("/oauth/register",{method:"POST",headers:{"content-type":"application/json"},
+      body:JSON.stringify({redirect_uris:[callback]})});
+    assert.equal(denied.status,403);
+    passed("Console-disabled DCR rejects new registrations");
+  }
+  return {policy,metadata};
+}
 async function runCimd() {
   await discoverStagingDatabases();
-  const meta = await request("/.well-known/oauth-authorization-server");
-  assert.equal(meta.status, 200);
-  const metadata = await meta.json();
-  assert.equal(metadata.issuer, BASE);
-  assert.equal(metadata.client_id_metadata_document_supported, true, "CIMD not advertised");
+  const {policy,metadata}=await verifyConsoleDiscovery();
+  if (!policy.cimd_enabled) {
+    assert.ok(allowDisabled, "CIMD disabled in Staging Console; enable it before positive acceptance");
+    const denied=await request(authorizeUrl(cimdFixture,cimdCases[0][1],CORE_ORIGIN+"/mcp/mcp_"+"0".repeat(32)));
+    assert.equal(denied.status,400);
+    console.log("CIMD positive acceptance NOT RUN: Console policy is off. Enable in Console, then run the manual verification workflow.");
+    return;
+  }
   assert.ok(metadata.code_challenge_methods_supported?.includes("S256"));
   assert.ok(!metadata.grant_types_supported?.includes("urn:ietf:params:oauth:grant-type:jwt-bearer"));
   passed("CIMD discovery advertised without enabling new token grant types");
@@ -235,11 +257,12 @@ async function runCimd() {
 async function run() {
   if (cimdOnly) { await runCimd(); return; }
   await discoverStagingDatabases();
-  const metadataResponse = await request("/.well-known/oauth-authorization-server");
-  assert.equal(metadataResponse.status, 200);
-  const metadata = await metadataResponse.json();
-  assert.equal(metadata.issuer, BASE);
-  assert.equal(metadata.registration_endpoint, BASE + "/oauth/register");
+  const {policy,metadata}=await verifyConsoleDiscovery();
+  if (!policy.dcr_enabled) {
+    console.log("DCR positive acceptance NOT RUN: Console policy is off.");
+    if (policy.cimd_enabled) await runCimd();
+    return;
+  }
   assert.ok(metadata.code_challenge_methods_supported?.includes("S256"));
   assert.ok(metadata.client_id_metadata_document_supported === undefined
     || metadata.client_id_metadata_document_supported === true);
@@ -358,6 +381,8 @@ async function run() {
   });
   assert.equal(unauthorizedIntrospection.status, 401);
   passed("OAuth token introspection requires resource-server authentication");
+  if (policy.cimd_enabled) await runCimd();
+  else console.log("CIMD positive acceptance NOT RUN: Console policy is off.");
 }
 let failed = null;
 try {

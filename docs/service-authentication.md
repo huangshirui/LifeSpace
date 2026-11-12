@@ -406,6 +406,6 @@ rechecks live scopes on every request. Production and existing read-only clients
 remain read-only. No implicit User Delegation, External write, batch or admin
 surface is added. Contract projection and release details: `docs/identity-oauth.md`.
 
-## Isolated CIMD metadata transport (candidate)
+## 2026-11-12 · Console-owned OAuth admission (candidate)
 
-The deployment-owned Node egress endpoint authenticates only Identity's metadata retrieval with an independent environment-specific 256-bit random shared secret. It is not a LifeSpace Service API Token, OAuth credential, Core approver secret or User/Agent authority. Never forward these credentials or client-supplied headers upstream. The relay has no databases, private-network bindings or LifeSpace API privileges. Identity requires its exact HTTPS endpoint and secret before advertising CIMD and rejects failure rather than falling back to direct fetch. Staging and Production secrets and deployments must remain separate; see `infra/cimd-egress/README.md`.
+CIMD and DCR public-client admission has one Console-managed Identity policy per environment; no runtime feature-variable or relay credential. Service client_credentials, machine credentials and all OAuth token lifecycles remain unchanged. Network and limiter deployment prerequisites are audited separately.

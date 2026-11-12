@@ -55,13 +55,13 @@ jobs:
           ## Staging OAuth security protocol acceptance
 
           - Verified against real Staging public endpoints and staging D1
-          - DCR automatic registration, negative metadata/callback/size checks
+          - Console policy matched to discovery; enabled DCR tested, disabled DCR denied
           - OAuth S256 PKCE, live MCP Resource, pending Account Consent
           - No unapproved Token, no unchecked introspection
-          - DNS-to-private CIMD target denied; real enabled CIMD acceptance runs in canonical Staging deploy
-          - Strict-public fetch, no VPC and required relay configuration verified by canonical Staging audit
+          - Enabled CIMD tested for live admission and private DNS/callback denial; disabled features are not claimed as positively tested
+          - Strict-public fetch, no VPC and native configuration verified by canonical Staging audit
           - Ephemeral Client and pending request cleaned
-          - **Not** a Cloudflare Secure Egress / DNS rebinding verification
+          - **Not** a full connection-time DNS rebinding proof
           - **Not** an authenticated human Consent / Token exchange / refresh end-to-end test
           - **Not** approval to activate CIMD or deploy Production
           EOF
