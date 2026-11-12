@@ -27,26 +27,14 @@ export function cimdClientId(value: unknown): value is string {
   return true;
 }
 
-// The fixed relay endpoint is deployment-owned, never supplied by an OAuth
-// client. The independent secret authenticates only this metadata operation.
-export function cimdEgressConfigured(endpoint: unknown, secret: unknown): boolean {
-  if (typeof endpoint !== "string" || !cimdClientId(endpoint)
-    || typeof secret !== "string" || !/^[a-f0-9]{64}$/u.test(secret)) return false;
-  return new URL(endpoint).pathname === "/api/cimd";
-}
-
-export async function fetchClientMetadataViaEgress(
-  clientId: string, endpoint: string | undefined, secret: string | undefined,
-  relayFetch: typeof fetch = fetch,
-): Promise<PublicOAuthClientMetadata | null> {
-  if (!cimdEgressConfigured(endpoint, secret) || !endpoint || !secret || !cimdClientId(clientId)) return null;
-  // Only the trusted deployment endpoint receives the relay credential.
-  // The client document itself is never fetched directly by Identity.
-  return fetchClientMetadata(clientId, (_input, _init) => relayFetch(endpoint, {
-    method: "POST", redirect: "manual", signal: AbortSignal.timeout(8000),
-    headers: { "content-type": "application/json", authorization: "Bearer " + secret },
-    body: JSON.stringify({ client_id: clientId }),
-  }));
+// A valid HTTPS URL is NOT sufficient to authorize an outbound fetch from
+// Identity. Only operator-pinned, exact metadata document IDs are eligible.
+// Host-only matching and suffix wildcard rules would reintroduce SSRF.
+export function approvedCimdClientId(clientId: unknown, allowlist: unknown): clientId is string {
+  if (!cimdClientId(clientId) || typeof allowlist !== "string" || allowlist.length > 8192) return false;
+  const allowed = allowlist.split(/\s+/u).filter(Boolean);
+  if (allowed.length === 0 || allowed.length > 100 || new Set(allowed).size !== allowed.length) return false;
+  return allowed.every(cimdClientId) && allowed.includes(clientId);
 }
 
 export function publicRedirectUri(value: unknown): value is string {
@@ -94,11 +82,77 @@ export function parseClientMetadata(clientId: string, document: unknown): Public
   };
 }
 
+// Defense in depth only: DNS preflight does not pin the address used by fetch.
+ // Cloudflare strict-public global fetch is the connection/network boundary.
+const V4_SPECIAL = [
+  ["0.0.0.0",8], ["10.0.0.0",8], ["100.64.0.0",10], ["127.0.0.0",8],
+  ["169.254.0.0",16], ["172.16.0.0",12], ["192.0.0.0",24], ["192.0.2.0",24],
+  ["192.31.196.0",24], ["192.52.193.0",24], ["192.88.99.0",24], ["192.168.0.0",16],
+  ["192.175.48.0",24], ["198.18.0.0",15], ["198.51.100.0",24],
+  ["203.0.113.0",24], ["224.0.0.0",4], ["240.0.0.0",4],
+] as const;
+const V6_SPECIAL = [
+  ["2001::",23], ["2001:db8::",32], ["2002::",16], ["2620:4f:8000::",48], ["3fff::",20],
+] as const;
+function ipv4(value: string): number[] | null {
+  const parts = value.split(".");
+  if (parts.length !== 4 || parts.some(p => !/^(0|[1-9][0-9]{0,2})$/u.test(p) || Number(p) > 255)) return null;
+  return parts.map(Number);
+}
+function ipv6(value: string): number[] | null {
+  if (!/^[0-9a-f:]+$/iu.test(value)) return null;
+  let normalized: string;
+  try { normalized = new URL("https://[" + value + "]/").hostname.slice(1,-1); } catch { return null; }
+  const [left, right] = normalized.split("::");
+  const a = left ? left.split(":") : [];
+  const b = right ? right.split(":") : [];
+  const words = right === undefined ? a : [...a, ...Array(8-a.length-b.length).fill("0"), ...b];
+  if (words.length !== 8) return null;
+  return words.flatMap(word => { const n = parseInt(word,16); return [n >> 8,n & 255]; });
+}
+function inPrefix(address: number[], base: number[], bits: number): boolean {
+  return address.every((byte,i) => {
+    const n = Math.max(0,Math.min(8,bits-i*8));
+    const mask = (255 << (8-n)) & 255;
+    return (byte & mask) === (base[i] & mask);
+  });
+}
+export function ordinaryPublicIp(value: unknown, family: 4 | 6): boolean {
+  if (typeof value !== "string") return false;
+  if (family === 4) {
+    const address = ipv4(value);
+    return address !== null && !V4_SPECIAL.some(([base,bits]) => inPrefix(address,ipv4(base)!,bits));
+  }
+  const address = ipv6(value);
+  return address !== null && inPrefix(address,ipv6("2000::")!,3)
+    && !V6_SPECIAL.some(([base,bits]) => inPrefix(address,ipv6(base)!,bits));
+}
+export async function precheckCimdDns(host: string, fetcher: typeof fetch): Promise<boolean> {
+  try {
+    const query = async (family: 4 | 6): Promise<number> => {
+      const type = family === 4 ? 1 : 28;
+      const url = "https://cloudflare-dns.com/dns-query?name=" + encodeURIComponent(host) + "&type=" + type;
+      const response = await fetcher(url, { method:"GET", redirect:"error", signal:AbortSignal.timeout(2000),
+        headers:{accept:"application/dns-json"} });
+      if (!response.ok) throw Error("DNS_UNAVAILABLE");
+      const raw = await response.text();
+      if (raw.length > 16384) throw Error("DNS_TOO_LARGE");
+      const result = JSON.parse(raw) as {Status?: number; TC?: boolean; Answer?: Array<{type:number;data:unknown}>};
+      if (result.Status !== 0 || result.TC === true || (result.Answer !== undefined && !Array.isArray(result.Answer))) throw Error("DNS_UNAVAILABLE");
+      const answers = result.Answer ?? [];
+      if (answers.length > 32 || answers.some(a => !a || (a.type !== 5 && (a.type !== type || !ordinaryPublicIp(a.data,family))))) throw Error("DNS_TARGET_DENIED");
+      return answers.filter(a => a.type === type).length;
+    };
+    const counts = await Promise.all([query(4),query(6)]);
+    return counts[0] + counts[1] > 0;
+  } catch { return false; }
+}
+
 export async function fetchClientMetadata(
   clientId: string,
-  fetcher: typeof fetch,
+  fetcher: typeof fetch = fetch,
 ): Promise<PublicOAuthClientMetadata | null> {
-  if (!cimdClientId(clientId)) return null;
+  if (!cimdClientId(clientId) || !await precheckCimdDns(new URL(clientId).hostname, fetcher)) return null;
   let response: Response;
   try {
     response = await fetcher(clientId, {

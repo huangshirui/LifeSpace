@@ -448,6 +448,6 @@ rechecks live scopes on every request. Production and existing read-only clients
 remain read-only. No implicit User Delegation, External write, batch or admin
 surface is added. Contract projection and release details: `docs/identity-oauth.md`.
 
-## CIMD outbound transport boundary (candidate)
+## CIMD native public outbound boundary (candidate, 2026-11-12)
 
-Identity owns client registration, pending Consent, grants and credentials. Untrusted CIMD HTTPS documents are obtained exclusively through a deployment-owned isolated Node egress component with no D1, Core, Identity, user credentials or private network connectivity. It checks every DNS address, connects to a validated literal public IP with original-domain TLS and returns bounded metadata only. This transport is an independent replaceable infrastructure adapter serving Bounded Authority, not a new user identity or authority service. The Cloudflare Worker retains strict-public fetch for defense in depth. Staging and Production use independently provisioned endpoints and credentials; activation requires owner-controlled deployment and live acceptance. See `infra/cimd-egress/README.md`.
+Identity retains authority ownership; metadata retrieval is untrusted protocol adapter input. Use Cloudflare strict-public global fetch with no VPC/private network bindings, bounded DNS preflight and no credentials/redirects. No separate Node relay. This serves Bounded Authority; DNS preflight does not pin connections or guarantee full special-use draft compliance. See #530.

@@ -1,7 +1,7 @@
 // Read-only check of the deployed LifeSpace Staging CIMD network boundary.
 // The Cloudflare runtime's global_fetch_strictly_public flag forces public
 // Internet routing even for same-zone URLs. No VPC Network egress is allowed.
-// Checks deployed configuration only. Actual relay and CIMD admission are
+// Checks deployed configuration only. Actual CIMD admission is
 // independently verified by the owner-gated canonical staging workflow.
 //
 // This audit never modifies Cloudflare configuration or Production.
@@ -17,30 +17,25 @@ export function assessCimdStaging(settings = {}, expected = {}) {
   const bindings = Array.isArray(settings.bindings) ? settings.bindings : [];
   const compatibilityFlags = Array.isArray(settings.compatibility_flags) ? settings.compatibility_flags : [];
   const config = bindings.find(binding => binding.name === "OAUTH_CIMD_ENABLED");
-  const vpc = bindings.filter(binding => binding.type === "vpc_network" || binding.name === "OAUTH_CIMD_EGRESS");
+  const vpc = bindings.filter(binding => binding.type === "vpc_network" || binding.type === "vpc_service" || binding.name.startsWith("OAUTH_CIMD_EGRESS"));
   const explicitOff = config?.type === "plain_text" && config.text === "0";
   const strictPublic = compatibilityFlags.includes(STRICT_PUBLIC_FLAG) && !compatibilityFlags.includes("global_fetch_private_origin");
   const noPrivateEgress = vpc.length === 0;
   const safeClosed = explicitOff && strictPublic && noPrivateEgress;
-  const endpoint = bindings.find(b => b.name === "OAUTH_CIMD_EGRESS_URL");
-  const secret = bindings.find(b => b.name === "OAUTH_CIMD_EGRESS_SECRET");
   const limits = ["OAUTH_DCR_RATE_LIMITER", "OAUTH_AUTHORIZE_RATE_LIMITER"]
     .every(name => bindings.some(b => b.name === name && b.type === "ratelimit"));
   const explicitOn = config?.type === "plain_text" && config.text === "1";
-  const configuredRelay = typeof expected.endpoint === "string" && expected.endpoint.length > 0
-    && endpoint?.type === "plain_text" && endpoint.text === expected.endpoint
-    && secret?.type === "secret_text";
-  const relayConfigured = explicitOn && strictPublic && noPrivateEgress && configuredRelay && limits;
+  const nativeConfigured = explicitOn && strictPublic && noPrivateEgress && limits;
   const expectedEnabled = expected.enabled === true;
-  const safe = expectedEnabled ? relayConfigured : safeClosed;
+  const safe = expectedEnabled ? nativeConfigured : safeClosed;
   return {
-    safeClosed, relayConfigured, safe,
+    safeClosed, nativeConfigured, safe,
     worker: WORKER,
     deploymentFlag: config?.type === "plain_text" ? config.text : "missing",
     strictPublicFetch: strictPublic,
     networkBindings: vpc.map(b => ({ name: b.name, type: b.type })),
-    status: safe ? (expectedEnabled ? "RELAY_CONFIGURED" : "SAFE_CLOSED") : "RELEASE_GATE_FAILED",
-    note: "Configuration gate only; independent relay preflight and live protocol tests are required when enabled.",
+    status: safe ? (expectedEnabled ? "NATIVE_CONFIGURED" : "SAFE_CLOSED") : "RELEASE_GATE_FAILED",
+    note: "Configuration gate only; live protocol tests are required when enabled.",
   };
 }
 
@@ -66,7 +61,7 @@ async function main() {
   const result = await auditCimdStaging({
     accountId: process.env.CLOUDFLARE_ACCOUNT_ID,
     token: process.env.CLOUDFLARE_API_TOKEN,
-    expected: { enabled: process.env.LIFESPACE_CIMD_ENABLED === "1", endpoint: process.env.OAUTH_CIMD_EGRESS_URL },
+    expected: { enabled: process.env.LIFESPACE_CIMD_ENABLED === "1" },
   });
   console.log("Staging CIMD egress audit: " + JSON.stringify(result));
   if (process.env.GITHUB_STEP_SUMMARY) {
@@ -76,12 +71,12 @@ async function main() {
       + "- Cloudflare global fetch strictly public: `" + result.strictPublicFetch + "`\n"
       + "- VPC/private egress bindings: `" + result.networkBindings.length + "`\n"
       + "- Result: **" + result.status + "**\n"
-      + "- Relay configured: `" + result.relayConfigured + "`\n"
-      + "- Configuration gate only; live relay and admission evidence is separate.\n");
+      + "- Native configured: `" + result.nativeConfigured + "`\n"
+      + "- Configuration gate only; live admission evidence is separate.\n");
   }
   if (!result.safe) {
     throw new Error(
-      "Staging CIMD requires the expected release state, strict-public fetch, no VPC, and the verified relay configuration when enabled",
+      "Staging CIMD requires the expected release state, strict-public fetch, no VPC, and both rate limiters when enabled",
     );
   }
 }

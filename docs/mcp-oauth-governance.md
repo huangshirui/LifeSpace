@@ -39,17 +39,14 @@ OAuth client registration never implies a user Grant or Delegation.
 
 ## Simplified Console OAuth settings (Identity schema 18)
 
-- **CIMD** requests automatic discovery of eligible public HTTPS Client ID
-  Metadata Documents. No client URL allowlist, no vendor exception. Runtime
-  discovery requires `OAUTH_CIMD_ENABLED=1`, the Console switch, both OAuth
-  rate-limit bindings, and an authenticated deployment-owned
-  `OAUTH_CIMD_EGRESS_URL` / `OAUTH_CIMD_EGRESS_SECRET` pair. The isolated
-  Node relay validates all A/AAAA answers, pins the actual connection to a
-  verified ordinary public IP, verifies original-domain TLS, and bounds JSON
-  reads without redirects. Identity never directly fetches untrusted client
-  URLs and fails closed when the relay is absent or unavailable. Staging
-  activation is explicit and follows live relay preflight; Production is
-  separately gated. See `infra/cimd-egress/README.md`.
+- **CIMD** switch requests automatic discovery of eligible public HTTPS
+  Client ID Metadata Documents. An enabled deployment additionally requires
+  `OAUTH_CIMD_ENABLED=1`, the DCR rate limiter, and **Cloudflare's
+  `global_fetch_strictly_public` compatibility flag** on the deployed Identity
+  Worker. This forces untrusted `fetch()` through the public-Internet network
+  boundary, even when a URL refers to the Worker's own zone; it does not
+  bypass Cloudflare security to reach a private origin. Do not attach a VPC
+  Network/private egress binding to CIMD. The current Staging feature flag defaults off; the owner may enable it through the canonical deployment after the approved architecture decision. The native DNS precheck rejects nonordinary A/AAAA addresses; it does not pin the eventual connection. Cloudflare strict-public fetch and no private bindings are the network boundary.
 - **DCR** switch enables protected dynamic client registration with validated
   callbacks, rate limit and an atomic D1 client quota. Unreferenced anonymous
   clients older than seven days are reclaimed in bounded on-demand batches;
@@ -74,12 +71,10 @@ OAuth client registration never implies a user Grant or Delegation.
   `OAUTH_DCR_RATE_LIMITER`; `/oauth/authorize` separately requires
   `OAUTH_AUTHORIZE_RATE_LIMITER` (100/minute per colo) plus an atomic D1
   quota of 1000 **live pending** requests. Missing rate limiter fails closed.
-  The per-colo limiter is not a global quota. Production cannot activate
-  arbitrary-CIMD discovery before verified connection-pinned relay deployment
-  and real DNS rebinding/SSRF negative tests. No migration or deletion of valid
+  The per-colo limiter is not a global quota. Production activation requires separate owner approval and actual Staging admission evidence; the residual special-use DNS TOCTOU compliance gap is explicitly accepted. No migration or deletion of valid
   OAuth client credentials, authorizations or tokens is permitted.
 
-## 2026-11-11 · Historical strict-public-only release gate (superseded by connection pinning)
+## 2026-11-12 · CIMD native strict-public fetch decision (candidate, NOT deployed)
 
 - Previous candidate used a dedicated `OAUTH_CIMD_EGRESS` VPC/Gateway
   binding. This was intentionally **not** provisioned, because
@@ -102,12 +97,9 @@ OAuth client registration never implies a user Grant or Delegation.
   settings and requires: deployed strict-public compatibility flag,
   disabled CIMD deployment switch, and no VPC network bindings. It
   verifies safe configuration, **not** a live SSRF/DNS rebinding attack.
-- Only after controlled public/private DNS, same-zone private-origin and
-  rebinding negative tests, and a positive HTTPS CIMD metadata test pass
-  may the Staging switch be separately enabled. Production needs a
-  distinct security and release approval.
+- Owner decision: do not deploy the independent Node relay from #539. Reuse existing public/private and authoritative DNS-flip evidence; run live Staging admission on the new candidate. No extra DNS mutation or independent service is required. DNS preflight is not connection pinning; full draft conformance for globally routable special-use addresses is not claimed. Reassess if private networking is introduced. Production remains separately gated.
 
-## 2026-11-11 · Controlled authoritative DNS flip acceptance (candidate / not executed)
+## 2026-11-11 · Controlled authoritative DNS flip acceptance (historical; executed, #43146480112)
 
 - Owner-gated `.github/workflows/staging-cimd-dns-flip.yml` uses the
   previously vetted isolated Cloudflare remote preview with
@@ -164,17 +156,14 @@ register this exact redirect.
 
 ## Staging acceptance
 
-The current candidate uses the independent connection-pinned relay described above. The previous strict-public-only and authoritative DNS flip tests are historical evidence, not proof of pinned connections; no repeat of identical DNS mutations is required.
-
 Deploy Identity migrations before the Identity Worker, then separately
 deploy Console Staging. Confirm the Console has just two switches and one
 optional callback field, and that disabled switches remove their OAuth
-discovery advertisement. Verify DCR auto registration and (only after secure egress provisioning)
+discovery advertisement. Verify DCR auto registration and (after owner enables the native staging switch)
 CIMD metadata discovery, both registered callback exactness and optional
 global callback restrictions, PKCE, the Account consent and denial callbacks,
 cross-MCP-resource isolation, Token revocation, both rate limiter failures,
-live pending-request quota, orphan registration cleanup, and final egress
-network policy including DNS rebinding. A staging CIMD switch alone is not
+live pending-request quota, orphan registration cleanup, and native strict-public configuration plus bounded DNS precheck. A staging CIMD switch alone is not
 sufficient for successful discovery.
 Production is not approved until the additional outbound-metadata
 security and abuse review is complete.

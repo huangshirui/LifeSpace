@@ -79,7 +79,7 @@ Status: **Staging deployed; Production convergence in development. No production
 - `OAUTH_RESOURCE_SERVER_SECRET`: separately provisioned strong introspection caller secret.
 - `OAUTH_DCR_ENABLED=1`: deployment/incident switch; Console admission and rate limiting/WAF security still apply before public registration.
 - `OAUTH_AUTHORIZE_RATE_LIMITER`: dedicated limiter required for anonymous authorization before resource discovery, with an independent global pending request D1 quota.
-- `OAUTH_CIMD_EGRESS_URL` and `OAUTH_CIMD_EGRESS_SECRET`: deployment-owned HTTPS `/api/cimd` endpoint and independent 32-byte hexadecimal credential for the isolated Node metadata transport (`infra/cimd-egress`). Both are mandatory for CIMD discovery; no direct client-URL fetch fallback. The relay checks every A/AAAA address against IANA special-purpose ranges, connects to a verified literal IP with original Host/SNI and certificate verification, and rejects redirects, oversized/non-JSON documents and peer mismatches. `global_fetch_strictly_public` remains defense in depth for Identity; it is not the connection-pinning control. Staging defaults closed and can be explicitly enabled by its owner workflow after actual relay preflight. Production remains separately gated.
+- `global_fetch_strictly_public` (Cloudflare Worker compatibility flag): required network boundary for CIMD metadata. It routes every global `fetch()` via the public Internet entry, including Identity's own zone; no private VPC egress binding is permitted for CIMD. Declared in Staging and Production Wrangler configurations, but only deployed in Staging during evaluation; Production rollout remains separately gated. Keep `OAUTH_CIMD_ENABLED=0` until controlled SSRF/DNS-rebinding negative and positive HTTPS metadata tests succeed. Do not infer real network safety solely from a DNS preflight or a successful dry-run build.
 - `OAUTH_CORE_APPROVER_SECRET`: a **new and independent** Core→Identity secret for only the private approval bridge, distinct from `CORE_IDENTITY_SHARED_SECRET` and all OAuth client/resource credentials. Provision in both Core and Identity without exposing to Account BFF or browser.
 
 ## Required follow-on bridges and acceptance
@@ -134,7 +134,7 @@ The LifeSpace Console `Platform → OAuth 客户端` page has just **CIMD**
 and **DCR** enable switches and one optional **Allowed callback URLs** list.
 There are no per-method client URL allowlists or admission-mode selectors.
 
-- Enabling CIMD uses authenticated connection-pinned public HTTPS metadata discovery (no client/vendor allowlist), request
+- Enabling CIMD uses guarded public HTTPS metadata discovery, request
   validation, callback pinning, rate limits and an atomic D1 quota.
 - Enabling DCR uses validated callback registrations, PKCE, rate limiting
   and an atomic D1 registration quota.
@@ -181,3 +181,7 @@ An old Adapter remains query-only; deploy reviewed Identity/Core first, then the
 Adapter. Staging release remains an owner-triggered action. Reconnect with explicit
 write scope only for actual CRUD acceptance; a read-only connection must not gain
 write from a broader Data Grant or Server configuration.
+
+## 2026-11-12 · CIMD native egress closeout (candidate)
+
+Owner approved retaining Cloudflare native strict-public fetch and a fail-closed A/AAAA preflight against special-use addresses. No VPC/private binding, external relay, secret, or vendor-specific allowlist. DNS checks do not pin the actual connection; no full draft conformance claim. Staging owner deployment runs live admission checks when explicitly enabled. Production remains separately gated. See #530 and `docs/mcp-oauth-governance.md`.

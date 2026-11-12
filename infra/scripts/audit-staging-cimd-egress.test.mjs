@@ -68,24 +68,18 @@ test("audit is read-only and rejects a deployed Worker missing required flag", a
   assert.equal(invalid.safeClosed, false);
 });
 
-test("enabled deployment requires exact relay endpoint, secret binding and both limiters", () => {
-  const url = "https://egress.example.com/api/cimd";
+test("enabled native deployment requires both limiters and no relay/private bindings", () => {
   const settings = worker("1", {networkBindings:[
-    {name:"OAUTH_CIMD_EGRESS_URL",type:"plain_text",text:url},
-    {name:"OAUTH_CIMD_EGRESS_SECRET",type:"secret_text"},
     {name:"OAUTH_DCR_RATE_LIMITER",type:"ratelimit"},
     {name:"OAUTH_AUTHORIZE_RATE_LIMITER",type:"ratelimit"},
   ]});
-  const expected = {enabled:true,endpoint:url};
-  const result = assessCimdStaging(settings,expected);
-  assert.equal(result.safe,true);
-  assert.equal(result.status,"RELAY_CONFIGURED");
-  assert.equal(result.safeClosed,false);
+  const expected = {enabled:true};
+  assert.equal(assessCimdStaging(settings,expected).status,"NATIVE_CONFIGURED");
   assert.equal(assessCimdStaging(settings).safe,false);
-  assert.equal(assessCimdStaging(settings,{enabled:true,endpoint:"https://other.example.com/api/cimd"}).safe,false);
-  for (const name of ["OAUTH_CIMD_EGRESS_SECRET","OAUTH_DCR_RATE_LIMITER","OAUTH_AUTHORIZE_RATE_LIMITER"]) {
+  for (const name of ["OAUTH_DCR_RATE_LIMITER","OAUTH_AUTHORIZE_RATE_LIMITER"]) {
     assert.equal(assessCimdStaging({...settings,bindings:settings.bindings.filter(b=>b.name!==name)},expected).safe,false);
   }
   assert.equal(assessCimdStaging({...settings,compatibility_flags:[...publicFlag,"global_fetch_private_origin"]},expected).safe,false);
-  assert.equal(assessCimdStaging({...settings,bindings:[...settings.bindings,{name:"PRIVATE",type:"vpc_network"}]},expected).safe,false);
+  for (const binding of [{name:"PRIVATE",type:"vpc_network"},{name:"PRIVATE_SERVICE",type:"vpc_service"},{name:"OAUTH_CIMD_EGRESS_SECRET",type:"secret_text"}])
+    assert.equal(assessCimdStaging({...settings,bindings:[...settings.bindings,binding]},expected).safe,false);
 });

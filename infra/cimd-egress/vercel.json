@@ -1,9 +1,0 @@
-{
-  "$schema": "https://openapi.vercel.sh/vercel.json",
-  "framework": null,
-  "functions": {
-    "api/cimd.mjs": {
-      "maxDuration": 10
-    }
-  }
-}
