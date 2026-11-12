@@ -5,6 +5,11 @@ name: Verify LifeSpace CIMD public-network security
 # owner may explicitly start this acceptance on main.
 on:
   workflow_dispatch:
+    inputs:
+      diagnostic_only:
+        description: "Only diagnose the two public metadata documents; no private or DNS flip probes"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -58,7 +63,12 @@ jobs:
           pnpm --dir apps/identity exec wrangler deploy --dry-run --config ../../infra/cimd-network-probe/wrangler.jsonc
 
       - name: Real bounded SSRF reachability checks on Cloudflare edge
+        if: ${{ !inputs.diagnostic_only }}
         run: node infra/scripts/verify-cimd-remote-network.mjs
+
+      - name: Diagnose public CIMD metadata on Cloudflare edge
+        if: ${{ inputs.diagnostic_only }}
+        run: node infra/scripts/verify-cimd-remote-network.mjs --diagnostic-only
 
       - name: Scope of the evidence
         if: ${{ always() }}

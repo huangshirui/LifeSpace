@@ -4,7 +4,7 @@
 // returned, and no Identity/Core/D1 bindings. This is NEVER the Identity Worker.
 // The owner-dispatched acceptance runner tears down its temporary remote dev
 // session. In particular, this does NOT request real cloud metadata endpoints.
-import { fetchClientMetadata } from "../../apps/identity/src/oauth-client-metadata";
+import { fetchClientMetadata, ordinaryPublicIp, parseClientMetadata } from "../../apps/identity/src/oauth-client-metadata";
 
 interface Env { PROBE_TOKEN: string; REBIND_HOST?: string }
 const clientId = "https://cdn.jsdelivr.net/gh/huangshirui/LifeSpace@main/infra/cimd-network-probe/client.json";
@@ -40,16 +40,105 @@ async function check(target: typeof cases[number]): Promise<Result> {
   }
 }
 
+// Diagnose only the two fixed public metadata documents. Never expose DNS
+// addresses, response bodies, headers, or arbitrary fetch targets.
+type Diagnostic = {
+  stage: string; status?: number; dnsStatus?: number; truncated?: boolean;
+  records?: number; aliases?: number; blocked?: number; unexpected?: number;
+  jsonValid?: boolean; metadataValid?: boolean; error?: string;
+};
+async function boundedText(response: Response, limit = 16384): Promise<string | null> {
+  const reader = response.body?.getReader();
+  if (!reader) return null;
+  let size = 0;
+  const decoder = new TextDecoder();
+  let text = "";
+  try {
+    while (true) {
+      const {done,value} = await reader.read();
+      if (done) return text + decoder.decode();
+      size += value.byteLength;
+      if (size > limit) { await reader.cancel(); return null; }
+      text += decoder.decode(value,{stream:true});
+    }
+  } catch { return null; }
+}
+async function diagnose(id: string, expectedCallback: string) {
+  const attempts: Diagnostic[] = [];
+  async function inspect(url: string, res: Response, entry: Diagnostic) {
+    entry.status = res.status;
+    const raw = await boundedText(res.clone());
+    if (raw === null) { entry.error = "body_unavailable_or_oversize"; return; }
+    let data: any;
+    try { data = JSON.parse(raw); entry.jsonValid = true; }
+    catch { entry.jsonValid = false; entry.error = "not_json"; return; }
+    if (entry.stage === "dns_A" || entry.stage === "dns_AAAA") {
+      const family = entry.stage === "dns_A" ? 4 : 6;
+      const type = family === 4 ? 1 : 28;
+      entry.dnsStatus = typeof data?.Status === "number" ? data.Status : undefined;
+      entry.truncated = data?.TC === true;
+      if (data?.Answer !== undefined && !Array.isArray(data.Answer)) {
+        entry.error = "invalid_answer_shape"; return;
+      }
+      const answers = data?.Answer ?? [];
+      entry.records = answers.filter((a: any) => a?.type === type).length;
+      entry.aliases = answers.filter((a: any) => a?.type === 5).length;
+      entry.blocked = answers.filter((a: any) => a?.type === type && !ordinaryPublicIp(a.data,family)).length;
+      entry.unexpected = answers.filter((a: any) => a?.type !== type && a?.type !== 5).length;
+    } else {
+      const parsed = parseClientMetadata(id,data);
+      entry.metadataValid = !!parsed?.redirectUris.includes(expectedCallback);
+    }
+  }
+  const tracedFetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    const stage = url.startsWith("https://cloudflare-dns.com/dns-query?")
+      ? (new URL(url).searchParams.get("type") === "1" ? "dns_A" : "dns_AAAA")
+      : "metadata";
+    // The actual helper constructs only the fixed resolver and this exact ID.
+    if (stage === "metadata" && url !== id) throw Error("unexpected_probe_target");
+    const entry: Diagnostic = {stage};
+    attempts.push(entry);
+    try {
+      const res = await fetch(input,init);
+      await inspect(url,res,entry);
+      return res;
+    } catch (error) {
+      entry.error = error instanceof Error ? error.name : "fetch_failed";
+      throw error;
+    }
+  }) as typeof fetch;
+  const value = await fetchClientMetadata(id,tracedFetch);
+  // Direct comparison is restricted to the two hard-coded public documents
+  // in this unbound temporary diagnostic worker. It is NOT an Identity fallback.
+  if (!attempts.some(a=>a.stage==="metadata")) {
+    const entry: Diagnostic = {stage:"fixed_public_metadata_comparison"};
+    attempts.push(entry);
+    try {
+      const res = await fetch(id,{method:"GET",redirect:"manual",signal:AbortSignal.timeout(5000),
+        headers:{accept:"application/json"}});
+      await inspect(id,res,entry);
+      await res.body?.cancel().catch(()=>undefined);
+    } catch (error) { entry.error = error instanceof Error ? error.name : "fetch_failed"; }
+  }
+  return {accepted:!!value?.redirectUris.includes(expectedCallback),attempts};
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const path = new URL(request.url).pathname;
     if (path === "/health") return new Response("ready", { status: 200 });
-    if (!["/probe", "/dns-flip"].includes(path) || request.method !== "POST") {
+    if (!["/probe", "/dns-flip", "/diagnostic"].includes(path) || request.method !== "POST") {
       return new Response("Not Found", { status: 404 });
     }
     if (!env.PROBE_TOKEN ||
       request.headers.get("authorization") !== "Bearer " + env.PROBE_TOKEN) {
       return new Response("Forbidden", { status: 403 });
+    }
+    if (path === "/diagnostic") {
+      const fixture = await diagnose(clientId,"https://oauth-acceptance.example.org/callback");
+      const chatgpt = await diagnose("https://chatgpt.com/oauth/client.json","https://chatgpt.com/connector_platform_oauth_redirect");
+      return Response.json({fixture,chatgpt},{headers:{"cache-control":"no-store"}});
     }
     if (path === "/dns-flip") {
       // The ONLY dynamic hostname comes from an owner-only workflow setting,
