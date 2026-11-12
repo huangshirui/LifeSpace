@@ -26,15 +26,10 @@ export type Bindings = {
   CORE?: Fetcher;
   OAUTH_RESOURCE_SERVER_SECRET?: string;
   OAUTH_CORE_APPROVER_SECRET?: string;
-  OAUTH_DCR_ENABLED?: string;
-  // Staging-only public DCR registration limiter; missing binding fails closed.
+  // Public DCR/CIMD registration limiter; missing binding fails closed.
   OAUTH_DCR_RATE_LIMITER?: RateLimit;
   // Independent guard for anonymous /oauth/authorize requests.
   OAUTH_AUTHORIZE_RATE_LIMITER?: RateLimit;
-  // Opt-in HTTPS Client ID Metadata Documents; disabled unless explicitly enabled.
-  // Opening this additionally requires the verified Cloudflare
-  // global_fetch_strictly_public deployment flag (outside the type system).
-  OAUTH_CIMD_ENABLED?: string;
 };
 
 export type RequestPerformanceTiming = {

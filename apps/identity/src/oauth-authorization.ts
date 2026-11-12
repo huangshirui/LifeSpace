@@ -303,12 +303,11 @@ export async function exchangeInteractiveOAuthToken(c: Context<AppEnv>, body: Fo
 
 // Registration features are advertised only when their safety gates exist.
 function dcrReady(env: Bindings, policy: OAuthClientAdmissionPolicy): boolean {
-  return env.OAUTH_DCR_ENABLED === "1"
-    && Boolean(env.OAUTH_DCR_RATE_LIMITER) && policy.dcrEnabled;
+  return policy.dcrEnabled && Boolean(env.OAUTH_DCR_RATE_LIMITER);
 }
 function cimdReady(env: Bindings, policy: OAuthClientAdmissionPolicy): boolean {
-  return env.OAUTH_CIMD_ENABLED === "1" && policy.cimdEnabled
-    && Boolean(env.OAUTH_DCR_RATE_LIMITER);
+  return policy.cimdEnabled && Boolean(env.OAUTH_DCR_RATE_LIMITER)
+    && Boolean(env.OAUTH_AUTHORIZE_RATE_LIMITER);
 }
 export function registerOAuthAuthorizationServer(app: App) {
   app.get("/.well-known/oauth-authorization-server", async (c) => {

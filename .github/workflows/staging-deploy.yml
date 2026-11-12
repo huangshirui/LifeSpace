@@ -52,7 +52,6 @@ jobs:
       R2_S3_ACCESS_KEY_ID: ${{ secrets.R2_S3_ACCESS_KEY_ID }}
       R2_S3_SECRET_ACCESS_KEY: ${{ secrets.R2_S3_SECRET_ACCESS_KEY }}
       LIFESPACE_EXTERNAL_PROVIDER_ENABLED: ${{ vars.LIFESPACE_EXTERNAL_PROVIDER_ENABLED || '0' }}
-      LIFESPACE_CIMD_ENABLED: ${{ vars.LIFESPACE_CIMD_ENABLED || '0' }}
       EXTERNAL_CURSOR_SECRET: ${{ secrets.EXTERNAL_CURSOR_SECRET }}
       LIFESPACE_NOTION_ADAPTER_WORKER: ${{ vars.LIFESPACE_NOTION_ADAPTER_WORKER }}
       NOTION_ADAPTER_SHARED_SECRET: ${{ secrets.NOTION_ADAPTER_SHARED_SECRET }}
@@ -115,9 +114,6 @@ jobs:
           node --check infra/scripts/publish-staging-baseline-model-semantics.mjs
           node --check infra/scripts/verify-staging-external-self-service.mjs
           node --check infra/scripts/verify-staging-file-uploads.mjs
-
-      - name: Validate CIMD release switch before mutation
-        run: test "$LIFESPACE_CIMD_ENABLED" = 0 || test "$LIFESPACE_CIMD_ENABLED" = 1
 
       - name: Validate External provider prerequisites before mutation
         run: node infra/scripts/external-provider-deployment.mjs prepare staging
@@ -193,14 +189,7 @@ jobs:
         run: pnpm --filter @lifespace/identity db:migrate:staging
 
       - name: Deploy Identity after compatible Core
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [[ "$LIFESPACE_CIMD_ENABLED" == "1" ]]; then
-            pnpm --dir apps/identity exec wrangler deploy --env staging --var OAUTH_CIMD_ENABLED:1
-          else
-            pnpm --dir apps/identity exec wrangler deploy --env staging
-          fi
+        run: pnpm --dir apps/identity exec wrangler deploy --env staging
 
       - name: Ensure staging custom domains
         run: node infra/scripts/ensure-staging-domains.mjs
@@ -230,9 +219,8 @@ jobs:
       - name: Verify deployed CIMD strict-public configuration
         run: node infra/scripts/audit-staging-cimd-egress.mjs
 
-      - name: Verify real Staging CIMD client admission
-        if: env.LIFESPACE_CIMD_ENABLED == '1'
-        run: node infra/scripts/verify-staging-oauth-security.mjs --cimd-only
+      - name: Verify Staging OAuth discovery matches Console policy
+        run: node infra/scripts/verify-staging-oauth-security.mjs --cimd-only --allow-disabled
 
       - name: Prepare ephemeral authenticated staging smoke
         run: node infra/scripts/prepare-staging-smoke.mjs

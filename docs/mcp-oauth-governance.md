@@ -40,13 +40,12 @@ OAuth client registration never implies a user Grant or Delegation.
 ## Simplified Console OAuth settings (Identity schema 18)
 
 - **CIMD** switch requests automatic discovery of eligible public HTTPS
-  Client ID Metadata Documents. An enabled deployment additionally requires
-  `OAUTH_CIMD_ENABLED=1`, the DCR rate limiter, and **Cloudflare's
+  Client ID Metadata Documents. Admission is controlled solely by the current Console policy. Safety prerequisites include both rate limiters and **Cloudflare's
   `global_fetch_strictly_public` compatibility flag** on the deployed Identity
   Worker. This forces untrusted `fetch()` through the public-Internet network
   boundary, even when a URL refers to the Worker's own zone; it does not
   bypass Cloudflare security to reach a private origin. Do not attach a VPC
-  Network/private egress binding to CIMD. The current Staging feature flag defaults off; the owner may enable it through the canonical deployment after the approved architecture decision. The native DNS precheck rejects nonordinary A/AAAA addresses; it does not pin the eventual connection. Cloudflare strict-public fetch and no private bindings are the network boundary.
+  Network/private egress binding to CIMD. Each environment has its own Identity D1 policy, default disabled on fresh install; the owner changes it directly in Console without redeployment. The native DNS precheck rejects nonordinary A/AAAA addresses; it does not pin the eventual connection. Cloudflare strict-public fetch and no private bindings are the network boundary.
 - **DCR** switch enables protected dynamic client registration with validated
   callbacks, rate limit and an atomic D1 client quota. Unreferenced anonymous
   clients older than seven days are reclaimed in bounded on-demand batches;
@@ -66,8 +65,7 @@ OAuth client registration never implies a user Grant or Delegation.
   Existing *open* methods remain enabled. Existing explicitly restricted
   global callback URLs remain in place. This avoids accidentally granting
   broader registration authority on deployment.
-- Runtime `OAUTH_CIMD_ENABLED` and `OAUTH_DCR_ENABLED` remain independent
-  deployment release/incident switches. Both environments require
+- Console is the sole runtime feature switch for CIMD and DCR. Existing stored policy values remain unchanged; removing the former deployment switches makes those current values effective. Both environments require
   `OAUTH_DCR_RATE_LIMITER`; `/oauth/authorize` separately requires
   `OAUTH_AUTHORIZE_RATE_LIMITER` (100/minute per colo) plus an atomic D1
   quota of 1000 **live pending** requests. Missing rate limiter fails closed.
@@ -90,12 +88,10 @@ OAuth client registration never implies a user Grant or Delegation.
 - The flag is declared for both Staging and future Production Identity
   deployments, so enabling the CIMD feature cannot rely on the unsafe
   same-zone origin bypass. **No Production deployment is performed by this
-  change.** Staging `OAUTH_CIMD_ENABLED=0` stays explicitly closed; an
-  enabled Console switch does not override it.
-  Existing DCR admission is unaffected.
+  change.** The owner-only deployment gate remains; after deployment, the respective Console policy alone controls discovery. Existing OAuth clients, grants and tokens are preserved.
 - `infra/scripts/audit-staging-cimd-egress.mjs` reads the actual Worker
   settings and requires: deployed strict-public compatibility flag,
-  disabled CIMD deployment switch, and no VPC network bindings. It
+  both rate limiters, no legacy admission switches, and no private network/relay bindings. The same read-only audit runs for Production. It
   verifies safe configuration, **not** a live SSRF/DNS rebinding attack.
 - Owner decision: do not deploy the independent Node relay from #539. Reuse existing public/private and authoritative DNS-flip evidence; run live Staging admission on the new candidate. No extra DNS mutation or independent service is required. DNS preflight is not connection pinning; full draft conformance for globally routable special-use addresses is not claimed. Reassess if private networking is introduced. Production remains separately gated.
 
@@ -159,11 +155,10 @@ register this exact redirect.
 Deploy Identity migrations before the Identity Worker, then separately
 deploy Console Staging. Confirm the Console has just two switches and one
 optional callback field, and that disabled switches remove their OAuth
-discovery advertisement. Verify DCR auto registration and (after owner enables the native staging switch)
+discovery advertisement. Verify DCR auto registration and (when enabled in Staging Console)
 CIMD metadata discovery, both registered callback exactness and optional
 global callback restrictions, PKCE, the Account consent and denial callbacks,
 cross-MCP-resource isolation, Token revocation, both rate limiter failures,
-live pending-request quota, orphan registration cleanup, and native strict-public configuration plus bounded DNS precheck. A staging CIMD switch alone is not
-sufficient for successful discovery.
+live pending-request quota, orphan registration cleanup, and native strict-public configuration plus bounded DNS precheck. Deployment acceptance reads the actual Console policy; if a feature is off it checks denial and explicitly reports positive acceptance as not run.
 Production is not approved until the additional outbound-metadata
 security and abuse review is complete.

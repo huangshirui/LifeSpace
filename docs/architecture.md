@@ -451,3 +451,7 @@ surface is added. Contract projection and release details: `docs/identity-oauth.
 ## CIMD native public outbound boundary (candidate, 2026-11-12)
 
 Identity retains authority ownership; metadata retrieval is untrusted protocol adapter input. Use Cloudflare strict-public global fetch with no VPC/private network bindings, bounded DNS preflight and no credentials/redirects. No separate Node relay. This serves Bounded Authority; DNS preflight does not pin connections or guarantee full special-use draft compliance. See #530.
+
+## 2026-11-12 · Console-owned OAuth admission (candidate)
+
+The current Identity D1 admission policy is the single source of truth for CIMD and DCR enablement. Staging and Production are isolated through their own Identity databases, not duplicated environment flags. Mandatory network and limiter configuration is a deployment invariant, not a second product switch.

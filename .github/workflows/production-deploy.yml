@@ -370,6 +370,9 @@ jobs:
       - name: Deploy Identity after compatible Core
         run: pnpm --dir apps/identity exec wrangler deploy --env production
 
+      - name: Verify deployed Identity strict-public configuration
+        run: node infra/scripts/audit-staging-cimd-egress.mjs --production
+
       - name: Ensure production custom domains
         run: node infra/scripts/ensure-production-domains.mjs
 

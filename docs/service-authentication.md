@@ -405,3 +405,7 @@ and optimistic concurrency. Identity issues at most 60-second execution JWTs; Co
 rechecks live scopes on every request. Production and existing read-only clients
 remain read-only. No implicit User Delegation, External write, batch or admin
 surface is added. Contract projection and release details: `docs/identity-oauth.md`.
+
+## 2026-11-12 · Console-owned OAuth admission (candidate)
+
+CIMD and DCR public-client admission has one Console-managed Identity policy per environment; no runtime feature-variable or relay credential. Service client_credentials, machine credentials and all OAuth token lifecycles remain unchanged. Network and limiter deployment prerequisites are audited separately.

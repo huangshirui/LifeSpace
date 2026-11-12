@@ -28,7 +28,6 @@ async function setup() {
     OAUTH_CONSENT_URL: "https://account.example.test/oauth/consent",
     OAUTH_ALLOWED_RESOURCES: "https://mcp.example.test/mcp/tasks https://mcp.example.test/mcp/health",
     ENVIRONMENT: "test",
-    OAUTH_DCR_ENABLED: "1",
     OAUTH_DCR_RATE_LIMITER: { limit: async (_: { key: string }) => ({ success: true }) },
     OAUTH_AUTHORIZE_RATE_LIMITER: { limit: async (_: { key: string }) => ({ success: true }) },
     OAUTH_ACCOUNT_APPLICATION_ID: "",
@@ -276,15 +275,13 @@ describe("Identity OAuth Authorization Server (isolated candidate)", () => {
   });
 
 
-  it("advertises URL client metadata only with explicit OAuth CIMD opt-in", async () => {
+  it("uses current Console policy as the sole CIMD/DCR switch without deployment variables", async () => {
     const t = await setup();
     const defaultMetadata = await t.request("/.well-known/oauth-authorization-server");
     expect(defaultMetadata.status).toBe(200);
     expect(await defaultMetadata.json()).not.toHaveProperty("client_id_metadata_document_supported");
-    const cimd = t.b as typeof t.b & { OAUTH_CIMD_ENABLED: string };
-    cimd.OAUTH_CIMD_ENABLED = "1";
-    const unpinned = await t.request("/.well-known/oauth-authorization-server");
-    expect(await unpinned.json()).not.toHaveProperty("client_id_metadata_document_supported");
+    const initial = await t.request("/.well-known/oauth-authorization-server");
+    expect(await initial.json()).toHaveProperty("registration_endpoint");
     await t.b.DB.prepare(
       "UPDATE oauth_client_admission_policy SET cimd_enabled=1 WHERE id=1"
     ).run();
@@ -292,7 +289,21 @@ describe("Identity OAuth Authorization Server (isolated candidate)", () => {
     expect(optInMetadata.status).toBe(200);
     expect(await optInMetadata.json()).toMatchObject({
       client_id_metadata_document_supported: true,
+      registration_endpoint: t.b.OAUTH_ISSUER + "/oauth/register",
     });
+    // Missing authorization limiter still fails closed for CIMD, not DCR.
+    const limiter = t.b.OAUTH_AUTHORIZE_RATE_LIMITER;
+    Reflect.deleteProperty(t.b, "OAUTH_AUTHORIZE_RATE_LIMITER");
+    const noAuthorizeLimiter = await t.request("/.well-known/oauth-authorization-server");
+    expect(await noAuthorizeLimiter.json()).not.toHaveProperty("client_id_metadata_document_supported");
+    t.b.OAUTH_AUTHORIZE_RATE_LIMITER = limiter;
+    await t.b.DB.prepare("UPDATE oauth_client_admission_policy SET cimd_enabled=0,dcr_enabled=0 WHERE id=1").run();
+    const disabled = await (await t.request("/.well-known/oauth-authorization-server")).json();
+    expect(disabled).not.toHaveProperty("client_id_metadata_document_supported");
+    expect(disabled).not.toHaveProperty("registration_endpoint");
+    expect((await t.request("/oauth/register", {method:"POST",headers:{"content-type":"application/json"},
+      body:JSON.stringify({redirect_uris:[t.redirect]})})).status).toBe(403);
+    expect((await t.authorize({client_id:"https://public-client.example.com/client.json"})).status).toBe(400);
   });
 
   it("publishes fixed issuer metadata, protects DCR and rejects redirect/PKCE/resource substitution", async () => {
@@ -407,11 +418,9 @@ describe("Identity OAuth Authorization Server (isolated candidate)", () => {
   it("admits a CIMD client with an unlisted HTTPS Client ID only in guarded open mode", async () => {
     const t = await setup();
     const b = t.b as typeof t.b & {
-      OAUTH_CIMD_ENABLED: string;
       OAUTH_DCR_RATE_LIMITER: { limit: ({ key }: { key: string }) => Promise<{ success: boolean }> };
     };
     b.ENVIRONMENT = "staging";
-    b.OAUTH_CIMD_ENABLED = "1";
     const remoteId = "https://public-client.example.com/oauth/client.json";
     const redirect = "https://client.example.test/callback";
     await b.DB.prepare(
@@ -455,6 +464,12 @@ describe("Identity OAuth Authorization Server (isolated candidate)", () => {
       expect(await unsupportedGrant.json()).toMatchObject({ error: "unsupported_grant_type" });
       expect((await t.authorize({ client_id: remoteId,
         redirect_uri: "https://other-client.example.com/callback" })).status).toBe(400);
+      const callsBeforeDisable = documentCalls;
+      await b.DB.prepare("UPDATE oauth_client_admission_policy SET cimd_enabled=0 WHERE id=1").run();
+      expect((await t.authorize({ client_id: remoteId, redirect_uri: redirect })).status).toBe(400);
+      expect(documentCalls).toBe(callsBeforeDisable);
+      expect(await (await t.request("/.well-known/oauth-authorization-server")).json())
+        .not.toHaveProperty("client_id_metadata_document_supported");
     } finally {
       globalThis.fetch = oldFetch;
     }

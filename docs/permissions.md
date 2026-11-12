@@ -366,3 +366,7 @@ and optimistic concurrency. Identity issues at most 60-second execution JWTs; Co
 rechecks live scopes on every request. Production and existing read-only clients
 remain read-only. No implicit User Delegation, External write, batch or admin
 surface is added. Contract projection and release details: `docs/identity-oauth.md`.
+
+## 2026-11-12 · Console-owned OAuth admission (candidate)
+
+CIMD and DCR current admission policy belongs to Identity D1 and is managed only by authorized Console operators; no duplicate deployment switches. Changing discovery grants no User/Agent authority and does not revoke existing OAuth grants/tokens. Existing callback and per-operation checks remain.
