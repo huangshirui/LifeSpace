@@ -55,7 +55,15 @@ describe("CIMD public client metadata is untrusted until verified", () => {
       ...metadata,
       token_endpoint_auth_method: "private_key_jwt",
       token_endpoint_auth_methods_supported: ["none", "private_key_jwt"],
+      grant_types: ["authorization_code", "refresh_token", "urn:ietf:params:oauth:grant-type:jwt-bearer"],
     })).not.toBeNull();
+    expect(parseClientMetadata(clientId, {
+      ...metadata,
+      grant_types: ["urn:ietf:params:oauth:grant-type:jwt-bearer"],
+    })).toBeNull();
+    expect(parseClientMetadata(clientId, {
+      ...metadata, grant_types: ["authorization_code", "client_credentials"],
+    })).toBeNull();
     expect(parseClientMetadata(clientId, {
       ...metadata,
       token_endpoint_auth_methods_supported: ["private_key_jwt"],
