@@ -682,11 +682,11 @@ describe("Identity OAuth Authorization Server (isolated candidate)", () => {
     });
     expect(issued.status).toBe(200);
     const oauthBearer = (await issued.json() as { access_token: string }).access_token;
-    const exchange = (secret: string | null, token: string, resource: string) => t.request("/oauth/execution-tokens", {
+    const exchange = (secret: string | null, token: string, resource: string, includeContext?: boolean) => t.request("/oauth/execution-tokens", {
       method: "POST",
       headers: { "content-type": "application/json",
         ...(secret ? { "x-lifespace-resource-secret": secret } : {}) },
-      body: JSON.stringify({ token, resource }),
+      body: JSON.stringify({ token, resource, ...(includeContext === undefined ? {} : {includeContext}) }),
     });
     expect((await exchange(null, oauthBearer, t.resource)).status).toBe(401);
     expect((await exchange(t.b.CORE_IDENTITY_SHARED_SECRET, oauthBearer, t.resource)).status).toBe(401);
@@ -700,6 +700,19 @@ describe("Identity OAuth Authorization Server (isolated candidate)", () => {
     expect(data).toMatchObject({ scope: "resources:read", agentId: t.agentId, applicationId: t.target.appId, spaceId: "spc_oauth_test" });
     expect(data.expiresIn).toBeGreaterThan(0);
     expect(data.expiresIn).toBeLessThanOrEqual(60);
+    expect(data).not.toHaveProperty("context");
+    const combined = await exchange(t.b.OAUTH_RESOURCE_SERVER_SECRET, oauthBearer, t.resource, true);
+    expect(combined.status).toBe(200);
+    expect(combined.headers.get("cache-control")).toBe("no-store");
+    const combinedData = (await combined.json() as {data:{accessToken:string;scope:string;context:Record<string,unknown>}}).data;
+    const combinedClaims = await verify(combinedData.accessToken, t.b.TOKEN_PUBLIC_KEY, "RS256");
+    expect(combinedData.context).toMatchObject({active:true, client_id:t.clientId,
+      authorization_id:combinedClaims.oauth_authorization_id, sub:t.userId,
+      application_id:t.target.appId, space_id:"spc_oauth_test", agent_id:t.agentId,
+      allow_user_authorization:true, resource:t.resource, scope:combinedData.scope});
+    expect(Number(combinedData.context.exp)).toBeGreaterThanOrEqual(Number(combinedClaims.exp));
+    expect((await exchange(t.b.OAUTH_RESOURCE_SERVER_SECRET, oauthBearer, t.resource, false)).status).toBe(400);
+    expect((await exchange(t.b.OAUTH_RESOURCE_SERVER_SECRET, oauthBearer, "https://mcp.example.test/mcp/health", true)).status).toBe(401);
     const claims = await verify(data.accessToken, t.b.TOKEN_PUBLIC_KEY, "RS256");
     expect(claims).toMatchObject({
       iss: "lifespace-identity", aud: "lifespace-core",
@@ -729,6 +742,7 @@ describe("Identity OAuth Authorization Server (isolated candidate)", () => {
     expect((await t.revoke(oauthBearer)).status).toBe(200);
     expect(await (await check(context, t.b.CORE_IDENTITY_SHARED_SECRET)).json()).toEqual({ data: { active: false } });
     expect((await exchange(t.b.OAUTH_RESOURCE_SERVER_SECRET, oauthBearer, t.resource)).status).toBe(401);
+    expect((await exchange(t.b.OAUTH_RESOURCE_SERVER_SECRET, oauthBearer, t.resource, true)).status).toBe(401);
   });
 
   it("reads each current OAuth access snapshot with one D1 statement and fails closed on live changes", async () => {
@@ -793,9 +807,9 @@ describe("Identity OAuth Authorization Server (isolated candidate)", () => {
     const issued = await t.token({ grant_type: "authorization_code", client_id: t.clientId,
       code, code_verifier: t.verifier, redirect_uri: t.redirect, resource: t.resource });
     const bearer = (await issued.json() as { access_token: string }).access_token;
-    const exchange = () => t.request("/oauth/execution-tokens", {
+    const exchange = (includeContext = false) => t.request("/oauth/execution-tokens", {
       method: "POST", headers: { "content-type": "application/json", "x-lifespace-resource-secret": t.b.OAUTH_RESOURCE_SERVER_SECRET },
-      body: JSON.stringify({ token: bearer, resource: t.resource }),
+      body: JSON.stringify({ token: bearer, resource: t.resource, ...(includeContext ? {includeContext:true} : {}) }),
     });
     t.b.ENVIRONMENT = "staging";
     const data = (await (await exchange()).json() as { data: { scope: string; accessToken: string } }).data;
@@ -807,6 +821,13 @@ describe("Identity OAuth Authorization Server (isolated candidate)", () => {
     await t.b.DB.prepare("UPDATE oauth_authorizations SET scopes=? WHERE client_id=?")
       .bind(JSON.stringify(["resources:read"]), t.clientId).run();
     expect((await (await exchange()).json() as { data: { scope: string } }).data.scope).toBe("resources:read");
+    const narrowed=(await (await exchange(true)).json() as {data:{scope:string;context:{scope:string}}}).data;
+    expect(narrowed.scope).toBe("resources:read");
+    expect(narrowed.context.scope).toBe("resources:read");
+    await t.b.DB.prepare("UPDATE oauth_authorizations SET scopes=? WHERE client_id=?")
+      .bind(JSON.stringify(["resources:write"]), t.clientId).run();
+    expect((await exchange(true)).status).toBe(403);
+    expect((await exchange()).status).toBe(401);
   });
 
 });

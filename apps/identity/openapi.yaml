@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: LifeSpace Identity API
-  version: 0.18.0
+  version: 0.19.0
   description: Global LifeSpace user identity, profile, trusted application exchange, Cloudflare Access principal resolution/linking, application credential lifecycle, Agent identity/execution-token issuance, service principals and credential issuance API.
 paths:
   /health:
@@ -637,10 +637,47 @@ paths:
                 token: { type: string, pattern: '^lsp_oat_', writeOnly: true }
                 resource: { type: string, format: uri }
                 delegationId: { type: string, pattern: '^dlg_', description: Optional explicit Core Delegation selector for User Principal represented by the selected Agent; not an approval bearer. }
+                includeContext: { type: boolean, const: true, description: Optional opt-in to the current Identity context from the same snapshot used for execution-token issuance. }
       responses:
-        '200': { description: Server-only Agent Direct or expressly delegated User/Agent JWT bound to exact current OAuth token and Space }
+        '200':
+          description: Server-only Agent Direct or expressly delegated User/Agent JWT bound to exact current OAuth token and Space. Context is present only on explicit opt-in.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: object
+                    required: [accessToken, tokenType, expiresIn, scope, applicationId, agentId, spaceId, allowUserAuthorization]
+                    properties:
+                      accessToken: { type: string }
+                      tokenType: { const: Bearer }
+                      expiresIn: { type: integer, minimum: 1, maximum: 60 }
+                      scope: { type: string, enum: ['resources:read', 'resources:read resources:write'] }
+                      applicationId: { type: string }
+                      agentId: { type: string }
+                      spaceId: { type: string }
+                      allowUserAuthorization: { type: boolean }
+                      context:
+                        type: object
+                        additionalProperties: false
+                        required: [active, client_id, authorization_id, sub, application_id, space_id, agent_id, allow_user_authorization, resource, scope, exp]
+                        properties:
+                          active: { const: true }
+                          client_id: { type: string }
+                          authorization_id: { type: string }
+                          sub: { type: string }
+                          application_id: { type: string }
+                          space_id: { type: string }
+                          agent_id: { type: string }
+                          allow_user_authorization: { type: boolean }
+                          resource: { type: string, format: uri }
+                          scope: { type: string, enum: ['resources:read', 'resources:read resources:write'] }
+                          exp: { type: integer, description: OAuth access-token expiry, not the shorter execution JWT expiry. }
         '400': { description: Invalid request shape }
         '401': { description: Resource Server proof or OAuth token denied }
+        '403': { description: Opt-in context request lacks effective read Scope }
         '503': { description: Identity token signing unavailable }
   /introspection/v1/oauth-executions:
     post:

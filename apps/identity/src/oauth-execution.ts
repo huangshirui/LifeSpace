@@ -14,7 +14,7 @@ type ExecutionContext = {
   authorizationId: string; tokenHash: string; clientId: string;
   resource: string; applicationId: string; agentId: string; spaceId: string;
 };
-const oauthFailure = (status: 400 | 401 | 503, code: string) =>
+const oauthFailure = (status: 400 | 401 | 403 | 503, code: string) =>
   new Response(JSON.stringify({ error: code }), {
     status, headers: { "content-type": "application/json", "cache-control": "no-store" },
   });
@@ -42,16 +42,19 @@ function scopeList(raw: string): string[] {
   return Array.isArray(value) && value.every((x) => typeof x === "string") ? value : [];
 }
 
+type CurrentAccess = NonNullable<Awaited<ReturnType<typeof currentOAuthAccess>>>;
+function executionScopes(match: CurrentAccess): string[] {
+  const tokenScopes = scopeList(match.row.scopes);
+  const consentScopes = scopeList(match.selected.scopes);
+  // Consent and the access token bound the actual OAuth ceiling.
+  return [READ_SCOPE, "resources:write"].filter(scope =>
+    tokenScopes.includes(scope) && consentScopes.includes(scope));
+}
 async function validAccess(env: Bindings, tokenHash: string, resource: string) {
   const match = await currentOAuthAccess(env.DB, tokenHash, resource);
   if (!match) return null;
-  const { selected, row } = match;
-  const scopes = scopeList(row.scopes);
-  if (!scopes.includes(READ_SCOPE) || !scopeList(selected.scopes).includes(READ_SCOPE)) return null;
-  // Consent and the access token bound the actual OAuth ceiling. Deployment
-  // environment never changes Principal / Actor / credential Scope semantics.
-  return { selected, row, scopes: [READ_SCOPE, ...(scopes.includes("resources:write")
-    && scopeList(selected.scopes).includes("resources:write") ? ["resources:write"] : [])] };
+  const scopes = executionScopes(match);
+  return scopes.includes(READ_SCOPE) ? { ...match, scopes } : null;
 }
 
 function validContext(value: unknown): value is ExecutionContext {
@@ -77,20 +80,26 @@ export function registerOAuthExecutionRoutes(app: App) {
     }
     const body = await c.req.json<unknown>().catch(() => null);
     if (!body || typeof body !== "object" || Array.isArray(body)
-      || Object.keys(body).some((x) => x !== "token" && x !== "resource" && x !== "delegationId")) {
+      || Object.keys(body).some((x) => x !== "token" && x !== "resource" && x !== "delegationId" && x !== "includeContext")) {
       return oauthFailure(400, "invalid_request");
     }
     const input = body as Record<string, unknown>;
+    if (input.includeContext !== undefined && input.includeContext !== true)
+      return oauthFailure(400, "invalid_request");
+    const includeContext = input.includeContext === true;
     if (typeof input.token !== "string" || !/^lsp_oat_[A-Za-z0-9_-]{32,256}$/u.test(input.token)
       || !resourceAllowed(c.env, input.resource)) return oauthFailure(401, "invalid_token");
     const requestedDelegation = input.delegationId;
     if (requestedDelegation !== undefined && (typeof requestedDelegation !== "string"
       || !/^dlg_[A-Za-z0-9_-]+$/u.test(requestedDelegation))) return oauthFailure(400, "invalid_request");
     const tokenHash = await sha256(input.token);
-    const match = await validAccess(c.env, tokenHash, input.resource);
+    const match = await currentOAuthAccess(c.env.DB, tokenHash, input.resource);
     if (!match) return oauthFailure(401, "invalid_token");
+    const scopes = executionScopes(match);
+    if (!scopes.includes(READ_SCOPE))
+      return includeContext ? oauthFailure(403, "insufficient_scope") : oauthFailure(401, "invalid_token");
     if (!c.env.TOKEN_PRIVATE_KEY) return oauthFailure(503, "temporarily_unavailable");
-    const { selected, row, scopes } = match;
+    const { selected, row } = match;
     const represented = requestedDelegation !== undefined;
     if (represented && selected.allow_user_authorization !== 1) return oauthFailure(401, "access_denied");
     const scope = scopes.join(" ");
@@ -119,6 +128,15 @@ export function registerOAuthExecutionRoutes(app: App) {
       applicationId: selected.application_id, agentId: selected.agent_id,
       spaceId: selected.space_id,
       allowUserAuthorization: selected.allow_user_authorization === 1,
+      // Opt-in projection of the very same live Identity snapshot and
+      // effective scope used to sign the JWT. Never an independent authority.
+      ...(includeContext ? { context: {
+        active: true, client_id: selected.client_id, authorization_id: selected.id,
+        sub: selected.user_id, application_id: selected.application_id,
+        space_id: selected.space_id, agent_id: selected.agent_id,
+        allow_user_authorization: selected.allow_user_authorization === 1,
+        resource: selected.resource, scope, exp: Math.floor(Date.parse(row.expires_at) / 1000),
+      } } : {}),
     } }, 200, { "cache-control": "no-store", pragma: "no-cache" });
   });
 
