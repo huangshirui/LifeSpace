@@ -41,7 +41,6 @@ const codeChallenge = createHash("sha256").update(pkceVerifier).digest("base64ur
 let ownedClientId = null;
 let ownedRequestId = null;
 const outcomes = [];
-const ownedCimdRequests = [];
 const ownedFixtureClients = [];
 const cimdOnly = process.argv.includes("--cimd-only");
 const CIMD_CHATGPT = APPROVED_STAGING_CIMD_IDS[0];
@@ -122,6 +121,8 @@ function authorizeUrl(clientId, redirect, resource, overrides = {}) {
   return "/oauth/authorize?" + params.toString();
 }
 async function cleanup() {
+  // No database discovery means no request or registration was created.
+  if (!stagingD1.identity) return;
   // Delete only the nonce-bound, still-pending requests created by this run.
   for (const clientId of APPROVED_STAGING_CIMD_IDS) {
     await api(
@@ -174,12 +175,17 @@ async function cleanup() {
 }
 async function runCimd() {
   const audit = await auditCimdStaging({ accountId, token: apiToken });
-  assert.equal(audit.status, "SAFE_PINNED_PILOT", "CIMD pilot configuration not converged");
+  assert.ok(audit.safe, "CIMD network and deployment configuration is not safe");
   await discoverStagingDatabases();
   const res = await request("/.well-known/oauth-authorization-server");
   assert.equal(res.status, 200);
   const metadata = await res.json();
   assert.equal(metadata.issuer, BASE);
+  if (audit.safeClosed) {
+    assert.equal(metadata.client_id_metadata_document_supported, undefined);
+    passed("CIMD release switch closed; no discovery advertised");
+    return false;
+  }
   assert.equal(metadata.client_id_metadata_document_supported, true, "CIMD pilot is not advertised");
   assert.equal(metadata.registration_endpoint, BASE + "/oauth/register");
   assert.ok(metadata.code_challenge_methods_supported?.includes("S256"));
@@ -209,7 +215,6 @@ async function runCimd() {
     const consent = new URL(accepted.headers.get("location"));
     const requestId = consent.searchParams.get("request_id");
     assert.match(requestId || "", /^oar_[a-f0-9]{32}$/u);
-    ownedCimdRequests.push(requestId);
     assert.equal(consent.origin, "https://account-staging.aisr.online");
     assert.equal(consent.searchParams.has("code"), false);
     const pending = await api(
@@ -248,19 +253,20 @@ async function runCimd() {
   assert.equal(forbidden.status, 400);
   assert.equal((await forbidden.json()).error, "unsupported_grant_type");
   passed("JWT bearer declaration does not enable JWT bearer token exchange");
+  return true;
 }
 async function run() {
   if (cimdOnly) { await runCimd(); return; }
-  await runCimd();
+  const cimdEnabled = await runCimd();
   const metadataResponse = await request("/.well-known/oauth-authorization-server");
   assert.equal(metadataResponse.status, 200);
   const metadata = await metadataResponse.json();
   assert.equal(metadata.issuer, BASE);
   assert.equal(metadata.registration_endpoint, BASE + "/oauth/register");
   assert.ok(metadata.code_challenge_methods_supported?.includes("S256"));
-  assert.equal(metadata.client_id_metadata_document_supported, true,
-    "Exact-pinned CIMD pilot must remain advertised");
-  passed("server metadata and bounded CIMD pilot");
+  assert.equal(metadata.client_id_metadata_document_supported, cimdEnabled ? true : undefined,
+    "CIMD discovery must reflect the audited deployment switch");
+  passed("server metadata matches bounded CIMD release state");
 
   // Public invalid client metadata must fail before any D1 registration.
   const invalidRedirect = await request("/oauth/register", {
