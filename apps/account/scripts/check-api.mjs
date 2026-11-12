@@ -6,8 +6,12 @@ const expect = ["/api/account/authorizations",
   "/api/account/profile", "/api/account/profile/avatar", "/api/account/spaces",
   "/api/account/spaces/create", "/api/account/spaces/invite-preview", "/api/account/spaces/join",
   "/api/account/spaces/{spaceId}", "/api/account/spaces/{spaceId}/members", "/api/account/spaces/{spaceId}/external-connections", "/api/session", "/api/oauth/request", "/api/oauth/choices", "/api/oauth/capabilities", "/api/oauth/confirm"];
-if (api.openapi !== "3.1.0" || api.info.version !== "0.4.0") throw new Error("Account BFF contract mismatch");
+if (api.openapi !== "3.1.0" || api.info.version !== "0.5.0") throw new Error("Account BFF contract mismatch");
 for (const path of expect) if (!api.paths[path]) throw new Error("Missing Account route " + path);
+const session = api.paths["/api/session"].get;
+if (!session.parameters?.some(p=>p.name==="include"&&p.schema?.enum?.join(",")==="login-email")
+  || !session.responses?.["400"] || !session.responses?.["403"])
+  throw new Error("Account session optional mailbox contract invalid");
 const confirmation = api.paths["/api/oauth/confirm"].post;
 const schema = confirmation?.requestBody?.content?.["application/json"]?.schema;
 if (!schema || schema.additionalProperties !== false || schema.properties.intent.const !== "confirm-oauth-authorization"

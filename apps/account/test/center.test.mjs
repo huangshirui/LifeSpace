@@ -6,10 +6,12 @@ const ACCESS = "a".repeat(50) + ".b.c";
 const SPACE = "spc_" + "b".repeat(32);
 const USER = "usr_test123";
 const OAUTH_ID = "oaz_" + "e".repeat(32);
-function setup({ avatarUrl = "https://auth-staging.example.test/assets/users/" + USER + "/avatar", coreStatus = 200 } = {}) {
+function setup({ avatarUrl = "https://auth-staging.example.test/assets/users/" + USER + "/avatar", coreStatus = 200, profileStatus = "active", emailStatus = 200, parallelReads = false } = {}) {
   const calls = [];
   const token = "test-account-only-user-token";
   let authStatus = "active";
+  let releaseProfile;
+  const profileWait = new Promise(resolve => { releaseProfile=resolve; });
   const ownerAuthorization = () => ({
     id:OAUTH_ID,clientId:"ocli_client1",clientName:"Claimed ChatGPT",verifiedVendor:false,
     resource:"https://core-staging.example.test/mcp/mcp_123456",applicationId:"app_123456",
@@ -32,12 +34,16 @@ function setup({ avatarUrl = "https://auth-staging.example.test/assets/users/" +
       return Response.json({data:{accessToken:token}});
     }
     assert.equal(request.headers.get("authorization"),"Bearer "+token);
-    if(path==="/api/v1/me")return Response.json({data:{
-      id:USER,displayName:"User test",status:"active",avatarUrl,
-    }});
-    if(path==="/api/v1/me/web-login")return Response.json({data:{
-      email:"verified@example.test",linked:true,status:"linked",version:1,
-    }});
+    if(path==="/api/v1/me"){
+      if(parallelReads)await profileWait;
+      return Response.json({data:{id:USER,displayName:"User test",status:profileStatus,avatarUrl}});
+    }
+    if(path==="/api/v1/me/web-login"){
+      releaseProfile();
+      if(emailStatus!==200)return Response.json({error:{code:"SYNTHETIC"}},{status:emailStatus});
+      return Response.json({data:{email:"verified@example.test",linked:true,status:"linked",version:1,
+        accessToken:"never-forward-upstream-credential"}});
+    }
     if(path==="/api/v1/me/oauth/authorizations"){
       assert.equal(new URL(request.url).searchParams.get("offset"),"0");
       return Response.json({data:{items:[ownerAuthorization()],nextOffset:null}});
@@ -209,4 +215,38 @@ test("External Data listing uses current Space manager Core authority and strips
   assert.equal((await t.request("/api/account/spaces/spc_other/external-connections")).status,404);
   const blocked=setup({coreStatus:403});
   assert.equal((await blocked.request("/api/account/spaces/"+SPACE+"/external-connections")).status,403);
+});
+
+test("combined Account session shares one fresh exchange and parallel authorized profile/email reads",async()=>{
+  const t=setup({parallelReads:true});
+  const session=await t.request("/api/session?include=login-email");
+  assert.equal(session.status,200);
+  assert.match(session.headers.get("set-cookie"),/Secure; HttpOnly; SameSite=Strict/u);
+  assert.equal(session.headers.get("cache-control"),"no-store");
+  const value=(await session.json()).data;
+  assert.equal(value.user.id,USER);
+  assert.ok(value.csrfToken);
+  assert.deepEqual(value.loginEmail,{email:"verified@example.test",status:"linked",linked:true,version:1});
+  assert.doesNotMatch(JSON.stringify(value),/never-forward|test-account-only-user-token/u);
+  assert.deepEqual(t.calls.map(x=>x.path),["/internal/v1/access/tokens","/api/v1/me","/api/v1/me/web-login"]);
+});
+test("combined session keeps profile mandatory and email failure isolated, with no cross-request cache",async()=>{
+  const inactive=setup({profileStatus:"disabled"});
+  const denied=await inactive.request("/api/session?include=login-email");
+  assert.equal(denied.status,403);
+  assert.equal(denied.headers.get("set-cookie"),null);
+  assert.doesNotMatch(await denied.text(),/verified@example.test/u);
+  const t=setup({emailStatus:503});
+  const partial=await t.request("/api/session?include=login-email");
+  assert.equal(partial.status,200);
+  assert.equal((await partial.json()).data.loginEmail,null);
+  const original=await t.request("/api/session");
+  assert.equal(original.status,200);
+  assert.equal(Object.hasOwn((await original.json()).data,"loginEmail"),false);
+  assert.equal(t.calls.filter(x=>x.path==="/internal/v1/access/tokens").length,2);
+  assert.equal(t.calls.filter(x=>x.path==="/api/v1/me/web-login").length,1);
+  for(const params of ["?include=login-email&userId=usr_other","?include=unknown","?include=login-email&include=login-email"]){
+    assert.equal((await t.request("/api/session"+params)).status,400);
+  }
+  assert.equal(t.calls.filter(x=>x.path==="/internal/v1/access/tokens").length,2);
 });

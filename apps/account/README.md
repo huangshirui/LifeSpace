@@ -63,3 +63,8 @@ Staging is not implied by a merge or CI result. The repository owner must first 
 The Account `/delegation?request_id=arq_*` page offers the user (not the OAuth Agent) once (default, 30-minute one-use), timed (1 hour / 24 hours / 7 days of repeated exact-model-operation use), or indefinite until revoked. This is a second consent event, not the initial OAuth execution-mode switch. All decisions require the current Account User session, strict Origin/Fetch Metadata, signed CSRF and Core's fresh authority checks. A recurring authorization remains bounded to the approved Client, Resource, Space, model and operation; it is not a general write grant.
 
 `/delegations` and its Account BFF APIs list and revoke the signed-in User's active `oauth_mcp` delegations independently of current OAuth status. Revocation does not undo previous writes. This is development source, not deployment proof.
+
+
+## Account Center first-load optimization (candidate 0.5.0)
+
+The Account Center requests `GET /api/session?include=login-email` once. Account verifies the same original Access assertion via Identity, then loads active-user profile and declared login mailbox concurrently with the same request-local user credential. Profile remains mandatory; mailbox failure projects null and disables editing until refreshed. Default `/api/session` and isolated OAuth/Delegation pages retain their original behavior. The standalone mailbox endpoint remains available. No persistent session/authority cache, new scope, Identity/Core route change or cross-service data access. Initial profile/email transport: two browser requests and five Identity binding calls become one browser request and three binding calls, in two sequential stages. Actual page latency requires Staging verification.

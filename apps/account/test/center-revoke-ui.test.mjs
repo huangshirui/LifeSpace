@@ -27,8 +27,8 @@ test("successful OAuth revoke cannot be misreported as a refreshed list if the f
   };
   let revoked=false;
   const fetch=async (url)=>{
-    if(url==="/api/session")return Response.json({data:{user:{
-      id:"usr_test",displayName:"Test",avatarUrl:null},csrfToken:"test-csrf"}});
+    if(url==="/api/session?include=login-email")return Response.json({data:{user:{
+      id:"usr_test",displayName:"Test",avatarUrl:null},csrfToken:"test-csrf",loginEmail:{email:null,status:"unlinked",linked:false,version:0}}});
     if(url==="/api/account/login-email")return Response.json({data:{
       email:null,status:"unlinked",linked:false}});
     if(url.startsWith("/api/account/authorizations?offset=")){

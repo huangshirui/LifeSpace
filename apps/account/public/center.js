@@ -52,13 +52,14 @@ function updateUser(user) {
   setAvatar($("profile-avatar"),user.displayName,user.avatarUrl);
 }
 async function loadAccount() {
-  const session=await api("/api/session");
+  const session=await api("/api/session?include=login-email");
   if(!session?.user || typeof session.user.id!=="string" || typeof session.user.displayName!=="string"
     || typeof session.csrfToken!=="string") throw new Error("服务器未返回完整、受保护的账户会话");
   state.csrf=session.csrfToken;
   updateUser(session.user);
   try {
-    const data=await api("/api/account/login-email");
+    const data=session.loginEmail;
+    if(!data || !Number.isSafeInteger(data.version))throw new Error("邮箱暂不可用");
     state.emailVersion=data.version;
     state.emailValue=data.email || "";
     $("email-edit").disabled=!Number.isSafeInteger(data.version);

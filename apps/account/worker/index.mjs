@@ -89,7 +89,7 @@ function accessAssertion(req) {
   const assertion = req.headers.get(ACCESS_HEADER)?.trim() || "";
   return assertion.length > 40 && assertion.length <= 32768 && assertion.split(".").length === 3 ? assertion : null;
 }
-async function session(req, env) {
+async function session(req, env, includeEmail = false) {
   const assertion = accessAssertion(req);
   if (!assertion) return fail(401, "ACCESS_REQUIRED", "请先通过 Cloudflare Access 登录");
   if (!safeText(env.IDENTITY_APPLICATION_CREDENTIAL, 1000)) {
@@ -110,20 +110,19 @@ async function session(req, env) {
   const exchangedData = await data(exchanged);
   const userToken = exchangedData?.accessToken;
   if (!safeText(userToken, 8192)) return fail(502, "IDENTITY_INVALID_RESPONSE", "Identity 未返回有效用户凭据");
-  let profileResponse;
-  try {
-    profileResponse = await service(env, "IDENTITY", "/api/v1/me", {
-      headers: { authorization: "Bearer " + userToken },
-    });
-  } catch {
-    return fail(503, "IDENTITY_UNAVAILABLE", "无法获取 LifeSpace 用户资料");
-  }
+  // Both reads are authorized by this request's freshly issued Account token.
+  // Profile remains mandatory; a failed optional email read must never make
+  // an inactive profile usable or disclose data without profile validation.
+  const profileRead = boundedUpstream(env, "IDENTITY", "/api/v1/me", userToken);
+  const emailRead = includeEmail ? readLoginEmail(env, userToken) : Promise.resolve(null);
+  const [profileResponse, loginEmail] = await Promise.all([profileRead, emailRead]);
+  if (!profileResponse) return fail(503, "IDENTITY_UNAVAILABLE", "无法获取 LifeSpace 用户资料");
   const profile = profileResponse.ok ? await data(profileResponse) : null;
   if (!profile || !/^usr_[A-Za-z0-9_-]+$/u.test(profile.id || "")
     || typeof profile.displayName !== "string" || profile.status !== "active") {
     return fail(403, "ACCOUNT_USER_UNAVAILABLE", "LifeSpace 用户不存在或不可用");
   }
-  return { token: userToken, user: { id: profile.id, displayName: profile.displayName, avatarUrl: avatarFromIdentity(profile, env) } };
+  return { token: userToken, user: { id: profile.id, displayName: profile.displayName, avatarUrl: avatarFromIdentity(profile, env) }, loginEmail };
 }
 const toUrl = (origin, path) => new URL(path, origin).href;
 function sameOriginMutation(req, allowMultipart = false) {
@@ -184,6 +183,16 @@ async function validCsrf(req, env, userId) {
 async function boundedUpstream(env, which, path, token) {
   try { return await service(env, which, path, { headers: { authorization: "Bearer " + token, accept: JSON_TYPE } }); }
   catch { return null; }
+}
+async function readLoginEmail(env, token) {
+  const upstream = await boundedUpstream(env, "IDENTITY", "/api/v1/me/web-login", token);
+  if (!upstream?.ok) return { error: upstream?.status === 403 ? 403 : 503 };
+  const state = await data(upstream);
+  if (!state || !["linked", "pending", "unlinked"].includes(state.status)
+    || !(state.email === null || safeText(state.email, 254))
+    || typeof state.linked !== "boolean" || !Number.isSafeInteger(state.version)
+    || state.version < 0) return { error: 502 };
+  return { data: { email: state.email, status: state.status, linked: state.linked, version: state.version } };
 }
 function parseConfirm(body) {
   if (!isObject(body) || Object.keys(body).some((k) =>
@@ -252,29 +261,28 @@ export async function accountFetch(req, env) {
     || ACCOUNT_AUTHORIZATION.exec(path)?.[2] === "revoke" || mutation) !== (req.method === "POST")) {
     return fail(405, "METHOD_NOT_ALLOWED", "不支持此请求方式");
   }
-  const linked = await session(req, env);
+  const includeEmail = path === "/api/session" && url.search === "?include=login-email";
+  if (path === "/api/session" && url.search && !includeEmail)
+    return fail(400, "INVALID_REQUEST", "账户会话参数无效");
+  const linked = await session(req, env, includeEmail);
   if (linked instanceof Response) return linked;
   if (path === "/api/session") {
     const csrfToken = await newCsrf(env, linked.user.id);
     if (!csrfToken) return fail(503, "ACCOUNT_NOT_CONFIGURED", "Account CSRF 安全配置缺失");
-    return responseJson({ data: { user: linked.user, csrfToken } }, 200, {
+    return responseJson({ data: { user: linked.user, csrfToken,
+      ...(includeEmail ? { loginEmail: linked.loginEmail?.data ?? null } : {}),
+    } }, 200, {
       "set-cookie": CSRF_COOKIE + "=" + csrfToken
         + "; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=" + CSRF_TTL_SECONDS,
     });
   }
   if (path === "/api/account/login-email") {
     if (url.search) return fail(400, "INVALID_REQUEST", "账号信息不接受额外参数");
-    const upstream = await boundedUpstream(env, "IDENTITY", "/api/v1/me/web-login", linked.token);
-    if (!upstream?.ok) return fail(upstream?.status === 403 ? 403 : 503,
-      "ACCOUNT_EMAIL_UNAVAILABLE", "无法读取已声明的登录邮箱");
-    const state = await data(upstream);
-    if (!state || !["linked", "pending", "unlinked"].includes(state.status)
-      || !(state.email === null || safeText(state.email, 254))
-      || typeof state.linked !== "boolean" || !Number.isSafeInteger(state.version)
-      || state.version < 0) {
-      return fail(502, "IDENTITY_INVALID_RESPONSE", "账号邮箱响应异常");
-    }
-    return responseJson({ data: { email: state.email, status: state.status, linked: state.linked, version: state.version } });
+    const result = await readLoginEmail(env, linked.token);
+    if (result.error) return result.error === 502
+      ? fail(502, "IDENTITY_INVALID_RESPONSE", "账号邮箱响应异常")
+      : fail(result.error, "ACCOUNT_EMAIL_UNAVAILABLE", "无法读取已声明的登录邮箱");
+    return responseJson({ data: result.data });
   }
   if (path === "/api/account/spaces") {
     if (url.search) return fail(400, "INVALID_REQUEST", "空间列表不接受额外参数");
