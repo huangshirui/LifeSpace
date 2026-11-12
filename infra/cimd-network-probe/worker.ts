@@ -82,7 +82,7 @@ export default {
     // Exercise exactly the same metadata parsing/fetch helper used in
     // Identity, but as a minimal isolated Worker with the same compatibility
     // date and strictly-public fetch flag.
-    const valid = await fetchClientMetadata(clientId);
+    const valid = await fetchClientMetadata(clientId, fetch);
     const metadataOk = !!valid && valid.clientId === clientId
       && valid.redirectUris.includes("https://oauth-acceptance.example.org/callback");
     // Same-zone front-door test uses a harmless public OAuth discovery route.

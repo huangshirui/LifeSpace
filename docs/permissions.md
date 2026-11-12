@@ -366,3 +366,7 @@ and optimistic concurrency. Identity issues at most 60-second execution JWTs; Co
 rechecks live scopes on every request. Production and existing read-only clients
 remain read-only. No implicit User Delegation, External write, batch or admin
 surface is added. Contract projection and release details: `docs/identity-oauth.md`.
+
+## CIMD discovery is not authority (candidate)
+
+The independent authenticated metadata egress operation can retrieve only an eligible public client document. Its transport credential confers no LifeSpace API permission, Application access, Space authority, Delegation or token issuance. Identity validates the document and exact callback and rechecks it at Consent; extra client-declared grant types do not enable server token grants. Missing egress, unapproved network targets or invalid documents fail closed. No client URL allowlist or vendor-specific exception is required.

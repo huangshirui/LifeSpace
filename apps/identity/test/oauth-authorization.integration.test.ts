@@ -281,13 +281,17 @@ describe("Identity OAuth Authorization Server (isolated candidate)", () => {
     const defaultMetadata = await t.request("/.well-known/oauth-authorization-server");
     expect(defaultMetadata.status).toBe(200);
     expect(await defaultMetadata.json()).not.toHaveProperty("client_id_metadata_document_supported");
-    const cimd = t.b as typeof t.b & { OAUTH_CIMD_ENABLED: string };
+    const cimd = t.b as typeof t.b & { OAUTH_CIMD_ENABLED: string; OAUTH_CIMD_EGRESS_URL: string; OAUTH_CIMD_EGRESS_SECRET: string };
     cimd.OAUTH_CIMD_ENABLED = "1";
     const unpinned = await t.request("/.well-known/oauth-authorization-server");
     expect(await unpinned.json()).not.toHaveProperty("client_id_metadata_document_supported");
     await t.b.DB.prepare(
       "UPDATE oauth_client_admission_policy SET cimd_enabled=1 WHERE id=1"
     ).run();
+    expect(await (await t.request("/.well-known/oauth-authorization-server")).json())
+      .not.toHaveProperty("client_id_metadata_document_supported");
+    cimd.OAUTH_CIMD_EGRESS_URL = "https://egress.example.com/api/cimd";
+    cimd.OAUTH_CIMD_EGRESS_SECRET = "a".repeat(64);
     const optInMetadata = await t.request("/.well-known/oauth-authorization-server");
     expect(optInMetadata.status).toBe(200);
     expect(await optInMetadata.json()).toMatchObject({
@@ -404,14 +408,18 @@ describe("Identity OAuth Authorization Server (isolated candidate)", () => {
     })).status).toBe(403);
   });
 
-  it("admits a CIMD client with an unlisted HTTPS Client ID only in guarded open mode", async () => {
+  it("admits an arbitrary eligible CIMD client only through the authenticated secure egress", async () => {
     const t = await setup();
     const b = t.b as typeof t.b & {
       OAUTH_CIMD_ENABLED: string;
+      OAUTH_CIMD_EGRESS_URL: string;
+      OAUTH_CIMD_EGRESS_SECRET: string;
       OAUTH_DCR_RATE_LIMITER: { limit: ({ key }: { key: string }) => Promise<{ success: boolean }> };
     };
     b.ENVIRONMENT = "staging";
     b.OAUTH_CIMD_ENABLED = "1";
+    b.OAUTH_CIMD_EGRESS_URL = "https://egress.example.com/api/cimd";
+    b.OAUTH_CIMD_EGRESS_SECRET = "b".repeat(64);
     const remoteId = "https://public-client.example.com/oauth/client.json";
     const redirect = "https://client.example.test/callback";
     await b.DB.prepare(
@@ -429,8 +437,12 @@ describe("Identity OAuth Authorization Server (isolated candidate)", () => {
     } };
     const oldFetch = globalThis.fetch;
     let documentCalls = 0;
-    globalThis.fetch = (async (input: RequestInfo | URL) => {
-      if (input !== remoteId) throw new Error("Unexpected metadata fetch");
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (input !== b.OAUTH_CIMD_EGRESS_URL) throw new Error("Unexpected direct metadata fetch");
+      expect(init?.method).toBe("POST");
+      expect(init?.redirect).toBe("manual");
+      expect(init?.body).toBe(JSON.stringify({ client_id: remoteId }));
+      expect(new Headers(init?.headers).get("authorization")).toBe("Bearer " + b.OAUTH_CIMD_EGRESS_SECRET);
       documentCalls++;
       return Response.json({
         client_id: remoteId, client_name: "Unverified Public Agent",
@@ -440,6 +452,11 @@ describe("Identity OAuth Authorization Server (isolated candidate)", () => {
       });
     }) as typeof fetch;
     try {
+      const secret = b.OAUTH_CIMD_EGRESS_SECRET;
+      Reflect.deleteProperty(b, "OAUTH_CIMD_EGRESS_SECRET");
+      expect((await t.authorize({ client_id: remoteId, redirect_uri: redirect })).status).toBe(400);
+      expect(documentCalls).toBe(0);
+      b.OAUTH_CIMD_EGRESS_SECRET = secret;
       const accepted = await t.authorize({ client_id: remoteId, redirect_uri: redirect });
       expect(accepted.status).toBe(302);
       expect(documentCalls).toBe(1);

@@ -27,14 +27,26 @@ export function cimdClientId(value: unknown): value is string {
   return true;
 }
 
-// A valid HTTPS URL is NOT sufficient to authorize an outbound fetch from
-// Identity. Only operator-pinned, exact metadata document IDs are eligible.
-// Host-only matching and suffix wildcard rules would reintroduce SSRF.
-export function approvedCimdClientId(clientId: unknown, allowlist: unknown): clientId is string {
-  if (!cimdClientId(clientId) || typeof allowlist !== "string" || allowlist.length > 8192) return false;
-  const allowed = allowlist.split(/\s+/u).filter(Boolean);
-  if (allowed.length === 0 || allowed.length > 100 || new Set(allowed).size !== allowed.length) return false;
-  return allowed.every(cimdClientId) && allowed.includes(clientId);
+// The fixed relay endpoint is deployment-owned, never supplied by an OAuth
+// client. The independent secret authenticates only this metadata operation.
+export function cimdEgressConfigured(endpoint: unknown, secret: unknown): boolean {
+  if (typeof endpoint !== "string" || !cimdClientId(endpoint)
+    || typeof secret !== "string" || !/^[a-f0-9]{64}$/u.test(secret)) return false;
+  return new URL(endpoint).pathname === "/api/cimd";
+}
+
+export async function fetchClientMetadataViaEgress(
+  clientId: string, endpoint: string | undefined, secret: string | undefined,
+  relayFetch: typeof fetch = fetch,
+): Promise<PublicOAuthClientMetadata | null> {
+  if (!cimdEgressConfigured(endpoint, secret) || !endpoint || !secret || !cimdClientId(clientId)) return null;
+  // Only the trusted deployment endpoint receives the relay credential.
+  // The client document itself is never fetched directly by Identity.
+  return fetchClientMetadata(clientId, (_input, _init) => relayFetch(endpoint, {
+    method: "POST", redirect: "manual", signal: AbortSignal.timeout(8000),
+    headers: { "content-type": "application/json", authorization: "Bearer " + secret },
+    body: JSON.stringify({ client_id: clientId }),
+  }));
 }
 
 export function publicRedirectUri(value: unknown): value is string {
@@ -84,7 +96,7 @@ export function parseClientMetadata(clientId: string, document: unknown): Public
 
 export async function fetchClientMetadata(
   clientId: string,
-  fetcher: typeof fetch = fetch,
+  fetcher: typeof fetch,
 ): Promise<PublicOAuthClientMetadata | null> {
   if (!cimdClientId(clientId)) return null;
   let response: Response;
