@@ -1,8 +1,8 @@
 import { AwsClient } from "aws4fetch";
 import type { Context, Hono } from "hono";
-import type { Bindings, Principal, Variables } from "./env";
+import type { AuthorityD1Timing, Bindings, Principal, Variables } from "./env";
 import { ApiError, success } from "./http";
-import { measurePerformancePhase } from "./performance-timing";
+import { authorityD1Observer, measurePerformancePhase } from "./performance-timing";
 import { consumeSingleUseRead, requireModelAccess, type ModelAccessDecision } from "./model-authorization";
 import { getRuntimeModel, type PublishedModel } from "./model-registry";
 import { requireModelPolicy } from "./policy";
@@ -131,6 +131,7 @@ async function resolveTarget(
   fieldKey: string,
   recordId: string | null,
   selectedDelegation: string | null,
+  observeAuthorityBatch?: (sample: AuthorityD1Timing) => void,
 ): Promise<ResolvedTarget> {
   if (await isExternalModelAddress(env, modelKey)) {
     if (!recordId) throw new ApiError("VALIDATION_ERROR", "External file upload requires recordId", 422);
@@ -143,7 +144,7 @@ async function resolveTarget(
     const decision = await requireModelAccess(env, principal, spaceId, externalAuthorityModel(model), "write", {
       delegationId: selectedDelegation,
       recordId,
-    });
+    }, observeAuthorityBatch);
     if (decision.authority.singleUse) throw new ApiError("FILE_UPLOAD_SINGLE_USE_UNSUPPORTED", "Multi-step upload cannot use a single-use Delegation", 422);
     return { destination: "external", maxBytes: field.upload.maxBytes, decision, externalModel: model };
   }
@@ -154,7 +155,7 @@ async function resolveTarget(
     const decision = await requireModelAccess(env, principal, spaceId, model, "write", {
       delegationId: selectedDelegation,
       ...(recordId ? { recordId } : {}),
-    });
+    }, observeAuthorityBatch);
     if (decision.authority.singleUse) throw new ApiError("FILE_UPLOAD_SINGLE_USE_UNSUPPORTED", "Multi-step Icon upload cannot use a single-use Delegation", 422);
     if (recordId) {
       const record = await getGenericResource(env, spaceId, model, recordId);
@@ -172,7 +173,7 @@ async function resolveTarget(
   const decision = await requireModelAccess(env, principal, spaceId, model, "write", {
     delegationId: selectedDelegation,
     ...(recordId ? { recordId } : {}),
-  });
+  }, observeAuthorityBatch);
   if (decision.authority.singleUse) throw new ApiError("FILE_UPLOAD_SINGLE_USE_UNSUPPORTED", "Multi-step upload cannot use a single-use Delegation", 422);
   return { destination: "native", maxBytes: NATIVE_MAX_BYTES, decision, nativeModel: model };
 }
@@ -280,7 +281,7 @@ async function completeSession(context: Context<AppEnv>) {
     throw new ApiError("UPLOAD_EXPIRED", "Upload session expired", 409);
   }
   const target = await measurePerformancePhase(context, "file.authority", () =>
-    resolveTarget(context.env, context.get("principal"), spaceId, row.model_key, row.field_key, row.record_id, delegationId(context)));
+    resolveTarget(context.env, context.get("principal"), spaceId, row.model_key, row.field_key, row.record_id, delegationId(context), authorityD1Observer(context)));
   if (target.destination !== row.destination || !sameExecution(row, target.decision.principal)) throw new ApiError("UPLOAD_AUTHORITY_CHANGED", "Upload execution authority no longer matches the session", 403);
   const staged = await measurePerformancePhase(context, row.destination === "native" ? "file.stage_get" : "file.stage_head", () =>
     verifyStagedUpload(context.env, row));
