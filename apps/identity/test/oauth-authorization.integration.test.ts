@@ -281,13 +281,19 @@ describe("Identity OAuth Authorization Server (isolated candidate)", () => {
     const defaultMetadata = await t.request("/.well-known/oauth-authorization-server");
     expect(defaultMetadata.status).toBe(200);
     expect(await defaultMetadata.json()).not.toHaveProperty("client_id_metadata_document_supported");
-    const cimd = t.b as typeof t.b & { OAUTH_CIMD_ENABLED: string };
+    const cimd = t.b as typeof t.b & { OAUTH_CIMD_ENABLED: string; OAUTH_CIMD_ALLOWED_CLIENT_IDS: string };
     cimd.OAUTH_CIMD_ENABLED = "1";
     const unpinned = await t.request("/.well-known/oauth-authorization-server");
     expect(await unpinned.json()).not.toHaveProperty("client_id_metadata_document_supported");
     await t.b.DB.prepare(
       "UPDATE oauth_client_admission_policy SET cimd_enabled=1 WHERE id=1"
     ).run();
+    expect(await (await t.request("/.well-known/oauth-authorization-server")).json())
+      .not.toHaveProperty("client_id_metadata_document_supported");
+    cimd.OAUTH_CIMD_ALLOWED_CLIENT_IDS = "https://*.example.com/oauth/client.json";
+    expect(await (await t.request("/.well-known/oauth-authorization-server")).json())
+      .not.toHaveProperty("client_id_metadata_document_supported");
+    cimd.OAUTH_CIMD_ALLOWED_CLIENT_IDS = "https://public-client.example.com/oauth/client.json";
     const optInMetadata = await t.request("/.well-known/oauth-authorization-server");
     expect(optInMetadata.status).toBe(200);
     expect(await optInMetadata.json()).toMatchObject({
@@ -404,15 +410,17 @@ describe("Identity OAuth Authorization Server (isolated candidate)", () => {
     })).status).toBe(403);
   });
 
-  it("admits a CIMD client with an unlisted HTTPS Client ID only in guarded open mode", async () => {
+  it("admits only explicitly pinned HTTPS CIMD documents, without fetching unlisted URLs", async () => {
     const t = await setup();
     const b = t.b as typeof t.b & {
       OAUTH_CIMD_ENABLED: string;
+      OAUTH_CIMD_ALLOWED_CLIENT_IDS: string;
       OAUTH_DCR_RATE_LIMITER: { limit: ({ key }: { key: string }) => Promise<{ success: boolean }> };
     };
     b.ENVIRONMENT = "staging";
     b.OAUTH_CIMD_ENABLED = "1";
     const remoteId = "https://public-client.example.com/oauth/client.json";
+    b.OAUTH_CIMD_ALLOWED_CLIENT_IDS = remoteId;
     const redirect = "https://client.example.test/callback";
     await b.DB.prepare(
       "UPDATE oauth_client_admission_policy SET cimd_enabled=1 WHERE id=1"
@@ -439,6 +447,11 @@ describe("Identity OAuth Authorization Server (isolated candidate)", () => {
       });
     }) as typeof fetch;
     try {
+      expect((await t.authorize({ client_id: "https://other.example.com/oauth/client.json",
+        redirect_uri: redirect })).status).toBe(400);
+      expect((await t.authorize({ client_id: "https://public-client.example.com/other.json",
+        redirect_uri: redirect })).status).toBe(400);
+      expect(documentCalls).toBe(0);
       const accepted = await t.authorize({ client_id: remoteId, redirect_uri: redirect });
       expect(accepted.status).toBe(302);
       expect(documentCalls).toBe(1);
