@@ -1,10 +1,12 @@
 // Readable, repeatable LIVE staging acceptance for the public OAuth boundary.
 // Invoked only by the owner-dispatched staging acceptance workflow. No user
 // credentials or browser cookies are used; no Production calls are possible.
-// Creates ONE public test client and ONE unapproved request, then deletes only
-// those exact IDs via scoped staging D1 access even when a later assertion fails.
+// Owner-gated real Staging checks, including a CIMD-only deployment gate.
+// No user session, consent approval or token minting is requested. Cleanup
+// owns only the exact nonce-bound requests and unreferenced test registrations.
 import assert from "node:assert/strict";
 import { createHash, randomUUID } from "node:crypto";
+import { APPROVED_STAGING_CIMD_IDS, auditCimdStaging } from "./audit-staging-cimd-egress.mjs";
 
 const BASE = "https://auth-staging.aisr.online";
 const CORE_ORIGIN = "https://core-staging.aisr.online";
@@ -39,6 +41,15 @@ const codeChallenge = createHash("sha256").update(pkceVerifier).digest("base64ur
 let ownedClientId = null;
 let ownedRequestId = null;
 const outcomes = [];
+const ownedCimdRequests = [];
+const ownedFixtureClients = [];
+const cimdOnly = process.argv.includes("--cimd-only");
+const CIMD_CHATGPT = APPROVED_STAGING_CIMD_IDS[0];
+const CIMD_FIXTURE = APPROVED_STAGING_CIMD_IDS[1];
+const CIMD_CALLBACKS = {
+  [CIMD_CHATGPT]: "https://chatgpt.com/connector_platform_oauth_redirect",
+  [CIMD_FIXTURE]: "https://oauth-acceptance.example.org/callback",
+};
 
 function passed(name) {
   outcomes.push(name);
@@ -111,6 +122,34 @@ function authorizeUrl(clientId, redirect, resource, overrides = {}) {
   return "/oauth/authorize?" + params.toString();
 }
 async function cleanup() {
+  // Delete only the nonce-bound, still-pending requests created by this run.
+  for (const clientId of APPROVED_STAGING_CIMD_IDS) {
+    await api(
+      "DELETE FROM oauth_authorization_requests WHERE client_id=? AND state=? AND status='pending' "
+      + "AND NOT EXISTS (SELECT 1 FROM oauth_authorizations a WHERE a.request_id=oauth_authorization_requests.id)",
+      [clientId, "oauth-staging-" + nonce],
+    );
+    const leftover = await api(
+      "SELECT count(*) AS total FROM oauth_authorization_requests WHERE client_id=? AND state=?",
+      [clientId, "oauth-staging-" + nonce],
+    );
+    assert.equal(leftover[0]?.total, 0, "Owned CIMD request cleanup failed");
+  }
+  // Never delete a pre-existing vendor registration or any referenced row.
+  // A newly discovered official ChatGPT registration is intentionally retained
+  // as a legitimate stable client. The synthetic fixture alone may be deleted.
+  for (const clientId of ownedFixtureClients) {
+    assert.equal(clientId, CIMD_FIXTURE);
+    await api(
+      "DELETE FROM oauth_clients WHERE id=? "
+      + "AND NOT EXISTS (SELECT 1 FROM oauth_authorization_requests r WHERE r.client_id=?) "
+      + "AND NOT EXISTS (SELECT 1 FROM oauth_authorizations a WHERE a.client_id=?) "
+      + "AND NOT EXISTS (SELECT 1 FROM oauth_authorization_codes c WHERE c.client_id=?) "
+      + "AND NOT EXISTS (SELECT 1 FROM oauth_access_tokens a WHERE a.client_id=?) "
+      + "AND NOT EXISTS (SELECT 1 FROM oauth_refresh_tokens r WHERE r.client_id=?)",
+      Array(6).fill(clientId),
+    );
+  }
   if (ownedRequestId) {
     await api(
       "DELETE FROM oauth_authorization_requests WHERE id=? AND client_id=? "
@@ -133,17 +172,95 @@ async function cleanup() {
   }
   passed("ephemeral OAuth test records cleaned");
 }
-async function run() {
+async function runCimd() {
+  const audit = await auditCimdStaging({ accountId, token: apiToken });
+  assert.equal(audit.status, "SAFE_PINNED_PILOT", "CIMD pilot configuration not converged");
   await discoverStagingDatabases();
+  const res = await request("/.well-known/oauth-authorization-server");
+  assert.equal(res.status, 200);
+  const metadata = await res.json();
+  assert.equal(metadata.issuer, BASE);
+  assert.equal(metadata.client_id_metadata_document_supported, true, "CIMD pilot is not advertised");
+  assert.equal(metadata.registration_endpoint, BASE + "/oauth/register");
+  assert.ok(metadata.code_challenge_methods_supported?.includes("S256"));
+  assert.ok(!metadata.grant_types_supported?.includes("urn:ietf:params:oauth:grant-type:jwt-bearer"));
+  passed("CIMD pilot advertised alongside DCR, not JWT bearer");
+  const resources = await coreApi(
+    "SELECT id FROM mcp_server_definitions WHERE enabled=1 ORDER BY updated_at DESC LIMIT 10",
+  );
+  assert.ok(resources.length > 0, "No enabled Staging MCP resource for real CIMD acceptance");
+  let selectedResource;
+  for (const clientId of APPROVED_STAGING_CIMD_IDS) {
+    const registeredBefore = await api("SELECT id,status FROM oauth_clients WHERE id=?", [clientId]);
+    if (clientId === CIMD_FIXTURE && registeredBefore.length === 0) ownedFixtureClients.push(clientId);
+    let accepted;
+    for (const row of resources) {
+      if (!/^mcp_[a-f0-9]{32}$/u.test(row.id)) continue;
+      const resource = CORE_ORIGIN + "/mcp/" + row.id;
+      const attempt = await request(authorizeUrl(clientId, CIMD_CALLBACKS[clientId], resource));
+      if (attempt.status === 302) {
+        accepted = attempt;
+        selectedResource = resource;
+        break;
+      }
+      assert.equal(attempt.status, 400, "Unexpected CIMD authorization response");
+    }
+    assert.ok(accepted, "No eligible MCP resource accepted pinned CIMD client " + clientId);
+    const consent = new URL(accepted.headers.get("location"));
+    const requestId = consent.searchParams.get("request_id");
+    assert.match(requestId || "", /^oar_[a-f0-9]{32}$/u);
+    ownedCimdRequests.push(requestId);
+    assert.equal(consent.origin, "https://account-staging.aisr.online");
+    assert.equal(consent.searchParams.has("code"), false);
+    const pending = await api(
+      "SELECT status,state,redirect_uri FROM oauth_authorization_requests WHERE id=? AND client_id=?",
+      [requestId, clientId],
+    );
+    assert.equal(pending.length, 1);
+    assert.equal(pending[0].status, "pending");
+    assert.equal(pending[0].state, "oauth-staging-" + nonce);
+    assert.equal(pending[0].redirect_uri, CIMD_CALLBACKS[clientId]);
+    const granted = await api("SELECT count(*) AS total FROM oauth_authorizations WHERE request_id=?", [requestId]);
+    assert.equal(granted[0]?.total, 0);
+    passed("real pinned CIMD pending Consent (no Authorization): " + clientId);
+    const wrong = await request(authorizeUrl(clientId,
+      "https://oauth-acceptance.example.org/not-registered", selectedResource));
+    assert.equal(wrong.status, 400);
+    passed("pinned CIMD rejects an unregistered redirect: " + clientId);
+  }
+  const unlisted = "https://untrusted-public.example.org/client.json";
+  const rejected = await request(authorizeUrl(unlisted, CIMD_CALLBACKS[CIMD_FIXTURE], selectedResource));
+  assert.equal(rejected.status, 400);
+  const denied = await rejected.json();
+  assert.equal(denied.error, "invalid_client");
+  const unlistedRows = await api("SELECT count(*) AS total FROM oauth_clients WHERE id=?", [unlisted]);
+  assert.equal(unlistedRows[0]?.total, 0, "Unlisted CIMD client was persisted");
+  passed("unlisted CIMD rejected without client registration");
+  const forbidden = await request("/oauth/token", {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
+      client_id: CIMD_CHATGPT,
+      assertion: "not-a-jwt",
+    }).toString(),
+  });
+  assert.equal(forbidden.status, 400);
+  assert.equal((await forbidden.json()).error, "unsupported_grant_type");
+  passed("JWT bearer declaration does not enable JWT bearer token exchange");
+}
+async function run() {
+  if (cimdOnly) { await runCimd(); return; }
+  await runCimd();
   const metadataResponse = await request("/.well-known/oauth-authorization-server");
   assert.equal(metadataResponse.status, 200);
   const metadata = await metadataResponse.json();
   assert.equal(metadata.issuer, BASE);
   assert.equal(metadata.registration_endpoint, BASE + "/oauth/register");
   assert.ok(metadata.code_challenge_methods_supported?.includes("S256"));
-  assert.equal(metadata.client_id_metadata_document_supported, undefined,
-    "Unverified CIMD egress must remain disabled");
-  passed("server metadata and CIMD fail-closed");
+  assert.equal(metadata.client_id_metadata_document_supported, true,
+    "Exact-pinned CIMD pilot must remain advertised");
+  passed("server metadata and bounded CIMD pilot");
 
   // Public invalid client metadata must fail before any D1 registration.
   const invalidRedirect = await request("/oauth/register", {
@@ -232,7 +349,7 @@ async function run() {
     "https://untrusted-public.example.org/client.json", callback, resource,
   ));
   assert.equal(cimdAttempt.status, 400);
-  passed("unapproved CIMD URL does not initiate metadata discovery");
+  passed("unapproved CIMD URL rejected");
 
   const wrongCode = await request("/oauth/token", {
     method: "POST",
