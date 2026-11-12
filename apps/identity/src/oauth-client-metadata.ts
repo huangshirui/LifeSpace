@@ -68,8 +68,13 @@ export function parseClientMetadata(clientId: string, document: unknown): Public
     || (data.token_endpoint_auth_methods_supported === undefined
       && data.token_endpoint_auth_method !== undefined && data.token_endpoint_auth_method !== "none")
     || (data.response_types !== undefined && JSON.stringify(data.response_types) !== JSON.stringify(["code"]))
+    // Client grant_types describes the client's capabilities, not the
+    // authorization server's supported grants. Require an overlap with our
+    // authorization-code flow and validate the list shape; additional grant
+    // declarations never expand the token endpoint's independent allowlist.
     || (data.grant_types !== undefined && (!Array.isArray(data.grant_types)
-      || data.grant_types.some(v => v !== "authorization_code" && v !== "refresh_token")
+      || data.grant_types.length > 16 || new Set(data.grant_types).size !== data.grant_types.length
+      || data.grant_types.some(v => typeof v !== "string" || !/^[\x21-\x7e]{1,256}$/u.test(v))
       || !data.grant_types.includes("authorization_code")))) return null;
   return {
     clientId, displayName: data.client_name.trim(),

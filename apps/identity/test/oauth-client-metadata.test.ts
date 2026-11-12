@@ -69,6 +69,34 @@ describe("CIMD public client metadata is untrusted until verified", () => {
     expect(publicRedirectUri("https://client.example.com/callback")).toBe(true);
   });
 
+  it("accepts compatible multi-grant metadata without granting new authority", () => {
+    const chatgptId = "https://chatgpt.com/oauth/client.json";
+    const chatgpt = {
+      client_id: chatgptId, client_name: "ChatGPT",
+      redirect_uris: ["https://chatgpt.com/connector_platform_oauth_redirect"],
+      token_endpoint_auth_method: "private_key_jwt",
+      token_endpoint_auth_methods_supported: ["none", "private_key_jwt"],
+      grant_types: ["authorization_code", "refresh_token", "urn:ietf:params:oauth:grant-type:jwt-bearer"],
+      response_types: ["code"],
+      jwks_uri: "https://chatgpt.com/oauth/jwks.json",
+    };
+    expect(parseClientMetadata(chatgptId, chatgpt)).toEqual({
+      clientId: chatgptId, displayName: "ChatGPT", redirectUris: chatgpt.redirect_uris,
+    });
+    expect(parseClientMetadata(clientId, {
+      ...metadata, grant_types: ["authorization_code", "urn:example:future-grant"],
+    })).toEqual({
+      clientId, displayName: metadata.client_name, redirectUris: metadata.redirect_uris,
+    });
+    for (const grant_types of [
+      ["urn:ietf:params:oauth:grant-type:jwt-bearer"],
+      ["authorization_code", 123],
+      ["authorization_code", "bad grant"],
+      ["authorization_code", "authorization_code"],
+      ["authorization_code", ""],
+    ]) expect(parseClientMetadata(clientId, { ...metadata, grant_types })).toBeNull();
+  });
+
   it("never follows redirects, limits bytes and requires JSON media type", async () => {
     const calls: Array<{ url: string; redirect?: string }> = [];
     const fake = async (url: string, init: RequestInit) => {
