@@ -1,21 +1,26 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { assessCimdStaging, auditCimdStaging } from "./audit-staging-cimd-egress.mjs";
+import { APPROVED_STAGING_CIMD_IDS, assessCimdStaging, auditCimdStaging } from "./audit-staging-cimd-egress.mjs";
 
 const publicFlag = ["global_fetch_strictly_public"];
 const worker = (flag = "0", options = {}) => ({
   compatibility_flags: options.compatibility_flags ?? publicFlag,
   bindings: [
     { name: "OAUTH_CIMD_ENABLED", type: "plain_text", text: flag },
+    ...(options.pins === undefined ? [] : [{ name: "OAUTH_CIMD_ALLOWED_CLIENT_IDS", type: "plain_text", text: options.pins }]),
+    ...(options.limits ? ["OAUTH_DCR_RATE_LIMITER", "OAUTH_AUTHORIZE_RATE_LIMITER"].map(name => ({ name, type: "ratelimit" })) : []),
     ...(options.networkBindings ?? []),
   ],
 });
 
-test("Wrangler requires strictly-public fetch for Identity Staging only", () => {
+test("Wrangler enables only the exact Staging pilot, not Production", () => {
   const config = JSON.parse(readFileSync(new URL("../../apps/identity/wrangler.jsonc", import.meta.url), "utf8"));
   assert.deepEqual(config.env.staging.compatibility_flags, publicFlag);
-  assert.equal(config.env.staging.vars.OAUTH_CIMD_ENABLED, "0");
+  assert.equal(config.env.staging.vars.OAUTH_CIMD_ENABLED, "1");
+  assert.deepEqual(config.env.staging.vars.OAUTH_CIMD_ALLOWED_CLIENT_IDS.split(/\s+/u).sort(),
+    [...APPROVED_STAGING_CIMD_IDS].sort());
+  assert.equal(config.env.production.vars.OAUTH_CIMD_ALLOWED_CLIENT_IDS, undefined);
   assert.deepEqual(config.env.production.compatibility_flags, publicFlag,
     "Future Production activation must also use public-only fetch; no Production deployment here");
   assert.equal(config.env.production.vars.OAUTH_CIMD_ENABLED, undefined);
@@ -37,10 +42,22 @@ test("flag absent or disabled must refuse release even when the switch is off", 
   }
 });
 
-test("a CIMD-enabled Staging Worker is not yet approved without live SSRF network probes", () => {
+test("an enabled Staging Worker fails closed without exact pins and both limiters", () => {
   assert.equal(assessCimdStaging(worker("1")).safeClosed, false);
   assert.equal(assessCimdStaging(worker("missing")).safeClosed, false);
   assert.equal(assessCimdStaging({ compatibility_flags: publicFlag }).safeClosed, false);
+});
+
+test("only the exact bounded pilot passes with both limiters, never a broader list", () => {
+  const pins = APPROVED_STAGING_CIMD_IDS.join(" ");
+  const pilot = worker("1", { pins, limits: true });
+  assert.equal(assessCimdStaging(pilot).status, "SAFE_PINNED_PILOT");
+  assert.equal(assessCimdStaging(worker("1", { pins })).safe, false);
+  assert.equal(assessCimdStaging(worker("1", { pins: pins + " https://example.org/extra.json", limits: true })).safe, false);
+  assert.equal(assessCimdStaging(worker("1", { pins: APPROVED_STAGING_CIMD_IDS[0], limits: true })).safe, false);
+  assert.equal(assessCimdStaging(worker("1", { pins, limits: true, compatibility_flags: [...publicFlag, "global_fetch_private_origin"] })).safe, false);
+  assert.equal(assessCimdStaging(worker("1", { pins, limits: true,
+    networkBindings: [{ name: "PRIVATE_NETWORK", type: "vpc_network" }] })).safe, false);
 });
 
 test("any private VPC egress binding fails closed regardless of strict public flag", () => {
