@@ -76,9 +76,10 @@ jobs:
       - name: Validate manual staging OAuth security script syntax
         if: steps.validation.outputs.run_full == 'true'
         run: node --check infra/scripts/verify-staging-oauth-security.mjs
-      - name: Verify CIMD egress safety gate unit tests
+      - name: Verify CIMD egress safety gate and pinned connection tests
         if: steps.validation.outputs.run_full == 'true'
-        run: node --test infra/scripts/audit-staging-cimd-egress.test.mjs
+        run: |
+          node --test infra/scripts/audit-staging-cimd-egress.test.mjs infra/cimd-egress/test/*.test.mjs
       - name: Check isolated CIMD remote network acceptance contract and bundle
         if: steps.validation.outputs.run_full == 'true'
         run: |
