@@ -15,6 +15,8 @@ assert.ok(process.env.CLOUDFLARE_API_TOKEN, "Missing protected Cloudflare API to
 const localBase = "http://127.0.0.1:8797";
 const token = randomBytes(32).toString("hex");
 const dnsFlipEnabled = process.env.CIMD_DNS_FLIP === "1";
+const diagnosticOnly = process.argv.includes("--diagnostic-only");
+assert.ok(!diagnosticOnly || !dnsFlipEnabled, "Diagnostic mode cannot mutate DNS");
 if (dnsFlipEnabled) {
   assert.ok(process.env.CIMD_DNS_TEST_TOKEN,
     "Dedicated CIMD_DNS_TEST_TOKEN is required for any DNS-mutating acceptance; never fall back to deploy token");
@@ -57,6 +59,22 @@ async function waitForPreview() {
 let failed = null;
 try {
   await waitForPreview();
+  if (diagnosticOnly) {
+    const response = await tryFetch("/diagnostic", {
+      method:"POST",headers:{authorization:"Bearer "+token},
+    });
+    assert.equal(response.status,200,"Remote diagnostic returned non-success");
+    const result = await response.json();
+    console.log("CIMD FIXED PUBLIC DIAGNOSTICS: "+JSON.stringify(result));
+    if(process.env.GITHUB_STEP_SUMMARY) await appendFile(process.env.GITHUB_STEP_SUMMARY,
+      "\n## CIMD fixed-public metadata diagnostics\n\n```json\n"+JSON.stringify(result,null,2)+"\n```\n");
+    assert.equal(typeof result.fixture?.accepted,"boolean");
+    assert.equal(typeof result.chatgpt?.accepted,"boolean");
+    // This is diagnostic evidence, not a release pass. Print both outcomes
+    // before failing, so a rejection never hides the failing stage.
+    assert.ok(result.fixture.accepted && result.chatgpt.accepted,
+      "At least one public CIMD document failed; inspect diagnostic stages above");
+  } else {
   const response = await tryFetch("/probe", {
     method: "POST", headers: { authorization: "Bearer " + token },
   });
@@ -105,6 +123,7 @@ try {
       + "- **In-flight DNS rebinding: NOT PROVEN** (single-connection or worker-resolved IP is not exposed)\n"
       + (dnsFlipHost ? "- Isolated authoritative A-record public→private transition: PASS; record deleted\n" : "")
       + "- Worker preview is ephemeral; no LifeSpace staging/production code or settings modified\n");
+  }
   }
 } catch (error) {
   failed = error;

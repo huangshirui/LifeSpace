@@ -217,6 +217,10 @@ async function runCimd() {
         break;
       }
       assert.equal(attempt.status, 400, "Unexpected CIMD authorization response");
+      const denial = await attempt.json().catch(()=>null);
+      const known = ["invalid_client","invalid_request","temporarily_unavailable","rate_limited"];
+      const category = known.includes(denial?.error) ? denial.error : "other";
+      console.log("CIMD admission rejected: host="+new URL(clientId).hostname+" oauth_error="+category);
     }
     assert.ok(accepted, "No eligible resource accepted CIMD document: " + new URL(clientId).hostname);
     const consent = new URL(accepted.headers.get("location"));

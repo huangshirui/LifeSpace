@@ -35,3 +35,18 @@ test("remote probe never takes arbitrary target URLs or touches sensitive cloud 
   assert.match(runner, /NO-2XX/);
   assert.match(runner, /NOT TESTED: in-flight DNS rebinding/);
 });
+
+
+test("diagnostic-only preview uses fixed public targets and cannot enable DNS mutation",()=>{
+  const src=read("../cimd-network-probe/worker.ts");
+  const runner=read("verify-cimd-remote-network.mjs");
+  const workflow=read("../../.github/workflows/staging-cimd-network.yml");
+  assert.match(src,/path === "\/diagnostic"/);
+  assert.match(src,/diagnose\(clientId,/);
+  assert.match(src,/diagnose\("https:\/\/chatgpt\.com\/oauth\/client\.json",/);
+  assert.match(src,/fetchClientMetadata\(id,tracedFetch\)/);
+  assert.match(runner,/!diagnosticOnly \|\| !dnsFlipEnabled/);
+  assert.match(runner,/--diagnostic-only/);
+  assert.match(workflow,/diagnostic_only:/);
+  assert.match(workflow,/--diagnostic-only/);
+});
