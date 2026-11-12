@@ -2,7 +2,7 @@ import fs from "node:fs";
 import YAML from "yaml";
 
 const doc = YAML.parse(fs.readFileSync(new URL("../openapi.yaml",import.meta.url),"utf8"));
-if (doc.openapi !== "3.1.0" || doc.info?.version !== "0.18.0") {
+if (doc.openapi !== "3.1.0" || doc.info?.version !== "0.19.0") {
   throw new Error("Identity OpenAPI version metadata is invalid");
 }
 
@@ -164,3 +164,8 @@ if (!String(agentTokenPost?.description ?? "").includes("Core-only") || !String(
 if (doc.components?.schemas?.Agent?.properties?.id?.pattern !== "^agt_" || doc.components?.schemas?.AgentTokenResponse?.properties?.data?.properties?.actor?.properties?.type?.const !== "agent") {
   throw new Error("Identity Agent contract must expose stable agt_* identity and actor semantics");
 }
+
+const oauthExecutionPost = doc.paths["/oauth/execution-tokens"].post;
+if (oauthExecutionPost.requestBody.content["application/json"].schema.properties.includeContext?.const !== true
+  || !oauthExecutionPost.responses["200"].content["application/json"].schema.properties.data.properties.context?.required.includes("authorization_id")
+  || !oauthExecutionPost.responses["403"]) throw new Error("OAuth execution context opt-in contract is missing");
