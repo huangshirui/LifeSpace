@@ -30,11 +30,16 @@ export function cimdClientId(value: unknown): value is string {
 // A valid HTTPS URL is NOT sufficient to authorize an outbound fetch from
 // Identity. Only operator-pinned, exact metadata document IDs are eligible.
 // Host-only matching and suffix wildcard rules would reintroduce SSRF.
-export function approvedCimdClientId(clientId: unknown, allowlist: unknown): clientId is string {
-  if (!cimdClientId(clientId) || typeof allowlist !== "string" || allowlist.length > 8192) return false;
+export function approvedCimdClientIds(allowlist: unknown): string[] {
+  if (typeof allowlist !== "string" || allowlist.length > 8192) return [];
   const allowed = allowlist.split(/\s+/u).filter(Boolean);
-  if (allowed.length === 0 || allowed.length > 100 || new Set(allowed).size !== allowed.length) return false;
-  return allowed.every(cimdClientId) && allowed.includes(clientId);
+  if (allowed.length === 0 || allowed.length > 100 || new Set(allowed).size !== allowed.length
+    || !allowed.every(cimdClientId)) return [];
+  return allowed;
+}
+
+export function approvedCimdClientId(clientId: unknown, allowlist: unknown): clientId is string {
+  return cimdClientId(clientId) && approvedCimdClientIds(allowlist).includes(clientId);
 }
 
 export function publicRedirectUri(value: unknown): value is string {
@@ -68,8 +73,13 @@ export function parseClientMetadata(clientId: string, document: unknown): Public
     || (data.token_endpoint_auth_methods_supported === undefined
       && data.token_endpoint_auth_method !== undefined && data.token_endpoint_auth_method !== "none")
     || (data.response_types !== undefined && JSON.stringify(data.response_types) !== JSON.stringify(["code"]))
+    // Metadata describes CLIENT capabilities, not grants this server enables.
+    // ChatGPT's stable document also declares JWT bearer; accepting that
+    // declaration does not authorize it at our token endpoint.
     || (data.grant_types !== undefined && (!Array.isArray(data.grant_types)
-      || data.grant_types.some(v => v !== "authorization_code" && v !== "refresh_token")
+      || data.grant_types.length > 8 || new Set(data.grant_types).size !== data.grant_types.length
+      || data.grant_types.some(v => v !== "authorization_code" && v !== "refresh_token"
+        && v !== "urn:ietf:params:oauth:grant-type:jwt-bearer")
       || !data.grant_types.includes("authorization_code")))) return null;
   return {
     clientId, displayName: data.client_name.trim(),
