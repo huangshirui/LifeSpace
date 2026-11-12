@@ -39,18 +39,17 @@ OAuth client registration never implies a user Grant or Delegation.
 
 ## Simplified Console OAuth settings (Identity schema 18)
 
-- **CIMD** switch requests automatic discovery of eligible public HTTPS
-  Client ID Metadata Documents. An enabled deployment additionally requires
-  `OAUTH_CIMD_ENABLED=1`, the DCR rate limiter, and **Cloudflare's
-  `global_fetch_strictly_public` compatibility flag** on the deployed Identity
-  Worker. This forces untrusted `fetch()` through the public-Internet network
-  boundary, even when a URL refers to the Worker's own zone; it does not
-  bypass Cloudflare security to reach a private origin. Do not attach a VPC
-  Network/private egress binding to CIMD. The current Staging feature flag
-  stays off until the strict-public routing and DNS rebinding negative probes
-  are verified. HTTPS-only metadata, redirects disabled, callback pinning and
-  bounded metadata size remain mandatory. The client display name is **not**
-  a verified vendor identity.
+- **CIMD** requests automatic discovery of eligible public HTTPS Client ID
+  Metadata Documents. No client URL allowlist, no vendor exception. Runtime
+  discovery requires `OAUTH_CIMD_ENABLED=1`, the Console switch, both OAuth
+  rate-limit bindings, and an authenticated deployment-owned
+  `OAUTH_CIMD_EGRESS_URL` / `OAUTH_CIMD_EGRESS_SECRET` pair. The isolated
+  Node relay validates all A/AAAA answers, pins the actual connection to a
+  verified ordinary public IP, verifies original-domain TLS, and bounds JSON
+  reads without redirects. Identity never directly fetches untrusted client
+  URLs and fails closed when the relay is absent or unavailable. Staging
+  activation is explicit and follows live relay preflight; Production is
+  separately gated. See `infra/cimd-egress/README.md`.
 - **DCR** switch enables protected dynamic client registration with validated
   callbacks, rate limit and an atomic D1 client quota. Unreferenced anonymous
   clients older than seven days are reclaimed in bounded on-demand batches;
@@ -76,11 +75,11 @@ OAuth client registration never implies a user Grant or Delegation.
   `OAUTH_AUTHORIZE_RATE_LIMITER` (100/minute per colo) plus an atomic D1
   quota of 1000 **live pending** requests. Missing rate limiter fails closed.
   The per-colo limiter is not a global quota. Production cannot activate
-  arbitrary-CIMD discovery before verified strict-public fetch deployment
+  arbitrary-CIMD discovery before verified connection-pinned relay deployment
   and real DNS rebinding/SSRF negative tests. No migration or deletion of valid
   OAuth client credentials, authorizations or tokens is permitted.
 
-## 2026-11-11 · CIMD strictly-public fetch release gate (candidate, NOT deployed)
+## 2026-11-11 · Historical strict-public-only release gate (superseded by connection pinning)
 
 - Previous candidate used a dedicated `OAUTH_CIMD_EGRESS` VPC/Gateway
   binding. This was intentionally **not** provisioned, because
@@ -164,6 +163,8 @@ both successful and user-declined Consent responses. The client must still
 register this exact redirect.
 
 ## Staging acceptance
+
+The current candidate uses the independent connection-pinned relay described above. The previous strict-public-only and authoritative DNS flip tests are historical evidence, not proof of pinned connections; no repeat of identical DNS mutations is required.
 
 Deploy Identity migrations before the Identity Worker, then separately
 deploy Console Staging. Confirm the Console has just two switches and one
