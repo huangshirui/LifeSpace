@@ -33,7 +33,7 @@ function harness(){
     window:{addEventListener(){},confirm(message){prompts.push(message);return consent;},
       location:{assign(url){navigations.push(url);}}},
     fetch:async(url,opts)=>{
-      if(url==="/api/session")return new Promise(()=>{}); // prevent the initial GET from racing with the test
+      if(url==="/api/session?include=login-email")return new Promise(()=>{}); // prevent the initial GET from racing with the test
       calls.push({url,opts});
       if(url==="/api/account/profile"){
         const body=JSON.parse(opts.body);

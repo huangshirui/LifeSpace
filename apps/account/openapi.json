@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "LifeSpace Account Center and OAuth Consent BFF",
-    "version": "0.4.0",
+    "version": "0.5.0",
     "description": "Same-origin Cloudflare Access user BFF for Identity-owned profile and OAuth, Core-owned Space/invite and Delegation; user-bound CSRF mutations. No Account database, cross-service D1 access or privileged admin credential."
   },
   "paths": {
@@ -12,15 +12,35 @@
         "security": [],
         "responses": {
           "200": {
-            "description": "Current user and CSRF token, no-store and HttpOnly signed cookie"
+            "description": "Current active user, CSRF token, and optional loginEmail (null if unavailable), no-store and HttpOnly signed cookie"
+          },
+          "400": {
+            "description": "Unknown or duplicate session query parameter"
           },
           "401": {
             "description": "Missing or invalid Access Assertion"
           },
+          "403": {
+            "description": "Current Access/User validation denied"
+          },
           "503": {
             "description": "Account identity or CSRF not configured"
           }
-        }
+        },
+        "parameters": [
+          {
+            "name": "include",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "login-email"
+              ]
+            },
+            "description": "Optional current declared mailbox projection. Shares the same freshly exchanged Account credential. Absent retains previous response; null means unavailable."
+          }
+        ]
       }
     },
     "/api/oauth/request": {
