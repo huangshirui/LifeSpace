@@ -1,7 +1,8 @@
 // Read-only check of the deployed LifeSpace Staging CIMD network boundary.
 // The Cloudflare runtime's global_fetch_strictly_public flag forces public
 // Internet routing even for same-zone URLs. No VPC Network egress is allowed.
-// Passing means SAFE CLOSED, not "DNS rebinding E2E verified" or CIMD enabled.
+// Checks deployed configuration only. Actual relay and CIMD admission are
+// independently verified by the owner-gated canonical staging workflow.
 //
 // This audit never modifies Cloudflare configuration or Production.
 import assert from "node:assert/strict";
@@ -12,27 +13,38 @@ import { resolve } from "node:path";
 const WORKER = "lifespace-identity-staging";
 const STRICT_PUBLIC_FLAG = "global_fetch_strictly_public";
 
-export function assessCimdStaging(settings = {}) {
+export function assessCimdStaging(settings = {}, expected = {}) {
   const bindings = Array.isArray(settings.bindings) ? settings.bindings : [];
   const compatibilityFlags = Array.isArray(settings.compatibility_flags) ? settings.compatibility_flags : [];
   const config = bindings.find(binding => binding.name === "OAUTH_CIMD_ENABLED");
   const vpc = bindings.filter(binding => binding.type === "vpc_network" || binding.name === "OAUTH_CIMD_EGRESS");
   const explicitOff = config?.type === "plain_text" && config.text === "0";
-  const strictPublic = compatibilityFlags.includes(STRICT_PUBLIC_FLAG);
+  const strictPublic = compatibilityFlags.includes(STRICT_PUBLIC_FLAG) && !compatibilityFlags.includes("global_fetch_private_origin");
   const noPrivateEgress = vpc.length === 0;
   const safeClosed = explicitOff && strictPublic && noPrivateEgress;
+  const endpoint = bindings.find(b => b.name === "OAUTH_CIMD_EGRESS_URL");
+  const secret = bindings.find(b => b.name === "OAUTH_CIMD_EGRESS_SECRET");
+  const limits = ["OAUTH_DCR_RATE_LIMITER", "OAUTH_AUTHORIZE_RATE_LIMITER"]
+    .every(name => bindings.some(b => b.name === name && b.type === "ratelimit"));
+  const explicitOn = config?.type === "plain_text" && config.text === "1";
+  const configuredRelay = typeof expected.endpoint === "string" && expected.endpoint.length > 0
+    && endpoint?.type === "plain_text" && endpoint.text === expected.endpoint
+    && secret?.type === "secret_text";
+  const relayConfigured = explicitOn && strictPublic && noPrivateEgress && configuredRelay && limits;
+  const expectedEnabled = expected.enabled === true;
+  const safe = expectedEnabled ? relayConfigured : safeClosed;
   return {
-    safeClosed,
+    safeClosed, relayConfigured, safe,
     worker: WORKER,
     deploymentFlag: config?.type === "plain_text" ? config.text : "missing",
     strictPublicFetch: strictPublic,
     networkBindings: vpc.map(b => ({ name: b.name, type: b.type })),
-    status: safeClosed ? "SAFE_CLOSED" : "RELEASE_GATE_FAILED",
-    note: "Public-only fetch configuration is not equivalent to live DNS rebinding/SSRF penetration test evidence.",
+    status: safe ? (expectedEnabled ? "RELAY_CONFIGURED" : "SAFE_CLOSED") : "RELEASE_GATE_FAILED",
+    note: "Configuration gate only; independent relay preflight and live protocol tests are required when enabled.",
   };
 }
 
-export async function auditCimdStaging({ accountId, token, getSettings } = {}) {
+export async function auditCimdStaging({ accountId, token, getSettings, expected = {} } = {}) {
   assert.match(accountId || "", /^[a-f0-9]{32}$/u, "Cloudflare account ID required");
   assert.ok(typeof token === "string" && token.length > 5, "Cloudflare API token required");
   const fetchSettings = getSettings || (async () => {
@@ -47,13 +59,14 @@ export async function auditCimdStaging({ accountId, token, getSettings } = {}) {
     }
     return data.result;
   });
-  return assessCimdStaging(await fetchSettings());
+  return assessCimdStaging(await fetchSettings(), expected);
 }
 
 async function main() {
   const result = await auditCimdStaging({
     accountId: process.env.CLOUDFLARE_ACCOUNT_ID,
     token: process.env.CLOUDFLARE_API_TOKEN,
+    expected: { enabled: process.env.LIFESPACE_CIMD_ENABLED === "1", endpoint: process.env.OAUTH_CIMD_EGRESS_URL },
   });
   console.log("Staging CIMD egress audit: " + JSON.stringify(result));
   if (process.env.GITHUB_STEP_SUMMARY) {
@@ -63,11 +76,12 @@ async function main() {
       + "- Cloudflare global fetch strictly public: `" + result.strictPublicFetch + "`\n"
       + "- VPC/private egress bindings: `" + result.networkBindings.length + "`\n"
       + "- Result: **" + result.status + "**\n"
-      + "- Pending: live negative DNS rebinding tests and positive CIMD metadata discovery.\n");
+      + "- Relay configured: `" + result.relayConfigured + "`\n"
+      + "- Configuration gate only; live relay and admission evidence is separate.\n");
   }
-  if (!result.safeClosed) {
+  if (!result.safe) {
     throw new Error(
-      "Staging CIMD release gate requires flag=0, global_fetch_strictly_public and no VPC egress",
+      "Staging CIMD requires the expected release state, strict-public fetch, no VPC, and the verified relay configuration when enabled",
     );
   }
 }
