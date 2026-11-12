@@ -279,3 +279,8 @@ Current OAuth MCP discovery reuses the authenticated request's already checked S
 ### Staging synthetic fixture lifecycle (candidate)
 
 New run-scoped smoke Spaces use the existing governed owner-only logical close operation after the final test, before test Application disable. The run-local creation marker is exported immediately after successful creation; cleanup requires exact Staging origins, GitHub run/attempt, matching fixture Application, Space ID, verified original owner and exact generated Space name/current version. No historical name-based mutation, physical deletion, new lifecycle authority, or data-retention policy is introduced. Closed Space records and audit history remain stored, and existing cleanup still retires test credentials even if closure fails. Historical fixtures require a separate reviewed inventory/retention decision. Logical closure bounds growth of active fixtures, not D1 disk size; no claim that it fixes D1 latency.
+
+
+### OAuth execution phase measurements (candidate)
+
+Existing Core performance timing includes fixed-duration phases for live Identity execution-state validation, current Server policy, delegated operation authorization when present, operation discovery/target projection, and nested canonical execution. Timing scopes are inclusive and may overlap nested request logs; do not sum both. This adds no database or network requests and preserves every existing check and order. The existing diagnostics switch controls collection. No credential or payload fields are added. Use equivalent live requests to determine whether placement, Identity transport, Server policy, schema projection or canonical execution dominates before removing checks.

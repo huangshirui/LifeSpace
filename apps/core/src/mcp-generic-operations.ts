@@ -10,7 +10,7 @@ import { getRuntimeModel } from "./model-registry";
 import { projectModelSemanticFacts } from "./model-semantic-projection";
 import { getActiveModelContract } from "./model-contract-store";
 import { getOrCreateActiveModelContract } from "./model-contract-service";
-import { authorityD1Observer } from "./performance-timing";
+import { authorityD1Observer, measurePerformancePhase } from "./performance-timing";
 import type { Bindings, Principal, Variables } from "./env";
 import { ApiError, success } from "./http";
 
@@ -341,7 +341,8 @@ function targetRequest(c:ContextApp,item:Entry,args:Record<string,unknown>) {
 }
 export function registerMcpGenericOperationRoutes(app:Hono<AppEnv>):void {
   app.get("/api/v1/spaces/:spaceId/_discovery/operations",async c=>{
-    const all=await manifest(c,undefined,projectionFilter(c));
+    const all=await measurePerformancePhase(c,"operation.discovery",
+      ()=>manifest(c,undefined,projectionFilter(c)));
     return c.json(success({operations:all.map(e=>e.dto)}),200,{"cache-control":"no-store"});
   });
   app.post("/api/v1/spaces/:spaceId/_operations/:operationRef/invoke",async c=>{
@@ -354,7 +355,8 @@ export function registerMcpGenericOperationRoutes(app:Hono<AppEnv>):void {
       ||Object.keys(input).length!==1||!("arguments" in input))throw denied();
     const args=(input as {arguments:unknown}).arguments;
     if(!args||typeof args!=="object"||Array.isArray(args))throw denied();
-    const item=(await manifest(c,c.req.param("operationRef")))[0];
+    const item=(await measurePerformancePhase(c,"operation.target_projection",
+      ()=>manifest(c,c.req.param("operationRef"))))[0];
     if(!item)throw denied();
     // A discoverable write operation is not executable with a read-only token.
     // Scope upgrade is an independent OAuth consent; do not pass the preview
@@ -368,9 +370,10 @@ export function registerMcpGenericOperationRoutes(app:Hono<AppEnv>):void {
     if(selector)headers.set("x-lifespace-delegation-id",selector);
     // Call the same Core Worker app, never a remote Provider/Adapter directly.
     // The inner canonical route independently rechecks full current authority.
-    const response=await app.fetch(new Request("https://core.internal"+path,{
-      method,headers,...(body===undefined?{}:{body:JSON.stringify(body)}),
-    }),c.env);
+    const response=await measurePerformancePhase(c,"operation.canonical_execution",
+      async()=>app.fetch(new Request("https://core.internal"+path,{
+        method,headers,...(body===undefined?{}:{body:JSON.stringify(body)}),
+      }),c.env));
     const resultHeaders=new Headers(response.headers);
     resultHeaders.set("cache-control","no-store");
     return new Response(response.body,{status:response.status,headers:resultHeaders});

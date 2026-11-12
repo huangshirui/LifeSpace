@@ -710,6 +710,22 @@ describe("OAuth MCP Agent Direct execution: Core fail-closed route and Space bou
       // One target projection, then independent canonical execution; unrelated
       // configured models must not incur authority SQL or schema projection.
       expect(f.authorityMetrics()).toEqual({statements:2,batches:[1,1]});
+      const operationLogs=log.mock.calls.map(([value])=>{
+        try{return JSON.parse(String(value));}catch{return null;}
+      }).filter(value=>value?.message==="LifeSpace performance timing");
+      const discovery=operationLogs.find(value=>value.path===base+"/_discovery/operations"&&value.status===200);
+      expect(discovery?.phases).toEqual(expect.objectContaining({
+        "security.oauth_execution_state":expect.any(Number),
+        "security.oauth_server_policy":expect.any(Number),
+        "operation.discovery":expect.any(Number),
+      }));
+      const invocation=operationLogs.find(value=>value.path===route&&value.status===200);
+      expect(invocation?.phases).toEqual(expect.objectContaining({
+        "security.oauth_execution_state":expect.any(Number),
+        "security.oauth_server_policy":expect.any(Number),
+        "operation.target_projection":expect.any(Number),
+        "operation.canonical_execution":expect.any(Number),
+      }));
       log.mockClear();
       const requestId="perf-authority-synthetic";
       const direct=await f.request("POST",base+"/models/task/records/query",{},{
