@@ -35,6 +35,9 @@ export type Bindings = {
   // Opening this additionally requires the verified Cloudflare
   // global_fetch_strictly_public deployment flag (outside the type system).
   OAUTH_CIMD_ENABLED?: string;
+  // Deployment-only exact HTTPS document pins. Empty/invalid = fail closed.
+  // Not a Console admission selector or authority to issue a token.
+  OAUTH_CIMD_ALLOWED_CLIENT_IDS?: string;
 };
 
 export type RequestPerformanceTiming = {
