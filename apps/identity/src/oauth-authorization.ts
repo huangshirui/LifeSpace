@@ -2,7 +2,7 @@ import type { Context, Hono } from "hono";
 import { verify } from "hono/jwt";
 import type { Bindings, Variables } from "./env";
 import { configuredOAuthResource, liveOAuthResource } from "./oauth-mcp-resource";
-import { cimdClientId, fetchClientMetadata } from "./oauth-client-metadata";
+import { cimdClientId, cimdEgressConfigured, fetchClientMetadataViaEgress } from "./oauth-client-metadata";
 import {
   loadOAuthClientAdmissionPolicy, mayUseCimd, mayRegisterDcr, callbackAllowed,
   type OAuthClientAdmissionPolicy,
@@ -159,23 +159,17 @@ async function clientForAuthorization(c: Context<AppEnv>, clientId: string): Pro
   if (!cimdReady(c.env, policy) || !mayUseCimd(policy, clientId)) return null;
   const existing = await client(c.env.DB, clientId);
   if (existing?.status === "disabled") return null;
-  // Open HTTPS document discovery is a network and database abuse boundary.
-  // Requests are rate-limited before outbound fetch, including revalidation
-  // at Consent time. The deployment MUST enable Cloudflare's
-  // global_fetch_strictly_public compatibility flag before CIMD activation.
-  // This forces global fetch through the public Internet boundary, including
-  // requests to the Worker's own Cloudflare zone, rather than private origins.
-  // Never use VPC Network or private Service Bindings for untrusted metadata.
+  // Open HTTPS discovery is a network/database abuse boundary. The dedicated
+  // egress service validates all DNS addresses and connects to a verified
+  // literal IP with original Host/SNI/certificate identity. Identity never
+  // sends a network request directly to an untrusted metadata document.
   if (!c.env.OAUTH_DCR_RATE_LIMITER) return null;
   try {
     const limit = await c.env.OAUTH_DCR_RATE_LIMITER.limit({ key: "oauth-cimd-fetch" });
     if (!limit.success) return null;
   } catch { return null; }
-  // Global fetch is permitted here ONLY with deployment-enforced
-  // global_fetch_strictly_public; the Staging release gate verifies the live
-  // Worker compatibility flag and keeps CIMD disabled until negative network
-  // tests prove private-address and DNS-rebinding refusal.
-  const metadata = await fetchClientMetadata(clientId);
+  const metadata = await fetchClientMetadataViaEgress(clientId,
+    c.env.OAUTH_CIMD_EGRESS_URL, c.env.OAUTH_CIMD_EGRESS_SECRET);
   if (!metadata) return null;
   const redirects = JSON.stringify(metadata.redirectUris);
   if (!existing) {
@@ -308,7 +302,8 @@ function dcrReady(env: Bindings, policy: OAuthClientAdmissionPolicy): boolean {
 }
 function cimdReady(env: Bindings, policy: OAuthClientAdmissionPolicy): boolean {
   return env.OAUTH_CIMD_ENABLED === "1" && policy.cimdEnabled
-    && Boolean(env.OAUTH_DCR_RATE_LIMITER);
+    && cimdEgressConfigured(env.OAUTH_CIMD_EGRESS_URL, env.OAUTH_CIMD_EGRESS_SECRET)
+    && Boolean(env.OAUTH_DCR_RATE_LIMITER) && Boolean(env.OAUTH_AUTHORIZE_RATE_LIMITER);
 }
 export function registerOAuthAuthorizationServer(app: App) {
   app.get("/.well-known/oauth-authorization-server", async (c) => {
