@@ -436,6 +436,7 @@ describe("Identity OAuth Authorization Server (isolated candidate)", () => {
         client_id: remoteId, client_name: "Unverified Public Agent",
         redirect_uris: [redirect],
         response_types: ["code"], token_endpoint_auth_method: "none",
+        grant_types: ["authorization_code", "refresh_token", "urn:ietf:params:oauth:grant-type:jwt-bearer"],
       });
     }) as typeof fetch;
     try {
@@ -443,6 +444,12 @@ describe("Identity OAuth Authorization Server (isolated candidate)", () => {
       expect(accepted.status).toBe(302);
       expect(documentCalls).toBe(1);
       expect(keys).toEqual(["oauth-cimd-fetch"]);
+      const unsupportedGrant = await t.token({
+        grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
+        client_id: remoteId, assertion: "not-a-jwt",
+      });
+      expect(unsupportedGrant.status).toBe(400);
+      expect(await unsupportedGrant.json()).toMatchObject({ error: "unsupported_grant_type" });
       expect((await t.authorize({ client_id: remoteId,
         redirect_uri: "https://other-client.example.com/callback" })).status).toBe(400);
     } finally {
