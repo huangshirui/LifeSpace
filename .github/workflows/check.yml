@@ -80,6 +80,7 @@ jobs:
         if: steps.validation.outputs.run_full == 'true'
         run: |
           node --test infra/scripts/audit-staging-cimd-egress.test.mjs infra/cimd-egress/test/*.test.mjs
+          node --check infra/scripts/preflight-staging-cimd-egress.mjs
       - name: Check isolated CIMD remote network acceptance contract and bundle
         if: steps.validation.outputs.run_full == 'true'
         run: |
