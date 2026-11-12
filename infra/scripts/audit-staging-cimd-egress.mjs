@@ -1,34 +1,44 @@
-// Read-only check of the deployed LifeSpace Staging CIMD network boundary.
-// The Cloudflare runtime's global_fetch_strictly_public flag forces public
-// Internet routing even for same-zone URLs. No VPC Network egress is allowed.
-// Passing means SAFE CLOSED, not "DNS rebinding E2E verified" or CIMD enabled.
-//
-// This audit never modifies Cloudflare configuration or Production.
+// Read-only Staging release gate. Passing means closed or exact-pinned
+// public fetch; it is NOT proof of unrestricted DNS rebinding safety.
 import assert from "node:assert/strict";
-import { appendFile } from "node:fs/promises";
+import { appendFile, readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
 
 const WORKER = "lifespace-identity-staging";
 const STRICT_PUBLIC_FLAG = "global_fetch_strictly_public";
+// Independently pin the exact pilot set, not a wildcard or any URL from
+// deployed environment settings. Production activation is not approved.
+export const APPROVED_STAGING_CIMD_IDS = Object.freeze([
+  "https://chatgpt.com/oauth/client.json",
+  "https://cdn.jsdelivr.net/gh/huangshirui/LifeSpace@main/infra/cimd-network-probe/client.json",
+]);
 
 export function assessCimdStaging(settings = {}) {
   const bindings = Array.isArray(settings.bindings) ? settings.bindings : [];
   const compatibilityFlags = Array.isArray(settings.compatibility_flags) ? settings.compatibility_flags : [];
-  const config = bindings.find(binding => binding.name === "OAUTH_CIMD_ENABLED");
-  const vpc = bindings.filter(binding => binding.type === "vpc_network" || binding.name === "OAUTH_CIMD_EGRESS");
-  const explicitOff = config?.type === "plain_text" && config.text === "0";
-  const strictPublic = compatibilityFlags.includes(STRICT_PUBLIC_FLAG);
-  const noPrivateEgress = vpc.length === 0;
-  const safeClosed = explicitOff && strictPublic && noPrivateEgress;
+  const config = bindings.find(b => b.name === "OAUTH_CIMD_ENABLED");
+  const pins = bindings.find(b => b.name === "OAUTH_CIMD_ALLOWED_CLIENT_IDS");
+  const vpc = bindings.filter(b => b.type === "vpc_network" || b.name === "OAUTH_CIMD_EGRESS");
+  const deploymentFlag = config?.type === "plain_text" ? config.text : "missing";
+  const strictPublic = compatibilityFlags.includes(STRICT_PUBLIC_FLAG)
+    && !compatibilityFlags.includes("global_fetch_private_origin");
+  const boundary = strictPublic && vpc.length === 0;
+  const allowedIds = pins?.type === "plain_text" && typeof pins.text === "string"
+    ? pins.text.trim().split(/\s+/u).filter(Boolean) : [];
+  const exactPins = allowedIds.length === APPROVED_STAGING_CIMD_IDS.length
+    && new Set(allowedIds).size === allowedIds.length
+    && APPROVED_STAGING_CIMD_IDS.every(id => allowedIds.includes(id));
+  const rateLimits = ["OAUTH_DCR_RATE_LIMITER", "OAUTH_AUTHORIZE_RATE_LIMITER"]
+    .every(name => bindings.some(b => b.name === name && b.type === "ratelimit"));
+  const safeClosed = deploymentFlag === "0" && boundary;
+  const safePinned = deploymentFlag === "1" && boundary && exactPins && rateLimits;
   return {
-    safeClosed,
-    worker: WORKER,
-    deploymentFlag: config?.type === "plain_text" ? config.text : "missing",
-    strictPublicFetch: strictPublic,
-    networkBindings: vpc.map(b => ({ name: b.name, type: b.type })),
-    status: safeClosed ? "SAFE_CLOSED" : "RELEASE_GATE_FAILED",
-    note: "Public-only fetch configuration is not equivalent to live DNS rebinding/SSRF penetration test evidence.",
+    safeClosed, safePinned, safe: safeClosed || safePinned,
+    worker: WORKER, deploymentFlag, strictPublicFetch: strictPublic,
+    exactPins, rateLimits, networkBindings: vpc.map(b => ({ name: b.name, type: b.type })),
+    status: safeClosed ? "SAFE_CLOSED" : safePinned ? "SAFE_PINNED_PILOT" : "RELEASE_GATE_FAILED",
+    note: "Bounded Staging only. Unrestricted CIMD and Production are not approved.",
   };
 }
 
@@ -55,20 +65,21 @@ async function main() {
     accountId: process.env.CLOUDFLARE_ACCOUNT_ID,
     token: process.env.CLOUDFLARE_API_TOKEN,
   });
+  const config = JSON.parse(await readFile(new URL("../../apps/identity/wrangler.jsonc", import.meta.url), "utf8"));
+  const expected = config.env.staging.vars.OAUTH_CIMD_ENABLED;
   console.log("Staging CIMD egress audit: " + JSON.stringify(result));
+  assert.ok(result.safe && result.deploymentFlag === expected,
+    "Staging CIMD settings must match the intended safe-closed or exact-pinned pilot; no VPC and strict public fetch");
   if (process.env.GITHUB_STEP_SUMMARY) {
     await appendFile(process.env.GITHUB_STEP_SUMMARY,
-      "\n## CIMD Public-Only Network Gate\n"
+      "\n## CIMD Staging Network Gate\n"
       + "- Staging release flag: `" + result.deploymentFlag + "`\n"
-      + "- Cloudflare global fetch strictly public: `" + result.strictPublicFetch + "`\n"
-      + "- VPC/private egress bindings: `" + result.networkBindings.length + "`\n"
+      + "- Strict-public fetch: `" + result.strictPublicFetch + "`\n"
+      + "- Exact pilot pins: `" + result.exactPins + "`\n"
+      + "- Required rate limit bindings: `" + result.rateLimits + "`\n"
+      + "- Private network bindings: `" + result.networkBindings.length + "`\n"
       + "- Result: **" + result.status + "**\n"
-      + "- Pending: live negative DNS rebinding tests and positive CIMD metadata discovery.\n");
-  }
-  if (!result.safeClosed) {
-    throw new Error(
-      "Staging CIMD release gate requires flag=0, global_fetch_strictly_public and no VPC egress",
-    );
+      + "- Does not approve unrestricted CIMD, Production or human consent.\n");
   }
 }
 if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
