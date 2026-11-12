@@ -2,7 +2,7 @@ import type { Context, Hono } from "hono";
 import { verify } from "hono/jwt";
 import type { Bindings, Variables } from "./env";
 import { configuredOAuthResource, liveOAuthResource } from "./oauth-mcp-resource";
-import { cimdClientId, fetchClientMetadata } from "./oauth-client-metadata";
+import { approvedCimdClientId, approvedCimdClientIds, cimdClientId, fetchClientMetadata } from "./oauth-client-metadata";
 import {
   loadOAuthClientAdmissionPolicy, mayUseCimd, mayRegisterDcr, callbackAllowed,
   type OAuthClientAdmissionPolicy,
@@ -156,10 +156,11 @@ async function client(db: D1Database, clientId: string): Promise<OAuthClient | n
 async function clientForAuthorization(c: Context<AppEnv>, clientId: string): Promise<OAuthClient | null> {
   if (!cimdClientId(clientId)) return client(c.env.DB, clientId);
   const policy = await loadOAuthClientAdmissionPolicy(c.env.DB);
-  if (!cimdReady(c.env, policy) || !mayUseCimd(policy, clientId)) return null;
+  if (!cimdReady(c.env, policy) || !mayUseCimd(policy, clientId)
+    || !approvedCimdClientId(clientId, c.env.OAUTH_CIMD_ALLOWED_CLIENT_IDS)) return null;
   const existing = await client(c.env.DB, clientId);
   if (existing?.status === "disabled") return null;
-  // Open HTTPS document discovery is a network and database abuse boundary.
+  // Pinned HTTPS document discovery is a network and database abuse boundary.
   // Requests are rate-limited before outbound fetch, including revalidation
   // at Consent time. The deployment MUST enable Cloudflare's
   // global_fetch_strictly_public compatibility flag before CIMD activation.
@@ -172,9 +173,8 @@ async function clientForAuthorization(c: Context<AppEnv>, clientId: string): Pro
     if (!limit.success) return null;
   } catch { return null; }
   // Global fetch is permitted here ONLY with deployment-enforced
-  // global_fetch_strictly_public; the Staging release gate verifies the live
-  // Worker compatibility flag and keeps CIMD disabled until negative network
-  // tests prove private-address and DNS-rebinding refusal.
+  // global_fetch_strictly_public and exact pins checked above. Public routing
+  // and the tested negative cases do not prove arbitrary URL safety.
   const metadata = await fetchClientMetadata(clientId);
   if (!metadata) return null;
   const redirects = JSON.stringify(metadata.redirectUris);
@@ -308,7 +308,8 @@ function dcrReady(env: Bindings, policy: OAuthClientAdmissionPolicy): boolean {
 }
 function cimdReady(env: Bindings, policy: OAuthClientAdmissionPolicy): boolean {
   return env.OAUTH_CIMD_ENABLED === "1" && policy.cimdEnabled
-    && Boolean(env.OAUTH_DCR_RATE_LIMITER);
+    && approvedCimdClientIds(env.OAUTH_CIMD_ALLOWED_CLIENT_IDS).length > 0
+    && Boolean(env.OAUTH_DCR_RATE_LIMITER) && Boolean(env.OAUTH_AUTHORIZE_RATE_LIMITER);
 }
 export function registerOAuthAuthorizationServer(app: App) {
   app.get("/.well-known/oauth-authorization-server", async (c) => {
