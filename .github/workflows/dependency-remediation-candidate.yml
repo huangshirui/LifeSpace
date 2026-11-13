@@ -59,6 +59,8 @@ jobs:
           pnpm install --lockfile-only
           pnpm audit --json > /tmp/audit-after.json || true
           node -e 'const a=require("/tmp/audit-after.json"); console.log("AUDIT_AFTER "+JSON.stringify({metadata:a.metadata,advisories:Object.values(a.advisories||{}).map(x=>({id:x.github_advisory_id,title:x.title,module:x.module_name,patched:x.patched_versions,vulnerable:x.vulnerable_versions,severity:x.severity,findings:x.findings}))}))'
+          pnpm install --frozen-lockfile
+          pnpm --dir apps/core exec wrangler types src/worker-configuration.d.ts --env-interface CloudflareBindings --include-runtime false
           git diff --stat
           git diff --binary > /tmp/candidate.diff
           node --input-type=module <<'NODE'
