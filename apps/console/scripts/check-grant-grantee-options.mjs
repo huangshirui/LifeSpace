@@ -19,8 +19,24 @@ assert.equal(isActiveAgent(active, { ...active, binding: { status: "revoked" } }
 const picker = readFileSync(new URL("../src/GrantGranteePicker.tsx", import.meta.url), "utf8");
 const overlay = readFileSync(new URL("../src/SpaceGrantGovernanceOverlay.tsx", import.meta.url), "utf8");
 const page = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
-assert.ok(picker.includes('setAppId(event.target.value); setQuery(""); onChange("")'));
-assert.ok(picker.includes('setQuery(event.target.value); onChange("")'));
+const select = readFileSync(new URL("../src/SearchableSelect.tsx", import.meta.url), "utf8");
+const dialog = readFileSync(new URL("../src/ConsoleDialog.tsx", import.meta.url), "utf8");
+assert.equal((picker.match(/<SearchableSelect\b/g) ?? []).length, 2);
+assert.ok(!picker.includes("<select"));
+assert.ok(picker.includes('setAppId(id); setQuery(""); onChange("")'));
+assert.ok(select.includes('role="combobox"') && select.includes('role="listbox"') && select.includes('role="option"'));
+assert.ok(select.includes('onChange(""); onQueryChange(event.target.value)'));
+assert.ok(select.includes('onChange(row.id)'));
+assert.ok(select.includes('event.key === "Enter"') && select.includes('event.key === "Escape"'));
+assert.ok(dialog.includes("dialog.showModal()") && dialog.includes("onCancel="));
+for (const mode of ["create", "edit", "revoke"]) {
+  assert.ok(overlay.includes('if (mode?.type === "' + mode + '") return <ConsoleDialog key="' + mode + '"'));
+}
+assert.ok(overlay.includes('return <ConsoleDialog key="list"'));
+assert.ok(!overlay.includes('mode?.type === "create" &&'));
+assert.ok(overlay.includes('setResourceId(id); setConfirmed(false)'));
+assert.ok(overlay.includes('setPermission(event.target.value as GrantPermission); setConfirmed(false)'));
+assert.ok(overlay.includes('setExpiresAt(event.target.value); setConfirmed(false)'));
 assert.ok(picker.includes('current = false; window.clearTimeout(timer)'));
 assert.ok(picker.includes('choice?.name ?? grant.granteeType'));
 assert.ok(overlay.includes('setGranteeId(""); setConfirmed(false)'));
