@@ -1,3 +1,4 @@
+import { registerRunnerSecret as mask } from "./runner-secret.mjs";
 import process from "node:process";
 
 const identityBase = (process.env.LIFESPACE_IDENTITY_STAGING_URL ?? "https://auth-staging.aisr.online").replace(/\/+$/u, "");
@@ -108,9 +109,6 @@ export default {
 };
 `;
 
-function mask(value) {
-  if (typeof value === "string" && value) console.log(`::add-mask::${value}`);
-}
 
 async function readResponse(response) {
   const raw = await response.text();
@@ -147,20 +145,19 @@ async function cf(path, { method = "GET", body, form } = {}) {
     const payload = await readResponse(response);
     if (response.ok && payload?.success !== false) return payload?.result;
 
-    const detail = JSON.stringify(payload?.errors ?? payload);
     const retryable = response.status === 429 || response.status >= 500;
     if (!retryable || attempt === attempts) {
-      throw new Error(`Cloudflare ${method} ${path} failed (${response.status}): ${detail}`);
+      throw new Error(`Cloudflare ${method} request failed (HTTP ${response.status})`);
     }
 
     const retryAfterSeconds = Number(response.headers.get("retry-after"));
     const delayMs = Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0
       ? Math.min(retryAfterSeconds * 1000, 10_000)
       : attempt * 2000;
-    console.warn(`Cloudflare ${method} ${path} returned ${response.status}; retrying in ${delayMs}ms (${attempt}/${attempts})`);
+    console.warn(`Cloudflare request returned HTTP ${response.status}; retrying in ${delayMs}ms (${attempt}/${attempts})`);
     await new Promise((resolve) => setTimeout(resolve, delayMs));
   }
-  throw new Error(`Cloudflare ${method} ${path} retry loop exited unexpectedly`);
+  throw new Error("Cloudflare request retry loop exited unexpectedly");
 }
 
 async function poll(label, action, predicate, { attempts = 50, delayMs = 3000 } = {}) {
@@ -174,13 +171,13 @@ async function poll(label, action, predicate, { attempts = 50, delayMs = 3000 } 
     }
     if (attempt < attempts) await new Promise((resolve) => setTimeout(resolve, delayMs));
   }
-  const detail = last?.response ? `${last.response.status} ${JSON.stringify(last.payload)}` : String(last?.error ?? "no result");
+  const detail = last?.response ? `HTTP ${last.response.status}` : "no response";
   throw new Error(`${label} did not converge: ${detail}`);
 }
 
 async function expectStatus(label, result, expectedStatus, expectedCode = null) {
   if (result.response.status !== expectedStatus || (expectedCode && result.payload?.error?.code !== expectedCode)) {
-    throw new Error(`${label}: expected ${expectedStatus}${expectedCode ? ` ${expectedCode}` : ""}, got ${result.response.status} ${JSON.stringify(result.payload)}`);
+    throw new Error(`${label}: expected ${expectedStatus}${expectedCode ? ` ${expectedCode}` : ""}, got ${result.response.status}`);
   }
   return result.payload?.data;
 }
@@ -372,7 +369,7 @@ try {
   });
   const testData = await expectStatus("signed staging Webhook Endpoint test", testSend, 200);
   if (testData?.ok !== true || testData?.statusCode !== 204) {
-    throw new Error(`Staging Webhook Endpoint test sink rejected the signed request: ${JSON.stringify(testData)}`);
+    throw new Error(`Staging Webhook Endpoint test sink rejected the signed request (HTTP ${Number.isInteger(testData?.statusCode) ? testData.statusCode : "unknown"})`);
   }
 
   const start = new Date(Date.now() + 60 * 60 * 1000);
@@ -450,7 +447,7 @@ try {
 } finally {
   async function cleanup(label, action) {
     try { await action(); }
-    catch (error) { cleanupErrors.push(`${label}: ${error instanceof Error ? error.message : String(error)}`); }
+    catch { cleanupErrors.push(`${label}: failed`); }
   }
 
   if (subscriptionId && managerBearer) {
