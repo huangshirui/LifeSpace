@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {fixture,summarize} from "./staging-file-benchmark.mjs";
+import {fixture,summarize,observeReadiness,waitForProbeReady} from "./staging-file-benchmark.mjs";
 import worker,{handleFileProbe,runFileSample,SIZES} from "../performance-probe/file-worker.mjs";
 const space="spc_"+"a".repeat(32),upload="upl_"+"b".repeat(32),file="fil_"+"c".repeat(32);
 const env={PROBE_TOKEN:"x".repeat(32),USER_BEARER:"synthetic",SPACE_ID:space,MODEL_KEY:"smoke_file_bench_123_1"};
@@ -61,4 +61,54 @@ test("Worker entrypoint ignores execution context as a fetch implementation",asy
  const response=await worker.fetch(new Request("https://probe.example/sample",{method:"POST",
  headers:{"x-lifespace-probe-token":"wrong"},body:"{}"}),env,{waitUntil(){}});
  assert.equal(response.status,404);
+});
+
+const probeRequest=(phase,token=env.PROBE_TOKEN)=>new Request("https://probe.example/"+phase,{headers:{"x-lifespace-probe-token":token}});
+test("liveness is local, fixture readiness is authenticated and read-only",async()=>{
+ const noFetch=async()=>{assert.fail("unexpected Core request");};
+ assert.equal((await handleFileProbe(probeRequest("health","wrong"),env,noFetch)).status,404);
+ const missing=await handleFileProbe(probeRequest("health"),{...env,USER_BEARER:""},noFetch);
+ assert.equal(missing.status,503);assert.equal((await missing.json()).stage,"configuration");
+ const health=await handleFileProbe(probeRequest("health"),env,noFetch);
+ assert.deepEqual(await health.json(),{probe:"native-file-v1",stage:"probe",ok:true});
+ let called=0;
+ const ready=await handleFileProbe(probeRequest("ready"),env,async(url,init)=>{
+  called++;assert.equal(url,"https://core-staging.aisr.online"+root+"/_discovery/models/"+env.MODEL_KEY);
+  assert.equal(init.method??"GET","GET");assert.equal(init.headers.authorization,"Bearer synthetic");
+  assert.equal(init.redirect,"error");
+  return Response.json({data:{fields:[{key:"attachments",type:"file_list"}]}},{headers:{"x-request-id":init.headers["x-request-id"]}});
+ });
+ assert.equal(called,1);assert.equal(ready.status,200);const body=await ready.json();
+ assert.equal(body.stage,"core");assert.equal(body.ok,true);assert.equal(body.correlationMatched,true);
+});
+test("readiness exposes safe failure categories without leaking upstream response or exceptions",async()=>{
+ for(const [fetcher,stage,status] of [
+  [async()=>{throw Error("sensitive URL or credential");},"core_transport",undefined],
+  [async()=>new Response("sensitive upstream body",{status:403}),"core_http",403],
+  [async()=>new Response("sensitive upstream body"),"core_json",200],
+  [async()=>Response.json({data:{fields:[{key:"sensitive",type:"string"}]}}),"core_schema",200],
+ ]){
+  const res=await handleFileProbe(probeRequest("ready"),env,fetcher);assert.equal(res.status,503);
+  const body=await res.json();assert.equal(body.stage,stage);assert.equal(body.coreStatus,status);assert.equal(body.ok,false);
+  assert.doesNotMatch(JSON.stringify(body),/sensitive|synthetic|Bearer|https:/);
+ }
+});
+test("runner distinguishes workers.dev response, wrong token, transport and Core failure without raw body",async()=>{
+ const observe=fetchImpl=>observeReadiness("https://probe.example",{},"health",{fetchImpl});
+ assert.deepEqual(await observe(async()=>new Response("<html>secret</html>",{status:404})),{phase:"health",ok:false,status:404,reason:"non_json"});
+ assert.deepEqual(await observe(async()=>Response.json({error:"not_found"},{status:404})),{phase:"health",ok:false,status:404,reason:"unexpected_response"});
+ assert.deepEqual(await observe(async()=>{throw Error("secret");}),{phase:"health",ok:false,reason:"transport"});
+ const core=await observeReadiness("https://probe.example",{},"ready",{fetchImpl:async()=>Response.json({probe:"native-file-v1",stage:"core_http",ok:false,coreStatus:403,requestId:"secret",reason:"secret",body:"secret"},{status:503})});
+ assert.deepEqual(core,{phase:"ready",ok:false,status:503,stage:"core_http",coreStatus:403});
+});
+test("both readiness stages must converge within fixture budget before sampling",async()=>{
+ const paths=[],observations=[];let clock=0,tries=0;
+ await waitForProbeReady("https://probe.example",{},300000,{now:()=>clock,sleep:async ms=>{clock+=ms;},log:e=>observations.push(e),fetchImpl:async url=>{
+  const phase=new URL(url).pathname;paths.push(phase);tries++;
+  if(tries===1)return new Response("route pending",{status:404});
+  return Response.json({probe:"native-file-v1",stage:phase==="/health"?"probe":"core",ok:true});
+ }});
+ assert.deepEqual(paths,["/health","/health","/ready"]);assert.equal(observations.length,3);
+ await assert.rejects(waitForProbeReady("https://probe.example",{},120000,{now:()=>0,fetchImpl:async()=>assert.fail("budget exhausted")}),/insufficient readiness budget/);
+ await assert.rejects(waitForProbeReady("https://probe.example",{},300000,{now:()=>clock,sleep:async ms=>{clock+=ms;},log:()=>{},fetchImpl:async url=>Response.json({probe:"native-file-v1",stage:new URL(url).pathname==="/health"?"probe":"core_http",ok:new URL(url).pathname==="/health",coreStatus:403})}),/core_http/);
 });
