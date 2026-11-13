@@ -1,3 +1,4 @@
+import { registerRunnerSecret as mask } from "../../../infra/scripts/runner-secret.mjs";
 import process from "node:process";
 
 const identityBase = (process.env.LIFESPACE_IDENTITY_STAGING_URL ?? "https://auth-staging.aisr.online").replace(/\/+$/u, "");
@@ -21,7 +22,7 @@ assertStagingUrl(coreBase, "Core URL");
 if (bootstrapSecret.length < 32) throw new Error("LIFESPACE_STAGING_BOOTSTRAP_SECRET must contain at least 32 characters");
 if (!/^app_[0-9A-Za-z_-]+$/u.test(applicationId)) throw new Error("Console application id is invalid");
 if (explicitAdminUserId && !/^usr_[0-9A-Za-z_-]+$/u.test(explicitAdminUserId)) throw new Error("Explicit platform admin user id is invalid");
-console.log(`::add-mask::${bootstrapSecret}`);
+mask(bootstrapSecret);
 
 async function request(base, path, { method = "GET", bootstrap = false, bearer = "", actor = "", body } = {}) {
   const response = await fetch(`${base}${path}`, {
@@ -47,7 +48,7 @@ async function request(base, path, { method = "GET", bootstrap = false, bearer =
 function requireStatus(result, expected, label) {
   const allowed = Array.isArray(expected) ? expected : [expected];
   if (!allowed.includes(result.response.status)) {
-    throw new Error(`${label} expected HTTP ${allowed.join("/")}, got ${result.response.status}: ${JSON.stringify(result.payload)}`);
+    throw new Error(`${label} expected HTTP ${allowed.join("/")}, got ${result.response.status}`);
   }
   return result.payload?.data;
 }
@@ -57,9 +58,6 @@ function requireItemList(data, label) {
   return data.items;
 }
 
-function mask(value) {
-  if (typeof value === "string" && value) console.log(`::add-mask::${value}`);
-}
 
 async function resolveAdminUserId() {
   if (explicitAdminUserId) return explicitAdminUserId;
@@ -102,7 +100,7 @@ async function cleanupGrant() {
     method: "DELETE",
   });
   if (result.response.status !== 204 && result.response.status !== 404) {
-    throw new Error(`Temporary Data Grant cleanup failed: ${result.response.status} ${JSON.stringify(result.payload)}`);
+    throw new Error(`Temporary Data Grant cleanup failed: ${result.response.status}`);
   }
   cleanup.grantRevoked = true;
 }
@@ -115,7 +113,7 @@ async function cleanupInertPrincipal() {
     body: { status: "disabled", maxScopes: [] },
   });
   if (result.response.status !== 200 && result.response.status !== 404) {
-    throw new Error(`Temporary inert service principal cleanup failed: ${result.response.status} ${JSON.stringify(result.payload)}`);
+    throw new Error(`Temporary inert service principal cleanup failed: ${result.response.status}`);
   }
   cleanup.inertPrincipalDisabled = true;
 }
@@ -127,7 +125,7 @@ async function cleanupCredentials() {
       bearer: cleanup.applicationCredential,
     });
     if (result.response.status !== 204 && result.response.status !== 404) {
-      throw new Error(`Temporary Core token revocation failed: ${result.response.status} ${JSON.stringify(result.payload)}`);
+      throw new Error(`Temporary Core token revocation failed: ${result.response.status}`);
     }
     cleanup.serviceTokenId = "";
     cleanup.serviceToken = "";
@@ -138,7 +136,7 @@ async function cleanupCredentials() {
       bootstrap: true,
     });
     if (result.response.status !== 204 && result.response.status !== 404) {
-      throw new Error(`Temporary application credential revocation failed: ${result.response.status} ${JSON.stringify(result.payload)}`);
+      throw new Error(`Temporary application credential revocation failed: ${result.response.status}`);
     }
     cleanup.applicationCredentialId = "";
     cleanup.applicationCredential = "";
@@ -283,7 +281,7 @@ try {
   }), 201, "Create inert temporary Data Grant grantee");
   cleanup.inertPrincipalId = inertPrincipal?.id ?? "";
   if (!/^svc_[A-Za-z0-9_-]+$/u.test(cleanup.inertPrincipalId) || inertPrincipal?.status !== "active" || !Array.isArray(inertPrincipal?.maxScopes) || inertPrincipal.maxScopes.length !== 0) {
-    throw new Error(`Unexpected inert service principal result: ${JSON.stringify(inertPrincipal)}`);
+    throw new Error(`Unexpected inert service principal result`);
   }
 
   const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
@@ -299,7 +297,7 @@ try {
   }), 201, "Create inert staging Data Grant through Platform Admin");
   cleanup.grantId = created?.id ?? "";
   if (!/^grt_[A-Za-z0-9_-]+$/u.test(cleanup.grantId) || created?.permission !== "read" || created?.granteeId !== cleanup.inertPrincipalId || created?.granteeType !== "service") {
-    throw new Error(`Unexpected Data Grant create result: ${JSON.stringify(created)}`);
+    throw new Error(`Unexpected Data Grant create result`);
   }
 
   const updatedExpiry = new Date(Date.now() + 12 * 60 * 1000).toISOString();
@@ -308,7 +306,7 @@ try {
     body: { permission: "write", expiresAt: updatedExpiry },
   }), 200, "Update inert staging Data Grant through Platform Admin");
   if (updated?.id !== cleanup.grantId || updated?.permission !== "write" || updated?.expiresAt !== updatedExpiry) {
-    throw new Error(`Unexpected Data Grant update result: ${JSON.stringify(updated)}`);
+    throw new Error(`Unexpected Data Grant update result`);
   }
 
   requireStatus(await core(`/api/v1/platform-admin/spaces/${encodeURIComponent(cleanup.targetSpaceId)}/grants/${encodeURIComponent(cleanup.grantId)}`, {
@@ -319,7 +317,7 @@ try {
   const after = requireStatus(await core(`/api/v1/platform-admin/spaces/${encodeURIComponent(cleanup.targetSpaceId)}`), 200, "Inspect Space after Data Grant revoke");
   const revoked = Array.isArray(after?.grants) ? after.grants.find((entry) => entry?.id === cleanup.grantId) : null;
   if (!revoked?.revokedAt || revoked.permission !== "write" || revoked.granteeId !== cleanup.inertPrincipalId) {
-    throw new Error(`Revoked Data Grant evidence is missing from Space inspector: ${JSON.stringify(revoked)}`);
+    throw new Error(`Revoked Data Grant evidence is missing from Space inspector`);
   }
 
   const auditData = requireStatus(await core("/api/v1/platform-admin/audit?limit=200"), 200, "Read platform-admin audit after Space governance acceptance");
@@ -336,15 +334,13 @@ try {
     ok: true,
     environment: "staging",
     authority: "platform-admin",
-    actorUserId: adminUserId,
-    actorApplicationId: applicationId,
-    targetSpaceId: cleanup.targetSpaceId,
+    actorVerified: true,
+    applicationVerified: true,
+    targetSpaceVerified: true,
     platformAdminMembershipRequired: false,
     ordinaryUserApisRejectServiceExecutor: { grants: true, externalConnections: true },
     dataGrant: {
-      id: cleanup.grantId,
       granteeType: "service",
-      inertPrincipalId: cleanup.inertPrincipalId,
       inertPrincipalHadNoToken: true,
       inertPrincipalMaxScopes: [],
       created: true,
@@ -372,7 +368,7 @@ try {
   try { await cleanupInertPrincipal(); } catch (error) { cleanupErrors.push(error); }
   try { await cleanupCredentials(); } catch (error) { cleanupErrors.push(error); }
   if (cleanupErrors.length) {
-    const detail = cleanupErrors.map((error) => error instanceof Error ? error.message : String(error)).join("; ");
+    const detail = `${cleanupErrors.length} cleanup operation(s) failed`;
     if (!primaryError) primaryError = new Error(`Space governance acceptance cleanup failed: ${detail}`);
     else console.error(`Space governance acceptance cleanup also failed: ${detail}`);
   }
