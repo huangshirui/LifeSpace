@@ -63,6 +63,13 @@ Console does not own:
 - Transport may use Cloudflare Service Bindings, but explicit LifeSpace credentials remain the authorization boundary.
 - Service Binding use must not create cross-app database coupling.
 
+## Console interaction standards
+
+- Keep list/detail views read-oriented. Create/edit/revoke and other mutation forms must open a dedicated modal/drawer or explicitly navigated editor screen; do not append or expand mutation forms inside the management list/detail view. Complex full-page editors are allowed when clearly entered/exited as a separate workflow; read-only search/filter controls are not mutation forms.
+- Use one searchable selection control (combobox) for directory/model/resource selection when search is needed. Never place a separate search field and select field for the same choice. Show the human-readable name as primary, stable ID as secondary; only an explicitly selected eligible option supplies an authoritative identifier.
+- Prefer shared `ConsoleDialog` and `SearchableSelect` components over per-feature variants. Keep dependent selections and confirmation invalidated when upstream choices change, disable mutation controls while submitting, and return to the list on cancel/success. Preserve existing BFF authorization and confirmation invariants.
+- Staging acceptance must verify list/editor separation, search and selection in one field, keyboard and pointer interaction, cancel and dependent selection reset; record existing deviations for remediation rather than duplicating them.
+
 ## Current React/Vite control plane
 
 The permanent Console presentation shell is React + TypeScript + Vite with the Cloudflare Vite plugin. The earlier `public/` proving page was staging bootstrap evidence and is no longer the implementation target.
