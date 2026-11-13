@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { handleProbeRequest } from "../performance-probe/worker.mjs";
+import probeWorker, { handleProbeRequest } from "../performance-probe/worker.mjs";
 
 const env = {
   PROBE_TOKEN: "probe-token",
@@ -53,13 +53,13 @@ test("APAC probe reports Core fetch failures as JSON", async () => {
   const response = await handleProbeRequest(
     probeRequest({ method: "GET", path: "/api/v1/spaces/spc_test/models/task/records?limit=1" }),
     env,
-    async () => { throw new Error("upstream transport failed"); },
+    async () => { throw new Error("upstream transport failed: synthetic-secret /internal/private/path"); },
   );
 
   assert.equal(response.status, 502);
   assert.deepEqual(await response.json(), {
     error: "core_fetch_failed",
-    message: "upstream transport failed",
+    message: "Core request failed",
     method: "GET",
     path: "/api/v1/spaces/spc_test/models/task/records?limit=1",
   });
@@ -68,7 +68,7 @@ test("APAC probe reports Core fetch failures as JSON", async () => {
 test("APAC probe reports Core response-body read failures instead of throwing a bare 500", async () => {
   const upstream = {
     status: 201,
-    async text() { throw new Error("body stream reset"); },
+    async text() { throw new Error("body stream reset: synthetic-secret /internal/private/path"); },
   };
   const response = await handleProbeRequest(
     probeRequest({ method: "POST", path: "/api/v1/spaces/spc_test/models/task/records", body: { name: "Probe task" } }),
@@ -79,9 +79,16 @@ test("APAC probe reports Core response-body read failures instead of throwing a 
   assert.equal(response.status, 502);
   const payload = await response.json();
   assert.equal(payload.error, "core_response_read_failed");
-  assert.equal(payload.message, "body stream reset");
+  assert.equal(payload.message, "Core response could not be read");
+  assert.doesNotMatch(JSON.stringify(payload), /synthetic-secret|internal\/private\/path/u);
   assert.equal(payload.upstreamStatus, 201);
   assert.equal(payload.method, "POST");
   assert.equal(payload.path, "/api/v1/spaces/spc_test/models/task/records");
   assert.equal(typeof payload.elapsedMs, "number");
+});
+
+test("APAC probe internal exception never reaches the response", async () => {
+  const response = await probeWorker.fetch({ headers: { get() { throw new Error("synthetic-secret /internal/private/path"); } } }, env);
+  assert.equal(response.status, 500);
+  assert.deepEqual(await response.json(), { error: "probe_internal_error", message: "Probe request failed" });
 });

@@ -1,3 +1,4 @@
+import { registerRunnerSecret as mask } from "../../../infra/scripts/runner-secret.mjs";
 import process from "node:process";
 
 const identityBase = (process.env.LIFESPACE_IDENTITY_STAGING_URL ?? "https://auth-staging.aisr.online").replace(/\/+$/u, "");
@@ -22,7 +23,7 @@ assertStagingUrl(coreBase, "Core URL");
 if (bootstrapSecret.length < 32) throw new Error("LIFESPACE_STAGING_BOOTSTRAP_SECRET must contain at least 32 characters");
 if (!/^app_[0-9A-Za-z_-]+$/u.test(applicationId)) throw new Error("Console application id is invalid");
 if (explicitAdminUserId && !/^usr_[0-9A-Za-z_-]+$/u.test(explicitAdminUserId)) throw new Error("Explicit platform admin user id is invalid");
-console.log(`::add-mask::${bootstrapSecret}`);
+mask(bootstrapSecret);
 
 async function request(base, path, { method = "GET", bootstrap = false, bearer = "", actor = "", body } = {}) {
   const response = await fetch(`${base}${path}`, {
@@ -48,14 +49,11 @@ async function request(base, path, { method = "GET", bootstrap = false, bearer =
 function requireStatus(result, expected, label) {
   const allowed = Array.isArray(expected) ? expected : [expected];
   if (!allowed.includes(result.response.status)) {
-    throw new Error(`${label} expected HTTP ${allowed.join("/")}, got ${result.response.status}: ${JSON.stringify(result.payload)}`);
+    throw new Error(`${label} expected HTTP ${allowed.join("/")}, got ${result.response.status}`);
   }
   return result.payload?.data;
 }
 
-function mask(value) {
-  if (typeof value === "string" && value) console.log(`::add-mask::${value}`);
-}
 
 async function resolveAdminUserId() {
   if (explicitAdminUserId) return explicitAdminUserId;
@@ -131,7 +129,7 @@ async function retireAcceptanceModel() {
   if (!cleanup.modelPublished || cleanup.modelRetired) return;
   const result = await core(`/api/v1/platform-admin/models/${encodeURIComponent(modelKey)}/retire`, { method: "POST", body: {} });
   if (result.response.status !== 204 && result.response.status !== 404) {
-    throw new Error(`Cleanup retirement failed: ${result.response.status} ${JSON.stringify(result.payload)}`);
+    throw new Error(`Cleanup retirement failed: ${result.response.status}`);
   }
   cleanup.modelRetired = true;
 }
@@ -143,7 +141,7 @@ async function cleanupCredentials() {
       bearer: cleanup.applicationCredential,
     });
     if (result.response.status !== 204 && result.response.status !== 404) {
-      throw new Error(`Temporary Core token revocation failed: ${result.response.status} ${JSON.stringify(result.payload)}`);
+      throw new Error(`Temporary Core token revocation failed: ${result.response.status}`);
     }
     cleanup.serviceTokenId = "";
     cleanup.serviceToken = "";
@@ -154,7 +152,7 @@ async function cleanupCredentials() {
       bootstrap: true,
     });
     if (result.response.status !== 204 && result.response.status !== 404) {
-      throw new Error(`Temporary application credential revocation failed: ${result.response.status} ${JSON.stringify(result.payload)}`);
+      throw new Error(`Temporary application credential revocation failed: ${result.response.status}`);
     }
     cleanup.applicationCredentialId = "";
     cleanup.applicationCredential = "";
@@ -252,7 +250,7 @@ try {
     method: "POST",
     body: { definition: definitionV1() },
   }), 200, "Validate acceptance Model Definition through Platform Admin");
-  if (validation?.valid !== true) throw new Error(`Acceptance Model Definition did not validate: ${JSON.stringify(validation)}`);
+  if (validation?.valid !== true) throw new Error(`Acceptance Model Definition did not validate`);
 
   const publishedV1 = requireStatus(await core("/api/v1/platform-admin/models", {
     method: "POST",
@@ -260,7 +258,7 @@ try {
   }), 201, "Publish acceptance model v1 through Platform Admin");
   cleanup.modelPublished = true;
   if (publishedV1?.key !== modelKey || publishedV1?.version !== 1 || publishedV1?.compatibility !== "initial") {
-    throw new Error(`Unexpected v1 publication result: ${JSON.stringify(publishedV1)}`);
+    throw new Error(`Unexpected v1 publication result`);
   }
 
   const afterV1Contract = requireStatus(await core("/api/v1/model-admin/contracts/active"), 200, "Read Model Contract after v1");
@@ -271,7 +269,7 @@ try {
     body: { definition: definitionV2(), compatibility: "compatible" },
   }), 201, "Publish acceptance model v2 through Platform Admin");
   if (publishedV2?.key !== modelKey || publishedV2?.version !== 2 || publishedV2?.compatibility !== "compatible") {
-    throw new Error(`Unexpected v2 publication result: ${JSON.stringify(publishedV2)}`);
+    throw new Error(`Unexpected v2 publication result`);
   }
 
   const afterV2Contract = requireStatus(await core("/api/v1/model-admin/contracts/active"), 200, "Read Model Contract after v2");
@@ -299,7 +297,7 @@ try {
 
   const retiredLookup = await core(`/api/v1/platform-admin/models/${encodeURIComponent(modelKey)}`);
   if (retiredLookup.response.status !== 404) {
-    throw new Error(`Retired acceptance model remained published: ${retiredLookup.response.status} ${JSON.stringify(retiredLookup.payload)}`);
+    throw new Error(`Retired acceptance model remained published: ${retiredLookup.response.status}`);
   }
 
   const auditData = requireStatus(await core("/api/v1/platform-admin/audit?limit=100"), 200, "Read platform-admin audit after acceptance");
@@ -316,8 +314,8 @@ try {
     ok: true,
     environment: "staging",
     authority: "platform-admin",
-    actorUserId: adminUserId,
-    actorApplicationId: applicationId,
+    actorVerified: true,
+    applicationVerified: true,
     acceptanceModel: { key: modelKey, publishedVersions: [1, 2], retired: true, consoleNamespace: "/api/v1/platform-admin/models*" },
     modelContract: {
       before: beforeContract?.id ?? null,
@@ -339,7 +337,7 @@ try {
   try { await retireAcceptanceModel(); } catch (error) { cleanupErrors.push(error); }
   try { await cleanupCredentials(); } catch (error) { cleanupErrors.push(error); }
   if (cleanupErrors.length) {
-    const detail = cleanupErrors.map((error) => error instanceof Error ? error.message : String(error)).join("; ");
+    const detail = `${cleanupErrors.length} cleanup operation(s) failed`;
     if (!primaryError) primaryError = new Error(`Acceptance cleanup failed: ${detail}`);
     else console.error(`Acceptance cleanup also failed: ${detail}`);
   }

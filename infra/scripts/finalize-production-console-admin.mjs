@@ -1,3 +1,4 @@
+import { registerRunnerSecret as mask } from "./runner-secret.mjs";
 import process from "node:process";
 import { assertProductionServiceUrl } from "./production-expectations.mjs";
 
@@ -17,9 +18,6 @@ if (!applicationCredential.startsWith("lsa_")) throw new Error("LIFESPACE_PRODUC
 if (!/^app_[0-9A-Za-z_-]+$/u.test(applicationId)) throw new Error("Production Console application id is invalid");
 if (!currentCredentialId || !principalId.startsWith("svc_") || !currentTokenId.startsWith("sat_")) throw new Error("Current production Console credential metadata is incomplete");
 
-function mask(value) {
-  if (value) console.log(`::add-mask::${value}`);
-}
 mask(bootstrapSecret);
 mask(applicationCredential);
 
@@ -47,7 +45,7 @@ for (const credentialId of oldCredentialIds) {
     bootstrap: true,
   });
   if (result.response.status !== 204 && result.response.status !== 404) {
-    throw new Error(`Could not revoke superseded production Console application credential ${credentialId}: ${result.response.status} ${JSON.stringify(result.payload)}`);
+    throw new Error(`Could not revoke superseded production Console application credential ${credentialId}: ${result.response.status}`);
   }
 }
 
@@ -57,7 +55,7 @@ for (const tokenId of oldTokenIds) {
     bearer: applicationCredential,
   });
   if (result.response.status !== 204 && result.response.status !== 404) {
-    throw new Error(`Could not revoke superseded production Console Core token ${tokenId}: ${result.response.status} ${JSON.stringify(result.payload)}`);
+    throw new Error(`Could not revoke superseded production Console Core token ${tokenId}: ${result.response.status}`);
   }
 }
 
@@ -79,10 +77,9 @@ console.log(JSON.stringify({
   ok: true,
   environment: "production",
   applicationId,
-  currentCredentialId,
+  currentCredentialVerified: true,
   revokedCredentialCount: oldCredentialIds.length,
-  corePrincipalId: principalId,
-  currentCoreTokenId: currentTokenId,
+  currentCoreTokenVerified: true,
   revokedCoreTokenCount: oldTokenIds.length,
   plaintextLogged: false,
 }, null, 2));

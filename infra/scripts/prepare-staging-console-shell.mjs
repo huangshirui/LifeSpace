@@ -1,3 +1,4 @@
+import { registerRunnerSecret as mask } from "./runner-secret.mjs";
 import { appendFileSync } from "node:fs";
 import process from "node:process";
 import { STAGING_EXPECTATIONS, assertStagingServiceUrl } from "./staging-expectations.mjs";
@@ -36,9 +37,6 @@ if (bootstrapSecret.length < 32) throw new Error("LIFESPACE_STAGING_BOOTSTRAP_SE
 if (/\s/u.test(accessAudience)) throw new Error("LIFESPACE_STAGING_CONSOLE_ACCESS_AUD must not contain whitespace");
 if (!/^app_[0-9A-Za-z_-]+$/u.test(applicationId)) throw new Error("LIFESPACE_STAGING_CONSOLE_APPLICATION_ID must use an app_* identifier");
 
-function mask(value) {
-  if (typeof value === "string" && value) console.log(`::add-mask::${value}`);
-}
 mask(bootstrapSecret);
 
 function sameStringSet(left, right) {
@@ -109,7 +107,7 @@ async function createApplication() {
     },
   });
   if (created.response.status !== 201 || created.payload?.data?.id !== applicationId) {
-    throw new Error(`Console application creation failed: ${created.response.status} ${JSON.stringify(created.payload)}`);
+    throw new Error(`Console application creation failed: ${created.response.status}`);
   }
   return { application: created.payload.data, credential: persistCredential(created.payload.data.clientSecret), created: true };
 }
@@ -135,7 +133,7 @@ function requireExistingApplicationPolicy(existing) {
 async function rotateApplicationCredential() {
   const created = await request(`/bootstrap/v1/applications/${encodeURIComponent(applicationId)}/credentials`, { method: "POST" });
   if (created.response.status !== 201) {
-    throw new Error(`Console application credential rotation failed: ${created.response.status} ${JSON.stringify(created.payload)}`);
+    throw new Error(`Console application credential rotation failed: ${created.response.status}`);
   }
   return persistCredential(created.payload?.data?.clientSecret);
 }
@@ -144,14 +142,14 @@ async function ensureAudience() {
   const path = `/bootstrap/v1/applications/${encodeURIComponent(applicationId)}/access-audiences`;
   const listed = await request(path);
   if (listed.response.status !== 200 || !Array.isArray(listed.payload?.data)) {
-    throw new Error(`Console Access audience listing failed: ${listed.response.status} ${JSON.stringify(listed.payload)}`);
+    throw new Error(`Console Access audience listing failed: ${listed.response.status}`);
   }
   const current = listed.payload.data.find((entry) => entry?.audience === accessAudience && entry?.status === "active");
   if (current) return { created: false, audience: current };
 
   const created = await request(path, { method: "POST", body: { audience: accessAudience } });
   if (![200, 201].includes(created.response.status) || created.payload?.data?.audience !== accessAudience) {
-    throw new Error(`Console Access audience registration failed: ${created.response.status} ${JSON.stringify(created.payload)}`);
+    throw new Error(`Console Access audience registration failed: ${created.response.status}`);
   }
   return { created: created.response.status === 201, audience: created.payload.data };
 }
@@ -169,7 +167,7 @@ if (lookup.response.status === 404) {
   created = true;
 } else {
   if (lookup.response.status !== 200 || lookup.payload?.data?.id !== applicationId) {
-    throw new Error(`Console application lookup failed: ${lookup.response.status} ${JSON.stringify(lookup.payload)}`);
+    throw new Error(`Console application lookup failed: ${lookup.response.status}`);
   }
   application = requireExistingApplicationPolicy(lookup.payload.data);
   credential = await rotateApplicationCredential();
@@ -191,8 +189,7 @@ console.log(JSON.stringify({
     plaintextLogged: false,
   },
   accessAudience: {
-    audience: accessAudience,
-    issuer: audience.audience?.issuer ?? null,
+    registered: audience.audience?.status === "active",
     status: audience.audience?.status ?? null,
     created: audience.created,
   },

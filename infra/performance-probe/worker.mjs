@@ -7,10 +7,6 @@ function json(data, status = 200) {
   });
 }
 
-function errorMessage(error) {
-  return (error instanceof Error ? error.message : String(error)).slice(0, 500);
-}
-
 export function isAllowedBenchmarkRequest(path, method, spaceId) {
   let url;
   try {
@@ -93,10 +89,10 @@ export async function handleProbeRequest(request, env, fetchImpl = fetch) {
       },
       ...(input.body === undefined ? {} : { body: JSON.stringify(input.body) }),
     });
-  } catch (error) {
+  } catch {
     return json({
       error: "core_fetch_failed",
-      message: errorMessage(error),
+      message: "Core request failed",
       method,
       path,
     }, 502);
@@ -109,10 +105,10 @@ export async function handleProbeRequest(request, env, fetchImpl = fetch) {
   let text;
   try {
     text = await response.text();
-  } catch (error) {
+  } catch {
     return json({
       error: "core_response_read_failed",
-      message: errorMessage(error),
+      message: "Core response could not be read",
       upstreamStatus: response.status,
       elapsedMs,
       method,
@@ -142,8 +138,8 @@ export default {
   async fetch(request, env) {
     try {
       return await handleProbeRequest(request, env);
-    } catch (error) {
-      return json({ error: "probe_internal_error", message: errorMessage(error) }, 500);
+    } catch {
+      return json({ error: "probe_internal_error", message: "Probe request failed" }, 500);
     }
   },
 };
