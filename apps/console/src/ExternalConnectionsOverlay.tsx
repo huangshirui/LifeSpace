@@ -1,5 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
+import { ConsoleDialog } from "./ConsoleDialog";
+import { SearchableSelect } from "./SearchableSelect";
 import "./external-connections.css";
+
+const matchesChoice = (row: { id: string; name: string }, query: string) => (row.name + " " + row.id).toLowerCase().includes(query.trim().toLowerCase());
 
 type DataEnvelope<T> = { data: T };
 type ErrorEnvelope = { error?: { code?: string; message?: string; requestId?: string } };
@@ -109,7 +113,8 @@ function ConnectionsPanel({ spaceId, onReadyToBind }: { spaceId: string; onReady
   const [displayName, setDisplayName] = useState("Notion");
   const [token, setToken] = useState("");
   const [access, setAccess] = useState<"read" | "write">("write");
-  const [rotate, setRotate] = useState<Record<string, string>>({});
+  const [editor, setEditor] = useState<"create" | Connection>();
+  const [providerQuery, setProviderQuery] = useState("");
   const [busy, setBusy] = useState("");
   const [error, setError] = useState<unknown>();
 
@@ -122,7 +127,7 @@ function ConnectionsPanel({ spaceId, onReadyToBind }: { spaceId: string; onReady
       ]);
       setProviders(providerData.items);
       setConnections(connectionData.items);
-      if (!providerKey && providerData.items[0]) { setProviderKey(providerData.items[0].key); setDisplayName(providerData.items[0].displayName); }
+
     } catch (cause) { setError(cause); }
   }
   useEffect(() => { void load(); }, [spaceId]);
@@ -138,7 +143,7 @@ function ConnectionsPanel({ spaceId, onReadyToBind }: { spaceId: string; onReady
         credential: { type: provider.credential.type, token: token.trim() },
         access,
       });
-      setToken("");
+      setToken(""); setEditor(undefined);
       await load();
     } catch (cause) { setError(cause); } finally { setBusy(""); }
   }
@@ -148,12 +153,12 @@ function ConnectionsPanel({ spaceId, onReadyToBind }: { spaceId: string; onReady
     catch (cause) { setError(cause); } finally { setBusy(""); }
   }
   async function rotateToken(connection: Connection) {
-    const next = rotate[connection.id]?.trim(); if (!next) return;
+    const next = token.trim(); if (!next) return;
     setBusy(connection.id); setError(undefined);
     try {
       const descriptor = providers.find((item) => item.key === connection.providerKey);
       await mutate(`/api/spaces/${encodeURIComponent(spaceId)}/external-connections/${connection.id}`, "PATCH", "update-external-connection", { credential: { type: descriptor?.credential.type ?? "bearer_token", token: next } });
-      setRotate((current) => ({ ...current, [connection.id]: "" }));
+      setToken(""); setEditor(undefined);
       await load();
     } catch (cause) { setError(cause); } finally { setBusy(""); }
   }
@@ -164,24 +169,37 @@ function ConnectionsPanel({ spaceId, onReadyToBind }: { spaceId: string; onReady
     catch (cause) { setError(cause); } finally { setBusy(""); }
   }
 
+  function beginCreate() {
+    const first = providers[0];
+    setProviderKey(first?.key ?? ""); setDisplayName(first?.displayName ?? "");
+    setAccess(first?.access.includes("write") ? "write" : "read");
+    setProviderQuery(""); setToken(""); setError(undefined); setEditor("create");
+  }
+  const cancelEditor = () => { if (!busy) { setEditor(undefined); setToken(""); setError(undefined); } };
+  const cancel = <button className="cp-secondary" disabled={!!busy} onClick={cancelEditor}>取消</button>;
+  if (editor === "create") return <ConsoleDialog key="create" compact busy={!!busy} title="添加连接" description="Provider token 只用于本次请求并保存到私有 Adapter Vault；LifeSpace Core 不保存或回显明文。" onClose={cancelEditor}
+    footer={<>{cancel}<button className="cp-primary" disabled={!!busy || !provider || !displayName.trim() || !token.trim()} onClick={() => void create()}>{busy ? "验证并连接中…" : "验证并添加连接"}</button></>}>
+    <fieldset className="console-editor-fields" disabled={!!busy}>
+      <SearchableSelect label="Provider" value={providerKey} options={providers.map(item => ({ id: item.key, name: item.displayName })).filter(item => matchesChoice(item, providerQuery))}
+        query={providerQuery} onQueryChange={setProviderQuery} onChange={key => { setProviderKey(key); const next = providers.find(item => item.key === key); setDisplayName(next?.displayName ?? ""); setToken(""); setAccess(next?.access.includes("write") ? "write" : "read"); }} />
+      <label className="cp-field"><span>名称</span><input value={displayName} maxLength={100} onChange={event => setDisplayName(event.target.value)} /></label>
+      <label className="cp-field"><span>{provider?.credential.displayName ?? "Credential"}</span><input type="password" autoComplete="off" value={token} onChange={event => setToken(event.target.value)} placeholder="仅在创建/换 token 时提交" /></label>
+      <label className="cp-field"><span>能力上限</span><select value={access} onChange={event => setAccess(event.target.value as "read" | "write")}><option value="read">只读</option>{provider?.access.includes("write") && <option value="write">读写</option>}</select></label>
+    </fieldset>
+    <Message error={error} />
+  </ConsoleDialog>;
+  if (editor) return <ConsoleDialog key={editor.id} compact busy={!!busy} title="更换连接 Token" description={editor.displayName + " · " + editor.id} onClose={cancelEditor}
+    footer={<>{cancel}<button className="cp-primary" disabled={!!busy || !token.trim()} onClick={() => void rotateToken(editor)}>{busy ? "验证中…" : "验证并更换 Token"}</button></>}>
+    <label className="cp-field"><span>新 Token</span><input type="password" autoComplete="off" disabled={!!busy} value={token} onChange={event => setToken(event.target.value)} /></label>
+    <Message error={error} />
+  </ConsoleDialog>;
   return <div className="ext-body">
-    <section className="ext-card">
-      <h3>添加连接</h3><p>Provider token 只用于本次请求并保存到私有 Adapter Vault；LifeSpace Core 不保存或回显明文。</p>
-      <div className="ext-grid">
-        <label><span>Provider</span><select value={providerKey} onChange={(event) => { const key = event.target.value; setProviderKey(key); const next = providers.find((item) => item.key === key); if (next) setDisplayName(next.displayName); }}>{providers.map((item) => <option key={item.key} value={item.key}>{item.displayName}</option>)}</select></label>
-        <label><span>名称</span><input value={displayName} maxLength={100} onChange={(event) => setDisplayName(event.target.value)} /></label>
-        <label className="wide"><span>{provider?.credential.displayName ?? "Credential"}</span><input type="password" autoComplete="off" value={token} onChange={(event) => setToken(event.target.value)} placeholder="仅在创建/换 token 时提交" /></label>
-        <label><span>能力上限</span><select value={access} onChange={(event) => setAccess(event.target.value as "read" | "write")}><option value="read">只读</option>{provider?.access.includes("write") && <option value="write">读写</option>}</select></label>
-      </div>
-      <button className="ext-primary" disabled={busy === "create" || !provider || !displayName.trim() || !token.trim()} onClick={() => void create()}>{busy === "create" ? "验证并连接中…" : "验证并添加连接"}</button>
-    </section>
-
-    <section className="ext-card"><div className="ext-section-head"><div><h3>当前连接</h3><p>所有 Connection 都通过公开配置 API 创建，可在这里启停、换 token 或撤销。</p></div>{connections.some((item) => item.status === "active") && <button onClick={onReadyToBind}>去绑定模型 →</button>}</div>
+    <section className="ext-card"><div className="ext-section-head"><div><h3>当前连接</h3><p>所有 Connection 都通过公开配置 API 创建，可在这里启停、换 token 或撤销。</p></div><div className="ext-heading-actions"><button className="cp-primary" disabled={!!busy || !providers.length} onClick={beginCreate}>添加连接</button>{connections.some(item => item.status === "active") && <button disabled={!!busy} onClick={onReadyToBind}>去绑定模型 →</button>}</div></div>
       {!connections.length && <div className="ext-empty">还没有外部连接。</div>}
       <div className="ext-list">{connections.map((connection) => <article key={connection.id} className="ext-connection"><div className="ext-connection-main"><strong>{connection.displayName}</strong><code>{connection.id}</code><div className="ext-badges"><span>{connection.providerKey}</span><span>{connection.access ?? "unknown"}</span><span>{connection.status}</span></div></div>
         <div className="ext-actions">
-          {connection.status === "active" ? <button disabled={busy === connection.id} onClick={() => void setStatus(connection, "disabled")}>Disable</button> : connection.status === "disabled" && <button disabled={busy === connection.id} onClick={() => void setStatus(connection, "active")}>Enable</button>}
-          {connection.status !== "revoked" && <><input type="password" autoComplete="off" placeholder="新 token" value={rotate[connection.id] ?? ""} onChange={(event) => setRotate((current) => ({ ...current, [connection.id]: event.target.value }))} /><button disabled={busy === connection.id || !(rotate[connection.id]?.trim())} onClick={() => void rotateToken(connection)}>换 token</button><button className="danger" disabled={busy === connection.id} onClick={() => void revoke(connection)}>撤销</button></>}
+          {connection.status === "active" ? <button disabled={!!busy} onClick={() => void setStatus(connection, "disabled")}>Disable</button> : connection.status === "disabled" && <button disabled={!!busy} onClick={() => void setStatus(connection, "active")}>Enable</button>}
+          {connection.status !== "revoked" && <><button disabled={!!busy} onClick={() => { setToken(""); setError(undefined); setEditor(connection); }}>换 token</button><button className="danger" disabled={!!busy} onClick={() => void revoke(connection)}>撤销</button></>}
         </div>
       </article>)}</div>
     </section>
