@@ -15,7 +15,8 @@ function countedStatement(statement: D1PreparedStatement): D1PreparedStatement {
       if (property === "bind") {
         return (...values: unknown[]) => countedStatement(statement.bind(...values));
       }
-      return Reflect.get(target, property, statement);
+      const value = Reflect.get(target, property, statement);
+      return typeof value === "function" ? value.bind(statement) : value;
     },
   }) as D1PreparedStatement;
   statementTargets.set(proxy as unknown as object, statement);
