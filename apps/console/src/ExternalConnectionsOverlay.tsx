@@ -194,7 +194,7 @@ function ConnectionsPanel({ spaceId, onReadyToBind }: { spaceId: string; onReady
     <Message error={error} />
   </ConsoleDialog>;
   return <div className="ext-body">
-    <section className="ext-card"><div className="ext-section-head"><div><h3>当前连接</h3><p>所有 Connection 都通过公开配置 API 创建，可在这里启停、换 token 或撤销。</p></div><div className="ext-heading-actions"><button className="cp-primary" disabled={!!busy || !providers.length} onClick={beginCreate}>添加连接</button>{connections.some(item => item.status === "active") && <button disabled={!!busy} onClick={onReadyToBind}>去绑定模型 →</button>}</div></div>
+    <section className="ext-card"><div className="ext-section-head"><div><h3>当前连接</h3><p>管理当前 Space 的连接，可启停、更换 Token 或撤销。</p></div><div className="ext-heading-actions"><button className="cp-primary" disabled={!!busy || !providers.length} onClick={beginCreate}>添加连接</button>{connections.some(item => item.status === "active") && <button disabled={!!busy} onClick={onReadyToBind}>去绑定模型 →</button>}</div></div>
       {!connections.length && <div className="ext-empty">还没有外部连接。</div>}
       <div className="ext-list">{connections.map((connection) => <article key={connection.id} className="ext-connection"><div className="ext-connection-main"><strong>{connection.displayName}</strong><code>{connection.id}</code><div className="ext-badges"><span>{connection.providerKey}</span><span>{connection.access ?? "unknown"}</span><span>{connection.status}</span></div></div>
         <div className="ext-actions">
@@ -325,7 +325,7 @@ function BindingPanel({ spaceId }: { spaceId: string }) {
     } catch (cause) { setError(cause); } finally { setBusy(""); }
   }
   async function disable(binding: ExternalBinding) {
-    if (!window.confirm(`禁用 ${binding.displayName}？Provider 数据不会删除；恢复时请在上方重新选择同一 Connection 与 Provider Resource 进行绑定。`)) return;
+    if (!window.confirm(`禁用 ${binding.displayName}？Provider 数据不会删除；恢复时请通过“绑定模型”重新选择同一 Connection 与 Provider Resource。`)) return;
     setBusy(binding.registrationId); setError(undefined);
     try {
       await mutate(`/api/spaces/${encodeURIComponent(spaceId)}/external-models/${encodeURIComponent(binding.modelKey)}`, "PATCH", "update-external-model-binding", { status: "disabled" });
