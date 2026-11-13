@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import { SearchableSelect } from "./SearchableSelect";
 import "./mcp-servers.css";
 
 type ModelSelection = { modelKey: string; operations: string[] };
@@ -77,6 +78,7 @@ function CapabilityPicker({
   models, config, onChange, disabled,
 }: { models: Model[]; config: Configuration; onChange: (config: Configuration) => void; disabled?: boolean }) {
   const [pending, setPending] = useState("");
+  const [query, setQuery] = useState("");
   const byKey = useMemo(() => new Map(models.map((model) => [model.key, model])), [models]);
   const available = models.filter((model) =>
     !config.models.some((item) => item.modelKey === model.key) && allowedOperations(model).length > 0);
@@ -91,7 +93,7 @@ function CapabilityPicker({
         onChange({ ...config, models: [...config.models, { modelKey: pending, operations: [] }] });
       }
     }
-    setPending("");
+    setPending(""); setQuery("");
   }
   function toggle(modelKey: string, operation: string) {
     onChange({ ...config, models: config.models.map((item) => {
@@ -147,18 +149,11 @@ function CapabilityPicker({
     {!config.models.length && !(config.resources?.length ?? 0) &&
       <div className="mcp-empty mcp-small">选择要开放的业务模型或平台资源。</div>}
     <div className="mcp-add">
-      <select aria-label="选择模型或平台资源" value={pending} disabled={disabled}
-        onChange={(event) => setPending(event.target.value)}>
-        <option value="">选择能力</option>
-        <optgroup label="业务模型">
-          {available.map((model) => <option value={model.key} key={model.key}>
-            {model.definition.display?.singular ?? model.key} · {model.key}
-          </option>)}
-        </optgroup>
-        {!(config.resources?.length ?? 0) && <optgroup label="平台资源">
-          <option value="kernel:person_directory">Person · 人员目录</option>
-        </optgroup>}
-      </select>
+      <SearchableSelect label="选择模型或平台资源" value={pending} query={query} onQueryChange={setQuery}
+        onChange={setPending} disabled={disabled}
+        options={[...available.filter(() => config.models.length < 32).map(model => ({ id: model.key, name: model.definition.display?.singular ?? model.key })),
+          ...(!(config.resources?.length ?? 0) ? [{ id: "kernel:person_directory", name: "Person · 人员目录" }] : [])]
+          .filter(row => (row.name + " " + row.id).toLowerCase().includes(query.trim().toLowerCase()))} />
       <button type="button" className="secondary-button" onClick={add}
         disabled={disabled || !pending || (pending !== "kernel:person_directory" && config.models.length >= 32)}>
         添加能力</button>
@@ -173,6 +168,7 @@ export default function McpServersPage({ serverKey, navigate }:
   const [selected, setSelected] = useState<Server | null>(null);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
+  const [editing, setEditing] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -210,6 +206,7 @@ export default function McpServersPage({ serverKey, navigate }:
   }, [serverKey]);
   useEffect(() => {
     setCreating(false);
+    setEditing(false);
     setNotice("");
     setError("");
     void load();
@@ -245,8 +242,10 @@ export default function McpServersPage({ serverKey, navigate }:
         (cause instanceof Error ? cause.message : "请求失败"));
     } finally { setBusy(false); }
   }
+  function beginEdit() { if (selected) { setTitle(selected.name); setDescription(selected.description); setConfig(selected.configuration); setError(""); setNotice(""); setEditing(true); } }
+  function cancelEdit() { if (busy || !selected) return; setTitle(selected.name); setDescription(selected.description); setConfig(selected.configuration); setError(""); setEditing(false); }
   async function save() {
-    if (!selected || !dirty || busy || !valid) return;
+    if (!selected || !editing || !dirty || busy || !valid || title.trim().length < 2) return;
     setBusy(true); setError(""); setNotice("");
     try {
       const server = await api<Server>(path(selected.id), "PATCH", {
@@ -255,13 +254,14 @@ export default function McpServersPage({ serverKey, navigate }:
       }, "edit-mcp-server");
       setSelected(server);
       setConfig(server.configuration);
+      setTitle(server.name); setDescription(server.description); setEditing(false);
       setNotice("配置已保存");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "保存失败");
     } finally { setBusy(false); }
   }
   async function changeEnabled() {
-    if (!selected || busy || dirty) return;
+    if (!selected || busy || editing || dirty) return;
     const enabled = !selected.enabled;
     if (!window.confirm(enabled ? "启用这个 MCP Server？" : "停用这个 MCP Server？")) return;
     setBusy(true); setError(""); setNotice("");
@@ -280,12 +280,11 @@ export default function McpServersPage({ serverKey, navigate }:
     <header className="mcp-header">
       <div>
         <div className="eyebrow">Platform</div>
-        <h1>{serverKey && selected ? selected.name : creating ? "新建 MCP Server" : "MCP Servers"}</h1>
+        <h1>{serverKey && selected ? (editing ? "编辑 · " : "") + selected.name : creating ? "新建 MCP Server" : "MCP Servers"}</h1>
         <p>{serverKey && selected ? "管理开放能力及启用状态" : "管理可直接保存的领域工具配置"}</p>
       </div>
       <div className="mcp-toolbar">
-        {serverKey ? <button type="button" className="secondary-button"
-          onClick={() => navigate("/mcp-servers")}>返回列表</button>
+        {serverKey ? editing ? <button type="button" className="secondary-button" disabled={busy} onClick={cancelEdit}>取消</button> : <><button type="button" className="secondary-button" disabled={busy} onClick={() => navigate("/mcp-servers")}>返回列表</button><button type="button" className="mcp-primary" disabled={busy || loading || !selected} onClick={beginEdit}>编辑</button></>
           : creating ? <button type="button" className="secondary-button" disabled={busy}
               onClick={() => { setCreating(false); setError(""); void load(); }}>取消</button>
           : <button type="button" className="mcp-primary" onClick={beginCreate}>新建 Server</button>}
@@ -323,30 +322,32 @@ export default function McpServersPage({ serverKey, navigate }:
         </table></div>
         {!rows.length && <div className="mcp-empty">尚无 MCP Server。点击右上角新建。</div>}
       </section> : selected ? <>
-        <div className="mcp-summary">
+        {!editing && <div className="mcp-summary">
           <div><span>状态</span><strong>{selected.enabled ? "已启用" : "已停用"}</strong></div>
           <div><span>资源 ID</span><strong className="mcp-id">{selected.id}</strong></div>
           <div><span>预定 MCP URL 路径</span><strong className="mcp-id">{selected.path}</strong></div>
-        </div>
+        </div>}
+        {editing ? <>
         <section className="mcp-panel">
           <div className="mcp-panel-head"><h2>基本信息</h2><span>Server ID 与路径不可编辑</span></div>
           <div className="mcp-fields">
-            <label>名称<input maxLength={80} value={title}
+            <label>名称<input minLength={2} maxLength={80} value={title}
               onChange={(e) => setTitle(e.target.value)} disabled={busy} /></label>
             <label className="mcp-full">描述<input maxLength={500} value={description}
               onChange={(e) => setDescription(e.target.value)} disabled={busy} /></label>
           </div>
         </section>
         <CapabilityPicker models={models} config={config} onChange={setConfig} disabled={busy} />
-        <div className="mcp-actions">
-          <button type="button" className="mcp-primary" disabled={busy || !dirty || !valid}
-            onClick={() => void save()}>保存修改</button>
-          <button type="button" className={selected.enabled ? "mcp-danger" : "secondary-button"}
-            disabled={busy || dirty} onClick={() => void changeEnabled()}>
-            {selected.enabled ? "停用 Server" : "启用 Server"}
-          </button>
-          {dirty && <span className="mcp-hint">请先保存修改，再操作启用状态</span>}
-        </div>
+        <div className="mcp-actions"><button type="button" className="secondary-button" disabled={busy} onClick={cancelEdit}>取消</button>
+          <button type="button" className="mcp-primary" disabled={busy || !dirty || !valid || title.trim().length < 2} onClick={() => void save()}>保存修改</button></div>
+        </> : <>
+          <section className="mcp-panel"><h2>基本信息</h2><div className="mcp-read-fields"><span>名称</span><strong>{selected.name}</strong><span>描述</span><span>{selected.description || "—"}</span></div></section>
+          <section className="mcp-panel"><div className="mcp-panel-head"><h2>开放能力</h2><span>{selected.configuration.models.length} 个业务模型 · {selected.configuration.resources?.length ?? 0} 个平台资源</span></div>
+            {selected.configuration.models.map(item => <div className="mcp-model" key={item.modelKey}><div className="mcp-model-head"><div><strong>{models.find(model => model.key === item.modelKey)?.definition.display?.singular ?? item.modelKey}</strong><small>{item.modelKey}</small></div></div><p className="mcp-caption">{item.operations.map(op => labels[op] ?? "动作 · " + op.replace(/^action:/u, "")).join(" · ") || "—"}</p></div>)}
+            {(selected.configuration.resources ?? []).map(item => <div className="mcp-model" key={item.resourceKey}><strong>Person · 人员目录</strong><p className="mcp-caption">{item.operations.map(op => labels[op] ?? op).join(" · ") || "—"}</p></div>)}
+          </section>
+          <div className="mcp-actions"><button type="button" className={selected.enabled ? "mcp-danger" : "secondary-button"} disabled={busy} onClick={() => void changeEnabled()}>{selected.enabled ? "停用 Server" : "启用 Server"}</button></div>
+        </>}
         <p className="mcp-caption">预定地址：https://core.aisr.online{selected.path}。本页仅管理配置；MCP Adapter 尚未接入此动态目录。</p>
       </> : <div className="mcp-panel mcp-empty">找不到此 MCP Server。</div>}
   </div>;
