@@ -1,3 +1,4 @@
+import { ConsoleDialog } from "./ConsoleDialog";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import App from "./App";
 import "./control-plane.css";
@@ -278,22 +279,19 @@ export function ModelAccessDialog({ applicationId, onClose }: { applicationId: s
     } catch (cause) { setError(cause); setBusy(false); }
   }
 
-  return <DialogShell title="配置 Application × Model Access" description="这是应用级模型权限上限，不替代 credential scope、Space membership 或 Data Grant。变更在下一次 Core 授权判断中生效。" onClose={onClose}>
-    <div className="cp-dialog-body">
+  return <ConsoleDialog busy={busy} title="配置 Application × Model Access" description="这是应用级模型权限上限，不替代 credential scope、Space membership 或 Data Grant。变更在下一次 Core 授权判断中生效。" onClose={onClose} footer={<><button className="cp-secondary" disabled={busy} onClick={onClose}>取消</button><button className="cp-primary" disabled={busy || loading || !changed || !confirmed} onClick={() => void save()}>{busy ? "保存中…" : "Save model access"}</button></>}>
       {loading ? <div className="cp-loading">正在读取 Application 与活动 Model Registry…</div> : <>
         <div className="cp-app-summary"><strong>{application?.application.name ?? applicationId}</strong><code>{applicationId}</code></div>
         <div className="cp-access-table">
           <div className="cp-access-head"><span>Model</span><span>Version</span><span>Max access</span></div>
-          {models.map((model) => <div className="cp-access-row" key={model.key}><div><strong>{model.key}</strong><small>{model.state}</small></div><div><code>v{model.version}</code></div><select value={access[model.key] ?? "none"} onChange={(event) => { setAccess((current) => ({ ...current, [model.key]: event.target.value as "none" | AccessLevel })); setConfirmed(false); }}><option value="none">No access</option>{declaredAccess(model).map((level) => <option value={level} key={level}>{level}</option>)}</select></div>)}
+          {models.map((model) => <div className="cp-access-row" key={model.key}><div><strong>{model.key}</strong><small>{model.state}</small></div><div><code>v{model.version}</code></div><select disabled={busy} value={access[model.key] ?? "none"} onChange={(event) => { setAccess((current) => ({ ...current, [model.key]: event.target.value as "none" | AccessLevel })); setConfirmed(false); }}><option value="none">No access</option>{declaredAccess(model).map((level) => <option value={level} key={level}>{level}</option>)}</select></div>)}
         </div>
         {!models.length && <div className="cp-loading">当前没有已发布模型。</div>}
         {!!staleAssignments.length && <div className="cp-notice cp-error"><strong>发现 {staleAssignments.length} 条非活动模型授权</strong><span>保存会清理这些不再属于当前 Published Registry 的 Application × Model Access：{staleAssignments.map((item) => item.modelKey).join(", ")}</span></div>}
-        <label className="cp-confirm"><input type="checkbox" checked={confirmed} disabled={!changed} onChange={(event) => setConfirmed(event.target.checked)} /><span>我确认原子替换此应用当前的 Model Access catalog；未选择的模型将失去应用级访问权限。</span></label>
+        <label className="cp-confirm"><input type="checkbox" checked={confirmed} disabled={busy || !changed} onChange={(event) => setConfirmed(event.target.checked)} /><span>我确认原子替换此应用当前的 Model Access catalog；未选择的模型将失去应用级访问权限。</span></label>
         <ErrorNotice error={error} />
       </>}
-    </div>
-    <footer className="cp-dialog-footer"><button className="cp-secondary" onClick={onClose}>取消</button><button className="cp-primary" disabled={busy || loading || !changed || !confirmed} onClick={() => void save()}>{busy ? "保存中…" : "Save model access"}</button></footer>
-  </DialogShell>;
+  </ConsoleDialog>;
 }
 
 function ControlPlaneLauncher() {
