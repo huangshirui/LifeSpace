@@ -39,6 +39,20 @@ if ((ui.match(/<CapabilityPicker /gu) ?? []).length !== 2) {
 if (!ui.includes('}, [serverKey, load]);')) {
   throw new Error("MCP Server create form must reset on route change");
 }
+const oauth = readFileSync(new URL("../src/OAuthClientAdmissionPage.tsx", import.meta.url), "utf8");
+const controlPlane = readFileSync(new URL("../src/ControlPlaneApp.tsx", import.meta.url), "utf8");
+const mcpReadDetail = ui.slice(ui.indexOf('className="mcp-read-fields"'));
+const oauthReadDetail = oauth.slice(oauth.indexOf('return <div className="oad-page">'), oauth.indexOf('{editing && draft && <ConsoleDialog'));
+for (const [source, label] of [[mcpReadDetail, "MCP"], [oauthReadDetail, "OAuth"]]) {
+  if (!source || /<(?:input|textarea|select|CapabilityPicker)\b/u.test(source)) throw new Error(label + " read detail must not contain mutation fields");
+}
+for (const marker of ["onClick={beginEdit}", "onClick={cancelEdit}", "setEditing(false)", '<SearchableSelect label="选择模型或平台资源"']) {
+  if (!ui.includes(marker)) throw new Error("MCP independent editor missing " + marker);
+}
+for (const marker of ['{editing && draft && <ConsoleDialog', "expectedRevision: current.revision", "onClose={cancelEdit}", "setEditing(false)"]) {
+  if (!oauth.includes(marker)) throw new Error("OAuth independent editor missing " + marker);
+}
+if (!controlPlane.includes('<ConsoleDialog busy={busy} title="配置 Application × Model Access"') || !controlPlane.includes('confirmApplicationId: applicationId')) throw new Error("Model Access dedicated modal or confirmation missing");
 for (const removed of [
   "publishedRevision", "draftRevision", "retryCreatePublish", "发布新版本",
   "保存草稿", "撤回发布", "published.manifest",

@@ -22,3 +22,5 @@
 .oad-error,.oad-notice{margin-bottom:16px;padding:12px 16px;border:1px solid #e5b0b0;border-radius:10px;color:#923333;background:#fff6f6}
 .oad-notice{border-color:#bddec7;color:#285d3a;background:#f7fdf9}
 @media(max-width:620px){.oad-header{flex-direction:column}.oad-panel{padding:16px}}
+
+.oad-actions{display:flex;gap:8px;flex-wrap:wrap}.oad-read{cursor:default}.oad-url-list{margin:8px 0 16px;padding-left:20px;overflow-wrap:anywhere;font-size:13px}.oad-url-list li{margin:6px 0}.oad-editor-panel{border:0;padding:0;box-shadow:none}.oad-editor-panel+.oad-editor-panel{border-top:1px solid #e9edf2;padding-top:16px;margin-bottom:0}
