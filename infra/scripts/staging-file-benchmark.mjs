@@ -53,19 +53,47 @@ async function prepare(e,f){
  const detail=await request(CORE+"/api/v1/spaces/"+f.space+"/_discovery/models/"+f.key,bearer);
  check(detail?.fields?.some(x=>x.key==="attachments"&&x.type==="file_list"),"fixture model unavailable");
 }
+const readinessStages=new Set(["configuration","probe","core","core_transport","core_http","core_json","core_schema"]);
+const validStatus=n=>Number.isInteger(n)&&n>=100&&n<=599;
+export async function observeReadiness(origin,headers,phase,{fetchImpl=fetch,timeoutMs=12000}={}){
+ check(phase==="health"||phase==="ready","invalid readiness phase");
+ let response;
+ try{response=await fetchImpl(origin+"/"+phase,{headers,redirect:"error",signal:AbortSignal.timeout(timeoutMs)});}
+ catch(error){return {phase,ok:false,reason:error?.name==="TimeoutError"||error?.name==="AbortError"?"timeout":"transport"};}
+ const status=response.status;
+ let data;
+ try{data=await response.json();}
+ catch{return {phase,ok:false,status,reason:"non_json"};}
+ if(data?.probe!=="native-file-v1"||!readinessStages.has(data.stage))
+  return {phase,ok:false,status,reason:"unexpected_response"};
+ const ok=response.ok&&data.ok===true&&data.stage===(phase==="health"?"probe":"core");
+ return {phase,ok,status,stage:data.stage,
+  ...(validStatus(data.coreStatus)?{coreStatus:data.coreStatus}:{}),
+  ...(typeof data.correlationMatched==="boolean"?{correlationMatched:data.correlationMatched}:{}),
+  ...(typeof data.requestId==="string"&&/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/u.test(data.requestId)?{requestId:data.requestId}:{}),
+  ...(data.reason==="timeout"||data.reason==="fetch_failed"?{reason:data.reason}:{})};
+}
+export async function waitForProbeReady(origin,headers,fixtureDeadline,{fetchImpl=fetch,now=Date.now,
+ sleep=ms=>new Promise(r=>setTimeout(r,ms)),log=entry=>console.log(JSON.stringify({FILE_PROBE_READINESS:entry}))}={}){
+ const deadline=Math.min(now()+90000,fixtureDeadline-120000);
+ check(Number.isFinite(deadline)&&deadline>now(),"insufficient readiness budget");
+ let phase="health",last={phase,ok:false,reason:"not_attempted"};
+ for(let attempt=1;attempt<=30&&now()<deadline;attempt++){
+  last=await observeReadiness(origin,headers,phase,{fetchImpl,timeoutMs:Math.max(1,Math.min(12000,deadline-now()))});
+  log({attempt,...last});
+  if(last.ok&&phase==="ready")return;
+  if(last.ok){phase="ready";continue;}
+  if(attempt<30&&now()<deadline)await sleep(Math.min(2000,deadline-now()));
+ }
+ throw Error("probe did not converge: "+JSON.stringify(last));
+}
 async function measure(e,f){
  check(e.LIFESPACE_FILE_BENCH_MODEL===f.key,"missing run-owned model");
  const u=new URL(e.LIFESPACE_APAC_PROBE_URL);
  check(u.protocol==="https:"&&!u.username&&!u.password&&!u.port&&!u.search&&!u.hash&&u.pathname==="/"
   &&u.hostname.startsWith("lifespace-staging-file-benchmark-probe-"+e.GITHUB_RUN_ID+".")&&u.hostname.endsWith(".workers.dev"),"invalid probe URL");
  const headers={"x-lifespace-probe-token":e.LIFESPACE_APAC_PROBE_TOKEN,"content-type":"application/json"};
- let ready=false;
- for(let i=0;i<30;i++){
-  try{const res=await fetch(u.origin+"/health",{headers,redirect:"error",signal:AbortSignal.timeout(20000)});
-   ready=res.ok&&(await res.json()).ok===true;}catch{}
-  if(ready)break;await new Promise(r=>setTimeout(r,2000));
- }
- check(ready,"probe did not converge");
+ await waitForProbeReady(u.origin,headers,Date.parse(e.LIFESPACE_FILE_BENCH_DEADLINE??""));
  const start=Date.now(),batches=[];
  // The original 15-minute service fixture must remain usable for retirement.
  // The freshly minted owner token alone cannot extend that service deadline.
