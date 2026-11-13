@@ -279,8 +279,7 @@ function AccessAudiencesDialog({ applicationId, onClose }: { applicationId: stri
     <label className="cp-field"><span>Cloudflare Access Application AUD</span><input disabled={busy} value={audience} maxLength={256} onChange={event => setAudience(event.target.value)} placeholder="Cloudflare Access Application AUD" /></label>
     <ErrorNotice error={error} />
   </ConsoleDialog>;
-  return <DialogShell title="Cloudflare Access audiences" description="Access aud 把一个受 Cloudflare Access 保护的入口绑定到该 LifeSpace Application context；它不把 Application 分类成 Web，也不识别用户本人。用户仍由 (iss, sub) -> usr_* 独立解析。" onClose={onClose}>
-    <div className="cp-dialog-body">
+  return <ConsoleDialog key="list" busy={busy} title="Cloudflare Access audiences" description="Access aud 把一个受 Cloudflare Access 保护的入口绑定到该 LifeSpace Application context；它不把 Application 分类成 Web，也不识别用户本人。用户仍由 (iss, sub) -> usr_* 独立解析。" onClose={onClose} footer={<button className="cp-secondary" disabled={busy} onClick={onClose}>关闭</button>}>
       {loading && !detail ? <div className="cp-loading">正在读取 Access audiences…</div> : detail && <>
         <ApplicationSummary application={detail.application} />
         {detail.application.status !== "active" || !detail.application.trustedBackend
@@ -290,9 +289,7 @@ function AccessAudiencesDialog({ applicationId, onClose }: { applicationId: stri
         {!!historicalAudiences.length && <div className="acp-section"><div className="acp-section-title"><strong>Revoked history</strong><span>{historicalAudiences.length}</span></div>{historicalAudiences.map((item) => <div className="acp-audience acp-muted" key={item.id}><div><code>{item.audience}</code><small>{item.revokedAt ?? item.status}</small></div></div>)}</div>}
       </>}
       <ErrorNotice error={error} />
-    </div>
-    <footer className="cp-dialog-footer"><button className="cp-secondary" onClick={onClose}>关闭</button></footer>
-  </DialogShell>;
+  </ConsoleDialog>;
 }
 
 export default function ApplicationConfigurationOverlay() {
