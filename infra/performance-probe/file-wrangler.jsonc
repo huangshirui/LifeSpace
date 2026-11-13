@@ -1,0 +1,10 @@
+{
+  "$schema": "../../apps/core/node_modules/wrangler/config-schema.json",
+  "name": "lifespace-staging-file-benchmark-probe",
+  "main": "file-worker.mjs",
+  "compatibility_date": "2026-08-08",
+  "workers_dev": true,
+  "placement": {
+    "region": "aws:ap-southeast-1"
+  }
+}
