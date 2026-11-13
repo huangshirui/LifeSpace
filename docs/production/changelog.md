@@ -2,6 +2,17 @@
 
 本文件只记录**已经成功发布到 production** 的变化。开发中、staging、PR 或 main 上的变化不得提前写成 production changelog。
 
+## 2026-11-13 — OAuth / MCP、Account、Native File 与平台性能（Production #43360660813）
+
+- **Verified release:** `4161c2b6132e5b1e17550384ffe962e0b86d5210`；[Staging #43355839007](https://github.com/huangshirui/LifeSpace/actions/runs/43355839007)、[APAC #43359902997](https://github.com/huangshirui/LifeSpace/actions/runs/43359902997) 和 [Production #43360660813](https://github.com/huangshirui/LifeSpace/actions/runs/43360660813) 成功；正式发布三个 Job 全部 PASS。此条补齐自本目录 10-28 基线以来的累计已部署变化，不将所有变化误称本次首次上线。
+- **Versions:** Core Kernel 0.54.0/schema 78；Identity 0.19.0/schema 18；active Model Contract `mct_3bb7219eafc9834084e7643251ed8f6103f26196f579b6807246fed4b4b6b2f4`，19 个普通模型（原 12 + Health Assessment / Concern / Document / Event / Metric / Observation / Regimen v1）。本次生产 verifier 无重复模型语义发布。
+- **Added / changed:** Core current MCP Server 配置和管理审计（schema 77–78）、Core 通用 Operation Projection；Identity OAuth 授权码/PKCE、Resource、Scope、refresh/revoke 与 Console 管理的 CIMD/DCR 准入；独立 Account 用户审批一次/限时/长期 Delegation。部署不自动授予 Agent/User/Space 权限，External 单次写入限制仍在。
+- **Performance:** #453 Native File 临时对象 GET 校验、发布后异步清理，保留正式 PUT→HEAD→D1 原子发布；#553–555 OAuth 实时状态单次查询与同快照执行上下文，Adapter 消费新契约，Core 保持独立当前权限判断。[File Staging #43357543732](https://github.com/huangshirui/LifeSpace/actions/runs/43357543732) 60/60 完整生命周期及清理成功；这是合成 Staging 基线，非生产或 Health UI 同条件性能收益。
+- **Independent deployments:** private MCP Adapter `cc1573600a919cc435298be5be5d0f547dcb2fe7` [#43362441505](https://github.com/huangshirui/lifespace-adapters/actions/runs/43362441505)；Console [#43364398729](https://github.com/huangshirui/LifeSpace/actions/runs/43364398729) 与 Account [#43365032204](https://github.com/huangshirui/LifeSpace/actions/runs/43365032204) 均为平台同 SHA `4161c2b`。各自 exact staging gate 与部署验证成功，既有 Access、凭据与隔离规则保持。
+- **Limits:** 生产 HTTP/schema/Model Contract/Service Token/隔离/External private route 验证成功；实际生产 OAuth、Delegation、Account/Console 登录与用户操作尚待独立验收；不声称下游消费者已发布。#452、#543、#544 后续监测/性能范围与 #499/#511 安全验收独立。文档不得把 Staging 写入、真实用户审批或历史性能样本标为本次 Production E2E。
+
+---
+
 ## 2026-10-28 — Person Directory 独立授权（Production #40716878438）
 
 - **Verified release:** SHA `f68e9f572eac53b0de8df6c8b324f3a8040def46`；[Staging #40712010968](https://github.com/huangshirui/LifeSpace/actions/runs/40712010968) 和 [Production #40716878438](https://github.com/huangshirui/LifeSpace/actions/runs/40716878438) 均成功。Production 三个 Job（owner 直接发布来源验证、APAC 严格性能门禁、真实 Production 部署与校验）全部 Success。
