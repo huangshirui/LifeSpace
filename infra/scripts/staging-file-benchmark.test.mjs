@@ -7,10 +7,13 @@ const env={PROBE_TOKEN:"x".repeat(32),USER_BEARER:"synthetic",SPACE_ID:space,MOD
 const root="/api/v1/spaces/"+space,model=root+"/models/"+env.MODEL_KEY+"/records";
 const r2="https://"+"d".repeat(32)+".r2.cloudflarestorage.com/lifespace-staging-assets/";
 const signed=key=>r2+key+"?X-Amz-Signature=synthetic";
-function mock({wrongBytes=false,wrongBucket=false,finalizeFail=false}={}){
+function mock({wrongBytes=false,wrongBucket=false,finalizeFail=false,redirectStage=null}={}){
  let bytes,name;const calls=[];
  const fetcher=async(url,init={})=>{
   const p=new URL(url).pathname,m=init.method??"GET";calls.push([m,p]);
+  assert.equal(init.redirect,"manual","Worker subrequests must not follow redirects");
+  const phase=p===root+"/file-uploads"?"session":p.endsWith("/complete")?"finalize":p===model&&m==="POST"?"attach":p===root+"/file-downloads"?"downloadSession":m==="PUT"?"put":m==="GET"&&p.includes("/files/")?"download":null;
+  if(redirectStage!==null&&phase===redirectStage)return new Response(null,{status:307,headers:{location:"https://outside.invalid/never-follow"}});
   const json=(data,status=200)=>Response.json({data},{status,headers:{"x-request-id":init.headers?.["x-request-id"]??""}});
   if(p===root+"/file-uploads"){
    name=JSON.parse(init.body).name;
@@ -75,7 +78,7 @@ test("liveness is local, fixture readiness is authenticated and read-only",async
  const ready=await handleFileProbe(probeRequest("ready"),env,async(url,init)=>{
   called++;assert.equal(url,"https://core-staging.aisr.online"+root+"/_discovery/models/"+env.MODEL_KEY);
   assert.equal(init.method??"GET","GET");assert.equal(init.headers.authorization,"Bearer synthetic");
-  assert.equal(init.redirect,"error");
+  assert.equal(init.redirect,"manual");
   return Response.json({data:{fields:[{key:"attachments",type:"file_list"}]}},{headers:{"x-request-id":init.headers["x-request-id"]}});
  });
  assert.equal(called,1);assert.equal(ready.status,200);const body=await ready.json();
@@ -111,4 +114,25 @@ test("both readiness stages must converge within fixture budget before sampling"
  assert.deepEqual(paths,["/health","/health","/ready"]);assert.equal(observations.length,3);
  await assert.rejects(waitForProbeReady("https://probe.example",{},120000,{now:()=>0,fetchImpl:async()=>assert.fail("budget exhausted")}),/insufficient readiness budget/);
  await assert.rejects(waitForProbeReady("https://probe.example",{},300000,{now:()=>clock,sleep:async ms=>{clock+=ms;},log:()=>{},fetchImpl:async url=>Response.json({probe:"native-file-v1",stage:new URL(url).pathname==="/health"?"probe":"core_http",ok:new URL(url).pathname==="/health",coreStatus:403})}),/core_http/);
+});
+
+test("every file phase rejects redirects without forwarding bearer or signed URL",async()=>{
+ for(const phase of ["session","put","finalize","attach","downloadSession","download"]){
+  const f=mock({redirectStage:phase});
+  const result=await runFileSample(env,SIZES[0],f.fetcher);
+  assert.equal(result.ok,false,phase);
+  assert.equal(result.stage,phase==="downloadSession"?"download":phase);
+  assert.ok(f.calls.every(([,path])=>path!=="/never-follow"));
+  if(phase==="finalize")assert.equal(f.calls.filter(([,path])=>path.endsWith("/complete")).length,1);
+ }
+});
+test("fixture readiness rejects redirects without forwarding the bearer",async()=>{
+ let calls=0;
+ const res=await handleFileProbe(probeRequest("ready"),env,async(url,init)=>{
+  calls++;assert.equal(init.redirect,"manual");
+  return new Response(null,{status:302,headers:{location:"https://outside.invalid/never-follow"}});
+ });
+ assert.equal(calls,1);assert.equal(res.status,503);
+ const data=await res.json();assert.equal(data.stage,"core_http");assert.equal(data.coreStatus,302);
+ assert.doesNotMatch(JSON.stringify(data),/outside|never-follow/);
 });
