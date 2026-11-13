@@ -7,8 +7,9 @@
 ## Production baseline
 
 - Release date: **2026-11-13**
-- Deployed release SHA: `4161c2b6132e5b1e17550384ffe962e0b86d5210`
-- Production workflow: **[Deploy LifeSpace platform production #43360660813](https://github.com/huangshirui/LifeSpace/actions/runs/43360660813)** ✅
+- Deployed release SHA: `07d2eafe83fefb55b74bc1645fa9061eff783150`
+- Production workflow: **[Deploy LifeSpace platform production #43383749799](https://github.com/huangshirui/LifeSpace/actions/runs/43383749799)** ✅
+- Runtime security maintenance: Core / Identity Hono `4.13.16` ([#557](https://github.com/huangshirui/LifeSpace/pull/557)); no capability, API contract or schema change.
 - Production Core: `https://core.aisr.online` — Kernel `0.54.0`, schema `78`
 - Production Identity: `https://auth.aisr.online` — contract `0.19.0`, schema `18`
 - Active Model Contract: `mct_3bb7219eafc9834084e7643251ed8f6103f26196f579b6807246fed4b4b6b2f4`
@@ -242,7 +243,7 @@ LifeSpace Console 是平台自身的管理界面，不是普通消费者应用�
 7. Cloudflare isolation / bindings verification；
 8. canonical `lsp_svc_*` service authentication + active Model Contract verification。
 
-2026-11-13 [Production #43360660813](https://github.com/huangshirui/LifeSpace/actions/runs/43360660813) 对 exact candidate `4161c2b6132e5b1e17550384ffe962e0b86d5210` 完成全部三个 Job（发布来源、正式 APAC gate、迁移与部署验证）。Core Kernel 0.54.0 / schema 78；Identity contract 0.19.0 / schema 18；Active Model Contract 19 个模型。独立 Console、Account、MCP Adapter 亦已部署，见本页 Production baseline。历史 2026-10-28 发布保留于 Changelog。当前真实生产 Notion CRUD、OAuth/Delegation 与下游 UI 业务验收仍独立于发布工作流。
+2026-11-13 [Production #43383749799](https://github.com/huangshirui/LifeSpace/actions/runs/43383749799) 对 exact candidate `07d2eafe83fefb55b74bc1645fa9061eff783150` 完成全部三个 Job（发布来源、正式 APAC gate、迁移与部署验证），发布 Hono 4.13.16 安全补丁，无能力层变化。Core Kernel 0.54.0 / schema 78；Identity contract 0.19.0 / schema 18；Active Model Contract 19 个模型。独立 Console、Account、MCP Adapter 亦已部署，见本页 Production baseline。历史 2026-10-28 发布保留于 Changelog。当前真实生产 Notion CRUD、OAuth/Delegation 与下游 UI 业务验收仍独立于发布工作流。
 
 Production runtime signing material、Bootstrap Secret 与 Core↔Identity shared authentication secret 由本次 workflow 证实原值保留；`sync_production_bootstrap_secret=false`、`repair_core_identity_shared_secret=false`。真实 `lsp_svc_* -> Core -> Identity introspection` 使用专门配置的 Model Admin Service Token 通过，并验证 Active Model Contract；正常发布不创建 Bootstrap 临时生产身份。生产 R2 S3 签名凭据与 Notion Adapter 的独立生产 Secret 由该 workflow 同步和验证。
 
