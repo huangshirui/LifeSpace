@@ -3,10 +3,10 @@ import { useId, useState, type KeyboardEvent } from "react";
 export type SelectChoice = { id: string; name: string };
 
 /** One field for both searching and selecting a directory identity. Free text is never a selection. */
-export function SearchableSelect({ label, value, options, query, onQueryChange, onChange, loading = false, disabled = false, placeholder = "搜索名称或 ID" }: {
+export function SearchableSelect({ label, value, options, query, onQueryChange, onChange, loading = false, disabled = false, placeholder = "搜索名称或 ID", maxLength = 100 }: {
   label: string; value: string; options: readonly SelectChoice[]; query: string;
   onQueryChange: (query: string) => void; onChange: (id: string) => void;
-  loading?: boolean; disabled?: boolean; placeholder?: string;
+  loading?: boolean; disabled?: boolean; placeholder?: string; maxLength?: number;
 }) {
   const id = useId();
   const [open, setOpen] = useState(false);
@@ -41,7 +41,7 @@ export function SearchableSelect({ label, value, options, query, onQueryChange, 
     <input role="combobox" aria-labelledby={id + "-label"} aria-expanded={expanded}
       aria-controls={id + "-list"} aria-autocomplete="list"
       aria-activedescendant={expanded && !loading && active ? id + "-" + active.id : undefined}
-      autoComplete="off" maxLength={100} disabled={disabled}
+      autoComplete="off" maxLength={maxLength} disabled={disabled}
       value={expanded ? query : choice?.name ?? ""}
       placeholder={placeholder}
       onFocus={begin} onClick={begin} onBlur={() => setOpen(false)} onKeyDown={keyboard}

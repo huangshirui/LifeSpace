@@ -60,6 +60,25 @@ assert(ui.includes('selectedDefinition?.access.includes("write")'));
 assert(!ui.includes("Data Source ID<input"));
 assert(ui.includes("Provider token 只用于本次请求并保存到私有 Adapter Vault"));
 assert(ui.includes("当前模型绑定"));
+const connectionPanel = ui.slice(ui.indexOf("function ConnectionsPanel("), ui.indexOf("function BindingPanel("));
+const bindingPanel = ui.slice(ui.indexOf("function BindingPanel("));
+for (const panel of [connectionPanel, bindingPanel]) {
+  const list = panel.slice(panel.indexOf('return <div className="ext-body">'));
+  assert(list.startsWith('return <div className="ext-body">'));
+  assert(!/<(?:input|select|textarea|SearchableSelect)\b/.test(list), "External list contains a mutation editor");
+  assert(panel.includes("cancelEditor"));
+}
+assert(connectionPanel.includes('if (editor === "create") return <ConsoleDialog'));
+assert(connectionPanel.includes('if (editor) return <ConsoleDialog'));
+assert(bindingPanel.includes('if (editing) return <ConsoleDialog'));
+assert.equal((bindingPanel.match(/<SearchableSelect\b/g) ?? []).length, 3);
+assert(bindingPanel.includes('key={connectionId} label="Data Source"'));
+assert(bindingPanel.includes('setConnectionId(id); setResourceId(""); setQuery("")'));
+assert(bindingPanel.includes('current = false; window.clearTimeout(timer)'));
+assert(bindingPanel.includes('discovery.scope === discoveryScope'));
+assert(!bindingPanel.includes('搜索 Provider Resource'));
+assert(!bindingPanel.includes('发现 Data Sources'));
+assert(connectionPanel.includes('setEditor(undefined); setToken("")'));
 assert(ui.includes("查看字段"));
 assert(ui.includes("配置态 snapshot；运行时消费者仍以 Space Discovery 为准"));
 assert(ui.includes("field.operators"));
