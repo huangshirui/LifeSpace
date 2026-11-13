@@ -15,8 +15,8 @@ async function agents(applicationId: string): Promise<AgentIdentity[]> {
   const response = await fetch(`/api/agent-governance/applications/${encodeURIComponent(applicationId)}/agents`, {
     credentials: "same-origin", headers: { accept: "application/json" },
   });
-  const payload = await response.json();
-  if (!response.ok || !Array.isArray(payload.data)) throw new Error(payload.error?.message ?? "无法读取 Agent 目录");
+  const payload = await response.json().catch(() => null) as { data?: unknown; error?: { message?: string } } | null;
+  if (!response.ok || !Array.isArray(payload?.data)) throw new Error(payload?.error?.message ?? "无法读取 Agent 目录");
   return payload.data as AgentIdentity[];
 }
 
