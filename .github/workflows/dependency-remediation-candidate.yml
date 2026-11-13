@@ -32,16 +32,43 @@ jobs:
       - name: Generate parent-upgrade candidate with pinned pnpm
         run: |
           set -euo pipefail
-          pnpm --filter @lifespace/core --filter @lifespace/identity update wrangler@4.160.1 vitest@4.1.12 @cloudflare/vitest-pool-workers@latest --lockfile-only
-          pnpm --filter @lifespace/console update wrangler@4.160.1 @cloudflare/vite-plugin@1.69.1 vite@8.2.5 --lockfile-only
-          pnpm --filter @lifespace/account update wrangler@4.160.1 --lockfile-only
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          for (const app of ['core','identity','console','account']) {
+            const path = `apps/${app}/package.json`;
+            const pkg = JSON.parse(fs.readFileSync(path,'utf8'));
+            const dev = pkg.devDependencies;
+            dev.wrangler = '4.161.0';
+            if (app === 'core' || app === 'identity') {
+              delete dev['@cloudflare/vitest-pool-workers'];
+              dev['@cloudflare/vitest-plugin'] = '1.8.1';
+              dev.vitest = '4.1.12';
+              dev['@cloudflare/workers-types'] = '5.20261110.1';
+            }
+            if (app === 'console') {
+              dev['@cloudflare/vite-plugin'] = '1.69.1';
+              dev.vite = '8.3.8';
+              dev['@cloudflare/workers-types'] = '5.20261110.1';
+            }
+            fs.writeFileSync(path,JSON.stringify(pkg,null,2)+'\n');
+          }
+          NODE
+          git grep -l -F '@cloudflare/vitest-pool-workers' -- apps/core apps/identity | while IFS= read -r file; do
+            sed -i 's|@cloudflare/vitest-pool-workers|@cloudflare/vitest-plugin|g' "$file"
+          done
+          pnpm install --lockfile-only
           pnpm audit --json > /tmp/audit-after.json || true
-          node -e 'const a=require("/tmp/audit-after.json"); console.log(JSON.stringify({metadata:a.metadata,advisories:Object.values(a.advisories||{}).map(x=>({id:x.github_advisory_id,title:x.title,module:x.module_name,patched:x.patched_versions,vulnerable:x.vulnerable_versions,severity:x.severity,findings:x.findings}))}))'
+          node -e 'const a=require("/tmp/audit-after.json"); console.log("AUDIT_AFTER "+JSON.stringify({metadata:a.metadata,advisories:Object.values(a.advisories||{}).map(x=>({id:x.github_advisory_id,title:x.title,module:x.module_name,patched:x.patched_versions,vulnerable:x.vulnerable_versions,severity:x.severity,findings:x.findings}))}))'
           git diff --stat
-          git diff -- package.json pnpm-workspace.yaml apps/core/package.json apps/identity/package.json apps/console/package.json apps/account/package.json pnpm-lock.yaml > /tmp/candidate.diff
-          echo '===CANDIDATE_DIFF_BEGIN==='
-          cat /tmp/candidate.diff
-          echo '===CANDIDATE_DIFF_END==='
+          git diff --binary > /tmp/candidate.diff
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import {execFileSync} from 'node:child_process';
+          for (const path of execFileSync('git',['diff','--name-only'],{encoding:'utf8'}).trim().split('\n').filter(Boolean)) {
+            const contents = fs.readFileSync(path,'utf8');
+            for (let i=0;i<contents.length;i+=1400) console.log('CANDIDATE_FILE '+JSON.stringify({path,offset:i,content:contents.slice(i,i+1400),length:contents.length}));
+          }
+          NODE
       - name: Validate candidate (no deploy)
         run: |
           pnpm install --frozen-lockfile
