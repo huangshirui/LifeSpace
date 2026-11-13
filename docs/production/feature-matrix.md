@@ -24,7 +24,7 @@
 | OAuth | Authorization code / PKCE, refresh / revoke, Resource-bound execution | ✅ | Identity 0.19.0 已部署；本轮真实 Production 授权及撤权待复测 |
 | OAuth | Console-managed CIMD / DCR admission | ✅ | 当前 Identity 准入策略、网络和 limiter 约束；部署不等于所有客户端均允许 |
 | MCP | Current Server configuration / enabled state | ✅ | Core schema 78，配置不产生底层 Authority |
-| MCP | Core generic Operation Projection / private protocol Adapter | ✅ | Core 4161c2b + private Adapter cc15736；真实 Production E2E 待验收 |
+| MCP | Core generic Operation Projection / private protocol Adapter | ✅ | Core 07d2eaf + private Adapter cc15736；真实 Production E2E 待验收 |
 | MCP | Real Production OAuth/Delegation E2E on latest release | ❓ | 独立验收，不能用 Staging 或部署成功替代 |
 | Space | Space membership | ✅ | 普通业务授权基础 |
 | Space | Data Grant | ✅ | 显式、可撤销的数据授权 |
@@ -114,8 +114,9 @@ Active Model Contract: `mct_3bb7219eafc9834084e7643251ed8f6103f26196f579b6807246
 ## Release binding
 
 - Release date: **2026-11-13**
-- Exact production SHA: `4161c2b6132e5b1e17550384ffe962e0b86d5210`
-- Production workflow: **[#43360660813](https://github.com/huangshirui/LifeSpace/actions/runs/43360660813)** — ✅ success
+- Exact production SHA: `07d2eafe83fefb55b74bc1645fa9061eff783150`
+- Production workflow: **[#43383749799](https://github.com/huangshirui/LifeSpace/actions/runs/43383749799)** — ✅ success
+- Security maintenance: Core / Identity Hono 4.13.16; no feature-status changes.
 - Core: Kernel `0.54.0` / schema `78`
 - Identity: contract `0.19.0` / schema `18`
 - APAC exact-candidate performance + Platform Golden Flow prerequisite: ✅ success
