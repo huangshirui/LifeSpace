@@ -344,18 +344,15 @@ function ServiceIdentitiesDialog({ applicationId, onClose }: { applicationId: st
   if (tokenPrincipal) return <TokenManager applicationId={applicationId} principal={tokenPrincipal} onClose={() => setTokenPrincipal(undefined)} />;
   if (editor) return <PrincipalEditor applicationId={applicationId} applicationScopes={applicationScopes} principal={editor === "new" ? undefined : editor} onCancel={() => setEditor(undefined)} onSaved={async () => { setEditor(undefined); await load(); }} />;
 
-  return <DialogShell title="Service Principals" description="管理外部系统/自动化主体。Service Principal 不是 Space member；真正的数据权限仍来自独立的 Space/Data Grant 配置。" onClose={onClose}>
-    <div className="cp-dialog-body">
+  return <ConsoleDialog key="list" title="Service Principals" description="管理外部系统/自动化主体。Service Principal 不是 Space member；真正的数据权限仍来自独立的 Space/Data Grant 配置。" onClose={onClose} footer={<button className="cp-secondary" onClick={onClose}>关闭</button>}>
       {loading && !detail ? <div className="cp-loading">正在读取 service identities…</div> : detail && <>
         <div className="cgp-summary"><strong>{detail.application.name}</strong><code>{applicationId}</code><span>{detail.application.allowedScopes.length} allowed scopes</span></div>
         <div className="cgp-authority"><strong>Effective authority</strong><code>token scopes ∩ principal maxScopes ∩ Application allowedScopes ∩ Application × Model Access ∩ Space/Data Grant ∩ model policy</code></div>
-        {<div className="cgp-section-title"><div><strong>Principals</strong><span>{principals.length}</span></div><button className="cp-primary" disabled={detail.application.status !== "active"} onClick={() => setEditor("new")}>New principal</button></div>}
-        {<div className="cgp-list">{principals.length ? principals.map((item) => <div className="cgp-row" key={item.id}><div><strong>{item.displayName}</strong><small>{item.id} · {item.status} · {item.maxScopes.join(", ") || "no scopes"}</small>{item.description && <small>{item.description}</small>}</div><div className="cgp-row-actions"><button onClick={() => setEditor(item)}>Edit</button><button onClick={() => setTokenPrincipal(item)}>Tokens</button></div></div>) : <div className="cp-loading">当前没有 Service Principal。</div>}</div>}
+        <div className="cgp-section-title"><div><strong>Principals</strong><span>{principals.length}</span></div><button className="cp-primary" disabled={detail.application.status !== "active"} onClick={() => setEditor("new")}>New principal</button></div>
+        <div className="cgp-list">{principals.length ? principals.map((item) => <div className="cgp-row" key={item.id}><div><strong>{item.displayName}</strong><small>{item.id} · {item.status} · {item.maxScopes.join(", ") || "no scopes"}</small>{item.description && <small>{item.description}</small>}</div><div className="cgp-row-actions"><button onClick={() => setEditor(item)}>Edit</button><button onClick={() => setTokenPrincipal(item)}>Tokens</button></div></div>) : <div className="cp-loading">当前没有 Service Principal。</div>}</div>
       </>}
       <ErrorNotice error={error} />
-    </div>
-    <footer className="cp-dialog-footer"><button className="cp-secondary" onClick={onClose}>关闭</button></footer>
-  </DialogShell>;
+  </ConsoleDialog>;
 }
 
 export default function CredentialGovernanceOverlay() {
