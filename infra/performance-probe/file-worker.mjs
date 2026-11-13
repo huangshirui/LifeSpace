@@ -1,5 +1,7 @@
 const CORE = "https://core-staging.aisr.online";
 const MIME = "application/octet-stream";
+// Workers rejects redirect:"error" before I/O. Manual mode never follows redirects;
+// each call below requires an exact success status or res.ok (2xx only).
 export const SIZES = [100*1024, 1024*1024, 5*1024*1024, 10*1024*1024];
 const check = (ok, code) => { if (!ok) throw Error(code); };
 const isId = (value, prefix) => typeof value === "string" && new RegExp("^"+prefix+"_[a-f0-9]{32}$","u").test(value);
@@ -33,7 +35,7 @@ export async function runFileSample(env,size,fetchImpl=fetch) {
   let file=null,record=null,stage="session",failure=null,cleanupOk=true,completeRequestId=null;
   async function core(path,method,body,status,metric) {
     const correlation=crypto.randomUUID(),start=performance.now();
-    const res=await fetchImpl(CORE+path,{method,redirect:"error",signal:AbortSignal.timeout(60000),
+    const res=await fetchImpl(CORE+path,{method,redirect:"manual",signal:AbortSignal.timeout(60000),
       headers:{authorization:"Bearer "+env.USER_BEARER,"x-request-id":correlation,
         ...(body===undefined?{}:{"content-type":"application/json"})},
       ...(body===undefined?{}:{body:JSON.stringify(body)})});
@@ -51,7 +53,7 @@ export async function runFileSample(env,size,fetchImpl=fetch) {
     const url=signedUrl(session.upload.url,"uploads/native/"+env.SPACE_ID+"/"+session.id);
     stage="put";
     let tick=performance.now();
-    const put=await fetchImpl(url,{method:"PUT",body:bytes,headers:{"content-type":MIME},redirect:"error",signal:AbortSignal.timeout(60000)});
+    const put=await fetchImpl(url,{method:"PUT",body:bytes,headers:{"content-type":MIME},redirect:"manual",signal:AbortSignal.timeout(60000)});
     check(put.ok,"put_failed"); await put.arrayBuffer(); timings.putMs=round(performance.now()-tick);
     stage="finalize";
     const completed=await core(root+"/file-uploads/"+session.id+"/complete","POST",undefined,200,"finalize");
@@ -67,7 +69,7 @@ export async function runFileSample(env,size,fetchImpl=fetch) {
     const download=await core(root+"/file-downloads","POST",{modelKey:env.MODEL_KEY,recordId:record.id,fieldKey:"attachments",fileId:file},200,"downloadSession");
     check(download?.id===file&&download.size===size&&download.contentType===MIME,"download_metadata_mismatch");
     tick=performance.now();
-    const response=await fetchImpl(signedUrl(download.url,"files/"+env.SPACE_ID+"/"+file),{redirect:"error",signal:AbortSignal.timeout(60000)});
+    const response=await fetchImpl(signedUrl(download.url,"files/"+env.SPACE_ID+"/"+file),{redirect:"manual",signal:AbortSignal.timeout(60000)});
     check(response.ok&&response.headers.get("content-type")?.toLowerCase()===MIME,"download_failed");
     const received=await response.arrayBuffer();timings.downloadMs=round(performance.now()-tick);
     check(received.byteLength===size&&await digest(received)===hash,"integrity_mismatch");
@@ -102,7 +104,7 @@ export async function handleFileProbe(request,env,fetchImpl=fetch) {
     try{
       res=await fetchImpl(CORE+"/api/v1/spaces/"+env.SPACE_ID+"/_discovery/models/"+env.MODEL_KEY,
         {headers:{authorization:"Bearer "+env.USER_BEARER,"x-request-id":requestId},
-          redirect:"error",signal:AbortSignal.timeout(10000)});
+          redirect:"manual",signal:AbortSignal.timeout(10000)});
     }catch(error){
       return readiness("core_transport",false,{requestId,
         reason:error?.name==="TimeoutError"||error?.name==="AbortError"?"timeout":"fetch_failed"});
