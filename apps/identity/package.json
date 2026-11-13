@@ -15,7 +15,7 @@
     "db:migrate:production": "wrangler d1 migrations apply DB --remote --env production"
   },
   "dependencies": {
-    "hono": "^4.10.0"
+    "hono": "^4.13.16"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.16.20",
