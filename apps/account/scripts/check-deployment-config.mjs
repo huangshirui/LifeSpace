@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { hasExactProvisionedUrl } from "./deployment-url-check.mjs";
 
 const root = resolve(import.meta.dirname, "../../..");
 const read = (name) => JSON.parse(readFileSync(resolve(root, "apps", name, "wrangler.jsonc"), "utf8"));
@@ -81,8 +82,8 @@ for(const setting of ["OAUTH_ACCOUNT_APPLICATION_ID","OAUTH_ISSUER","OAUTH_CONSE
     "Explicit owner-confirmed provisioning must retain "+setting+" without creating new D1 bindings");
 }
 assert(provisioning.includes("app_lifespace_account_staging")
-  && provisioning.includes("https://auth-staging.aisr.online")
-  && provisioning.includes("https://account-staging.aisr.online/oauth/consent")
+  && hasExactProvisionedUrl(provisioning, "OAUTH_ISSUER", "https://auth-staging.aisr.online")
+  && hasExactProvisionedUrl(provisioning, "OAUTH_CONSENT_URL", "https://account-staging.aisr.online/oauth/consent")
   && provisioning.includes("prepare-staging-identity.mjs")
   && provisioning.includes("verify-staging-credential-rotation.mjs"),
   "Exceptional staging provisioning must preserve the exact Account identity and rotation gates");

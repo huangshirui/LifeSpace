@@ -87,7 +87,7 @@ async function diagnose(id: string, expectedCallback: string) {
       entry.unexpected = answers.filter((a: any) => a?.type !== type && a?.type !== 5).length;
     } else {
       const parsed = parseClientMetadata(id,data);
-      entry.metadataValid = !!parsed?.redirectUris.includes(expectedCallback);
+      entry.metadataValid = !!parsed?.redirectUris.some(uri => uri === expectedCallback);
     }
   }
   const tracedFetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -121,7 +121,7 @@ async function diagnose(id: string, expectedCallback: string) {
       await res.body?.cancel().catch(()=>undefined);
     } catch (error) { entry.error = error instanceof Error ? error.name : "fetch_failed"; }
   }
-  return {accepted:!!value?.redirectUris.includes(expectedCallback),attempts};
+  return {accepted:!!value?.redirectUris.some(uri => uri === expectedCallback),attempts};
 }
 
 export default {
@@ -173,7 +173,7 @@ export default {
     // date and strictly-public fetch flag.
     const valid = await fetchClientMetadata(clientId);
     const metadataOk = !!valid && valid.clientId === clientId
-      && valid.redirectUris.includes("https://oauth-acceptance.example.org/callback");
+      && valid.redirectUris.some(uri => uri === "https://oauth-acceptance.example.org/callback");
     // Same-zone front-door test uses a harmless public OAuth discovery route.
     let sameZone: { status: number | null; issuerMatches: boolean } = {
       status: null, issuerMatches: false,

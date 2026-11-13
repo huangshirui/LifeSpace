@@ -50,3 +50,9 @@ test("diagnostic-only preview uses fixed public targets and cannot enable DNS mu
   assert.match(workflow,/diagnostic_only:/);
   assert.match(workflow,/--diagnostic-only/);
 });
+
+test("CIMD preview uses exact callback array-element equality, never substring matching", () => {
+  const src = read("../cimd-network-probe/worker.ts");
+  assert.doesNotMatch(src, /redirectUris\.includes\(/u);
+  assert.equal((src.match(/redirectUris\.some\(uri => uri === /gu) ?? []).length, 3);
+});
