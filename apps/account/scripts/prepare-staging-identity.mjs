@@ -1,3 +1,4 @@
+import { registerRunnerSecret } from "../../../infra/scripts/runner-secret.mjs";
 import { appendFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import process from "node:process";
@@ -48,7 +49,7 @@ async function main() {
   if (bootstrap.length < 32 || !/^[A-Za-z0-9]{30,128}$/u.test(audience) || !envFile) {
     throw new Error("Staging bootstrap, exact Account Audience and private GITHUB_ENV are required");
   }
-  console.log("::add-mask::" + bootstrap);
+  registerRunnerSecret(bootstrap);
   async function request(path, { method = "GET", body } = {}) {
     const response = await fetch(issuer + path, {
       method,
@@ -115,7 +116,7 @@ async function main() {
     || /[\r\n]/u.test(issued)) {
     throw new Error("Identity did not return a valid one-time Account credential");
   }
-  console.log("::add-mask::" + issued);
+  registerRunnerSecret(issued);
   const audiencePath = path + "/access-audiences";
   const registered = await request(audiencePath);
   if (registered.response.status !== 200) throw new Error("Cannot inspect Account Access Audience");

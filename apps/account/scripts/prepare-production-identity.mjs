@@ -1,3 +1,4 @@
+import { registerRunnerSecret } from "../../../infra/scripts/runner-secret.mjs";
 // First-time, Owner-confirmed Production Account Application & Audience setup.
 // Identity remains the only authority; no shadow Account database or user map.
 import { appendFileSync } from "node:fs";
@@ -29,7 +30,7 @@ async function main() {
   if (bootstrap.length < 32 || !/^[a-zA-Z0-9]{30,128}$/u.test(audience) || !githubEnv) {
     throw new Error("Production Bootstrap secret, verified audience and private GITHUB_ENV are required");
   }
-  console.log("::add-mask::" + bootstrap);
+  registerRunnerSecret(bootstrap);
   const issuer = "https://auth.aisr.online";
   async function api(path, method = "GET", body) {
     const response = await fetch(issuer + path, {
@@ -68,7 +69,7 @@ async function main() {
   const credential = created.data.clientSecret;
   if (typeof credential !== "string" || !/^lsa_[a-zA-Z0-9_-]{30,}$/u.test(credential)
     || /[\r\n]/u.test(credential)) throw new Error("Invalid one-time trusted backend credential");
-  console.log("::add-mask::" + credential);
+  registerRunnerSecret(credential);
   const checked = await api(path);
   if (checked.status !== 200) throw new Error("Created Account Application cannot be read back");
   requireProductionAccountApplication(checked.data);
