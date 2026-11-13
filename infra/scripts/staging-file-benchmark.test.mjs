@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {fixture,summarize} from "./staging-file-benchmark.mjs";
-import {handleFileProbe,runFileSample,SIZES} from "../performance-probe/file-worker.mjs";
+import worker,{handleFileProbe,runFileSample,SIZES} from "../performance-probe/file-worker.mjs";
 const space="spc_"+"a".repeat(32),upload="upl_"+"b".repeat(32),file="fil_"+"c".repeat(32);
 const env={PROBE_TOKEN:"x".repeat(32),USER_BEARER:"synthetic",SPACE_ID:space,MODEL_KEY:"smoke_file_bench_123_1"};
 const root="/api/v1/spaces/"+space,model=root+"/models/"+env.MODEL_KEY+"/records";
@@ -55,4 +55,10 @@ test("probe refuses wrong token and arbitrary size without forwarding",async()=>
  const f=async()=>{throw Error("no forwarding");};
  assert.equal((await handleFileProbe(req("wrong",SIZES[0]),env,f)).status,404);
  assert.equal((await handleFileProbe(req(env.PROBE_TOKEN,1),env,f)).status,400);
+});
+
+test("Worker entrypoint ignores execution context as a fetch implementation",async()=>{
+ const response=await worker.fetch(new Request("https://probe.example/sample",{method:"POST",
+ headers:{"x-lifespace-probe-token":"wrong"},body:"{}"}),env,{waitUntil(){}});
+ assert.equal(response.status,404);
 });

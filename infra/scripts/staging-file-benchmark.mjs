@@ -67,10 +67,14 @@ async function measure(e,f){
  }
  check(ready,"probe did not converge");
  const start=Date.now(),batches=[];
+ // The original 15-minute service fixture must remain usable for retirement.
+ // The freshly minted owner token alone cannot extend that service deadline.
+ const deadline=Math.min(start+9*60000,Date.parse(e.LIFESPACE_FILE_BENCH_DEADLINE??""));
+ check(Number.isFinite(deadline)&&deadline>start,"missing or expired fixture budget");
  for(const size of SIZES){
   const rows=[];
   for(let i=0;i<COUNT;i++){
-   check(Date.now()-start<9*60000,"benchmark exceeded safe owner-token budget");
+   check(Date.now()+120000<deadline,"benchmark exceeded safe fixture budget");
    const tick=performance.now();
    const response=await fetch(u.origin+"/sample",{method:"POST",headers,body:JSON.stringify({size}),
     redirect:"error",signal:AbortSignal.timeout(120000)});
@@ -92,6 +96,7 @@ async function cleanup(e,f){
  if(e.LIFESPACE_FILE_BENCH_MODEL!==f.key)return;
  const bearer=await owner(e,f),root=CORE+"/api/v1/spaces/"+f.space;
  const condition="space_id="+q(f.space)+" AND model_key="+q(f.key);
+ check(e.LIFESPACE_FILE_BENCH_MODEL===f.key,"cleanup model provenance mismatch");
  // Never re-execute an ambiguous write. Recover only current-run model/Space
  // records and completed Native files through the canonical delete APIs.
  const records=await sql("SELECT id,version FROM resource_records WHERE "+condition+" AND deleted_at IS NULL");
@@ -109,8 +114,9 @@ async function cleanup(e,f){
  }
  const sessions=await sql("SELECT status,cleaned_at FROM file_upload_sessions WHERE "+condition+" AND application_id="+q(f.app));
  const pending=sessions.filter(x=>!x.cleaned_at).length;
- // If cleanup failed, preserve model authority until investigation; outer
- // smoke cleanup still retires the run credentials/Space, never broad deletes.
+ // Do not retire a model if its known file/record recovery failed. The
+ // outer smoke cleanup still revokes the fixture credentials and closes its
+ // Space. Such failure is reported rather than silently claimed clean.
  if(!failed){
   try{await request(CORE+"/api/v1/model-admin/models/"+f.key+"/retire",e.LIFESPACE_STAGING_MODEL_ADMIN_BEARER,"POST",{},204);}
   catch{failed=true;}

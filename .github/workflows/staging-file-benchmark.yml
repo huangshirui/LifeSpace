@@ -80,6 +80,12 @@ jobs:
           node --check infra/performance-probe/file-worker.mjs
           pnpm --dir apps/core exec wrangler deploy --dry-run --config ../../infra/performance-probe/file-wrangler.jsonc --name "$LIFESPACE_APAC_PROBE_NAME"
 
+      - name: Verify exact candidate has successful owner Staging deployment
+        env:
+          GH_TOKEN: ${{ github.token }}
+        # Read-only release provenance check. Does not deploy Production.
+        run: node infra/scripts/verify-release-candidate.mjs production
+
       - name: Verify live staging service identity matches candidate
         run: node infra/scripts/verify-staging-candidate-identity.mjs
 
@@ -89,7 +95,10 @@ jobs:
         run: node infra/scripts/verify-staging-db.mjs
 
       - name: Prepare ephemeral authenticated staging smoke
-        run: node infra/scripts/prepare-staging-smoke.mjs
+        run: |
+          # Reserve time for cleanup before the 15-minute fixture service credential expires.
+          node --input-type=module -e 'console.log("LIFESPACE_FILE_BENCH_DEADLINE="+new Date(Date.now()+13*60000).toISOString())' >> "$GITHUB_ENV"
+          node infra/scripts/prepare-staging-smoke.mjs
 
       - name: Verify authenticated staging Model Contract matches candidate
         run: node infra/scripts/verify-staging-http.mjs
@@ -106,6 +115,7 @@ jobs:
           echo "LIFESPACE_APAC_PROBE_TOKEN=$PROBE_TOKEN" >> "$GITHUB_ENV"
 
       - name: Deploy temporary APAC probe
+        id: deploy_file_probe
         run: pnpm --dir apps/core exec wrangler deploy --config ../../infra/performance-probe/file-wrangler.jsonc --name "$LIFESPACE_APAC_PROBE_NAME"
 
       - name: Configure ephemeral probe secrets
@@ -143,7 +153,7 @@ jobs:
         run: node infra/scripts/staging-file-benchmark.mjs measure
 
       - name: Delete temporary APAC probe
-        if: ${{ always() }}
+        if: ${{ always() && steps.deploy_file_probe.outcome != 'skipped' }}
         run: pnpm --dir apps/core exec wrangler delete --config ../../infra/performance-probe/file-wrangler.jsonc --name "$LIFESPACE_APAC_PROBE_NAME"
 
       - name: Recover and retire exact run-owned File fixtures

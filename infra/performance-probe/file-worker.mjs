@@ -106,4 +106,5 @@ export async function handleFileProbe(request,env,fetchImpl=fetch) {
   try{return json({...await runFileSample(env,input.size,fetchImpl),probeIngressColo:request.cf?.colo??null});}
   catch{return json({error:"sample_failed"},500);}
 }
-export default {fetch:handleFileProbe};
+// Workers supplies an ExecutionContext as the third argument, not fetch.
+export default {fetch(request,env){return handleFileProbe(request,env);}};
