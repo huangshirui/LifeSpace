@@ -21,6 +21,11 @@
 | Identity | Agent API Credential (`lsp_agt_*`) | ✅ | revocable；绑定 Application + Agent；credential possession 不授予业务 Authority |
 | Service Auth | Opaque Service API Token (`lsp_svc_*`) | ✅ | canonical scoped / revocable service credential；legacy `lsp_pat_*` 仅兼容 |
 | Service Auth | OAuth `client_credentials` | ✅ | 面向第三方/策略控制服务 |
+| OAuth | Authorization code / PKCE, refresh / revoke, Resource-bound execution | ✅ | Identity 0.19.0 已部署；本轮真实 Production 授权及撤权待复测 |
+| OAuth | Console-managed CIMD / DCR admission | ✅ | 当前 Identity 准入策略、网络和 limiter 约束；部署不等于所有客户端均允许 |
+| MCP | Current Server configuration / enabled state | ✅ | Core schema 78，配置不产生底层 Authority |
+| MCP | Core generic Operation Projection / private protocol Adapter | ✅ | Core 4161c2b + private Adapter cc15736；真实 Production E2E 待验收 |
+| MCP | Real Production OAuth/Delegation E2E on latest release | ❓ | 独立验收，不能用 Staging 或部署成功替代 |
 | Space | Space membership | ✅ | 普通业务授权基础 |
 | Space | Data Grant | ✅ | 显式、可撤销的数据授权 |
 | Person | First-class Person Directory CRUD/list/search | ✅ | Kernel `per_*`，不是普通 metadata model |
@@ -35,10 +40,11 @@
 | Delegation | Root / Child Delegation | ✅ | 独立 immutable single-scope `dlg_*` |
 | Delegation | Delegation chain / bounded re-delegation | ✅ | Child 必须收窄 parent Authority |
 | Delegation | Single-use ancestor consumption | ✅ | mutation commit 时原子消费 Authority chain |
+| Delegation | Account-approved once / time-limited / until revoked | ✅ | 用户确认时选择时效，当前 Scope、Resource、Space、Actor 与操作约束不变；External 单次写入限制保留 |
 | Delegation | Atomic multi-Delegation issuance (`1..20`) | ✅ | `/delegations/batch`；全部成功或零落地 |
 | Models | Metadata-driven Model Definition / Registry | ✅ | 普通模型由元数据驱动 |
 | Models | Immutable Model Contract revision | ✅ | `mct_*` revision |
-| Models | New baseline ordinary models (Anniversary / Activity / Goal / Person Profile / Habit) | ✅ | Current Model Contract has 12 published ordinary models |
+| Models | New baseline ordinary models (Anniversary / Activity / Goal / Person Profile / Habit) | ✅ | Current Model Contract has 19 published ordinary models (10 baseline + 2 football + 7 health) |
 | Models | Goal lifecycle | ✅ | `active / paused / achieved / abandoned`; guarded Actions |
 | Models | Habit ownership and Check-in | ✅ | immutable single `subjectPersonId`, owner-controlled Check-in and lifecycle |
 | Models | Record icon metadata + image File link preservation | ✅ | schema 76 preserves image attachment on ordinary PATCH; safe legacy link recovery (D1/R2 verified) |
@@ -52,6 +58,7 @@
 | Runtime | Atomic Batch create/update/delete | ✅ | `/models/batch`，bounded `1..20`，同 Space 可跨 Model，全部成功或回滚 |
 | Runtime | Batch update/delete server-resolved version | ✅ | 可省略 version，仍保持 optimistic concurrency |
 | Runtime | Non-atomic Bulk mixed create/update/delete | ✅ | `/models/bulk`；bounded；per-item 独立结果；允许部分成功 |
+| Runtime | Native File upload / attach / download | ✅ | 已部署 #453 临时对象 GET 校验与发布后异步清理；正式 PUT/HEAD/原子发布不变；60/60 合成 Staging 基准，不是生产 UI 耗时 |
 | Runtime | Batch Execute Action | 🚧 | 尚未作为 production contract 提供 |
 | Change | Explicit ChangeSet (`cgs_*`) | ✅ | Atomic Batch 的 Governed Change 原子边界 |
 | Change | Bulk correlation (`blk_*`) | ✅ | Non-atomic Bulk 关联；不制造 atomicity |
@@ -64,7 +71,9 @@
 | Change / Audit | Operation Attribution | ✅ | Application / Principal / Actor / Delegation / ChangeSet/Bulk correlation / occurredAt |
 | Legacy | Creation Draft API/runtime/current storage | 🗑️ | 当前 API/contract/runtime 已移除，schema 53 删除 runtime table；历史 migrations 保留 |
 | Provenance | Generic Resource Provenance envelope | 🧭 | 当前 concept-only；无 production 平台能力 |
-| Console | Platform Console | ✅ | 平台自身 Experience / control plane；Console application rollout 有独立 workflow |
+| Console | Platform Console | ✅ | 独立 Production #43364398729，4161c2b |
+| Account | Account Center / approval UI | ✅ | 独立 Production #43365032204，4161c2b；部分完整自助管理及审计后续补齐 |
+| Performance | OAuth execution context / live authorization optimization | ✅ | Identity 0.19.0、Adapter cc15736；保留独立 Core 实时授权；不宣称生产耗时提升 |
 | Control Plane | Identity Platform Admin API | ✅ | Identity `0.17.0` 普通 API 不再声明 Bootstrap 管理契约；必要 Seed/Break-glass 路由仍由独立 companion 管理 |
 | Control Plane | Bootstrap-free routine platform production release | ✅ | 默认保留 Identity Bootstrap Secret；Model Admin 通过预配置 `models:manage` Service Token 验证，不以 Bootstrap 日常创建身份 |
 | Control Plane | Core Platform Admin API | ✅ | 与普通 Kernel API 分离 |
@@ -74,7 +83,7 @@
 
 ## Current ordinary models
 
-当前 production active Model Contract 已验证 **12 个**普通模型：
+当前 production active Model Contract 已验证 **19 个**普通模型：
 
 | Model | Version | Status | Typical use |
 |---|---:|---:|---|
@@ -90,18 +99,25 @@
 | Habit | 3 | ✅ | 归属人、打卡及 Action 生命周期 |
 | Football Match | 1 | ✅ | `football_match`，比赛领域模型；具体 UI 独立发布 |
 | Football Performance | 1 | ✅ | `football_performance`，比赛表现领域模型；统计与 UI 由消费者实现 |
+| Health Assessment | 1 | ✅ | `health_assessment` |
+| Health Concern | 1 | ✅ | `health_concern` |
+| Health Document | 1 | ✅ | `health_document` |
+| Health Event | 1 | ✅ | `health_event` |
+| Health Metric | 1 | ✅ | `health_metric` |
+| Health Observation | 1 | ✅ | `health_observation` |
+| Health Regimen | 1 | ✅ | `health_regimen` |
 
-Active Model Contract: `mct_21ac4fd66f72ea4dfe259974970a0eb55c1e02a4424003404897862d2e8629d3`
+Active Model Contract: `mct_3bb7219eafc9834084e7643251ed8f6103f26196f579b6807246fed4b4b6b2f4`
 
 > Space Person Directory 是 Kernel first-class resource，因此不会作为 ordinary model 出现在本表。
 
 ## Release binding
 
-- Release date: **2026-10-28**
-- Exact production SHA: `f68e9f572eac53b0de8df6c8b324f3a8040def46`
-- Production workflow: **[#40716878438](https://github.com/huangshirui/LifeSpace/actions/runs/40716878438)** — ✅ success
-- Core: Kernel `0.54.0` / schema `76`
-- Identity: contract `0.17.0` / schema `14`
+- Release date: **2026-11-13**
+- Exact production SHA: `4161c2b6132e5b1e17550384ffe962e0b86d5210`
+- Production workflow: **[#43360660813](https://github.com/huangshirui/LifeSpace/actions/runs/43360660813)** — ✅ success
+- Core: Kernel `0.54.0` / schema `78`
+- Identity: contract `0.19.0` / schema `18`
 - APAC exact-candidate performance + Platform Golden Flow prerequisite: ✅ success
 - Production HTTP convergence + Cloudflare isolation/bindings: ✅ success
 - Production `lsp_svc_* -> Core -> Identity introspection` + active Model Contract verification: ✅ success
@@ -109,6 +125,8 @@ Active Model Contract: `mct_21ac4fd66f72ea4dfe259974970a0eb55c1e02a4424003404897
 - Core↔Identity shared-secret repair requested: **false**；Bootstrap re-synchronization requested: **false**；既有 Secrets 未重写，Service Token 真实认证成功
 - Production Model Admin 使用已配置的专用 `models:manage` `lsp_svc_*`，不再每次通过 Bootstrap 临时创建 Application/User/Principal/Token 或直接删除生产 Identity D1
 - 正式 APAC User JWT + Service Token 性能门禁：✅；临时 Probe/Smoke Authority Cleanup：✅
+
+- 独立 Console [#43364398729](https://github.com/huangshirui/LifeSpace/actions/runs/43364398729)、Account [#43365032204](https://github.com/huangshirui/LifeSpace/actions/runs/43365032204)、private MCP Adapter [#43362441505](https://github.com/huangshirui/lifespace-adapters/actions/runs/43362441505) 部署通过；真实 Production OAuth/MCP/Delegation 待验收。
 
 Feature Matrix 状态必须由成功的 production workflow 明确推进，不以 main / staging / downstream consumer 状态代替 production 事实。
 
