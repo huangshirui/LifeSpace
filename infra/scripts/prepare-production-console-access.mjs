@@ -1,3 +1,4 @@
+import { registerRunnerSecret as mask } from "./runner-secret.mjs";
 import { appendFileSync } from "node:fs";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
@@ -156,7 +157,7 @@ async function cloudflareRequest(accountId, apiToken, path, { method = "GET", bo
   });
   const payload = await response.json().catch(() => null);
   if (!response.ok || payload?.success !== true) {
-    throw new Error(`Cloudflare Access API ${method} ${path} failed: ${response.status} ${JSON.stringify(payload)}`);
+    throw new Error(`Cloudflare Access API ${method} failed: HTTP ${response.status}`);
   }
   return payload.result;
 }
@@ -177,7 +178,7 @@ async function main() {
   const githubEnv = (process.env.GITHUB_ENV ?? "").trim();
   if (!accountId || !apiToken) throw new Error("CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN are required");
   if (!githubEnv) throw new Error("GITHUB_ENV is required to publish the resolved production Access audience");
-  console.log(`::add-mask::${apiToken}`);
+  mask(apiToken);
 
   const applications = await cloudflareRequest(accountId, apiToken, "/access/apps?per_page=100");
   if (!Array.isArray(applications)) throw new Error("Cloudflare Access application list returned an invalid result");
