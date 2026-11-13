@@ -11,5 +11,8 @@
     "test": "pnpm -r --if-present test",
     "typecheck": "pnpm -r --if-present typecheck",
     "build": "pnpm -r --if-present build"
+  },
+  "devDependencies": {
+    "@actions/core": "3.0.1"
   }
 }
