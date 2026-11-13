@@ -300,3 +300,25 @@
   .cp-access-row { grid-template-columns: 1fr; gap: 8px; }
   .cp-launcher { flex-wrap: wrap; }
 }
+
+
+/* Shared dedicated modal and integrated searchable selector. */
+.console-modal { margin: auto; padding: 0; max-width: calc(100% - 32px); color: var(--ink); }
+.console-modal:not([open]) { display: none; }
+.console-modal::backdrop { background: rgba(11, 19, 34, .48); backdrop-filter: blur(5px); }
+.console-modal-compact { width: 560px; }
+.console-editor-fields { border: 0; padding: 0; margin: 0; min-width: 0; }
+.console-editor-fields .cp-confirm { margin-bottom: 0; }
+.console-combobox { position: relative; min-width: 0; }
+.console-combobox > input { width: 100%; box-sizing: border-box; }
+.console-combobox-popup {
+  border: 1px solid #cfd8e6; border-radius: 9px; background: white;
+  box-shadow: 0 8px 20px rgba(10, 24, 47, .10); overflow: hidden;
+}
+.console-combobox-popup [role="listbox"] { max-height: 184px; overflow-y: auto; }
+.console-combobox-option { display: grid; gap: 3px; padding: 9px 12px; cursor: pointer; overflow-wrap: anywhere; }
+.console-combobox-option.highlighted { background: #eff5ff; }
+.console-combobox-option[aria-selected="true"] { background: #e5efff; }
+.console-combobox-option strong { font-size: 13px; }
+.console-combobox-option small, .console-combobox-status { color: var(--muted); font-size: 12px; }
+.console-combobox-status { padding: 10px 12px; }

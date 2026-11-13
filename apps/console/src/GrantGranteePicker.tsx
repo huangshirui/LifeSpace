@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { consoleApi } from "./api";
+import { SearchableSelect } from "./SearchableSelect";
 import type { Application } from "./types";
 import { matchesGrantChoice as matches, isActiveService, isActiveAgent } from "./grant-grantee-options";
 
@@ -92,24 +93,19 @@ export function GrantGranteePicker({ type, value, onChange, sourceSpaceId }: {
 
   return <>
     {machine && <>
-      <label className="cp-field"><span>搜索应用 · Application</span><input value={appQuery} onChange={event => setAppQuery(event.target.value)} placeholder="应用名称或 ID" /></label>
-      <label className="cp-field"><span>所属应用 · Application</span><select value={appId} disabled={appsLoading || !!appsError} onChange={event => { setAppId(event.target.value); setQuery(""); onChange(""); }}>
-        <option value="">{appsLoading ? "正在读取应用…" : "选择应用…"}</option>
-        {apps.filter(row => row.id === appId || matches({ id: row.id, name: row.name }, appQuery)).sort((a, b) => a.name.localeCompare(b.name)).map(row => <option key={row.id} value={row.id}>{row.name} · {row.id}</option>)}
-      </select></label>
+      <SearchableSelect label="所属应用 · Application" value={appId}
+        options={apps.filter(row => matches({ id: row.id, name: row.name }, appQuery)).sort((a, b) => a.name.localeCompare(b.name))}
+        query={appQuery} onQueryChange={setAppQuery} loading={appsLoading} disabled={!!appsError}
+        onChange={id => { setAppId(id); setQuery(""); onChange(""); }} placeholder="搜索并选择应用" />
       {appsError && <div role="alert" className="cp-notice cp-error">{appsError}<button className="cp-secondary" onClick={() => { setAppId(""); setQuery(""); onChange(""); setAppsRetry(n => n + 1); }}>重试</button></div>}
       {!appsLoading && !appsError && !apps.length && <small>没有启用的 Application。</small>}
     </>}
     {(!machine || app) && <>
-      <label className="cp-field"><span>搜索授权对象</span><input value={query} maxLength={100} onChange={event => { setQuery(event.target.value); onChange(""); }} placeholder="名称或 ID" /></label>
-      <label className="cp-field"><span>选择 {type === "agent" ? "Agent" : type === "service" ? "Service" : type === "user" ? "User" : "Space"}</span>
-        <select value={value} disabled={result.loading || !!result.error || !rows.length} onChange={event => onChange(event.target.value)}>
-          <option value="">{result.loading ? "正在读取…" : rows.length ? "选择授权对象…" : "没有匹配对象"}</option>
-          {rows.map(row => <option key={row.id} value={row.id}>{row.name} · {row.id}</option>)}
-        </select>
-        {!machine && <small>最多返回 200 条；未找到时请缩小搜索范围。</small>}
-        {value && <small>已选择：{value}</small>}
-      </label>
+      <SearchableSelect key={appId || type} label={type === "agent" ? "Agent" : type === "service" ? "Service" : type === "user" ? "User" : "Space"}
+        value={value} options={rows} query={query} onQueryChange={setQuery}
+        loading={result.loading} disabled={!!result.error} onChange={onChange}
+        placeholder="搜索并选择授权对象" />
+      {!machine && <small>最多返回 200 条；未找到时请缩小搜索范围。</small>}
       {result.error && <div role="alert" className="cp-notice cp-error">{result.error}<button className="cp-secondary" onClick={() => { onChange(""); setRetry(n => n + 1); }}>重试</button></div>}
     </>}
   </>;
