@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { AccessAudience, Application, ApplicationDetail } from "./types";
+import { ConsoleDialog } from "./ConsoleDialog";
 import { ModelAccessDialog } from "./ControlPlaneApp";
 import "./application-configuration.css";
 
@@ -223,6 +224,7 @@ function ApplicationSettingsDialog({ applicationId, onClose }: { applicationId: 
 
 function AccessAudiencesDialog({ applicationId, onClose }: { applicationId: string; onClose: () => void }) {
   const [detail, setDetail] = useState<ApplicationDetail>();
+  const [registering, setRegistering] = useState(false);
   const [audience, setAudience] = useState("");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -248,6 +250,7 @@ function AccessAudiencesDialog({ applicationId, onClose }: { applicationId: stri
         confirmApplicationId: applicationId,
       });
       setAudience("");
+      setRegistering(false);
       await load();
     } catch (cause) { setError(cause); }
     finally { setBusy(false); }
@@ -270,13 +273,19 @@ function AccessAudiencesDialog({ applicationId, onClose }: { applicationId: stri
   const activeAudiences = detail?.accessAudiences.filter((item) => item.status === "active" && !item.revokedAt) ?? [];
   const historicalAudiences = detail?.accessAudiences.filter((item) => item.status !== "active" || item.revokedAt) ?? [];
 
+  const cancelEditor = () => { if (!busy) { setRegistering(false); setAudience(""); setError(undefined); } };
+  if (registering) return <ConsoleDialog key="register" compact busy={busy} title="Register Access audience" description={detail?.application.name ?? applicationId}
+    onClose={cancelEditor} footer={<><button className="cp-secondary" disabled={busy} onClick={cancelEditor}>取消</button><button className="cp-primary" disabled={busy || !audience.trim()} onClick={() => void register()}>{busy ? "注册中…" : "Register"}</button></>}>
+    <label className="cp-field"><span>Cloudflare Access Application AUD</span><input disabled={busy} value={audience} maxLength={256} onChange={event => setAudience(event.target.value)} placeholder="Cloudflare Access Application AUD" /></label>
+    <ErrorNotice error={error} />
+  </ConsoleDialog>;
   return <DialogShell title="Cloudflare Access audiences" description="Access aud 把一个受 Cloudflare Access 保护的入口绑定到该 LifeSpace Application context；它不把 Application 分类成 Web，也不识别用户本人。用户仍由 (iss, sub) -> usr_* 独立解析。" onClose={onClose}>
     <div className="cp-dialog-body">
       {loading && !detail ? <div className="cp-loading">正在读取 Access audiences…</div> : detail && <>
         <ApplicationSummary application={detail.application} />
         {detail.application.status !== "active" || !detail.application.trustedBackend
           ? <div className="acp-warning"><strong>此 Application 不符合 Access audience 注册条件</strong><span>Identity 只允许 active trusted Application 注册 Cloudflare Access audience。</span></div>
-          : <div className="acp-inline-form"><label className="cp-field"><span>New audience (AUD)</span><input value={audience} maxLength={256} onChange={(event) => setAudience(event.target.value)} placeholder="Cloudflare Access Application AUD" /></label><button className="cp-primary" disabled={busy || !audience.trim()} onClick={() => void register()}>Register</button></div>}
+          : <div className="acp-section-title"><strong>Access audiences</strong><button className="cp-primary" disabled={busy || loading} onClick={() => { setAudience(""); setError(undefined); setRegistering(true); }}>New audience</button></div>}
         <div className="acp-section"><div className="acp-section-title"><strong>Active</strong><span>{activeAudiences.length}</span></div>{activeAudiences.length ? activeAudiences.map((item) => <div className="acp-audience" key={item.id}><div><code>{item.audience}</code><small>{item.issuer}</small></div><button disabled={busy} onClick={() => void revoke(item)}>Revoke</button></div>) : <div className="cp-loading">当前没有 active audience。</div>}</div>
         {!!historicalAudiences.length && <div className="acp-section"><div className="acp-section-title"><strong>Revoked history</strong><span>{historicalAudiences.length}</span></div>{historicalAudiences.map((item) => <div className="acp-audience acp-muted" key={item.id}><div><code>{item.audience}</code><small>{item.revokedAt ?? item.status}</small></div></div>)}</div>}
       </>}
