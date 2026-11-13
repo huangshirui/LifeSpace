@@ -6,16 +6,17 @@
 
 ## Production baseline
 
-- Release date: **2026-10-28**
-- Deployed release SHA: `f68e9f572eac53b0de8df6c8b324f3a8040def46`
-- Production workflow: **[Deploy LifeSpace platform production #40716878438](https://github.com/huangshirui/LifeSpace/actions/runs/40716878438)** ✅
-- Production Core: `https://core.aisr.online` — Kernel `0.54.0`, schema `76`
-- Production Identity: `https://auth.aisr.online` — contract `0.17.0`, schema `14`
-- Active Model Contract: `mct_21ac4fd66f72ea4dfe259974970a0eb55c1e02a4424003404897862d2e8629d3`
-- Active ordinary models (12): Task v10, Wish v10, Day Record v7, Event v8, Person Group v2, Anniversary v2, Activity v2, Goal v3, Person Profile v2, Habit v3, Football Match v1, Football Performance v1
-- Release confidence: **exact release-bound production evidence**
+- Release date: **2026-11-13**
+- Deployed release SHA: `4161c2b6132e5b1e17550384ffe962e0b86d5210`
+- Production workflow: **[Deploy LifeSpace platform production #43360660813](https://github.com/huangshirui/LifeSpace/actions/runs/43360660813)** ✅
+- Production Core: `https://core.aisr.online` — Kernel `0.54.0`, schema `78`
+- Production Identity: `https://auth.aisr.online` — contract `0.19.0`, schema `18`
+- Active Model Contract: `mct_3bb7219eafc9834084e7643251ed8f6103f26196f579b6807246fed4b4b6b2f4`
+- Active ordinary models (19): Task v10, Wish v10, Day Record v7, Event v8, Person Group v2, Anniversary v2, Activity v2, Goal v3, Person Profile v2, Habit v3, Football Match v1, Football Performance v1, Health Assessment v1, Health Concern v1, Health Document v1, Health Event v1, Health Metric v1, Health Observation v1, Health Regimen v1.
+- Independent rollouts: [Console #43364398729](https://github.com/huangshirui/LifeSpace/actions/runs/43364398729) and [Account #43365032204](https://github.com/huangshirui/LifeSpace/actions/runs/43365032204), both `4161c2b`; [private MCP Adapter #43362441505](https://github.com/huangshirui/lifespace-adapters/actions/runs/43362441505), `cc1573600a919cc435298be5be5d0f547dcb2fe7`.
+- Release confidence: **exact release-bound production deployment evidence**; authenticated Production OAuth/MCP and browser journeys still require separate acceptance.
 
-> 本页与成功的 production workflow 精确绑定。main、PR 或 staging 中的能力不能自动视为 Production。
+> 本页与成功的 production workflow 精确绑定。main、PR 或 staging 中的能力不能自动视为 Production；已部署也不等于已完成所有真实业务场景验收。
 
 ## 1. LifeSpace 是什么
 
@@ -90,7 +91,7 @@ Production 当前支持：
 - Relation Target Lookup / Reference Resolution；
 - configuration-time Model Semantic Discovery：`GET /api/v1/me/_discovery/models` 与 `GET /api/v1/me/_discovery/models/{modelKey}`，用于消费者在配置阶段获取当前 Application 可配置的静态模型语义；该能力与具体 Space 的 Membership / Data Grant / Delegation 分离，不授予任何 Space 数据 Authority。
 
-当前 active Model Contract 激活 **12 个**普通模型：Task v10、Wish v10、Day Record v7、Event v8、Person Group v2、Anniversary v2、Activity v2、Goal v3、Person Profile v2、Habit v3、Football Match v1、Football Performance v1。`person_group` 仍与 Kernel Person Directory 严格分离。模型发布是 LifeSpace 平台事实，不自动授予 HomeMew 等 Application 的 Model Access，也不代表消费者 UI 已上线。
+当前 active Model Contract 激活 **19 个**普通模型：上述 10 个 baseline、2 个足球模型及 7 个 Health v1 模型，完整版本见 Production baseline 和 Feature Matrix。`person_group` 仍与 Kernel Person Directory 严格分离。模型发布是 LifeSpace 平台事实，不自动授予 HomeMew 等 Application 的 Model Access，也不代表消费者 UI 已上线。
 
 ### 2.5 Query / 时间语义
 
@@ -188,7 +189,7 @@ LifeSpace Console 是平台自身的管理界面，不是普通消费者应用�
 
 - **模型引用显示名称 / canonical `referenceLabel`**：schema 75 为 Task (`name`)、Wish (`title`)、Day Record (`name`) 和 Event (`summary`) 发布统一显示名称定义。消费者调用标准 Reference Resolution，不应再自行推断关联记录的字段；只对已声明的模型保证对应语义。
 - **Record Icon 图片关联可靠性**：schema 76 修复普通 Record 更新误删 `__record_icon` File link 的问题，并对满足同 Space、文件就绪、上传会话可核对且无冲突条件的历史丢失关联进行有限恢复。Production D1 实查为 2 条图片 Icon，2 条均已有关联，两个对应 R2 对象存在，包含 HomeMew 的「明强」球队 Logo。尚未实测浏览器端通过 HomeMew 认证后的图片 HTTP 响应。
-- **12 个普通模型的实际发布状态**：当前 Model Contract 中包含 `football_match` 与 `football_performance` v1；Model Registry/Contract 的已发布事实不代表消费者 UI、授权配置或足球统计功能都已在本次 Core/Identity 生产工作流回归。
+- **2026-10-27 历史 12 个普通模型的发布状态**：当时的 Model Contract 中包含 `football_match` 与 `football_performance` v1；Model Registry/Contract 的已发布事实不代表消费者 UI、授权配置或足球统计功能都已在本次 Core/Identity 生产工作流回归。
 - **部署与权限边界不变**：这两项是平台 Semantics/Context Projection 和 File projection 修复，不改变 Space/Grant/Principal Authority，也不代表 HomeMew Web/小程序已重新部署。
 
 ### 2.13 2026-10-28 验证的更新：Identity Bootstrap 与 Production 发布边界
@@ -204,6 +205,15 @@ LifeSpace Console 是平台自身的管理界面，不是普通消费者应用�
 - **范围隔离**：不会创建 User/登录身份、授权其他普通模型或授予 Space 管理权限。Service/Agent 仍必须具备 `resources:read/write` Scope 与有效授权；代表执行时仍检查原有 Space-target Delegation。
 - **发布验收**：[Staging #40712010968](https://github.com/huangshirui/LifeSpace/actions/runs/40712010968) 与 [Production #40716878438](https://github.com/huangshirui/LifeSpace/actions/runs/40716878438) 均 Success；Production 完成 APAC 代表场景性能门禁、数据库/HTTP 收敛、Cloudflare 隔离、Service Credential 和 Active Model Contract 校验。普通模型、Schema `76`、Identity `0.17.0` / `14` 不变。
 - **验证局限**：平台验证不等于 HomeMew Web Production UI 已发布，也不代表在真实生产 Service/Agent 上完成独立 Person Grant 的 CRUD/撤销端到端业务操作；消费者需独立发布和验收。
+
+### 2.15 2026-11-13 验证的更新：OAuth / MCP、账户中心与文件性能
+
+- **MCP Server 治理（已部署）**：Core schema 77–78，当前可编辑的 Server 配置与启用状态、内部乐观版本及平台管理审计；配置选定模型操作，不直接授予 Space / Grant 或用户权限。Core 拥有通用 Operation Projection 和当前 Authority，MCP Adapter 负责协议。
+- **OAuth / Delegation（已部署，真实 Production E2E 待验收）**：Identity 0.19.0 支持 OAuth 授权码 / PKCE、refresh / revoke、Resource 绑定及现有 Scope 约束；CIMD/DCR 准入由 Identity 当前策略及 Console 管理。独立 Account 审批支持一次、限时、长期至撤销的 Delegation；当前授权、选定 Resource/Space/Agent/操作与 Principal/Actor 约束不变。External 单次写入的跨系统原子性限制仍保留。是否允许某客户端注册或某 Server 执行操作由当前配置决定，部署不自动授予权限。
+- **性能（已部署）**：Identity 当前 OAuth 状态单次查询、可选同快照执行上下文；Adapter 复用该上下文，Core 独立实时校验。Native File 临时对象同快照 GET 校验、正式 PUT→HEAD→D1 发布、发布后异步清理及 scheduled fallback 保留；无新的授权缓存或放宽校验。
+- **Account / Console / Adapter（独立部署）**：见本页 Production baseline。Account UI/BFF 资料与安全、空间、连接与授权入口已随代码部署；完整用户自助管理与用户级审计仍有后续项。生产登录、授权、真实写入与撤销需独立验收，不能由部署成功推断。
+- **普通模型**：7 个 Health v1 模型已由 Production active Model Contract 校验（见 Feature Matrix），不自动授予 ALOHA Model Access 或证明 Health UI/Agent 已验收。
+- **真实性能证据边界**：[Staging File #43357543732](https://github.com/huangshirui/LifeSpace/actions/runs/43357543732) 60/60 合成文件生命周期与 SHA-256 验证，100 KiB/1/5/10 MiB 的保存 P50/P90 分别 944/1354、1030/1477、1494/2135、2416/3827 ms。不是 Production 实测或同条件 Health UI 前后对比。#452 继续跟踪 R2 转存及真实 UI 复测，#543 继续跟踪 APAC 历史长尾。
 
 ## 3. API / Contract surfaces
 
@@ -232,7 +242,7 @@ LifeSpace Console 是平台自身的管理界面，不是普通消费者应用�
 7. Cloudflare isolation / bindings verification；
 8. canonical `lsp_svc_*` service authentication + active Model Contract verification。
 
-2026-10-28 [Production #40716878438](https://github.com/huangshirui/LifeSpace/actions/runs/40716878438) 对 exact candidate `f68e9f572eac53b0de8df6c8b324f3a8040def46` 完成全部生产门禁。Core Kernel `0.54.0` / schema `76`；Identity contract `0.17.0` / schema `14`；Active Model Contract 保持 12 个模型，未产生普通模型语义重新发布。新增 Person Directory 独立只读/读写 Data Grant，属于 Kernel API 新能力，不是普通模型。2026-10-28 的 [Production #40628917903](https://github.com/huangshirui/LifeSpace/actions/runs/40628917903) 现为历史发布。真实生产 Notion 数据 CRUD 与下游 HomeMew Web 端到端人员授权仍未由本次 LifeSpace 发布验证。
+2026-11-13 [Production #43360660813](https://github.com/huangshirui/LifeSpace/actions/runs/43360660813) 对 exact candidate `4161c2b6132e5b1e17550384ffe962e0b86d5210` 完成全部三个 Job（发布来源、正式 APAC gate、迁移与部署验证）。Core Kernel 0.54.0 / schema 78；Identity contract 0.19.0 / schema 18；Active Model Contract 19 个模型。独立 Console、Account、MCP Adapter 亦已部署，见本页 Production baseline。历史 2026-10-28 发布保留于 Changelog。当前真实生产 Notion CRUD、OAuth/Delegation 与下游 UI 业务验收仍独立于发布工作流。
 
 Production runtime signing material、Bootstrap Secret 与 Core↔Identity shared authentication secret 由本次 workflow 证实原值保留；`sync_production_bootstrap_secret=false`、`repair_core_identity_shared_secret=false`。真实 `lsp_svc_* -> Core -> Identity introspection` 使用专门配置的 Model Admin Service Token 通过，并验证 Active Model Contract；正常发布不创建 Bootstrap 临时生产身份。生产 R2 S3 签名凭据与 Notion Adapter 的独立生产 Secret 由该 workflow 同步和验证。
 
@@ -249,7 +259,7 @@ Creation Draft 已从当前 Production 能力中完全退出：当前 API / cont
 - 通用 Information Provenance / lineage 平台能力；
 - downstream n8n / HomeMew / ALOHA 的适配或发布状态；
 - Console application 的某个新版本已经 rollout（其 production workflow 独立）；
-- 未经成功 production workflow 或当前 Model Contract 验证的后续模型或 Capability。Football Match / Football Performance v1 已存在于当前生产 Model Contract，但不等于 HomeMew UI 或比赛统计已由平台工作流验证。
+- 未经成功 production workflow 或当前 Model Contract 验证的后续模型或 Capability。Football Match / Football Performance 和 7 个 Health v1 模型已存在于当前生产 Model Contract，但不等于 HomeMew / ALOHA UI 或业务能力已由平台工作流验证。
 
 ## 6. 发布后的维护要求
 
