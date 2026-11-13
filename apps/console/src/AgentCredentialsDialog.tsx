@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { ConsoleDialog } from "./ConsoleDialog";
 import "./credential-governance.css";
 
 type ErrorEnvelope = { error?: { code?: string; message?: string; requestId?: string } };
@@ -76,6 +77,7 @@ export default function AgentCredentialsDialog({ applicationId, agent, onClose }
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>();
   const [revealPath, setRevealPath] = useState<string>();
+  const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<AgentCredential>();
   const [label, setLabel] = useState("n8n");
   const [scopes, setScopes] = useState("resources:read\nresources:write");
@@ -93,11 +95,11 @@ export default function AgentCredentialsDialog({ applicationId, agent, onClose }
   useEffect(() => { void load(); }, [applicationId, agent.id]);
 
   function reset() {
-    setEditing(undefined); setLabel("n8n"); setScopes("resources:read\nresources:write"); setExpiresAt("");
+    setCreating(false); setEditing(undefined); setLabel("n8n"); setScopes("resources:read\nresources:write"); setExpiresAt("");
   }
 
   function beginReduce(item: AgentCredential) {
-    setEditing(item); setLabel(item.label); setScopes(item.scopes.join("\n")); setExpiresAt(inputDateTime(item.expiresAt)); setRevealPath(undefined);
+    setEditing(item); setLabel(item.label); setScopes(item.scopes.join("\n")); setExpiresAt(inputDateTime(item.expiresAt)); setRevealPath(undefined); setError(undefined);
   }
 
   async function save() {
@@ -138,23 +140,23 @@ export default function AgentCredentialsDialog({ applicationId, agent, onClose }
   const history = items.filter((item) => item.status !== "active" || item.revokedAt);
   const displayError = error instanceof AgentCredentialError ? error : error instanceof Error ? new AgentCredentialError(error.message) : undefined;
 
-  return <div className="cp-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-    <section className="cp-dialog cgp-dialog" role="dialog" aria-modal="true" aria-label="Agent API credentials">
-      <header className="cp-dialog-header"><div><div className="cp-eyebrow">Agent credential governance</div><h2>Agent API credentials</h2><p>{agent.displayName} · {agent.id}</p></div><button className="cp-icon-button" onClick={onClose} aria-label="关闭">×</button></header>
-      <div className="cp-dialog-body">
-        <div className="cgp-warning"><strong>Credential ≠ Authority</strong><span>`lsp_agt_*` 只认证当前 Application + Agent Actor；直接模式只能使用 Agent 自己已有的 Authority，User 模式必须另外携带当前 `dlg_*`。</span></div>
-        {revealPath && <div className="cgp-reveal-notice"><div><strong>一次性 Agent credential 已生成</strong><span>明文没有进入 React/JSON。请在 60 秒内打开隔离 reveal 页面并保存到 n8n/adapter。</span></div><a href={revealPath} target="_blank" rel="noreferrer" onClick={() => setRevealPath(undefined)}>Open one-time secret</a></div>}
-        <div className="cgp-editor">
+  const cancelEditor = () => { if (!busy) { reset(); setError(undefined); } };
+  if (creating || editing) return <ConsoleDialog key={editing?.id ?? "create"} compact busy={busy}
+    title={editing ? "Reduce Agent credential" : "Create Agent credential"} description={agent.displayName + " · " + agent.id} onClose={cancelEditor}
+    footer={<><button className="cp-secondary" disabled={busy} onClick={cancelEditor}>取消</button><button className="cp-primary" disabled={busy || !label.trim() || !parseScopes(scopes).length} onClick={() => void save()}>{busy ? "保存中…" : editing ? "Save reduction" : "Create credential"}</button></>}>
+        <fieldset className="console-editor-fields" disabled={busy}>
           <div className="cgp-form-grid"><label className="cp-field"><span>Label</span><input maxLength={100} value={label} onChange={(event) => setLabel(event.target.value)} /></label><label className="cp-field"><span>Expires at (optional)</span><input type="datetime-local" value={expiresAt} onChange={(event) => setExpiresAt(event.target.value)} /></label></div>
           <label className="cp-field"><span>Scopes</span><textarea className="cgp-scopes" value={scopes} onChange={(event) => setScopes(event.target.value)} spellCheck={false} /><small>必须位于 Application scope ceiling 内。已有 credential 只能收窄 scopes / 缩短 expiry，Identity 会再次强制校验。</small></label>
-          <div className="cgp-actions">{editing && <button className="cp-secondary" disabled={busy} onClick={reset}>取消收窄</button>}<button className="cp-primary" disabled={busy || !label.trim() || !parseScopes(scopes).length} onClick={() => void save()}>{editing ? "Save reduction" : "Create credential"}</button></div>
-        </div>
+        </fieldset>
         {displayError && <div className="cp-notice cp-error"><strong>{displayError.code ?? "操作失败"}</strong><span>{displayError.message}</span>{displayError.requestId && <small>requestId: {displayError.requestId}</small>}</div>}
-        <div className="cgp-section-title"><div><strong>Active credentials</strong><span>{active.length}</span></div></div>
-        <div className="cgp-list">{loading ? <div className="cp-loading">正在读取 Agent credential metadata…</div> : active.length ? active.map((item) => <div className="cgp-row" key={item.id}><div><strong>{item.label}</strong><code>{item.displayPrefix}…{item.lastFour}</code><small>{item.scopes.join(" · ")} · {item.expiresAt ? `expires ${new Date(item.expiresAt).toLocaleString()}` : "no expiry"}</small></div><div className="cgp-actions"><button disabled={busy} onClick={() => beginReduce(item)}>Reduce</button><button className="cgp-danger" disabled={busy} onClick={() => void revoke(item)}>Revoke</button></div></div>) : <div className="cp-loading">当前没有 active Agent credential。</div>}</div>
+  </ConsoleDialog>;
+  return <ConsoleDialog key="list" busy={busy} title="Agent API credentials" description={agent.displayName + " · " + agent.id} onClose={onClose}
+    footer={<button className="cp-secondary" disabled={busy} onClick={onClose}>关闭</button>}>
+        <div className="cgp-warning"><strong>Credential ≠ Authority</strong><span>`lsp_agt_*` 只认证当前 Application + Agent Actor；直接模式只能使用 Agent 自己已有的 Authority，User 模式必须另外携带当前 `dlg_*`。</span></div>
+        {revealPath && <div className="cgp-reveal-notice"><div><strong>一次性 Agent credential 已生成</strong><span>明文没有进入 React/JSON。请在 60 秒内打开隔离 reveal 页面并保存到 n8n/adapter。</span></div><a href={revealPath} target="_blank" rel="noreferrer" onClick={() => setRevealPath(undefined)}>Open one-time secret</a><button className="cp-secondary" onClick={() => setRevealPath(undefined)}>关闭提示</button></div>}
+        {displayError && <div className="cp-notice cp-error"><strong>{displayError.code ?? "操作失败"}</strong><span>{displayError.message}</span>{displayError.requestId && <small>requestId: {displayError.requestId}</small>}</div>}
+        <div className="cgp-section-title"><div><strong>Active credentials</strong><span>{active.length}</span></div><button className="cp-primary" disabled={busy || loading || !!revealPath} onClick={() => { reset(); setError(undefined); setCreating(true); }}>New credential</button></div>
+        <div className="cgp-list">{loading ? <div className="cp-loading">正在读取 Agent credential metadata…</div> : active.length ? active.map((item) => <div className="cgp-row" key={item.id}><div><strong>{item.label}</strong><code>{item.displayPrefix}…{item.lastFour}</code><small>{item.scopes.join(" · ")} · {item.expiresAt ? `expires ${new Date(item.expiresAt).toLocaleString()}` : "no expiry"}</small></div><div className="cgp-actions"><button disabled={busy || !!revealPath} onClick={() => beginReduce(item)}>Reduce</button><button className="cgp-danger" disabled={busy || !!revealPath} onClick={() => void revoke(item)}>Revoke</button></div></div>) : <div className="cp-loading">当前没有 active Agent credential。</div>}</div>
         {!!history.length && <><div className="cgp-section-title"><div><strong>Revoked history</strong><span>{history.length}</span></div></div><div className="cgp-list cgp-muted">{history.map((item) => <div className="cgp-row" key={item.id}><div><strong>{item.label}</strong><code>{item.displayPrefix}…{item.lastFour}</code><small>revoked {item.revokedAt ? new Date(item.revokedAt).toLocaleString() : item.status}</small></div></div>)}</div></>}
-      </div>
-      <footer className="cp-dialog-footer"><button className="cp-secondary" onClick={onClose}>关闭</button></footer>
-    </section>
-  </div>;
+  </ConsoleDialog>;
 }
