@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { consoleApi } from "./api";
-import type { Application, PlatformUser, PlatformSpace } from "./types";
+import type { Application } from "./types";
+import { matchesGrantChoice as matches, isActiveService, isActiveAgent } from "./grant-grantee-options";
 
 export type GrantGranteeType = "user" | "space" | "service" | "device" | "agent";
 type GrantRef = { granteeType: string; granteeId: string };
@@ -9,8 +10,6 @@ type AgentIdentity = { id: string; displayName: string; status: string; binding:
 type Directory = Record<string, Choice>;
 
 const keyOf = (type: string, id: string) => type + ":" + id;
-const matches = (choice: Choice, query: string) =>
-  (choice.name + " " + choice.id).toLocaleLowerCase().includes(query.trim().toLocaleLowerCase());
 
 async function agents(applicationId: string): Promise<AgentIdentity[]> {
   const response = await fetch(`/api/agent-governance/applications/${encodeURIComponent(applicationId)}/agents`, {
@@ -25,11 +24,11 @@ async function applicationChoices(app: Application, type: "service" | "agent", a
   if (type === "service") {
     const detail = await consoleApi.application(app.id);
     return detail.servicePrincipals
-      .filter(row => !activeOnly || (detail.application.status === "active" && row.status === "active"))
+      .filter(row => !activeOnly || isActiveService(detail.application, row))
       .map(row => ({ id: row.id, name: row.displayName || row.id, application: app.name }));
   }
   return (await agents(app.id))
-    .filter(row => !activeOnly || (app.status === "active" && row.status === "active" && row.binding.status === "active"))
+    .filter(row => !activeOnly || isActiveAgent(app, row))
     .map(row => ({ id: row.id, name: row.displayName || row.id, application: app.name }));
 }
 
@@ -63,6 +62,7 @@ export function GrantGranteePicker({ type, value, onChange, sourceSpaceId }: {
   const [appQuery, setAppQuery] = useState("");
   const [query, setQuery] = useState("");
   const [retry, setRetry] = useState(0);
+  const [appsRetry, setAppsRetry] = useState(0);
   const machine = type === "service" || type === "agent";
   useEffect(() => {
     if (!machine) return;
@@ -74,15 +74,15 @@ export function GrantGranteePicker({ type, value, onChange, sourceSpaceId }: {
       if (current) { setApps([]); setAppsError(error instanceof Error ? error.message : "无法读取应用"); }
     }).finally(() => { if (current) setAppsLoading(false); });
     return () => { current = false; };
-  }, [machine, retry]);
+  }, [machine, appsRetry]);
 
-  const app = apps.find(row => row.id === appId);
+  const app = !appsLoading && !appsError ? apps.find(row => row.id === appId) : undefined;
   const directoryQuery = new URLSearchParams({ limit: "200", ...(query.trim() ? { q: query.trim() } : {}) });
   const load = machine && app ? () => applicationChoices(app, type as "service" | "agent", true)
     : type === "user" ? async () => (await consoleApi.users("?" + directoryQuery + "&status=active"))
-      .filter((row: PlatformUser) => row.status === "active").map(row => ({ id: row.id, name: row.displayName || row.id }))
+      .filter(row => row.status === "active").map(row => ({ id: row.id, name: row.displayName || row.id }))
     : type === "space" ? async () => (await consoleApi.spaces("?" + directoryQuery))
-      .filter((row: PlatformSpace) => row.id !== sourceSpaceId).map(row => ({ id: row.id, name: row.name || row.id }))
+      .map(row => ({ id: row.id, name: row.name || row.id }))
     : null;
   const scope = JSON.stringify([type, appId, machine ? "" : query, retry, sourceSpaceId]);
   const result = useChoices(load, scope, !machine);
@@ -97,7 +97,7 @@ export function GrantGranteePicker({ type, value, onChange, sourceSpaceId }: {
         <option value="">{appsLoading ? "正在读取应用…" : "选择应用…"}</option>
         {apps.filter(row => row.id === appId || matches({ id: row.id, name: row.name }, appQuery)).sort((a, b) => a.name.localeCompare(b.name)).map(row => <option key={row.id} value={row.id}>{row.name} · {row.id}</option>)}
       </select></label>
-      {appsError && <div role="alert" className="cp-notice cp-error">{appsError}<button className="cp-secondary" onClick={() => { onChange(""); setRetry(n => n + 1); }}>重试</button></div>}
+      {appsError && <div role="alert" className="cp-notice cp-error">{appsError}<button className="cp-secondary" onClick={() => { setAppId(""); setQuery(""); onChange(""); setAppsRetry(n => n + 1); }}>重试</button></div>}
       {!appsLoading && !appsError && !apps.length && <small>没有启用的 Application。</small>}
     </>}
     {(!machine || app) && <>
