@@ -80,18 +80,41 @@ export async function runFileSample(env,size,fetchImpl=fetch) {
   return {ok:!failure&&cleanupOk,size,stage:failure,cleanupOk,timings,completeRequestId,
     totalWithCleanupMs:round(performance.now()-start)};
 }
+function readiness(stage,ok,details={},status=ok?200:503) {
+  const result={probe:"native-file-v1",stage,ok,...details};
+  // Explicit allowlisted fields only. Never log request headers, URLs, env or response bodies.
+  console.log(JSON.stringify({FILE_PROBE_READINESS:result}));
+  return json(result,status);
+}
 export async function handleFileProbe(request,env,fetchImpl=fetch) {
-  if(!configured(env))return json({error:"not_configured"},503);
-  if(request.headers.get("x-lifespace-probe-token")!==env.PROBE_TOKEN)return json({error:"not_found"},404);
+  if(typeof env.PROBE_TOKEN!=="string"||env.PROBE_TOKEN.length<32)
+    return readiness("configuration",false,{},503);
+  if(request.headers.get("x-lifespace-probe-token")!==env.PROBE_TOKEN)
+    return json({error:"not_found"},404);
+  if(!configured(env))return readiness("configuration",false,{},503);
   const url=new URL(request.url);
   if(url.search)return json({error:"not_found"},404);
-  if(request.method==="GET"&&url.pathname==="/health"){
+  if(request.method==="GET"&&url.pathname==="/health")
+    return readiness("probe",true);
+  if(request.method==="GET"&&url.pathname==="/ready"){
+    const requestId=crypto.randomUUID();
+    let res;
     try{
-      const res=await fetchImpl(CORE+"/api/v1/spaces/"+env.SPACE_ID+"/_discovery/models/"+env.MODEL_KEY,
-        {headers:{authorization:"Bearer "+env.USER_BEARER},redirect:"error",signal:AbortSignal.timeout(20000)});
-      const data=res.ok?(await res.json()).data:null;
-      return json({ok:!!data?.fields?.some(f=>f.key==="attachments"&&f.type==="file_list"),probeIngressColo:request.cf?.colo??null});
-    }catch{return json({ok:false},503);}
+      res=await fetchImpl(CORE+"/api/v1/spaces/"+env.SPACE_ID+"/_discovery/models/"+env.MODEL_KEY,
+        {headers:{authorization:"Bearer "+env.USER_BEARER,"x-request-id":requestId},
+          redirect:"error",signal:AbortSignal.timeout(10000)});
+    }catch(error){
+      return readiness("core_transport",false,{requestId,
+        reason:error?.name==="TimeoutError"||error?.name==="AbortError"?"timeout":"fetch_failed"});
+    }
+    const details={requestId,coreStatus:res.status,correlationMatched:res.headers.get("x-request-id")===requestId};
+    if(!res.ok)return readiness("core_http",false,details);
+    let data;
+    try{data=(await res.json()).data;}
+    catch{return readiness("core_json",false,details);}
+    if(!Array.isArray(data?.fields)||!data.fields.some(f=>f?.key==="attachments"&&f?.type==="file_list"))
+      return readiness("core_schema",false,details);
+    return readiness("core",true,details);
   }
   if(request.method!=="POST"||url.pathname!=="/sample")return json({error:"not_found"},404);
   let input;try{
